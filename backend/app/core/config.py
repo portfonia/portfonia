@@ -1,0 +1,73 @@
+"""Typed configuration loaded from .env.local (dev) or process env (prod)."""
+
+from functools import lru_cache
+from pathlib import Path
+
+from pydantic import SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Project root contains .env.local (one level above backend/)
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=PROJECT_ROOT / ".env.local",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore",
+    )
+
+    # App
+    APP_ENV: str = "development"
+    APP_SECRET_KEY: SecretStr
+    APP_BASE_URL: str
+    FRONTEND_URL: str
+
+    # Database
+    DB_HOST: str
+    DB_PORT: int = 5432
+    DB_NAME: str
+    DB_USER: str
+    DB_PASSWORD: SecretStr
+
+    # Redis
+    REDIS_HOST: str
+    REDIS_PORT: int = 6379
+
+    # LLM (OpenRouter)
+    LLM_PROVIDER: str = "openrouter"
+    OPENROUTER_API_KEY: SecretStr
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    PRIMARY_LLM_MODEL: str
+    LOW_COST_LLM_MODEL: str
+
+    # Search
+    TAVILY_API_KEY: SecretStr
+    TAVILY_DAILY_BUDGET: int = 10
+
+    # Email
+    EMAIL_PROVIDER: str = "resend"
+    RESEND_API_KEY: SecretStr
+    EMAIL_FROM: str
+    EMAIL_REPLY_TO: str
+
+    # Ring 0 dev identity
+    DEV_USER_ID: str
+    DEV_USER_EMAIL: str
+
+    @property
+    def database_url(self) -> str:
+        return (
+            f"postgresql+psycopg://{self.DB_USER}:{self.DB_PASSWORD.get_secret_value()}"
+            f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+        )
+
+    @property
+    def redis_url(self) -> str:
+        return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/0"
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
