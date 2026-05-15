@@ -33,9 +33,8 @@ Layer 4  What you should do                  (FORBIDDEN — never emit)
 
 `recommend`, `should`, `buy`, `sell`, `hold`, `reduce`, `increase`, `exit`,
 `stop-loss`, `target price`, `will rise/fall to`, `entry point`, `oversold`,
-`overbought`, `strong buy`, `bullish/bearish rating` — and their Chinese
-equivalents (建议, 应该, 买入, 卖出, 减持, 增持, 清仓, 止损, 目标价,
-看多, 看空, 强烈推荐).
+`overbought`, `strong buy`, `bullish/bearish rating` — and their equivalents
+in any other language.
 
 ### Compliance scaffolding
 
