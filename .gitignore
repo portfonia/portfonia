@@ -242,3 +242,11 @@ out/
 
 # Agent tooling (local only, never share)
 .claude/
+
+# venv symlink (the GitHub template's `venv/` only matches real dirs)
+backend/venv
+
+# The GitHub Python template's `lib/` rule (setuptools build artifact) also
+# shadows frontend source dirs — explicitly un-ignore frontend's lib.
+!frontend/src/lib/
+!frontend/src/lib/**
