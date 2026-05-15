@@ -216,3 +216,29 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---- Portfonia additions ----
+
+# Multi-env .env files (template only ignores .env)
+.env.local
+.env.production
+.env.*.local
+
+# Docker bind-mount volumes (Postgres / Redis local data)
+.data/
+
+# Node.js / Next.js (frontend)
+node_modules/
+.next/
+out/
+.turbo/
+
+# macOS
+.DS_Store
+
+# Editors (uncomment if used)
+.idea/
+.vscode/
+
+# Agent tooling (local only, never share)
+.claude/
