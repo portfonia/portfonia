@@ -19,7 +19,10 @@ select = [
     "SIM",      # simplify
     "RUF",      # ruff-specific
 ]
-ignore = ["E501"]  # line length handled by formatter
+ignore = [
+    "E501",   # line length handled by formatter
+    "B008",   # FastAPI Depends() in default args is the intended pattern
+]
 
 [tool.mypy]
 python_version = "3.12"
@@ -28,7 +31,7 @@ exclude = ["venv/", "alembic/versions/"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["yfinance.*"]
+module = ["yfinance.*", "pandas.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

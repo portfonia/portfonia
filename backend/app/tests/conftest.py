@@ -4,20 +4,31 @@
 portfonia-postgres container, wires Alembic to it via DB_NAME override, and
 drops the database on teardown. Each test that consumes this fixture runs
 against a pristine schema.
+
+`db_session` / `app_client`: build on top of `alembic_cfg` to provide a live
+SQLAlchemy session and a FastAPI TestClient wired to the test database.
 """
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Generator
 
 import pytest
 from alembic.config import Config
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import NullPool
 
+from alembic import command
 from app.core.config import get_settings
+from app.core.deps import get_current_user_id
+from app.main import app
 
 TEST_DB_NAME = "portfonia_test_roundtrip"
+TEST_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 
 def _admin_engine() -> Engine:
@@ -56,3 +67,43 @@ def alembic_cfg(monkeypatch: pytest.MonkeyPatch) -> Generator[Config, None, None
     get_settings.cache_clear()
     _drop_test_db(admin)
     admin.dispose()
+
+
+@pytest.fixture
+def db_session(
+    alembic_cfg: Config, monkeypatch: pytest.MonkeyPatch
+) -> Generator[Session, None, None]:
+    """Migrate the test DB to head, yield a live session, roll back after each test."""
+    command.upgrade(alembic_cfg, "head")
+    s = get_settings()
+    engine = create_engine(
+        f"postgresql+psycopg://{s.DB_USER}:{s.DB_PASSWORD.get_secret_value()}"
+        f"@{s.DB_HOST}:{s.DB_PORT}/{TEST_DB_NAME}",
+        poolclass=NullPool,
+    )
+    factory = sessionmaker(bind=engine)
+    session = factory()
+    try:
+        yield session
+    finally:
+        session.close()
+        engine.dispose()
+
+
+@pytest.fixture
+def app_client(db_session: Session) -> Generator[TestClient, None, None]:
+    """TestClient with DB and user-id dependencies overridden for the test DB."""
+    from app.core.database import get_session
+
+    def _override_session() -> Generator[Session, None, None]:
+        yield db_session
+
+    def _override_user_id() -> uuid.UUID:
+        return TEST_USER_ID
+
+    app.dependency_overrides[get_session] = _override_session
+    app.dependency_overrides[get_current_user_id] = _override_user_id
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.clear()
