@@ -1,0 +1,270 @@
+"""Unit tests for holding_parser — LLM calls are mocked."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from app.schemas.holdings import UploadPreview
+from app.services.holding_parser import _extract_text, _postprocess, parse
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+# ---------------------------------------------------------------------------
+# _extract_text
+# ---------------------------------------------------------------------------
+
+
+def test_extract_md_returns_utf8_text() -> None:
+    content = b"# Holdings\nAAPL USD 10 180"
+    assert _extract_text(content, "holdings.md") == "# Holdings\nAAPL USD 10 180"
+
+
+def test_extract_txt() -> None:
+    content = b"AAPL 10"
+    assert _extract_text(content, "h.txt") == "AAPL 10"
+
+
+def test_extract_csv() -> None:
+    content = b"name,ticker\nApple,AAPL"
+    assert _extract_text(content, "h.csv") == "name,ticker\nApple,AAPL"
+
+
+def test_extract_unsupported_extension_raises() -> None:
+    with pytest.raises(ValueError, match="Unsupported file type"):
+        _extract_text(b"data", "holdings.pdf")
+
+
+def test_extract_xlsx_single_sheet(tmp_path: Path) -> None:
+    pytest.importorskip("pandas")
+    import pandas as pd
+
+    df = pd.DataFrame({"name": ["Apple"], "ticker": ["AAPL"]})
+    xlsx_path = tmp_path / "h.xlsx"
+    df.to_excel(xlsx_path, index=False)
+    result = _extract_text(xlsx_path.read_bytes(), "h.xlsx")
+    assert "Apple" in result
+    assert "AAPL" in result
+
+
+def test_extract_xlsx_multi_sheet_raises(tmp_path: Path) -> None:
+    pytest.importorskip("pandas")
+    import pandas as pd
+
+    xlsx_path = tmp_path / "h.xlsx"
+    with pd.ExcelWriter(str(xlsx_path)) as writer:
+        pd.DataFrame({"a": [1]}).to_excel(writer, sheet_name="Sheet1", index=False)
+        pd.DataFrame({"b": [2]}).to_excel(writer, sheet_name="Sheet2", index=False)
+    with pytest.raises(ValueError, match="2 sheets"):
+        _extract_text(xlsx_path.read_bytes(), "h.xlsx")
+
+
+def test_extract_sample_fixture() -> None:
+    content = (FIXTURES / "sample_holdings.md").read_bytes()
+    text = _extract_text(content, "sample_holdings.md")
+    assert "AAPL" in text
+    assert "0700.HK" in text
+
+
+# ---------------------------------------------------------------------------
+# _postprocess — currency correction
+# ---------------------------------------------------------------------------
+
+
+def test_postprocess_corrects_hk_ticker_currency() -> None:
+    raw: list[dict[str, object]] = [
+        {
+            "name": "Tencent",
+            "ticker": "0700.HK",
+            "fund_code": None,
+            "currency": "USD",  # wrong — should be corrected
+            "shares": 100.0,
+            "avg_cost": 320.5,
+            "current_value": None,
+            "pricing_mode": "auto",
+            "asset_type": "stock",
+            "broker": "富途",
+            "account": None,
+            "portfolio": None,
+            "notes": None,
+            "issues": [],
+            "confidence": 0.9,
+        }
+    ]
+    rows = _postprocess(raw)
+    assert rows[0].currency == "HKD"
+    assert any("HKD" in issue for issue in rows[0].issues)
+
+
+def test_postprocess_corrects_ss_ticker_currency() -> None:
+    raw: list[dict[str, object]] = [
+        {
+            "name": "Moutai",
+            "ticker": "600519.SS",
+            "fund_code": None,
+            "currency": "HKD",
+            "shares": 10.0,
+            "avg_cost": 1680.0,
+            "current_value": None,
+            "pricing_mode": "auto",
+            "asset_type": "stock",
+            "broker": None,
+            "account": None,
+            "portfolio": None,
+            "notes": None,
+            "issues": [],
+            "confidence": 1.0,
+        }
+    ]
+    rows = _postprocess(raw)
+    assert rows[0].currency == "CNY"
+
+
+def test_postprocess_no_correction_when_currency_correct() -> None:
+    raw: list[dict[str, object]] = [
+        {
+            "name": "Apple",
+            "ticker": "AAPL",
+            "fund_code": None,
+            "currency": "USD",
+            "shares": 10.0,
+            "avg_cost": 180.0,
+            "current_value": None,
+            "pricing_mode": "auto",
+            "asset_type": "stock",
+            "broker": "IBKR",
+            "account": None,
+            "portfolio": None,
+            "notes": None,
+            "issues": [],
+            "confidence": 1.0,
+        }
+    ]
+    rows = _postprocess(raw)
+    assert rows[0].currency == "USD"
+    assert rows[0].issues == []
+
+
+# ---------------------------------------------------------------------------
+# parse — mocked LLM
+# ---------------------------------------------------------------------------
+
+_MOCK_LLM_RESPONSE = {
+    "valid_rows": [
+        {
+            "name": "Apple",
+            "ticker": "AAPL",
+            "fund_code": None,
+            "currency": "USD",
+            "shares": 10.0,
+            "avg_cost": 180.0,
+            "current_value": None,
+            "pricing_mode": "auto",
+            "asset_type": "stock",
+            "broker": "IBKR",
+            "account": None,
+            "portfolio": None,
+            "notes": None,
+            "issues": [],
+            "confidence": 1.0,
+        },
+        {
+            "name": "USD Cash",
+            "ticker": None,
+            "fund_code": None,
+            "currency": "USD",
+            "shares": None,
+            "avg_cost": None,
+            "current_value": 15000.0,
+            "pricing_mode": "manual",
+            "asset_type": "cash",
+            "broker": "Schwab",
+            "account": None,
+            "portfolio": None,
+            "notes": None,
+            "issues": [],
+            "confidence": 1.0,
+        },
+    ],
+    "issue_rows": [
+        {"raw": "??? totally gibberish", "reason": "Cannot identify asset name or value"}
+    ],
+}
+
+
+def _make_mock_client(payload: dict[str, object]) -> MagicMock:
+    mock_message = MagicMock()
+    mock_message.content = json.dumps(payload)
+    mock_choice = MagicMock()
+    mock_choice.message = mock_message
+    mock_response = MagicMock()
+    mock_response.choices = [mock_choice]
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.return_value = mock_response
+    return mock_client
+
+
+def test_parse_returns_upload_preview() -> None:
+    with patch(
+        "app.services.holding_parser.openai.OpenAI",
+        return_value=_make_mock_client(_MOCK_LLM_RESPONSE),
+    ):
+        result = parse("some holdings text")
+    assert isinstance(result, UploadPreview)
+    assert len(result.valid_rows) == 2
+    assert len(result.issue_rows) == 1
+    assert result.valid_rows[0].name == "Apple"
+    assert result.issue_rows[0].raw == "??? totally gibberish"
+
+
+def test_parse_valid_row_fields() -> None:
+    with patch(
+        "app.services.holding_parser.openai.OpenAI",
+        return_value=_make_mock_client(_MOCK_LLM_RESPONSE),
+    ):
+        result = parse("some text")
+    apple = result.valid_rows[0]
+    assert apple.ticker == "AAPL"
+    assert apple.currency == "USD"
+    assert apple.pricing_mode == "auto"
+    assert apple.shares == 10.0
+
+
+def test_parse_issue_row_included() -> None:
+    with patch(
+        "app.services.holding_parser.openai.OpenAI",
+        return_value=_make_mock_client(_MOCK_LLM_RESPONSE),
+    ):
+        result = parse("some text")
+    assert result.issue_rows[0].reason == "Cannot identify asset name or value"
+
+
+def test_parse_empty_response_returns_empty_preview() -> None:
+    empty_payload: dict[str, object] = {"valid_rows": [], "issue_rows": []}
+    with patch(
+        "app.services.holding_parser.openai.OpenAI", return_value=_make_mock_client(empty_payload)
+    ):
+        result = parse("")
+    assert result.valid_rows == []
+    assert result.issue_rows == []
+
+
+def test_parse_raises_on_invalid_json() -> None:
+    mock_message = MagicMock()
+    mock_message.content = "not json {"
+    mock_choice = MagicMock()
+    mock_choice.message = mock_message
+    mock_response = MagicMock()
+    mock_response.choices = [mock_choice]
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.return_value = mock_response
+
+    with (
+        patch("app.services.holding_parser.openai.OpenAI", return_value=mock_client),
+        pytest.raises(RuntimeError, match="invalid JSON"),
+    ):
+        parse("text")
