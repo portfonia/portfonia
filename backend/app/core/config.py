@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     PRIMARY_LLM_MODEL: str
     LOW_COST_LLM_MODEL: str
+    # Provider pinning for structured extraction. OpenRouter routes one model id
+    # across providers of differing precision; aggressive-quantization resellers
+    # degrade JSON/schema compliance. Pin first-party provider order and keep
+    # fallbacks on so a single-provider outage does not fail the call.
+    # Comma-separated provider names, highest priority first.
+    OPENROUTER_PROVIDER_ORDER: str = "Anthropic"
+    OPENROUTER_ALLOW_FALLBACKS: bool = True
 
     # Search
     TAVILY_API_KEY: SecretStr
