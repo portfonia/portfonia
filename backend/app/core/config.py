@@ -47,10 +47,18 @@ class Settings(BaseSettings):
     # for structured extraction. Portfonia runs low-cost open models (e.g.
     # deepseek/deepseek-v4-flash) for cost reasons, not Claude; for V4 Flash pin
     # "DigitalOcean,Venice" (high precision). See Daily_Intel design doc section 8.
-    # Comma-separated, highest priority first. Empty = no pin (OpenRouter default
-    # routing) — acceptable only for first-party models with no reseller variance.
+    # Comma-separated, highest priority first. Empty = no order pin.
     OPENROUTER_PROVIDER_ORDER: str = ""
     OPENROUTER_ALLOW_FALLBACKS: bool = True
+    # Data-collection policy for OpenRouter provider routing. Portfonia is a
+    # multi-tenant SaaS handling user holdings, so any call carrying holdings data
+    # (parsing, personalized reports, follow-ups) must route ONLY to providers
+    # that do not retain or train on the payload. "deny" makes OpenRouter exclude
+    # data-collecting providers — this is how we use cheap DeepSeek V4 Flash/Pro
+    # while still meeting the "not used for training" requirement (we never hit the
+    # DeepSeek first-party API, whose terms allow training). See §8.8. Set to empty
+    # only to disable this guard (not recommended for holdings-bearing calls).
+    OPENROUTER_DATA_COLLECTION: str = "deny"
 
     # Search
     TAVILY_API_KEY: SecretStr

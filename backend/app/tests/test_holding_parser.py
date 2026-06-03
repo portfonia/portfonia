@@ -296,20 +296,34 @@ def test_parse_passes_provider_when_set() -> None:
     assert kwargs["extra_body"]["provider"] == pinned
 
 
-def test_openrouter_provider_empty_returns_none() -> None:
+def _fake_settings(order: str, data_collection: str, fallbacks: bool = True) -> MagicMock:
     fake = MagicMock()
-    fake.OPENROUTER_PROVIDER_ORDER = ""
-    fake.OPENROUTER_ALLOW_FALLBACKS = True
-    with patch("app.core.llm.get_settings", return_value=fake):
+    fake.OPENROUTER_PROVIDER_ORDER = order
+    fake.OPENROUTER_DATA_COLLECTION = data_collection
+    fake.OPENROUTER_ALLOW_FALLBACKS = fallbacks
+    return fake
+
+
+def test_openrouter_provider_none_when_all_empty() -> None:
+    with patch("app.core.llm.get_settings", return_value=_fake_settings("", "")):
         assert llm.openrouter_provider() is None
 
 
-def test_openrouter_provider_parses_order() -> None:
-    fake = MagicMock()
-    fake.OPENROUTER_PROVIDER_ORDER = "DigitalOcean, Venice"
-    fake.OPENROUTER_ALLOW_FALLBACKS = True
-    with patch("app.core.llm.get_settings", return_value=fake):
+def test_openrouter_provider_data_collection_only() -> None:
+    with patch("app.core.llm.get_settings", return_value=_fake_settings("", "deny")):
         assert llm.openrouter_provider() == {
-            "order": ["DigitalOcean", "Venice"],
             "allow_fallbacks": True,
+            "data_collection": "deny",
+        }
+
+
+def test_openrouter_provider_order_and_data_collection() -> None:
+    with patch(
+        "app.core.llm.get_settings",
+        return_value=_fake_settings("DigitalOcean, Venice", "deny"),
+    ):
+        assert llm.openrouter_provider() == {
+            "allow_fallbacks": True,
+            "order": ["DigitalOcean", "Venice"],
+            "data_collection": "deny",
         }
