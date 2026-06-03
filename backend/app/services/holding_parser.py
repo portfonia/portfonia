@@ -157,6 +157,7 @@ def parse(text: str) -> UploadPreview:
         base_url=settings.OPENROUTER_BASE_URL,
     )
 
+    provider = openrouter_provider()
     try:
         response = client.chat.completions.create(
             model=settings.LOW_COST_LLM_MODEL,
@@ -166,7 +167,7 @@ def parse(text: str) -> UploadPreview:
                 {"role": "user", "content": text},
             ],
             temperature=0,
-            extra_body={"provider": openrouter_provider()},
+            extra_body={"provider": provider} if provider is not None else None,
         )
     except openai.OpenAIError as exc:
         raise RuntimeError(f"LLM call failed: {exc}") from exc
