@@ -7,6 +7,7 @@ from pathlib import Path
 import openai
 
 from app.core.config import get_settings
+from app.core.llm import openrouter_provider
 from app.schemas.holdings import IssueRow, ParsedRow, UploadPreview
 
 _SUPPORTED_EXTENSIONS = {".md", ".txt", ".csv", ".xlsx", ".xls"}
@@ -165,6 +166,7 @@ def parse(text: str) -> UploadPreview:
                 {"role": "user", "content": text},
             ],
             temperature=0,
+            extra_body={"provider": openrouter_provider()},
         )
     except openai.OpenAIError as exc:
         raise RuntimeError(f"LLM call failed: {exc}") from exc

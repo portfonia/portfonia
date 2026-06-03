@@ -268,3 +268,15 @@ def test_parse_raises_on_invalid_json() -> None:
         pytest.raises(RuntimeError, match="invalid JSON"),
     ):
         parse("text")
+
+
+def test_parse_pins_openrouter_provider() -> None:
+    mock_client = _make_mock_client(_MOCK_LLM_RESPONSE)
+    with patch("app.services.holding_parser.openai.OpenAI", return_value=mock_client):
+        parse("some text")
+
+    kwargs = mock_client.chat.completions.create.call_args.kwargs
+    provider = kwargs["extra_body"]["provider"]
+    assert provider["order"], "provider order must be non-empty for structured extraction"
+    assert provider["order"][0] == "Anthropic"
+    assert provider["allow_fallbacks"] is True
