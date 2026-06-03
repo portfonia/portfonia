@@ -43,10 +43,13 @@ class Settings(BaseSettings):
     LOW_COST_LLM_MODEL: str
     # Provider pinning for structured extraction. OpenRouter routes one model id
     # across providers of differing precision; aggressive-quantization resellers
-    # degrade JSON/schema compliance. Pin first-party provider order and keep
-    # fallbacks on so a single-provider outage does not fail the call.
-    # Comma-separated provider names, highest priority first.
-    OPENROUTER_PROVIDER_ORDER: str = "Anthropic"
+    # (NovitaAI, StreamLake) degrade JSON/schema compliance and must never be used
+    # for structured extraction. Portfonia runs low-cost open models (e.g.
+    # deepseek/deepseek-v4-flash) for cost reasons, not Claude; for V4 Flash pin
+    # "DigitalOcean,Venice" (high precision). See Daily_Intel design doc section 8.
+    # Comma-separated, highest priority first. Empty = no pin (OpenRouter default
+    # routing) — acceptable only for first-party models with no reseller variance.
+    OPENROUTER_PROVIDER_ORDER: str = ""
     OPENROUTER_ALLOW_FALLBACKS: bool = True
 
     # Search

@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.core import llm
 from app.schemas.holdings import UploadPreview
 from app.services.holding_parser import _extract_text, _postprocess, parse
 
@@ -270,13 +271,45 @@ def test_parse_raises_on_invalid_json() -> None:
         parse("text")
 
 
-def test_parse_pins_openrouter_provider() -> None:
+def test_parse_omits_provider_when_unset() -> None:
     mock_client = _make_mock_client(_MOCK_LLM_RESPONSE)
-    with patch("app.services.holding_parser.openai.OpenAI", return_value=mock_client):
+    with (
+        patch("app.services.holding_parser.openai.OpenAI", return_value=mock_client),
+        patch("app.services.holding_parser.openrouter_provider", return_value=None),
+    ):
         parse("some text")
 
     kwargs = mock_client.chat.completions.create.call_args.kwargs
-    provider = kwargs["extra_body"]["provider"]
-    assert provider["order"], "provider order must be non-empty for structured extraction"
-    assert provider["order"][0] == "Anthropic"
-    assert provider["allow_fallbacks"] is True
+    assert kwargs.get("extra_body") is None
+
+
+def test_parse_passes_provider_when_set() -> None:
+    mock_client = _make_mock_client(_MOCK_LLM_RESPONSE)
+    pinned = {"order": ["DigitalOcean", "Venice"], "allow_fallbacks": True}
+    with (
+        patch("app.services.holding_parser.openai.OpenAI", return_value=mock_client),
+        patch("app.services.holding_parser.openrouter_provider", return_value=pinned),
+    ):
+        parse("some text")
+
+    kwargs = mock_client.chat.completions.create.call_args.kwargs
+    assert kwargs["extra_body"]["provider"] == pinned
+
+
+def test_openrouter_provider_empty_returns_none() -> None:
+    fake = MagicMock()
+    fake.OPENROUTER_PROVIDER_ORDER = ""
+    fake.OPENROUTER_ALLOW_FALLBACKS = True
+    with patch("app.core.llm.get_settings", return_value=fake):
+        assert llm.openrouter_provider() is None
+
+
+def test_openrouter_provider_parses_order() -> None:
+    fake = MagicMock()
+    fake.OPENROUTER_PROVIDER_ORDER = "DigitalOcean, Venice"
+    fake.OPENROUTER_ALLOW_FALLBACKS = True
+    with patch("app.core.llm.get_settings", return_value=fake):
+        assert llm.openrouter_provider() == {
+            "order": ["DigitalOcean", "Venice"],
+            "allow_fallbacks": True,
+        }
