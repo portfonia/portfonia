@@ -10,7 +10,12 @@ import pytest
 
 from app.core import llm
 from app.schemas.holdings import UploadPreview
-from app.services.holding_parser import _extract_text, _postprocess, parse
+from app.services.holding_parser import (
+    _extract_text,
+    _postprocess,
+    _strip_code_fence,
+    parse,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -207,6 +212,46 @@ def _make_mock_client(payload: dict[str, object]) -> MagicMock:
     mock_client = MagicMock()
     mock_client.chat.completions.create.return_value = mock_response
     return mock_client
+
+
+def _make_mock_client_raw(content: str) -> MagicMock:
+    mock_message = MagicMock()
+    mock_message.content = content
+    mock_choice = MagicMock()
+    mock_choice.message = mock_message
+    mock_response = MagicMock()
+    mock_response.choices = [mock_choice]
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.return_value = mock_response
+    return mock_client
+
+
+def test_strip_code_fence_unwraps_json_fence() -> None:
+    raw = '```json\n{"valid_rows": [], "issue_rows": []}\n```'
+    assert _strip_code_fence(raw) == '{"valid_rows": [], "issue_rows": []}'
+
+
+def test_strip_code_fence_unwraps_bare_fence() -> None:
+    raw = '```\n{"a": 1}\n```'
+    assert _strip_code_fence(raw) == '{"a": 1}'
+
+
+def test_strip_code_fence_passthrough_when_no_fence() -> None:
+    raw = '  {"a": 1}  '
+    assert _strip_code_fence(raw) == '{"a": 1}'
+
+
+def test_parse_handles_markdown_fenced_response() -> None:
+    # Anthropic models on OpenRouter wrap JSON in a ```json fence despite
+    # response_format=json_object. Parser must unwrap it.
+    fenced = "```json\n" + json.dumps(_MOCK_LLM_RESPONSE) + "\n```"
+    with patch(
+        "app.services.holding_parser.openai.OpenAI",
+        return_value=_make_mock_client_raw(fenced),
+    ):
+        result = parse("some holdings text")
+    assert len(result.valid_rows) == 2
+    assert result.valid_rows[0].name == "Apple"
 
 
 def test_parse_returns_upload_preview() -> None:

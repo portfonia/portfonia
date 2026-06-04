@@ -2,6 +2,7 @@
 
 import io
 import json
+import re
 from pathlib import Path
 
 import openai
@@ -130,6 +131,20 @@ _TICKER_CURRENCY_MAP = {
 }
 
 
+_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*\n(.*?)\n```\s*$", re.DOTALL | re.IGNORECASE)
+
+
+def _strip_code_fence(content: str) -> str:
+    """Unwrap a markdown ```json ... ``` fence if present.
+
+    Anthropic models on OpenRouter ignore ``response_format=json_object`` and
+    wrap JSON in markdown fences. Strip them before parsing. Returns the inner
+    payload, or the original string trimmed when no fence is found.
+    """
+    match = _FENCE_RE.match(content)
+    return match.group(1) if match else content.strip()
+
+
 def _postprocess(raw_rows: list[dict]) -> list[ParsedRow]:  # type: ignore[type-arg]
     """Apply deterministic post-processing on top of LLM output."""
     result: list[ParsedRow] = []
@@ -174,7 +189,7 @@ def parse(text: str) -> UploadPreview:
 
     content = response.choices[0].message.content or "{}"
     try:
-        payload = json.loads(content)
+        payload = json.loads(_strip_code_fence(content))
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"LLM returned invalid JSON: {exc}") from exc
 
