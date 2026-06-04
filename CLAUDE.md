@@ -55,7 +55,7 @@ in any other language.
 | Database | PostgreSQL (Supabase managed, includes Auth) |
 | Task queue | Celery + Redis |
 | LLM | Pluggable (Claude / DeepSeek / etc.) — keep provider-swappable |
-| Local dev | Colima + Docker Compose |
+| Local dev | Homebrew PostgreSQL 16 + Redis (native); Colima for Hermes gateway only |
 | Production | OCI Ampere A1 (Ubuntu 24.04 LTS) |
 
 ### Three-layer deployment flow (MANDATORY)
