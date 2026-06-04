@@ -34,6 +34,7 @@ class Holding(Base):
     portfolio: Mapped[str | None] = mapped_column(Text)
     notes: Mapped[str | None] = mapped_column(Text)
     market_price: Mapped[Decimal | None] = mapped_column(Numeric)
+    price_as_of: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     price_fetched_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     last_manual_update: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
