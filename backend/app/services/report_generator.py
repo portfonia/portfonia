@@ -1,10 +1,11 @@
-"""LLM report generation pipeline (Ring 0 — Stage F1).
+"""LLM report generation pipeline (Ring 0 — Stage F2).
 
 Two-pass design:
   Pass 1  macro signals + anomalies + headlines → LOW_COST_LLM → search queries
   Tavily  execute queries, collect background snippets
   Pass 2  portfolio snapshot + Pass 1 context + search results → PRIMARY_LLM → §2/§3/§4 body
-  Assemble  §1 (code-built) + §2/§3/§4 (LLM) → final Markdown
+  F2 annotate  post-process Pass 2 output → inject [行情] / [新闻: S#] / [分析] markers
+  Assemble  §1 (code-built) + annotated §2/§3/§4 → final Markdown
   Write   reports table (report_md + report_inputs JSONB)
 
 Layer-3/4 compliance:
@@ -13,12 +14,19 @@ Layer-3/4 compliance:
   - Holdings data is isolated to Pass 2; Pass 1 sees macro signals and anomaly
     labels only (no user portfolio details).
   - OPENROUTER_DATA_COLLECTION = "deny" is enforced on Pass 2 (contains holdings).
+
+Source annotation (F2):
+  [行情]       line references portfolio snapshot data directly (ticker/fund_code present,
+               no Tavily citation)
+  [新闻: S#]   normalised from LLM's [S#] notation; refers to Tavily search result
+  [分析]       analytical inference by the LLM; injected before the compliance marker
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, date, datetime
@@ -44,8 +52,13 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_PROMPT_VERSION = "f1-v1"
+_PROMPT_VERSION = "f2-v1"
 _DISCLAIMER_VERSION = "en-v1"
+
+# Compiled once; matches LLM-emitted [S1], [S12] etc.
+_NEWS_CITE_RE = re.compile(r"\[S(\d+)\]")
+# Compliance suffix that the LLM appends to every analytical conclusion.
+_COMPLIANCE_MARKER = "[For information only — not investment advice]"
 
 # Maximum search queries to run per report (avoids blowing Tavily daily budget
 # on a single run; the LLM is instructed to output ≤ this many anyway).
@@ -520,6 +533,63 @@ def _build_section1(portfolio: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# F2 source annotation
+# ---------------------------------------------------------------------------
+
+
+def _annotate_sources(text: str, portfolio: dict[str, Any]) -> str:
+    """Post-process Pass 2 LLM output to inject source-provenance markers.
+
+    Three operations, applied in order:
+
+    1. Normalise news citations: [S#] → [新闻: S#]
+       The LLM is already instructed to use [S#]; this step makes the format
+       explicit and consistent.
+
+    2. Inject [行情] on lines that:
+       - Reference a known portfolio identifier (ticker or fund_code), AND
+       - Do not already carry a [新闻:] citation on the same line.
+       Rationale: a line mentioning AAPL without citing a search result is
+       drawing on the portfolio snapshot, not external news.
+
+    3. Inject [分析] on lines that contain the compliance marker.
+       Every LLM analytical conclusion ends with _COMPLIANCE_MARKER; inserting
+       [分析] immediately before it flags the preceding clause as LLM inference.
+    """
+    # Step 1 — normalise [S#] → [新闻: S#]
+    text = _NEWS_CITE_RE.sub(r"[新闻: S\1]", text)
+
+    # Build portfolio identifier set (ticker symbols and fund codes only;
+    # full names are too prone to substring false-positives).
+    identifiers: set[str] = set()
+    for h in portfolio.get("holdings", []):
+        if ticker := h.get("ticker"):
+            identifiers.add(ticker)
+        if fund_code := h.get("fund_code"):
+            identifiers.add(fund_code)
+
+    lines = text.split("\n")
+    result: list[str] = []
+    for line in lines:
+        stripped = line.rstrip()
+
+        # Step 2 — [行情]: portfolio identifier present, no news citation
+        if identifiers and "[新闻:" not in stripped and "[行情]" not in stripped:
+            for ident in identifiers:
+                if re.search(r"\b" + re.escape(ident) + r"\b", stripped):
+                    stripped = stripped + " [行情]"
+                    break
+
+        # Step 3 — [分析]: compliance marker present, insert [分析] before it
+        if _COMPLIANCE_MARKER in stripped and "[分析]" not in stripped:
+            stripped = stripped.replace(_COMPLIANCE_MARKER, f"[分析] {_COMPLIANCE_MARKER}")
+
+        result.append(stripped)
+
+    return "\n".join(result)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -688,14 +758,20 @@ def generate_report(
         ctx.pass2_raw = raw_pass2
 
         # ------------------------------------------------------------------
-        # 7. Assemble final report
+        # 7. F2 source annotation post-processing
+        # ------------------------------------------------------------------
+        annotated_pass2 = _annotate_sources(raw_pass2, ctx.portfolio_summary)
+        logger.info("report %s: F2 annotation applied", report.id)
+
+        # ------------------------------------------------------------------
+        # 8. Assemble final report
         # ------------------------------------------------------------------
         report_date_str = eff_date.strftime("%Y-%m-%d")
         header = f"# Portfonia Intelligence Report — {report_date_str}\n\n"
-        full_md = header + section1_md + "\n\n" + raw_pass2
+        full_md = header + section1_md + "\n\n" + annotated_pass2
 
         # ------------------------------------------------------------------
-        # 8. Persist
+        # 9. Persist
         # ------------------------------------------------------------------
         report.status = "success"
         report.report_md = full_md
