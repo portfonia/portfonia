@@ -34,6 +34,7 @@ MarkupSafe==3.0.3
 mdurl==0.1.2
 multitasking==0.0.13
 mypy==2.1.0
+types-PyYAML==6.0.12.20260518
 mypy_extensions==1.1.0
 numpy==2.4.4
 openai==2.36.0

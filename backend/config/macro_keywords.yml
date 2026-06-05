@@ -1,0 +1,100 @@
+# Macro keyword theme table — Ring 0 Edition
+# Source: 产品概念设计文档 §7.1.3
+#
+# Editing rules:
+#   - Each theme has a "name" and a list of "keywords".
+#   - Single English words (no spaces) use word-boundary matching (\b...\b) to
+#     avoid false positives (e.g. "Fed" does not match "Federal").
+#   - English phrases (contains space) use case-insensitive substring matching.
+#   - Chinese keywords use direct substring matching (no word boundaries).
+#   - A news article triggers a theme when ANY keyword matches its title or summary.
+#   - Restart the backend after editing to pick up changes (config is loaded on
+#     first call per process, not watched for changes).
+
+themes:
+  - name: "货币政策"
+    keywords:
+      - "Federal Reserve"
+      - "Fed"
+      - "rate hike"
+      - "rate cut"
+      - "interest rate"
+      - "FOMC"
+      - "Powell"
+      - "quantitative tightening"
+      - "quantitative easing"
+      - "yield curve"
+      - "inflation"
+      - "CPI"
+      - "PCE"
+      - "美联储"
+      - "降息"
+      - "加息"
+
+  - name: "贸易与关税"
+    keywords:
+      - "tariff"
+      - "trade war"
+      - "export ban"
+      - "export restriction"
+      - "import restriction"
+      - "trade deal"
+      - "关税"
+      - "贸易战"
+      - "出口管制"
+
+  - name: "地缘：中美"
+    keywords:
+      - "US-China"
+      - "China sanctions"
+      - "chip ban"
+      - "TSMC"
+      - "semiconductor export"
+      - "中美"
+      - "芯片禁令"
+
+  - name: "地缘：台海"
+    keywords:
+      - "Taiwan"
+      - "Taiwan Strait"
+      - "台湾"
+      - "台海"
+
+  - name: "地缘：中东"
+    keywords:
+      - "Iran"
+      - "Strait of Hormuz"
+      - "Middle East"
+      - "oil supply"
+      - "Gaza"
+      - "Israel"
+      - "石油"
+      - "中东"
+
+  - name: "A股政策"
+    keywords:
+      - "PBOC"
+      - "人民银行"
+      - "证监会"
+      - "沪深"
+      - "A股"
+      - "北向资金"
+
+  - name: "科技监管"
+    keywords:
+      - "AI regulation"
+      - "AI"
+      - "antitrust"
+      - "Big Tech"
+      - "反垄断"
+      - "算法监管"
+
+  - name: "宏观：衰退"
+    keywords:
+      - "recession"
+      - "GDP contraction"
+      - "unemployment"
+      - "layoffs"
+      - "credit crunch"
+      - "衰退"
+      - "失业率"

@@ -74,6 +74,11 @@ class Settings(BaseSettings):
     DEV_USER_ID: str
     DEV_USER_EMAIL: str
 
+    # Macro keyword config
+    # Empty string = use the default path: backend/config/macro_keywords.yml
+    # Override via .env.local to point at a different file.
+    MACRO_KEYWORDS_PATH: str = ""
+
     @property
     def database_url(self) -> str:
         return (
