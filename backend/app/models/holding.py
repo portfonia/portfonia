@@ -29,6 +29,7 @@ class Holding(Base):
     avg_cost: Mapped[Decimal | None] = mapped_column(Numeric)
     current_value: Mapped[Decimal | None] = mapped_column(Numeric)
     asset_type: Mapped[str | None] = mapped_column(Text)
+    sector: Mapped[str | None] = mapped_column(Text)  # unified 12-class, §6.4
     broker: Mapped[str | None] = mapped_column(Text)
     account: Mapped[str | None] = mapped_column(Text)
     portfolio: Mapped[str | None] = mapped_column(Text)

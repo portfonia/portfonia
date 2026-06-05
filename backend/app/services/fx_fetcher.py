@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
-import pandas as pd
-import yfinance as yf
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.core.timezones import ET
 from app.models.fx_rate import FxRate
+from app.services._yfinance import fetch_last_close
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +22,6 @@ _PAIRS: dict[str, str] = {
     "USDHKD": "USDHKD=X",
     "USDCNH": "USDCNH=X",
 }
-
-# rate_date uses US Eastern Time per design doc §6.2
-_ET = timezone(timedelta(hours=-5))  # EST; close enough for date boundaries
 
 
 @dataclass
@@ -38,43 +35,19 @@ def _fetch_rates(pairs: dict[str, str]) -> dict[str, tuple[Decimal, date]]:
     Batch-fetch close rates for the given yfinance FX tickers.
 
     Returns {pair_name: (rate, rate_date_et)} where rate_date_et is the
-    trading-day date in US Eastern Time. Pairs with no data are omitted.
+    trading-day date in US Eastern Time (design §6.2). Pairs with no data
+    are omitted.
     """
-    ticker_str = " ".join(pairs.values())
-    try:
-        hist = yf.download(
-            tickers=ticker_str,
-            period="5d",
-            auto_adjust=True,
-            progress=False,
-        )
-    except Exception:
-        logger.exception("yfinance download failed for FX tickers: %s", ticker_str)
-        return {}
-
-    if hist.empty:
-        return {}
-
-    close = hist["Close"]
-    if isinstance(close, pd.Series):
-        # Single ticker — only happens if pairs has one entry
-        only_pair = next(iter(pairs.keys()))
-        close = close.to_frame(name=pairs[only_pair])
+    points = fetch_last_close(list(pairs.values()))
 
     result: dict[str, tuple[Decimal, date]] = {}
     for pair_name, yf_ticker in pairs.items():
-        if yf_ticker not in close.columns:
+        point = points.get(yf_ticker)
+        if point is None:
             continue
-        series = close[yf_ticker].dropna()
-        if series.empty:
-            continue
-        rate = Decimal(str(float(series.iloc[-1])))
-        ts = series.index[-1]
-        as_of: datetime = (
-            ts.to_pydatetime() if ts.tzinfo is not None else ts.to_pydatetime().replace(tzinfo=UTC)
-        )
-        rate_date = as_of.astimezone(_ET).date()
-        result[pair_name] = (rate, rate_date)
+        rate_value, as_of = point
+        rate_date = as_of.astimezone(ET).date()
+        result[pair_name] = (Decimal(str(rate_value)), rate_date)
 
     return result
 

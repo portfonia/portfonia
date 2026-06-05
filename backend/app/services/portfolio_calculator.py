@@ -1,28 +1,38 @@
-"""Compute market values and base-currency totals for all holdings."""
+"""Compute market values, distributions, and concentration for all holdings."""
 
 from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.timezones import ET
 from app.models.fx_rate import FxRate
 from app.models.holding import Holding
 
-_ET = timezone(timedelta(hours=-5))  # EST; used for today's date boundary
 _ZERO = Decimal("0")
+_CENT = Decimal("0.01")
+_RATIO = Decimal("0.0001")  # 4 dp for fractions (0..1)
 
-# All FX rates are stored as 1 USD = X foreign. Build a lookup from
-# currency code to that divisor for USD-base conversion.
+# All FX rates are stored as 1 USD = X foreign.
 _CURRENCY_TO_FX_PAIR: dict[str, str] = {
     "CNY": "USDCNY",
     "CNH": "USDCNH",
     "HKD": "USDHKD",
 }
+
+# §6.5 snapshot concentration thresholds (fractions of total portfolio).
+_SINGLE_WATCH = Decimal("0.15")
+_SINGLE_HIGH = Decimal("0.25")
+_TOP3_WATCH = Decimal("0.50")
+_SECTOR_WATCH = Decimal("0.35")
+
+# Asset types that carry a single equity sector (others excluded from §6.4 chart).
+_SECTOR_ASSET_TYPES = {"stock", "etf"}
 
 
 def _classify_market(holding: Holding) -> str:
@@ -49,11 +59,30 @@ class HoldingValue:
     fund_code: str | None
     currency: str
     asset_type: str | None
+    sector: str | None
     market: str
     market_value: Decimal  # in holding's own currency
     market_value_base: Decimal  # in base_currency
     price_as_of: datetime | None
-    is_stale: bool  # True if market_price missing for auto-mode
+
+
+@dataclass
+class Concentration:
+    """Raw §6.5 concentration figures + threshold breach flags.
+
+    Numbers only — no prose. The advisory-sounding language templates in §6.5
+    ("参考上限 25%") belong to the report layer, not here.
+    """
+
+    top_holding_name: str | None = None
+    top_holding_ratio: Decimal | None = None  # largest single holding / total
+    top3_ratio: Decimal | None = None  # top 3 holdings / total
+    top_sector_name: str | None = None
+    top_sector_ratio: Decimal | None = None  # largest equity sector / total
+    single_holding_watch: bool = False  # >15%
+    single_holding_high: bool = False  # >25%
+    top3_watch: bool = False  # >50%
+    sector_watch: bool = False  # >35%
 
 
 @dataclass
@@ -62,45 +91,34 @@ class PortfolioSnapshot:
     fx_date: date  # which day's FX rates were used
     holdings: list[HoldingValue] = field(default_factory=list)
     total_base: Decimal = _ZERO
-    by_currency: dict[str, Decimal] = field(default_factory=dict)  # currency → total in base
-    by_asset_type: dict[str, Decimal] = field(default_factory=dict)  # asset_type → total in base
-    by_market: dict[str, Decimal] = field(default_factory=dict)  # market → total in base
-    stale_tickers: list[str] = field(default_factory=list)  # tickers with no fresh price
+    by_currency: dict[str, Decimal] = field(default_factory=dict)
+    by_asset_type: dict[str, Decimal] = field(default_factory=dict)
+    by_market: dict[str, Decimal] = field(default_factory=dict)
+    by_sector: dict[str, Decimal] = field(default_factory=dict)  # equity sectors only, §6.4
+    concentration: Concentration = field(default_factory=Concentration)
+    stale_tickers: list[str] = field(default_factory=list)
 
 
-def _load_fx_rates(session: Session) -> tuple[dict[str, Decimal], date]:
+def _load_fx_rates(session: Session) -> tuple[dict[str, Decimal], date | None]:
     """
-    Return the most recent fx_rates snapshot as {pair: rate} plus the date used.
+    Return the most recent fx_rates snapshot as {pair: rate} plus its date.
 
-    Prefers today (ET). Falls back to the newest available date if today is
-    missing (weekend, holiday). This keeps the calculator functional even when
-    update_fx_rates() hasn't run yet today.
+    Picks the newest rate_date on or before today (ET), then loads every pair
+    for exactly that date. Falls back to the latest available date on
+    weekends / holidays. Returns ({}, None) when the table is empty.
     """
-    today_et = datetime.now(tz=_ET).date()
+    today_et = datetime.now(tz=ET).date()
 
-    # Try today first, then fall back to most recent.
-    rows = (
-        session.execute(
-            select(FxRate)
-            .where(FxRate.rate_date <= today_et)
-            .order_by(FxRate.rate_date.desc())
-            .limit(len(_CURRENCY_TO_FX_PAIR) * 2)  # enough for one full snapshot
-        )
-        .scalars()
-        .all()
-    )
+    latest_date = session.execute(
+        select(func.max(FxRate.rate_date)).where(FxRate.rate_date <= today_et)
+    ).scalar_one_or_none()
 
-    if not rows:
-        return {}, today_et
+    if latest_date is None:
+        return {}, None
 
-    # Use the most recent date that has at least one rate.
-    fx_date = rows[0].rate_date
-    rates: dict[str, Decimal] = {}
-    for row in rows:
-        if row.rate_date == fx_date:
-            rates[row.pair] = row.rate
-
-    return rates, fx_date
+    rows = session.execute(select(FxRate).where(FxRate.rate_date == latest_date)).scalars()
+    rates = {row.pair: row.rate for row in rows}
+    return rates, latest_date
 
 
 def _to_base(
@@ -110,18 +128,14 @@ def _to_base(
     fx: dict[str, Decimal],
 ) -> Decimal | None:
     """
-    Convert `amount` in `currency` to `base_currency`.
+    Convert `amount` from `currency` to `base_currency` via a USD pivot.
 
-    Returns None if the required FX rate is missing.
-    All rates are 1 USD = X foreign, so:
-      - to USD:  amount / fx["USD{currency}"]
-      - to HKD:  (amount → USD) * fx["USDHKD"]
-      - to CNY:  (amount → USD) * fx["USDCNY"]
+    Rates are 1 USD = X foreign. Returns None if a required rate is missing.
     """
     if currency == base_currency:
         return amount
 
-    # Step 1: convert to USD
+    # Step 1: → USD
     if currency == "USD":
         amount_usd = amount
     else:
@@ -133,11 +147,43 @@ def _to_base(
     if base_currency == "USD":
         return amount_usd
 
-    # Step 2: USD → base_currency
+    # Step 2: USD → base
     pair = _CURRENCY_TO_FX_PAIR.get(base_currency)
     if pair is None or pair not in fx:
         return None
     return amount_usd * fx[pair]
+
+
+def _ratio(part: Decimal, whole: Decimal) -> Decimal:
+    return (part / whole).quantize(_RATIO, rounding=ROUND_HALF_UP)
+
+
+def _compute_concentration(snapshot: PortfolioSnapshot) -> Concentration:
+    """Derive §6.5 snapshot concentration from already-aggregated values."""
+    c = Concentration()
+    total = snapshot.total_base
+    if total <= _ZERO or not snapshot.holdings:
+        return c
+
+    ranked = sorted(snapshot.holdings, key=lambda h: h.market_value_base, reverse=True)
+
+    top = ranked[0]
+    c.top_holding_name = top.name
+    c.top_holding_ratio = _ratio(top.market_value_base, total)
+    c.single_holding_watch = c.top_holding_ratio > _SINGLE_WATCH
+    c.single_holding_high = c.top_holding_ratio > _SINGLE_HIGH
+
+    top3_sum = sum((h.market_value_base for h in ranked[:3]), _ZERO)
+    c.top3_ratio = _ratio(top3_sum, total)
+    c.top3_watch = c.top3_ratio > _TOP3_WATCH
+
+    if snapshot.by_sector:
+        sector_name, sector_val = max(snapshot.by_sector.items(), key=lambda kv: kv[1])
+        c.top_sector_name = sector_name
+        c.top_sector_ratio = _ratio(sector_val, total)
+        c.sector_watch = c.top_sector_ratio > _SECTOR_WATCH
+
+    return c
 
 
 def compute_portfolio(
@@ -145,59 +191,56 @@ def compute_portfolio(
     base_currency: str = "USD",
 ) -> PortfolioSnapshot:
     """
-    Compute market values for all holdings and aggregate into a PortfolioSnapshot.
+    Compute market values for all holdings and aggregate into a snapshot.
 
-    FX rates are loaded once at the top and passed as a constant to all
-    per-holding conversions (design doc §6.2: same as_of_date for all holdings).
+    FX rates are loaded once and held constant across every conversion
+    (design §6.2: one as_of_date per report). Holdings missing a price or an
+    FX rate are recorded in `stale_tickers` and excluded from all totals.
     """
     fx, fx_date = _load_fx_rates(session)
-    snapshot = PortfolioSnapshot(base_currency=base_currency, fx_date=fx_date)
+    snapshot = PortfolioSnapshot(base_currency=base_currency, fx_date=fx_date or date.today())
 
     holdings: list[Holding] = list(session.execute(select(Holding)).scalars())
 
     for h in holdings:
-        # --- compute market_value in holding's own currency ---
+        # --- market value in the holding's own currency ---
         if h.pricing_mode == "auto":
             if h.market_price is None or h.shares is None:
                 snapshot.stale_tickers.append(h.ticker or h.fund_code or h.name)
                 continue
-            market_value = (h.market_price * h.shares).quantize(
-                Decimal("0.01"), rounding=ROUND_HALF_UP
-            )
+            market_value = (h.market_price * h.shares).quantize(_CENT, rounding=ROUND_HALF_UP)
         else:
-            # manual: current_value is already total market value
             if h.current_value is None:
                 snapshot.stale_tickers.append(h.name)
                 continue
             market_value = h.current_value
 
         # --- convert to base currency ---
-        market_value_base = _to_base(market_value, h.currency, base_currency, fx)
-        if market_value_base is None:
+        converted = _to_base(market_value, h.currency, base_currency, fx)
+        if converted is None:
             snapshot.stale_tickers.append(h.ticker or h.fund_code or h.name)
             continue
-        market_value_base = market_value_base.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        market_value_base = converted.quantize(_CENT, rounding=ROUND_HALF_UP)
 
         market = _classify_market(h)
-
-        hv = HoldingValue(
-            holding_id=h.id,
-            name=h.name,
-            ticker=h.ticker,
-            fund_code=h.fund_code,
-            currency=h.currency,
-            asset_type=h.asset_type,
-            market=market,
-            market_value=market_value,
-            market_value_base=market_value_base,
-            price_as_of=h.price_as_of,
-            is_stale=False,
+        snapshot.holdings.append(
+            HoldingValue(
+                holding_id=h.id,
+                name=h.name,
+                ticker=h.ticker,
+                fund_code=h.fund_code,
+                currency=h.currency,
+                asset_type=h.asset_type,
+                sector=h.sector,
+                market=market,
+                market_value=market_value,
+                market_value_base=market_value_base,
+                price_as_of=h.price_as_of,
+            )
         )
-        snapshot.holdings.append(hv)
 
-        # --- accumulate aggregates ---
+        # --- aggregates ---
         snapshot.total_base += market_value_base
-
         snapshot.by_currency[h.currency] = (
             snapshot.by_currency.get(h.currency, _ZERO) + market_value_base
         )
@@ -207,4 +250,12 @@ def compute_portfolio(
         )
         snapshot.by_market[market] = snapshot.by_market.get(market, _ZERO) + market_value_base
 
+        # Equity sectors only; funds/cash/wmf are shown via by_asset_type instead.
+        if h.asset_type in _SECTOR_ASSET_TYPES:
+            sector_key = h.sector or "Other"
+            snapshot.by_sector[sector_key] = (
+                snapshot.by_sector.get(sector_key, _ZERO) + market_value_base
+            )
+
+    snapshot.concentration = _compute_concentration(snapshot)
     return snapshot

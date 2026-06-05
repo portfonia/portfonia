@@ -1,4 +1,4 @@
-"""Fetch latest close prices from yfinance and persist to holdings."""
+"""Fetch latest close prices and sector metadata from yfinance."""
 
 from __future__ import annotations
 
@@ -8,81 +8,35 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 
-import pandas as pd
 import yfinance as yf
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.holding import Holding
+from app.services._yfinance import fetch_last_close
+from app.services.sector_taxonomy import map_yf_sector
 
 logger = logging.getLogger(__name__)
 
-
-@dataclass
-class PricePoint:
-    price: float
-    # Timestamp from the yfinance data index — the trading-day close time
-    # as reported by the exchange, timezone-aware (UTC for US, HKT for HK, etc.).
-    as_of: datetime
+# Asset types we attempt to classify by sector (funds/cash/wmf have no single sector).
+_SECTOR_ASSET_TYPES = {"stock", "etf"}
 
 
 @dataclass
 class PriceFetchResult:
     updated: int = 0
     failed: list[str] = field(default_factory=list)
-    skipped: int = 0  # manual-mode or no-ticker holdings
 
 
-def _batch_fetch(tickers: list[str]) -> dict[str, PricePoint]:
-    """
-    Download the most recent close price for each ticker via yfinance.
-
-    Uses period='5d' so non-overlapping market calendars (US / HK / A-share)
-    each have at least one trading day in the window. Takes the last non-NaN
-    close value and its index timestamp per ticker.
-
-    Returns {ticker: PricePoint}. Tickers with no data are omitted.
-    """
-    if not tickers:
-        return {}
-
-    ticker_str = " ".join(tickers)
+def _fetch_yf_sector(ticker: str) -> str | None:
+    """Best-effort single-ticker sector lookup. Returns None on any failure."""
     try:
-        hist = yf.download(
-            tickers=ticker_str,
-            period="5d",
-            auto_adjust=True,
-            progress=False,
-        )
+        info = yf.Ticker(ticker).info
     except Exception:
-        logger.exception("yfinance download failed for %s", ticker_str)
-        return {}
-
-    if hist.empty:
-        return {}
-
-    close = hist["Close"]
-
-    # Single-ticker download returns a Series; normalise to DataFrame.
-    if isinstance(close, pd.Series):
-        close = close.to_frame(name=tickers[0])
-
-    points: dict[str, PricePoint] = {}
-    for ticker in tickers:
-        if ticker not in close.columns:
-            continue
-        series = close[ticker].dropna()
-        if series.empty:
-            continue
-        ts = series.index[-1]
-        # yfinance index is a DatetimeIndex; ensure timezone-aware UTC.
-        if hasattr(ts, "tzinfo") and ts.tzinfo is not None:
-            as_of = ts.to_pydatetime()
-        else:
-            as_of = ts.to_pydatetime().replace(tzinfo=UTC)
-        points[ticker] = PricePoint(price=float(series.iloc[-1]), as_of=as_of)
-
-    return points
+        logger.warning("sector lookup failed for %s", ticker)
+        return None
+    sector = info.get("sector") if isinstance(info, dict) else None
+    return sector if isinstance(sector, str) else None
 
 
 def update_holding_prices(session: Session) -> PriceFetchResult:
@@ -90,7 +44,7 @@ def update_holding_prices(session: Session) -> PriceFetchResult:
     Load all auto-mode holdings with a ticker, batch-fetch prices, and
     write market_price / price_as_of / price_fetched_at back to the DB.
 
-    - price_as_of    : timestamp of the price data point from the exchange
+    - price_as_of    : exchange timestamp of the price data point
     - price_fetched_at: when this process called yfinance
 
     Retries once on total failure before giving up.
@@ -105,19 +59,16 @@ def update_holding_prices(session: Session) -> PriceFetchResult:
             )
         ).scalars()
     )
-
     if not rows:
         return result
 
     unique_tickers = list({r.ticker for r in rows if r.ticker})
-    result.skipped = len([r for r in rows if r.pricing_mode != "auto" or not r.ticker])
 
-    points = _batch_fetch(unique_tickers)
-
+    points = fetch_last_close(unique_tickers)
     if not points:
         logger.warning("yfinance returned no data, retrying once")
         time.sleep(5)
-        points = _batch_fetch(unique_tickers)
+        points = fetch_last_close(unique_tickers)
 
     if not points:
         result.failed = unique_tickers
@@ -133,12 +84,41 @@ def update_holding_prices(session: Session) -> PriceFetchResult:
             result.failed.append(ticker)
             logger.warning("no price data for ticker %s", ticker)
             continue
-        pt = points[ticker]
-        row.market_price = Decimal(str(pt.price))
-        row.price_as_of = pt.as_of
+        price, as_of = points[ticker]
+        row.market_price = Decimal(str(price))
+        row.price_as_of = as_of
         row.price_fetched_at = fetched_at
         result.updated += 1
 
-    result.failed = list(set(result.failed))
+    result.failed = sorted(set(result.failed))
     session.flush()
     return result
+
+
+def backfill_sectors(session: Session) -> int:
+    """
+    Populate the sector column for stock/etf holdings that lack one.
+
+    Sector rarely changes, so we only look it up when missing — this is a
+    one-time backfill per holding, not part of every price refresh.
+    A-share / HK tickers that yfinance cannot classify resolve to "Other"
+    via the taxonomy (design §6.4 Ring 0 strategy). Returns rows updated.
+    """
+    rows: list[Holding] = list(
+        session.execute(
+            select(Holding).where(
+                Holding.ticker.isnot(None),
+                Holding.sector.is_(None),
+                Holding.asset_type.in_(_SECTOR_ASSET_TYPES),
+            )
+        ).scalars()
+    )
+
+    updated = 0
+    for row in rows:
+        assert row.ticker is not None
+        row.sector = map_yf_sector(_fetch_yf_sector(row.ticker))
+        updated += 1
+
+    session.flush()
+    return updated

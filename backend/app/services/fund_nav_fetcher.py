@@ -1,29 +1,34 @@
-"""Fetch public mutual fund NAV from 天天基金 and persist to holdings."""
+"""Fetch public mutual fund NAV from 天天基金 and persist to holdings.
+
+We deliberately read the official settled NAV (`dwjz`, the prior trading
+day's closing NAV) rather than the intraday estimate (`gsz`). Settled NAV is
+the value you would actually redeem at; the estimate carries error. price_as_of
+is therefore the NAV date, not the time we fetched it.
+"""
 
 from __future__ import annotations
 
 import json
 import logging
 import re
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.timezones import CST
 from app.models.holding import Holding
 from app.services.price_fetcher import PriceFetchResult
 
 logger = logging.getLogger(__name__)
 
-# 天天基金 estimated NAV endpoint: returns JSONP
+# 天天基金 realtime endpoint (JSONP); we extract the official NAV field from it.
 _NAV_URL = "https://fundgz.1234567.com.cn/js/{fund_code}.js"
 _JSONP_RE = re.compile(r"jsonpgz\((\{.*\})\);?", re.DOTALL)
 
-# A-share market close = 15:00 CST = UTC+8.
-# NAV is computed from closing prices, so we anchor price_as_of to this time.
-_CST = timezone(timedelta(hours=8))
+# Mutual fund NAV is struck at A-share close (15:00 CST); anchor price_as_of there.
 _AMARKET_CLOSE_HOUR = 15
 
 
@@ -68,7 +73,7 @@ def _fetch_nav(fund_code: str, client: httpx.Client) -> tuple[Decimal, datetime]
 
     try:
         nav_date = datetime.strptime(jzrq, "%Y-%m-%d")
-        price_as_of = nav_date.replace(hour=_AMARKET_CLOSE_HOUR, minute=0, second=0, tzinfo=_CST)
+        price_as_of = nav_date.replace(hour=_AMARKET_CLOSE_HOUR, minute=0, second=0, tzinfo=CST)
     except ValueError:
         logger.exception("cannot parse jzrq=%r for fund %s", jzrq, fund_code)
         return None
