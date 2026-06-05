@@ -73,8 +73,8 @@ def test_make_pattern_chinese_uses_substring() -> None:
 def test_make_pattern_all_caps_abbreviation_word_boundary() -> None:
     pat = _make_pattern("FOMC")
     assert pat.search("FOMC minutes released")
-    assert pat.search("non-FOMC meeting type")   # hyphen = word boundary → still matches (correct)
-    assert not pat.search("xFOMCy")              # fused into longer word → no match
+    assert pat.search("non-FOMC meeting type")  # hyphen = word boundary → still matches (correct)
+    assert not pat.search("xFOMCy")  # fused into longer word → no match
 
 
 def test_make_pattern_ai_single_word_not_inside_word() -> None:
