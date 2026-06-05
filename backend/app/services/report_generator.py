@@ -426,7 +426,9 @@ def _build_pass2_prompt(
 
     stale = portfolio.get("stale_tickers", [])
     if stale:
-        lines.append(f"Stale/no-price tickers: {', '.join(stale)}")
+        lines.append("Stale/no-price identifiers (excluded from valuations):")
+        for ident in stale:
+            lines.append(f"  - {_stale_ticker_hint(ident)}")
 
     # Macro signals
     lines.append("")
@@ -530,6 +532,30 @@ def _build_section1(portfolio: dict[str, Any]) -> str:
         lines.append(f"\n> [!] Stale/missing prices: {', '.join(stale)}")
 
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Stale ticker type hint
+# ---------------------------------------------------------------------------
+
+_FUND_CODE_RE = re.compile(r"^\d{6}$")
+_A_SHARE_RE = re.compile(r"^\d{6}\.(SS|SZ)$", re.IGNORECASE)
+_HK_RE = re.compile(r"^\d{4}\.HK$", re.IGNORECASE)
+
+
+def _stale_ticker_hint(identifier: str) -> str:
+    """Return an annotated string for a stale identifier to prevent LLM misclassification.
+
+    Without annotation, 6-digit fund codes (e.g. 005827 = 易方达蓝筹精选) get
+    misidentified as Korea Exchange listings by the LLM.
+    """
+    if _FUND_CODE_RE.match(identifier):
+        return f"{identifier} (CN mutual fund code / 天天基金)"
+    if _A_SHARE_RE.match(identifier):
+        return f"{identifier} (A-share / Shanghai or Shenzhen)"
+    if _HK_RE.match(identifier):
+        return f"{identifier} (HK-listed stock)"
+    return f"{identifier} (stock ticker)"
 
 
 # ---------------------------------------------------------------------------

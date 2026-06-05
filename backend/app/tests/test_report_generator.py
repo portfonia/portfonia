@@ -310,6 +310,49 @@ def test_generate_report_llm_failure_marks_failed(db_session: Session) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Tests: _stale_ticker_hint (unit, no DB)
+# ---------------------------------------------------------------------------
+
+
+def test_stale_ticker_hint_fund_code() -> None:
+    assert "CN mutual fund" in rg._stale_ticker_hint("005827")
+    assert "天天基金" in rg._stale_ticker_hint("005827")
+    assert "005827" in rg._stale_ticker_hint("005827")
+
+
+def test_stale_ticker_hint_a_share_ss() -> None:
+    result = rg._stale_ticker_hint("600519.SS")
+    assert "A-share" in result
+    assert "Shanghai" in result
+
+
+def test_stale_ticker_hint_a_share_sz() -> None:
+    result = rg._stale_ticker_hint("000858.SZ")
+    assert "A-share" in result
+    assert "Shenzhen" in result
+
+
+def test_stale_ticker_hint_hk() -> None:
+    result = rg._stale_ticker_hint("0700.HK")
+    assert "HK-listed" in result
+
+
+def test_stale_ticker_hint_us_stock() -> None:
+    result = rg._stale_ticker_hint("AAPL")
+    assert "stock ticker" in result
+
+
+def test_stale_ticker_hint_in_pass2_prompt() -> None:
+    """Fund code in stale_tickers must appear with CN hint in the Pass 2 prompt."""
+    portfolio = rg._serialize_portfolio(_portfolio_snap())
+    portfolio["stale_tickers"] = ["005827", "AAPL", "0700.HK"]
+    prompt = rg._build_pass2_prompt(portfolio, {}, [], [])
+    assert "CN mutual fund" in prompt
+    assert "stock ticker" in prompt
+    assert "HK-listed" in prompt
+
+
+# ---------------------------------------------------------------------------
 # Tests: section builders (unit, no DB)
 # ---------------------------------------------------------------------------
 
