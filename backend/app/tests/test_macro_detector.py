@@ -1,0 +1,243 @@
+"""Unit tests for macro_detector (E2).
+
+All tests inject keyword_table directly — no YAML file I/O.
+No database required.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+
+from app.services.macro_detector import (
+    _make_pattern,
+    detect_macro_signals,
+)
+from app.services.news_fetcher import NewsItem
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+_NOW = datetime(2026, 6, 4, 20, 0, 0, tzinfo=UTC)
+
+_SIMPLE_TABLE: dict[str, list[str]] = {
+    "货币政策": ["Federal Reserve", "Fed", "rate hike", "美联储"],
+    "贸易与关税": ["tariff", "trade war", "关税"],
+    "科技监管": ["AI regulation", "AI", "antitrust"],
+}
+
+
+def _item(
+    title: str,
+    *,
+    summary: str | None = None,
+    hours_ago: int = 1,
+    url: str | None = None,
+) -> NewsItem:
+    url = url or f"https://example.com/{title.replace(' ', '-').lower()}"
+    from app.services.news_fetcher import _url_hash
+
+    return NewsItem(
+        url_hash=_url_hash(url),
+        title=title,
+        url=url,
+        source="TEST",
+        published_at=_NOW - timedelta(hours=hours_ago),
+        summary=summary,
+    )
+
+
+# ---------------------------------------------------------------------------
+# _make_pattern — word-boundary vs substring
+# ---------------------------------------------------------------------------
+
+
+def test_make_pattern_single_word_uses_word_boundary() -> None:
+    pat = _make_pattern("Fed")
+    assert pat.search("The Fed raised rates")
+    assert not pat.search("Federal Reserve meeting")  # "Fed" inside "Federal"
+
+
+def test_make_pattern_phrase_uses_substring() -> None:
+    pat = _make_pattern("rate hike")
+    assert pat.search("Investors fear another rate hike this month")
+    assert pat.search("RATE HIKE expected")  # case-insensitive
+
+
+def test_make_pattern_chinese_uses_substring() -> None:
+    pat = _make_pattern("美联储")
+    assert pat.search("今日美联储宣布加息")
+    assert pat.search("美联储政策调整")
+
+
+def test_make_pattern_all_caps_abbreviation_word_boundary() -> None:
+    pat = _make_pattern("FOMC")
+    assert pat.search("FOMC minutes released")
+    assert pat.search("non-FOMC meeting type")   # hyphen = word boundary → still matches (correct)
+    assert not pat.search("xFOMCy")              # fused into longer word → no match
+
+
+def test_make_pattern_ai_single_word_not_inside_word() -> None:
+    """'AI' as a single token should not match 'afraid' or 'mail'."""
+    pat = _make_pattern("AI")
+    assert pat.search("New AI regulation bill passed")
+    assert not pat.search("I am afraid of the mail")
+
+
+def test_make_pattern_ai_regulation_phrase_matches() -> None:
+    pat = _make_pattern("AI regulation")
+    assert pat.search("Congress debates AI regulation framework")
+
+
+# ---------------------------------------------------------------------------
+# detect_macro_signals — basic hit detection
+# ---------------------------------------------------------------------------
+
+
+def test_no_items_returns_empty_signals() -> None:
+    result = detect_macro_signals([], keyword_table=_SIMPLE_TABLE)
+    assert result.has_any_hit is False
+    assert result.hits == []
+    assert result.total_matched_articles == 0
+
+
+def test_no_match_returns_empty_signals() -> None:
+    items = [_item("Local sports news"), _item("Weather update for the weekend")]
+    result = detect_macro_signals(items, keyword_table=_SIMPLE_TABLE)
+    assert result.has_any_hit is False
+    assert result.total_matched_articles == 0
+
+
+def test_single_theme_hit() -> None:
+    items = [_item("Federal Reserve signals pause in rate hike cycle")]
+    result = detect_macro_signals(items, keyword_table=_SIMPLE_TABLE)
+
+    assert result.has_any_hit is True
+    assert result.total_matched_articles == 1
+    assert len(result.hits) == 1
+    hit = result.hits[0]
+    assert hit.theme == "货币政策"
+    assert "Federal Reserve" in hit.keywords_found
+    assert "rate hike" in hit.keywords_found
+    assert len(hit.articles) == 1
+    assert hit.articles[0].title == "Federal Reserve signals pause in rate hike cycle"
+
+
+def test_multiple_themes_hit() -> None:
+    items = [
+        _item("Fed raises rates; tariff fears mount"),
+    ]
+    result = detect_macro_signals(items, keyword_table=_SIMPLE_TABLE)
+    themes = {h.theme for h in result.hits}
+    assert "货币政策" in themes
+    assert "贸易与关税" in themes
+    assert result.total_matched_articles == 1  # same article, counted once
+
+
+def test_same_article_counted_once_across_themes() -> None:
+    """An article matching two themes should appear in total_matched_articles once."""
+    items = [_item("Fed hikes rates amid tariff threats")]
+    result = detect_macro_signals(items, keyword_table=_SIMPLE_TABLE)
+    assert result.total_matched_articles == 1
+
+
+def test_keywords_found_deduplicated() -> None:
+    """Multiple articles can trigger the same keyword; keywords_found is deduplicated."""
+    items = [
+        _item("Fed pauses", url="https://example.com/1"),
+        _item("Fed minutes released", url="https://example.com/2"),
+    ]
+    result = detect_macro_signals(items, keyword_table=_SIMPLE_TABLE)
+    hit = next(h for h in result.hits if h.theme == "货币政策")
+    assert hit.keywords_found.count("Fed") == 1
+
+
+# ---------------------------------------------------------------------------
+# detect_macro_signals — article ordering and cap
+# ---------------------------------------------------------------------------
+
+
+def test_articles_sorted_newest_first() -> None:
+    items = [
+        _item("Fed news older", hours_ago=5, url="https://example.com/old"),
+        _item("Fed news newer", hours_ago=1, url="https://example.com/new"),
+        _item("rate hike warning", hours_ago=3, url="https://example.com/mid"),
+    ]
+    result = detect_macro_signals(items, keyword_table=_SIMPLE_TABLE)
+    hit = next(h for h in result.hits if h.theme == "货币政策")
+    assert hit.articles[0].title == "Fed news newer"
+    assert hit.articles[1].title == "rate hike warning"
+    assert hit.articles[2].title == "Fed news older"
+
+
+def test_articles_capped_at_max_per_theme() -> None:
+    items = [
+        _item(f"Fed story {i}", hours_ago=i, url=f"https://example.com/{i}")
+        for i in range(1, 6)  # 5 matching articles
+    ]
+    result = detect_macro_signals(items, keyword_table=_SIMPLE_TABLE, max_articles_per_theme=3)
+    hit = next(h for h in result.hits if h.theme == "货币政策")
+    assert len(hit.articles) == 3
+
+
+def test_max_articles_per_theme_one() -> None:
+    items = [
+        _item("Fed meeting", url="https://example.com/a"),
+        _item("Fed statement", url="https://example.com/b"),
+    ]
+    result = detect_macro_signals(items, keyword_table=_SIMPLE_TABLE, max_articles_per_theme=1)
+    hit = next(h for h in result.hits if h.theme == "货币政策")
+    assert len(hit.articles) == 1
+
+
+# ---------------------------------------------------------------------------
+# detect_macro_signals — Chinese keyword matching
+# ---------------------------------------------------------------------------
+
+
+def test_chinese_keyword_matched_in_title() -> None:
+    items = [_item("今日美联储宣布加息决定")]
+    result = detect_macro_signals(items, keyword_table=_SIMPLE_TABLE)
+    assert result.has_any_hit is True
+    hit = result.hits[0]
+    assert hit.theme == "货币政策"
+    assert "美联储" in hit.keywords_found
+
+
+def test_chinese_keyword_matched_in_summary() -> None:
+    items = [_item("Central bank decision", summary="美联储今日召开会议")]
+    result = detect_macro_signals(items, keyword_table=_SIMPLE_TABLE)
+    hit = next((h for h in result.hits if h.theme == "货币政策"), None)
+    assert hit is not None
+    assert "美联储" in hit.keywords_found
+
+
+# ---------------------------------------------------------------------------
+# detect_macro_signals — summary fallback
+# ---------------------------------------------------------------------------
+
+
+def test_keyword_matched_in_summary_only() -> None:
+    """Match in summary when title alone would not trigger."""
+    items = [_item("Market update", summary="Investors react to new tariff announcements")]
+    result = detect_macro_signals(items, keyword_table=_SIMPLE_TABLE)
+    hit = next((h for h in result.hits if h.theme == "贸易与关税"), None)
+    assert hit is not None
+
+
+def test_none_summary_does_not_raise() -> None:
+    items = [_item("Fed raises rates", summary=None)]
+    result = detect_macro_signals(items, keyword_table=_SIMPLE_TABLE)
+    assert result.has_any_hit is True
+
+
+# ---------------------------------------------------------------------------
+# detect_macro_signals — empty keyword table edge case
+# ---------------------------------------------------------------------------
+
+
+def test_empty_keyword_table_returns_no_hits() -> None:
+    items = [_item("Fed raises rates")]
+    result = detect_macro_signals(items, keyword_table={})
+    assert result.has_any_hit is False
+    assert result.hits == []
