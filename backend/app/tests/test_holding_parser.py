@@ -25,9 +25,13 @@ FIXTURES = Path(__file__).parent / "fixtures"
 # ---------------------------------------------------------------------------
 
 
-def test_extract_md_returns_utf8_text() -> None:
-    content = b"# Holdings\nAAPL USD 10 180"
-    assert _extract_text(content, "holdings.md") == "# Holdings\nAAPL USD 10 180"
+def test_extract_md_strips_comments_and_returns_utf8() -> None:
+    content = b"# Holdings\nAAPL USD 10 180\n##### comment\nTSLA USD 5 200"
+    result = _extract_text(content, "holdings.md")
+    assert "AAPL USD 10 180" in result
+    assert "TSLA USD 5 200" in result
+    assert "# Holdings" not in result
+    assert "##### comment" not in result
 
 
 def test_extract_txt() -> None:

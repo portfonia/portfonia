@@ -95,6 +95,18 @@ note it in issues rather than guessing.
 """
 
 
+def _strip_comments(text: str) -> str:
+    """Remove comment lines before sending to the LLM.
+
+    A comment line is any line whose first non-whitespace character is '#'.
+    This covers both single '#' and multi-char markers like '#####'.
+    Stripped deterministically — the LLM never sees these lines, so they
+    can never bleed into valid_rows or issue_rows regardless of model behaviour.
+    """
+    lines = [ln for ln in text.splitlines() if not ln.lstrip().startswith("#")]
+    return "\n".join(lines)
+
+
 def _extract_text(file_bytes: bytes, filename: str) -> str:
     """Convert uploaded file bytes to plain text for LLM ingestion."""
     suffix = Path(filename).suffix.lower()
@@ -103,7 +115,7 @@ def _extract_text(file_bytes: bytes, filename: str) -> str:
             f"Unsupported file type '{suffix}'. Please upload .md, .txt, .csv, .xlsx, or .xls."
         )
     if suffix in (".md", ".txt", ".csv"):
-        return file_bytes.decode("utf-8")
+        return _strip_comments(file_bytes.decode("utf-8"))
     # Excel path
     try:
         import pandas as pd
@@ -148,7 +160,10 @@ def _strip_code_fence(content: str) -> str:
 def _postprocess(raw_rows: list[dict]) -> list[ParsedRow]:  # type: ignore[type-arg]
     """Apply deterministic post-processing on top of LLM output."""
     result: list[ParsedRow] = []
+    seen: set[tuple[str | None, str | None, str]] = set()  # (ticker, fund_code, name)
+
     for row in raw_rows:
+        # Currency correction from ticker suffix.
         ticker: str | None = row.get("ticker")
         if ticker:
             for suffix, currency in _TICKER_CURRENCY_MAP.items():
@@ -160,6 +175,13 @@ def _postprocess(raw_rows: list[dict]) -> list[ParsedRow]:  # type: ignore[type-
                         )
                         row["currency"] = currency
                     break
+
+        # Deduplicate: LLMs occasionally emit the same holding twice.
+        key = (row.get("ticker"), row.get("fund_code"), str(row.get("name", "")))
+        if key in seen:
+            continue
+        seen.add(key)
+
         result.append(ParsedRow.model_validate(row))
     return result
 
