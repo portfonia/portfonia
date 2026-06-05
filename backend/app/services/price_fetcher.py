@@ -65,8 +65,10 @@ def update_holding_prices(session: Session) -> PriceFetchResult:
     unique_tickers = list({r.ticker for r in rows if r.ticker})
 
     points = fetch_last_close(unique_tickers)
+
+    # Total-failure retry: nothing came back at all — wait and retry the full list.
     if not points:
-        logger.warning("yfinance returned no data, retrying once")
+        logger.warning("yfinance returned no data, retrying full list after 5s")
         time.sleep(5)
         points = fetch_last_close(unique_tickers)
 
@@ -74,6 +76,26 @@ def update_holding_prices(session: Session) -> PriceFetchResult:
         result.failed = unique_tickers
         logger.error("yfinance returned no data after retry for: %s", unique_tickers)
         return result
+
+    # Partial-failure retry: any ticker absent from the first pass gets a
+    # single-ticker retry with a short pause between calls.  Single-ticker
+    # requests hit a different Yahoo endpoint path and are more reliable.
+    failed_first_pass = [t for t in unique_tickers if t not in points]
+    if failed_first_pass:
+        logger.warning(
+            "yfinance partial failure (%d/%d tickers missing), retrying individually: %s",
+            len(failed_first_pass),
+            len(unique_tickers),
+            failed_first_pass,
+        )
+        for failed_ticker in failed_first_pass:
+            time.sleep(1)
+            retry = fetch_last_close([failed_ticker])
+            if retry:
+                points.update(retry)
+                logger.info("single-ticker retry succeeded for %s", failed_ticker)
+            else:
+                logger.warning("single-ticker retry also failed for %s", failed_ticker)
 
     fetched_at = datetime.now(tz=UTC)
 

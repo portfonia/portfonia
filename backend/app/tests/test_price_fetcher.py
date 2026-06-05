@@ -49,8 +49,12 @@ def test_missing_ticker_marked_failed_not_fatal(db_session: Session) -> None:
     db_session.add_all([_auto("Apple", "AAPL"), _auto("Ghost", "GHOST")])
     db_session.flush()
 
-    points = {"AAPL": (310.0, _AS_OF)}  # GHOST absent
-    with patch.object(price_fetcher, "fetch_last_close", return_value=points):
+    # fetch_last_close always returns only AAPL; GHOST retry also finds nothing.
+    points = {"AAPL": (310.0, _AS_OF)}
+    with (
+        patch.object(price_fetcher, "fetch_last_close", return_value=points),
+        patch("app.services.price_fetcher.time.sleep"),  # skip retry delay
+    ):
         result = price_fetcher.update_holding_prices(db_session)
 
     assert result.updated == 1
@@ -70,6 +74,50 @@ def test_total_failure_after_retry(db_session: Session) -> None:
     assert result.updated == 0
     assert result.failed == ["AAPL"]
     mock_sleep.assert_called_once()
+
+
+def test_partial_failure_retry_succeeds(db_session: Session) -> None:
+    """A ticker absent from the first bulk call is retried individually and succeeds."""
+    db_session.add_all([_auto("Apple", "AAPL"), _auto("HK Co", "0700.HK")])
+    db_session.flush()
+
+    # First call (bulk): only AAPL comes back.
+    # Second call (single-ticker retry for 0700.HK): returns the HK price.
+    hk_point = {"0700.HK": (350.0, _AS_OF)}
+    side_effects = [
+        {"AAPL": (310.0, _AS_OF)},  # bulk pass
+        hk_point,  # per-ticker retry
+    ]
+    with (
+        patch.object(price_fetcher, "fetch_last_close", side_effect=side_effects),
+        patch("app.services.price_fetcher.time.sleep"),
+    ):
+        result = price_fetcher.update_holding_prices(db_session)
+
+    assert result.updated == 2
+    assert result.failed == []
+
+    rows = {h.ticker: h for h in db_session.query(Holding).all()}
+    assert rows["0700.HK"].market_price == Decimal("350.0")
+
+
+def test_partial_failure_retry_also_fails(db_session: Session) -> None:
+    """A ticker that fails both the bulk pass and the per-ticker retry lands in failed."""
+    db_session.add_all([_auto("Apple", "AAPL"), _auto("HK Co", "0700.HK")])
+    db_session.flush()
+
+    side_effects = [
+        {"AAPL": (310.0, _AS_OF)},  # bulk pass — 0700.HK absent
+        {},  # per-ticker retry for 0700.HK — still nothing
+    ]
+    with (
+        patch.object(price_fetcher, "fetch_last_close", side_effect=side_effects),
+        patch("app.services.price_fetcher.time.sleep"),
+    ):
+        result = price_fetcher.update_holding_prices(db_session)
+
+    assert result.updated == 1
+    assert result.failed == ["0700.HK"]
 
 
 def test_backfill_sectors_only_fills_missing(db_session: Session) -> None:
