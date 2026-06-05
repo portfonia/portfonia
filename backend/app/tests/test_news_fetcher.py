@@ -281,8 +281,11 @@ def test_fetch_news_deduplicates_same_url_across_sources() -> None:
 
 
 def test_fetch_news_sorted_newest_first() -> None:
-    early = _pubdate(_NOW - timedelta(hours=5))
-    late = _pubdate(_NOW - timedelta(hours=1))
+    # Use real now so both items stay inside the 24-hour window regardless of
+    # when the test runs (_NOW is a hardcoded fixture date, not the real clock).
+    real_now = datetime.now(tz=UTC)
+    early = _pubdate(real_now - timedelta(hours=5))
+    late = _pubdate(real_now - timedelta(hours=1))
     feed = _rss(
         [
             ("Older", "https://example.com/1", early),

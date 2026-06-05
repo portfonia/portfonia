@@ -176,6 +176,12 @@ def _postprocess(raw_rows: list[dict]) -> list[ParsedRow]:  # type: ignore[type-
                         row["currency"] = currency
                     break
 
+        # Coerce optional string fields: LLM occasionally emits [] instead of null.
+        for str_field in ("notes", "account", "portfolio", "broker"):
+            v = row.get(str_field)
+            if isinstance(v, list):
+                row[str_field] = " ".join(v) if v else None
+
         # Deduplicate: LLMs occasionally emit the same holding twice.
         key = (row.get("ticker"), row.get("fund_code"), str(row.get("name", "")))
         if key in seen:
