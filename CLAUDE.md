@@ -1,7 +1,30 @@
 # Portfonia — Agent Guidelines
 
 AI-facing guidance for agent tooling working in this repository.
-Last updated: 2026-05-17
+Last updated: 2026-06-05
+
+## Current Development State (update this section when resuming)
+
+| Item | Value |
+|------|-------|
+| Ring stage | **Ring 0** (local dev machine, single user, no cloud) |
+| `main` HEAD | F1 pending commit |
+| Stages complete | A B C D E F1 (F1 report_generator pipeline — 159 tests) |
+| Next stage | **F2** — source annotation `[行情]` / `[新闻: S1]` / `[分析]` |
+| Backend quality | ruff OK · mypy OK (53 files) · pytest 159 passed |
+| Frontend quality | tsc OK · eslint OK · next build OK |
+| LLM model | `deepseek/deepseek-v4-flash` via OpenRouter (provider=DigitalOcean,Venice) |
+| Infrastructure | Homebrew PostgreSQL@16 + Redis (native, not Docker); `make infra-up` not needed |
+
+### Known technical debt (carry forward until resolved)
+
+| ID | Description | Resolve at |
+|----|-------------|-----------|
+| F-DEBT-1 | `by_sector` "Other" conflates ETFs with unclassified equities | Stage F |
+| D-DEBT-1 | `backfill_sectors` serial O(n) `yf.Ticker().info` calls | Ring 1+ |
+| D-DEBT-2 | `compute_portfolio` has no `user_id` filter (loads all holdings) | MVP |
+| D-DEBT-3 | 天天基金 OCI reachability unverified | Ring 1 deploy |
+| D-DEBT-4 | Price staleness: `stale_tickers` only catches NULL price, not stale-dated prices | TBD |
 
 ## Language Policy (MANDATORY)
 
