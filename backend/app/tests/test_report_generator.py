@@ -511,3 +511,74 @@ def test_generate_report_f2_fenxi_annotation_in_output(db_session: Session) -> N
     assert report.report_md is not None
     assert "[分析]" in report.report_md
     assert f"[分析] {rg._COMPLIANCE_MARKER}" in report.report_md
+
+
+# ---------------------------------------------------------------------------
+# Tests: F3 footer (unit + integration)
+# ---------------------------------------------------------------------------
+
+
+def test_build_footer_contains_fx_date() -> None:
+    portfolio = {"base_currency": "USD", "fx_date": "2026-06-04", "holdings": []}
+    footer = rg._build_footer(portfolio)
+    assert "2026-06-04" in footer
+    assert "USD" in footer
+
+
+def test_build_footer_contains_bilingual_disclaimer() -> None:
+    portfolio = {"base_currency": "USD", "fx_date": "2026-06-04", "holdings": []}
+    footer = rg._build_footer(portfolio)
+    assert "Disclaimer" in footer
+    assert "免责声明" in footer
+    assert "investment advice" in footer
+    assert "投资建议" in footer
+
+
+def test_build_footer_starts_with_separator() -> None:
+    portfolio = {"base_currency": "USD", "fx_date": "2026-06-04", "holdings": []}
+    footer = rg._build_footer(portfolio)
+    assert "---" in footer
+
+
+def test_generate_report_normal_path_has_footer(db_session: Session) -> None:
+    """Footer must appear in every successfully generated report."""
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch(
+            "app.services.report_generator.fetch_news",
+            return_value=[_news_item("Fed raises rates")],
+        ),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+        patch("app.services.report_generator.detect_price_anomalies", return_value=[_anomaly()]),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
+        patch(
+            "app.services.report_generator._run_tavily_search", return_value=_FAKE_TAVILY_RESULTS
+        ),
+    ):
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert report.status == "success"
+    assert report.report_md is not None
+    assert "免责声明" in report.report_md
+    assert "Data Sources & Disclaimer" in report.report_md
+
+
+def test_generate_report_quiet_day_has_footer(db_session: Session) -> None:
+    """Footer must also appear on quiet-day (status=skipped) reports."""
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch("app.services.report_generator.fetch_news", return_value=[]),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_quiet_signals()),
+        patch("app.services.report_generator.detect_price_anomalies", return_value=[]),
+        patch("app.services.report_generator._call_llm") as mock_llm,
+    ):
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert report.status == "skipped"
+    mock_llm.assert_not_called()
+    assert report.report_md is not None
+    assert "免责声明" in report.report_md
+    assert "Data Sources & Disclaimer" in report.report_md
