@@ -94,8 +94,9 @@ test: test-backend test-frontend  ## Run backend + frontend test suites
 test-backend:  ## Run backend pytest
 	@cd backend && ../$(PYTEST) -q
 
-test-frontend:  ## Run frontend tests
-	@cd frontend && npm test --silent
+test-frontend:  ## Run frontend tests (none yet — typecheck stands in as the gate)
+	@cd frontend && if npm run | grep -q '^  test$$'; then npm test --silent; \
+		else echo "[i] no frontend test script yet — running typecheck as the gate"; npm run typecheck; fi
 
 # =====================================================================
 # Lint / format / typecheck (CLAUDE.md gate order)

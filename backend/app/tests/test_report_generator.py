@@ -328,6 +328,68 @@ def test_generate_report_llm_failure_marks_failed(db_session: Session) -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_pass1_prompt_excludes_holdings_derived_anomalies() -> None:
+    """DATA ISOLATION: Pass 1 runs without data_collection=deny, so it must not
+    carry holdings-derived identifiers. Price anomalies (name/ticker = a held
+    position) belong only in Pass 2."""
+    signals = _macro_hit()
+    news = [_news_item("Fed raises rates")]
+    prompt = rg._build_pass1_prompt(signals, news)
+
+    # Anomaly identifiers from a user's holdings must never appear in Pass 1.
+    assert "NVDA" not in prompt
+    assert "NVIDIA" not in prompt
+    assert "PRICE ANOMALIES" not in prompt
+    # Public signal/news content is still present.
+    assert "MACRO SIGNAL THEMES" in prompt
+    assert "TOP HEADLINES" in prompt
+
+
+def test_generate_report_pass1_call_has_no_holdings(db_session: Session) -> None:
+    """End-to-end: the with_holdings=False LLM call must not contain the
+    portfolio ticker even when an anomaly for that holding exists."""
+    captured: dict[str, str] = {}
+
+    def _capture_llm(
+        client: object, model: str, system: str, user: str, *, with_holdings: bool = False
+    ) -> str:
+        if not with_holdings:
+            captured["pass1_user"] = user
+            return _FAKE_LLM_PASS1
+        return _FAKE_LLM_PASS2
+
+    aapl_anomaly = PriceAnomaly(
+        name="Apple Inc.",
+        identifier="AAPL",
+        asset_type="stock",
+        current_price=Decimal("200.0"),
+        prev_price=Decimal("180.0"),
+        pct_change=Decimal("0.1111"),
+        threshold=Decimal("0.03"),
+    )
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch(
+            "app.services.report_generator.fetch_news",
+            return_value=[_news_item("Fed raises rates")],
+        ),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+        patch(
+            "app.services.report_generator.detect_price_anomalies",
+            return_value=[aapl_anomaly],
+        ),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_capture_llm),
+        patch("app.services.report_generator._run_tavily_search", return_value=[]),
+    ):
+        rg.generate_report(db_session, report_date=_TODAY)
+
+    assert "pass1_user" in captured
+    assert "AAPL" not in captured["pass1_user"]
+    assert "Apple" not in captured["pass1_user"]
+
+
 def test_stale_ticker_hint_fund_code() -> None:
     assert "CN mutual fund" in rg._stale_ticker_hint("005827")
     assert "天天基金" in rg._stale_ticker_hint("005827")

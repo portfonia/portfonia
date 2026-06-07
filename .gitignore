@@ -129,7 +129,12 @@ __pypackages__/
 
 # Celery stuff
 celerybeat-schedule
+celerybeat-schedule.*
 celerybeat.pid
+
+# Local data backups / snapshots (never commit)
+.data.bak.*/
+*.bak.*
 
 # Redis
 *.rdb
