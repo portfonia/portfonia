@@ -41,6 +41,7 @@ from app.core.config import get_settings
 from app.core.deps import get_current_user_id
 from app.core.timezones import ET
 from app.models.report import Report
+from app.services.email_sender import send_report_email
 from app.services.macro_detector import MacroSignals, detect_macro_signals
 from app.services.news_fetcher import NewsItem, fetch_news
 from app.services.portfolio_calculator import PortfolioSnapshot, compute_portfolio
@@ -857,6 +858,12 @@ def generate_report(
             len(full_md),
             len(ctx.search_results),
         )
+
+        # ------------------------------------------------------------------
+        # 10. Email
+        # ------------------------------------------------------------------
+        send_report_email(report, session)
+
         return report
 
     except Exception:
