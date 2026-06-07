@@ -40,6 +40,14 @@ def test_render_html_empty_string() -> None:
     assert "<div" in html  # wrapper present even with no content
 
 
+def test_render_html_escapes_raw_html() -> None:
+    """LLM-supplied raw HTML must be escaped, not passed through verbatim."""
+    html = _render_html("Hi <script>alert(1)</script> <img src=x onerror=alert(1)>")
+    assert "<script>" not in html
+    assert "onerror=alert(1)>" not in html
+    assert "&lt;script&gt;" in html
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -180,3 +188,20 @@ def test_send_subject_format(mock_client_cls: MagicMock, mock_settings: MagicMoc
     payload = call_kwargs.kwargs["json"] if "json" in call_kwargs.kwargs else call_kwargs[1]["json"]
     assert payload["subject"] == "Portfonia Intelligence Report — 2026-06-06"
     assert payload["to"] == ["test@example.com"]
+
+
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
+def test_send_sets_idempotency_key(mock_client_cls: MagicMock, mock_settings: MagicMock) -> None:
+    """Resend Idempotency-Key must be keyed on the report id for provider dedup."""
+    mock_settings.return_value = _mock_settings()
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    post_mock = mock_client_cls.return_value.__enter__.return_value.post
+    post_mock.return_value = mock_resp
+
+    report = _make_report()
+    send_report_email(report, MagicMock())
+
+    headers = post_mock.call_args.kwargs["headers"]
+    assert headers["Idempotency-Key"] == f"report-{report.id}"

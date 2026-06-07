@@ -27,6 +27,9 @@ Last updated: 2026-06-07
 | D-DEBT-2 | `compute_portfolio` has no `user_id` filter (loads all holdings) | MVP |
 | D-DEBT-3 | 天天基金 OCI reachability unverified | Ring 1 deploy |
 | D-DEBT-4 | Price staleness: `stale_tickers` only catches NULL price, not stale-dated prices | TBD |
+| G-DEBT-1 | `send_report_email` returns True even if `commit()` of `email_sent_at` fails; Resend Idempotency-Key prevents duplicate delivery but state is unpersisted. Persist a provider message id / use a conditional update. | Ring 1+ |
+| G-DEBT-2 | Concurrent-send dedup is best-effort (in-memory `email_sent_at` check + Resend Idempotency-Key), not a DB lock. Add a row lock / conditional update if multi-trigger paths appear. | Ring 1+ |
+| G-DEBT-3 | Email HTML uses a `<style>` block (`nth-child`, `max-width`, `border-radius`); not robust in Outlook/Gmail. Inline critical styles / table-based wrapper before real external recipients. | Ring 1+ |
 
 ## Language Policy (MANDATORY)
 

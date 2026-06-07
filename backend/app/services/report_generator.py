@@ -35,6 +35,7 @@ from typing import Any
 
 import httpx
 import openai
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -683,17 +684,51 @@ def generate_report(
     eff_date = report_date or datetime.now(tz=ET).date()
 
     # ------------------------------------------------------------------
-    # Create report record (status=in_progress)
+    # Idempotency: (user_id, report_date, report_type) is unique. A redelivered
+    # Celery task (task_acks_late=True) or a manual /reports/generate racing the
+    # weekly Beat run can re-enter for the same key. Short-circuit a completed
+    # report instead of inserting a duplicate that would fail on flush; reuse a
+    # prior failed/in_progress row so a retry can regenerate in place.
     # ------------------------------------------------------------------
-    report = Report(
-        user_id=user_id,
-        report_date=eff_date,
-        report_type=report_type,
-        status="in_progress",
-        prompt_version=_PROMPT_VERSION,
-        disclaimer_version=_DISCLAIMER_VERSION,
-    )
-    session.add(report)
+    existing = session.execute(
+        select(Report).where(
+            Report.user_id == user_id,
+            Report.report_date == eff_date,
+            Report.report_type == report_type,
+        )
+    ).scalar_one_or_none()
+
+    if existing is not None and existing.status in ("success", "skipped"):
+        logger.info(
+            "report %s: already complete for %s (status=%s) — returning existing",
+            existing.id,
+            eff_date,
+            existing.status,
+        )
+        return existing
+
+    # ------------------------------------------------------------------
+    # Create or reset report record (status=in_progress)
+    # ------------------------------------------------------------------
+    if existing is not None:
+        report = existing
+        report.status = "in_progress"
+        report.prompt_version = _PROMPT_VERSION
+        report.disclaimer_version = _DISCLAIMER_VERSION
+        report.report_md = None
+        report.report_inputs = None
+        report.generated_at = None
+        report.email_sent_at = None
+    else:
+        report = Report(
+            user_id=user_id,
+            report_date=eff_date,
+            report_type=report_type,
+            status="in_progress",
+            prompt_version=_PROMPT_VERSION,
+            disclaimer_version=_DISCLAIMER_VERSION,
+        )
+        session.add(report)
     session.flush()  # get the id without committing
     logger.info("report %s: generation started for %s", report.id, eff_date)
 
@@ -862,7 +897,14 @@ def generate_report(
         # ------------------------------------------------------------------
         # 10. Email
         # ------------------------------------------------------------------
-        send_report_email(report, session)
+        # The report is already committed as 'success' above. send_report_email
+        # is contracted never to raise, but we isolate it anyway so an unexpected
+        # failure here cannot fall through to the generation-failure handler and
+        # flip an already-persisted success to 'failed'.
+        try:
+            send_report_email(report, session)
+        except Exception:
+            logger.exception("report %s: email send raised unexpectedly", report.id)
 
         return report
 
