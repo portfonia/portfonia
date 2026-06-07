@@ -8,15 +8,16 @@ Last updated: 2026-06-07
 | Item | Value |
 |------|-------|
 | Ring stage | **Ring 0** (local dev machine, single user, no cloud) |
-| `main` HEAD | `548e0be` style: apply ruff format line-wrapping to news_fetcher |
-| Stages complete | A B C D E F1 F2 F3 G H (+ two Codex audit rounds applied) |
+| `main` HEAD | `5765c12` feat(reports): compliance output backstop, quiet-day heartbeat, CN encoding + audit hardening |
+| Stages complete | A B C D E F1 F2 F3 G H (+ 3 Codex audit rounds + 1 Opus self-audit applied) |
 | Next stage | **I** — 稳定运行验证（2-4 周，每周收到报告后主观评估质量） |
-| Backend quality | ruff OK · mypy OK (57 files) · pytest **202 passed** |
+| Backend quality | ruff OK · mypy OK (57 files) · pytest **210 passed** |
 | Frontend quality | tsc OK · eslint OK · next build OK |
-| LLM model | `deepseek/deepseek-v4-flash` via OpenRouter (provider=DigitalOcean,Venice) |
+| LLM model | `deepseek/deepseek-v4-flash` via OpenRouter (provider=DigitalOcean,Venice); `data_collection=deny` on every call |
 | Infrastructure | Homebrew PostgreSQL@16 + Redis (native, not Docker); `make infra-up` not needed |
-| Prompt version | `f2-v2` (Pass 1 prompt no longer carries holdings-derived price anomalies — data-isolation fix `e55cba0`; f2-v1 = anomalies in Pass 1) |
+| Prompt version | `f2-v2` (Pass 1 = public macro+news only, no holdings-derived anomalies; f2-v1 = anomalies in Pass 1) |
 | Disclaimer version | `f3-bilingual-v1` |
+| Report statuses | `success` · `skipped` (quiet day, still emails heartbeat) · `needs_review` (compliance scan hit, NOT emailed) · `failed` · `in_progress` |
 
 ### Known technical debt (carry forward until resolved)
 
@@ -30,6 +31,11 @@ Last updated: 2026-06-07
 | G-DEBT-1 | `send_report_email` returns True even if `commit()` of `email_sent_at` fails; Resend Idempotency-Key prevents duplicate delivery but state is unpersisted. Persist a provider message id / use a conditional update. | Ring 1+ |
 | G-DEBT-2 | Concurrent-send dedup is best-effort (in-memory `email_sent_at` check + Resend Idempotency-Key), not a DB lock. Add a row lock / conditional update if multi-trigger paths appear. | Ring 1+ |
 | G-DEBT-3 | Email HTML uses a `<style>` block (`nth-child`, `max-width`, `border-radius`); not robust in Outlook/Gmail. Inline critical styles / table-based wrapper before real external recipients. | Ring 1+ |
+| A-DEBT-1 | No DB domain constraints: `pricing_mode`/`asset_type`/`currency` are free `Text` (no CHECK/enum); `shares`/`current_value` have no `>= 0`. App layer + `ParsedRow` Literals are the only guard. Add CHECK constraints via migration **after** auditing existing dev rows (a CHECK that fails on legacy data blocks upgrade). | Ring 1 |
+| A-DEBT-2 | Test suite drops+creates+migrates a fresh DB per `db_session` test (correct for drift detection, but slow). Move to session-scoped migrated DB + per-test SAVEPOINT rollback. | Ring 1 |
+| A-DEBT-3 | `core/database.py` builds module-level `engine`/`SessionLocal` bound to the dev DB at import. Test isolation relies on every test overriding `get_session` or patching `SessionLocal` (discipline, not structure). | Ring 1 |
+| A-DEBT-4 | `ParsedRow` uses `float` for `shares`/`avg_cost`/`current_value`, bridged to `Decimal` via `Decimal(str(x))` at confirm. Bridge is adequate but inconsistent with the Decimal-everywhere model. | TBD |
+| A-DEBT-5 | `/holdings/upload` has no request body-size cap (`await file.read()` loads fully into memory). Local Ring 0 low risk; add a limit before any exposed deployment. | Ring 1 |
 
 ## Language Policy (MANDATORY)
 
@@ -72,6 +78,12 @@ in any other language.
 - Prompt-level hard constraints (the layer-3 rule + vocabulary blacklist)
   are part of the system prompt for every report and Q&A flow. Do not move
   these constraints to user-tunable prompts.
+- **Output-side backstop**: prompt instructions are not a guarantee, so the
+  generated body is scanned post-generation (`_scan_forbidden_output`) for
+  high-precision advisory phrases. A hit sets the report status to
+  `needs_review` and **suppresses email** — content is preserved for
+  inspection, never delivered. The scan covers the LLM body only, never the
+  template footer (whose disclaimer legitimately contains "buy/sell").
 - Each AI conclusion is suffixed with `[For information only — not investment advice]`.
 
 ## Architecture
@@ -115,13 +127,15 @@ Local (~/Portfonia)   →   GitHub   →   VPS (git pull && docker-compose up -d
 - When sending holdings to an external LLM, scope the payload to what the
   current report needs. Do not attach the full portfolio history "just in case".
 - **Two-pass isolation (enforced):** Pass 1 (search-query generation, low-cost
-  model, `with_holdings=False` → no `data_collection=deny`) must carry only
-  public data — macro themes + news headlines. Holdings-derived data, including
-  **price anomalies** (their name/ticker reveals a position), belongs only in
-  Pass 2 (`with_holdings=True` → deny enforced). Regression locked by
+  model) must carry only public data — macro themes + news headlines.
+  Holdings-derived data, including **price anomalies** (their name/ticker
+  reveals a position), belongs only in Pass 2. Regression locked by
   `test_pass1_prompt_excludes_holdings_derived_anomalies` and
   `test_generate_report_pass1_call_has_no_holdings`. Do not reintroduce
   holdings into `_build_pass1_prompt`.
+- **`data_collection=deny` is applied to every LLM call** (not just
+  holdings-bearing ones) as defense in depth: even if holdings leak into Pass 1
+  in the future, the call still cannot route to training providers.
 - Market data: cache same-day, same-symbol queries. yfinance is the default
   source; treat rate limits as a real constraint when adding new query paths.
 - FX rates: pull once per day into the FX table; all valuation reads from that
