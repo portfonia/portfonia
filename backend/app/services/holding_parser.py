@@ -4,6 +4,7 @@ import io
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 import openai
 
@@ -115,7 +116,13 @@ def _extract_text(file_bytes: bytes, filename: str) -> str:
             f"Unsupported file type '{suffix}'. Please upload .md, .txt, .csv, .xlsx, or .xls."
         )
     if suffix in (".md", ".txt", ".csv"):
-        return _strip_comments(file_bytes.decode("utf-8"))
+        # Chinese brokers (天天基金, 招商, etc.) commonly export GBK/GB2312, not
+        # UTF-8. Try UTF-8 first, then fall back to gb18030 (a superset of both)
+        # so a legitimately-encoded CN export doesn't 500 on decode.
+        try:
+            return _strip_comments(file_bytes.decode("utf-8"))
+        except UnicodeDecodeError:
+            return _strip_comments(file_bytes.decode("gb18030"))
     # Excel path
     try:
         import pandas as pd
@@ -157,12 +164,24 @@ def _strip_code_fence(content: str) -> str:
     return match.group(1) if match else content.strip()
 
 
-def _postprocess(raw_rows: list[dict]) -> list[ParsedRow]:  # type: ignore[type-arg]
+_ALLOWED_ASSET_TYPES = {"stock", "etf", "fund", "cash", "wmf", "other"}
+
+
+def _postprocess(raw_rows: list[dict[str, Any]]) -> list[ParsedRow]:
     """Apply deterministic post-processing on top of LLM output."""
     result: list[ParsedRow] = []
     seen: set[tuple[str | None, str | None, str]] = set()  # (ticker, fund_code, name)
 
     for row in raw_rows:
+        # Normalize asset_type to the known set BEFORE validation so an off-list
+        # value from the model is coerced to null (with a note) rather than
+        # either crashing a strict Literal or silently persisting garbage.
+        at = row.get("asset_type")
+        if at is not None and at not in _ALLOWED_ASSET_TYPES:
+            row["issues"] = list(row.get("issues") or [])
+            row["issues"].append(f"Unrecognized asset_type {at!r} dropped to null")
+            row["asset_type"] = None
+
         # Currency correction from ticker suffix.
         ticker: str | None = row.get("ticker")
         if ticker:

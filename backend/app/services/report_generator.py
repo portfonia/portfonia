@@ -1,19 +1,22 @@
 """LLM report generation pipeline (Ring 0 — Stage F2).
 
 Two-pass design:
-  Pass 1  macro signals + anomalies + headlines → LOW_COST_LLM → search queries
+  Pass 1  macro signals + headlines → LOW_COST_LLM → search queries
   Tavily  execute queries, collect background snippets
-  Pass 2  portfolio snapshot + Pass 1 context + search results → PRIMARY_LLM → §2/§3/§4 body
+  Pass 2  portfolio snapshot + Pass 1 context + anomalies + search results → PRIMARY_LLM → §2/§3/§4 body
   F2 annotate  post-process Pass 2 output → inject [行情] / [新闻: S#] / [分析] markers
+  Compliance scan  reject forbidden advisory language in the body (→ needs_review)
   Assemble  §1 (code-built) + annotated §2/§3/§4 → final Markdown
   Write   reports table (report_md + report_inputs JSONB)
 
 Layer-3/4 compliance:
   - System prompt contains the full forbidden-vocabulary list and Layer 3 rule.
+  - A post-generation scan backstops the prompt: a body that emits forbidden
+    advisory language is held as 'needs_review' and never emailed.
   - Disclaimer text is injected at the template layer (F3), not by the model.
-  - Holdings data is isolated to Pass 2; Pass 1 sees macro signals and anomaly
-    labels only (no user portfolio details).
-  - OPENROUTER_DATA_COLLECTION = "deny" is enforced on Pass 2 (contains holdings).
+  - Holdings data is isolated to Pass 2; Pass 1 sees macro signals and public
+    headlines only — never anomalies (which are holdings-derived).
+  - OPENROUTER_DATA_COLLECTION = "deny" is enforced on every LLM call.
 
 Source annotation (F2):
   [行情]       line references portfolio snapshot data directly (ticker/fund_code present,
@@ -61,6 +64,55 @@ _DISCLAIMER_VERSION = "f3-bilingual-v1"
 _NEWS_CITE_RE = re.compile(r"\[S(\d+)\]")
 # Compliance suffix that the LLM appends to every analytical conclusion.
 _COMPLIANCE_MARKER = "[For information only — not investment advice]"
+
+# Output-side compliance backstop (defense in depth on top of the system prompt).
+# High-precision advisory patterns only — bare words like "buy"/"sell"/"hold"
+# are deliberately excluded to avoid false positives on factual prose
+# ("Holdings", "buyback", "exit poll"). Scanned against the LLM body ONLY, never
+# the template footer (whose disclaimer legitimately says "not a recommendation
+# to buy or sell"). A hit marks the report 'needs_review' and suppresses email.
+_FORBIDDEN_OUTPUT_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        r"\brecommend\w*",
+        r"\bshould\s+(buy|sell|hold)\b",
+        r"\breduce\s+exposure\b",
+        r"\bincrease\s+(your\s+)?position\b",
+        r"\bstop[-\s]?loss\b",
+        r"\btarget\s+price\b",
+        r"\bentry\s+point\b",
+        r"\boversold\b",
+        r"\boverbought\b",
+        r"\bstrong\s+buy\b",
+        r"\b(bullish|bearish)\s+rating\b",
+        r"\bwill\s+(rise|fall)\s+to\b",
+        # High-precision Chinese advisory terms (body may be EN, but guard anyway).
+        r"止损",
+        r"强烈买入",
+        r"目标价",
+        r"投资建议",
+    )
+]
+
+
+def _scan_forbidden_output(body: str) -> list[str]:
+    """Return distinct forbidden advisory phrases found in an LLM report body.
+
+    Empty list = compliant. This is a backstop, not the primary guard — the
+    Layer-3 rule and vocabulary blacklist live in the system prompt. It exists
+    because prompt instructions are not a guarantee, and the Layer-4 boundary is
+    a hard prohibition for an intelligence (non-advisory) product.
+    """
+    found: list[str] = []
+    seen: set[str] = set()
+    for pat in _FORBIDDEN_OUTPUT_PATTERNS:
+        for m in pat.finditer(body):
+            term = m.group(0)
+            if term.lower() not in seen:
+                seen.add(term.lower())
+                found.append(term)
+    return found
+
 
 # Maximum search queries to run per report (avoids blowing Tavily daily budget
 # on a single run; the LLM is instructed to output ≤ this many anyway).
@@ -770,6 +822,13 @@ def generate_report(
             report.report_inputs = ctx.to_jsonb()
             report.generated_at = datetime.now(tz=UTC)
             session.commit()
+            # Heartbeat: still email on a quiet week so the recipient can tell a
+            # genuinely calm week apart from a silently broken pipeline. Isolated
+            # so a delivery failure cannot corrupt the committed 'skipped' status.
+            try:
+                send_report_email(report, session)
+            except Exception:
+                logger.exception("report %s: quiet-day email send raised unexpectedly", report.id)
             return report
 
         # ------------------------------------------------------------------
@@ -868,6 +927,12 @@ def generate_report(
         logger.info("report %s: F2 annotation applied", report.id)
 
         # ------------------------------------------------------------------
+        # 7b. Compliance backstop — scan the LLM body (NOT the template footer)
+        # for forbidden advisory language before the report can be delivered.
+        # ------------------------------------------------------------------
+        violations = _scan_forbidden_output(annotated_pass2)
+
+        # ------------------------------------------------------------------
         # 8. Assemble final report (F3: footer injected at template layer)
         # ------------------------------------------------------------------
         report_date_str = eff_date.strftime("%Y-%m-%d")
@@ -878,11 +943,21 @@ def generate_report(
         # ------------------------------------------------------------------
         # 9. Persist
         # ------------------------------------------------------------------
-        report.status = "success"
+        # Compliance > everything: a body that tripped the blacklist is held as
+        # 'needs_review' and never emailed — content is preserved for inspection.
+        report.status = "needs_review" if violations else "success"
         report.report_md = full_md
         report.report_inputs = ctx.to_jsonb()
         report.generated_at = datetime.now(tz=UTC)
         session.commit()
+
+        if violations:
+            logger.error(
+                "report %s: BLOCKED for compliance review — forbidden terms: %s",
+                report.id,
+                violations,
+            )
+            return report
 
         logger.info(
             "report %s: generation complete (%d chars, %d search results)",

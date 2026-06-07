@@ -390,6 +390,78 @@ def test_generate_report_pass1_call_has_no_holdings(db_session: Session) -> None
     assert "Apple" not in captured["pass1_user"]
 
 
+# ---------------------------------------------------------------------------
+# Tests: compliance output backstop
+# ---------------------------------------------------------------------------
+
+
+def test_scan_forbidden_output_flags_advisory_language() -> None:
+    assert rg._scan_forbidden_output("You should buy more AAPL.") == ["should buy"]
+    assert rg._scan_forbidden_output("We recommend reducing exposure.")  # non-empty
+    assert rg._scan_forbidden_output("Set a stop-loss near 100.")
+    assert rg._scan_forbidden_output("止损位在 100。")
+
+
+def test_scan_forbidden_output_no_false_positives() -> None:
+    """Factual prose with substrings of forbidden words must stay clean."""
+    clean = (
+        "## §3 Holdings Intelligence\n"
+        "The company announced a buyback; households increased savings. "
+        "AAPL exits the index. Threshold breached. "
+        "[For information only — not investment advice]"
+    )
+    assert rg._scan_forbidden_output(clean) == []
+
+
+def _mock_llm_noncompliant(
+    client: object, model: str, system: str, user: str, *, with_holdings: bool = False
+) -> str:
+    if with_holdings:
+        return (
+            "## §2 Macro Signals\n\nYou should buy more semiconductors now. "
+            "[For information only — not investment advice]"
+        )
+    return _FAKE_LLM_PASS1
+
+
+def test_generate_report_blocks_noncompliant_body(
+    db_session: Session, _no_email: MagicMock
+) -> None:
+    """A body that trips the blacklist is held as needs_review and never emailed."""
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch("app.services.report_generator.fetch_news", return_value=[_news_item("Fed")]),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+        patch("app.services.report_generator.detect_price_anomalies", return_value=[_anomaly()]),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_mock_llm_noncompliant),
+        patch("app.services.report_generator._run_tavily_search", return_value=[]),
+    ):
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert report.status == "needs_review"
+    assert report.report_md is not None  # content preserved for inspection
+    _no_email.assert_not_called()
+
+
+def test_generate_report_quiet_day_sends_heartbeat(
+    db_session: Session, _no_email: MagicMock
+) -> None:
+    """A quiet week must still deliver a heartbeat email so silence != broken."""
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch("app.services.report_generator.fetch_news", return_value=[]),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_quiet_signals()),
+        patch("app.services.report_generator.detect_price_anomalies", return_value=[]),
+    ):
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert report.status == "skipped"
+    _no_email.assert_called_once()
+
+
 def test_stale_ticker_hint_fund_code() -> None:
     assert "CN mutual fund" in rg._stale_ticker_hint("005827")
     assert "天天基金" in rg._stale_ticker_hint("005827")

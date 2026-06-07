@@ -20,7 +20,7 @@ class ParsedRow(BaseModel):
     avg_cost: float | None = None
     current_value: float | None = None
     pricing_mode: Literal["auto", "manual"]
-    asset_type: str | None = None
+    asset_type: Literal["stock", "etf", "fund", "cash", "wmf", "other"] | None = None
     broker: str | None = None
     account: str | None = None
     portfolio: str | None = None
