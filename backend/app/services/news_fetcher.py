@@ -37,7 +37,10 @@ _RSS_SOURCES: list[tuple[str, str]] = [
     ("NYT", "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml"),
     ("FT", "https://www.ft.com/?format=rss"),
     # Reuters direct feed retired ~2020; routed via Google News RSS (DI-validated, ~30 items).
-    ("Reuters", "https://news.google.com/rss/search?q=site:reuters.com+business&hl=en-US&gl=US&ceid=US:en"),
+    (
+        "Reuters",
+        "https://news.google.com/rss/search?q=site:reuters.com+business&hl=en-US&gl=US&ceid=US:en",
+    ),
 ]
 
 _REQUEST_TIMEOUT = 15  # seconds per feed
