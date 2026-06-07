@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_PROMPT_VERSION = "f2-v1"
+_PROMPT_VERSION = "f2-v2"  # f2-v2: Pass 1 no longer carries holdings-derived anomalies
 _DISCLAIMER_VERSION = "f3-bilingual-v1"
 
 # Compiled once; matches LLM-emitted [S1], [S12] etc.

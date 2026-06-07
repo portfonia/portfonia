@@ -8,14 +8,14 @@ Last updated: 2026-06-07
 | Item | Value |
 |------|-------|
 | Ring stage | **Ring 0** (local dev machine, single user, no cloud) |
-| `main` HEAD | `1c18516` fix(tests): block live Resend API calls in report_generator tests |
-| Stages complete | A B C D E F1 F2 F3 G H |
+| `main` HEAD | `548e0be` style: apply ruff format line-wrapping to news_fetcher |
+| Stages complete | A B C D E F1 F2 F3 G H (+ two Codex audit rounds applied) |
 | Next stage | **I** — 稳定运行验证（2-4 周，每周收到报告后主观评估质量） |
-| Backend quality | ruff OK · mypy OK (57 files) · pytest **198 passed** |
+| Backend quality | ruff OK · mypy OK (57 files) · pytest **202 passed** |
 | Frontend quality | tsc OK · eslint OK · next build OK |
 | LLM model | `deepseek/deepseek-v4-flash` via OpenRouter (provider=DigitalOcean,Venice) |
 | Infrastructure | Homebrew PostgreSQL@16 + Redis (native, not Docker); `make infra-up` not needed |
-| Prompt version | `f2-v1` (LLM prompts unchanged since F1) |
+| Prompt version | `f2-v2` (Pass 1 prompt no longer carries holdings-derived price anomalies — data-isolation fix `e55cba0`; f2-v1 = anomalies in Pass 1) |
 | Disclaimer version | `f3-bilingual-v1` |
 
 ### Known technical debt (carry forward until resolved)
@@ -114,6 +114,14 @@ Local (~/Portfonia)   →   GitHub   →   VPS (git pull && docker-compose up -d
   holdings in training data, LLM fine-tuning datasets, or third-party logs.
 - When sending holdings to an external LLM, scope the payload to what the
   current report needs. Do not attach the full portfolio history "just in case".
+- **Two-pass isolation (enforced):** Pass 1 (search-query generation, low-cost
+  model, `with_holdings=False` → no `data_collection=deny`) must carry only
+  public data — macro themes + news headlines. Holdings-derived data, including
+  **price anomalies** (their name/ticker reveals a position), belongs only in
+  Pass 2 (`with_holdings=True` → deny enforced). Regression locked by
+  `test_pass1_prompt_excludes_holdings_derived_anomalies` and
+  `test_generate_report_pass1_call_has_no_holdings`. Do not reintroduce
+  holdings into `_build_pass1_prompt`.
 - Market data: cache same-day, same-symbol queries. yfinance is the default
   source; treat rate limits as a real constraint when adding new query paths.
 - FX rates: pull once per day into the FX table; all valuation reads from that
