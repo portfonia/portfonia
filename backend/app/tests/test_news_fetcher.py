@@ -309,7 +309,9 @@ def test_fetch_news_sorted_newest_first() -> None:
 
 
 def test_fetch_news_failed_source_does_not_abort_others() -> None:
-    good_feed = _rss([("Good", "https://example.com/g", _pubdate(datetime.now(tz=UTC) - timedelta(hours=1)))])
+    good_feed = _rss(
+        [("Good", "https://example.com/g", _pubdate(datetime.now(tz=UTC) - timedelta(hours=1)))]
+    )
 
     def _side_effect(source: str, url: str, cutoff: datetime) -> list[NewsItem]:
         if source == "BAD":
