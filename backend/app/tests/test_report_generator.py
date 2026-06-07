@@ -1,8 +1,8 @@
-"""Tests for report_generator (F1).
+"""Tests for report_generator (F1/F2/F3/G).
 
 Strategy:
 - All external calls (LLM, Tavily, news_fetcher, macro_detector,
-  price_anomaly_detector) are mocked via patch.
+  price_anomaly_detector, email_sender) are mocked via patch.
 - DB operations use the db_session fixture (real Postgres).
 - Tests cover: normal path, quiet-day skip, LLM failure, Tavily failure (degraded).
 """
@@ -30,6 +30,20 @@ from app.services.price_anomaly_detector import PriceAnomaly
 _USER = uuid.UUID("00000000-0000-0000-0000-000000000099")
 _NOW = datetime(2026, 6, 4, 20, 0, tzinfo=UTC)
 _TODAY = date(2026, 6, 4)
+
+
+# ---------------------------------------------------------------------------
+# Module-level guard: block real email delivery in every test in this file.
+# Without this, any test that reaches step 10 of generate_report() hits the
+# live Resend API and sends an actual email.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _no_email() -> MagicMock:  # type: ignore[misc]
+    with patch("app.services.report_generator.send_report_email") as mock:
+        mock.return_value = True
+        yield mock
 
 
 # ---------------------------------------------------------------------------
