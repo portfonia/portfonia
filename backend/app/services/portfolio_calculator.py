@@ -200,6 +200,9 @@ def compute_portfolio(
     fx, fx_date = _load_fx_rates(session)
     snapshot = PortfolioSnapshot(base_currency=base_currency, fx_date=fx_date or date.today())
 
+    # D-DEBT-2 (single-user only): no user_id filter — this loads ALL holdings.
+    # Safe under Ring 0's single user; MUST add `.where(Holding.user_id == ...)`
+    # before any multi-user deployment or it will mix tenants into one report.
     holdings: list[Holding] = list(session.execute(select(Holding)).scalars())
 
     for h in holdings:

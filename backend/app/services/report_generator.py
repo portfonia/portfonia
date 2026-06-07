@@ -148,8 +148,11 @@ def _call_llm(
 ) -> str:
     """Call an OpenRouter model.  Returns the assistant content string.
 
-    When with_holdings=True, the data_collection policy from settings is
-    enforced (deny) so the call never routes to providers that train on payload.
+    The data_collection policy (deny) is enforced on EVERY call as defense in
+    depth: although Pass 1 is contractually holdings-free, denying training
+    providers unconditionally means an accidental future holdings leak is still
+    protected. `with_holdings` is retained only as an explicit intent marker for
+    callers (and the test harness) — it no longer gates the data policy.
     """
     extra: dict[str, Any] = {}
     settings = get_settings()
@@ -157,7 +160,7 @@ def _call_llm(
     provider: dict[str, object] = {"allow_fallbacks": settings.OPENROUTER_ALLOW_FALLBACKS}
     if order:
         provider["order"] = order
-    if with_holdings and settings.OPENROUTER_DATA_COLLECTION:
+    if settings.OPENROUTER_DATA_COLLECTION:
         provider["data_collection"] = settings.OPENROUTER_DATA_COLLECTION
     if provider.keys() - {"allow_fallbacks"}:
         extra["provider"] = provider
