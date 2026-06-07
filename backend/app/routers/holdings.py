@@ -116,7 +116,17 @@ def _render_markdown(holdings: list[Holding]) -> str:
     for h in holdings:
 
         def _cell(v: object) -> str:
-            return str(v) if v is not None else ""
+            if v is None:
+                return ""
+            # Escape pipes and flatten newlines so free-text fields (name, notes)
+            # cannot break or inject into the Markdown table structure.
+            return (
+                str(v)
+                .replace("\\", "\\\\")
+                .replace("|", "\\|")
+                .replace("\n", " ")
+                .replace("\r", " ")
+            )
 
         lines.append(
             f"| {_cell(h.name)} | {_cell(h.ticker)} | {_cell(h.fund_code)} "

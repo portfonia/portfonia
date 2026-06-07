@@ -335,9 +335,12 @@ def _serialize_portfolio(snap: PortfolioSnapshot) -> dict[str, Any]:
 
 def _build_pass1_prompt(
     signals: MacroSignals,
-    anomalies: list[PriceAnomaly],
     news: list[NewsItem],
 ) -> str:
+    # DATA ISOLATION: Pass 1 runs without data_collection=deny, so it must carry
+    # only public information (macro themes + news headlines). Price anomalies are
+    # holdings-derived (name/ticker reveal what the user owns) and are therefore
+    # withheld here — they are supplied only to Pass 2, which enforces deny.
     lines: list[str] = []
 
     lines.append("=== TODAY'S MACRO SIGNAL THEMES ===")
@@ -349,17 +352,6 @@ def _build_pass1_prompt(
                 lines.append(f"  - [{a.source}] {a.title}")
     else:
         lines.append("(no macro themes triggered)")
-
-    lines.append("")
-    lines.append("=== PRICE ANOMALIES ===")
-    if anomalies:
-        for pa in anomalies[:10]:
-            direction = "+" if pa.pct_change > 0 else ""
-            lines.append(
-                f"  {pa.name} ({pa.identifier}): {direction}{float(pa.pct_change) * 100:.2f}% [{pa.asset_type}]"
-            )
-    else:
-        lines.append("(no anomalies detected)")
 
     lines.append("")
     lines.append("=== TOP HEADLINES (past 24 h) ===")
@@ -787,7 +779,9 @@ def generate_report(
             "\nYou are generating search queries for a financial intelligence analyst. "
             "Output ONLY a JSON object with a list of search queries. No other text."
         )
-        pass1_user = _build_pass1_prompt(macro_signals, anomalies, news_items)
+        # Anomalies are intentionally NOT passed: they are holdings-derived and
+        # Pass 1 must stay holdings-free (see _build_pass1_prompt).
+        pass1_user = _build_pass1_prompt(macro_signals, news_items)
 
         ctx.pass1_model = low_cost_model
         ctx.pass1_prompt = pass1_user
