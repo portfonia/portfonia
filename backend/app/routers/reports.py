@@ -10,6 +10,7 @@ from app.core.database import get_session
 from app.core.deps import get_current_user_id
 from app.models.report import Report
 from app.schemas.reports import GenerateReportRequest, ReportListItem, ReportOut
+from app.services.email_sender import send_report_email
 from app.services.report_generator import generate_report
 
 router = APIRouter()
@@ -39,6 +40,34 @@ def list_reports(session: Session = Depends(get_session)) -> list[Report]:
         .limit(20)
     ).scalars()
     return list(rows)
+
+
+@router.post("/{report_id}/send", status_code=200)
+def send_report(
+    report_id: uuid.UUID,
+    session: Session = Depends(get_session),
+) -> dict[str, str | None]:
+    """Manually trigger (or re-check) email delivery for an existing report."""
+    user_id = get_current_user_id()
+    report = session.execute(
+        select(Report).where(Report.id == report_id, Report.user_id == user_id)
+    ).scalar_one_or_none()
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if report.status != "success":
+        raise HTTPException(status_code=422, detail="Report is not in success state")
+    if report.email_sent_at is not None:
+        return {
+            "status": "already_sent",
+            "email_sent_at": report.email_sent_at.isoformat(),
+        }
+    delivered = send_report_email(report, session)
+    if not delivered:
+        raise HTTPException(status_code=502, detail="Email delivery failed — check server logs")
+    return {
+        "status": "sent",
+        "email_sent_at": report.email_sent_at.isoformat() if report.email_sent_at else None,
+    }
 
 
 @router.get("/{report_id}", response_model=ReportOut)

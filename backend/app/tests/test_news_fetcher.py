@@ -263,7 +263,7 @@ def _make_feed_side_effect(feed_map: dict[str, bytes]):  # type: ignore[no-untyp
 
 def test_fetch_news_deduplicates_same_url_across_sources() -> None:
     shared_url = "https://example.com/shared"
-    pub = _pubdate(_NOW - timedelta(hours=1))
+    pub = _pubdate(datetime.now(tz=UTC) - timedelta(hours=1))
     feed_a = _rss([("Shared", shared_url, pub)])
     feed_b = _rss([("Shared Again", shared_url, pub), ("Unique B", "https://example.com/b", pub)])
 
@@ -309,7 +309,7 @@ def test_fetch_news_sorted_newest_first() -> None:
 
 
 def test_fetch_news_failed_source_does_not_abort_others() -> None:
-    good_feed = _rss([("Good", "https://example.com/g", _pubdate(_NOW - timedelta(hours=1)))])
+    good_feed = _rss([("Good", "https://example.com/g", _pubdate(datetime.now(tz=UTC) - timedelta(hours=1)))])
 
     def _side_effect(source: str, url: str, cutoff: datetime) -> list[NewsItem]:
         if source == "BAD":
