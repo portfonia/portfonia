@@ -95,8 +95,12 @@ _HTML_TEMPLATE = """\
 </html>
 """
 
-# Enable the table rule (GFM tables; disabled in commonmark baseline).
-_md = MarkdownIt().enable("table")
+# Render report Markdown to HTML.
+# - html=False escapes any raw HTML in the LLM output (defense against
+#   <script>/<img onerror=...> injection if the report is ever viewed in a
+#   browser or admin UI; email clients usually strip it but we do not rely on that).
+# - enable("table") restores GFM tables, which the commonmark baseline disables.
+_md = MarkdownIt("commonmark", {"html": False}).enable("table")
 
 
 def _render_html(markdown: str) -> str:
@@ -150,6 +154,11 @@ def send_report_email(report: Report, session: Session) -> bool:
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
+                    # Provider-side dedup: identical key within Resend's window is
+                    # not re-delivered. Guards against a redelivered Celery task or
+                    # two near-simultaneous manual sends both passing the in-memory
+                    # email_sent_at check (the DB guard is best-effort, not a lock).
+                    "Idempotency-Key": f"report-{report.id}",
                 },
                 json=payload,
             )
