@@ -30,6 +30,9 @@ class Report(Base):
     disclaimer_version: Mapped[str | None] = mapped_column(Text)
     report_md: Mapped[str | None] = mapped_column(Text)
     report_html: Mapped[str | None] = mapped_column(Text)
+    # SENSITIVE: full portfolio snapshot (names, tickers, market values, ratios).
+    # Stored as plaintext JSONB and never exposed via ReportOut. Keep it out of
+    # any API schema/log; encrypt at rest before Ring 1 (see CLAUDE.md Data Handling).
     report_inputs: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     email_sent_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     generated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))

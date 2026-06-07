@@ -54,6 +54,14 @@ def _patched_client(body_by_code: dict[str, str]) -> MagicMock:
     return cm
 
 
+def test_fetch_nav_rejects_non_six_digit_code_without_request() -> None:
+    """Boundary guard: a malformed fund_code must be skipped before any HTTP call."""
+    client = MagicMock()
+    for bad in ("../etc", "00582", "0058271", "abcdef", ""):
+        assert fund_nav_fetcher._fetch_nav(bad, client) is None
+    client.get.assert_not_called()
+
+
 def test_official_nav_parsed_and_anchored_to_cst(db_session: Session) -> None:
     db_session.add(_fund("E Fund Blue Chip", "005827"))
     db_session.flush()

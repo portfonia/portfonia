@@ -39,6 +39,13 @@ def _fetch_nav(fund_code: str, client: httpx.Client) -> tuple[Decimal, datetime]
     Returns (nav, price_as_of) where price_as_of is the NAV date at
     15:00 CST (A-share close). Returns None on any error.
     """
+    # Boundary guard: fund_code is interpolated into the request URL and
+    # originates from LLM-parsed holdings. CN mutual-fund codes are exactly six
+    # digits; reject anything else so malformed codes can't shape the URL or
+    # waste a request.
+    if not re.fullmatch(r"\d{6}", fund_code):
+        logger.warning("skipping NAV fetch for invalid fund_code %r (expect 6 digits)", fund_code)
+        return None
     url = _NAV_URL.format(fund_code=fund_code)
     try:
         resp = client.get(url, timeout=10)
