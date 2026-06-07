@@ -73,7 +73,12 @@ def alembic_cfg(monkeypatch: pytest.MonkeyPatch) -> Generator[Config, None, None
 def db_session(
     alembic_cfg: Config, monkeypatch: pytest.MonkeyPatch
 ) -> Generator[Session, None, None]:
-    """Migrate the test DB to head, yield a live session, roll back after each test."""
+    """Migrate the test DB to head and yield a live session.
+
+    Isolation comes from `alembic_cfg` dropping the throwaway database after each
+    test, not from a per-test rollback — committed writes are discarded with the
+    DB on teardown.
+    """
     command.upgrade(alembic_cfg, "head")
     s = get_settings()
     engine = create_engine(

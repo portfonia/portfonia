@@ -44,9 +44,32 @@ def test_extract_csv() -> None:
     assert _extract_text(content, "h.csv") == "name,ticker\nApple,AAPL"
 
 
+def test_extract_csv_gbk_fallback() -> None:
+    """A GBK-encoded CN export must decode via the gb18030 fallback, not 500."""
+    content = "名称,代码\n招商银行,600036.SS".encode("gb18030")
+    assert _extract_text(content, "h.csv") == "名称,代码\n招商银行,600036.SS"
+
+
 def test_extract_unsupported_extension_raises() -> None:
     with pytest.raises(ValueError, match="Unsupported file type"):
         _extract_text(b"data", "holdings.pdf")
+
+
+def test_postprocess_coerces_unknown_asset_type_to_null() -> None:
+    raw = [
+        {
+            "name": "Mystery",
+            "currency": "USD",
+            "shares": 1,
+            "pricing_mode": "auto",
+            "asset_type": "crypto",
+            "issues": [],
+            "confidence": 0.9,
+        }
+    ]
+    rows = _postprocess(raw)
+    assert rows[0].asset_type is None
+    assert any("crypto" in i for i in rows[0].issues)
 
 
 def test_extract_xlsx_single_sheet(tmp_path: Path) -> None:

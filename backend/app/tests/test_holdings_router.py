@@ -222,3 +222,18 @@ def test_export_empty_holdings(app_client: TestClient) -> None:
     resp = app_client.get("/holdings/export")
     assert resp.status_code == 200
     assert "# Holdings" in resp.text
+
+
+def test_export_escapes_pipes_and_newlines_in_free_text(app_client: TestClient) -> None:
+    """A pipe or newline in name/notes must not break the Markdown table."""
+    row = {**_PARSED_APPLE, "name": "Acme | Corp", "notes": "line1\nline2"}
+    app_client.post("/holdings/confirm", json=[row])
+    body = app_client.get("/holdings/export").text
+
+    # One holding → exactly 3 table lines (header + divider + 1 row). A raw
+    # newline would have spilled the row; an unescaped pipe would have added a
+    # column. Both must be neutralized.
+    table_lines = [ln for ln in body.splitlines() if ln.startswith("|")]
+    assert len(table_lines) == 3
+    assert "Acme \\| Corp" in body
+    assert "line1 line2" in body  # newline flattened, not split across rows
