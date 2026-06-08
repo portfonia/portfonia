@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     # only to disable this guard (not recommended for holdings-bearing calls).
     OPENROUTER_DATA_COLLECTION: str = "deny"
 
+    # Report output language. The LLM reasons in English (higher quality), then
+    # the assembled report is translated to this language at render time. "en"
+    # skips translation. Ring 0 default: Simplified Chinese.
+    OUTPUT_LANG: str = "zh"
+
     # Search
     TAVILY_API_KEY: SecretStr
     TAVILY_DAILY_BUDGET: int = 10

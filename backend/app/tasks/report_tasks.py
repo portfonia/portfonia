@@ -24,13 +24,14 @@ def generate_weekly_report(self: Any) -> dict[str, str]:
     """
     # Imports are deferred so the module loads fast and avoids circular deps
     # when Celery first imports the task registry.
+    from app.core.config import get_settings
     from app.core.database import SessionLocal
     from app.services.report_generator import generate_report
 
     logger.info("generate_weekly_report: starting")
     session = SessionLocal()
     try:
-        report = generate_report(session)
+        report = generate_report(session, output_lang=get_settings().OUTPUT_LANG)
         logger.info(
             "generate_weekly_report: complete — report_id=%s status=%s",
             report.id,
