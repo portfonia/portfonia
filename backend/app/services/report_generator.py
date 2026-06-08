@@ -4,9 +4,10 @@ Two-pass design:
   Pass 1  macro signals + headlines → LOW_COST_LLM → search queries
   Tavily  execute queries, collect background snippets
   Pass 2  portfolio snapshot + Pass 1 context + anomalies + search results → PRIMARY_LLM → §2/§3/§4 body
-  F2 annotate  post-process Pass 2 output → inject [行情] / [新闻: S#] / [分析] markers
+  F2 annotate  post-process Pass 2 output → inject [行情] / [新闻] / [分析] markers
   Compliance scan  reject forbidden advisory language in the body (→ needs_review)
-  Assemble  §1 (code-built) + annotated §2/§3/§4 → final Markdown
+  Assemble  header + data-window + §1 (code-built) + annotated §2/§3/§4 + footer
+  Render   translate the assembled report to the output language (#8)
   Write   reports table (report_md + report_inputs JSONB)
 
 Layer-3/4 compliance:
@@ -21,7 +22,7 @@ Layer-3/4 compliance:
 Source annotation (F2):
   [行情]       line references portfolio snapshot data directly (ticker/fund_code present,
                no Tavily citation)
-  [新闻: S#]   normalised from LLM's [S#] notation; refers to Tavily search result
+  [新闻]       collapsed from the LLM's [S#] notation; line is news-sourced
   [分析]       analytical inference by the LLM; injected before the compliance marker
 """
 
@@ -139,6 +140,15 @@ strong buy, bullish rating, bearish rating.
 Every analytical conclusion you state must end with the marker:
 [For information only — not investment advice]
 """
+
+# Pass 2 task instructions (shared by live generation and re-analysis).
+_PASS2_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + (
+    "\nYou are writing a structured financial intelligence briefing for a "
+    "private investor. Use Markdown. Be concise and factual. "
+    "Cite search results with [S#] notation (e.g. [S1], [S2]). "
+    "Every analytical conclusion must end with the marker: "
+    "[For information only — not investment advice]"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -736,6 +746,90 @@ def _annotate_sources(text: str, portfolio: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Assembly / rendering (shared by live generation and re-render)
+# ---------------------------------------------------------------------------
+
+
+def _build_data_window(
+    news_items: list[dict[str, Any]], portfolio: dict[str, Any], report_date_str: str
+) -> str:
+    """A one-line statement of the intel/data interval this report covers (#5)."""
+    times = sorted(n["published_at"] for n in news_items if n.get("published_at"))
+    if times:
+        lo = times[0][:16].replace("T", " ")
+        hi = times[-1][:16].replace("T", " ")
+        news_line = f"news {lo} to {hi} UTC ({len(news_items)} items)"
+    else:
+        news_line = "no news in window"
+    price_dates = sorted(
+        h["price_as_of"][:10] for h in portfolio.get("holdings", []) if h.get("price_as_of")
+    )
+    price_line = f"prices through {price_dates[-1]}" if price_dates else "prices unavailable"
+    fx_date = portfolio.get("fx_date", "n/a")
+    return (
+        f"> **Data window** — {news_line}; {price_line}; FX as of {fx_date}. "
+        "Price moves are measured against the prior close.\n\n"
+    )
+
+
+def _translate_md(md: str, target_lang: str) -> str:
+    """Translate an assembled report to *target_lang* (#8).
+
+    The LLM reasons in English upstream; this renders the final text in the
+    user's language. Tickers, numbers, table structure, and bracketed markers
+    ([行情]/[新闻]/[分析]/the compliance marker) are preserved verbatim. 'en' is
+    a no-op (the canonical language).
+    """
+    if target_lang == "en":
+        return md
+    lang_name = {"zh": "Simplified Chinese"}.get(target_lang, target_lang)
+    settings = get_settings()
+    system = (
+        "You are a professional financial translator. Translate the user's Markdown "
+        f"report into {lang_name}. STRICT RULES: preserve all Markdown structure, "
+        "tables, and numbers exactly; keep ticker symbols, fund codes, currency "
+        "codes, and any bracketed tag verbatim — including [行情], [新闻], [分析] and "
+        "[For information only — not investment advice]. Translate only natural-"
+        "language prose. Do not add, remove, or reorder content, and never introduce "
+        "advisory or recommendation language."
+    )
+    return _call_llm(
+        _openrouter_client(), settings.PRIMARY_LLM_MODEL, system, md, with_holdings=True
+    )
+
+
+def _render_full_md(
+    report_date_str: str,
+    portfolio: dict[str, Any],
+    news_items: list[dict[str, Any]],
+    raw_body: str,
+    output_lang: str,
+) -> tuple[str, list[str]]:
+    """Annotate, assemble, language-render, and compliance-scan a report.
+
+    Returns (full_markdown, violations). Pure function of its inputs — this is
+    what makes #6 re-render possible: the same stored inputs reproduce the same
+    report without re-fetching news or re-running search.
+    """
+    annotated = _annotate_sources(raw_body, portfolio)
+    header = f"# Portfonia Intelligence Report — {report_date_str}\n\n"
+    window = _build_data_window(news_items, portfolio, report_date_str)
+    section1 = _build_section1(portfolio)
+    dynamic_en = header + window + section1 + "\n\n" + annotated
+
+    # Compliance scan on the English canonical first (highest-signal blacklist).
+    violations = _scan_forbidden_output(annotated)
+
+    dynamic_out = _translate_md(dynamic_en, output_lang)
+    if output_lang != "en":
+        # Translation can paraphrase into advisory tone — re-scan the output.
+        violations = violations + _scan_forbidden_output(dynamic_out)
+
+    full_md = dynamic_out + _build_footer(portfolio)
+    return full_md, violations
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -745,6 +839,7 @@ def generate_report(
     report_date: date | None = None,
     report_type: str = "weekly",
     base_currency: str = "USD",
+    output_lang: str = "en",
 ) -> Report:
     """
     Run the full F1 report generation pipeline and persist the result.
@@ -833,9 +928,7 @@ def generate_report(
         # ------------------------------------------------------------------
         if not macro_signals.has_any_hit and not anomalies:
             logger.info("report %s: quiet day — no signals, no anomalies", report.id)
-            section1 = _build_section1(ctx.portfolio_summary)
             quiet_body = (
-                f"{section1}\n\n"
                 "## §2 Macro Signals\n\n"
                 "No macro keyword themes triggered in the past 24 hours.\n\n"
                 "## §3 Holdings Intelligence\n\n"
@@ -843,7 +936,13 @@ def generate_report(
                 "## §4 Risk Radar\n\n"
                 "No price anomalies or concentration alerts at this time."
             )
-            quiet_md = quiet_body + _build_footer(ctx.portfolio_summary)
+            quiet_md, _ = _render_full_md(
+                eff_date.strftime("%Y-%m-%d"),
+                ctx.portfolio_summary,
+                ctx.news_items,
+                quiet_body,
+                output_lang,
+            )
             report.status = "skipped"
             report.report_md = quiet_md
             report.report_inputs = ctx.to_jsonb()
@@ -916,22 +1015,9 @@ def generate_report(
             r["index"] = i + 1
 
         # ------------------------------------------------------------------
-        # 5. Assemble §1 (code-built)
-        # ------------------------------------------------------------------
-        section1_md = _build_section1(ctx.portfolio_summary)
-
-        # ------------------------------------------------------------------
         # 6. Pass 2 — full report body
         # ------------------------------------------------------------------
         primary_model = settings.PRIMARY_LLM_MODEL
-
-        pass2_system = _COMPLIANCE_SYSTEM_PREFIX + (
-            "\nYou are writing a structured financial intelligence briefing for a "
-            "private investor. Use Markdown. Be concise and factual. "
-            "Cite search results with [S#] notation (e.g. [S1], [S2]). "
-            "Every analytical conclusion must end with the marker: "
-            "[For information only — not investment advice]"
-        )
         pass2_user = _build_pass2_prompt(
             ctx.portfolio_summary,
             ctx.macro_signals,
@@ -944,28 +1030,17 @@ def generate_report(
 
         logger.info("report %s: Pass 2 LLM call (%s)", report.id, primary_model)
         # Pass 2 carries holdings → enforce data_collection=deny
-        raw_pass2 = _call_llm(client, primary_model, pass2_system, pass2_user, with_holdings=True)
+        raw_pass2 = _call_llm(client, primary_model, _PASS2_SYSTEM, pass2_user, with_holdings=True)
         ctx.pass2_raw = raw_pass2
 
         # ------------------------------------------------------------------
-        # 7. F2 source annotation post-processing
-        # ------------------------------------------------------------------
-        annotated_pass2 = _annotate_sources(raw_pass2, ctx.portfolio_summary)
-        logger.info("report %s: F2 annotation applied", report.id)
-
-        # ------------------------------------------------------------------
-        # 7b. Compliance backstop — scan the LLM body (NOT the template footer)
-        # for forbidden advisory language before the report can be delivered.
-        # ------------------------------------------------------------------
-        violations = _scan_forbidden_output(annotated_pass2)
-
-        # ------------------------------------------------------------------
-        # 8. Assemble final report (F3: footer injected at template layer)
+        # 7/8. Annotate + assemble + render language + compliance scan (#5/#7/#8)
         # ------------------------------------------------------------------
         report_date_str = eff_date.strftime("%Y-%m-%d")
-        header = f"# Portfonia Intelligence Report — {report_date_str}\n\n"
-        footer = _build_footer(ctx.portfolio_summary)
-        full_md = header + section1_md + "\n\n" + annotated_pass2 + footer
+        full_md, violations = _render_full_md(
+            report_date_str, ctx.portfolio_summary, ctx.news_items, raw_pass2, output_lang
+        )
+        logger.info("report %s: assembled + rendered (lang=%s)", report.id, output_lang)
 
         # ------------------------------------------------------------------
         # 9. Persist
@@ -1016,3 +1091,71 @@ def generate_report(
         except Exception:
             session.rollback()
         raise
+
+
+def regenerate_report(
+    session: Session,
+    report_id: uuid.UUID,
+    *,
+    mode: str = "render",
+    output_lang: str = "en",
+) -> Report:
+    """Rebuild an existing report from its stored inputs WITHOUT re-fetching (#6).
+
+    Intel acquisition (news, Tavily, Pass 1) is never repeated — that data is
+    read back from `report_inputs`, so no token/credit is wasted on it.
+
+    mode='render'  : zero new LLM cost except translation. Re-runs annotation +
+                     assembly + language render from the stored Pass 2 body.
+                     Use it to iterate on formatting/output language.
+    mode='analyze' : re-runs only Pass 2 from the stored portfolio + search
+                     results (no fetch/Tavily/Pass 1). Use it to iterate on the
+                     Pass 2 prompt. Updates the stored Pass 2 body.
+
+    Does not email — this is an iteration/inspection tool.
+    """
+    user_id = get_current_user_id()
+    report = session.execute(
+        select(Report).where(Report.id == report_id, Report.user_id == user_id)
+    ).scalar_one_or_none()
+    if report is None:
+        raise ValueError(f"report {report_id} not found")
+    inputs = report.report_inputs
+    if not inputs or not inputs.get("pass2_raw"):
+        raise ValueError(f"report {report_id} has no stored Pass 2 body to regenerate from")
+
+    portfolio = inputs.get("portfolio_summary", {})
+    news_items = inputs.get("news_items", [])
+
+    if mode == "analyze":
+        pass2_user = _build_pass2_prompt(
+            portfolio,
+            inputs.get("macro_signals", {}),
+            inputs.get("price_anomalies", []),
+            inputs.get("search_results", []),
+        )
+        raw_body = _call_llm(
+            _openrouter_client(),
+            get_settings().PRIMARY_LLM_MODEL,
+            _PASS2_SYSTEM,
+            pass2_user,
+            with_holdings=True,
+        )
+        # New dict identity so SQLAlchemy flags the JSONB column dirty (an
+        # in-place mutation of the existing dict would not be detected).
+        report.report_inputs = {**inputs, "pass2_raw": raw_body, "pass2_prompt": pass2_user}
+    elif mode == "render":
+        raw_body = inputs["pass2_raw"]
+    else:
+        raise ValueError(f"unknown mode {mode!r} (expected 'render' or 'analyze')")
+
+    report_date_str = report.report_date.strftime("%Y-%m-%d")
+    full_md, violations = _render_full_md(
+        report_date_str, portfolio, news_items, raw_body, output_lang
+    )
+    report.status = "needs_review" if violations else "success"
+    report.report_md = full_md
+    report.generated_at = datetime.now(tz=UTC)
+    session.commit()
+    logger.info("report %s: regenerated (mode=%s, lang=%s)", report.id, mode, output_lang)
+    return report

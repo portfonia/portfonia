@@ -9,6 +9,7 @@ Strategy:
 
 from __future__ import annotations
 
+import contextlib
 import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -460,6 +461,124 @@ def test_generate_report_quiet_day_sends_heartbeat(
 
     assert report.status == "skipped"
     _no_email.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Tests: data window (#5), translation render (#8), re-render (#6)
+# ---------------------------------------------------------------------------
+
+
+def test_build_data_window_states_interval() -> None:
+    news = [
+        {"published_at": "2026-06-01T08:00:00+00:00"},
+        {"published_at": "2026-06-03T20:00:00+00:00"},
+    ]
+    portfolio = {
+        "fx_date": "2026-06-03",
+        "holdings": [{"price_as_of": "2026-06-03T20:00:00+00:00"}],
+    }
+    w = rg._build_data_window(news, portfolio, "2026-06-04")
+    assert "Data window" in w
+    assert "2026-06-01 08:00" in w
+    assert "FX as of 2026-06-03" in w
+    assert "prior close" in w
+
+
+def _normal_path_patches() -> list[object]:
+    return [
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch("app.services.report_generator.fetch_news", return_value=[_news_item("Fed")]),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+        patch("app.services.report_generator.detect_price_anomalies", return_value=[_anomaly()]),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
+        patch("app.services.report_generator._run_tavily_search", return_value=[]),
+    ]
+
+
+def test_generate_report_includes_data_window(db_session: Session) -> None:
+    with contextlib.ExitStack() as stack:
+        for p in _normal_path_patches():
+            stack.enter_context(p)  # type: ignore[arg-type]
+        report = rg.generate_report(db_session, report_date=_TODAY)
+    assert report.report_md is not None
+    assert "Data window" in report.report_md
+
+
+def test_generate_report_translates_when_output_lang_set(db_session: Session) -> None:
+    """output_lang != en routes the assembled report through translation."""
+    with contextlib.ExitStack() as stack:
+        for p in _normal_path_patches():
+            stack.enter_context(p)  # type: ignore[arg-type]
+        stack.enter_context(
+            patch(
+                "app.services.report_generator._translate_md",
+                side_effect=lambda md, lang: f"[{lang}]\n{md}",
+            )
+        )
+        report = rg.generate_report(db_session, report_date=_TODAY, output_lang="zh")
+    assert report.report_md is not None
+    assert "[zh]" in report.report_md
+
+
+def test_regenerate_render_is_token_free(db_session: Session) -> None:
+    """mode=render rebuilds from stored Pass 2 body with no LLM call."""
+    with contextlib.ExitStack() as stack:
+        for p in _normal_path_patches():
+            stack.enter_context(p)  # type: ignore[arg-type]
+        report = rg.generate_report(db_session, report_date=_TODAY)
+    rid = report.id
+
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch(
+            "app.services.report_generator._call_llm",
+            side_effect=AssertionError("render must not call the LLM"),
+        ),
+        patch(
+            "app.services.report_generator.fetch_news",
+            side_effect=AssertionError("render must not re-fetch"),
+        ),
+    ):
+        out = rg.regenerate_report(db_session, rid, mode="render", output_lang="en")
+
+    assert out.status == "success"
+    assert out.report_md is not None
+    assert "§1 Portfolio Snapshot" in out.report_md
+    assert "Data window" in out.report_md
+
+
+def test_regenerate_analyze_reruns_pass2_from_stored_intel(db_session: Session) -> None:
+    """mode=analyze re-runs Pass 2 only — no news/Tavily/Pass 1 re-fetch."""
+    with contextlib.ExitStack() as stack:
+        for p in _normal_path_patches():
+            stack.enter_context(p)  # type: ignore[arg-type]
+        report = rg.generate_report(db_session, report_date=_TODAY)
+    rid = report.id
+
+    new_body = (
+        "## §2 Macro Signals\n\nReanalyzed view. [For information only — not investment advice]"
+    )
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", return_value=new_body),
+        patch(
+            "app.services.report_generator.fetch_news",
+            side_effect=AssertionError("analyze must not re-fetch news"),
+        ),
+        patch(
+            "app.services.report_generator._run_tavily_search",
+            side_effect=AssertionError("analyze must not re-run search"),
+        ),
+    ):
+        out = rg.regenerate_report(db_session, rid, mode="analyze", output_lang="en")
+
+    assert out.report_md is not None
+    assert "Reanalyzed view" in out.report_md
+    assert out.report_inputs is not None
+    assert "Reanalyzed view" in out.report_inputs["pass2_raw"]
 
 
 def test_stale_ticker_hint_fund_code() -> None:

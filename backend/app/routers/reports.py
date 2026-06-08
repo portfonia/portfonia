@@ -6,12 +6,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.database import get_session
 from app.core.deps import get_current_user_id
 from app.models.report import Report
 from app.schemas.reports import GenerateReportRequest, ReportListItem, ReportOut
 from app.services.email_sender import send_report_email
-from app.services.report_generator import generate_report
+from app.services.report_generator import generate_report, regenerate_report
 
 router = APIRouter()
 
@@ -27,7 +28,30 @@ def trigger_report_generation(
         report_date=req.report_date,
         report_type=req.report_type,
         base_currency=req.base_currency,
+        output_lang=get_settings().OUTPUT_LANG,
     )
+
+
+@router.post("/{report_id}/regenerate", response_model=ReportOut)
+def regenerate(
+    report_id: uuid.UUID,
+    mode: str = "render",
+    output_lang: str | None = None,
+    session: Session = Depends(get_session),
+) -> Report:
+    """Rebuild a report from stored inputs without re-fetching intel (#6).
+
+    mode=render re-renders from the stored Pass 2 body (token-free except
+    translation); mode=analyze re-runs Pass 2 from the stored intel. Does not
+    re-send email. Defaults output language to OUTPUT_LANG.
+    """
+    if mode not in ("render", "analyze"):
+        raise HTTPException(status_code=422, detail="mode must be 'render' or 'analyze'")
+    lang = output_lang or get_settings().OUTPUT_LANG
+    try:
+        return regenerate_report(session, report_id, mode=mode, output_lang=lang)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/", response_model=list[ReportListItem])
