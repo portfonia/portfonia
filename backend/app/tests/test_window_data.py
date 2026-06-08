@@ -148,3 +148,67 @@ def test_detect_window_anomalies_ignores_small_move_and_new_position(db_session:
         datetime(2026, 6, 5, 20, 30, tzinfo=UTC),
     )
     assert anomalies == []
+
+
+def _stock(name: str, ticker: str) -> Holding:
+    return Holding(
+        user_id=_USER,
+        name=name,
+        ticker=ticker,
+        pricing_mode="auto",
+        currency="USD",
+        asset_type="stock",
+    )
+
+
+def test_threshold_scales_with_trading_days(db_session: Session) -> None:
+    """Over a 3-trading-day window the stock threshold is 3% x 3 = 9%, so a +5%
+    move (which a flat 3% would flag) is no longer an anomaly."""
+    db_session.add_all([_stock("Apple", "AAPL"), _stock("BigMove", "BIGM")])
+    db_session.add_all(
+        [
+            _close("AAPL", date(2026, 6, 2), 100.0),  # baseline
+            _close("AAPL", date(2026, 6, 3), 101.0),  # populates trade_dates
+            _close("AAPL", date(2026, 6, 4), 102.0),
+            _close("AAPL", date(2026, 6, 5), 105.0),  # +5% < 9% → not flagged
+            _close("BIGM", date(2026, 6, 2), 100.0),
+            _close("BIGM", date(2026, 6, 5), 110.0),  # +10% ≥ 9% → flagged
+        ]
+    )
+    db_session.flush()
+
+    anomalies, trading_days = detect_window_anomalies(
+        db_session,
+        datetime(2026, 6, 2, 16, 0, tzinfo=UTC),
+        datetime(2026, 6, 5, 20, 30, tzinfo=UTC),
+    )
+    assert trading_days == 3
+    assert [a.identifier for a in anomalies] == ["BIGM"]
+
+
+def test_threshold_capped_at_ten_percent(db_session: Session) -> None:
+    """Over 5 trading days the uncapped stock threshold would be 15%, but the
+    cap holds it at 10% so a +12% move is still flagged."""
+    db_session.add_all([_stock("Big", "BIG"), _stock("Mid", "MID")])
+    db_session.add_all(
+        [
+            _close("BIG", date(2026, 6, 1), 100.0),  # baseline
+            _close("BIG", date(2026, 6, 2), 100.0),
+            _close("BIG", date(2026, 6, 3), 100.0),
+            _close("BIG", date(2026, 6, 4), 100.0),
+            _close("BIG", date(2026, 6, 5), 100.0),
+            _close("BIG", date(2026, 6, 8), 112.0),  # +12% ≥ 10% cap → flagged
+            _close("MID", date(2026, 6, 1), 100.0),
+            _close("MID", date(2026, 6, 8), 109.0),  # +9% < 10% cap → not flagged
+        ]
+    )
+    db_session.flush()
+
+    anomalies, trading_days = detect_window_anomalies(
+        db_session,
+        datetime(2026, 6, 1, 16, 0, tzinfo=UTC),
+        datetime(2026, 6, 8, 20, 30, tzinfo=UTC),
+    )
+    assert trading_days == 5
+    assert [a.identifier for a in anomalies] == ["BIG"]
+    assert anomalies[0].threshold == Decimal("0.10")  # effective threshold = cap

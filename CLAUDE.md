@@ -65,8 +65,9 @@ a **report layer** (per-user, incremental). Agent-facing essentials:
   Mon/Wed/Fri 16:30 ET. Migrations: `e5f6a7b8c9d0` (capture tables),
   `f6a7b8c9d0e1` (report period columns).
 
-Anomaly threshold: Ring 0 flat % since baseline + trading-day count stated;
-future = flat% × trading-days, capped 10%.
+Anomaly threshold: move since the baseline close vs **flat% × trading-days in
+the window, capped at 10%** (a >10% move always flags). `_window_threshold` in
+`window_data`; the report also states the trading-day count.
 
 **Not yet wired:** portfolio *valuation* still uses `holding.market_price` (from
 the `/refresh` path), not the latest captured close — separate follow-up. FX

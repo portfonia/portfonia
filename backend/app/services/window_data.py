@@ -29,8 +29,17 @@ logger = logging.getLogger(__name__)
 BOOTSTRAP_WATERMARK = datetime(2026, 6, 1, 16, 0, tzinfo=ET)
 
 _RATIO = Decimal("0.0001")  # 4 dp for pct_change
-# Ring 0: flat % move since baseline (the report states the trading-day span).
+# Per-trading-day move thresholds; the window threshold scales these by the
+# number of trading days it spans (a 5-day window tolerates more drift than a
+# 1-day one), capped so any move beyond _MAX_THRESHOLD is always flagged.
 _ASSET_THRESHOLDS: dict[str, Decimal] = {"stock": Decimal("0.03"), "etf": Decimal("0.02")}
+_MAX_THRESHOLD = Decimal("0.10")
+
+
+def _window_threshold(per_day: Decimal, trading_days: int) -> Decimal:
+    """flat% x trading_days, capped at 10% (>10% always flags)."""
+    return min(per_day * max(trading_days, 1), _MAX_THRESHOLD)
+
 
 # Completed statuses whose period_end counts toward the watermark.
 _DONE_STATUSES = ("success", "skipped", "needs_review")
@@ -106,10 +115,21 @@ def detect_window_anomalies(
     start_date = start.astimezone(ET).date()
     end_date = end.astimezone(ET).date()
 
+    trading_days = int(
+        session.execute(
+            select(func.count(func.distinct(PriceSnapshot.trade_date))).where(
+                PriceSnapshot.session_node == "close",
+                PriceSnapshot.trade_date > start_date,
+                PriceSnapshot.trade_date <= end_date,
+            )
+        ).scalar_one()
+        or 0
+    )
+
     anomalies: list[PriceAnomaly] = []
     for h in holdings:
-        threshold = _ASSET_THRESHOLDS.get(h.asset_type or "")
-        if threshold is None or not h.ticker:
+        per_day = _ASSET_THRESHOLDS.get(h.asset_type or "")
+        if per_day is None or not h.ticker:
             continue
         baseline = _latest_close_on_or_before(session, h.ticker, start_date)
         latest = _latest_close_on_or_before(session, h.ticker, end_date)
@@ -118,6 +138,7 @@ def detect_window_anomalies(
         if latest.trade_date <= baseline.trade_date or baseline.close == 0:
             continue
         pct = ((latest.close - baseline.close) / baseline.close).quantize(_RATIO)
+        threshold = _window_threshold(per_day, trading_days)
         if abs(pct) >= threshold:
             anomalies.append(
                 PriceAnomaly(
@@ -127,17 +148,9 @@ def detect_window_anomalies(
                     current_price=latest.close,
                     prev_price=baseline.close,
                     pct_change=pct,
-                    threshold=threshold,
+                    threshold=threshold,  # the effective (scaled) threshold applied
                 )
             )
     anomalies.sort(key=lambda a: abs(a.pct_change), reverse=True)
 
-    trading_days = session.execute(
-        select(func.count(func.distinct(PriceSnapshot.trade_date))).where(
-            PriceSnapshot.session_node == "close",
-            PriceSnapshot.trade_date > start_date,
-            PriceSnapshot.trade_date <= end_date,
-        )
-    ).scalar_one()
-
-    return anomalies, int(trading_days or 0)
+    return anomalies, trading_days
