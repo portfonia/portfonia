@@ -8,16 +8,19 @@ Last updated: 2026-06-07
 | Item | Value |
 |------|-------|
 | Ring stage | **Ring 0** (local dev machine, single user, no cloud) |
-| `main` HEAD | `5765c12` feat(reports): compliance output backstop, quiet-day heartbeat, CN encoding + audit hardening |
-| Stages complete | A B C D E F1 F2 F3 G H (+ 3 Codex audit rounds + 1 Opus self-audit applied) |
+| `main` HEAD | `0f991f2` feat(reports): data-window header, re-render from stored inputs, EN-reason/multi-lang output |
+| Stages complete | A B C D E F1 F2 F3 G H (+ 3 Codex audit rounds + 1 Opus self-audit + June-7 report-review fixes) |
 | Next stage | **I** — 稳定运行验证（2-4 周，每周收到报告后主观评估质量） |
-| Backend quality | ruff OK · mypy OK (57 files) · pytest **210 passed** |
+| Backend quality | ruff OK · mypy OK (57 files) · pytest **219 passed** |
 | Frontend quality | tsc OK · eslint OK · next build OK |
 | LLM model | `deepseek/deepseek-v4-flash` via OpenRouter (provider=DigitalOcean,Venice); `data_collection=deny` on every call |
 | Infrastructure | Homebrew PostgreSQL@16 + Redis (native, not Docker); `make infra-up` not needed |
 | Prompt version | `f2-v2` (Pass 1 = public macro+news only, no holdings-derived anomalies; f2-v1 = anomalies in Pass 1) |
 | Disclaimer version | `f3-bilingual-v1` |
+| Output language | reason in EN, render in `OUTPUT_LANG` (Ring 0 default `zh`) via a translation pass; `en` = no-op |
 | Report statuses | `success` · `skipped` (quiet day, still emails heartbeat) · `needs_review` (compliance scan hit, NOT emailed) · `failed` · `in_progress` |
+| Holdings model | `market` is a user-declared field (US/HK/A-Share/Other; cash follows its account); `position` preserves upload order. §1 groups by market in upload order with subtotals. |
+| Re-render | `regenerate_report(mode=render\|analyze)` rebuilds from stored `report_inputs` without re-fetching; `POST /reports/{id}/regenerate`. render = token-free, analyze = Pass 2 only. |
 
 ### Known technical debt (carry forward until resolved)
 
@@ -36,6 +39,24 @@ Last updated: 2026-06-07
 | A-DEBT-3 | `core/database.py` builds module-level `engine`/`SessionLocal` bound to the dev DB at import. Test isolation relies on every test overriding `get_session` or patching `SessionLocal` (discipline, not structure). | Ring 1 |
 | A-DEBT-4 | `ParsedRow` uses `float` for `shares`/`avg_cost`/`current_value`, bridged to `Decimal` via `Decimal(str(x))` at confirm. Bridge is adequate but inconsistent with the Decimal-everywhere model. | TBD |
 | A-DEBT-5 | `/holdings/upload` has no request body-size cap (`await file.read()` loads fully into memory). Local Ring 0 low risk; add a limit before any exposed deployment. | Ring 1 |
+
+### Design backlog (decided, not yet built)
+
+From the 2026-06-07 first-full-run report review. These are scheduled work, not debt:
+
+- **B-1 — report time-window vs cadence (the #3 problem).** The "weekly" report
+  is really a daily-windowed snapshot: news = past 24h, anomaly = last 2 closes
+  (1-day move). Decouple **lookback window** from **run frequency**: a report
+  type declares its window (daily=1d, weekly≈5 trading days), and that window
+  flows into news range, the anomaly comparison basis, and the Pass 2 prompt
+  framing. Target architecture: fetch news daily into storage, reports query a
+  window from storage instead of only the fresh 24h pull. Build AFTER the small
+  report-format fixes; this is the next structural change.
+- **B-2 — observation cadence (the #4 problem).** During Stage I, run the beat
+  Mon/Wed/Fri (not just Friday) to surface bugs faster — a one-line `day_of_week`
+  change. Implement together with B-1 (multi-run-per-week only makes sense once
+  the window semantics are explicit). Keep "observation cadence" distinct from
+  the eventual product cadence.
 
 ## Language Policy (MANDATORY)
 
