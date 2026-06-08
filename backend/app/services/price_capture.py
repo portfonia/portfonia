@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.core.timezones import MARKET_TZ
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
-from app.services._yfinance import _classify_market, fetch_daily_ohlcv, fetch_spot
+from app.services._yfinance import _classify_market, fetch_ohlcv_range, fetch_spot
 
 logger = logging.getLogger(__name__)
 
@@ -58,11 +58,16 @@ def _upsert(session: Session, rows: list[dict[str, object]]) -> int:
 
 
 def capture_prices(
-    session: Session, market: str, session_node: str, trade_date: date | None = None
+    session: Session,
+    market: str,
+    session_node: str,
+    trade_date: date | None = None,
+    lookback_days: int = 7,
 ) -> int:
     """Capture one (market, session_node) into price_snapshots. Returns rows written.
 
-    close node → daily OHLCV (trade_date from the bar); other nodes → best-effort
+    close node → daily OHLCV over the last `lookback_days` (each bar keyed by its
+    own trade_date, so missed days are backfilled); other nodes → best-effort
     `last` (trade_date = today in the market's local clock).
     """
     tickers = _market_tickers(session, market)
@@ -74,22 +79,22 @@ def capture_prices(
     rows: list[dict[str, object]] = []
 
     if session_node == "close":
-        for ticker, pt in fetch_daily_ohlcv(tickers).items():
-            bar_date, o, h, low, c, vol = pt
-            rows.append(
-                {
-                    "ticker": ticker,
-                    "market": market,
-                    "session_node": session_node,
-                    "trade_date": trade_date or bar_date,
-                    "open": o,
-                    "high": h,
-                    "low": low,
-                    "close": c,
-                    "volume": vol,
-                    "captured_at": now,
-                }
-            )
+        for ticker, bars in fetch_ohlcv_range(tickers, lookback_days=lookback_days).items():
+            for bar_date, o, h, low, c, vol in bars:
+                rows.append(
+                    {
+                        "ticker": ticker,
+                        "market": market,
+                        "session_node": session_node,
+                        "trade_date": bar_date,
+                        "open": o,
+                        "high": h,
+                        "low": low,
+                        "close": c,
+                        "volume": vol,
+                        "captured_at": now,
+                    }
+                )
     else:
         td = trade_date or datetime.now(tz=MARKET_TZ.get(market, UTC)).date()
         for ticker, last in fetch_spot(tickers).items():
