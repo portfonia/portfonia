@@ -59,7 +59,7 @@ def confirm_holdings(
     session.execute(delete(Holding).where(Holding.user_id == user_id))
     holdings: list[Holding] = []
     now = datetime.now(tz=UTC)
-    for row in rows:
+    for idx, row in enumerate(rows):
         data = row.model_dump(exclude={"issues", "confidence"})
         # Coerce float fields to Decimal for the ORM
         for field in ("shares", "avg_cost", "current_value"):
@@ -67,6 +67,8 @@ def confirm_holdings(
                 data[field] = Decimal(str(data[field]))
         if data["pricing_mode"] == "manual":
             data["last_manual_update"] = now
+        # Preserve upload order so reports can mirror the user's file layout.
+        data["position"] = idx
         holdings.append(Holding(user_id=user_id, **data))
     session.add_all(holdings)
     session.commit()

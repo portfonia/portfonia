@@ -36,6 +36,7 @@ Output a JSON object with exactly two keys:
   "current_value": number | null  (total value supplied by user for manual assets),
   "pricing_mode":  "auto" | "manual"  (inferred — see rules below),
   "asset_type":    "stock" | "etf" | "fund" | "cash" | "wmf" | "other" | null,
+  "market":        "US" | "HK" | "A-Share" | "Other" | null  (capital-location bucket; see rules),
   "broker":        string | null,
   "account":       string | null,
   "portfolio":     string | null,
@@ -85,6 +86,17 @@ note the ambiguity in issues.
 - Name contains 现金/cash/存款/货币/保证金/margin/deposit → "cash"
 - Bank-sold WMP (理财产品/财富管理/结构性存款/代销) → "wmf"
 - Cannot determine → null
+
+--- market inference (the user groups capital by market; preserve their intent) ---
+1. The user explicitly gives a market/exchange column (US, HK, A-Share/A股/沪深,
+   美股, 港股, etc.) → map it to one of US / HK / A-Share / Other and use it.
+2. ticker ends in .HK → HK
+3. ticker ends in .SS or .SZ, OR a 6-digit fund_code, OR a 6-digit A-share code → A-Share
+4. plain US-listed ticker (no suffix) → US
+5. cash / WMP / deposit: follow the ACCOUNT's market via broker context —
+   IBKR / Schwab / Fidelity / TD / Futu-USD → US; 港股通 / Futu-HKD → HK;
+   mainland bank / 支付宝 / 微信 / 余额宝 / 天天基金 → A-Share.
+6. cannot determine → Other.
 
 --- quality bar for valid_rows ---
 A row is valid if it has at minimum: name + currency + (shares OR current_value).
@@ -166,6 +178,24 @@ def _strip_code_fence(content: str) -> str:
 
 _ALLOWED_ASSET_TYPES = {"stock", "etf", "fund", "cash", "wmf", "other"}
 
+# Map common free-text market labels the model may emit onto the canonical bucket.
+_MARKET_ALIASES = {
+    "us": "US",
+    "usa": "US",
+    "美股": "US",
+    "美国": "US",
+    "hk": "HK",
+    "hkex": "HK",
+    "港股": "HK",
+    "香港": "HK",
+    "a-share": "A-Share",
+    "a股": "A-Share",
+    "ashare": "A-Share",
+    "沪深": "A-Share",
+    "cn": "A-Share",
+    "china": "A-Share",
+}
+
 
 def _postprocess(raw_rows: list[dict[str, Any]]) -> list[ParsedRow]:
     """Apply deterministic post-processing on top of LLM output."""
@@ -181,6 +211,12 @@ def _postprocess(raw_rows: list[dict[str, Any]]) -> list[ParsedRow]:
             row["issues"] = list(row.get("issues") or [])
             row["issues"].append(f"Unrecognized asset_type {at!r} dropped to null")
             row["asset_type"] = None
+
+        # Normalize market to the canonical bucket; an unmappable non-null value
+        # becomes "Other" rather than tripping the Literal or being lost.
+        mkt = row.get("market")
+        if mkt is not None and mkt not in {"US", "HK", "A-Share", "Other"}:
+            row["market"] = _MARKET_ALIASES.get(str(mkt).strip().lower(), "Other")
 
         # Currency correction from ticker suffix.
         ticker: str | None = row.get("ticker")

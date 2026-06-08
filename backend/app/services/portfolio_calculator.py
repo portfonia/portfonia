@@ -64,6 +64,7 @@ class HoldingValue:
     market_value: Decimal  # in holding's own currency
     market_value_base: Decimal  # in base_currency
     price_as_of: datetime | None
+    position: int | None = None  # upload order, for report layout
 
 
 @dataclass
@@ -225,7 +226,8 @@ def compute_portfolio(
             continue
         market_value_base = converted.quantize(_CENT, rounding=ROUND_HALF_UP)
 
-        market = _classify_market(h)
+        # Prefer the user-declared market; derive from ticker only when absent.
+        market = h.market or _classify_market(h)
         snapshot.holdings.append(
             HoldingValue(
                 holding_id=h.id,
@@ -239,6 +241,7 @@ def compute_portfolio(
                 market_value=market_value,
                 market_value_base=market_value_base,
                 price_as_of=h.price_as_of,
+                position=h.position,
             )
         )
 

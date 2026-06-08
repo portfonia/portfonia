@@ -350,6 +350,7 @@ def _serialize_portfolio(snap: PortfolioSnapshot) -> dict[str, Any]:
             "market_value": float(hv.market_value),
             "market_value_base": float(hv.market_value_base),
             "price_as_of": hv.price_as_of.isoformat() if hv.price_as_of else None,
+            "position": hv.position if hv.position is not None else 1_000_000,
         }
         for hv in snap.holdings
     ]
@@ -548,14 +549,37 @@ def _build_section1(portfolio: dict[str, Any]) -> str:
         "| Holding | Currency | Value | % Portfolio | Market | Sector |",
         "|---------|----------|-------|-------------|--------|--------|",
     ]
-    for h in sorted(portfolio.get("holdings", []), key=lambda x: -x.get("market_value_base", 0)):
-        mv = h.get("market_value", 0)
-        mv_base = h.get("market_value_base", 0)
-        ratio = mv_base / total if total > 0 else 0
-        name_col = h["name"] + (f" ({h['ticker']})" if h.get("ticker") else "")
+
+    holdings = list(portfolio.get("holdings", []))
+    # Group by market, preserving the user's upload order: market groups appear
+    # in the order they first show up in the file, holdings within a group keep
+    # their file order. Each group gets a subtotal so cross-market capital is
+    # legible — this is what the user encodes via the .md `market` column.
+    group_order: list[str] = []
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for h in sorted(holdings, key=lambda x: x.get("position", 1_000_000)):
+        mkt = h.get("market") or "Other"
+        if mkt not in groups:
+            groups[mkt] = []
+            group_order.append(mkt)
+        groups[mkt].append(h)
+
+    for mkt in group_order:
+        members = groups[mkt]
+        subtotal_base = sum(m.get("market_value_base", 0) for m in members)
+        for h in members:
+            mv = h.get("market_value", 0)
+            mv_base = h.get("market_value_base", 0)
+            ratio = mv_base / total if total > 0 else 0
+            name_col = h["name"] + (f" ({h['ticker']})" if h.get("ticker") else "")
+            lines.append(
+                f"| {name_col} | {h.get('currency', '')} | {mv:,.0f} | {ratio:.1%} "
+                f"| {h.get('market', '')} | {h.get('sector', '—')} |"
+            )
+        sub_ratio = subtotal_base / total if total > 0 else 0
         lines.append(
-            f"| {name_col} | {h.get('currency', '')} | {mv:,.0f} | {ratio:.1%} | {h.get('market', '')}"
-            f" | {h.get('sector', '—')} |"
+            f"| **{mkt} subtotal** | {base_ccy} | **{subtotal_base:,.0f}** "
+            f"| **{sub_ratio:.1%}** | | |"
         )
 
     lines += [
