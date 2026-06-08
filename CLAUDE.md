@@ -54,9 +54,11 @@ the user's reports (derived → regenerate/rollback restores it for free).
 
 Build sequence (each step ships green):
 1. `news` + `price_snapshots` tables — **DONE** (migration `e5f6a7b8c9d0`).
-2. Capture tasks + session-node schedule (US ET crontab / HK-CN fixed UTC) +
-   in-task catch-up `[last watermark, now]`.
-3. Report reads news/prices from the stores over the incremental window.
+2. Capture tasks + session-node schedule + in-task catch-up — **DONE** (`46345bb`).
+   Per-entry tz via crontab `nowfun` (US=ET DST-aware, HK/CN=fixed-offset zones);
+   catch-up = wide fetch (OHLCV range / 48h news) + idempotent upsert, no
+   watermark table. `capture_news_task` / `capture_prices_task(market, node)`.
+3. **NEXT** — report reads news/prices from the stores over the incremental window.
 4. `period_start`/`period_end` on `reports`; watermark derivation.
 5. M/W/F incremental report schedule.
 
