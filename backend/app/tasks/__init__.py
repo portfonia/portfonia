@@ -55,10 +55,11 @@ def _build_capture_schedule() -> dict[str, dict[str, Any]]:
 
 
 _beat_schedule: dict[str, dict[str, Any]] = {
-    # Report cadence (incremental report schedule lands in ADR-002 step 5).
-    "weekly-report-friday": {
-        "task": "app.tasks.report_tasks.generate_weekly_report",
-        "schedule": crontab(hour=16, minute=30, day_of_week="friday"),
+    # Report cadence: incremental report Mon/Wed/Fri 16:30 ET (after US regular
+    # close). app timezone is ET, so no per-entry nowfun is needed here.
+    "report-incremental-mwf": {
+        "task": "app.tasks.report_tasks.generate_incremental_report",
+        "schedule": crontab(hour=16, minute=30, day_of_week="mon,wed,fri"),
     },
 }
 _beat_schedule.update(_build_capture_schedule())
