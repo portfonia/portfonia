@@ -8,10 +8,10 @@ Last updated: 2026-06-07
 | Item | Value |
 |------|-------|
 | Ring stage | **Ring 0** (local dev machine, single user, no cloud) |
-| `main` HEAD | `0f991f2` feat(reports): data-window header, re-render from stored inputs, EN-reason/multi-lang output |
-| Stages complete | A B C D E F1 F2 F3 G H (+ 3 Codex audit rounds + 1 Opus self-audit + June-7 report-review fixes) |
-| Next stage | **I** — 稳定运行验证（2-4 周，每周收到报告后主观评估质量） |
-| Backend quality | ruff OK · mypy OK (57 files) · pytest **219 passed** |
+| `main` HEAD | `73b025f` feat(reports): Mon/Wed/Fri incremental report schedule (ADR-002 step 5) |
+| Stages complete | A B C D E F1 F2 F3 G H + June-7 report-review fixes + **ADR-002 incremental reporting + capture layer** |
+| Next stage | **I** — 稳定运行验证；报告现为增量（M/W/F 16:30 ET），需先让捕获层攒数据 |
+| Backend quality | ruff OK · mypy OK (68 files) · pytest **240 passed** |
 | Frontend quality | tsc OK · eslint OK · next build OK |
 | LLM model | `deepseek/deepseek-v4-flash` via OpenRouter (provider=DigitalOcean,Venice); `data_collection=deny` on every call |
 | Infrastructure | Homebrew PostgreSQL@16 + Redis (native, not Docker); `make infra-up` not needed |
@@ -40,30 +40,37 @@ Last updated: 2026-06-07
 | A-DEBT-4 | `ParsedRow` uses `float` for `shares`/`avg_cost`/`current_value`, bridged to `Decimal` via `Decimal(str(x))` at confirm. Bridge is adequate but inconsistent with the Decimal-everywhere model. | TBD |
 | A-DEBT-5 | `/holdings/upload` has no request body-size cap (`await file.read()` loads fully into memory). Local Ring 0 low risk; add a limit before any exposed deployment. | Ring 1 |
 
-### Design backlog: incremental reporting + capture layer (in progress)
+### Incremental reporting + capture layer — DONE (ADR-002)
 
-Full spec lives in Obsidian: `Hermes/Portfonia/Docs/增量报告与捕获层设计.md`
-(resolves #3 report-window-vs-cadence and #4 observation cadence from the
-2026-06-07 first-full-run review). The agent-facing essentials are inline below.
+Full spec in Obsidian: `Hermes/Portfonia/Docs/增量报告与捕获层设计.md` (resolved #3
+report-window-vs-cadence and #4 observation cadence from the 2026-06-07 review).
 
-Shape: a **capture layer** (global, runs at market-session nodes, credit-free —
-RSS + yfinance; persists `news` + `price_snapshots`, 1yr) feeds a **report
-layer** (per-user, M/W/F 16:30 ET, window = since that user's last report;
-cold-start baseline = 2026-06-01 16:00 ET). Watermark = `max(period_end)` over
-the user's reports (derived → regenerate/rollback restores it for free).
+Shipped shape: a **capture layer** (global, credit-free — RSS + yfinance;
+persists `news` + `price_snapshots`, 1yr) runs at market-session nodes and feeds
+a **report layer** (per-user, incremental). Agent-facing essentials:
 
-Build sequence (each step ships green):
-1. `news` + `price_snapshots` tables — **DONE** (migration `e5f6a7b8c9d0`).
-2. Capture tasks + session-node schedule + in-task catch-up — **DONE** (`46345bb`).
-   Per-entry tz via crontab `nowfun` (US=ET DST-aware, HK/CN=fixed-offset zones);
-   catch-up = wide fetch (OHLCV range / 48h news) + idempotent upsert, no
-   watermark table. `capture_news_task` / `capture_prices_task(market, node)`.
-3. **NEXT** — report reads news/prices from the stores over the incremental window.
-4. `period_start`/`period_end` on `reports`; watermark derivation.
-5. M/W/F incremental report schedule.
+- **Capture nodes** scheduled via crontab `nowfun` per market: US in ET
+  (DST-aware), HK/CN in their fixed-offset zones. Nodes: US pre_open/open/close/
+  after_close; HK/CN open/close. News captured at every node. Catch-up is in the
+  task (OHLCV range fetch / 48h news + idempotent upsert) — no watermark table.
+  Tasks: `capture_news_task`, `capture_prices_task(market, node)`.
+- **Report window** = `[previous report.period_end, now]`; watermark =
+  `max(period_end)` over the user's completed reports (derived → deleting a
+  report rolls it back; regenerate keeps the stored period). Cold-start baseline
+  = `2026-06-01 16:00 ET` (`window_data.BOOTSTRAP_WATERMARK`).
+- News + anomalies read from the stores via `window_data` (NOT live RSS / last-
+  two-closes). Anomaly = move since the baseline close; report states trading-day
+  count. New positions (no baseline) skipped.
+- **Cadence:** `generate_incremental_report` (report_type=`incremental`) fires
+  Mon/Wed/Fri 16:30 ET. Migrations: `e5f6a7b8c9d0` (capture tables),
+  `f6a7b8c9d0e1` (report period columns).
 
-Anomaly threshold: Ring 0 flat % since baseline + state trading-day count;
+Anomaly threshold: Ring 0 flat % since baseline + trading-day count stated;
 future = flat% × trading-days, capped 10%.
+
+**Not yet wired:** portfolio *valuation* still uses `holding.market_price` (from
+the `/refresh` path), not the latest captured close — separate follow-up. FX
+window anomalies are not computed (FX stays daily in `fx_rates`).
 
 ## Language Policy (MANDATORY)
 
