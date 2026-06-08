@@ -182,11 +182,13 @@ def test_generate_report_normal_path(db_session: Session) -> None:
         patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
-            "app.services.report_generator.fetch_news",
+            "app.services.report_generator.load_news_window",
             return_value=[_news_item("Fed raises rates")],
         ),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-        patch("app.services.report_generator.detect_price_anomalies", return_value=[_anomaly()]),
+        patch(
+            "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
+        ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
         patch(
@@ -220,9 +222,9 @@ def test_generate_report_quiet_day_returns_skipped(db_session: Session) -> None:
     with (
         patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
-        patch("app.services.report_generator.fetch_news", return_value=[]),
+        patch("app.services.report_generator.load_news_window", return_value=[]),
         patch("app.services.report_generator.detect_macro_signals", return_value=_quiet_signals()),
-        patch("app.services.report_generator.detect_price_anomalies", return_value=[]),
+        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 0)),
         patch("app.services.report_generator._call_llm") as mock_llm,
     ):
         report = rg.generate_report(db_session, report_date=_TODAY)
@@ -244,11 +246,11 @@ def test_generate_report_tavily_failure_degraded(db_session: Session) -> None:
         patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
-            "app.services.report_generator.fetch_news",
+            "app.services.report_generator.load_news_window",
             return_value=[_news_item("Fed raises rates")],
         ),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-        patch("app.services.report_generator.detect_price_anomalies", return_value=[]),
+        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 0)),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
         patch("app.services.report_generator._run_tavily_search", return_value=[]),
@@ -278,9 +280,9 @@ def test_generate_report_pass1_invalid_json(db_session: Session) -> None:
     with (
         patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
-        patch("app.services.report_generator.fetch_news", return_value=[_news_item("Fed")]),
+        patch("app.services.report_generator.load_news_window", return_value=[_news_item("Fed")]),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-        patch("app.services.report_generator.detect_price_anomalies", return_value=[]),
+        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 0)),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=bad_pass1),
         patch("app.services.report_generator._run_tavily_search", return_value=[]) as mock_tavily,
@@ -303,9 +305,9 @@ def test_generate_report_llm_failure_marks_failed(db_session: Session) -> None:
     with (
         patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
-        patch("app.services.report_generator.fetch_news", return_value=[_news_item("Fed")]),
+        patch("app.services.report_generator.load_news_window", return_value=[_news_item("Fed")]),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-        patch("app.services.report_generator.detect_price_anomalies", return_value=[]),
+        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 0)),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=RuntimeError("LLM down")),
         pytest.raises(RuntimeError, match="LLM down"),
@@ -372,13 +374,13 @@ def test_generate_report_pass1_call_has_no_holdings(db_session: Session) -> None
         patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
-            "app.services.report_generator.fetch_news",
+            "app.services.report_generator.load_news_window",
             return_value=[_news_item("Fed raises rates")],
         ),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
         patch(
-            "app.services.report_generator.detect_price_anomalies",
-            return_value=[aapl_anomaly],
+            "app.services.report_generator.detect_window_anomalies",
+            return_value=([aapl_anomaly], 2),
         ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_capture_llm),
@@ -432,9 +434,11 @@ def test_generate_report_blocks_noncompliant_body(
     with (
         patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
-        patch("app.services.report_generator.fetch_news", return_value=[_news_item("Fed")]),
+        patch("app.services.report_generator.load_news_window", return_value=[_news_item("Fed")]),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-        patch("app.services.report_generator.detect_price_anomalies", return_value=[_anomaly()]),
+        patch(
+            "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
+        ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm_noncompliant),
         patch("app.services.report_generator._run_tavily_search", return_value=[]),
@@ -453,9 +457,9 @@ def test_generate_report_quiet_day_sends_heartbeat(
     with (
         patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
-        patch("app.services.report_generator.fetch_news", return_value=[]),
+        patch("app.services.report_generator.load_news_window", return_value=[]),
         patch("app.services.report_generator.detect_macro_signals", return_value=_quiet_signals()),
-        patch("app.services.report_generator.detect_price_anomalies", return_value=[]),
+        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 0)),
     ):
         report = rg.generate_report(db_session, report_date=_TODAY)
 
@@ -477,20 +481,25 @@ def test_build_data_window_states_interval() -> None:
         "fx_date": "2026-06-03",
         "holdings": [{"price_as_of": "2026-06-03T20:00:00+00:00"}],
     }
-    w = rg._build_data_window(news, portfolio, "2026-06-04")
+    w = rg._build_data_window(
+        news, portfolio, "2026-06-01T16:00:00+00:00", "2026-06-04T20:30:00+00:00", 3
+    )
     assert "Data window" in w
-    assert "2026-06-01 08:00" in w
+    assert "2026-06-01 16:00 to 2026-06-04 20:30" in w
+    assert "3 trading day(s)" in w
     assert "FX as of 2026-06-03" in w
-    assert "prior close" in w
+    assert "baseline close" in w
 
 
 def _normal_path_patches() -> list[object]:
     return [
         patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
-        patch("app.services.report_generator.fetch_news", return_value=[_news_item("Fed")]),
+        patch("app.services.report_generator.load_news_window", return_value=[_news_item("Fed")]),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-        patch("app.services.report_generator.detect_price_anomalies", return_value=[_anomaly()]),
+        patch(
+            "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
+        ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
         patch("app.services.report_generator._run_tavily_search", return_value=[]),
@@ -537,7 +546,7 @@ def test_regenerate_render_is_token_free(db_session: Session) -> None:
             side_effect=AssertionError("render must not call the LLM"),
         ),
         patch(
-            "app.services.report_generator.fetch_news",
+            "app.services.report_generator.load_news_window",
             side_effect=AssertionError("render must not re-fetch"),
         ),
     ):
@@ -565,7 +574,7 @@ def test_regenerate_analyze_reruns_pass2_from_stored_intel(db_session: Session) 
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", return_value=new_body),
         patch(
-            "app.services.report_generator.fetch_news",
+            "app.services.report_generator.load_news_window",
             side_effect=AssertionError("analyze must not re-fetch news"),
         ),
         patch(
@@ -805,11 +814,13 @@ def test_generate_report_f2_news_annotations_in_output(db_session: Session) -> N
         patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
-            "app.services.report_generator.fetch_news",
+            "app.services.report_generator.load_news_window",
             return_value=[_news_item("Fed raises rates")],
         ),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-        patch("app.services.report_generator.detect_price_anomalies", return_value=[_anomaly()]),
+        patch(
+            "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
+        ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm_f2),
         patch(
@@ -831,11 +842,13 @@ def test_generate_report_f2_xingqing_annotation_in_output(db_session: Session) -
         patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
-            "app.services.report_generator.fetch_news",
+            "app.services.report_generator.load_news_window",
             return_value=[_news_item("Fed raises rates")],
         ),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-        patch("app.services.report_generator.detect_price_anomalies", return_value=[_anomaly()]),
+        patch(
+            "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
+        ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm_f2),
         patch(
@@ -855,11 +868,13 @@ def test_generate_report_f2_fenxi_annotation_in_output(db_session: Session) -> N
         patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
-            "app.services.report_generator.fetch_news",
+            "app.services.report_generator.load_news_window",
             return_value=[_news_item("Fed raises rates")],
         ),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-        patch("app.services.report_generator.detect_price_anomalies", return_value=[_anomaly()]),
+        patch(
+            "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
+        ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm_f2),
         patch(
@@ -906,11 +921,13 @@ def test_generate_report_normal_path_has_footer(db_session: Session) -> None:
         patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
-            "app.services.report_generator.fetch_news",
+            "app.services.report_generator.load_news_window",
             return_value=[_news_item("Fed raises rates")],
         ),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-        patch("app.services.report_generator.detect_price_anomalies", return_value=[_anomaly()]),
+        patch(
+            "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
+        ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
         patch(
@@ -930,9 +947,9 @@ def test_generate_report_quiet_day_has_footer(db_session: Session) -> None:
     with (
         patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
-        patch("app.services.report_generator.fetch_news", return_value=[]),
+        patch("app.services.report_generator.load_news_window", return_value=[]),
         patch("app.services.report_generator.detect_macro_signals", return_value=_quiet_signals()),
-        patch("app.services.report_generator.detect_price_anomalies", return_value=[]),
+        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 0)),
         patch("app.services.report_generator._call_llm") as mock_llm,
     ):
         report = rg.generate_report(db_session, report_date=_TODAY)
