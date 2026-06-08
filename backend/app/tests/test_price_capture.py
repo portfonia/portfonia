@@ -32,8 +32,8 @@ def test_capture_close_stores_ohlcv(db_session: Session) -> None:
     db_session.add_all([_holding("Apple", "AAPL"), _holding("Tencent", "0700.HK")])
     db_session.flush()
 
-    ohlcv = {"AAPL": (date(2026, 6, 5), 200.0, 205.0, 199.0, 203.5, 1000.0)}
-    with patch("app.services.price_capture.fetch_daily_ohlcv", return_value=ohlcv):
+    ohlcv = {"AAPL": [(date(2026, 6, 5), 200.0, 205.0, 199.0, 203.5, 1000.0)]}
+    with patch("app.services.price_capture.fetch_ohlcv_range", return_value=ohlcv):
         n = capture_prices(db_session, market="US", session_node="close")
 
     assert n == 1  # only AAPL is a US ticker
@@ -49,11 +49,11 @@ def test_capture_close_stores_ohlcv(db_session: Session) -> None:
 def test_capture_close_is_idempotent(db_session: Session) -> None:
     db_session.add(_holding("Apple", "AAPL"))
     db_session.flush()
-    ohlcv = {"AAPL": (date(2026, 6, 5), 200.0, 205.0, 199.0, 203.5, 1000.0)}
-    with patch("app.services.price_capture.fetch_daily_ohlcv", return_value=ohlcv):
+    ohlcv = {"AAPL": [(date(2026, 6, 5), 200.0, 205.0, 199.0, 203.5, 1000.0)]}
+    with patch("app.services.price_capture.fetch_ohlcv_range", return_value=ohlcv):
         capture_prices(db_session, market="US", session_node="close")
         # Re-capture with a revised close → updates the same row, no duplicate.
-        ohlcv["AAPL"] = (date(2026, 6, 5), 200.0, 206.0, 199.0, 204.0, 1100.0)
+        ohlcv["AAPL"] = [(date(2026, 6, 5), 200.0, 206.0, 199.0, 204.0, 1100.0)]
         capture_prices(db_session, market="US", session_node="close")
 
     rows = (
@@ -63,6 +63,28 @@ def test_capture_close_is_idempotent(db_session: Session) -> None:
     )
     assert len(rows) == 1
     assert rows[0].close == Decimal("204.0")
+
+
+def test_capture_close_backfills_multiple_days(db_session: Session) -> None:
+    """A range fetch stores one row per trading day — this is catch-up."""
+    db_session.add(_holding("Apple", "AAPL"))
+    db_session.flush()
+    bars = {
+        "AAPL": [
+            (date(2026, 6, 3), 1.0, 1.0, 1.0, 100.0, 1.0),
+            (date(2026, 6, 4), 1.0, 1.0, 1.0, 101.0, 1.0),
+            (date(2026, 6, 5), 1.0, 1.0, 1.0, 102.0, 1.0),
+        ]
+    }
+    with patch("app.services.price_capture.fetch_ohlcv_range", return_value=bars):
+        n = capture_prices(db_session, market="US", session_node="close")
+    assert n == 3
+    rows = (
+        db_session.execute(select(PriceSnapshot).where(PriceSnapshot.ticker == "AAPL"))
+        .scalars()
+        .all()
+    )
+    assert {r.trade_date for r in rows} == {date(2026, 6, 3), date(2026, 6, 4), date(2026, 6, 5)}
 
 
 def test_capture_intraday_stores_last(db_session: Session) -> None:

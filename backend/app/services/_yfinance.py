@@ -202,41 +202,41 @@ def fetch_last_two_closes(
     return out
 
 
-def _ohlcv_for_ticker(hist: pd.DataFrame, ticker: str) -> OhlcvPoint | None:
-    """Extract the most recent OHLCV bar for one ticker from a download frame."""
+def _ohlcv_rows_for_ticker(hist: pd.DataFrame, ticker: str) -> list[OhlcvPoint]:
+    """Extract all available OHLCV bars (oldest→newest) for one ticker."""
     try:
-        if isinstance(hist.columns, pd.MultiIndex):
-            sub = hist.xs(ticker, axis=1, level=1)
-        else:
-            sub = hist  # single-ticker download: flat columns
+        # MultiIndex columns for multi-ticker downloads; flat for a single ticker.
+        sub = hist.xs(ticker, axis=1, level=1) if isinstance(hist.columns, pd.MultiIndex) else hist
         clean = sub.dropna(subset=["Close"])
-        if clean.empty:
-            return None
-        row = clean.iloc[-1]
-        ts = clean.index[-1]
-        vol = row.get("Volume")
-        return (
-            ts.date(),
-            float(row["Open"]),
-            float(row["High"]),
-            float(row["Low"]),
-            float(row["Close"]),
-            None if vol is None or pd.isna(vol) else float(vol),
-        )
+        rows: list[OhlcvPoint] = []
+        for ts, row in clean.iterrows():
+            vol = row.get("Volume")
+            rows.append(
+                (
+                    ts.date(),
+                    float(row["Open"]),
+                    float(row["High"]),
+                    float(row["Low"]),
+                    float(row["Close"]),
+                    None if vol is None or pd.isna(vol) else float(vol),
+                )
+            )
+        return rows
     except Exception:
         logger.exception("ohlcv extraction failed for %s", ticker)
-        return None
+        return []
 
 
-def fetch_daily_ohlcv(tickers: list[str]) -> dict[str, OhlcvPoint]:
-    """Most-recent daily OHLCV bar per ticker. Tickers with no data are omitted.
+def fetch_ohlcv_range(tickers: list[str], lookback_days: int = 7) -> dict[str, list[OhlcvPoint]]:
+    """Daily OHLCV bars over the last `lookback_days` per ticker (oldest→newest).
 
-    Reliable backbone of the capture layer's `close` node (yfinance daily bars).
-    Same market-split + batch-size + inter-batch-delay strategy as the close
-    fetchers.
+    Returning a range (not just the latest bar) is what lets the `close` capture
+    node backfill missed trading days: each bar is upserted by its own
+    trade_date. ~7 calendar days covers ~5 trading days of catch-up.
     """
     if not tickers:
         return {}
+    period = f"{max(lookback_days, 2)}d"
     by_market: dict[str, list[str]] = {"us": [], "hk": [], "cn": []}
     for t in tickers:
         by_market[_classify_market(t)].append(t)
@@ -245,13 +245,13 @@ def fetch_daily_ohlcv(tickers: list[str]) -> dict[str, OhlcvPoint]:
         if market_tickers:
             batches.extend(_chunk(market_tickers, _MAX_BATCH_SIZE))
 
-    out: dict[str, OhlcvPoint] = {}
+    out: dict[str, list[OhlcvPoint]] = {}
     for i, batch in enumerate(batches):
         if i > 0:
             time.sleep(_INTER_BATCH_DELAY)
         try:
             hist = yf.download(
-                tickers=" ".join(batch), period="5d", auto_adjust=True, progress=False
+                tickers=" ".join(batch), period=period, auto_adjust=True, progress=False
             )
         except Exception:
             logger.exception("yfinance OHLCV download failed for %s", batch)
@@ -259,9 +259,9 @@ def fetch_daily_ohlcv(tickers: list[str]) -> dict[str, OhlcvPoint]:
         if hist.empty:
             continue
         for t in batch:
-            pt = _ohlcv_for_ticker(hist, t)
-            if pt is not None:
-                out[t] = pt
+            rows = _ohlcv_rows_for_ticker(hist, t)
+            if rows:
+                out[t] = rows
     return out
 
 
