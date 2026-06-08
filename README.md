@@ -12,7 +12,7 @@ Portfonia exists to close that gap with a narrow scope: take a user's real holdi
 
 - **Holdings ingestion.** Upload a CSV or Markdown sheet describing positions across US equities, Hong Kong equities, A-shares, public mutual funds, cash, and foreign currency. An LLM normalizes it into structured records.
 - **Market and macro tracking.** Daily price, FX, and curated macro keyword scanning across reputable news sources (English-language primary, with Chinese-language sources for region-specific instruments).
-- **Personalized weekly briefings.** A scheduled report ties price moves and macro signals back to the user's actual holdings, with sourcing annotations (`[price]`, `[news: S1]`, `[analysis]`) so any claim is traceable.
+- **Personalized incremental briefings.** A scheduled report (Mon/Wed/Fri) covers what changed since your last one — tying price moves and macro signals back to your actual holdings, with sourcing annotations (`[price]`, `[news]`, `[analysis]`) so any claim is traceable.
 - **Three-layer output discipline.** Every AI-generated report stops at Layer 3:
   - Layer 1 — what happened (fact)
   - Layer 2 — how it relates to your holdings (contextual mapping)

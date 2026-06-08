@@ -8,10 +8,10 @@ Last updated: 2026-06-07
 | Item | Value |
 |------|-------|
 | Ring stage | **Ring 0** (local dev machine, single user, no cloud) |
-| `main` HEAD | `73b025f` feat(reports): Mon/Wed/Fri incremental report schedule (ADR-002 step 5) |
+| `main` HEAD | `c4f5798` feat(reports): scale anomaly threshold by trading days, cap at 10% |
 | Stages complete | A B C D E F1 F2 F3 G H + June-7 report-review fixes + **ADR-002 incremental reporting + capture layer** |
 | Next stage | **I** — 稳定运行验证；报告现为增量（M/W/F 16:30 ET），需先让捕获层攒数据 |
-| Backend quality | ruff OK · mypy OK (68 files) · pytest **240 passed** |
+| Backend quality | ruff OK · mypy OK (68 files) · pytest **243 passed** |
 | Frontend quality | tsc OK · eslint OK · next build OK |
 | LLM model | `deepseek/deepseek-v4-flash` via OpenRouter (provider=DigitalOcean,Venice); `data_collection=deny` on every call |
 | Infrastructure | Homebrew PostgreSQL@16 + Redis (native, not Docker); `make infra-up` not needed |
@@ -205,6 +205,12 @@ Final gates (CI also enforces):
 
 ## CI-First Protocol (MANDATORY)
 
+> **Ring 0 reality:** there is no CI yet and no PRs — work is committed directly
+> to `main` (solo) with the local quality gate run before every commit, and
+> pushed the same day for off-site backup. The protocol below is the **Ring 1+
+> target** that activates when CI exists / a second contributor joins. Until
+> then "CI green" means "local gate green".
+
 A task is NOT complete until CI is green.
 
 After every `git push`:
@@ -220,6 +226,10 @@ CI is red or still running. Leaving a PR red and moving on is the primary
 failure mode this protocol exists to prevent.
 
 ## Branching
+
+> **Ring 0 reality:** solo work commits directly to `main`; the branch/PR model
+> below is the **Ring 1+ target** (adopt when a second contributor joins or VPS
+> deploys begin).
 
 ```
 main (production) ← dev (integration) ← feat/* | fix/* | docs/*
