@@ -27,14 +27,28 @@ _MARKET_NODES: tuple[tuple[str, Any, tuple[tuple[str, int, int], ...]], ...] = (
 )
 
 
+class _NowIn:
+    """Picklable nowfun: returns the current time in a fixed zone.
+
+    Must be a top-level callable, not a lambda/closure — Beat's
+    PersistentScheduler shelves (pickles) the schedule, and a local lambda is not
+    picklable (it crashes beat at startup).
+    """
+
+    def __init__(self, tz: Any) -> None:
+        self._tz = tz
+
+    def __call__(self) -> datetime:
+        return datetime.now(self._tz)
+
+
 def _node_cron(tz: Any, hour: int, minute: int) -> crontab:
     """A crontab evaluated in *tz* via nowfun.
 
     This is how one Beat instance schedules across DST regimes: US uses ET
     (DST-aware), HK/CN use their own zones (no DST → effectively fixed UTC+8).
-    `tz` is a per-call parameter, so the closure binds the correct zone.
     """
-    return crontab(hour=hour, minute=minute, nowfun=lambda: datetime.now(tz))
+    return crontab(hour=hour, minute=minute, nowfun=_NowIn(tz))
 
 
 def _build_capture_schedule() -> dict[str, dict[str, Any]]:

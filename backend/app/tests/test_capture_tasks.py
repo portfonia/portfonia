@@ -33,6 +33,15 @@ def test_capture_prices_entry_carries_market_and_node_args() -> None:
     assert entry["args"] == ("US", "close")
 
 
+def test_beat_schedule_is_picklable() -> None:
+    """PersistentScheduler shelves the schedule — every entry must pickle
+    (a lambda nowfun would crash beat at startup)."""
+    import pickle
+
+    for name, entry in celery_app.conf.beat_schedule.items():
+        pickle.dumps(entry["schedule"]), name  # raises if not picklable
+
+
 def test_node_cron_uses_market_local_timezone() -> None:
     us = celery_app.conf.beat_schedule["capture-prices-US-open"]["schedule"]
     hk = celery_app.conf.beat_schedule["capture-prices-HK-open"]["schedule"]
