@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Numeric, Text, func, text
+from sqlalchemy import Integer, Numeric, Text, func, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -30,6 +30,11 @@ class Holding(Base):
     current_value: Mapped[Decimal | None] = mapped_column(Numeric)
     asset_type: Mapped[str | None] = mapped_column(Text)
     sector: Mapped[str | None] = mapped_column(Text)  # unified 12-class, §6.4
+    # User-declared market bucket (US / HK / A-Share / Other), preserved from the
+    # upload. NULL = not declared → derived from ticker at compute time.
+    market: Mapped[str | None] = mapped_column(Text)
+    # Row order in the uploaded file, so reports can mirror the user's layout.
+    position: Mapped[int | None] = mapped_column(Integer)
     broker: Mapped[str | None] = mapped_column(Text)
     account: Mapped[str | None] = mapped_column(Text)
     portfolio: Mapped[str | None] = mapped_column(Text)

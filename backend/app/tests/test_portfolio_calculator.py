@@ -94,6 +94,21 @@ def test_full_snapshot_values_and_distributions(db_session: Session) -> None:
     }
 
 
+def test_declared_market_overrides_derivation(db_session: Session) -> None:
+    """A user-declared market (e.g. USD cash in an IBKR/US account) wins over
+    the ticker-derived bucket — cash must land in US, not the 'Other' default."""
+    _seed_fx(db_session)
+    cash = _cash("USD Cash", "USD", "5000")
+    cash.market = "US"  # declared via the .md market column
+    db_session.add_all([_stock("Apple", "AAPL", "USD", "10", "300"), cash])
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, base_currency="USD")
+
+    assert snap.by_market == {"US": Decimal("8000.00")}
+    assert {hv.name: hv.market for hv in snap.holdings}["USD Cash"] == "US"
+
+
 def test_concentration_flags(db_session: Session) -> None:
     _seed_fx(db_session)
     db_session.add_all(

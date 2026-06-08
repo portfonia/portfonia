@@ -55,6 +55,18 @@ def test_extract_unsupported_extension_raises() -> None:
         _extract_text(b"data", "holdings.pdf")
 
 
+def test_postprocess_normalizes_market_aliases() -> None:
+    raw = [
+        {"name": "A", "currency": "USD", "shares": 1, "pricing_mode": "auto", "market": "美股"},
+        {"name": "B", "currency": "HKD", "shares": 1, "pricing_mode": "auto", "market": "港股"},
+        {"name": "C", "currency": "CNY", "shares": 1, "pricing_mode": "auto", "market": "A股"},
+        {"name": "D", "currency": "GBP", "shares": 1, "pricing_mode": "auto", "market": "UK"},
+        {"name": "E", "currency": "USD", "shares": 1, "pricing_mode": "auto", "market": None},
+    ]
+    rows = _postprocess(raw)
+    assert [r.market for r in rows] == ["US", "HK", "A-Share", "Other", None]
+
+
 def test_postprocess_coerces_unknown_asset_type_to_null() -> None:
     raw = [
         {

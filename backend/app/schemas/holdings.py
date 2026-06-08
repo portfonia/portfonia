@@ -21,6 +21,9 @@ class ParsedRow(BaseModel):
     current_value: float | None = None
     pricing_mode: Literal["auto", "manual"]
     asset_type: Literal["stock", "etf", "fund", "cash", "wmf", "other"] | None = None
+    # User-declared market bucket; normalized in _postprocess. None = let the
+    # calculator derive it from the ticker.
+    market: Literal["US", "HK", "A-Share", "Other"] | None = None
     broker: str | None = None
     account: str | None = None
     portfolio: str | None = None
@@ -47,6 +50,7 @@ class HoldingOut(BaseModel):
     current_value: Decimal | None
     pricing_mode: str
     asset_type: str | None
+    market: str | None
     broker: str | None
     account: str | None
     portfolio: str | None

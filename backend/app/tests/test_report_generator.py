@@ -514,6 +514,47 @@ def test_build_section1_contains_required_rows() -> None:
     assert "10,000" in md or "10000" in md
 
 
+def test_build_section1_groups_by_market_in_upload_order_with_subtotals() -> None:
+    portfolio = {
+        "base_currency": "USD",
+        "fx_date": "2026-06-06",
+        "total_base": 300.0,
+        "by_market": {"US": 200.0, "HK": 100.0},
+        "by_currency": {},
+        "by_asset_type": {},
+        "holdings": [
+            # Deliberately out of position order; US appears first in the file.
+            {
+                "name": "Alpha",
+                "market": "US",
+                "market_value": 100,
+                "market_value_base": 100.0,
+                "position": 0,
+            },
+            {
+                "name": "Bravo",
+                "market": "HK",
+                "market_value": 100,
+                "market_value_base": 100.0,
+                "position": 1,
+            },
+            {
+                "name": "Charlie",
+                "market": "US",
+                "market_value": 100,
+                "market_value_base": 100.0,
+                "position": 2,
+            },
+        ],
+    }
+    md = rg._build_section1(portfolio)
+    # US group (Alpha, Charlie) before HK group (Bravo); each group subtotaled.
+    assert md.index("Alpha") < md.index("Charlie") < md.index("Bravo")
+    assert "**US subtotal**" in md
+    assert "**HK subtotal**" in md
+    assert md.index("US subtotal") < md.index("Bravo")  # US block closes before HK
+
+
 def test_serialize_anomalies_float_conversion() -> None:
     anomalies = [_anomaly()]
     result = rg._serialize_anomalies(anomalies)
