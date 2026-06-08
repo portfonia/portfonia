@@ -42,9 +42,9 @@ Last updated: 2026-06-07
 
 ### Design backlog: incremental reporting + capture layer (in progress)
 
-Full spec: [docs/adr-002-incremental-reporting.md](docs/adr-002-incremental-reporting.md)
+Full spec lives in Obsidian: `Hermes/Portfonia/Docs/增量报告与捕获层设计.md`
 (resolves #3 report-window-vs-cadence and #4 observation cadence from the
-2026-06-07 first-full-run review).
+2026-06-07 first-full-run review). The agent-facing essentials are inline below.
 
 Shape: a **capture layer** (global, runs at market-session nodes, credit-free —
 RSS + yfinance; persists `news` + `price_snapshots`, 1yr) feeds a **report
