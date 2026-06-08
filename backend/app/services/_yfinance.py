@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pandas as pd
 import yfinance as yf
@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 
 # Type alias used by both fetch_last_close and fetch_last_two_closes.
 ClosePoint = tuple[float, datetime]  # (price, exchange-timestamp)
+
+# (trade_date, open, high, low, close, volume) — volume may be None.
+OhlcvPoint = tuple[date, float, float, float, float, float | None]
 
 # Maximum tickers per yf.download() call.  Empirically, large mixed batches
 # trigger silent partial rejection; keeping this at 8 avoids the threshold.
@@ -196,4 +199,85 @@ def fetch_last_two_closes(
             time.sleep(_INTER_BATCH_DELAY)
         out.update(_download_batch_two(batch))
 
+    return out
+
+
+def _ohlcv_for_ticker(hist: pd.DataFrame, ticker: str) -> OhlcvPoint | None:
+    """Extract the most recent OHLCV bar for one ticker from a download frame."""
+    try:
+        if isinstance(hist.columns, pd.MultiIndex):
+            sub = hist.xs(ticker, axis=1, level=1)
+        else:
+            sub = hist  # single-ticker download: flat columns
+        clean = sub.dropna(subset=["Close"])
+        if clean.empty:
+            return None
+        row = clean.iloc[-1]
+        ts = clean.index[-1]
+        vol = row.get("Volume")
+        return (
+            ts.date(),
+            float(row["Open"]),
+            float(row["High"]),
+            float(row["Low"]),
+            float(row["Close"]),
+            None if vol is None or pd.isna(vol) else float(vol),
+        )
+    except Exception:
+        logger.exception("ohlcv extraction failed for %s", ticker)
+        return None
+
+
+def fetch_daily_ohlcv(tickers: list[str]) -> dict[str, OhlcvPoint]:
+    """Most-recent daily OHLCV bar per ticker. Tickers with no data are omitted.
+
+    Reliable backbone of the capture layer's `close` node (yfinance daily bars).
+    Same market-split + batch-size + inter-batch-delay strategy as the close
+    fetchers.
+    """
+    if not tickers:
+        return {}
+    by_market: dict[str, list[str]] = {"us": [], "hk": [], "cn": []}
+    for t in tickers:
+        by_market[_classify_market(t)].append(t)
+    batches: list[list[str]] = []
+    for market_tickers in by_market.values():
+        if market_tickers:
+            batches.extend(_chunk(market_tickers, _MAX_BATCH_SIZE))
+
+    out: dict[str, OhlcvPoint] = {}
+    for i, batch in enumerate(batches):
+        if i > 0:
+            time.sleep(_INTER_BATCH_DELAY)
+        try:
+            hist = yf.download(
+                tickers=" ".join(batch), period="5d", auto_adjust=True, progress=False
+            )
+        except Exception:
+            logger.exception("yfinance OHLCV download failed for %s", batch)
+            continue
+        if hist.empty:
+            continue
+        for t in batch:
+            pt = _ohlcv_for_ticker(hist, t)
+            if pt is not None:
+                out[t] = pt
+    return out
+
+
+def fetch_spot(tickers: list[str]) -> dict[str, float]:
+    """Best-effort current/last price per ticker for intraday capture nodes.
+
+    Uses yfinance fast_info; tickers with no usable value are omitted (the
+    caller stores null for them). Intraday/extended-hours data is flaky by
+    nature — this is best-effort, the close node is the authoritative path.
+    """
+    out: dict[str, float] = {}
+    for t in tickers:
+        try:
+            last = yf.Ticker(t).fast_info.get("lastPrice")
+            if last is not None and not pd.isna(last):
+                out[t] = float(last)
+        except Exception:
+            logger.exception("yfinance spot fetch failed for %s", t)
     return out

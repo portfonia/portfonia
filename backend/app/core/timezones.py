@@ -13,3 +13,9 @@ ET = ZoneInfo("America/New_York")
 
 # China Standard Time — A-share / mutual-fund NAV clock.
 CST = ZoneInfo("Asia/Shanghai")
+
+# Hong Kong — HKEX clock (no DST; constant UTC+8).
+HKT = ZoneInfo("Asia/Hong_Kong")
+
+# Market bucket → local clock, for stamping intraday capture trade_date.
+MARKET_TZ = {"US": ET, "HK": HKT, "A-Share": CST}

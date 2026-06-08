@@ -1,0 +1,115 @@
+"""Capture price snapshots into `price_snapshots` (ADR-002 capture layer).
+
+Credit-free (yfinance). The `close` node stores the authoritative daily OHLCV
+bar; intraday nodes (pre_open / open / after_close) store a best-effort `last`
+(null when yfinance has no intraday value). Idempotent upsert on
+(ticker, market, session_node, trade_date) so catch-up re-runs overwrite rather
+than duplicate. FX is NOT captured here — it stays in `fx_rates`.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import UTC, date, datetime
+
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.orm import Session
+
+from app.core.timezones import MARKET_TZ
+from app.models.holding import Holding
+from app.models.price_snapshot import PriceSnapshot
+from app.services._yfinance import _classify_market, fetch_daily_ohlcv, fetch_spot
+
+logger = logging.getLogger(__name__)
+
+_MARKET_KEY = {"us": "US", "hk": "HK", "cn": "A-Share"}
+
+
+def _effective_market(h: Holding) -> str:
+    """User-declared market wins; otherwise derive from the ticker."""
+    if h.market:
+        return h.market
+    return _MARKET_KEY.get(_classify_market(h.ticker or ""), "Other")
+
+
+def _market_tickers(session: Session, market: str) -> list[str]:
+    """Auto-priced holdings tickers whose effective market is `market`."""
+    holdings = session.execute(
+        select(Holding).where(Holding.ticker.is_not(None), Holding.pricing_mode == "auto")
+    ).scalars()
+    return sorted({h.ticker for h in holdings if h.ticker and _effective_market(h) == market})
+
+
+def _upsert(session: Session, rows: list[dict[str, object]]) -> int:
+    if not rows:
+        return 0
+    base = pg_insert(PriceSnapshot).values(rows)
+    update_cols = {
+        c: base.excluded[c]
+        for c in ("open", "high", "low", "close", "last", "volume", "source", "captured_at")
+    }
+    stmt = base.on_conflict_do_update(
+        constraint="uq_price_snapshots_key", set_=update_cols
+    ).returning(PriceSnapshot.id)
+    n = len(session.execute(stmt).fetchall())
+    session.commit()
+    return n
+
+
+def capture_prices(
+    session: Session, market: str, session_node: str, trade_date: date | None = None
+) -> int:
+    """Capture one (market, session_node) into price_snapshots. Returns rows written.
+
+    close node → daily OHLCV (trade_date from the bar); other nodes → best-effort
+    `last` (trade_date = today in the market's local clock).
+    """
+    tickers = _market_tickers(session, market)
+    if not tickers:
+        logger.info("capture_prices: no auto tickers for market %s", market)
+        return 0
+
+    now = datetime.now(tz=UTC)
+    rows: list[dict[str, object]] = []
+
+    if session_node == "close":
+        for ticker, pt in fetch_daily_ohlcv(tickers).items():
+            bar_date, o, h, low, c, vol = pt
+            rows.append(
+                {
+                    "ticker": ticker,
+                    "market": market,
+                    "session_node": session_node,
+                    "trade_date": trade_date or bar_date,
+                    "open": o,
+                    "high": h,
+                    "low": low,
+                    "close": c,
+                    "volume": vol,
+                    "captured_at": now,
+                }
+            )
+    else:
+        td = trade_date or datetime.now(tz=MARKET_TZ.get(market, UTC)).date()
+        for ticker, last in fetch_spot(tickers).items():
+            rows.append(
+                {
+                    "ticker": ticker,
+                    "market": market,
+                    "session_node": session_node,
+                    "trade_date": td,
+                    "last": last,
+                    "captured_at": now,
+                }
+            )
+
+    written = _upsert(session, rows)
+    logger.info(
+        "capture_prices: market=%s node=%s tickers=%d written=%d",
+        market,
+        session_node,
+        len(tickers),
+        written,
+    )
+    return written
