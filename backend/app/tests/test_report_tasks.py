@@ -23,22 +23,22 @@ from app.tasks import celery_app
 
 def test_beat_schedule_registered() -> None:
     schedule = celery_app.conf.beat_schedule
-    assert "weekly-report-friday" in schedule
+    assert "report-incremental-mwf" in schedule
 
 
 def test_beat_schedule_task_name() -> None:
-    entry = celery_app.conf.beat_schedule["weekly-report-friday"]
-    assert entry["task"] == "app.tasks.report_tasks.generate_weekly_report"
+    entry = celery_app.conf.beat_schedule["report-incremental-mwf"]
+    assert entry["task"] == "app.tasks.report_tasks.generate_incremental_report"
 
 
-def test_beat_schedule_crontab_friday_1630() -> None:
+def test_beat_schedule_crontab_mwf_1630() -> None:
     from celery.schedules import crontab  # type: ignore[import-untyped]
 
-    entry = celery_app.conf.beat_schedule["weekly-report-friday"]
+    entry = celery_app.conf.beat_schedule["report-incremental-mwf"]
     sched = entry["schedule"]
     assert isinstance(sched, crontab)
-    # day_of_week="friday" stores as {5} in crontab internals
-    assert 5 in sched.day_of_week
+    # Mon/Wed/Fri = {1, 3, 5} in crontab internals.
+    assert {1, 3, 5} <= sched.day_of_week
     assert 16 in sched.hour
     assert 30 in sched.minute
 
@@ -48,7 +48,7 @@ def test_celery_timezone_is_et() -> None:
 
 
 # ---------------------------------------------------------------------------
-# generate_weekly_report task logic
+# generate_incremental_report task logic
 # ---------------------------------------------------------------------------
 
 
@@ -68,9 +68,9 @@ def test_task_happy_path(mock_gen: MagicMock, mock_session_cls: MagicMock) -> No
     mock_session = MagicMock()
     mock_session_cls.return_value = mock_session
 
-    from app.tasks.report_tasks import generate_weekly_report
+    from app.tasks.report_tasks import generate_incremental_report
 
-    result = generate_weekly_report.run()  # .run() bypasses Celery routing
+    result = generate_incremental_report.run()  # .run() bypasses Celery routing
 
     assert result["report_id"] == str(report_id)
     assert result["status"] == "success"
@@ -84,9 +84,9 @@ def test_task_closes_session_on_success(mock_gen: MagicMock, mock_session_cls: M
     mock_session = MagicMock()
     mock_session_cls.return_value = mock_session
 
-    from app.tasks.report_tasks import generate_weekly_report
+    from app.tasks.report_tasks import generate_incremental_report
 
-    generate_weekly_report.run()
+    generate_incremental_report.run()
 
     mock_session.close.assert_called_once()
 
@@ -98,9 +98,9 @@ def test_task_closes_session_on_failure(mock_gen: MagicMock, mock_session_cls: M
     mock_session = MagicMock()
     mock_session_cls.return_value = mock_session
 
-    from app.tasks.report_tasks import generate_weekly_report
+    from app.tasks.report_tasks import generate_incremental_report
 
     with pytest.raises(RuntimeError):
-        generate_weekly_report.run()
+        generate_incremental_report.run()
 
     mock_session.close.assert_called_once()
