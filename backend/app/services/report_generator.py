@@ -48,9 +48,14 @@ from app.core.timezones import ET
 from app.models.report import Report
 from app.services.email_sender import send_report_email
 from app.services.macro_detector import MacroSignals, detect_macro_signals
-from app.services.news_fetcher import NewsItem, fetch_news
+from app.services.news_fetcher import NewsItem
 from app.services.portfolio_calculator import PortfolioSnapshot, compute_portfolio
-from app.services.price_anomaly_detector import PriceAnomaly, detect_price_anomalies
+from app.services.price_anomaly_detector import PriceAnomaly
+from app.services.window_data import (
+    detect_window_anomalies,
+    load_news_window,
+    user_watermark,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -176,6 +181,10 @@ class ReportContext:
     news_items: list[dict[str, Any]] = field(default_factory=list)
     macro_signals: dict[str, Any] = field(default_factory=dict)
     price_anomalies: list[dict[str, Any]] = field(default_factory=list)
+    # ADR-002 window bookkeeping (ISO strings / int) for re-render reproducibility.
+    period_start: str = ""
+    period_end: str = ""
+    window_trading_days: int = 0
     pass1_model: str = ""
     pass1_prompt: str = ""
     pass1_raw: str = ""
@@ -751,24 +760,24 @@ def _annotate_sources(text: str, portfolio: dict[str, Any]) -> str:
 
 
 def _build_data_window(
-    news_items: list[dict[str, Any]], portfolio: dict[str, Any], report_date_str: str
+    news_items: list[dict[str, Any]],
+    portfolio: dict[str, Any],
+    period_start: str,
+    period_end: str,
+    trading_days: int,
 ) -> str:
     """A one-line statement of the intel/data interval this report covers (#5)."""
-    times = sorted(n["published_at"] for n in news_items if n.get("published_at"))
-    if times:
-        lo = times[0][:16].replace("T", " ")
-        hi = times[-1][:16].replace("T", " ")
-        news_line = f"news {lo} to {hi} UTC ({len(news_items)} items)"
+    if period_start and period_end:
+        span = f"{period_start[:16].replace('T', ' ')} to {period_end[:16].replace('T', ' ')} UTC"
+        td = f"{trading_days} trading day(s)"
+        window_line = f"since last report: {span} ({td})"
     else:
-        news_line = "no news in window"
-    price_dates = sorted(
-        h["price_as_of"][:10] for h in portfolio.get("holdings", []) if h.get("price_as_of")
-    )
-    price_line = f"prices through {price_dates[-1]}" if price_dates else "prices unavailable"
+        window_line = "window unavailable"
     fx_date = portfolio.get("fx_date", "n/a")
     return (
-        f"> **Data window** — {news_line}; {price_line}; FX as of {fx_date}. "
-        "Price moves are measured against the prior close.\n\n"
+        f"> **Data window** — {window_line}; {len(news_items)} news item(s); "
+        f"FX as of {fx_date}. Price moves are measured against the baseline close "
+        "at the window start.\n\n"
     )
 
 
@@ -804,6 +813,9 @@ def _render_full_md(
     news_items: list[dict[str, Any]],
     raw_body: str,
     output_lang: str,
+    period_start: str = "",
+    period_end: str = "",
+    trading_days: int = 0,
 ) -> tuple[str, list[str]]:
     """Annotate, assemble, language-render, and compliance-scan a report.
 
@@ -813,7 +825,7 @@ def _render_full_md(
     """
     annotated = _annotate_sources(raw_body, portfolio)
     header = f"# Portfonia Intelligence Report — {report_date_str}\n\n"
-    window = _build_data_window(news_items, portfolio, report_date_str)
+    window = _build_data_window(news_items, portfolio, period_start, period_end, trading_days)
     section1 = _build_section1(portfolio)
     dynamic_en = header + window + section1 + "\n\n" + annotated
 
@@ -898,30 +910,44 @@ def generate_report(
             disclaimer_version=_DISCLAIMER_VERSION,
         )
         session.add(report)
+    # ADR-002 incremental window: [previous report's period_end, now].
+    period_start = user_watermark(session, user_id, report_type)
+    period_end = datetime.now(tz=UTC)
+    report.period_start = period_start
+    report.period_end = period_end
     session.flush()  # get the id without committing
-    logger.info("report %s: generation started for %s", report.id, eff_date)
+    logger.info(
+        "report %s: generation started for %s (window %s → %s)",
+        report.id,
+        eff_date,
+        period_start.isoformat(),
+        period_end.isoformat(),
+    )
 
     ctx = ReportContext()
+    ctx.period_start = period_start.isoformat()
+    ctx.period_end = period_end.isoformat()
 
     try:
         # ------------------------------------------------------------------
-        # 1. Gather inputs
+        # 1. Gather inputs (news + price moves read from the capture stores)
         # ------------------------------------------------------------------
         logger.info("report %s: fetching portfolio snapshot", report.id)
         portfolio_snap = compute_portfolio(session, base_currency=base_currency)
         ctx.portfolio_summary = _serialize_portfolio(portfolio_snap)
 
-        logger.info("report %s: fetching news", report.id)
-        news_items = fetch_news()
+        logger.info("report %s: loading windowed news", report.id)
+        news_items = load_news_window(session, period_start, period_end)
         ctx.news_items = _serialize_news(news_items)
 
         logger.info("report %s: detecting macro signals", report.id)
         macro_signals = detect_macro_signals(news_items)
         ctx.macro_signals = _serialize_macro(macro_signals)
 
-        logger.info("report %s: detecting price anomalies", report.id)
-        anomalies = detect_price_anomalies(session)
+        logger.info("report %s: detecting windowed price anomalies", report.id)
+        anomalies, trading_days = detect_window_anomalies(session, period_start, period_end)
         ctx.price_anomalies = _serialize_anomalies(anomalies)
+        ctx.window_trading_days = trading_days
 
         # ------------------------------------------------------------------
         # 2. Skip check
@@ -942,6 +968,9 @@ def generate_report(
                 ctx.news_items,
                 quiet_body,
                 output_lang,
+                ctx.period_start,
+                ctx.period_end,
+                ctx.window_trading_days,
             )
             report.status = "skipped"
             report.report_md = quiet_md
@@ -1038,7 +1067,14 @@ def generate_report(
         # ------------------------------------------------------------------
         report_date_str = eff_date.strftime("%Y-%m-%d")
         full_md, violations = _render_full_md(
-            report_date_str, ctx.portfolio_summary, ctx.news_items, raw_pass2, output_lang
+            report_date_str,
+            ctx.portfolio_summary,
+            ctx.news_items,
+            raw_pass2,
+            output_lang,
+            ctx.period_start,
+            ctx.period_end,
+            ctx.window_trading_days,
         )
         logger.info("report %s: assembled + rendered (lang=%s)", report.id, output_lang)
 
@@ -1151,7 +1187,14 @@ def regenerate_report(
 
     report_date_str = report.report_date.strftime("%Y-%m-%d")
     full_md, violations = _render_full_md(
-        report_date_str, portfolio, news_items, raw_body, output_lang
+        report_date_str,
+        portfolio,
+        news_items,
+        raw_body,
+        output_lang,
+        report.period_start.isoformat() if report.period_start else "",
+        report.period_end.isoformat() if report.period_end else "",
+        int(inputs.get("window_trading_days", 0)),
     )
     report.status = "needs_review" if violations else "success"
     report.report_md = full_md

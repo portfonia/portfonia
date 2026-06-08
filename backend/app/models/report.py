@@ -36,6 +36,10 @@ class Report(Base):
     report_inputs: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     email_sent_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     generated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    # ADR-002: the intel/price window this report covered. period_start = the
+    # previous report's period_end (watermark); period_end = this run's cutoff.
+    period_start: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    period_end: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
