@@ -60,8 +60,11 @@ logger = logging.getLogger(__name__)
 _PROMPT_VERSION = "f2-v2"  # f2-v2: Pass 1 no longer carries holdings-derived anomalies
 _DISCLAIMER_VERSION = "f3-bilingual-v1"
 
-# Compiled once; matches LLM-emitted [S1], [S12] etc.
-_NEWS_CITE_RE = re.compile(r"\[S(\d+)\]")
+# A run of one or more LLM citations ([S6][S7][S8] or "[S6] [S7]") collapses to a
+# single bare [新闻] marker: the dangling S-numbers resolve to nothing in the
+# rendered report, so they are noise — but "this line is news-sourced" is signal
+# worth keeping. Trailing whitespace after the last citation is preserved.
+_NEWS_RUN_RE = re.compile(r"\[S\d+\](?:\s*\[S\d+\])*")
 # Compliance suffix that the LLM appends to every analytical conclusion.
 _COMPLIANCE_MARKER = "[For information only — not investment advice]"
 
@@ -685,13 +688,13 @@ def _annotate_sources(text: str, portfolio: dict[str, Any]) -> str:
 
     Three operations, applied in order:
 
-    1. Normalise news citations: [S#] → [新闻: S#]
-       The LLM is already instructed to use [S#]; this step makes the format
-       explicit and consistent.
+    1. Collapse news citations: a run of [S#] → a single [新闻]
+       The dangling S-numbers are not resolvable in the rendered report; the
+       provenance signal (news-sourced) is kept, the noise is dropped.
 
     2. Inject [行情] on lines that:
        - Reference a known portfolio identifier (ticker or fund_code), AND
-       - Do not already carry a [新闻:] citation on the same line.
+       - Do not already carry a [新闻] marker on the same line.
        Rationale: a line mentioning AAPL without citing a search result is
        drawing on the portfolio snapshot, not external news.
 
@@ -699,8 +702,8 @@ def _annotate_sources(text: str, portfolio: dict[str, Any]) -> str:
        Every LLM analytical conclusion ends with _COMPLIANCE_MARKER; inserting
        [分析] immediately before it flags the preceding clause as LLM inference.
     """
-    # Step 1 — normalise [S#] → [新闻: S#]
-    text = _NEWS_CITE_RE.sub(r"[新闻: S\1]", text)
+    # Step 1 — collapse [S#] runs → single [新闻]
+    text = _NEWS_RUN_RE.sub("[新闻]", text)
 
     # Build portfolio identifier set (ticker symbols and fund codes only;
     # full names are too prone to substring false-positives).
@@ -716,8 +719,8 @@ def _annotate_sources(text: str, portfolio: dict[str, Any]) -> str:
     for line in lines:
         stripped = line.rstrip()
 
-        # Step 2 — [行情]: portfolio identifier present, no news citation
-        if identifiers and "[新闻:" not in stripped and "[行情]" not in stripped:
+        # Step 2 — [行情]: portfolio identifier present, no news marker
+        if identifiers and "[新闻]" not in stripped and "[行情]" not in stripped:
             for ident in identifiers:
                 if re.search(r"\b" + re.escape(ident) + r"\b", stripped):
                     stripped = stripped + " [行情]"

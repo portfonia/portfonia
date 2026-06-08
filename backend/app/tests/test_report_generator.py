@@ -589,13 +589,22 @@ def _simple_portfolio(tickers: list[str]) -> dict[str, object]:
     }
 
 
-def test_annotate_sources_normalizes_news_citations() -> None:
+def test_annotate_sources_collapses_news_citations() -> None:
     text = "The Fed raised rates [S1] and markets reacted [S12]."
     result = rg._annotate_sources(text, _simple_portfolio([]))
-    assert "[新闻: S1]" in result
-    assert "[新闻: S12]" in result
+    assert result.count("[新闻]") == 2
     assert "[S1]" not in result
     assert "[S12]" not in result
+    # Whitespace around citations is preserved (no word-joining).
+    assert "rates [新闻] and" in result
+
+
+def test_annotate_sources_collapses_consecutive_citation_run() -> None:
+    text = "Markets moved [S6][S7][S8] [S9][S10] sharply."
+    result = rg._annotate_sources(text, _simple_portfolio([]))
+    assert result.count("[新闻]") == 1  # the whole run becomes one marker
+    assert "S6" not in result and "S10" not in result
+    assert "moved [新闻] sharply" in result
 
 
 def test_annotate_sources_injects_xingqing_on_ticker_line() -> None:
@@ -605,11 +614,11 @@ def test_annotate_sources_injects_xingqing_on_ticker_line() -> None:
 
 
 def test_annotate_sources_skips_xingqing_when_news_cited() -> None:
-    # After step 1, [S1] becomes [新闻: S1] — so [行情] must not be added.
+    # After step 1, [S1] becomes [新闻] — so [行情] must not be added.
     text = "AAPL declined 9% according to reports [S1]."
     result = rg._annotate_sources(text, _simple_portfolio(["AAPL"]))
     assert "[行情]" not in result
-    assert "[新闻: S1]" in result
+    assert "[新闻]" in result
 
 
 def test_annotate_sources_no_xingqing_without_ticker() -> None:
@@ -672,7 +681,7 @@ def _mock_llm_f2(
 
 
 def test_generate_report_f2_news_annotations_in_output(db_session: Session) -> None:
-    """Generated report must contain normalised [新闻: S#] markers from LLM [S#] citations."""
+    """Generated report must collapse LLM [S#] citations into bare [新闻] markers."""
     with (
         patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
@@ -692,8 +701,8 @@ def test_generate_report_f2_news_annotations_in_output(db_session: Session) -> N
 
     assert report.status == "success"
     assert report.report_md is not None
-    # [S1] from LLM must be normalised to [新闻: S1]
-    assert "[新闻: S1]" in report.report_md
+    # [S1] from LLM must be collapsed to a bare [新闻] marker
+    assert "[新闻]" in report.report_md
     assert "[S1]" not in report.report_md
 
 
