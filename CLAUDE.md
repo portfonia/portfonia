@@ -40,23 +40,28 @@ Last updated: 2026-06-07
 | A-DEBT-4 | `ParsedRow` uses `float` for `shares`/`avg_cost`/`current_value`, bridged to `Decimal` via `Decimal(str(x))` at confirm. Bridge is adequate but inconsistent with the Decimal-everywhere model. | TBD |
 | A-DEBT-5 | `/holdings/upload` has no request body-size cap (`await file.read()` loads fully into memory). Local Ring 0 low risk; add a limit before any exposed deployment. | Ring 1 |
 
-### Design backlog (decided, not yet built)
+### Design backlog: incremental reporting + capture layer (in progress)
 
-From the 2026-06-07 first-full-run report review. These are scheduled work, not debt:
+Full spec: [docs/adr-002-incremental-reporting.md](docs/adr-002-incremental-reporting.md)
+(resolves #3 report-window-vs-cadence and #4 observation cadence from the
+2026-06-07 first-full-run review).
 
-- **B-1 — report time-window vs cadence (the #3 problem).** The "weekly" report
-  is really a daily-windowed snapshot: news = past 24h, anomaly = last 2 closes
-  (1-day move). Decouple **lookback window** from **run frequency**: a report
-  type declares its window (daily=1d, weekly≈5 trading days), and that window
-  flows into news range, the anomaly comparison basis, and the Pass 2 prompt
-  framing. Target architecture: fetch news daily into storage, reports query a
-  window from storage instead of only the fresh 24h pull. Build AFTER the small
-  report-format fixes; this is the next structural change.
-- **B-2 — observation cadence (the #4 problem).** During Stage I, run the beat
-  Mon/Wed/Fri (not just Friday) to surface bugs faster — a one-line `day_of_week`
-  change. Implement together with B-1 (multi-run-per-week only makes sense once
-  the window semantics are explicit). Keep "observation cadence" distinct from
-  the eventual product cadence.
+Shape: a **capture layer** (global, runs at market-session nodes, credit-free —
+RSS + yfinance; persists `news` + `price_snapshots`, 1yr) feeds a **report
+layer** (per-user, M/W/F 16:30 ET, window = since that user's last report;
+cold-start baseline = 2026-06-01 16:00 ET). Watermark = `max(period_end)` over
+the user's reports (derived → regenerate/rollback restores it for free).
+
+Build sequence (each step ships green):
+1. `news` + `price_snapshots` tables — **DONE** (migration `e5f6a7b8c9d0`).
+2. Capture tasks + session-node schedule (US ET crontab / HK-CN fixed UTC) +
+   in-task catch-up `[last watermark, now]`.
+3. Report reads news/prices from the stores over the incremental window.
+4. `period_start`/`period_end` on `reports`; watermark derivation.
+5. M/W/F incremental report schedule.
+
+Anomaly threshold: Ring 0 flat % since baseline + state trading-day count;
+future = flat% × trading-days, capped 10%.
 
 ## Language Policy (MANDATORY)
 
