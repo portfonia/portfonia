@@ -856,6 +856,105 @@ def test_scan_allows_descriptive_price_structure() -> None:
     assert rg._scan_forbidden_output(body) == []
 
 
+# ---------------------------------------------------------------------------
+# Tests: §2.5 forward calendar (#1 — code-built, observation-framed)
+# ---------------------------------------------------------------------------
+
+
+def _fwd_holdings() -> list[dict[str, object]]:
+    return [
+        {
+            "name": "NVIDIA",
+            "ticker": "NVDA",
+            "market": "US",
+            "asset_type": "stock",
+            "sector": "Technology",
+        },
+        {
+            "name": "SPDR Gold",
+            "ticker": "GLD",
+            "market": "US",
+            "asset_type": "etf",
+            "sector": "Other",
+        },
+        {
+            "name": "Costco",
+            "ticker": "COST",
+            "market": "US",
+            "asset_type": "stock",
+            "sector": "Consumer Staples",
+        },
+        {
+            "name": "Tencent",
+            "ticker": "0700.HK",
+            "market": "HK",
+            "asset_type": "stock",
+            "sector": "Technology",
+        },
+    ]
+
+
+def test_forward_exposure_cpi_maps_rate_sensitive_and_gold() -> None:
+    exposed, watch = rg._forward_exposure(
+        {"event_type": "macro", "name": "Consumer Price Index (CPI)"}, _fwd_holdings()
+    )
+    assert "NVIDIA" in exposed and "SPDR Gold" in exposed  # tech + gold
+    assert "Tencent" not in exposed  # non-US excluded
+    assert "inflation" in watch and "rise" not in watch  # observation, not forecast
+
+
+def test_forward_exposure_earnings_maps_exact_ticker() -> None:
+    exposed, _ = rg._forward_exposure(
+        {"event_type": "earnings", "name": "NVDA", "ticker": "NVDA"}, _fwd_holdings()
+    )
+    assert exposed == ["NVIDIA"]
+
+
+def test_forward_exposure_retail_maps_consumer_only() -> None:
+    exposed, _ = rg._forward_exposure(
+        {"event_type": "macro", "name": "Retail Sales"}, _fwd_holdings()
+    )
+    assert exposed == ["Costco"]
+
+
+def test_forward_delay_risk_detects_funding_lapse() -> None:
+    assert rg._forward_delay_risk([{"title": "Government shutdown looms", "summary": ""}]) is True
+    assert (
+        rg._forward_delay_risk([{"title": "Tech stocks rally", "summary": "strong demand"}])
+        is False
+    )
+
+
+def test_build_forward_block_renders_table_and_delay_caveat() -> None:
+    events = [
+        {"event_type": "macro", "name": "FOMC Statement", "scheduled_date": "2026-06-17"},
+        {
+            "event_type": "earnings",
+            "name": "NVDA",
+            "ticker": "NVDA",
+            "scheduled_date": "2026-06-15",
+        },
+    ]
+    news = [{"title": "Congress funding lapse risk", "summary": ""}]
+    md = rg._build_forward_block(events, _fwd_holdings(), news)
+    assert "## §2.5 Forward Calendar" in md
+    assert "2026-06-17" in md and "FOMC Statement" in md
+    assert "calendar facts, not forecasts" in md
+    assert "delay scheduled BLS/BEA releases" in md  # caveat appended
+
+
+def test_inject_forward_block_inserts_before_section3() -> None:
+    body = "## §2 Macro Signals\nstuff\n## §3 Holdings Analysis\nmore"
+    out = rg._inject_forward_block(body, "## §2.5 Forward Calendar\nX")
+    assert out.index("§2.5") < out.index("## §3")
+    assert out.index("## §2 ") < out.index("§2.5")
+
+
+def test_pass2_system_forbids_forecasting_scheduled_events() -> None:
+    assert "FORWARD EVENTS" in rg._PASS2_SYSTEM
+    assert "NEVER predict its outcome" in rg._PASS2_SYSTEM
+
+
 def test_serialize_anomalies_float_conversion() -> None:
     anomalies = [_anomaly()]
     result = rg._serialize_anomalies(anomalies)

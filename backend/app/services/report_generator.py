@@ -29,7 +29,7 @@ import logging
 import re
 import uuid
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -43,6 +43,7 @@ from app.core.deps import get_current_user_id
 from app.core.timezones import ET
 from app.models.report import Report
 from app.services.email_sender import send_report_email
+from app.services.forward_events import load_forward_events
 from app.services.macro_detector import MacroSignals, detect_macro_signals
 from app.services.news_fetcher import NewsItem
 from app.services.portfolio_calculator import PortfolioSnapshot, compute_portfolio
@@ -138,6 +139,10 @@ _MAX_SEARCH_QUERIES = 5
 _TAVILY_MAX_RESULTS = 5  # results per query
 _TAVILY_SEARCH_DEPTH = "basic"
 
+# Forward calendar (#1): how far ahead §2.5 looks. The capture task fetches a
+# wider horizon so the read is always populated within this window.
+_FORWARD_WINDOW_DAYS = 10
+
 # System prompt prefix injected into every LLM call for Layer 3/4 compliance.
 # This text is not user-tunable.
 _COMPLIANCE_SYSTEM_PREFIX = """\
@@ -162,7 +167,11 @@ no [news], no [analysis], no source labels). Write clean prose.
 _PASS2_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + (
     "\nYou are writing a structured financial analysis briefing for a "
     "private investor. Use Markdown. Be concise and factual. Write clean prose "
-    "with no bracketed tags or citations."
+    "with no bracketed tags or citations.\n"
+    "FORWARD EVENTS: if you reference a scheduled event (an upcoming data release, "
+    "FOMC meeting, or earnings date), state only that it is scheduled and what is "
+    "worth watching — NEVER predict its outcome, direction, or market impact "
+    "('will rise/fall', 'likely to beat', 'expected to lift/hurt' are forbidden)."
 )
 
 
@@ -192,6 +201,7 @@ class ReportContext:
     macro_signals: dict[str, Any] = field(default_factory=dict)
     price_anomalies: list[dict[str, Any]] = field(default_factory=list)
     technical_positions: list[dict[str, Any]] = field(default_factory=list)
+    forward_events: list[dict[str, Any]] = field(default_factory=list)
     # ADR-002 window bookkeeping (ISO strings / int) for re-render reproducibility.
     period_start: str = ""
     period_end: str = ""
@@ -649,6 +659,141 @@ def _build_section44_technical(positions: list[dict[str, Any]]) -> str:
         "Figures describe where the price sits; they are not signals.",
     ]
     return "\n".join(lines)
+
+
+# Exposure mapping for the forward calendar (#1) — code-built, deterministic.
+_RATE_SENSITIVE_SECTORS = {
+    "Technology",
+    "Consumer Discretionary",
+    "Communication Services",
+    "Real Estate",
+}
+_CONSUMER_SECTORS = {"Consumer Discretionary", "Consumer Staples"}
+_GOLD_TICKERS = {"GLD", "IAU", "GLDM", "SGOL", "GLDX"}
+# RSS-derived delay caveat triggers (#1): a funding lapse can suspend BLS/BEA releases.
+_RELEASE_DELAY_TERMS = (
+    "government shutdown",
+    "funding lapse",
+    "funding gap",
+    "appropriations lapse",
+    "budget shutdown",
+    "政府停摆",
+    "拨款中断",
+    "停摆",
+)
+
+
+def _is_gold(h: dict[str, Any]) -> bool:
+    ticker = (h.get("ticker") or "").upper()
+    return "gold" in (h.get("name") or "").lower() or ticker in _GOLD_TICKERS
+
+
+def _us_equity(h: dict[str, Any]) -> bool:
+    return h.get("market") == "US" and h.get("asset_type") in ("stock", "etf")
+
+
+def _forward_exposure(
+    event: dict[str, Any], holdings: list[dict[str, Any]]
+) -> tuple[list[str], str]:
+    """Map a scheduled event to the holdings exposed to it + what to watch.
+
+    Pure facts and observation framing — never a directional forecast.
+    """
+    if event.get("event_type") == "earnings":
+        tk = event.get("ticker", "")
+        exposed = [h["name"] for h in holdings if h.get("ticker") == tk]
+        return (exposed or [tk]), "reported results vs expectations for this holding"
+
+    low = event.get("name", "").lower()
+    if "fomc" in low:
+        return (
+            [
+                h["name"]
+                for h in holdings
+                if _us_equity(h) and (h.get("sector") in _RATE_SENSITIVE_SECTORS or _is_gold(h))
+            ],
+            "policy-rate decision and statement tone",
+        )
+    if any(k in low for k in ("cpi", "ppi", "pce", "personal income")):
+        return (
+            [
+                h["name"]
+                for h in holdings
+                if _us_equity(h) and (h.get("sector") in _RATE_SENSITIVE_SECTORS or _is_gold(h))
+            ],
+            "inflation reading vs consensus; rate-path implications",
+        )
+    if "payroll" in low or "employment" in low:
+        return (
+            [h["name"] for h in holdings if _us_equity(h)],
+            "labor-market strength; rate-path implications",
+        )
+    if "retail" in low:
+        return (
+            [h["name"] for h in holdings if h.get("sector") in _CONSUMER_SECTORS],
+            "consumer-spending momentum",
+        )
+    if "sentiment" in low:
+        return (
+            [h["name"] for h in holdings if h.get("sector") in _CONSUMER_SECTORS],
+            "household-sentiment trend",
+        )
+    if "gross domestic" in low or "gdp" in low:
+        return ([h["name"] for h in holdings if _us_equity(h)], "growth pace vs consensus")
+    return ([h["name"] for h in holdings if _us_equity(h)], "relevance to US-exposed holdings")
+
+
+def _forward_delay_risk(news_items: list[dict[str, Any]]) -> bool:
+    """True if window news mentions a funding lapse that could delay US releases."""
+    for it in news_items:
+        text = f"{it.get('title', '')} {it.get('summary') or ''}".lower()
+        if any(term in text for term in _RELEASE_DELAY_TERMS):
+            return True
+    return False
+
+
+def _build_forward_block(
+    events: list[dict[str, Any]], holdings: list[dict[str, Any]], news_items: list[dict[str, Any]]
+) -> str:
+    """Build §2.5 Forward Calendar from data — no LLM (#1).
+
+    Lists scheduled US macro releases + held-company earnings in the forward
+    window and maps each to the holdings carrying exposure. Calendar facts only;
+    the 'Watch' column points to an observation, never a predicted outcome. If
+    window news flags a funding lapse, a delay caveat is appended.
+    """
+    lines = [
+        "## §2.5 Forward Calendar",
+        "",
+        "Scheduled US events in the days ahead and the holdings exposed to each. "
+        "These are calendar facts, not forecasts.",
+        "",
+        "| Date | Event | Exposed holdings | Watch |",
+        "|------|-------|------------------|-------|",
+    ]
+    for e in events:
+        exposed, watch = _forward_exposure(e, holdings)
+        if len(exposed) > 3:
+            shown = ", ".join(exposed[:3]) + f" +{len(exposed) - 3}"
+        else:
+            shown = ", ".join(exposed) if exposed else "—"
+        lines.append(f"| {e.get('scheduled_date', '')} | {e.get('name', '')} | {shown} | {watch} |")
+    if _forward_delay_risk(news_items):
+        lines += [
+            "",
+            "> Note: window news references a government funding lapse, which can "
+            "delay scheduled BLS/BEA releases; listed dates may slip.",
+        ]
+    return "\n".join(lines)
+
+
+def _inject_forward_block(body: str, block: str) -> str:
+    """Insert the §2.5 forward block before §3 (#1); fallback before §4 or append."""
+    for anchor in ("## §3", "## §4"):
+        idx = body.find(anchor)
+        if idx != -1:
+            return body[:idx].rstrip() + "\n\n" + block + "\n\n" + body[idx:]
+    return body.rstrip() + "\n\n" + block
 
 
 def _build_pass2_prompt(
@@ -1132,6 +1277,7 @@ def _render_full_md(
     trading_days: int = 0,
     anomalies: list[dict[str, Any]] | None = None,
     technical: list[dict[str, Any]] | None = None,
+    forward_events: list[dict[str, Any]] | None = None,
 ) -> tuple[str, list[str]]:
     """Annotate, assemble, language-render, and compliance-scan a report.
 
@@ -1140,6 +1286,12 @@ def _render_full_md(
     report without re-fetching news or re-running search.
     """
     cleaned = _strip_markers(raw_body)
+    # §2.5 forward calendar is code-built from stored events + holdings (#1) and
+    # inserted before §3: calendar facts mapped to exposed holdings, no forecast.
+    if forward_events:
+        cleaned = _inject_forward_block(
+            cleaned, _build_forward_block(forward_events, portfolio.get("holdings", []), news_items)
+        )
     # §4.2 numeric table is code-built from the stored anomalies and inserted
     # under the LLM's §4.2 heading (#3): deterministic, token-free, no hallucination.
     if anomalies:
@@ -1295,6 +1447,13 @@ def generate_report(
             )
         )
 
+        # Forward calendar (#1): read the scheduled US events the capture task
+        # persisted. Stored so re-render reproduces §2.5 without a DB read.
+        logger.info("report %s: loading forward calendar", report.id)
+        ctx.forward_events = load_forward_events(
+            session, eff_date, eff_date + timedelta(days=_FORWARD_WINDOW_DAYS)
+        )
+
         # ------------------------------------------------------------------
         # 2. Skip check
         # ------------------------------------------------------------------
@@ -1426,6 +1585,7 @@ def generate_report(
             ctx.window_trading_days,
             ctx.price_anomalies,
             ctx.technical_positions,
+            ctx.forward_events,
         )
         logger.info("report %s: assembled + rendered (lang=%s)", report.id, output_lang)
 
@@ -1551,6 +1711,7 @@ def regenerate_report(
         int(inputs.get("window_trading_days", 0)),
         inputs.get("price_anomalies", []),
         inputs.get("technical_positions", []),
+        inputs.get("forward_events", []),
     )
     report.status = "needs_review" if violations else "success"
     report.report_md = full_md
