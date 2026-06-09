@@ -4,9 +4,9 @@ Two-pass design:
   Pass 1  macro signals + headlines → LOW_COST_LLM → search queries
   Tavily  execute queries, collect background snippets
   Pass 2  portfolio snapshot + Pass 1 context + anomalies + search results → PRIMARY_LLM → §2/§3/§4 body
-  F2 annotate  post-process Pass 2 output → inject [行情] / [新闻] / [分析] markers
+  Strip   remove any inline citations / provenance tags / per-line disclaimers
   Compliance scan  reject forbidden advisory language in the body (→ needs_review)
-  Assemble  header + data-window + §1 (code-built) + annotated §2/§3/§4 + footer
+  Assemble  header + data-window + §1 (code-built) + cleaned §2/§3/§4 + footer
   Render   translate the assembled report to the output language (#8)
   Write   reports table (report_md + report_inputs JSONB)
 
@@ -14,16 +14,12 @@ Layer-3/4 compliance:
   - System prompt contains the full forbidden-vocabulary list and Layer 3 rule.
   - A post-generation scan backstops the prompt: a body that emits forbidden
     advisory language is held as 'needs_review' and never emailed.
-  - Disclaimer text is injected at the template layer (F3), not by the model.
+  - The single disclaimer lives in the template footer (F3); the body carries no
+    per-sentence disclaimer suffix and no bracketed provenance tags. The model is
+    told not to emit them and `_strip_markers` removes any that slip through.
   - Holdings data is isolated to Pass 2; Pass 1 sees macro signals and public
     headlines only — never anomalies (which are holdings-derived).
   - OPENROUTER_DATA_COLLECTION = "deny" is enforced on every LLM call.
-
-Source annotation (F2):
-  [行情]       line references portfolio snapshot data directly (ticker/fund_code present,
-               no Tavily citation)
-  [新闻]       collapsed from the LLM's [S#] notation; line is news-sourced
-  [分析]       analytical inference by the LLM; injected before the compliance marker
 """
 
 from __future__ import annotations
@@ -63,15 +59,14 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_PROMPT_VERSION = "f2-v2"  # f2-v2: Pass 1 no longer carries holdings-derived anomalies
+_PROMPT_VERSION = "f2-v3"  # f2-v3: window-anchored §2/§3/§4 depth, anomaly arc, no inline markers
 _DISCLAIMER_VERSION = "f3-bilingual-v1"
 
-# A run of one or more LLM citations ([S6][S7][S8] or "[S6] [S7]") collapses to a
-# single bare [新闻] marker: the dangling S-numbers resolve to nothing in the
-# rendered report, so they are noise — but "this line is news-sourced" is signal
-# worth keeping. Trailing whitespace after the last citation is preserved.
+# A run of one or more LLM citations ([S6][S7][S8] or "[S6] [S7]"). The S-numbers
+# do not resolve in the rendered report, so the whole run is stripped (#9).
 _NEWS_RUN_RE = re.compile(r"\[S\d+\](?:\s*\[S\d+\])*")
-# Compliance suffix that the LLM appends to every analytical conclusion.
+# Legacy per-conclusion disclaimer suffix. No longer emitted (the footer carries
+# the single disclaimer); kept here so _strip_markers can remove any stray one.
 _COMPLIANCE_MARKER = "[For information only — not investment advice]"
 
 # Output-side compliance backstop (defense in depth on top of the system prompt).
@@ -142,17 +137,16 @@ recommend, should buy, should sell, hold, reduce exposure, increase position, ex
 stop-loss, target price, will rise to, will fall to, entry point, oversold, overbought, \
 strong buy, bullish rating, bearish rating.
 
-Every analytical conclusion you state must end with the marker:
-[For information only — not investment advice]
+Do NOT append any per-sentence disclaimer or marker — the report carries a single \
+bilingual disclaimer in its footer. Do NOT emit bracketed provenance tags of any \
+kind (no [S#], no [news], no [analysis], no source labels). Write clean prose.
 """
 
 # Pass 2 task instructions (shared by live generation and re-analysis).
 _PASS2_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + (
-    "\nYou are writing a structured financial intelligence briefing for a "
-    "private investor. Use Markdown. Be concise and factual. "
-    "Cite search results with [S#] notation (e.g. [S1], [S2]). "
-    "Every analytical conclusion must end with the marker: "
-    "[For information only — not investment advice]"
+    "\nYou are writing a structured financial analysis briefing for a "
+    "private investor. Use Markdown. Be concise and factual. Write clean prose "
+    "with no bracketed tags or citations."
 )
 
 
@@ -344,6 +338,10 @@ def _serialize_macro(signals: MacroSignals) -> dict[str, Any]:
     }
 
 
+def _f(x: Decimal | None) -> float | None:
+    return float(x) if x is not None else None
+
+
 def _serialize_anomalies(anomalies: list[PriceAnomaly]) -> list[dict[str, Any]]:
     return [
         {
@@ -354,6 +352,19 @@ def _serialize_anomalies(anomalies: list[PriceAnomaly]) -> list[dict[str, Any]]:
             "threshold": float(a.threshold),
             "current_price": float(a.current_price),
             "prev_price": float(a.prev_price),
+            "trigger": a.trigger,
+            "market": a.market,
+            "baseline_date": a.baseline_date.isoformat() if a.baseline_date else None,
+            "latest_date": a.latest_date.isoformat() if a.latest_date else None,
+            "window_net_pct": _f(a.window_net_pct),
+            "max_day_pct": _f(a.max_day_pct),
+            "max_day_date": a.max_day_date.isoformat() if a.max_day_date else None,
+            "prev_close": _f(a.prev_close),
+            "day_open": _f(a.day_open),
+            "day_high": _f(a.day_high),
+            "day_low": _f(a.day_low),
+            "day_close": _f(a.day_close),
+            "after_hours": _f(a.after_hours),
         }
         for a in anomalies
     ]
@@ -369,6 +380,7 @@ def _serialize_portfolio(snap: PortfolioSnapshot) -> dict[str, Any]:
             "asset_type": hv.asset_type,
             "sector": hv.sector,
             "market": hv.market,
+            "broker": hv.broker,
             "market_value": float(hv.market_value),
             "market_value_base": float(hv.market_value_base),
             "price_as_of": hv.price_as_of.isoformat() if hv.price_as_of else None,
@@ -447,13 +459,64 @@ def _build_pass1_prompt(
     return "\n".join(lines)
 
 
+def _fmt_anomaly_arc(a: dict[str, Any]) -> str:
+    """One detailed line per anomaly: window net, worst day, and the latest
+    trading day's session arc, with explicit comparison points so the report can
+    state what was compared to what (#7/#10)."""
+    parts = [f"  {a['name']} ({a['identifier']}) [{a.get('market', '')}/{a.get('asset_type', '')}]"]
+    net = a.get("window_net_pct")
+    if net is not None:
+        parts.append(
+            f"    window net {net * 100:+.2f}% "
+            f"(baseline close {a.get('baseline_date')} -> latest close {a.get('latest_date')})"
+        )
+    mday = a.get("max_day_pct")
+    if mday is not None:
+        parts.append(f"    worst single day {mday * 100:+.2f}% on {a.get('max_day_date')}")
+    # Latest trading day session arc.
+    pc, op, hi, lo, cl, ah = (
+        a.get("prev_close"),
+        a.get("day_open"),
+        a.get("day_high"),
+        a.get("day_low"),
+        a.get("day_close"),
+        a.get("after_hours"),
+    )
+    arc = []
+    if pc is not None:
+        arc.append(f"prev close {pc:g}")
+    if op is not None and pc:
+        arc.append(f"open {op:g} ({(op / pc - 1) * 100:+.1f}% gap)")
+    if hi is not None and lo is not None:
+        arc.append(f"intraday {lo:g}-{hi:g}")
+    if cl is not None:
+        arc.append(f"close {cl:g}")
+    if ah is not None and cl:
+        arc.append(f"after-hours {ah:g} ({(ah / cl - 1) * 100:+.1f}%)")
+    if arc:
+        parts.append(f"    latest day ({a.get('latest_date')}): " + "; ".join(arc))
+    parts.append(f"    trigger: {a.get('trigger', '')}")
+    return "\n".join(parts)
+
+
 def _build_pass2_prompt(
     portfolio: dict[str, Any],
     macro: dict[str, Any],
     anomalies: list[dict[str, Any]],
     search_results: list[dict[str, Any]],
+    period_start: str = "",
+    period_end: str = "",
+    trading_days: int = 0,
 ) -> str:
     lines: list[str] = []
+
+    # Report window facts — anchor all time references to "this report period".
+    lines.append("=== REPORT WINDOW ===")
+    span = "unknown"
+    if period_start and period_end:
+        span = f"{period_start[:16].replace('T', ' ')} to {period_end[:16].replace('T', ' ')} UTC"
+    lines.append(f"This report covers {span} ({trading_days} trading day(s)).")
+    lines.append("")
 
     # Portfolio snapshot (scoped to what's needed — not full history)
     total = portfolio.get("total_base", 0)
@@ -515,19 +578,14 @@ def _build_pass2_prompt(
     else:
         lines.append("(quiet day — no macro themes triggered)")
 
-    # Price anomalies
+    # Price anomalies (window net + worst single day + latest-day session arc)
     lines.append("")
-    lines.append("=== PRICE ANOMALIES ===")
+    lines.append("=== PRICE ANOMALIES (over the report window) ===")
     if anomalies:
         for a in anomalies:
-            direction = "+" if a.get("pct_change", 0) > 0 else ""
-            lines.append(
-                f"  {a['name']} ({a['identifier']}): "
-                f"{direction}{a.get('pct_change', 0) * 100:.2f}% "
-                f"[{a.get('asset_type', '')}]"
-            )
+            lines.append(_fmt_anomaly_arc(a))
     else:
-        lines.append("(no anomalies)")
+        lines.append("(no holding moved beyond its threshold this window)")
 
     # Search results
     if search_results:
@@ -541,18 +599,42 @@ def _build_pass2_prompt(
     # Instructions
     lines.append("")
     lines.append(
-        "Write sections §2, §3, and §4 of the intelligence briefing in Markdown.\n"
-        "Use the portfolio and signal data above. Be specific about which holdings "
-        "are exposed to which signals. Cite search results with [S#] notation.\n\n"
+        "Write sections §2, §3, and §4 of the financial analysis briefing in Markdown.\n"
+        "Use the portfolio and signal data above. Do NOT emit bracketed tags, "
+        "citations, or per-sentence disclaimers — write clean prose.\n\n"
+        "TIME REFERENCES: this is an incremental report over the window stated above. "
+        "Refer to events as happening 'in this report period' unless an event "
+        "demonstrably occurred on one specific day (then name the date). Never write "
+        "'today' or 'this week' as a stand-in for the window.\n\n"
         "## §2 Macro Signals\n"
-        "Summarise the triggered macro themes and the most relevant news developments. "
-        "Describe what is happening and why it is relevant to monitor.\n\n"
-        "## §3 Holdings Intelligence\n"
-        "For each holding exposed to today's signals, describe what happened "
-        "and what the relevant context is from the search results.\n\n"
+        "For each triggered macro theme: (a) describe what is happening and what is "
+        "driving it; (b) under a bold sub-heading 'Impact on this portfolio', do NOT "
+        "stop at naming exposed tickers — trace the transmission mechanism (signal -> "
+        "channel -> the specific holding), then separate the read into short-term "
+        "(this period / next few sessions), medium-term (weeks to a quarter), and "
+        "long-term (structural) effects, and end with the concrete follow-on signals "
+        "or scenarios worth watching for each named holding. Stay descriptive: report "
+        "what to WATCH, never what to DO (no buy/sell/hold/hedge/trim language).\n\n"
+        "## §3 Holdings Analysis\n"
+        "Select the holdings most affected this period and, for each, go beyond "
+        "'position size + what happened'. Explain WHY it surfaced (which signal/move "
+        "implicates it), the mechanism linking the development to that specific "
+        "holding, how it sits relative to the rest of the portfolio (concentration, "
+        "correlation, currency), and which forward signals would confirm or dissolve "
+        "the thesis. Depth over breadth — a few holdings analysed well beats a list.\n\n"
         "## §4 Risk Radar\n"
-        "Describe concentration flags, price anomalies, FX moves, and stale data. "
-        "State the numbers; do not editorialize about what to do."
+        "### 4.1 Concentration — state the flagged ratios.\n"
+        "### 4.2 Price anomalies — for each holding in PRICE ANOMALIES above, write a "
+        "short paragraph that: states the comparison basis explicitly (e.g. 'baseline "
+        "close DATE vs latest close DATE', and for the latest trading day name the "
+        "points compared: previous close, open, intraday high/low, close, after-hours); "
+        "describes how the latest day actually ran (e.g. gapped up at the open, gave "
+        "back gains during the regular session, rose X% after the close) using the arc "
+        "numbers; and attributes the move to a driver from the research/news where one "
+        "exists. If PRICE ANOMALIES is empty, say so plainly for this window — do NOT "
+        "phrase it as 'today'.\n"
+        "### 4.3 FX exposure — state currency exposures and any FX note.\n"
+        "Throughout §4: state the numbers; never editorialize about what to do."
     )
     return "\n".join(lines)
 
@@ -568,26 +650,30 @@ def _build_section1(portfolio: dict[str, Any]) -> str:
         "",
         f"**Total value:** {base_ccy} {total:,.0f}  (FX date: {fx_date})",
         "",
-        "| Holding | Currency | Value | % Portfolio | Market | Sector |",
-        "|---------|----------|-------|-------------|--------|--------|",
+        "| Holding | Currency | Value | % Portfolio | Custodian | Sector |",
+        "|---------|----------|-------|-------------|-----------|--------|",
     ]
 
     holdings = list(portfolio.get("holdings", []))
-    # Group by market, preserving the user's upload order: market groups appear
-    # in the order they first show up in the file, holdings within a group keep
-    # their file order. Each group gets a subtotal so cross-market capital is
-    # legible — this is what the user encodes via the .md `market` column.
+    # Group by custodian (holding institution), preserving the user's upload
+    # order: institutions appear in the order they first show up in the file,
+    # holdings within an institution keep their file order. Cash sits inside its
+    # own institution. A holding with no declared institution falls into "Other".
+    # Each group gets a subtotal so per-institution capital is legible.
     group_order: list[str] = []
     groups: dict[str, list[dict[str, Any]]] = {}
-    for h in sorted(holdings, key=lambda x: x.get("position", 1_000_000)):
-        mkt = h.get("market") or "Other"
-        if mkt not in groups:
-            groups[mkt] = []
-            group_order.append(mkt)
-        groups[mkt].append(h)
+    for h in sorted(
+        holdings,
+        key=lambda x: x["position"] if x.get("position") is not None else 1_000_000,
+    ):
+        broker = h.get("broker") or "Other"
+        if broker not in groups:
+            groups[broker] = []
+            group_order.append(broker)
+        groups[broker].append(h)
 
-    for mkt in group_order:
-        members = groups[mkt]
+    for broker in group_order:
+        members = groups[broker]
         subtotal_base = sum(m.get("market_value_base", 0) for m in members)
         for h in members:
             mv = h.get("market_value", 0)
@@ -596,11 +682,11 @@ def _build_section1(portfolio: dict[str, Any]) -> str:
             name_col = h["name"] + (f" ({h['ticker']})" if h.get("ticker") else "")
             lines.append(
                 f"| {name_col} | {h.get('currency', '')} | {mv:,.0f} | {ratio:.1%} "
-                f"| {h.get('market', '')} | {h.get('sector', '—')} |"
+                f"| {h.get('broker', '') or '—'} | {h.get('sector', '—') or '—'} |"
             )
         sub_ratio = subtotal_base / total if total > 0 else 0
         lines.append(
-            f"| **{mkt} subtotal** | {base_ccy} | **{subtotal_base:,.0f}** "
+            f"| **{broker} subtotal** | {base_ccy} | **{subtotal_base:,.0f}** "
             f"| **{sub_ratio:.1%}** | | |"
         )
 
@@ -702,56 +788,30 @@ def _build_footer(portfolio: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _annotate_sources(text: str, portfolio: dict[str, Any]) -> str:
-    """Post-process Pass 2 LLM output to inject source-provenance markers.
+# Stray provenance/disclaimer tags the LLM may still emit despite the system
+# prompt forbidding them. They are pure noise in the rendered report (the
+# S-numbers don't resolve, the per-line disclaimer duplicates the footer), so we
+# strip them as a backstop. Covers EN and the zh tags produced before #9.
+_STRAY_TAGS = [
+    re.compile(re.escape(_COMPLIANCE_MARKER)),
+    re.compile(r"\[(?:新闻|分析|行情|宏观主题数据|news|analysis|market data)\]", re.IGNORECASE),
+]
 
-    Three operations, applied in order:
 
-    1. Collapse news citations: a run of [S#] → a single [新闻]
-       The dangling S-numbers are not resolvable in the rendered report; the
-       provenance signal (news-sourced) is kept, the noise is dropped.
+def _strip_markers(text: str) -> str:
+    """Remove bracketed citations / provenance tags / per-line disclaimers (#9).
 
-    2. Inject [行情] on lines that:
-       - Reference a known portfolio identifier (ticker or fund_code), AND
-       - Do not already carry a [新闻] marker on the same line.
-       Rationale: a line mentioning AAPL without citing a search result is
-       drawing on the portfolio snapshot, not external news.
-
-    3. Inject [分析] on lines that contain the compliance marker.
-       Every LLM analytical conclusion ends with _COMPLIANCE_MARKER; inserting
-       [分析] immediately before it flags the preceding clause as LLM inference.
+    Markers are no longer injected: the report carries one bilingual disclaimer in
+    the footer, and inline tags hurt readability. This drops any that the model
+    emits anyway, then tidies the whitespace they leave behind.
     """
-    # Step 1 — collapse [S#] runs → single [新闻]
-    text = _NEWS_RUN_RE.sub("[新闻]", text)
-
-    # Build portfolio identifier set (ticker symbols and fund codes only;
-    # full names are too prone to substring false-positives).
-    identifiers: set[str] = set()
-    for h in portfolio.get("holdings", []):
-        if ticker := h.get("ticker"):
-            identifiers.add(ticker)
-        if fund_code := h.get("fund_code"):
-            identifiers.add(fund_code)
-
-    lines = text.split("\n")
-    result: list[str] = []
-    for line in lines:
-        stripped = line.rstrip()
-
-        # Step 2 — [行情]: portfolio identifier present, no news marker
-        if identifiers and "[新闻]" not in stripped and "[行情]" not in stripped:
-            for ident in identifiers:
-                if re.search(r"\b" + re.escape(ident) + r"\b", stripped):
-                    stripped = stripped + " [行情]"
-                    break
-
-        # Step 3 — [分析]: compliance marker present, insert [分析] before it
-        if _COMPLIANCE_MARKER in stripped and "[分析]" not in stripped:
-            stripped = stripped.replace(_COMPLIANCE_MARKER, f"[分析] {_COMPLIANCE_MARKER}")
-
-        result.append(stripped)
-
-    return "\n".join(result)
+    text = _NEWS_RUN_RE.sub("", text)
+    for pat in _STRAY_TAGS:
+        text = pat.sub("", text)
+    # Collapse the runs of spaces / dangling separators the removals leave.
+    lines = [re.sub(r"[ \t]{2,}", " ", ln).rstrip() for ln in text.split("\n")]
+    lines = [re.sub(r"\s+([.,;:。，；：])", r"\1", ln) for ln in lines]  # noqa: RUF001
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -781,6 +841,21 @@ def _build_data_window(
     )
 
 
+def _header_timestamp(report_date_str: str, period_end: str) -> str:
+    """Title timestamp: 'YYYY-MM-DD HH:MM ET' from the window cutoff (#1).
+
+    Falls back to the bare date when period_end is unavailable (e.g. legacy
+    re-render of a report that predates the window columns).
+    """
+    if not period_end:
+        return report_date_str
+    try:
+        end_et = datetime.fromisoformat(period_end).astimezone(ET)
+    except ValueError:
+        return report_date_str
+    return end_et.strftime("%Y-%m-%d %H:%M ET")
+
+
 def _translate_md(md: str, target_lang: str) -> str:
     """Translate an assembled report to *target_lang* (#8).
 
@@ -792,15 +867,22 @@ def _translate_md(md: str, target_lang: str) -> str:
     if target_lang == "en":
         return md
     lang_name = {"zh": "Simplified Chinese"}.get(target_lang, target_lang)
+    glossary = {
+        "zh": (
+            ' Use this exact glossary for fixed terms: "Portfonia Financial Analysis '
+            'Report" -> "Portfonia 财经分析报告"; "financial analysis briefing" -> '
+            '"财经分析简报"; "Portfolio Snapshot" -> "投资组合快照"; "Holdings Analysis" '
+            '-> "持仓分析"; "Custodian" -> "持仓机构"; "Macro Signals" -> "宏观信号"; '
+            '"Risk Radar" -> "风险雷达". Never render any word as "智能".'
+        )
+    }.get(target_lang, "")
     settings = get_settings()
     system = (
         "You are a professional financial translator. Translate the user's Markdown "
         f"report into {lang_name}. STRICT RULES: preserve all Markdown structure, "
-        "tables, and numbers exactly; keep ticker symbols, fund codes, currency "
-        "codes, and any bracketed tag verbatim — including [行情], [新闻], [分析] and "
-        "[For information only — not investment advice]. Translate only natural-"
-        "language prose. Do not add, remove, or reorder content, and never introduce "
-        "advisory or recommendation language."
+        "tables, and numbers exactly; keep ticker symbols, fund codes, and currency "
+        "codes verbatim. Translate only natural-language prose. Do not add, remove, "
+        "or reorder content, and never introduce advisory or recommendation language." + glossary
     )
     return _call_llm(
         _openrouter_client(), settings.PRIMARY_LLM_MODEL, system, md, with_holdings=True
@@ -823,14 +905,14 @@ def _render_full_md(
     what makes #6 re-render possible: the same stored inputs reproduce the same
     report without re-fetching news or re-running search.
     """
-    annotated = _annotate_sources(raw_body, portfolio)
-    header = f"# Portfonia Intelligence Report — {report_date_str}\n\n"
+    cleaned = _strip_markers(raw_body)
+    header = f"# Portfonia Financial Analysis Report — {_header_timestamp(report_date_str, period_end)}\n\n"
     window = _build_data_window(news_items, portfolio, period_start, period_end, trading_days)
     section1 = _build_section1(portfolio)
-    dynamic_en = header + window + section1 + "\n\n" + annotated
+    dynamic_en = header + window + section1 + "\n\n" + cleaned
 
     # Compliance scan on the English canonical first (highest-signal blacklist).
-    violations = _scan_forbidden_output(annotated)
+    violations = _scan_forbidden_output(cleaned)
 
     dynamic_out = _translate_md(dynamic_en, output_lang)
     if output_lang != "en":
@@ -956,11 +1038,11 @@ def generate_report(
             logger.info("report %s: quiet day — no signals, no anomalies", report.id)
             quiet_body = (
                 "## §2 Macro Signals\n\n"
-                "No macro keyword themes triggered in the past 24 hours.\n\n"
-                "## §3 Holdings Intelligence\n\n"
+                "No macro keyword themes triggered in this report period.\n\n"
+                "## §3 Holdings Analysis\n\n"
                 "No significant market developments detected for monitored holdings.\n\n"
                 "## §4 Risk Radar\n\n"
-                "No price anomalies or concentration alerts at this time."
+                "No price anomalies or concentration alerts in this report period."
             )
             quiet_md, _ = _render_full_md(
                 eff_date.strftime("%Y-%m-%d"),
@@ -1052,6 +1134,9 @@ def generate_report(
             ctx.macro_signals,
             ctx.price_anomalies,
             ctx.search_results,
+            ctx.period_start,
+            ctx.period_end,
+            ctx.window_trading_days,
         )
 
         ctx.pass2_model = primary_model
@@ -1169,6 +1254,9 @@ def regenerate_report(
             inputs.get("macro_signals", {}),
             inputs.get("price_anomalies", []),
             inputs.get("search_results", []),
+            report.period_start.isoformat() if report.period_start else "",
+            report.period_end.isoformat() if report.period_end else "",
+            int(inputs.get("window_trading_days", 0)),
         )
         raw_body = _call_llm(
             _openrouter_client(),

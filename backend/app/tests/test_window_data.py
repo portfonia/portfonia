@@ -161,18 +161,20 @@ def _stock(name: str, ticker: str) -> Holding:
     )
 
 
-def test_threshold_scales_with_trading_days(db_session: Session) -> None:
-    """Over a 3-trading-day window the stock threshold is 3% x 3 = 9%, so a +5%
-    move (which a flat 3% would flag) is no longer an anomaly."""
+def test_cumulative_threshold_scales_with_trading_days(db_session: Session) -> None:
+    """A gradual drift (no single day beyond the per-day threshold) is judged only
+    by the cumulative threshold (3% x trading_days). AAPL's +5% net over 3 days,
+    with each day < 3%, clears neither trigger; BIGM's one +10% day fires the
+    single-day trigger."""
     db_session.add_all([_stock("Apple", "AAPL"), _stock("BigMove", "BIGM")])
     db_session.add_all(
         [
             _close("AAPL", date(2026, 6, 2), 100.0),  # baseline
-            _close("AAPL", date(2026, 6, 3), 101.0),  # populates trade_dates
-            _close("AAPL", date(2026, 6, 4), 102.0),
-            _close("AAPL", date(2026, 6, 5), 105.0),  # +5% < 9% → not flagged
+            _close("AAPL", date(2026, 6, 3), 101.5),  # +1.5%
+            _close("AAPL", date(2026, 6, 4), 103.0),  # +1.48%
+            _close("AAPL", date(2026, 6, 5), 105.0),  # +1.94%; net +5% < 9% cumulative
             _close("BIGM", date(2026, 6, 2), 100.0),
-            _close("BIGM", date(2026, 6, 5), 110.0),  # +10% ≥ 9% → flagged
+            _close("BIGM", date(2026, 6, 5), 110.0),  # single +10% day → single-day trigger
         ]
     )
     db_session.flush()
@@ -186,20 +188,53 @@ def test_threshold_scales_with_trading_days(db_session: Session) -> None:
     assert [a.identifier for a in anomalies] == ["BIGM"]
 
 
-def test_threshold_capped_at_ten_percent(db_session: Session) -> None:
-    """Over 5 trading days the uncapped stock threshold would be 15%, but the
-    cap holds it at 10% so a +12% move is still flagged."""
+def test_single_day_trigger_catches_violent_session(db_session: Session) -> None:
+    """The point-7 fix: a holding whose net move over the window is small but which
+    had one violent trading day must still flag (a flat net would smooth it away)."""
+    db_session.add_all([_stock("Whip", "WHIP")])
+    db_session.add_all(
+        [
+            _close("WHIP", date(2026, 6, 1), 100.0),  # baseline
+            _close("WHIP", date(2026, 6, 2), 100.0),
+            _close("WHIP", date(2026, 6, 3), 100.0),
+            _close("WHIP", date(2026, 6, 4), 88.0),  # -12% crash on one day
+            _close("WHIP", date(2026, 6, 5), 100.5),  # recovers; net only +0.5%
+        ]
+    )
+    db_session.flush()
+
+    anomalies, _ = detect_window_anomalies(
+        db_session,
+        datetime(2026, 6, 1, 16, 0, tzinfo=UTC),
+        datetime(2026, 6, 5, 20, 30, tzinfo=UTC),
+    )
+    assert [a.identifier for a in anomalies] == ["WHIP"]
+    a = anomalies[0]
+    assert abs(a.window_net_pct or Decimal(0)) < Decimal("0.01")  # net is tiny
+    # but a single session moved well beyond the per-day threshold
+    assert a.max_day_pct is not None and abs(a.max_day_pct) >= Decimal("0.10")
+    assert a.trigger == "single_day"
+
+
+def test_cumulative_threshold_capped_at_ten_percent(db_session: Session) -> None:
+    """A pure cumulative drift (every day < 3%) flags only once net clears the 10%
+    cap: BIG (+~10.5% net) flags, MID (+7% net) does not. Neither has a single day
+    beyond the per-day threshold, so this isolates the cumulative cap."""
     db_session.add_all([_stock("Big", "BIG"), _stock("Mid", "MID")])
     db_session.add_all(
         [
             _close("BIG", date(2026, 6, 1), 100.0),  # baseline
-            _close("BIG", date(2026, 6, 2), 100.0),
-            _close("BIG", date(2026, 6, 3), 100.0),
-            _close("BIG", date(2026, 6, 4), 100.0),
-            _close("BIG", date(2026, 6, 5), 100.0),
-            _close("BIG", date(2026, 6, 8), 112.0),  # +12% ≥ 10% cap → flagged
+            _close("BIG", date(2026, 6, 2), 102.0),  # +2.0%
+            _close("BIG", date(2026, 6, 3), 104.0),  # +1.96%
+            _close("BIG", date(2026, 6, 4), 106.0),  # +1.92%
+            _close("BIG", date(2026, 6, 5), 108.0),  # +1.89%
+            _close("BIG", date(2026, 6, 8), 110.5),  # +2.31%; net +10.5% ≥ 10% cap
             _close("MID", date(2026, 6, 1), 100.0),
-            _close("MID", date(2026, 6, 8), 109.0),  # +9% < 10% cap → not flagged
+            _close("MID", date(2026, 6, 2), 101.5),
+            _close("MID", date(2026, 6, 3), 103.0),
+            _close("MID", date(2026, 6, 4), 104.5),
+            _close("MID", date(2026, 6, 5), 106.0),
+            _close("MID", date(2026, 6, 8), 107.0),  # net +7% < 10% cap → not flagged
         ]
     )
     db_session.flush()
@@ -212,3 +247,4 @@ def test_threshold_capped_at_ten_percent(db_session: Session) -> None:
     assert trading_days == 5
     assert [a.identifier for a in anomalies] == ["BIG"]
     assert anomalies[0].threshold == Decimal("0.10")  # effective threshold = cap
+    assert anomalies[0].trigger == "cumulative"

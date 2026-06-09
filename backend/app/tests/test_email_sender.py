@@ -186,7 +186,7 @@ def test_send_subject_format(mock_client_cls: MagicMock, mock_settings: MagicMoc
 
     call_kwargs = post_mock.call_args
     payload = call_kwargs.kwargs["json"] if "json" in call_kwargs.kwargs else call_kwargs[1]["json"]
-    assert payload["subject"] == "Portfonia Intelligence Report — 2026-06-06"
+    assert payload["subject"] == "Portfonia 财经分析报告 — 2026-06-06"
     assert payload["to"] == ["test@example.com"]
 
 

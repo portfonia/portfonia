@@ -46,7 +46,16 @@ _RATIO = Decimal("0.0001")  # 4 dp for pct_change
 
 @dataclass
 class PriceAnomaly:
-    """A holding or FX pair whose price moved beyond its threshold."""
+    """A holding or FX pair whose price moved beyond its threshold.
+
+    The base fields describe the headline move (``pct_change`` vs ``threshold``).
+    The window fields (all optional, populated only by ``detect_window_anomalies``)
+    add the incremental-report detail: how the move split between the cumulative
+    window drift and the single worst trading day, plus a session-by-session arc
+    of the most recent trading day so the report can state *what was compared to
+    what* (prior close → open → intraday range → close → after-hours) instead of
+    a bare net percentage.
+    """
 
     name: str  # holding name or FX pair (e.g. "USDCNY")
     identifier: str  # ticker, fund_code, or FX pair
@@ -55,6 +64,21 @@ class PriceAnomaly:
     prev_price: Decimal
     pct_change: Decimal  # signed; +0.05 = +5 %, -0.04 = -4 %
     threshold: Decimal  # the breach threshold
+    # --- window detail (incremental report only) ---
+    trigger: str = "single_day"  # "single_day" | "cumulative" | "extreme"
+    market: str = ""
+    baseline_date: date | None = None  # close used as the window baseline
+    latest_date: date | None = None  # most recent close in the window
+    window_net_pct: Decimal | None = None  # baseline close → latest close
+    max_day_pct: Decimal | None = None  # largest single-day move in the window (signed)
+    max_day_date: date | None = None  # the trading day of that move
+    # Most-recent-trading-day session arc (None where the node was not captured).
+    prev_close: Decimal | None = None  # previous trading day's close
+    day_open: Decimal | None = None
+    day_high: Decimal | None = None
+    day_low: Decimal | None = None
+    day_close: Decimal | None = None
+    after_hours: Decimal | None = None  # post-close last, if captured
 
 
 # ---------------------------------------------------------------------------

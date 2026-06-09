@@ -11,15 +11,16 @@ Last updated: 2026-06-07
 | `main` HEAD | `c4f5798` feat(reports): scale anomaly threshold by trading days, cap at 10% |
 | Stages complete | A B C D E F1 F2 F3 G H + June-7 report-review fixes + **ADR-002 incremental reporting + capture layer** |
 | Next stage | **I** — 稳定运行验证；报告现为增量（M/W/F 16:30 ET），需先让捕获层攒数据 |
-| Backend quality | ruff OK · mypy OK (68 files) · pytest **243 passed** |
+| Backend quality | ruff OK · mypy OK (68 files) · pytest **238 passed** |
 | Frontend quality | tsc OK · eslint OK · next build OK |
 | LLM model | `deepseek/deepseek-v4-flash` via OpenRouter (provider=DigitalOcean,Venice); `data_collection=deny` on every call |
 | Infrastructure | Homebrew PostgreSQL@16 + Redis (native, not Docker); `make infra-up` not needed |
-| Prompt version | `f2-v2` (Pass 1 = public macro+news only, no holdings-derived anomalies; f2-v1 = anomalies in Pass 1) |
+| Prompt version | `f2-v3` (window-anchored §2/§3/§4 depth + anomaly session-arc + NO inline markers; f2-v2 = Pass 1 public-only, no holdings-derived anomalies) |
 | Disclaimer version | `f3-bilingual-v1` |
-| Output language | reason in EN, render in `OUTPUT_LANG` (Ring 0 default `zh`) via a translation pass; `en` = no-op |
+| Output language | reason in EN, render in `OUTPUT_LANG` (Ring 0 default `zh`) via a translation pass with a fixed-term glossary (财经分析报告 / 持仓分析 / 持仓机构; never "智能"); `en` = no-op |
 | Report statuses | `success` · `skipped` (quiet day, still emails heartbeat) · `needs_review` (compliance scan hit, NOT emailed) · `failed` · `in_progress` |
-| Holdings model | `market` is a user-declared field (US/HK/A-Share/Other; cash follows its account); `position` preserves upload order. §1 groups by market in upload order with subtotals. |
+| Report title / email subject | `Portfonia 财经分析报告 — YYYY-MM-DD HH:MM ET` (title timestamp from `period_end`); no "智能"/"Intelligence" wording anywhere. |
+| Holdings model | `market` + `broker` are user-declared fields; `position` preserves upload order. **§1 groups by `broker` (持仓机构)** in upload order with per-institution subtotals; cash sits inside its institution, broker-less rows fall into "Other". Distributions (by market/currency/asset type) unchanged. NOTE: `position` is currently NULL on existing rows (parser does not set it) → within-group order falls back to DB order until the parser populates it. |
 | Re-render | `regenerate_report(mode=render\|analyze)` rebuilds from stored `report_inputs` without re-fetching; `POST /reports/{id}/regenerate`. render = token-free, analyze = Pass 2 only. |
 
 ### Known technical debt (carry forward until resolved)
@@ -59,19 +60,27 @@ a **report layer** (per-user, incremental). Agent-facing essentials:
   report rolls it back; regenerate keeps the stored period). Cold-start baseline
   = `2026-06-01 16:00 ET` (`window_data.BOOTSTRAP_WATERMARK`).
 - News + anomalies read from the stores via `window_data` (NOT live RSS / last-
-  two-closes). Anomaly = move since the baseline close; report states trading-day
-  count. New positions (no baseline) skipped.
+  two-closes). New positions (no baseline) skipped.
 - **Cadence:** `generate_incremental_report` (report_type=`incremental`) fires
   Mon/Wed/Fri 16:30 ET. Migrations: `e5f6a7b8c9d0` (capture tables),
   `f6a7b8c9d0e1` (report period columns).
 
-Anomaly threshold: move since the baseline close vs **flat% × trading-days in
-the window, capped at 10%** (a >10% move always flags). `_window_threshold` in
-`window_data`; the report also states the trading-day count.
+Anomaly detection (`detect_window_anomalies`) fires on **either** of two triggers
+(2026-06-08 rework, fixes the "no anomalies on a volatile week" miss):
+- **single_day** — any one trading day in the window moved beyond the per-day
+  threshold (stock 3%, etf 2%). Catches a violent session the endpoint-to-
+  endpoint net move would smooth away.
+- **cumulative** — baseline-close → latest-close net move beyond the scaled
+  threshold (per-day × trading-days, capped at 10%; `_window_threshold`).
+Every flagged holding also carries the most-recent-trading-day **session arc**
+(prev close, open+gap, intraday high/low, close, after-hours) so §4.2 can state
+the comparison basis and describe how the day ran. The report states the
+trading-day count and refers to "this report period", never "today".
 
-**Not yet wired:** portfolio *valuation* still uses `holding.market_price` (from
-the `/refresh` path), not the latest captured close — separate follow-up. FX
-window anomalies are not computed (FX stays daily in `fx_rates`).
+Portfolio **valuation reads the latest captured close** from `price_snapshots`
+(`_latest_captured_closes`), falling back to `holding.market_price` only for
+funds (no ticker). This keeps §1 valuation and the anomaly baseline on one price
+series. FX window anomalies are still not computed (FX stays daily in `fx_rates`).
 
 ## Language Policy (MANDATORY)
 
@@ -120,7 +129,12 @@ in any other language.
   `needs_review` and **suppresses email** — content is preserved for
   inspection, never delivered. The scan covers the LLM body only, never the
   template footer (whose disclaimer legitimately contains "buy/sell").
-- Each AI conclusion is suffixed with `[For information only — not investment advice]`.
+- **Single footer disclaimer, no inline markers** (2026-06-08): the compliance
+  base is the one bilingual disclaimer in the footer. The body carries NO
+  per-sentence `[For information only…]` suffix and NO bracketed provenance tags
+  (`[行情]`/`[新闻]`/`[分析]`/`[S#]`). The system prompt forbids the model from
+  emitting them, and `_strip_markers` removes any that slip through. The scan
+  backstop above does not depend on the suffix.
 
 ## Architecture
 
