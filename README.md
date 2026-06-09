@@ -12,7 +12,7 @@ Portfonia exists to close that gap with a narrow scope: take a user's real holdi
 
 - **Holdings ingestion.** Upload a CSV or Markdown sheet describing positions across US equities, Hong Kong equities, A-shares, public mutual funds, cash, and foreign currency. An LLM normalizes it into structured records.
 - **Market and macro tracking.** Daily price, FX, and curated macro keyword scanning across reputable news sources (English-language primary, with Chinese-language sources for region-specific instruments).
-- **Personalized incremental briefings.** A scheduled report (Mon/Wed/Fri) covers what changed since your last one — tying price moves and macro signals back to your actual holdings, with sourcing annotations (`[price]`, `[news]`, `[analysis]`) so any claim is traceable.
+- **Personalized incremental briefings.** A scheduled report (Mon/Wed/Fri) covers what changed since your last one — tying price moves and macro signals back to your actual holdings. Structured sections include a code-built price-anomaly table (§4.2), a descriptive technical-position table (§4.4 — distance to moving averages, 52-week range position, volatility), and a forward calendar (§2.5 — scheduled US macro releases, FOMC dates, and your holdings' earnings dates, mapped to the positions exposed to each). Causal attributions carry an evidence-confidence label (Established / Probable / Speculative) so calibrated uncertainty is legible rather than hidden.
 - **Three-layer output discipline.** Every AI-generated report stops at Layer 3:
   - Layer 1 — what happened (fact)
   - Layer 2 — how it relates to your holdings (contextual mapping)
@@ -30,7 +30,7 @@ Portfonia is an intelligence service, not an advisory service. The following are
 - No threshold price alerts ("X dropped 5%"). Every broker app already does that.
 - No social or sharing features in early phases — holdings are sensitive data.
 
-Every AI-generated conclusion is suffixed with `[For information only — not investment advice]`. Compliance scaffolding (disclaimer headers, vocabulary blacklists, sourcing requirements) is enforced at the template and prompt layer, not left to the model's judgment.
+Every report carries a single bilingual disclaimer in its footer (injected at the template layer, never written by the model). Compliance scaffolding — the Layer-3 boundary, a vocabulary blacklist, and a post-generation output scan that holds any offending report for review instead of sending it — is enforced at the template and prompt layer, not left to the model's judgment.
 
 ## Status
 
@@ -40,7 +40,7 @@ Public MVP and multi-user rollout depend on that validation holding up over seve
 
 ## Tech Stack
 
-Next.js + shadcn/ui on the front, FastAPI + Celery + Redis + PostgreSQL on the back, pluggable LLM providers (Claude as the primary, with a cheaper model for non-personalized intelligence layers). Local development uses Colima + Docker Compose; production runs on [REDACTED-ARCH].
+Next.js + shadcn/ui on the front, FastAPI + Celery + Redis + PostgreSQL on the back, pluggable LLM providers via OpenRouter (DeepSeek `deepseek-v4-pro` for personalized analysis, the cheaper `deepseek-v4-flash` for search-query generation and translation; the provider layer stays swappable). Local development uses native Homebrew PostgreSQL 16 + Redis; production runs on [REDACTED-ARCH].
 
 ## License
 
