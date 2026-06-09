@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.timezones import ET
 from app.models.fx_rate import FxRate
 from app.models.holding import Holding
+from app.models.price_snapshot import PriceSnapshot
 
 _ZERO = Decimal("0")
 _CENT = Decimal("0.01")
@@ -64,6 +65,7 @@ class HoldingValue:
     market_value: Decimal  # in holding's own currency
     market_value_base: Decimal  # in base_currency
     price_as_of: datetime | None
+    broker: str | None = None  # custodian / holding institution, for §1 grouping
     position: int | None = None  # upload order, for report layout
 
 
@@ -120,6 +122,38 @@ def _load_fx_rates(session: Session) -> tuple[dict[str, Decimal], date | None]:
     rows = session.execute(select(FxRate).where(FxRate.rate_date == latest_date)).scalars()
     rates = {row.pair: row.rate for row in rows}
     return rates, latest_date
+
+
+def _latest_captured_closes(session: Session) -> dict[str, tuple[Decimal, date]]:
+    """Latest captured daily close per ticker, as {ticker: (close, trade_date)}.
+
+    Valuation reads from the capture layer so §1 and the anomaly baseline agree on
+    the same price series, instead of the ad-hoc ``holding.market_price`` written
+    by the manual /refresh path. Funds (fund_code, no ticker) are not captured
+    here and keep their NAV-derived ``market_price``.
+    """
+    latest_dates = (
+        select(
+            PriceSnapshot.ticker.label("ticker"),
+            func.max(PriceSnapshot.trade_date).label("d"),
+        )
+        .where(PriceSnapshot.session_node == "close", PriceSnapshot.close.is_not(None))
+        .group_by(PriceSnapshot.ticker)
+        .subquery()
+    )
+    rows = session.execute(
+        select(PriceSnapshot.ticker, PriceSnapshot.close, PriceSnapshot.trade_date).join(
+            latest_dates,
+            (PriceSnapshot.ticker == latest_dates.c.ticker)
+            & (PriceSnapshot.trade_date == latest_dates.c.d)
+            & (PriceSnapshot.session_node == "close"),
+        )
+    ).all()
+    out: dict[str, tuple[Decimal, date]] = {}
+    for ticker, close, trade_date in rows:
+        if close is not None:
+            out[ticker] = (close, trade_date)
+    return out
 
 
 def _to_base(
@@ -200,6 +234,7 @@ def compute_portfolio(
     """
     fx, fx_date = _load_fx_rates(session)
     snapshot = PortfolioSnapshot(base_currency=base_currency, fx_date=fx_date or date.today())
+    captured_closes = _latest_captured_closes(session)
 
     # D-DEBT-2 (single-user only): no user_id filter — this loads ALL holdings.
     # Safe under Ring 0's single user; MUST add `.where(Holding.user_id == ...)`
@@ -209,10 +244,19 @@ def compute_portfolio(
     for h in holdings:
         # --- market value in the holding's own currency ---
         if h.pricing_mode == "auto":
-            if h.market_price is None or h.shares is None:
+            # Prefer the capture-layer close so valuation and the anomaly baseline
+            # share one price series; fall back to the /refresh market_price (e.g.
+            # funds, which are not captured by ticker).
+            price = h.market_price
+            price_as_of = h.price_as_of
+            captured = captured_closes.get(h.ticker) if h.ticker else None
+            if captured is not None:
+                price, trade_date = captured
+                price_as_of = datetime.combine(trade_date, datetime.min.time(), tzinfo=ET)
+            if price is None or h.shares is None:
                 snapshot.stale_tickers.append(h.ticker or h.fund_code or h.name)
                 continue
-            market_value = (h.market_price * h.shares).quantize(_CENT, rounding=ROUND_HALF_UP)
+            market_value = (price * h.shares).quantize(_CENT, rounding=ROUND_HALF_UP)
         else:
             if h.current_value is None:
                 snapshot.stale_tickers.append(h.name)
@@ -240,7 +284,8 @@ def compute_portfolio(
                 market=market,
                 market_value=market_value,
                 market_value_base=market_value_base,
-                price_as_of=h.price_as_of,
+                price_as_of=price_as_of if h.pricing_mode == "auto" else h.price_as_of,
+                broker=h.broker,
                 position=h.position,
             )
         )

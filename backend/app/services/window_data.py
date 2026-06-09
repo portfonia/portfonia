@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime
 from decimal import Decimal
+from itertools import pairwise
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -82,7 +83,7 @@ def load_news_window(session: Session, start: datetime, end: datetime) -> list[N
     ]
 
 
-def _latest_close_on_or_before(session: Session, ticker: str, on: date) -> PriceSnapshot | None:
+def _close_snapshot_on_or_before(session: Session, ticker: str, on: date) -> PriceSnapshot | None:
     return session.execute(
         select(PriceSnapshot)
         .where(
@@ -96,14 +97,57 @@ def _latest_close_on_or_before(session: Session, ticker: str, on: date) -> Price
     ).scalar_one_or_none()
 
 
+def _window_closes(
+    session: Session, ticker: str, start_date: date, end_date: date
+) -> list[PriceSnapshot]:
+    """Daily close snapshots in (start_date, end_date], oldest first."""
+    return list(
+        session.execute(
+            select(PriceSnapshot)
+            .where(
+                PriceSnapshot.ticker == ticker,
+                PriceSnapshot.session_node == "close",
+                PriceSnapshot.close.is_not(None),
+                PriceSnapshot.trade_date > start_date,
+                PriceSnapshot.trade_date <= end_date,
+            )
+            .order_by(PriceSnapshot.trade_date.asc())
+        )
+        .scalars()
+        .all()
+    )
+
+
+def _after_hours_last(session: Session, ticker: str, on: date) -> Decimal | None:
+    snap = session.execute(
+        select(PriceSnapshot).where(
+            PriceSnapshot.ticker == ticker,
+            PriceSnapshot.session_node == "after_close",
+            PriceSnapshot.trade_date == on,
+        )
+    ).scalar_one_or_none()
+    return snap.last if snap else None
+
+
 def detect_window_anomalies(
     session: Session, start: datetime, end: datetime
 ) -> tuple[list[PriceAnomaly], int]:
-    """Price moves since the baseline close, computed from stored snapshots.
+    """Price moves over the report window, computed from stored snapshots.
 
-    Baseline = the close at/just-before period_start; latest = the close
-    at/just-before period_end. A holding with no baseline (added mid-window) is
-    skipped. Returns (anomalies sorted by |move|, trading_days_in_window).
+    A holding flags as an anomaly when EITHER condition holds (points 7 + 10):
+
+      * single-day  — any one trading day inside the window moved beyond the
+        per-day threshold (stock 3 %, etf 2 %). This is what catches a violent
+        session that the endpoint-to-endpoint net move smooths away.
+      * cumulative  — the baseline-close → latest-close net move beyond the
+        scaled window threshold (per-day x trading-days, capped at 10 %).
+
+    For every flagged holding we also attach the most recent trading day's
+    session arc (prior close, OHLC, after-hours) so the report can state the
+    comparison basis and describe how the day ran, not just a percentage.
+
+    A holding with no baseline close (added mid-window) is skipped. Returns
+    (anomalies sorted by largest |move|, trading_days_in_window).
     """
     holdings = (
         session.execute(
@@ -131,26 +175,70 @@ def detect_window_anomalies(
         per_day = _ASSET_THRESHOLDS.get(h.asset_type or "")
         if per_day is None or not h.ticker:
             continue
-        baseline = _latest_close_on_or_before(session, h.ticker, start_date)
-        latest = _latest_close_on_or_before(session, h.ticker, end_date)
-        if baseline is None or latest is None or baseline.close is None or latest.close is None:
+        baseline = _close_snapshot_on_or_before(session, h.ticker, start_date)
+        series = _window_closes(session, h.ticker, start_date, end_date)
+        if baseline is None or baseline.close is None or not series:
             continue
-        if latest.trade_date <= baseline.trade_date or baseline.close == 0:
+        latest = series[-1]
+        if latest.close is None or baseline.close == 0:
             continue
-        pct = ((latest.close - baseline.close) / baseline.close).quantize(_RATIO)
-        threshold = _window_threshold(per_day, trading_days)
-        if abs(pct) >= threshold:
-            anomalies.append(
-                PriceAnomaly(
-                    name=h.name,
-                    identifier=h.ticker,
-                    asset_type=h.asset_type or "stock",
-                    current_price=latest.close,
-                    prev_price=baseline.close,
-                    pct_change=pct,
-                    threshold=threshold,  # the effective (scaled) threshold applied
-                )
-            )
-    anomalies.sort(key=lambda a: abs(a.pct_change), reverse=True)
 
+        # Full close path: baseline followed by every in-window close.
+        path = [baseline, *series]
+        net_pct = ((latest.close - baseline.close) / baseline.close).quantize(_RATIO)
+
+        # Largest single-day move along the path (signed, keep the worst |move|).
+        max_day_pct: Decimal | None = None
+        max_day_date: date | None = None
+        for prev, cur in pairwise(path):
+            if prev.close is None or cur.close is None or prev.close == 0:
+                continue
+            day_pct = ((cur.close - prev.close) / prev.close).quantize(_RATIO)
+            if max_day_pct is None or abs(day_pct) > abs(max_day_pct):
+                max_day_pct = day_pct
+                max_day_date = cur.trade_date
+
+        window_threshold = _window_threshold(per_day, trading_days)
+        single_day_hit = max_day_pct is not None and abs(max_day_pct) >= per_day
+        cumulative_hit = abs(net_pct) >= window_threshold
+        if not (single_day_hit or cumulative_hit):
+            continue
+
+        # A violent single session is labelled "single_day" even if the net also
+        # cleared the cumulative bar; a quiet drift past the (capped) cumulative
+        # threshold with no big day is "cumulative". The >10%-always-flags tier
+        # falls out naturally (a >10% day is single_day; a >10% net with small
+        # days is cumulative, since the cap makes window_threshold <= 10%).
+        trigger = "single_day" if single_day_hit else "cumulative"
+
+        prev_close = path[-2].close if len(path) >= 2 else None
+        anomalies.append(
+            PriceAnomaly(
+                name=h.name,
+                identifier=h.ticker,
+                asset_type=h.asset_type or "stock",
+                current_price=latest.close,
+                prev_price=baseline.close,
+                pct_change=net_pct,
+                threshold=window_threshold,
+                trigger=trigger,
+                market=latest.market,
+                baseline_date=baseline.trade_date,
+                latest_date=latest.trade_date,
+                window_net_pct=net_pct,
+                max_day_pct=max_day_pct,
+                max_day_date=max_day_date,
+                prev_close=prev_close,
+                day_open=latest.open,
+                day_high=latest.high,
+                day_low=latest.low,
+                day_close=latest.close,
+                after_hours=_after_hours_last(session, h.ticker, latest.trade_date),
+            )
+        )
+
+    anomalies.sort(
+        key=lambda a: max(abs(a.window_net_pct or a.pct_change), abs(a.max_day_pct or _RATIO)),
+        reverse=True,
+    )
     return anomalies, trading_days

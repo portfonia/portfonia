@@ -136,7 +136,7 @@ def send_report_email(report: Report, session: Session) -> bool:
         if report.report_date
         else datetime.now(tz=UTC).strftime("%Y-%m-%d")
     )
-    subject = f"Portfonia Intelligence Report — {report_date_str}"
+    subject = f"Portfonia 财经分析报告 — {report_date_str}"
     html_body = _render_html(report.report_md)
 
     payload: dict[str, object] = {
