@@ -47,6 +47,7 @@ from app.services.macro_detector import MacroSignals, detect_macro_signals
 from app.services.news_fetcher import NewsItem
 from app.services.portfolio_calculator import PortfolioSnapshot, compute_portfolio
 from app.services.price_anomaly_detector import PriceAnomaly
+from app.services.technical_position import TechnicalPosition, compute_technical_positions
 from app.services.window_data import (
     detect_window_anomalies,
     load_news_window,
@@ -59,7 +60,7 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_PROMPT_VERSION = "f2-v3"  # f2-v3: window-anchored §2/§3/§4 depth, anomaly arc, no inline markers
+_PROMPT_VERSION = "f2-v4"  # f2-v4: §4.2 code table + driver-only, evidence confidence labels, §4.4 technical position
 _DISCLAIMER_VERSION = "f3-bilingual-v1"
 
 # A run of one or more LLM citations ([S6][S7][S8] or "[S6] [S7]"). The S-numbers
@@ -90,11 +91,24 @@ _FORBIDDEN_OUTPUT_PATTERNS: list[re.Pattern[str]] = [
         r"\bstrong\s+buy\b",
         r"\b(bullish|bearish)\s+rating\b",
         r"\bwill\s+(rise|fall)\s+to\b",
-        # High-precision Chinese advisory terms (body may be EN, but guard anyway).
+        # Technical-analysis SIGNAL vocabulary (#4). The §4.4 block states price
+        # structure as fact (distance to an average, range position); it must never
+        # cross into chart-signal/action language. Describing where price sits is
+        # fine ("6% below its 50-day average"); these signal terms are not.
+        r"\bsupport\s+level\b",
+        r"\bresistance\s+level\b",
+        r"\bbreak(s|ing)?\s+out\b",
+        r"\bbreakout\b",
+        r"\b(golden|death)\s+cross\b",
+        # High-precision Chinese advisory / TA-signal terms (body may be EN, guard anyway).
         r"止损",
         r"强烈买入",
         r"目标价",
         r"投资建议",
+        r"支撑位",
+        r"阻力位",
+        r"金叉",
+        r"死叉",
     )
 ]
 
@@ -177,6 +191,7 @@ class ReportContext:
     news_items: list[dict[str, Any]] = field(default_factory=list)
     macro_signals: dict[str, Any] = field(default_factory=dict)
     price_anomalies: list[dict[str, Any]] = field(default_factory=list)
+    technical_positions: list[dict[str, Any]] = field(default_factory=list)
     # ADR-002 window bookkeeping (ISO strings / int) for re-render reproducibility.
     period_start: str = ""
     period_end: str = ""
@@ -372,6 +387,24 @@ def _serialize_anomalies(anomalies: list[PriceAnomaly]) -> list[dict[str, Any]]:
     ]
 
 
+def _serialize_technical(positions: list[TechnicalPosition]) -> list[dict[str, Any]]:
+    return [
+        {
+            "ticker": p.ticker,
+            "name": p.name,
+            "last_close": p.last_close,
+            "bars": p.bars,
+            "pct_vs_sma50": p.pct_vs_sma50,
+            "pct_vs_sma200": p.pct_vs_sma200,
+            "range_52w_low": p.range_52w_low,
+            "range_52w_high": p.range_52w_high,
+            "pct_in_52w_range": p.pct_in_52w_range,
+            "vol_20d_annualized": p.vol_20d_annualized,
+        }
+        for p in positions
+    ]
+
+
 def _serialize_portfolio(snap: PortfolioSnapshot) -> dict[str, Any]:
     holdings_list = [
         {
@@ -501,6 +534,123 @@ def _fmt_anomaly_arc(a: dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
+def _build_section42_table(anomalies: list[dict[str, Any]]) -> str:
+    """Build the §4.2 price-anomaly table from data — no LLM (#3).
+
+    The numeric session arc already lives in `report_inputs.price_anomalies`; a
+    code-built table is deterministic, token-free, and cannot hallucinate a
+    number. The LLM writes only the one-line driver per holding underneath
+    (see the §4.2 prompt instruction). English headers are rendered to the
+    output language by the translation pass, same as §1.
+    """
+
+    def pct(x: float | None) -> str:
+        return f"{x * 100:+.2f}%" if x is not None else "—"
+
+    def num(x: float | None) -> str:
+        return f"{x:g}" if x is not None else "—"
+
+    lines: list[str] = [
+        "| Holding | Net % | Worst day (date) | Prev close | Open (gap %) "
+        "| Intraday range | Close | After-hrs | Trigger |",
+        "|---------|-------|------------------|------------|--------------"
+        "|----------------|-------|-----------|---------|",
+    ]
+    for a in anomalies:
+        ident = a.get("identifier", "")
+        name_col = f"{a.get('name', '')} ({ident})" if ident else a.get("name", "")
+
+        wd = a.get("max_day_date")
+        worst = pct(a.get("max_day_pct"))
+        worst_col = f"{worst} ({wd})" if a.get("max_day_pct") is not None and wd else worst
+
+        pc, op = a.get("prev_close"), a.get("day_open")
+        open_col = f"{op:g} ({(op / pc - 1) * 100:+.1f}%)" if op is not None and pc else num(op)
+
+        lo, hi = a.get("day_low"), a.get("day_high")
+        range_col = f"{lo:g}-{hi:g}" if lo is not None and hi is not None else "—"
+
+        cl, ah = a.get("day_close"), a.get("after_hours")
+        ah_col = f"{ah:g} ({(ah / cl - 1) * 100:+.1f}%)" if ah is not None and cl else num(ah)
+
+        lines.append(
+            f"| {name_col} | {pct(a.get('window_net_pct'))} | {worst_col} "
+            f"| {num(pc)} | {open_col} | {range_col} | {num(cl)} | {ah_col} "
+            f"| {a.get('trigger', '')} |"
+        )
+    return "\n".join(lines)
+
+
+def _inject_section42_table(body: str, table: str) -> str:
+    """Insert the code-built §4.2 anomaly table right after the §4.2 heading the
+    LLM emits, above its one-line drivers (#3). Falls back to appending a §4.2
+    block when the heading is absent so the table is never dropped silently."""
+    out: list[str] = []
+    injected = False
+    for line in body.split("\n"):
+        out.append(line)
+        if not injected and line.lstrip().startswith("### 4.2"):
+            out += ["", table, ""]
+            injected = True
+    if not injected:
+        out += ["", "### 4.2 Price anomalies", "", table, ""]
+    return "\n".join(out)
+
+
+def _build_section44_technical(positions: list[dict[str, Any]]) -> str:
+    """Build the §4.4 technical-position block from data — no LLM (#4).
+
+    Pure description of where each holding's price sits: distance to its 50/200-day
+    average, position inside the trailing 52-week range, recent realized volatility.
+    No signals, no actions. Cells with insufficient captured history render as "—".
+    If no holding has any computed metric yet (capture layer still warming up /
+    backfill not run), a single explanatory line replaces the table.
+    """
+
+    def pct(x: float | None) -> str:
+        return f"{x * 100:+.1f}%" if x is not None else "—"
+
+    def rng(x: float | None) -> str:
+        return f"{x * 100:.0f}%" if x is not None else "—"
+
+    rows = [p for p in positions if p.get("ticker")]
+    if not any(
+        p.get("pct_vs_sma50") is not None
+        or p.get("pct_vs_sma200") is not None
+        or p.get("pct_in_52w_range") is not None
+        or p.get("vol_20d_annualized") is not None
+        for p in rows
+    ):
+        return (
+            "### 4.4 Technical position\n\n"
+            "Insufficient captured price history to compute technical position "
+            "(run the one-year OHLCV backfill; metrics populate as the capture "
+            "layer accumulates closes)."
+        )
+
+    lines = [
+        "### 4.4 Technical position",
+        "",
+        "| Holding | vs 50-day avg | vs 200-day avg | 52-week range position "
+        "| 20-day volatility (ann.) |",
+        "|---------|---------------|----------------|-------------------------"
+        "|--------------------------|",
+    ]
+    for p in rows:
+        ident = p.get("ticker", "")
+        name_col = f"{p.get('name', '')} ({ident})" if ident else p.get("name", "")
+        lines.append(
+            f"| {name_col} | {pct(p.get('pct_vs_sma50'))} | {pct(p.get('pct_vs_sma200'))} "
+            f"| {rng(p.get('pct_in_52w_range'))} | {pct(p.get('vol_20d_annualized'))} |"
+        )
+    lines += [
+        "",
+        "> Range position: 0% = at the 52-week low, 100% = at the 52-week high. "
+        "Figures describe where the price sits; they are not signals.",
+    ]
+    return "\n".join(lines)
+
+
 def _build_pass2_prompt(
     portfolio: dict[str, Any],
     macro: dict[str, Any],
@@ -608,6 +758,18 @@ def _build_pass2_prompt(
         "Refer to events as happening 'in this report period' unless an event "
         "demonstrably occurred on one specific day (then name the date). Never write "
         "'today' or 'this week' as a stand-in for the window.\n\n"
+        "CONFIDENCE LABELS: end every causal attribution (in §3 and §4.2) with one "
+        "evidence-ordinal label in square brackets — NEVER a numeric percentage:\n"
+        "  [Established] — a named mechanism or a citable event drives the move "
+        "(e.g. gold up as real yields fell — an identity between real rates and "
+        "non-yielding assets; a stock up on a confirmed earnings beat).\n"
+        "  [Probable] — partial evidence points to a driver but it is not conclusive.\n"
+        "  [Speculative] — no direct evidence; the attribution is a hypothesis "
+        "(e.g. an unexplained gap with no identifiable catalyst).\n"
+        "The label expresses how sure you are about the PAST move's CAUSE — it is NOT "
+        "a view on future direction. Do not drop or downgrade a large unexplained "
+        "move: label it [Speculative], keep it brief, and say the catalyst is "
+        "unidentified — an unexplained move is itself worth noting.\n\n"
         "## §2 Macro Signals\n"
         "For each triggered macro theme: (a) describe what is happening and what is "
         "driving it; (b) under a bold sub-heading 'Impact on this portfolio', do NOT "
@@ -623,18 +785,20 @@ def _build_pass2_prompt(
         "implicates it), the mechanism linking the development to that specific "
         "holding, how it sits relative to the rest of the portfolio (concentration, "
         "correlation, currency), and which forward signals would confirm or dissolve "
-        "the thesis. Depth over breadth — a few holdings analysed well beats a list.\n\n"
+        "the thesis. Depth over breadth — a few holdings analysed well beats a list. "
+        "End each causal attribution with its confidence label (see CONFIDENCE "
+        "LABELS above).\n\n"
         "## §4 Risk Radar\n"
         "### 4.1 Concentration — state the flagged ratios.\n"
-        "### 4.2 Price anomalies — for each holding in PRICE ANOMALIES above, write a "
-        "short paragraph that: states the comparison basis explicitly (e.g. 'baseline "
-        "close DATE vs latest close DATE', and for the latest trading day name the "
-        "points compared: previous close, open, intraday high/low, close, after-hours); "
-        "describes how the latest day actually ran (e.g. gapped up at the open, gave "
-        "back gains during the regular session, rose X% after the close) using the arc "
-        "numbers; and attributes the move to a driver from the research/news where one "
-        "exists. If PRICE ANOMALIES is empty, say so plainly for this window — do NOT "
-        "phrase it as 'today'.\n"
+        "### 4.2 Price anomalies — a numeric table (net %, worst day, the latest-day "
+        "session arc, trigger) is inserted by the system directly under this heading; "
+        "do NOT restate those numbers. Under the heading write ONE line per holding in "
+        "PRICE ANOMALIES, formatted 'IDENTIFIER — <driver> [Label]', where <driver> is "
+        "a single sentence attributing the move to a development from the research/news "
+        "and [Label] is the confidence label (see CONFIDENCE LABELS above). If no "
+        "catalyst is identifiable, say so plainly and label it [Speculative]; never "
+        "invent one. If PRICE ANOMALIES is empty, say so plainly for this window — do "
+        "NOT phrase it as 'today'.\n"
         "### 4.3 FX exposure — state currency exposures and any FX note.\n"
         "Throughout §4: state the numbers; never editorialize about what to do."
     )
@@ -907,7 +1071,9 @@ def _translate_md(md: str, target_lang: str) -> str:
             'Report" -> "Portfonia 财经分析报告"; "financial analysis briefing" -> '
             '"财经分析简报"; "Portfolio Snapshot" -> "投资组合快照"; "Holdings Analysis" '
             '-> "持仓分析"; "Custodian" -> "持仓机构"; "Macro Signals" -> "宏观信号"; '
-            '"Risk Radar" -> "风险雷达". Never render any word as "智能".'
+            '"Risk Radar" -> "风险雷达"; "[Established]" -> "[确定]"; '
+            '"[Probable]" -> "[较可能]"; "[Speculative]" -> "[推测]". '
+            'Never render any word as "智能".'
         )
     }.get(target_lang, "")
     settings = get_settings()
@@ -964,6 +1130,8 @@ def _render_full_md(
     period_start: str = "",
     period_end: str = "",
     trading_days: int = 0,
+    anomalies: list[dict[str, Any]] | None = None,
+    technical: list[dict[str, Any]] | None = None,
 ) -> tuple[str, list[str]]:
     """Annotate, assemble, language-render, and compliance-scan a report.
 
@@ -972,6 +1140,14 @@ def _render_full_md(
     report without re-fetching news or re-running search.
     """
     cleaned = _strip_markers(raw_body)
+    # §4.2 numeric table is code-built from the stored anomalies and inserted
+    # under the LLM's §4.2 heading (#3): deterministic, token-free, no hallucination.
+    if anomalies:
+        cleaned = _inject_section42_table(cleaned, _build_section42_table(anomalies))
+    # §4.4 technical position appended to the §4 body (#4) — also code-built from
+    # stored metrics, so re-render reproduces it without touching the DB.
+    if technical:
+        cleaned = cleaned.rstrip() + "\n\n" + _build_section44_technical(technical)
     header = f"# Portfonia Financial Analysis Report — {_header_timestamp(report_date_str, period_end)}\n\n"
     window = _build_data_window(news_items, portfolio, period_start, period_end, trading_days)
     section1 = _build_section1(portfolio)
@@ -1110,6 +1286,15 @@ def generate_report(
         ctx.price_anomalies = _serialize_anomalies(anomalies)
         ctx.window_trading_days = trading_days
 
+        # Technical position (#4): computed here (needs the session) and stored, so
+        # §4.4 stays code-built and re-render reproduces it without a DB read.
+        logger.info("report %s: computing technical position", report.id)
+        ctx.technical_positions = _serialize_technical(
+            compute_technical_positions(
+                session, ctx.portfolio_summary.get("holdings", []), eff_date
+            )
+        )
+
         # ------------------------------------------------------------------
         # 2. Skip check
         # ------------------------------------------------------------------
@@ -1239,6 +1424,8 @@ def generate_report(
             ctx.period_start,
             ctx.period_end,
             ctx.window_trading_days,
+            ctx.price_anomalies,
+            ctx.technical_positions,
         )
         logger.info("report %s: assembled + rendered (lang=%s)", report.id, output_lang)
 
@@ -1362,6 +1549,8 @@ def regenerate_report(
         report.period_start.isoformat() if report.period_start else "",
         report.period_end.isoformat() if report.period_end else "",
         int(inputs.get("window_trading_days", 0)),
+        inputs.get("price_anomalies", []),
+        inputs.get("technical_positions", []),
     )
     report.status = "needs_review" if violations else "success"
     report.report_md = full_md

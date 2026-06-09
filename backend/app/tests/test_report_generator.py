@@ -693,6 +693,169 @@ def test_build_section1_groups_by_broker_in_upload_order_with_subtotals() -> Non
     assert "Custodian" in md  # column header renamed from Market
 
 
+# ---------------------------------------------------------------------------
+# Tests: §4.2 price-anomaly table (#3 — code-built, no LLM)
+# ---------------------------------------------------------------------------
+
+
+def _anomaly_dict() -> dict[str, object]:
+    """A fully populated serialized anomaly (window net + worst day + arc)."""
+    return {
+        "name": "NVIDIA",
+        "identifier": "NVDA",
+        "asset_type": "stock",
+        "market": "US",
+        "trigger": "single_day",
+        "window_net_pct": 0.085,
+        "max_day_pct": -0.062,
+        "max_day_date": "2026-06-06",
+        "baseline_date": "2026-06-01",
+        "latest_date": "2026-06-06",
+        "prev_close": 110.0,
+        "day_open": 116.0,
+        "day_high": 121.0,
+        "day_low": 113.0,
+        "day_close": 120.0,
+        "after_hours": 122.0,
+    }
+
+
+def test_build_section42_table_renders_numbers_no_hallucination() -> None:
+    md = rg._build_section42_table([_anomaly_dict()])
+    assert "| Holding |" in md and "Trigger" in md  # header row
+    assert "NVIDIA (NVDA)" in md
+    assert "+8.50%" in md  # window net
+    assert "-6.20% (2026-06-06)" in md  # worst day with date
+    assert "116 (+5.5%)" in md  # open with gap vs prev close
+    assert "113-121" in md  # intraday range
+    assert "122 (+1.7%)" in md  # after-hours move vs close
+    assert "single_day" in md
+
+
+def test_build_section42_table_handles_missing_arc_fields() -> None:
+    # Anomaly with only the net move (no session arc) must not crash.
+    md = rg._build_section42_table(
+        [{"name": "X", "identifier": "X", "trigger": "cumulative", "window_net_pct": 0.04}]
+    )
+    assert "X (X)" in md
+    assert "—" in md  # missing cells rendered as em-dash placeholder
+
+
+def test_inject_section42_table_inserts_after_heading() -> None:
+    body = "## §4 Risk Radar\n### 4.2 Price anomalies\nNVDA — chip-cycle optimism.\n"
+    out = rg._inject_section42_table(body, "TABLE_ROWS")
+    assert out.index("TABLE_ROWS") < out.index("NVDA — chip-cycle optimism")
+    assert out.index("### 4.2") < out.index("TABLE_ROWS")  # table sits under the heading
+
+
+def test_inject_section42_table_fallback_appends_when_heading_absent() -> None:
+    body = "## §4 Risk Radar\n### 4.1 Concentration\nflagged.\n"
+    out = rg._inject_section42_table(body, "TABLE_ROWS")
+    assert "### 4.2 Price anomalies" in out
+    assert "TABLE_ROWS" in out
+
+
+def test_pass2_prompt_42_asks_for_drivers_not_restated_numbers() -> None:
+    prompt = rg._build_pass2_prompt(rg._serialize_portfolio(_portfolio_snap()), {}, [], [])
+    # The numeric table is code-built; the model must not restate the arc numbers.
+    assert "do NOT restate those numbers" in prompt
+    assert "IDENTIFIER — <driver> [Label]" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Tests: confidence labels (#2 — evidence-ordinal, not numeric)
+# ---------------------------------------------------------------------------
+
+
+def test_pass2_prompt_defines_evidence_ordinal_labels() -> None:
+    prompt = rg._build_pass2_prompt(rg._serialize_portfolio(_portfolio_snap()), {}, [], [])
+    assert "CONFIDENCE LABELS" in prompt
+    for label in ("[Established]", "[Probable]", "[Speculative]"):
+        assert label in prompt
+    # Calibrated honesty, not manufactured certainty: never a numeric percentage,
+    # and a large unexplained move is kept (labelled), not dropped.
+    assert "NEVER a numeric percentage" in prompt
+    assert "do not drop or downgrade a large unexplained move" in prompt.lower()
+
+
+def test_translate_glossary_maps_confidence_labels_to_chinese() -> None:
+    captured: dict[str, str] = {}
+
+    def _fake_call(_client: object, _model: str, system: str, user: str, **_kw: object) -> str:
+        captured["system"] = system
+        return user
+
+    with (
+        patch.object(rg, "_openrouter_client", return_value=MagicMock()),
+        patch.object(rg, "_call_llm", side_effect=_fake_call),
+    ):
+        rg._translate_md("## §4\nNVDA — chip optimism [Established].\n", "zh")
+    assert '"[Established]" -> "[确定]"' in captured["system"]
+    assert '"[Probable]" -> "[较可能]"' in captured["system"]
+    assert '"[Speculative]" -> "[推测]"' in captured["system"]
+
+
+# ---------------------------------------------------------------------------
+# Tests: §4.4 technical position (#4 — code-built, descriptive-only)
+# ---------------------------------------------------------------------------
+
+
+def _tech_dict(**over: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "ticker": "NVDA",
+        "name": "NVIDIA",
+        "last_close": 120.0,
+        "bars": 252,
+        "pct_vs_sma50": 0.06,
+        "pct_vs_sma200": 0.18,
+        "range_52w_low": 80.0,
+        "range_52w_high": 140.0,
+        "pct_in_52w_range": 0.667,
+        "vol_20d_annualized": 0.42,
+    }
+    base.update(over)
+    return base
+
+
+def test_build_section44_renders_descriptive_metrics() -> None:
+    md = rg._build_section44_technical([_tech_dict()])
+    assert "### 4.4 Technical position" in md
+    assert "NVIDIA (NVDA)" in md
+    assert "+6.0%" in md  # vs 50-day avg
+    assert "+18.0%" in md  # vs 200-day avg
+    assert "67%" in md  # 52-week range position
+    assert "+42.0%" in md  # annualized volatility
+
+
+def test_build_section44_insufficient_history_message_no_table() -> None:
+    sparse = _tech_dict(
+        pct_vs_sma50=None, pct_vs_sma200=None, pct_in_52w_range=None, vol_20d_annualized=None
+    )
+    md = rg._build_section44_technical([sparse])
+    assert "Insufficient captured price history" in md
+    assert "| Holding |" not in md  # no table rendered
+
+
+def test_build_section44_partial_metrics_render_dash() -> None:
+    md = rg._build_section44_technical([_tech_dict(pct_vs_sma200=None)])
+    assert "| Holding |" in md  # table rendered (some metric present)
+    assert "—" in md  # the missing 200-day cell
+
+
+def test_scan_flags_technical_signal_vocabulary() -> None:
+    # §4.4 states facts; chart-signal language must trip the backstop.
+    for phrase in ("support level", "resistance level", "golden cross", "breakout", "支撑位"):
+        assert rg._scan_forbidden_output(f"the {phrase} held") != []
+
+
+def test_scan_allows_descriptive_price_structure() -> None:
+    body = (
+        "NVDA closed 6% below its 50-day moving average and sits in the lower third "
+        "of its 52-week range; 20-day annualized volatility is 42%."
+    )
+    assert rg._scan_forbidden_output(body) == []
+
+
 def test_serialize_anomalies_float_conversion() -> None:
     anomalies = [_anomaly()]
     result = rg._serialize_anomalies(anomalies)
