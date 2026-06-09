@@ -763,6 +763,53 @@ def test_strip_markers_noop_on_clean_text() -> None:
     assert rg._strip_markers(text) == text
 
 
+def test_strip_markers_removes_model_emitted_disclaimer() -> None:
+    """The model sometimes appends its own disclaimer paragraph despite the system
+    prompt; it must be dropped (the footer owns the single disclaimer) — otherwise
+    its '投资建议' / 'investment advice' wording false-trips the compliance scan."""
+    body = (
+        "## §4 Risk Radar\n\n"
+        "USD exposure is 68.7%.\n\n"
+        "---\n\n"
+        "*本报告仅供信息参考，不构成任何投资建议或买卖指令。This report is for "  # noqa: RUF001
+        "informational purposes only and does not constitute investment advice.*"
+    )
+    result = rg._strip_markers(body)
+    assert "投资建议" not in result
+    assert "investment advice" not in result
+    assert "USD exposure is 68.7%." in result  # real content kept
+    assert rg._scan_forbidden_output(result) == []  # no longer trips the scan
+    assert not result.rstrip().endswith("---")  # orphaned rule trimmed
+
+
+def test_split_sections_chunks_at_top_level_headings_and_roundtrips() -> None:
+    md = (
+        "# Title\n\n> data window\n\n## §1 Snapshot\n\n| a | b |\n\n"
+        "## §2 Macro\n\nprose\n\n## §4 Risk\n\nmore"
+    )
+    chunks = rg._split_sections(md)
+    # preamble (title+window) + 3 section chunks
+    assert len(chunks) == 4
+    assert chunks[0].startswith("# Title")
+    assert chunks[1].startswith("## §1")
+    assert chunks[2].startswith("## §2")
+    # joining with a single newline reproduces the original document exactly
+    assert "\n".join(chunks) == md
+
+
+def test_strip_body_disclaimer_runs_post_translation() -> None:
+    """A disclaimer the translator re-adds (after the pre-translation strip) must
+    still be removed by the standalone post-translation pass."""
+    translated = (
+        "## §4 风险雷达\n\n美元敞口为 68.7%。\n\n---\n\n"
+        "*本报告仅供参考，不构成投资建议。*"  # noqa: RUF001
+    )
+    out = rg._strip_body_disclaimer(translated)
+    assert "投资建议" not in out
+    assert "美元敞口为 68.7%。" in out
+    assert rg._scan_forbidden_output(out) == []
+
+
 # ---------------------------------------------------------------------------
 # Tests: integration — inline markers are stripped from the generated report (#9)
 # ---------------------------------------------------------------------------

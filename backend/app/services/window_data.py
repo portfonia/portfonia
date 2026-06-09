@@ -46,16 +46,30 @@ def _window_threshold(per_day: Decimal, trading_days: int) -> Decimal:
 _DONE_STATUSES = ("success", "skipped", "needs_review")
 
 
-def user_watermark(session: Session, user_id: object, report_type: str) -> datetime:
+def user_watermark(
+    session: Session,
+    user_id: object,
+    report_type: str,
+    exclude_report_id: object | None = None,
+) -> datetime:
     """period_start for the next report = max(period_end) over the user's completed
-    reports of this type, or the cold-start baseline when there are none."""
-    latest = session.execute(
-        select(func.max(Report.period_end)).where(
-            Report.user_id == user_id,
-            Report.report_type == report_type,
-            Report.status.in_(_DONE_STATUSES),
-        )
-    ).scalar_one_or_none()
+    reports of this type, or the cold-start baseline when there are none.
+
+    ``exclude_report_id`` drops the report currently being (re)generated from the
+    watermark. Without it, regenerating an existing failed/needs_review/skipped row
+    would read that row's OWN period_end back as its period_start — collapsing the
+    window to a few minutes (the session uses autoflush=False, so the in-flight
+    status reset is not yet visible to this query). Always pass the row's id when
+    regenerating in place.
+    """
+    stmt = select(func.max(Report.period_end)).where(
+        Report.user_id == user_id,
+        Report.report_type == report_type,
+        Report.status.in_(_DONE_STATUSES),
+    )
+    if exclude_report_id is not None:
+        stmt = stmt.where(Report.id != exclude_report_id)
+    latest = session.execute(stmt).scalar_one_or_none()
     return latest or BOOTSTRAP_WATERMARK
 
 

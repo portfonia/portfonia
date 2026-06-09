@@ -58,6 +58,36 @@ def test_watermark_from_last_report(db_session: Session) -> None:
     assert user_watermark(db_session, _USER, "incremental") == end
 
 
+def test_watermark_excludes_the_report_being_regenerated(db_session: Session) -> None:
+    """Regenerating a row in place must not read its own period_end back as the
+    watermark — that collapses the window (the bug that produced an empty 'quiet
+    day' report). Excluding the row by id falls back to the prior report / baseline."""
+    prior_end = datetime(2026, 6, 5, 20, 30, tzinfo=UTC)
+    db_session.add(
+        Report(
+            user_id=_USER,
+            report_date=date(2026, 6, 5),
+            report_type="incremental",
+            status="success",
+            period_end=prior_end,
+        )
+    )
+    regen = Report(
+        user_id=_USER,
+        report_date=date(2026, 6, 8),
+        report_type="incremental",
+        status="needs_review",  # a DONE status, so it would otherwise count
+        period_end=datetime(2026, 6, 8, 20, 30, tzinfo=UTC),
+    )
+    db_session.add(regen)
+    db_session.flush()
+
+    # Without exclusion the watermark is the regen row's own period_end (6/8).
+    assert user_watermark(db_session, _USER, "incremental") == regen.period_end
+    # Excluding it falls back to the prior 6/5 report.
+    assert user_watermark(db_session, _USER, "incremental", exclude_report_id=regen.id) == prior_end
+
+
 # --- news window -------------------------------------------------------------
 
 

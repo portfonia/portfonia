@@ -13,7 +13,7 @@ Last updated: 2026-06-07
 | Next stage | **I** — 稳定运行验证；报告现为增量（M/W/F 16:30 ET），需先让捕获层攒数据 |
 | Backend quality | ruff OK · mypy OK (68 files) · pytest **238 passed** |
 | Frontend quality | tsc OK · eslint OK · next build OK |
-| LLM model | `deepseek/deepseek-v4-flash` via OpenRouter (provider=DigitalOcean,Venice); `data_collection=deny` on every call |
+| LLM model | OpenRouter (provider=DigitalOcean,Venice), `data_collection=deny` on every call. **PRIMARY (Pass 2 analysis) = `deepseek/deepseek-v4-pro`**; **Pass 1 search + translation render = `deepseek/deepseek-v4-flash`** (LOW_COST). Sonnet/Anthropic models are NOT used here — too expensive (~$0.2/call); if `PRIMARY_LLM_MODEL` ever shows an `anthropic/*` value it is config drift, revert it. |
 | Infrastructure | Homebrew PostgreSQL@16 + Redis (native, not Docker); `make infra-up` not needed |
 | Prompt version | `f2-v3` (window-anchored §2/§3/§4 depth + anomaly session-arc + NO inline markers; f2-v2 = Pass 1 public-only, no holdings-derived anomalies) |
 | Disclaimer version | `f3-bilingual-v1` |

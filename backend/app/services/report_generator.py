@@ -137,9 +137,11 @@ recommend, should buy, should sell, hold, reduce exposure, increase position, ex
 stop-loss, target price, will rise to, will fall to, entry point, oversold, overbought, \
 strong buy, bullish rating, bearish rating.
 
-Do NOT append any per-sentence disclaimer or marker — the report carries a single \
-bilingual disclaimer in its footer. Do NOT emit bracketed provenance tags of any \
-kind (no [S#], no [news], no [analysis], no source labels). Write clean prose.
+Do NOT append any per-sentence disclaimer or marker, and do NOT write any \
+disclaimer, legal notice, or "for informational purposes" statement anywhere — \
+the report already carries a single bilingual disclaimer in its footer, added \
+outside your output. Do NOT emit bracketed provenance tags of any kind (no [S#], \
+no [news], no [analysis], no source labels). Write clean prose.
 """
 
 # Pass 2 task instructions (shared by live generation and re-analysis).
@@ -797,13 +799,41 @@ _STRAY_TAGS = [
     re.compile(r"\[(?:新闻|分析|行情|宏观主题数据|news|analysis|market data)\]", re.IGNORECASE),
 ]
 
+# A line the model emits as its own disclaimer / legal notice. The single
+# disclaimer lives in the template footer (F3), so any disclaimer inside the body
+# is both redundant and a false-positive trigger for the forbidden-output scan
+# (it legitimately contains "投资建议"/"investment advice"). These phrases appear
+# only in disclaimers, never in factual market prose, so dropping the whole line
+# is safe. Runs on the body only — the footer is appended afterwards, untouched.
+_BODY_DISCLAIMER_RE = re.compile(
+    r"投资建议|投资招揽|买卖(推荐|指令)|免责声明|不构成.*(建议|招揽)"
+    r"|informational purposes|not\s+constitute\s+investment|investment advice"
+    r"|not\s+a\s+recommendation|consult\s+a\s+qualified",
+    re.IGNORECASE,
+)
+
+
+def _strip_body_disclaimer(text: str) -> str:
+    """Drop whole lines that are the model's own disclaimer, plus the orphaned
+    blank lines / horizontal rules left behind.
+
+    Applied both before translation (on the Pass 2 body) and AFTER translation:
+    the translator (a separate, cheaper model) sometimes re-introduces a bilingual
+    disclaimer of its own, which the pre-translation pass cannot have caught.
+    """
+    kept = [ln for ln in text.split("\n") if not _BODY_DISCLAIMER_RE.search(ln)]
+    while kept and (kept[-1] == "" or kept[-1].strip() == "---"):
+        kept.pop()
+    return "\n".join(kept)
+
 
 def _strip_markers(text: str) -> str:
-    """Remove bracketed citations / provenance tags / per-line disclaimers (#9).
+    """Remove bracketed citations / provenance tags / model-emitted disclaimers (#9).
 
     Markers are no longer injected: the report carries one bilingual disclaimer in
     the footer, and inline tags hurt readability. This drops any that the model
-    emits anyway, then tidies the whitespace they leave behind.
+    emits anyway (including a self-written disclaimer paragraph), then tidies the
+    whitespace and orphaned rules they leave behind.
     """
     text = _NEWS_RUN_RE.sub("", text)
     for pat in _STRAY_TAGS:
@@ -811,7 +841,8 @@ def _strip_markers(text: str) -> str:
     # Collapse the runs of spaces / dangling separators the removals leave.
     lines = [re.sub(r"[ \t]{2,}", " ", ln).rstrip() for ln in text.split("\n")]
     lines = [re.sub(r"\s+([.,;:。，；：])", r"\1", ln) for ln in lines]  # noqa: RUF001
-    return "\n".join(lines)
+    # Drop the model's own disclaimer lines and trailing orphaned rules.
+    return _strip_body_disclaimer("\n".join(lines))
 
 
 # ---------------------------------------------------------------------------
@@ -860,9 +891,12 @@ def _translate_md(md: str, target_lang: str) -> str:
     """Translate an assembled report to *target_lang* (#8).
 
     The LLM reasons in English upstream; this renders the final text in the
-    user's language. Tickers, numbers, table structure, and bracketed markers
-    ([行情]/[新闻]/[分析]/the compliance marker) are preserved verbatim. 'en' is
-    a no-op (the canonical language).
+    user's language. Tickers, numbers, and table structure are preserved
+    verbatim. 'en' is a no-op (the canonical language).
+
+    Translation runs on the LOW_COST model, not PRIMARY: it is a mechanical
+    render of already-reasoned text, so the cheaper model is sufficient and the
+    expensive analysis model is reserved for Pass 2.
     """
     if target_lang == "en":
         return md
@@ -884,9 +918,41 @@ def _translate_md(md: str, target_lang: str) -> str:
         "codes verbatim. Translate only natural-language prose. Do not add, remove, "
         "or reorder content, and never introduce advisory or recommendation language." + glossary
     )
-    return _call_llm(
-        _openrouter_client(), settings.PRIMARY_LLM_MODEL, system, md, with_holdings=True
-    )
+    client = _openrouter_client()
+    # Translate one top-level section at a time. A single whole-report request is
+    # large enough that the provider intermittently disconnects mid-response
+    # ("Server disconnected without sending a response"); per-section requests are
+    # small and reliable. Chunks are reassembled with the exact original
+    # separators, so structure is preserved.
+    parts: list[str] = []
+    for chunk in _split_sections(md):
+        if not chunk.strip():
+            parts.append(chunk)
+            continue
+        parts.append(
+            _call_llm(client, settings.LOW_COST_LLM_MODEL, system, chunk, with_holdings=True)
+        )
+    return "\n".join(parts)
+
+
+def _split_sections(md: str) -> list[str]:
+    """Split a report into translation chunks at top-level ('## ') headings.
+
+    The preamble before the first heading (title + data-window blockquote + §1)
+    is its own chunk; each '## ' section is a chunk. Joining the chunks with a
+    single newline reproduces the original document.
+    """
+    chunks: list[str] = []
+    current: list[str] = []
+    for line in md.split("\n"):
+        if line.startswith("## ") and current:
+            chunks.append("\n".join(current))
+            current = [line]
+        else:
+            current.append(line)
+    if current:
+        chunks.append("\n".join(current))
+    return chunks
 
 
 def _render_full_md(
@@ -915,6 +981,10 @@ def _render_full_md(
     violations = _scan_forbidden_output(cleaned)
 
     dynamic_out = _translate_md(dynamic_en, output_lang)
+    # The translator can re-add its own disclaimer paragraph (it runs after the
+    # pre-translation strip); remove it so the body carries no disclaimer and the
+    # scan does not false-trip on its "投资建议"/"investment advice" wording.
+    dynamic_out = _strip_body_disclaimer(dynamic_out)
     if output_lang != "en":
         # Translation can paraphrase into advisory tone — re-scan the output.
         violations = violations + _scan_forbidden_output(dynamic_out)
@@ -993,7 +1063,16 @@ def generate_report(
         )
         session.add(report)
     # ADR-002 incremental window: [previous report's period_end, now].
-    period_start = user_watermark(session, user_id, report_type)
+    # Exclude this row from the watermark: when regenerating an existing
+    # failed/needs_review/skipped report in place, its own period_end must not
+    # become its period_start (which would collapse the window — autoflush=False
+    # means the status reset above is not yet visible to the watermark query).
+    period_start = user_watermark(
+        session,
+        user_id,
+        report_type,
+        exclude_report_id=report.id if existing is not None else None,
+    )
     period_end = datetime.now(tz=UTC)
     report.period_start = period_start
     report.period_end = period_end
