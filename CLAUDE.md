@@ -8,14 +8,14 @@ Last updated: 2026-06-07
 | Item | Value |
 |------|-------|
 | Ring stage | **Ring 0** (local dev machine, single user, no cloud) |
-| `main` HEAD | `c4f5798` feat(reports): scale anomaly threshold by trading days, cap at 10% |
-| Stages complete | A B C D E F1 F2 F3 G H + June-7 report-review fixes + **ADR-002 incremental reporting + capture layer** |
+| `main` HEAD | `484bcf8` feat(reports): §2.5 US forward calendar (FRED macro + FOMC + earnings) |
+| Stages complete | A B C D E F1 F2 F3 G H + June-7 report-review fixes + **ADR-002 incremental reporting + capture layer** + **Ring0 report enhancements #1–#4** (§4.2 anomaly table, confidence labels, §4.4 technical position, §2.5 forward calendar) |
 | Next stage | **I** — 稳定运行验证；报告现为增量（M/W/F 16:30 ET），需先让捕获层攒数据 |
-| Backend quality | ruff OK · mypy OK (68 files) · pytest **238 passed** |
+| Backend quality | ruff OK · mypy OK (74 files) · pytest **272 passed** |
 | Frontend quality | tsc OK · eslint OK · next build OK |
 | LLM model | OpenRouter (provider=DigitalOcean,Venice), `data_collection=deny` on every call. **PRIMARY (Pass 2 analysis) = `deepseek/deepseek-v4-pro`**; **Pass 1 search + translation render = `deepseek/deepseek-v4-flash`** (LOW_COST). Sonnet/Anthropic models are NOT used here — too expensive (~$0.2/call); if `PRIMARY_LLM_MODEL` ever shows an `anthropic/*` value it is config drift, revert it. |
 | Infrastructure | Homebrew PostgreSQL@16 + Redis (native, not Docker); `make infra-up` not needed |
-| Prompt version | `f2-v3` (window-anchored §2/§3/§4 depth + anomaly session-arc + NO inline markers; f2-v2 = Pass 1 public-only, no holdings-derived anomalies) |
+| Prompt version | `f2-v4` (adds: §4.2 LLM writes driver-only one-liners — numeric arc is a code-built table; evidence confidence labels `[Established]/[Probable]/[Speculative]` on every causal attribution; forward-event no-forecast rule. f2-v3 = window-anchored §2/§3/§4 depth + anomaly session-arc + NO inline markers; f2-v2 = Pass 1 public-only) |
 | Disclaimer version | `f3-bilingual-v1` |
 | Output language | reason in EN, render in `OUTPUT_LANG` (Ring 0 default `zh`) via a translation pass with a fixed-term glossary (财经分析报告 / 持仓分析 / 持仓机构; never "智能"); `en` = no-op |
 | Report statuses | `success` · `skipped` (quiet day, still emails heartbeat) · `needs_review` (compliance scan hit, NOT emailed) · `failed` · `in_progress` |
@@ -81,6 +81,38 @@ Portfolio **valuation reads the latest captured close** from `price_snapshots`
 (`_latest_captured_closes`), falling back to `holding.market_price` only for
 funds (no ticker). This keeps §1 valuation and the anomaly baseline on one price
 series. FX window anomalies are still not computed (FX stays daily in `fx_rates`).
+
+### Ring0 report enhancements #1–#4 — DONE
+
+Four first-user-feedback features, all inside the Layer-3 boundary. The pattern
+throughout: **numbers are code-built and stored in `report_inputs`** (deterministic,
+token-free, re-render-safe — `regenerate_report(mode=render)` reproduces them with
+no DB read); the **LLM writes only prose/attribution**.
+
+- **#3 §4.2 price-anomaly table** (`_build_section42_table` + `_inject_section42_table`):
+  the session-arc numbers become a markdown table inserted under the LLM's
+  `### 4.2 Price anomalies` heading; the LLM writes only a one-line driver per holding.
+- **#2 confidence labels**: every causal attribution (§3, §4.2) ends with an
+  evidence-ordinal `[Established]/[Probable]/[Speculative]` (never a numeric %);
+  large unexplained moves are kept and labelled `[Speculative]`, not dropped. zh
+  glossary maps the labels (确定/较可能/推测).
+- **#4 §4.4 technical position** (`technical_position.py` + `_build_section44_technical`):
+  descriptive price structure from captured OHLCV — distance to 50/200-day average,
+  52-week range position, 20-day annualized volatility. Pure facts, NO TA-signal
+  vocabulary (new forbidden patterns: support/resistance level, golden/death cross,
+  breakout, 支撑位/阻力位/金叉/死叉). Needs ~200 captured closes for the long windows →
+  run **`python -m app.scripts.backfill_ohlcv`** once (idempotent; reuses
+  `capture_prices(close, lookback_days=420)`) to seed a year of closes.
+- **#1 §2.5 forward calendar** (`forward_events.py`, `forward_events` table, migration
+  `a7b8c9d0e1f2`): scheduled US events ~10 days out, each mapped (in code) to exposed
+  holdings. Sources: FRED `release/dates` for a curated release set (CPI/PPI/NFP/
+  Retail/PCE/GDP/UMich; needs `FRED_API_KEY`, optional — macro skipped if unset),
+  **hardcoded FOMC statement dates** (verified from federalreserve.gov; FRED's FOMC
+  release has no forward schedule — VERIFY ANNUALLY), and earnings via yfinance
+  `Ticker.calendar`. Calendar facts only — `_PASS2_SYSTEM` bars forecasting event
+  outcomes. An RSS-derived delay caveat fires when window news mentions a funding
+  lapse (BLS/BEA dates may slip). **China forward intel is out of scope.** Captured
+  by `capture_forward_events_task` (daily 08:00 ET, Mon–Fri, 14-day fetch horizon).
 
 ## Language Policy (MANDATORY)
 
