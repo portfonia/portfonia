@@ -69,6 +69,10 @@ class Settings(BaseSettings):
     TAVILY_API_KEY: SecretStr
     TAVILY_DAILY_BUDGET: int = 10
 
+    # Forward calendar (#1). Optional: when unset, the macro release dates from
+    # FRED are skipped and the forward block falls back to FOMC + earnings only.
+    FRED_API_KEY: SecretStr | None = None
+
     # Email
     EMAIL_PROVIDER: str = "resend"
     RESEND_API_KEY: SecretStr

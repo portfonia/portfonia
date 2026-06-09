@@ -75,6 +75,12 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "task": "app.tasks.report_tasks.generate_incremental_report",
         "schedule": crontab(hour=16, minute=30, day_of_week="mon,wed,fri"),
     },
+    # Forward calendar (#1): refresh the next ~2 weeks of US macro + earnings dates
+    # once a day, before US pre-open. Catch-up is in the task (idempotent upsert).
+    "capture-forward-events-daily": {
+        "task": "app.tasks.capture_tasks.capture_forward_events_task",
+        "schedule": crontab(hour=8, minute=0, day_of_week="mon-fri"),
+    },
 }
 _beat_schedule.update(_build_capture_schedule())
 
