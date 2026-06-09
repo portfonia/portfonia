@@ -1044,19 +1044,47 @@ def test_strip_markers_removes_model_emitted_disclaimer() -> None:
     assert not result.rstrip().endswith("---")  # orphaned rule trimmed
 
 
-def test_split_sections_chunks_at_top_level_headings_and_roundtrips() -> None:
+def test_split_sections_chunks_at_section_and_subsection_headings_and_roundtrips() -> None:
     md = (
         "# Title\n\n> data window\n\n## §1 Snapshot\n\n| a | b |\n\n"
-        "## §2 Macro\n\nprose\n\n## §4 Risk\n\nmore"
+        "## §4 Risk\n\n### 4.1 Concentration\n\nflagged\n\n### 4.2 Anomalies\n\n| t |\n"
     )
     chunks = rg._split_sections(md)
-    # preamble (title+window) + 3 section chunks
-    assert len(chunks) == 4
-    assert chunks[0].startswith("# Title")
-    assert chunks[1].startswith("## §1")
-    assert chunks[2].startswith("## §2")
+    # preamble + §1 + §4 header + 4.1 + 4.2  → subsections split out
+    assert [c.split("\n", 1)[0] for c in chunks] == [
+        "# Title",
+        "## §1 Snapshot",
+        "## §4 Risk",
+        "### 4.1 Concentration",
+        "### 4.2 Anomalies",
+    ]
     # joining with a single newline reproduces the original document exactly
     assert "\n".join(chunks) == md
+
+
+def test_translate_chunk_falls_back_to_source_when_truncated() -> None:
+    source = "## §3 Holdings Analysis\n\n" + ("This holding matters because " * 20)
+    calls = {"n": 0}
+
+    def _truncating(_c: object, _m: str, _s: str, _u: str, **_k: object) -> str:
+        calls["n"] += 1
+        return "持仓"  # always far too short → simulates a dropped/truncated 200
+
+    with patch.object(rg, "_call_llm", side_effect=_truncating):
+        out = rg._translate_chunk(MagicMock(), "m", "sys", source)
+    assert calls["n"] == 2  # tried once, retried once
+    assert out == source  # kept the English source rather than dropping the section
+
+
+def test_translate_chunk_keeps_good_translation() -> None:
+    source = "## §3 Holdings Analysis\n\n" + ("This holding matters. " * 20)
+
+    def _ok(_c: object, _m: str, _s: str, _u: str, **_k: object) -> str:
+        return "## §3 持仓分析\n\n" + ("该持仓非常重要并值得密切关注。" * 20)
+
+    with patch.object(rg, "_call_llm", side_effect=_ok):
+        out = rg._translate_chunk(MagicMock(), "m", "sys", source)
+    assert out.startswith("## §3 持仓分析")
 
 
 def test_strip_body_disclaimer_runs_post_translation() -> None:
