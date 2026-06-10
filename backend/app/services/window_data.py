@@ -13,7 +13,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from itertools import pairwise
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.timezones import ET
@@ -97,14 +97,32 @@ def load_news_window(session: Session, start: datetime, end: datetime) -> list[N
     ]
 
 
-def _close_snapshot_on_or_before(session: Session, ticker: str, on: date) -> PriceSnapshot | None:
+def _close_snapshot_before_window(
+    session: Session, ticker: str, start: datetime, start_date: date
+) -> PriceSnapshot | None:
+    """Most recent close strictly before the report window opens.
+
+    Normally this is the latest close with trade_date < start_date. But if
+    period_start falls BEFORE that day's market close (e.g. a premarket manual
+    run), start_date's own close is captured DURING the window, not before it
+    — _window_closes (below) pulls it into the window via the same
+    captured_at > start test, so it must not also double as the baseline here.
+    A trade_date == start_date close only counts as pre-window when it was
+    captured at/before period_start.
+    """
     return session.execute(
         select(PriceSnapshot)
         .where(
             PriceSnapshot.ticker == ticker,
             PriceSnapshot.session_node == "close",
             PriceSnapshot.close.is_not(None),
-            PriceSnapshot.trade_date <= on,
+            or_(
+                PriceSnapshot.trade_date < start_date,
+                and_(
+                    PriceSnapshot.trade_date == start_date,
+                    PriceSnapshot.captured_at <= start,
+                ),
+            ),
         )
         .order_by(PriceSnapshot.trade_date.desc())
         .limit(1)
@@ -116,13 +134,13 @@ def _window_closes(
 ) -> list[PriceSnapshot]:
     """Daily close snapshots captured within the report window, oldest first.
 
-    Normally this is "trade_date in (start_date, end_date]" — clean date-level
-    bounds for multi-day windows. When the window starts and ends on the same
-    ET calendar date (a same-day rerun), that range is empty by construction
-    even if today's close was captured during the window — so for that case we
-    fall back to "today's close, if it was captured after period_start". This
-    keeps multi-day windows untouched (no dependency on captured_at, which is
-    stale/uniform for backfilled history) while fixing the same-day collapse.
+    A close on trade_date D is in-window if D is strictly after start_date and
+    on/before end_date (the normal multi-day case), OR D == start_date and the
+    close was captured AFTER period_start (period_start fell before that day's
+    market close — a premarket/intraday run — so the close happened during the
+    window, not before it). This single condition also covers the same-day
+    case (start_date == end_date), where the first clause is empty by
+    construction.
     """
     start_date = start.astimezone(ET).date()
     end_date = end.astimezone(ET).date()
@@ -130,17 +148,11 @@ def _window_closes(
         PriceSnapshot.ticker == ticker,
         PriceSnapshot.session_node == "close",
         PriceSnapshot.close.is_not(None),
+        or_(
+            and_(PriceSnapshot.trade_date > start_date, PriceSnapshot.trade_date <= end_date),
+            and_(PriceSnapshot.trade_date == start_date, PriceSnapshot.captured_at > start),
+        ),
     ]
-    if start_date < end_date:
-        conditions += [
-            PriceSnapshot.trade_date > start_date,
-            PriceSnapshot.trade_date <= end_date,
-        ]
-    else:
-        conditions += [
-            PriceSnapshot.trade_date == end_date,
-            PriceSnapshot.captured_at > start,
-        ]
     return list(
         session.execute(
             select(PriceSnapshot).where(*conditions).order_by(PriceSnapshot.trade_date.asc())
@@ -191,38 +203,35 @@ def detect_window_anomalies(
     start_date = start.astimezone(ET).date()
     end_date = end.astimezone(ET).date()
 
-    if start_date < end_date:
-        trading_days = int(
-            session.execute(
-                select(func.count(func.distinct(PriceSnapshot.trade_date))).where(
-                    PriceSnapshot.session_node == "close",
-                    PriceSnapshot.trade_date > start_date,
-                    PriceSnapshot.trade_date <= end_date,
-                )
-            ).scalar_one()
-            or 0
-        )
-    else:
-        # Same-day window: a trading day "in the window" means today's close was
-        # captured after period_start (see _window_closes).
-        trading_days = int(
-            session.execute(
-                select(func.count(func.distinct(PriceSnapshot.trade_date))).where(
-                    PriceSnapshot.session_node == "close",
-                    PriceSnapshot.close.is_not(None),
-                    PriceSnapshot.trade_date == end_date,
-                    PriceSnapshot.captured_at > start,
-                )
-            ).scalar_one()
-            or 0
-        )
+    # Same membership test as _window_closes: a trade_date counts toward the
+    # window if it's strictly after start_date (and on/before end_date), or it
+    # IS start_date but its close was captured after period_start.
+    trading_days = int(
+        session.execute(
+            select(func.count(func.distinct(PriceSnapshot.trade_date))).where(
+                PriceSnapshot.session_node == "close",
+                PriceSnapshot.close.is_not(None),
+                or_(
+                    and_(
+                        PriceSnapshot.trade_date > start_date,
+                        PriceSnapshot.trade_date <= end_date,
+                    ),
+                    and_(
+                        PriceSnapshot.trade_date == start_date,
+                        PriceSnapshot.captured_at > start,
+                    ),
+                ),
+            )
+        ).scalar_one()
+        or 0
+    )
 
     anomalies: list[PriceAnomaly] = []
     for h in holdings:
         per_day = _ASSET_THRESHOLDS.get(h.asset_type or "")
         if per_day is None or not h.ticker:
             continue
-        baseline = _close_snapshot_on_or_before(session, h.ticker, start_date)
+        baseline = _close_snapshot_before_window(session, h.ticker, start, start_date)
         series = _window_closes(session, h.ticker, start, end)
         if baseline is None or baseline.close is None or not series:
             continue

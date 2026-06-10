@@ -137,9 +137,10 @@ def test_detect_window_anomalies_flags_move_over_threshold(db_session: Session) 
             asset_type="stock",
         )
     )
+    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
     db_session.add_all(
         [
-            _close("AAPL", date(2026, 6, 2), 100.0),  # baseline (at/before start)
+            _close_at("AAPL", date(2026, 6, 2), 100.0, start),  # baseline (captured at start)
             _close("AAPL", date(2026, 6, 5), 105.0),  # +5% > 3% stock threshold
         ]
     )
@@ -181,7 +182,7 @@ def test_detect_window_anomalies_ignores_small_move_and_new_position(db_session:
     )
     db_session.add_all(
         [
-            _close("AAPL", date(2026, 6, 2), 100.0),
+            _close_at("AAPL", date(2026, 6, 2), 100.0, datetime(2026, 6, 2, 16, 0, tzinfo=UTC)),
             _close("AAPL", date(2026, 6, 5), 101.0),  # +1% < 3% → not flagged
             _close("NEW", date(2026, 6, 5), 50.0),  # no baseline before start → skipped
         ]
@@ -213,13 +214,14 @@ def test_cumulative_threshold_scales_with_trading_days(db_session: Session) -> N
     with each day < 3%, clears neither trigger; BIGM's one +10% day fires the
     single-day trigger."""
     db_session.add_all([_stock("Apple", "AAPL"), _stock("BigMove", "BIGM")])
+    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
     db_session.add_all(
         [
-            _close("AAPL", date(2026, 6, 2), 100.0),  # baseline
+            _close_at("AAPL", date(2026, 6, 2), 100.0, start),  # baseline
             _close("AAPL", date(2026, 6, 3), 101.5),  # +1.5%
             _close("AAPL", date(2026, 6, 4), 103.0),  # +1.48%
             _close("AAPL", date(2026, 6, 5), 105.0),  # +1.94%; net +5% < 9% cumulative
-            _close("BIGM", date(2026, 6, 2), 100.0),
+            _close_at("BIGM", date(2026, 6, 2), 100.0, start),
             _close("BIGM", date(2026, 6, 5), 110.0),  # single +10% day → single-day trigger
         ]
     )
@@ -240,7 +242,9 @@ def test_single_day_trigger_catches_violent_session(db_session: Session) -> None
     db_session.add_all([_stock("Whip", "WHIP")])
     db_session.add_all(
         [
-            _close("WHIP", date(2026, 6, 1), 100.0),  # baseline
+            _close_at(
+                "WHIP", date(2026, 6, 1), 100.0, datetime(2026, 6, 1, 16, 0, tzinfo=UTC)
+            ),  # baseline
             _close("WHIP", date(2026, 6, 2), 100.0),
             _close("WHIP", date(2026, 6, 3), 100.0),
             _close("WHIP", date(2026, 6, 4), 88.0),  # -12% crash on one day
@@ -267,15 +271,16 @@ def test_cumulative_threshold_capped_at_ten_percent(db_session: Session) -> None
     cap: BIG (+~10.5% net) flags, MID (+7% net) does not. Neither has a single day
     beyond the per-day threshold, so this isolates the cumulative cap."""
     db_session.add_all([_stock("Big", "BIG"), _stock("Mid", "MID")])
+    start = datetime(2026, 6, 1, 16, 0, tzinfo=UTC)
     db_session.add_all(
         [
-            _close("BIG", date(2026, 6, 1), 100.0),  # baseline
+            _close_at("BIG", date(2026, 6, 1), 100.0, start),  # baseline
             _close("BIG", date(2026, 6, 2), 102.0),  # +2.0%
             _close("BIG", date(2026, 6, 3), 104.0),  # +1.96%
             _close("BIG", date(2026, 6, 4), 106.0),  # +1.92%
             _close("BIG", date(2026, 6, 5), 108.0),  # +1.89%
             _close("BIG", date(2026, 6, 8), 110.5),  # +2.31%; net +10.5% ≥ 10% cap
-            _close("MID", date(2026, 6, 1), 100.0),
+            _close_at("MID", date(2026, 6, 1), 100.0, start),
             _close("MID", date(2026, 6, 2), 101.5),
             _close("MID", date(2026, 6, 3), 103.0),
             _close("MID", date(2026, 6, 4), 104.5),
@@ -294,6 +299,38 @@ def test_cumulative_threshold_capped_at_ten_percent(db_session: Session) -> None
     assert [a.identifier for a in anomalies] == ["BIG"]
     assert anomalies[0].threshold == Decimal("0.10")  # effective threshold = cap
     assert anomalies[0].trigger == "cumulative"
+
+
+# --- premarket multi-day window: start_date's own close is in-window --------
+
+
+def test_premarket_window_includes_start_date_close_as_anomaly(db_session: Session) -> None:
+    """A multi-day window whose start falls BEFORE that day's market close (a
+    premarket manual run, e.g. period_start = 08:13 ET on day D) must treat day
+    D's close — captured at 16:00 ET, after period_start — as the first
+    in-window trading day, not as the baseline. Previously `trade_date >
+    start_date` excluded D entirely, the baseline absorbed D's close, and a
+    violent move on D (e.g. +11%) went undetected."""
+    db_session.add(_stock("Intel", "INTC"))
+    start = datetime(2026, 6, 9, 8, 13, tzinfo=ET)
+    end = datetime(2026, 6, 10, 8, 38, tzinfo=ET)
+    db_session.add_all(
+        [
+            # Last close before the window opens (captured well before start).
+            _close_at("INTC", date(2026, 6, 6), 100.0, datetime(2026, 6, 6, 16, 0, tzinfo=ET)),
+            # D's close, captured at 16:00 ET on D — after period_start (08:13).
+            _close_at("INTC", date(2026, 6, 9), 111.0, datetime(2026, 6, 9, 16, 0, tzinfo=ET)),
+        ]
+    )
+    db_session.flush()
+
+    anomalies, trading_days = detect_window_anomalies(db_session, start, end)
+    assert trading_days == 1
+    assert [a.identifier for a in anomalies] == ["INTC"]
+    a = anomalies[0]
+    assert a.prev_price == Decimal("100.0")
+    assert a.current_price == Decimal("111.0")
+    assert a.trigger == "single_day"
 
 
 # --- same-day window collapse fix --------------------------------------------
