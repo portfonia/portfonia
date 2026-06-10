@@ -8,6 +8,7 @@ by a delivery failure.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import UTC, datetime
 
@@ -147,6 +148,16 @@ def send_report_email(report: Report, session: Session) -> bool:
         "html": html_body,
     }
 
+    # Content-addressed idempotency key: a redelivered Celery task or a
+    # near-simultaneous manual send for the SAME content reuses this key, so
+    # Resend's own dedup suppresses the duplicate. A regenerated report with
+    # DIFFERENT content gets a different key, so it can still be delivered —
+    # reusing report.id alone made Resend reject the regenerated send with
+    # "request body was modified" (409), silently leaving the corrected
+    # content unsent while the stale first version sat in the inbox.
+    content_hash = hashlib.sha256(html_body.encode("utf-8")).hexdigest()[:16]
+    idempotency_key = f"report-{report.id}-{content_hash}"
+
     try:
         with httpx.Client(timeout=30.0) as client:
             resp = client.post(
@@ -154,11 +165,7 @@ def send_report_email(report: Report, session: Session) -> bool:
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
-                    # Provider-side dedup: identical key within Resend's window is
-                    # not re-delivered. Guards against a redelivered Celery task or
-                    # two near-simultaneous manual sends both passing the in-memory
-                    # email_sent_at check (the DB guard is best-effort, not a lock).
-                    "Idempotency-Key": f"report-{report.id}",
+                    "Idempotency-Key": idempotency_key,
                 },
                 json=payload,
             )

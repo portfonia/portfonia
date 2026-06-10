@@ -130,13 +130,18 @@ def _portfolio_snap() -> PortfolioSnapshot:
     )
 
 
+# Padding so fake Pass 2 bodies clear _PASS2_MIN_CHARS (H-DEBT-2 completeness
+# guard) — real Pass 2 output runs several thousand chars across §2/§3/§4.
+_PASS2_FILLER = "Filler context. " * 130
+
 _FAKE_LLM_PASS1 = (
     '{"queries": ["Federal Reserve rate decision impact", "NVIDIA earnings semiconductor"]}'
 )
 _FAKE_LLM_PASS2 = (
     "## §2 Macro Signals\n\nFed raised rates. [For information only — not investment advice]\n\n"
     "## §3 Holdings Intelligence\n\nNVIDIA up 9%. [For information only — not investment advice]\n\n"
-    "## §4 Risk Radar\n\nConcentration watch. [For information only — not investment advice]"
+    "## §4 Risk Radar\n\nConcentration watch. [For information only — not investment advice]\n\n"
+    + _PASS2_FILLER
 )
 
 # F2-specific fake: includes [S#] citations and AAPL references to exercise annotations.
@@ -148,7 +153,8 @@ _FAKE_LLM_PASS2_F2 = (
     "AAPL represents a large portion of the portfolio and is sensitive to rate changes. "
     "[For information only — not investment advice]\n\n"
     "## §4 Risk Radar\n\n"
-    "Concentration above thresholds. [For information only — not investment advice]"
+    "Concentration above thresholds. [For information only — not investment advice]\n\n"
+    + _PASS2_FILLER
 )
 
 _FAKE_TAVILY_RESULTS = [
@@ -422,7 +428,10 @@ def _mock_llm_noncompliant(
     if with_holdings:
         return (
             "## §2 Macro Signals\n\nYou should buy more semiconductors now. "
-            "[For information only — not investment advice]"
+            "[For information only — not investment advice]\n\n"
+            "## §3 Holdings Intelligence\n\nNVIDIA up 9%. [For information only — not investment advice]\n\n"
+            "## §4 Risk Radar\n\nConcentration watch. [For information only — not investment advice]\n\n"
+            + _PASS2_FILLER
         )
     return _FAKE_LLM_PASS1
 
@@ -567,7 +576,10 @@ def test_regenerate_analyze_reruns_pass2_from_stored_intel(db_session: Session) 
     rid = report.id
 
     new_body = (
-        "## §2 Macro Signals\n\nReanalyzed view. [For information only — not investment advice]"
+        "## §2 Macro Signals\n\nReanalyzed view. [For information only — not investment advice]\n\n"
+        "## §3 Holdings Intelligence\n\nNVIDIA up 9%. [For information only — not investment advice]\n\n"
+        "## §4 Risk Radar\n\nConcentration watch. [For information only — not investment advice]\n\n"
+        + _PASS2_FILLER
     )
     with (
         patch("app.services.report_generator.get_current_user_id", return_value=_USER),

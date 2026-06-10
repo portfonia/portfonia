@@ -112,20 +112,38 @@ def _close_snapshot_on_or_before(session: Session, ticker: str, on: date) -> Pri
 
 
 def _window_closes(
-    session: Session, ticker: str, start_date: date, end_date: date
+    session: Session, ticker: str, start: datetime, end: datetime
 ) -> list[PriceSnapshot]:
-    """Daily close snapshots in (start_date, end_date], oldest first."""
+    """Daily close snapshots captured within the report window, oldest first.
+
+    Normally this is "trade_date in (start_date, end_date]" — clean date-level
+    bounds for multi-day windows. When the window starts and ends on the same
+    ET calendar date (a same-day rerun), that range is empty by construction
+    even if today's close was captured during the window — so for that case we
+    fall back to "today's close, if it was captured after period_start". This
+    keeps multi-day windows untouched (no dependency on captured_at, which is
+    stale/uniform for backfilled history) while fixing the same-day collapse.
+    """
+    start_date = start.astimezone(ET).date()
+    end_date = end.astimezone(ET).date()
+    conditions = [
+        PriceSnapshot.ticker == ticker,
+        PriceSnapshot.session_node == "close",
+        PriceSnapshot.close.is_not(None),
+    ]
+    if start_date < end_date:
+        conditions += [
+            PriceSnapshot.trade_date > start_date,
+            PriceSnapshot.trade_date <= end_date,
+        ]
+    else:
+        conditions += [
+            PriceSnapshot.trade_date == end_date,
+            PriceSnapshot.captured_at > start,
+        ]
     return list(
         session.execute(
-            select(PriceSnapshot)
-            .where(
-                PriceSnapshot.ticker == ticker,
-                PriceSnapshot.session_node == "close",
-                PriceSnapshot.close.is_not(None),
-                PriceSnapshot.trade_date > start_date,
-                PriceSnapshot.trade_date <= end_date,
-            )
-            .order_by(PriceSnapshot.trade_date.asc())
+            select(PriceSnapshot).where(*conditions).order_by(PriceSnapshot.trade_date.asc())
         )
         .scalars()
         .all()
@@ -173,16 +191,31 @@ def detect_window_anomalies(
     start_date = start.astimezone(ET).date()
     end_date = end.astimezone(ET).date()
 
-    trading_days = int(
-        session.execute(
-            select(func.count(func.distinct(PriceSnapshot.trade_date))).where(
-                PriceSnapshot.session_node == "close",
-                PriceSnapshot.trade_date > start_date,
-                PriceSnapshot.trade_date <= end_date,
-            )
-        ).scalar_one()
-        or 0
-    )
+    if start_date < end_date:
+        trading_days = int(
+            session.execute(
+                select(func.count(func.distinct(PriceSnapshot.trade_date))).where(
+                    PriceSnapshot.session_node == "close",
+                    PriceSnapshot.trade_date > start_date,
+                    PriceSnapshot.trade_date <= end_date,
+                )
+            ).scalar_one()
+            or 0
+        )
+    else:
+        # Same-day window: a trading day "in the window" means today's close was
+        # captured after period_start (see _window_closes).
+        trading_days = int(
+            session.execute(
+                select(func.count(func.distinct(PriceSnapshot.trade_date))).where(
+                    PriceSnapshot.session_node == "close",
+                    PriceSnapshot.close.is_not(None),
+                    PriceSnapshot.trade_date == end_date,
+                    PriceSnapshot.captured_at > start,
+                )
+            ).scalar_one()
+            or 0
+        )
 
     anomalies: list[PriceAnomaly] = []
     for h in holdings:
@@ -190,7 +223,7 @@ def detect_window_anomalies(
         if per_day is None or not h.ticker:
             continue
         baseline = _close_snapshot_on_or_before(session, h.ticker, start_date)
-        series = _window_closes(session, h.ticker, start_date, end_date)
+        series = _window_closes(session, h.ticker, start, end)
         if baseline is None or baseline.close is None or not series:
             continue
         latest = series[-1]

@@ -193,7 +193,7 @@ def test_send_subject_format(mock_client_cls: MagicMock, mock_settings: MagicMoc
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
 def test_send_sets_idempotency_key(mock_client_cls: MagicMock, mock_settings: MagicMock) -> None:
-    """Resend Idempotency-Key must be keyed on the report id for provider dedup."""
+    """Idempotency-Key is content-addressed: report id + hash of the rendered body."""
     mock_settings.return_value = _mock_settings()
     mock_resp = MagicMock()
     mock_resp.raise_for_status.return_value = None
@@ -204,4 +204,33 @@ def test_send_sets_idempotency_key(mock_client_cls: MagicMock, mock_settings: Ma
     send_report_email(report, MagicMock())
 
     headers = post_mock.call_args.kwargs["headers"]
-    assert headers["Idempotency-Key"] == f"report-{report.id}"
+    key = headers["Idempotency-Key"]
+    assert key.startswith(f"report-{report.id}-")
+    assert len(key) == len(f"report-{report.id}-") + 16
+
+
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
+def test_idempotency_key_changes_with_content(
+    mock_client_cls: MagicMock, mock_settings: MagicMock
+) -> None:
+    """A regenerated report with different content gets a different key, so a
+    resend after regenerate is not rejected by Resend's stale-body 409 check."""
+    mock_settings.return_value = _mock_settings()
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    post_mock = mock_client_cls.return_value.__enter__.return_value.post
+    post_mock.return_value = mock_resp
+
+    report_v1 = _make_report(md="# Report\n\nFirst version")
+    send_report_email(report_v1, MagicMock())
+    key1 = post_mock.call_args.kwargs["headers"]["Idempotency-Key"]
+
+    report_v2 = _make_report(md="# Report\n\nSecond version")
+    report_v2.id = report_v1.id
+    send_report_email(report_v2, MagicMock())
+    key2 = post_mock.call_args.kwargs["headers"]["Idempotency-Key"]
+
+    assert key1 != key2
+    assert key1.startswith(f"report-{report_v1.id}-")
+    assert key2.startswith(f"report-{report_v1.id}-")

@@ -29,6 +29,7 @@ def trigger_report_generation(
         report_type=req.report_type,
         base_currency=req.base_currency,
         output_lang=get_settings().OUTPUT_LANG,
+        session_node=req.session_node,
     )
 
 
