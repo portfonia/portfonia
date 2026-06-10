@@ -62,7 +62,7 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_PROMPT_VERSION = "f2-v4"  # f2-v4: §4.2 code table + driver-only, evidence confidence labels, §4.4 technical position
+_PROMPT_VERSION = "f2-v5"  # f2-v5: direction-requires-evidence + divergence-is-the-signal (no price-direction claims without window data); f2-v4 = §4.2 code table + driver-only, evidence confidence labels, §4.4 technical position
 _DISCLAIMER_VERSION = "f3-bilingual-v1"
 
 # A run of one or more LLM citations ([S6][S7][S8] or "[S6] [S7]"). The S-numbers
@@ -172,7 +172,22 @@ _PASS2_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + (
     "FORWARD EVENTS: if you reference a scheduled event (an upcoming data release, "
     "FOMC meeting, or earnings date), state only that it is scheduled and what is "
     "worth watching — NEVER predict its outcome, direction, or market impact "
-    "('will rise/fall', 'likely to beat', 'expected to lift/hurt' are forbidden)."
+    "('will rise/fall', 'likely to beat', 'expected to lift/hurt' are forbidden).\n"
+    "DIRECTION REQUIRES EVIDENCE: a sentence that asserts how a SPECIFIC HOLDING'S "
+    "PRICE moved, or is positioned to move (e.g. 'gained safe-haven buying', "
+    "'sold off', 'outperformed', 'will see buying support'), must be grounded in "
+    "the PRICE ANOMALIES or TECHNICAL POSITION data supplied for THAT holding. If "
+    "no window price data is supplied for a holding, do not assert a price "
+    "direction for it — describe only that a transmission channel exists, say "
+    "plainly 'this report period has no price data to confirm the holding's "
+    "direction', and cap the confidence label at [Speculative]. Textbook macro "
+    "narratives (e.g. 'war risk -> gold rallies') are mechanisms, not "
+    "observations — do not restate them as something that already happened to a "
+    "specific holding without window price data.\n"
+    "DIVERGENCE IS THE SIGNAL: if a holding's actual window price move CONTRADICTS "
+    "the textbook direction implied by a macro narrative (e.g. gold falling during "
+    "a war-risk spike), report that divergence itself as the noteworthy signal — "
+    "do not silently follow the narrative and do not omit the contradiction."
 )
 
 # H-DEBT-2 completeness guard: a Pass 2 body shorter than this, or missing
@@ -247,6 +262,7 @@ def _call_llm(
     *,
     with_holdings: bool = False,
     pin_provider: bool = True,
+    provider_order: list[str] | None = None,
 ) -> str:
     """Call an OpenRouter model.  Returns the assistant content string.
 
@@ -260,11 +276,18 @@ def _call_llm(
     route to whichever provider is available — used for translation calls so
     repeated requests aren't all funneled through the same (possibly
     rate-limited) provider pair.
+
+    `provider_order`, when given, sets the provider preference list directly
+    (overriding `pin_provider`/`OPENROUTER_PROVIDER_ORDER`) — used to steer a
+    call toward providers known to be available when the default pool is
+    rate-limited.
     """
     extra: dict[str, Any] = {}
     settings = get_settings()
     provider: dict[str, object] = {"allow_fallbacks": settings.OPENROUTER_ALLOW_FALLBACKS}
-    if pin_provider:
+    if provider_order:
+        provider["order"] = provider_order
+    elif pin_provider:
         order = [p.strip() for p in settings.OPENROUTER_PROVIDER_ORDER.split(",") if p.strip()]
         if order:
             provider["order"] = order
@@ -955,7 +978,11 @@ def _build_pass2_prompt(
         "(this period / next few sessions), medium-term (weeks to a quarter), and "
         "long-term (structural) effects, and end with the concrete follow-on signals "
         "or scenarios worth watching for each named holding. Stay descriptive: report "
-        "what to WATCH, never what to DO (no buy/sell/hold/hedge/trim language).\n\n"
+        "what to WATCH, never what to DO (no buy/sell/hold/hedge/trim language). The "
+        "short-term read describes a CHANNEL ('X would transmit via Y'), not an "
+        "observed move — see DIRECTION REQUIRES EVIDENCE / DIVERGENCE IS THE SIGNAL "
+        "above; check PRICE ANOMALIES before stating a holding already moved a "
+        "given direction.\n\n"
         "## §3 Holdings Analysis\n"
         "Select the holdings most affected this period and, for each, go beyond "
         "'position size + what happened'. Explain WHY it surfaced (which signal/move "
@@ -1242,6 +1269,14 @@ _TRANSLATION_MIN_SOURCE_CHARS = 200
 # deepseek-v4-flash after repeated full-pipeline runs).
 _TRANSLATION_PACING_SECONDS = 2.0
 
+# Provider preference for translation calls (deepseek-v4-flash). Distinct from
+# OPENROUTER_PROVIDER_ORDER (DigitalOcean,Venice — used for pinned Pass1/Pass2
+# calls): chosen 2026-06-10 after DigitalOcean+Venice were both observed
+# 429 'temporarily rate-limited upstream' on this model. allow_fallbacks=True
+# (set in _call_llm) still lets OpenRouter fall back beyond this list if both
+# are unavailable.
+_TRANSLATION_PROVIDER_ORDER = ["Cloudflare", "Morph"]
+
 
 def _translate_md(md: str, target_lang: str) -> str:
     """Translate an assembled report to *target_lang* (#8).
@@ -1303,9 +1338,10 @@ def _translate_chunk(client: openai.OpenAI, model: str, system: str, chunk: str)
     the English source for that chunk — a complete English section beats a silently
     dropped one (e.g. §3 vanishing from the report).
 
-    `pin_provider=False`: translation is a mechanical render on the low-cost
-    model, so let OpenRouter pick a provider rather than funneling every chunk
-    through the same pinned pair.
+    `provider_order=_TRANSLATION_PROVIDER_ORDER`: translation is a mechanical
+    render on the low-cost model, steered toward providers other than the
+    pinned Pass1/Pass2 pair (which has been observed rate-limited for this
+    model independently of these calls).
     """
 
     def _short(out: str) -> bool:
@@ -1313,13 +1349,29 @@ def _translate_chunk(client: openai.OpenAI, model: str, system: str, chunk: str)
             out.strip()
         ) < _TRANSLATION_MIN_RATIO * len(chunk)
 
-    out = _call_llm(client, model, system, chunk, with_holdings=True, pin_provider=False)
+    out = _call_llm(
+        client,
+        model,
+        system,
+        chunk,
+        with_holdings=True,
+        pin_provider=False,
+        provider_order=_TRANSLATION_PROVIDER_ORDER,
+    )
     if _short(out):
         logger.warning(
             "translation chunk looked truncated (%d->%d chars); retrying", len(chunk), len(out)
         )
         time.sleep(_TRANSLATION_PACING_SECONDS)
-        out = _call_llm(client, model, system, chunk, with_holdings=True, pin_provider=False)
+        out = _call_llm(
+            client,
+            model,
+            system,
+            chunk,
+            with_holdings=True,
+            pin_provider=False,
+            provider_order=_TRANSLATION_PROVIDER_ORDER,
+        )
     if _short(out):
         logger.error("translation chunk still truncated after retry; keeping source for this chunk")
         return chunk
