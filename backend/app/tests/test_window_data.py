@@ -8,12 +8,14 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
+from app.core.timezones import ET
 from app.models.holding import Holding
 from app.models.news import News
 from app.models.price_snapshot import PriceSnapshot
 from app.models.report import Report
 from app.services.window_data import (
     BOOTSTRAP_WATERMARK,
+    _window_closes,
     detect_window_anomalies,
     load_news_window,
     user_watermark,
@@ -36,6 +38,17 @@ def _close(ticker: str, d: date, close: float) -> PriceSnapshot:
     )
 
 
+def _close_at(ticker: str, d: date, close: float, captured_at: datetime) -> PriceSnapshot:
+    return PriceSnapshot(
+        ticker=ticker,
+        market="US",
+        session_node="close",
+        trade_date=d,
+        close=Decimal(str(close)),
+        captured_at=captured_at,
+    )
+
+
 # --- watermark ---------------------------------------------------------------
 
 
@@ -50,6 +63,7 @@ def test_watermark_from_last_report(db_session: Session) -> None:
             user_id=_USER,
             report_date=date(2026, 6, 10),
             report_type="incremental",
+            session_node="after_close",
             status="success",
             period_end=end,
         )
@@ -68,6 +82,7 @@ def test_watermark_excludes_the_report_being_regenerated(db_session: Session) ->
             user_id=_USER,
             report_date=date(2026, 6, 5),
             report_type="incremental",
+            session_node="after_close",
             status="success",
             period_end=prior_end,
         )
@@ -76,6 +91,7 @@ def test_watermark_excludes_the_report_being_regenerated(db_session: Session) ->
         user_id=_USER,
         report_date=date(2026, 6, 8),
         report_type="incremental",
+        session_node="after_close",
         status="needs_review",  # a DONE status, so it would otherwise count
         period_end=datetime(2026, 6, 8, 20, 30, tzinfo=UTC),
     )
@@ -278,3 +294,59 @@ def test_cumulative_threshold_capped_at_ten_percent(db_session: Session) -> None
     assert [a.identifier for a in anomalies] == ["BIG"]
     assert anomalies[0].threshold == Decimal("0.10")  # effective threshold = cap
     assert anomalies[0].trigger == "cumulative"
+
+
+# --- same-day window collapse fix --------------------------------------------
+
+
+def test_window_closes_same_day_excludes_pre_window_capture(db_session: Session) -> None:
+    """A same-day window (start_date == end_date) cannot use the date-range
+    query (it's empty by construction), so it falls back to captured_at > start.
+    A close captured BEFORE the window started must be excluded."""
+    start = datetime(2026, 6, 5, 10, 0, tzinfo=ET)
+    end = datetime(2026, 6, 5, 17, 0, tzinfo=ET)
+    db_session.add(_close_at("AAA", date(2026, 6, 5), 100.0, datetime(2026, 6, 5, 8, 0, tzinfo=ET)))
+    db_session.flush()
+
+    assert _window_closes(db_session, "AAA", start, end) == []
+
+
+def test_window_closes_same_day_includes_post_window_capture(db_session: Session) -> None:
+    """A close captured DURING the same-day window must be included even though
+    the multi-day trade_date-range query would be empty."""
+    start = datetime(2026, 6, 5, 10, 0, tzinfo=ET)
+    end = datetime(2026, 6, 5, 17, 0, tzinfo=ET)
+    db_session.add(
+        _close_at("BBB", date(2026, 6, 5), 101.0, datetime(2026, 6, 5, 16, 5, tzinfo=ET))
+    )
+    db_session.flush()
+
+    series = _window_closes(db_session, "BBB", start, end)
+    assert len(series) == 1
+    assert series[0].close == Decimal("101.0")
+
+
+def test_trading_days_same_day_window_counts_captured_close(db_session: Session) -> None:
+    """detect_window_anomalies' trading_days count uses the same same-day
+    fallback: a close captured after period_start counts as one trading day."""
+    start = datetime(2026, 6, 5, 10, 0, tzinfo=ET)
+    end = datetime(2026, 6, 5, 17, 0, tzinfo=ET)
+    db_session.add(
+        _close_at("CCC", date(2026, 6, 5), 100.0, datetime(2026, 6, 5, 16, 5, tzinfo=ET))
+    )
+    db_session.flush()
+
+    _, trading_days = detect_window_anomalies(db_session, start, end)
+    assert trading_days == 1
+
+
+def test_trading_days_same_day_window_excludes_stale_capture(db_session: Session) -> None:
+    """A close captured before period_start (e.g. a backfilled row sharing
+    today's trade_date) must not count toward trading_days for a same-day window."""
+    start = datetime(2026, 6, 5, 10, 0, tzinfo=ET)
+    end = datetime(2026, 6, 5, 17, 0, tzinfo=ET)
+    db_session.add(_close_at("DDD", date(2026, 6, 5), 100.0, datetime(2026, 6, 5, 8, 0, tzinfo=ET)))
+    db_session.flush()
+
+    _, trading_days = detect_window_anomalies(db_session, start, end)
+    assert trading_days == 0

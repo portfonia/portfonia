@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, date, datetime, timedelta
@@ -174,6 +175,11 @@ _PASS2_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + (
     "('will rise/fall', 'likely to beat', 'expected to lift/hurt' are forbidden)."
 )
 
+# H-DEBT-2 completeness guard: a Pass 2 body shorter than this, or missing
+# either heading, is treated as a truncated provider response.
+_PASS2_REQUIRED_MARKERS = ("## §3", "## §4")
+_PASS2_MIN_CHARS = 2000
+
 
 # ---------------------------------------------------------------------------
 # Intermediate-data capture (stored in report_inputs JSONB)
@@ -240,6 +246,7 @@ def _call_llm(
     user: str,
     *,
     with_holdings: bool = False,
+    pin_provider: bool = True,
 ) -> str:
     """Call an OpenRouter model.  Returns the assistant content string.
 
@@ -248,13 +255,19 @@ def _call_llm(
     providers unconditionally means an accidental future holdings leak is still
     protected. `with_holdings` is retained only as an explicit intent marker for
     callers (and the test harness) — it no longer gates the data policy.
+
+    `pin_provider=False` omits OPENROUTER_PROVIDER_ORDER, letting OpenRouter
+    route to whichever provider is available — used for translation calls so
+    repeated requests aren't all funneled through the same (possibly
+    rate-limited) provider pair.
     """
     extra: dict[str, Any] = {}
     settings = get_settings()
-    order = [p.strip() for p in settings.OPENROUTER_PROVIDER_ORDER.split(",") if p.strip()]
     provider: dict[str, object] = {"allow_fallbacks": settings.OPENROUTER_ALLOW_FALLBACKS}
-    if order:
-        provider["order"] = order
+    if pin_provider:
+        order = [p.strip() for p in settings.OPENROUTER_PROVIDER_ORDER.split(",") if p.strip()]
+        if order:
+            provider["order"] = order
     if settings.OPENROUTER_DATA_COLLECTION:
         provider["data_collection"] = settings.OPENROUTER_DATA_COLLECTION
     if provider.keys() - {"allow_fallbacks"}:
@@ -269,7 +282,26 @@ def _call_llm(
         temperature=0.3,
         extra_body=extra if extra else None,
     )
-    content = resp.choices[0].message.content or ""
+    choice = resp.choices[0]
+    usage = resp.usage
+    logger.info(
+        "llm call: model=%s resp_model=%s finish_reason=%s "
+        "tokens=prompt:%s,completion:%s,total:%s cost=%s",
+        model,
+        resp.model,
+        choice.finish_reason,
+        usage.prompt_tokens if usage else None,
+        usage.completion_tokens if usage else None,
+        usage.total_tokens if usage else None,
+        getattr(usage, "cost", None) if usage else None,
+    )
+    if choice.finish_reason not in ("stop", None):
+        logger.warning(
+            "llm call: model=%s finished with reason=%r (possible truncation)",
+            model,
+            choice.finish_reason,
+        )
+    content = choice.message.content or ""
     return content.strip()
 
 
@@ -1196,6 +1228,21 @@ def _header_timestamp(report_date_str: str, period_end: str) -> str:
     return end_et.strftime("%Y-%m-%d %H:%M ET")
 
 
+# A translated chunk shorter than this fraction of its source (when the source is
+# non-trivial) is treated as a truncated/dropped response.
+# Conservative: Chinese renders in roughly half the characters of English, so the
+# threshold only catches near-empty / grossly truncated returns, not dense prose.
+_TRANSLATION_MIN_RATIO = 0.25
+_TRANSLATION_MIN_SOURCE_CHARS = 200
+
+# Pause between per-chunk translation calls. A full report is ~14 chunks, each up
+# to 2 calls (retry on truncation) — all against LOW_COST_LLM_MODEL. Spacing them
+# out reduces the odds of tripping a shared per-model rate limit on the upstream
+# provider pool (observed: 429 'temporarily rate-limited upstream' on
+# deepseek-v4-flash after repeated full-pipeline runs).
+_TRANSLATION_PACING_SECONDS = 2.0
+
+
 def _translate_md(md: str, target_lang: str) -> str:
     """Translate an assembled report to *target_lang* (#8).
 
@@ -1234,21 +1281,16 @@ def _translate_md(md: str, target_lang: str) -> str:
     # enough that the provider intermittently disconnects mid-response or returns a
     # truncated 200; per-(sub)section requests are small and reliable. Chunks are
     # reassembled with the exact original separators, so structure is preserved.
+    chunks = _split_sections(md)
     parts: list[str] = []
-    for chunk in _split_sections(md):
+    for i, chunk in enumerate(chunks):
         if not chunk.strip():
             parts.append(chunk)
             continue
+        if i > 0:
+            time.sleep(_TRANSLATION_PACING_SECONDS)
         parts.append(_translate_chunk(client, settings.LOW_COST_LLM_MODEL, system, chunk))
     return "\n".join(parts)
-
-
-# A translated chunk shorter than this fraction of its source (when the source is
-# non-trivial) is treated as a truncated/dropped response.
-# Conservative: Chinese renders in roughly half the characters of English, so the
-# threshold only catches near-empty / grossly truncated returns, not dense prose.
-_TRANSLATION_MIN_RATIO = 0.25
-_TRANSLATION_MIN_SOURCE_CHARS = 200
 
 
 def _translate_chunk(client: openai.OpenAI, model: str, system: str, chunk: str) -> str:
@@ -1260,6 +1302,10 @@ def _translate_chunk(client: openai.OpenAI, model: str, system: str, chunk: str)
     source has almost certainly lost content. Retry once; if it is still short, keep
     the English source for that chunk — a complete English section beats a silently
     dropped one (e.g. §3 vanishing from the report).
+
+    `pin_provider=False`: translation is a mechanical render on the low-cost
+    model, so let OpenRouter pick a provider rather than funneling every chunk
+    through the same pinned pair.
     """
 
     def _short(out: str) -> bool:
@@ -1267,12 +1313,13 @@ def _translate_chunk(client: openai.OpenAI, model: str, system: str, chunk: str)
             out.strip()
         ) < _TRANSLATION_MIN_RATIO * len(chunk)
 
-    out = _call_llm(client, model, system, chunk, with_holdings=True)
+    out = _call_llm(client, model, system, chunk, with_holdings=True, pin_provider=False)
     if _short(out):
         logger.warning(
             "translation chunk looked truncated (%d->%d chars); retrying", len(chunk), len(out)
         )
-        out = _call_llm(client, model, system, chunk, with_holdings=True)
+        time.sleep(_TRANSLATION_PACING_SECONDS)
+        out = _call_llm(client, model, system, chunk, with_holdings=True, pin_provider=False)
     if _short(out):
         logger.error("translation chunk still truncated after retry; keeping source for this chunk")
         return chunk
@@ -1369,30 +1416,35 @@ def generate_report(
     report_type: str = "weekly",
     base_currency: str = "USD",
     output_lang: str = "en",
+    session_node: str = "manual",
 ) -> Report:
     """
     Run the full F1 report generation pipeline and persist the result.
 
     Returns the Report ORM object (status='success' or 'failed').
     Raises if the report record cannot be written (e.g. unique constraint violation
-    when a report for the same date+type already exists).
+    when a report for the same date+type+session_node already exists).
     """
     settings = get_settings()
     user_id = get_current_user_id()
     eff_date = report_date or datetime.now(tz=ET).date()
 
     # ------------------------------------------------------------------
-    # Idempotency: (user_id, report_date, report_type) is unique. A redelivered
-    # Celery task (task_acks_late=True) or a manual /reports/generate racing the
-    # weekly Beat run can re-enter for the same key. Short-circuit a completed
-    # report instead of inserting a duplicate that would fail on flush; reuse a
-    # prior failed/in_progress row so a retry can regenerate in place.
+    # Idempotency: (user_id, report_date, report_type, session_node) is unique
+    # (H-DEBT-1). session_node identifies WHICH trigger produced the report
+    # (e.g. "manual" vs "after_close" for the M/W/F 16:30 ET cadence) so two
+    # distinct triggers on the same calendar day get separate rows / windows /
+    # emails. A redelivered Celery task (task_acks_late=True) or a repeated
+    # manual /reports/generate passes the SAME session_node, so it still
+    # short-circuits a completed report instead of inserting a duplicate; reuse
+    # a prior failed/in_progress row so a retry can regenerate in place.
     # ------------------------------------------------------------------
     existing = session.execute(
         select(Report).where(
             Report.user_id == user_id,
             Report.report_date == eff_date,
             Report.report_type == report_type,
+            Report.session_node == session_node,
         )
     ).scalar_one_or_none()
 
@@ -1422,33 +1474,53 @@ def generate_report(
             user_id=user_id,
             report_date=eff_date,
             report_type=report_type,
+            session_node=session_node,
             status="in_progress",
             prompt_version=_PROMPT_VERSION,
             disclaimer_version=_DISCLAIMER_VERSION,
         )
         session.add(report)
-    # ADR-002 incremental window: [previous report's period_end, now].
-    # Exclude this row from the watermark: when regenerating an existing
-    # failed/needs_review/skipped report in place, its own period_end must not
-    # become its period_start (which would collapse the window — autoflush=False
-    # means the status reset above is not yet visible to the watermark query).
-    period_start = user_watermark(
-        session,
-        user_id,
-        report_type,
-        exclude_report_id=report.id if existing is not None else None,
-    )
-    period_end = datetime.now(tz=UTC)
-    report.period_start = period_start
-    report.period_end = period_end
-    session.flush()  # get the id without committing
-    logger.info(
-        "report %s: generation started for %s (window %s → %s)",
-        report.id,
-        eff_date,
-        period_start.isoformat(),
-        period_end.isoformat(),
-    )
+    # ADR-002 incremental window: [previous report's period_end, now], computed
+    # ONCE on the first attempt and then frozen for the lifetime of this row. A
+    # retry of a failed/needs_review row reuses the original window rather than
+    # recomputing it: recomputing on every retry made the window (and therefore
+    # the report content) non-deterministic across retries of the SAME row,
+    # which is both a bad dedup invariant (two attempts at "the same report"
+    # produce different content) and the path by which a same-day retry could
+    # collapse start_date == end_date.
+    if report.period_start is None or report.period_end is None:
+        # Exclude this row from the watermark: its own (not-yet-committed)
+        # period_end must not become its own period_start — autoflush=False
+        # means the status reset above is not yet visible to this query anyway,
+        # but a brand-new row also has no period_end yet to read back.
+        period_start = user_watermark(
+            session,
+            user_id,
+            report_type,
+            exclude_report_id=report.id if existing is not None else None,
+        )
+        period_end = datetime.now(tz=UTC)
+        report.period_start = period_start
+        report.period_end = period_end
+        session.flush()  # get the id without committing
+        logger.info(
+            "report %s: generation started for %s (window %s → %s)",
+            report.id,
+            eff_date,
+            period_start.isoformat(),
+            period_end.isoformat(),
+        )
+    else:
+        assert report.period_start is not None and report.period_end is not None
+        period_start = report.period_start
+        period_end = report.period_end
+        logger.info(
+            "report %s: retrying for %s (window frozen at %s → %s)",
+            report.id,
+            eff_date,
+            period_start.isoformat(),
+            period_end.isoformat(),
+        )
 
     ctx = ReportContext()
     ctx.period_start = period_start.isoformat()
@@ -1605,6 +1677,18 @@ def generate_report(
         logger.info("report %s: Pass 2 LLM call (%s)", report.id, primary_model)
         # Pass 2 carries holdings → enforce data_collection=deny
         raw_pass2 = _call_llm(client, primary_model, _PASS2_SYSTEM, pass2_user, with_holdings=True)
+
+        # H-DEBT-2: a provider can return a truncated HTTP 200 (rate-limiting,
+        # mid-response cutoff). A short body missing §3/§4 must not ship as
+        # status='success' with code-injected §2.5/§4.2/§4.4 masking the gap —
+        # raise so the Celery task retries (max_retries=2).
+        if len(raw_pass2) < _PASS2_MIN_CHARS or not all(
+            marker in raw_pass2 for marker in _PASS2_REQUIRED_MARKERS
+        ):
+            raise RuntimeError(
+                f"report {report.id}: Pass 2 output looks truncated "
+                f"({len(raw_pass2)} chars, missing one of {_PASS2_REQUIRED_MARKERS})"
+            )
         ctx.pass2_raw = raw_pass2
 
         # ------------------------------------------------------------------
@@ -1728,6 +1812,13 @@ def regenerate_report(
             pass2_user,
             with_holdings=True,
         )
+        if len(raw_body) < _PASS2_MIN_CHARS or not all(
+            marker in raw_body for marker in _PASS2_REQUIRED_MARKERS
+        ):
+            raise RuntimeError(
+                f"report {report.id}: regenerated Pass 2 output looks truncated "
+                f"({len(raw_body)} chars, missing one of {_PASS2_REQUIRED_MARKERS})"
+            )
         # New dict identity so SQLAlchemy flags the JSONB column dirty (an
         # in-place mutation of the existing dict would not be detected).
         report.report_inputs = {**inputs, "pass2_raw": raw_body, "pass2_prompt": pass2_user}

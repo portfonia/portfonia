@@ -1,17 +1,17 @@
 # Portfonia — Agent Guidelines
 
 AI-facing guidance for agent tooling working in this repository.
-Last updated: 2026-06-07
+Last updated: 2026-06-09
 
 ## Current Development State (update this section when resuming)
 
 | Item | Value |
 |------|-------|
 | Ring stage | **Ring 0** (local dev machine, single user, no cloud) |
-| `main` HEAD | `484bcf8` feat(reports): §2.5 US forward calendar (FRED macro + FOMC + earnings) |
-| Stages complete | A B C D E F1 F2 F3 G H + June-7 report-review fixes + **ADR-002 incremental reporting + capture layer** + **Ring0 report enhancements #1–#4** (§4.2 anomaly table, confidence labels, §4.4 technical position, §2.5 forward calendar) |
+| `main` HEAD | `d141dd1` docs: record H-DEBT-2 (no truncation guard on Pass 2 body) — **+ uncommitted: window-collapse fix, period-window freeze, Pass2 completeness guard, translation pacing, Resend idempotency key, H-DEBT-1 session_node re-key + migration `b8c9d0e1f2a3` (this session)** |
+| Stages complete | A B C D E F1 F2 F3 G H + June-7 report-review fixes + **ADR-002 incremental reporting + capture layer** + **Ring0 report enhancements #1–#4** (§4.2 anomaly table, confidence labels, §4.4 technical position, §2.5 forward calendar) + **June-9 reliability fixes** (same-day window fix, period freeze, H-DEBT-2 guard, translation pacing, Resend idempotency key, H-DEBT-1 session_node re-key) |
 | Next stage | **I** — 稳定运行验证；报告现为增量（M/W/F 16:30 ET），需先让捕获层攒数据 |
-| Backend quality | ruff OK · mypy OK (74 files) · pytest **272 passed** |
+| Backend quality | ruff OK · mypy OK (74 files) · pytest **279 passed** |
 | Frontend quality | tsc OK · eslint OK · next build OK |
 | LLM model | OpenRouter (provider=DigitalOcean,Venice), `data_collection=deny` on every call. **PRIMARY (Pass 2 analysis) = `deepseek/deepseek-v4-pro`**; **Pass 1 search + translation render = `deepseek/deepseek-v4-flash`** (LOW_COST). Sonnet/Anthropic models are NOT used here — too expensive (~$0.2/call); if `PRIMARY_LLM_MODEL` ever shows an `anthropic/*` value it is config drift, revert it. |
 | Infrastructure | Homebrew PostgreSQL@16 + Redis (native, not Docker); `make infra-up` not needed |
@@ -40,8 +40,6 @@ Last updated: 2026-06-07
 | A-DEBT-3 | `core/database.py` builds module-level `engine`/`SessionLocal` bound to the dev DB at import. Test isolation relies on every test overriding `get_session` or patching `SessionLocal` (discipline, not structure). | Ring 1 |
 | A-DEBT-4 | `ParsedRow` uses `float` for `shares`/`avg_cost`/`current_value`, bridged to `Decimal` via `Decimal(str(x))` at confirm. Bridge is adequate but inconsistent with the Decimal-everywhere model. | TBD |
 | A-DEBT-5 | `/holdings/upload` has no request body-size cap (`await file.read()` loads fully into memory). Local Ring 0 low risk; add a limit before any exposed deployment. | Ring 1 |
-| H-DEBT-2 | **No truncation guard on the Pass 2 body.** A provider can return a truncated HTTP 200 (free-tier rate-limiting); a 783-char Pass 2 (only §2) once shipped as `status=success` with §3/§4 silently missing — code-injected §2.5/§4.2/§4.4 masked it. The translation pass now has a per-chunk guard (`_translate_chunk`), but Pass 2 has none. Add a check that `pass2_raw` contains the expected section markers (`## §3`, `## §4`) / is not grossly short → raise so the Celery task retries. | Ring 1 (or sooner if it recurs) |
-| H-DEBT-1 | **Report idempotency is keyed on `(user_id, report_date, report_type)` — a calendar-day grain.** This blocks more than one report of a type per day: a re-run short-circuits to the existing row. When pre-open / after-close (morning/night) reports are added, multiple same-day runs of the same cadence would be (wrongly) treated as duplicates and silently dropped, losing intel. Re-key dedup on the report **window / session node** (e.g. `(user_id, report_type, session_node)` or the `period_end` slot), not the date. Until fixed, a same-day re-run must reset the existing row's status first (and the watermark then rolls back to the prior report / bootstrap). | before morning/night reports ship |
 
 ### Incremental reporting + capture layer — DONE (ADR-002)
 
@@ -115,6 +113,80 @@ no DB read); the **LLM writes only prose/attribution**.
   outcomes. An RSS-derived delay caveat fires when window news mentions a funding
   lapse (BLS/BEA dates may slip). **China forward intel is out of scope.** Captured
   by `capture_forward_events_task` (daily 08:00 ET, Mon–Fri, 14-day fetch horizon).
+
+### June-9 reliability fixes — DONE
+
+Five fixes addressing window/dedup correctness and LLM call robustness, all
+prioritized ahead of multi-cadence design (per H-DEBT-1/H-DEBT-2 entries above).
+
+- **Same-day window collapse** (`window_data._window_closes` +
+  `detect_window_anomalies`): a same-day report window (`period_start` and
+  `period_end` on the same ET calendar date — e.g. a same-day retry/regenerate)
+  previously produced an empty `trade_date > start_date AND <= end_date` range
+  by construction, even when today's close had already been captured. Both
+  functions now branch: multi-day windows keep the original date-range query
+  (no dependency on `captured_at`, which is stale/uniform for backfilled
+  history); same-day windows fall back to `trade_date == end_date AND
+  captured_at > start` (today's close is always freshly captured, never
+  backfilled).
+- **Period-window freeze across retries** (`generate_report`): `period_start`/
+  `period_end` are now computed via `user_watermark()` + `now()` **once**, on
+  the first attempt, and stored on the row (`report.period_start`/`period_end`).
+  A retry of a `failed`/`needs_review`/`in_progress` row reuses the stored
+  window instead of recomputing it. Previously every retry recomputed the
+  window, making a single report row's content non-deterministic across
+  attempts and able to collapse `start_date == end_date` mid-retry.
+- **H-DEBT-2 Pass 2 completeness guard**: `_PASS2_REQUIRED_MARKERS = ("## §3",
+  "## §4")`, `_PASS2_MIN_CHARS = 2000`. After the Pass 2 LLM call (in both
+  `generate_report` and `regenerate_report(mode="analyze")`), the raw body is
+  checked against both; a miss raises `RuntimeError` so the Celery task retries
+  rather than persisting a silently-truncated `status=success` report.
+- **`_call_llm` instrumentation + `pin_provider`**: every LLM call now logs
+  `resp.model`, `choice.finish_reason`, token usage, and cost, and warns on a
+  non-`stop` finish reason (possible truncation). New `pin_provider: bool =
+  True` kwarg — when `False`, omits `OPENROUTER_PROVIDER_ORDER` so OpenRouter
+  routes freely (still `data_collection=deny` + `allow_fallbacks`).
+- **Translation pacing + unpinned provider**: `_translate_md` now sleeps
+  `_TRANSLATION_PACING_SECONDS = 2.0` between per-section chunk-translation
+  calls (and before the in-`_translate_chunk` retry-on-truncation call), to
+  reduce 429s from the low-cost provider pool. `_translate_chunk` now calls
+  `_call_llm(..., pin_provider=False)` — translation is a mechanical
+  zh-render on `LOW_COST_LLM_MODEL` (`deepseek/deepseek-v4-flash`, unchanged),
+  so OpenRouter is left to pick the fastest available provider.
+- **Resend content-addressed `Idempotency-Key`** (`email_sender`): the key is
+  now `report-{report.id}-{sha256(html_body)[:16]}` instead of a fixed
+  `report-{report.id}`. A redelivered/near-simultaneous send for the SAME
+  content reuses the key (Resend dedups it); a regenerated report with
+  DIFFERENT content gets a different key, fixing a 409 "request body was
+  modified" that previously left a corrected regeneration unsent.
+
+### H-DEBT-1 fix — DONE (re-key dedup on session_node)
+
+Migration `b8c9d0e1f2a3` adds `reports.session_node TEXT NOT NULL` (existing
+rows backfilled to `'legacy'`) and re-keys the unique constraint from
+`(user_id, report_date, report_type)` to `(user_id, report_date, report_type,
+session_node)`.
+
+- `session_node` identifies WHICH TRIGGER produced a report — set by the
+  caller at generation time, never derived from wall-clock time at lookup
+  (a 5-min Celery retry could otherwise cross a session boundary like
+  9:30/16:00/20:00 ET and pick a different value mid-retry).
+- Values: `"manual"` (default for `generate_report()` and the
+  `POST /reports/generate` API via `GenerateReportRequest.session_node`),
+  `"after_close"` (hardcoded in `generate_incremental_report`, the M/W/F
+  16:30 ET Celery task), `"legacy"` (migration backfill only).
+- A same-day manual run (morning, `session_node="manual"`) and the scheduled
+  after-close run (`session_node="after_close"`) now produce two separate
+  `reports` rows instead of the after-close run short-circuiting on the
+  morning row. `user_watermark()` is unchanged — it still reads
+  `max(period_end)` across all `session_node` values for the `report_type`,
+  so the after-close window correctly starts where the morning report's
+  window ended (non-overlapping windows, both reports emailed independently).
+- Redelivery dedup is preserved: a redelivered Celery task passes the same
+  `(report_date, report_type, session_node="after_close")`, still hits the
+  `existing.status in ("success", "skipped") -> return existing`
+  short-circuit.
+- `ReportOut`/`ReportListItem` now expose `session_node`.
 
 ## Language Policy (MANDATORY)
 

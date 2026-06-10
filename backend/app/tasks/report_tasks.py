@@ -22,6 +22,10 @@ def generate_incremental_report(self: Any) -> dict[str, str]:
     Scheduled by Celery Beat Mon/Wed/Fri at 16:30 ET. A missed run needs no
     catch-up: the next run's window is "since last report", so it widens to
     cover the gap. On failure retries up to 2 times with a 5-minute cooldown.
+
+    `session_node="after_close"` (H-DEBT-1): identifies this cadence in the
+    dedup key `(user_id, report_date, report_type, session_node)`, so an
+    earlier same-day "manual" run does not short-circuit this run.
     """
     # Imports are deferred so the module loads fast and avoids circular deps
     # when Celery first imports the task registry.
@@ -33,7 +37,10 @@ def generate_incremental_report(self: Any) -> dict[str, str]:
     session = SessionLocal()
     try:
         report = generate_report(
-            session, report_type="incremental", output_lang=get_settings().OUTPUT_LANG
+            session,
+            report_type="incremental",
+            output_lang=get_settings().OUTPUT_LANG,
+            session_node="after_close",
         )
         logger.info(
             "generate_incremental_report: complete — report_id=%s status=%s",
