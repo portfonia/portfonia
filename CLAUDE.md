@@ -1,20 +1,21 @@
 # Portfonia — Agent Guidelines
 
 AI-facing guidance for agent tooling working in this repository.
-Last updated: 2026-06-09
+Last updated: 2026-06-10
 
 ## Current Development State (update this section when resuming)
 
 | Item | Value |
 |------|-------|
 | Ring stage | **Ring 0** (local dev machine, single user, no cloud) |
-| `main` HEAD | `d141dd1` docs: record H-DEBT-2 (no truncation guard on Pass 2 body) — **+ uncommitted: window-collapse fix, period-window freeze, Pass2 completeness guard, translation pacing, Resend idempotency key, H-DEBT-1 session_node re-key + migration `b8c9d0e1f2a3` (this session)** |
+| `main` HEAD | `8bda500` fix(reports): re-key report dedup on session_node (H-DEBT-1) — pushed, in sync with `origin/main`. Migration `b8c9d0e1f2a3` applied to dev DB (`alembic current` = head). |
 | Stages complete | A B C D E F1 F2 F3 G H + June-7 report-review fixes + **ADR-002 incremental reporting + capture layer** + **Ring0 report enhancements #1–#4** (§4.2 anomaly table, confidence labels, §4.4 technical position, §2.5 forward calendar) + **June-9 reliability fixes** (same-day window fix, period freeze, H-DEBT-2 guard, translation pacing, Resend idempotency key, H-DEBT-1 session_node re-key) |
-| Next stage | **I** — 稳定运行验证；报告现为增量（M/W/F 16:30 ET），需先让捕获层攒数据 |
+| Next stage | **I** — 稳定运行验证；2026-06-10 盘前手动报告（`session_node="manual"`, `3211f3ee-...`）已生成并发信，窗口 6/9 08:13→6/10 05:38（不重叠，符合 H-DEBT-1 预期）。等待 Wed 16:30 ET 自动跑（`session_node="after_close"`）完成同日双跑验证——其窗口起点=本次 `period_end`，与本次同一 ET 日历日，会触发同日窗口塌缩修复分支。 |
 | Backend quality | ruff OK · mypy OK (74 files) · pytest **279 passed** |
 | Frontend quality | tsc OK · eslint OK · next build OK |
 | LLM model | OpenRouter (provider=DigitalOcean,Venice), `data_collection=deny` on every call. **PRIMARY (Pass 2 analysis) = `deepseek/deepseek-v4-pro`**; **Pass 1 search + translation render = `deepseek/deepseek-v4-flash`** (LOW_COST). Sonnet/Anthropic models are NOT used here — too expensive (~$0.2/call); if `PRIMARY_LLM_MODEL` ever shows an `anthropic/*` value it is config drift, revert it. |
 | Infrastructure | Homebrew PostgreSQL@16 + Redis (native, not Docker); `make infra-up` not needed |
+| **Dev process restart (MANDATORY after model/migration changes)** | uvicorn, `celery worker`, `celery beat` run with **no `--reload`** and load the ORM model at process start. After ANY change to `app/models/*`, an Alembic migration, or a router/schema change, **kill and restart all three** (`ps aux \| grep -E "uvicorn\|celery"`, `kill <pids>`, then `nohup venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-level info >> .run/uvicorn.log 2>&1 &` and the two `celery -A app.tasks worker/beat --loglevel=info >> .run/{worker,beat}.log 2>&1 &`). Symptom if skipped: `INSERT`/`UPDATE` against the new column fails `NOT NULL`/constraint mismatch → uncaught `IntegrityError` → bare `500` with no traceback (no log file existed for uvicorn until 2026-06-10; now redirected to `.run/uvicorn.log`). Found 2026-06-10: `POST /reports/generate` 500'd because uvicorn (up since 6/7) and celery worker/beat (up since 6/9 08:05) predated the H-DEBT-1 migration/model change — both restarted, confirmed fixed. |
 | Prompt version | `f2-v4` (adds: §4.2 LLM writes driver-only one-liners — numeric arc is a code-built table; evidence confidence labels `[Established]/[Probable]/[Speculative]` on every causal attribution; forward-event no-forecast rule. f2-v3 = window-anchored §2/§3/§4 depth + anomaly session-arc + NO inline markers; f2-v2 = Pass 1 public-only) |
 | Disclaimer version | `f3-bilingual-v1` |
 | Output language | reason in EN, render in `OUTPUT_LANG` (Ring 0 default `zh`) via a translation pass with a fixed-term glossary (财经分析报告 / 持仓分析 / 持仓机构; never "智能"); `en` = no-op |
