@@ -8,9 +8,9 @@ Last updated: 2026-06-10
 | Item | Value |
 |------|-------|
 | Ring stage | **Ring 0** (local dev machine, single user, no cloud) |
-| `main` HEAD | `9904ebd` fix(reports): R-2 direction-evidence prompt rules + translation provider order — pushed, in sync with `origin/main`. No new migration this commit. |
-| Stages complete | A B C D E F1 F2 F3 G H + June-7 report-review fixes + **ADR-002 incremental reporting + capture layer** + **Ring0 report enhancements #1–#4** (§4.2 anomaly table, confidence labels, §4.4 technical position, §2.5 forward calendar) + **June-9 reliability fixes** (same-day window fix, period freeze, H-DEBT-2 guard, translation pacing, Resend idempotency key, H-DEBT-1 session_node re-key) + **June-10 R-1/R-2 fixes** (premarket multi-day window boundary `_close_snapshot_before_window`/`_window_closes`; §2 direction-requires-evidence + divergence-is-the-signal prompt rules; translation provider-order fallback) + **June-10 batch fixes R-3~R-8 + observability** (see below) |
-| Next stage | **I** — 稳定运行验证。R-1~R-8 + 可观测性缺口（I-DEBT-2/3/4）全部修复（2026-06-10，三批），prompt_version `f2-v5`→`f2-v6`。仍待：Wed 16:30 ET 自动跑（`session_node="after_close"`）完成同日双跑验证（H-DEBT-1）；新 beat 任务 `capture-fx-daily` + R-3/R-5/R-6/R-7 走完一次真实端到端报告验证（需重启 celery worker/beat 后观察 16:05 FX 与 16:30 报告）。详见 Obsidian `Hermes/Portfonia/2026-06-10_报告对比分析-Portfonia_vs_Daily_Intel.md`。 |
+| `main` HEAD | `468f403` fix(reports): R-3~R-8 fixes + observability hardening (prompt f2-v6) — pushed, in sync with `origin/main`. No new migration this commit. |
+| Stages complete | A B C D E F1 F2 F3 G H + June-7 report-review fixes + **ADR-002 incremental reporting + capture layer** + **Ring0 report enhancements #1–#4** (§4.2 anomaly table, confidence labels, §4.4 technical position, §2.5 forward calendar) + **June-9 reliability fixes** (same-day window fix, period freeze, H-DEBT-2 guard, translation pacing, Resend idempotency key, H-DEBT-1 session_node re-key) + **June-10 R-1/R-2 fixes** (premarket multi-day window boundary `_close_snapshot_before_window`/`_window_closes`; §2 direction-requires-evidence + divergence-is-the-signal prompt rules; translation provider-order fallback) + **June-10 batch fixes R-3~R-8 + observability** (see below, all three live processes restarted 2026-06-10 18:36 PDT to pick up the new beat task / router / prompt changes) |
+| Next stage | **I** — 稳定运行验证。R-1~R-8 + 可观测性缺口（I-DEBT-2/3/4）全部修复并已 push（`468f403`），prompt_version `f2-v5`→`f2-v6`。**H-DEBT-1 同日双跑验证已完成**：2026-06-10 当天既有 `dbbf5646`（`session_node="manual"`，09:44 ET）又有 `c5849bd1`（`session_node="after_close"`，16:30 ET 自动跑），均 `status=success`，watermark 衔接正确（无重叠/无缺口）。仍待：R-3/R-5/R-6/R-7/R-8 + `capture-fx-daily` 走一次包含这些路径的真实端到端报告（uvicorn/celery worker/beat 已于 18:36 PDT 重启，新任务 `capture_fx_task` 已注册；FX 汇率已手动跑一次刷新到 2026-06-10，因为 16:05 ET 的常规调度今天已错过，下次常规调度是明天）。详见 Obsidian `Hermes/Portfonia/2026-06-10_报告对比分析-Portfonia_vs_Daily_Intel.md`。 |
 | Backend quality | ruff OK · mypy OK (76 files) · pytest **303 passed** |
 | Frontend quality | tsc OK · eslint OK · next build OK |
 | LLM model | OpenRouter (provider=DigitalOcean,Venice), `data_collection=deny` on every call. **PRIMARY (Pass 2 analysis) = `deepseek/deepseek-v4-pro`**; **Pass 1 search + translation render = `deepseek/deepseek-v4-flash`** (LOW_COST). Sonnet/Anthropic models are NOT used here — too expensive (~$0.2/call); if `PRIMARY_LLM_MODEL` ever shows an `anthropic/*` value it is config drift, revert it. **Translation calls** (`_translate_chunk`) use a separate provider preference `_TRANSLATION_PROVIDER_ORDER = ["Cloudflare", "Morph"]` (2026-06-10) — DigitalOcean+Venice were observed returning repeated `429` for `deepseek-v4-flash` translation; `allow_fallbacks=True` still permits OpenRouter to go beyond this list if both are unavailable. |
@@ -177,9 +177,31 @@ config files, one new beat task). prompt_version `f2-v5`→`f2-v6`.
   (`after_close`) quiet windows still email the heartbeat.
 
 Backend quality after all three: ruff OK · mypy OK (76 files) · pytest 303 passed
-(+23). NOT YET run through a real end-to-end report (Pass 1/2 cost) — the
-assembly is covered by unit tests; a real run + celery restart for the new FX
-beat task is the remaining Stage-I verification.
+(+23). Committed and pushed as `468f403` (one squashed commit — the three
+batches' edits to `report_generator.py` were too entangled to split into
+independently-passing commits).
+
+**Post-push ops (2026-06-10 18:36 PDT):**
+- uvicorn, celery worker, celery beat all killed and restarted per the
+  mandatory restart protocol (router + new beat task + prompt changes).
+  Worker task list confirms `capture_fx_task` is registered; uvicorn
+  `/health` returns `{"status":"ok"}`.
+- FX rates were stale (`rate_date=2026-06-04`, last touched by a manual
+  `/portfolio/refresh` on 6/5) — ran `capture_fx_task.apply()` once by hand
+  to backfill today's rate, since the 16:05 ET daily slot already passed
+  before today's restart. `fx_rates` now has `rate_date=2026-06-10` for
+  USDCNY/USDHKD/USDCNH. The new beat entry takes over from tomorrow.
+- No stale `in_progress`/`failed` report rows in `reports`. Latest two rows
+  are both `status=success` (`dbbf5646` manual + `c5849bd1` after_close, see
+  H-DEBT-1 note above) — environment is clean for a manual
+  `POST /reports/generate` run.
+
+NOT YET run through a real end-to-end report exercising R-3/R-5/R-6/R-7/R-8
+(Pass 1/2 cost) — the assembly is covered by unit tests only. A manual run
+(planned ~12h after this restart, i.e. ~09:30 ET 2026-06-11) is the remaining
+Stage-I verification; its window will span overnight US news + the FX refresh
+above but no new US close (next US close capture is 2026-06-11 16:00 ET,
+after the planned run).
 
 ### June-9 reliability fixes — DONE
 
