@@ -15,6 +15,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
+import openai
 import pytest
 from sqlalchemy.orm import Session
 
@@ -215,7 +216,10 @@ def test_generate_report_normal_path(db_session: Session) -> None:
     assert report.report_inputs is not None
     assert report.report_inputs["pass2_model"] != ""
     assert len(report.report_inputs["search_queries"]) == 2
-    assert len(report.report_inputs["search_results"]) == 1
+    # 1 macro-themed result + 1 from the R-3 targeted anomaly search: the anomaly
+    # holding has no recalled window news, so a targeted search runs and the mock
+    # returns its (single) result a second time.
+    assert len(report.report_inputs["search_results"]) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -967,6 +971,115 @@ def test_pass2_system_forbids_forecasting_scheduled_events() -> None:
     assert "NEVER predict its outcome" in rg._PASS2_SYSTEM
 
 
+def test_pass2_system_restricts_section42_cross_reference() -> None:
+    # R-8: 'see §4.2' may only point at holdings actually in the anomaly table.
+    assert "§4.2 CROSS-REFERENCES" in rg._PASS2_SYSTEM
+    assert "did not cross" in rg._PASS2_SYSTEM
+
+
+# --- R-5: price-data cutoff + FX-stale flag -------------------------------
+
+
+def test_data_window_states_price_cutoff_and_no_intraday() -> None:
+    w = rg._build_data_window(
+        [],
+        {"fx_date": "2026-06-09"},
+        "2026-06-09T12:00:00+00:00",
+        "2026-06-10T12:38:00+00:00",
+        1,
+        price_data_through="2026-06-09",
+    )
+    assert "Price data through the 2026-06-09 close" in w
+    assert "no premarket or intraday quotes" in w
+
+
+def test_data_window_flags_stale_fx() -> None:
+    # FX dated 2026-06-04 against a 2026-06-10 cutoff → >1 day → flagged.
+    w = rg._build_data_window(
+        [],
+        {"fx_date": "2026-06-04"},
+        "2026-06-09T12:00:00+00:00",
+        "2026-06-10T20:30:00+00:00",
+        1,
+    )
+    assert "FX rate is stale" in w
+
+
+def test_data_window_no_stale_flag_when_fx_current() -> None:
+    w = rg._build_data_window(
+        [],
+        {"fx_date": "2026-06-10"},
+        "2026-06-09T12:00:00+00:00",
+        "2026-06-10T20:30:00+00:00",
+        1,
+    )
+    assert "FX rate is stale" not in w
+
+
+# --- R-6: T+0 calendar promotion ------------------------------------------
+
+
+def test_today_events_block_promotes_same_day_event() -> None:
+    events = [
+        {
+            "event_type": "macro",
+            "name": "Consumer Price Index (CPI)",
+            "scheduled_date": "2026-06-10",
+        },
+        {"event_type": "macro", "name": "FOMC Statement", "scheduled_date": "2026-06-17"},
+    ]
+    block = rg._build_today_events_block(events, _fwd_holdings(), "2026-06-10")
+    assert "Today's scheduled events" in block
+    assert "Consumer Price Index" in block
+    assert "FOMC" not in block  # future event stays in §2.5 only
+    assert "results not yet in this report's data" in block
+
+
+def test_today_events_block_empty_when_none_today() -> None:
+    events = [{"event_type": "macro", "name": "FOMC", "scheduled_date": "2026-06-17"}]
+    assert rg._build_today_events_block(events, _fwd_holdings(), "2026-06-10") == ""
+
+
+def test_inject_today_events_lands_under_section2_heading() -> None:
+    body = "## §2 Macro Signals\nprose\n## §3 Holdings\nmore"
+    out = rg._inject_today_events(body, "**Today's scheduled events**: CPI")
+    assert out.index("## §2 Macro Signals") < out.index("Today's scheduled events")
+    assert out.index("Today's scheduled events") < out.index("## §3")
+
+
+def test_forward_block_tags_today_row() -> None:
+    events = [{"event_type": "macro", "name": "CPI", "scheduled_date": "2026-06-10"}]
+    md = rg._build_forward_block(events, _fwd_holdings(), [], report_date_str="2026-06-10")
+    assert "2026-06-10 (today)" in md
+
+
+# --- R-7: short manual quiet-window email suppression ----------------------
+
+
+def test_is_short_manual_quiet_true_for_tiny_empty_manual_window() -> None:
+    start = datetime(2026, 6, 10, 12, 0, tzinfo=UTC)
+    end = datetime(2026, 6, 10, 12, 18, tzinfo=UTC)
+    assert rg._is_short_manual_quiet("manual", start, end, [], []) is True
+
+
+def test_is_short_manual_quiet_false_for_scheduled_trigger() -> None:
+    start = datetime(2026, 6, 10, 12, 0, tzinfo=UTC)
+    end = datetime(2026, 6, 10, 12, 18, tzinfo=UTC)
+    assert rg._is_short_manual_quiet("after_close", start, end, [], []) is False
+
+
+def test_is_short_manual_quiet_false_when_window_long() -> None:
+    start = datetime(2026, 6, 9, 12, 0, tzinfo=UTC)
+    end = datetime(2026, 6, 10, 12, 0, tzinfo=UTC)
+    assert rg._is_short_manual_quiet("manual", start, end, [], []) is False
+
+
+def test_is_short_manual_quiet_false_when_news_present() -> None:
+    start = datetime(2026, 6, 10, 12, 0, tzinfo=UTC)
+    end = datetime(2026, 6, 10, 12, 18, tzinfo=UTC)
+    assert rg._is_short_manual_quiet("manual", start, end, [_news_item("x")], []) is False
+
+
 def test_serialize_anomalies_float_conversion() -> None:
     anomalies = [_anomaly()]
     result = rg._serialize_anomalies(anomalies)
@@ -1072,6 +1185,48 @@ def test_split_sections_chunks_at_section_and_subsection_headings_and_roundtrips
     ]
     # joining with a single newline reproduces the original document exactly
     assert "\n".join(chunks) == md
+
+
+def _fake_llm_response(content: str | None) -> MagicMock:
+    """Shape a minimal OpenAI-style chat completion response."""
+    resp = MagicMock()
+    resp.model = "fake/model"
+    if content is None:
+        resp.choices = None
+        return resp
+    choice = MagicMock()
+    choice.finish_reason = "stop"
+    choice.message.content = content
+    resp.choices = [choice]
+    resp.usage = MagicMock(prompt_tokens=1, completion_tokens=1, total_tokens=2, cost=0.0)
+    return resp
+
+
+def test_call_llm_raises_on_empty_choices() -> None:
+    client = MagicMock()
+    client.chat.completions.create.return_value = _fake_llm_response(None)
+    with pytest.raises(rg.LLMEmptyResponseError):
+        rg._call_llm(client, "m", "sys", "user")
+
+
+def test_call_llm_retries_on_rate_limit_then_succeeds() -> None:
+    client = MagicMock()
+    err = openai.RateLimitError("rate limited", response=MagicMock(status_code=429), body=None)
+    client.chat.completions.create.side_effect = [err, _fake_llm_response("ok")]
+    with patch("app.services.report_generator.time.sleep") as sleep:
+        out = rg._call_llm(client, "m", "sys", "user")
+    assert out == "ok"
+    assert client.chat.completions.create.call_count == 2
+    sleep.assert_called_once()  # one backoff before the successful retry
+
+
+def test_call_llm_reraises_after_exhausting_rate_limit_retries() -> None:
+    client = MagicMock()
+    err = openai.RateLimitError("rate limited", response=MagicMock(status_code=429), body=None)
+    client.chat.completions.create.side_effect = err
+    with patch("app.services.report_generator.time.sleep"), pytest.raises(openai.RateLimitError):
+        rg._call_llm(client, "m", "sys", "user")
+    assert client.chat.completions.create.call_count == 3  # initial + 2 backoff retries
 
 
 def test_translate_chunk_falls_back_to_source_when_truncated() -> None:

@@ -162,6 +162,29 @@ def _window_closes(
     )
 
 
+def latest_window_close_date(session: Session, start: datetime, end: datetime) -> date | None:
+    """Most recent trade_date whose close was captured within the report window.
+
+    This is the real cutoff of the report's PRICE data — distinct from period_end
+    (the wall-clock cutoff). A premarket/intraday manual run has period_end this
+    morning but price data only through the prior session's close; stating that
+    explicitly (R-5) stops a reader assuming the report reflects intraday/premarket
+    moves it never had. Membership matches _window_closes / detect_window_anomalies.
+    """
+    start_date = start.astimezone(ET).date()
+    end_date = end.astimezone(ET).date()
+    return session.execute(
+        select(func.max(PriceSnapshot.trade_date)).where(
+            PriceSnapshot.session_node == "close",
+            PriceSnapshot.close.is_not(None),
+            or_(
+                and_(PriceSnapshot.trade_date > start_date, PriceSnapshot.trade_date <= end_date),
+                and_(PriceSnapshot.trade_date == start_date, PriceSnapshot.captured_at > start),
+            ),
+        )
+    ).scalar_one_or_none()
+
+
 def _after_hours_last(session: Session, ticker: str, on: date) -> Decimal | None:
     snap = session.execute(
         select(PriceSnapshot).where(

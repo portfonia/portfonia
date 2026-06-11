@@ -62,6 +62,37 @@ def capture_prices_task(self: Any, market: str, session_node: str) -> dict[str, 
         session.close()
 
 
+@celery_app.task(  # type: ignore[untyped-decorator]
+    name="app.tasks.capture_tasks.capture_fx_task",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=300,
+)
+def capture_fx_task(self: Any) -> dict[str, Any]:
+    """Fetch today's FX rates and upsert into fx_rates.
+
+    Until this task existed, FX was only refreshed by the manual
+    POST /portfolio/refresh entry point, so rates went stale whenever no one
+    triggered it (observed: rates frozen at 2026-06-04 while reports ran on
+    06-10). The upsert is idempotent, so a missed fire is covered by the next
+    daily run. (R-4)
+    """
+    from app.core.database import SessionLocal
+    from app.services.fx_fetcher import update_fx_rates
+
+    session = SessionLocal()
+    try:
+        result = update_fx_rates(session)
+        session.commit()
+        return {"upserted": result.upserted, "failed": result.failed}
+    except Exception as exc:
+        session.rollback()
+        logger.exception("capture_fx_task: failed, scheduling retry")
+        raise self.retry(exc=exc) from exc
+    finally:
+        session.close()
+
+
 # Capture a bit wider than the report's forward window so a missed daily fire is
 # still covered by the next one (catch-up in the task, no watermark — same pattern
 # as prices/news).

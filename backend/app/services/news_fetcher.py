@@ -41,6 +41,18 @@ _RSS_SOURCES: list[tuple[str, str]] = [
         "Reuters",
         "https://news.google.com/rss/search?q=site:reuters.com+business&hl=en-US&gl=US&ceid=US:en",
     ),
+    # Added 2026-06-10 (R-3b): NYT/FT/Reuters are macro-heavy and missed
+    # single-stock catalysts (e.g. INTC's Google-foundry order). CNBC + Google
+    # News Business topic broaden company-level coverage; dedup by URL hash makes
+    # any overlap free.
+    (
+        "CNBC",
+        "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114",
+    ),
+    (
+        "GoogleBiz",
+        "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en",
+    ),
 ]
 
 _REQUEST_TIMEOUT = 15  # seconds per feed

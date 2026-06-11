@@ -88,6 +88,10 @@ class Settings(BaseSettings):
     # Override via .env.local to point at a different file.
     MACRO_KEYWORDS_PATH: str = ""
 
+    # Holding-relevant news recall config (R-3)
+    # Empty string = use the default path: backend/config/holding_news_keywords.yml
+    HOLDING_NEWS_KEYWORDS_PATH: str = ""
+
     @property
     def database_url(self) -> str:
         return (

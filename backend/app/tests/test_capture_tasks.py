@@ -79,3 +79,27 @@ def test_capture_prices_task(mock_cap: MagicMock, mock_session_cls: MagicMock) -
     assert result == {"market": "US", "session_node": "close", "written": 7}
     mock_cap.assert_called_once_with(session, "US", "close")
     session.close.assert_called_once()
+
+
+def test_fx_capture_entry_runs_daily_weekdays() -> None:
+    entry = celery_app.conf.beat_schedule["capture-fx-daily"]
+    assert entry["task"] == "app.tasks.capture_tasks.capture_fx_task"
+    cron = entry["schedule"]
+    assert cron.hour == {16} and cron.minute == {5}
+    assert cron.day_of_week == {1, 2, 3, 4, 5}  # mon-fri
+
+
+@patch("app.core.database.SessionLocal")
+@patch("app.services.fx_fetcher.update_fx_rates")
+def test_capture_fx_task(mock_update: MagicMock, mock_session_cls: MagicMock) -> None:
+    from app.services.fx_fetcher import FxFetchResult
+    from app.tasks.capture_tasks import capture_fx_task
+
+    session = MagicMock()
+    mock_session_cls.return_value = session
+    mock_update.return_value = FxFetchResult(upserted=3, failed=[])
+    result = capture_fx_task.run()
+    assert result == {"upserted": 3, "failed": []}
+    mock_update.assert_called_once_with(session)
+    session.commit.assert_called_once()
+    session.close.assert_called_once()
