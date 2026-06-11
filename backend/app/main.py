@@ -1,10 +1,21 @@
 """Portfonia FastAPI entry point."""
 
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
 from app.routers import holdings, portfolio, reports
+
+# Without this the root logger defaults to WARNING and every logger.info() in the
+# service layer (notably the _call_llm finish_reason / token-usage / cost
+# instrumentation) is silently dropped — the calls exist but never reach
+# .run/uvicorn.log. Configure once, at import, before any router runs. (I-DEBT-3)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
 
 settings = get_settings()
 

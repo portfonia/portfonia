@@ -81,6 +81,12 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "task": "app.tasks.capture_tasks.capture_forward_events_task",
         "schedule": crontab(hour=8, minute=0, day_of_week="mon-fri"),
     },
+    # FX rates (R-4): pull once per US trading day, just after the regular close,
+    # so report valuations don't drift on stale rates. Idempotent upsert.
+    "capture-fx-daily": {
+        "task": "app.tasks.capture_tasks.capture_fx_task",
+        "schedule": crontab(hour=16, minute=5, day_of_week="mon-fri"),
+    },
 }
 _beat_schedule.update(_build_capture_schedule())
 

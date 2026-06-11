@@ -45,6 +45,7 @@ from app.core.timezones import ET
 from app.models.report import Report
 from app.services.email_sender import send_report_email
 from app.services.forward_events import load_forward_events
+from app.services.holding_news import recall_holding_news
 from app.services.macro_detector import MacroSignals, detect_macro_signals
 from app.services.news_fetcher import NewsItem
 from app.services.portfolio_calculator import PortfolioSnapshot, compute_portfolio
@@ -52,6 +53,7 @@ from app.services.price_anomaly_detector import PriceAnomaly
 from app.services.technical_position import TechnicalPosition, compute_technical_positions
 from app.services.window_data import (
     detect_window_anomalies,
+    latest_window_close_date,
     load_news_window,
     user_watermark,
 )
@@ -62,7 +64,7 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_PROMPT_VERSION = "f2-v5"  # f2-v5: direction-requires-evidence + divergence-is-the-signal (no price-direction claims without window data); f2-v4 = §4.2 code table + driver-only, evidence confidence labels, §4.4 technical position
+_PROMPT_VERSION = "f2-v6"  # f2-v6: §4.2 cross-reference restricted to holdings actually in the anomaly table (R-8) + HOLDING-RELEVANT NEWS block from per-holding recall/targeted search (R-3); f2-v5 = direction-requires-evidence + divergence-is-the-signal (no price-direction claims without window data); f2-v4 = §4.2 code table + driver-only, evidence confidence labels, §4.4 technical position
 _DISCLAIMER_VERSION = "f3-bilingual-v1"
 
 # A run of one or more LLM citations ([S6][S7][S8] or "[S6] [S7]"). The S-numbers
@@ -187,7 +189,14 @@ _PASS2_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + (
     "DIVERGENCE IS THE SIGNAL: if a holding's actual window price move CONTRADICTS "
     "the textbook direction implied by a macro narrative (e.g. gold falling during "
     "a war-risk spike), report that divergence itself as the noteworthy signal — "
-    "do not silently follow the narrative and do not omit the contradiction."
+    "do not silently follow the narrative and do not omit the contradiction.\n"
+    "§4.2 CROSS-REFERENCES: 'see §4.2' / '见§4.2' may only be used for a holding "
+    "that actually appears in the PRICE ANOMALIES data (the §4.2 table is built "
+    "ONLY from those holdings). For a holding whose price divergence you raise from "
+    "news/research but that is NOT in PRICE ANOMALIES, do NOT point to §4.2 — say "
+    "plainly that it did not cross this report's anomaly-monitoring threshold "
+    "(e.g. 'this holding did not trigger the report's anomaly threshold this "
+    "window')."
 )
 
 # H-DEBT-2 completeness guard: a Pass 2 body shorter than this, or missing
@@ -223,10 +232,16 @@ class ReportContext:
     price_anomalies: list[dict[str, Any]] = field(default_factory=list)
     technical_positions: list[dict[str, Any]] = field(default_factory=list)
     forward_events: list[dict[str, Any]] = field(default_factory=list)
+    # R-3 holding-relevant news: {identifier: [news dict, ...]} recalled from the
+    # window store for the holdings that moved (plus any targeted-search items).
+    holding_news: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     # ADR-002 window bookkeeping (ISO strings / int) for re-render reproducibility.
     period_start: str = ""
     period_end: str = ""
     window_trading_days: int = 0
+    # R-5: ISO date of the last in-window close (the real PRICE-data cutoff,
+    # distinct from period_end). Empty when the window has no captured close.
+    price_data_through: str = ""
     pass1_model: str = ""
     pass1_prompt: str = ""
     pass1_raw: str = ""
@@ -252,6 +267,23 @@ def _openrouter_client() -> openai.OpenAI:
         api_key=settings.OPENROUTER_API_KEY.get_secret_value(),
         base_url=settings.OPENROUTER_BASE_URL,
     )
+
+
+class LLMEmptyResponseError(RuntimeError):
+    """A 200 response from OpenRouter carried no usable choices.
+
+    Observed once as a malformed 200 (`choices=None`) from a low-cost model via
+    DigitalOcean/Venice — `resp.choices[0]` then raised a bare, unclassified
+    TypeError. Raising a named error lets callers (and Celery's retry) treat it
+    as a transient provider fault rather than a code bug. (I-DEBT-2)
+    """
+
+
+# 429 backoff inside _call_llm: the synchronous POST /reports/generate path has
+# no Celery-level retry, and even the Celery path benefits from absorbing a brief
+# upstream rate-limit without burning a whole task retry. Short, bounded, then
+# re-raise so the outer layer still sees a persistent failure. (I-DEBT-2)
+_LLM_RATELIMIT_BACKOFF_SECONDS = (5.0, 15.0)
 
 
 def _call_llm(
@@ -296,15 +328,38 @@ def _call_llm(
     if provider.keys() - {"allow_fallbacks"}:
         extra["provider"] = provider
 
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        temperature=0.3,
-        extra_body=extra if extra else None,
-    )
+    resp: Any = None
+    for attempt, backoff in enumerate((*_LLM_RATELIMIT_BACKOFF_SECONDS, None)):
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                temperature=0.3,
+                extra_body=extra if extra else None,
+            )
+            break
+        except openai.RateLimitError:
+            if backoff is None:
+                logger.warning("llm call: model=%s exhausted 429 backoff retries", model)
+                raise
+            logger.warning(
+                "llm call: model=%s got 429 (attempt %d), backing off %.0fs",
+                model,
+                attempt + 1,
+                backoff,
+            )
+            time.sleep(backoff)
+
+    # OpenRouter has been observed returning a 200 with choices=None for some
+    # providers; guard before indexing so this surfaces as a classified,
+    # retryable error rather than a bare TypeError.
+    if not resp.choices:
+        raise LLMEmptyResponseError(
+            f"model={model} resp_model={getattr(resp, 'model', '?')} returned no choices"
+        )
     choice = resp.choices[0]
     usage = resp.usage
     logger.info(
@@ -382,6 +437,64 @@ def _run_tavily_search(
         except Exception:
             logger.exception("Tavily search failed for query: %s", query)
     return all_results
+
+
+# ---------------------------------------------------------------------------
+# Holding-relevant news (R-3): recall over the captured window + targeted search
+# ---------------------------------------------------------------------------
+
+# Cap on anomaly holdings that get a targeted live search when the captured
+# store has nothing for them (the INTC-Google-foundry miss: a window-relevant
+# story that the RSS sources never carried). Bounded to protect the Tavily daily
+# budget; ordered by |move| so the most-moved holdings are covered first.
+_MAX_TARGETED_ANOMALY_SEARCHES = 3
+
+
+def _targeted_anomaly_queries(
+    anomalies: list[dict[str, Any]],
+    covered: set[str],
+    max_n: int = _MAX_TARGETED_ANOMALY_SEARCHES,
+) -> list[tuple[str, str]]:
+    """Build (identifier, query) for the most-moved anomaly holdings that have NO
+    recalled window news, so a targeted live search can explain the move.
+
+    Holdings are holdings-derived, so this runs after Pass 1 (Pass 1 stays
+    holdings-free) and its results are supplied only to Pass 2. `anomalies` is
+    already sorted by largest |move| upstream.
+    """
+    queries: list[tuple[str, str]] = []
+    for a in anomalies:
+        ident = a.get("identifier", "")
+        if not ident or ident in covered:
+            continue
+        # Funds and non-US tickers tend to have no clean English news query;
+        # still try with the name, but the ticker drives recall precision.
+        name = a.get("name", "")
+        label = f"{name} {ident}".strip()
+        queries.append((ident, f"{label} stock news catalyst"))
+        if len(queries) >= max_n:
+            break
+    return queries
+
+
+def _build_holding_news_block(holding_news: dict[str, list[dict[str, Any]]]) -> str:
+    """Render the HOLDING-RELEVANT NEWS section of the Pass 2 prompt.
+
+    Empty input → empty string (no section emitted).
+    """
+    if not holding_news:
+        return ""
+    lines = ["", "=== HOLDING-RELEVANT NEWS (per moved holding) ==="]
+    for ident, items in holding_news.items():
+        lines.append(f"{ident}:")
+        for it in items:
+            src = it.get("source", "")
+            title = it.get("title", "")
+            lines.append(f"  [{src}] {title}")
+            summary = it.get("summary")
+            if summary:
+                lines.append(f"    {summary[:300]}")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -808,14 +921,19 @@ def _forward_delay_risk(news_items: list[dict[str, Any]]) -> bool:
 
 
 def _build_forward_block(
-    events: list[dict[str, Any]], holdings: list[dict[str, Any]], news_items: list[dict[str, Any]]
+    events: list[dict[str, Any]],
+    holdings: list[dict[str, Any]],
+    news_items: list[dict[str, Any]],
+    report_date_str: str = "",
 ) -> str:
     """Build §2.5 Forward Calendar from data — no LLM (#1).
 
     Lists scheduled US macro releases + held-company earnings in the forward
     window and maps each to the holdings carrying exposure. Calendar facts only;
     the 'Watch' column points to an observation, never a predicted outcome. If
-    window news flags a funding lapse, a delay caveat is appended.
+    window news flags a funding lapse, a delay caveat is appended. Events dated
+    the report's own day are tagged '(today)' and also promoted to a §2 lead note
+    (R-6).
     """
     lines = [
         "## §2.5 Forward Calendar",
@@ -832,7 +950,9 @@ def _build_forward_block(
             shown = ", ".join(exposed[:3]) + f" +{len(exposed) - 3}"
         else:
             shown = ", ".join(exposed) if exposed else "—"
-        lines.append(f"| {e.get('scheduled_date', '')} | {e.get('name', '')} | {shown} | {watch} |")
+        date_str = str(e.get("scheduled_date", ""))
+        date_cell = f"{date_str} (today)" if date_str[:10] == report_date_str else date_str
+        lines.append(f"| {date_cell} | {e.get('name', '')} | {shown} | {watch} |")
     if _forward_delay_risk(news_items):
         lines += [
             "",
@@ -851,6 +971,43 @@ def _inject_forward_block(body: str, block: str) -> str:
     return body.rstrip() + "\n\n" + block
 
 
+def _build_today_events_block(
+    events: list[dict[str, Any]], holdings: list[dict[str, Any]], report_date_str: str
+) -> str:
+    """Promote events scheduled for the report's own date to a §2 lead note (R-6).
+
+    A forward calendar entry whose date == the report date is happening today, not
+    "ahead": leaving it only in the §2.5 forward table understates it. This lifts
+    it to the top of §2 as a calendar fact. The report's price data stops at the
+    prior close (see R-5), so any same-day release's result is by construction not
+    reflected here — stated, never forecast. Empty input → empty string.
+    """
+    today = [e for e in events if str(e.get("scheduled_date", ""))[:10] == report_date_str]
+    if not today:
+        return ""
+    lines = [
+        "**Today's scheduled events** (calendar facts; results not yet in this report's data):"
+    ]
+    for e in today:
+        exposed, watch = _forward_exposure(e, holdings)
+        shown = ", ".join(exposed[:3]) + (f" +{len(exposed) - 3}" if len(exposed) > 3 else "")
+        tail = f" — exposed: {shown}" if exposed else ""
+        lines.append(f"- {e.get('name', '')}{tail}. {watch}")
+    return "\n".join(lines)
+
+
+def _inject_today_events(body: str, block: str) -> str:
+    """Insert the today-events note directly under the '## §2' heading (R-6)."""
+    anchor = "## §2"
+    idx = body.find(anchor)
+    if idx == -1:
+        return block + "\n\n" + body
+    eol = body.find("\n", idx)
+    if eol == -1:
+        return body + "\n\n" + block
+    return body[: eol + 1] + "\n" + block + "\n" + body[eol + 1 :]
+
+
 def _build_pass2_prompt(
     portfolio: dict[str, Any],
     macro: dict[str, Any],
@@ -859,6 +1016,7 @@ def _build_pass2_prompt(
     period_start: str = "",
     period_end: str = "",
     trading_days: int = 0,
+    holding_news: dict[str, list[dict[str, Any]]] | None = None,
 ) -> str:
     lines: list[str] = []
 
@@ -938,6 +1096,12 @@ def _build_pass2_prompt(
             lines.append(_fmt_anomaly_arc(a))
     else:
         lines.append("(no holding moved beyond its threshold this window)")
+
+    # Holding-relevant news (R-3): captured-window recall + targeted search for
+    # the holdings that moved. Distinct from BACKGROUND RESEARCH (macro-themed).
+    block = _build_holding_news_block(holding_news or {})
+    if block:
+        lines.append(block)
 
     # Search results
     if search_results:
@@ -1218,14 +1382,30 @@ def _strip_markers(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _fx_is_stale(fx_date: str, period_end: str) -> bool:
+    """True when the FX rate date trails the window cutoff by more than a day.
+
+    Both are dates we control (fx_rates.rate_date / period_end); a >1-day gap
+    means valuations used a materially old rate — worth flagging in a volatile
+    week (R-4 surfaced rates frozen 6 days). Any parse failure → not flagged.
+    """
+    try:
+        fx = date.fromisoformat(fx_date[:10])
+        end = datetime.fromisoformat(period_end).astimezone(ET).date()
+    except (ValueError, TypeError):
+        return False
+    return (end - fx).days > 1
+
+
 def _build_data_window(
     news_items: list[dict[str, Any]],
     portfolio: dict[str, Any],
     period_start: str,
     period_end: str,
     trading_days: int,
+    price_data_through: str = "",
 ) -> str:
-    """A one-line statement of the intel/data interval this report covers (#5)."""
+    """A one-line statement of the intel/data interval this report covers (#5/R-5)."""
     if period_start and period_end:
         span = f"{period_start[:16].replace('T', ' ')} to {period_end[:16].replace('T', ' ')} UTC"
         td = f"{trading_days} trading day(s)"
@@ -1233,10 +1413,24 @@ def _build_data_window(
     else:
         window_line = "window unavailable"
     fx_date = portfolio.get("fx_date", "n/a")
+    # R-5: state where PRICE data actually stops. The capture layer only takes
+    # closes at session nodes, so a premarket/intraday run has no quotes past the
+    # prior close — say so rather than letting the wall-clock window imply it.
+    price_line = (
+        f" Price data through the {price_data_through} close (session-close "
+        "snapshots only — no premarket or intraday quotes)."
+        if price_data_through
+        else ""
+    )
+    fx_flag = (
+        " [!] FX rate is stale relative to the window cutoff."
+        if _fx_is_stale(str(fx_date), period_end)
+        else ""
+    )
     return (
         f"> **Data window** — {window_line}; {len(news_items)} news item(s); "
-        f"FX as of {fx_date}. Price moves are measured against the baseline close "
-        "at the window start.\n\n"
+        f"FX as of {fx_date}.{price_line} Price moves are measured against the "
+        f"baseline close at the window start.{fx_flag}\n\n"
     )
 
 
@@ -1414,6 +1608,7 @@ def _render_full_md(
     anomalies: list[dict[str, Any]] | None = None,
     technical: list[dict[str, Any]] | None = None,
     forward_events: list[dict[str, Any]] | None = None,
+    price_data_through: str = "",
 ) -> tuple[str, list[str]]:
     """Annotate, assemble, language-render, and compliance-scan a report.
 
@@ -1426,8 +1621,19 @@ def _render_full_md(
     # inserted before §3: calendar facts mapped to exposed holdings, no forecast.
     if forward_events:
         cleaned = _inject_forward_block(
-            cleaned, _build_forward_block(forward_events, portfolio.get("holdings", []), news_items)
+            cleaned,
+            _build_forward_block(
+                forward_events, portfolio.get("holdings", []), news_items, report_date_str
+            ),
         )
+        # R-6: events scheduled for the report's own date are no longer "forward"
+        # — promote them to a "today" note at the top of §2 (calendar fact only,
+        # results not yet in this report's data).
+        today_block = _build_today_events_block(
+            forward_events, portfolio.get("holdings", []), report_date_str
+        )
+        if today_block:
+            cleaned = _inject_today_events(cleaned, today_block)
     # §4.2 numeric table is code-built from the stored anomalies and inserted
     # under the LLM's §4.2 heading (#3): deterministic, token-free, no hallucination.
     if anomalies:
@@ -1437,7 +1643,9 @@ def _render_full_md(
     if technical:
         cleaned = cleaned.rstrip() + "\n\n" + _build_section44_technical(technical)
     header = f"# Portfonia Financial Analysis Report — {_header_timestamp(report_date_str, period_end)}\n\n"
-    window = _build_data_window(news_items, portfolio, period_start, period_end, trading_days)
+    window = _build_data_window(
+        news_items, portfolio, period_start, period_end, trading_days, price_data_through
+    )
     section1 = _build_section1(portfolio)
     dynamic_en = header + window + section1 + "\n\n" + cleaned
 
@@ -1455,6 +1663,30 @@ def _render_full_md(
 
     full_md = dynamic_out + _build_footer(portfolio)
     return full_md, violations
+
+
+# A manual window this short (hours) with nothing in it is a same-day re-run
+# artifact, not a real reporting period. (R-7)
+_SHORT_MANUAL_WINDOW_HOURS = 2.0
+
+
+def _is_short_manual_quiet(
+    session_node: str,
+    period_start: datetime,
+    period_end: datetime,
+    news_items: list[NewsItem],
+    anomalies: list[PriceAnomaly],
+) -> bool:
+    """True for a manual re-run over a tiny, empty window (R-7).
+
+    All four must hold: triggered manually, window under the short threshold,
+    no window news, no anomalies. Scheduled triggers (after_close) never match,
+    so a genuinely quiet scheduled week still sends its heartbeat.
+    """
+    if session_node != "manual" or news_items or anomalies:
+        return False
+    span_hours = (period_end - period_start).total_seconds() / 3600.0
+    return span_hours < _SHORT_MANUAL_WINDOW_HOURS
 
 
 # ---------------------------------------------------------------------------
@@ -1599,6 +1831,11 @@ def generate_report(
         ctx.price_anomalies = _serialize_anomalies(anomalies)
         ctx.window_trading_days = trading_days
 
+        # R-5: the real price-data cutoff (last in-window close), distinct from
+        # period_end. Stored so the data-window line and re-render agree.
+        price_through = latest_window_close_date(session, period_start, period_end)
+        ctx.price_data_through = price_through.isoformat() if price_through else ""
+
         # Technical position (#4): computed here (needs the session) and stored, so
         # §4.4 stays code-built and re-render reproduces it without a DB read.
         logger.info("report %s: computing technical position", report.id)
@@ -1637,15 +1874,27 @@ def generate_report(
                 ctx.period_start,
                 ctx.period_end,
                 ctx.window_trading_days,
+                price_data_through=ctx.price_data_through,
             )
             report.status = "skipped"
             report.report_md = quiet_md
             report.report_inputs = ctx.to_jsonb()
             report.generated_at = datetime.now(tz=UTC)
             session.commit()
-            # Heartbeat: still email on a quiet week so the recipient can tell a
-            # genuinely calm week apart from a silently broken pipeline. Isolated
-            # so a delivery failure cannot corrupt the committed 'skipped' status.
+            # R-7: a short manual re-run (e.g. a same-day second trigger minutes
+            # after the first) covers a near-empty window — 0 news, 0 anomalies,
+            # nothing the first report didn't have. Emailing it is pure noise
+            # (the scheduled cadence never produces this). Skip the heartbeat for
+            # that case only; a genuinely quiet SCHEDULED window still emails so
+            # a calm week is distinguishable from a broken pipeline.
+            if _is_short_manual_quiet(
+                session_node, period_start, period_end, news_items, anomalies
+            ):
+                logger.info(
+                    "report %s: short manual quiet window — suppressing heartbeat email",
+                    report.id,
+                )
+                return report
             try:
                 send_report_email(report, session)
             except Exception:
@@ -1705,6 +1954,32 @@ def generate_report(
             search_results = []
         ctx.search_results = search_results
 
+        # ------------------------------------------------------------------
+        # 5. Holding-relevant news enrichment (R-3) — anomaly-driven
+        # ------------------------------------------------------------------
+        # After we know WHICH holdings moved, recall window news relevant to each
+        # (映射缺口: a captured story that matched no macro theme), and for the
+        # most-moved holdings the store has NOTHING for, run a targeted live
+        # search (源缺口: a window-relevant story the RSS sources never carried).
+        # Both are holdings-derived, so they run AFTER Pass 1 and feed only Pass 2.
+        anomaly_ids = [a["identifier"] for a in ctx.price_anomalies if a.get("identifier")]
+        recalled = recall_holding_news(news_items, anomaly_ids)
+        ctx.holding_news = {ident: _serialize_news(items) for ident, items in recalled.items()}
+        logger.info(
+            "report %s: recalled holding news for %d/%d moved holdings",
+            report.id,
+            len(ctx.holding_news),
+            len(anomaly_ids),
+        )
+
+        targeted = _targeted_anomaly_queries(ctx.price_anomalies, set(ctx.holding_news.keys()))
+        remaining_budget = max(0, settings.TAVILY_DAILY_BUDGET - len(ctx.search_queries))
+        if targeted and remaining_budget > 0:
+            tq = [q for _ident, q in targeted][:remaining_budget]
+            logger.info("report %s: %d targeted anomaly searches", report.id, len(tq))
+            targeted_results = _run_tavily_search(tq, budget=remaining_budget)
+            ctx.search_results.extend(targeted_results)
+
         # Re-index results globally for [S#] citation notation
         for i, r in enumerate(ctx.search_results):
             r["index"] = i + 1
@@ -1721,6 +1996,7 @@ def generate_report(
             ctx.period_start,
             ctx.period_end,
             ctx.window_trading_days,
+            ctx.holding_news,
         )
 
         ctx.pass2_model = primary_model
@@ -1759,6 +2035,7 @@ def generate_report(
             ctx.price_anomalies,
             ctx.technical_positions,
             ctx.forward_events,
+            ctx.price_data_through,
         )
         logger.info("report %s: assembled + rendered (lang=%s)", report.id, output_lang)
 
@@ -1856,6 +2133,7 @@ def regenerate_report(
             report.period_start.isoformat() if report.period_start else "",
             report.period_end.isoformat() if report.period_end else "",
             int(inputs.get("window_trading_days", 0)),
+            inputs.get("holding_news", {}),
         )
         raw_body = _call_llm(
             _openrouter_client(),
@@ -1892,6 +2170,7 @@ def regenerate_report(
         inputs.get("price_anomalies", []),
         inputs.get("technical_positions", []),
         inputs.get("forward_events", []),
+        str(inputs.get("price_data_through", "")),
     )
     report.status = "needs_review" if violations else "success"
     report.report_md = full_md

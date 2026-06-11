@@ -1,0 +1,50 @@
+# Holding-relevant news recall aliases (R-3,映射缺口).
+#
+# After anomaly detection, news captured in the report window is recalled per
+# moving holding so that thematically-relevant items reach Pass 2 even when they
+# never matched a macro theme and never appeared in the top-15 headlines fed to
+# Pass 1. (Observed miss: "BoJ governor Ueda hospitalised" was captured but
+# never reached the analysis layer, so EWJ's move went unexplained.)
+#
+# The holding's own ticker is ALWAYS matched automatically (word-boundary).
+# These are ADDITIONAL entity/theme terms that identify relevant news which does
+# NOT contain the ticker string. Keep them specific enough to avoid false
+# positives — a single common word here will pull in unrelated articles.
+#
+# Matching rules mirror the macro keyword table: a phrase with a space or
+# Chinese characters is a case-insensitive substring; a single English token is
+# word-boundary anchored.
+holdings:
+  EWJ:
+    - "Bank of Japan"
+    - "BOJ"
+    - "BoJ"
+    - "Nikkei"
+    - "Ueda"
+    - "Japanese yen"
+  INTC:
+    - "Intel"
+    - "foundry"
+  NVDA:
+    - "Nvidia"
+  TSLA:
+    - "Tesla"
+  QCOM:
+    - "Qualcomm"
+  AMKR:
+    - "Amkor"
+  "0700.HK":
+    - "Tencent"
+  SGOL:
+    - "gold"
+    - "bullion"
+  "518660.SS":
+    - "gold"
+    - "bullion"
+  "518800.SS":
+    - "gold"
+    - "bullion"
+  QQQM:
+    - "Nasdaq"
+  VOO:
+    - "S&P 500"

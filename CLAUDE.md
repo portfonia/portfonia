@@ -9,17 +9,17 @@ Last updated: 2026-06-10
 |------|-------|
 | Ring stage | **Ring 0** (local dev machine, single user, no cloud) |
 | `main` HEAD | `9904ebd` fix(reports): R-2 direction-evidence prompt rules + translation provider order — pushed, in sync with `origin/main`. No new migration this commit. |
-| Stages complete | A B C D E F1 F2 F3 G H + June-7 report-review fixes + **ADR-002 incremental reporting + capture layer** + **Ring0 report enhancements #1–#4** (§4.2 anomaly table, confidence labels, §4.4 technical position, §2.5 forward calendar) + **June-9 reliability fixes** (same-day window fix, period freeze, H-DEBT-2 guard, translation pacing, Resend idempotency key, H-DEBT-1 session_node re-key) + **June-10 R-1/R-2 fixes** (premarket multi-day window boundary `_close_snapshot_before_window`/`_window_closes`; §2 direction-requires-evidence + divergence-is-the-signal prompt rules; translation provider-order fallback) |
-| Next stage | **I** — 稳定运行验证。2026-06-10 上午对比 Portfonia vs Daily_Intel 报告发现 R-1（窗口边界 bug）+ R-2（方向断言无价格佐证），两者已修复并通过 `dbbf5646`（`mode="render"`, prompt_version=`f2-v5`）端到端验证：§4.2 正确显示 QCOM -5.80%/AMKR +3.76%（single_day），§2 黄金"分歧即信号"框架正确触发。详见 Obsidian `Hermes/Portfonia/2026-06-10_报告对比分析-Portfonia_vs_Daily_Intel.md`（含 R-3~R-8 + 可观测性缺口的"未解决问题"清单）和报告样本 `2026-06-10_报告样本-dbbf5646-审阅.md`。仍待：Wed 16:30 ET 自动跑（`session_node="after_close"`）完成同日双跑验证（H-DEBT-1）。 |
-| Backend quality | ruff OK · mypy OK (74 files) · pytest **280 passed** |
+| Stages complete | A B C D E F1 F2 F3 G H + June-7 report-review fixes + **ADR-002 incremental reporting + capture layer** + **Ring0 report enhancements #1–#4** (§4.2 anomaly table, confidence labels, §4.4 technical position, §2.5 forward calendar) + **June-9 reliability fixes** (same-day window fix, period freeze, H-DEBT-2 guard, translation pacing, Resend idempotency key, H-DEBT-1 session_node re-key) + **June-10 R-1/R-2 fixes** (premarket multi-day window boundary `_close_snapshot_before_window`/`_window_closes`; §2 direction-requires-evidence + divergence-is-the-signal prompt rules; translation provider-order fallback) + **June-10 batch fixes R-3~R-8 + observability** (see below) |
+| Next stage | **I** — 稳定运行验证。R-1~R-8 + 可观测性缺口（I-DEBT-2/3/4）全部修复（2026-06-10，三批），prompt_version `f2-v5`→`f2-v6`。仍待：Wed 16:30 ET 自动跑（`session_node="after_close"`）完成同日双跑验证（H-DEBT-1）；新 beat 任务 `capture-fx-daily` + R-3/R-5/R-6/R-7 走完一次真实端到端报告验证（需重启 celery worker/beat 后观察 16:05 FX 与 16:30 报告）。详见 Obsidian `Hermes/Portfonia/2026-06-10_报告对比分析-Portfonia_vs_Daily_Intel.md`。 |
+| Backend quality | ruff OK · mypy OK (76 files) · pytest **303 passed** |
 | Frontend quality | tsc OK · eslint OK · next build OK |
 | LLM model | OpenRouter (provider=DigitalOcean,Venice), `data_collection=deny` on every call. **PRIMARY (Pass 2 analysis) = `deepseek/deepseek-v4-pro`**; **Pass 1 search + translation render = `deepseek/deepseek-v4-flash`** (LOW_COST). Sonnet/Anthropic models are NOT used here — too expensive (~$0.2/call); if `PRIMARY_LLM_MODEL` ever shows an `anthropic/*` value it is config drift, revert it. **Translation calls** (`_translate_chunk`) use a separate provider preference `_TRANSLATION_PROVIDER_ORDER = ["Cloudflare", "Morph"]` (2026-06-10) — DigitalOcean+Venice were observed returning repeated `429` for `deepseek-v4-flash` translation; `allow_fallbacks=True` still permits OpenRouter to go beyond this list if both are unavailable. |
 | Infrastructure | Homebrew PostgreSQL@16 + Redis (native, not Docker); `make infra-up` not needed |
 | **Dev process restart (MANDATORY after model/migration changes)** | uvicorn, `celery worker`, `celery beat` run with **no `--reload`** and load the ORM model at process start. After ANY change to `app/models/*`, an Alembic migration, or a router/schema change, **kill and restart all three** (`ps aux \| grep -E "uvicorn\|celery"`, `kill <pids>`, then `nohup venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-level info >> .run/uvicorn.log 2>&1 &` and the two `celery -A app.tasks worker/beat --loglevel=info >> .run/{worker,beat}.log 2>&1 &`). Symptom if skipped: `INSERT`/`UPDATE` against the new column fails `NOT NULL`/constraint mismatch → uncaught `IntegrityError` → bare `500` with no traceback (no log file existed for uvicorn until 2026-06-10; now redirected to `.run/uvicorn.log`). Found 2026-06-10: `POST /reports/generate` 500'd because uvicorn (up since 6/7) and celery worker/beat (up since 6/9 08:05) predated the H-DEBT-1 migration/model change — both restarted, confirmed fixed. |
-| Prompt version | `f2-v5` (adds: DIRECTION REQUIRES EVIDENCE — a holding's price direction may only be asserted when window price-anomaly/technical data for that holding supports it, else describe the transmission channel only and cap confidence at `[Speculative]`; DIVERGENCE IS THE SIGNAL — when a holding's actual move contradicts the textbook macro narrative, report the divergence itself. f2-v4 = §4.2 LLM writes driver-only one-liners — numeric arc is a code-built table; evidence confidence labels `[Established]/[Probable]/[Speculative]` on every causal attribution; forward-event no-forecast rule. f2-v3 = window-anchored §2/§3/§4 depth + anomaly session-arc + NO inline markers; f2-v2 = Pass 1 public-only) |
+| Prompt version | `f2-v6` (adds: §4.2 CROSS-REFERENCES — "见§4.2"/"see §4.2" only for holdings actually in the anomaly table; for off-table divergences say "did not cross the report's anomaly threshold" (R-8); plus a HOLDING-RELEVANT NEWS prompt block fed from R-3 recall/targeted search. f2-v5 = DIRECTION REQUIRES EVIDENCE + DIVERGENCE IS THE SIGNAL. f2-v4 = §4.2 code table + driver-only, confidence labels `[Established]/[Probable]/[Speculative]`, forward-event no-forecast. f2-v3 = window-anchored depth + session-arc + NO inline markers; f2-v2 = Pass 1 public-only) |
 | Disclaimer version | `f3-bilingual-v1` |
 | Output language | reason in EN, render in `OUTPUT_LANG` (Ring 0 default `zh`) via a translation pass with a fixed-term glossary (财经分析报告 / 持仓分析 / 持仓机构; never "智能"); `en` = no-op |
-| Report statuses | `success` · `skipped` (quiet day, still emails heartbeat) · `needs_review` (compliance scan hit, NOT emailed) · `failed` · `in_progress` |
+| Report statuses | `success` · `skipped` (quiet day, still emails heartbeat — EXCEPT a short manual quiet window, R-7: `session_node="manual"` + <2h span + 0 news + 0 anomalies suppresses the heartbeat as a same-day re-run artifact) · `needs_review` (compliance scan hit, NOT emailed) · `failed` · `in_progress` |
 | Report title / email subject | `Portfonia 财经分析报告 — YYYY-MM-DD HH:MM ET` (title timestamp from `period_end`); no "智能"/"Intelligence" wording anywhere. |
 | Holdings model | `market` + `broker` are user-declared fields; `position` preserves upload order. **§1 groups by `broker` (持仓机构)** in upload order with per-institution subtotals; cash sits inside its institution, broker-less rows fall into "Other". Distributions (by market/currency/asset type) unchanged. NOTE: `position` is currently NULL on existing rows (parser does not set it) → within-group order falls back to DB order until the parser populates it. |
 | Re-render | `regenerate_report(mode=render\|analyze)` rebuilds from stored `report_inputs` without re-fetching; `POST /reports/{id}/regenerate`. render = token-free, analyze = Pass 2 only. |
@@ -41,10 +41,10 @@ Last updated: 2026-06-10
 | A-DEBT-3 | `core/database.py` builds module-level `engine`/`SessionLocal` bound to the dev DB at import. Test isolation relies on every test overriding `get_session` or patching `SessionLocal` (discipline, not structure). | Ring 1 |
 | A-DEBT-4 | `ParsedRow` uses `float` for `shares`/`avg_cost`/`current_value`, bridged to `Decimal` via `Decimal(str(x))` at confirm. Bridge is adequate but inconsistent with the Decimal-everywhere model. | TBD |
 | A-DEBT-5 | `/holdings/upload` has no request body-size cap (`await file.read()` loads fully into memory). Local Ring 0 low risk; add a limit before any exposed deployment. | Ring 1 |
-| I-DEBT-1 | §2 cross-references like "见§4.2" are not validated against `price_anomalies` — 2026-06-10 report `dbbf5646` cited "见§4.2" for gold's price divergence, but §4.2's table (code-built from `price_anomalies`) has no gold/SGOL row (it didn't cross the anomaly threshold). `_PASS2_SYSTEM` should restrict "见§4.2"/"see §4.2" to holdings actually present in the table; otherwise describe as "未触发本报告的异常监测阈值". | Ring 1, low effort |
-| I-DEBT-2 | `_call_llm` does not check `resp.choices is None` before `resp.choices[0]` — observed once as a bare `TypeError` on a malformed 200 from OpenRouter (deepseek-v4-flash via DigitalOcean/Venice). No 429 backoff/retry inside `_call_llm` either; only Celery's `max_retries=2` (the sync `POST /reports/generate` path has none). Add an explicit `choices` check + short backoff-retry on 429 inside `_call_llm`. | Ring 1, low effort |
-| I-DEBT-3 | `app/main.py` never calls `logging.basicConfig` — the June-9 `_call_llm` instrumentation (`finish_reason`/usage/cost `logger.info`) never reaches `.run/uvicorn.log` because the root logger defaults to `WARNING`. One-line fix, high observability payoff. | Ring 1, trivial |
-| I-DEBT-4 | H-DEBT-2's Pass-2 completeness guard (`RuntimeError` on truncation) has no retry in the synchronous `POST /reports/generate` path — surfaces as a bare `Internal Server Error` with no diagnosis. Celery's `generate_incremental_report` retries; the sync path should at least return a structured 5xx with the failure reason. | Ring 1 |
+| I-DEBT-1 | (R-8) §2 cross-references like "见§4.2" not validated against `price_anomalies`. **RESOLVED 2026-06-10**: `_PASS2_SYSTEM` §4.2 CROSS-REFERENCES rule (f2-v6) restricts "见§4.2"/"see §4.2" to holdings in the table; off-table divergences must say "did not cross the report's anomaly threshold". | **DONE** |
+| I-DEBT-2 | `_call_llm` `choices`-None / 429 robustness. **RESOLVED 2026-06-10**: new `LLMEmptyResponseError` raised when `not resp.choices`; bounded 429 backoff-retry (5s/15s) inside `_call_llm` then re-raise. | **DONE** |
+| I-DEBT-3 | `app/main.py` missing `logging.basicConfig`. **RESOLVED 2026-06-10**: `basicConfig(level=INFO)` at import — `_call_llm` instrumentation now reaches `.run/uvicorn.log`. | **DONE** |
+| I-DEBT-4 | sync `POST /reports/generate` bare-500 on Pass-2 truncation. **RESOLVED 2026-06-10**: router catches `LLMEmptyResponseError`/`RuntimeError` → 502 with the failure reason. (Still no sync-path retry — acceptable; HTTP-timeout-bounded.) | **DONE** |
 
 ### Incremental reporting + capture layer — DONE (ADR-002)
 
@@ -118,6 +118,68 @@ no DB read); the **LLM writes only prose/attribution**.
   outcomes. An RSS-derived delay caveat fires when window news mentions a funding
   lapse (BLS/BEA dates may slip). **China forward intel is out of scope.** Captured
   by `capture_forward_events_task` (daily 08:00 ET, Mon–Fri, 14-day fetch horizon).
+
+### June-10 batch fixes (R-3~R-8 + observability) — DONE
+
+Three batches off the Portfonia-vs-Daily_Intel comparison (Obsidian
+`2026-06-10_报告对比分析...`). No migration (one new config setting, two new
+config files, one new beat task). prompt_version `f2-v5`→`f2-v6`.
+
+**Batch 1 — observability + ops (no business-logic risk):**
+- **I-DEBT-3** `app/main.py` `logging.basicConfig(INFO)` at import — `_call_llm`
+  instrumentation now actually logs.
+- **I-DEBT-2** `_call_llm`: `LLMEmptyResponseError` on `not resp.choices`;
+  bounded 429 backoff-retry (`_LLM_RATELIMIT_BACKOFF_SECONDS = (5.0, 15.0)`).
+- **I-DEBT-4** sync `POST /reports/generate` catches both → 502 with reason.
+- **R-4** FX is now a daily beat task `capture-fx-daily` (`capture_fx_task`,
+  16:05 ET Mon–Fri, idempotent upsert). ROOT CAUSE was NOT a stalled pipeline —
+  `update_fx_rates` only ever had ONE caller (manual `POST /portfolio/refresh`);
+  there was no scheduled FX task at all. Rates were frozen at 6/4 = last manual
+  refresh.
+
+**Batch 2 — analysis quality (f2-v6):**
+- **R-8** §4.2 cross-reference rule in `_PASS2_SYSTEM` (see I-DEBT-1).
+- **R-3 (映射缺口)** new `app/services/holding_news.py` + config
+  `config/holding_news_keywords.yml` (setting `HOLDING_NEWS_KEYWORDS_PATH`):
+  after anomaly detection, recall window news per moved holding by ticker (always)
+  + per-holding aliases (covers the BoJ→EWJ miss: a captured story matching no
+  macro theme). Code-only keyword match over already-loaded window news → a
+  `=== HOLDING-RELEVANT NEWS ===` Pass-2 prompt block (`_build_holding_news_block`).
+- **R-3 (源缺口, Daily-Intel-style targeted pull)** `_targeted_anomaly_queries`:
+  for the top-3 most-moved anomaly holdings with NO recalled news, run a targeted
+  Tavily search (covers the INTC→Google-foundry miss). Bounded by remaining
+  Tavily budget. **Isolation note:** anomaly identifiers are holdings-derived, so
+  this runs AFTER Pass 1 and feeds ONLY Pass 2; `test_pass1_*` isolation
+  regressions still pass. `ctx.holding_news` stored in `report_inputs` → re-render
+  reproduces it. Tradeoff accepted for Ring 0 single-user: targeted search exposes
+  the moved ticker to Tavily (mild holdings signal); revisit with a settings gate
+  at Ring 1 multi-user.
+- **R-3b** two RSS sources added to `news_fetcher._RSS_SOURCES`: CNBC Top News +
+  Google News Business topic (NYT/FT/Reuters were macro-heavy and missed
+  single-stock catalysts). Dedup by URL hash makes overlap free. Both verified
+  live (~30 items/48h each, carrying single-stock items like Oracle earnings).
+
+**Batch 3 — report wording:**
+- **R-5** `_build_data_window` now states the real PRICE cutoff
+  (`window_data.latest_window_close_date` → `ctx.price_data_through`): "Price data
+  through the YYYY-MM-DD close (session-close snapshots only — no premarket or
+  intraday quotes)", plus a `[!] FX rate is stale` flag when `fx_date` trails the
+  window cutoff by >1 day (`_fx_is_stale`). Capture layer taking only session-node
+  closes is a DESIGN decision, not a defect — R-5 just makes it visible to readers.
+- **R-6** T+0 calendar promotion: `_build_today_events_block` +
+  `_inject_today_events` lift events dated == report date to a lead note under the
+  `## §2` heading ("Today's scheduled events … results not yet in this report's
+  data"); `_build_forward_block` tags that row "(today)" in the §2.5 table. Code +
+  calendar facts only, no LLM, no forecast.
+- **R-7** short-manual-quiet email suppression: `_is_short_manual_quiet`
+  (`session_node="manual"` + <2h span + 0 news + 0 anomalies) suppresses the
+  quiet-day heartbeat email — a same-day manual re-run artifact. Scheduled
+  (`after_close`) quiet windows still email the heartbeat.
+
+Backend quality after all three: ruff OK · mypy OK (76 files) · pytest 303 passed
+(+23). NOT YET run through a real end-to-end report (Pass 1/2 cost) — the
+assembly is covered by unit tests; a real run + celery restart for the new FX
+beat task is the remaining Stage-I verification.
 
 ### June-9 reliability fixes — DONE
 

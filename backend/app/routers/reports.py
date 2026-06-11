@@ -12,7 +12,11 @@ from app.core.deps import get_current_user_id
 from app.models.report import Report
 from app.schemas.reports import GenerateReportRequest, ReportListItem, ReportOut
 from app.services.email_sender import send_report_email
-from app.services.report_generator import generate_report, regenerate_report
+from app.services.report_generator import (
+    LLMEmptyResponseError,
+    generate_report,
+    regenerate_report,
+)
 
 router = APIRouter()
 
@@ -22,15 +26,28 @@ def trigger_report_generation(
     req: GenerateReportRequest,
     session: Session = Depends(get_session),
 ) -> Report:
-    """Manually trigger report generation (Ring 0 entry point before Celery)."""
-    return generate_report(
-        session,
-        report_date=req.report_date,
-        report_type=req.report_type,
-        base_currency=req.base_currency,
-        output_lang=get_settings().OUTPUT_LANG,
-        session_node=req.session_node,
-    )
+    """Manually trigger report generation (Ring 0 entry point before Celery).
+
+    The synchronous path has no Celery retry, so the two transient LLM failure
+    modes — a malformed empty-choices response and the Pass-2 completeness guard
+    (RuntimeError on a truncated body) — would otherwise surface as a bare 500
+    with no diagnosis. Translate them to a 502 carrying the reason. (I-DEBT-4)
+    """
+    try:
+        return generate_report(
+            session,
+            report_date=req.report_date,
+            report_type=req.report_type,
+            base_currency=req.base_currency,
+            output_lang=get_settings().OUTPUT_LANG,
+            session_node=req.session_node,
+        )
+    except LLMEmptyResponseError as exc:
+        raise HTTPException(
+            status_code=502, detail=f"LLM returned an empty response: {exc}"
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=f"Report generation failed: {exc}") from exc
 
 
 @router.post("/{report_id}/regenerate", response_model=ReportOut)
