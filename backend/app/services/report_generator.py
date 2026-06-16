@@ -212,6 +212,12 @@ class ReportContext:
     pass2_model: str = ""
     pass2_prompt: str = ""
     pass2_raw: str = ""
+    # LLM call records (Pass 1 + Pass 2; translation chunks excluded as they are
+    # cheap/many and the per-chunk token count is not material for cost audits).
+    llm_calls: list[dict[str, Any]] = field(default_factory=list)
+    # Snapshot of the translated report body (dynamic section only, pre-footer).
+    # Stored so compliance attribution can be traced per translation chunk if needed.
+    pass2_translated: str = ""
 
     def to_jsonb(self) -> dict[str, Any]:
         result: dict[str, Any] = json.loads(json.dumps(asdict(self), default=_decimal_default))
@@ -257,6 +263,7 @@ def _call_llm(
     with_holdings: bool = False,
     pin_provider: bool = True,
     provider_order: list[str] | None = None,
+    usage_sink: list[dict[str, Any]] | None = None,
 ) -> str:
     """Call an OpenRouter model.  Returns the assistant content string.
 
@@ -340,6 +347,18 @@ def _call_llm(
             "llm call: model=%s finished with reason=%r (possible truncation)",
             model,
             choice.finish_reason,
+        )
+    if usage_sink is not None:
+        usage_sink.append(
+            {
+                "model": model,
+                "resp_model": resp.model,
+                "finish_reason": choice.finish_reason,
+                "prompt_tokens": usage.prompt_tokens if usage else None,
+                "completion_tokens": usage.completion_tokens if usage else None,
+                "total_tokens": usage.total_tokens if usage else None,
+                "cost": getattr(usage, "cost", None) if usage else None,
+            }
         )
     content = choice.message.content or ""
     return content.strip()
@@ -1579,12 +1598,12 @@ def _render_full_md(
     technical: list[dict[str, Any]] | None = None,
     forward_events: list[dict[str, Any]] | None = None,
     price_data_through: str = "",
-) -> tuple[str, list[str]]:
+) -> tuple[str, list[str], str]:
     """Annotate, assemble, language-render, and compliance-scan a report.
 
-    Returns (full_markdown, violations). Pure function of its inputs — this is
-    what makes #6 re-render possible: the same stored inputs reproduce the same
-    report without re-fetching news or re-running search.
+    Returns (full_markdown, violations, translated_body). The third element is
+    the translated dynamic section (pre-footer) for compliance audit traceability.
+    Pure function of its inputs — this is what makes #6 re-render possible.
     """
     cleaned = _strip_markers(raw_body)
     # §2.5 forward calendar is code-built from stored events + holdings (#1) and
@@ -1632,7 +1651,7 @@ def _render_full_md(
         violations = violations + _scan_forbidden_output(dynamic_out)
 
     full_md = dynamic_out + _build_footer(portfolio)
-    return full_md, violations
+    return full_md, violations, dynamic_out
 
 
 # A manual window this short (hours) with nothing in it is a same-day re-run
@@ -1835,7 +1854,7 @@ def generate_report(
                 "## §4 Risk Radar\n\n"
                 "No price anomalies or concentration alerts in this report period."
             )
-            quiet_md, _ = _render_full_md(
+            quiet_md, _, _ = _render_full_md(
                 eff_date.strftime("%Y-%m-%d"),
                 ctx.portfolio_summary,
                 ctx.news_items,
@@ -1889,7 +1908,14 @@ def generate_report(
         ctx.pass1_prompt = pass1_user
 
         logger.info("report %s: Pass 1 LLM call (%s)", report.id, low_cost_model)
-        raw_pass1 = _call_llm(client, low_cost_model, pass1_system, pass1_user, with_holdings=False)
+        raw_pass1 = _call_llm(
+            client,
+            low_cost_model,
+            pass1_system,
+            pass1_user,
+            with_holdings=False,
+            usage_sink=ctx.llm_calls,
+        )
         ctx.pass1_raw = raw_pass1
 
         # Parse search queries from Pass 1 response
@@ -1974,7 +2000,14 @@ def generate_report(
 
         logger.info("report %s: Pass 2 LLM call (%s)", report.id, primary_model)
         # Pass 2 carries holdings → enforce data_collection=deny
-        raw_pass2 = _call_llm(client, primary_model, _PASS2_SYSTEM, pass2_user, with_holdings=True)
+        raw_pass2 = _call_llm(
+            client,
+            primary_model,
+            _PASS2_SYSTEM,
+            pass2_user,
+            with_holdings=True,
+            usage_sink=ctx.llm_calls,
+        )
 
         # H-DEBT-2: a provider can return a truncated HTTP 200 (rate-limiting,
         # mid-response cutoff). A short body missing §3/§4 must not ship as
@@ -1993,7 +2026,7 @@ def generate_report(
         # 7/8. Annotate + assemble + render language + compliance scan (#5/#7/#8)
         # ------------------------------------------------------------------
         report_date_str = eff_date.strftime("%Y-%m-%d")
-        full_md, violations = _render_full_md(
+        full_md, violations, translated_body = _render_full_md(
             report_date_str,
             ctx.portfolio_summary,
             ctx.news_items,
@@ -2007,6 +2040,7 @@ def generate_report(
             ctx.forward_events,
             ctx.price_data_through,
         )
+        ctx.pass2_translated = translated_body
         logger.info("report %s: assembled + rendered (lang=%s)", report.id, output_lang)
 
         # ------------------------------------------------------------------
@@ -2105,12 +2139,14 @@ def regenerate_report(
             int(inputs.get("window_trading_days", 0)),
             inputs.get("holding_news", {}),
         )
+        regen_calls: list[dict[str, Any]] = []
         raw_body = _call_llm(
             _openrouter_client(),
             get_settings().PRIMARY_LLM_MODEL,
             _PASS2_SYSTEM,
             pass2_user,
             with_holdings=True,
+            usage_sink=regen_calls,
         )
         if len(raw_body) < _PASS2_MIN_CHARS or not all(
             marker in raw_body for marker in _PASS2_REQUIRED_MARKERS
@@ -2121,14 +2157,19 @@ def regenerate_report(
             )
         # New dict identity so SQLAlchemy flags the JSONB column dirty (an
         # in-place mutation of the existing dict would not be detected).
-        report.report_inputs = {**inputs, "pass2_raw": raw_body, "pass2_prompt": pass2_user}
+        report.report_inputs = {
+            **inputs,
+            "pass2_raw": raw_body,
+            "pass2_prompt": pass2_user,
+            "llm_calls": regen_calls,
+        }
     elif mode == "render":
         raw_body = inputs["pass2_raw"]
     else:
         raise ValueError(f"unknown mode {mode!r} (expected 'render' or 'analyze')")
 
     report_date_str = report.report_date.strftime("%Y-%m-%d")
-    full_md, violations = _render_full_md(
+    full_md, violations, translated_body = _render_full_md(
         report_date_str,
         portfolio,
         news_items,
@@ -2144,6 +2185,9 @@ def regenerate_report(
     )
     report.status = "needs_review" if violations else "success"
     report.report_md = full_md
+    # Persist translation snapshot alongside report_md for compliance traceability.
+    if mode != "render" and report.report_inputs is not None:
+        report.report_inputs = {**report.report_inputs, "pass2_translated": translated_body}
     report.generated_at = datetime.now(tz=UTC)
     session.commit()
     logger.info("report %s: regenerated (mode=%s, lang=%s)", report.id, mode, output_lang)

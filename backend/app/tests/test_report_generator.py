@@ -171,7 +171,13 @@ _FAKE_TAVILY_RESULTS = [
 
 
 def _mock_llm(
-    client: object, model: str, system: str, user: str, *, with_holdings: bool = False
+    client: object,
+    model: str,
+    system: str,
+    user: str,
+    *,
+    with_holdings: bool = False,
+    **kwargs: object,
 ) -> str:
     if with_holdings:
         return _FAKE_LLM_PASS2
@@ -281,7 +287,13 @@ def test_generate_report_pass1_invalid_json(db_session: Session) -> None:
     """Pass 1 returns garbage JSON → search_queries empty, pipeline continues."""
 
     def bad_pass1(
-        client: object, model: str, system: str, user: str, *, with_holdings: bool = False
+        client: object,
+        model: str,
+        system: str,
+        user: str,
+        *,
+        with_holdings: bool = False,
+        **kwargs: object,
     ) -> str:
         if not with_holdings:
             return "not valid json at all"
@@ -364,7 +376,13 @@ def test_generate_report_pass1_call_has_no_holdings(db_session: Session) -> None
     captured: dict[str, str] = {}
 
     def _capture_llm(
-        client: object, model: str, system: str, user: str, *, with_holdings: bool = False
+        client: object,
+        model: str,
+        system: str,
+        user: str,
+        *,
+        with_holdings: bool = False,
+        **kwargs: object,
     ) -> str:
         if not with_holdings:
             captured["pass1_user"] = user
@@ -427,7 +445,13 @@ def test_scan_forbidden_output_no_false_positives() -> None:
 
 
 def _mock_llm_noncompliant(
-    client: object, model: str, system: str, user: str, *, with_holdings: bool = False
+    client: object,
+    model: str,
+    system: str,
+    user: str,
+    *,
+    with_holdings: bool = False,
+    **kwargs: object,
 ) -> str:
     if with_holdings:
         return (
@@ -1292,7 +1316,13 @@ def test_strip_body_disclaimer_runs_post_translation() -> None:
 
 
 def _mock_llm_f2(
-    client: object, model: str, system: str, user: str, *, with_holdings: bool = False
+    client: object,
+    model: str,
+    system: str,
+    user: str,
+    *,
+    with_holdings: bool = False,
+    **kwargs: object,
 ) -> str:
     if with_holdings:
         return _FAKE_LLM_PASS2_F2
