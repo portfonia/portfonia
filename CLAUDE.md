@@ -1,17 +1,17 @@
 # Portfonia — Agent Guidelines
 
 AI-facing guidance for agent tooling working in this repository.
-Last updated: 2026-06-16
+Last updated: 2026-06-15
 
 ## Current Development State (update this section when resuming)
 
 | Item | Value |
 |------|-------|
 | Ring stage | **Ring 0** (local dev machine, single user, no cloud) |
-| `main` HEAD | `1853f6a` feat(reports): add resend=true to /regenerate endpoint — pushed, in sync with `origin/main`. No migration. |
-| Stages complete | A B C D E F1 F2 F3 G H + June-7 report-review fixes + **ADR-002 incremental reporting + capture layer** + **Ring0 report enhancements #1–#4** + **June-9 reliability fixes** + **June-10 R-1~R-8 + observability** + **June-16 compliance + ops** (see below) |
-| Next stage | **I** — 稳定运行验证。June-15 盘后报告被 `阻力位` 拦截（`28cd1461`），触发 June-16 修复（3 commits: `cc56aa0` 合规扫描松绑 + 免责声明 v2 + ops 告警邮件；`d7f89ae` docs；`1853f6a` regenerate+resend 端点）。`28cd1461` 已手动 regenerate+resend，邮件 21:16 PDT 送出（`email_sent_at` 已写入）。所有进程已重启（uvicorn 2026-06-16 重启，celery worker/beat 沿用）。下次 MWF 定时任务（Wed Jun 18 16:30 ET）是新扫描规则的第一次实际验证。 |
-| Backend quality | ruff OK · mypy OK (76 files) · pytest **305 passed** |
+| `main` HEAD | `5a356ae` fix(reports): footer data sources, stale comment, ops event logging — pushed, in sync with `origin/main`. No migration. |
+| Stages complete | A B C D E F1 F2 F3 G H + June-7 report-review fixes + **ADR-002 incremental reporting + capture layer** + **Ring0 report enhancements #1–#4** + **June-9 reliability fixes** + **June-10 R-1~R-8 + observability** + **June-16 compliance + ops** + **Ring 0 audit remediation P0+P1** (see below) |
+| Next stage | **I** — 稳定运行验证。下次 MWF 定时任务（Wed Jun 18 16:30 ET）是新扫描规则的第一次实际验证。Ring 0 审计 P1 清单已完成 8/10 项；P1-7（加密）推迟 Ring 1；P1-9（重传持仓）待用户操作。P2 全推迟 Ring 1 第一周。 |
+| Backend quality | ruff OK · mypy OK (79 files) · pytest **305 passed** |
 | Frontend quality | tsc OK · eslint OK · next build OK |
 | LLM model | OpenRouter (provider=DigitalOcean,Venice), `data_collection=deny` on every call. **PRIMARY (Pass 2 analysis) = `deepseek/deepseek-v4-pro`**; **Pass 1 search + translation render = `deepseek/deepseek-v4-flash`** (LOW_COST). Sonnet/Anthropic models are NOT used here — too expensive (~$0.2/call); if `PRIMARY_LLM_MODEL` ever shows an `anthropic/*` value it is config drift, revert it. **Translation calls** (`_translate_chunk`) use a separate provider preference `_TRANSLATION_PROVIDER_ORDER = ["Cloudflare", "Morph"]` (2026-06-10) — DigitalOcean+Venice were observed returning repeated `429` for `deepseek-v4-flash` translation; `allow_fallbacks=True` still permits OpenRouter to go beyond this list if both are unavailable. |
 | Infrastructure | Homebrew PostgreSQL@16 + Redis (native, not Docker); `make infra-up` not needed |
@@ -309,6 +309,30 @@ Triggered by the June-15 after_close report (`28cd1461`) being blocked on
 - Processes restarted 2026-06-16; `28cd1461` rerun via
   `regenerate(mode=analyze)`. Backend: ruff OK · mypy OK (77 files) · pytest
   305 passed (+2). Committed as `cc56aa0`.
+
+### Ring 0 audit remediation (P0 + P1) — DONE (2026-06-15 session)
+
+Full audit source: Obsidian `Hermes/Portfonia/2026-06-10_Ring0收尾审计.md`.
+Tracker with per-item commit hashes: Obsidian `Hermes/Portfonia/ring1_prep_prompt.md`.
+
+**P0 items (3/3 complete):**
+- P0-1 `52a3850`: httpx/httpcore logger suppressed to WARNING (FRED key no longer logged).
+- P0-2: dbbf5646 confirmed abandoned (email_sent_at=NULL, window too old); Stage I ops manual §5 rewritten.
+- P0-3 `22c85fb`: H-DEBT-3 (news permanent-miss gap) registered in debt table.
+
+**P1 items (8/10 complete, 2 deferred):**
+- P1-1 `92d2b56`: `app/compliance/forbidden_vocab.py` — single source of truth for scan patterns + prompt vocab; zh terms expanded (减持/增持/清仓/入场/超买/超卖).
+- P1-2 `dfdf40e`: `report_html` written to DB on successful send (G-DEBT-1 partial).
+- P1-3 `ece72d4`: `ReportContext.llm_calls` + `_call_llm` `usage_sink` kwarg; `pass2_translated` snapshot stored in `report_inputs`.
+- P1-4 `577894b`: `backend/.logrotate.conf` (weekly/rotate 8/compress/copytruncate for `.run/*.log`).
+- P1-5 `d4ac329`: `_tavily_used_today()` enforces `TAVILY_DAILY_BUDGET` across same-day runs (not just per-run).
+- P1-6 `5a356ae`: `_build_footer` §7.3 data sources paragraph (yfinance/天天基金/RSS/FX with timing). FX wording already correct since June-16.
+- P1-7: **Deferred to Ring 1** (holdings encryption at rest; Ring 0 single-machine acceptable).
+- P1-8 `5a356ae`: `app/core/ops_log.py` — `log_ops_event()` writes `OPS_EVENT {json}` lines; wired into generate (start/end/skipped/failed) and regenerate (start).
+- P1-9: **Pending user action** — re-upload holdings `.md` to fix `position` NULL (20/20 rows).
+- P1-10 `5a356ae`: stale comment in `_build_pass1_prompt` corrected; `with_holdings` kept as intent marker (test mocks depend on it).
+
+Backend after remediation: ruff OK · mypy OK (79 files) · pytest 305 passed. No migration. No process restart required (no model/router/migration changes in this batch).
 
 ## Language Policy (MANDATORY)
 
