@@ -45,6 +45,7 @@ Last updated: 2026-06-16
 | I-DEBT-2 | `_call_llm` `choices`-None / 429 robustness. **RESOLVED 2026-06-10**: new `LLMEmptyResponseError` raised when `not resp.choices`; bounded 429 backoff-retry (5s/15s) inside `_call_llm` then re-raise. | **DONE** |
 | I-DEBT-3 | `app/main.py` missing `logging.basicConfig`. **RESOLVED 2026-06-10**: `basicConfig(level=INFO)` at import — `_call_llm` instrumentation now reaches `.run/uvicorn.log`. | **DONE** |
 | I-DEBT-4 | sync `POST /reports/generate` bare-500 on Pass-2 truncation. **RESOLVED 2026-06-10**: router catches `LLMEmptyResponseError`/`RuntimeError` → 502 with the failure reason. (Still no sync-path retry — acceptable; HTTP-timeout-bounded.) | **DONE** |
+| H-DEBT-3 | News "permanent miss" gap: a story whose `published_at` falls inside a report window but is ingested after that window's `period_end` is skipped by both that window and the next (each boundary excludes it once). Same-day multi-run amplifies the probability. Fix: decouple news selection from watermark — select by `published_at <= period_end` where `url_hash` not yet surfaced in any success/skipped report (`surfaced_at` column or join table). Full analysis in Ring0 开发文档 2026-06-09 section. | Ring 1 |
 
 ### Incremental reporting + capture layer — DONE (ADR-002)
 
