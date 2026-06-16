@@ -78,6 +78,8 @@ class Settings(BaseSettings):
     RESEND_API_KEY: SecretStr
     EMAIL_FROM: str
     EMAIL_REPLY_TO: str
+    # Ops alert recipient — receives failure/needs_review notifications.
+    ADMIN_EMAIL: str = "portfonia@gmail.com"
 
     # Ring 0 dev identity
     DEV_USER_ID: str

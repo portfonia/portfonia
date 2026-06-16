@@ -858,10 +858,29 @@ def test_build_section44_partial_metrics_render_dash() -> None:
     assert "—" in md  # the missing 200-day cell
 
 
-def test_scan_flags_technical_signal_vocabulary() -> None:
-    # §4.4 states facts; chart-signal language must trip the backstop.
-    for phrase in ("support level", "resistance level", "golden cross", "breakout", "支撑位"):
-        assert rg._scan_forbidden_output(f"the {phrase} held") != []
+def test_scan_flags_advisory_action_language() -> None:
+    # Direct advisory/action language must trip the backstop.
+    for phrase in ("stop-loss", "target price", "strong buy", "entry point", "止损", "目标价"):
+        assert rg._scan_forbidden_output(f"set a {phrase} near 100") != []
+
+
+def test_scan_allows_ta_observation_vocabulary() -> None:
+    # Descriptive TA terms (where price sits) are observation language, not advice.
+    # The Layer-3 prompt and disclaimer cover the advisory boundary — the scan
+    # backstop is reserved for direct action/recommendation language only.
+    for phrase in (
+        "support level",
+        "resistance level",
+        "golden cross",
+        "breakout",
+        "支撑位",
+        "阻力位",
+        "金叉",
+        "死叉",
+    ):
+        assert rg._scan_forbidden_output(f"the {phrase} held") == [], (
+            f"unexpectedly flagged: {phrase!r}"
+        )
 
 
 def test_scan_allows_descriptive_price_structure() -> None:
