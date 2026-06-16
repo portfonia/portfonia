@@ -39,6 +39,8 @@ import openai
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.compliance.forbidden_vocab import FORBIDDEN_OUTPUT_PATTERNS as _FORBIDDEN_OUTPUT_PATTERNS
+from app.compliance.forbidden_vocab import PROMPT_VOCAB_STRING as _FORBIDDEN_PROMPT_VOCAB
 from app.core.config import get_settings
 from app.core.deps import get_current_user_id
 from app.core.timezones import ET
@@ -74,37 +76,9 @@ _NEWS_RUN_RE = re.compile(r"\[S\d+\](?:\s*\[S\d+\])*")
 # the single disclaimer); kept here so _strip_markers can remove any stray one.
 _COMPLIANCE_MARKER = "[For information only — not investment advice]"
 
-# Output-side compliance backstop (defense in depth on top of the system prompt).
-# High-precision advisory patterns only — bare words like "buy"/"sell"/"hold"
-# are deliberately excluded to avoid false positives on factual prose
-# ("Holdings", "buyback", "exit poll"). Scanned against the LLM body ONLY, never
-# the template footer (whose disclaimer legitimately says "not a recommendation
-# to buy or sell"). A hit marks the report 'needs_review' and suppresses email.
-_FORBIDDEN_OUTPUT_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(p, re.IGNORECASE)
-    for p in (
-        r"\brecommend\w*",
-        r"\bshould\s+(buy|sell|hold)\b",
-        r"\breduce\s+exposure\b",
-        r"\bincrease\s+(your\s+)?position\b",
-        r"\bstop[-\s]?loss\b",
-        r"\btarget\s+price\b",
-        r"\bentry\s+point\b",
-        r"\boversold\b",
-        r"\boverbought\b",
-        r"\bstrong\s+buy\b",
-        r"\b(bullish|bearish)\s+rating\b",
-        r"\bwill\s+(rise|fall)\s+to\b",
-        # Chinese advisory terms — direct action/judgment language only.
-        # Descriptive TA observation terms (支撑位/阻力位/金叉/死叉) are NOT
-        # forbidden: they describe where price sits, not what to do about it.
-        # The disclaimer and Layer-3 prompt guard cover the advisory boundary.
-        r"止损",
-        r"强烈买入",
-        r"目标价",
-        r"投资建议",
-    )
-]
+# Output-side compliance backstop — patterns and vocabulary are defined in
+# app/compliance/forbidden_vocab.py (single source of truth shared with the
+# LLM system prompt). Imported above as _FORBIDDEN_OUTPUT_PATTERNS.
 
 
 def _scan_forbidden_output(body: str) -> list[str]:
@@ -138,16 +112,14 @@ _FORWARD_WINDOW_DAYS = 10
 
 # System prompt prefix injected into every LLM call for Layer 3/4 compliance.
 # This text is not user-tunable.
-_COMPLIANCE_SYSTEM_PREFIX = """\
+_COMPLIANCE_SYSTEM_PREFIX = f"""\
 MANDATORY COMPLIANCE — NEVER VIOLATE:
 You are an intelligence analyst, not a financial advisor. Your output describes \
 what is happening in markets and what signals are worth watching. You NEVER recommend \
 actions to take.
 
 Forbidden vocabulary (never emit these words or their equivalents in any language):
-recommend, should buy, should sell, hold, reduce exposure, increase position, exit, \
-stop-loss, target price, will rise to, will fall to, entry point, oversold, overbought, \
-strong buy, bullish rating, bearish rating, 止损, 强烈买入, 目标价, 投资建议.
+{_FORBIDDEN_PROMPT_VOCAB}.
 
 Do NOT append any per-sentence disclaimer or marker, and do NOT write any \
 disclaimer, legal notice, or "for informational purposes" statement anywhere — \
