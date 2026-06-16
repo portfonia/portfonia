@@ -8,10 +8,10 @@ Last updated: 2026-06-16
 | Item | Value |
 |------|-------|
 | Ring stage | **Ring 0** (local dev machine, single user, no cloud) |
-| `main` HEAD | `cc56aa0` fix(compliance): relax TA-observation scan terms + strengthen disclaimer + ops alerts — pushed, in sync with `origin/main`. No migration. |
-| Stages complete | A B C D E F1 F2 F3 G H + June-7 report-review fixes + **ADR-002 incremental reporting + capture layer** + **Ring0 report enhancements #1–#4** + **June-9 reliability fixes** + **June-10 R-1~R-8 + observability** (see below) + **June-16 compliance + ops** (see below) |
-| Next stage | **I** — 稳定运行验证。June-15 盘后报告被 `阻力位` 拦截（`28cd1461`，`needs_review`），触发本次修复。修复已推送 `cc56aa0`，三进程已于 2026-06-16 重启。`28cd1461` 已使用 `regenerate(mode=analyze)` 重跑，结果待确认。下次 MWF 定时任务（Wed 16:30 ET）是第一次用新扫描规则的实际验证。 |
-| Backend quality | ruff OK · mypy OK (77 files) · pytest **305 passed** |
+| `main` HEAD | `1853f6a` feat(reports): add resend=true to /regenerate endpoint — pushed, in sync with `origin/main`. No migration. |
+| Stages complete | A B C D E F1 F2 F3 G H + June-7 report-review fixes + **ADR-002 incremental reporting + capture layer** + **Ring0 report enhancements #1–#4** + **June-9 reliability fixes** + **June-10 R-1~R-8 + observability** + **June-16 compliance + ops** (see below) |
+| Next stage | **I** — 稳定运行验证。June-15 盘后报告被 `阻力位` 拦截（`28cd1461`），触发 June-16 修复（3 commits: `cc56aa0` 合规扫描松绑 + 免责声明 v2 + ops 告警邮件；`d7f89ae` docs；`1853f6a` regenerate+resend 端点）。`28cd1461` 已手动 regenerate+resend，邮件 21:16 PDT 送出（`email_sent_at` 已写入）。所有进程已重启（uvicorn 2026-06-16 重启，celery worker/beat 沿用）。下次 MWF 定时任务（Wed Jun 18 16:30 ET）是新扫描规则的第一次实际验证。 |
+| Backend quality | ruff OK · mypy OK (76 files) · pytest **305 passed** |
 | Frontend quality | tsc OK · eslint OK · next build OK |
 | LLM model | OpenRouter (provider=DigitalOcean,Venice), `data_collection=deny` on every call. **PRIMARY (Pass 2 analysis) = `deepseek/deepseek-v4-pro`**; **Pass 1 search + translation render = `deepseek/deepseek-v4-flash`** (LOW_COST). Sonnet/Anthropic models are NOT used here — too expensive (~$0.2/call); if `PRIMARY_LLM_MODEL` ever shows an `anthropic/*` value it is config drift, revert it. **Translation calls** (`_translate_chunk`) use a separate provider preference `_TRANSLATION_PROVIDER_ORDER = ["Cloudflare", "Morph"]` (2026-06-10) — DigitalOcean+Venice were observed returning repeated `429` for `deepseek-v4-flash` translation; `allow_fallbacks=True` still permits OpenRouter to go beyond this list if both are unavailable. |
 | Infrastructure | Homebrew PostgreSQL@16 + Redis (native, not Docker); `make infra-up` not needed |
@@ -180,6 +180,14 @@ Backend quality after all three: ruff OK · mypy OK (76 files) · pytest 303 pas
 (+23). Committed and pushed as `468f403` (one squashed commit — the three
 batches' edits to `report_generator.py` were too entangled to split into
 independently-passing commits).
+
+**Post-push ops (2026-06-16):**
+- Three commits pushed for compliance relaxation + ops alerts + resend endpoint
+  (see "June-16 compliance relaxation + ops alerts" section below).
+- June-15 report `28cd1461` (blocked on `阻力位`) manually regenerated and
+  resent via Python script; `email_sent_at` written 2026-06-15 21:16 PDT.
+- uvicorn restarted after router change (`1853f6a`). celery worker/beat
+  unchanged (no task or model changes in this batch).
 
 **Post-push ops (2026-06-10 18:36 PDT):**
 - uvicorn, celery worker, celery beat all killed and restarted per the
