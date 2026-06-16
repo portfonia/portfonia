@@ -43,6 +43,7 @@ from app.compliance.forbidden_vocab import FORBIDDEN_OUTPUT_PATTERNS as _FORBIDD
 from app.compliance.forbidden_vocab import PROMPT_VOCAB_STRING as _FORBIDDEN_PROMPT_VOCAB
 from app.core.config import get_settings
 from app.core.deps import get_current_user_id
+from app.core.ops_log import log_ops_event
 from app.core.timezones import ET
 from app.models.report import Report
 from app.services.email_sender import send_report_email
@@ -647,10 +648,11 @@ def _build_pass1_prompt(
     signals: MacroSignals,
     news: list[NewsItem],
 ) -> str:
-    # DATA ISOLATION: Pass 1 runs without data_collection=deny, so it must carry
-    # only public information (macro themes + news headlines). Price anomalies are
-    # holdings-derived (name/ticker reveal what the user owns) and are therefore
-    # withheld here — they are supplied only to Pass 2, which enforces deny.
+    # DATA ISOLATION: Pass 1 must carry only public information (macro themes +
+    # news headlines). Price anomalies are holdings-derived (name/ticker reveal
+    # what the user owns) and are therefore withheld here — they are supplied
+    # only to Pass 2. data_collection=deny is enforced on EVERY LLM call
+    # unconditionally (_call_llm) — Pass 1 is not an exception.
     lines: list[str] = []
 
     lines.append("=== TODAY'S MACRO SIGNAL THEMES ===")
@@ -1321,9 +1323,12 @@ def _build_footer(portfolio: dict[str, Any]) -> str:
         "",
         "## Data Sources & Disclaimer",
         "",
-        f"**Exchange rates:** As of {fx_date} (daily closing rates from yfinance). "
-        f"All portfolio valuations are converted to {base_ccy} using these rates. "
-        "Intraday FX moves are not reflected.",
+        "**Data sources:** Equity/ETF prices — yfinance (end-of-day session closes, "
+        "US/HK/CN exchanges). Fund NAV — 天天基金 (Tiantian). "
+        "News — RSS feeds (Reuters, CNBC, Google News Business). "
+        f"Exchange rates — yfinance daily closes as of {fx_date}; "
+        f"all portfolio valuations converted to {base_ccy}. "
+        "Intraday and premarket data are not used.",
         "",
         f"**Disclaimer:** {_DISCLAIMER_EN}",
         "",
@@ -1821,6 +1826,16 @@ def generate_report(
             period_end.isoformat(),
         )
 
+    log_ops_event(
+        "report.generate.start",
+        report_id=str(report.id),
+        report_date=str(eff_date),
+        session_node=session_node,
+        report_type=report_type,
+        period_start=period_start.isoformat(),
+        period_end=period_end.isoformat(),
+    )
+
     ctx = ReportContext()
     ctx.period_start = period_start.isoformat()
     ctx.period_end = period_end.isoformat()
@@ -1896,6 +1911,7 @@ def generate_report(
             report.report_inputs = ctx.to_jsonb()
             report.generated_at = datetime.now(tz=UTC)
             session.commit()
+            log_ops_event("report.generate.end", report_id=str(report.id), status="skipped")
             # R-7: a short manual re-run (e.g. a same-day second trigger minutes
             # after the first) covers a near-empty window — 0 news, 0 anomalies,
             # nothing the first report didn't have. Emailing it is pure noise
@@ -2076,11 +2092,13 @@ def generate_report(
         # ------------------------------------------------------------------
         # Compliance > everything: a body that tripped the blacklist is held as
         # 'needs_review' and never emailed — content is preserved for inspection.
-        report.status = "needs_review" if violations else "success"
+        final_status = "needs_review" if violations else "success"
+        report.status = final_status
         report.report_md = full_md
         report.report_inputs = ctx.to_jsonb()
         report.generated_at = datetime.now(tz=UTC)
         session.commit()
+        log_ops_event("report.generate.end", report_id=str(report.id), status=final_status)
 
         if violations:
             logger.error(
@@ -2115,6 +2133,7 @@ def generate_report(
         logger.exception("report %s: generation failed", report.id)
         report.status = "failed"
         report.report_inputs = ctx.to_jsonb()
+        log_ops_event("report.generate.end", report_id=str(report.id), status="failed")
         try:
             session.commit()
         except Exception:
@@ -2144,6 +2163,7 @@ def regenerate_report(
     Does not email — this is an iteration/inspection tool.
     """
     user_id = get_current_user_id()
+    log_ops_event("report.regenerate.start", report_id=str(report_id), mode=mode)
     report = session.execute(
         select(Report).where(Report.id == report_id, Report.user_id == user_id)
     ).scalar_one_or_none()
