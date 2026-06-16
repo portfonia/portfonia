@@ -55,21 +55,26 @@ def regenerate(
     report_id: uuid.UUID,
     mode: str = "render",
     output_lang: str | None = None,
+    resend: bool = False,
     session: Session = Depends(get_session),
 ) -> Report:
     """Rebuild a report from stored inputs without re-fetching intel (#6).
 
     mode=render re-renders from the stored Pass 2 body (token-free except
-    translation); mode=analyze re-runs Pass 2 from the stored intel. Does not
-    re-send email. Defaults output language to OUTPUT_LANG.
+    translation); mode=analyze re-runs Pass 2 from the stored intel.
+    resend=true sends the email after a successful regeneration (status=success).
+    Defaults output language to OUTPUT_LANG.
     """
     if mode not in ("render", "analyze"):
         raise HTTPException(status_code=422, detail="mode must be 'render' or 'analyze'")
     lang = output_lang or get_settings().OUTPUT_LANG
     try:
-        return regenerate_report(session, report_id, mode=mode, output_lang=lang)
+        report = regenerate_report(session, report_id, mode=mode, output_lang=lang)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if resend and report.status == "success":
+        send_report_email(report, session)
+    return report
 
 
 @router.get("/", response_model=list[ReportListItem])
