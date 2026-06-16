@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from app.services.email_sender import send_ops_alert
 from app.tasks import celery_app
 
 logger = logging.getLogger(__name__)
@@ -47,9 +48,28 @@ def generate_incremental_report(self: Any) -> dict[str, str]:
             report.id,
             report.status,
         )
+        if report.status == "needs_review":
+            send_ops_alert(
+                subject=f"[Portfonia] Report BLOCKED — compliance review {report.report_date}",
+                body=(
+                    f"Report {report.id} ({report.report_date}) was held for compliance review "
+                    f"and was NOT emailed to the user.\n\n"
+                    f"Check worker.log for the triggering terms.\n"
+                    f"To rerun: POST /reports/{report.id}/regenerate?mode=analyze"
+                ),
+            )
         return {"report_id": str(report.id), "status": report.status}
     except Exception as exc:
         logger.exception("generate_incremental_report: failed, scheduling retry")
+        if self.request.retries >= self.max_retries:
+            send_ops_alert(
+                subject="[Portfonia] Report generation FAILED — all retries exhausted",
+                body=(
+                    f"generate_incremental_report failed after {self.max_retries} retries.\n\n"
+                    f"error: {type(exc).__name__}: {exc}\n\n"
+                    f"Check worker.log for the full traceback."
+                ),
+            )
         raise self.retry(exc=exc) from exc
     finally:
         session.close()

@@ -60,9 +60,12 @@ def _make_report(report_id: uuid.UUID | None = None) -> MagicMock:
     return r
 
 
+@patch("app.tasks.report_tasks.send_ops_alert")
 @patch("app.core.database.SessionLocal")
 @patch("app.services.report_generator.generate_report")
-def test_task_happy_path(mock_gen: MagicMock, mock_session_cls: MagicMock) -> None:
+def test_task_happy_path(
+    mock_gen: MagicMock, mock_session_cls: MagicMock, mock_alert: MagicMock
+) -> None:
     report_id = uuid.uuid4()
     mock_gen.return_value = _make_report(report_id)
     mock_session = MagicMock()
@@ -75,11 +78,36 @@ def test_task_happy_path(mock_gen: MagicMock, mock_session_cls: MagicMock) -> No
     assert result["report_id"] == str(report_id)
     assert result["status"] == "success"
     mock_session.close.assert_called_once()
+    mock_alert.assert_not_called()
 
 
+@patch("app.tasks.report_tasks.send_ops_alert")
 @patch("app.core.database.SessionLocal")
 @patch("app.services.report_generator.generate_report")
-def test_task_closes_session_on_success(mock_gen: MagicMock, mock_session_cls: MagicMock) -> None:
+def test_task_needs_review_sends_ops_alert(
+    mock_gen: MagicMock, mock_session_cls: MagicMock, mock_alert: MagicMock
+) -> None:
+    report = _make_report()
+    report.status = "needs_review"
+    mock_gen.return_value = report
+    mock_session_cls.return_value = MagicMock()
+
+    from app.tasks.report_tasks import generate_incremental_report
+
+    result = generate_incremental_report.run()
+
+    assert result["status"] == "needs_review"
+    mock_alert.assert_called_once()
+    subject = mock_alert.call_args.kwargs["subject"]
+    assert "BLOCKED" in subject or "needs_review" in subject or "compliance" in subject.lower()
+
+
+@patch("app.tasks.report_tasks.send_ops_alert")
+@patch("app.core.database.SessionLocal")
+@patch("app.services.report_generator.generate_report")
+def test_task_closes_session_on_success(
+    mock_gen: MagicMock, mock_session_cls: MagicMock, mock_alert: MagicMock
+) -> None:
     mock_gen.return_value = _make_report()
     mock_session = MagicMock()
     mock_session_cls.return_value = mock_session
@@ -91,9 +119,12 @@ def test_task_closes_session_on_success(mock_gen: MagicMock, mock_session_cls: M
     mock_session.close.assert_called_once()
 
 
+@patch("app.tasks.report_tasks.send_ops_alert")
 @patch("app.core.database.SessionLocal")
 @patch("app.services.report_generator.generate_report")
-def test_task_closes_session_on_failure(mock_gen: MagicMock, mock_session_cls: MagicMock) -> None:
+def test_task_closes_session_on_failure(
+    mock_gen: MagicMock, mock_session_cls: MagicMock, mock_alert: MagicMock
+) -> None:
     mock_gen.side_effect = RuntimeError("LLM down")
     mock_session = MagicMock()
     mock_session_cls.return_value = mock_session

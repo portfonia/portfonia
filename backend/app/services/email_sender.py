@@ -196,3 +196,32 @@ def send_report_email(report: Report, session: Session) -> bool:
         subject,
     )
     return True
+
+
+def send_ops_alert(subject: str, body: str) -> None:
+    """Send a plain-text ops alert to the admin email via Resend.
+
+    Used for failure/needs_review notifications. Never raises — logs on error.
+    """
+    settings = get_settings()
+    api_key = settings.RESEND_API_KEY.get_secret_value()
+    payload: dict[str, object] = {
+        "from": settings.EMAIL_FROM,
+        "to": [settings.ADMIN_EMAIL],
+        "subject": subject,
+        "text": body,
+    }
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.post(
+                _RESEND_SEND_URL,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            resp.raise_for_status()
+        logger.info("ops alert sent to %s: %s", settings.ADMIN_EMAIL, subject)
+    except Exception:
+        logger.exception("ops alert delivery failed: %s", subject)
