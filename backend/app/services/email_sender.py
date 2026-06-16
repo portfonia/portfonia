@@ -182,18 +182,21 @@ def send_report_email(report: Report, session: Session) -> bool:
         logger.exception("report %s: email delivery failed", report.id)
         return False
 
+    resend_id = resp.json().get("id", "unknown")
     report.email_sent_at = datetime.now(tz=UTC)
+    report.report_html = html_body  # persist exact sent version (G-DEBT-1 partial)
     try:
         session.commit()
     except Exception:
-        logger.exception("report %s: failed to persist email_sent_at", report.id)
+        logger.exception("report %s: failed to persist email_sent_at/report_html", report.id)
         session.rollback()
 
     logger.info(
-        "report %s: email delivered to %s (subject: %s)",
+        "report %s: email delivered to %s (subject: %s, resend_id: %s)",
         report.id,
         recipient,
         subject,
+        resend_id,
     )
     return True
 
