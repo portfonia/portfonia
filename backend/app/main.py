@@ -16,6 +16,11 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
+# httpx logs full URLs at INFO level, which leaks API keys in query strings
+# (e.g. FRED api_key= param). Suppress to WARNING so the transport-level
+# GET lines never reach the log file.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 settings = get_settings()
 
