@@ -420,6 +420,32 @@ def _run_tavily_search(
     return all_results
 
 
+def _tavily_used_today(
+    session: Session, report_date: date, exclude_report_id: uuid.UUID | None = None
+) -> int:
+    """Return the number of Tavily queries already fired today (ET calendar date).
+
+    Counts search_queries stored in report_inputs of terminal-state reports so
+    a second run in the same day (manual + after_close, or a retry) sees the
+    cumulative daily spend. Excludes the current in-progress row to avoid
+    double-counting a retry. Note: Hermes shares this Tavily key; cross-project
+    spend is not tracked here — the budget is a Portfonia-only floor.
+    """
+    rows = session.execute(
+        select(Report.report_inputs, Report.id).where(
+            Report.report_date == report_date,
+            Report.status.in_(("success", "skipped", "needs_review")),
+        )
+    ).all()
+    total = 0
+    for inputs, row_id in rows:
+        if row_id == exclude_report_id:
+            continue
+        if inputs and isinstance(inputs, dict):
+            total += len(inputs.get("search_queries", []))
+    return total
+
+
 # ---------------------------------------------------------------------------
 # Holding-relevant news (R-3): recall over the captured window + targeted search
 # ---------------------------------------------------------------------------
@@ -1934,18 +1960,20 @@ def generate_report(
         ctx.search_queries = search_queries[:_MAX_SEARCH_QUERIES]
 
         # ------------------------------------------------------------------
-        # 4. Tavily search
+        # 4. Tavily search  — daily budget enforced across runs
         # ------------------------------------------------------------------
+        used_today = _tavily_used_today(session, eff_date, exclude_report_id=report.id)
+        daily_remaining = max(0, settings.TAVILY_DAILY_BUDGET - used_today)
         if ctx.search_queries:
             logger.info(
-                "report %s: running %d Tavily queries (budget %d)",
+                "report %s: running %d Tavily queries (daily budget %d, used today %d, remaining %d)",
                 report.id,
                 len(ctx.search_queries),
                 settings.TAVILY_DAILY_BUDGET,
+                used_today,
+                daily_remaining,
             )
-            search_results = _run_tavily_search(
-                ctx.search_queries, budget=settings.TAVILY_DAILY_BUDGET
-            )
+            search_results = _run_tavily_search(ctx.search_queries, budget=daily_remaining)
         else:
             search_results = []
         ctx.search_results = search_results
@@ -1969,11 +1997,11 @@ def generate_report(
         )
 
         targeted = _targeted_anomaly_queries(ctx.price_anomalies, set(ctx.holding_news.keys()))
-        remaining_budget = max(0, settings.TAVILY_DAILY_BUDGET - len(ctx.search_queries))
-        if targeted and remaining_budget > 0:
-            tq = [q for _ident, q in targeted][:remaining_budget]
+        targeted_remaining = max(0, daily_remaining - len(ctx.search_results))
+        if targeted and targeted_remaining > 0:
+            tq = [q for _ident, q in targeted][:targeted_remaining]
             logger.info("report %s: %d targeted anomaly searches", report.id, len(tq))
-            targeted_results = _run_tavily_search(tq, budget=remaining_budget)
+            targeted_results = _run_tavily_search(tq, budget=targeted_remaining)
             ctx.search_results.extend(targeted_results)
 
         # Re-index results globally for [S#] citation notation
