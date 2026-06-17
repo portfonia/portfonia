@@ -21,6 +21,9 @@ class ParsedRow(BaseModel):
     current_value: float | None = None
     pricing_mode: Literal["auto", "manual"]
     asset_type: Literal["stock", "etf", "fund", "cash", "wmf", "other"] | None = None
+    # Economic classification set by _postprocess (ticker lookup + asset_type fallback).
+    # Not emitted by the LLM; always populated before confirm.
+    asset_class: str = "STOCK"
     # User-declared market bucket; normalized in _postprocess. None = let the
     # calculator derive it from the ticker.
     market: Literal["US", "HK", "A-Share", "Other"] | None = None
@@ -50,6 +53,7 @@ class HoldingOut(BaseModel):
     current_value: Decimal | None
     pricing_mode: str
     asset_type: str | None
+    asset_class: str
     market: str | None
     broker: str | None
     account: str | None
