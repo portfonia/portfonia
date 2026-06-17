@@ -568,6 +568,18 @@ def _serialize_anomalies(anomalies: list[PriceAnomaly]) -> list[dict[str, Any]]:
             "day_low": _f(a.day_low),
             "day_close": _f(a.day_close),
             "after_hours": _f(a.after_hours),
+            "theme": a.theme,
+            "theme_label_zh": a.theme_label_zh,
+            "theme_label_en": a.theme_label_en,
+            "constituents": [
+                {
+                    "name": c.name,
+                    "identifier": c.identifier,
+                    "pct_change": float(c.pct_change),
+                    "current_value": float(c.current_value),
+                }
+                for c in (a.constituents or [])
+            ],
         }
         for a in anomalies
     ]
@@ -729,6 +741,10 @@ def _build_section42_table(anomalies: list[dict[str, Any]]) -> str:
     number. The LLM writes only the one-line driver per holding underneath
     (see the §4.2 prompt instruction). English headers are rendered to the
     output language by the translation pass, same as §1.
+
+    For theme-aggregated entries (e.g. Gold = SGOL + 518660 + 518800), the
+    headline row shows the weighted-average move; a "Constituents" block below
+    the table lists each holding's individual contribution.
     """
 
     def pct(x: float | None) -> str:
@@ -743,9 +759,18 @@ def _build_section42_table(anomalies: list[dict[str, Any]]) -> str:
         "|---------|-------|------------------|------------|--------------"
         "|----------------|-------|-----------|---------|",
     ]
+    theme_detail_lines: list[str] = []
+
     for a in anomalies:
+        theme = a.get("theme")
         ident = a.get("identifier", "")
-        name_col = f"{a.get('name', '')} ({ident})" if ident else a.get("name", "")
+
+        if theme:
+            # Theme entry: show label + theme key.  Constituents go in a note below.
+            label_zh = a.get("theme_label_zh") or a.get("name", "")
+            name_col = f"{label_zh} ({ident})" if ident != label_zh else label_zh
+        else:
+            name_col = f"{a.get('name', '')} ({ident})" if ident else a.get("name", "")
 
         wd = a.get("max_day_date")
         worst = pct(a.get("max_day_pct"))
@@ -765,7 +790,23 @@ def _build_section42_table(anomalies: list[dict[str, Any]]) -> str:
             f"| {num(pc)} | {open_col} | {range_col} | {num(cl)} | {ah_col} "
             f"| {a.get('trigger', '')} |"
         )
-    return "\n".join(lines)
+
+        if theme:
+            constituents: list[dict[str, Any]] = a.get("constituents") or []
+            if len(constituents) >= 2:
+                parts = ", ".join(
+                    f"{c.get('identifier') or c.get('name')} {pct(c.get('pct_change'))}"
+                    for c in constituents
+                )
+                label = a.get("theme_label_en") or ident
+                theme_detail_lines.append(
+                    f"- **{label}**: {parts} (weighted avg {pct(a.get('window_net_pct'))})"
+                )
+
+    result = "\n".join(lines)
+    if theme_detail_lines:
+        result += "\n\n**Constituent breakdown:**\n" + "\n".join(theme_detail_lines)
+    return result
 
 
 def _inject_section42_table(body: str, table: str) -> str:

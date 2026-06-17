@@ -21,8 +21,9 @@ from app.models.holding import Holding
 from app.models.news import News
 from app.models.price_snapshot import PriceSnapshot
 from app.models.report import Report
+from app.models.ticker_theme import TickerTheme
 from app.services.news_fetcher import NewsItem
-from app.services.price_anomaly_detector import PriceAnomaly
+from app.services.price_anomaly_detector import ConstituentMove, PriceAnomaly
 
 logger = logging.getLogger(__name__)
 
@@ -208,22 +209,160 @@ def _after_hours_last(session: Session, ticker: str, on: date) -> Decimal | None
     return snap.last if snap else None
 
 
+def _compute_holding_move(
+    session: Session,
+    h: Holding,
+    start: datetime,
+    end: datetime,
+    start_date: date,
+    trading_days: int,
+) -> PriceAnomaly | None:
+    """Compute the window move for a single holding; return None if not anomalous."""
+    thresholds = _ASSET_THRESHOLDS.get(h.asset_class)
+    if thresholds is None or not h.ticker:
+        return None
+    per_day, cumulative_cap = thresholds
+    baseline = _close_snapshot_before_window(session, h.ticker, start, start_date)
+    series = _window_closes(session, h.ticker, start, end)
+    if baseline is None or baseline.close is None or not series:
+        return None
+    latest = series[-1]
+    if latest.close is None or baseline.close == 0:
+        return None
+
+    path = [baseline, *series]
+    net_pct = ((latest.close - baseline.close) / baseline.close).quantize(_RATIO)
+
+    max_day_pct: Decimal | None = None
+    max_day_date: date | None = None
+    for prev, cur in pairwise(path):
+        if prev.close is None or cur.close is None or prev.close == 0:
+            continue
+        day_pct = ((cur.close - prev.close) / prev.close).quantize(_RATIO)
+        if max_day_pct is None or abs(day_pct) > abs(max_day_pct):
+            max_day_pct = day_pct
+            max_day_date = cur.trade_date
+
+    window_threshold = _window_threshold(per_day, cumulative_cap, trading_days)
+    single_day_hit = max_day_pct is not None and abs(max_day_pct) >= per_day
+    cumulative_hit = abs(net_pct) >= window_threshold
+    if not (single_day_hit or cumulative_hit):
+        return None
+
+    trigger = "single_day" if single_day_hit else "cumulative"
+    prev_close = path[-2].close if len(path) >= 2 else None
+    return PriceAnomaly(
+        name=h.name,
+        identifier=h.ticker,
+        asset_type=h.asset_class,
+        current_price=latest.close,
+        prev_price=baseline.close,
+        pct_change=net_pct,
+        threshold=window_threshold,
+        trigger=trigger,
+        market=latest.market,
+        baseline_date=baseline.trade_date,
+        latest_date=latest.trade_date,
+        window_net_pct=net_pct,
+        max_day_pct=max_day_pct,
+        max_day_date=max_day_date,
+        prev_close=prev_close,
+        day_open=latest.open,
+        day_high=latest.high,
+        day_low=latest.low,
+        day_close=latest.close,
+        after_hours=_after_hours_last(session, h.ticker, latest.trade_date),
+    )
+
+
+def _merge_theme_anomalies(
+    flagged: list[tuple[Holding, PriceAnomaly]],
+    theme_row: TickerTheme,
+) -> PriceAnomaly:
+    """Merge multiple per-holding anomalies sharing a theme into one entry.
+
+    Headline pct_change = value-weighted average of each holding's window net
+    pct.  The session arc (open/high/low/close) comes from the value-dominant
+    holding so the numbers remain coherent (mixing two currencies' OHLC is
+    meaningless).  The threshold, trigger, and date range are taken from the
+    dominant holding as well.
+    """
+
+    # Sort by current_value descending; fall back to 0 when value is unknown.
+    def _val(h: Holding) -> Decimal:
+        return h.current_value or Decimal("0")
+
+    flagged_sorted = sorted(flagged, key=lambda t: _val(t[0]), reverse=True)
+    _dominant_h, dominant_a = flagged_sorted[0]
+
+    total_value = sum(_val(h) for h, _ in flagged)
+    if total_value == 0:
+        # Equal-weight fallback when no values are available.
+        weighted_pct = (
+            sum((a.pct_change for _, a in flagged), Decimal("0")) / len(flagged)
+        ).quantize(_RATIO)
+    else:
+        weighted_pct = (sum(_val(h) * a.pct_change for h, a in flagged) / total_value).quantize(
+            _RATIO
+        )
+
+    constituents = [
+        ConstituentMove(
+            name=h.name,
+            identifier=h.ticker or "",
+            pct_change=a.pct_change,
+            current_value=_val(h),
+        )
+        for h, a in flagged_sorted
+    ]
+
+    return PriceAnomaly(
+        name=theme_row.theme_label_zh,
+        identifier=theme_row.theme,
+        asset_type=theme_row.asset_class,
+        current_price=dominant_a.current_price,
+        prev_price=dominant_a.prev_price,
+        pct_change=weighted_pct,
+        threshold=dominant_a.threshold,
+        trigger=dominant_a.trigger,
+        market=dominant_a.market,
+        baseline_date=dominant_a.baseline_date,
+        latest_date=dominant_a.latest_date,
+        window_net_pct=weighted_pct,
+        max_day_pct=dominant_a.max_day_pct,
+        max_day_date=dominant_a.max_day_date,
+        prev_close=dominant_a.prev_close,
+        day_open=dominant_a.day_open,
+        day_high=dominant_a.day_high,
+        day_low=dominant_a.day_low,
+        day_close=dominant_a.day_close,
+        after_hours=dominant_a.after_hours,
+        theme=theme_row.theme,
+        theme_label_zh=theme_row.theme_label_zh,
+        theme_label_en=theme_row.theme_label_en,
+        constituents=constituents,
+    )
+
+
 def detect_window_anomalies(
     session: Session, start: datetime, end: datetime
 ) -> tuple[list[PriceAnomaly], int]:
     """Price moves over the report window, computed from stored snapshots.
 
-    A holding flags as an anomaly when EITHER condition holds (points 7 + 10):
+    A holding flags as an anomaly when EITHER condition holds:
 
       * single-day  — any one trading day inside the window moved beyond the
-        per-day threshold (stock 3 %, etf 2 %). This is what catches a violent
-        session that the endpoint-to-endpoint net move smooths away.
+        per-day threshold. Catches a violent session that the endpoint-to-
+        endpoint net move would smooth away.
       * cumulative  — the baseline-close → latest-close net move beyond the
-        scaled window threshold (per-day x trading-days, capped at 10 %).
+        scaled window threshold (per-day x trading-days, capped at the per-class
+        cumulative cap).
 
-    For every flagged holding we also attach the most recent trading day's
-    session arc (prior close, OHLC, after-hours) so the report can state the
-    comparison basis and describe how the day ran, not just a percentage.
+    Holdings that share a theme in ``ticker_themes`` are merged into a single
+    anomaly entry if ANY constituent flags.  The headline pct_change is the
+    value-weighted average across all theme members; the session arc comes from
+    the value-dominant constituent.  Holdings with no theme entry are emitted as
+    individual anomaly rows.
 
     A holding with no baseline close (added mid-window) is skipped. Returns
     (anomalies sorted by largest |move|, trading_days_in_window).
@@ -238,9 +377,6 @@ def detect_window_anomalies(
     start_date = start.astimezone(ET).date()
     end_date = end.astimezone(ET).date()
 
-    # Same membership test as _window_closes: a trade_date counts toward the
-    # window if it's strictly after start_date (and on/before end_date), or it
-    # IS start_date but its close was captured after period_start.
     trading_days = int(
         session.execute(
             select(func.count(func.distinct(PriceSnapshot.trade_date))).where(
@@ -261,74 +397,35 @@ def detect_window_anomalies(
         or 0
     )
 
-    anomalies: list[PriceAnomaly] = []
+    # Load theme map: ticker (upper) → TickerTheme row.
+    theme_map: dict[str, TickerTheme] = {
+        row.ticker.upper(): row for row in session.execute(select(TickerTheme)).scalars().all()
+    }
+
+    # Compute per-holding moves; bucket into themed vs standalone.
+    # theme_buckets: theme key → [(Holding, PriceAnomaly)]
+    theme_buckets: dict[str, list[tuple[Holding, PriceAnomaly]]] = {}
+    standalone: list[PriceAnomaly] = []
+
     for h in holdings:
-        thresholds = _ASSET_THRESHOLDS.get(h.asset_class)
-        if thresholds is None or not h.ticker:
+        anomaly = _compute_holding_move(session, h, start, end, start_date, trading_days)
+        if anomaly is None:
             continue
-        per_day, cumulative_cap = thresholds
-        baseline = _close_snapshot_before_window(session, h.ticker, start, start_date)
-        series = _window_closes(session, h.ticker, start, end)
-        if baseline is None or baseline.close is None or not series:
-            continue
-        latest = series[-1]
-        if latest.close is None or baseline.close == 0:
-            continue
+        theme_row = theme_map.get((h.ticker or "").upper())
+        if theme_row is not None:
+            theme_buckets.setdefault(theme_row.theme, []).append((h, anomaly))
+        else:
+            standalone.append(anomaly)
 
-        # Full close path: baseline followed by every in-window close.
-        path = [baseline, *series]
-        net_pct = ((latest.close - baseline.close) / baseline.close).quantize(_RATIO)
+    # Build merged theme anomalies.
+    theme_anomalies: list[PriceAnomaly] = []
+    for _theme_key, members in theme_buckets.items():
+        # Use the first member's TickerTheme row (all share the same theme).
+        ticker_upper = (members[0][0].ticker or "").upper()
+        theme_row = theme_map[ticker_upper]
+        theme_anomalies.append(_merge_theme_anomalies(members, theme_row))
 
-        # Largest single-day move along the path (signed, keep the worst |move|).
-        max_day_pct: Decimal | None = None
-        max_day_date: date | None = None
-        for prev, cur in pairwise(path):
-            if prev.close is None or cur.close is None or prev.close == 0:
-                continue
-            day_pct = ((cur.close - prev.close) / prev.close).quantize(_RATIO)
-            if max_day_pct is None or abs(day_pct) > abs(max_day_pct):
-                max_day_pct = day_pct
-                max_day_date = cur.trade_date
-
-        window_threshold = _window_threshold(per_day, cumulative_cap, trading_days)
-        single_day_hit = max_day_pct is not None and abs(max_day_pct) >= per_day
-        cumulative_hit = abs(net_pct) >= window_threshold
-        if not (single_day_hit or cumulative_hit):
-            continue
-
-        # A violent single session is labelled "single_day" even if the net also
-        # cleared the cumulative bar; a quiet drift past the (capped) cumulative
-        # threshold with no big day is "cumulative". The >10%-always-flags tier
-        # falls out naturally (a >10% day is single_day; a >10% net with small
-        # days is cumulative, since the cap makes window_threshold <= 10%).
-        trigger = "single_day" if single_day_hit else "cumulative"
-
-        prev_close = path[-2].close if len(path) >= 2 else None
-        anomalies.append(
-            PriceAnomaly(
-                name=h.name,
-                identifier=h.ticker,
-                asset_type=h.asset_class,
-                current_price=latest.close,
-                prev_price=baseline.close,
-                pct_change=net_pct,
-                threshold=window_threshold,
-                trigger=trigger,
-                market=latest.market,
-                baseline_date=baseline.trade_date,
-                latest_date=latest.trade_date,
-                window_net_pct=net_pct,
-                max_day_pct=max_day_pct,
-                max_day_date=max_day_date,
-                prev_close=prev_close,
-                day_open=latest.open,
-                day_high=latest.high,
-                day_low=latest.low,
-                day_close=latest.close,
-                after_hours=_after_hours_last(session, h.ticker, latest.trade_date),
-            )
-        )
-
+    anomalies = theme_anomalies + standalone
     anomalies.sort(
         key=lambda a: max(abs(a.window_net_pct or a.pct_change), abs(a.max_day_pct or _RATIO)),
         reverse=True,
