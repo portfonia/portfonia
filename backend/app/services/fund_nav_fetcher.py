@@ -1,9 +1,16 @@
-"""Fetch public mutual fund NAV from 天天基金 and persist to holdings.
+"""Fetch public mutual fund NAV from 天天基金 and persist to holdings / price_snapshots.
 
-We deliberately read the official settled NAV (`dwjz`, the prior trading
-day's closing NAV) rather than the intraday estimate (`gsz`). Settled NAV is
-the value you would actually redeem at; the estimate carries error. price_as_of
-is therefore the NAV date, not the time we fetched it.
+Two data paths:
+  1. Realtime (latest settled NAV) — used by update_fund_navs to keep
+     holdings.market_price current.  Reads `dwjz` (prior-day settled NAV),
+     not `gsz` (intraday estimate), so price_as_of is the NAV date.
+  2. Historical (lookback window) — used by capture_fund_navs in price_capture
+     to populate price_snapshots so window anomaly detection can cover funds.
+     Also uses settled NAV (DWJZ field in the lsjz response).
+
+Note: settled NAV is published after the A-share close (usually same evening),
+so the capture may run the next calendar day for the previous trade date — this
+is expected and the trade_date column reflects the NAV date, not capture time.
 """
 
 from __future__ import annotations
@@ -11,7 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import httpx
@@ -24,11 +31,23 @@ from app.services.price_fetcher import PriceFetchResult
 
 logger = logging.getLogger(__name__)
 
-# 天天基金 realtime endpoint (JSONP); we extract the official NAV field from it.
+# 天天基金 realtime endpoint (JSONP); extracts the latest official settled NAV.
 _NAV_URL = "https://fundgz.1234567.com.cn/js/{fund_code}.js"
 _JSONP_RE = re.compile(r"jsonpgz\((\{.*\})\);?", re.DOTALL)
 
-# Mutual fund NAV is struck at A-share close (15:00 CST); anchor price_as_of there.
+# 天天基金 historical NAV list endpoint.
+# Returns JSON: {"Data": {"LSJZList": [{"FSRQ": "YYYY-MM-DD", "DWJZ": "1.2345"}, ...]}}
+_LSJZ_URL = (
+    "http://api.fund.eastmoney.com/f10/lsjz"
+    "?fundCode={fund_code}&pageIndex=1&pageSize={page_size}"
+    "&startDate={start}&endDate={end}"
+)
+_LSJZ_HEADERS = {
+    "Referer": "https://fund.eastmoney.com/",
+    "User-Agent": "Mozilla/5.0",
+}
+
+# Mutual fund NAV is struck at A-share close (15:00 CST); anchor there.
 _AMARKET_CLOSE_HOUR = 15
 
 
@@ -86,6 +105,60 @@ def _fetch_nav(fund_code: str, client: httpx.Client) -> tuple[Decimal, datetime]
         return None
 
     return nav, price_as_of
+
+
+def fetch_nav_history(
+    fund_code: str, client: httpx.Client, lookback_days: int = 30
+) -> list[tuple[date, Decimal]]:
+    """Fetch settled NAV history from the lsjz endpoint.
+
+    Returns list of (nav_date, nav) sorted date ascending. Empty on any error.
+    """
+    if not re.fullmatch(r"\d{6}", fund_code):
+        logger.warning("skipping NAV history for invalid fund_code %r", fund_code)
+        return []
+    end = date.today()
+    start = end - timedelta(days=lookback_days)
+    url = _LSJZ_URL.format(
+        fund_code=fund_code,
+        page_size=lookback_days + 5,
+        start=start.strftime("%Y-%m-%d"),
+        end=end.strftime("%Y-%m-%d"),
+    )
+    try:
+        resp = client.get(url, headers=_LSJZ_HEADERS, timeout=10)
+        resp.raise_for_status()
+    except httpx.HTTPError:
+        logger.exception("HTTP error fetching NAV history for fund %s", fund_code)
+        return []
+
+    try:
+        payload = resp.json()
+    except Exception:
+        logger.exception("JSON parse error for fund %s history", fund_code)
+        return []
+
+    if payload.get("ErrCode") != 0:
+        logger.error("LSJZ API error for fund %s: ErrCode=%s", fund_code, payload.get("ErrCode"))
+        return []
+
+    rows = (payload.get("Data") or {}).get("LSJZList") or []
+    result: list[tuple[date, Decimal]] = []
+    for row in rows:
+        fsrq = row.get("FSRQ")
+        dwjz = row.get("DWJZ")
+        if not fsrq or not dwjz:
+            continue
+        try:
+            nav_date = datetime.strptime(fsrq, "%Y-%m-%d").date()
+            nav = Decimal(str(dwjz))
+        except Exception:
+            logger.warning("skipping unparseable row for fund %s: %r", fund_code, row)
+            continue
+        result.append((nav_date, nav))
+
+    result.sort(key=lambda t: t[0])
+    return result
 
 
 def update_fund_navs(session: Session) -> PriceFetchResult:

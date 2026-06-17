@@ -217,13 +217,18 @@ def _compute_holding_move(
     start_date: date,
     trading_days: int,
 ) -> PriceAnomaly | None:
-    """Compute the window move for a single holding; return None if not anomalous."""
+    """Compute the window move for a single holding; return None if not anomalous.
+
+    Uses h.ticker when present; falls back to h.fund_code as the price_snapshots
+    key (fund NAV is stored under fund_code via capture_fund_navs).
+    """
+    identifier = h.ticker or h.fund_code
     thresholds = _ASSET_THRESHOLDS.get(h.asset_class)
-    if thresholds is None or not h.ticker:
+    if thresholds is None or not identifier:
         return None
     per_day, cumulative_cap = thresholds
-    baseline = _close_snapshot_before_window(session, h.ticker, start, start_date)
-    series = _window_closes(session, h.ticker, start, end)
+    baseline = _close_snapshot_before_window(session, identifier, start, start_date)
+    series = _window_closes(session, identifier, start, end)
     if baseline is None or baseline.close is None or not series:
         return None
     latest = series[-1]
@@ -253,7 +258,7 @@ def _compute_holding_move(
     prev_close = path[-2].close if len(path) >= 2 else None
     return PriceAnomaly(
         name=h.name,
-        identifier=h.ticker,
+        identifier=identifier,
         asset_type=h.asset_class,
         current_price=latest.close,
         prev_price=baseline.close,
@@ -271,7 +276,7 @@ def _compute_holding_move(
         day_high=latest.high,
         day_low=latest.low,
         day_close=latest.close,
-        after_hours=_after_hours_last(session, h.ticker, latest.trade_date),
+        after_hours=_after_hours_last(session, identifier, latest.trade_date),
     )
 
 
@@ -309,7 +314,7 @@ def _merge_theme_anomalies(
     constituents = [
         ConstituentMove(
             name=h.name,
-            identifier=h.ticker or "",
+            identifier=a.identifier,
             pct_change=a.pct_change,
             current_value=_val(h),
         )
@@ -369,7 +374,10 @@ def detect_window_anomalies(
     """
     holdings = (
         session.execute(
-            select(Holding).where(Holding.ticker.is_not(None), Holding.pricing_mode == "auto")
+            select(Holding).where(
+                or_(Holding.ticker.is_not(None), Holding.fund_code.is_not(None)),
+                Holding.pricing_mode == "auto",
+            )
         )
         .scalars()
         .all()
@@ -411,7 +419,8 @@ def detect_window_anomalies(
         anomaly = _compute_holding_move(session, h, start, end, start_date, trading_days)
         if anomaly is None:
             continue
-        theme_row = theme_map.get((h.ticker or "").upper())
+        identifier = (h.ticker or h.fund_code or "").upper()
+        theme_row = theme_map.get(identifier)
         if theme_row is not None:
             theme_buckets.setdefault(theme_row.theme, []).append((h, anomaly))
         else:
@@ -421,8 +430,9 @@ def detect_window_anomalies(
     theme_anomalies: list[PriceAnomaly] = []
     for _theme_key, members in theme_buckets.items():
         # Use the first member's TickerTheme row (all share the same theme).
-        ticker_upper = (members[0][0].ticker or "").upper()
-        theme_row = theme_map[ticker_upper]
+        first_h = members[0][0]
+        identifier_upper = (first_h.ticker or first_h.fund_code or "").upper()
+        theme_row = theme_map[identifier_upper]
         theme_anomalies.append(_merge_theme_anomalies(members, theme_row))
 
     anomalies = theme_anomalies + standalone

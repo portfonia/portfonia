@@ -96,6 +96,28 @@ def capture_fx_task(self: Any) -> dict[str, Any]:
 # Capture a bit wider than the report's forward window so a missed daily fire is
 # still covered by the next one (catch-up in the task, no watermark — same pattern
 # as prices/news).
+@celery_app.task(  # type: ignore[untyped-decorator]
+    name="app.tasks.capture_tasks.capture_fund_navs_task",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=300,
+)
+def capture_fund_navs_task(self: Any) -> dict[str, int]:
+    """Fetch settled NAV history from 天天基金 for fund_code holdings into price_snapshots."""
+    from app.core.database import SessionLocal
+    from app.services.price_capture import capture_fund_navs
+
+    session = SessionLocal()
+    try:
+        written = capture_fund_navs(session)
+        return {"written": written}
+    except Exception as exc:
+        logger.exception("capture_fund_navs_task: failed")
+        raise self.retry(exc=exc) from exc
+    finally:
+        session.close()
+
+
 _FORWARD_HORIZON_DAYS = 14
 
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, date, datetime
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
@@ -117,4 +118,50 @@ def capture_prices(
         len(tickers),
         written,
     )
+    return written
+
+
+def capture_fund_navs(session: Session, lookback_days: int = 30) -> int:
+    """Fetch settled NAV history from 天天基金 for all fund_code holdings.
+
+    Upserts into price_snapshots using fund_code as ticker key, market from the
+    holding (defaulting to A-Share), session_node='close'. The upsert is
+    idempotent so re-runs and catch-up are safe.
+    """
+    from app.services.fund_nav_fetcher import fetch_nav_history
+
+    holdings = list(
+        session.execute(
+            select(Holding).where(
+                Holding.pricing_mode == "auto",
+                Holding.fund_code.is_not(None),
+            )
+        ).scalars()
+    )
+    if not holdings:
+        logger.info("capture_fund_navs: no fund_code holdings to capture")
+        return 0
+
+    now = datetime.now(tz=UTC)
+    rows: list[dict[str, object]] = []
+
+    with httpx.Client() as client:
+        for h in holdings:
+            fund_code = h.fund_code
+            assert fund_code is not None
+            nav_history = fetch_nav_history(fund_code, client, lookback_days=lookback_days)
+            for nav_date, nav in nav_history:
+                rows.append(
+                    {
+                        "ticker": fund_code,
+                        "market": h.market or "A-Share",
+                        "session_node": "close",
+                        "trade_date": nav_date,
+                        "close": nav,
+                        "captured_at": now,
+                    }
+                )
+
+    written = _upsert(session, rows)
+    logger.info("capture_fund_navs: holdings=%d written=%d", len(holdings), written)
     return written
