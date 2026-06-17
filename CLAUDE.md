@@ -1,17 +1,17 @@
 # Portfonia — Agent Guidelines
 
 AI-facing guidance for agent tooling working in this repository.
-Last updated: 2026-06-15
+Last updated: 2026-06-16
 
 ## Current Development State (update this section when resuming)
 
 | Item | Value |
 |------|-------|
 | Ring stage | **Ring 0** (local dev machine, single user, no cloud) |
-| `main` HEAD | `5a356ae` fix(reports): footer data sources, stale comment, ops event logging — pushed, in sync with `origin/main`. No migration. |
-| Stages complete | A B C D E F1 F2 F3 G H + June-7 report-review fixes + **ADR-002 incremental reporting + capture layer** + **Ring0 report enhancements #1–#4** + **June-9 reliability fixes** + **June-10 R-1~R-8 + observability** + **June-16 compliance + ops** + **Ring 0 audit remediation P0+P1** (see below) |
-| Next stage | **I** — 稳定运行验证。下次 MWF 定时任务（Wed Jun 18 16:30 ET）是新扫描规则的第一次实际验证。Ring 0 审计 P1 清单已完成 8/10 项；P1-7（加密）推迟 Ring 1；P1-9（重传持仓）待用户操作。P2 全推迟 Ring 1 第一周。 |
-| Backend quality | ruff OK · mypy OK (79 files) · pytest **305 passed** |
+| `main` HEAD | `7069cb4` refactor(classification): geography-first equity asset_class taxonomy — pushed, in sync with `origin/main`. |
+| Stages complete | A B C D E F1 F2 F3 G H + June-7 report-review fixes + **ADR-002 incremental reporting + capture layer** + **Ring0 report enhancements #1–#4** + **June-9 reliability fixes** + **June-10 R-1~R-8 + observability** + **June-16 compliance + ops** + **Ring 0 audit remediation P0+P1** + **June-16 asset classification + fund NAV capture** (see below) |
+| Next stage | **I** — 稳定运行验证。下次 MWF 定时任务（Wed Jun 18 16:30 ET）是首次用新合规规则 + 新资产分类 + 基金 NAV 捕获的实际验证。Ring 0 审计 P1 清单已完成 8/10 项；P1-7（加密）推迟 Ring 1；P1-9（重传持仓）待用户操作。P2 全推迟 Ring 1 第一周。 |
+| Backend quality | ruff OK · mypy OK (80 files) · pytest **305 passed** |
 | Frontend quality | tsc OK · eslint OK · next build OK |
 | LLM model | OpenRouter (provider=DigitalOcean,Venice), `data_collection=deny` on every call. **PRIMARY (Pass 2 analysis) = `deepseek/deepseek-v4-pro`**; **Pass 1 search + translation render = `deepseek/deepseek-v4-flash`** (LOW_COST). Sonnet/Anthropic models are NOT used here — too expensive (~$0.2/call); if `PRIMARY_LLM_MODEL` ever shows an `anthropic/*` value it is config drift, revert it. **Translation calls** (`_translate_chunk`) use a separate provider preference `_TRANSLATION_PROVIDER_ORDER = ["Cloudflare", "Morph"]` (2026-06-10) — DigitalOcean+Venice were observed returning repeated `429` for `deepseek-v4-flash` translation; `allow_fallbacks=True` still permits OpenRouter to go beyond this list if both are unavailable. |
 | Infrastructure | Homebrew PostgreSQL@16 + Redis (native, not Docker); `make infra-up` not needed |
@@ -31,7 +31,7 @@ Last updated: 2026-06-15
 | F-DEBT-1 | `by_sector` "Other" conflates ETFs with unclassified equities | Ring 1+ |
 | D-DEBT-1 | `backfill_sectors` serial O(n) `yf.Ticker().info` calls | Ring 1+ |
 | D-DEBT-2 | `compute_portfolio` has no `user_id` filter (loads all holdings) | MVP |
-| D-DEBT-3 | 天天基金 OCI reachability unverified | Ring 1 deploy |
+| D-DEBT-3 | 天天基金 OCI reachability unverified (local dev confirmed reachable; lsjz + realtime JSONP both work) | Ring 1 deploy |
 | D-DEBT-4 | Price staleness: `stale_tickers` only catches NULL price, not stale-dated prices | TBD |
 | G-DEBT-1 | `send_report_email` returns True even if `commit()` of `email_sent_at` fails; Resend Idempotency-Key prevents duplicate delivery but state is unpersisted. Persist a provider message id / use a conditional update. | Ring 1+ |
 | G-DEBT-2 | Concurrent-send dedup is best-effort (in-memory `email_sent_at` check + Resend Idempotency-Key), not a DB lock. Add a row lock / conditional update if multi-trigger paths appear. | Ring 1+ |
@@ -333,6 +333,53 @@ Tracker with per-item commit hashes: Obsidian `Hermes/Portfonia/ring1_prep_promp
 - P1-10 `5a356ae`: stale comment in `_build_pass1_prompt` corrected; `with_holdings` kept as intent marker (test mocks depend on it).
 
 Backend after remediation: ruff OK · mypy OK (79 files) · pytest 305 passed. No migration. No process restart required (no model/router/migration changes in this batch).
+
+### June-16 asset classification + fund NAV capture — DONE
+
+Two themes from a single session: (1) geography-first `asset_class` taxonomy replacing the coarse EQUITY_BROAD/EQUITY_REGION split; (2) fund holdings (fund_code only, no ticker) now participate in anomaly detection via 天天基金 historical NAV stored in `price_snapshots`.
+
+**Asset classification redesign (commits `d364e0c` → `7069cb4`, 6 migrations total):**
+
+`asset_class` is the economic-exposure dimension (distinct from LLM-parsed `asset_type` product form). New geography-first taxonomy — classified by underlying exposure, not listing location:
+
+| asset_class | Meaning | Current holdings |
+|---|---|---|
+| `EQUITY_US_BROAD` | S&P 500 / US total market | VOO, 513650.SS |
+| `EQUITY_US_TECH` | Nasdaq 100 / US tech | QQQM, 019547 |
+| `EQUITY_DM` | Non-US developed markets | EWJ (Japan) |
+| `EQUITY_CN` | China equity (A-share / HK / QDII) | 110011 (易方达优质精选QDII) |
+| `EQUITY_EM` | EM ex-China | (none yet; thresholds set) |
+| `EQUITY_BROAD` | Global multi-market catch-all | (none yet; fallback for unknown) |
+| `STOCK` | Individual equities | TSLA, NVDA, INTC, QCOM, AMKR, 0700.HK |
+| `COMMODITY` | Gold, commodities | SGOL, 518660.SS, 518800.SS, 008142 |
+| `BOND_FUND` | Fixed income / T-bills | BOXX |
+| `CASH_EQUIV` | Cash, WMP, margin | 现金, USD Cash |
+
+Per-class window anomaly thresholds (per_day / cumulative_cap):
+- EQUITY_US_BROAD 5%/40%, EQUITY_US_TECH 5%/35%, EQUITY_DM 5%/30%
+- EQUITY_CN 5%/20%, EQUITY_EM 5%/25%, STOCK 5%/10%
+- COMMODITY 4%/20%, BOND_FUND 2%/20%, CASH_EQUIV 1%/20%
+
+`ticker_themes` table maps ticker/fund_code → theme for multi-holding aggregation (e.g. QQQM + 019547 both in `nasdaq_100`). Seeded themes: `nasdaq_100` (EQUITY_US_TECH), `sp500` (EQUITY_US_BROAD), `gold` (COMMODITY), `japan_equity` (EQUITY_DM), `tbill` (BOND_FUND). Fund codes 019547 and 008142 added to ticker_themes.
+
+**Fund NAV capture (commit `847333f`):**
+
+- `fund_nav_fetcher.fetch_nav_history()` — historical NAV from `lsjz` API (`api.fund.eastmoney.com/f10/lsjz`). Local dev machine confirmed reachable; returns `{"Data": {"LSJZList": [{"FSRQ": "YYYY-MM-DD", "DWJZ": "1.2345"}, ...]}}`.
+- `price_capture.capture_fund_navs()` — upserts NAV rows into `price_snapshots` using fund_code as ticker key, market from holding (default A-Share), session_node="close".
+- Beat task `capture_fund_navs_task` at 20:00 CST Mon-Fri (NAV published same evening after A-share close).
+- `detect_window_anomalies` extended to include `fund_code` holdings (previously only `ticker` holdings were scanned); identifier fallback chain: `h.ticker or h.fund_code`.
+- 60 NAV rows manually seeded (30d × 2 themed funds: 019547 + 008142) so Wed Jun-18 16:30 ET run has a baseline.
+- 110011 (易方达优质精选混合 QDII) confirmed China-concept holdings (茅台/腾讯/阿里 etc.); classified EQUITY_CN; no ticker_themes entry (standalone anomaly, no benchmark theme).
+
+**Migrations added this session (all applied, head = `6f7a8b9c0d1e`):**
+- `1a2b3c4d5e6f` add asset_class to holdings
+- `2b3c4d5e6f7a` add ticker_themes table + initial seed
+- `3c4d5e6f7a8b` fix A-share .SS ticker suffixes in ticker_themes
+- `4d5e6f7a8b9c` add fund codes 019547/008142 to ticker_themes
+- `5e6f7a8b9c0d` fix 110011 STOCK→EQUITY_BROAD (now superseded by next)
+- `6f7a8b9c0d1e` geography-first equity class refactor (US-broad/US-tech/DM/CN/EM)
+
+Backend: ruff OK · mypy OK (80 files) · pytest 305 passed. Celery worker restarted (`capture_fund_navs_task` registered).
 
 ## Language Policy (MANDATORY)
 
