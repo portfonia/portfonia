@@ -205,6 +205,10 @@ _TICKER_ASSET_CLASS: dict[str, str] = {
     "518660.SS": "COMMODITY",
     "518800": "COMMODITY",
     "518800.SS": "COMMODITY",
+    "008142": "COMMODITY",  # 工银黄金ETF联接
+    # Broad index funds / active equity funds (CN mutual funds)
+    "019547": "EQUITY_BROAD",  # 招商纳斯达克100指数基金
+    "110011": "EQUITY_BROAD",  # 易方达蓝筹精选混合
     # Bond / T-bill funds
     "BOXX": "BOND_FUND",
     "BIL": "BOND_FUND",
