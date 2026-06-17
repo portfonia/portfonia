@@ -178,6 +178,55 @@ def _strip_code_fence(content: str) -> str:
 
 _ALLOWED_ASSET_TYPES = {"stock", "etf", "fund", "cash", "wmf", "other"}
 
+# Ticker → canonical asset_class (economic exposure, not product form).
+# Covers known holdings; new tickers default via asset_type fallback below.
+_TICKER_ASSET_CLASS: dict[str, str] = {
+    # Broad index funds / ETFs
+    "QQQM": "EQUITY_BROAD",
+    "QQQ": "EQUITY_BROAD",
+    "VOO": "EQUITY_BROAD",
+    "VTI": "EQUITY_BROAD",
+    "SPY": "EQUITY_BROAD",
+    "IVV": "EQUITY_BROAD",
+    "513650": "EQUITY_BROAD",
+    # Country / region funds
+    "EWJ": "EQUITY_REGION",
+    "FXI": "EQUITY_REGION",
+    "KWEB": "EQUITY_REGION",
+    # Commodity funds
+    "SGOL": "COMMODITY",
+    "GLD": "COMMODITY",
+    "IAU": "COMMODITY",
+    "518660": "COMMODITY",
+    "518800": "COMMODITY",
+    # Bond / T-bill funds
+    "BOXX": "BOND_FUND",
+    "BIL": "BOND_FUND",
+    "SHY": "BOND_FUND",
+    "AGG": "BOND_FUND",
+    "TLT": "BOND_FUND",
+}
+
+_ASSET_TYPE_CLASS: dict[str, str] = {
+    "stock": "STOCK",
+    "etf": "EQUITY_BROAD",  # conservative default; ticker lookup overrides when known
+    "fund": "EQUITY_BROAD",
+    "cash": "CASH_EQUIV",
+    "wmf": "CASH_EQUIV",
+    "other": "STOCK",
+}
+
+
+def _classify_asset_class(row: dict[str, Any]) -> str:
+    ticker = (row.get("ticker") or "").upper()
+    if ticker and ticker in _TICKER_ASSET_CLASS:
+        return _TICKER_ASSET_CLASS[ticker]
+    fund_code = row.get("fund_code") or ""
+    if fund_code and fund_code in _TICKER_ASSET_CLASS:
+        return _TICKER_ASSET_CLASS[fund_code]
+    return _ASSET_TYPE_CLASS.get(row.get("asset_type") or "", "STOCK")
+
+
 # Map common free-text market labels the model may emit onto the canonical bucket.
 _MARKET_ALIASES = {
     "us": "US",
@@ -236,6 +285,9 @@ def _postprocess(raw_rows: list[dict[str, Any]]) -> list[ParsedRow]:
             v = row.get(str_field)
             if isinstance(v, list):
                 row[str_field] = " ".join(v) if v else None
+
+        # Classify economic exposure (not the LLM's product-form asset_type).
+        row["asset_class"] = _classify_asset_class(row)
 
         # Deduplicate: LLMs occasionally emit the same holding twice.
         key = (row.get("ticker"), row.get("fund_code"), str(row.get("name", "")))

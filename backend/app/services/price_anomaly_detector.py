@@ -31,8 +31,13 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _ASSET_THRESHOLDS: dict[str, Decimal] = {
-    "stock": Decimal("0.03"),
-    "etf": Decimal("0.02"),
+    "STOCK": Decimal("0.05"),
+    "EQUITY_BROAD": Decimal("0.05"),
+    "EQUITY_REGION": Decimal("0.04"),
+    "EQUITY_SECTOR": Decimal("0.04"),
+    "COMMODITY": Decimal("0.04"),
+    "BOND_FUND": Decimal("0.02"),
+    # CASH_EQUIV excluded — no exchange-priced daily quote
 }
 _FX_THRESHOLD = Decimal("0.01")
 
@@ -127,13 +132,13 @@ def detect_price_anomalies(session: Session) -> list[PriceAnomaly]:
     # ------------------------------------------------------------------
     # Holdings — stock and ETF
     # ------------------------------------------------------------------
-    eligible_types = set(_ASSET_THRESHOLDS)
+    eligible_classes = set(_ASSET_THRESHOLDS)
     rows: list[Holding] = list(
         session.execute(
             select(Holding).where(
                 Holding.pricing_mode == "auto",
                 Holding.ticker.isnot(None),
-                Holding.asset_type.in_(eligible_types),
+                Holding.asset_class.in_(eligible_classes),
             )
         ).scalars()
     )
@@ -160,14 +165,14 @@ def detect_price_anomalies(session: Session) -> list[PriceAnomaly]:
                 continue
 
             pct = ((current - prev) / prev).quantize(_RATIO, rounding=ROUND_HALF_UP)
-            threshold = _ASSET_THRESHOLDS[h.asset_type or ""]
+            threshold = _ASSET_THRESHOLDS[h.asset_class]
 
             if abs(pct) >= threshold:
                 anomalies.append(
                     PriceAnomaly(
                         name=h.name,
                         identifier=ticker,
-                        asset_type=h.asset_type or "unknown",
+                        asset_type=h.asset_class,
                         current_price=current,
                         prev_price=prev,
                         pct_change=pct,

@@ -30,16 +30,28 @@ logger = logging.getLogger(__name__)
 BOOTSTRAP_WATERMARK = datetime(2026, 6, 1, 16, 0, tzinfo=ET)
 
 _RATIO = Decimal("0.0001")  # 4 dp for pct_change
-# Per-trading-day move thresholds; the window threshold scales these by the
-# number of trading days it spans (a 5-day window tolerates more drift than a
-# 1-day one), capped so any move beyond _MAX_THRESHOLD is always flagged.
-_ASSET_THRESHOLDS: dict[str, Decimal] = {"stock": Decimal("0.03"), "etf": Decimal("0.02")}
-_MAX_THRESHOLD = Decimal("0.10")
+
+# Per-asset-class thresholds: (per_day_trigger, cumulative_window_cap).
+#
+# The window threshold = per_day * trading_days, capped at the class cap.
+# Broad funds have a high cap (40%) so a normal weekly drift never fires;
+# individual stocks cap at 10% (any week-long run above that is noteworthy).
+# Per-day trigger is the same (5%) for most equity classes so a single
+# violent session is still caught regardless of cumulative behaviour.
+_ASSET_THRESHOLDS: dict[str, tuple[Decimal, Decimal]] = {
+    "STOCK": (Decimal("0.05"), Decimal("0.10")),
+    "EQUITY_BROAD": (Decimal("0.05"), Decimal("0.40")),
+    "EQUITY_REGION": (Decimal("0.04"), Decimal("0.20")),
+    "EQUITY_SECTOR": (Decimal("0.04"), Decimal("0.20")),
+    "COMMODITY": (Decimal("0.04"), Decimal("0.20")),
+    "BOND_FUND": (Decimal("0.02"), Decimal("0.20")),
+    "CASH_EQUIV": (Decimal("0.01"), Decimal("0.20")),
+}
 
 
-def _window_threshold(per_day: Decimal, trading_days: int) -> Decimal:
-    """flat% x trading_days, capped at 10% (>10% always flags)."""
-    return min(per_day * max(trading_days, 1), _MAX_THRESHOLD)
+def _window_threshold(per_day: Decimal, cap: Decimal, trading_days: int) -> Decimal:
+    """per_day * trading_days, capped at the per-class cumulative cap."""
+    return min(per_day * max(trading_days, 1), cap)
 
 
 # Completed statuses whose period_end counts toward the watermark.
@@ -251,9 +263,10 @@ def detect_window_anomalies(
 
     anomalies: list[PriceAnomaly] = []
     for h in holdings:
-        per_day = _ASSET_THRESHOLDS.get(h.asset_type or "")
-        if per_day is None or not h.ticker:
+        thresholds = _ASSET_THRESHOLDS.get(h.asset_class)
+        if thresholds is None or not h.ticker:
             continue
+        per_day, cumulative_cap = thresholds
         baseline = _close_snapshot_before_window(session, h.ticker, start, start_date)
         series = _window_closes(session, h.ticker, start, end)
         if baseline is None or baseline.close is None or not series:
@@ -277,7 +290,7 @@ def detect_window_anomalies(
                 max_day_pct = day_pct
                 max_day_date = cur.trade_date
 
-        window_threshold = _window_threshold(per_day, trading_days)
+        window_threshold = _window_threshold(per_day, cumulative_cap, trading_days)
         single_day_hit = max_day_pct is not None and abs(max_day_pct) >= per_day
         cumulative_hit = abs(net_pct) >= window_threshold
         if not (single_day_hit or cumulative_hit):
@@ -295,7 +308,7 @@ def detect_window_anomalies(
             PriceAnomaly(
                 name=h.name,
                 identifier=h.ticker,
-                asset_type=h.asset_type or "stock",
+                asset_type=h.asset_class,
                 current_price=latest.close,
                 prev_price=baseline.close,
                 pct_change=net_pct,

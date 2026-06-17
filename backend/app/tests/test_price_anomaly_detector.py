@@ -32,6 +32,7 @@ def _holding(
     name: str,
     ticker: str,
     asset_type: str = "stock",
+    asset_class: str = "STOCK",
     pricing_mode: str = "auto",
 ) -> Holding:
     return Holding(
@@ -42,6 +43,7 @@ def _holding(
         currency="USD",
         shares=Decimal("10"),
         asset_type=asset_type,
+        asset_class=asset_class,
     )
 
 
@@ -58,8 +60,8 @@ def test_stock_above_threshold_is_anomaly(db_session: Session) -> None:
     db_session.add(_holding("Apple", "AAPL"))
     db_session.flush()
 
-    # +5% move, threshold is ±3%
-    two_closes = {"AAPL": ((105.0, _NOW), (100.0, _PREV))}
+    # +6% move, STOCK threshold is ±5%
+    two_closes = {"AAPL": ((106.0, _NOW), (100.0, _PREV))}
 
     with patch.object(pad, "fetch_last_two_closes", return_value=two_closes):
         result = pad.detect_price_anomalies(db_session)
@@ -67,9 +69,9 @@ def test_stock_above_threshold_is_anomaly(db_session: Session) -> None:
     assert len(result) == 1
     a = result[0]
     assert a.identifier == "AAPL"
-    assert a.asset_type == "stock"
-    assert a.pct_change == Decimal("0.0500")
-    assert a.threshold == Decimal("0.03")
+    assert a.asset_type == "STOCK"
+    assert a.pct_change == Decimal("0.0600")
+    assert a.threshold == Decimal("0.05")
 
 
 def test_stock_below_threshold_not_anomaly(db_session: Session) -> None:
@@ -84,16 +86,26 @@ def test_stock_below_threshold_not_anomaly(db_session: Session) -> None:
     assert result == []
 
 
-def test_etf_uses_lower_threshold(db_session: Session) -> None:
-    db_session.add(_holding("VOO", "VOO", asset_type="etf"))
+def test_bond_fund_uses_lower_threshold(db_session: Session) -> None:
+    # BOND_FUND threshold is 2%; the same move leaves STOCK (5%) silent.
+    db_session.add_all(
+        [
+            _holding("BOXX", "BOXX", asset_type="etf", asset_class="BOND_FUND"),
+            _holding("Apple", "AAPL", asset_class="STOCK"),
+        ]
+    )
     db_session.flush()
 
-    # +2.5% move: above ETF ±2%, below stock ±3%
-    two_closes = {"VOO": ((102.5, _NOW), (100.0, _PREV))}
+    # +3% move: above BOND_FUND ±2%, below STOCK ±5%
+    two_closes = {
+        "BOXX": ((103.0, _NOW), (100.0, _PREV)),
+        "AAPL": ((103.0, _NOW), (100.0, _PREV)),
+    }
     with patch.object(pad, "fetch_last_two_closes", return_value=two_closes):
         result = pad.detect_price_anomalies(db_session)
 
     assert len(result) == 1
+    assert result[0].identifier == "BOXX"
     assert result[0].threshold == Decimal("0.02")
 
 
@@ -101,13 +113,13 @@ def test_negative_move_detected(db_session: Session) -> None:
     db_session.add(_holding("Intel", "INTC"))
     db_session.flush()
 
-    # -4% move
-    two_closes = {"INTC": ((96.0, _NOW), (100.0, _PREV))}
+    # -6% move, above STOCK ±5% threshold
+    two_closes = {"INTC": ((94.0, _NOW), (100.0, _PREV))}
     with patch.object(pad, "fetch_last_two_closes", return_value=two_closes):
         result = pad.detect_price_anomalies(db_session)
 
     assert len(result) == 1
-    assert result[0].pct_change == Decimal("-0.0400")
+    assert result[0].pct_change == Decimal("-0.0600")
 
 
 def test_no_prev_close_skipped(db_session: Session) -> None:
@@ -172,8 +184,8 @@ def test_sorted_by_abs_pct_change_descending(db_session: Session) -> None:
     db_session.flush()
 
     two_closes = {
-        "BIG": ((110.0, _NOW), (100.0, _PREV)),  # +10%
-        "SML": ((103.5, _NOW), (100.0, _PREV)),  # +3.5%
+        "BIG": ((110.0, _NOW), (100.0, _PREV)),  # +10% — well above STOCK 5%
+        "SML": ((106.0, _NOW), (100.0, _PREV)),  # +6%  — just above STOCK 5%
     }
     with patch.object(pad, "fetch_last_two_closes", return_value=two_closes):
         result = pad.detect_price_anomalies(db_session)
