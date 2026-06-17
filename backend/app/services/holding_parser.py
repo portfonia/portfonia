@@ -188,7 +188,11 @@ _TICKER_ASSET_CLASS: dict[str, str] = {
     "VTI": "EQUITY_BROAD",
     "SPY": "EQUITY_BROAD",
     "IVV": "EQUITY_BROAD",
+    # A-share ETFs: yfinance uses .SS suffix for Shanghai-listed ETFs.
+    # Both bare code and .SS form are included so the LLM's output
+    # is classified correctly regardless of which form it emits.
     "513650": "EQUITY_BROAD",
+    "513650.SS": "EQUITY_BROAD",
     # Country / region funds
     "EWJ": "EQUITY_REGION",
     "FXI": "EQUITY_REGION",
@@ -198,7 +202,9 @@ _TICKER_ASSET_CLASS: dict[str, str] = {
     "GLD": "COMMODITY",
     "IAU": "COMMODITY",
     "518660": "COMMODITY",
+    "518660.SS": "COMMODITY",
     "518800": "COMMODITY",
+    "518800.SS": "COMMODITY",
     # Bond / T-bill funds
     "BOXX": "BOND_FUND",
     "BIL": "BOND_FUND",
