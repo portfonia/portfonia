@@ -181,22 +181,24 @@ _ALLOWED_ASSET_TYPES = {"stock", "etf", "fund", "cash", "wmf", "other"}
 # Ticker → canonical asset_class (economic exposure, not product form).
 # Covers known holdings; new tickers default via asset_type fallback below.
 _TICKER_ASSET_CLASS: dict[str, str] = {
-    # Broad index funds / ETFs
-    "QQQM": "EQUITY_BROAD",
-    "QQQ": "EQUITY_BROAD",
-    "VOO": "EQUITY_BROAD",
-    "VTI": "EQUITY_BROAD",
-    "SPY": "EQUITY_BROAD",
-    "IVV": "EQUITY_BROAD",
-    # A-share ETFs: yfinance uses .SS suffix for Shanghai-listed ETFs.
-    # Both bare code and .SS form are included so the LLM's output
-    # is classified correctly regardless of which form it emits.
-    "513650": "EQUITY_BROAD",
-    "513650.SS": "EQUITY_BROAD",
-    # Country / region funds
-    "EWJ": "EQUITY_REGION",
-    "FXI": "EQUITY_REGION",
-    "KWEB": "EQUITY_REGION",
+    # US broad market (S&P 500 / total market) — classified by underlying exposure,
+    # not listing location (513650.SS is an A-share ETF tracking S&P 500).
+    "VOO": "EQUITY_US_BROAD",
+    "VTI": "EQUITY_US_BROAD",
+    "SPY": "EQUITY_US_BROAD",
+    "IVV": "EQUITY_US_BROAD",
+    "513650": "EQUITY_US_BROAD",
+    "513650.SS": "EQUITY_US_BROAD",
+    # US tech / Nasdaq 100
+    "QQQM": "EQUITY_US_TECH",
+    "QQQ": "EQUITY_US_TECH",
+    "019547": "EQUITY_US_TECH",  # 招商纳斯达克100指数基金
+    # Developed markets ex-US
+    "EWJ": "EQUITY_DM",
+    # China equity (A-share / HK Chinese / China-focused QDII)
+    "FXI": "EQUITY_CN",
+    "KWEB": "EQUITY_CN",
+    "110011": "EQUITY_CN",  # 易方达优质精选混合(QDII) — China concept
     # Commodity funds
     "SGOL": "COMMODITY",
     "GLD": "COMMODITY",
@@ -206,9 +208,6 @@ _TICKER_ASSET_CLASS: dict[str, str] = {
     "518800": "COMMODITY",
     "518800.SS": "COMMODITY",
     "008142": "COMMODITY",  # 工银黄金ETF联接
-    # Broad index funds / active equity funds (CN mutual funds)
-    "019547": "EQUITY_BROAD",  # 招商纳斯达克100指数基金
-    "110011": "EQUITY_BROAD",  # 易方达蓝筹精选混合
     # Bond / T-bill funds
     "BOXX": "BOND_FUND",
     "BIL": "BOND_FUND",
@@ -219,8 +218,8 @@ _TICKER_ASSET_CLASS: dict[str, str] = {
 
 _ASSET_TYPE_CLASS: dict[str, str] = {
     "stock": "STOCK",
-    "etf": "EQUITY_BROAD",  # conservative default; ticker lookup overrides when known
-    "fund": "EQUITY_BROAD",
+    "etf": "EQUITY_BROAD",   # unknown ETF: global catch-all; ticker lookup overrides
+    "fund": "EQUITY_BROAD",  # unknown fund: global catch-all; ticker/fund_code lookup overrides
     "cash": "CASH_EQUIV",
     "wmf": "CASH_EQUIV",
     "other": "STOCK",
