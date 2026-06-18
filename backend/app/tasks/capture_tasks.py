@@ -13,9 +13,39 @@ import logging
 from datetime import datetime
 from typing import Any
 
+from app.services.email_sender import send_ops_alert
+from app.services.github_issues import create_bug_report
 from app.tasks import celery_app
 
 logger = logging.getLogger(__name__)
+
+
+def _capture_failed(task_name: str, exc: BaseException, context: str = "") -> None:
+    """Send ops alert + create GitHub issue when a capture task exhausts retries."""
+    detail = f"{context}\n\nerror: {type(exc).__name__}: {exc}" if context else f"error: {type(exc).__name__}: {exc}"
+    send_ops_alert(
+        subject=f"[Portfonia] capture FAILED — {task_name}",
+        body=(
+            f"{task_name} exhausted all retries.\n\n"
+            f"{detail}\n\n"
+            f"Impact: data missing from next report window.\n"
+            f"Check worker.log for the full traceback."
+        ),
+    )
+    create_bug_report(
+        title=f"capture failure: {task_name}",
+        body=(
+            f"## Capture task exhausted retries\n\n"
+            f"**Task:** `{task_name}`\n\n"
+            f"**Error:** `{type(exc).__name__}: {exc}`\n\n"
+            f"{'**Context:** ' + context + chr(10) + chr(10) if context else ''}"
+            f"**Impact:** data for this capture node will be missing from the next "
+            f"report window, potentially causing stale prices, missing news, or "
+            f"incomplete portfolio valuation.\n\n"
+            f"**Investigate:** check `worker.log` for the full traceback."
+        ),
+        labels=["bug", "ops", "capture"],
+    )
 
 
 @celery_app.task(  # type: ignore[untyped-decorator]
@@ -35,6 +65,8 @@ def capture_news_task(self: Any) -> dict[str, int]:
         return {"inserted": inserted}
     except Exception as exc:
         logger.exception("capture_news_task: failed, scheduling retry")
+        if self.request.retries >= self.max_retries:
+            _capture_failed("capture_news_task", exc)
         raise self.retry(exc=exc) from exc
     finally:
         session.close()
@@ -57,6 +89,8 @@ def capture_prices_task(self: Any, market: str, session_node: str) -> dict[str, 
         return {"market": market, "session_node": session_node, "written": written}
     except Exception as exc:
         logger.exception("capture_prices_task: failed for %s/%s", market, session_node)
+        if self.request.retries >= self.max_retries:
+            _capture_failed("capture_prices_task", exc, context=f"market={market} session_node={session_node}")
         raise self.retry(exc=exc) from exc
     finally:
         session.close()
@@ -88,6 +122,12 @@ def capture_fx_task(self: Any) -> dict[str, Any]:
     except Exception as exc:
         session.rollback()
         logger.exception("capture_fx_task: failed, scheduling retry")
+        if self.request.retries >= self.max_retries:
+            _capture_failed(
+                "capture_fx_task",
+                exc,
+                context="FX rates will be stale in the next report — portfolio CNY/HKD values and the FX-stale warning will both be affected.",
+            )
         raise self.retry(exc=exc) from exc
     finally:
         session.close()
@@ -113,6 +153,12 @@ def capture_fund_navs_task(self: Any) -> dict[str, int]:
         return {"written": written}
     except Exception as exc:
         logger.exception("capture_fund_navs_task: failed")
+        if self.request.retries >= self.max_retries:
+            _capture_failed(
+                "capture_fund_navs_task",
+                exc,
+                context="Fund NAV data (019547/008142/110011) will be missing — these holdings will be excluded from portfolio valuation.",
+            )
         raise self.retry(exc=exc) from exc
     finally:
         session.close()
@@ -160,6 +206,12 @@ def capture_forward_events_task(self: Any) -> dict[str, int]:
         return {"captured": captured}
     except Exception as exc:
         logger.exception("capture_forward_events_task: failed")
+        if self.request.retries >= self.max_retries:
+            _capture_failed(
+                "capture_forward_events_task",
+                exc,
+                context="§2.5 forward calendar will be empty or incomplete in the next report.",
+            )
         raise self.retry(exc=exc) from exc
     finally:
         session.close()
