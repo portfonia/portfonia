@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from app.services.email_sender import send_ops_alert
+from app.services.github_issues import create_bug_report
 from app.tasks import celery_app
 
 logger = logging.getLogger(__name__)
@@ -69,6 +70,17 @@ def generate_incremental_report(self: Any) -> dict[str, str]:
                     f"error: {type(exc).__name__}: {exc}\n\n"
                     f"Check worker.log for the full traceback."
                 ),
+            )
+            create_bug_report(
+                title=f"report generation failure: {type(exc).__name__}",
+                body=(
+                    f"## Incremental report generation exhausted all retries\n\n"
+                    f"**Error:** `{type(exc).__name__}: {exc}`\n\n"
+                    f"**Retries:** {self.max_retries}\n\n"
+                    f"No report was delivered to the user for this scheduled run.\n\n"
+                    f"**Investigate:** check `worker.log` for the full traceback."
+                ),
+                labels=["bug", "ops", "report"],
             )
         raise self.retry(exc=exc) from exc
     finally:

@@ -48,6 +48,7 @@ from app.core.timezones import ET
 from app.models.report import Report
 from app.services.email_sender import send_ops_alert, send_report_email
 from app.services.forward_events import load_forward_events
+from app.services.github_issues import create_bug_report
 from app.services.holding_news import recall_holding_news
 from app.services.macro_detector import MacroSignals, detect_macro_signals
 from app.services.news_fetcher import NewsItem
@@ -1889,19 +1890,51 @@ def generate_report(
         portfolio_snap = compute_portfolio(session, base_currency=base_currency)
         ctx.portfolio_summary = _serialize_portfolio(portfolio_snap)
         if portfolio_snap.stale_tickers:
+            stale_list = ", ".join(portfolio_snap.stale_tickers)
             logger.warning(
                 "report %s: %d holding(s) missing price, excluded from report: %s",
                 report.id,
                 len(portfolio_snap.stale_tickers),
-                ", ".join(portfolio_snap.stale_tickers),
+                stale_list,
+            )
+            alert_body = (
+                f"Report {report.id} ({report.report_date}) excluded the following "
+                f"holdings due to missing price data:\n\n"
+                + "\n".join(f"  - {t}" for t in portfolio_snap.stale_tickers)
+                + "\n\nCheck price_snapshots and capture logs."
             )
             send_ops_alert(
                 subject=f"[Portfonia] price missing — {len(portfolio_snap.stale_tickers)} holding(s) excluded",
+                body=alert_body,
+            )
+            create_bug_report(
+                title=f"holdings excluded: price missing for {stale_list}",
                 body=(
-                    f"Report {report.id} ({report.report_date}) excluded the following "
-                    f"holdings due to missing price data:\n\n"
-                    + "\n".join(f"  - {t}" for t in portfolio_snap.stale_tickers)
-                    + "\n\nCheck price_snapshots and capture logs."
+                    f"## Holdings excluded from report due to missing price\n\n"
+                    f"**Report:** {report.id} ({report.report_date})\n\n"
+                    f"**Excluded holdings:** {stale_list}\n\n"
+                    f"These holdings were absent from §1 portfolio composition and all "
+                    f"aggregation totals. Likely causes: capture task failure, new holding "
+                    f"with no price_snapshots row, or ticker/fund_code lookup mismatch.\n\n"
+                    f"**Fix:** verify `price_snapshots` has recent rows for each identifier "
+                    f"and that `compute_portfolio` looks them up correctly."
+                ),
+                labels=["bug", "ops", "data-quality"],
+            )
+
+        # FX stale check: if rates trail the window cutoff, valuation in non-USD
+        # currencies is based on stale exchange rates — alert ops but don't block.
+        fx_date_str = ctx.portfolio_summary.get("fx_date", "")
+        if fx_date_str and _fx_is_stale(fx_date_str, period_end.isoformat()):
+            send_ops_alert(
+                subject=f"[Portfonia] FX rates stale — report {report.report_date}",
+                body=(
+                    f"Report {report.id} ({report.report_date}): FX rates are as of "
+                    f"{fx_date_str}, which trails the window cutoff. "
+                    f"CNY/HKD portfolio values and the FX footer note will reflect "
+                    f"stale exchange rates.\n\n"
+                    f"Likely cause: capture_fx_task missed or failed. "
+                    f"Check worker.log and run capture_fx_task.apply() to backfill."
                 ),
             )
 

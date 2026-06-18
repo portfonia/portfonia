@@ -81,6 +81,11 @@ class Settings(BaseSettings):
     # Ops alert recipient — receives failure/needs_review notifications.
     ADMIN_EMAIL: str = "portfonia@gmail.com"
 
+    # GitHub issue creation for bug tracking. Optional: when unset, issue
+    # creation is skipped silently. Token needs repo scope (issues:write).
+    GITHUB_TOKEN: SecretStr | None = None
+    GITHUB_REPO: str = "portfonia/portfonia"
+
     # Ring 0 dev identity
     DEV_USER_ID: str
     DEV_USER_EMAIL: str
