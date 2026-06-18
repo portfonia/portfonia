@@ -128,9 +128,8 @@ def _latest_captured_closes(session: Session) -> dict[str, tuple[Decimal, date]]
     """Latest captured daily close per ticker, as {ticker: (close, trade_date)}.
 
     Valuation reads from the capture layer so §1 and the anomaly baseline agree on
-    the same price series, instead of the ad-hoc ``holding.market_price`` written
-    by the manual /refresh path. Funds (fund_code, no ticker) are not captured
-    here and keep their NAV-derived ``market_price``.
+    the same price series. Fund NAVs are stored under the fund_code key by
+    capture_fund_navs(); the lookup in compute_portfolio uses h.ticker or h.fund_code.
     """
     latest_dates = (
         select(
@@ -249,7 +248,8 @@ def compute_portfolio(
             # funds, which are not captured by ticker).
             price = h.market_price
             price_as_of = h.price_as_of
-            captured = captured_closes.get(h.ticker) if h.ticker else None
+            # Fund NAVs are stored in price_snapshots under the fund_code key.
+            captured = captured_closes.get(h.ticker or h.fund_code or "")
             if captured is not None:
                 price, trade_date = captured
                 price_as_of = datetime.combine(trade_date, datetime.min.time(), tzinfo=ET)

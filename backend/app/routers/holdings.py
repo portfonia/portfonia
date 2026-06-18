@@ -12,6 +12,7 @@ from app.core.deps import get_current_user_id
 from app.models.holding import Holding
 from app.schemas.holdings import HoldingOut, ParsedRow, UploadPreview
 from app.services import holding_parser
+from app.services.price_fetcher import backfill_sectors
 
 router = APIRouter()
 
@@ -72,6 +73,8 @@ def confirm_holdings(
         holdings.append(Holding(user_id=user_id, **data))
     session.add_all(holdings)
     session.commit()
+    # Populate sector from yfinance for all auto-mode ticker holdings.
+    backfill_sectors(session)
     for h in holdings:
         session.refresh(h)
     return holdings

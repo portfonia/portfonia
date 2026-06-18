@@ -46,7 +46,7 @@ from app.core.deps import get_current_user_id
 from app.core.ops_log import log_ops_event
 from app.core.timezones import ET
 from app.models.report import Report
-from app.services.email_sender import send_report_email
+from app.services.email_sender import send_ops_alert, send_report_email
 from app.services.forward_events import load_forward_events
 from app.services.holding_news import recall_holding_news
 from app.services.macro_detector import MacroSignals, detect_macro_signals
@@ -1888,6 +1888,22 @@ def generate_report(
         logger.info("report %s: fetching portfolio snapshot", report.id)
         portfolio_snap = compute_portfolio(session, base_currency=base_currency)
         ctx.portfolio_summary = _serialize_portfolio(portfolio_snap)
+        if portfolio_snap.stale_tickers:
+            logger.warning(
+                "report %s: %d holding(s) missing price, excluded from report: %s",
+                report.id,
+                len(portfolio_snap.stale_tickers),
+                ", ".join(portfolio_snap.stale_tickers),
+            )
+            send_ops_alert(
+                subject=f"[Portfonia] price missing — {len(portfolio_snap.stale_tickers)} holding(s) excluded",
+                body=(
+                    f"Report {report.id} ({report.report_date}) excluded the following "
+                    f"holdings due to missing price data:\n\n"
+                    + "\n".join(f"  - {t}" for t in portfolio_snap.stale_tickers)
+                    + "\n\nCheck price_snapshots and capture logs."
+                ),
+            )
 
         logger.info("report %s: loading windowed news", report.id)
         news_items = load_news_window(session, period_start, period_end)
