@@ -1,16 +1,16 @@
 # Portfonia — Agent Guidelines
 
 AI-facing guidance for agent tooling working in this repository.
-Last updated: 2026-06-16
+Last updated: 2026-06-17
 
 ## Current Development State (update this section when resuming)
 
 | Item | Value |
 |------|-------|
 | Ring stage | **Ring 0** (local dev machine, single user, no cloud) |
-| `main` HEAD | `7069cb4` refactor(classification): geography-first equity asset_class taxonomy — pushed, in sync with `origin/main`. |
-| Stages complete | A B C D E F1 F2 F3 G H + June-7 report-review fixes + **ADR-002 incremental reporting + capture layer** + **Ring0 report enhancements #1–#4** + **June-9 reliability fixes** + **June-10 R-1~R-8 + observability** + **June-16 compliance + ops** + **Ring 0 audit remediation P0+P1** + **June-16 asset classification + fund NAV capture** (see below) |
-| Next stage | **I** — 稳定运行验证。下次 MWF 定时任务（Wed Jun 18 16:30 ET）是首次用新合规规则 + 新资产分类 + 基金 NAV 捕获的实际验证。Ring 0 审计 P1 清单已完成 8/10 项；P1-7（加密）推迟 Ring 1；P1-9（重传持仓）待用户操作。P2 全推迟 Ring 1 第一周。 |
+| `main` HEAD | `7365e71` feat(ops): comprehensive alert coverage + GitHub issue auto-creation — pushed, in sync with `origin/main`. |
+| Stages complete | A B C D E F1 F2 F3 G H + June-7 report-review fixes + **ADR-002 incremental reporting + capture layer** + **Ring0 report enhancements #1–#4** + **June-9 reliability fixes** + **June-10 R-1~R-8 + observability** + **June-16 compliance + ops** + **Ring 0 audit remediation P0+P1** + **June-16 asset classification + fund NAV capture** + **June-17 portfolio/ops fixes** (see below) |
+| Next stage | **I** — 稳定运行验证。下次 MWF 定时任务（Wed Jun 18 16:30 ET）是首次完整运行：新合规规则 + 新资产分类 + 基金 NAV 捕获 + 全 20 条持仓进入组合 + sector 自动回填。P1-9（重传持仓）已完成（2026-06-17 重新上传）。Ring 0 审计 P1 清单 9/10 项完成；P1-7（加密）推迟 Ring 1。P2 全推迟 Ring 1 第一周。 |
 | Backend quality | ruff OK · mypy OK (80 files) · pytest **305 passed** |
 | Frontend quality | tsc OK · eslint OK · next build OK |
 | LLM model | OpenRouter (provider=DigitalOcean,Venice), `data_collection=deny` on every call. **PRIMARY (Pass 2 analysis) = `deepseek/deepseek-v4-pro`**; **Pass 1 search + translation render = `deepseek/deepseek-v4-flash`** (LOW_COST). Sonnet/Anthropic models are NOT used here — too expensive (~$0.2/call); if `PRIMARY_LLM_MODEL` ever shows an `anthropic/*` value it is config drift, revert it. **Translation calls** (`_translate_chunk`) use a separate provider preference `_TRANSLATION_PROVIDER_ORDER = ["Cloudflare", "Morph"]` (2026-06-10) — DigitalOcean+Venice were observed returning repeated `429` for `deepseek-v4-flash` translation; `allow_fallbacks=True` still permits OpenRouter to go beyond this list if both are unavailable. |
@@ -21,7 +21,7 @@ Last updated: 2026-06-16
 | Output language | reason in EN, render in `OUTPUT_LANG` (Ring 0 default `zh`) via a translation pass with a fixed-term glossary (财经分析报告 / 持仓分析 / 持仓机构; never "智能"); `en` = no-op |
 | Report statuses | `success` · `skipped` (quiet day, still emails heartbeat — EXCEPT a short manual quiet window, R-7: `session_node="manual"` + <2h span + 0 news + 0 anomalies suppresses the heartbeat as a same-day re-run artifact) · `needs_review` (compliance scan hit, NOT emailed) · `failed` · `in_progress` |
 | Report title / email subject | `Portfonia 财经分析报告 — YYYY-MM-DD HH:MM ET` (title timestamp from `period_end`); no "智能"/"Intelligence" wording anywhere. |
-| Holdings model | `market` + `broker` are user-declared fields; `position` preserves upload order. **§1 groups by `broker` (持仓机构)** in upload order with per-institution subtotals; cash sits inside its institution, broker-less rows fall into "Other". Distributions (by market/currency/asset type) unchanged. NOTE: `position` is currently NULL on existing rows (parser does not set it) → within-group order falls back to DB order until the parser populates it. |
+| Holdings model | `market` + `broker` are user-declared fields; `position` preserves upload order. **§1 groups by `broker` (持仓机构)** in upload order with per-institution subtotals; cash sits inside its institution, broker-less rows fall into "Other". Distributions (by market/currency/asset type) unchanged. `position` is now populated on confirm (2026-06-17 re-upload confirmed 20/20 rows — P1-9 resolved). |
 | Re-render | `regenerate_report(mode=render\|analyze)` rebuilds from stored `report_inputs` without re-fetching; `POST /reports/{id}/regenerate`. render = token-free, analyze = Pass 2 only. |
 
 ### Known technical debt (carry forward until resolved)
@@ -434,6 +434,52 @@ in any other language.
   (`[行情]`/`[新闻]`/`[分析]`/`[S#]`). The system prompt forbids the model from
   emitting them, and `_strip_markers` removes any that slip through. The scan
   backstop above does not depend on the suffix.
+
+### June-17 portfolio/ops fixes — DONE
+
+Three bugs surfaced from the first report after re-uploading holdings, plus two
+preventive improvements.
+
+**Bug fixes (commits `db90235`, `7365e71`):**
+
+- **Fund NAV lookup (`portfolio_calculator.py`)**: `compute_portfolio` looked up
+  price data with `captured_closes.get(h.ticker) if h.ticker else None` — fund
+  code-only holdings always got None, were added to `stale_tickers`, and dropped
+  from the portfolio entirely. Root cause: `capture_fund_navs` stores NAV in
+  `price_snapshots` keyed by `fund_code`, but the lookup never used `fund_code`.
+  Fix: `captured_closes.get(h.ticker or h.fund_code or "")`. All 20 holdings now
+  appear in portfolio composition. Tracked and resolved as GitHub issue #1.
+
+- **Sector backfill lost on re-upload**: `sector` is populated by
+  `backfill_sectors()` (yfinance), triggered only by `POST /portfolio/refresh`.
+  Re-uploading holdings via confirm cleared all rows and sectors went NULL.
+  Fix: `confirm_holdings` now calls `backfill_sectors()` automatically after
+  commit — sectors survive every re-upload without manual intervention.
+
+- **Next.js Turbopack multipart proxy failure**: `rewrites()` in Turbopack fails
+  on `multipart/form-data` POST (ECONNRESET at proxy). Fix: added
+  `frontend/src/app/api/holdings/upload/route.ts` — a proper Next.js API Route
+  that manually forwards the upload to the backend, bypassing the rewrite proxy.
+
+**Ops/alerting improvements:**
+
+- **Comprehensive ops alerts**: all capture tasks (news/prices/fx/fund_navs/
+  forward_events) now send ops alert + GitHub issue on final-retry exhaustion
+  (previously only logged). FX stale at report generation time also sends ops
+  alert (previously only inserted `[!]` in the report body).
+
+- **GitHub issue auto-creation** (`app/services/github_issues.py`): wraps
+  GitHub REST API `POST /repos/{owner}/{repo}/issues`. Called alongside
+  `send_ops_alert` for events that indicate code/data bugs: stale_tickers,
+  capture final failures, generation final failure. Requires `GITHUB_TOKEN`
+  (PAT with `repo` scope) + `GITHUB_REPO` in settings; silently skipped when
+  absent. Verified: issue #1 created, resolution comment added, closed.
+
+**Other:**
+
+- P1-9 resolved: holdings re-uploaded 2026-06-17, all 20 rows have `position`
+  set (0–19). `sector` backfill ran immediately after confirm (14 rows updated).
+- `GITHUB_TOKEN` / `GITHUB_REPO` added to `Settings` (both optional).
 
 ## Architecture
 
