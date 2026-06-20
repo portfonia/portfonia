@@ -22,6 +22,7 @@ from app.models.news import News
 from app.models.price_snapshot import PriceSnapshot
 from app.models.report import Report
 from app.models.ticker_theme import TickerTheme
+from app.services.asset_class_config import load_asset_class_config
 from app.services.news_fetcher import NewsItem
 from app.services.price_anomaly_detector import ConstituentMove, PriceAnomaly
 
@@ -32,32 +33,16 @@ BOOTSTRAP_WATERMARK = datetime(2026, 6, 1, 16, 0, tzinfo=ET)
 
 _RATIO = Decimal("0.0001")  # 4 dp for pct_change
 
-# Per-asset-class thresholds: (per_day_trigger, cumulative_window_cap).
+# Per-asset-class (per_day_trigger, cumulative_window_cap) — admin-editable,
+# see config/asset_class_thresholds.yml (#35). Loaded fresh on every call (no
+# cache) so an admin's edit takes effect on the next report without a
+# process restart.
 #
 # The window threshold = per_day * trading_days, capped at the class cap.
 # Broad funds have a high cap (40%) so a normal weekly drift never fires;
 # individual stocks cap at 10% (any week-long run above that is noteworthy).
 # Per-day trigger is the same (5%) for most equity classes so a single
 # violent session is still caught regardless of cumulative behaviour.
-_ASSET_THRESHOLDS: dict[str, tuple[Decimal, Decimal]] = {
-    # Individual equities
-    "STOCK": (Decimal("0.05"), Decimal("0.10")),
-    # US equity — split by index/style; classified by underlying exposure, not listing location
-    "EQUITY_US_BROAD": (Decimal("0.05"), Decimal("0.40")),  # S&P 500 / total market
-    "EQUITY_US_TECH": (Decimal("0.05"), Decimal("0.35")),  # Nasdaq 100 / tech-heavy
-    # Geographic equity buckets
-    "EQUITY_DM": (Decimal("0.05"), Decimal("0.30")),  # non-US developed markets
-    "EQUITY_CN": (Decimal("0.05"), Decimal("0.20")),  # China (A-share / HK / QDII)
-    "EQUITY_EM": (Decimal("0.05"), Decimal("0.25")),  # EM ex-China
-    # Catch-all for unclassified global / sector funds
-    "EQUITY_BROAD": (Decimal("0.05"), Decimal("0.40")),
-    "EQUITY_REGION": (Decimal("0.04"), Decimal("0.20")),  # legacy; migrate to specific bucket
-    "EQUITY_SECTOR": (Decimal("0.04"), Decimal("0.20")),
-    # Non-equity
-    "COMMODITY": (Decimal("0.04"), Decimal("0.20")),
-    "BOND_FUND": (Decimal("0.02"), Decimal("0.20")),
-    "CASH_EQUIV": (Decimal("0.01"), Decimal("0.20")),
-}
 
 
 def _window_threshold(per_day: Decimal, cap: Decimal, trading_days: int) -> Decimal:
@@ -233,10 +218,10 @@ def _compute_holding_move(
     key (fund NAV is stored under fund_code via capture_fund_navs).
     """
     identifier = h.ticker or h.fund_code
-    thresholds = _ASSET_THRESHOLDS.get(h.asset_class)
+    thresholds = load_asset_class_config().by_class.get(h.asset_class)
     if thresholds is None or not identifier:
         return None
-    per_day, cumulative_cap = thresholds
+    per_day, cumulative_cap = thresholds.anomaly_per_day, thresholds.anomaly_cumulative_cap
     baseline = _close_snapshot_before_window(session, identifier, start, start_date)
     series = _window_closes(session, identifier, start, end)
     if baseline is None or baseline.close is None or not series:

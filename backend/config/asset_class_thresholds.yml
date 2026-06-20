@@ -1,0 +1,60 @@
+# asset_class thresholds — admin-editable, system-level (#35).
+#
+# Two independent uses of the same asset_class taxonomy:
+#
+# - anomaly: window_data.py price-move detection. per_day triggers on any one
+#   trading day moving beyond it; cumulative_cap is the ceiling on the
+#   scaled (per_day * trading_days) window threshold.
+# - concentration: portfolio_calculator.py §4.1. watch/high apply when this
+#   asset_class is the TOP HOLDING's own class (tighter for a single stock,
+#   looser for an already-diversified broad index fund).
+#
+# The set of class keys below is CLOSED — every key in
+# app.services.asset_class_config.VALID_ASSET_CLASSES must appear exactly
+# once, no more, no less. New categories are not accepted yet (Ring 1
+# decision); the loader fails loudly on drift rather than silently
+# defaulting, so a typo here cannot pass unnoticed.
+#
+# All values are fractions of 1 (0.05 = 5%), not percentages.
+#
+# Ring 1 (not built yet): per-user overrides layered on top of this system
+# default, via a DB table rather than this file — see GitHub issue #35.
+
+asset_classes:
+  STOCK:
+    anomaly: { per_day: 0.05, cumulative_cap: 0.10 }
+    concentration: { watch: 0.10, high: 0.20 }
+  EQUITY_US_BROAD:
+    anomaly: { per_day: 0.05, cumulative_cap: 0.40 }
+    concentration: { watch: 0.30, high: 0.45 }
+  EQUITY_US_TECH:
+    anomaly: { per_day: 0.05, cumulative_cap: 0.35 }
+    concentration: { watch: 0.20, high: 0.35 }
+  EQUITY_DM:
+    anomaly: { per_day: 0.05, cumulative_cap: 0.30 }
+    concentration: { watch: 0.20, high: 0.35 }
+  EQUITY_CN:
+    anomaly: { per_day: 0.05, cumulative_cap: 0.20 }
+    concentration: { watch: 0.20, high: 0.35 }
+  EQUITY_EM:
+    anomaly: { per_day: 0.05, cumulative_cap: 0.25 }
+    concentration: { watch: 0.20, high: 0.35 }
+  EQUITY_BROAD:
+    anomaly: { per_day: 0.05, cumulative_cap: 0.40 }
+    concentration: { watch: 0.30, high: 0.45 }
+  COMMODITY:
+    anomaly: { per_day: 0.04, cumulative_cap: 0.20 }
+    concentration: { watch: 0.15, high: 0.25 }
+  BOND_FUND:
+    anomaly: { per_day: 0.02, cumulative_cap: 0.20 }
+    concentration: { watch: 0.25, high: 0.40 }
+  CASH_EQUIV:
+    anomaly: { per_day: 0.01, cumulative_cap: 0.20 }
+    concentration: { watch: 0.50, high: 0.70 }
+
+# §4.1 thresholds that are NOT per-class (the bucket already pools every
+# holding sharing one exposure, or the metric isn't asset_class-specific).
+concentration_global:
+  top3_watch: 0.50
+  asset_class_bucket_watch: 0.50
+  asset_class_bucket_high: 0.65

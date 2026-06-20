@@ -99,6 +99,10 @@ class Settings(BaseSettings):
     # Empty string = use the default path: backend/config/holding_news_keywords.yml
     HOLDING_NEWS_KEYWORDS_PATH: str = ""
 
+    # asset_class anomaly + concentration thresholds (admin-editable, #35)
+    # Empty string = use the default path: backend/config/asset_class_thresholds.yml
+    ASSET_CLASS_CONFIG_PATH: str = ""
+
     @property
     def database_url(self) -> str:
         return (
