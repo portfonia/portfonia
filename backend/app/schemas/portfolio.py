@@ -14,6 +14,7 @@ class HoldingValueOut(BaseModel):
     fund_code: str | None
     currency: str
     asset_type: str | None
+    asset_class: str | None
     sector: str | None
     market: str
     market_value: Decimal
@@ -26,13 +27,15 @@ class HoldingValueOut(BaseModel):
 class ConcentrationOut(BaseModel):
     top_holding_name: str | None
     top_holding_ratio: Decimal | None
+    top_holding_asset_class: str | None
     top3_ratio: Decimal | None
-    top_sector_name: str | None
-    top_sector_ratio: Decimal | None
+    top_asset_class_name: str | None
+    top_asset_class_ratio: Decimal | None
     single_holding_watch: bool
     single_holding_high: bool
     top3_watch: bool
-    sector_watch: bool
+    asset_class_watch: bool
+    asset_class_high: bool
 
     model_config = {"from_attributes": True}
 
@@ -45,6 +48,7 @@ class PortfolioSummaryResponse(BaseModel):
     by_currency: dict[str, Decimal]
     by_asset_type: dict[str, Decimal]
     by_sector: dict[str, Decimal]
+    by_asset_class: dict[str, Decimal]
     concentration: ConcentrationOut
     stale_tickers: list[str]
     holdings: list[HoldingValueOut]

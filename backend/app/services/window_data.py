@@ -41,22 +41,22 @@ _RATIO = Decimal("0.0001")  # 4 dp for pct_change
 # violent session is still caught regardless of cumulative behaviour.
 _ASSET_THRESHOLDS: dict[str, tuple[Decimal, Decimal]] = {
     # Individual equities
-    "STOCK":           (Decimal("0.05"), Decimal("0.10")),
+    "STOCK": (Decimal("0.05"), Decimal("0.10")),
     # US equity — split by index/style; classified by underlying exposure, not listing location
     "EQUITY_US_BROAD": (Decimal("0.05"), Decimal("0.40")),  # S&P 500 / total market
-    "EQUITY_US_TECH":  (Decimal("0.05"), Decimal("0.35")),  # Nasdaq 100 / tech-heavy
+    "EQUITY_US_TECH": (Decimal("0.05"), Decimal("0.35")),  # Nasdaq 100 / tech-heavy
     # Geographic equity buckets
-    "EQUITY_DM":       (Decimal("0.05"), Decimal("0.30")),  # non-US developed markets
-    "EQUITY_CN":       (Decimal("0.05"), Decimal("0.20")),  # China (A-share / HK / QDII)
-    "EQUITY_EM":       (Decimal("0.05"), Decimal("0.25")),  # EM ex-China
+    "EQUITY_DM": (Decimal("0.05"), Decimal("0.30")),  # non-US developed markets
+    "EQUITY_CN": (Decimal("0.05"), Decimal("0.20")),  # China (A-share / HK / QDII)
+    "EQUITY_EM": (Decimal("0.05"), Decimal("0.25")),  # EM ex-China
     # Catch-all for unclassified global / sector funds
-    "EQUITY_BROAD":    (Decimal("0.05"), Decimal("0.40")),
-    "EQUITY_REGION":   (Decimal("0.04"), Decimal("0.20")),  # legacy; migrate to specific bucket
-    "EQUITY_SECTOR":   (Decimal("0.04"), Decimal("0.20")),
+    "EQUITY_BROAD": (Decimal("0.05"), Decimal("0.40")),
+    "EQUITY_REGION": (Decimal("0.04"), Decimal("0.20")),  # legacy; migrate to specific bucket
+    "EQUITY_SECTOR": (Decimal("0.04"), Decimal("0.20")),
     # Non-equity
-    "COMMODITY":       (Decimal("0.04"), Decimal("0.20")),
-    "BOND_FUND":       (Decimal("0.02"), Decimal("0.20")),
-    "CASH_EQUIV":      (Decimal("0.01"), Decimal("0.20")),
+    "COMMODITY": (Decimal("0.04"), Decimal("0.20")),
+    "BOND_FUND": (Decimal("0.02"), Decimal("0.20")),
+    "CASH_EQUIV": (Decimal("0.01"), Decimal("0.20")),
 }
 
 

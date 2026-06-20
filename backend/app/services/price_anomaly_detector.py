@@ -31,17 +31,17 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _ASSET_THRESHOLDS: dict[str, Decimal] = {
-    "STOCK":           Decimal("0.05"),
+    "STOCK": Decimal("0.05"),
     "EQUITY_US_BROAD": Decimal("0.05"),
-    "EQUITY_US_TECH":  Decimal("0.05"),
-    "EQUITY_DM":       Decimal("0.05"),
-    "EQUITY_CN":       Decimal("0.05"),
-    "EQUITY_EM":       Decimal("0.05"),
-    "EQUITY_BROAD":    Decimal("0.05"),  # catch-all fallback
-    "EQUITY_REGION":   Decimal("0.04"),  # legacy; migrate to specific bucket
-    "EQUITY_SECTOR":   Decimal("0.04"),
-    "COMMODITY":       Decimal("0.04"),
-    "BOND_FUND":       Decimal("0.02"),
+    "EQUITY_US_TECH": Decimal("0.05"),
+    "EQUITY_DM": Decimal("0.05"),
+    "EQUITY_CN": Decimal("0.05"),
+    "EQUITY_EM": Decimal("0.05"),
+    "EQUITY_BROAD": Decimal("0.05"),  # catch-all fallback
+    "EQUITY_REGION": Decimal("0.04"),  # legacy; migrate to specific bucket
+    "EQUITY_SECTOR": Decimal("0.04"),
+    "COMMODITY": Decimal("0.04"),
+    "BOND_FUND": Decimal("0.02"),
     # CASH_EQUIV excluded — no exchange-priced daily quote
 }
 _FX_THRESHOLD = Decimal("0.01")

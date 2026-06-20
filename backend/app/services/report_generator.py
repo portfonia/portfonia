@@ -612,6 +612,7 @@ def _serialize_portfolio(snap: PortfolioSnapshot) -> dict[str, Any]:
             "fund_code": hv.fund_code,
             "currency": hv.currency,
             "asset_type": hv.asset_type,
+            "asset_class": hv.asset_class,
             "sector": hv.sector,
             "market": hv.market,
             "broker": hv.broker,
@@ -630,22 +631,25 @@ def _serialize_portfolio(snap: PortfolioSnapshot) -> dict[str, Any]:
         "by_currency": {k: float(v) for k, v in snap.by_currency.items()},
         "by_asset_type": {k: float(v) for k, v in snap.by_asset_type.items()},
         "by_sector": {k: float(v) for k, v in snap.by_sector.items()},
+        "by_asset_class": {k: float(v) for k, v in snap.by_asset_class.items()},
         "concentration": {
             "top_holding_name": snap.concentration.top_holding_name,
             "top_holding_ratio": float(snap.concentration.top_holding_ratio)
             if snap.concentration.top_holding_ratio is not None
             else None,
+            "top_holding_asset_class": snap.concentration.top_holding_asset_class,
             "top3_ratio": float(snap.concentration.top3_ratio)
             if snap.concentration.top3_ratio is not None
             else None,
-            "top_sector_name": snap.concentration.top_sector_name,
-            "top_sector_ratio": float(snap.concentration.top_sector_ratio)
-            if snap.concentration.top_sector_ratio is not None
+            "top_asset_class_name": snap.concentration.top_asset_class_name,
+            "top_asset_class_ratio": float(snap.concentration.top_asset_class_ratio)
+            if snap.concentration.top_asset_class_ratio is not None
             else None,
             "single_holding_watch": snap.concentration.single_holding_watch,
             "single_holding_high": snap.concentration.single_holding_high,
             "top3_watch": snap.concentration.top3_watch,
-            "sector_watch": snap.concentration.sector_watch,
+            "asset_class_watch": snap.concentration.asset_class_watch,
+            "asset_class_high": snap.concentration.asset_class_high,
         },
         "stale_tickers": snap.stale_tickers,
         "holdings": holdings_list,
@@ -1095,29 +1099,40 @@ def _build_pass2_prompt(
             + (f" ({h['ticker']})" if h.get("ticker") else "")
             + f" — {h.get('currency', '')} {h.get('market_value', 0):,.0f}"
             + f" ({ratio:.1%} of portfolio)"
-            + (f" | sector: {h['sector']}" if h.get("sector") else "")
+            + (f" | asset_class: {h['asset_class']}" if h.get("asset_class") else "")
         )
     lines.append("")
     lines.append(f"By market: {portfolio.get('by_market', {})}")
     lines.append(f"By currency: {portfolio.get('by_currency', {})}")
+    lines.append(f"By asset class: {portfolio.get('by_asset_class', {})}")
 
     conc = portfolio.get("concentration", {})
-    if conc.get("single_holding_watch") or conc.get("top3_watch") or conc.get("sector_watch"):
+    if conc.get("single_holding_watch") or conc.get("top3_watch") or conc.get("asset_class_watch"):
         lines.append("")
         lines.append("Concentration flags:")
         if conc.get("single_holding_high"):
             lines.append(
-                f"  [!] Top holding {conc.get('top_holding_name')} = {conc.get('top_holding_ratio', 0):.1%} (>25% threshold)"
+                f"  [!] Top holding {conc.get('top_holding_name')} "
+                f"({conc.get('top_holding_asset_class')}) = {conc.get('top_holding_ratio', 0):.1%} "
+                "— above the high threshold for this asset class"
             )
         elif conc.get("single_holding_watch"):
             lines.append(
-                f"  Top holding {conc.get('top_holding_name')} = {conc.get('top_holding_ratio', 0):.1%} (>15% watch)"
+                f"  Top holding {conc.get('top_holding_name')} "
+                f"({conc.get('top_holding_asset_class')}) = {conc.get('top_holding_ratio', 0):.1%} "
+                "— above the watch threshold for this asset class"
             )
         if conc.get("top3_watch"):
             lines.append(f"  Top-3 combined = {conc.get('top3_ratio', 0):.1%} (>50% watch)")
-        if conc.get("sector_watch"):
+        if conc.get("asset_class_high"):
             lines.append(
-                f"  Top sector ({conc.get('top_sector_name')}) = {conc.get('top_sector_ratio', 0):.1%} (>35% watch)"
+                f"  [!] Top asset class ({conc.get('top_asset_class_name')}) = "
+                f"{conc.get('top_asset_class_ratio', 0):.1%} (>65% threshold)"
+            )
+        elif conc.get("asset_class_watch"):
+            lines.append(
+                f"  Top asset class ({conc.get('top_asset_class_name')}) = "
+                f"{conc.get('top_asset_class_ratio', 0):.1%} (>50% watch)"
             )
 
     stale = portfolio.get("stale_tickers", [])
@@ -1235,8 +1250,8 @@ def _build_section1(portfolio: dict[str, Any]) -> str:
         "",
         f"**Total value:** {base_ccy} {total:,.0f}  (FX date: {fx_date})",
         "",
-        "| Holding | Currency | Value | % Portfolio | Custodian | Sector |",
-        "|---------|----------|-------|-------------|-----------|--------|",
+        "| Holding | Currency | Value | % Portfolio | Custodian | Asset Class |",
+        "|---------|----------|-------|-------------|-----------|-------------|",
     ]
 
     holdings = list(portfolio.get("holdings", []))
@@ -1267,7 +1282,7 @@ def _build_section1(portfolio: dict[str, Any]) -> str:
             name_col = h["name"] + (f" ({h['ticker']})" if h.get("ticker") else "")
             lines.append(
                 f"| {name_col} | {h.get('currency', '')} | {mv:,.0f} | {ratio:.1%} "
-                f"| {h.get('broker', '') or '—'} | {h.get('sector', '—') or '—'} |"
+                f"| {h.get('broker', '') or '—'} | {h.get('asset_class', '—') or '—'} |"
             )
         sub_ratio = subtotal_base / total if total > 0 else 0
         lines.append(
@@ -1283,7 +1298,7 @@ def _build_section1(portfolio: dict[str, Any]) -> str:
     for label, dist in [
         ("By market", portfolio.get("by_market", {})),
         ("By currency", portfolio.get("by_currency", {})),
-        ("By asset type", portfolio.get("by_asset_type", {})),
+        ("By asset class", portfolio.get("by_asset_class", {})),
     ]:
         if dist:
             parts = ", ".join(
