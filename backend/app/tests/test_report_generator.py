@@ -799,6 +799,27 @@ def test_inject_section42_table_fallback_appends_when_heading_absent() -> None:
     assert "TABLE_ROWS" in out
 
 
+def test_pass2_prompt_default_requests_all_three_narrative_sections() -> None:
+    prompt = rg._build_pass2_prompt(rg._serialize_portfolio(_portfolio_snap()), {}, [], [])
+    assert "## §2 Macro Signals" in prompt
+    assert "## §3 Holdings Analysis" in prompt
+    assert "## §4 Risk Radar" in prompt
+
+
+def test_pass2_prompt_enabled_sections_restricts_instructions() -> None:
+    """Ring 1 prep: a report type that only wants §2 must not get §3/§4 instructions."""
+    prompt = rg._build_pass2_prompt(
+        rg._serialize_portfolio(_portfolio_snap()),
+        {},
+        [],
+        [],
+        enabled_sections=frozenset({"§2"}),
+    )
+    assert "## §2 Macro Signals" in prompt
+    assert "## §3 Holdings Analysis" not in prompt
+    assert "## §4 Risk Radar" not in prompt
+
+
 def test_pass2_prompt_42_asks_for_drivers_not_restated_numbers() -> None:
     prompt = rg._build_pass2_prompt(rg._serialize_portfolio(_portfolio_snap()), {}, [], [])
     # The numeric table is code-built; the model must not restate the arc numbers.
