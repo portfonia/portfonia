@@ -216,7 +216,7 @@ def test_generate_report_normal_path(db_session: Session) -> None:
 
     assert report.status == "success"
     assert report.report_date == _TODAY
-    assert report.report_type == "weekly"
+    assert report.report_type == "incremental"
     assert report.report_md is not None
     assert "§1 Portfolio Snapshot" in report.report_md
     assert "§2 Macro Signals" in report.report_md

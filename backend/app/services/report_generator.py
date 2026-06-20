@@ -54,6 +54,7 @@ from app.services.macro_detector import MacroSignals, detect_macro_signals
 from app.services.news_fetcher import NewsItem
 from app.services.portfolio_calculator import PortfolioSnapshot, compute_portfolio
 from app.services.price_anomaly_detector import PriceAnomaly
+from app.services.report_types import validate_report_type
 from app.services.technical_position import TechnicalPosition, compute_technical_positions
 from app.services.window_data import (
     detect_window_anomalies,
@@ -1774,7 +1775,7 @@ def _is_short_manual_quiet(
 def generate_report(
     session: Session,
     report_date: date | None = None,
-    report_type: str = "weekly",
+    report_type: str = "incremental",
     base_currency: str = "USD",
     output_lang: str = "en",
     session_node: str = "manual",
@@ -1786,6 +1787,7 @@ def generate_report(
     Raises if the report record cannot be written (e.g. unique constraint violation
     when a report for the same date+type+session_node already exists).
     """
+    validate_report_type(report_type)
     settings = get_settings()
     user_id = get_current_user_id()
     eff_date = report_date or datetime.now(tz=ET).date()
