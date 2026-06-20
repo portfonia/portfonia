@@ -199,15 +199,17 @@ _TICKER_ASSET_CLASS: dict[str, str] = {
     "FXI": "EQUITY_CN",
     "KWEB": "EQUITY_CN",
     "110011": "EQUITY_CN",  # 易方达优质精选混合(QDII) — China concept
-    # Commodity funds
-    "SGOL": "COMMODITY",
-    "GLD": "COMMODITY",
-    "IAU": "COMMODITY",
-    "518660": "COMMODITY",
-    "518660.SS": "COMMODITY",
-    "518800": "COMMODITY",
-    "518800.SS": "COMMODITY",
-    "008142": "COMMODITY",  # 工银黄金ETF联接
+    # Precious metals (gold) — split from the generic COMMODITY catch-all
+    # 2026-06-20: gold's volatility/concentration profile is distinct from
+    # energy and other commodities, see config/asset_class_thresholds.yml.
+    "SGOL": "PRECIOUS_METALS",
+    "GLD": "PRECIOUS_METALS",
+    "IAU": "PRECIOUS_METALS",
+    "518660": "PRECIOUS_METALS",
+    "518660.SS": "PRECIOUS_METALS",
+    "518800": "PRECIOUS_METALS",
+    "518800.SS": "PRECIOUS_METALS",
+    "008142": "PRECIOUS_METALS",  # 工银黄金ETF联接
     # Bond / T-bill funds
     "BOXX": "BOND_FUND",
     "BIL": "BOND_FUND",

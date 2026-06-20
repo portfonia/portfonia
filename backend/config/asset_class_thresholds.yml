@@ -52,9 +52,32 @@ asset_classes:
   REIT:
     anomaly: { per_day: 0.05, cumulative_cap: 0.25 }
     concentration: { watch: 0.20, high: 0.35 }
-  COMMODITY:
+  # Commodity split 2026-06-20: gold/oil/everything-else move on different
+  # drivers and at different amplitudes, so one bucket was either too loose
+  # (would miss a real energy shock) or too tight (would false-positive on
+  # gold's normal day-to-day). Three tiers, ordered calmest → most volatile:
+  #
+  # PRECIOUS_METALS — real holdings (SGOL, 518660.SS, 518800.SS, 008142, all
+  # gold). Numbers are unchanged from the old single COMMODITY bucket, which
+  # was de facto gold-calibrated since every current holding was gold.
+  PRECIOUS_METALS:
     anomaly: { per_day: 0.04, cumulative_cap: 0.20 }
     concentration: { watch: 0.15, high: 0.25 }
+  # ENERGY — no holdings yet. Oil/gas swing harder and faster than gold on
+  # supply shocks and geopolitics (single-day double-digit moves are not
+  # unusual); a concentrated energy bet is also a more idiosyncratic/cyclical
+  # wager than gold's traditional safe-haven role, so concentration is
+  # tighter even though the anomaly bands are looser. Untested against real
+  # holdings; revisit once any energy position exists.
+  ENERGY:
+    anomaly: { per_day: 0.06, cumulative_cap: 0.35 }
+    concentration: { watch: 0.10, high: 0.15 }
+  # COMMODITY — catch-all for everything else (agriculture, industrial
+  # metals, broad commodity-index funds). No holdings yet; sits between the
+  # two tiers above as a placeholder estimate.
+  COMMODITY:
+    anomaly: { per_day: 0.05, cumulative_cap: 0.25 }
+    concentration: { watch: 0.12, high: 0.20 }
   BOND_FUND:
     anomaly: { per_day: 0.02, cumulative_cap: 0.20 }
     concentration: { watch: 0.25, high: 0.40 }
