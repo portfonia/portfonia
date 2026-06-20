@@ -1778,7 +1778,7 @@ def generate_report(
     # ------------------------------------------------------------------
     # Idempotency: (user_id, report_date, report_type, session_node) is unique
     # (H-DEBT-1). session_node identifies WHICH trigger produced the report
-    # (e.g. "manual" vs "after_close" for the M/W/F 16:30 ET cadence) so two
+    # (e.g. "manual" vs "after_close" for the M/W/F 17:00 ET cadence) so two
     # distinct triggers on the same calendar day get separate rows / windows /
     # emails. A redelivered Celery task (task_acks_late=True) or a repeated
     # manual /reports/generate passes the SAME session_node, so it still

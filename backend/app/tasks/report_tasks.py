@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 def generate_incremental_report(self: Any) -> dict[str, str]:
     """Generate the incremental report (changes since the user's last report).
 
-    Scheduled by Celery Beat Mon/Wed/Fri at 16:30 ET. A missed run needs no
+    Scheduled by Celery Beat Mon/Wed/Fri at 17:00 ET. A missed run needs no
     catch-up: the next run's window is "since last report", so it widens to
     cover the gap. On failure retries up to 2 times with a 5-minute cooldown.
 

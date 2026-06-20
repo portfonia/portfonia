@@ -1,385 +1,177 @@
 # Portfonia — Agent Guidelines
 
 AI-facing guidance for agent tooling working in this repository.
-Last updated: 2026-06-17
+Last updated: 2026-06-19
 
-## Current Development State (update this section when resuming)
+## Where to find current state
+
+This file holds **conventions and mechanisms**, not a project status board.
+
+- **Open bugs, requests, and technical debt**: GitHub issues, `debt` /
+  `bug` / `enhancement` labels (see "Issue Tracking" below — everything new
+  gets an issue first).
+- **Ring stage, recent session summaries, running progress**: Obsidian
+  `Hermes/Portfonia/` project log.
+- **Build/test status, HEAD commit**: `git log`, `pytest -q`, `mypy .` —
+  always run these rather than trusting a written-down snapshot.
+
+## System conventions (current behavior, not status)
 
 | Item | Value |
 |------|-------|
-| Ring stage | **Ring 0** (local dev machine, single user, no cloud) |
-| `main` HEAD | `7365e71` feat(ops): comprehensive alert coverage + GitHub issue auto-creation — pushed, in sync with `origin/main`. |
-| Stages complete | A B C D E F1 F2 F3 G H + June-7 report-review fixes + **ADR-002 incremental reporting + capture layer** + **Ring0 report enhancements #1–#4** + **June-9 reliability fixes** + **June-10 R-1~R-8 + observability** + **June-16 compliance + ops** + **Ring 0 audit remediation P0+P1** + **June-16 asset classification + fund NAV capture** + **June-17 portfolio/ops fixes** (see below) |
-| Next stage | **I** — 稳定运行验证。下次 MWF 定时任务（Wed Jun 18 16:30 ET）是首次完整运行：新合规规则 + 新资产分类 + 基金 NAV 捕获 + 全 20 条持仓进入组合 + sector 自动回填。P1-9（重传持仓）已完成（2026-06-17 重新上传）。Ring 0 审计 P1 清单 9/10 项完成；P1-7（加密）推迟 Ring 1。P2 全推迟 Ring 1 第一周。 |
-| Backend quality | ruff OK · mypy OK (80 files) · pytest **305 passed** |
-| Frontend quality | tsc OK · eslint OK · next build OK |
-| LLM model | OpenRouter (provider=DigitalOcean,Venice), `data_collection=deny` on every call. **PRIMARY (Pass 2 analysis) = `deepseek/deepseek-v4-pro`**; **Pass 1 search + translation render = `deepseek/deepseek-v4-flash`** (LOW_COST). Sonnet/Anthropic models are NOT used here — too expensive (~$0.2/call); if `PRIMARY_LLM_MODEL` ever shows an `anthropic/*` value it is config drift, revert it. **Translation calls** (`_translate_chunk`) use a separate provider preference `_TRANSLATION_PROVIDER_ORDER = ["Cloudflare", "Morph"]` (2026-06-10) — DigitalOcean+Venice were observed returning repeated `429` for `deepseek-v4-flash` translation; `allow_fallbacks=True` still permits OpenRouter to go beyond this list if both are unavailable. |
+| LLM model | OpenRouter (provider=DigitalOcean,Venice), `data_collection=deny` on every call. **PRIMARY (Pass 2 analysis) = `deepseek/deepseek-v4-pro`**; **Pass 1 search + translation render = `deepseek/deepseek-v4-flash`** (LOW_COST). Sonnet/Anthropic models are NOT used here — too expensive (~$0.2/call); if `PRIMARY_LLM_MODEL` ever shows an `anthropic/*` value it is config drift, revert it. Translation calls use a separate provider preference (`_TRANSLATION_PROVIDER_ORDER`) since DigitalOcean+Venice were observed 429-ing on `deepseek-v4-flash` translation; `allow_fallbacks=True` still permits OpenRouter beyond this list if both are unavailable. |
 | Infrastructure | Homebrew PostgreSQL@16 + Redis (native, not Docker); `make infra-up` not needed |
-| **Dev process restart (MANDATORY after model/migration changes)** | uvicorn, `celery worker`, `celery beat` run with **no `--reload`** and load the ORM model at process start. After ANY change to `app/models/*`, an Alembic migration, or a router/schema change, **kill and restart all three** (`ps aux \| grep -E "uvicorn\|celery"`, `kill <pids>`, then `nohup venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-level info >> .run/uvicorn.log 2>&1 &` and the two `celery -A app.tasks worker/beat --loglevel=info >> .run/{worker,beat}.log 2>&1 &`). Symptom if skipped: `INSERT`/`UPDATE` against the new column fails `NOT NULL`/constraint mismatch → uncaught `IntegrityError` → bare `500` with no traceback (no log file existed for uvicorn until 2026-06-10; now redirected to `.run/uvicorn.log`). Found 2026-06-10: `POST /reports/generate` 500'd because uvicorn (up since 6/7) and celery worker/beat (up since 6/9 08:05) predated the H-DEBT-1 migration/model change — both restarted, confirmed fixed. |
-| Prompt version | `f2-v6` (adds: §4.2 CROSS-REFERENCES — "见§4.2"/"see §4.2" only for holdings actually in the anomaly table; for off-table divergences say "did not cross the report's anomaly threshold" (R-8); plus a HOLDING-RELEVANT NEWS prompt block fed from R-3 recall/targeted search. f2-v5 = DIRECTION REQUIRES EVIDENCE + DIVERGENCE IS THE SIGNAL. f2-v4 = §4.2 code table + driver-only, confidence labels `[Established]/[Probable]/[Speculative]`, forward-event no-forecast. f2-v3 = window-anchored depth + session-arc + NO inline markers; f2-v2 = Pass 1 public-only) |
-| Disclaimer version | `f3-bilingual-v2` (adds: AI LLM explicit mention, imprecise-language caveat, sender-no-liability clause, matching Chinese) |
+| **Dev process restart (MANDATORY after model/migration changes)** | uvicorn, `celery worker`, `celery beat` run with **no `--reload`** and load the ORM model at process start. After ANY change to `app/models/*`, an Alembic migration, or a router/schema change, **kill and restart all three** (`ps aux \| grep -E "uvicorn\|celery"`, `kill <pids>`, then `nohup venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-level info >> .run/uvicorn.log 2>&1 &` and the two `celery -A app.tasks worker/beat --loglevel=info >> .run/{worker,beat}.log 2>&1 &`). Symptom if skipped: `INSERT`/`UPDATE` against the new column fails `NOT NULL`/constraint mismatch → uncaught `IntegrityError` → bare `500` with no traceback. |
 | Output language | reason in EN, render in `OUTPUT_LANG` (Ring 0 default `zh`) via a translation pass with a fixed-term glossary (财经分析报告 / 持仓分析 / 持仓机构; never "智能"); `en` = no-op |
-| Report statuses | `success` · `skipped` (quiet day, still emails heartbeat — EXCEPT a short manual quiet window, R-7: `session_node="manual"` + <2h span + 0 news + 0 anomalies suppresses the heartbeat as a same-day re-run artifact) · `needs_review` (compliance scan hit, NOT emailed) · `failed` · `in_progress` |
+| Report statuses | `success` · `skipped` (quiet day, still emails heartbeat — EXCEPT a short manual quiet window: `session_node="manual"` + <2h span + 0 news + 0 anomalies suppresses the heartbeat as a same-day re-run artifact) · `needs_review` (compliance scan hit, NOT emailed) · `failed` · `in_progress` |
 | Report title / email subject | `Portfonia 财经分析报告 — YYYY-MM-DD HH:MM ET` (title timestamp from `period_end`); no "智能"/"Intelligence" wording anywhere. |
-| Holdings model | `market` + `broker` are user-declared fields; `position` preserves upload order. **§1 groups by `broker` (持仓机构)** in upload order with per-institution subtotals; cash sits inside its institution, broker-less rows fall into "Other". Distributions (by market/currency/asset type) unchanged. `position` is now populated on confirm (2026-06-17 re-upload confirmed 20/20 rows — P1-9 resolved). |
+| Holdings model | `market` + `broker` are user-declared fields; `position` preserves upload order. **§1 groups by `broker` (持仓机构)** in upload order with per-institution subtotals; cash sits inside its institution, broker-less rows fall into "Other". `position` is populated automatically on confirm. |
 | Re-render | `regenerate_report(mode=render\|analyze)` rebuilds from stored `report_inputs` without re-fetching; `POST /reports/{id}/regenerate`. render = token-free, analyze = Pass 2 only. |
 
-### Known technical debt (carry forward until resolved)
+### Capture layer + incremental reporting (ADR-002)
 
-| ID | Description | Resolve at |
-|----|-------------|-----------|
-| F-DEBT-1 | `by_sector` "Other" conflates ETFs with unclassified equities | Ring 1+ |
-| D-DEBT-1 | `backfill_sectors` serial O(n) `yf.Ticker().info` calls | Ring 1+ |
-| D-DEBT-2 | `compute_portfolio` has no `user_id` filter (loads all holdings) | MVP |
-| D-DEBT-3 | 天天基金 OCI reachability unverified (local dev confirmed reachable; lsjz + realtime JSONP both work) | Ring 1 deploy |
-| D-DEBT-4 | Price staleness: `stale_tickers` only catches NULL price, not stale-dated prices | TBD |
-| G-DEBT-1 | `send_report_email` returns True even if `commit()` of `email_sent_at` fails; Resend Idempotency-Key prevents duplicate delivery but state is unpersisted. Persist a provider message id / use a conditional update. | Ring 1+ |
-| G-DEBT-2 | Concurrent-send dedup is best-effort (in-memory `email_sent_at` check + Resend Idempotency-Key), not a DB lock. Add a row lock / conditional update if multi-trigger paths appear. | Ring 1+ |
-| G-DEBT-3 | Email HTML uses a `<style>` block (`nth-child`, `max-width`, `border-radius`); not robust in Outlook/Gmail. Inline critical styles / table-based wrapper before real external recipients. | Ring 1+ |
-| A-DEBT-1 | No DB domain constraints: `pricing_mode`/`asset_type`/`currency` are free `Text` (no CHECK/enum); `shares`/`current_value` have no `>= 0`. App layer + `ParsedRow` Literals are the only guard. Add CHECK constraints via migration **after** auditing existing dev rows (a CHECK that fails on legacy data blocks upgrade). | Ring 1 |
-| A-DEBT-2 | Test suite drops+creates+migrates a fresh DB per `db_session` test (correct for drift detection, but slow). Move to session-scoped migrated DB + per-test SAVEPOINT rollback. | Ring 1 |
-| A-DEBT-3 | `core/database.py` builds module-level `engine`/`SessionLocal` bound to the dev DB at import. Test isolation relies on every test overriding `get_session` or patching `SessionLocal` (discipline, not structure). | Ring 1 |
-| A-DEBT-4 | `ParsedRow` uses `float` for `shares`/`avg_cost`/`current_value`, bridged to `Decimal` via `Decimal(str(x))` at confirm. Bridge is adequate but inconsistent with the Decimal-everywhere model. | TBD |
-| A-DEBT-5 | `/holdings/upload` has no request body-size cap (`await file.read()` loads fully into memory). Local Ring 0 low risk; add a limit before any exposed deployment. | Ring 1 |
-| I-DEBT-1 | (R-8) §2 cross-references like "见§4.2" not validated against `price_anomalies`. **RESOLVED 2026-06-10**: `_PASS2_SYSTEM` §4.2 CROSS-REFERENCES rule (f2-v6) restricts "见§4.2"/"see §4.2" to holdings in the table; off-table divergences must say "did not cross the report's anomaly threshold". | **DONE** |
-| I-DEBT-2 | `_call_llm` `choices`-None / 429 robustness. **RESOLVED 2026-06-10**: new `LLMEmptyResponseError` raised when `not resp.choices`; bounded 429 backoff-retry (5s/15s) inside `_call_llm` then re-raise. | **DONE** |
-| I-DEBT-3 | `app/main.py` missing `logging.basicConfig`. **RESOLVED 2026-06-10**: `basicConfig(level=INFO)` at import — `_call_llm` instrumentation now reaches `.run/uvicorn.log`. | **DONE** |
-| I-DEBT-4 | sync `POST /reports/generate` bare-500 on Pass-2 truncation. **RESOLVED 2026-06-10**: router catches `LLMEmptyResponseError`/`RuntimeError` → 502 with the failure reason. (Still no sync-path retry — acceptable; HTTP-timeout-bounded.) | **DONE** |
-| H-DEBT-3 | News "permanent miss" gap: a story whose `published_at` falls inside a report window but is ingested after that window's `period_end` is skipped by both that window and the next (each boundary excludes it once). Same-day multi-run amplifies the probability. Fix: decouple news selection from watermark — select by `published_at <= period_end` where `url_hash` not yet surfaced in any success/skipped report (`surfaced_at` column or join table). Full analysis in Ring0 开发文档 2026-06-09 section. | Ring 1 |
+Full spec in Obsidian: `Hermes/Portfonia/Docs/增量报告与捕获层设计.md`.
 
-### Incremental reporting + capture layer — DONE (ADR-002)
+A **capture layer** (global, credit-free — RSS + yfinance; persists `news` +
+`price_snapshots`, 1yr) runs at market-session nodes and feeds a **report
+layer** (per-user, incremental).
 
-Full spec in Obsidian: `Hermes/Portfonia/Docs/增量报告与捕获层设计.md` (resolved #3
-report-window-vs-cadence and #4 observation cadence from the 2026-06-07 review).
-
-Shipped shape: a **capture layer** (global, credit-free — RSS + yfinance;
-persists `news` + `price_snapshots`, 1yr) runs at market-session nodes and feeds
-a **report layer** (per-user, incremental). Agent-facing essentials:
-
-- **Capture nodes** scheduled via crontab `nowfun` per market: US in ET
-  (DST-aware), HK/CN in their fixed-offset zones. Nodes: US pre_open/open/close/
-  after_close; HK/CN open/close. News captured at every node. Catch-up is in the
-  task (OHLCV range fetch / 48h news + idempotent upsert) — no watermark table.
-  Tasks: `capture_news_task`, `capture_prices_task(market, node)`.
+- **Capture nodes** via crontab `nowfun` per market: US in ET (DST-aware),
+  HK/CN fixed-offset. Nodes: US pre_open/open/close/after_close; HK/CN
+  open/close. News captured at every node; catch-up logic lives in the task
+  (range fetch + idempotent upsert), no watermark table.
 - **Report window** = `[previous report.period_end, now]`; watermark =
-  `max(period_end)` over the user's completed reports (derived → deleting a
-  report rolls it back; regenerate keeps the stored period). Cold-start baseline
-  = `2026-06-01 16:00 ET` (`window_data.BOOTSTRAP_WATERMARK`).
-- News + anomalies read from the stores via `window_data` (NOT live RSS / last-
-  two-closes). New positions (no baseline) skipped.
-- **Cadence:** `generate_incremental_report` (report_type=`incremental`) fires
-  Mon/Wed/Fri 16:30 ET. Migrations: `e5f6a7b8c9d0` (capture tables),
-  `f6a7b8c9d0e1` (report period columns).
+  `max(period_end)` over the user's completed reports (deleting a report
+  rolls it back; regenerate keeps the stored period). News/anomalies are read
+  from the stores via `window_data`, never live RSS or last-two-closes.
+- **Cadence:** `generate_incremental_report` fires Mon/Wed/Fri 17:00 ET
+  (moved from 16:30 ET on 2026-06-19, widening the gap after the 16:05 ET
+  FX capture and 16:00 ET close capture).
+- **Anomaly detection** (`detect_window_anomalies`) fires on EITHER trigger:
+  `single_day` (one trading day beyond per-class per-day threshold — catches
+  a violent session a net move would smooth away) or `cumulative` (baseline→
+  latest net move beyond a scaled, capped threshold). Flagged holdings carry
+  a session arc (prev close/open-gap/intraday range/close/after-hours) for
+  §4.2. Report always says "this report period", never "today".
+- Portfolio valuation reads the **latest captured close** from
+  `price_snapshots`, falling back to `holding.market_price` only for funds
+  (no ticker). FX anomalies are not computed (FX stays daily in `fx_rates`).
 
-Anomaly detection (`detect_window_anomalies`) fires on **either** of two triggers
-(2026-06-08 rework, fixes the "no anomalies on a volatile week" miss):
-- **single_day** — any one trading day in the window moved beyond the per-day
-  threshold (stock 3%, etf 2%). Catches a violent session the endpoint-to-
-  endpoint net move would smooth away.
-- **cumulative** — baseline-close → latest-close net move beyond the scaled
-  threshold (per-day × trading-days, capped at 10%; `_window_threshold`).
-Every flagged holding also carries the most-recent-trading-day **session arc**
-(prev close, open+gap, intraday high/low, close, after-hours) so §4.2 can state
-the comparison basis and describe how the day ran. The report states the
-trading-day count and refers to "this report period", never "today".
+### Report content features (Ring0 #1-4 + R-3/R-5/R-6/R-7/R-8)
 
-Portfolio **valuation reads the latest captured close** from `price_snapshots`
-(`_latest_captured_closes`), falling back to `holding.market_price` only for
-funds (no ticker). This keeps §1 valuation and the anomaly baseline on one price
-series. FX window anomalies are still not computed (FX stays daily in `fx_rates`).
+All numbers are **code-built and stored in `report_inputs`** (deterministic,
+re-render-safe); the LLM writes only prose/attribution. Current shape:
 
-### Ring0 report enhancements #1–#4 — DONE
+- **§4.2 price-anomaly table** — session-arc numbers rendered as a markdown
+  table; LLM writes one driver line per holding, restricted to "见§4.2" only
+  for holdings actually in the table.
+- **Confidence labels** — every causal attribution ends with
+  `[Established]/[Probable]/[Speculative]` (never a numeric %); zh glossary
+  确定/较可能/推测.
+- **§4.4 technical position** (`technical_position.py`) — descriptive OHLCV
+  facts only (distance to 50/200-day avg, 52-week range, 20-day vol); TA
+  signal vocabulary (support/resistance/golden-cross/支撑位/阻力位/金叉/死叉)
+  is forbidden in the body. Needs ~200 captured closes — seed once via
+  `python -m app.scripts.backfill_ohlcv`.
+- **§2.5 forward calendar** (`forward_events.py`) — US macro releases (FRED,
+  optional `FRED_API_KEY`), hardcoded FOMC dates (verify annually against
+  federalreserve.gov — FRED has no forward FOMC schedule), earnings via
+  yfinance. Calendar facts only, no forecasting. China forward intel out of
+  scope. T+0 events get a lead-note promotion under §2 ("results not yet in
+  this report's data").
+- **Holding-relevant news** (`holding_news.py` + `config/holding_news_keywords.yml`) —
+  recalls window news per moved holding by ticker/alias after anomaly
+  detection (fixes macro-theme-only misses); top-3 unmatched anomalies get a
+  targeted Tavily search bounded by remaining daily budget. Holdings-derived,
+  so this runs AFTER Pass 1 / feeds ONLY Pass 2 (isolation preserved).
+- **Data window wording** — footer states the real price cutoff (session-close
+  snapshots only, no intraday) and flags `[!] FX rate is stale` when FX trails
+  the window by >1 day.
+- **Quiet-day suppression** — a short manual re-run (`session_node="manual"`,
+  <2h span, 0 news, 0 anomalies) suppresses the heartbeat email; scheduled
+  `after_close` quiet windows still email it.
 
-Four first-user-feedback features, all inside the Layer-3 boundary. The pattern
-throughout: **numbers are code-built and stored in `report_inputs`** (deterministic,
-token-free, re-render-safe — `regenerate_report(mode=render)` reproduces them with
-no DB read); the **LLM writes only prose/attribution**.
+### Reliability mechanisms (window/dedup/LLM-call correctness)
 
-- **#3 §4.2 price-anomaly table** (`_build_section42_table` + `_inject_section42_table`):
-  the session-arc numbers become a markdown table inserted under the LLM's
-  `### 4.2 Price anomalies` heading; the LLM writes only a one-line driver per holding.
-- **#2 confidence labels**: every causal attribution (§3, §4.2) ends with an
-  evidence-ordinal `[Established]/[Probable]/[Speculative]` (never a numeric %);
-  large unexplained moves are kept and labelled `[Speculative]`, not dropped. zh
-  glossary maps the labels (确定/较可能/推测).
-- **#4 §4.4 technical position** (`technical_position.py` + `_build_section44_technical`):
-  descriptive price structure from captured OHLCV — distance to 50/200-day average,
-  52-week range position, 20-day annualized volatility. Pure facts, NO TA-signal
-  vocabulary (new forbidden patterns: support/resistance level, golden/death cross,
-  breakout, 支撑位/阻力位/金叉/死叉). Needs ~200 captured closes for the long windows →
-  run **`python -m app.scripts.backfill_ohlcv`** once (idempotent; reuses
-  `capture_prices(close, lookback_days=420)`) to seed a year of closes.
-- **#1 §2.5 forward calendar** (`forward_events.py`, `forward_events` table, migration
-  `a7b8c9d0e1f2`): scheduled US events ~10 days out, each mapped (in code) to exposed
-  holdings. Sources: FRED `release/dates` for a curated release set (CPI/PPI/NFP/
-  Retail/PCE/GDP/UMich; needs `FRED_API_KEY`, optional — macro skipped if unset),
-  **hardcoded FOMC statement dates** (verified from federalreserve.gov; FRED's FOMC
-  release has no forward schedule — VERIFY ANNUALLY), and earnings via yfinance
-  `Ticker.calendar`. Calendar facts only — `_PASS2_SYSTEM` bars forecasting event
-  outcomes. An RSS-derived delay caveat fires when window news mentions a funding
-  lapse (BLS/BEA dates may slip). **China forward intel is out of scope.** Captured
-  by `capture_forward_events_task` (daily 08:00 ET, Mon–Fri, 14-day fetch horizon).
+- Same-day report windows (retry/regenerate within one ET calendar date) use
+  a `captured_at > start` fallback instead of the date-range query, since a
+  same-day range would otherwise collapse to empty even with today's close
+  already captured.
+- `period_start`/`period_end` are computed once on first attempt and stored
+  on the report row; retries reuse the stored window rather than recomputing
+  (recomputing made retried content non-deterministic).
+- Pass 2 completeness guard: missing `## §3`/`## §4` markers or body
+  <2000 chars raises `RuntimeError` so Celery retries instead of persisting a
+  silently-truncated `status=success` report.
+- `_call_llm` logs model/finish_reason/tokens/cost on every call and warns on
+  non-`stop` finish; `LLMEmptyResponseError` on empty `choices` with bounded
+  429 backoff-retry. `pin_provider=False` (used only for translation) lets
+  OpenRouter route freely instead of restricting to the pinned provider order.
+- Resend `Idempotency-Key` is content-addressed
+  (`report-{id}-{sha256(html)[:16]}`) — a regenerated report with different
+  content gets a different key, avoiding a 409 on corrected resends.
+- **`session_node`** (migration `b8c9d0e1f2a3`) identifies WHICH TRIGGER
+  produced a report (`"manual"` / `"after_close"` / `"legacy"`), part of the
+  reports unique constraint. Set by the caller at generation time, never
+  derived from wall-clock at lookup. `user_watermark()` reads `max(period_end)`
+  across all `session_node` values for a `report_type`, so a same-day manual
+  run and the scheduled after-close run produce non-overlapping windows in
+  two separate rows, both emailed independently.
 
-### June-10 batch fixes (R-3~R-8 + observability) — DONE
+### Compliance + ops alerting (current state)
 
-Three batches off the Portfonia-vs-Daily_Intel comparison (Obsidian
-`2026-06-10_报告对比分析...`). No migration (one new config setting, two new
-config files, one new beat task). prompt_version `f2-v5`→`f2-v6`.
+- `_FORBIDDEN_OUTPUT_PATTERNS` (single source of truth:
+  `app/compliance/forbidden_vocab.py`) targets only direct advisory/action
+  vocabulary (止损/强烈买入/目标价/投资建议 + EN equivalents). Descriptive
+  TA-observation terms (support/resistance/阻力位 etc.) are explicitly
+  allowed — see "Forbidden vocabulary" below for the Layer-4 line.
+- Disclaimer `f3-bilingual-v2`: names the AI LLM generator explicitly, plus
+  imprecise-language and sender-no-liability caveats, EN+zh.
+- `send_ops_alert(subject, body)` (`email_sender.py`) sends plain-text to
+  `ADMIN_EMAIL` (default `portfonia@gmail.com`) on `needs_review` or
+  final-retry failure in `generate_incremental_report`.
+- GitHub issue auto-creation (`app/services/github_issues.py`) fires
+  alongside ops alerts for events indicating code/data bugs (stale_tickers,
+  capture final failures, generation final failure). Requires
+  `GITHUB_TOKEN` (PAT, `repo` scope) + `GITHUB_REPO`; silently skipped if
+  absent.
+- All capture tasks (news/prices/fx/fund_navs/forward_events) send ops alert
+  + GitHub issue on final-retry exhaustion.
 
-**Batch 1 — observability + ops (no business-logic risk):**
-- **I-DEBT-3** `app/main.py` `logging.basicConfig(INFO)` at import — `_call_llm`
-  instrumentation now actually logs.
-- **I-DEBT-2** `_call_llm`: `LLMEmptyResponseError` on `not resp.choices`;
-  bounded 429 backoff-retry (`_LLM_RATELIMIT_BACKOFF_SECONDS = (5.0, 15.0)`).
-- **I-DEBT-4** sync `POST /reports/generate` catches both → 502 with reason.
-- **R-4** FX is now a daily beat task `capture-fx-daily` (`capture_fx_task`,
-  16:05 ET Mon–Fri, idempotent upsert). ROOT CAUSE was NOT a stalled pipeline —
-  `update_fx_rates` only ever had ONE caller (manual `POST /portfolio/refresh`);
-  there was no scheduled FX task at all. Rates were frozen at 6/4 = last manual
-  refresh.
+### Asset classification + fund NAV capture
 
-**Batch 2 — analysis quality (f2-v6):**
-- **R-8** §4.2 cross-reference rule in `_PASS2_SYSTEM` (see I-DEBT-1).
-- **R-3 (映射缺口)** new `app/services/holding_news.py` + config
-  `config/holding_news_keywords.yml` (setting `HOLDING_NEWS_KEYWORDS_PATH`):
-  after anomaly detection, recall window news per moved holding by ticker (always)
-  + per-holding aliases (covers the BoJ→EWJ miss: a captured story matching no
-  macro theme). Code-only keyword match over already-loaded window news → a
-  `=== HOLDING-RELEVANT NEWS ===` Pass-2 prompt block (`_build_holding_news_block`).
-- **R-3 (源缺口, Daily-Intel-style targeted pull)** `_targeted_anomaly_queries`:
-  for the top-3 most-moved anomaly holdings with NO recalled news, run a targeted
-  Tavily search (covers the INTC→Google-foundry miss). Bounded by remaining
-  Tavily budget. **Isolation note:** anomaly identifiers are holdings-derived, so
-  this runs AFTER Pass 1 and feeds ONLY Pass 2; `test_pass1_*` isolation
-  regressions still pass. `ctx.holding_news` stored in `report_inputs` → re-render
-  reproduces it. Tradeoff accepted for Ring 0 single-user: targeted search exposes
-  the moved ticker to Tavily (mild holdings signal); revisit with a settings gate
-  at Ring 1 multi-user.
-- **R-3b** two RSS sources added to `news_fetcher._RSS_SOURCES`: CNBC Top News +
-  Google News Business topic (NYT/FT/Reuters were macro-heavy and missed
-  single-stock catalysts). Dedup by URL hash makes overlap free. Both verified
-  live (~30 items/48h each, carrying single-stock items like Oracle earnings).
-
-**Batch 3 — report wording:**
-- **R-5** `_build_data_window` now states the real PRICE cutoff
-  (`window_data.latest_window_close_date` → `ctx.price_data_through`): "Price data
-  through the YYYY-MM-DD close (session-close snapshots only — no premarket or
-  intraday quotes)", plus a `[!] FX rate is stale` flag when `fx_date` trails the
-  window cutoff by >1 day (`_fx_is_stale`). Capture layer taking only session-node
-  closes is a DESIGN decision, not a defect — R-5 just makes it visible to readers.
-- **R-6** T+0 calendar promotion: `_build_today_events_block` +
-  `_inject_today_events` lift events dated == report date to a lead note under the
-  `## §2` heading ("Today's scheduled events … results not yet in this report's
-  data"); `_build_forward_block` tags that row "(today)" in the §2.5 table. Code +
-  calendar facts only, no LLM, no forecast.
-- **R-7** short-manual-quiet email suppression: `_is_short_manual_quiet`
-  (`session_node="manual"` + <2h span + 0 news + 0 anomalies) suppresses the
-  quiet-day heartbeat email — a same-day manual re-run artifact. Scheduled
-  (`after_close`) quiet windows still email the heartbeat.
-
-Backend quality after all three: ruff OK · mypy OK (76 files) · pytest 303 passed
-(+23). Committed and pushed as `468f403` (one squashed commit — the three
-batches' edits to `report_generator.py` were too entangled to split into
-independently-passing commits).
-
-**Post-push ops (2026-06-16):**
-- Three commits pushed for compliance relaxation + ops alerts + resend endpoint
-  (see "June-16 compliance relaxation + ops alerts" section below).
-- June-15 report `28cd1461` (blocked on `阻力位`) manually regenerated and
-  resent via Python script; `email_sent_at` written 2026-06-15 21:16 PDT.
-- uvicorn restarted after router change (`1853f6a`). celery worker/beat
-  unchanged (no task or model changes in this batch).
-
-**Post-push ops (2026-06-10 18:36 PDT):**
-- uvicorn, celery worker, celery beat all killed and restarted per the
-  mandatory restart protocol (router + new beat task + prompt changes).
-  Worker task list confirms `capture_fx_task` is registered; uvicorn
-  `/health` returns `{"status":"ok"}`.
-- FX rates were stale (`rate_date=2026-06-04`, last touched by a manual
-  `/portfolio/refresh` on 6/5) — ran `capture_fx_task.apply()` once by hand
-  to backfill today's rate, since the 16:05 ET daily slot already passed
-  before today's restart. `fx_rates` now has `rate_date=2026-06-10` for
-  USDCNY/USDHKD/USDCNH. The new beat entry takes over from tomorrow.
-- No stale `in_progress`/`failed` report rows in `reports`. Latest two rows
-  are both `status=success` (`dbbf5646` manual + `c5849bd1` after_close, see
-  H-DEBT-1 note above) — environment is clean for a manual
-  `POST /reports/generate` run.
-
-NOT YET run through a real end-to-end report exercising R-3/R-5/R-6/R-7/R-8
-(Pass 1/2 cost) — the assembly is covered by unit tests only. A manual run
-(planned ~12h after this restart, i.e. ~09:30 ET 2026-06-11) is the remaining
-Stage-I verification; its window will span overnight US news + the FX refresh
-above but no new US close (next US close capture is 2026-06-11 16:00 ET,
-after the planned run).
-
-### June-9 reliability fixes — DONE
-
-Five fixes addressing window/dedup correctness and LLM call robustness, all
-prioritized ahead of multi-cadence design (per H-DEBT-1/H-DEBT-2 entries above).
-
-- **Same-day window collapse** (`window_data._window_closes` +
-  `detect_window_anomalies`): a same-day report window (`period_start` and
-  `period_end` on the same ET calendar date — e.g. a same-day retry/regenerate)
-  previously produced an empty `trade_date > start_date AND <= end_date` range
-  by construction, even when today's close had already been captured. Both
-  functions now branch: multi-day windows keep the original date-range query
-  (no dependency on `captured_at`, which is stale/uniform for backfilled
-  history); same-day windows fall back to `trade_date == end_date AND
-  captured_at > start` (today's close is always freshly captured, never
-  backfilled).
-- **Period-window freeze across retries** (`generate_report`): `period_start`/
-  `period_end` are now computed via `user_watermark()` + `now()` **once**, on
-  the first attempt, and stored on the row (`report.period_start`/`period_end`).
-  A retry of a `failed`/`needs_review`/`in_progress` row reuses the stored
-  window instead of recomputing it. Previously every retry recomputed the
-  window, making a single report row's content non-deterministic across
-  attempts and able to collapse `start_date == end_date` mid-retry.
-- **H-DEBT-2 Pass 2 completeness guard**: `_PASS2_REQUIRED_MARKERS = ("## §3",
-  "## §4")`, `_PASS2_MIN_CHARS = 2000`. After the Pass 2 LLM call (in both
-  `generate_report` and `regenerate_report(mode="analyze")`), the raw body is
-  checked against both; a miss raises `RuntimeError` so the Celery task retries
-  rather than persisting a silently-truncated `status=success` report.
-- **`_call_llm` instrumentation + `pin_provider`**: every LLM call now logs
-  `resp.model`, `choice.finish_reason`, token usage, and cost, and warns on a
-  non-`stop` finish reason (possible truncation). New `pin_provider: bool =
-  True` kwarg — when `False`, omits `OPENROUTER_PROVIDER_ORDER` so OpenRouter
-  routes freely (still `data_collection=deny` + `allow_fallbacks`).
-- **Translation pacing + unpinned provider**: `_translate_md` now sleeps
-  `_TRANSLATION_PACING_SECONDS = 2.0` between per-section chunk-translation
-  calls (and before the in-`_translate_chunk` retry-on-truncation call), to
-  reduce 429s from the low-cost provider pool. `_translate_chunk` now calls
-  `_call_llm(..., pin_provider=False)` — translation is a mechanical
-  zh-render on `LOW_COST_LLM_MODEL` (`deepseek/deepseek-v4-flash`, unchanged),
-  so OpenRouter is left to pick the fastest available provider.
-- **Resend content-addressed `Idempotency-Key`** (`email_sender`): the key is
-  now `report-{report.id}-{sha256(html_body)[:16]}` instead of a fixed
-  `report-{report.id}`. A redelivered/near-simultaneous send for the SAME
-  content reuses the key (Resend dedups it); a regenerated report with
-  DIFFERENT content gets a different key, fixing a 409 "request body was
-  modified" that previously left a corrected regeneration unsent.
-
-### H-DEBT-1 fix — DONE (re-key dedup on session_node)
-
-Migration `b8c9d0e1f2a3` adds `reports.session_node TEXT NOT NULL` (existing
-rows backfilled to `'legacy'`) and re-keys the unique constraint from
-`(user_id, report_date, report_type)` to `(user_id, report_date, report_type,
-session_node)`.
-
-- `session_node` identifies WHICH TRIGGER produced a report — set by the
-  caller at generation time, never derived from wall-clock time at lookup
-  (a 5-min Celery retry could otherwise cross a session boundary like
-  9:30/16:00/20:00 ET and pick a different value mid-retry).
-- Values: `"manual"` (default for `generate_report()` and the
-  `POST /reports/generate` API via `GenerateReportRequest.session_node`),
-  `"after_close"` (hardcoded in `generate_incremental_report`, the M/W/F
-  16:30 ET Celery task), `"legacy"` (migration backfill only).
-- A same-day manual run (morning, `session_node="manual"`) and the scheduled
-  after-close run (`session_node="after_close"`) now produce two separate
-  `reports` rows instead of the after-close run short-circuiting on the
-  morning row. `user_watermark()` is unchanged — it still reads
-  `max(period_end)` across all `session_node` values for the `report_type`,
-  so the after-close window correctly starts where the morning report's
-  window ended (non-overlapping windows, both reports emailed independently).
-- Redelivery dedup is preserved: a redelivered Celery task passes the same
-  `(report_date, report_type, session_node="after_close")`, still hits the
-  `existing.status in ("success", "skipped") -> return existing`
-  short-circuit.
-- `ReportOut`/`ReportListItem` now expose `session_node`.
-
-### June-16 compliance relaxation + ops alerts — DONE
-
-Triggered by the June-15 after_close report (`28cd1461`) being blocked on
-`阻力位` (TA-observation term in QQQM analysis), which prevented email delivery.
-
-- **Compliance scan relaxation** (`_FORBIDDEN_OUTPUT_PATTERNS`): removed
-  descriptive TA-observation terms — `support level`/`resistance level`/
-  `breakout`/`golden cross`/`death cross`/`支撑位`/`阻力位`/`金叉`/`死叉`.
-  Retained: direct advisory/action vocabulary only (`止损`/`强烈买入`/`目标价`/
-  `投资建议` + EN equivalents). Scan backstop now targets Layer-4 violations
-  ("what to do"), not market-structure description ("where price sits").
-- **Disclaimer `f3-bilingual-v1` → `f3-bilingual-v2`**: explicitly names AI LLM
-  as the generator, adds imprecise-language caveat, sender-no-liability clause,
-  and matching Chinese text.
-- **FX footer wording fix** (P1 from Ring 0 audit): "same-day mid-market rates"
-  → "daily closing rates from yfinance".
-- **Ops alerts**: `send_ops_alert(subject, body)` added to `email_sender.py`
-  (Resend plain-text to `ADMIN_EMAIL`, default `portfonia@gmail.com`).
-  `generate_incremental_report` sends alert on `needs_review` or final-retry
-  failure. `ADMIN_EMAIL` in `Settings` (overridable via `.env.local`).
-- Processes restarted 2026-06-16; `28cd1461` rerun via
-  `regenerate(mode=analyze)`. Backend: ruff OK · mypy OK (77 files) · pytest
-  305 passed (+2). Committed as `cc56aa0`.
-
-### Ring 0 audit remediation (P0 + P1) — DONE (2026-06-15 session)
-
-Full audit source: Obsidian `Hermes/Portfonia/2026-06-10_Ring0收尾审计.md`.
-Tracker with per-item commit hashes: Obsidian `Hermes/Portfonia/ring1_prep_prompt.md`.
-
-**P0 items (3/3 complete):**
-- P0-1 `52a3850`: httpx/httpcore logger suppressed to WARNING (FRED key no longer logged).
-- P0-2: dbbf5646 confirmed abandoned (email_sent_at=NULL, window too old); Stage I ops manual §5 rewritten.
-- P0-3 `22c85fb`: H-DEBT-3 (news permanent-miss gap) registered in debt table.
-
-**P1 items (8/10 complete, 2 deferred):**
-- P1-1 `92d2b56`: `app/compliance/forbidden_vocab.py` — single source of truth for scan patterns + prompt vocab; zh terms expanded (减持/增持/清仓/入场/超买/超卖).
-- P1-2 `dfdf40e`: `report_html` written to DB on successful send (G-DEBT-1 partial).
-- P1-3 `ece72d4`: `ReportContext.llm_calls` + `_call_llm` `usage_sink` kwarg; `pass2_translated` snapshot stored in `report_inputs`.
-- P1-4 `577894b`: `backend/.logrotate.conf` (weekly/rotate 8/compress/copytruncate for `.run/*.log`).
-- P1-5 `d4ac329`: `_tavily_used_today()` enforces `TAVILY_DAILY_BUDGET` across same-day runs (not just per-run).
-- P1-6 `5a356ae`: `_build_footer` §7.3 data sources paragraph (yfinance/天天基金/RSS/FX with timing). FX wording already correct since June-16.
-- P1-7: **Deferred to Ring 1** (holdings encryption at rest; Ring 0 single-machine acceptable).
-- P1-8 `5a356ae`: `app/core/ops_log.py` — `log_ops_event()` writes `OPS_EVENT {json}` lines; wired into generate (start/end/skipped/failed) and regenerate (start).
-- P1-9: **Pending user action** — re-upload holdings `.md` to fix `position` NULL (20/20 rows).
-- P1-10 `5a356ae`: stale comment in `_build_pass1_prompt` corrected; `with_holdings` kept as intent marker (test mocks depend on it).
-
-Backend after remediation: ruff OK · mypy OK (79 files) · pytest 305 passed. No migration. No process restart required (no model/router/migration changes in this batch).
-
-### June-16 asset classification + fund NAV capture — DONE
-
-Two themes from a single session: (1) geography-first `asset_class` taxonomy replacing the coarse EQUITY_BROAD/EQUITY_REGION split; (2) fund holdings (fund_code only, no ticker) now participate in anomaly detection via 天天基金 historical NAV stored in `price_snapshots`.
-
-**Asset classification redesign (commits `d364e0c` → `7069cb4`, 6 migrations total):**
-
-`asset_class` is the economic-exposure dimension (distinct from LLM-parsed `asset_type` product form). New geography-first taxonomy — classified by underlying exposure, not listing location:
+`asset_class` is the economic-exposure dimension (distinct from the
+LLM-parsed `asset_type` product form) — classified by underlying exposure,
+not listing location:
 
 | asset_class | Meaning | Current holdings |
 |---|---|---|
 | `EQUITY_US_BROAD` | S&P 500 / US total market | VOO, 513650.SS |
 | `EQUITY_US_TECH` | Nasdaq 100 / US tech | QQQM, 019547 |
 | `EQUITY_DM` | Non-US developed markets | EWJ (Japan) |
-| `EQUITY_CN` | China equity (A-share / HK / QDII) | 110011 (易方达优质精选QDII) |
+| `EQUITY_CN` | China equity (A-share / HK / QDII) | 110011 |
 | `EQUITY_EM` | EM ex-China | (none yet; thresholds set) |
-| `EQUITY_BROAD` | Global multi-market catch-all | (none yet; fallback for unknown) |
+| `EQUITY_BROAD` | Global multi-market catch-all | (none yet; fallback) |
 | `STOCK` | Individual equities | TSLA, NVDA, INTC, QCOM, AMKR, 0700.HK |
 | `COMMODITY` | Gold, commodities | SGOL, 518660.SS, 518800.SS, 008142 |
 | `BOND_FUND` | Fixed income / T-bills | BOXX |
 | `CASH_EQUIV` | Cash, WMP, margin | 现金, USD Cash |
 
 Per-class window anomaly thresholds (per_day / cumulative_cap):
-- EQUITY_US_BROAD 5%/40%, EQUITY_US_TECH 5%/35%, EQUITY_DM 5%/30%
-- EQUITY_CN 5%/20%, EQUITY_EM 5%/25%, STOCK 5%/10%
-- COMMODITY 4%/20%, BOND_FUND 2%/20%, CASH_EQUIV 1%/20%
+EQUITY_US_BROAD 5%/40% · EQUITY_US_TECH 5%/35% · EQUITY_DM 5%/30% ·
+EQUITY_CN 5%/20% · EQUITY_EM 5%/25% · STOCK 5%/10% · COMMODITY 4%/20% ·
+BOND_FUND 2%/20% · CASH_EQUIV 1%/20%
 
-`ticker_themes` table maps ticker/fund_code → theme for multi-holding aggregation (e.g. QQQM + 019547 both in `nasdaq_100`). Seeded themes: `nasdaq_100` (EQUITY_US_TECH), `sp500` (EQUITY_US_BROAD), `gold` (COMMODITY), `japan_equity` (EQUITY_DM), `tbill` (BOND_FUND). Fund codes 019547 and 008142 added to ticker_themes.
+`ticker_themes` table maps ticker/fund_code → theme for multi-holding
+aggregation (e.g. QQQM + 019547 both `nasdaq_100`). Seeded themes:
+`nasdaq_100`, `sp500`, `gold`, `japan_equity`, `tbill`.
 
-**Fund NAV capture (commit `847333f`):**
-
-- `fund_nav_fetcher.fetch_nav_history()` — historical NAV from `lsjz` API (`api.fund.eastmoney.com/f10/lsjz`). Local dev machine confirmed reachable; returns `{"Data": {"LSJZList": [{"FSRQ": "YYYY-MM-DD", "DWJZ": "1.2345"}, ...]}}`.
-- `price_capture.capture_fund_navs()` — upserts NAV rows into `price_snapshots` using fund_code as ticker key, market from holding (default A-Share), session_node="close".
-- Beat task `capture_fund_navs_task` at 20:00 CST Mon-Fri (NAV published same evening after A-share close).
-- `detect_window_anomalies` extended to include `fund_code` holdings (previously only `ticker` holdings were scanned); identifier fallback chain: `h.ticker or h.fund_code`.
-- 60 NAV rows manually seeded (30d × 2 themed funds: 019547 + 008142) so Wed Jun-18 16:30 ET run has a baseline.
-- 110011 (易方达优质精选混合 QDII) confirmed China-concept holdings (茅台/腾讯/阿里 etc.); classified EQUITY_CN; no ticker_themes entry (standalone anomaly, no benchmark theme).
-
-**Migrations added this session (all applied, head = `6f7a8b9c0d1e`):**
-- `1a2b3c4d5e6f` add asset_class to holdings
-- `2b3c4d5e6f7a` add ticker_themes table + initial seed
-- `3c4d5e6f7a8b` fix A-share .SS ticker suffixes in ticker_themes
-- `4d5e6f7a8b9c` add fund codes 019547/008142 to ticker_themes
-- `5e6f7a8b9c0d` fix 110011 STOCK→EQUITY_BROAD (now superseded by next)
-- `6f7a8b9c0d1e` geography-first equity class refactor (US-broad/US-tech/DM/CN/EM)
-
-Backend: ruff OK · mypy OK (80 files) · pytest 305 passed. Celery worker restarted (`capture_fund_navs_task` registered).
+Fund holdings (fund_code only, no ticker) participate in anomaly detection
+via 天天基金 historical NAV: `fund_nav_fetcher.fetch_nav_history()` (lsjz API)
+→ `price_capture.capture_fund_navs()` upserts into `price_snapshots` keyed by
+fund_code. Beat task `capture_fund_navs_task` runs 20:00 CST Mon-Fri (NAV
+publishes same evening after A-share close). `detect_window_anomalies`
+identifier fallback chain: `h.ticker or h.fund_code`.
 
 ## Language Policy (MANDATORY)
 
@@ -435,51 +227,19 @@ in any other language.
   emitting them, and `_strip_markers` removes any that slip through. The scan
   backstop above does not depend on the suffix.
 
-### June-17 portfolio/ops fixes — DONE
+### Known-fixed bugs worth remembering (regression notes)
 
-Three bugs surfaced from the first report after re-uploading holdings, plus two
-preventive improvements.
-
-**Bug fixes (commits `db90235`, `7365e71`):**
-
-- **Fund NAV lookup (`portfolio_calculator.py`)**: `compute_portfolio` looked up
-  price data with `captured_closes.get(h.ticker) if h.ticker else None` — fund
-  code-only holdings always got None, were added to `stale_tickers`, and dropped
-  from the portfolio entirely. Root cause: `capture_fund_navs` stores NAV in
-  `price_snapshots` keyed by `fund_code`, but the lookup never used `fund_code`.
-  Fix: `captured_closes.get(h.ticker or h.fund_code or "")`. All 20 holdings now
-  appear in portfolio composition. Tracked and resolved as GitHub issue #1.
-
-- **Sector backfill lost on re-upload**: `sector` is populated by
-  `backfill_sectors()` (yfinance), triggered only by `POST /portfolio/refresh`.
-  Re-uploading holdings via confirm cleared all rows and sectors went NULL.
-  Fix: `confirm_holdings` now calls `backfill_sectors()` automatically after
-  commit — sectors survive every re-upload without manual intervention.
-
-- **Next.js Turbopack multipart proxy failure**: `rewrites()` in Turbopack fails
-  on `multipart/form-data` POST (ECONNRESET at proxy). Fix: added
-  `frontend/src/app/api/holdings/upload/route.ts` — a proper Next.js API Route
-  that manually forwards the upload to the backend, bypassing the rewrite proxy.
-
-**Ops/alerting improvements:**
-
-- **Comprehensive ops alerts**: all capture tasks (news/prices/fx/fund_navs/
-  forward_events) now send ops alert + GitHub issue on final-retry exhaustion
-  (previously only logged). FX stale at report generation time also sends ops
-  alert (previously only inserted `[!]` in the report body).
-
-- **GitHub issue auto-creation** (`app/services/github_issues.py`): wraps
-  GitHub REST API `POST /repos/{owner}/{repo}/issues`. Called alongside
-  `send_ops_alert` for events that indicate code/data bugs: stale_tickers,
-  capture final failures, generation final failure. Requires `GITHUB_TOKEN`
-  (PAT with `repo` scope) + `GITHUB_REPO` in settings; silently skipped when
-  absent. Verified: issue #1 created, resolution comment added, closed.
-
-**Other:**
-
-- P1-9 resolved: holdings re-uploaded 2026-06-17, all 20 rows have `position`
-  set (0–19). `sector` backfill ran immediately after confirm (14 rows updated).
-- `GITHUB_TOKEN` / `GITHUB_REPO` added to `Settings` (both optional).
+- **Fund NAV lookup**: `compute_portfolio` must look up price data with
+  `captured_closes.get(h.ticker or h.fund_code or "")` — fund code-only
+  holdings have no `ticker`, and `capture_fund_navs` stores NAV in
+  `price_snapshots` keyed by `fund_code`. A ticker-only lookup silently drops
+  every fund holding into `stale_tickers` and out of the portfolio. (issue #1)
+- **Sector backfill on re-upload**: `confirm_holdings` must call
+  `backfill_sectors()` after commit — re-uploading holdings clears all rows,
+  and `sector` is otherwise only populated by `POST /portfolio/refresh`.
+- **Next.js Turbopack + multipart**: Turbopack's `rewrites()` fails on
+  `multipart/form-data` POST (ECONNRESET at proxy). Upload routes need a real
+  Next.js API Route (`route.ts`) that manually forwards to the backend.
 
 ## Architecture
 
@@ -601,6 +361,18 @@ main (production) ← dev (integration) ← feat/* | fix/* | docs/*
 - `dev → main` promotion PRs must use `feat:` or `fix:` (a `chore:` title
   will not trigger a release).
 - Delete branches after merge.
+
+## Issue Tracking (MANDATORY)
+
+Every new feature/improvement request and every bug — regardless of whether
+it's fixed immediately — gets a GitHub issue first, before the fix/feature
+work starts. Issues are the project's request/bug ledger; the CLAUDE.md debt
+table is for cross-session technical-debt reminders only, not a substitute.
+
+- **Blocking / fix-now**: open issue → fix/implement → comment with commit
+  hash + approach + verification → close.
+- **Deferred**: open issue → leave in backlog → comment + close when later
+  addressed.
 
 ## Conventional Commits (MANDATORY)
 
