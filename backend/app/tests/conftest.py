@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Generator
+from unittest.mock import MagicMock
 
 import pytest
 from alembic.config import Config
@@ -29,6 +30,32 @@ from app.main import app
 
 TEST_DB_NAME = "portfonia_test_roundtrip"
 TEST_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+
+# Modules that import these by name (`from x import y`), each needing its own patch.
+_EXTERNAL_NOTIFY_MODULES = (
+    "app.services.report_generator",
+    "app.tasks.report_tasks",
+    "app.tasks.capture_tasks",
+)
+
+
+@pytest.fixture(autouse=True)
+def _no_external_notifications(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Never let a test hit the real Resend/GitHub APIs.
+
+    2026-06-19: `send_ops_alert` was unmocked, and `test_report_generator.py`
+    uses a fixed historical `_TODAY = date(2026, 6, 4)` that always trips the
+    FX-staleness check against the real current date. Three same-day pytest
+    runs sent 42 real "FX rates stale" emails to the admin inbox. Individual
+    tests may still re-patch these within a `with` block to assert call args —
+    that only shadows this default for the duration of the `with` block.
+    """
+    for module in _EXTERNAL_NOTIFY_MODULES:
+        monkeypatch.setattr(f"{module}.send_ops_alert", MagicMock(), raising=False)
+        monkeypatch.setattr(f"{module}.create_bug_report", MagicMock(), raising=False)
+    monkeypatch.setattr(
+        "app.services.report_generator.send_report_email", MagicMock(return_value=True)
+    )
 
 
 def _admin_engine() -> Engine:
