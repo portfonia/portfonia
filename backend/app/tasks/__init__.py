@@ -51,6 +51,32 @@ def _node_cron(tz: Any, hour: int, minute: int) -> crontab:
     return crontab(hour=hour, minute=minute, nowfun=_NowIn(tz))
 
 
+# Report cadences: (beat entry name, report_type, session_node, crontab kwargs).
+# Ring 1 will extend this with monthly/weekly/daily_brief cadences (see
+# Hermes/Portfonia/Docs/多周期报告机制改造计划.md) — adding one is a table row, not
+# a new task function, since generate_incremental_report takes report_type/
+# session_node as arguments rather than hardcoding them.
+_REPORT_CADENCES: tuple[tuple[str, str, str, dict[str, Any]], ...] = (
+    (
+        "report-incremental-mwf",
+        "incremental",
+        "after_close",
+        {"hour": 17, "minute": 0, "day_of_week": "mon,wed,fri"},
+    ),
+)
+
+
+def _build_report_schedule() -> dict[str, dict[str, Any]]:
+    sched: dict[str, dict[str, Any]] = {}
+    for name, report_type, session_node, cron_kwargs in _REPORT_CADENCES:
+        sched[name] = {
+            "task": "app.tasks.report_tasks.generate_incremental_report",
+            "schedule": crontab(**cron_kwargs),
+            "kwargs": {"report_type": report_type, "session_node": session_node},
+        }
+    return sched
+
+
 def _build_capture_schedule() -> dict[str, dict[str, Any]]:
     sched: dict[str, dict[str, Any]] = {}
     for market, tz, nodes in _MARKET_NODES:
@@ -69,12 +95,6 @@ def _build_capture_schedule() -> dict[str, dict[str, Any]]:
 
 
 _beat_schedule: dict[str, dict[str, Any]] = {
-    # Report cadence: incremental report Mon/Wed/Fri 17:00 ET (after US regular
-    # close). app timezone is ET, so no per-entry nowfun is needed here.
-    "report-incremental-mwf": {
-        "task": "app.tasks.report_tasks.generate_incremental_report",
-        "schedule": crontab(hour=17, minute=0, day_of_week="mon,wed,fri"),
-    },
     # Forward calendar (#1): refresh the next ~2 weeks of US macro + earnings dates
     # once a day, before US pre-open. Catch-up is in the task (idempotent upsert).
     "capture-forward-events-daily": {
@@ -95,6 +115,7 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "schedule": crontab(hour=20, minute=0, day_of_week="mon-fri", nowfun=_NowIn(CST)),
     },
 }
+_beat_schedule.update(_build_report_schedule())
 _beat_schedule.update(_build_capture_schedule())
 
 celery_app.conf.update(
