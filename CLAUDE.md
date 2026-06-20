@@ -220,7 +220,8 @@ concentration watch / high:
 | asset_class | anomaly per_day | anomaly cum. cap | conc. watch | conc. high |
 |---|---|---|---|---|
 | `STOCK` | 5% | 10% | 10% | 20% |
-| `EQUITY_US_TECH`/`EQUITY_DM`/`EQUITY_CN`/`EQUITY_EM`/`REIT` | 5% | 35%/30%/20%/25%/25% | 20% | 35% |
+| `EQUITY_US_TECH`/`EQUITY_DM`/`REIT` | 5% | 35%/30%/25% | 20% | 35% |
+| `EQUITY_CN`/`EQUITY_EM` (tightened 2026-06-20: single-country tail risk) | 5% | 20%/25% | 15% | 25% |
 | `EQUITY_US_BROAD`/`EQUITY_BROAD` | 5% | 40% | 30% | 45% |
 | `PRECIOUS_METALS` | 4% | 20% | 15% | 25% |
 | `ENERGY` | 6% | 35% | 10% | 15% |
