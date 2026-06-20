@@ -14,6 +14,7 @@ from app.core.timezones import ET
 from app.models.fx_rate import FxRate
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
+from app.services.asset_class_config import load_asset_class_config
 
 _ZERO = Decimal("0")
 _CENT = Decimal("0.01")
@@ -26,33 +27,14 @@ _CURRENCY_TO_FX_PAIR: dict[str, str] = {
     "HKD": "USDHKD",
 }
 
-# §6.5 snapshot concentration thresholds (fractions of total portfolio).
-#
-# Single-holding watch/high are differentiated by the TOP holding's own
-# asset_class: a single individual stock concentrates idiosyncratic risk,
-# while a broad index fund is already internally diversified, so the same
-# weight carries different risk. Falls back to the old flat 15%/25% for any
-# asset_class not listed (defensive default, should not normally trigger
-# since every Holding has an asset_class).
-_SINGLE_THRESHOLDS: dict[str, tuple[Decimal, Decimal]] = {
-    "STOCK": (Decimal("0.10"), Decimal("0.20")),
-    "EQUITY_US_TECH": (Decimal("0.20"), Decimal("0.35")),
-    "EQUITY_DM": (Decimal("0.20"), Decimal("0.35")),
-    "EQUITY_CN": (Decimal("0.20"), Decimal("0.35")),
-    "EQUITY_EM": (Decimal("0.20"), Decimal("0.35")),
-    "EQUITY_US_BROAD": (Decimal("0.30"), Decimal("0.45")),
-    "EQUITY_BROAD": (Decimal("0.30"), Decimal("0.45")),
-    "COMMODITY": (Decimal("0.15"), Decimal("0.25")),
-    "BOND_FUND": (Decimal("0.25"), Decimal("0.40")),
-    "CASH_EQUIV": (Decimal("0.50"), Decimal("0.70")),
-}
+# §6.5 snapshot concentration thresholds — admin-editable, see
+# config/asset_class_thresholds.yml (#35). Single-holding watch/high are
+# differentiated by the TOP holding's own asset_class: a single individual
+# stock concentrates idiosyncratic risk, while a broad index fund is already
+# internally diversified, so the same weight carries different risk. Falls
+# back to this flat default for any asset_class missing from the config
+# (defensive only — the loader's validation should make that impossible).
 _DEFAULT_SINGLE_THRESHOLD = (Decimal("0.15"), Decimal("0.25"))
-_TOP3_WATCH = Decimal("0.50")
-# Top asset_class bucket: a flat threshold (the bucket itself already pools
-# every holding sharing one economic exposure, so it does not need the same
-# per-class differentiation as the single-holding check above).
-_ASSET_CLASS_WATCH = Decimal("0.50")
-_ASSET_CLASS_HIGH = Decimal("0.65")
 
 # Asset types that carry a single equity sector (others excluded from §6.4 chart).
 # Sector is retained only for forward-event holding relevance mapping
@@ -227,26 +209,36 @@ def _compute_concentration(snapshot: PortfolioSnapshot) -> Concentration:
     if total <= _ZERO or not snapshot.holdings:
         return c
 
+    config = load_asset_class_config()
     ranked = sorted(snapshot.holdings, key=lambda h: h.market_value_base, reverse=True)
 
     top = ranked[0]
     c.top_holding_name = top.name
     c.top_holding_ratio = _ratio(top.market_value_base, total)
     c.top_holding_asset_class = top.asset_class
-    watch, high = _SINGLE_THRESHOLDS.get(top.asset_class or "", _DEFAULT_SINGLE_THRESHOLD)
+    top_thresholds = config.by_class.get(top.asset_class or "")
+    watch, high = (
+        (top_thresholds.concentration_watch, top_thresholds.concentration_high)
+        if top_thresholds is not None
+        else _DEFAULT_SINGLE_THRESHOLD
+    )
     c.single_holding_watch = c.top_holding_ratio > watch
     c.single_holding_high = c.top_holding_ratio > high
 
     top3_sum = sum((h.market_value_base for h in ranked[:3]), _ZERO)
     c.top3_ratio = _ratio(top3_sum, total)
-    c.top3_watch = c.top3_ratio > _TOP3_WATCH
+    c.top3_watch = c.top3_ratio > config.global_concentration.top3_watch
 
     if snapshot.by_asset_class:
         class_name, class_val = max(snapshot.by_asset_class.items(), key=lambda kv: kv[1])
         c.top_asset_class_name = class_name
         c.top_asset_class_ratio = _ratio(class_val, total)
-        c.asset_class_watch = c.top_asset_class_ratio > _ASSET_CLASS_WATCH
-        c.asset_class_high = c.top_asset_class_ratio > _ASSET_CLASS_HIGH
+        c.asset_class_watch = (
+            c.top_asset_class_ratio > config.global_concentration.asset_class_bucket_watch
+        )
+        c.asset_class_high = (
+            c.top_asset_class_ratio > config.global_concentration.asset_class_bucket_high
+        )
 
     return c
 
