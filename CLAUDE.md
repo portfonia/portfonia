@@ -154,6 +154,7 @@ not listing location:
 | `EQUITY_CN` | China equity (A-share / HK / QDII) | 110011 |
 | `EQUITY_EM` | EM ex-China | (none yet; thresholds set) |
 | `EQUITY_BROAD` | Global multi-market catch-all | (none yet; fallback) |
+| `REIT` | Real estate / REITs (added 2026-06-20, no holdings yet) | (none yet) |
 | `STOCK` | Individual equities | TSLA, NVDA, INTC, QCOM, AMKR, 0700.HK |
 | `COMMODITY` | Gold, commodities | SGOL, 518660.SS, 518800.SS, 008142 |
 | `BOND_FUND` | Fixed income / T-bills | BOXX |

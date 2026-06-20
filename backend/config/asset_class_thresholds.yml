@@ -42,6 +42,16 @@ asset_classes:
   EQUITY_BROAD:
     anomaly: { per_day: 0.05, cumulative_cap: 0.40 }
     concentration: { watch: 0.30, high: 0.45 }
+  # Added 2026-06-20, no holdings yet — real estate / REITs are a distinct
+  # macro factor (rate-sensitive, single-sector) from diversified broad
+  # equity. Placed in the same tier as the single-country/single-sector
+  # equity classes (EQUITY_DM/CN/EM), not the loose EQUITY_BROAD tier — a
+  # REIT fund is not internally diversified across industries the way a
+  # broad index is. Untested against real holdings; revisit numbers once any
+  # REIT position actually exists.
+  REIT:
+    anomaly: { per_day: 0.05, cumulative_cap: 0.25 }
+    concentration: { watch: 0.20, high: 0.35 }
   COMMODITY:
     anomaly: { per_day: 0.04, cumulative_cap: 0.20 }
     concentration: { watch: 0.15, high: 0.25 }

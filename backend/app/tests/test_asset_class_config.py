@@ -18,6 +18,7 @@ asset_classes:
   EQUITY_CN: {anomaly: {per_day: 0.05, cumulative_cap: 0.20}, concentration: {watch: 0.20, high: 0.35}}
   EQUITY_EM: {anomaly: {per_day: 0.05, cumulative_cap: 0.25}, concentration: {watch: 0.20, high: 0.35}}
   EQUITY_BROAD: {anomaly: {per_day: 0.05, cumulative_cap: 0.40}, concentration: {watch: 0.30, high: 0.45}}
+  REIT: {anomaly: {per_day: 0.05, cumulative_cap: 0.25}, concentration: {watch: 0.20, high: 0.35}}
   COMMODITY: {anomaly: {per_day: 0.04, cumulative_cap: 0.20}, concentration: {watch: 0.15, high: 0.25}}
   BOND_FUND: {anomaly: {per_day: 0.02, cumulative_cap: 0.20}, concentration: {watch: 0.25, high: 0.40}}
   CASH_EQUIV: {anomaly: {per_day: 0.01, cumulative_cap: 0.20}, concentration: {watch: 0.50, high: 0.70}}

@@ -41,6 +41,7 @@ VALID_ASSET_CLASSES: frozenset[str] = frozenset(
         "EQUITY_CN",
         "EQUITY_EM",
         "EQUITY_BROAD",
+        "REIT",
         "COMMODITY",
         "BOND_FUND",
         "CASH_EQUIV",
