@@ -33,12 +33,18 @@ asset_classes:
   EQUITY_DM:
     anomaly: { per_day: 0.05, cumulative_cap: 0.30 }
     concentration: { watch: 0.20, high: 0.35 }
+  # Concentration tightened 2026-06-20 (15%/25%, was 20%/35%): single-country
+  # equity carries higher idiosyncratic/regulatory tail risk than a
+  # multi-country EQUITY_DM basket — already reflected on the anomaly side
+  # (tightest cumulative_cap among the equity classes besides STOCK), the
+  # concentration tier was left at the same setting as EQUITY_DM and didn't
+  # match that risk positioning until now.
   EQUITY_CN:
     anomaly: { per_day: 0.05, cumulative_cap: 0.20 }
-    concentration: { watch: 0.20, high: 0.35 }
+    concentration: { watch: 0.15, high: 0.25 }
   EQUITY_EM:
     anomaly: { per_day: 0.05, cumulative_cap: 0.25 }
-    concentration: { watch: 0.20, high: 0.35 }
+    concentration: { watch: 0.15, high: 0.25 }
   EQUITY_BROAD:
     anomaly: { per_day: 0.05, cumulative_cap: 0.40 }
     concentration: { watch: 0.30, high: 0.45 }
