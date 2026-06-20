@@ -27,12 +27,36 @@ _CURRENCY_TO_FX_PAIR: dict[str, str] = {
 }
 
 # §6.5 snapshot concentration thresholds (fractions of total portfolio).
-_SINGLE_WATCH = Decimal("0.15")
-_SINGLE_HIGH = Decimal("0.25")
+#
+# Single-holding watch/high are differentiated by the TOP holding's own
+# asset_class: a single individual stock concentrates idiosyncratic risk,
+# while a broad index fund is already internally diversified, so the same
+# weight carries different risk. Falls back to the old flat 15%/25% for any
+# asset_class not listed (defensive default, should not normally trigger
+# since every Holding has an asset_class).
+_SINGLE_THRESHOLDS: dict[str, tuple[Decimal, Decimal]] = {
+    "STOCK": (Decimal("0.10"), Decimal("0.20")),
+    "EQUITY_US_TECH": (Decimal("0.20"), Decimal("0.35")),
+    "EQUITY_DM": (Decimal("0.20"), Decimal("0.35")),
+    "EQUITY_CN": (Decimal("0.20"), Decimal("0.35")),
+    "EQUITY_EM": (Decimal("0.20"), Decimal("0.35")),
+    "EQUITY_US_BROAD": (Decimal("0.30"), Decimal("0.45")),
+    "EQUITY_BROAD": (Decimal("0.30"), Decimal("0.45")),
+    "COMMODITY": (Decimal("0.15"), Decimal("0.25")),
+    "BOND_FUND": (Decimal("0.25"), Decimal("0.40")),
+    "CASH_EQUIV": (Decimal("0.50"), Decimal("0.70")),
+}
+_DEFAULT_SINGLE_THRESHOLD = (Decimal("0.15"), Decimal("0.25"))
 _TOP3_WATCH = Decimal("0.50")
-_SECTOR_WATCH = Decimal("0.35")
+# Top asset_class bucket: a flat threshold (the bucket itself already pools
+# every holding sharing one economic exposure, so it does not need the same
+# per-class differentiation as the single-holding check above).
+_ASSET_CLASS_WATCH = Decimal("0.50")
+_ASSET_CLASS_HIGH = Decimal("0.65")
 
 # Asset types that carry a single equity sector (others excluded from §6.4 chart).
+# Sector is retained only for forward-event holding relevance mapping
+# (rate-sensitive / consumer sectors) — no longer used for §1/distribution/§4.1.
 _SECTOR_ASSET_TYPES = {"stock", "etf"}
 
 
@@ -60,6 +84,7 @@ class HoldingValue:
     fund_code: str | None
     currency: str
     asset_type: str | None
+    asset_class: str | None
     sector: str | None
     market: str
     market_value: Decimal  # in holding's own currency
@@ -79,13 +104,15 @@ class Concentration:
 
     top_holding_name: str | None = None
     top_holding_ratio: Decimal | None = None  # largest single holding / total
+    top_holding_asset_class: str | None = None
     top3_ratio: Decimal | None = None  # top 3 holdings / total
-    top_sector_name: str | None = None
-    top_sector_ratio: Decimal | None = None  # largest equity sector / total
-    single_holding_watch: bool = False  # >15%
-    single_holding_high: bool = False  # >25%
+    top_asset_class_name: str | None = None
+    top_asset_class_ratio: Decimal | None = None  # largest asset_class bucket / total
+    single_holding_watch: bool = False  # threshold depends on top_holding_asset_class
+    single_holding_high: bool = False
     top3_watch: bool = False  # >50%
-    sector_watch: bool = False  # >35%
+    asset_class_watch: bool = False  # >50%
+    asset_class_high: bool = False  # >65%
 
 
 @dataclass
@@ -98,6 +125,7 @@ class PortfolioSnapshot:
     by_asset_type: dict[str, Decimal] = field(default_factory=dict)
     by_market: dict[str, Decimal] = field(default_factory=dict)
     by_sector: dict[str, Decimal] = field(default_factory=dict)  # equity sectors only, §6.4
+    by_asset_class: dict[str, Decimal] = field(default_factory=dict)  # all holdings, §1/§4.1
     concentration: Concentration = field(default_factory=Concentration)
     stale_tickers: list[str] = field(default_factory=list)
 
@@ -204,18 +232,21 @@ def _compute_concentration(snapshot: PortfolioSnapshot) -> Concentration:
     top = ranked[0]
     c.top_holding_name = top.name
     c.top_holding_ratio = _ratio(top.market_value_base, total)
-    c.single_holding_watch = c.top_holding_ratio > _SINGLE_WATCH
-    c.single_holding_high = c.top_holding_ratio > _SINGLE_HIGH
+    c.top_holding_asset_class = top.asset_class
+    watch, high = _SINGLE_THRESHOLDS.get(top.asset_class or "", _DEFAULT_SINGLE_THRESHOLD)
+    c.single_holding_watch = c.top_holding_ratio > watch
+    c.single_holding_high = c.top_holding_ratio > high
 
     top3_sum = sum((h.market_value_base for h in ranked[:3]), _ZERO)
     c.top3_ratio = _ratio(top3_sum, total)
     c.top3_watch = c.top3_ratio > _TOP3_WATCH
 
-    if snapshot.by_sector:
-        sector_name, sector_val = max(snapshot.by_sector.items(), key=lambda kv: kv[1])
-        c.top_sector_name = sector_name
-        c.top_sector_ratio = _ratio(sector_val, total)
-        c.sector_watch = c.top_sector_ratio > _SECTOR_WATCH
+    if snapshot.by_asset_class:
+        class_name, class_val = max(snapshot.by_asset_class.items(), key=lambda kv: kv[1])
+        c.top_asset_class_name = class_name
+        c.top_asset_class_ratio = _ratio(class_val, total)
+        c.asset_class_watch = c.top_asset_class_ratio > _ASSET_CLASS_WATCH
+        c.asset_class_high = c.top_asset_class_ratio > _ASSET_CLASS_HIGH
 
     return c
 
@@ -280,6 +311,7 @@ def compute_portfolio(
                 fund_code=h.fund_code,
                 currency=h.currency,
                 asset_type=h.asset_type,
+                asset_class=h.asset_class,
                 sector=h.sector,
                 market=market,
                 market_value=market_value,
@@ -301,7 +333,18 @@ def compute_portfolio(
         )
         snapshot.by_market[market] = snapshot.by_market.get(market, _ZERO) + market_value_base
 
+        # Every holding has an asset_class (server_default on the model), so
+        # this bucket has no "Other" fallback and naturally merges the same
+        # underlying exposure across markets (e.g. VOO + 513650.SS both
+        # EQUITY_US_BROAD) — this is what §1/distribution/§4.1 read.
+        class_key = h.asset_class
+        snapshot.by_asset_class[class_key] = (
+            snapshot.by_asset_class.get(class_key, _ZERO) + market_value_base
+        )
+
         # Equity sectors only; funds/cash/wmf are shown via by_asset_type instead.
+        # Retained for forward-event holding-relevance mapping only (rate-
+        # sensitive / consumer sectors) — no longer read by §1/distribution/§4.1.
         if h.asset_type in _SECTOR_ASSET_TYPES:
             sector_key = h.sector or "Other"
             snapshot.by_sector[sector_key] = (

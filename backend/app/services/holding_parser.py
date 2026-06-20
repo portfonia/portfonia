@@ -218,7 +218,7 @@ _TICKER_ASSET_CLASS: dict[str, str] = {
 
 _ASSET_TYPE_CLASS: dict[str, str] = {
     "stock": "STOCK",
-    "etf": "EQUITY_BROAD",   # unknown ETF: global catch-all; ticker lookup overrides
+    "etf": "EQUITY_BROAD",  # unknown ETF: global catch-all; ticker lookup overrides
     "fund": "EQUITY_BROAD",  # unknown fund: global catch-all; ticker/fund_code lookup overrides
     "cash": "CASH_EQUIV",
     "wmf": "CASH_EQUIV",

@@ -22,7 +22,11 @@ logger = logging.getLogger(__name__)
 
 def _capture_failed(task_name: str, exc: BaseException, context: str = "") -> None:
     """Send ops alert + create GitHub issue when a capture task exhausts retries."""
-    detail = f"{context}\n\nerror: {type(exc).__name__}: {exc}" if context else f"error: {type(exc).__name__}: {exc}"
+    detail = (
+        f"{context}\n\nerror: {type(exc).__name__}: {exc}"
+        if context
+        else f"error: {type(exc).__name__}: {exc}"
+    )
     send_ops_alert(
         subject=f"[Portfonia] capture FAILED — {task_name}",
         body=(
@@ -90,7 +94,9 @@ def capture_prices_task(self: Any, market: str, session_node: str) -> dict[str, 
     except Exception as exc:
         logger.exception("capture_prices_task: failed for %s/%s", market, session_node)
         if self.request.retries >= self.max_retries:
-            _capture_failed("capture_prices_task", exc, context=f"market={market} session_node={session_node}")
+            _capture_failed(
+                "capture_prices_task", exc, context=f"market={market} session_node={session_node}"
+            )
         raise self.retry(exc=exc) from exc
     finally:
         session.close()

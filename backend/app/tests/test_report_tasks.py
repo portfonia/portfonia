@@ -31,7 +31,7 @@ def test_beat_schedule_task_name() -> None:
     assert entry["task"] == "app.tasks.report_tasks.generate_incremental_report"
 
 
-def test_beat_schedule_crontab_mwf_1630() -> None:
+def test_beat_schedule_crontab_mwf_1700() -> None:
     from celery.schedules import crontab  # type: ignore[import-untyped]
 
     entry = celery_app.conf.beat_schedule["report-incremental-mwf"]
@@ -39,8 +39,8 @@ def test_beat_schedule_crontab_mwf_1630() -> None:
     assert isinstance(sched, crontab)
     # Mon/Wed/Fri = {1, 3, 5} in crontab internals.
     assert {1, 3, 5} <= sched.day_of_week
-    assert 16 in sched.hour
-    assert 30 in sched.minute
+    assert 17 in sched.hour
+    assert 0 in sched.minute
 
 
 def test_celery_timezone_is_et() -> None:

@@ -34,6 +34,7 @@ def _stock(
     price: str | None,
     *,
     asset_type: str = "stock",
+    asset_class: str = "STOCK",
     sector: str | None = None,
     fund_code: str | None = None,
 ) -> Holding:
@@ -47,11 +48,12 @@ def _stock(
         shares=Decimal(shares) if shares is not None else None,
         market_price=Decimal(price) if price is not None else None,
         asset_type=asset_type,
+        asset_class=asset_class,
         sector=sector,
     )
 
 
-def _cash(name: str, currency: str, value: str) -> Holding:
+def _cash(name: str, currency: str, value: str, *, asset_class: str = "CASH_EQUIV") -> Holding:
     return Holding(
         user_id=_USER,
         name=name,
@@ -59,6 +61,7 @@ def _cash(name: str, currency: str, value: str) -> Holding:
         currency=currency,
         current_value=Decimal(value),
         asset_type="cash",
+        asset_class=asset_class,
     )
 
 
@@ -92,6 +95,12 @@ def test_full_snapshot_values_and_distributions(db_session: Session) -> None:
         "Technology": Decimal("3000.00"),
         "Consumer Staples": Decimal("2000.00"),
     }
+    # asset_class has no "Other" fallback — every holding (incl. cash) lands
+    # in a real bucket, this is what §1/distribution/§4.1 read.
+    assert snap.by_asset_class == {
+        "STOCK": Decimal("5000.00"),
+        "CASH_EQUIV": Decimal("5000.00"),
+    }
 
 
 def test_declared_market_overrides_derivation(db_session: Session) -> None:
@@ -110,27 +119,60 @@ def test_declared_market_overrides_derivation(db_session: Session) -> None:
 
 
 def test_concentration_flags(db_session: Session) -> None:
+    """Single-holding thresholds depend on the top holding's own asset_class
+    (STOCK is tight: >10%/>20%); the asset_class bucket (not raw per-row
+    ranking) drives the top-asset-class check, with no "Other" fallback."""
     _seed_fx(db_session)
     db_session.add_all(
         [
             _stock("Apple", "AAPL", "USD", "10", "300", sector="Technology"),
             _stock("Moutai", "600519.SS", "CNY", "10", "1400", sector="Consumer Staples"),
-            _cash("USD Cash", "USD", "5000"),
+            _cash("USD Cash", "USD", "1000"),
         ]
     )
     db_session.flush()
 
     c = compute_portfolio(db_session, base_currency="USD").concentration
 
-    assert c.top_holding_name == "USD Cash"
-    assert c.top_holding_ratio == Decimal("0.5000")
-    assert c.single_holding_watch is True  # >0.15
-    assert c.single_holding_high is True  # >0.25
+    assert c.top_holding_name == "Apple"  # 3000 > 2000 > 1000
+    assert c.top_holding_ratio == Decimal("0.5000")  # 3000 / 6000
+    assert c.top_holding_asset_class == "STOCK"
+    assert c.single_holding_watch is True  # 0.50 > STOCK watch 0.10
+    assert c.single_holding_high is True  # 0.50 > STOCK high 0.20
     assert c.top3_ratio == Decimal("1.0000")
     assert c.top3_watch is True  # >0.50
-    assert c.top_sector_name == "Technology"  # 3000 > 2000
-    assert c.top_sector_ratio == Decimal("0.3000")
-    assert c.sector_watch is False  # 0.30 not > 0.35
+    assert c.top_asset_class_name == "STOCK"  # Apple + Moutai = 5000 > cash 1000
+    assert c.top_asset_class_ratio == Decimal("0.8333")  # 5000 / 6000
+    assert c.asset_class_watch is True  # 0.8333 > 0.50
+    assert c.asset_class_high is True  # 0.8333 > 0.65
+
+
+def test_concentration_thresholds_loosen_for_broad_index_top_holding(db_session: Session) -> None:
+    """A broad-index ETF carries a wider single-holding threshold than a
+    single stock at the same weight, since it is already diversified."""
+    _seed_fx(db_session)
+    db_session.add_all(
+        [
+            _stock(
+                "Vanguard S&P 500",
+                "VOO",
+                "USD",
+                "10",
+                "300",
+                asset_class="EQUITY_US_BROAD",
+            ),
+            _cash("USD Cash", "USD", "3000"),
+        ]
+    )
+    db_session.flush()
+
+    c = compute_portfolio(db_session, base_currency="USD").concentration
+
+    assert c.top_holding_name == "Vanguard S&P 500"
+    assert c.top_holding_ratio == Decimal("0.5000")
+    assert c.top_holding_asset_class == "EQUITY_US_BROAD"
+    assert c.single_holding_watch is True  # 0.50 > EQUITY_US_BROAD watch 0.30
+    assert c.single_holding_high is True  # 0.50 > EQUITY_US_BROAD high 0.45
 
 
 def test_unclassified_stock_sector_defaults_to_other(db_session: Session) -> None:
