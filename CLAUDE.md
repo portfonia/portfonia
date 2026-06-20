@@ -144,28 +144,13 @@ re-render-safe); the LLM writes only prose/attribution. Current shape:
 
 `asset_class` is the economic-exposure dimension (distinct from the
 LLM-parsed `asset_type` product form) — classified by underlying exposure,
-not listing location:
+not listing location. **The class list and every number are defined in code
++ config, not here** — do not let this table drift out of sync again
+(it did, twice, on 2026-06-20):
 
-| asset_class | Meaning | Current holdings |
-|---|---|---|
-| `EQUITY_US_BROAD` | S&P 500 / US total market | VOO, 513650.SS |
-| `EQUITY_US_TECH` | Nasdaq 100 / US tech | QQQM, 019547 |
-| `EQUITY_DM` | Non-US developed markets | EWJ (Japan) |
-| `EQUITY_CN` | China equity (A-share / HK / QDII) | 110011 |
-| `EQUITY_EM` | EM ex-China | (none yet; thresholds set) |
-| `EQUITY_BROAD` | Global multi-market catch-all | (none yet; fallback) |
-| `REIT` | Real estate / REITs (added 2026-06-20, no holdings yet) | (none yet) |
-| `STOCK` | Individual equities | TSLA, NVDA, INTC, QCOM, AMKR, 0700.HK |
-| `PRECIOUS_METALS` | Gold (split from COMMODITY 2026-06-20) | SGOL, 518660.SS, 518800.SS, 008142 |
-| `ENERGY` | Oil/gas (added 2026-06-20, no holdings yet) | (none yet) |
-| `COMMODITY` | Everything else (agriculture, industrial metals, broad commodity index) | (none yet; catch-all) |
-| `BOND_FUND` | Fixed income / T-bills | BOXX |
-| `CASH_EQUIV` | Cash, WMP, margin | 现金, USD Cash |
-
-All per-class numbers (anomaly per_day/cumulative_cap, concentration
-watch/high) are **config-driven, not hardcoded** — see "Asset_class
-thresholds are admin-configurable" below for the current values and where
-they live.
+- Class list: `VALID_ASSET_CLASSES` in `app/services/asset_class_config.py`.
+- Per-class numbers + per-class rationale comments: `config/asset_class_thresholds.yml`.
+- Which holdings map to which class: `_TICKER_ASSET_CLASS` in `app/services/holding_parser.py`.
 
 `ticker_themes` table maps ticker/fund_code → theme for multi-holding
 aggregation (e.g. QQQM + 019547 both `nasdaq_100`). Seeded themes:
@@ -202,35 +187,20 @@ cause + before/after: GitHub issue #32.
 
 ### Asset_class thresholds are admin-configurable (#35)
 
-Every per-class number above lives in `config/asset_class_thresholds.yml`
+Every per-class number (anomaly per_day/cumulative_cap, concentration
+watch/high) lives in `config/asset_class_thresholds.yml`
 (`Settings.ASSET_CLASS_CONFIG_PATH` override), loaded fresh on every call —
-**an admin edit takes effect on the next report, no process restart**. The
-loader (`app/services/asset_class_config.py`) validates the YAML's class
-keys exactly match the closed taxonomy in `VALID_ASSET_CLASSES`; adding a
-new category (last done: `REIT`, `PRECIOUS_METALS`, `ENERGY` on 2026-06-20,
-splitting the old single `COMMODITY` bucket) is a **code change**, not a
+**an admin edit takes effect on the next report, no process restart**. Read
+that file directly for current values and the rationale behind each one
+(it carries a comment per class); do not copy numbers from it into this
+file. The loader (`app/services/asset_class_config.py`) validates the
+YAML's class keys exactly match the closed taxonomy in
+`VALID_ASSET_CLASSES`; adding a new category is a **code change**, not a
 config edit — and existing holdings/`ticker_themes` rows already classified
-under the old category need a backfill migration (see `8c9d0e1f2a3b`) or
-they'd silently inherit the wrong tier. Per-user threshold overrides are a
-Ring 1 decision, documented in `产品概念设计文档.md`, not built yet.
-
-Current values (fractions of 1) — anomaly per_day / cumulative_cap,
-concentration watch / high:
-
-| asset_class | anomaly per_day | anomaly cum. cap | conc. watch | conc. high |
-|---|---|---|---|---|
-| `STOCK` | 5% | 10% | 10% | 20% |
-| `EQUITY_US_TECH`/`EQUITY_DM`/`REIT` | 5% | 35%/30%/25% | 20% | 35% |
-| `EQUITY_CN`/`EQUITY_EM` (tightened 2026-06-20: single-country tail risk) | 5% | 20%/25% | 15% | 25% |
-| `EQUITY_US_BROAD`/`EQUITY_BROAD` | 5% | 40% | 30% | 45% |
-| `PRECIOUS_METALS` | 4% | 20% | 15% | 25% |
-| `ENERGY` | 6% | 35% | 10% | 15% |
-| `COMMODITY` (catch-all: agri/industrial metals/broad) | 5% | 25% | 12% | 20% |
-| `BOND_FUND` | 2% | 20% | 25% | 40% |
-| `CASH_EQUIV` | 1% | 20% | 50% | 70% |
-
-`REIT`/`ENERGY`/`COMMODITY` have no current holdings — values are estimates
-to revisit once a real position exists in each.
+under the old category need a backfill migration (see `8c9d0e1f2a3b` for an
+example) or they'd silently inherit the wrong tier. Per-user threshold
+overrides are a Ring 1 decision, documented in `产品概念设计文档.md`, not
+built yet.
 
 ## Language Policy (MANDATORY)
 
