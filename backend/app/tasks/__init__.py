@@ -69,11 +69,11 @@ def _build_capture_schedule() -> dict[str, dict[str, Any]]:
 
 
 _beat_schedule: dict[str, dict[str, Any]] = {
-    # Report cadence: incremental report Mon/Wed/Fri 16:30 ET (after US regular
+    # Report cadence: incremental report Mon/Wed/Fri 17:00 ET (after US regular
     # close). app timezone is ET, so no per-entry nowfun is needed here.
     "report-incremental-mwf": {
         "task": "app.tasks.report_tasks.generate_incremental_report",
-        "schedule": crontab(hour=16, minute=30, day_of_week="mon,wed,fri"),
+        "schedule": crontab(hour=17, minute=0, day_of_week="mon,wed,fri"),
     },
     # Forward calendar (#1): refresh the next ~2 weeks of US macro + earnings dates
     # once a day, before US pre-open. Catch-up is in the task (idempotent upsert).

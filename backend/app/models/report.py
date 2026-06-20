@@ -32,7 +32,7 @@ class Report(Base):
     report_date: Mapped[date] = mapped_column(Date, nullable=False)
     report_type: Mapped[str] = mapped_column(Text, nullable=False)
     # H-DEBT-1: identifies WHICH trigger produced this report (e.g. "manual" vs
-    # "after_close" for the M/W/F 16:30 ET cadence), so two distinct triggers on
+    # "after_close" for the M/W/F 17:00 ET cadence), so two distinct triggers on
     # the same calendar day don't collide on the dedup key. A redelivered Celery
     # task passes the same session_node, preserving redelivery dedup.
     session_node: Mapped[str] = mapped_column(Text, nullable=False)
