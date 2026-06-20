@@ -31,6 +31,11 @@ def test_beat_schedule_task_name() -> None:
     assert entry["task"] == "app.tasks.report_tasks.generate_incremental_report"
 
 
+def test_beat_schedule_passes_report_type_and_session_node() -> None:
+    entry = celery_app.conf.beat_schedule["report-incremental-mwf"]
+    assert entry["kwargs"] == {"report_type": "incremental", "session_node": "after_close"}
+
+
 def test_beat_schedule_crontab_mwf_1700() -> None:
     from celery.schedules import crontab  # type: ignore[import-untyped]
 
@@ -79,6 +84,27 @@ def test_task_happy_path(
     assert result["status"] == "success"
     mock_session.close.assert_called_once()
     mock_alert.assert_not_called()
+    assert mock_gen.call_args.kwargs["report_type"] == "incremental"
+    assert mock_gen.call_args.kwargs["session_node"] == "after_close"
+
+
+@patch("app.tasks.report_tasks.send_ops_alert")
+@patch("app.core.database.SessionLocal")
+@patch("app.services.report_generator.generate_report")
+def test_task_uses_report_type_and_session_node_from_beat_kwargs(
+    mock_gen: MagicMock, mock_session_cls: MagicMock, mock_alert: MagicMock
+) -> None:
+    """A future cadence (e.g. Ring 1 weekly) passes its own report_type/session_node
+    via beat kwargs rather than the task hardcoding "incremental"/"after_close"."""
+    mock_gen.return_value = _make_report()
+    mock_session_cls.return_value = MagicMock()
+
+    from app.tasks.report_tasks import generate_incremental_report
+
+    generate_incremental_report.run(report_type="weekly", session_node="weekly_close")
+
+    assert mock_gen.call_args.kwargs["report_type"] == "weekly"
+    assert mock_gen.call_args.kwargs["session_node"] == "weekly_close"
 
 
 @patch("app.tasks.report_tasks.send_ops_alert")
