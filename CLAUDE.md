@@ -1,7 +1,7 @@
 # Portfonia — Agent Guidelines
 
 AI-facing guidance for agent tooling working in this repository.
-Last updated: 2026-06-19
+Last updated: 2026-06-20
 
 ## Where to find current state
 
