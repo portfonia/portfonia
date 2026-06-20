@@ -169,6 +169,91 @@ _PASS2_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + (
 _PASS2_REQUIRED_MARKERS = ("## §3", "## §4")
 _PASS2_MIN_CHARS = 2000
 
+# Mechanism prep for Ring 1 multi-cadence report types (see
+# Hermes/Portfonia/Docs/多周期报告机制改造计划.md 阶段3): the §2/§3/§4 narrative
+# instructions are split into per-section blocks so _build_pass2_prompt can be
+# asked for a subset. generate_report() always requests ALL_NARRATIVE_SECTIONS
+# today — no caller picks a subset yet, that mapping (which report_type gets
+# which sections) is a Ring 1 decision, not built here.
+_SECTION2_INSTRUCTIONS = (
+    "## §2 Macro Signals\n"
+    "For each triggered macro theme: (a) describe what is happening and what is "
+    "driving it; (b) under a bold sub-heading 'Impact on this portfolio', do NOT "
+    "stop at naming exposed tickers — trace the transmission mechanism (signal -> "
+    "channel -> the specific holding), then separate the read into short-term "
+    "(this period / next few sessions), medium-term (weeks to a quarter), and "
+    "long-term (structural) effects, and end with the concrete follow-on signals "
+    "or scenarios worth watching for each named holding. Stay descriptive: report "
+    "what to WATCH, never what to DO (no buy/sell/hold/hedge/trim language). The "
+    "short-term read describes a CHANNEL ('X would transmit via Y'), not an "
+    "observed move — see DIRECTION REQUIRES EVIDENCE / DIVERGENCE IS THE SIGNAL "
+    "above; check PRICE ANOMALIES before stating a holding already moved a "
+    "given direction.\n\n"
+)
+_SECTION3_INSTRUCTIONS = (
+    "## §3 Holdings Analysis\n"
+    "Select the holdings most affected this period and, for each, go beyond "
+    "'position size + what happened'. Explain WHY it surfaced (which signal/move "
+    "implicates it), the mechanism linking the development to that specific "
+    "holding, how it sits relative to the rest of the portfolio (concentration, "
+    "correlation, currency), and which forward signals would confirm or dissolve "
+    "the thesis. Depth over breadth — a few holdings analysed well beats a list. "
+    "End each causal attribution with its confidence label (see CONFIDENCE "
+    "LABELS above).\n\n"
+)
+_SECTION4_INSTRUCTIONS = (
+    "## §4 Risk Radar\n"
+    "### 4.1 Concentration — state the flagged ratios.\n"
+    "### 4.2 Price anomalies — a numeric table (net %, worst day, the latest-day "
+    "session arc, trigger) is inserted by the system directly under this heading; "
+    "do NOT restate those numbers. Under the heading write ONE line per holding in "
+    "PRICE ANOMALIES, formatted 'IDENTIFIER — <driver> [Label]', where <driver> is "
+    "a single sentence attributing the move to a development from the research/news "
+    "and [Label] is the confidence label (see CONFIDENCE LABELS above). If no "
+    "catalyst is identifiable, say so plainly and label it [Speculative]; never "
+    "invent one. If PRICE ANOMALIES is empty, say so plainly for this window — do "
+    "NOT phrase it as 'today'.\n"
+    "### 4.3 FX exposure — state currency exposures and any FX note.\n"
+    "Throughout §4: state the numbers; never editorialize about what to do."
+)
+_NARRATIVE_SECTION_BLOCKS: dict[str, str] = {
+    "§2": _SECTION2_INSTRUCTIONS,
+    "§3": _SECTION3_INSTRUCTIONS,
+    "§4": _SECTION4_INSTRUCTIONS,
+}
+ALL_NARRATIVE_SECTIONS: frozenset[str] = frozenset(_NARRATIVE_SECTION_BLOCKS)
+
+_PASS2_PREAMBLE_TEMPLATE = (
+    "Write {sections_clause} of the financial analysis briefing in Markdown.\n"
+    "Use the portfolio and signal data above. Do NOT emit bracketed tags, "
+    "citations, or per-sentence disclaimers — write clean prose.\n\n"
+    "TIME REFERENCES: this is an incremental report over the window stated above. "
+    "Refer to events as happening 'in this report period' unless an event "
+    "demonstrably occurred on one specific day (then name the date). Never write "
+    "'today' or 'this week' as a stand-in for the window.\n\n"
+    "CONFIDENCE LABELS: end every causal attribution (in §3 and §4.2) with one "
+    "evidence-ordinal label in square brackets — NEVER a numeric percentage:\n"
+    "  [Established] — a named mechanism or a citable event drives the move "
+    "(e.g. gold up as real yields fell — an identity between real rates and "
+    "non-yielding assets; a stock up on a confirmed earnings beat).\n"
+    "  [Probable] — partial evidence points to a driver but it is not conclusive.\n"
+    "  [Speculative] — no direct evidence; the attribution is a hypothesis "
+    "(e.g. an unexplained gap with no identifiable catalyst).\n"
+    "The label expresses how sure you are about the PAST move's CAUSE — it is NOT "
+    "a view on future direction. Do not drop or downgrade a large unexplained "
+    "move: label it [Speculative], keep it brief, and say the catalyst is "
+    "unidentified — an unexplained move is itself worth noting.\n\n"
+)
+
+
+def _section_list_clause(sections: list[str]) -> str:
+    label = "section" if len(sections) == 1 else "sections"
+    if len(sections) <= 2:
+        names = " and ".join(sections)
+    else:
+        names = ", ".join(sections[:-1]) + f", and {sections[-1]}"
+    return f"{label} {names}"
+
 
 # ---------------------------------------------------------------------------
 # Intermediate-data capture (stored in report_inputs JSONB)
@@ -1073,6 +1158,7 @@ def _build_pass2_prompt(
     period_end: str = "",
     trading_days: int = 0,
     holding_news: dict[str, list[dict[str, Any]]] | None = None,
+    enabled_sections: frozenset[str] = ALL_NARRATIVE_SECTIONS,
 ) -> str:
     lines: list[str] = []
 
@@ -1180,63 +1266,12 @@ def _build_pass2_prompt(
                 lines.append(f"  {r['content'][:400]}")
 
     # Instructions
+    ordered_sections = [s for s in ("§2", "§3", "§4") if s in enabled_sections]
     lines.append("")
-    lines.append(
-        "Write sections §2, §3, and §4 of the financial analysis briefing in Markdown.\n"
-        "Use the portfolio and signal data above. Do NOT emit bracketed tags, "
-        "citations, or per-sentence disclaimers — write clean prose.\n\n"
-        "TIME REFERENCES: this is an incremental report over the window stated above. "
-        "Refer to events as happening 'in this report period' unless an event "
-        "demonstrably occurred on one specific day (then name the date). Never write "
-        "'today' or 'this week' as a stand-in for the window.\n\n"
-        "CONFIDENCE LABELS: end every causal attribution (in §3 and §4.2) with one "
-        "evidence-ordinal label in square brackets — NEVER a numeric percentage:\n"
-        "  [Established] — a named mechanism or a citable event drives the move "
-        "(e.g. gold up as real yields fell — an identity between real rates and "
-        "non-yielding assets; a stock up on a confirmed earnings beat).\n"
-        "  [Probable] — partial evidence points to a driver but it is not conclusive.\n"
-        "  [Speculative] — no direct evidence; the attribution is a hypothesis "
-        "(e.g. an unexplained gap with no identifiable catalyst).\n"
-        "The label expresses how sure you are about the PAST move's CAUSE — it is NOT "
-        "a view on future direction. Do not drop or downgrade a large unexplained "
-        "move: label it [Speculative], keep it brief, and say the catalyst is "
-        "unidentified — an unexplained move is itself worth noting.\n\n"
-        "## §2 Macro Signals\n"
-        "For each triggered macro theme: (a) describe what is happening and what is "
-        "driving it; (b) under a bold sub-heading 'Impact on this portfolio', do NOT "
-        "stop at naming exposed tickers — trace the transmission mechanism (signal -> "
-        "channel -> the specific holding), then separate the read into short-term "
-        "(this period / next few sessions), medium-term (weeks to a quarter), and "
-        "long-term (structural) effects, and end with the concrete follow-on signals "
-        "or scenarios worth watching for each named holding. Stay descriptive: report "
-        "what to WATCH, never what to DO (no buy/sell/hold/hedge/trim language). The "
-        "short-term read describes a CHANNEL ('X would transmit via Y'), not an "
-        "observed move — see DIRECTION REQUIRES EVIDENCE / DIVERGENCE IS THE SIGNAL "
-        "above; check PRICE ANOMALIES before stating a holding already moved a "
-        "given direction.\n\n"
-        "## §3 Holdings Analysis\n"
-        "Select the holdings most affected this period and, for each, go beyond "
-        "'position size + what happened'. Explain WHY it surfaced (which signal/move "
-        "implicates it), the mechanism linking the development to that specific "
-        "holding, how it sits relative to the rest of the portfolio (concentration, "
-        "correlation, currency), and which forward signals would confirm or dissolve "
-        "the thesis. Depth over breadth — a few holdings analysed well beats a list. "
-        "End each causal attribution with its confidence label (see CONFIDENCE "
-        "LABELS above).\n\n"
-        "## §4 Risk Radar\n"
-        "### 4.1 Concentration — state the flagged ratios.\n"
-        "### 4.2 Price anomalies — a numeric table (net %, worst day, the latest-day "
-        "session arc, trigger) is inserted by the system directly under this heading; "
-        "do NOT restate those numbers. Under the heading write ONE line per holding in "
-        "PRICE ANOMALIES, formatted 'IDENTIFIER — <driver> [Label]', where <driver> is "
-        "a single sentence attributing the move to a development from the research/news "
-        "and [Label] is the confidence label (see CONFIDENCE LABELS above). If no "
-        "catalyst is identifiable, say so plainly and label it [Speculative]; never "
-        "invent one. If PRICE ANOMALIES is empty, say so plainly for this window — do "
-        "NOT phrase it as 'today'.\n"
-        "### 4.3 FX exposure — state currency exposures and any FX note.\n"
-        "Throughout §4: state the numbers; never editorialize about what to do."
-    )
+    instructions = _PASS2_PREAMBLE_TEMPLATE.format(
+        sections_clause=_section_list_clause(ordered_sections)
+    ) + "".join(_NARRATIVE_SECTION_BLOCKS[s] for s in ordered_sections)
+    lines.append(instructions)
     return "\n".join(lines)
 
 
