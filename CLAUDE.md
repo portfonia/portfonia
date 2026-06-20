@@ -27,6 +27,8 @@ This file holds **conventions and mechanisms**, not a project status board.
 | Report title / email subject | `Portfonia 财经分析报告 — YYYY-MM-DD HH:MM ET` (title timestamp from `period_end`); no "智能"/"Intelligence" wording anywhere. |
 | Holdings model | `market` + `broker` are user-declared fields; `position` preserves upload order. **§1 groups by `broker` (持仓机构)** in upload order with per-institution subtotals; cash sits inside its institution, broker-less rows fall into "Other". `position` is populated automatically on confirm. |
 | Re-render | `regenerate_report(mode=render\|analyze)` rebuilds from stored `report_inputs` without re-fetching; `POST /reports/{id}/regenerate`. render = token-free, analyze = Pass 2 only. |
+| §1 / distribution / §4.1 classification dimension | **`asset_class`** (geography-first taxonomy — see table below), not `sector` or `asset_type`. `sector` (yfinance GICS) is retained ONLY for forward-event holding-relevance mapping (rate-sensitive/consumer sectors for FOMC/CPI events) — never reintroduce it into §1/distribution/§4.1. `by_asset_class` has no "Other" fallback (every `Holding` always has one, default `STOCK`). |
+| Tests must mock external notify calls | `send_ops_alert`, `create_bug_report`, `send_report_email` are mocked via an **autouse** fixture in `app/tests/conftest.py` (`_no_external_notifications`) — never rely on individual tests remembering to patch them. A gap here previously sent 42 real "FX rates stale" emails to the admin inbox from three same-day pytest runs (test clock fixed to a historical date that always trips the staleness check against the real current date). |
 
 ### Capture layer + incremental reporting (ADR-002)
 
@@ -173,6 +175,38 @@ fund_code. Beat task `capture_fund_navs_task` runs 20:00 CST Mon-Fri (NAV
 publishes same evening after A-share close). `detect_window_anomalies`
 identifier fallback chain: `h.ticker or h.fund_code`.
 
+### §1 / distribution / §4.1 now read `asset_class`, not sector (2026-06-19)
+
+`portfolio_calculator.py` adds `PortfolioSnapshot.by_asset_class` (every
+holding, no "Other" fallback) alongside the older `by_sector`/`by_asset_type`
+(kept only for the API and forward-event sector mapping, no longer rendered
+in reports). §1's table column, the distribution block, and §4.1
+concentration's top-bucket check all switched to this dimension — sector is
+a stock-picking lens with no allocation guidance, and `asset_type` (ETF vs
+Fund) split holdings that wrap the same underlying exposure.
+
+§4.1 top-holding/top-3 ranking stays **per-row, unmerged** (deliberate
+design choice); only the asset_class *bucket* check merges the same exposure
+across markets (e.g. VOO + 513650.SS both land in `EQUITY_US_BROAD`).
+Single-holding watch/high thresholds are differentiated by the top holding's
+own asset_class (`_SINGLE_THRESHOLDS` in `portfolio_calculator.py`):
+
+| asset_class | watch | high |
+|---|---|---|
+| `STOCK` | 10% | 20% |
+| `EQUITY_US_TECH`/`EQUITY_DM`/`EQUITY_CN`/`EQUITY_EM` | 20% | 35% |
+| `EQUITY_US_BROAD`/`EQUITY_BROAD` | 30% | 45% |
+| `COMMODITY` | 15% | 25% |
+| `BOND_FUND` | 25% | 40% |
+| `CASH_EQUIV` | 50% | 70% |
+
+Top-3 stays flat (>50% watch). Top-asset-class bucket is flat (>50% watch,
+>65% high) since the bucket already pools every holding sharing one
+exposure. `Concentration.top_sector_*`/`sector_watch` were removed (replaced
+by `top_asset_class_*`/`asset_class_watch`/`asset_class_high`) — this is a
+breaking schema change on `/portfolio/summary`, acceptable at Ring 0 (no
+external consumers). Root cause + before/after: GitHub issue #32.
+
 ## Language Policy (MANDATORY)
 
 - **All repository content is English**: code, identifiers, comments, commit
@@ -255,15 +289,11 @@ in any other language.
 
 ### Three-layer deployment flow (MANDATORY)
 
-```
-Local (~/Portfonia)   →   GitHub   →   VPS (git pull && docker-compose up -d)
-   write code             transport      run only
-```
-
-- Code authority lives in **local → Git**. The VPS is never an editor.
-- The only legitimate VPS-side state outside Git is `.env` (uploaded via `scp`).
-- Never edit code on the VPS, never `git commit` on the VPS, never use the VPS
-  as a sync hub between machines.
+Full workflow + production server specs: Obsidian `Hermes/Portfonia/开发环境配置.md`.
+The one hard rule that governs every action here: code authority is
+**local → Git only**. Never edit code on the VPS, never `git commit` on the
+VPS, never use the VPS as a sync hub between machines — its only legitimate
+local state is `.env` (uploaded via `scp`).
 
 ## Secrets and Configuration
 
@@ -428,14 +458,12 @@ Let CI handle versioning, changelog, tag, and publish.
 
 ## Out of Scope (do not let scope creep pull this in)
 
-- Trade execution.
-- Tax / capital-gains computation.
-- Transaction-log tracking (P&L from buy/sell history).
-- Options / futures / derivatives.
-- Price-only alerts ("ticker dropped 8%") — every broker app does this; we do
-  signal-driven alerts, not threshold alerts.
-- Social / sharing features (sensitive data — defer until Phase 2 with
-  serious anonymization review).
+Full product-scope decisions (what we deliberately don't build, and why)
+live in Obsidian `Hermes/Portfonia/产品概念设计文档.md` §1 + appendix — not
+here, to keep this file to AI-actionable conventions rather than product
+ideation. Quick check before any new feature: trade execution, tax/P&L
+tracking, options/derivatives, price-only threshold alerts, social/sharing
+features, and stock-pick-style recommendations are all explicitly excluded.
 
 ## When Principles Conflict
 
