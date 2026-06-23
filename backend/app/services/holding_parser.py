@@ -2,6 +2,7 @@
 
 import io
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Any
@@ -310,30 +311,53 @@ def _postprocess(raw_rows: list[dict[str, Any]]) -> list[ParsedRow]:
     return result
 
 
+def _parse_attempt(
+    client: openai.OpenAI, model: str, provider: dict[str, object] | None, text: str
+) -> str:
+    response = client.chat.completions.create(
+        model=model,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user", "content": text},
+        ],
+        temperature=0,
+        extra_body={"provider": provider} if provider is not None else None,
+    )
+    return response.choices[0].message.content or "{}"
+
+
 def parse(text: str) -> UploadPreview:
-    """Call LLM to parse free-form holdings text into a structured preview."""
+    """Call LLM to parse free-form holdings text into a structured preview.
+
+    Transient provider connection drops (DigitalOcean/Venice — issue #46) get
+    one same-model retry; if that also fails, one attempt on FALLBACK_LLM_MODEL
+    (same pinned provider pool, so the data-collection policy is unchanged).
+    """
     settings = get_settings()
     client = openai.OpenAI(
         api_key=settings.OPENROUTER_API_KEY.get_secret_value(),
         base_url=settings.OPENROUTER_BASE_URL,
     )
-
     provider = openrouter_provider()
-    try:
-        response = client.chat.completions.create(
-            model=settings.LOW_COST_LLM_MODEL,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": text},
-            ],
-            temperature=0,
-            extra_body={"provider": provider} if provider is not None else None,
-        )
-    except openai.OpenAIError as exc:
-        raise RuntimeError(f"LLM call failed: {exc}") from exc
 
-    content = response.choices[0].message.content or "{}"
+    models = [settings.LOW_COST_LLM_MODEL, settings.LOW_COST_LLM_MODEL]
+    if settings.FALLBACK_LLM_MODEL:
+        models.append(settings.FALLBACK_LLM_MODEL)
+
+    content: str | None = None
+    last_exc: openai.OpenAIError | None = None
+    for model in models:
+        try:
+            content = _parse_attempt(client, model, provider, text)
+            break
+        except openai.OpenAIError as exc:
+            last_exc = exc
+            logging.getLogger(__name__).warning(
+                "holding_parser: %s failed (%s), trying next", model, exc
+            )
+    if content is None:
+        raise RuntimeError(f"LLM call failed: {last_exc}") from last_exc
     try:
         payload = json.loads(_strip_code_fence(content))
     except json.JSONDecodeError as exc:

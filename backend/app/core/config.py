@@ -59,6 +59,13 @@ class Settings(BaseSettings):
     # DeepSeek first-party API, whose terms allow training). See §8.8. Set to empty
     # only to disable this guard (not recommended for holdings-bearing calls).
     OPENROUTER_DATA_COLLECTION: str = "deny"
+    # Fallback model for holdings parsing only, tried after LOW_COST_LLM_MODEL
+    # fails a same-model retry (transient provider connection drops observed on
+    # DigitalOcean/Venice — see GitHub issue #46). Stays within the pinned
+    # OPENROUTER_PROVIDER_ORDER pool (Venice serves Gemma), so the data-collection
+    # and precision guarantees above still apply unchanged. Empty = no fallback,
+    # same single-attempt-then-retry behavior as before.
+    FALLBACK_LLM_MODEL: str = "google/gemma-4-31b-it"
 
     # Report output language. The LLM reasons in English (higher quality), then
     # the assembled report is translated to this language at render time. "en"

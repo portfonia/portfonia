@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import httpx
+import openai
 import pytest
 
 from app.core import llm
@@ -353,6 +355,59 @@ def test_parse_raises_on_invalid_json() -> None:
         pytest.raises(RuntimeError, match="invalid JSON"),
     ):
         parse("text")
+
+
+def _connection_error() -> openai.APIConnectionError:
+    return openai.APIConnectionError(request=httpx.Request("POST", "https://example.test"))
+
+
+def test_parse_retries_same_model_once_on_connection_error() -> None:
+    mock_client = _make_mock_client(_MOCK_LLM_RESPONSE)
+    mock_client.chat.completions.create.side_effect = [
+        _connection_error(),
+        mock_client.chat.completions.create.return_value,
+    ]
+    with patch("app.services.holding_parser.openai.OpenAI", return_value=mock_client):
+        result = parse("some holdings text")
+
+    assert mock_client.chat.completions.create.call_count == 2
+    models_tried = [c.kwargs["model"] for c in mock_client.chat.completions.create.call_args_list]
+    assert models_tried[0] == models_tried[1]
+    assert result.valid_rows[0].name == "Apple"
+
+
+def test_parse_falls_back_to_fallback_model_after_retry_fails() -> None:
+    mock_client = _make_mock_client(_MOCK_LLM_RESPONSE)
+    success_response = mock_client.chat.completions.create.return_value
+    mock_client.chat.completions.create.side_effect = [
+        _connection_error(),
+        _connection_error(),
+        success_response,
+    ]
+    with patch("app.services.holding_parser.openai.OpenAI", return_value=mock_client):
+        result = parse("some holdings text")
+
+    assert mock_client.chat.completions.create.call_count == 3
+    models_tried = [c.kwargs["model"] for c in mock_client.chat.completions.create.call_args_list]
+    assert models_tried[0] == models_tried[1]
+    assert models_tried[2] != models_tried[0]
+    assert result.valid_rows[0].name == "Apple"
+
+
+def test_parse_raises_after_retry_and_fallback_both_fail() -> None:
+    mock_client = _make_mock_client(_MOCK_LLM_RESPONSE)
+    mock_client.chat.completions.create.side_effect = [
+        _connection_error(),
+        _connection_error(),
+        _connection_error(),
+    ]
+    with (
+        patch("app.services.holding_parser.openai.OpenAI", return_value=mock_client),
+        pytest.raises(RuntimeError, match="LLM call failed"),
+    ):
+        parse("some holdings text")
+
+    assert mock_client.chat.completions.create.call_count == 3
 
 
 def test_parse_omits_provider_when_unset() -> None:
