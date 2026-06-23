@@ -23,6 +23,12 @@ export const messages = {
     chooseFile: "Choose file",
     uploading: "Parsing...",
     parseAgain: "Choose a different file",
+    uploadingProgress: (seconds: number) => {
+      if (seconds < 5) return "Reading file...";
+      if (seconds < 20) return "Parsing with AI...";
+      if (seconds < 45) return `Still working (${seconds}s)...`;
+      return `Taking longer than usual (${seconds}s) — the LLM provider may be slow.`;
+    },
 
     // Preview
     previewHeading: "Parsed holdings",

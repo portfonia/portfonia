@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { messages } from "@/lib/messages";
 import {
@@ -46,10 +46,18 @@ export function HoldingsManager({
   const [holdings, setHoldings] = useState<HoldingOut[]>(initialHoldings);
   const [preview, setPreview] = useState<UploadPreview | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadSeconds, setUploadSeconds] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(initialError);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!uploading) return;
+    setUploadSeconds(0);
+    const id = setInterval(() => setUploadSeconds((s) => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [uploading]);
 
   async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -140,12 +148,19 @@ export function HoldingsManager({
             className="hidden"
             onChange={onFileChange}
           />
-          <Button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-          >
-            {uploading ? m.uploading : m.chooseFile}
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+            >
+              {uploading ? m.uploading : m.chooseFile}
+            </Button>
+            {uploading && (
+              <span className="text-sm text-muted-foreground">
+                {m.uploadingProgress(uploadSeconds)}
+              </span>
+            )}
+          </div>
         </CardContent>
       </Card>
 
