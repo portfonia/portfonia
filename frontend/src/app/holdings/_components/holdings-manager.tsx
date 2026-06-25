@@ -32,7 +32,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { HoldingsTable } from "./holdings-table";
-import { IssueList, PreviewTable } from "./preview";
+import { BrokerSummary, IssueList, PreviewTable } from "./preview";
 
 const m = messages.holdings;
 
@@ -54,7 +54,6 @@ export function HoldingsManager({
 
   useEffect(() => {
     if (!uploading) return;
-    setUploadSeconds(0);
     const id = setInterval(() => setUploadSeconds((s) => s + 1), 1000);
     return () => clearInterval(id);
   }, [uploading]);
@@ -63,6 +62,7 @@ export function HoldingsManager({
     const file = e.target.files?.[0];
     if (!file) return;
     setError(null);
+    setUploadSeconds(0);
     setUploading(true);
     setPreview(null);
     try {
@@ -112,8 +112,9 @@ export function HoldingsManager({
   }
 
   const hasInferred =
-    preview?.valid_rows.some((r) => r.issues.length > 0 || r.confidence < 0.7) ??
-    false;
+    preview?.valid_rows.some(
+      (r) => r.issues.length > 0 || r.confidence < 0.7,
+    ) ?? false;
 
   return (
     <>
@@ -176,6 +177,9 @@ export function HoldingsManager({
           </CardHeader>
           <CardContent className="space-y-6">
             <p className="text-xs text-muted-foreground">{m.replaceWarning}</p>
+            {preview.broker_groups.length > 0 && (
+              <BrokerSummary groups={preview.broker_groups} />
+            )}
             {preview.valid_rows.length > 0 && (
               <PreviewTable rows={preview.valid_rows} />
             )}

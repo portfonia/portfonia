@@ -30,9 +30,22 @@ export interface IssueRow {
   reason: string;
 }
 
+export interface CurrencySubtotal {
+  currency: string;
+  cost_basis: number;
+  holding_count: number;
+}
+
+export interface BrokerGroup {
+  broker: string;
+  holding_count: number;
+  subtotals: CurrencySubtotal[];
+}
+
 export interface UploadPreview {
   valid_rows: ParsedRow[];
   issue_rows: IssueRow[];
+  broker_groups: BrokerGroup[];
 }
 
 export interface HoldingOut {

@@ -1,5 +1,5 @@
 import { messages } from "@/lib/messages";
-import type { ParsedRow, IssueRow } from "@/lib/api";
+import type { ParsedRow, IssueRow, BrokerGroup } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -42,7 +42,9 @@ export function PreviewTable({ rows }: { rows: ParsedRow[] }) {
           return (
             <TableRow
               key={i}
-              className={inferred ? "bg-amber-50 dark:bg-amber-950/30" : undefined}
+              className={
+                inferred ? "bg-amber-50 dark:bg-amber-950/30" : undefined
+              }
             >
               <TableCell className="font-medium">{r.name}</TableCell>
               <TableCell>{str(r.ticker ?? r.fund_code)}</TableCell>
@@ -75,6 +77,53 @@ export function PreviewTable({ rows }: { rows: ParsedRow[] }) {
   );
 }
 
+function fmtCostBasis(value: number, currency: string): string {
+  return `${value.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })} ${currency}`;
+}
+
+export function BrokerSummary({ groups }: { groups: BrokerGroup[] }) {
+  if (groups.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-medium">{m.summaryHeading}</h3>
+      <p className="text-xs text-muted-foreground">{m.summaryHint}</p>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{m.summaryColBroker}</TableHead>
+            <TableHead className="text-right">{m.summaryColCount}</TableHead>
+            <TableHead className="text-right">
+              {m.summaryColCostBasis}
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {groups.map((g, i) => (
+            <TableRow key={i}>
+              <TableCell className="font-medium">{g.broker}</TableCell>
+              <TableCell className="text-right tabular-nums">
+                {g.holding_count}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {g.subtotals.length === 0
+                  ? "—"
+                  : g.subtotals.map((s, j) => (
+                      <div key={j}>
+                        {fmtCostBasis(s.cost_basis, s.currency)}
+                      </div>
+                    ))}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
 export function IssueList({ rows }: { rows: IssueRow[] }) {
   return (
     <Table>
@@ -88,7 +137,9 @@ export function IssueList({ rows }: { rows: IssueRow[] }) {
         {rows.map((r, i) => (
           <TableRow key={i} className="bg-destructive/5">
             <TableCell className="font-mono text-xs">{r.raw}</TableCell>
-            <TableCell className="text-sm text-destructive">{r.reason}</TableCell>
+            <TableCell className="text-sm text-destructive">
+              {r.reason}
+            </TableCell>
           </TableRow>
         ))}
       </TableBody>
