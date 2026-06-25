@@ -197,6 +197,148 @@ def test_postprocess_no_correction_when_currency_correct() -> None:
 
 
 # ---------------------------------------------------------------------------
+# _postprocess — HK ticker normalization (issue #49) + dedup (issue #50)
+# ---------------------------------------------------------------------------
+
+
+def _raw_row(**overrides: object) -> dict[str, object]:
+    """A minimally-valid LLM row dict; override fields per test."""
+    base: dict[str, object] = {
+        "name": "Asset",
+        "ticker": None,
+        "fund_code": None,
+        "currency": "USD",
+        "shares": 1.0,
+        "avg_cost": 1.0,
+        "current_value": None,
+        "pricing_mode": "auto",
+        "asset_type": "stock",
+        "broker": None,
+        "account": None,
+        "portfolio": None,
+        "notes": None,
+        "issues": [],
+        "confidence": 1.0,
+    }
+    base.update(overrides)
+    return base
+
+
+def test_normalize_hk_ticker_strips_leading_zero() -> None:
+    rows = _postprocess([_raw_row(name="Great Wall", ticker="02333.HK", currency="HKD")])
+    assert rows[0].ticker == "2333.HK"
+    assert any("2333.HK" in issue for issue in rows[0].issues)
+
+
+def test_normalize_hk_ticker_pads_short_code() -> None:
+    rows = _postprocess([_raw_row(name="Tencent", ticker="700.HK", currency="HKD")])
+    assert rows[0].ticker == "0700.HK"
+
+
+def test_normalize_hk_ticker_leaves_canonical_unchanged() -> None:
+    rows = _postprocess([_raw_row(name="Great Wall", ticker="2333.HK", currency="HKD")])
+    assert rows[0].ticker == "2333.HK"
+    assert rows[0].issues == []
+
+
+def test_dedup_keeps_same_ticker_different_broker() -> None:
+    """Two distinct VOO lots at different brokers must both survive. (issue #50)"""
+    rows = _postprocess(
+        [
+            _raw_row(name="VOO", ticker="VOO", shares=316.0, avg_cost=618.0, broker="Schwab"),
+            _raw_row(name="VOO", ticker="VOO", shares=10.0, avg_cost=600.0, broker="Schwba"),
+        ]
+    )
+    assert len(rows) == 2
+
+
+def test_dedup_collapses_identical_rows() -> None:
+    """A truly byte-identical duplicate (LLM double-emit) still collapses."""
+    rows = _postprocess(
+        [
+            _raw_row(name="VOO", ticker="VOO", shares=316.0, avg_cost=618.0, broker="Schwab"),
+            _raw_row(name="VOO", ticker="VOO", shares=316.0, avg_cost=618.0, broker="Schwab"),
+        ]
+    )
+    assert len(rows) == 1
+
+
+# ---------------------------------------------------------------------------
+# _summarize — per-broker cross-check (issue #51)
+# ---------------------------------------------------------------------------
+
+
+def test_summarize_groups_by_broker_in_upload_order() -> None:
+    rows = _postprocess(
+        [
+            _raw_row(name="VOO", ticker="VOO", shares=2.0, avg_cost=600.0, broker="Schwab"),
+            _raw_row(
+                name="Tencent",
+                ticker="2333.HK",
+                shares=100.0,
+                avg_cost=16.0,
+                currency="HKD",
+                broker="Futu",
+            ),
+            _raw_row(name="QQQM", ticker="QQQM", shares=1.0, avg_cost=200.0, broker="Schwab"),
+        ]
+    )
+    from app.services.holding_parser import _summarize
+
+    groups = _summarize(rows)
+    assert [g.broker for g in groups] == ["Schwab", "Futu"]
+    schwab = groups[0]
+    assert schwab.holding_count == 2
+    assert schwab.subtotals[0].currency == "USD"
+    assert schwab.subtotals[0].cost_basis == 1400.0  # 2*600 + 1*200
+
+
+def test_summarize_brokerless_rows_under_other() -> None:
+    from app.services.holding_parser import _summarize
+
+    rows = _postprocess(
+        [
+            _raw_row(
+                name="Cash",
+                ticker=None,
+                shares=None,
+                avg_cost=None,
+                current_value=5000.0,
+                pricing_mode="manual",
+                asset_type="cash",
+                broker=None,
+            )
+        ]
+    )
+    groups = _summarize(rows)
+    assert groups[0].broker == "Other"
+    assert groups[0].subtotals[0].cost_basis == 5000.0
+
+
+def test_summarize_splits_mixed_currency_subtotals() -> None:
+    from app.services.holding_parser import _summarize
+
+    rows = _postprocess(
+        [
+            _raw_row(
+                name="VOO", ticker="VOO", shares=1.0, avg_cost=600.0, currency="USD", broker="Futu"
+            ),
+            _raw_row(
+                name="Great Wall",
+                ticker="2333.HK",
+                shares=100.0,
+                avg_cost=16.0,
+                currency="HKD",
+                broker="Futu",
+            ),
+        ]
+    )
+    groups = _summarize(rows)
+    currencies = {s.currency for s in groups[0].subtotals}
+    assert currencies == {"USD", "HKD"}
+
+
+# ---------------------------------------------------------------------------
 # parse — mocked LLM
 # ---------------------------------------------------------------------------
 

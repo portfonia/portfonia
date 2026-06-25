@@ -11,7 +11,13 @@ import openai
 
 from app.core.config import get_settings
 from app.core.llm import openrouter_provider
-from app.schemas.holdings import IssueRow, ParsedRow, UploadPreview
+from app.schemas.holdings import (
+    BrokerGroup,
+    CurrencySubtotal,
+    IssueRow,
+    ParsedRow,
+    UploadPreview,
+)
 
 _SUPPORTED_EXTENSIONS = {".md", ".txt", ".csv", ".xlsx", ".xls"}
 
@@ -153,6 +159,28 @@ def _extract_text(file_bytes: bytes, filename: str) -> str:
     return str(df.to_csv(index=False))
 
 
+_HK_TICKER_RE = re.compile(r"^0*(\d+)\.HK$", re.IGNORECASE)
+
+
+def _normalize_hk_ticker(ticker: str) -> str:
+    """Canonicalize a Hong Kong ticker to yfinance's 4-digit form.
+
+    HKEX moved equity codes to a 5-digit scheme (leading-zero padded), and users
+    commonly write either form (02333.HK vs 2333.HK). yfinance expects the
+    4-digit form (0700.HK, 2333.HK), so a stray leading zero makes the price
+    lookup miss silently. Strip leading zeros, then left-pad numeric codes below
+    10000 back to 4 digits. Genuine 5-digit codes (>=10000, e.g. derivatives)
+    are left as their bare numeric form. Non-HK or unrecognized tickers pass
+    through unchanged. (issue #49)
+    """
+    m = _HK_TICKER_RE.match(ticker)
+    if not m:
+        return ticker
+    num = int(m.group(1))
+    digits = f"{num:04d}" if num < 10000 else str(num)
+    return f"{digits}.HK"
+
+
 _TICKER_CURRENCY_MAP = {
     ".hk": "HKD",
     ".ss": "CNY",
@@ -261,7 +289,10 @@ _MARKET_ALIASES = {
 def _postprocess(raw_rows: list[dict[str, Any]]) -> list[ParsedRow]:
     """Apply deterministic post-processing on top of LLM output."""
     result: list[ParsedRow] = []
-    seen: set[tuple[str | None, str | None, str]] = set()  # (ticker, fund_code, name)
+    # Dedup only collapses byte-identical rows (an LLM emitting the same holding
+    # twice). The key includes broker/account/quantity so two genuinely distinct
+    # lots — e.g. the same ETF at two brokers — are both preserved. (issue #50)
+    seen: set[tuple[str | None, ...]] = set()
 
     for row in raw_rows:
         # Normalize asset_type to the known set BEFORE validation so an off-list
@@ -279,8 +310,17 @@ def _postprocess(raw_rows: list[dict[str, Any]]) -> list[ParsedRow]:
         if mkt is not None and mkt not in {"US", "HK", "A-Share", "Other"}:
             row["market"] = _MARKET_ALIASES.get(str(mkt).strip().lower(), "Other")
 
-        # Currency correction from ticker suffix.
+        # Canonicalize HK tickers to yfinance's 4-digit form (02333.HK -> 2333.HK)
+        # so price lookups don't miss on a leading-zero variant. (issue #49)
         ticker: str | None = row.get("ticker")
+        if ticker:
+            normalized = _normalize_hk_ticker(ticker)
+            if normalized != ticker:
+                row["issues"] = list(row.get("issues") or [])
+                row["issues"].append(f"Ticker normalized to {normalized} for price lookup")
+                row["ticker"] = ticker = normalized
+
+        # Currency correction from ticker suffix.
         if ticker:
             for suffix, currency in _TICKER_CURRENCY_MAP.items():
                 if ticker.lower().endswith(suffix):
@@ -301,13 +341,76 @@ def _postprocess(raw_rows: list[dict[str, Any]]) -> list[ParsedRow]:
         # Classify economic exposure (not the LLM's product-form asset_type).
         row["asset_class"] = _classify_asset_class(row)
 
-        # Deduplicate: LLMs occasionally emit the same holding twice.
-        key = (row.get("ticker"), row.get("fund_code"), str(row.get("name", "")))
+        # Deduplicate: collapse only fully-identical rows (see comment above).
+        key = (
+            row.get("ticker"),
+            row.get("fund_code"),
+            str(row.get("name", "")),
+            str(row.get("broker") or ""),
+            str(row.get("account") or ""),
+            str(row.get("shares")),
+            str(row.get("avg_cost")),
+            str(row.get("current_value")),
+        )
         if key in seen:
             continue
         seen.add(key)
 
         result.append(ParsedRow.model_validate(row))
+    return result
+
+
+def _row_cost_basis(row: ParsedRow) -> float | None:
+    """Best-effort cost basis for a parsed row, in its own currency.
+
+    shares*avg_cost when both are present, else the user-supplied current_value
+    (manual/cash rows). None when neither is computable — the holding still
+    counts toward holding_count but contributes nothing to the subtotal.
+    """
+    if row.shares is not None and row.avg_cost is not None:
+        return row.shares * row.avg_cost
+    return row.current_value
+
+
+def _summarize(rows: list[ParsedRow]) -> list[BrokerGroup]:
+    """Per-broker (持仓机构) cross-check summary in upload order.
+
+    Mirrors §1's grouping: brokers appear in first-seen order, broker-less rows
+    fall under "Other". Cost basis is split by currency so a mixed-currency
+    institution never sums incomparable figures. Deterministic and price-free.
+    (issue #51)
+    """
+    # broker -> currency -> [cost_basis_sum, holding_count]
+    groups: dict[str, dict[str, list[float]]] = {}
+    counts: dict[str, int] = {}
+    order: list[str] = []
+    for row in rows:
+        broker = (row.broker or "").strip() or "Other"
+        if broker not in groups:
+            groups[broker] = {}
+            counts[broker] = 0
+            order.append(broker)
+        counts[broker] += 1
+        basis = _row_cost_basis(row)
+        if basis is None:
+            continue
+        bucket = groups[broker].setdefault(row.currency, [0.0, 0])
+        bucket[0] += basis
+        bucket[1] += 1
+
+    result: list[BrokerGroup] = []
+    for broker in order:
+        subtotals = [
+            CurrencySubtotal(currency=cur, cost_basis=total, holding_count=n)
+            for cur, (total, n) in groups[broker].items()
+        ]
+        result.append(
+            BrokerGroup(
+                broker=broker,
+                holding_count=counts[broker],
+                subtotals=subtotals,
+            )
+        )
     return result
 
 
@@ -365,4 +468,8 @@ def parse(text: str) -> UploadPreview:
 
     valid_rows = _postprocess(payload.get("valid_rows") or [])
     issue_rows = [IssueRow.model_validate(r) for r in (payload.get("issue_rows") or [])]
-    return UploadPreview(valid_rows=valid_rows, issue_rows=issue_rows)
+    return UploadPreview(
+        valid_rows=valid_rows,
+        issue_rows=issue_rows,
+        broker_groups=_summarize(valid_rows),
+    )

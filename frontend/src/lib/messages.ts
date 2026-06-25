@@ -32,8 +32,19 @@ export const messages = {
 
     // Preview
     previewHeading: "Parsed holdings",
-    previewValidCount: (n: number) => `${n} row${n === 1 ? "" : "s"} ready to save`,
-    inferredNote: "System inferred some fields — please review highlighted rows.",
+    previewValidCount: (n: number) =>
+      `${n} row${n === 1 ? "" : "s"} ready to save`,
+    inferredNote:
+      "System inferred some fields — please review highlighted rows.",
+    // Per-broker cross-check summary
+    summaryHeading: "Cross-check by institution",
+    summaryHint:
+      "Cost basis is from your file (shares x avg cost, or supplied value), " +
+      "not a live valuation. Use it to confirm every holding landed under the " +
+      "right institution.",
+    summaryColBroker: "Institution",
+    summaryColCount: "Holdings",
+    summaryColCostBasis: "Cost basis",
     issuesHeading: "Could not be parsed",
     issuesCount: (n: number) =>
       `${n} row${n === 1 ? "" : "s"} will NOT be saved unless you fix them`,
@@ -51,8 +62,7 @@ export const messages = {
     confirmDiscard: "Discard and save",
 
     // Full-replace warning
-    replaceWarning:
-      "Saving replaces ALL current holdings with the rows below.",
+    replaceWarning: "Saving replaces ALL current holdings with the rows below.",
 
     // Table column headers
     colName: "Name",
