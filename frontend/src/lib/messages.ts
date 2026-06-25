@@ -36,12 +36,15 @@ export const messages = {
       `${n} row${n === 1 ? "" : "s"} ready to save`,
     inferredNote:
       "System inferred some fields — please review highlighted rows.",
+    // Per-row notes / resolutions (potential conflicts + how they were handled)
+    rowNotesLabel: "Potential issues / how they were handled:",
     // Per-broker cross-check summary
     summaryHeading: "Cross-check by institution",
     summaryHint:
-      "Cost basis is from your file (shares x avg cost, or supplied value), " +
-      "not a live valuation. Use it to confirm every holding landed under the " +
-      "right institution.",
+      "Computed from your uploaded file only (shares x avg cost, or the value " +
+      "you supplied) — NO current market prices are fetched. This is a " +
+      "cost-basis cross-check to confirm every holding landed under the right " +
+      "institution, not a live valuation.",
     summaryColBroker: "Institution",
     summaryColCount: "Holdings",
     summaryColCostBasis: "Cost basis",
@@ -75,7 +78,6 @@ export const messages = {
     colPricingMode: "Pricing",
     colAssetType: "Type",
     colBroker: "Broker",
-    colIssues: "Notes",
     colRaw: "Original text",
     colReason: "Reason",
 
