@@ -155,7 +155,11 @@ def _extract_text(file_bytes: bytes, filename: str) -> str:
             f"Excel file contains {len(xf.sheet_names)} sheets ({names}). "
             f"Please keep only one sheet and re-upload."
         )
-    df = xf.parse(xf.sheet_names[0])
+    # dtype=str preserves leading zeros in identifier columns: without it pandas
+    # reads e.g. 00700 / 02333 as ints (700 / 2333) before the LLM ever sees the
+    # cell, an unrecoverable loss. Same failure family as the HK-ticker fix
+    # (#49); this guards the pre-LLM xlsx path. (#53)
+    df = xf.parse(xf.sheet_names[0], dtype=str)
     return str(df.to_csv(index=False))
 
 

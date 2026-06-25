@@ -98,6 +98,21 @@ def test_extract_xlsx_single_sheet(tmp_path: Path) -> None:
     assert "AAPL" in result
 
 
+def test_extract_xlsx_preserves_leading_zero_codes(tmp_path: Path) -> None:
+    """Leading-zero identifiers (00700 / 02333) must survive the xlsx read,
+    not be coerced to ints before the LLM sees them. (#53)"""
+    pytest.importorskip("pandas")
+    import pandas as pd
+
+    df = pd.DataFrame({"name": ["Tencent", "Great Wall"], "code": ["00700", "02333"]})
+    xlsx_path = tmp_path / "h.xlsx"
+    df.to_excel(xlsx_path, index=False)
+    result = _extract_text(xlsx_path.read_bytes(), "h.xlsx")
+    assert "00700" in result
+    assert "02333" in result
+    assert "700," not in result.replace("00700", "")
+
+
 def test_extract_xlsx_multi_sheet_raises(tmp_path: Path) -> None:
     pytest.importorskip("pandas")
     import pandas as pd
