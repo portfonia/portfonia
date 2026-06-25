@@ -1,3 +1,5 @@
+import { Fragment } from "react";
+
 import { messages } from "@/lib/messages";
 import type { ParsedRow, IssueRow, BrokerGroup } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -33,43 +35,61 @@ export function PreviewTable({ rows }: { rows: ParsedRow[] }) {
           <TableHead className="text-right">{m.colCurrentValue}</TableHead>
           <TableHead>{m.colPricingMode}</TableHead>
           <TableHead>{m.colBroker}</TableHead>
-          <TableHead>{m.colIssues}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {rows.map((r, i) => {
           const inferred = r.issues.length > 0 || r.confidence < 0.7;
           return (
-            <TableRow
-              key={i}
-              className={
-                inferred ? "bg-amber-50 dark:bg-amber-950/30" : undefined
-              }
-            >
-              <TableCell className="font-medium">{r.name}</TableCell>
-              <TableCell>{str(r.ticker ?? r.fund_code)}</TableCell>
-              <TableCell>{r.currency}</TableCell>
-              <TableCell className="text-right tabular-nums">
-                {num(r.shares)}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {num(r.avg_cost)}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {num(r.current_value)}
-              </TableCell>
-              <TableCell>
-                <Badge
-                  variant={r.pricing_mode === "auto" ? "secondary" : "outline"}
+            <Fragment key={i}>
+              <TableRow
+                className={
+                  inferred ? "bg-amber-50 dark:bg-amber-950/30" : undefined
+                }
+              >
+                <TableCell className="font-medium">{r.name}</TableCell>
+                <TableCell>{str(r.ticker ?? r.fund_code)}</TableCell>
+                <TableCell>{r.currency}</TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {num(r.shares)}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {num(r.avg_cost)}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {num(r.current_value)}
+                </TableCell>
+                <TableCell>
+                  <Badge
+                    variant={
+                      r.pricing_mode === "auto" ? "secondary" : "outline"
+                    }
+                  >
+                    {r.pricing_mode}
+                  </Badge>
+                </TableCell>
+                <TableCell>{str(r.broker)}</TableCell>
+              </TableRow>
+              {r.issues.length > 0 && (
+                <TableRow
+                  className={
+                    inferred ? "bg-amber-50 dark:bg-amber-950/30" : undefined
+                  }
                 >
-                  {r.pricing_mode}
-                </Badge>
-              </TableCell>
-              <TableCell>{str(r.broker)}</TableCell>
-              <TableCell className="text-xs text-muted-foreground">
-                {r.issues.length > 0 ? r.issues.join("; ") : ""}
-              </TableCell>
-            </TableRow>
+                  <TableCell
+                    colSpan={8}
+                    className="pt-0 text-xs text-amber-700 dark:text-amber-400"
+                  >
+                    <p className="font-medium">{m.rowNotesLabel}</p>
+                    <ul className="ml-4 list-disc">
+                      {r.issues.map((issue, j) => (
+                        <li key={j}>{issue}</li>
+                      ))}
+                    </ul>
+                  </TableCell>
+                </TableRow>
+              )}
+            </Fragment>
           );
         })}
       </TableBody>
