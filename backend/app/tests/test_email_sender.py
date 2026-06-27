@@ -173,10 +173,10 @@ def test_send_network_exception_returns_false(
 
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
-def test_send_commit_failure_returns_false(
+def test_send_commit_failure_returns_false_and_alerts(
     mock_client_cls: MagicMock, mock_settings: MagicMock
 ) -> None:
-    """Email delivered by Resend but commit fails → False, not True (G-DEBT-1 fix)."""
+    """Email delivered by Resend but commit fails → False + ops alert sent."""
     mock_settings.return_value = _mock_settings()
     mock_resp = MagicMock()
     mock_resp.raise_for_status.return_value = None
@@ -187,11 +187,15 @@ def test_send_commit_failure_returns_false(
     session = MagicMock()
     session.commit.side_effect = Exception("DB connection lost")
 
-    result = send_report_email(report, session)
+    with patch("app.services.email_sender.send_ops_alert") as mock_alert:
+        result = send_report_email(report, session)
 
     assert result is False
     session.commit.assert_called_once()
     session.rollback.assert_called_once()
+    mock_alert.assert_called_once()
+    subject = mock_alert.call_args.kwargs["subject"]
+    assert "unconfirmed" in subject
 
 
 @patch("app.services.email_sender.get_settings")
