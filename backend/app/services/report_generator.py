@@ -738,6 +738,7 @@ def _serialize_portfolio(snap: PortfolioSnapshot) -> dict[str, Any]:
             "asset_class_high": snap.concentration.asset_class_high,
         },
         "stale_tickers": snap.stale_tickers,
+        "stale_priced_tickers": snap.stale_priced_tickers,
         "holdings": holdings_list,
     }
 
@@ -1350,6 +1351,13 @@ def _build_section1(portfolio: dict[str, Any]) -> str:
     if stale:
         lines.append(f"\n> [!] Stale/missing prices: {', '.join(stale)}")
 
+    stale_priced = portfolio.get("stale_priced_tickers", [])
+    if stale_priced:
+        lines.append(
+            f"\n> [!] Price data stale (>4 calendar days old): {', '.join(stale_priced)}"
+            " — values included but may not reflect recent moves."
+        )
+
     return "\n".join(lines)
 
 
@@ -1949,7 +1957,12 @@ def generate_report(
         # 1. Gather inputs (news + price moves read from the capture stores)
         # ------------------------------------------------------------------
         logger.info("report %s: fetching portfolio snapshot", report.id)
-        portfolio_snap = compute_portfolio(session, user_id=user_id, base_currency=base_currency)
+        portfolio_snap = compute_portfolio(
+            session,
+            user_id=user_id,
+            base_currency=base_currency,
+            as_of=period_end.astimezone(ET).date(),
+        )
         ctx.portfolio_summary = _serialize_portfolio(portfolio_snap)
         if portfolio_snap.stale_tickers:
             stale_list = ", ".join(portfolio_snap.stale_tickers)
@@ -1982,6 +1995,25 @@ def generate_report(
                     f"and that `compute_portfolio` looks them up correctly."
                 ),
                 labels=["bug", "ops", "data-quality"],
+            )
+
+        if portfolio_snap.stale_priced_tickers:
+            stale_priced_list = ", ".join(portfolio_snap.stale_priced_tickers)
+            logger.warning(
+                "report %s: %d holding(s) have stale price data (>4 days): %s",
+                report.id,
+                len(portfolio_snap.stale_priced_tickers),
+                stale_priced_list,
+            )
+            send_ops_alert(
+                subject=f"[Portfonia] price data stale — {len(portfolio_snap.stale_priced_tickers)} holding(s)",
+                body=(
+                    f"Report {report.id} ({report.report_date}) used price data older than "
+                    f"4 calendar days for the following holdings:\n\n"
+                    + "\n".join(f"  - {t}" for t in portfolio_snap.stale_priced_tickers)
+                    + "\n\nHoldings are included in totals but valuations may not reflect "
+                    "recent market moves.\n\nCheck price capture logs for these tickers."
+                ),
             )
 
         # FX stale check: if rates trail the window cutoff, valuation in non-USD
@@ -2341,7 +2373,12 @@ def regenerate_report(
         # original generation and this regenerate are picked up (ticker fixes,
         # broker corrections, new/removed rows). Pass 2 and §1 both use it.
         stored_base_ccy = inputs.get("portfolio_summary", {}).get("base_currency", "USD")
-        fresh_snap = compute_portfolio(session, user_id=user_id, base_currency=stored_base_ccy)
+        fresh_snap = compute_portfolio(
+            session,
+            user_id=user_id,
+            base_currency=stored_base_ccy,
+            as_of=report.period_end.astimezone(ET).date() if report.period_end else None,
+        )
         portfolio = _serialize_portfolio(fresh_snap)
 
         pass2_user = _build_pass2_prompt(
