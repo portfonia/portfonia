@@ -21,6 +21,11 @@ _ZERO = Decimal("0")
 _CENT = Decimal("0.01")
 _RATIO = Decimal("0.0001")  # 4 dp for fractions (0..1)
 
+# Calendar days beyond which a captured close is considered stale.
+# Covers 3-day holiday weekends (e.g. Fri close → Tue report = 4 days);
+# a 5+ day gap indicates a capture pipeline failure, not normal market closure.
+_PRICE_STALE_DAYS = 4
+
 # All FX rates are stored as 1 USD = X foreign.
 _CURRENCY_TO_FX_PAIR: dict[str, str] = {
     "CNY": "USDCNY",
@@ -111,6 +116,7 @@ class PortfolioSnapshot:
     by_asset_class: dict[str, Decimal] = field(default_factory=dict)  # all holdings, §1/§4.1
     concentration: Concentration = field(default_factory=Concentration)
     stale_tickers: list[str] = field(default_factory=list)
+    stale_priced_tickers: list[str] = field(default_factory=list)
 
 
 def _load_fx_rates(session: Session) -> tuple[dict[str, Decimal], date | None]:
@@ -248,6 +254,7 @@ def compute_portfolio(
     session: Session,
     user_id: uuid.UUID,
     base_currency: str = "USD",
+    as_of: date | None = None,
 ) -> PortfolioSnapshot:
     """
     Compute market values for all holdings and aggregate into a snapshot.
@@ -255,7 +262,11 @@ def compute_portfolio(
     FX rates are loaded once and held constant across every conversion
     (design §6.2: one as_of_date per report). Holdings missing a price or an
     FX rate are recorded in `stale_tickers` and excluded from all totals.
+    Holdings whose captured close is older than _PRICE_STALE_DAYS relative to
+    `as_of` are recorded in `stale_priced_tickers` (included in totals but
+    flagged for ops alerting).
     """
+    price_ref = as_of or date.today()
     fx, fx_date = _load_fx_rates(session)
     snapshot = PortfolioSnapshot(base_currency=base_currency, fx_date=fx_date or date.today())
     captured_closes = _latest_captured_closes(session)
@@ -278,6 +289,8 @@ def compute_portfolio(
             if captured is not None:
                 price, trade_date = captured
                 price_as_of = datetime.combine(trade_date, datetime.min.time(), tzinfo=ET)
+                if (price_ref - trade_date).days > _PRICE_STALE_DAYS:
+                    snapshot.stale_priced_tickers.append(h.ticker or h.fund_code or h.name)
             if price is None or h.shares is None:
                 snapshot.stale_tickers.append(h.ticker or h.fund_code or h.name)
                 continue

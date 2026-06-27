@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models.fx_rate import FxRate
 from app.models.holding import Holding
+from app.models.price_snapshot import PriceSnapshot
 from app.services.portfolio_calculator import _to_base, compute_portfolio
 
 _USER = uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -241,6 +242,61 @@ def test_user_isolation(db_session: Session) -> None:
 
     assert snap.total_base == Decimal("3000.00")
     assert all(hv.ticker != "MSFT" for hv in snap.holdings)
+
+
+def test_stale_priced_ticker_flagged(db_session: Session) -> None:
+    """A captured close older than 4 calendar days lands in stale_priced_tickers,
+    not stale_tickers — it is still included in totals."""
+    _seed_fx(db_session)
+    holding = _stock("Apple", "AAPL", "USD", "10", None)  # no fallback market_price
+    db_session.add(holding)
+    db_session.flush()
+
+    stale_date = date(2026, 1, 2)  # 10 days before as_of
+    db_session.add(
+        PriceSnapshot(
+            ticker="AAPL",
+            market="US",
+            session_node="close",
+            trade_date=stale_date,
+            close=Decimal("300"),
+        )
+    )
+    db_session.flush()
+
+    as_of = date(2026, 1, 12)
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD", as_of=as_of)
+
+    assert snap.stale_priced_tickers == ["AAPL"]
+    assert snap.stale_tickers == []
+    assert snap.total_base == Decimal("3000.00")  # still included
+
+
+def test_fresh_price_not_flagged(db_session: Session) -> None:
+    """A captured close within 4 calendar days is not flagged as stale."""
+    _seed_fx(db_session)
+    holding = _stock("Apple", "AAPL", "USD", "10", None)
+    db_session.add(holding)
+    db_session.flush()
+
+    trade_date = date(2026, 1, 9)  # 3 days before as_of
+    db_session.add(
+        PriceSnapshot(
+            ticker="AAPL",
+            market="US",
+            session_node="close",
+            trade_date=trade_date,
+            close=Decimal("300"),
+        )
+    )
+    db_session.flush()
+
+    as_of = date(2026, 1, 12)
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD", as_of=as_of)
+
+    assert snap.stale_priced_tickers == []
+    assert snap.stale_tickers == []
+    assert snap.total_base == Decimal("3000.00")
 
 
 def test_to_base_cross_currency() -> None:
