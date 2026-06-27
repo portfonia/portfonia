@@ -22,6 +22,7 @@ from app.models.news import News
 from app.models.price_snapshot import PriceSnapshot
 from app.models.report import Report
 from app.models.ticker_theme import TickerTheme
+from app.services._yfinance import _normalize_hk_ticker
 from app.services.asset_class_config import load_asset_class_config
 from app.services.news_fetcher import NewsItem
 from app.services.price_anomaly_detector import ConstituentMove, PriceAnomaly
@@ -217,7 +218,8 @@ def _compute_holding_move(
     Uses h.ticker when present; falls back to h.fund_code as the price_snapshots
     key (fund NAV is stored under fund_code via capture_fund_navs).
     """
-    identifier = h.ticker or h.fund_code
+    raw = h.ticker or h.fund_code
+    identifier = _normalize_hk_ticker(raw) if raw else None
     thresholds = load_asset_class_config().by_class.get(h.asset_class)
     if thresholds is None or not identifier:
         return None

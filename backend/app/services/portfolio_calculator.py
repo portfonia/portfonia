@@ -14,6 +14,7 @@ from app.core.timezones import ET
 from app.models.fx_rate import FxRate
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
+from app.services._yfinance import _normalize_hk_ticker
 from app.services.asset_class_config import load_asset_class_config
 
 _ZERO = Decimal("0")
@@ -272,7 +273,8 @@ def compute_portfolio(
             price = h.market_price
             price_as_of = h.price_as_of
             # Fund NAVs are stored in price_snapshots under the fund_code key.
-            captured = captured_closes.get(h.ticker or h.fund_code or "")
+            raw_key = h.ticker or h.fund_code or ""
+            captured = captured_closes.get(_normalize_hk_ticker(raw_key))
             if captured is not None:
                 price, trade_date = captured
                 price_as_of = datetime.combine(trade_date, datetime.min.time(), tzinfo=ET)
