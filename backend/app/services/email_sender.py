@@ -14,6 +14,8 @@ from datetime import UTC, datetime
 
 import httpx
 from markdown_it import MarkdownIt
+from sqlalchemy import update as sa_update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -183,16 +185,22 @@ def send_report_email(report: Report, session: Session) -> bool:
         return False
 
     resend_id = resp.json().get("id", "unknown")
-    report.email_sent_at = datetime.now(tz=UTC)
-    report.report_html = html_body
+    sent_at = datetime.now(tz=UTC)
+
+    # Atomic conditional UPDATE: only one concurrent sender can win the
+    # WHERE email_sent_at IS NULL predicate. rowcount == 0 means another
+    # worker already committed email_sent_at — Resend's Idempotency-Key
+    # suppressed the duplicate delivery, so we can safely return True.
     try:
+        # session.execute on a DML statement returns CursorResult at runtime;
+        # SQLAlchemy stubs type it as Result[Any] and don't narrow for DML.
+        result: CursorResult[tuple[()]] = session.execute(  # type: ignore[assignment]
+            sa_update(Report)
+            .where(Report.id == report.id, Report.email_sent_at.is_(None))
+            .values(email_sent_at=sent_at, report_html=html_body)
+        )
         session.commit()
     except Exception:
-        # Email was delivered by Resend but we could not persist email_sent_at.
-        # Return False so callers know to treat this as unconfirmed — the
-        # content-addressed Idempotency-Key means a retry will not double-send
-        # the same content (Resend deduplicates), but a regenerated report with
-        # different content would get a new key and could deliver again.
         logger.exception(
             "report %s: email delivered (resend_id=%s) but failed to persist email_sent_at",
             report.id,
@@ -213,6 +221,18 @@ def send_report_email(report: Report, session: Session) -> bool:
             ),
         )
         return False
+
+    if result.rowcount == 0:
+        logger.info(
+            "report %s: concurrent send dedup — email_sent_at already committed by another sender",
+            report.id,
+        )
+        return True
+
+    # Reflect the committed state back onto the in-memory object so the G3
+    # check fires correctly for any subsequent call in the same process.
+    report.email_sent_at = sent_at
+    report.report_html = html_body
 
     logger.info(
         "report %s: email delivered to %s (subject: %s, resend_id: %s)",
