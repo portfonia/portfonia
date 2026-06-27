@@ -89,12 +89,35 @@ def test_send_success(mock_client_cls: MagicMock, mock_settings: MagicMock) -> N
 
     report = _make_report()
     session = MagicMock()
+    session.execute.return_value.rowcount = 1
+
+    result = send_report_email(report, session)
+
+    assert result is True
+    session.execute.assert_called_once()
+    session.commit.assert_called_once()
+    assert report.email_sent_at is not None
+
+
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
+def test_send_concurrent_dedup(mock_client_cls: MagicMock, mock_settings: MagicMock) -> None:
+    """rowcount == 0 means another sender already committed email_sent_at — return True."""
+    mock_settings.return_value = _mock_settings()
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_client_cls.return_value.__enter__.return_value.post.return_value = mock_resp
+
+    report = _make_report()
+    session = MagicMock()
+    session.execute.return_value.rowcount = 0
 
     result = send_report_email(report, session)
 
     assert result is True
     session.commit.assert_called_once()
-    assert report.email_sent_at is not None
+    # in-memory object NOT updated — the other sender owns the state
+    assert report.email_sent_at is None
 
 
 @patch("app.services.email_sender.get_settings")
