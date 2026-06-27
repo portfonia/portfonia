@@ -56,31 +56,47 @@ _EN_PROMPT_TERMS: tuple[str, ...] = (
 )
 
 # ---------------------------------------------------------------------------
-# Chinese terms (literal strings; matched via re.escape in the scan).
+# Chinese terms for the OUTPUT SCAN (literal strings; matched via re.escape).
 #
-# False-positive risk is noted inline — terms that frequently appear in
-# *factual* financial news (e.g. "机构减持公告") carry moderate risk and
-# should be monitored against a report corpus before Ring 1 multi-user launch.
-# "建议" alone is excluded: too broad for high-precision scan (appears in news
-# as third-party attribution: "分析师建议关注…"). 投资建议 covers the primary form.
+# Principle: the scan is a backstop for unambiguous direct-advisory language
+# only. Terms that routinely appear in factual financial news as descriptions
+# of third-party actions (e.g. "机构增持XX", "银行下调目标价") are NOT scanned —
+# they belong in the LLM prompt blacklist instead, where the model is told to
+# avoid them, but a factual reference does not trigger a needs_review hold.
+#
+# The four moderate-risk terms (目标价, 增持, 减持, 入场) were moved to
+# _ZH_PROMPT_ONLY_TERMS after report 11797c1c was incorrectly held for quoting
+# third-party bank/institution actions (issue #65).
 # ---------------------------------------------------------------------------
-_ZH_LITERAL_TERMS: tuple[str, ...] = (
-    # Core advisory — low false-positive risk
-    "止损",  # stop-loss
-    "强烈买入",  # strong buy
-    "目标价",  # target price
-    "投资建议",  # investment advice / advisory recommendation
-    # Position-action verbs — moderate risk: also appear in factual news
-    # ("机构增持XX", "大股东减持"). Monitor after adding.
-    "减持",  # reduce / trim holding
-    "增持",  # add to / increase holding
-    "清仓",  # liquidate / exit entire position
-    # Entry/timing signal terms — low-to-moderate risk
-    "入场",  # enter a position / entry point
-    # Overbought / oversold in Chinese — low risk (specific TA terms)
+_ZH_SCAN_TERMS: tuple[str, ...] = (
+    # Core advisory — unambiguous in any context
+    "止损",  # stop-loss directive
+    "强烈买入",  # strong buy rating
+    "投资建议",  # investment advice
+    "清仓",  # liquidate entire position
+    # Overbought / oversold — specific TA recommendation terms, low FP risk
     "超买",  # overbought
     "超卖",  # oversold
 )
+
+# ---------------------------------------------------------------------------
+# Chinese terms for PROMPT injection ONLY (not scanned).
+#
+# The LLM is instructed to avoid these, but they are not scanned in output
+# because they appear routinely in Layer-1/2 factual descriptions of what
+# third parties did (banks set target prices, institutions added positions,
+# buyers entered at lows). Scanning for them generates false positives that
+# suppress legitimate reports without blocking any actual advisory output.
+# ---------------------------------------------------------------------------
+_ZH_PROMPT_ONLY_TERMS: tuple[str, ...] = (
+    "目标价",  # target price — appears in news: "银行下调目标价"
+    "增持",  # add to position — appears in news: "机构增持XX"
+    "减持",  # reduce position — appears in news: "大股东减持"
+    "入场",  # entry point — appears in news: "买家视低点为入场时机"
+)
+
+# Combined set for the LLM prompt (scan terms + prompt-only terms).
+_ZH_LITERAL_TERMS: tuple[str, ...] = _ZH_SCAN_TERMS + _ZH_PROMPT_ONLY_TERMS
 
 # ---------------------------------------------------------------------------
 # Derived artefacts — import these into report_generator.py
@@ -88,11 +104,16 @@ _ZH_LITERAL_TERMS: tuple[str, ...] = (
 
 
 def build_scan_patterns() -> list[re.Pattern[str]]:
-    """Compile regex patterns for the output-side compliance scan."""
+    """Compile regex patterns for the output-side compliance scan.
+
+    Only includes _ZH_SCAN_TERMS (unambiguous advisory terms). High-FP Chinese
+    terms that appear in factual news are in _ZH_PROMPT_ONLY_TERMS and reach
+    the LLM via build_prompt_vocab_string() only.
+    """
     patterns: list[re.Pattern[str]] = []
     for p in _EN_REGEX_PATTERNS:
         patterns.append(re.compile(p, re.IGNORECASE))
-    for term in _ZH_LITERAL_TERMS:
+    for term in _ZH_SCAN_TERMS:
         patterns.append(re.compile(re.escape(term)))
     return patterns
 
