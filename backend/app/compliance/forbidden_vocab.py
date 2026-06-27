@@ -18,7 +18,7 @@ import re
 # false positives on factual prose ("buyback", "Holdings", "threshold").
 # ---------------------------------------------------------------------------
 _EN_REGEX_PATTERNS: tuple[str, ...] = (
-    r"\brecommend\w*",
+    r"\brecommend(?:s|ed|ing)?\b",
     r"\bshould\s+(buy|sell|hold)\b",
     r"\breduce\s+exposure\b",
     r"\bincrease\s+(your\s+)?position\b",

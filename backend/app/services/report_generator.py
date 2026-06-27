@@ -1453,7 +1453,8 @@ _STRAY_TAGS = [
 _BODY_DISCLAIMER_RE = re.compile(
     r"投资建议|投资招揽|买卖(推荐|指令)|免责声明|不构成.*(建议|招揽)"
     r"|informational purposes|not\s+constitute\s+investment|investment advice"
-    r"|not\s+a\s+recommendation|consult\s+a\s+qualified",
+    r"|not\s+a\s+recommendation|consult\s+a\s+qualified"
+    r"|a\s+recommendation\s+to\s+(buy|sell)|solicitation\s+of\s+any\s+invest",
     re.IGNORECASE,
 )
 
