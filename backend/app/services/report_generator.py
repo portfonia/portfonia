@@ -2332,7 +2332,8 @@ def regenerate_report(
         # Refresh portfolio from the live DB so holdings changes between the
         # original generation and this regenerate are picked up (ticker fixes,
         # broker corrections, new/removed rows). Pass 2 and §1 both use it.
-        fresh_snap = compute_portfolio(session)
+        stored_base_ccy = inputs.get("portfolio_summary", {}).get("base_currency", "USD")
+        fresh_snap = compute_portfolio(session, base_currency=stored_base_ccy)
         portfolio = _serialize_portfolio(fresh_snap)
 
         pass2_user = _build_pass2_prompt(
@@ -2364,9 +2365,7 @@ def regenerate_report(
         # Recompute technical positions from the live DB so a backfill run
         # between the original generation and this regenerate is reflected.
         fresh_technical = _serialize_technical(
-            compute_technical_positions(
-                session, portfolio.get("holdings", []), report.report_date
-            )
+            compute_technical_positions(session, portfolio.get("holdings", []), report.report_date)
         )
         # New dict identity so SQLAlchemy flags the JSONB column dirty (an
         # in-place mutation of the existing dict would not be detected).
@@ -2403,7 +2402,7 @@ def regenerate_report(
     report.status = "needs_review" if violations else "success"
     report.report_md = full_md
     # Persist translation snapshot alongside report_md for compliance traceability.
-    if mode != "render" and report.report_inputs is not None:
+    if report.report_inputs is not None:
         report.report_inputs = {**report.report_inputs, "pass2_translated": translated_body}
     report.generated_at = datetime.now(tz=UTC)
     session.commit()
