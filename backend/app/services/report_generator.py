@@ -1166,7 +1166,9 @@ def _build_pass2_prompt(
     lines.append("=== REPORT WINDOW ===")
     span = "unknown"
     if period_start and period_end:
-        span = f"{period_start[:16].replace('T', ' ')} to {period_end[:16].replace('T', ' ')} UTC"
+        ps_et = datetime.fromisoformat(period_start).astimezone(ET).strftime("%Y-%m-%d %H:%M")
+        pe_et = datetime.fromisoformat(period_end).astimezone(ET).strftime("%Y-%m-%d %H:%M")
+        span = f"{ps_et} to {pe_et} ET"
     lines.append(f"This report covers {span} ({trading_days} trading day(s)).")
     lines.append("")
 
@@ -1414,7 +1416,7 @@ def _build_footer(portfolio: dict[str, Any]) -> str:
         "",
         "---",
         "",
-        "## Data Sources & Disclaimer",
+        "## Data Sources & Disclaimer / 数据来源与免责声明",
         "",
         "**Data sources:** Equity/ETF prices — yfinance (end-of-day session closes, "
         "US/HK/CN exchanges). Fund NAV — 天天基金 (Tiantian). "
@@ -1422,6 +1424,11 @@ def _build_footer(portfolio: dict[str, Any]) -> str:
         f"Exchange rates — yfinance daily closes as of {fx_date}; "
         f"all portfolio valuations converted to {base_ccy}. "
         "Intraday and premarket data are not used.",
+        "",
+        f"**数据来源：** 股票/ETF价格 — yfinance（美/港/A股交易所收盘价）。基金净值 — 天天基金。"  # noqa: RUF001
+        f"新闻 — RSS订阅（路透社、CNBC、Google财经新闻）。"  # noqa: RUF001
+        f"汇率 — yfinance每日收盘价，数据截至 {fx_date}；"  # noqa: RUF001
+        f"所有持仓估值已换算为 {base_ccy}。不使用盘前或盘中数据。",
         "",
         f"**Disclaimer:** {_DISCLAIMER_EN}",
         "",
@@ -1521,7 +1528,9 @@ def _build_data_window(
 ) -> str:
     """A one-line statement of the intel/data interval this report covers (#5/R-5)."""
     if period_start and period_end:
-        span = f"{period_start[:16].replace('T', ' ')} to {period_end[:16].replace('T', ' ')} UTC"
+        ps_et = datetime.fromisoformat(period_start).astimezone(ET).strftime("%Y-%m-%d %H:%M")
+        pe_et = datetime.fromisoformat(period_end).astimezone(ET).strftime("%Y-%m-%d %H:%M")
+        span = f"{ps_et} to {pe_et} ET"
         td = f"{trading_days} trading day(s)"
         window_line = f"since last report: {span} ({td})"
     else:
@@ -2346,6 +2355,13 @@ def regenerate_report(
                 f"report {report.id}: regenerated Pass 2 output looks truncated "
                 f"({len(raw_body)} chars, missing one of {_PASS2_REQUIRED_MARKERS})"
             )
+        # Recompute technical positions from the live DB so a backfill run
+        # between the original generation and this regenerate is reflected.
+        fresh_technical = _serialize_technical(
+            compute_technical_positions(
+                session, portfolio.get("holdings", []), report.report_date
+            )
+        )
         # New dict identity so SQLAlchemy flags the JSONB column dirty (an
         # in-place mutation of the existing dict would not be detected).
         report.report_inputs = {
@@ -2353,9 +2369,12 @@ def regenerate_report(
             "pass2_raw": raw_body,
             "pass2_prompt": pass2_user,
             "llm_calls": regen_calls,
+            "technical_positions": fresh_technical,
         }
+        technical_positions = fresh_technical
     elif mode == "render":
         raw_body = inputs["pass2_raw"]
+        technical_positions = inputs.get("technical_positions", [])
     else:
         raise ValueError(f"unknown mode {mode!r} (expected 'render' or 'analyze')")
 
@@ -2370,7 +2389,7 @@ def regenerate_report(
         report.period_end.isoformat() if report.period_end else "",
         int(inputs.get("window_trading_days", 0)),
         inputs.get("price_anomalies", []),
-        inputs.get("technical_positions", []),
+        technical_positions,
         inputs.get("forward_events", []),
         str(inputs.get("price_data_through", "")),
     )

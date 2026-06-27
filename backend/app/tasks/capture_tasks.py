@@ -103,6 +103,42 @@ def capture_prices_task(self: Any, market: str, session_node: str) -> dict[str, 
 
 
 @celery_app.task(  # type: ignore[untyped-decorator]
+    name="app.tasks.capture_tasks.backfill_ohlcv_task",
+    bind=True,
+    max_retries=1,
+    default_retry_delay=60,
+)
+def backfill_ohlcv_task(self: Any) -> dict[str, Any]:
+    """Backfill ~1 year of OHLCV closes for all auto-priced holdings.
+
+    Dispatched by confirm_holdings when it detects tickers with sparse history
+    (< 50 bars). Idempotent: the upsert key is (ticker, market, session_node,
+    trade_date), so re-running is safe.
+    """
+    from app.core.database import SessionLocal
+    from app.services.price_capture import capture_prices
+
+    _LOOKBACK_DAYS = 420
+    _MARKETS = ("US", "HK", "A-Share")
+    session = SessionLocal()
+    try:
+        total = 0
+        for market in _MARKETS:
+            written = capture_prices(session, market, "close", lookback_days=_LOOKBACK_DAYS)
+            logger.info("backfill_ohlcv_task: %s: %d bars upserted", market, written)
+            total += written
+        logger.info("backfill_ohlcv_task: complete — %d bars total", total)
+        return {"written": total}
+    except Exception as exc:
+        logger.exception("backfill_ohlcv_task: failed")
+        if self.request.retries >= self.max_retries:
+            _capture_failed("backfill_ohlcv_task", exc)
+        raise self.retry(exc=exc) from exc
+    finally:
+        session.close()
+
+
+@celery_app.task(  # type: ignore[untyped-decorator]
     name="app.tasks.capture_tasks.capture_fx_task",
     bind=True,
     max_retries=2,
