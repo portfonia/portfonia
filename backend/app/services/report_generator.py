@@ -335,11 +335,13 @@ class LLMEmptyResponseError(RuntimeError):
     """
 
 
-# 429 backoff inside _call_llm: the synchronous POST /reports/generate path has
-# no Celery-level retry, and even the Celery path benefits from absorbing a brief
-# upstream rate-limit without burning a whole task retry. Short, bounded, then
-# re-raise so the outer layer still sees a persistent failure. (I-DEBT-2)
+# Backoff sequences inside _call_llm (bounded, then re-raise so the outer
+# Celery retry still sees a persistent failure). (I-DEBT-2)
+# 429: short waits — rate-limit windows are usually seconds.
+# Connection error: longer waits — network blips typically resolve in ~30-90s,
+# so absorbing them here avoids burning a whole Celery task retry.
 _LLM_RATELIMIT_BACKOFF_SECONDS = (5.0, 15.0)
+_LLM_CONNECT_BACKOFF_SECONDS = (30.0, 90.0)
 
 
 def _call_llm(
@@ -386,7 +388,11 @@ def _call_llm(
         extra["provider"] = provider
 
     resp: Any = None
-    for attempt, backoff in enumerate((*_LLM_RATELIMIT_BACKOFF_SECONDS, None)):
+    _rate_limit_attempts = 0
+    _connect_attempts = 0
+    for _attempt in range(
+        max(len(_LLM_RATELIMIT_BACKOFF_SECONDS), len(_LLM_CONNECT_BACKOFF_SECONDS)) + 1
+    ):
         try:
             resp = client.chat.completions.create(
                 model=model,
@@ -399,16 +405,33 @@ def _call_llm(
             )
             break
         except openai.RateLimitError:
-            if backoff is None:
+            backoff_idx = _rate_limit_attempts
+            _rate_limit_attempts += 1
+            if backoff_idx >= len(_LLM_RATELIMIT_BACKOFF_SECONDS):
                 logger.warning("llm call: model=%s exhausted 429 backoff retries", model)
                 raise
+            wait = _LLM_RATELIMIT_BACKOFF_SECONDS[backoff_idx]
             logger.warning(
                 "llm call: model=%s got 429 (attempt %d), backing off %.0fs",
                 model,
-                attempt + 1,
-                backoff,
+                backoff_idx + 1,
+                wait,
             )
-            time.sleep(backoff)
+            time.sleep(wait)
+        except openai.APIConnectionError:
+            backoff_idx = _connect_attempts
+            _connect_attempts += 1
+            if backoff_idx >= len(_LLM_CONNECT_BACKOFF_SECONDS):
+                logger.warning("llm call: model=%s exhausted connection backoff retries", model)
+                raise
+            wait = _LLM_CONNECT_BACKOFF_SECONDS[backoff_idx]
+            logger.warning(
+                "llm call: model=%s connection error (attempt %d), backing off %.0fs",
+                model,
+                backoff_idx + 1,
+                wait,
+            )
+            time.sleep(wait)
 
     # OpenRouter has been observed returning a 200 with choices=None for some
     # providers; guard before indexing so this surfaces as a classified,

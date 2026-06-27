@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 @celery_app.task(  # type: ignore[untyped-decorator]
     name="app.tasks.report_tasks.generate_incremental_report",
     bind=True,
-    max_retries=2,
+    max_retries=3,
     default_retry_delay=300,  # 5 min between retries
 )
 def generate_incremental_report(
@@ -29,7 +29,7 @@ def generate_incremental_report(
     (e.g. a Ring 1 weekly/monthly type) is a new beat table row, not a new
     task function. A missed run needs no catch-up: the next run's window is
     "since last report of this type", so it widens to cover the gap. On
-    failure retries up to 2 times with a 5-minute cooldown.
+    failure retries up to 3 times with a 5-minute cooldown.
 
     `session_node` (H-DEBT-1): identifies this cadence in the dedup key
     `(user_id, report_date, report_type, session_node)`, so an earlier
