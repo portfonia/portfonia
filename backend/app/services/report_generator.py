@@ -2329,6 +2329,12 @@ def regenerate_report(
     news_items = inputs.get("news_items", [])
 
     if mode == "analyze":
+        # Refresh portfolio from the live DB so holdings changes between the
+        # original generation and this regenerate are picked up (ticker fixes,
+        # broker corrections, new/removed rows). Pass 2 and §1 both use it.
+        fresh_snap = compute_portfolio(session)
+        portfolio = _serialize_portfolio(fresh_snap)
+
         pass2_user = _build_pass2_prompt(
             portfolio,
             inputs.get("macro_signals", {}),
@@ -2370,6 +2376,7 @@ def regenerate_report(
             "pass2_prompt": pass2_user,
             "llm_calls": regen_calls,
             "technical_positions": fresh_technical,
+            "portfolio_summary": portfolio,
         }
         technical_positions = fresh_technical
     elif mode == "render":
