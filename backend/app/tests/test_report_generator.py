@@ -526,7 +526,7 @@ def test_build_data_window_states_interval() -> None:
         news, portfolio, "2026-06-01T16:00:00+00:00", "2026-06-04T20:30:00+00:00", 3
     )
     assert "Data window" in w
-    assert "2026-06-01 16:00 to 2026-06-04 20:30" in w
+    assert "2026-06-01 12:00 to 2026-06-04 16:30 ET" in w
     assert "3 trading day(s)" in w
     assert "FX as of 2026-06-03" in w
     assert "baseline close" in w
