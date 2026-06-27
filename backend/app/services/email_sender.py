@@ -184,12 +184,22 @@ def send_report_email(report: Report, session: Session) -> bool:
 
     resend_id = resp.json().get("id", "unknown")
     report.email_sent_at = datetime.now(tz=UTC)
-    report.report_html = html_body  # persist exact sent version (G-DEBT-1 partial)
+    report.report_html = html_body
     try:
         session.commit()
     except Exception:
-        logger.exception("report %s: failed to persist email_sent_at/report_html", report.id)
+        # Email was delivered by Resend but we could not persist email_sent_at.
+        # Return False so callers know to treat this as unconfirmed — the
+        # content-addressed Idempotency-Key means a retry will not double-send
+        # the same content (Resend deduplicates), but a regenerated report with
+        # different content would get a new key and could deliver again.
+        logger.exception(
+            "report %s: email delivered (resend_id=%s) but failed to persist email_sent_at",
+            report.id,
+            resend_id,
+        )
         session.rollback()
+        return False
 
     logger.info(
         "report %s: email delivered to %s (subject: %s, resend_id: %s)",
