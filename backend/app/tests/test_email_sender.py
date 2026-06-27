@@ -173,6 +173,29 @@ def test_send_network_exception_returns_false(
 
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
+def test_send_commit_failure_returns_false(
+    mock_client_cls: MagicMock, mock_settings: MagicMock
+) -> None:
+    """Email delivered by Resend but commit fails → False, not True (G-DEBT-1 fix)."""
+    mock_settings.return_value = _mock_settings()
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {"id": "resend-abc"}
+    mock_client_cls.return_value.__enter__.return_value.post.return_value = mock_resp
+
+    report = _make_report()
+    session = MagicMock()
+    session.commit.side_effect = Exception("DB connection lost")
+
+    result = send_report_email(report, session)
+
+    assert result is False
+    session.commit.assert_called_once()
+    session.rollback.assert_called_once()
+
+
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
 def test_send_subject_format(mock_client_cls: MagicMock, mock_settings: MagicMock) -> None:
     mock_settings.return_value = _mock_settings()
     mock_resp = MagicMock()

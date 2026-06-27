@@ -2079,7 +2079,11 @@ def generate_report(
                 )
                 return report
             try:
-                send_report_email(report, session)
+                if not send_report_email(report, session):
+                    logger.warning(
+                        "report %s: email sent but state unconfirmed (commit failed)",
+                        report.id,
+                    )
             except Exception:
                 logger.exception("report %s: quiet-day email send raised unexpectedly", report.id)
             return report
@@ -2275,7 +2279,11 @@ def generate_report(
         # failure here cannot fall through to the generation-failure handler and
         # flip an already-persisted success to 'failed'.
         try:
-            send_report_email(report, session)
+            if not send_report_email(report, session):
+                logger.warning(
+                    "report %s: email sent but state unconfirmed (commit failed)",
+                    report.id,
+                )
         except Exception:
             logger.exception("report %s: email send raised unexpectedly", report.id)
 
