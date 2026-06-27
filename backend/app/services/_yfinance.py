@@ -15,6 +15,7 @@ Throttle mitigation strategy (D6):
 from __future__ import annotations
 
 import logging
+import re
 import time
 from datetime import UTC, date, datetime
 
@@ -22,6 +23,23 @@ import pandas as pd
 import yfinance as yf
 
 logger = logging.getLogger(__name__)
+
+_HK_TICKER_RE = re.compile(r"^0*(\d+)\.HK$", re.IGNORECASE)
+
+
+def _normalize_hk_ticker(ticker: str) -> str:
+    """Canonicalize an HK ticker to yfinance's 4-digit form (issue #64).
+
+    Strips leading zeros then left-pads codes below 10000 back to 4 digits.
+    Genuine 5-digit codes (>=10000) are left as-is. Non-HK tickers pass through.
+    """
+    m = _HK_TICKER_RE.match(ticker)
+    if not m:
+        return ticker
+    num = int(m.group(1))
+    digits = f"{num:04d}" if num < 10000 else str(num)
+    return f"{digits}.HK"
+
 
 # Type alias used by both fetch_last_close and fetch_last_two_closes.
 ClosePoint = tuple[float, datetime]  # (price, exchange-timestamp)
@@ -149,6 +167,8 @@ def fetch_last_close(tickers: list[str]) -> dict[str, ClosePoint]:
     if not tickers:
         return {}
 
+    tickers = [_normalize_hk_ticker(t) for t in tickers]
+
     # Group by market, preserving insertion order within each group.
     by_market: dict[str, list[str]] = {"us": [], "hk": [], "cn": []}
     for t in tickers:
@@ -183,6 +203,8 @@ def fetch_last_two_closes(
     """
     if not tickers:
         return {}
+
+    tickers = [_normalize_hk_ticker(t) for t in tickers]
 
     by_market: dict[str, list[str]] = {"us": [], "hk": [], "cn": []}
     for t in tickers:
@@ -236,6 +258,7 @@ def fetch_ohlcv_range(tickers: list[str], lookback_days: int = 7) -> dict[str, l
     """
     if not tickers:
         return {}
+    tickers = [_normalize_hk_ticker(t) for t in tickers]
     period = f"{max(lookback_days, 2)}d"
     by_market: dict[str, list[str]] = {"us": [], "hk": [], "cn": []}
     for t in tickers:

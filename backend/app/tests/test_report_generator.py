@@ -908,9 +908,22 @@ def test_build_section44_partial_metrics_render_dash() -> None:
 
 
 def test_scan_flags_advisory_action_language() -> None:
-    # Direct advisory/action language must trip the backstop.
-    for phrase in ("stop-loss", "target price", "strong buy", "entry point", "止损", "目标价"):
-        assert rg._scan_forbidden_output(f"set a {phrase} near 100") != []
+    # Unambiguously direct advisory/action terms must trip the scan backstop.
+    # "target price" / "entry point" / "目标价" / "增持" / "减持" / "入场" are
+    # prompt-only (high FP risk in factual news context) — not scanned (issue #65).
+    for phrase in ("stop-loss", "strong buy", "止损", "强烈买入", "投资建议", "清仓"):
+        assert rg._scan_forbidden_output(f"set a {phrase} near 100") != [], (
+            f"expected scan to flag: {phrase!r}"
+        )
+
+
+def test_scan_allows_high_fp_zh_terms_in_factual_context() -> None:
+    # Terms that routinely appear in financial news as third-party descriptions
+    # must not trigger the scan backstop (issue #65).
+    for phrase in ("目标价", "增持", "减持", "入场"):
+        assert rg._scan_forbidden_output(f"机构将{phrase}下调至100") == [], (
+            f"scan should not flag descriptive use of: {phrase!r}"
+        )
 
 
 def test_scan_allows_ta_observation_vocabulary() -> None:
