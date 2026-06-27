@@ -199,6 +199,19 @@ def send_report_email(report: Report, session: Session) -> bool:
             resend_id,
         )
         session.rollback()
+        send_ops_alert(
+            subject=f"[Portfonia] email sent but state unconfirmed — report {report.id}",
+            body=(
+                f"Report {report.id} ({report.report_date}) was delivered by Resend "
+                f"(resend_id={resend_id}) but the follow-up DB commit failed, so "
+                f"email_sent_at remains NULL.\n\n"
+                f"The dedup guard will NOT fire on the next retry for this report. "
+                f"If the report content is regenerated before the next run, a second "
+                f"delivery is possible.\n\n"
+                f"Action: verify delivery in the Resend dashboard, then manually set "
+                f"email_sent_at on this report row if confirmed."
+            ),
+        )
         return False
 
     logger.info(
