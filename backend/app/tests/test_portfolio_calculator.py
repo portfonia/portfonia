@@ -77,7 +77,7 @@ def test_full_snapshot_values_and_distributions(db_session: Session) -> None:
     )
     db_session.flush()
 
-    snap = compute_portfolio(db_session, base_currency="USD")
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
 
     assert snap.fx_date == _FX_DATE
     assert snap.stale_tickers == ["BAD"]
@@ -112,7 +112,7 @@ def test_declared_market_overrides_derivation(db_session: Session) -> None:
     db_session.add_all([_stock("Apple", "AAPL", "USD", "10", "300"), cash])
     db_session.flush()
 
-    snap = compute_portfolio(db_session, base_currency="USD")
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
 
     assert snap.by_market == {"US": Decimal("8000.00")}
     assert {hv.name: hv.market for hv in snap.holdings}["USD Cash"] == "US"
@@ -132,7 +132,7 @@ def test_concentration_flags(db_session: Session) -> None:
     )
     db_session.flush()
 
-    c = compute_portfolio(db_session, base_currency="USD").concentration
+    c = compute_portfolio(db_session, user_id=_USER, base_currency="USD").concentration
 
     assert c.top_holding_name == "Apple"  # 3000 > 2000 > 1000
     assert c.top_holding_ratio == Decimal("0.5000")  # 3000 / 6000
@@ -166,7 +166,7 @@ def test_concentration_thresholds_loosen_for_broad_index_top_holding(db_session:
     )
     db_session.flush()
 
-    c = compute_portfolio(db_session, base_currency="USD").concentration
+    c = compute_portfolio(db_session, user_id=_USER, base_currency="USD").concentration
 
     assert c.top_holding_name == "Vanguard S&P 500"
     assert c.top_holding_ratio == Decimal("0.5000")
@@ -180,7 +180,7 @@ def test_unclassified_stock_sector_defaults_to_other(db_session: Session) -> Non
     db_session.add(_stock("HK Co", "0700.HK", "HKD", "100", "80", sector=None))
     db_session.flush()
 
-    snap = compute_portfolio(db_session, base_currency="USD")
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
 
     assert "Other" in snap.by_sector
     assert snap.by_sector["Other"] == Decimal("1000.00")  # 100*80 HKD / 8
@@ -191,7 +191,7 @@ def test_base_currency_cny(db_session: Session) -> None:
     db_session.add(_stock("Apple", "AAPL", "USD", "10", "300", sector="Technology"))
     db_session.flush()
 
-    snap = compute_portfolio(db_session, base_currency="CNY")
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="CNY")
 
     assert snap.total_base == Decimal("21000.00")  # 3000 USD * 7.0
 
@@ -202,7 +202,7 @@ def test_missing_fx_rate_marks_stale(db_session: Session) -> None:
     db_session.add(_stock("HK Co", "0700.HK", "HKD", "100", "80"))
     db_session.flush()
 
-    snap = compute_portfolio(db_session, base_currency="USD")
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
 
     assert snap.total_base == Decimal("0")
     assert "0700.HK" in snap.stale_tickers
@@ -210,9 +210,37 @@ def test_missing_fx_rate_marks_stale(db_session: Session) -> None:
 
 def test_empty_portfolio_has_no_concentration(db_session: Session) -> None:
     _seed_fx(db_session)
-    snap = compute_portfolio(db_session, base_currency="USD")
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
     assert snap.total_base == Decimal("0")
     assert snap.concentration.top_holding_name is None
+
+
+def test_user_isolation(db_session: Session) -> None:
+    """compute_portfolio must not include holdings belonging to another user."""
+    _seed_fx(db_session)
+    other_user = uuid.UUID("00000000-0000-0000-0000-000000000002")
+    db_session.add_all(
+        [
+            _stock("Apple", "AAPL", "USD", "10", "300"),  # belongs to _USER
+            Holding(
+                user_id=other_user,
+                name="Other User Stock",
+                pricing_mode="auto",
+                ticker="MSFT",
+                currency="USD",
+                shares=Decimal("10"),
+                market_price=Decimal("400"),
+                asset_type="stock",
+                asset_class="STOCK",
+            ),
+        ]
+    )
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    assert snap.total_base == Decimal("3000.00")
+    assert all(hv.ticker != "MSFT" for hv in snap.holdings)
 
 
 def test_to_base_cross_currency() -> None:
