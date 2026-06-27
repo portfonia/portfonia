@@ -1981,6 +1981,7 @@ def generate_report(
             send_ops_alert(
                 subject=f"[Portfonia] price missing — {len(portfolio_snap.stale_tickers)} holding(s) excluded",
                 body=alert_body,
+                idempotency_key=f"ops-price-missing-{report.id}",
             )
             create_bug_report(
                 title=f"holdings excluded: price missing for {stale_list}",
@@ -2014,6 +2015,7 @@ def generate_report(
                     + "\n\nHoldings are included in totals but valuations may not reflect "
                     "recent market moves.\n\nCheck price capture logs for these tickers."
                 ),
+                idempotency_key=f"ops-price-stale-{report.id}",
             )
 
         # FX stale check: if rates trail the window cutoff, valuation in non-USD
@@ -2030,6 +2032,7 @@ def generate_report(
                     f"Likely cause: capture_fx_task missed or failed. "
                     f"Check worker.log and run capture_fx_task.apply() to backfill."
                 ),
+                idempotency_key=f"ops-fx-stale-{report.id}",
             )
 
         logger.info("report %s: loading windowed news", report.id)

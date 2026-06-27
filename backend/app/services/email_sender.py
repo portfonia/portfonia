@@ -244,10 +244,14 @@ def send_report_email(report: Report, session: Session) -> bool:
     return True
 
 
-def send_ops_alert(subject: str, body: str) -> None:
+def send_ops_alert(subject: str, body: str, idempotency_key: str | None = None) -> None:
     """Send a plain-text ops alert to the admin email via Resend.
 
     Used for failure/needs_review notifications. Never raises — logs on error.
+
+    Pass idempotency_key to suppress duplicate alerts across Celery retries of
+    the same task. Resend will accept the first delivery and discard subsequent
+    requests with the same key within 24 hours.
     """
     settings = get_settings()
     api_key = settings.RESEND_API_KEY.get_secret_value()
@@ -257,14 +261,17 @@ def send_ops_alert(subject: str, body: str) -> None:
         "subject": subject,
         "text": body,
     }
+    headers: dict[str, str] = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
     try:
         with httpx.Client(timeout=15.0) as client:
             resp = client.post(
                 _RESEND_SEND_URL,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
+                headers=headers,
                 json=payload,
             )
             resp.raise_for_status()
