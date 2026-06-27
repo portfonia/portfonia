@@ -1949,7 +1949,7 @@ def generate_report(
         # 1. Gather inputs (news + price moves read from the capture stores)
         # ------------------------------------------------------------------
         logger.info("report %s: fetching portfolio snapshot", report.id)
-        portfolio_snap = compute_portfolio(session, base_currency=base_currency)
+        portfolio_snap = compute_portfolio(session, user_id=user_id, base_currency=base_currency)
         ctx.portfolio_summary = _serialize_portfolio(portfolio_snap)
         if portfolio_snap.stale_tickers:
             stale_list = ", ".join(portfolio_snap.stale_tickers)
@@ -2333,7 +2333,7 @@ def regenerate_report(
         # original generation and this regenerate are picked up (ticker fixes,
         # broker corrections, new/removed rows). Pass 2 and §1 both use it.
         stored_base_ccy = inputs.get("portfolio_summary", {}).get("base_currency", "USD")
-        fresh_snap = compute_portfolio(session, base_currency=stored_base_ccy)
+        fresh_snap = compute_portfolio(session, user_id=user_id, base_currency=stored_base_ccy)
         portfolio = _serialize_portfolio(fresh_snap)
 
         pass2_user = _build_pass2_prompt(

@@ -246,6 +246,7 @@ def _compute_concentration(snapshot: PortfolioSnapshot) -> Concentration:
 
 def compute_portfolio(
     session: Session,
+    user_id: uuid.UUID,
     base_currency: str = "USD",
 ) -> PortfolioSnapshot:
     """
@@ -259,10 +260,9 @@ def compute_portfolio(
     snapshot = PortfolioSnapshot(base_currency=base_currency, fx_date=fx_date or date.today())
     captured_closes = _latest_captured_closes(session)
 
-    # D-DEBT-2 (single-user only): no user_id filter — this loads ALL holdings.
-    # Safe under Ring 0's single user; MUST add `.where(Holding.user_id == ...)`
-    # before any multi-user deployment or it will mix tenants into one report.
-    holdings: list[Holding] = list(session.execute(select(Holding)).scalars())
+    holdings: list[Holding] = list(
+        session.execute(select(Holding).where(Holding.user_id == user_id)).scalars()
+    )
 
     for h in holdings:
         # --- market value in the holding's own currency ---
