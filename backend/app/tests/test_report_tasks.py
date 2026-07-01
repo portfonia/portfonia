@@ -9,11 +9,12 @@ Strategy:
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.core.timezones import ET
 from app.tasks import celery_app
 
 # ---------------------------------------------------------------------------
@@ -33,7 +34,12 @@ def test_beat_schedule_task_name() -> None:
 
 def test_beat_schedule_passes_report_type_and_session_node() -> None:
     entry = celery_app.conf.beat_schedule["report-incremental-mwf"]
-    assert entry["kwargs"] == {"report_type": "incremental", "session_node": "after_close"}
+    assert entry["kwargs"] == {
+        "report_type": "incremental",
+        "session_node": "after_close",
+        "trigger_hour": 17,
+        "trigger_minute": 0,
+    }
 
 
 def test_beat_schedule_crontab_mwf_1700() -> None:
@@ -86,6 +92,56 @@ def test_task_happy_path(
     mock_alert.assert_not_called()
     assert mock_gen.call_args.kwargs["report_type"] == "incremental"
     assert mock_gen.call_args.kwargs["session_node"] == "after_close"
+
+
+@patch("app.tasks.report_tasks.datetime")
+@patch("app.tasks.report_tasks.send_ops_alert")
+@patch("app.core.database.SessionLocal")
+@patch("app.services.report_generator.generate_report")
+def test_task_skips_stale_beat_catchup(
+    mock_gen: MagicMock,
+    mock_session_cls: MagicMock,
+    mock_alert: MagicMock,
+    mock_datetime: MagicMock,
+) -> None:
+    """Issue #71: if Beat was down and fires the missed 17:00 ET tick hours
+    late once it comes back, the task must skip — not silently generate and
+    email a report for a run nobody scheduled at that moment."""
+    mock_datetime.now.return_value = datetime(2026, 6, 30, 19, 46, tzinfo=ET)
+
+    from app.tasks.report_tasks import generate_incremental_report
+
+    result = generate_incremental_report.run(trigger_hour=17, trigger_minute=0)
+
+    assert result == {"status": "skipped_stale_trigger"}
+    mock_gen.assert_not_called()
+    mock_alert.assert_called_once()
+    assert "SKIPPED" in mock_alert.call_args.kwargs["subject"]
+
+
+@patch("app.tasks.report_tasks.datetime")
+@patch("app.tasks.report_tasks.send_ops_alert")
+@patch("app.core.database.SessionLocal")
+@patch("app.services.report_generator.generate_report")
+def test_task_runs_when_close_to_trigger_time(
+    mock_gen: MagicMock,
+    mock_session_cls: MagicMock,
+    mock_alert: MagicMock,
+    mock_datetime: MagicMock,
+) -> None:
+    """A few minutes of normal jitter around the intended fire time is not
+    a stale Beat catch-up and must still generate/email as usual."""
+    mock_gen.return_value = _make_report()
+    mock_session_cls.return_value = MagicMock()
+    mock_datetime.now.return_value = datetime(2026, 6, 30, 17, 4, tzinfo=ET)
+
+    from app.tasks.report_tasks import generate_incremental_report
+
+    result = generate_incremental_report.run(trigger_hour=17, trigger_minute=0)
+
+    assert result["status"] == "success"
+    mock_gen.assert_called_once()
+    mock_alert.assert_not_called()
 
 
 @patch("app.tasks.report_tasks.send_ops_alert")

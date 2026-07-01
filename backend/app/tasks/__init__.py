@@ -72,7 +72,18 @@ def _build_report_schedule() -> dict[str, dict[str, Any]]:
         sched[name] = {
             "task": "app.tasks.report_tasks.generate_incremental_report",
             "schedule": crontab(**cron_kwargs),
-            "kwargs": {"report_type": report_type, "session_node": session_node},
+            "kwargs": {
+                "report_type": report_type,
+                "session_node": session_node,
+                # Beat's PersistentScheduler fires a missed crontab tick as soon
+                # as it comes back up (e.g. after a machine reboot took the
+                # scheduler down for days) instead of skipping it — the task
+                # verifies its own invocation is actually close to this
+                # intended fire time so a stale catch-up run doesn't silently
+                # generate + email an unwanted report. See issue #71.
+                "trigger_hour": cron_kwargs["hour"],
+                "trigger_minute": cron_kwargs.get("minute", 0),
+            },
         }
     return sched
 
