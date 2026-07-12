@@ -9,6 +9,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Project root contains .env.local (one level above backend/)
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
+# OpenRouter attribution headers, so calls show up tagged "Portfonia" in the
+# OpenRouter dashboard/logs instead of unattributed. Merge into every
+# OpenRouter client/request's headers via **OR_ATTRIBUTION_HEADERS — never
+# hardcode these as literals at a call site.
+OR_ATTRIBUTION_HEADERS: dict[str, str] = {
+    "HTTP-Referer": "Portfonia",
+    "X-OpenRouter-Title": "Portfonia",
+}
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
