@@ -9,7 +9,7 @@ from typing import Any
 
 import openai
 
-from app.core.config import get_settings
+from app.core.config import OR_ATTRIBUTION_HEADERS, get_settings
 from app.core.llm import openrouter_provider
 from app.schemas.holdings import (
     BrokerGroup,
@@ -445,6 +445,7 @@ def parse(text: str) -> UploadPreview:
     client = openai.OpenAI(
         api_key=settings.OPENROUTER_API_KEY.get_secret_value(),
         base_url=settings.OPENROUTER_BASE_URL,
+        default_headers=OR_ATTRIBUTION_HEADERS,
     )
     provider = openrouter_provider()
 

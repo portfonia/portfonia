@@ -41,7 +41,7 @@ from sqlalchemy.orm import Session
 
 from app.compliance.forbidden_vocab import FORBIDDEN_OUTPUT_PATTERNS as _FORBIDDEN_OUTPUT_PATTERNS
 from app.compliance.forbidden_vocab import PROMPT_VOCAB_STRING as _FORBIDDEN_PROMPT_VOCAB
-from app.core.config import get_settings
+from app.core.config import OR_ATTRIBUTION_HEADERS, get_settings
 from app.core.deps import get_current_user_id
 from app.core.ops_log import log_ops_event
 from app.core.timezones import ET
@@ -322,6 +322,7 @@ def _openrouter_client() -> openai.OpenAI:
     return openai.OpenAI(
         api_key=settings.OPENROUTER_API_KEY.get_secret_value(),
         base_url=settings.OPENROUTER_BASE_URL,
+        default_headers=OR_ATTRIBUTION_HEADERS,
     )
 
 
