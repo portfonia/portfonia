@@ -10,11 +10,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 # OpenRouter attribution headers, so calls show up tagged "Portfonia" in the
-# OpenRouter dashboard/logs instead of unattributed. Merge into every
-# OpenRouter client/request's headers via **OR_ATTRIBUTION_HEADERS — never
-# hardcode these as literals at a call site.
+# OpenRouter dashboard/logs instead of unattributed. HTTP-Referer MUST be a
+# valid URL (https://openrouter.ai/docs/app-attribution) — a bare string is
+# silently dropped by OpenRouter, which also disables X-OpenRouter-Title.
+# Merge into every OpenRouter client/request's headers via
+# **OR_ATTRIBUTION_HEADERS — never hardcode these as literals at a call site.
 OR_ATTRIBUTION_HEADERS: dict[str, str] = {
-    "HTTP-Referer": "Portfonia",
+    "HTTP-Referer": "https://github.com/portfonia/portfonia",
     "X-OpenRouter-Title": "Portfonia",
 }
 
