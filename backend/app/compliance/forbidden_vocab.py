@@ -91,12 +91,39 @@ _ZH_SCAN_TERMS: tuple[str, ...] = (
 # literal match), these only fire when 止损 appears as an instruction to the
 # user, not as a description of stop-loss orders triggering in the market.
 #
-# Blocks: "建议止损" / "应该止损" / "止损位/点/价在100"
-# Allows: "止损驱动的抛售" / "触发止损盘" / "止损盘涌现" (third-party market action)
+# Blocks: "建议止损" / "应该止损" / "止损位/点/价在100" / "立即止损" /
+#         "跌破91.50止损" / "建议投资者止损" / "应该马上进行止损" /
+#         "建议止损。注意风险" / "建议止损并注意流动性"
+# Allows: "止损驱动的抛售" / "触发止损盘" / "止损盘涌现" / "应该注意到止损盘涌现" /
+#         "立即触发止损盘" / "触及止损线" / "跌破后触发止损" / "价格触及止损"
+#         (third-party market action, or Layer-3 "worth watching" phrasing)
+#
+# History (issue #74):
+# v1 tightened the modal-verb gap from 0-6 to 0-2 chars to exclude "应该注意
+# 到止损盘涌现" — silently dropped real advisory phrasing with a 3+ char
+# subject/adverb ("建议投资者止损" / "应该马上进行止损").
+# v2 kept the 0-6 gap and added a negative lookahead `(?!.{0,6}?(关注|...))`
+# instead — but `.` in a lookahead is unbounded, so it could see PAST 止损
+# into the next clause: "建议止损。注意风险" was wrongly excluded because 注意
+# appears 3 chars after 止损, not because it appears between 建议 and 止损.
+# v3 (this version) uses a per-character walk `(?:(?!关注|...)[^。,，、\n]){0,6}`  # noqa: RUF003
+# so the hedge-verb exclusion only applies to the gap BETWEEN the modal verb
+# and 止损, never past it — caught in PR review before merge (GitHub PR #75).
+#
+# The level-breaking pattern similarly went through two iterations: v1 only
+# excluded a fixed set of trailing nouns (位/点/价/驱动/盘/单), which still
+# flagged "触及止损线" (线 not in the set) and, more importantly, flagged bare
+# descriptive sentences with no price at all ("跌破后触发止损" / "价格触及止损").
+# v2 (this version) requires a digit to appear between the level verb and
+# 止损 — a concrete price/level is the actual signal that distinguishes a
+# directive ("跌破91.50止损") from generic market narration, so this is a
+# structural fix rather than another entry in the trailing-noun list.
 # ---------------------------------------------------------------------------
 _ZH_SCAN_REGEX_PATTERNS: tuple[str, ...] = (
-    r"(建议|应该|需要|请)[^。,，、\n]{0,6}止损",  # noqa: RUF001
+    r"(建议|应该|需要|请)(?:(?!关注|留意|注意|警惕)[^。,，、\n]){0,6}止损",  # noqa: RUF001
     r"止损[位点价]",
+    r"(立即|立刻|马上|赶紧)[^。,，、\n]{0,2}止损(?!位|点|价|驱动|盘|单)",  # noqa: RUF001
+    r"(跌破|涨破|触及|低于|高于)(?=[^。,，、\n]{0,10}\d)[^。,，、\n]{0,10}止损(?!位|点|价|线|驱动|盘|单)",  # noqa: RUF001
 )
 
 # ---------------------------------------------------------------------------
