@@ -911,9 +911,33 @@ def test_scan_flags_advisory_action_language() -> None:
     # Unambiguously direct advisory/action terms must trip the scan backstop.
     # "target price" / "entry point" / "目标价" / "增持" / "减持" / "入场" are
     # prompt-only (high FP risk in factual news context) — not scanned (issue #65).
-    for phrase in ("stop-loss", "strong buy", "止损", "强烈买入", "投资建议", "清仓"):
+    # "止损" is context-scanned (see test_scan_zh_stoploss_* below), not a bare
+    # literal, so it is excluded from this generic list.
+    for phrase in ("stop-loss", "strong buy", "强烈买入", "投资建议", "清仓"):
         assert rg._scan_forbidden_output(f"set a {phrase} near 100") != [], (
             f"expected scan to flag: {phrase!r}"
+        )
+
+
+def test_scan_zh_stoploss_flags_advisory_directive() -> None:
+    # Bare literal "止损" was too broad — it flagged reports that merely
+    # describe OTHER market participants' stop-loss orders triggering a
+    # sell-off (report 9b61b18e). The scan now only fires when 止损 appears
+    # as a directive to the user.
+    for phrase in ("建议止损", "应该止损", "止损位在 100", "止损点设在95", "止损价100"):
+        assert rg._scan_forbidden_output(phrase) != [], f"expected scan to flag: {phrase!r}"
+
+
+def test_scan_zh_stoploss_allows_market_mechanism_description() -> None:
+    # Layer-1/2 factual description of third-party stop-loss orders triggering
+    # must not trip the scan (issue triggered by report 9b61b18e).
+    for phrase in (
+        "这种模式与早盘被迫平仓或止损驱动的抛售一致，随后被买家吸纳",  # noqa: RUF001
+        "触发止损盘引发短线抛压",
+        "止损单集中涌现",
+    ):
+        assert rg._scan_forbidden_output(phrase) == [], (
+            f"scan should not flag descriptive use: {phrase!r}"
         )
 
 

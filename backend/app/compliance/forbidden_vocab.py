@@ -67,16 +67,36 @@ _EN_PROMPT_TERMS: tuple[str, ...] = (
 # The four moderate-risk terms (目标价, 增持, 减持, 入场) were moved to
 # _ZH_PROMPT_ONLY_TERMS after report 11797c1c was incorrectly held for quoting
 # third-party bank/institution actions (issue #65).
+#
+# "止损" was moved to _ZH_SCAN_REGEX_PATTERNS (below) after report 9b61b18e
+# was incorrectly held: "…这种模式与早盘被迫平仓或止损驱动的抛售一致…" describes
+# OTHER market participants' stop-loss orders triggering a sell-off (Layer-1/2
+# market-mechanism observation), not a directive to the user. Bare literal
+# matching cannot tell "止损驱动的抛售" (describes what happened) apart from
+# "建议止损" (tells the user what to do) — see the context-aware pattern.
 # ---------------------------------------------------------------------------
 _ZH_SCAN_TERMS: tuple[str, ...] = (
     # Core advisory — unambiguous in any context
-    "止损",  # stop-loss directive
     "强烈买入",  # strong buy rating
     "投资建议",  # investment advice
     "清仓",  # liquidate entire position
     # Overbought / oversold — specific TA recommendation terms, low FP risk
     "超买",  # overbought
     "超卖",  # oversold
+)
+
+# ---------------------------------------------------------------------------
+# Chinese patterns requiring context to disambiguate advisory-directive usage
+# from factual market-mechanism description. Unlike _ZH_SCAN_TERMS (bare
+# literal match), these only fire when 止损 appears as an instruction to the
+# user, not as a description of stop-loss orders triggering in the market.
+#
+# Blocks: "建议止损" / "应该止损" / "止损位/点/价在100"
+# Allows: "止损驱动的抛售" / "触发止损盘" / "止损盘涌现" (third-party market action)
+# ---------------------------------------------------------------------------
+_ZH_SCAN_REGEX_PATTERNS: tuple[str, ...] = (
+    r"(建议|应该|需要|请)[^。,，、\n]{0,6}止损",  # noqa: RUF001
+    r"止损[位点价]",
 )
 
 # ---------------------------------------------------------------------------
@@ -95,8 +115,13 @@ _ZH_PROMPT_ONLY_TERMS: tuple[str, ...] = (
     "入场",  # entry point — appears in news: "买家视低点为入场时机"
 )
 
-# Combined set for the LLM prompt (scan terms + prompt-only terms).
-_ZH_LITERAL_TERMS: tuple[str, ...] = _ZH_SCAN_TERMS + _ZH_PROMPT_ONLY_TERMS
+# Human-readable name for the context-scanned term, for prompt injection only
+# (the prompt lists the bare word; the scan itself uses the regex patterns
+# above, which only fire on the advisory-directive framing).
+_ZH_CONTEXT_SCAN_TERMS: tuple[str, ...] = ("止损",)
+
+# Combined set for the LLM prompt (scan terms + context-scan terms + prompt-only terms).
+_ZH_LITERAL_TERMS: tuple[str, ...] = _ZH_SCAN_TERMS + _ZH_CONTEXT_SCAN_TERMS + _ZH_PROMPT_ONLY_TERMS
 
 # ---------------------------------------------------------------------------
 # Derived artefacts — import these into report_generator.py
@@ -106,15 +131,18 @@ _ZH_LITERAL_TERMS: tuple[str, ...] = _ZH_SCAN_TERMS + _ZH_PROMPT_ONLY_TERMS
 def build_scan_patterns() -> list[re.Pattern[str]]:
     """Compile regex patterns for the output-side compliance scan.
 
-    Only includes _ZH_SCAN_TERMS (unambiguous advisory terms). High-FP Chinese
-    terms that appear in factual news are in _ZH_PROMPT_ONLY_TERMS and reach
-    the LLM via build_prompt_vocab_string() only.
+    Includes _ZH_SCAN_TERMS (unambiguous advisory terms, literal match) and
+    _ZH_SCAN_REGEX_PATTERNS (context-dependent terms, regex match). High-FP
+    Chinese terms that appear in factual news are in _ZH_PROMPT_ONLY_TERMS and
+    reach the LLM via build_prompt_vocab_string() only.
     """
     patterns: list[re.Pattern[str]] = []
     for p in _EN_REGEX_PATTERNS:
         patterns.append(re.compile(p, re.IGNORECASE))
     for term in _ZH_SCAN_TERMS:
         patterns.append(re.compile(re.escape(term)))
+    for p in _ZH_SCAN_REGEX_PATTERNS:
+        patterns.append(re.compile(p))
     return patterns
 
 
