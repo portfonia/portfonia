@@ -382,6 +382,19 @@ it.
   directories. Honor a project-scoped env var (e.g. `PORTFONIA_HOME`) and
   default tests to a temp dir. Direct use of `os.path.expanduser("~")` in
   code that tests will exercise is a bug.
+- **Never commit a traceable production infrastructure identifier to this
+  repo**: no real IP address, no cloud provider/region, no instance name/ID,
+  no SSH username, no remote filesystem path — regardless of whether the repo
+  is currently public or private (visibility can change, forks/clones
+  persist regardless). This applies to `CLAUDE.md` and any other tracked
+  file, not just code. The actual specs live only in the private Obsidian
+  ops doc referenced from the deployment section below. (Incident:
+  2026-08-06 — the production server's real IP, SSH user, remote path, cloud
+  provider, and region sat in `CLAUDE.md` across 3 commits on this public
+  repo for ~30 hours before being caught; history was rewritten and
+  force-pushed to remove it, but that can't guarantee removal from caches,
+  forks, or clones made in that window — treat anything like this as burned,
+  not just hidden, once it's been pushed.)
 
 ## Data Handling
 
