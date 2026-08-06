@@ -425,6 +425,52 @@ def test_generate_report_pass1_call_has_no_holdings(db_session: Session) -> None
     assert "Apple" not in captured["pass1_user"]
 
 
+def test_generate_report_pass1_call_uses_byok_hard_pin(db_session: Session) -> None:
+    """PR #79 review: Pass 1's _call_llm invocation must carry the BYOK hard-pin
+    kwargs (order=["DeepSeek"], allow_fallbacks=False, deny off, reasoning off)
+    — not just the isolation property covered by the test above. A future edit
+    that drops any one of these would silently reopen the marketplace-fallback
+    compliance gap the review flagged."""
+    captured: dict[str, object] = {}
+
+    def _capture_llm(
+        client: object,
+        model: str,
+        system: str,
+        user: str,
+        *,
+        with_holdings: bool = False,
+        **kwargs: object,
+    ) -> str:
+        if not with_holdings:
+            captured.update(kwargs)
+            return _FAKE_LLM_PASS1
+        return _FAKE_LLM_PASS2
+
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch(
+            "app.services.report_generator.load_news_window",
+            return_value=[_news_item("Fed raises rates")],
+        ),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+        patch(
+            "app.services.report_generator.detect_window_anomalies",
+            return_value=([], 2),
+        ),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_capture_llm),
+        patch("app.services.report_generator._run_tavily_search", return_value=[]),
+    ):
+        rg.generate_report(db_session, report_date=_TODAY)
+
+    assert captured.get("provider_order") == rg._BYOK_PROVIDER_ORDER == ["DeepSeek"]
+    assert captured.get("allow_fallbacks") is False
+    assert captured.get("enforce_data_collection") is False
+    assert captured.get("disable_reasoning") is True
+
+
 # ---------------------------------------------------------------------------
 # Tests: compliance output backstop
 # ---------------------------------------------------------------------------
@@ -1373,6 +1419,89 @@ def test_call_llm_reraises_after_exhausting_rate_limit_retries() -> None:
     with patch("app.services.report_generator.time.sleep"), pytest.raises(openai.RateLimitError):
         rg._call_llm(client, "m", "sys", "user")
     assert client.chat.completions.create.call_count == 3  # initial + 2 backoff retries
+
+
+def test_call_llm_default_keeps_marketplace_pin_and_deny() -> None:
+    """PR #79 review: everything NOT opting into the BYOK exception (Pass 2,
+    regenerate, and any future caller that doesn't pass the override kwargs)
+    must keep data_collection=deny, the OPENROUTER_PROVIDER_ORDER marketplace
+    pin, AND allow_fallbacks as configured — issue #78 only carves out Pass 1
+    / translation via explicit kwargs, never by default.
+
+    Uses a patched settings object (PR #81 review) rather than real
+    .env.local values: OPENROUTER_PROVIDER_ORDER can be empty there, which
+    made the order assertion conditional and let allow_fallbacks go
+    unchecked entirely — this test's name promised more than it verified.
+    """
+    fake_settings = MagicMock()
+    fake_settings.OPENROUTER_PROVIDER_ORDER = "DigitalOcean, Venice"
+    fake_settings.OPENROUTER_ALLOW_FALLBACKS = True
+    fake_settings.OPENROUTER_DATA_COLLECTION = "deny"
+
+    client = MagicMock()
+    client.chat.completions.create.return_value = _fake_llm_response("ok")
+    with patch("app.services.report_generator.get_settings", return_value=fake_settings):
+        rg._call_llm(client, "m", "sys", "user")
+
+    kwargs = client.chat.completions.create.call_args.kwargs
+    provider = kwargs["extra_body"]["provider"]
+    assert provider["data_collection"] == "deny"
+    assert provider["order"] == ["DigitalOcean", "Venice"]
+    assert provider["allow_fallbacks"] is True
+    assert "reasoning" not in kwargs.get("extra_body", {})
+
+
+def test_call_llm_raises_if_data_collection_disabled_without_hard_pin() -> None:
+    """PR #81 review: enforce_data_collection=False and allow_fallbacks=False
+    are a required pair, enforced at runtime — a caller passing the former
+    without the latter must fail loudly instead of silently reopening the
+    PR #79 marketplace-fallback gap on a compliance-exempted call."""
+    client = MagicMock()
+    with pytest.raises(ValueError, match="allow_fallbacks=False"):
+        rg._call_llm(client, "m", "sys", "user", enforce_data_collection=False)
+    client.chat.completions.create.assert_not_called()
+
+
+def test_call_llm_keeps_explicit_allow_fallbacks_even_when_sole_provider_key() -> None:
+    """PR #81 review: an explicitly-passed allow_fallbacks must reach
+    extra_body even when it would otherwise be the only key in `provider` —
+    previously `if provider.keys() - {"allow_fallbacks"}` silently dropped the
+    entire provider dict in that case, stripping a deliberate hard pin from
+    the actual request with no error."""
+    fake_settings = MagicMock()
+    fake_settings.OPENROUTER_PROVIDER_ORDER = ""
+    fake_settings.OPENROUTER_ALLOW_FALLBACKS = True
+    fake_settings.OPENROUTER_DATA_COLLECTION = ""
+    client = MagicMock()
+    client.chat.completions.create.return_value = _fake_llm_response("ok")
+    with patch("app.services.report_generator.get_settings", return_value=fake_settings):
+        rg._call_llm(client, "m", "sys", "user", pin_provider=False, allow_fallbacks=False)
+
+    kwargs = client.chat.completions.create.call_args.kwargs
+    assert kwargs["extra_body"]["provider"] == {"allow_fallbacks": False}
+
+
+def test_translate_chunk_uses_byok_hard_pin_no_deny_no_reasoning() -> None:
+    """PR #79 review: lock down the exact extra_body shape of the BYOK
+    exception (issue #78) end-to-end through the real _call_llm — not just
+    that the call site passes the right kwargs, but that they actually produce
+    a hard-pinned, deny-off, reasoning-off request. Guards against a future
+    edit silently re-enabling deny, dropping the allow_fallbacks=False pin
+    (which would reopen the marketplace-fallback compliance gap), or
+    re-enabling paid reasoning tokens on this cheap tier."""
+    client = MagicMock()
+    client.chat.completions.create.return_value = _fake_llm_response(
+        "## §3 持仓分析\n\n" + ("该持仓非常重要并值得密切关注。" * 20)
+    )
+    source = "## §3 Holdings Analysis\n\n" + ("This holding matters. " * 20)
+    rg._translate_chunk(client, "m", "sys", source)
+
+    kwargs = client.chat.completions.create.call_args.kwargs
+    provider = kwargs["extra_body"]["provider"]
+    assert provider["order"] == rg._BYOK_PROVIDER_ORDER == ["DeepSeek"]
+    assert provider["allow_fallbacks"] is False
+    assert "data_collection" not in provider
+    assert kwargs["extra_body"]["reasoning"] == {"enabled": False}
 
 
 def test_translate_chunk_falls_back_to_source_when_truncated() -> None:
