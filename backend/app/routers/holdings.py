@@ -12,9 +12,11 @@ from app.core.database import get_session
 from app.core.deps import get_current_user_id
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
-from app.schemas.holdings import HoldingOut, ParsedRow, UploadPreview
+from app.models.upload_job import UploadJob
+from app.schemas.holdings import HoldingOut, ParsedRow, UploadJobOut
 from app.services import holding_parser
 from app.services.price_fetcher import backfill_sectors
+from app.tasks.holdings_tasks import parse_holdings_upload
 
 logger = logging.getLogger(__name__)
 
@@ -56,11 +58,22 @@ def _tickers_with_sparse_history(session: Session) -> list[str]:
     return sparse
 
 
-@router.post("/upload", response_model=UploadPreview)
+@router.post("/upload", response_model=UploadJobOut, status_code=status.HTTP_202_ACCEPTED)
 async def upload_holdings(
     file: UploadFile,
-    _user_id: UUID = Depends(get_current_user_id),
-) -> UploadPreview:
+    session: Session = Depends(get_session),
+    user_id: UUID = Depends(get_current_user_id),
+) -> UploadJob:
+    """Kick off an async parse of the uploaded file (issue #77).
+
+    Returns immediately with a pending job; the client polls
+    GET /holdings/upload/{job_id} for the result. The previous synchronous
+    version held one HTTP connection open for the full parse (2 pinned LLM
+    attempts + 1 open-provider fallback — issue #78), observed taking ~5min
+    in one case: fragile against any interruption on that connection in the
+    meantime — the backend finished and returned 200, but the client never
+    saw it because the connection had already dropped.
+    """
     if not file.filename:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="No filename provided."
@@ -72,20 +85,25 @@ async def upload_holdings(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
-    try:
-        return holding_parser.parse(text)
-    except RuntimeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
-        ) from exc
-    except Exception as exc:
-        import logging
 
-        logging.getLogger(__name__).exception("Unexpected parse error")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Parse error: {type(exc).__name__}: {exc}",
-        ) from exc
+    job = UploadJob(user_id=user_id, filename=file.filename, status="pending")
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    parse_holdings_upload.delay(str(job.id), text)
+    return job
+
+
+@router.get("/upload/{job_id}", response_model=UploadJobOut)
+def get_upload_job(
+    job_id: UUID,
+    session: Session = Depends(get_session),
+    user_id: UUID = Depends(get_current_user_id),
+) -> UploadJob:
+    job = session.get(UploadJob, job_id)
+    if job is None or job.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upload job not found.")
+    return job
 
 
 @router.post("/confirm", response_model=list[HoldingOut])

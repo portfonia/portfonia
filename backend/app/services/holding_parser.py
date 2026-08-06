@@ -4,6 +4,7 @@ import io
 import json
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -434,6 +435,19 @@ def _parse_attempt(
     return response.choices[0].message.content or "{}"
 
 
+# Bounds each attempt so parse() reliably finishes in tens of seconds, not
+# minutes (issue #77: a synchronous /holdings/upload request observed taking
+# ~5 minutes, with the client's connection dropping before it ever saw the
+# 200 the backend eventually returned). Also drives max_retries=0 on the
+# client below — the openai SDK's own default (max_retries=2, read
+# timeout=600s) would otherwise retry each attempt internally with its own
+# backoff, stacking on top of parse()'s own 3-attempt loop and multiplying
+# worst-case latency unpredictably. parse()'s loop already owns retry/
+# fallback behavior (including choosing which provider pin to try next), so
+# the SDK doesn't need to also retry.
+_PARSE_ATTEMPT_TIMEOUT_SECONDS = 20.0
+
+
 def parse(text: str) -> UploadPreview:
     """Call LLM to parse free-form holdings text into a structured preview.
 
@@ -441,13 +455,17 @@ def parse(text: str) -> UploadPreview:
     (issue #78): two attempts pinned to the OpenInference bf16 endpoint
     (transient provider connection drops previously observed on
     DigitalOcean/Venice — issue #46), then one attempt with open/unpinned
-    provider selection if both pinned attempts fail.
+    provider selection if both pinned attempts fail. Each attempt is bounded
+    to _PARSE_ATTEMPT_TIMEOUT_SECONDS and timed (issue #77) so a slow/hung
+    provider is visible in logs and can't stall the whole call for minutes.
     """
     settings = get_settings()
     client = openai.OpenAI(
         api_key=settings.OPENROUTER_API_KEY.get_secret_value(),
         base_url=settings.OPENROUTER_BASE_URL,
         default_headers=OR_ATTRIBUTION_HEADERS,
+        timeout=_PARSE_ATTEMPT_TIMEOUT_SECONDS,
+        max_retries=0,
     )
     model = settings.STRUCTURED_LLM_MODEL
     attempts = [
@@ -458,14 +476,27 @@ def parse(text: str) -> UploadPreview:
 
     content: str | None = None
     last_exc: openai.OpenAIError | None = None
-    for attempt_model, provider in attempts:
+    for i, (attempt_model, provider) in enumerate(attempts, start=1):
+        started = time.monotonic()
         try:
             content = _parse_attempt(client, attempt_model, provider, text)
+            logging.getLogger(__name__).info(
+                "holding_parser: attempt %d/%d model=%s succeeded in %.1fs",
+                i,
+                len(attempts),
+                attempt_model,
+                time.monotonic() - started,
+            )
             break
         except openai.OpenAIError as exc:
             last_exc = exc
             logging.getLogger(__name__).warning(
-                "holding_parser: %s failed (%s), trying next", attempt_model, exc
+                "holding_parser: attempt %d/%d model=%s failed after %.1fs (%s), trying next",
+                i,
+                len(attempts),
+                attempt_model,
+                time.monotonic() - started,
+                exc,
             )
     if content is None:
         raise RuntimeError(f"LLM call failed: {last_exc}") from last_exc

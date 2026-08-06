@@ -15,7 +15,7 @@ celery_app = Celery(
     "portfonia",
     broker=_settings.redis_url,
     backend=_settings.redis_url,
-    include=["app.tasks.report_tasks", "app.tasks.capture_tasks"],
+    include=["app.tasks.report_tasks", "app.tasks.capture_tasks", "app.tasks.holdings_tasks"],
 )
 
 # Market session nodes (ADR-002). Each (market, tz, [(node, hour, minute)]).

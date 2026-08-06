@@ -13,6 +13,7 @@ import pytest
 from app.core import llm
 from app.core.config import get_settings
 from app.schemas.holdings import UploadPreview
+from app.services import holding_parser as holding_parser_module
 from app.services.holding_parser import (
     _extract_text,
     _postprocess,
@@ -451,6 +452,21 @@ def test_parse_handles_markdown_fenced_response() -> None:
         result = parse("some holdings text")
     assert len(result.valid_rows) == 2
     assert result.valid_rows[0].name == "Apple"
+
+
+def test_parse_client_uses_bounded_timeout_and_no_sdk_retries() -> None:
+    """Issue #77: each attempt must be time-bounded and the SDK's own
+    retry-with-backoff disabled — parse() already implements its own
+    3-attempt retry/fallback loop, so a redundant SDK-level retry (default:
+    max_retries=2, 600s read timeout) would only stack unpredictable extra
+    latency on top, which is how a single request was observed taking ~5min."""
+    mock_openai_cls = MagicMock(return_value=_make_mock_client(_MOCK_LLM_RESPONSE))
+    with patch("app.services.holding_parser.openai.OpenAI", mock_openai_cls):
+        parse("some holdings text")
+
+    kwargs = mock_openai_cls.call_args.kwargs
+    assert kwargs["timeout"] == holding_parser_module._PARSE_ATTEMPT_TIMEOUT_SECONDS
+    assert kwargs["max_retries"] == 0
 
 
 def test_parse_returns_upload_preview() -> None:

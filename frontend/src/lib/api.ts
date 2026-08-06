@@ -48,6 +48,19 @@ export interface UploadPreview {
   broker_groups: BrokerGroup[];
 }
 
+export type UploadJobStatus = "pending" | "success" | "failed";
+
+// Poll target for an async holdings-file parse (issue #77): the LLM parse
+// runs in a background Celery task instead of inside the request, since it
+// can take several sequential attempts and one case observed ~5 minutes —
+// too long to safely hold a single HTTP connection open for.
+export interface UploadJob {
+  id: string;
+  status: UploadJobStatus;
+  preview: UploadPreview | null;
+  error: string | null;
+}
+
 export interface HoldingOut {
   id: string;
   name: string;
@@ -94,7 +107,9 @@ export async function listHoldings(): Promise<HoldingOut[]> {
   return res.json() as Promise<HoldingOut[]>;
 }
 
-export async function uploadHoldings(file: File): Promise<UploadPreview> {
+const UPLOAD_POLL_INTERVAL_MS = 2000;
+
+async function startUploadJob(file: File): Promise<UploadJob> {
   const form = new FormData();
   form.append("file", file);
   const res = await fetch("/api/holdings/upload", {
@@ -102,7 +117,32 @@ export async function uploadHoldings(file: File): Promise<UploadPreview> {
     body: form,
   });
   if (!res.ok) throw new ApiError(res.status, await readError(res));
-  return res.json() as Promise<UploadPreview>;
+  return res.json() as Promise<UploadJob>;
+}
+
+async function getUploadJob(jobId: string): Promise<UploadJob> {
+  const res = await fetch(`/api/holdings/upload/${jobId}`, { cache: "no-store" });
+  if (!res.ok) throw new ApiError(res.status, await readError(res));
+  return res.json() as Promise<UploadJob>;
+}
+
+// Starts the async parse and polls until it finishes (issue #77). Kept as a
+// single `Promise<UploadPreview>` so callers don't need to change: the
+// polling is an internal implementation detail replacing what used to be one
+// long-held request/response.
+export async function uploadHoldings(file: File): Promise<UploadPreview> {
+  let job = await startUploadJob(file);
+  while (job.status === "pending") {
+    await new Promise((resolve) => setTimeout(resolve, UPLOAD_POLL_INTERVAL_MS));
+    job = await getUploadJob(job.id);
+  }
+  if (job.status === "failed") {
+    throw new ApiError(500, job.error ?? "Upload parse failed.");
+  }
+  if (!job.preview) {
+    throw new ApiError(500, "Upload job succeeded but returned no preview.");
+  }
+  return job.preview;
 }
 
 export async function confirmHoldings(
