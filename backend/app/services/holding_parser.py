@@ -10,7 +10,7 @@ from typing import Any
 import openai
 
 from app.core.config import OR_ATTRIBUTION_HEADERS, get_settings
-from app.core.llm import structured_provider
+from app.core.llm import openrouter_provider
 from app.schemas.holdings import (
     BrokerGroup,
     CurrencySubtotal,
@@ -437,11 +437,9 @@ def _parse_attempt(
 def parse(text: str) -> UploadPreview:
     """Call LLM to parse free-form holdings text into a structured preview.
 
-    Structured (JSON) extraction routes uniformly to STRUCTURED_LLM_MODEL
-    (issue #78): two attempts pinned to the OpenInference bf16 endpoint
-    (transient provider connection drops previously observed on
-    DigitalOcean/Venice — issue #46), then one attempt with open/unpinned
-    provider selection if both pinned attempts fail.
+    Transient provider connection drops (DigitalOcean/Venice — issue #46) get
+    one same-model retry; if that also fails, one attempt on FALLBACK_LLM_MODEL
+    (same pinned provider pool, so the data-collection policy is unchanged).
     """
     settings = get_settings()
     client = openai.OpenAI(
@@ -449,23 +447,22 @@ def parse(text: str) -> UploadPreview:
         base_url=settings.OPENROUTER_BASE_URL,
         default_headers=OR_ATTRIBUTION_HEADERS,
     )
-    model = settings.STRUCTURED_LLM_MODEL
-    attempts = [
-        (model, structured_provider(pinned=True)),
-        (model, structured_provider(pinned=True)),
-        (model, structured_provider(pinned=False)),
-    ]
+    provider = openrouter_provider()
+
+    models = [settings.LOW_COST_LLM_MODEL, settings.LOW_COST_LLM_MODEL]
+    if settings.FALLBACK_LLM_MODEL:
+        models.append(settings.FALLBACK_LLM_MODEL)
 
     content: str | None = None
     last_exc: openai.OpenAIError | None = None
-    for attempt_model, provider in attempts:
+    for model in models:
         try:
-            content = _parse_attempt(client, attempt_model, provider, text)
+            content = _parse_attempt(client, model, provider, text)
             break
         except openai.OpenAIError as exc:
             last_exc = exc
             logging.getLogger(__name__).warning(
-                "holding_parser: %s failed (%s), trying next", attempt_model, exc
+                "holding_parser: %s failed (%s), trying next", model, exc
             )
     if content is None:
         raise RuntimeError(f"LLM call failed: {last_exc}") from last_exc
