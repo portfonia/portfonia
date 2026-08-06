@@ -93,7 +93,7 @@ note the ambiguity in issues.
 - Has a 6-digit fund_code → "fund"
 - Name contains 现金/cash/存款/货币/保证金/margin/deposit → "cash"
 - Bank-sold WMP (理财产品/财富管理/结构性存款/代销) → "wmf"
-- Cannot determine → null
+- Cannot determine → unknown (omit the key — see output compactness below)
 
 --- market inference (the user groups capital by market; preserve their intent) ---
 1. The user explicitly gives a market/exchange column (US, HK, A-Share/A股/沪深,

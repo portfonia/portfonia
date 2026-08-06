@@ -103,10 +103,12 @@ class Settings(BaseSettings):
     # third-party quantized marketplace reseller — no equivalent
     # precision-pin concern) measured 10.9-13.8s on the same file with a
     # full manual accuracy audit (30/30 rows correct), with
-    # reasoning_effort=none (app/core/llm.py:structured_provider,
-    # app/services/holding_parser.py). One manual run, not yet a systematic
-    # eval on the scale that qualified the previous model — worth a broader
-    # pass before treating this as fully validated long-term.
+    # reasoning_effort=none (app/services/holding_parser.py —
+    # _STRUCTURED_REASONING_EFFORT; provider routing itself is
+    # app/core/llm.py:structured_provider, which does not touch reasoning).
+    # One manual run, not yet a systematic eval on the scale that qualified
+    # the previous model — worth a broader pass before treating this as
+    # fully validated long-term.
     STRUCTURED_LLM_MODEL: str = "openai/gpt-5.6-luna"
 
     # Report output language. The LLM reasons in English (higher quality), then
