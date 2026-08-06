@@ -424,11 +424,10 @@ Final gates (CI also enforces):
 
 ## CI-First Protocol (MANDATORY)
 
-> **Ring 0 reality:** there is no CI yet and no PRs — work is committed directly
-> to `main` (solo) with the local quality gate run before every commit, and
-> pushed the same day for off-site backup. The protocol below is the **Ring 1+
-> target** that activates when CI exists / a second contributor joins. Until
-> then "CI green" means "local gate green".
+> **Ring 0 reality:** there is no automated CI yet — the local quality gate
+> (see above), run before every push, stands in for it. There IS a branch +
+> PR for every change regardless of Ring (see Branching below); "CI green"
+> currently means "local gate green" on the PR's branch.
 
 A task is NOT complete until CI is green.
 
@@ -446,18 +445,28 @@ failure mode this protocol exists to prevent.
 
 ## Branching
 
-> **Ring 0 reality:** solo work commits directly to `main`; the branch/PR model
-> below is the **Ring 1+ target** (adopt when a second contributor joins or VPS
-> deploys begin).
+> **2026-08-06 correction:** every change — code, config, or docs, at every
+> Ring, no solo-work exception — starts on a branch and goes through a PR.
+> The prior "Ring 0 commits directly to `main`" carve-out is retracted: it was
+> read (incorrectly) as also licensing autonomous PR merges, and PR #79
+> (issue #78) was merged without the product owner's sign-off as a result —
+> reverted same day. **Merging any PR into `main` requires the product
+> owner's explicit, real-time approval in the current conversation.** A green
+> quality gate, a passed review (including a reviewer-identity self-review),
+> or an issue/task description that says "implement and merge" are NOT
+> themselves that approval — they make a PR ready to ask about, not ready to
+> merge. Finishing a PR ends with "ready for your review" or "ready to
+> merge?", not with `gh pr merge`.
 
 ```
-main (production) ← dev (integration) ← feat/* | fix/* | docs/*
-                                          ↑
-                                          hotfix/* (only emergencies, from main)
+main (production) ← dev (integration, Ring 1+ target — not yet in use) ← feat/* | fix/* | docs/*
+                                                                           ↑
+                                                                           hotfix/* (only emergencies, from main)
 ```
 
-- Never commit directly to `main` or `dev`.
-- Feature branches start from `dev`. Hotfix branches start from `main`.
+- Never commit directly to `main`. `dev` doesn't exist yet, so `feat/*` /
+  `fix/*` / `docs/*` branches currently start from `main`; switch to
+  branching from `dev` once it exists.
 - `dev → main` promotion PRs must use `feat:` or `fix:` (a `chore:` title
   will not trigger a release).
 - Delete branches after merge.
