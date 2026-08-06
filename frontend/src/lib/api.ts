@@ -107,7 +107,20 @@ export async function listHoldings(): Promise<HoldingOut[]> {
   return res.json() as Promise<HoldingOut[]>;
 }
 
-const UPLOAD_POLL_INTERVAL_MS = 2000;
+// Poll backoff for uploadHoldings (issue #77 / PR #82 review): poll once
+// immediately after POST rather than waiting out a fixed delay first (the
+// worker often finishes small files in well under a second), then back off
+// toward a steady interval instead of hammering the endpoint.
+const UPLOAD_POLL_START_MS = 500;
+const UPLOAD_POLL_MAX_MS = 2000;
+const UPLOAD_POLL_BACKOFF_FACTOR = 1.5;
+// Worst-case parse is ~60s (3 attempts x 20s client timeout, holding_parser.py)
+// plus Celery queue time; 120s gives headroom before treating a stuck
+// "pending" job (worker down, broker connection lost after enqueue, worker
+// crash before it could write status) as a hard failure instead of polling
+// forever — a real local-dev failure mode (API up, worker not) and a
+// production ops failure mode.
+const UPLOAD_MAX_WAIT_MS = 120_000;
 
 async function startUploadJob(file: File): Promise<UploadJob> {
   const form = new FormData();
@@ -131,10 +144,20 @@ async function getUploadJob(jobId: string): Promise<UploadJob> {
 // polling is an internal implementation detail replacing what used to be one
 // long-held request/response.
 export async function uploadHoldings(file: File): Promise<UploadPreview> {
+  const deadline = Date.now() + UPLOAD_MAX_WAIT_MS;
   let job = await startUploadJob(file);
+  let delay = UPLOAD_POLL_START_MS;
   while (job.status === "pending") {
-    await new Promise((resolve) => setTimeout(resolve, UPLOAD_POLL_INTERVAL_MS));
+    if (Date.now() > deadline) {
+      throw new ApiError(
+        504,
+        "Upload is taking longer than expected. It may still finish in the background — try refreshing shortly, or re-upload.",
+      );
+    }
     job = await getUploadJob(job.id);
+    if (job.status !== "pending") break;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    delay = Math.min(delay * UPLOAD_POLL_BACKOFF_FACTOR, UPLOAD_POLL_MAX_MS);
   }
   if (job.status === "failed") {
     throw new ApiError(500, job.error ?? "Upload parse failed.");

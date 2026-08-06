@@ -75,7 +75,9 @@ def _make_mock_client(payload: dict[str, object]) -> MagicMock:
 # ---------------------------------------------------------------------------
 
 
-def test_upload_returns_pending_job_and_enqueues_parse(app_client: TestClient) -> None:
+def test_upload_returns_pending_job_and_enqueues_parse(
+    app_client: TestClient, db_session: Session
+) -> None:
     """Issue #77: /upload no longer parses synchronously — it creates a
     pending UploadJob and hands off to Celery, returning immediately."""
     content = (FIXTURES / "sample_holdings.md").read_bytes()
@@ -89,10 +91,50 @@ def test_upload_returns_pending_job_and_enqueues_parse(app_client: TestClient) -
     assert body["status"] == "pending"
     assert body["preview"] is None
     assert body["error"] is None
-    mock_task.delay.assert_called_once()
-    job_id_arg, text_arg = mock_task.delay.call_args.args
-    assert job_id_arg == body["id"]
-    assert "AAPL" in text_arg or "Apple" in text_arg
+    # PR #82 review: the task takes job_id only — the extracted text never
+    # becomes a Celery/Redis broker message argument. It's written onto the
+    # row instead, for the task to read and clear.
+    mock_task.delay.assert_called_once_with(body["id"])
+    job = db_session.get(UploadJob, uuid.UUID(body["id"]))
+    assert job is not None
+    assert job.raw_text is not None
+    assert "AAPL" in job.raw_text or "Apple" in job.raw_text
+
+
+def test_upload_rejects_oversized_file(app_client: TestClient) -> None:
+    """PR #82 review: a hard cap before extract/enqueue, not unbounded
+    in-memory reads for whatever gets posted."""
+    from app.routers import holdings as holdings_router
+
+    oversized = b"a" * (holdings_router._MAX_UPLOAD_BYTES + 1)
+    resp = app_client.post(
+        "/holdings/upload",
+        files={"file": ("holdings.md", oversized, "text/markdown")},
+    )
+    assert resp.status_code == 422
+    assert "too large" in resp.json()["detail"].lower()
+
+
+def test_upload_marks_job_failed_and_returns_503_when_enqueue_fails(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """PR #82 review: if delay() raises after the job row is already
+    committed as pending, the row must not be left stuck at pending forever
+    with no task ever attached — it should be marked failed."""
+    content = (FIXTURES / "sample_holdings.md").read_bytes()
+    with patch("app.routers.holdings.parse_holdings_upload") as mock_task:
+        mock_task.delay.side_effect = ConnectionError("broker unavailable")
+        resp = app_client.post(
+            "/holdings/upload",
+            files={"file": ("holdings.md", content, "text/markdown")},
+        )
+    assert resp.status_code == 503
+
+    jobs = db_session.query(UploadJob).all()
+    assert len(jobs) == 1
+    assert jobs[0].status == "failed"
+    assert jobs[0].raw_text is None
+    assert jobs[0].error is not None
 
 
 def test_get_upload_job_returns_success_result(app_client: TestClient, db_session: Session) -> None:

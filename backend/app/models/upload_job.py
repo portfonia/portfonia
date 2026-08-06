@@ -21,6 +21,10 @@ class UploadJob(Base):
     saw it because the connection dropped first). The parse now runs in a
     Celery task against this row; the client polls GET
     /holdings/upload/{job_id} instead of holding one request open.
+
+    `preview` currently has no automatic retention/cleanup — accepted for
+    Ring 0 (single dev user, small row count); revisit before Ring 1 if
+    `upload_jobs` grows unbounded (PR #82 review).
     """
 
     __tablename__ = "upload_jobs"
@@ -33,6 +37,14 @@ class UploadJob(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     filename: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False)
+    # Extracted (not raw file bytes) holdings text, set by the router before
+    # enqueueing and cleared by the Celery task once parse finishes (success
+    # or failure) — PR #82 review: the task takes job_id only, never the raw
+    # text itself, so a holdings file's plaintext content never becomes a
+    # Celery/Redis broker message argument (Redis persists queued task
+    # payloads until ack under task_acks_late — a new, avoidable surface for
+    # sensitive data vs. the old request-scoped in-memory path).
+    raw_text: Mapped[str | None] = mapped_column(Text)
     # UploadPreview.model_dump() once status="success". Never populated on
     # failure (see `error` instead).
     preview: Mapped[dict[str, Any] | None] = mapped_column(JSONB)

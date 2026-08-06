@@ -12,10 +12,25 @@ logger = logging.getLogger(__name__)
 
 @celery_app.task(  # type: ignore[untyped-decorator]
     name="app.tasks.holdings_tasks.parse_holdings_upload",
+    # Hard ceiling above the ~60s worst case (3 attempts x 20s client timeout
+    # — issue #77/holding_parser.py). soft_time_limit raises
+    # SoftTimeLimitExceeded inside the task (caught by the broad except
+    # below, so the job still gets marked failed); time_limit is Celery's
+    # unconditional kill if soft doesn't get a chance to run. Without this, a
+    # hang outside the client-timeout path (a hung worker, a future code
+    # change) could hold a prefork slot indefinitely (PR #82 review).
+    soft_time_limit=75,
+    time_limit=90,
 )
-def parse_holdings_upload(job_id: str, text: str) -> dict[str, str]:
+def parse_holdings_upload(job_id: str) -> dict[str, str]:
     """Parse an uploaded holdings file in the background and write the result
     onto the UploadJob row the client is polling.
+
+    Takes job_id only, not the extracted text — the text was written onto
+    the job row by the router before enqueueing and is read from there. This
+    keeps a holdings file's plaintext content out of the Celery/Redis broker
+    message itself (Redis persists queued task payloads until ack under
+    task_acks_late — PR #82 review).
 
     No Celery-level retry: holding_parser.parse() already retries internally
     (2 pinned attempts + 1 open-provider fallback — issue #78). Stacking a
@@ -33,7 +48,10 @@ def parse_holdings_upload(job_id: str, text: str) -> dict[str, str]:
         if job is None:
             logger.error("parse_holdings_upload: job %s not found", job_id)
             return {"status": "job_not_found"}
+        text = job.raw_text
         try:
+            if not text:
+                raise RuntimeError("No extracted text found for this upload job.")
             preview = holding_parser.parse(text)
             job.status = "success"
             job.preview = preview.model_dump(mode="json")
@@ -45,6 +63,11 @@ def parse_holdings_upload(job_id: str, text: str) -> dict[str, str]:
             logger.exception("parse_holdings_upload: job %s unexpected error", job_id)
             job.status = "failed"
             job.error = f"Parse error: {type(exc).__name__}: {exc}"
+        finally:
+            # Clear regardless of outcome — the job row shouldn't keep
+            # holding plaintext holdings content once the parse attempt is
+            # done with it (PR #82 review).
+            job.raw_text = None
         session.commit()
         return {"job_id": job_id, "status": job.status}
     finally:

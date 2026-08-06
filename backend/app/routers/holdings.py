@@ -24,6 +24,11 @@ router = APIRouter()
 
 _ASSET_TYPE_ORDER = {"stock": 0, "etf": 1, "fund": 2, "wmf": 3, "cash": 4, "other": 5}
 _MIN_BARS_FOR_TECHNICAL = 50
+# A holdings file is a few dozen to a few thousand rows of text/spreadsheet
+# data — this is generous headroom, not a realistic size, meant only to stop
+# an oversized upload from being read fully into memory and handed to
+# extract/enqueue (PR #82 review).
+_MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
 
 def _tickers_with_sparse_history(session: Session) -> list[str]:
@@ -79,6 +84,11 @@ async def upload_holdings(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="No filename provided."
         )
     content = await file.read()
+    if len(content) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"File too large ({len(content)} bytes) — max {_MAX_UPLOAD_BYTES} bytes.",
+        )
     try:
         text = holding_parser._extract_text(content, file.filename)
     except ValueError as exc:
@@ -86,11 +96,29 @@ async def upload_holdings(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
 
-    job = UploadJob(user_id=user_id, filename=file.filename, status="pending")
+    # raw_text is cleared by the Celery task once the parse attempt finishes
+    # (success or failure) — the task takes job_id only, never the text
+    # itself, so a holdings file's content never becomes a Celery/Redis
+    # broker message argument (PR #82 review).
+    job = UploadJob(user_id=user_id, filename=file.filename, status="pending", raw_text=text)
     session.add(job)
     session.commit()
     session.refresh(job)
-    parse_holdings_upload.delay(str(job.id), text)
+    try:
+        parse_holdings_upload.delay(str(job.id))
+    except Exception as exc:
+        # Enqueue failed after the row was already committed — without this,
+        # the job would sit at status="pending" forever with no task ever
+        # attached to pick it up (PR #82 review).
+        logger.exception("upload_holdings: failed to enqueue job %s", job.id)
+        job.status = "failed"
+        job.error = f"Failed to queue parse job: {type(exc).__name__}: {exc}"
+        job.raw_text = None
+        session.commit()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not queue the upload for processing. Please try again.",
+        ) from exc
     return job
 
 
