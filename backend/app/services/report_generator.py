@@ -354,15 +354,25 @@ def _call_llm(
     with_holdings: bool = False,
     pin_provider: bool = True,
     provider_order: list[str] | None = None,
+    enforce_data_collection: bool = True,
+    disable_reasoning: bool = False,
     usage_sink: list[dict[str, Any]] | None = None,
 ) -> str:
     """Call an OpenRouter model.  Returns the assistant content string.
 
-    The data_collection policy (deny) is enforced on EVERY call as defense in
-    depth: although Pass 1 is contractually holdings-free, denying training
-    providers unconditionally means an accidental future holdings leak is still
-    protected. `with_holdings` is retained only as an explicit intent marker for
-    callers (and the test harness) — it no longer gates the data policy.
+    The data_collection policy (deny) is enforced on EVERY call by default as
+    defense in depth: although Pass 1 is contractually holdings-free, denying
+    training providers unconditionally means an accidental future holdings leak
+    is still protected. `with_holdings` is retained only as an explicit intent
+    marker for callers (and the test harness) — it no longer gates the data
+    policy.
+
+    `enforce_data_collection=False` opts a call OUT of the deny guard — issue
+    #78 decision (2026-08-06): a scoped compliance exception for Pass 1 /
+    translation only, which route via OpenRouter BYOK straight to DeepSeek's
+    own first-party backend (a specific `order` pin, not the general
+    marketplace pool), where the data_collection filter would otherwise exclude
+    it. Every other call site keeps the default (True).
 
     `pin_provider=False` omits OPENROUTER_PROVIDER_ORDER, letting OpenRouter
     route to whichever provider is available — used for translation calls so
@@ -373,6 +383,13 @@ def _call_llm(
     (overriding `pin_provider`/`OPENROUTER_PROVIDER_ORDER`) — used to steer a
     call toward providers known to be available when the default pool is
     rate-limited.
+
+    `disable_reasoning=True` suppresses reasoning/thinking tokens via
+    `extra_body={"reasoning": {"enabled": False}}`. Needed for
+    `~vendor/model-latest` router aliases (e.g. `~deepseek/deepseek-v4-flash-latest`)
+    whose `reasoning.default_enabled` is True unlike their non-aliased
+    counterparts — without this a mechanical, low-cost call silently starts
+    paying for and waiting on reasoning tokens it never asked for.
     """
     extra: dict[str, Any] = {}
     settings = get_settings()
@@ -383,10 +400,12 @@ def _call_llm(
         order = [p.strip() for p in settings.OPENROUTER_PROVIDER_ORDER.split(",") if p.strip()]
         if order:
             provider["order"] = order
-    if settings.OPENROUTER_DATA_COLLECTION:
+    if enforce_data_collection and settings.OPENROUTER_DATA_COLLECTION:
         provider["data_collection"] = settings.OPENROUTER_DATA_COLLECTION
     if provider.keys() - {"allow_fallbacks"}:
         extra["provider"] = provider
+    if disable_reasoning:
+        extra["reasoning"] = {"enabled": False}
 
     resp: Any = None
     _rate_limit_attempts = 0
@@ -1618,13 +1637,18 @@ _TRANSLATION_MIN_SOURCE_CHARS = 200
 # deepseek-v4-flash after repeated full-pipeline runs).
 _TRANSLATION_PACING_SECONDS = 2.0
 
-# Provider preference for translation calls (deepseek-v4-flash). Distinct from
-# OPENROUTER_PROVIDER_ORDER (DigitalOcean,Venice — used for pinned Pass1/Pass2
-# calls): chosen 2026-06-10 after DigitalOcean+Venice were both observed
-# 429 'temporarily rate-limited upstream' on this model. allow_fallbacks=True
-# (set in _call_llm) still lets OpenRouter fall back beyond this list if both
-# are unavailable.
-_TRANSLATION_PROVIDER_ORDER = ["Cloudflare", "Morph"]
+# Provider preference for the unstructured/BYOK calls — Pass 1 search-query
+# generation and translation (issue #78, 2026-08-06). Distinct from
+# OPENROUTER_PROVIDER_ORDER (DigitalOcean,Venice — used for pinned Pass2/
+# regenerate calls on PRIMARY_LLM_MODEL): pins straight to DeepSeek's own
+# first-party backend via OpenRouter BYOK rather than the DigitalOcean/Venice
+# marketplace pool. Both call sites also pass enforce_data_collection=False
+# (see _call_llm) — a scoped compliance exception, since routing to DeepSeek's
+# own API means the general OPENROUTER_DATA_COLLECTION=deny guard (which
+# exists specifically to keep calls off DeepSeek's first-party endpoint) would
+# otherwise exclude this provider entirely. allow_fallbacks=True (set in
+# _call_llm) still lets OpenRouter fall back beyond this list if unavailable.
+_BYOK_PROVIDER_ORDER = ["DeepSeek"]
 
 
 def _translate_md(md: str, target_lang: str) -> str:
@@ -1687,10 +1711,11 @@ def _translate_chunk(client: openai.OpenAI, model: str, system: str, chunk: str)
     the English source for that chunk — a complete English section beats a silently
     dropped one (e.g. §3 vanishing from the report).
 
-    `provider_order=_TRANSLATION_PROVIDER_ORDER`: translation is a mechanical
-    render on the low-cost model, steered toward providers other than the
-    pinned Pass1/Pass2 pair (which has been observed rate-limited for this
-    model independently of these calls).
+    `provider_order=_BYOK_PROVIDER_ORDER`: translation is a mechanical render on
+    the low-cost model, routed via OpenRouter BYOK straight to DeepSeek's own
+    backend (issue #78) rather than the pinned Pass2 marketplace pool.
+    `enforce_data_collection=False` and `disable_reasoning=True` are part of
+    that same change — see _call_llm docstring.
     """
 
     def _short(out: str) -> bool:
@@ -1705,7 +1730,9 @@ def _translate_chunk(client: openai.OpenAI, model: str, system: str, chunk: str)
         chunk,
         with_holdings=True,
         pin_provider=False,
-        provider_order=_TRANSLATION_PROVIDER_ORDER,
+        provider_order=_BYOK_PROVIDER_ORDER,
+        enforce_data_collection=False,
+        disable_reasoning=True,
     )
     if _short(out):
         logger.warning(
@@ -1719,7 +1746,9 @@ def _translate_chunk(client: openai.OpenAI, model: str, system: str, chunk: str)
             chunk,
             with_holdings=True,
             pin_provider=False,
-            provider_order=_TRANSLATION_PROVIDER_ORDER,
+            provider_order=_BYOK_PROVIDER_ORDER,
+            enforce_data_collection=False,
+            disable_reasoning=True,
         )
     if _short(out):
         logger.error("translation chunk still truncated after retry; keeping source for this chunk")
@@ -2171,6 +2200,10 @@ def generate_report(
             pass1_system,
             pass1_user,
             with_holdings=False,
+            pin_provider=False,
+            provider_order=_BYOK_PROVIDER_ORDER,
+            enforce_data_collection=False,
+            disable_reasoning=True,
             usage_sink=ctx.llm_calls,
         )
         ctx.pass1_raw = raw_pass1
