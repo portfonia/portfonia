@@ -280,78 +280,85 @@ in any other language.
 | Task queue | Celery + Redis |
 | LLM | Pluggable (Claude / DeepSeek / etc.) — keep provider-swappable |
 | Local dev | Homebrew PostgreSQL 16 + Redis (native); Colima for Hermes gateway only |
-| Production | OCI [REDACTED-INSTANCE-SPEC], `[REDACTED-INSTANCE]`, 1 OCPU/6GB (Always Free ceiling — see note below), Ubuntu 24.04 LTS |
+| Production | Self-hosted on a free-tier cloud VM, Ubuntu 24.04 LTS. Provider, region, instance identifier, and IP are deliberately **not tracked in this repo** — see Obsidian doc below. |
 
 ### Three-layer deployment flow (MANDATORY)
 
-Full workflow + production server specs: Obsidian `Hermes/Portfonia/开发环境配置.md`.
+**Full workflow + production server specs (provider, region, instance name,
+IP, SSH user, remote paths) live ONLY in Obsidian `Hermes/Portfonia/开发环境配置.md`
+— never in this repo.** This file (`CLAUDE.md`) is git-tracked, so it must
+never carry any traceable identifier for the production host: no IP, no
+cloud provider/region, no instance name, no SSH username, no remote
+filesystem path. Look those up in the Obsidian doc before running any of the
+commands below — they're written here with the specifics deliberately
+omitted.
+
 The one hard rule that governs every action here: code authority is
-**local → Git only**. Never edit code on the VPS, never `git commit` on the
-VPS, never use the VPS as a sync hub between machines — its only legitimate
-local state is `.env` (uploaded via `scp`).
+**local → Git only**. Never edit code on the production server, never `git
+commit` there, never use it as a sync hub between machines — its only
+legitimate local state is `.env` (uploaded via `scp`).
 
-**OCI free-tier ceiling drifts — re-verify before assuming a number.** Oracle
-silently cut the Always Free [REDACTED-INSTANCE-SPEC] pool from 4 OCPU/24GB to 2 OCPU/12GB
-on 2026-06-15, and the console showed a further-reduced 1 OCPU/6GB ceiling
-by 2026-08-05 (what `[REDACTED-INSTANCE]` is actually provisioned at).
-Don't hardcode a spec number from memory — check the OCI console or `oci
-compute instance list` before planning capacity.
+**The free-tier spec ceiling drifts — re-verify before assuming a number.**
+The provider has silently cut the free-tier allocation more than once
+without notice. Don't hardcode a spec number from memory or from an old note
+here — check the provider's console/CLI before planning capacity.
 
-**SSH stays open to `0.0.0.0/0` on `[REDACTED-INSTANCE]`, guarded by
-fail2ban only** (`maxretry=10`, `findtime=10m`, `bantime=10m` — relaxed from
-defaults after a prior fail2ban lockout on the Stalwart mail server cost 3
-hours to recover from serial console). No source-IP restriction: the dev
-machine has no fixed IP, and an agent session's own egress IP isn't stable
-across runs either. If a future session gets banned mid-task, the ban
-self-clears in 10 minutes — don't burn time trying to route around it via
-OCI serial console unless the task can't wait.
+**SSH stays open, guarded by fail2ban only** (`maxretry=10`, `findtime=10m`,
+`bantime=10m` — relaxed from defaults after a prior fail2ban lockout on a
+different service cost hours to recover from serial console). No source-IP
+restriction: the dev machine has no fixed IP, and an agent session's own
+egress IP isn't stable across runs either. If a future session gets banned
+mid-task, the ban self-clears in 10 minutes — don't burn time trying to
+route around it via the provider's serial console unless the task can't
+wait.
 
-**The dev-machine → VPS path is unreliable — not the VPS itself.** The VPS
-([REDACTED-REGION]) has no known network problems on its own connection to the
-internet or to OpenRouter. What's flaky is specifically the link from the
-local dev machine to the VPS, which routes through the user's VPN/TUN proxy
-(confirmed 2026-08-06: SSH from this machine repeatedly dropped mid-command
-while the VPS's own load/network were fine). This means: **the connection
-can drop mid-command with no warning** for anything originating from the
-dev machine (Claude Code's own SSH, and likely the user's browser too, if
-it routes through the same proxy) — two separate `docker compose up
---build` launches died silently mid-build this way, one via `nohup ... &
-disown` on the remote side, one via keeping the SSH session itself alive
-locally with `run_in_background` — neither survives an actual network drop,
-because both still depend on the TCP/SSH connection staying up long enough
-to hand off. Don't extrapolate this to "the production site is unreliable
-for real users" — a real user connecting independently over the open
-internet doesn't go through this proxy path. **For any remote command
-expected to run longer than a few seconds, use `systemd-run` on the VPS**
-so the command runs as a transient unit fully independent of the SSH
-session:
+**The dev-machine → production path is unreliable — not the production
+server itself.** The production server has no known network problems on its
+own connection to the internet or to OpenRouter. What's flaky is
+specifically the link from the local dev machine to it, which routes
+through the user's VPN/TUN proxy (confirmed 2026-08-06: SSH from this
+machine repeatedly dropped mid-command while the server's own load/network
+were fine). This means: **the connection can drop mid-command with no
+warning** for anything originating from the dev machine (Claude Code's own
+SSH, and likely the user's browser too, if it routes through the same
+proxy) — two separate `docker compose up --build` launches died silently
+mid-build this way, one via `nohup ... & disown` on the remote side, one via
+keeping the SSH session itself alive locally with `run_in_background` —
+neither survives an actual network drop, because both still depend on the
+TCP/SSH connection staying up long enough to hand off. Don't extrapolate
+this to "the production site is unreliable for real users" — a real user
+connecting independently over the open internet doesn't go through this
+proxy path. **For any remote command expected to run longer than a few
+seconds, use `systemd-run` on the server** so the command runs as a
+transient unit fully independent of the SSH session — get the exact
+host/user/path from the Obsidian doc, then:
 
 ```bash
-ssh ubuntu@[REDACTED-IP] "sudo systemd-run --unit=portfonia-deploy --working-directory=[REDACTED-PATH] -- docker compose up -d --build"
+ssh <host-from-obsidian-doc> "sudo systemd-run --unit=portfonia-deploy --working-directory=<path-from-obsidian-doc> -- docker compose up -d --build"
 # reconnect any time after, even following a dropped connection, to check on it:
-ssh ubuntu@[REDACTED-IP] "systemctl status portfonia-deploy; sudo journalctl -u portfonia-deploy --no-pager"
+ssh <host-from-obsidian-doc> "systemctl status portfonia-deploy; sudo journalctl -u portfonia-deploy --no-pager"
 ```
 
 Do not trust a `nohup`/`disown`/backgrounded-SSH exit code as proof a long
-remote command finished on this VPS — verify by checking the actual
-resulting state (containers running, files present), not just the shell's
-reported exit status.
+remote command finished — verify by checking the actual resulting state
+(containers running, files present), not just the shell's reported exit
+status.
 
 **Trigger phrase "生产部署" (or an unambiguous equivalent explicit deploy
 request) means execute this procedure** (established 2026-08-06, after the
 first successful full-stack deploy). The human workflow ends at PR merge to
 `main` (branch → implement → test → PR → review → fix → merge, all local);
-"生产部署" is the one additional step that ships a merged `main` to
-`[REDACTED-INSTANCE]`:
+"生产部署" is the one additional step that ships a merged `main` to the
+production server:
 
 1. Sanity-check local `main` is clean and matches `origin/main` (don't
    deploy stale/uncommitted state).
-2. SSH in, `cd ~/Portfonia && git pull`.
-3. `sudo systemd-run --unit=portfonia-deploy --working-directory=[REDACTED-PATH] -- docker compose up -d --build`
+2. SSH in (host/user/path from the Obsidian doc), `git pull`.
+3. `sudo systemd-run --unit=portfonia-deploy --working-directory=<path> -- docker compose up -d --build`
    — always systemd-run, never a plain foreground/backgrounded SSH command,
    regardless of how small the change looks (a `--build` with no
-   dependency changes is fast due to layer caching, but the VPS's
-   connection can still drop mid-command).
+   dependency changes is fast due to layer caching, but the connection can
+   still drop mid-command).
 4. Poll for completion, tolerating transient SSH check failures (retry the
    check, don't treat a dropped check-connection as deploy failure) but
    treating an actual `exited (1/2/137/139)` container or a `failed`
@@ -360,10 +367,11 @@ first successful full-stack deploy). The human workflow ends at PR merge to
 6. Report success (what changed) or failure (which step, what the logs
    showed) — don't declare done without step 5 passing.
 
-**`[REDACTED-INSTANCE-2]` in this same OCI tenancy belongs to a different,
-unrelated project — never touch it** (stop/resize/reconfigure/reuse) when
-working on Portfonia infra. It sits in its own VCN, isolated from
-`[REDACTED-INSTANCE]`.
+**A second, unrelated instance exists in the same cloud tenancy — never
+touch it** (stop/resize/reconfigure/reuse) when working on Portfonia infra.
+It belongs to a different project and sits in its own isolated network. See
+the Obsidian doc to identify it if you need to confirm you're not touching
+it.
 
 ## Secrets and Configuration
 
