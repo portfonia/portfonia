@@ -31,3 +31,90 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # ---- Production-only services below (dev runs backend/worker/beat/frontend
+  # natively on the host — see "本地开发环境" in Hermes/Portfonia/开发环境配置.md).
+  # `docker-compose up -d postgres redis` for dev, `docker-compose up -d`
+  # (no service args) brings up everything, for prod. ----
+
+  migrate:
+    build:
+      context: ./backend
+    container_name: portfonia-migrate
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
+  backend:
+    build:
+      context: ./backend
+    container_name: portfonia-backend
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  celery-worker:
+    build:
+      context: ./backend
+    container_name: portfonia-celery-worker
+    restart: unless-stopped
+    env_file: .env
+    command: ["celery", "-A", "app.tasks", "worker", "--loglevel=info"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  celery-beat:
+    build:
+      context: ./backend
+    container_name: portfonia-celery-beat
+    restart: unless-stopped
+    env_file: .env
+    command: ["celery", "-A", "app.tasks", "beat", "--loglevel=info"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        BACKEND_URL: http://backend:8000
+    container_name: portfonia-frontend
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://backend:8000
+    depends_on:
+      - backend
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: portfonia-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./.data/caddy_data:/data
+      - ./.data/caddy_config:/config
+    depends_on:
+      - backend
+      - frontend

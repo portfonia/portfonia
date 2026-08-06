@@ -306,6 +306,27 @@ across runs either. If a future session gets banned mid-task, the ban
 self-clears in 10 minutes — don't burn time trying to route around it via
 OCI serial console unless the task can't wait.
 
+**This project's VPS SSH connectivity is unreliable — the connection can
+drop mid-command with no warning** (confirmed 2026-08-06: two separate
+`docker compose up --build` launches died silently mid-build, one via
+`nohup ... & disown` on the remote side, one via keeping the SSH session
+itself alive locally with `run_in_background` — neither survives an actual
+network drop, because both still depend on the TCP/SSH connection staying
+up long enough to hand off). **For any remote command expected to run
+longer than a few seconds, use `systemd-run` on the VPS** so the command
+runs as a transient unit fully independent of the SSH session:
+
+```bash
+ssh ubuntu@170.9.11.11 "sudo systemd-run --unit=portfonia-deploy --working-directory=/home/ubuntu/Portfonia -- docker compose up -d --build"
+# reconnect any time after, even following a dropped connection, to check on it:
+ssh ubuntu@170.9.11.11 "systemctl status portfonia-deploy; sudo journalctl -u portfonia-deploy --no-pager"
+```
+
+Do not trust a `nohup`/`disown`/backgrounded-SSH exit code as proof a long
+remote command finished on this VPS — verify by checking the actual
+resulting state (containers running, files present), not just the shell's
+reported exit status.
+
 **`instance-20260421-0710` in this same OCI tenancy belongs to a different,
 unrelated project — never touch it** (stop/resize/reconfigure/reuse) when
 working on Portfonia infra. It sits in its own VCN, isolated from
