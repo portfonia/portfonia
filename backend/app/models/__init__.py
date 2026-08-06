@@ -5,5 +5,15 @@ from app.models.holding import Holding
 from app.models.news import News
 from app.models.price_snapshot import PriceSnapshot
 from app.models.report import Report
+from app.models.upload_job import UploadJob
 
-__all__ = ["Base", "ForwardEvent", "FxRate", "Holding", "News", "PriceSnapshot", "Report"]
+__all__ = [
+    "Base",
+    "ForwardEvent",
+    "FxRate",
+    "Holding",
+    "News",
+    "PriceSnapshot",
+    "Report",
+    "UploadJob",
+]

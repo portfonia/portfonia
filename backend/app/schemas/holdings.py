@@ -67,6 +67,21 @@ class UploadPreview(BaseModel):
     broker_groups: list[BrokerGroup] = Field(default_factory=list)
 
 
+class UploadJobOut(BaseModel):
+    """Poll target for an async holdings-file parse (issue #77).
+
+    `preview` is populated only once `status="success"`; `error` only once
+    `status="failed"`. `status="pending"` carries neither.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    status: Literal["pending", "success", "failed"]
+    preview: UploadPreview | None = None
+    error: str | None = None
+
+
 class HoldingOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

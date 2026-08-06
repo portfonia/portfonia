@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from fastapi.responses import Response
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
@@ -12,9 +12,11 @@ from app.core.database import get_session
 from app.core.deps import get_current_user_id
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
-from app.schemas.holdings import HoldingOut, ParsedRow, UploadPreview
+from app.models.upload_job import UploadJob
+from app.schemas.holdings import HoldingOut, ParsedRow, UploadJobOut
 from app.services import holding_parser
 from app.services.price_fetcher import backfill_sectors
+from app.tasks.holdings_tasks import parse_holdings_upload
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +24,17 @@ router = APIRouter()
 
 _ASSET_TYPE_ORDER = {"stock": 0, "etf": 1, "fund": 2, "wmf": 3, "cash": 4, "other": 5}
 _MIN_BARS_FOR_TECHNICAL = 50
+# A holdings file is a few dozen to a few thousand rows of text/spreadsheet
+# data — this is generous headroom, not a realistic size, meant only to stop
+# an oversized upload from being read fully into memory and handed to
+# extract/enqueue (PR #82 review). Enforced two ways (PR #82 second review):
+# a Content-Length fast-path rejects an obviously oversized request before
+# reading any body, and a chunked read aborts once the running total crosses
+# the limit rather than materializing the full body first — the earlier
+# `content = await file.read()` version read the whole thing into memory
+# before ever checking its size.
+_MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+_UPLOAD_READ_CHUNK_BYTES = 64 * 1024
 
 
 def _tickers_with_sparse_history(session: Session) -> list[str]:
@@ -56,36 +69,95 @@ def _tickers_with_sparse_history(session: Session) -> list[str]:
     return sparse
 
 
-@router.post("/upload", response_model=UploadPreview)
+@router.post("/upload", response_model=UploadJobOut, status_code=status.HTTP_202_ACCEPTED)
 async def upload_holdings(
+    request: Request,
     file: UploadFile,
-    _user_id: UUID = Depends(get_current_user_id),
-) -> UploadPreview:
+    session: Session = Depends(get_session),
+    user_id: UUID = Depends(get_current_user_id),
+) -> UploadJob:
+    """Kick off an async parse of the uploaded file (issue #77).
+
+    Returns immediately with a pending job; the client polls
+    GET /holdings/upload/{job_id} for the result. The previous synchronous
+    version held one HTTP connection open for the full parse (2 pinned LLM
+    attempts + 1 open-provider fallback — issue #78), observed taking ~5min
+    in one case: fragile against any interruption on that connection in the
+    meantime — the backend finished and returned 200, but the client never
+    saw it because the connection had already dropped.
+    """
     if not file.filename:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="No filename provided."
         )
-    content = await file.read()
+    # Fast path: reject an obviously oversized request before reading any
+    # body. This reflects the whole multipart body (boundary + other fields
+    # too), not just this file, so it's a coarse pre-check — the chunked
+    # read below is the real bound.
+    content_length = request.headers.get("content-length")
+    if (
+        content_length is not None
+        and content_length.isdigit()
+        and int(content_length) > _MAX_UPLOAD_BYTES
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"File too large ({content_length} bytes) — max {_MAX_UPLOAD_BYTES} bytes.",
+        )
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := await file.read(_UPLOAD_READ_CHUNK_BYTES):
+        total += len(chunk)
+        if total > _MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"File too large — max {_MAX_UPLOAD_BYTES} bytes.",
+            )
+        chunks.append(chunk)
+    content = b"".join(chunks)
     try:
         text = holding_parser._extract_text(content, file.filename)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
-    try:
-        return holding_parser.parse(text)
-    except RuntimeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
-        ) from exc
-    except Exception as exc:
-        import logging
 
-        logging.getLogger(__name__).exception("Unexpected parse error")
+    # raw_text is cleared by the Celery task once the parse attempt finishes
+    # (success or failure) — the task takes job_id only, never the text
+    # itself, so a holdings file's content never becomes a Celery/Redis
+    # broker message argument (PR #82 review).
+    job = UploadJob(user_id=user_id, filename=file.filename, status="pending", raw_text=text)
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    try:
+        parse_holdings_upload.delay(str(job.id))
+    except Exception as exc:
+        # Enqueue failed after the row was already committed — without this,
+        # the job would sit at status="pending" forever with no task ever
+        # attached to pick it up (PR #82 review).
+        logger.exception("upload_holdings: failed to enqueue job %s", job.id)
+        job.status = "failed"
+        job.error = f"Failed to queue parse job: {type(exc).__name__}: {exc}"
+        job.raw_text = None
+        session.commit()
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Parse error: {type(exc).__name__}: {exc}",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not queue the upload for processing. Please try again.",
         ) from exc
+    return job
+
+
+@router.get("/upload/{job_id}", response_model=UploadJobOut)
+def get_upload_job(
+    job_id: UUID,
+    session: Session = Depends(get_session),
+    user_id: UUID = Depends(get_current_user_id),
+) -> UploadJob:
+    job = session.get(UploadJob, job_id)
+    if job is None or job.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upload job not found.")
+    return job
 
 
 @router.post("/confirm", response_model=list[HoldingOut])

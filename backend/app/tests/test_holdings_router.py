@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import json
+import uuid
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+
+from app.models.upload_job import UploadJob
+from app.tests.conftest import TEST_USER_ID
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -70,20 +75,127 @@ def _make_mock_client(payload: dict[str, object]) -> MagicMock:
 # ---------------------------------------------------------------------------
 
 
-def test_upload_returns_preview(app_client: TestClient) -> None:
+def test_upload_returns_pending_job_and_enqueues_parse(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """Issue #77: /upload no longer parses synchronously — it creates a
+    pending UploadJob and hands off to Celery, returning immediately."""
     content = (FIXTURES / "sample_holdings.md").read_bytes()
-    with patch(
-        "app.services.holding_parser.openai.OpenAI", return_value=_make_mock_client(_MOCK_PREVIEW)
-    ):
+    with patch("app.routers.holdings.parse_holdings_upload") as mock_task:
         resp = app_client.post(
             "/holdings/upload",
             files={"file": ("holdings.md", content, "text/markdown")},
         )
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["status"] == "pending"
+    assert body["preview"] is None
+    assert body["error"] is None
+    # PR #82 review: the task takes job_id only — the extracted text never
+    # becomes a Celery/Redis broker message argument. It's written onto the
+    # row instead, for the task to read and clear.
+    mock_task.delay.assert_called_once_with(body["id"])
+    job = db_session.get(UploadJob, uuid.UUID(body["id"]))
+    assert job is not None
+    assert job.raw_text is not None
+    assert "AAPL" in job.raw_text or "Apple" in job.raw_text
+
+
+def test_upload_rejects_oversized_file(app_client: TestClient) -> None:
+    """PR #82 review: a hard cap before extract/enqueue, not unbounded
+    in-memory reads for whatever gets posted."""
+    from app.routers import holdings as holdings_router
+
+    oversized = b"a" * (holdings_router._MAX_UPLOAD_BYTES + 1)
+    resp = app_client.post(
+        "/holdings/upload",
+        files={"file": ("holdings.md", oversized, "text/markdown")},
+    )
+    assert resp.status_code == 422
+    assert "too large" in resp.json()["detail"].lower()
+
+
+def test_upload_marks_job_failed_and_returns_503_when_enqueue_fails(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """PR #82 review: if delay() raises after the job row is already
+    committed as pending, the row must not be left stuck at pending forever
+    with no task ever attached — it should be marked failed."""
+    content = (FIXTURES / "sample_holdings.md").read_bytes()
+    with patch("app.routers.holdings.parse_holdings_upload") as mock_task:
+        mock_task.delay.side_effect = ConnectionError("broker unavailable")
+        resp = app_client.post(
+            "/holdings/upload",
+            files={"file": ("holdings.md", content, "text/markdown")},
+        )
+    assert resp.status_code == 503
+
+    jobs = db_session.query(UploadJob).all()
+    assert len(jobs) == 1
+    assert jobs[0].status == "failed"
+    assert jobs[0].raw_text is None
+    assert jobs[0].error is not None
+
+
+def test_get_upload_job_returns_success_result(app_client: TestClient, db_session: Session) -> None:
+    """Poll target once the background task has completed — same shape
+    /upload used to return directly before issue #77's async rewrite. Writes
+    the UploadJob row directly (via db_session, the same DB app_client's
+    get_session override points at) rather than running the real Celery
+    task, since the task builds its own SessionLocal() bound to the dev DB
+    at import time — see test_holdings_tasks.py for the task's own tests.
+    """
+    job = UploadJob(
+        user_id=TEST_USER_ID, filename="holdings.md", status="success", preview=_MOCK_PREVIEW
+    )
+    db_session.add(job)
+    db_session.commit()
+
+    resp = app_client.get(f"/holdings/upload/{job.id}")
     assert resp.status_code == 200
     body = resp.json()
-    assert len(body["valid_rows"]) == 2
-    assert len(body["issue_rows"]) == 1
-    assert body["valid_rows"][0]["name"] == "Apple"
+    assert body["status"] == "success"
+    assert len(body["preview"]["valid_rows"]) == 2
+    assert body["error"] is None
+
+
+def test_get_upload_job_returns_failure_result(app_client: TestClient, db_session: Session) -> None:
+    job = UploadJob(
+        user_id=TEST_USER_ID,
+        filename="holdings.md",
+        status="failed",
+        error="LLM call failed: boom",
+    )
+    db_session.add(job)
+    db_session.commit()
+
+    resp = app_client.get(f"/holdings/upload/{job.id}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "failed"
+    assert body["preview"] is None
+    assert body["error"] == "LLM call failed: boom"
+
+
+def test_get_upload_job_404_for_other_user(app_client: TestClient, db_session: Session) -> None:
+    """A job belonging to a different user must not be visible via poll —
+    multi-tenant isolation."""
+    job = UploadJob(
+        user_id=uuid.uuid4(),  # not TEST_USER_ID
+        filename="holdings.md",
+        status="success",
+        preview=_MOCK_PREVIEW,
+    )
+    db_session.add(job)
+    db_session.commit()
+
+    resp = app_client.get(f"/holdings/upload/{job.id}")
+    assert resp.status_code == 404
+
+
+def test_get_upload_job_404_for_unknown_id(app_client: TestClient) -> None:
+    resp = app_client.get(f"/holdings/upload/{uuid.uuid4()}")
+    assert resp.status_code == 404
 
 
 def test_upload_unsupported_extension_returns_422(app_client: TestClient) -> None:
