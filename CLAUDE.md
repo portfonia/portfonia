@@ -327,6 +327,29 @@ remote command finished on this VPS — verify by checking the actual
 resulting state (containers running, files present), not just the shell's
 reported exit status.
 
+**Trigger phrase "生产部署" (or an unambiguous equivalent explicit deploy
+request) means execute this procedure** (established 2026-08-06, after the
+first successful full-stack deploy). The human workflow ends at PR merge to
+`main` (branch → implement → test → PR → review → fix → merge, all local);
+"生产部署" is the one additional step that ships a merged `main` to
+`[REDACTED-INSTANCE]`:
+
+1. Sanity-check local `main` is clean and matches `origin/main` (don't
+   deploy stale/uncommitted state).
+2. SSH in, `cd ~/Portfonia && git pull`.
+3. `sudo systemd-run --unit=portfonia-deploy --working-directory=[REDACTED-PATH] -- docker compose up -d --build`
+   — always systemd-run, never a plain foreground/backgrounded SSH command,
+   regardless of how small the change looks (a `--build` with no
+   dependency changes is fast due to layer caching, but the VPS's
+   connection can still drop mid-command).
+4. Poll for completion, tolerating transient SSH check failures (retry the
+   check, don't treat a dropped check-connection as deploy failure) but
+   treating an actual `exited (1/2/137/139)` container or a `failed`
+   systemd unit as real failure.
+5. `curl https://api.portfonia.com/health` — confirm `{"status":"ok",...}`.
+6. Report success (what changed) or failure (which step, what the logs
+   showed) — don't declare done without step 5 passing.
+
 **`[REDACTED-INSTANCE-2]` in this same OCI tenancy belongs to a different,
 unrelated project — never touch it** (stop/resize/reconfigure/reuse) when
 working on Portfonia infra. It sits in its own VCN, isolated from
@@ -440,6 +463,14 @@ table is for cross-session technical-debt reminders only, not a substitute.
   hash + approach + verification → close.
 - **Deferred**: open issue → leave in backlog → comment + close when later
   addressed.
+
+**Two separate GitHub identities, don't mix them up** (`.env.local`, never
+committed): `GITHUB_TOKEN` (`portfonia@gmail.com`, repo owner, write —
+issue/PR creation, merges) vs `GITHUB_REVIEWER_TOKEN`
+(`blacktomb@gmail.com`, read + PR review only — added 2026-08-06). Use the
+reviewer token for PR reviews/review comments specifically, so review
+activity isn't attributed to the same identity that authored or merges the
+PR.
 
 ## Conventional Commits (MANDATORY)
 
