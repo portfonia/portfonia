@@ -1,7 +1,7 @@
 # Portfonia — Agent Guidelines
 
 AI-facing guidance for agent tooling working in this repository.
-Last updated: 2026-06-20
+Last updated: 2026-08-05
 
 ## Where to find current state
 
@@ -276,11 +276,11 @@ in any other language.
 |-------|--------|
 | Frontend | Next.js + shadcn/ui |
 | Backend | Python FastAPI |
-| Database | PostgreSQL (Supabase managed, includes Auth) |
+| Database | PostgreSQL, self-hosted in Docker on the production VPS (not Supabase-managed — decided 2026-08-05 to cut hosting complexity). Supabase is used for **Auth only**. |
 | Task queue | Celery + Redis |
 | LLM | Pluggable (Claude / DeepSeek / etc.) — keep provider-swappable |
 | Local dev | Homebrew PostgreSQL 16 + Redis (native); Colima for Hermes gateway only |
-| Production | OCI [REDACTED-INSTANCE-SPEC] (Ubuntu 24.04 LTS) |
+| Production | OCI [REDACTED-INSTANCE-SPEC], `[REDACTED-INSTANCE]`, 1 OCPU/6GB (Always Free ceiling — see note below), Ubuntu 24.04 LTS |
 
 ### Three-layer deployment flow (MANDATORY)
 
@@ -289,6 +289,27 @@ The one hard rule that governs every action here: code authority is
 **local → Git only**. Never edit code on the VPS, never `git commit` on the
 VPS, never use the VPS as a sync hub between machines — its only legitimate
 local state is `.env` (uploaded via `scp`).
+
+**OCI free-tier ceiling drifts — re-verify before assuming a number.** Oracle
+silently cut the Always Free [REDACTED-INSTANCE-SPEC] pool from 4 OCPU/24GB to 2 OCPU/12GB
+on 2026-06-15, and the console showed a further-reduced 1 OCPU/6GB ceiling
+by 2026-08-05 (what `[REDACTED-INSTANCE]` is actually provisioned at).
+Don't hardcode a spec number from memory — check the OCI console or `oci
+compute instance list` before planning capacity.
+
+**SSH stays open to `0.0.0.0/0` on `[REDACTED-INSTANCE]`, guarded by
+fail2ban only** (`maxretry=10`, `findtime=10m`, `bantime=10m` — relaxed from
+defaults after a prior fail2ban lockout on the Stalwart mail server cost 3
+hours to recover from serial console). No source-IP restriction: the dev
+machine has no fixed IP, and an agent session's own egress IP isn't stable
+across runs either. If a future session gets banned mid-task, the ban
+self-clears in 10 minutes — don't burn time trying to route around it via
+OCI serial console unless the task can't wait.
+
+**`[REDACTED-INSTANCE-2]` in this same OCI tenancy belongs to a different,
+unrelated project — never touch it** (stop/resize/reconfigure/reuse) when
+working on Portfonia infra. It sits in its own VCN, isolated from
+`[REDACTED-INSTANCE]`.
 
 ## Secrets and Configuration
 
