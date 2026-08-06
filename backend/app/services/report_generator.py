@@ -403,14 +403,24 @@ def _call_llm(
     whose `reasoning.default_enabled` is True unlike their non-aliased
     counterparts — without this a mechanical, low-cost call silently starts
     paying for and waiting on reasoning tokens it never asked for.
+
+    `enforce_data_collection=False` and `allow_fallbacks=False` are a required
+    pair, enforced at runtime (not just by docstring/call-site discipline —
+    PR #81 review): a caller cannot silently reopen the PR #79
+    marketplace-fallback gap by passing the former without the latter.
     """
     extra: dict[str, Any] = {}
     settings = get_settings()
-    provider: dict[str, object] = {
-        "allow_fallbacks": (
-            settings.OPENROUTER_ALLOW_FALLBACKS if allow_fallbacks is None else allow_fallbacks
+    effective_allow_fallbacks = (
+        settings.OPENROUTER_ALLOW_FALLBACKS if allow_fallbacks is None else allow_fallbacks
+    )
+    if not enforce_data_collection and effective_allow_fallbacks is not False:
+        raise ValueError(
+            "_call_llm: enforce_data_collection=False requires allow_fallbacks=False "
+            "explicitly — an open fallback with the deny guard off can silently reroute "
+            "a holdings-bearing payload to an arbitrary marketplace provider (PR #79/#81 review)."
         )
-    }
+    provider: dict[str, object] = {"allow_fallbacks": effective_allow_fallbacks}
     if provider_order:
         provider["order"] = provider_order
     elif pin_provider:
@@ -419,7 +429,10 @@ def _call_llm(
             provider["order"] = order
     if enforce_data_collection and settings.OPENROUTER_DATA_COLLECTION:
         provider["data_collection"] = settings.OPENROUTER_DATA_COLLECTION
-    if provider.keys() - {"allow_fallbacks"}:
+    # An explicitly-passed allow_fallbacks (a deliberate hard pin, e.g. False)
+    # must never be silently dropped just because it's the only key present —
+    # that would strip the pin from the actual request (PR #81 review).
+    if provider.keys() - {"allow_fallbacks"} or allow_fallbacks is not None:
         extra["provider"] = provider
     if disable_reasoning:
         extra["reasoning"] = {"enabled": False}

@@ -19,7 +19,6 @@ import openai
 import pytest
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.services import report_generator as rg
 from app.services.macro_detector import MacroSignals, ThemeHit
 from app.services.news_fetcher import NewsItem
@@ -1425,21 +1424,61 @@ def test_call_llm_reraises_after_exhausting_rate_limit_retries() -> None:
 def test_call_llm_default_keeps_marketplace_pin_and_deny() -> None:
     """PR #79 review: everything NOT opting into the BYOK exception (Pass 2,
     regenerate, and any future caller that doesn't pass the override kwargs)
-    must keep data_collection=deny and the OPENROUTER_PROVIDER_ORDER
-    marketplace pin — issue #78 only carves out Pass 1 / translation via
-    explicit kwargs, never by default."""
-    settings = get_settings()
+    must keep data_collection=deny, the OPENROUTER_PROVIDER_ORDER marketplace
+    pin, AND allow_fallbacks as configured — issue #78 only carves out Pass 1
+    / translation via explicit kwargs, never by default.
+
+    Uses a patched settings object (PR #81 review) rather than real
+    .env.local values: OPENROUTER_PROVIDER_ORDER can be empty there, which
+    made the order assertion conditional and let allow_fallbacks go
+    unchecked entirely — this test's name promised more than it verified.
+    """
+    fake_settings = MagicMock()
+    fake_settings.OPENROUTER_PROVIDER_ORDER = "DigitalOcean, Venice"
+    fake_settings.OPENROUTER_ALLOW_FALLBACKS = True
+    fake_settings.OPENROUTER_DATA_COLLECTION = "deny"
+
     client = MagicMock()
     client.chat.completions.create.return_value = _fake_llm_response("ok")
-    rg._call_llm(client, "m", "sys", "user")
+    with patch("app.services.report_generator.get_settings", return_value=fake_settings):
+        rg._call_llm(client, "m", "sys", "user")
 
     kwargs = client.chat.completions.create.call_args.kwargs
     provider = kwargs["extra_body"]["provider"]
-    assert provider.get("data_collection") == settings.OPENROUTER_DATA_COLLECTION
-    order = [p.strip() for p in settings.OPENROUTER_PROVIDER_ORDER.split(",") if p.strip()]
-    if order:
-        assert provider.get("order") == order
+    assert provider["data_collection"] == "deny"
+    assert provider["order"] == ["DigitalOcean", "Venice"]
+    assert provider["allow_fallbacks"] is True
     assert "reasoning" not in kwargs.get("extra_body", {})
+
+
+def test_call_llm_raises_if_data_collection_disabled_without_hard_pin() -> None:
+    """PR #81 review: enforce_data_collection=False and allow_fallbacks=False
+    are a required pair, enforced at runtime — a caller passing the former
+    without the latter must fail loudly instead of silently reopening the
+    PR #79 marketplace-fallback gap on a compliance-exempted call."""
+    client = MagicMock()
+    with pytest.raises(ValueError, match="allow_fallbacks=False"):
+        rg._call_llm(client, "m", "sys", "user", enforce_data_collection=False)
+    client.chat.completions.create.assert_not_called()
+
+
+def test_call_llm_keeps_explicit_allow_fallbacks_even_when_sole_provider_key() -> None:
+    """PR #81 review: an explicitly-passed allow_fallbacks must reach
+    extra_body even when it would otherwise be the only key in `provider` —
+    previously `if provider.keys() - {"allow_fallbacks"}` silently dropped the
+    entire provider dict in that case, stripping a deliberate hard pin from
+    the actual request with no error."""
+    fake_settings = MagicMock()
+    fake_settings.OPENROUTER_PROVIDER_ORDER = ""
+    fake_settings.OPENROUTER_ALLOW_FALLBACKS = True
+    fake_settings.OPENROUTER_DATA_COLLECTION = ""
+    client = MagicMock()
+    client.chat.completions.create.return_value = _fake_llm_response("ok")
+    with patch("app.services.report_generator.get_settings", return_value=fake_settings):
+        rg._call_llm(client, "m", "sys", "user", pin_provider=False, allow_fallbacks=False)
+
+    kwargs = client.chat.completions.create.call_args.kwargs
+    assert kwargs["extra_body"]["provider"] == {"allow_fallbacks": False}
 
 
 def test_translate_chunk_uses_byok_hard_pin_no_deny_no_reasoning() -> None:
