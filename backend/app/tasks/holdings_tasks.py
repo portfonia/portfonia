@@ -37,6 +37,14 @@ def parse_holdings_upload(job_id: str) -> dict[str, str]:
     Celery retry on top would only add unbounded extra latency to an
     interactive, user-facing action; if all 3 internal attempts fail, this
     records the failure and the user can just re-upload.
+
+    Idempotent against Celery redelivery (PR #82 second review): the app
+    sets task_acks_late=True globally, so a worker that dies after this
+    task's own commit but before it acks the message gets the same message
+    redelivered. A naive second run would find raw_text already cleared by
+    the first (successful) run and misinterpret that as "nothing to parse",
+    overwriting a real success with a false failure and losing the preview.
+    A job already in a terminal state (success/failed) is left untouched.
     """
     from app.core.database import SessionLocal
     from app.models.upload_job import UploadJob
@@ -48,6 +56,13 @@ def parse_holdings_upload(job_id: str) -> dict[str, str]:
         if job is None:
             logger.error("parse_holdings_upload: job %s not found", job_id)
             return {"status": "job_not_found"}
+        if job.status != "pending":
+            logger.info(
+                "parse_holdings_upload: job %s already %s — redelivery, skipping",
+                job_id,
+                job.status,
+            )
+            return {"job_id": job_id, "status": job.status}
         text = job.raw_text
         try:
             if not text:

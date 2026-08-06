@@ -14,10 +14,13 @@ from unittest.mock import MagicMock, patch
 from app.schemas.holdings import UploadPreview
 
 
-def _make_job(job_id: uuid.UUID, raw_text: str | None = "some holdings text") -> MagicMock:
+def _make_job(
+    job_id: uuid.UUID, raw_text: str | None = "some holdings text", status: str = "pending"
+) -> MagicMock:
     job = MagicMock()
     job.id = job_id
     job.raw_text = raw_text
+    job.status = status
     return job
 
 
@@ -119,6 +122,60 @@ def test_parse_holdings_upload_missing_raw_text_records_failure(
     assert job.status == "failed"
     mock_parse.assert_not_called()
     mock_session.commit.assert_called_once()
+
+
+@patch("app.services.holding_parser.parse")
+@patch("app.core.database.SessionLocal")
+def test_parse_holdings_upload_redelivery_after_success_is_idempotent(
+    mock_session_cls: MagicMock, mock_parse: MagicMock
+) -> None:
+    """PR #82 second review: task_acks_late=True means a worker that dies
+    after this task's own commit but before it acks the message gets the
+    same message redelivered. By the time that happens, raw_text has
+    already been cleared by the first (successful) run — a naive second run
+    would see "no text" and overwrite the real success with a false
+    failure, losing the preview. A job already in a terminal state must be
+    left untouched, not re-enter the parse/error paths."""
+    job_id = uuid.uuid4()
+    preview_dump: dict[str, object] = {"valid_rows": [], "issue_rows": [], "broker_groups": []}
+    job = _make_job(job_id, raw_text=None, status="success")
+    job.preview = preview_dump
+    mock_session = MagicMock()
+    mock_session.get.return_value = job
+    mock_session_cls.return_value = mock_session
+
+    from app.tasks.holdings_tasks import parse_holdings_upload
+
+    result = parse_holdings_upload.run(str(job_id))
+
+    assert result == {"job_id": str(job_id), "status": "success"}
+    assert job.status == "success"
+    assert job.preview == preview_dump  # untouched — not overwritten with a failure
+    mock_parse.assert_not_called()
+    mock_session.commit.assert_not_called()
+
+
+@patch("app.services.holding_parser.parse")
+@patch("app.core.database.SessionLocal")
+def test_parse_holdings_upload_redelivery_after_failure_is_idempotent(
+    mock_session_cls: MagicMock, mock_parse: MagicMock
+) -> None:
+    job_id = uuid.uuid4()
+    job = _make_job(job_id, raw_text=None, status="failed")
+    job.error = "LLM call failed: boom"
+    mock_session = MagicMock()
+    mock_session.get.return_value = job
+    mock_session_cls.return_value = mock_session
+
+    from app.tasks.holdings_tasks import parse_holdings_upload
+
+    result = parse_holdings_upload.run(str(job_id))
+
+    assert result == {"job_id": str(job_id), "status": "failed"}
+    assert job.status == "failed"
+    assert job.error == "LLM call failed: boom"
+    mock_parse.assert_not_called()
+    mock_session.commit.assert_not_called()
 
 
 @patch("app.core.database.SessionLocal")

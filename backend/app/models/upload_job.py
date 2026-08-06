@@ -25,6 +25,16 @@ class UploadJob(Base):
     `preview` currently has no automatic retention/cleanup — accepted for
     Ring 0 (single dev user, small row count); revisit before Ring 1 if
     `upload_jobs` grows unbounded (PR #82 review).
+
+    Known gap, accepted for Ring 0 (PR #82 second review — tracked in issue
+    #83, not fixed here): a row can get stuck at `status="pending"` forever
+    with `raw_text` still populated if the worker never picks up the task
+    (down after a successful enqueue) or is hard-killed by the Celery
+    `time_limit` before `finally` runs. The frontend's 120s poll deadline
+    stops the *user* from waiting forever, but the row and its leftover
+    plaintext holdings text are untouched server-side. No ops sweep/age-out
+    exists yet — see issue #83 for direction (a periodic sweeper marking
+    stale-pending rows failed and clearing raw_text is the leading option).
     """
 
     __tablename__ = "upload_jobs"

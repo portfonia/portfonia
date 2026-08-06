@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from fastapi.responses import Response
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
@@ -27,8 +27,14 @@ _MIN_BARS_FOR_TECHNICAL = 50
 # A holdings file is a few dozen to a few thousand rows of text/spreadsheet
 # data — this is generous headroom, not a realistic size, meant only to stop
 # an oversized upload from being read fully into memory and handed to
-# extract/enqueue (PR #82 review).
+# extract/enqueue (PR #82 review). Enforced two ways (PR #82 second review):
+# a Content-Length fast-path rejects an obviously oversized request before
+# reading any body, and a chunked read aborts once the running total crosses
+# the limit rather than materializing the full body first — the earlier
+# `content = await file.read()` version read the whole thing into memory
+# before ever checking its size.
 _MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+_UPLOAD_READ_CHUNK_BYTES = 64 * 1024
 
 
 def _tickers_with_sparse_history(session: Session) -> list[str]:
@@ -65,6 +71,7 @@ def _tickers_with_sparse_history(session: Session) -> list[str]:
 
 @router.post("/upload", response_model=UploadJobOut, status_code=status.HTTP_202_ACCEPTED)
 async def upload_holdings(
+    request: Request,
     file: UploadFile,
     session: Session = Depends(get_session),
     user_id: UUID = Depends(get_current_user_id),
@@ -83,12 +90,31 @@ async def upload_holdings(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="No filename provided."
         )
-    content = await file.read()
-    if len(content) > _MAX_UPLOAD_BYTES:
+    # Fast path: reject an obviously oversized request before reading any
+    # body. This reflects the whole multipart body (boundary + other fields
+    # too), not just this file, so it's a coarse pre-check — the chunked
+    # read below is the real bound.
+    content_length = request.headers.get("content-length")
+    if (
+        content_length is not None
+        and content_length.isdigit()
+        and int(content_length) > _MAX_UPLOAD_BYTES
+    ):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"File too large ({len(content)} bytes) — max {_MAX_UPLOAD_BYTES} bytes.",
+            detail=f"File too large ({content_length} bytes) — max {_MAX_UPLOAD_BYTES} bytes.",
         )
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := await file.read(_UPLOAD_READ_CHUNK_BYTES):
+        total += len(chunk)
+        if total > _MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"File too large — max {_MAX_UPLOAD_BYTES} bytes.",
+            )
+        chunks.append(chunk)
+    content = b"".join(chunks)
     try:
         text = holding_parser._extract_text(content, file.filename)
     except ValueError as exc:
