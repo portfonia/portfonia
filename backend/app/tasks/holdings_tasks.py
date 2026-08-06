@@ -36,9 +36,9 @@ def parse_holdings_upload(job_id: str) -> dict[str, str]:
     task_acks_late — PR #82 review).
 
     No Celery-level retry: holding_parser.parse() already retries internally
-    (2 pinned attempts + 1 open-provider fallback — issue #78). Stacking a
+    (2 attempts — issue #78, simplified from 3 in issue #84). Stacking a
     Celery retry on top would only add unbounded extra latency to an
-    interactive, user-facing action; if all 3 internal attempts fail, this
+    interactive, user-facing action; if both internal attempts fail, this
     records the failure and the user can just re-upload.
 
     Idempotent against Celery redelivery (PR #82 second review): the app

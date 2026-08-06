@@ -111,16 +111,16 @@ A row is valid if it has at minimum: name + currency + (shares OR current_value)
 A row is an issue_row if: name cannot be determined, OR both shares/current_value
 are missing, OR the format is completely unintelligible.
 
-Do not hallucinate tickers or fund codes — if uncertain, leave the field null and
-note it in issues rather than guessing.
+Do not hallucinate tickers or fund codes — if uncertain, treat the field as
+unknown (see output compactness below for how an unknown field is rendered)
+and note it in issues rather than guessing.
 
 --- output compactness (issue #84) ---
-For each valid_rows object: OMIT any key whose value would be null, an empty
-string, or an empty list. Only include keys that have an actual value. "name",
-"currency", and "pricing_mode" are always required; every other key is
-optional and should be left out entirely when it has no value, rather than
-including it as null/[]/"". This keeps output size proportional to actual
-content, not the full schema.
+"name", "currency", and "pricing_mode" are always required and always
+present. Every other key is optional: when a field is unknown, not
+applicable, or would otherwise be null/an empty string/an empty list, OMIT
+that key from the object entirely rather than writing it as null/[]/"". This
+keeps output size proportional to actual content, not the full schema.
 """
 
 
@@ -427,14 +427,25 @@ def _summarize(rows: list[ParsedRow]) -> list[BrokerGroup]:
     return result
 
 
+# Hardcoded to STRUCTURED_LLM_MODEL's current value (openai/gpt-5.6-luna),
+# NOT a generic setting — issue #84. That model defaults reasoning to
+# "medium", which is wasted cost/latency for mechanical structured
+# extraction (there is nothing to reason through: the schema and inference
+# rules are fully spelled out in _SYSTEM_PROMPT). This assumes
+# STRUCTURED_LLM_MODEL supports a "none" reasoning-effort tier
+# (openai/gpt-5.6-luna's `reasoning.supported_efforts` includes it, per
+# OpenRouter's /api/v1/models). Changing STRUCTURED_LLM_MODEL to a model
+# without one requires either dropping this or replacing it with that
+# model's equivalent (e.g. some models only support `reasoning.enabled`,
+# not graduated effort levels — see LOW_COST_LLM_MODEL's disable_reasoning
+# in report_generator.py for that shape).
+_STRUCTURED_REASONING_EFFORT = "none"
+
+
 def _parse_attempt(
     client: openai.OpenAI, model: str, provider: dict[str, object] | None, text: str
 ) -> str:
-    # reasoning effort "none" (issue #84): STRUCTURED_LLM_MODEL
-    # (openai/gpt-5.6-luna) defaults reasoning to "medium" — wasted cost/
-    # latency for mechanical structured extraction. Revisit if
-    # STRUCTURED_LLM_MODEL changes to a model without a "none" effort tier.
-    extra_body: dict[str, object] = {"reasoning": {"effort": "none"}}
+    extra_body: dict[str, object] = {"reasoning": {"effort": _STRUCTURED_REASONING_EFFORT}}
     if provider is not None:
         extra_body["provider"] = provider
     response = client.chat.completions.create(
@@ -456,10 +467,9 @@ def _parse_attempt(
 # 200 the backend eventually returned). Also drives max_retries=0 on the
 # client below — the openai SDK's own default (max_retries=2, read
 # timeout=600s) would otherwise retry each attempt internally with its own
-# backoff, stacking on top of parse()'s own 3-attempt loop and multiplying
-# worst-case latency unpredictably. parse()'s loop already owns retry/
-# fallback behavior (including choosing which provider pin to try next), so
-# the SDK doesn't need to also retry.
+# backoff, stacking on top of parse()'s own 2-attempt loop (issue #84) and
+# multiplying worst-case latency unpredictably. parse()'s loop already owns
+# retry behavior, so the SDK doesn't need to also retry.
 _PARSE_ATTEMPT_TIMEOUT_SECONDS = 20.0
 
 
