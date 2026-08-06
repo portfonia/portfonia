@@ -306,15 +306,25 @@ across runs either. If a future session gets banned mid-task, the ban
 self-clears in 10 minutes — don't burn time trying to route around it via
 OCI serial console unless the task can't wait.
 
-**This project's VPS SSH connectivity is unreliable — the connection can
-drop mid-command with no warning** (confirmed 2026-08-06: two separate
-`docker compose up --build` launches died silently mid-build, one via
-`nohup ... & disown` on the remote side, one via keeping the SSH session
-itself alive locally with `run_in_background` — neither survives an actual
-network drop, because both still depend on the TCP/SSH connection staying
-up long enough to hand off). **For any remote command expected to run
-longer than a few seconds, use `systemd-run` on the VPS** so the command
-runs as a transient unit fully independent of the SSH session:
+**The dev-machine → VPS path is unreliable — not the VPS itself.** The VPS
+(OCI San Jose) has no known network problems on its own connection to the
+internet or to OpenRouter. What's flaky is specifically the link from the
+local dev machine to the VPS, which routes through the user's VPN/TUN proxy
+(confirmed 2026-08-06: SSH from this machine repeatedly dropped mid-command
+while the VPS's own load/network were fine). This means: **the connection
+can drop mid-command with no warning** for anything originating from the
+dev machine (Claude Code's own SSH, and likely the user's browser too, if
+it routes through the same proxy) — two separate `docker compose up
+--build` launches died silently mid-build this way, one via `nohup ... &
+disown` on the remote side, one via keeping the SSH session itself alive
+locally with `run_in_background` — neither survives an actual network drop,
+because both still depend on the TCP/SSH connection staying up long enough
+to hand off. Don't extrapolate this to "the production site is unreliable
+for real users" — a real user connecting independently over the open
+internet doesn't go through this proxy path. **For any remote command
+expected to run longer than a few seconds, use `systemd-run` on the VPS**
+so the command runs as a transient unit fully independent of the SSH
+session:
 
 ```bash
 ssh ubuntu@170.9.11.11 "sudo systemd-run --unit=portfonia-deploy --working-directory=/home/ubuntu/Portfonia -- docker compose up -d --build"
