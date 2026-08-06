@@ -113,6 +113,14 @@ are missing, OR the format is completely unintelligible.
 
 Do not hallucinate tickers or fund codes — if uncertain, leave the field null and
 note it in issues rather than guessing.
+
+--- output compactness (issue #84) ---
+For each valid_rows object: OMIT any key whose value would be null, an empty
+string, or an empty list. Only include keys that have an actual value. "name",
+"currency", and "pricing_mode" are always required; every other key is
+optional and should be left out entirely when it has no value, rather than
+including it as null/[]/"". This keeps output size proportional to actual
+content, not the full schema.
 """
 
 
@@ -422,6 +430,13 @@ def _summarize(rows: list[ParsedRow]) -> list[BrokerGroup]:
 def _parse_attempt(
     client: openai.OpenAI, model: str, provider: dict[str, object] | None, text: str
 ) -> str:
+    # reasoning effort "none" (issue #84): STRUCTURED_LLM_MODEL
+    # (openai/gpt-5.6-luna) defaults reasoning to "medium" — wasted cost/
+    # latency for mechanical structured extraction. Revisit if
+    # STRUCTURED_LLM_MODEL changes to a model without a "none" effort tier.
+    extra_body: dict[str, object] = {"reasoning": {"effort": "none"}}
+    if provider is not None:
+        extra_body["provider"] = provider
     response = client.chat.completions.create(
         model=model,
         response_format={"type": "json_object"},
@@ -430,7 +445,7 @@ def _parse_attempt(
             {"role": "user", "content": text},
         ],
         temperature=0,
-        extra_body={"provider": provider} if provider is not None else None,
+        extra_body=extra_body,
     )
     return response.choices[0].message.content or "{}"
 
@@ -452,11 +467,12 @@ def parse(text: str) -> UploadPreview:
     """Call LLM to parse free-form holdings text into a structured preview.
 
     Structured (JSON) extraction routes uniformly to STRUCTURED_LLM_MODEL
-    (issue #78): two attempts pinned to the OpenInference bf16 endpoint
-    (transient provider connection drops previously observed on
-    DigitalOcean/Venice — issue #46), then one attempt with open/unpinned
-    provider selection if both pinned attempts fail. Each attempt is bounded
-    to _PARSE_ATTEMPT_TIMEOUT_SECONDS and timed (issue #77) so a slow/hung
+    (issue #78). Two identical attempts (issue #84: STRUCTURED_LLM_MODEL no
+    longer pins a precision tier to escalate away from — see
+    app/core/llm.py:structured_provider — so a plain retry-on-transient-
+    error is the whole story; open provider selection already applies from
+    the first attempt). Each attempt is bounded to
+    _PARSE_ATTEMPT_TIMEOUT_SECONDS and timed (issue #77) so a slow/hung
     provider is visible in logs and can't stall the whole call for minutes.
     """
     settings = get_settings()
@@ -468,11 +484,8 @@ def parse(text: str) -> UploadPreview:
         max_retries=0,
     )
     model = settings.STRUCTURED_LLM_MODEL
-    attempts = [
-        (model, structured_provider(pinned=True)),
-        (model, structured_provider(pinned=True)),
-        (model, structured_provider(pinned=False)),
-    ]
+    provider = structured_provider()
+    attempts = [(model, provider), (model, provider)]
 
     content: str | None = None
     last_exc: openai.OpenAIError | None = None
