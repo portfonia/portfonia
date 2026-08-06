@@ -499,13 +499,20 @@ table is for cross-session technical-debt reminders only, not a substitute.
 - **Deferred**: open issue → leave in backlog → comment + close when later
   addressed.
 
-**Two separate GitHub identities, don't mix them up** (`.env.local`, never
-committed): `GITHUB_TOKEN` (`portfonia@gmail.com`, repo owner, write —
-issue/PR creation, merges) vs `GITHUB_REVIEWER_TOKEN`
-(`blacktomb@gmail.com`, read + PR review only — added 2026-08-06). Use the
-reviewer token for PR reviews/review comments specifically, so review
-activity isn't attributed to the same identity that authored or merges the
-PR.
+**Two separate GitHub identities, don't mix them up** (actual accounts live
+in `.env.local`, never committed — this file intentionally does not name
+them): `GITHUB_TOKEN` is the primary write identity — repo owner, used for
+commits/pushes, issue/PR creation, and merges. `GITHUB_REVIEWER_TOKEN`
+(added 2026-08-06) is read + PR-review-only, and belongs to a **separate LLM
+reviewer** in this project's multi-agent workflow — **this agent (whichever
+LLM is doing the dev work) never uses `GITHUB_REVIEWER_TOKEN` itself, for
+anything.** Any review or comment authored under that identity is that other
+reviewer's independent output: read it, act on its findings, but its
+approval is not a substitute for the product owner's own merge
+authorization, and does not come from self-review. (Incident: 2026-08-06,
+issue #78/PR #79 — this agent used `GITHUB_REVIEWER_TOKEN` to review its own
+PR, then treated that as grounds to merge without the product owner's
+sign-off. Reverted; see PR #79 for history.)
 
 ## Conventional Commits (MANDATORY)
 
