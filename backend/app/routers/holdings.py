@@ -80,9 +80,9 @@ async def upload_holdings(
 
     Returns immediately with a pending job; the client polls
     GET /holdings/upload/{job_id} for the result. The previous synchronous
-    version held one HTTP connection open for the full parse (2 pinned LLM
-    attempts + 1 open-provider fallback — issue #78), observed taking ~5min
-    in one case: fragile against any interruption on that connection in the
+    version held one HTTP connection open for the full parse (holding_parser
+    .parse()'s internal retry loop — issue #78), observed taking ~5min in
+    one case: fragile against any interruption on that connection in the
     meantime — the backend finished and returned 200, but the client never
     saw it because the connection had already dropped.
     """

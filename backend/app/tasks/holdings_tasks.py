@@ -12,8 +12,11 @@ logger = logging.getLogger(__name__)
 
 @celery_app.task(  # type: ignore[untyped-decorator]
     name="app.tasks.holdings_tasks.parse_holdings_upload",
-    # Hard ceiling above the ~60s worst case (3 attempts x 20s client timeout
-    # — issue #77/holding_parser.py). soft_time_limit raises
+    # Hard ceiling above the worst case (2 attempts x 20s client timeout —
+    # issue #77/#84/holding_parser.py; the 20s bound is per socket
+    # operation, not total wall time, so this is a generous ceiling, not a
+    # tight one — real-world latency on STRUCTURED_LLM_MODEL is ~11-14s for
+    # a 30-row file per issue #84). soft_time_limit raises
     # SoftTimeLimitExceeded inside the task (caught by the broad except
     # below, so the job still gets marked failed); time_limit is Celery's
     # unconditional kill if soft doesn't get a chance to run. Without this, a
@@ -33,9 +36,9 @@ def parse_holdings_upload(job_id: str) -> dict[str, str]:
     task_acks_late — PR #82 review).
 
     No Celery-level retry: holding_parser.parse() already retries internally
-    (2 pinned attempts + 1 open-provider fallback — issue #78). Stacking a
+    (2 attempts — issue #78, simplified from 3 in issue #84). Stacking a
     Celery retry on top would only add unbounded extra latency to an
-    interactive, user-facing action; if all 3 internal attempts fail, this
+    interactive, user-facing action; if both internal attempts fail, this
     records the failure and the user can just re-upload.
 
     Idempotent against Celery redelivery (PR #82 second review): the app

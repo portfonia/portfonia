@@ -457,9 +457,10 @@ def test_parse_handles_markdown_fenced_response() -> None:
 def test_parse_client_uses_bounded_timeout_and_no_sdk_retries() -> None:
     """Issue #77: each attempt must be time-bounded and the SDK's own
     retry-with-backoff disabled — parse() already implements its own
-    3-attempt retry/fallback loop, so a redundant SDK-level retry (default:
-    max_retries=2, 600s read timeout) would only stack unpredictable extra
-    latency on top, which is how a single request was observed taking ~5min."""
+    2-attempt retry loop (issue #84), so a redundant SDK-level retry
+    (default: max_retries=2, 600s read timeout) would only stack
+    unpredictable extra latency on top, which is how a single request was
+    observed taking ~5min."""
     mock_openai_cls = MagicMock(return_value=_make_mock_client(_MOCK_LLM_RESPONSE))
     with patch("app.services.holding_parser.openai.OpenAI", mock_openai_cls):
         parse("some holdings text")
@@ -535,7 +536,7 @@ def _connection_error() -> openai.APIConnectionError:
     return openai.APIConnectionError(request=httpx.Request("POST", "https://example.test"))
 
 
-def test_parse_uses_structured_model_pinned_to_openinference_bf16() -> None:
+def test_parse_uses_structured_model_with_deny_and_no_reasoning() -> None:
     mock_client = _make_mock_client(_MOCK_LLM_RESPONSE)
     with patch("app.services.holding_parser.openai.OpenAI", return_value=mock_client):
         parse("some text")
@@ -543,13 +544,17 @@ def test_parse_uses_structured_model_pinned_to_openinference_bf16() -> None:
     kwargs = mock_client.chat.completions.create.call_args.kwargs
     assert kwargs["model"] == get_settings().STRUCTURED_LLM_MODEL
     provider = kwargs["extra_body"]["provider"]
-    assert provider["order"] == ["OpenInference"]
-    assert provider["quantizations"] == ["bf16"]
-    assert provider["allow_fallbacks"] is False
-    # PR #79 review nit: the pin test covered precision but not the data-policy
-    # half of structured_provider — holdings parsing is the highest-sensitivity
-    # structured call, deny must hold on the pinned attempts too.
+    assert provider["allow_fallbacks"] is True
+    # Issue #84: STRUCTURED_LLM_MODEL (openai/gpt-5.6-luna) has no
+    # third-party-quantization pin concern the way the previous open-weight
+    # model did — no "order"/"quantizations" pin — but deny must still hold,
+    # holdings parsing is the highest-sensitivity structured call.
+    assert "order" not in provider
+    assert "quantizations" not in provider
     assert provider["data_collection"] == get_settings().OPENROUTER_DATA_COLLECTION
+    # gpt-5.6-luna defaults reasoning to "medium" — wasted cost/latency for
+    # mechanical extraction (issue #84).
+    assert kwargs["extra_body"]["reasoning"] == {"effort": "none"}
 
 
 def test_parse_retries_same_model_once_on_connection_error() -> None:
@@ -566,44 +571,13 @@ def test_parse_retries_same_model_once_on_connection_error() -> None:
     models_tried = [c.kwargs["model"] for c in calls]
     providers_tried = [c.kwargs["extra_body"]["provider"] for c in calls]
     assert models_tried[0] == models_tried[1]
-    # Both attempts stay pinned to OpenInference/bf16 (issue #78) — the
-    # open-provider degradation is reserved for the third attempt only.
     assert providers_tried[0] == providers_tried[1]
-    assert providers_tried[0]["order"] == ["OpenInference"]
     assert result.valid_rows[0].name == "Apple"
 
 
-def test_parse_degrades_to_open_provider_after_two_pinned_attempts_fail() -> None:
-    """Issue #78: fallback is a provider-pin degradation, not a model swap —
-    all three attempts use STRUCTURED_LLM_MODEL; only the third drops the
-    OpenInference/bf16 pin and allows open provider selection."""
-    mock_client = _make_mock_client(_MOCK_LLM_RESPONSE)
-    success_response = mock_client.chat.completions.create.return_value
-    mock_client.chat.completions.create.side_effect = [
-        _connection_error(),
-        _connection_error(),
-        success_response,
-    ]
-    with patch("app.services.holding_parser.openai.OpenAI", return_value=mock_client):
-        result = parse("some holdings text")
-
-    assert mock_client.chat.completions.create.call_count == 3
-    calls = mock_client.chat.completions.create.call_args_list
-    models_tried = [c.kwargs["model"] for c in calls]
-    providers_tried = [c.kwargs["extra_body"]["provider"] for c in calls]
-    assert models_tried[0] == models_tried[1] == models_tried[2]
-    assert providers_tried[0] == providers_tried[1]
-    assert providers_tried[0]["allow_fallbacks"] is False
-    assert "order" not in providers_tried[2]
-    assert "quantizations" not in providers_tried[2]
-    assert providers_tried[2]["allow_fallbacks"] is True
-    assert result.valid_rows[0].name == "Apple"
-
-
-def test_parse_raises_after_retry_and_fallback_both_fail() -> None:
+def test_parse_raises_after_both_attempts_fail() -> None:
     mock_client = _make_mock_client(_MOCK_LLM_RESPONSE)
     mock_client.chat.completions.create.side_effect = [
-        _connection_error(),
         _connection_error(),
         _connection_error(),
     ]
@@ -613,29 +587,18 @@ def test_parse_raises_after_retry_and_fallback_both_fail() -> None:
     ):
         parse("some holdings text")
 
-    assert mock_client.chat.completions.create.call_count == 3
+    assert mock_client.chat.completions.create.call_count == 2
 
 
-def test_structured_provider_pinned_locks_openinference_bf16_hard_fail() -> None:
+def test_structured_provider_allows_fallback_with_deny() -> None:
     with patch("app.core.llm.get_settings", return_value=_fake_settings("", "deny")):
-        provider = llm.structured_provider(pinned=True)
-    assert provider == {
-        "order": ["OpenInference"],
-        "quantizations": ["bf16"],
-        "allow_fallbacks": False,
-        "data_collection": "deny",
-    }
-
-
-def test_structured_provider_open_allows_fallback_and_omits_pin() -> None:
-    with patch("app.core.llm.get_settings", return_value=_fake_settings("", "deny")):
-        provider = llm.structured_provider(pinned=False)
+        provider = llm.structured_provider()
     assert provider == {"allow_fallbacks": True, "data_collection": "deny"}
 
 
 def test_structured_provider_omits_data_collection_when_unset() -> None:
     with patch("app.core.llm.get_settings", return_value=_fake_settings("", "")):
-        provider = llm.structured_provider(pinned=False)
+        provider = llm.structured_provider()
     assert provider == {"allow_fallbacks": True}
 
 

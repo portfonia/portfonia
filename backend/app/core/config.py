@@ -89,13 +89,27 @@ class Settings(BaseSettings):
     OPENROUTER_DATA_COLLECTION: str = "deny"
     # The only model used for structured (JSON schema-required) extraction —
     # currently holdings parsing only. Uniformly routed here (not a fallback tier
-    # under LOW_COST_LLM_MODEL any more — issue #78). Pinned to the OpenInference
-    # bf16 endpoint for two attempts, then an open/unpinned provider selection on
-    # failure (app/core/llm.py:structured_provider). Default is the only model
-    # verified at 100% (210/210) on the PC611-homepage eval case set, including a
-    # JSON-structured-output generalization test — see Hermes/Homepage/
-    # LLM-No-Reasoning-eval设计与实现.md §19-21.
-    STRUCTURED_LLM_MODEL: str = "google/gemma-4-31b-it"
+    # under LOW_COST_LLM_MODEL any more — issue #78).
+    #
+    # Was google/gemma-4-31b-it pinned to the OpenInference bf16 endpoint
+    # (verified at 100% / 210/210 on the PC611-homepage eval case set — see
+    # Hermes/Homepage/LLM-No-Reasoning-eval设计与实现.md §19-21) until issue
+    # #84 (2026-08-06): direct production probing found the OpenInference
+    # bf16 endpoint itself was the bottleneck (371s worst case on a 30-row
+    # holdings file — pinning it made every variant *slower*, not more
+    # accurate-per-second), causing real uploads to blow through the Celery
+    # task's time_limit and get SIGKILLed before ever writing a result.
+    # openai/gpt-5.6-luna (routed through OpenAI's own infra, not a
+    # third-party quantized marketplace reseller — no equivalent
+    # precision-pin concern) measured 10.9-13.8s on the same file with a
+    # full manual accuracy audit (30/30 rows correct), with
+    # reasoning_effort=none (app/services/holding_parser.py —
+    # _STRUCTURED_REASONING_EFFORT; provider routing itself is
+    # app/core/llm.py:structured_provider, which does not touch reasoning).
+    # One manual run, not yet a systematic eval on the scale that qualified
+    # the previous model — worth a broader pass before treating this as
+    # fully validated long-term.
+    STRUCTURED_LLM_MODEL: str = "openai/gpt-5.6-luna"
 
     # Report output language. The LLM reasons in English (higher quality), then
     # the assembled report is translated to this language at render time. "en"

@@ -55,7 +55,7 @@ def test_parse_holdings_upload_success(mock_session_cls: MagicMock, mock_parse: 
 def test_parse_holdings_upload_records_runtime_error(
     mock_session_cls: MagicMock, mock_parse: MagicMock
 ) -> None:
-    """holding_parser.parse() exhausting all 3 attempts raises RuntimeError —
+    """holding_parser.parse() exhausting both attempts raises RuntimeError —
     the task must record it as a failed job, not let it propagate (there's
     no Celery-level retry for this interactive, user-facing task)."""
     job_id = uuid.uuid4()
@@ -194,8 +194,8 @@ def test_parse_holdings_upload_missing_job_returns_early(mock_session_cls: Magic
 
 
 def test_parse_holdings_upload_has_time_limits() -> None:
-    """PR #82 review: an explicit ceiling above the ~60s worst case (3
-    attempts x 20s client timeout) so a hang outside that path can't hold a
+    """PR #82 review: an explicit ceiling above the worst case (2 attempts x
+    20s client timeout — issue #84) so a hang outside that path can't hold a
     prefork worker slot indefinitely."""
     from app.tasks.holdings_tasks import parse_holdings_upload
 
