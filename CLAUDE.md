@@ -19,7 +19,7 @@ This file holds **conventions and mechanisms**, not a project status board.
 
 | Item | Value |
 |------|-------|
-| LLM model | OpenRouter (provider=DigitalOcean,Venice), `data_collection=deny` on every call. **PRIMARY (Pass 2 analysis) = `deepseek/deepseek-v4-pro`**; **Pass 1 search + translation render = `deepseek/deepseek-v4-flash`** (LOW_COST). Sonnet/Anthropic models are NOT used here — too expensive (~$0.2/call); if `PRIMARY_LLM_MODEL` ever shows an `anthropic/*` value it is config drift, revert it. Translation calls use a separate provider preference (`_TRANSLATION_PROVIDER_ORDER`) since DigitalOcean+Venice were observed 429-ing on `deepseek-v4-flash` translation; `allow_fallbacks=True` still permits OpenRouter beyond this list if both are unavailable. |
+| LLM model | OpenRouter, split by call shape (issue #78, 2026-08-06). **Structured/JSON** (holdings parsing, `holding_parser.py`, the only call site requiring schema-compliant output) = `STRUCTURED_LLM_MODEL` (`google/gemma-4-31b-it`), pinned to the OpenInference bf16 endpoint (`app/core/llm.py:structured_provider`) for two attempts, degrading to open/unpinned provider selection on a third if both fail; `data_collection=deny` applies throughout. **Unstructured/free-text** (Pass 1 search-query gen + translation render, `report_generator.py`) = `LOW_COST_LLM_MODEL` (`~deepseek/deepseek-v4-flash-latest` — leading `~` is OpenRouter's "-latest" alias convention), routed via OpenRouter BYOK straight to DeepSeek's own backend (`order=["DeepSeek"]`, module constant `_BYOK_PROVIDER_ORDER`) with `enforce_data_collection=False` — a scoped compliance exception for these two calls only, since routing to DeepSeek's first-party endpoint is exactly what `data_collection=deny` normally excludes; reasoning/thinking tokens are explicitly disabled (`disable_reasoning=True`) since this alias defaults reasoning on unlike the non-aliased model. **PRIMARY (Pass 2 analysis + regenerate) = `deepseek/deepseek-v4-pro`**, unchanged — provider=DigitalOcean,Venice, `data_collection=deny`, no BYOK. Sonnet/Anthropic models are NOT used here — too expensive (~$0.2/call); if `PRIMARY_LLM_MODEL` ever shows an `anthropic/*` value it is config drift, revert it. |
 | Infrastructure | Homebrew PostgreSQL@16 + Redis (native, not Docker); `make infra-up` not needed |
 | **Dev process restart (MANDATORY after model/migration changes)** | uvicorn, `celery worker`, `celery beat` run with **no `--reload`** and load the ORM model at process start. After ANY change to `app/models/*`, an Alembic migration, or a router/schema change, **kill and restart all three** (`ps aux \| grep -E "uvicorn\|celery"`, `kill <pids>`, then `nohup venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-level info >> .run/uvicorn.log 2>&1 &` and the two `celery -A app.tasks worker/beat --loglevel=info >> .run/{worker,beat}.log 2>&1 &`). Symptom if skipped: `INSERT`/`UPDATE` against the new column fails `NOT NULL`/constraint mismatch → uncaught `IntegrityError` → bare `500` with no traceback. |
 | Output language | reason in EN, render in `OUTPUT_LANG` (Ring 0 default `zh`) via a translation pass with a fixed-term glossary (财经分析报告 / 持仓分析 / 持仓机构; never "智能"); `en` = no-op |
@@ -388,9 +388,20 @@ working on Portfonia infra. It sits in its own VCN, isolated from
   `test_pass1_prompt_excludes_holdings_derived_anomalies` and
   `test_generate_report_pass1_call_has_no_holdings`. Do not reintroduce
   holdings into `_build_pass1_prompt`.
-- **`data_collection=deny` is applied to every LLM call** (not just
+- **`data_collection=deny` is applied to every LLM call by default** (not just
   holdings-bearing ones) as defense in depth: even if holdings leak into Pass 1
   in the future, the call still cannot route to training providers.
+  **Exception (issue #78, 2026-08-06):** Pass 1 search-query generation and
+  translation render — both on `LOW_COST_LLM_MODEL` — pass
+  `enforce_data_collection=False` because they're routed via OpenRouter BYOK
+  straight to DeepSeek's own first-party backend (`order=["DeepSeek"]`,
+  `_BYOK_PROVIDER_ORDER` in `report_generator.py`), the exact provider `deny`
+  exists to exclude. Translation carries holdings-derived report text
+  (`with_holdings=True`); this was an explicit, scoped compliance tradeoff the
+  product owner accepted for these two call sites only — Pass 2, regenerate,
+  and holdings parsing (structured extraction) all keep `deny` enforced
+  unchanged. Do not extend the exception to any other call site without the
+  same explicit sign-off.
 - Market data: cache same-day, same-symbol queries. yfinance is the default
   source; treat rate limits as a real constraint when adding new query paths.
 - FX rates: pull once per day into the FX table; all valuation reads from that

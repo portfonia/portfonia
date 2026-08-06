@@ -50,15 +50,22 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "openrouter"
     OPENROUTER_API_KEY: SecretStr
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    # Unstructured (free-text) calls only: Pass 1 search-query generation and
+    # report translation (report_generator.py). Structured/JSON extraction
+    # (holdings parsing) does NOT use this — see STRUCTURED_LLM_MODEL below.
+    # These two call sites route via OpenRouter BYOK (order=["DeepSeek"]) straight
+    # to DeepSeek's own backend and run WITHOUT the OPENROUTER_DATA_COLLECTION
+    # guard below (issue #78, decision 2026-08-06: accepted as a scoped compliance
+    # exception for these two calls only — everything else keeps "deny").
     PRIMARY_LLM_MODEL: str
     LOW_COST_LLM_MODEL: str
-    # Provider pinning for structured extraction. OpenRouter routes one model id
-    # across providers of differing precision; aggressive-quantization resellers
-    # (NovitaAI, StreamLake) degrade JSON/schema compliance and must never be used
-    # for structured extraction. Portfonia runs low-cost open models (e.g.
-    # deepseek/deepseek-v4-flash) for cost reasons, not Claude; for V4 Flash pin
-    # "DigitalOcean,Venice" (high precision). See Daily_Intel design doc section 8.
-    # Comma-separated, highest priority first. Empty = no order pin.
+    # Provider pinning for Pass 2 / regenerate (PRIMARY_LLM_MODEL). OpenRouter
+    # routes one model id across providers of differing precision;
+    # aggressive-quantization resellers (NovitaAI, StreamLake) degrade
+    # JSON/schema compliance and must never be used for structured extraction.
+    # For deepseek/deepseek-v4-pro pin "DigitalOcean,Venice" (high precision).
+    # See Daily_Intel design doc section 8. Comma-separated, highest priority
+    # first. Empty = no order pin.
     OPENROUTER_PROVIDER_ORDER: str = ""
     OPENROUTER_ALLOW_FALLBACKS: bool = True
     # Data-collection policy for OpenRouter provider routing. Portfonia is a
@@ -69,14 +76,17 @@ class Settings(BaseSettings):
     # while still meeting the "not used for training" requirement (we never hit the
     # DeepSeek first-party API, whose terms allow training). See §8.8. Set to empty
     # only to disable this guard (not recommended for holdings-bearing calls).
+    # NOT applied to Pass 1 / translation — see LOW_COST_LLM_MODEL comment above.
     OPENROUTER_DATA_COLLECTION: str = "deny"
-    # Fallback model for holdings parsing only, tried after LOW_COST_LLM_MODEL
-    # fails a same-model retry (transient provider connection drops observed on
-    # DigitalOcean/Venice — see GitHub issue #46). Stays within the pinned
-    # OPENROUTER_PROVIDER_ORDER pool (Venice serves Gemma), so the data-collection
-    # and precision guarantees above still apply unchanged. Empty = no fallback,
-    # same single-attempt-then-retry behavior as before.
-    FALLBACK_LLM_MODEL: str = "google/gemma-4-31b-it"
+    # The only model used for structured (JSON schema-required) extraction —
+    # currently holdings parsing only. Uniformly routed here (not a fallback tier
+    # under LOW_COST_LLM_MODEL any more — issue #78). Pinned to the OpenInference
+    # bf16 endpoint for two attempts, then an open/unpinned provider selection on
+    # failure (app/core/llm.py:structured_provider). Default is the only model
+    # verified at 100% (210/210) on the PC611-homepage eval case set, including a
+    # JSON-structured-output generalization test — see Hermes/Homepage/
+    # LLM-No-Reasoning-eval设计与实现.md §19-21.
+    STRUCTURED_LLM_MODEL: str = "google/gemma-4-31b-it"
 
     # Report output language. The LLM reasons in English (higher quality), then
     # the assembled report is translated to this language at render time. "en"
