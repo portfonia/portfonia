@@ -49,6 +49,7 @@
 }
 
 :root {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
