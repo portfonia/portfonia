@@ -49,7 +49,7 @@ def test_rejects_empty_scan_terms(tmp_path: Path) -> None:
     broken = _VALID_YAML.replace(
         "scan_terms:\n  - term: 强烈买入\n  - term: 投资建议\n", "scan_terms: []\n"
     )
-    with pytest.raises(ValueError, match="scan_terms is empty"):
+    with pytest.raises(ValueError, match="scan_terms must be a non-empty list"):
         _load_zh_vocab(_write(tmp_path, broken))
 
 
@@ -57,7 +57,26 @@ def test_rejects_empty_scan_regex_patterns(tmp_path: Path) -> None:
     broken = _VALID_YAML.replace(
         "scan_regex_patterns:\n  - '止损[位点价]'\n", "scan_regex_patterns: []\n"
     )
-    with pytest.raises(ValueError, match="scan_regex_patterns is empty"):
+    with pytest.raises(ValueError, match="scan_regex_patterns must be a non-empty list"):
+        _load_zh_vocab(_write(tmp_path, broken))
+
+
+def test_rejects_scalar_scan_regex_patterns(tmp_path: Path) -> None:
+    """A scalar string (missing the YAML list dash) must not silently
+    character-split into single-char "patterns" via tuple() (PR #91 re-review)."""
+    broken = _VALID_YAML.replace(
+        "scan_regex_patterns:\n  - '止损[位点价]'\n", "scan_regex_patterns: 止损位点价\n"
+    )
+    with pytest.raises(ValueError, match="scan_regex_patterns must be a non-empty list"):
+        _load_zh_vocab(_write(tmp_path, broken))
+
+
+def test_rejects_empty_string_element_in_scan_regex_patterns(tmp_path: Path) -> None:
+    broken = _VALID_YAML.replace(
+        "scan_regex_patterns:\n  - '止损[位点价]'\n",
+        "scan_regex_patterns:\n  - ''\n  - '止损[位点价]'\n",
+    )
+    with pytest.raises(ValueError, match="scan_regex_patterns must contain only non-empty strings"):
         _load_zh_vocab(_write(tmp_path, broken))
 
 
@@ -65,7 +84,7 @@ def test_rejects_empty_prompt_only_terms(tmp_path: Path) -> None:
     broken = _VALID_YAML.replace(
         "prompt_only_terms:\n  - term: 目标价\n", "prompt_only_terms: []\n"
     )
-    with pytest.raises(ValueError, match="prompt_only_terms is empty"):
+    with pytest.raises(ValueError, match="prompt_only_terms must be a non-empty list"):
         _load_zh_vocab(_write(tmp_path, broken))
 
 

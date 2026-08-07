@@ -84,41 +84,64 @@ def _get_vocab_path() -> Path:
     return Path(override) if override else _DEFAULT_VOCAB_FILE
 
 
-def _validate_zh_vocab(vocab: _ZhVocab) -> None:
-    """Fail loudly on a config gap that would otherwise silently weaken the scan.
+def _require_non_empty_str_list(value: object, field_name: str) -> list[str]:
+    """Reject anything but a list of non-empty strings.
 
-    An empty scan_terms/scan_regex_patterns means fewer compiled patterns —
-    not a crash, not a false-everything match — so a bad edit that empties
-    one of these would ship a quietly-weaker compliance backstop with no
-    error anywhere near the mistake (PR #91 review). Also compiles every
-    regex pattern here so a malformed one fails at config load, not the
-    first time a report happens to hit it.
+    Guards specifically against a scalar string sneaking past a bare
+    ``not value`` emptiness check: a scalar is truthy and iterable, so
+    ``tuple("止损[位点价]")`` would silently character-split into single-char
+    "patterns" instead of raising (PR #91 re-review) — most single CJK
+    characters still compile as a (silently wrong) regex, so this would not
+    even fail loudly downstream.
     """
-    if not vocab.scan_terms:
-        raise ValueError("compliance_vocab.yml: scan_terms is empty")
-    if not vocab.scan_regex_patterns:
-        raise ValueError("compliance_vocab.yml: scan_regex_patterns is empty")
-    if not vocab.prompt_only_terms:
-        raise ValueError("compliance_vocab.yml: prompt_only_terms is empty")
-    if not vocab.context_scan_term:
-        raise ValueError("compliance_vocab.yml: context_scan_term is empty")
-    for pattern in vocab.scan_regex_patterns:
-        re.compile(pattern)
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"compliance_vocab.yml: {field_name} must be a non-empty list")
+    if not all(isinstance(item, str) and item for item in value):
+        raise ValueError(f"compliance_vocab.yml: {field_name} must contain only non-empty strings")
+    return value
 
 
 def _load_zh_vocab(path: Path | None = None) -> _ZhVocab:
-    """Load the Chinese-language compliance vocabulary from compliance_vocab.yml."""
+    """Load the Chinese-language compliance vocabulary from compliance_vocab.yml.
+
+    Fails loudly on a config gap that would otherwise silently weaken the
+    scan: an empty scan_terms/scan_regex_patterns means fewer compiled
+    patterns — not a crash, not a false-everything match — so a bad edit
+    that empties one of these would ship a quietly-weaker compliance
+    backstop with no error anywhere near the mistake (PR #91 review). Also
+    compiles every regex pattern here so a malformed one fails at config
+    load, not the first time a report happens to hit it.
+    """
     target = path or _get_vocab_path()
     with target.open(encoding="utf-8") as fh:
         raw = yaml.safe_load(fh)
-    vocab = _ZhVocab(
-        scan_terms=tuple(entry["term"] for entry in raw["scan_terms"]),
-        scan_regex_patterns=tuple(raw["scan_regex_patterns"]),
-        prompt_only_terms=tuple(entry["term"] for entry in raw["prompt_only_terms"]),
-        context_scan_term=raw["context_scan_term"],
+
+    scan_regex_patterns = _require_non_empty_str_list(
+        raw["scan_regex_patterns"], "scan_regex_patterns"
     )
-    _validate_zh_vocab(vocab)
-    return vocab
+    for pattern in scan_regex_patterns:
+        re.compile(pattern)
+    context_scan_term = raw["context_scan_term"]
+    if not isinstance(context_scan_term, str) or not context_scan_term:
+        raise ValueError("compliance_vocab.yml: context_scan_term must be a non-empty string")
+
+    scan_terms = tuple(entry["term"] for entry in raw["scan_terms"])
+    if not scan_terms or not all(isinstance(t, str) and t for t in scan_terms):
+        raise ValueError(
+            "compliance_vocab.yml: scan_terms must be a non-empty list of non-empty strings"
+        )
+    prompt_only_terms = tuple(entry["term"] for entry in raw["prompt_only_terms"])
+    if not prompt_only_terms or not all(isinstance(t, str) and t for t in prompt_only_terms):
+        raise ValueError(
+            "compliance_vocab.yml: prompt_only_terms must be a non-empty list of non-empty strings"
+        )
+
+    return _ZhVocab(
+        scan_terms=scan_terms,
+        scan_regex_patterns=tuple(scan_regex_patterns),
+        prompt_only_terms=prompt_only_terms,
+        context_scan_term=context_scan_term,
+    )
 
 
 _zh_vocab = _load_zh_vocab()

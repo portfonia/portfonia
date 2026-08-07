@@ -323,8 +323,9 @@ in any other language.
 - **Single footer disclaimer, no inline markers** (2026-06-08): the compliance
   base is the one bilingual disclaimer in the footer. The body carries NO
   per-sentence `[For information only…]` suffix and NO bracketed provenance tags
-  (the legacy market-data/news/analysis marker tags stripped by the regex at
-  `report_generator.py:1537`, or `[S#]`). The system prompt forbids the model from
+  (the legacy market-data/news/analysis marker tags stripped by
+  `report_generator._STRAY_TAGS`, sourced from `i18n_glossary.yml`'s
+  `legacy_removed_markers_zh`, or `[S#]`). The system prompt forbids the model from
   emitting them, and `_strip_markers` removes any that slip through. The scan
   backstop above does not depend on the suffix.
 

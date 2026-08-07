@@ -88,7 +88,29 @@ def test_rejects_template_missing_supported_locale(tmp_path: Path) -> None:
 )
 def test_rejects_empty_flat_list_field(tmp_path: Path, field: str) -> None:
     broken = re.sub(rf"^{field}:.*$", f"{field}: []", _VALID_YAML, flags=re.MULTILINE)
-    with pytest.raises(ValueError, match=f"{field} is empty"):
+    with pytest.raises(ValueError, match=f"{field} must be a non-empty list"):
+        load_i18n_glossary(_write(tmp_path, broken))
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["release_delay_terms_zh", "legacy_removed_markers_zh", "body_disclaimer_regex_terms_zh"],
+)
+def test_rejects_scalar_flat_list_field(tmp_path: Path, field: str) -> None:
+    """A scalar string (missing the YAML list brackets) must not silently
+    character-split via "|".join() (PR #91 re-review)."""
+    broken = re.sub(rf"^{field}:.*$", f"{field}: 政府停摆", _VALID_YAML, flags=re.MULTILINE)
+    with pytest.raises(ValueError, match=f"{field} must be a non-empty list"):
+        load_i18n_glossary(_write(tmp_path, broken))
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["release_delay_terms_zh", "legacy_removed_markers_zh", "body_disclaimer_regex_terms_zh"],
+)
+def test_rejects_empty_string_element_in_flat_list_field(tmp_path: Path, field: str) -> None:
+    broken = re.sub(rf"^{field}:.*$", f'{field}: ["", "政府停摆"]', _VALID_YAML, flags=re.MULTILINE)
+    with pytest.raises(ValueError, match=f"{field} must contain only non-empty strings"):
         load_i18n_glossary(_write(tmp_path, broken))
 
 

@@ -119,11 +119,22 @@ def _validate(raw: dict[str, Any], supported_locales: frozenset[str]) -> None:
                 f"i18n_glossary.yml: templates[{key!r}] is missing locale(s) {sorted(missing)}"
             )
     for field in _NON_EMPTY_LIST_FIELDS:
-        if not raw[field]:
+        value = raw[field]
+        # isinstance(..., list) first: a bare scalar string (e.g. a YAML edit
+        # that drops the "- " list-item dash) is iterable too, and "|".join()
+        # over it silently character-splits into alternations instead of
+        # raising — the exact footgun this validation exists to catch
+        # (PR #91 re-review). Same reasoning for rejecting "" elements: a
+        # ["", "投资建议"] list is non-empty but still yields a leading empty
+        # regex alternative once joined.
+        if not isinstance(value, list) or not value:
             raise ValueError(
-                f"i18n_glossary.yml: {field} is empty — this backstops a live "
-                f"regex/scan and an empty list would silently weaken or disable it"
+                f"i18n_glossary.yml: {field} must be a non-empty list — this "
+                f"backstops a live regex/scan and an empty or non-list value "
+                f"would silently weaken or disable it"
             )
+        if not all(isinstance(item, str) and item for item in value):
+            raise ValueError(f"i18n_glossary.yml: {field} must contain only non-empty strings")
     # body_disclaimer_regex_terms_zh entries contain regex syntax (alternation,
     # wildcards), unlike the two plain-literal lists — compile eagerly so a
     # malformed edit fails here, not the first time a report body hits it.
