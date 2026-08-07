@@ -342,6 +342,15 @@ in any other language.
 - **Next.js Turbopack + multipart**: Turbopack's `rewrites()` fails on
   `multipart/form-data` POST (ECONNRESET at proxy). Upload routes need a real
   Next.js API Route (`route.ts`) that manually forwards to the backend.
+- **`frontend/public/` must stay non-empty**: git doesn't track empty
+  directories; `frontend/Dockerfile`'s runner stage does
+  `COPY --from=builder /app/public ./public`, which fails hard if the
+  directory doesn't exist in the build context at all. Keep at least one
+  tracked file there (a `.gitkeep` is fine) even after removing every real
+  asset. (issue #100/#101 — this landed with PR #93 and sat undetected on
+  `main` through two more PRs, because production hadn't redeployed since;
+  `npm run dev`/`next build` don't care about a missing `public/`, only the
+  Docker multi-stage build does — see the Quality Gates gap noted below.)
 
 ## Architecture
 
@@ -561,6 +570,15 @@ Final gates (CI also enforces):
 - Format check passes (non-mutating).
 - All tests pass.
 - No `any` / `Any`, no non-null assertions, no unused exports.
+
+**Gap this doesn't cover**: none of the above actually builds the Docker
+images. A change that only breaks `docker build` (e.g. deleting the last
+file in `frontend/public/` — see the regression note above) passes every
+gate here and still fails at deploy time, silently, until someone actually
+redeploys. When a change touches `frontend/public/`, either `Dockerfile`,
+or `docker-compose.yml`, run a real `docker build`/`docker compose build`
+before pushing — `npm run dev`/`next build` do not exercise the same path
+and will not catch this class of bug.
 
 ## CI-First Protocol (MANDATORY)
 
