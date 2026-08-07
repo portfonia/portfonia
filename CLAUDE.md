@@ -415,14 +415,13 @@ remote command finished — verify by checking the actual resulting state
 (containers running, files present), not just the shell's reported exit
 status.
 
-**Trigger phrase "deploy to production" (zh-Hans: 生产部署 — canonical entry:
-`trigger_phrases` in `i18n_glossary.yml`), or an unambiguous equivalent
-explicit deploy request, means execute this procedure** (established
-2026-08-06, after the first successful full-stack deploy). The human
-workflow ends at PR merge to `main` (branch → implement → test → PR →
-review → fix → merge, all local); "deploy to production" (生产部署) is the
-one additional step that ships a merged `main` to the
-production server:
+**An explicit, unambiguous request to deploy the currently-merged `main` to
+production — in whatever language or phrasing the requester uses — means
+execute this procedure** (established 2026-08-06, after the first
+successful full-stack deploy). The human workflow ends at PR merge to
+`main` (branch → implement → test → PR → review → fix → merge, all local);
+production deployment is the one additional step that ships a merged `main`
+to the production server:
 
 1. Sanity-check local `main` is clean and matches `origin/main` (don't
    deploy stale/uncommitted state).

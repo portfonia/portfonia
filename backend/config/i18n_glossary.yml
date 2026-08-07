@@ -62,12 +62,6 @@ ta_observation_terms:
   death-cross:
     zh-Hans: 死叉
 
-trigger_phrases:
-  # Chat-level phrases a session recognizes as an explicit instruction; not
-  # matched by any code path. See CLAUDE.md "Three-layer deployment flow".
-  deploy-to-production:
-    zh-Hans: 生产部署
-
 vendor_names:
   # Proper nouns for external data vendors with no established EN brand name.
   "Tiantian Fund":

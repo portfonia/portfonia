@@ -44,7 +44,6 @@ class I18nGlossary:
     report_glossary: dict[str, dict[str, str]]
     forbidden_renderings: dict[str, dict[str, str]]
     ta_observation_terms: dict[str, dict[str, str]]
-    trigger_phrases: dict[str, dict[str, str]]
     vendor_names: dict[str, dict[str, str]]
 
     def term(self, section: dict[str, dict[str, str]], key: str, locale: str) -> str:
@@ -78,6 +77,5 @@ def load_i18n_glossary(path: Path | None = None) -> I18nGlossary:
         report_glossary=raw["report_glossary"],
         forbidden_renderings=raw["forbidden_renderings"],
         ta_observation_terms=raw["ta_observation_terms"],
-        trigger_phrases=raw["trigger_phrases"],
         vendor_names=raw["vendor_names"],
     )
