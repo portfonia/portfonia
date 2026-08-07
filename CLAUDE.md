@@ -373,6 +373,35 @@ It belongs to a different project and sits in its own isolated network. See
 the Obsidian doc to identify it if you need to confirm you're not touching
 it.
 
+### Env-only sync to production (no code change involved)
+
+**An explicit request to push `.env` changes (secret rotation, config value
+change) to the server without an accompanying code change is a separate,
+smaller procedure from the code-deploy flow above** — established
+2026-08-06, first used to roll out a rotated Resend key:
+
+1. `scp` the local `.env.production` to the server's `.env` (path from the
+   Obsidian doc) — `git pull` is irrelevant here, `.env` never travels
+   through Git.
+2. **`docker compose restart <service>` does NOT reload `env_file` values**
+   — Compose only re-reads `env_file` when a container is *recreated*, not
+   on a plain restart of an existing one. Recreate explicitly:
+   `docker compose up -d --force-recreate <services>` — target only the
+   services that actually declare `env_file: .env` in `docker-compose.yml`
+   (currently `backend`, `celery-worker`, `celery-beat`; `frontend`/`caddy`
+   don't and shouldn't be touched for an env-only change — minimal blast
+   radius).
+3. If the code-deploy procedure above (`docker compose up -d --build`) is
+   running concurrently on the server, wait for it to finish before doing
+   this — both operate on the same `docker compose` project and can race
+   (`--force-recreate` on the same containers a build is replacing).
+4. Verify: `curl https://api.portfonia.com/health`, then a real functional
+   check of whatever changed (e.g. for an email-provider key rotation, exec
+   into the `backend` container and send a real test message through the
+   actual send path — don't just trust a 0 exit code from a function that
+   swallows its own exceptions and logs to a stream `docker compose exec`
+   won't show you; print the provider's raw HTTP response instead).
+
 ## Secrets and Configuration
 
 - `.env` files are **never** committed. Enforce via `.gitignore` from day one.
