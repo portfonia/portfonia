@@ -28,6 +28,18 @@ export function HomeNav() {
           >
             {t.nav.how}
           </a>
+          <a
+            href="#preview"
+            className="hidden text-sm text-foreground/70 hover:text-foreground sm:inline"
+          >
+            {t.nav.preview}
+          </a>
+          <a
+            href="#faq"
+            className="hidden text-sm text-foreground/70 hover:text-foreground sm:inline"
+          >
+            {t.nav.faq}
+          </a>
           <label className="sr-only" htmlFor="locale-select">
             {t.nav.language}
           </label>
@@ -38,7 +50,7 @@ export function HomeNav() {
             className="rounded-md border border-white/10 bg-transparent px-2 py-1.5 text-sm text-foreground/80"
           >
             {locales.map((l) => (
-              <option key={l.value} value={l.value} className="text-black">
+              <option key={l.value} value={l.value}>
                 {l.label}
               </option>
             ))}

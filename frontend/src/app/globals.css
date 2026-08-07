@@ -57,9 +57,9 @@
 
 :root {
   /* Brand accent + confidence-label tiers (issue #94) — light-mode values,
-     tuned for contrast on a white ground. The dark-mode values in .dark
-     below are the ones the researched Edgen-informed homepage actually
-     uses; these exist so the tokens aren't dark-only. */
+     tuned for contrast on a white ground. Unused while the app renders dark
+     by default (`<html class="dark">` in layout.tsx, PR B / issue #94); kept
+     so the tokens aren't dark-only if a light mode returns later. */
   --brand: #9c7a2e;
   --brand-foreground: #fffaf0;
   --tier-established: #1f8a5f;
@@ -88,7 +88,10 @@
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
+  /* 0.75rem (not shadcn's 0.625rem default) is the approved homepage value
+     (issue #94), promoted to the shared default in PR B once the whole app
+     went dark — no longer scoped locally via HomeShell's inline override. */
+  --radius: 0.75rem;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
@@ -100,8 +103,9 @@
 }
 
 .dark {
-  /* Approved 2026-08-07 homepage direction (issue #94), not shadcn's
-     scaffold gray defaults — see Obsidian design doc "首页/欢迎页方向决定". */
+  /* Approved 2026-08-07 dark direction (issue #94), not shadcn's scaffold
+     gray defaults — see Obsidian design doc "首页/欢迎页方向决定". Originally
+     homepage-only; applied app-wide (`<html class="dark">`) as of PR B. */
   --brand: #dcaa4a;
   --brand-foreground: #050f13;
   --tier-established: #5fbe8b;
@@ -149,6 +153,10 @@
   }
   html {
     @apply font-sans;
+    /* App is dark by default (PR B, issue #94) — tells native widgets
+       (scrollbars, form controls, date pickers) to render dark instead of
+       the browser's light UA default. */
+    color-scheme: dark;
   }
 }
 
