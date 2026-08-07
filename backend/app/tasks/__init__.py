@@ -125,6 +125,15 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "task": "app.tasks.capture_tasks.capture_fund_navs_task",
         "schedule": crontab(hour=20, minute=0, day_of_week="mon-fri", nowfun=_NowIn(CST)),
     },
+    # Stuck-pending UploadJob backstop (issue #85): a plain interval, not a
+    # crontab — this is a fast, always-on sweep, not a market-session-timed
+    # one. 30s keeps the sweeper's own detection lag small relative to the
+    # 60s stale threshold (holdings_tasks._SWEEP_STALE_AFTER_SECONDS) it's
+    # backstopping.
+    "sweep-stale-upload-jobs": {
+        "task": "app.tasks.holdings_tasks.sweep_stale_upload_jobs",
+        "schedule": 30.0,
+    },
 }
 _beat_schedule.update(_build_report_schedule())
 _beat_schedule.update(_build_capture_schedule())

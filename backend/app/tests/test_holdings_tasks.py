@@ -194,10 +194,171 @@ def test_parse_holdings_upload_missing_job_returns_early(mock_session_cls: Magic
 
 
 def test_parse_holdings_upload_has_time_limits() -> None:
-    """PR #82 review: an explicit ceiling above the worst case (2 attempts x
-    20s client timeout — issue #84) so a hang outside that path can't hold a
-    prefork worker slot indefinitely."""
-    from app.tasks.holdings_tasks import parse_holdings_upload
+    """Issue #85: time_limit is pinned to the 45s product SLA (down from the
+    90s ceiling PR #82 set for the old, much slower model); soft_time_limit
+    leaves the task a 10s head start to self-report before the hard kill."""
+    from app.tasks.holdings_tasks import _SLA_SECONDS, parse_holdings_upload
 
-    assert parse_holdings_upload.soft_time_limit == 75
-    assert parse_holdings_upload.time_limit == 90
+    assert _SLA_SECONDS == 45
+    assert parse_holdings_upload.time_limit == 45
+    assert parse_holdings_upload.soft_time_limit == 35
+
+
+@patch("app.core.database.SessionLocal")
+def test_task_revoked_handler_marks_job_failed_on_terminated(mock_session_cls: MagicMock) -> None:
+    """Issue #85: a hard time_limit kill is a SIGKILL the task's own
+    except/finally never sees — the task_revoked handler, running in the
+    Celery MainProcess (which survives the kill), is what resolves the job
+    in that case."""
+    job_id = uuid.uuid4()
+    job = _make_job(job_id)
+    mock_session = MagicMock()
+    mock_session.get.return_value = job
+    mock_session_cls.return_value = mock_session
+
+    from app.tasks.holdings_tasks import _mark_revoked_job_failed
+
+    request = MagicMock()
+    request.args = (str(job_id),)
+    request.kwargs = {}
+
+    _mark_revoked_job_failed(request=request, terminated=True, signum=9)
+
+    assert job.status == "failed"
+    assert job.raw_text is None
+    assert "signal 9" in job.error
+    mock_session.commit.assert_called_once()
+    mock_session.close.assert_called_once()
+
+
+@patch("app.core.database.SessionLocal")
+def test_task_revoked_handler_reads_job_id_from_kwargs(mock_session_cls: MagicMock) -> None:
+    """.delay(job_id) passes it positionally today, but the handler must not
+    assume that — reading from request.kwargs as a fallback keeps it correct
+    if the call site ever switches to a keyword argument."""
+    job_id = uuid.uuid4()
+    job = _make_job(job_id)
+    mock_session = MagicMock()
+    mock_session.get.return_value = job
+    mock_session_cls.return_value = mock_session
+
+    from app.tasks.holdings_tasks import _mark_revoked_job_failed
+
+    request = MagicMock()
+    request.args = ()
+    request.kwargs = {"job_id": str(job_id)}
+
+    _mark_revoked_job_failed(request=request, terminated=True, signum=9)
+
+    assert job.status == "failed"
+
+
+@patch("app.core.database.SessionLocal")
+def test_task_revoked_handler_ignores_non_terminated_revocation(
+    mock_session_cls: MagicMock,
+) -> None:
+    """terminated=False means the task was pulled off the queue before it
+    ever ran — nothing was written, so there's nothing to clean up."""
+    from app.tasks.holdings_tasks import _mark_revoked_job_failed
+
+    _mark_revoked_job_failed(request=MagicMock(), terminated=False, signum=None)
+
+    mock_session_cls.assert_not_called()
+
+
+@patch("app.core.database.SessionLocal")
+def test_task_revoked_handler_ignores_missing_request(mock_session_cls: MagicMock) -> None:
+    from app.tasks.holdings_tasks import _mark_revoked_job_failed
+
+    _mark_revoked_job_failed(request=None, terminated=True, signum=9)
+
+    mock_session_cls.assert_not_called()
+
+
+@patch("app.core.database.SessionLocal")
+def test_task_revoked_signal_dispatches_only_for_parse_holdings_upload(
+    mock_session_cls: MagicMock,
+) -> None:
+    """The handler is registered with sender=parse_holdings_upload (issue
+    #85) so it must not fire for another task's revocation sharing the same
+    Celery app — asserted via the real signal dispatch, not by calling the
+    handler function directly, since that's the part a sender-scoping bug
+    would actually break."""
+    from celery.signals import task_revoked  # type: ignore[import-untyped]
+
+    from app.tasks.holdings_tasks import parse_holdings_upload
+    from app.tasks.report_tasks import generate_incremental_report
+
+    request = MagicMock()
+    request.args = (str(uuid.uuid4()),)
+    request.kwargs = {}
+
+    task_revoked.send(
+        sender=generate_incremental_report, request=request, terminated=True, signum=9
+    )
+    mock_session_cls.assert_not_called()
+
+    task_revoked.send(sender=parse_holdings_upload, request=request, terminated=True, signum=9)
+    mock_session_cls.assert_called_once()
+
+
+@patch("app.core.database.SessionLocal")
+def test_sweep_stale_upload_jobs_marks_stuck_pending_rows_failed(
+    mock_session_cls: MagicMock,
+) -> None:
+    """Backstop for cases the task_revoked handler itself misses (issue
+    #85): a stale-pending row past the sweep threshold gets resolved the
+    same way (failed + raw_text cleared)."""
+    stale_id = uuid.uuid4()
+    stale_row = MagicMock()
+    stale_row.id = stale_id
+    mock_session = MagicMock()
+    mock_session.query.return_value.filter.return_value.all.return_value = [stale_row]
+    stale_job = _make_job(stale_id, raw_text="leftover holdings text", status="pending")
+    mock_session.get.return_value = stale_job
+    mock_session_cls.return_value = mock_session
+
+    from app.tasks.holdings_tasks import sweep_stale_upload_jobs
+
+    result = sweep_stale_upload_jobs.run()
+
+    assert result == {"swept": 1}
+    assert stale_job.status == "failed"
+    assert stale_job.raw_text is None
+    assert stale_job.error is not None
+
+
+@patch("app.core.database.SessionLocal")
+def test_sweep_stale_upload_jobs_no_stale_rows_is_a_noop(mock_session_cls: MagicMock) -> None:
+    mock_session = MagicMock()
+    mock_session.query.return_value.filter.return_value.all.return_value = []
+    mock_session_cls.return_value = mock_session
+
+    from app.tasks.holdings_tasks import sweep_stale_upload_jobs
+
+    result = sweep_stale_upload_jobs.run()
+
+    assert result == {"swept": 0}
+    mock_session.commit.assert_not_called()
+
+
+@patch("app.core.database.SessionLocal")
+def test_sweep_stale_upload_jobs_skips_row_already_resolved(mock_session_cls: MagicMock) -> None:
+    """Race guard: the sweeper's own query and its per-row resolve open
+    separate sessions, so a row the task_revoked handler already resolved
+    in between must be left untouched rather than overwritten."""
+    resolved_id = uuid.uuid4()
+    resolved_row = MagicMock()
+    resolved_row.id = resolved_id
+    mock_session = MagicMock()
+    mock_session.query.return_value.filter.return_value.all.return_value = [resolved_row]
+    already_resolved_job = _make_job(resolved_id, raw_text=None, status="success")
+    mock_session.get.return_value = already_resolved_job
+    mock_session_cls.return_value = mock_session
+
+    from app.tasks.holdings_tasks import sweep_stale_upload_jobs
+
+    result = sweep_stale_upload_jobs.run()
+
+    assert result == {"swept": 0}
+    mock_session.commit.assert_not_called()

@@ -26,15 +26,15 @@ class UploadJob(Base):
     Ring 0 (single dev user, small row count); revisit before Ring 1 if
     `upload_jobs` grows unbounded (PR #82 review).
 
-    Known gap, accepted for Ring 0 (PR #82 second review — tracked in issue
-    #83, not fixed here): a row can get stuck at `status="pending"` forever
-    with `raw_text` still populated if the worker never picks up the task
-    (down after a successful enqueue) or is hard-killed by the Celery
-    `time_limit` before `finally` runs. The frontend's 120s poll deadline
-    stops the *user* from waiting forever, but the row and its leftover
-    plaintext holdings text are untouched server-side. No ops sweep/age-out
-    exists yet — see issue #83 for direction (a periodic sweeper marking
-    stale-pending rows failed and clearing raw_text is the leading option).
+    A row stuck at `status="pending"` forever with `raw_text` still
+    populated (worker hard-killed by Celery's `time_limit` before `finally`
+    runs, an OS-level SIGKILL invisible to the task's own exception
+    handling) is resolved two ways (issue #85): a `task_revoked` signal
+    handler in the Celery MainProcess (`app/tasks/holdings_tasks.py`,
+    fires as soon as the kill happens), backstopped by a periodic sweeper
+    task (`sweep_stale_upload_jobs`) for cases the handler itself misses.
+    The frontend's 120s poll deadline is a separate, pre-existing guard that
+    stops the *user* from waiting forever regardless of server-side state.
     """
 
     __tablename__ = "upload_jobs"

@@ -114,12 +114,13 @@ export async function listHoldings(): Promise<HoldingOut[]> {
 const UPLOAD_POLL_START_MS = 500;
 const UPLOAD_POLL_MAX_MS = 2000;
 const UPLOAD_POLL_BACKOFF_FACTOR = 1.5;
-// Worst-case parse is ~60s (3 attempts x 20s client timeout, holding_parser.py)
-// plus Celery queue time; 120s gives headroom before treating a stuck
-// "pending" job (worker down, broker connection lost after enqueue, worker
-// crash before it could write status) as a hard failure instead of polling
-// forever — a real local-dev failure mode (API up, worker not) and a
-// production ops failure mode.
+// The backend now bounds a stuck job itself: parse_holdings_upload's Celery
+// time_limit is pinned to a 45s SLA, backstopped by a sweeper that resolves
+// any row still stuck "pending" within a further ~30-60s if that hard kill
+// happens to slip past the task_revoked handler too (issue #85). 120s stays
+// a generous outer bound on top of that for failure modes the backend-side
+// fix doesn't cover at all — worker down or broker connection lost before
+// the job ever got picked up — not a bound on the parse itself.
 const UPLOAD_MAX_WAIT_MS = 120_000;
 
 async function startUploadJob(file: File): Promise<UploadJob> {
