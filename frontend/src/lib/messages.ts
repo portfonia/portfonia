@@ -4,6 +4,9 @@
 // English only for now; add a `zh` map with the same shape when needed.
 
 export const messages = {
+  common: {
+    brandName: "Portfonia",
+  },
   holdings: {
     pageTitle: "Holdings",
     pageSubtitle: "Upload a file to import your holdings. Review, then save.",
