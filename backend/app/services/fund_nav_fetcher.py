@@ -1,4 +1,4 @@
-"""Fetch public mutual fund NAV from 天天基金 and persist to holdings / price_snapshots.
+"""Fetch public mutual fund NAV from Tiantian Fund and persist to holdings / price_snapshots.
 
 Two data paths:
   1. Realtime (latest settled NAV) — used by update_fund_navs to keep
@@ -31,11 +31,11 @@ from app.services.price_fetcher import PriceFetchResult
 
 logger = logging.getLogger(__name__)
 
-# 天天基金 realtime endpoint (JSONP); extracts the latest official settled NAV.
+# Tiantian Fund realtime endpoint (JSONP); extracts the latest official settled NAV.
 _NAV_URL = "https://fundgz.1234567.com.cn/js/{fund_code}.js"
 _JSONP_RE = re.compile(r"jsonpgz\((\{.*\})\);?", re.DOTALL)
 
-# 天天基金 historical NAV list endpoint.
+# Tiantian Fund historical NAV list endpoint.
 # Returns JSON: {"Data": {"LSJZList": [{"FSRQ": "YYYY-MM-DD", "DWJZ": "1.2345"}, ...]}}
 _LSJZ_URL = (
     "http://api.fund.eastmoney.com/f10/lsjz"
@@ -164,7 +164,7 @@ def fetch_nav_history(
 def update_fund_navs(session: Session) -> PriceFetchResult:
     """
     Load all auto-mode holdings with a fund_code, fetch NAVs from
-    天天基金, and write market_price / price_as_of / price_fetched_at.
+    Tiantian Fund, and write market_price / price_as_of / price_fetched_at.
     """
     result = PriceFetchResult()
 

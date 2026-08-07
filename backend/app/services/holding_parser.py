@@ -386,7 +386,7 @@ def _row_cost_basis(row: ParsedRow) -> float | None:
 
 
 def _summarize(rows: list[ParsedRow]) -> list[BrokerGroup]:
-    """Per-broker (持仓机构) cross-check summary in upload order.
+    """Per-broker (Custodian) cross-check summary in upload order.
 
     Mirrors §1's grouping: brokers appear in first-seen order, broker-less rows
     fall under "Other". Cost basis is split by currency so a mixed-currency

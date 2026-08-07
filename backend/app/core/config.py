@@ -154,6 +154,10 @@ class Settings(BaseSettings):
     # Empty string = use the default path: backend/config/asset_class_thresholds.yml
     ASSET_CLASS_CONFIG_PATH: str = ""
 
+    # Locale-keyed glossary of fixed non-English terms (#90)
+    # Empty string = use the default path: backend/config/i18n_glossary.yml
+    I18N_GLOSSARY_PATH: str = ""
+
     @property
     def database_url(self) -> str:
         return (

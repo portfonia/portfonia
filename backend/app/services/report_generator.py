@@ -50,6 +50,7 @@ from app.services.email_sender import send_ops_alert, send_report_email
 from app.services.forward_events import load_forward_events
 from app.services.github_issues import create_bug_report
 from app.services.holding_news import recall_holding_news
+from app.services.i18n_glossary import load_i18n_glossary, locale_for_output_lang
 from app.services.macro_detector import MacroSignals, detect_macro_signals
 from app.services.news_fetcher import NewsItem
 from app.services.portfolio_calculator import PortfolioSnapshot, compute_portfolio
@@ -1449,11 +1450,12 @@ _HK_RE = re.compile(r"^\d{4}\.HK$", re.IGNORECASE)
 def _stale_ticker_hint(identifier: str) -> str:
     """Return an annotated string for a stale identifier to prevent LLM misclassification.
 
-    Without annotation, 6-digit fund codes (e.g. 005827 = 易方达蓝筹精选) get
-    misidentified as Korea Exchange listings by the LLM.
+    Without annotation, 6-digit fund codes (e.g. a real CN mutual fund code
+    like 005827) get misidentified as Korea Exchange listings by the LLM.
     """
     if _FUND_CODE_RE.match(identifier):
-        return f"{identifier} (CN mutual fund code / 天天基金)"
+        vendor = load_i18n_glossary().vendor_names["Tiantian Fund"]["zh-Hans"]
+        return f"{identifier} (CN mutual fund code / Tiantian Fund, {vendor})"
     if _A_SHARE_RE.match(identifier):
         return f"{identifier} (A-share / Shanghai or Shenzhen)"
     if _HK_RE.match(identifier):
@@ -1503,7 +1505,7 @@ def _build_footer(portfolio: dict[str, Any]) -> str:
         "## Data Sources & Disclaimer / 数据来源与免责声明",
         "",
         "**Data sources:** Equity/ETF prices — yfinance (end-of-day session closes, "
-        "US/HK/CN exchanges). Fund NAV — 天天基金 (Tiantian). "
+        "US/HK/CN exchanges). Fund NAV — Tiantian Fund. "
         "News — RSS feeds (Reuters, CNBC, Google News Business). "
         f"Exchange rates — yfinance daily closes as of {fx_date}; "
         f"all portfolio valuations converted to {base_ccy}. "
@@ -1689,6 +1691,28 @@ _TRANSLATION_PACING_SECONDS = 2.0
 _BYOK_PROVIDER_ORDER = ["DeepSeek"]
 
 
+def _build_glossary_instruction(target_lang: str) -> str:
+    """Build the LLM glossary-instruction suffix for *target_lang* from i18n_glossary.yml.
+
+    Returns "" for a locale with no glossary entry (mirrors the previous
+    hardcoded dict's `.get(target_lang, "")` fallback).
+    """
+    locale = locale_for_output_lang(target_lang)
+    glossary = load_i18n_glossary()
+    if locale not in glossary.supported_locales:
+        return ""
+    pairs = "; ".join(
+        f'"{en}" -> "{translations[locale]}"'
+        for en, translations in glossary.report_glossary.items()
+    )
+    forbidden = "; ".join(
+        f'"{translations[locale]}"' for translations in glossary.forbidden_renderings.values()
+    )
+    return (
+        f" Use this exact glossary for fixed terms: {pairs}. Never render any word as {forbidden}."
+    )
+
+
 def _translate_md(md: str, target_lang: str) -> str:
     """Translate an assembled report to *target_lang* (#8).
 
@@ -1703,17 +1727,7 @@ def _translate_md(md: str, target_lang: str) -> str:
     if target_lang == "en":
         return md
     lang_name = {"zh": "Simplified Chinese"}.get(target_lang, target_lang)
-    glossary = {
-        "zh": (
-            ' Use this exact glossary for fixed terms: "Portfonia Financial Analysis '
-            'Report" -> "Portfonia 财经分析报告"; "financial analysis briefing" -> '
-            '"财经分析简报"; "Portfolio Snapshot" -> "投资组合快照"; "Holdings Analysis" '
-            '-> "持仓分析"; "Custodian" -> "持仓机构"; "Macro Signals" -> "宏观信号"; '
-            '"Risk Radar" -> "风险雷达"; "[Established]" -> "[确定]"; '
-            '"[Probable]" -> "[较可能]"; "[Speculative]" -> "[推测]". '
-            'Never render any word as "智能".'
-        )
-    }.get(target_lang, "")
+    glossary = _build_glossary_instruction(target_lang)
     settings = get_settings()
     system = (
         "You are a professional financial translator. Translate the user's Markdown "

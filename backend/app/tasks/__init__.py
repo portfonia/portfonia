@@ -118,7 +118,7 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "task": "app.tasks.capture_tasks.capture_fx_task",
         "schedule": crontab(hour=16, minute=5, day_of_week="mon-fri"),
     },
-    # Fund NAV (天天基金): settled NAV for fund_code holdings is published by
+    # Fund NAV (Tiantian Fund): settled NAV for fund_code holdings is published by
     # the fund manager after A-share close (usually same evening). 20:00 CST
     # gives enough buffer; idempotent upsert in price_snapshots.
     "capture-fund-navs-daily": {

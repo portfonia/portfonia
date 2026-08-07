@@ -1,0 +1,74 @@
+# Single source of truth for every fixed non-English term this system
+# renders, forbids, or matches on (issue #90). English-only prose (CLAUDE.md,
+# docstrings, comments) references terms by their EN key here instead of
+# embedding literal CJK characters inline.
+#
+# Schema is locale-keyed (BCP-47-style tags), not zh-only: each term maps
+# EN -> {locale: translation}. `supported_locales` below is the closed set
+# the loader validates against — requesting an unlisted locale raises rather
+# than silently falling back (same discipline as asset_class_thresholds.yml's
+# closed taxonomy). Only zh-Hans is populated today; zh-Hant/fr/es are
+# reserved key space for when a second output language actually ships — do
+# not fill them with an unreviewed machine translation. Adding a locale is
+# two steps: (1) add real, human-verified translations here, (2) extend
+# `_OUTPUT_LANG_TO_LOCALE` in app/services/i18n_glossary.py.
+#
+# app/compliance/forbidden_vocab.py is the separate, existing single source
+# of truth for the compliance-scan forbidden-vocabulary regex patterns
+# (hand-tuned context-aware matching, e.g. 止损) — not duplicated here.
+
+supported_locales: [zh-Hans]
+
+report_glossary:
+  # Fixed EN -> locale nouns the translation pass (report_generator._translate_md)
+  # renders exactly; loaded to build the LLM's glossary instruction.
+  "Portfonia Financial Analysis Report":
+    zh-Hans: Portfonia 财经分析报告
+  "financial analysis briefing":
+    zh-Hans: 财经分析简报
+  "Portfolio Snapshot":
+    zh-Hans: 投资组合快照
+  "Holdings Analysis":
+    zh-Hans: 持仓分析
+  "Custodian":
+    zh-Hans: 持仓机构
+  "Macro Signals":
+    zh-Hans: 宏观信号
+  "Risk Radar":
+    zh-Hans: 风险雷达
+  "[Established]":
+    zh-Hans: "[确定]"
+  "[Probable]":
+    zh-Hans: "[较可能]"
+  "[Speculative]":
+    zh-Hans: "[推测]"
+
+forbidden_renderings:
+  # Terms the translation pass must never use, regardless of target locale.
+  "Intelligence":
+    zh-Hans: 智能
+
+ta_observation_terms:
+  # Explicitly allowed (non-advisory) technical-observation vocabulary.
+  # Regression-locked in test_report_generator.py. Distinct from
+  # forbidden_vocab.py's Layer-4 *forbidden* set — this is the separate
+  # *allowed* set §4.4 is permitted to use.
+  support:
+    zh-Hans: 支撑位
+  resistance:
+    zh-Hans: 阻力位
+  golden-cross:
+    zh-Hans: 金叉
+  death-cross:
+    zh-Hans: 死叉
+
+trigger_phrases:
+  # Chat-level phrases a session recognizes as an explicit instruction; not
+  # matched by any code path. See CLAUDE.md "Three-layer deployment flow".
+  deploy-to-production:
+    zh-Hans: 生产部署
+
+vendor_names:
+  # Proper nouns for external data vendors with no established EN brand name.
+  "Tiantian Fund":
+    zh-Hans: 天天基金

@@ -20,6 +20,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.services import report_generator as rg
+from app.services.i18n_glossary import load_i18n_glossary
 from app.services.macro_detector import MacroSignals, ThemeHit
 from app.services.news_fetcher import NewsItem
 from app.services.portfolio_calculator import (
@@ -681,8 +682,9 @@ def test_regenerate_analyze_reruns_pass2_from_stored_intel(db_session: Session) 
 
 
 def test_stale_ticker_hint_fund_code() -> None:
+    vendor_zh = load_i18n_glossary().vendor_names["Tiantian Fund"]["zh-Hans"]
     assert "CN mutual fund" in rg._stale_ticker_hint("005827")
-    assert "天天基金" in rg._stale_ticker_hint("005827")
+    assert vendor_zh in rg._stale_ticker_hint("005827")
     assert "005827" in rg._stale_ticker_hint("005827")
 
 
@@ -1041,15 +1043,13 @@ def test_scan_allows_ta_observation_vocabulary() -> None:
     # Descriptive TA terms (where price sits) are observation language, not advice.
     # The Layer-3 prompt and disclaimer cover the advisory boundary — the scan
     # backstop is reserved for direct action/recommendation language only.
+    zh_ta_terms = [t["zh-Hans"] for t in load_i18n_glossary().ta_observation_terms.values()]
     for phrase in (
         "support level",
         "resistance level",
         "golden cross",
         "breakout",
-        "支撑位",
-        "阻力位",
-        "金叉",
-        "死叉",
+        *zh_ta_terms,
     ):
         assert rg._scan_forbidden_output(f"the {phrase} held") == [], (
             f"unexpectedly flagged: {phrase!r}"
