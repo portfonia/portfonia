@@ -153,6 +153,10 @@
   }
   html {
     @apply font-sans;
+    /* App is dark by default (PR B, issue #94) — tells native widgets
+       (scrollbars, form controls, date pickers) to render dark instead of
+       the browser's light UA default. */
+    color-scheme: dark;
   }
 }
 

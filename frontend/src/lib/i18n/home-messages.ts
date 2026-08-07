@@ -102,7 +102,7 @@ export const homeMessages: Record<Locale, HomeMessages> = {
         { label: "A-Share", pct: 15 },
         { label: "Cash & FX", pct: 13 },
         { label: "Gold", pct: 7 },
-        { label: "Fund", pct: 5 },
+        { label: "Bond Fund", pct: 5 },
       ],
       highlights: [
         {
@@ -114,7 +114,7 @@ export const homeMessages: Record<Locale, HomeMessages> = {
           tier: "probable",
         },
       ],
-      calendarChip: "Forward calendar: FOMC decision in 3 days",
+      calendarChip: "Forward calendar flags events like FOMC decisions ahead of time",
     },
     boundary: {
       heading: "Deliberately out of scope",
@@ -138,7 +138,7 @@ export const homeMessages: Record<Locale, HomeMessages> = {
         },
         {
           q: "Is my holdings data safe?",
-          a: "Holdings are encrypted at rest. LLM calls run with training-data collection denied by default, and each call only sees the data a given report actually needs — never the whole portfolio wholesale.",
+          a: "Not yet encrypted at rest — that's planned before any public rollout. Today: LLM calls run with training-data collection denied by default, and each call only sees the data a given report actually needs — never the whole portfolio wholesale.",
         },
         {
           q: "Which markets and holdings does it support?",
@@ -212,7 +212,7 @@ export const homeMessages: Record<Locale, HomeMessages> = {
         { label: "A股", pct: 15 },
         { label: "现金与外汇", pct: 13 },
         { label: "黄金", pct: 7 },
-        { label: "基金", pct: 5 },
+        { label: "债券基金", pct: 5 },
       ],
       highlights: [
         {
@@ -224,7 +224,7 @@ export const homeMessages: Record<Locale, HomeMessages> = {
           tier: "probable",
         },
       ],
-      calendarChip: "前瞻日历：3 天后有 FOMC 议息决议",
+      calendarChip: "前瞻日历会提前标注 FOMC 议息决议这类宏观事件",
     },
     boundary: {
       heading: "明确不做的事",
@@ -248,7 +248,7 @@ export const homeMessages: Record<Locale, HomeMessages> = {
         },
         {
           q: "我的持仓数据安全吗？",
-          a: "持仓数据静态加密存储。LLM 调用默认禁止被用作训练数据，且每次只发送当次报告实际需要的范围——不会把完整持仓整体发给第三方。",
+          a: "目前尚未静态加密存储——这是公开上线前会补上的一项。现状：LLM 调用默认禁止被用作训练数据，且每次只发送当次报告实际需要的范围——不会把完整持仓整体发给第三方。",
         },
         {
           q: "支持哪些市场和持仓类型？",

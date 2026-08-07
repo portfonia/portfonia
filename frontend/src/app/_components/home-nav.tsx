@@ -50,7 +50,7 @@ export function HomeNav() {
             className="rounded-md border border-white/10 bg-transparent px-2 py-1.5 text-sm text-foreground/80"
           >
             {locales.map((l) => (
-              <option key={l.value} value={l.value} className="text-black">
+              <option key={l.value} value={l.value}>
                 {l.label}
               </option>
             ))}
