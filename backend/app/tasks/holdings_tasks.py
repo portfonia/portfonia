@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from celery.signals import task_revoked  # type: ignore[import-untyped]
+from celery.worker.request import Request as _CeleryRequest  # type: ignore[import-untyped]
 
 from app.tasks import celery_app
 
@@ -21,19 +22,65 @@ logger = logging.getLogger(__name__)
 _SLA_SECONDS = 45
 
 
+class _UploadJobRequest(_CeleryRequest):  # type: ignore[misc]
+    """Resolves the UploadJob row from inside Celery's own hard-timeout
+    handling, in the MainProcess, at the moment the kill is detected
+    (issue #85 PR #88 review).
+
+    Verified against the installed celery==5.6.3 source
+    (celery/worker/request.py): the hard time_limit path calls
+    Request.on_timeout(soft=False, ...), which only logs and writes to
+    Celery's own result backend (Redis) — it never sends task_revoked.
+    task_revoked is only emitted by Request.terminate(), which fires from an
+    explicit admin `revoke(terminate=True)` control command, not
+    automatically from a time_limit kill. That made the task_revoked handler
+    below dead code for the exact SIGKILL scenario issue #85 is about — only
+    the sweeper (tens of seconds later) was ever actually resolving those
+    rows, silently missing the "fires as soon as the kill happens" goal.
+
+    Task.Request is Celery's documented per-task customization point
+    (celery/app/task.py's Task.Request default, resolved per-task by
+    celery/worker/strategy.py via `symbol_by_name(task.Request)`) — this
+    overrides it for parse_holdings_upload only, wired via the `Request=`
+    kwarg on its @celery_app.task(...) decorator below.
+    """
+
+    def on_timeout(self, soft: bool, timeout: float) -> None:
+        super().on_timeout(soft, timeout)
+        if soft:
+            # The task's own except/finally already handles this case (it
+            # catches SoftTimeLimitExceeded and marks the job failed itself)
+            # — nothing extra needed here.
+            return
+        job_id = self.args[0] if self.args else self.kwargs.get("job_id")
+        if not job_id:
+            logger.error(
+                "on_timeout hard-limit hook: no job_id in args=%r kwargs=%r", self.args, self.kwargs
+            )
+            return
+        _resolve_pending_job_as_failed(
+            job_id=str(job_id),
+            error=f"Worker hit the hard time_limit ({timeout}s) before it could record a result.",
+            log_context="on_timeout hard-limit hook",
+        )
+
+
 @celery_app.task(  # type: ignore[untyped-decorator]
     name="app.tasks.holdings_tasks.parse_holdings_upload",
+    Request=_UploadJobRequest,
     # soft_time_limit raises SoftTimeLimitExceeded inside the task (caught by
     # the broad except below, so the job still gets marked failed with a
     # specific error) — this is the preferred path, since it runs the task's
-    # own cleanup. time_limit is Celery's unconditional SIGKILL if soft
-    # didn't get a chance to run (e.g. the hang is in a C extension or the
-    # process is otherwise wedged); that kill is an OS signal, invisible to
-    # this task's own except/finally, so it's the task_revoked handler below
-    # (issue #85) — not this task's code — that resolves the job in that
-    # case. time_limit is pinned to the SLA; soft_time_limit leaves it a
-    # 10s head start to self-report before the hard kill.
-    soft_time_limit=_SLA_SECONDS - 10,
+    # own cleanup, and it's given nearly the full SLA (only a 2s gap to the
+    # hard kill) so it doesn't cut off a legitimate two-attempt run (2 x 20s
+    # client timeout, holding_parser.py) before either attempt gets to fail
+    # on its own terms (PR #88 review). time_limit is Celery's unconditional
+    # SIGKILL if soft didn't get a chance to run (e.g. the hang is in a C
+    # extension or the process is otherwise wedged); that kill is an OS
+    # signal, invisible to this task's own except/finally, so it's
+    # _UploadJobRequest.on_timeout above — not this task's code — that
+    # resolves the job in that case.
+    soft_time_limit=_SLA_SECONDS - 2,
     time_limit=_SLA_SECONDS,
 )
 def parse_holdings_upload(job_id: str) -> dict[str, str]:
@@ -112,16 +159,19 @@ def _mark_revoked_job_failed(
     expired: bool | None = None,
     **kwargs: Any,
 ) -> None:
-    """Resolve the UploadJob row when Celery's hard time_limit SIGKILLs the
-    worker process running parse_holdings_upload (issue #85).
+    """Resolve the UploadJob row if parse_holdings_upload is ever explicitly
+    revoked with terminate=True (e.g. `celery -A app.tasks control revoke
+    <id> --terminate`, run by hand during ops debugging).
 
-    A hard time_limit kill is an OS signal (SIGKILL) delivered to the
-    ForkPoolWorker — it cannot be caught by that task's own except/finally,
-    so nothing in parse_holdings_upload ever runs to write a terminal
-    status. Celery's MainProcess survives the kill of its child worker and
-    fires task_revoked here with terminated=True, signum=SIGKILL — this is
-    the earliest point anything can still write to the job row. Scoped to
-    this task only (sender=parse_holdings_upload) so it never touches
+    NOT the path for an automatic hard time_limit kill (PR #88 review): on
+    celery==5.6.3, task_revoked is only sent from Request.terminate(), which
+    an explicit revoke(terminate=True) control command triggers —
+    Request.on_timeout(soft=False) (the actual time_limit path) never calls
+    it. _UploadJobRequest.on_timeout above is what resolves the job for
+    issue #85's real SIGKILL scenario; this handler is a narrower, separate
+    safety net for the explicit-revoke case, kept because it's correct and
+    costs nothing, not because it covers the time_limit gap. Scoped to this
+    task only (sender=parse_holdings_upload) so it never touches
     report/capture task revocations.
 
     terminated=False means the task was revoked before it ever started
@@ -142,14 +192,27 @@ def _mark_revoked_job_failed(
 
 def _resolve_pending_job_as_failed(job_id: str, error: str, log_context: str) -> bool:
     """Mark one UploadJob row failed and clear raw_text, if it's still
-    pending. Shared by the task_revoked handler above and the sweeper below
-    (issue #85) — both are recovering a job the killed worker process could
-    never resolve on its own. Returns True if a row was actually updated.
+    pending. Shared by _UploadJobRequest.on_timeout, the task_revoked
+    handler, and the sweeper (issue #85) — all three are recovering a job
+    the killed worker process could never resolve on its own. Returns True
+    if a row was actually updated.
+
+    Exceptions are caught, not propagated (PR #88 review): this runs from
+    contexts that must not blow up on a transient DB error — Celery's own
+    timeout-handling machinery (on_timeout), a signal receiver, and a loop
+    over multiple stale rows in the sweeper where one bad row shouldn't
+    abort the rest of that pass. A row this call fails to resolve just
+    remains a candidate for the next mechanism to catch it (the sweeper
+    re-scans every cycle) rather than crashing its caller.
     """
     from app.core.database import SessionLocal
     from app.models.upload_job import UploadJob
 
-    session = SessionLocal()
+    try:
+        session = SessionLocal()
+    except Exception:
+        logger.exception("%s: could not open a DB session for job %s", log_context, job_id)
+        return False
     try:
         job = session.get(UploadJob, uuid.UUID(job_id))
         if job is None or job.status != "pending":
@@ -160,24 +223,32 @@ def _resolve_pending_job_as_failed(job_id: str, error: str, log_context: str) ->
         session.commit()
         logger.warning("%s: job %s marked failed (%s)", log_context, job_id, error)
         return True
+    except Exception:
+        logger.exception("%s: failed to resolve job %s", log_context, job_id)
+        return False
     finally:
         session.close()
 
 
-# Buffer over the hard time_limit (issue #85): the sweeper is a backstop for
-# cases the task_revoked handler itself misses (MainProcess restarted
-# between the kill and the signal firing, a missed signal, or the whole
-# worker host going down) — not a race against the hard kill. By the time a
-# row crosses this cutoff, the task_revoked handler has already had a full
-# _SLA_SECONDS window to have resolved it first.
-_SWEEP_STALE_AFTER_SECONDS = _SLA_SECONDS + 15
+# Buffer over the hard time_limit (issue #85, widened per PR #88 review):
+# the sweeper is a backstop for cases _UploadJobRequest.on_timeout itself
+# misses (MainProcess restarted between the kill and the hook running, or
+# the whole worker host going down) — not a race against the hard kill, and
+# not just parse time. created_at is set at enqueue time, not when a worker
+# actually picks the task up, and this app has no separate queue for
+# holdings uploads — capture tasks (news/prices/fx/fund_navs/forward_events,
+# all on the same default queue/worker pool) can legitimately delay a
+# holdings job's start. 45s of slack on top of the SLA is generous headroom
+# for that queue-wait, not just the 45s parse budget itself, so the sweeper
+# doesn't false-fail a job that's still legitimately queued or running.
+_SWEEP_STALE_AFTER_SECONDS = _SLA_SECONDS + 45
 
 
 @celery_app.task(name="app.tasks.holdings_tasks.sweep_stale_upload_jobs")  # type: ignore[untyped-decorator]
 def sweep_stale_upload_jobs() -> dict[str, int]:
     """Periodic backstop (issue #85): mark any UploadJob row stuck at
     status="pending" past _SWEEP_STALE_AFTER_SECONDS as failed and clear
-    raw_text, in case the task_revoked handler didn't run.
+    raw_text, in case _UploadJobRequest.on_timeout didn't run.
     """
     from app.core.database import SessionLocal
     from app.models.upload_job import UploadJob
