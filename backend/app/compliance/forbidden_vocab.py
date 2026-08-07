@@ -84,17 +84,41 @@ def _get_vocab_path() -> Path:
     return Path(override) if override else _DEFAULT_VOCAB_FILE
 
 
+def _validate_zh_vocab(vocab: _ZhVocab) -> None:
+    """Fail loudly on a config gap that would otherwise silently weaken the scan.
+
+    An empty scan_terms/scan_regex_patterns means fewer compiled patterns —
+    not a crash, not a false-everything match — so a bad edit that empties
+    one of these would ship a quietly-weaker compliance backstop with no
+    error anywhere near the mistake (PR #91 review). Also compiles every
+    regex pattern here so a malformed one fails at config load, not the
+    first time a report happens to hit it.
+    """
+    if not vocab.scan_terms:
+        raise ValueError("compliance_vocab.yml: scan_terms is empty")
+    if not vocab.scan_regex_patterns:
+        raise ValueError("compliance_vocab.yml: scan_regex_patterns is empty")
+    if not vocab.prompt_only_terms:
+        raise ValueError("compliance_vocab.yml: prompt_only_terms is empty")
+    if not vocab.context_scan_term:
+        raise ValueError("compliance_vocab.yml: context_scan_term is empty")
+    for pattern in vocab.scan_regex_patterns:
+        re.compile(pattern)
+
+
 def _load_zh_vocab(path: Path | None = None) -> _ZhVocab:
     """Load the Chinese-language compliance vocabulary from compliance_vocab.yml."""
     target = path or _get_vocab_path()
     with target.open(encoding="utf-8") as fh:
         raw = yaml.safe_load(fh)
-    return _ZhVocab(
+    vocab = _ZhVocab(
         scan_terms=tuple(entry["term"] for entry in raw["scan_terms"]),
         scan_regex_patterns=tuple(raw["scan_regex_patterns"]),
         prompt_only_terms=tuple(entry["term"] for entry in raw["prompt_only_terms"]),
         context_scan_term=raw["context_scan_term"],
     )
+    _validate_zh_vocab(vocab)
+    return vocab
 
 
 _zh_vocab = _load_zh_vocab()

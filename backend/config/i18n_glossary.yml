@@ -72,10 +72,22 @@ templates:
   # $fx_date / $base_ccy are string.Template placeholders substituted at
   # render time. Values are single-line (no YAML line-folding) deliberately:
   # a folded block scalar inserts a literal space at each wrap point, which
-  # would corrupt the zh-Hans text (no natural inter-character spacing) and
-  # this legally-reviewed disclaimer (`f3-bilingual-v2`) needs byte-exact
-  # wording — verified against the prior inline Python string, not just
-  # visually reviewed.
+  # would corrupt the zh-Hans text (no natural inter-character spacing).
+  #
+  # `disclaimer` (both locales) is the legally-reviewed text (`f3-bilingual-
+  # v2`) and IS byte-exact against the prior inline Python string — verified,
+  # not just visually reviewed.
+  #
+  # `data_sources_note`'s EN value is NOT byte-identical to the prior inline
+  # string (PR #91 review, 2026-08-07): the old EN sentence read "Fund NAV —
+  # 天天基金 (Tiantian)." — a Chinese vendor name inline inside an otherwise-
+  # English sentence, left over from before this vendor name had its own
+  # i18n_glossary.yml entry. Cleaned up to "Fund NAV — Tiantian Fund." as
+  # part of this move. This is a deliberate, in-scope wording fix, not an
+  # accidental drift — flagging it explicitly per review, since silently
+  # changing user-visible footer wording inside a "just relocate literals"
+  # PR is exactly the kind of thing a byte-exact-preservation claim should
+  # not have papered over. zh-Hans wording for this field is unchanged.
   footer_header:
     en: Data Sources & Disclaimer
     zh-Hans: 数据来源与免责声明

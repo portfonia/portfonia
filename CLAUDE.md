@@ -131,8 +131,8 @@ re-render-safe); the LLM writes only prose/attribution. Current shape:
 
 - **§4.2 price-anomaly table** — session-arc numbers rendered as a markdown
   table; LLM writes one driver line per holding, restricted to a "see §4.2"
-  cross-reference (exact EN/zh-Hans wording in `report_generator.py:159`'s
-  Pass 2 system prompt) only for holdings actually in the table.
+  cross-reference (exact EN/zh-Hans wording in `i18n_glossary.yml`'s
+  `templates.cross_reference_example`) only for holdings actually in the table.
 - **Confidence labels** — every causal attribution ends with
   `[Established]/[Probable]/[Speculative]` (never a numeric %); zh-Hans
   renderings defined in `i18n_glossary.yml`'s `report_glossary`.
@@ -193,7 +193,8 @@ re-render-safe); the LLM writes only prose/attribution. Current shape:
   `app/compliance/forbidden_vocab.py`) targets only direct advisory/action
   vocabulary — stop-loss, strong-buy, target-price, investment-advice, and
   their zh-Hans equivalents (exact patterns, including context-aware regex
-  for terms with legitimate non-advisory uses, live in the source file).
+  for terms with legitimate non-advisory uses, live in
+  `config/compliance_vocab.yml`, loaded by the source file).
   Descriptive TA-observation terms (support/resistance, etc., EN + zh-Hans —
   see `ta_observation_terms` in `i18n_glossary.yml`) are explicitly
   allowed — see "Forbidden vocabulary" below for the Layer-4 line.

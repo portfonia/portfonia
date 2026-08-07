@@ -134,6 +134,11 @@ no [news], no [analysis], no source labels). Write clean prose.
 """
 
 # Pass 2 task instructions (shared by live generation and re-analysis).
+# The §4.2 cross-reference example below reads i18n_glossary.yml's
+# cross_reference_example once (frozen into this module constant at import —
+# same restart-to-pick-up-a-YAML-edit caveat as _RELEASE_DELAY_TERMS/
+# _STRAY_TAGS/_BODY_DISCLAIMER_RE; see i18n_glossary.py's module docstring).
+_pass2_cross_ref = load_i18n_glossary().templates["cross_reference_example"]
 _PASS2_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + (
     "\nYou are writing a structured financial analysis briefing for a "
     "private investor. Use Markdown. Be concise and factual. Write clean prose "
@@ -157,8 +162,8 @@ _PASS2_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + (
     "the textbook direction implied by a macro narrative (e.g. gold falling during "
     "a war-risk spike), report that divergence itself as the noteworthy signal — "
     "do not silently follow the narrative and do not omit the contradiction.\n"
-    f"§4.2 CROSS-REFERENCES: '{load_i18n_glossary().templates['cross_reference_example']['en']}' / "
-    f"'{load_i18n_glossary().templates['cross_reference_example']['zh-Hans']}' may only be used for a holding "
+    f"§4.2 CROSS-REFERENCES: '{_pass2_cross_ref['en']}' / "
+    f"'{_pass2_cross_ref['zh-Hans']}' may only be used for a holding "
     "that actually appears in the PRICE ANOMALIES data (the §4.2 table is built "
     "ONLY from those holdings). For a holding whose price divergence you raise from "
     "news/research but that is NOT in PRICE ANOMALIES, do NOT point to §4.2 — say "
@@ -1060,7 +1065,11 @@ _RATE_SENSITIVE_SECTORS = {
 _CONSUMER_SECTORS = {"Consumer Discretionary", "Consumer Staples"}
 _GOLD_TICKERS = {"GLD", "IAU", "GLDM", "SGOL", "GLDX"}
 # RSS-derived delay caveat triggers (#1): a funding lapse can suspend BLS/BEA
-# releases. zh-Hans terms load from i18n_glossary.yml's release_delay_terms_zh.
+# releases. zh-Hans terms load from i18n_glossary.yml's release_delay_terms_zh
+# — frozen into this module constant at import, so an admin edit to that YAML
+# list needs a process restart to take effect (PR #91 review: unlike
+# _build_footer/_stale_ticker_hint, which call load_i18n_glossary() fresh
+# inside the function body and pick up an edit on the next call).
 _RELEASE_DELAY_TERMS = (
     "government shutdown",
     "funding lapse",
@@ -1306,8 +1315,9 @@ def _build_pass2_prompt(
     stale = portfolio.get("stale_tickers", [])
     if stale:
         lines.append("Stale/no-price identifiers (excluded from valuations):")
+        vendor_zh = load_i18n_glossary().vendor_names["Tiantian Fund"]["zh-Hans"]
         for ident in stale:
-            lines.append(f"  - {_stale_ticker_hint(ident)}")
+            lines.append(f"  - {_stale_ticker_hint(ident, vendor_zh)}")
 
     # Macro signals
     lines.append("")
@@ -1448,15 +1458,17 @@ _A_SHARE_RE = re.compile(r"^\d{6}\.(SS|SZ)$", re.IGNORECASE)
 _HK_RE = re.compile(r"^\d{4}\.HK$", re.IGNORECASE)
 
 
-def _stale_ticker_hint(identifier: str) -> str:
+def _stale_ticker_hint(identifier: str, vendor_zh: str) -> str:
     """Return an annotated string for a stale identifier to prevent LLM misclassification.
 
     Without annotation, 6-digit fund codes (e.g. a real CN mutual fund code
     like 005827) get misidentified as Korea Exchange listings by the LLM.
+    *vendor_zh* is the Tiantian Fund zh-Hans name — passed in rather than
+    loaded here so a caller iterating multiple stale identifiers reads
+    i18n_glossary.yml once, not once per identifier.
     """
     if _FUND_CODE_RE.match(identifier):
-        vendor = load_i18n_glossary().vendor_names["Tiantian Fund"]["zh-Hans"]
-        return f"{identifier} (CN mutual fund code / Tiantian Fund, {vendor})"
+        return f"{identifier} (CN mutual fund code / Tiantian Fund, {vendor_zh})"
     if _A_SHARE_RE.match(identifier):
         return f"{identifier} (A-share / Shanghai or Shenzhen)"
     if _HK_RE.match(identifier):
@@ -1469,11 +1481,6 @@ def _stale_ticker_hint(identifier: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _footer_template(key: str, locale: str) -> str:
-    """Look up a `templates` entry from i18n_glossary.yml by key + locale ("en" or "zh-Hans")."""
-    return load_i18n_glossary().templates[key][locale]
-
-
 def _build_footer(portfolio: dict[str, Any]) -> str:
     """Build the fixed report footer (F3).
 
@@ -1481,12 +1488,17 @@ def _build_footer(portfolio: dict[str, Any]) -> str:
     Contains: FX rate note (date-stamped from portfolio snapshot) + bilingual disclaimer.
     Wording (both languages) is sourced from i18n_glossary.yml's `templates`
     section (issue #90) — this function only fills in $fx_date/$base_ccy.
+    Loads the glossary once (not once per template lookup — PR #91 review).
     """
     base_ccy = portfolio.get("base_currency", "USD")
     fx_date = portfolio.get("fx_date", "unknown")
+    templates = load_i18n_glossary().templates
+
+    def tpl(key: str, locale: str) -> str:
+        return templates[key][locale]
 
     def note(locale: str) -> str:
-        return Template(_footer_template("data_sources_note", locale)).substitute(
+        return Template(tpl("data_sources_note", locale)).substitute(
             fx_date=fx_date, base_ccy=base_ccy
         )
 
@@ -1494,15 +1506,15 @@ def _build_footer(portfolio: dict[str, Any]) -> str:
         "",
         "---",
         "",
-        f"## {_footer_template('footer_header', 'en')} / {_footer_template('footer_header', 'zh-Hans')}",
+        f"## {tpl('footer_header', 'en')} / {tpl('footer_header', 'zh-Hans')}",
         "",
-        f"**{_footer_template('data_sources_label', 'en')}** {note('en')}",
+        f"**{tpl('data_sources_label', 'en')}** {note('en')}",
         "",
-        f"**{_footer_template('data_sources_label', 'zh-Hans')}** {note('zh-Hans')}",
+        f"**{tpl('data_sources_label', 'zh-Hans')}** {note('zh-Hans')}",
         "",
-        f"**{_footer_template('disclaimer_label', 'en')}** {_footer_template('disclaimer', 'en')}",
+        f"**{tpl('disclaimer_label', 'en')}** {tpl('disclaimer', 'en')}",
         "",
-        f"**{_footer_template('disclaimer_label', 'zh-Hans')}** {_footer_template('disclaimer', 'zh-Hans')}",
+        f"**{tpl('disclaimer_label', 'zh-Hans')}** {tpl('disclaimer', 'zh-Hans')}",
     ]
     return "\n".join(lines)
 
@@ -1516,7 +1528,9 @@ def _build_footer(portfolio: dict[str, Any]) -> str:
 # prompt forbidding them. They are pure noise in the rendered report (the
 # S-numbers don't resolve, the per-line disclaimer duplicates the footer), so we
 # strip them as a backstop. Covers EN and the zh tags produced before #9 — the
-# zh set loads from i18n_glossary.yml's legacy_removed_markers_zh.
+# zh set loads from i18n_glossary.yml's legacy_removed_markers_zh, frozen into
+# this compiled-pattern list at import (restart to pick up a YAML edit —
+# same caveat as _RELEASE_DELAY_TERMS above).
 _STRAY_TAGS = [
     re.compile(re.escape(_COMPLIANCE_MARKER)),
     re.compile(
@@ -1535,7 +1549,11 @@ _STRAY_TAGS = [
 # the whole line is safe. Runs on the body only — the footer is appended
 # afterwards, untouched. zh-Hans fragments load from i18n_glossary.yml's
 # body_disclaimer_regex_terms_zh (some contain regex alternation/wildcard
-# syntax, not plain literal substrings).
+# syntax, not plain literal substrings) — frozen into this compiled pattern
+# at import, same restart caveat as _RELEASE_DELAY_TERMS/_STRAY_TAGS above.
+# i18n_glossary.py's loader rejects an empty body_disclaimer_regex_terms_zh
+# at load time, so this can't silently become a match-everything pattern
+# via a leading empty regex alternative (PR #91 review).
 _BODY_DISCLAIMER_RE = re.compile(
     "|".join(load_i18n_glossary().body_disclaimer_regex_terms_zh)
     + r"|informational purposes|not\s+constitute\s+investment|investment advice"
