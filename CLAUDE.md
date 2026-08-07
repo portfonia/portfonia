@@ -610,6 +610,22 @@ main (production) ← dev (integration, Ring 1+ target — not yet in use) ← f
 - `dev → main` promotion PRs must use `feat:` or `fix:` (a `chore:` title
   will not trigger a release).
 - Delete branches after merge.
+- **Stacked branches (branch B built on not-yet-merged branch A) + squash-merge
+  is a known trap** (hit 2026-08-07, PR #93/#95/#96): squash-merging A with
+  `--delete-branch` deletes A's branch, and GitHub **auto-closes any open PR
+  whose base is that branch** — `gh pr reopen` / `gh pr edit --base` both fail
+  once the base ref is gone (no recovery). If A merges before B is done, get
+  B's commits onto `main` via `git merge main` (not `git rebase main` —
+  replaying B's pre-squash commits against a squash-merged `main` produces
+  spurious `add/add` conflicts, and `git rebase --skip` is a history-rewrite
+  the auto-mode permission classifier blocks) and open a **fresh PR against
+  `main`**, noting in its body which closed PR it supersedes. Also watch for
+  a specific `git merge` footgun this surfaces: if B's branch added-then-
+  removed something (e.g. moved a component out of a shared layout) before
+  merging in A, the 3-way merge can silently **reinstate the removed code**,
+  because B's net diff against the merge-base shows no change on those
+  lines while A's does — re-check anything B deliberately deleted after
+  merging.
 
 ## Issue Tracking (MANDATORY)
 
