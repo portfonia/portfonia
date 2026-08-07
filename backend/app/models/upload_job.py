@@ -29,12 +29,19 @@ class UploadJob(Base):
     A row stuck at `status="pending"` forever with `raw_text` still
     populated (worker hard-killed by Celery's `time_limit` before `finally`
     runs, an OS-level SIGKILL invisible to the task's own exception
-    handling) is resolved two ways (issue #85): a `task_revoked` signal
-    handler in the Celery MainProcess (`app/tasks/holdings_tasks.py`,
-    fires as soon as the kill happens), backstopped by a periodic sweeper
-    task (`sweep_stale_upload_jobs`) for cases the handler itself misses.
-    The frontend's 120s poll deadline is a separate, pre-existing guard that
-    stops the *user* from waiting forever regardless of server-side state.
+    handling) is resolved two ways (issue #85, PR #88 review): primarily
+    `_UploadJobRequest.on_timeout` (`app/tasks/holdings_tasks.py`), a
+    `Task.Request` override that fires in the Celery MainProcess at the
+    moment the hard-limit kill is detected — Celery's `task_revoked` signal
+    does NOT fire for this automatic-timeout path (verified against the
+    installed celery==5.6.3 source; it only fires from an explicit admin
+    `revoke(terminate=True)`, which this app never calls), so a separate
+    `task_revoked` handler exists only as a correct-but-narrow safety net
+    for that explicit-revoke case, not for this one. Backstopped by a
+    periodic sweeper task (`sweep_stale_upload_jobs`) for cases the
+    on_timeout hook itself misses. The frontend's 120s poll deadline is a
+    separate, pre-existing guard that stops the *user* from waiting forever
+    regardless of server-side state.
     """
 
     __tablename__ = "upload_jobs"

@@ -115,12 +115,14 @@ const UPLOAD_POLL_START_MS = 500;
 const UPLOAD_POLL_MAX_MS = 2000;
 const UPLOAD_POLL_BACKOFF_FACTOR = 1.5;
 // The backend now bounds a stuck job itself: parse_holdings_upload's Celery
-// time_limit is pinned to a 45s SLA, backstopped by a sweeper that resolves
-// any row still stuck "pending" within a further ~30-60s if that hard kill
-// happens to slip past the task_revoked handler too (issue #85). 120s stays
-// a generous outer bound on top of that for failure modes the backend-side
-// fix doesn't cover at all — worker down or broker connection lost before
-// the job ever got picked up — not a bound on the parse itself.
+// time_limit is pinned to a 45s SLA, and a hard-kill past that resolves the
+// row almost immediately (a Task.Request.on_timeout hook, not Celery's
+// task_revoked signal — that one doesn't fire for this path), backstopped
+// by a sweeper for the rare case even that hook misses (issue #85, PR #88
+// review). 120s stays a generous outer bound on top of that for failure
+// modes the backend-side fix doesn't cover at all — worker down or broker
+// connection lost before the job ever got picked up — not a bound on the
+// parse itself.
 const UPLOAD_MAX_WAIT_MS = 120_000;
 
 async function startUploadJob(file: File): Promise<UploadJob> {
