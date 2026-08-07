@@ -375,10 +375,10 @@ it.
 
 ### Env-only sync to production (no code change involved)
 
-**"同步 .env 到服务器" (or equivalent) is a separate, smaller procedure from
-"生产部署" — established 2026-08-06, first used to roll out a rotated Resend
-key.** Use this when only `.env` changed (secret rotation, config value
-change), not code:
+**An explicit request to push `.env` changes (secret rotation, config value
+change) to the server without an accompanying code change is a separate,
+smaller procedure from the code-deploy flow above** — established
+2026-08-06, first used to roll out a rotated Resend key:
 
 1. `scp` the local `.env.production` to the server's `.env` (path from the
    Obsidian doc) — `git pull` is irrelevant here, `.env` never travels
@@ -391,11 +391,10 @@ change), not code:
    (currently `backend`, `celery-worker`, `celery-beat`; `frontend`/`caddy`
    don't and shouldn't be touched for an env-only change — minimal blast
    radius).
-3. If a code-deploy (`docker compose up -d --build`, the full "生产部署"
-   procedure) is running concurrently on the server, wait for it to finish
-   before doing this — both operate on the same `docker compose` project and
-   can race (`--force-recreate` on the same containers a build is
-   replacing).
+3. If the code-deploy procedure above (`docker compose up -d --build`) is
+   running concurrently on the server, wait for it to finish before doing
+   this — both operate on the same `docker compose` project and can race
+   (`--force-recreate` on the same containers a build is replacing).
 4. Verify: `curl https://api.portfonia.com/health`, then a real functional
    check of whatever changed (e.g. for an email-provider key rotation, exec
    into the `backend` container and send a real test message through the
