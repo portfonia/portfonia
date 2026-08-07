@@ -32,6 +32,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from string import Template
 from typing import Any
 
 import httpx
@@ -50,6 +51,7 @@ from app.services.email_sender import send_ops_alert, send_report_email
 from app.services.forward_events import load_forward_events
 from app.services.github_issues import create_bug_report
 from app.services.holding_news import recall_holding_news
+from app.services.i18n_glossary import load_i18n_glossary, locale_for_output_lang
 from app.services.macro_detector import MacroSignals, detect_macro_signals
 from app.services.news_fetcher import NewsItem
 from app.services.portfolio_calculator import PortfolioSnapshot, compute_portfolio
@@ -132,6 +134,11 @@ no [news], no [analysis], no source labels). Write clean prose.
 """
 
 # Pass 2 task instructions (shared by live generation and re-analysis).
+# The §4.2 cross-reference example below reads i18n_glossary.yml's
+# cross_reference_example once (frozen into this module constant at import —
+# same restart-to-pick-up-a-YAML-edit caveat as _RELEASE_DELAY_TERMS/
+# _STRAY_TAGS/_BODY_DISCLAIMER_RE; see i18n_glossary.py's module docstring).
+_pass2_cross_ref = load_i18n_glossary().templates["cross_reference_example"]
 _PASS2_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + (
     "\nYou are writing a structured financial analysis briefing for a "
     "private investor. Use Markdown. Be concise and factual. Write clean prose "
@@ -155,7 +162,8 @@ _PASS2_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + (
     "the textbook direction implied by a macro narrative (e.g. gold falling during "
     "a war-risk spike), report that divergence itself as the noteworthy signal — "
     "do not silently follow the narrative and do not omit the contradiction.\n"
-    "§4.2 CROSS-REFERENCES: 'see §4.2' / '见§4.2' may only be used for a holding "
+    f"§4.2 CROSS-REFERENCES: '{_pass2_cross_ref['en']}' / "
+    f"'{_pass2_cross_ref['zh-Hans']}' may only be used for a holding "
     "that actually appears in the PRICE ANOMALIES data (the §4.2 table is built "
     "ONLY from those holdings). For a holding whose price divergence you raise from "
     "news/research but that is NOT in PRICE ANOMALIES, do NOT point to §4.2 — say "
@@ -169,8 +177,8 @@ _PASS2_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + (
 _PASS2_REQUIRED_MARKERS = ("## §3", "## §4")
 _PASS2_MIN_CHARS = 2000
 
-# Mechanism prep for Ring 1 multi-cadence report types (see
-# Hermes/Portfonia/Docs/多周期报告机制改造计划.md 阶段3): the §2/§3/§4 narrative
+# Mechanism prep for Ring 1 multi-cadence report types (see the Obsidian
+# multi-cadence report redesign notes, phase 3): the §2/§3/§4 narrative
 # instructions are split into per-section blocks so _build_pass2_prompt can be
 # asked for a subset. generate_report() always requests ALL_NARRATIVE_SECTIONS
 # today — no caller picks a subset yet, that mapping (which report_type gets
@@ -1056,16 +1064,19 @@ _RATE_SENSITIVE_SECTORS = {
 }
 _CONSUMER_SECTORS = {"Consumer Discretionary", "Consumer Staples"}
 _GOLD_TICKERS = {"GLD", "IAU", "GLDM", "SGOL", "GLDX"}
-# RSS-derived delay caveat triggers (#1): a funding lapse can suspend BLS/BEA releases.
+# RSS-derived delay caveat triggers (#1): a funding lapse can suspend BLS/BEA
+# releases. zh-Hans terms load from i18n_glossary.yml's release_delay_terms_zh
+# — frozen into this module constant at import, so an admin edit to that YAML
+# list needs a process restart to take effect (PR #91 review: unlike
+# _build_footer/_stale_ticker_hint, which call load_i18n_glossary() fresh
+# inside the function body and pick up an edit on the next call).
 _RELEASE_DELAY_TERMS = (
     "government shutdown",
     "funding lapse",
     "funding gap",
     "appropriations lapse",
     "budget shutdown",
-    "政府停摆",
-    "拨款中断",
-    "停摆",
+    *load_i18n_glossary().release_delay_terms_zh,
 )
 
 
@@ -1304,8 +1315,9 @@ def _build_pass2_prompt(
     stale = portfolio.get("stale_tickers", [])
     if stale:
         lines.append("Stale/no-price identifiers (excluded from valuations):")
+        vendor_zh = load_i18n_glossary().vendor_names["Tiantian Fund"]["zh-Hans"]
         for ident in stale:
-            lines.append(f"  - {_stale_ticker_hint(ident)}")
+            lines.append(f"  - {_stale_ticker_hint(ident, vendor_zh)}")
 
     # Macro signals
     lines.append("")
@@ -1446,14 +1458,17 @@ _A_SHARE_RE = re.compile(r"^\d{6}\.(SS|SZ)$", re.IGNORECASE)
 _HK_RE = re.compile(r"^\d{4}\.HK$", re.IGNORECASE)
 
 
-def _stale_ticker_hint(identifier: str) -> str:
+def _stale_ticker_hint(identifier: str, vendor_zh: str) -> str:
     """Return an annotated string for a stale identifier to prevent LLM misclassification.
 
-    Without annotation, 6-digit fund codes (e.g. 005827 = 易方达蓝筹精选) get
-    misidentified as Korea Exchange listings by the LLM.
+    Without annotation, 6-digit fund codes (e.g. a real CN mutual fund code
+    like 005827) get misidentified as Korea Exchange listings by the LLM.
+    *vendor_zh* is the Tiantian Fund zh-Hans name — passed in rather than
+    loaded here so a caller iterating multiple stale identifiers reads
+    i18n_glossary.yml once, not once per identifier.
     """
     if _FUND_CODE_RE.match(identifier):
-        return f"{identifier} (CN mutual fund code / 天天基金)"
+        return f"{identifier} (CN mutual fund code / Tiantian Fund, {vendor_zh})"
     if _A_SHARE_RE.match(identifier):
         return f"{identifier} (A-share / Shanghai or Shenzhen)"
     if _HK_RE.match(identifier):
@@ -1465,58 +1480,41 @@ def _stale_ticker_hint(identifier: str) -> str:
 # F3 fixed footer
 # ---------------------------------------------------------------------------
 
-_DISCLAIMER_EN = (
-    "This report is generated automatically by an AI large language model (LLM) system. "
-    "AI-generated content may contain imprecise, incomplete, or inaccurate language and "
-    "does not represent the views or opinions of the sender. "
-    "This report is provided for informational purposes only. "
-    "It does not constitute investment advice, a recommendation to buy or sell any "
-    "security, or a solicitation of any investment. "
-    "Past performance is not indicative of future results. "
-    "The sender accepts no responsibility for any decisions made based on this content. "
-    "Always consult a qualified financial advisor before making investment decisions."
-)
-
-_DISCLAIMER_ZH = (
-    "本报告由AI大型语言模型（LLM）系统自动生成。"  # noqa: RUF001
-    "AI生成内容可能包含不精确、不完整或不准确的措辞，不代表发送方的观点或意见。"  # noqa: RUF001
-    "本报告仅供参考，不构成投资建议、证券买卖推荐或投资招揽。"  # noqa: RUF001
-    "历史业绩不代表未来表现。"
-    "对于基于本内容所作出的任何决策，发送方不承担任何责任。"  # noqa: RUF001
-    "在做出任何投资决策前，请咨询持牌财务顾问。"  # noqa: RUF001
-)
-
 
 def _build_footer(portfolio: dict[str, Any]) -> str:
     """Build the fixed report footer (F3).
 
     Injected at the template layer — never generated by the LLM.
     Contains: FX rate note (date-stamped from portfolio snapshot) + bilingual disclaimer.
+    Wording (both languages) is sourced from i18n_glossary.yml's `templates`
+    section (issue #90) — this function only fills in $fx_date/$base_ccy.
+    Loads the glossary once (not once per template lookup — PR #91 review).
     """
     base_ccy = portfolio.get("base_currency", "USD")
     fx_date = portfolio.get("fx_date", "unknown")
+    templates = load_i18n_glossary().templates
+
+    def tpl(key: str, locale: str) -> str:
+        return templates[key][locale]
+
+    def note(locale: str) -> str:
+        return Template(tpl("data_sources_note", locale)).substitute(
+            fx_date=fx_date, base_ccy=base_ccy
+        )
 
     lines = [
         "",
         "---",
         "",
-        "## Data Sources & Disclaimer / 数据来源与免责声明",
+        f"## {tpl('footer_header', 'en')} / {tpl('footer_header', 'zh-Hans')}",
         "",
-        "**Data sources:** Equity/ETF prices — yfinance (end-of-day session closes, "
-        "US/HK/CN exchanges). Fund NAV — 天天基金 (Tiantian). "
-        "News — RSS feeds (Reuters, CNBC, Google News Business). "
-        f"Exchange rates — yfinance daily closes as of {fx_date}; "
-        f"all portfolio valuations converted to {base_ccy}. "
-        "Intraday and premarket data are not used.",
+        f"**{tpl('data_sources_label', 'en')}** {note('en')}",
         "",
-        f"**数据来源：** 股票/ETF价格 — yfinance（美/港/A股交易所收盘价）。基金净值 — 天天基金。"  # noqa: RUF001
-        f"新闻 — RSS订阅（路透社、CNBC、Google财经新闻）。"  # noqa: RUF001
-        f"汇率 — yfinance每日收盘价，数据截至 {fx_date}；"  # noqa: RUF001
-        f"所有持仓估值已换算为 {base_ccy}。不使用盘前或盘中数据。",
+        f"**{tpl('data_sources_label', 'zh-Hans')}** {note('zh-Hans')}",
         "",
-        f"**Disclaimer:** {_DISCLAIMER_EN}",
+        f"**{tpl('disclaimer_label', 'en')}** {tpl('disclaimer', 'en')}",
         "",
-        f"**免责声明：** {_DISCLAIMER_ZH}",  # noqa: RUF001
+        f"**{tpl('disclaimer_label', 'zh-Hans')}** {tpl('disclaimer', 'zh-Hans')}",
     ]
     return "\n".join(lines)
 
@@ -1529,21 +1527,36 @@ def _build_footer(portfolio: dict[str, Any]) -> str:
 # Stray provenance/disclaimer tags the LLM may still emit despite the system
 # prompt forbidding them. They are pure noise in the rendered report (the
 # S-numbers don't resolve, the per-line disclaimer duplicates the footer), so we
-# strip them as a backstop. Covers EN and the zh tags produced before #9.
+# strip them as a backstop. Covers EN and the zh tags produced before #9 — the
+# zh set loads from i18n_glossary.yml's legacy_removed_markers_zh, frozen into
+# this compiled-pattern list at import (restart to pick up a YAML edit —
+# same caveat as _RELEASE_DELAY_TERMS above).
 _STRAY_TAGS = [
     re.compile(re.escape(_COMPLIANCE_MARKER)),
-    re.compile(r"\[(?:新闻|分析|行情|宏观主题数据|news|analysis|market data)\]", re.IGNORECASE),
+    re.compile(
+        r"\[(?:"
+        + "|".join(load_i18n_glossary().legacy_removed_markers_zh)
+        + r"|news|analysis|market data)\]",
+        re.IGNORECASE,
+    ),
 ]
 
 # A line the model emits as its own disclaimer / legal notice. The single
 # disclaimer lives in the template footer (F3), so any disclaimer inside the body
 # is both redundant and a false-positive trigger for the forbidden-output scan
-# (it legitimately contains "投资建议"/"investment advice"). These phrases appear
-# only in disclaimers, never in factual market prose, so dropping the whole line
-# is safe. Runs on the body only — the footer is appended afterwards, untouched.
+# (it legitimately contains advisory-sounding wording in both languages). These
+# phrases appear only in disclaimers, never in factual market prose, so dropping
+# the whole line is safe. Runs on the body only — the footer is appended
+# afterwards, untouched. zh-Hans fragments load from i18n_glossary.yml's
+# body_disclaimer_regex_terms_zh (some contain regex alternation/wildcard
+# syntax, not plain literal substrings) — frozen into this compiled pattern
+# at import, same restart caveat as _RELEASE_DELAY_TERMS/_STRAY_TAGS above.
+# i18n_glossary.py's loader rejects an empty body_disclaimer_regex_terms_zh
+# at load time, so this can't silently become a match-everything pattern
+# via a leading empty regex alternative (PR #91 review).
 _BODY_DISCLAIMER_RE = re.compile(
-    r"投资建议|投资招揽|买卖(推荐|指令)|免责声明|不构成.*(建议|招揽)"
-    r"|informational purposes|not\s+constitute\s+investment|investment advice"
+    "|".join(load_i18n_glossary().body_disclaimer_regex_terms_zh)
+    + r"|informational purposes|not\s+constitute\s+investment|investment advice"
     r"|not\s+a\s+recommendation|consult\s+a\s+qualified"
     r"|a\s+recommendation\s+to\s+(buy|sell)|solicitation\s+of\s+any\s+invest",
     re.IGNORECASE,
@@ -1689,6 +1702,28 @@ _TRANSLATION_PACING_SECONDS = 2.0
 _BYOK_PROVIDER_ORDER = ["DeepSeek"]
 
 
+def _build_glossary_instruction(target_lang: str) -> str:
+    """Build the LLM glossary-instruction suffix for *target_lang* from i18n_glossary.yml.
+
+    Returns "" for a locale with no glossary entry (mirrors the previous
+    hardcoded dict's `.get(target_lang, "")` fallback).
+    """
+    locale = locale_for_output_lang(target_lang)
+    glossary = load_i18n_glossary()
+    if locale not in glossary.supported_locales:
+        return ""
+    pairs = "; ".join(
+        f'"{en}" -> "{translations[locale]}"'
+        for en, translations in glossary.report_glossary.items()
+    )
+    forbidden = "; ".join(
+        f'"{translations[locale]}"' for translations in glossary.forbidden_renderings.values()
+    )
+    return (
+        f" Use this exact glossary for fixed terms: {pairs}. Never render any word as {forbidden}."
+    )
+
+
 def _translate_md(md: str, target_lang: str) -> str:
     """Translate an assembled report to *target_lang* (#8).
 
@@ -1703,17 +1738,7 @@ def _translate_md(md: str, target_lang: str) -> str:
     if target_lang == "en":
         return md
     lang_name = {"zh": "Simplified Chinese"}.get(target_lang, target_lang)
-    glossary = {
-        "zh": (
-            ' Use this exact glossary for fixed terms: "Portfonia Financial Analysis '
-            'Report" -> "Portfonia 财经分析报告"; "financial analysis briefing" -> '
-            '"财经分析简报"; "Portfolio Snapshot" -> "投资组合快照"; "Holdings Analysis" '
-            '-> "持仓分析"; "Custodian" -> "持仓机构"; "Macro Signals" -> "宏观信号"; '
-            '"Risk Radar" -> "风险雷达"; "[Established]" -> "[确定]"; '
-            '"[Probable]" -> "[较可能]"; "[Speculative]" -> "[推测]". '
-            'Never render any word as "智能".'
-        )
-    }.get(target_lang, "")
+    glossary = _build_glossary_instruction(target_lang)
     settings = get_settings()
     system = (
         "You are a professional financial translator. Translate the user's Markdown "
@@ -1882,7 +1907,7 @@ def _render_full_md(
     dynamic_out = _translate_md(dynamic_en, output_lang)
     # The translator can re-add its own disclaimer paragraph (it runs after the
     # pre-translation strip); remove it so the body carries no disclaimer and the
-    # scan does not false-trip on its "投资建议"/"investment advice" wording.
+    # scan does not false-trip on its advisory-sounding wording in either language.
     dynamic_out = _strip_body_disclaimer(dynamic_out)
     if output_lang != "en":
         # Translation can paraphrase into advisory tone — re-scan the output.
@@ -2290,9 +2315,9 @@ def generate_report(
         # 5. Holding-relevant news enrichment (R-3) — anomaly-driven
         # ------------------------------------------------------------------
         # After we know WHICH holdings moved, recall window news relevant to each
-        # (映射缺口: a captured story that matched no macro theme), and for the
+        # (mapping gap: a captured story that matched no macro theme), and for the
         # most-moved holdings the store has NOTHING for, run a targeted live
-        # search (源缺口: a window-relevant story the RSS sources never carried).
+        # search (source gap: a window-relevant story the RSS sources never carried).
         # Both are holdings-derived, so they run AFTER Pass 1 and feed only Pass 2.
         anomaly_ids = [a["identifier"] for a in ctx.price_anomalies if a.get("identifier")]
         recalled = recall_holding_news(news_items, anomaly_ids)

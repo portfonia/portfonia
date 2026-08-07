@@ -71,6 +71,7 @@ def _mock_settings() -> MagicMock:
     s.EMAIL_FROM = "Portfonia <portfonia@physicalclue.us>"
     s.EMAIL_REPLY_TO = "portfonia@physicalclue.us"
     s.DEV_USER_EMAIL = "test@example.com"
+    s.OUTPUT_LANG = "zh"  # matches Ring 0 default; subject resolves via this (issue #90 review)
     return s
 
 
@@ -238,6 +239,29 @@ def test_send_subject_format(mock_client_cls: MagicMock, mock_settings: MagicMoc
     payload = call_kwargs.kwargs["json"] if "json" in call_kwargs.kwargs else call_kwargs[1]["json"]
     assert payload["subject"] == "Portfonia 财经分析报告 — 2026-06-06"
     assert payload["to"] == ["test@example.com"]
+
+
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
+def test_send_subject_resolves_via_output_lang(
+    mock_client_cls: MagicMock, mock_settings: MagicMock
+) -> None:
+    """Subject follows OUTPUT_LANG, not a hardcoded zh-Hans literal (issue #90 review)."""
+    settings = _mock_settings()
+    settings.OUTPUT_LANG = "en"
+    mock_settings.return_value = settings
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    post_mock = mock_client_cls.return_value.__enter__.return_value.post
+    post_mock.return_value = mock_resp
+
+    report = _make_report()
+    session = MagicMock()
+    send_report_email(report, session)
+
+    call_kwargs = post_mock.call_args
+    payload = call_kwargs.kwargs["json"] if "json" in call_kwargs.kwargs else call_kwargs[1]["json"]
+    assert payload["subject"] == "Portfonia Financial Analysis Report — 2026-06-06"
 
 
 @patch("app.services.email_sender.get_settings")

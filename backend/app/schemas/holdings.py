@@ -49,7 +49,7 @@ class CurrencySubtotal(BaseModel):
 
 
 class BrokerGroup(BaseModel):
-    """Per-broker (持仓机构) parse summary for upload cross-checking.
+    """Per-broker (Custodian) parse summary for upload cross-checking.
 
     Groups mirror §1's broker grouping: first-seen/upload order, broker-less
     rows under "Other". Subtotals are split by currency so mixed-currency

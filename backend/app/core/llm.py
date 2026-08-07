@@ -13,7 +13,7 @@ Portfonia's low-cost open-model strategy on a multi-tenant SaaS:
 
 Reference: Daily_Intel design doc section 8 (LLM selection & cost);
 product design doc §8.8 (data not used for training);
-Obsidian Hermes/Portfonia/2026-06-03_Mempalace学习要点 §2.1 / §6.5.
+Obsidian Portfonia archive notes, 2026-06-03 Mempalace learnings, §2.1 / §6.5.
 """
 
 from app.core.config import get_settings

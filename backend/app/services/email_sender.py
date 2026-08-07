@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.report import Report
+from app.services.i18n_glossary import load_i18n_glossary, locale_for_output_lang
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +140,23 @@ def send_report_email(report: Report, session: Session) -> bool:
         if report.report_date
         else datetime.now(tz=UTC).strftime("%Y-%m-%d")
     )
-    subject = f"Portfonia 财经分析报告 — {report_date_str}"
+    # Resolved via OUTPUT_LANG, matching the locale report_generator._translate_md
+    # renders the body in (PR #91 review — was hardcoded to zh-Hans regardless of
+    # OUTPUT_LANG, which happened to match Ring 0's only supported value but would
+    # have been the first place stuck on zh-Hans once a second locale ships).
+    # `Report` has no stored per-row output_lang, so this reads the *current*
+    # Settings value rather than whatever the report was actually rendered with —
+    # acceptable at Ring 0 (OUTPUT_LANG does not change between generation and send
+    # in practice), revisit if that stops holding.
+    report_title_key = "Portfonia Financial Analysis Report"
+    glossary = load_i18n_glossary()
+    locale = locale_for_output_lang(settings.OUTPUT_LANG)
+    report_title = (
+        glossary.report_glossary[report_title_key][locale]
+        if locale in glossary.supported_locales
+        else report_title_key
+    )
+    subject = f"{report_title} — {report_date_str}"
     html_body = _render_html(report.report_md)
 
     payload: dict[str, object] = {

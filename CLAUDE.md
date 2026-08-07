@@ -22,10 +22,10 @@ This file holds **conventions and mechanisms**, not a project status board.
 | LLM model | OpenRouter, split by call shape (issue #78, 2026-08-06). **Structured/JSON** (holdings parsing, `holding_parser.py`, the only call site requiring schema-compliant output) = `STRUCTURED_LLM_MODEL` (`openai/gpt-5.6-luna` — moved off `google/gemma-4-31b-it` in issue #84, 2026-08-06: the gemma pin to OpenInference's bf16 endpoint was itself the latency bottleneck, 371s worst case on a 30-row holdings file; `gpt-5.6-luna` measured 10.9-13.8s on the same file with 30/30 rows correct on manual audit — one manual run, not yet a systematic eval), `reasoning_effort=none` (`_STRUCTURED_REASONING_EFFORT` in `holding_parser.py` — this model defaults reasoning to "medium", wasted cost/latency for mechanical extraction), open/unpinned provider selection for both of 2 identical attempts (`app/core/llm.py:structured_provider` — no precision-pin concern for this model, unlike gemma's third-party quantized resellers); `data_collection=deny` applies throughout. **Unstructured/free-text** (Pass 1 search-query gen + translation render, `report_generator.py`) = `LOW_COST_LLM_MODEL` (`~deepseek/deepseek-v4-flash-latest` — leading `~` is OpenRouter's "-latest" alias convention), routed via OpenRouter BYOK straight to DeepSeek's own backend (`order=["DeepSeek"]`, module constant `_BYOK_PROVIDER_ORDER`) with `enforce_data_collection=False` — a scoped compliance exception for these two calls only — **and `allow_fallbacks=False` (hard pin, no marketplace fallback)**: since `deny` is off for these calls, an open fallback on DeepSeek unavailability could silently reroute the (holdings-bearing, for translation) payload to a training-permitting provider `deny` would normally have excluded; the call must fail rather than degrade that guarantee (PR #79 review finding). Reasoning/thinking tokens are explicitly disabled (`disable_reasoning=True`) since this alias defaults reasoning on unlike the non-aliased model. **PRIMARY (Pass 2 analysis + regenerate) = `deepseek/deepseek-v4-pro`**, unchanged — provider=DigitalOcean,Venice, `data_collection=deny`, no BYOK. Sonnet/Anthropic models are NOT used here — too expensive (~$0.2/call); if `PRIMARY_LLM_MODEL` ever shows an `anthropic/*` value it is config drift, revert it. |
 | Infrastructure | Homebrew PostgreSQL@16 + Redis (native, not Docker); `make infra-up` not needed |
 | **Dev process restart (MANDATORY after model/migration changes)** | uvicorn, `celery worker`, `celery beat` run with **no `--reload`** and load the ORM model at process start. After ANY change to `app/models/*`, an Alembic migration, or a router/schema change, **kill and restart all three** (`ps aux \| grep -E "uvicorn\|celery"`, `kill <pids>`, then `nohup venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-level info >> .run/uvicorn.log 2>&1 &` and the two `celery -A app.tasks worker/beat --loglevel=info >> .run/{worker,beat}.log 2>&1 &`). Symptom if skipped: `INSERT`/`UPDATE` against the new column fails `NOT NULL`/constraint mismatch → uncaught `IntegrityError` → bare `500` with no traceback. |
-| Output language | reason in EN, render in `OUTPUT_LANG` (Ring 0 default `zh`) via a translation pass with a fixed-term glossary (财经分析报告 / 持仓分析 / 持仓机构; never "智能"); `en` = no-op |
+| Output language | reason in EN, render in `OUTPUT_LANG` (Ring 0 default `zh`) via a translation pass with a fixed-term glossary — locale-keyed, single source of truth in `backend/config/i18n_glossary.yml` (`report_glossary`/`forbidden_renderings`; only `zh-Hans` populated today, schema reserves `zh-Hant`/`fr`/`es` for later); `en` = no-op |
 | Report statuses | `success` · `skipped` (quiet day, still emails heartbeat — EXCEPT a short manual quiet window: `session_node="manual"` + <2h span + 0 news + 0 anomalies suppresses the heartbeat as a same-day re-run artifact) · `needs_review` (compliance scan hit, NOT emailed) · `failed` · `in_progress` |
-| Report title / email subject | `Portfonia 财经分析报告 — YYYY-MM-DD HH:MM ET` (title timestamp from `period_end`); no "智能"/"Intelligence" wording anywhere. |
-| Holdings model | `market` + `broker` are user-declared fields; `position` preserves upload order. **§1 groups by `broker` (持仓机构)** in upload order with per-institution subtotals; cash sits inside its institution, broker-less rows fall into "Other". `position` is populated automatically on confirm. |
+| Report title / email subject | `Portfonia <Financial Analysis Report> — YYYY-MM-DD HH:MM ET` (title timestamp from `period_end`; the zh-Hans render substitutes the `report_glossary` term for "Portfonia Financial Analysis Report" from `i18n_glossary.yml`); no "Intelligence" wording, or its zh-Hans equivalent (`forbidden_renderings` in the same file), anywhere. |
+| Holdings model | `market` + `broker` are user-declared fields; `position` preserves upload order. **§1 groups by `broker` (rendered as "Custodian" — zh-Hans term in `i18n_glossary.yml`'s `report_glossary`)** in upload order with per-institution subtotals; cash sits inside its institution, broker-less rows fall into "Other". `position` is populated automatically on confirm. |
 | Holdings upload | Async, not a single blocking request — see "Async holdings upload" section below (issue #77/#82/#85). |
 | Re-render | `regenerate_report(mode=render\|analyze)` rebuilds from stored `report_inputs` without re-fetching; `POST /reports/{id}/regenerate`. render = token-free, analyze = Pass 2 only. |
 | §1 / distribution / §4.1 classification dimension | **`asset_class`** (geography-first taxonomy — see table below), not `sector` or `asset_type`. `sector` (yfinance GICS) is retained ONLY for forward-event holding-relevance mapping (rate-sensitive/consumer sectors for FOMC/CPI events) — never reintroduce it into §1/distribution/§4.1. `by_asset_class` has no "Other" fallback (every `Holding` always has one, default `STOCK`). |
@@ -97,7 +97,7 @@ never-happened commit — but the UX read as "upload failed").
 
 ### Capture layer + incremental reporting (ADR-002)
 
-Full spec in Obsidian: `Hermes/Portfonia/Docs/增量报告与捕获层设计.md`.
+Full spec in Obsidian: `Hermes/Portfonia/Docs/Incremental Report & Capture Layer Design.md`.
 
 A **capture layer** (global, credit-free — RSS + yfinance; persists `news` +
 `price_snapshots`, 1yr) runs at market-session nodes and feeds a **report
@@ -130,15 +130,17 @@ All numbers are **code-built and stored in `report_inputs`** (deterministic,
 re-render-safe); the LLM writes only prose/attribution. Current shape:
 
 - **§4.2 price-anomaly table** — session-arc numbers rendered as a markdown
-  table; LLM writes one driver line per holding, restricted to "见§4.2" only
-  for holdings actually in the table.
+  table; LLM writes one driver line per holding, restricted to a "see §4.2"
+  cross-reference (exact EN/zh-Hans wording in `i18n_glossary.yml`'s
+  `templates.cross_reference_example`) only for holdings actually in the table.
 - **Confidence labels** — every causal attribution ends with
-  `[Established]/[Probable]/[Speculative]` (never a numeric %); zh glossary
-  确定/较可能/推测.
+  `[Established]/[Probable]/[Speculative]` (never a numeric %); zh-Hans
+  renderings defined in `i18n_glossary.yml`'s `report_glossary`.
 - **§4.4 technical position** (`technical_position.py`) — descriptive OHLCV
   facts only (distance to 50/200-day avg, 52-week range, 20-day vol); TA
-  signal vocabulary (support/resistance/golden-cross/支撑位/阻力位/金叉/死叉)
-  is forbidden in the body. Needs ~200 captured closes — seed once via
+  signal vocabulary (support/resistance/golden-cross/death-cross, EN + zh-Hans
+  — see `ta_observation_terms` in `i18n_glossary.yml`) is forbidden in the
+  body. Needs ~200 captured closes — seed once via
   `python -m app.scripts.backfill_ohlcv`.
 - **§2.5 forward calendar** (`forward_events.py`) — US macro releases (FRED,
   optional `FRED_API_KEY`), hardcoded FOMC dates (verify annually against
@@ -189,8 +191,12 @@ re-render-safe); the LLM writes only prose/attribution. Current shape:
 
 - `_FORBIDDEN_OUTPUT_PATTERNS` (single source of truth:
   `app/compliance/forbidden_vocab.py`) targets only direct advisory/action
-  vocabulary (止损/强烈买入/目标价/投资建议 + EN equivalents). Descriptive
-  TA-observation terms (support/resistance/阻力位 etc.) are explicitly
+  vocabulary — stop-loss, strong-buy, target-price, investment-advice, and
+  their zh-Hans equivalents (exact patterns, including context-aware regex
+  for terms with legitimate non-advisory uses, live in
+  `config/compliance_vocab.yml`, loaded by the source file).
+  Descriptive TA-observation terms (support/resistance, etc., EN + zh-Hans —
+  see `ta_observation_terms` in `i18n_glossary.yml`) are explicitly
   allowed — see "Forbidden vocabulary" below for the Layer-4 line.
 - Disclaimer `f3-bilingual-v2`: names the AI LLM generator explicitly, plus
   imprecise-language and sender-no-liability caveats, EN+zh.
@@ -222,7 +228,7 @@ aggregation (e.g. QQQM + 019547 both `nasdaq_100`). Seeded themes:
 `nasdaq_100`, `sp500`, `gold`, `japan_equity`, `tbill`.
 
 Fund holdings (fund_code only, no ticker) participate in anomaly detection
-via 天天基金 historical NAV: `fund_nav_fetcher.fetch_nav_history()` (lsjz API)
+via Tiantian Fund historical NAV: `fund_nav_fetcher.fetch_nav_history()` (lsjz API)
 → `price_capture.capture_fund_navs()` upserts into `price_snapshots` keyed by
 fund_code. Beat task `capture_fund_navs_task` runs 20:00 CST Mon-Fri (NAV
 publishes same evening after A-share close). `detect_window_anomalies`
@@ -264,7 +270,7 @@ YAML's class keys exactly match the closed taxonomy in
 config edit — and existing holdings/`ticker_themes` rows already classified
 under the old category need a backfill migration (see `8c9d0e1f2a3b` for an
 example) or they'd silently inherit the wrong tier. Per-user threshold
-overrides are a Ring 1 decision, documented in `产品概念设计文档.md`, not
+overrides are a Ring 1 decision, documented in `Portfonia Concept & Design.md`, not
 built yet.
 
 ## Language Policy (MANDATORY)
@@ -317,7 +323,9 @@ in any other language.
 - **Single footer disclaimer, no inline markers** (2026-06-08): the compliance
   base is the one bilingual disclaimer in the footer. The body carries NO
   per-sentence `[For information only…]` suffix and NO bracketed provenance tags
-  (`[行情]`/`[新闻]`/`[分析]`/`[S#]`). The system prompt forbids the model from
+  (the legacy market-data/news/analysis marker tags stripped by
+  `report_generator._STRAY_TAGS`, sourced from `i18n_glossary.yml`'s
+  `legacy_removed_markers_zh`, or `[S#]`). The system prompt forbids the model from
   emitting them, and `_strip_markers` removes any that slip through. The scan
   backstop above does not depend on the suffix.
 
@@ -350,7 +358,7 @@ in any other language.
 ### Three-layer deployment flow (MANDATORY)
 
 **Full workflow + production server specs (provider, region, instance name,
-IP, SSH user, remote paths) live ONLY in Obsidian `Hermes/Portfonia/开发环境配置.md`
+IP, SSH user, remote paths) live ONLY in Obsidian `Hermes/Portfonia/Portfonia Environment Config.md`
 — never in this repo.** This file (`CLAUDE.md`) is git-tracked, so it must
 never carry any traceable identifier for the production host: no IP, no
 cloud provider/region, no instance name, no SSH username, no remote
@@ -409,12 +417,13 @@ remote command finished — verify by checking the actual resulting state
 (containers running, files present), not just the shell's reported exit
 status.
 
-**Trigger phrase "生产部署" (or an unambiguous equivalent explicit deploy
-request) means execute this procedure** (established 2026-08-06, after the
-first successful full-stack deploy). The human workflow ends at PR merge to
+**An explicit, unambiguous request to deploy the currently-merged `main` to
+production — in whatever language or phrasing the requester uses — means
+execute this procedure** (established 2026-08-06, after the first
+successful full-stack deploy). The human workflow ends at PR merge to
 `main` (branch → implement → test → PR → review → fix → merge, all local);
-"生产部署" is the one additional step that ships a merged `main` to the
-production server:
+production deployment is the one additional step that ships a merged `main`
+to the production server:
 
 1. Sanity-check local `main` is clean and matches `origin/main` (don't
    deploy stale/uncommitted state).
@@ -684,7 +693,7 @@ Let CI handle versioning, changelog, tag, and publish.
 ## Out of Scope (do not let scope creep pull this in)
 
 Full product-scope decisions (what we deliberately don't build, and why)
-live in Obsidian `Hermes/Portfonia/产品概念设计文档.md` §1 + appendix — not
+live in Obsidian `Hermes/Portfonia/Portfonia Concept & Design.md` §1 + appendix — not
 here, to keep this file to AI-actionable conventions rather than product
 ideation. Quick check before any new feature: trade execution, tax/P&L
 tracking, options/derivatives, price-only threshold alerts, social/sharing

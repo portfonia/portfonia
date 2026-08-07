@@ -1,0 +1,134 @@
+# Single source of truth for every fixed non-English term this system
+# renders, forbids, or matches on (issue #90). English-only prose (CLAUDE.md,
+# docstrings, comments) references terms by their EN key here instead of
+# embedding literal CJK characters inline.
+#
+# Schema is locale-keyed (BCP-47-style tags), not zh-only: each term maps
+# EN -> {locale: translation}. `supported_locales` below is the closed set
+# the loader validates against — requesting an unlisted locale raises rather
+# than silently falling back (same discipline as asset_class_thresholds.yml's
+# closed taxonomy). Only zh-Hans is populated today; zh-Hant/fr/es are
+# reserved key space for when a second output language actually ships — do
+# not fill them with an unreviewed machine translation. Adding a locale is
+# two steps: (1) add real, human-verified translations here, (2) extend
+# `_OUTPUT_LANG_TO_LOCALE` in app/services/i18n_glossary.py.
+#
+# app/compliance/forbidden_vocab.py is the separate, existing single source
+# of truth for the compliance-scan forbidden-vocabulary regex patterns
+# (hand-tuned context-aware matching, e.g. 止损) — not duplicated here.
+
+supported_locales: [zh-Hans]
+
+report_glossary:
+  # Fixed EN -> locale nouns the translation pass (report_generator._translate_md)
+  # renders exactly; loaded to build the LLM's glossary instruction.
+  "Portfonia Financial Analysis Report":
+    zh-Hans: Portfonia 财经分析报告
+  "financial analysis briefing":
+    zh-Hans: 财经分析简报
+  "Portfolio Snapshot":
+    zh-Hans: 投资组合快照
+  "Holdings Analysis":
+    zh-Hans: 持仓分析
+  "Custodian":
+    zh-Hans: 持仓机构
+  "Macro Signals":
+    zh-Hans: 宏观信号
+  "Risk Radar":
+    zh-Hans: 风险雷达
+  "[Established]":
+    zh-Hans: "[确定]"
+  "[Probable]":
+    zh-Hans: "[较可能]"
+  "[Speculative]":
+    zh-Hans: "[推测]"
+
+forbidden_renderings:
+  # Terms the translation pass must never use, regardless of target locale.
+  "Intelligence":
+    zh-Hans: 智能
+
+ta_observation_terms:
+  # Explicitly allowed (non-advisory) technical-observation vocabulary.
+  # Regression-locked in test_report_generator.py. Distinct from
+  # forbidden_vocab.py's Layer-4 *forbidden* set — this is the separate
+  # *allowed* set §4.4 is permitted to use.
+  support:
+    zh-Hans: 支撑位
+  resistance:
+    zh-Hans: 阻力位
+  golden-cross:
+    zh-Hans: 金叉
+  death-cross:
+    zh-Hans: 死叉
+
+vendor_names:
+  # Proper nouns for external data vendors with no established EN brand name.
+  "Tiantian Fund":
+    zh-Hans: 天天基金
+
+templates:
+  # Multi-line rendered report text (report_generator._build_footer).
+  # $fx_date / $base_ccy are string.Template placeholders substituted at
+  # render time. Values are single-line (no YAML line-folding) deliberately:
+  # a folded block scalar inserts a literal space at each wrap point, which
+  # would corrupt the zh-Hans text (no natural inter-character spacing).
+  #
+  # `disclaimer` (both locales) is the legally-reviewed text (`f3-bilingual-
+  # v2`) and IS byte-exact against the prior inline Python string — verified,
+  # not just visually reviewed.
+  #
+  # `data_sources_note`'s EN value is NOT byte-identical to the prior inline
+  # string (PR #91 review, 2026-08-07): the old EN sentence read "Fund NAV —
+  # 天天基金 (Tiantian)." — a Chinese vendor name inline inside an otherwise-
+  # English sentence, left over from before this vendor name had its own
+  # i18n_glossary.yml entry. Cleaned up to "Fund NAV — Tiantian Fund." as
+  # part of this move. This is a deliberate, in-scope wording fix, not an
+  # accidental drift — flagging it explicitly per review, since silently
+  # changing user-visible footer wording inside a "just relocate literals"
+  # PR is exactly the kind of thing a byte-exact-preservation claim should
+  # not have papered over. zh-Hans wording for this field is unchanged.
+  footer_header:
+    en: Data Sources & Disclaimer
+    zh-Hans: 数据来源与免责声明
+  data_sources_label:
+    en: "Data sources:"
+    zh-Hans: "数据来源："
+  disclaimer_label:
+    en: "Disclaimer:"
+    zh-Hans: "免责声明："
+  data_sources_note:
+    en: "Equity/ETF prices — yfinance (end-of-day session closes, US/HK/CN exchanges). Fund NAV — Tiantian Fund. News — RSS feeds (Reuters, CNBC, Google News Business). Exchange rates — yfinance daily closes as of $fx_date; all portfolio valuations converted to $base_ccy. Intraday and premarket data are not used."
+    zh-Hans: "股票/ETF价格 — yfinance（美/港/A股交易所收盘价）。基金净值 — 天天基金。新闻 — RSS订阅（路透社、CNBC、Google财经新闻）。汇率 — yfinance每日收盘价，数据截至 $fx_date；所有持仓估值已换算为 $base_ccy。不使用盘前或盘中数据。"
+  disclaimer:
+    en: "This report is generated automatically by an AI large language model (LLM) system. AI-generated content may contain imprecise, incomplete, or inaccurate language and does not represent the views or opinions of the sender. This report is provided for informational purposes only. It does not constitute investment advice, a recommendation to buy or sell any security, or a solicitation of any investment. Past performance is not indicative of future results. The sender accepts no responsibility for any decisions made based on this content. Always consult a qualified financial advisor before making investment decisions."
+    zh-Hans: "本报告由AI大型语言模型（LLM）系统自动生成。AI生成内容可能包含不精确、不完整或不准确的措辞，不代表发送方的观点或意见。本报告仅供参考，不构成投资建议、证券买卖推荐或投资招揽。历史业绩不代表未来表现。对于基于本内容所作出的任何决策，发送方不承担任何责任。在做出任何投资决策前，请咨询持牌财务顾问。"
+  cross_reference_example:
+    # A concrete example of the §-anchor marker the Pass 2 prompt permits the
+    # LLM to emit (report_generator._build_pass2_prompt's §4.2 rule).
+    en: "see §4.2"
+    zh-Hans: "见§4.2"
+
+# Flat matching-term lists (not EN->locale translation pairs — these are
+# literal zh-Hans strings report_generator.py matches against, analogous to
+# holding_parser_vocab.yml's cny_institutions).
+
+# RSS-derived delay-caveat triggers (#1): a funding lapse can suspend BLS/BEA
+# releases (report_generator._RELEASE_DELAY_TERMS).
+release_delay_terms_zh: [政府停摆, 拨款中断, 停摆]
+
+# Legacy inline provenance/theme tags the LLM may still emit despite the
+# system prompt forbidding them (pre-#9); report_generator._STRAY_TAGS strips
+# them as a backstop, EN forms are matched inline in the same regex.
+legacy_removed_markers_zh: [新闻, 分析, 行情, 宏观主题数据]
+
+# Regex fragments (not literal substrings — some contain alternation/wildcard
+# syntax) matching a self-emitted disclaimer/legal-notice line in the report
+# body, which is redundant with the template footer and a false-positive
+# trigger for the forbidden-output scan (report_generator._BODY_DISCLAIMER_RE).
+body_disclaimer_regex_terms_zh:
+  - 投资建议
+  - 投资招揽
+  - '买卖(推荐|指令)'
+  - 免责声明
+  - '不构成.*(建议|招揽)'

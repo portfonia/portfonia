@@ -59,6 +59,64 @@ def test_extract_unsupported_extension_raises() -> None:
         _extract_text(b"data", "holdings.pdf")
 
 
+# ---------------------------------------------------------------------------
+# Vocab-loaded module constants: _SYSTEM_PROMPT / _MARKET_ALIASES (#90 review)
+# ---------------------------------------------------------------------------
+
+_REQUIRED_PROMPT_TERMS = (
+    "招商",
+    "建设",
+    "工商",
+    "农业",
+    "中信",
+    "兴业",
+    "浦发",
+    "民生",
+    "光大",
+    "平安",
+    "支付宝",
+    "微信",
+    "天天基金",
+    "蚂蚁",
+    "余额宝",
+    "招财宝",
+    "零钱通",
+    "招行",
+    "建行",
+    "工行",
+    "农行",
+    "富途",
+    "港股通",
+    "现金",
+    "保证金",
+    "存款",
+    "货币",
+    "指数",
+    "理财产品",
+    "财富管理",
+    "结构性存款",
+    "代销",
+    "A股",
+    "沪深",
+    "美股",
+    "港股",
+)
+
+
+def test_system_prompt_contains_required_cn_examples() -> None:
+    """Every Chinese example term from holding_parser_vocab.yml must survive
+    into the built prompt. A deleted YAML entry would otherwise only show up
+    as worse LLM extraction in production, with nothing catching it locally
+    (PR #91 review)."""
+    for term in _REQUIRED_PROMPT_TERMS:
+        assert term in holding_parser_module._SYSTEM_PROMPT, f"missing from prompt: {term!r}"
+
+
+def test_market_aliases_zh_keys_present() -> None:
+    expected_zh_keys = {"美股", "美国", "港股", "香港", "a股", "沪深"}
+    assert expected_zh_keys <= set(holding_parser_module._MARKET_ALIASES)
+
+
 def test_postprocess_normalizes_market_aliases() -> None:
     raw = [
         {"name": "A", "currency": "USD", "shares": 1, "pricing_mode": "auto", "market": "美股"},

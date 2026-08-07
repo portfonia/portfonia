@@ -122,7 +122,7 @@ def capture_prices(
 
 
 def capture_fund_navs(session: Session, lookback_days: int = 30) -> int:
-    """Fetch settled NAV history from 天天基金 for all fund_code holdings.
+    """Fetch settled NAV history from Tiantian Fund for all fund_code holdings.
 
     Upserts into price_snapshots using fund_code as ticker key, market from the
     holding (defaulting to A-Share), session_node='close'. The upsert is

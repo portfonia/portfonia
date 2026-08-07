@@ -185,7 +185,7 @@ def capture_fx_task(self: Any) -> dict[str, Any]:
     default_retry_delay=300,
 )
 def capture_fund_navs_task(self: Any) -> dict[str, int]:
-    """Fetch settled NAV history from 天天基金 for fund_code holdings into price_snapshots."""
+    """Fetch settled NAV history from Tiantian Fund for fund_code holdings into price_snapshots."""
     from app.core.database import SessionLocal
     from app.services.price_capture import capture_fund_navs
 
