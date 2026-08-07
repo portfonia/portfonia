@@ -66,3 +66,57 @@ vendor_names:
   # Proper nouns for external data vendors with no established EN brand name.
   "Tiantian Fund":
     zh-Hans: 天天基金
+
+templates:
+  # Multi-line rendered report text (report_generator._build_footer).
+  # $fx_date / $base_ccy are string.Template placeholders substituted at
+  # render time. Values are single-line (no YAML line-folding) deliberately:
+  # a folded block scalar inserts a literal space at each wrap point, which
+  # would corrupt the zh-Hans text (no natural inter-character spacing) and
+  # this legally-reviewed disclaimer (`f3-bilingual-v2`) needs byte-exact
+  # wording — verified against the prior inline Python string, not just
+  # visually reviewed.
+  footer_header:
+    en: Data Sources & Disclaimer
+    zh-Hans: 数据来源与免责声明
+  data_sources_label:
+    en: "Data sources:"
+    zh-Hans: "数据来源："
+  disclaimer_label:
+    en: "Disclaimer:"
+    zh-Hans: "免责声明："
+  data_sources_note:
+    en: "Equity/ETF prices — yfinance (end-of-day session closes, US/HK/CN exchanges). Fund NAV — Tiantian Fund. News — RSS feeds (Reuters, CNBC, Google News Business). Exchange rates — yfinance daily closes as of $fx_date; all portfolio valuations converted to $base_ccy. Intraday and premarket data are not used."
+    zh-Hans: "股票/ETF价格 — yfinance（美/港/A股交易所收盘价）。基金净值 — 天天基金。新闻 — RSS订阅（路透社、CNBC、Google财经新闻）。汇率 — yfinance每日收盘价，数据截至 $fx_date；所有持仓估值已换算为 $base_ccy。不使用盘前或盘中数据。"
+  disclaimer:
+    en: "This report is generated automatically by an AI large language model (LLM) system. AI-generated content may contain imprecise, incomplete, or inaccurate language and does not represent the views or opinions of the sender. This report is provided for informational purposes only. It does not constitute investment advice, a recommendation to buy or sell any security, or a solicitation of any investment. Past performance is not indicative of future results. The sender accepts no responsibility for any decisions made based on this content. Always consult a qualified financial advisor before making investment decisions."
+    zh-Hans: "本报告由AI大型语言模型（LLM）系统自动生成。AI生成内容可能包含不精确、不完整或不准确的措辞，不代表发送方的观点或意见。本报告仅供参考，不构成投资建议、证券买卖推荐或投资招揽。历史业绩不代表未来表现。对于基于本内容所作出的任何决策，发送方不承担任何责任。在做出任何投资决策前，请咨询持牌财务顾问。"
+  cross_reference_example:
+    # A concrete example of the §-anchor marker the Pass 2 prompt permits the
+    # LLM to emit (report_generator._build_pass2_prompt's §4.2 rule).
+    en: "see §4.2"
+    zh-Hans: "见§4.2"
+
+# Flat matching-term lists (not EN->locale translation pairs — these are
+# literal zh-Hans strings report_generator.py matches against, analogous to
+# holding_parser_vocab.yml's cny_institutions).
+
+# RSS-derived delay-caveat triggers (#1): a funding lapse can suspend BLS/BEA
+# releases (report_generator._RELEASE_DELAY_TERMS).
+release_delay_terms_zh: [政府停摆, 拨款中断, 停摆]
+
+# Legacy inline provenance/theme tags the LLM may still emit despite the
+# system prompt forbidding them (pre-#9); report_generator._STRAY_TAGS strips
+# them as a backstop, EN forms are matched inline in the same regex.
+legacy_removed_markers_zh: [新闻, 分析, 行情, 宏观主题数据]
+
+# Regex fragments (not literal substrings — some contain alternation/wildcard
+# syntax) matching a self-emitted disclaimer/legal-notice line in the report
+# body, which is redundant with the template footer and a false-positive
+# trigger for the forbidden-output scan (report_generator._BODY_DISCLAIMER_RE).
+body_disclaimer_regex_terms_zh:
+  - 投资建议
+  - 投资招揽
+  - '买卖(推荐|指令)'
+  - 免责声明
+  - '不构成.*(建议|招揽)'

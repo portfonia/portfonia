@@ -3,7 +3,7 @@
 Maps raw yfinance sector strings onto a stable set of classes so the
 Dashboard sector distribution is consistent across markets. Ring 0 strategy:
 yfinance sector + US mapping ships first; A-share / HK that yfinance returns
-empty fall through to OTHER. The full 申万→unified table is a later phase.
+empty fall through to OTHER. The full Shenwan→unified table is a later phase.
 """
 
 from __future__ import annotations

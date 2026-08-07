@@ -55,7 +55,7 @@ def _load_keywords(path: Path | None = None) -> dict[str, list[str]]:
 # Pattern compilation
 # ---------------------------------------------------------------------------
 
-_CHINESE_RE = re.compile(r"[一-鿿]")
+_CHINESE_RE = re.compile(r"[\u4e00-\u9fff]")
 
 
 def _make_pattern(keyword: str) -> re.Pattern[str]:

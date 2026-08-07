@@ -1,4 +1,4 @@
-# Holding-relevant news recall aliases (R-3,映射缺口).
+# Holding-relevant news recall aliases (R-3, mapping gap).
 #
 # After anomaly detection, news captured in the report window is recalled per
 # moving holding so that thematically-relevant items reach Pass 2 even when they

@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.report import Report
+from app.services.i18n_glossary import load_i18n_glossary
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +140,10 @@ def send_report_email(report: Report, session: Session) -> bool:
         if report.report_date
         else datetime.now(tz=UTC).strftime("%Y-%m-%d")
     )
-    subject = f"Portfonia 财经分析报告 — {report_date_str}"
+    report_title_zh = load_i18n_glossary().report_glossary["Portfonia Financial Analysis Report"][
+        "zh-Hans"
+    ]
+    subject = f"{report_title_zh} — {report_date_str}"
     html_body = _render_html(report.report_md)
 
     payload: dict[str, object] = {

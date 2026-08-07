@@ -52,8 +52,8 @@ def _node_cron(tz: Any, hour: int, minute: int) -> crontab:
 
 
 # Report cadences: (beat entry name, report_type, session_node, crontab kwargs).
-# Ring 1 will extend this with monthly/weekly/daily_brief cadences (see
-# Hermes/Portfonia/Docs/多周期报告机制改造计划.md) — adding one is a table row, not
+# Ring 1 will extend this with monthly/weekly/daily_brief cadences (see the
+# Obsidian multi-cadence report redesign notes) — adding one is a table row, not
 # a new task function, since generate_incremental_report takes report_type/
 # session_node as arguments rather than hardcoding them.
 _REPORT_CADENCES: tuple[tuple[str, str, str, dict[str, Any]], ...] = (
@@ -97,7 +97,7 @@ def _build_capture_schedule() -> dict[str, dict[str, Any]]:
                 "schedule": _node_cron(tz, hour, minute),
                 "args": (market, node),
             }
-            # "顺带抓一次新闻" — news is global; dedup makes the overlap free.
+            # Piggyback a news fetch here — news is global; dedup makes the overlap free.
             sched[f"capture-news-{market}-{node}"] = {
                 "task": "app.tasks.capture_tasks.capture_news_task",
                 "schedule": _node_cron(tz, hour, minute),

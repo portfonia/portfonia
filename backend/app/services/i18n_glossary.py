@@ -45,6 +45,10 @@ class I18nGlossary:
     forbidden_renderings: dict[str, dict[str, str]]
     ta_observation_terms: dict[str, dict[str, str]]
     vendor_names: dict[str, dict[str, str]]
+    templates: dict[str, dict[str, str]]
+    release_delay_terms_zh: tuple[str, ...]
+    legacy_removed_markers_zh: tuple[str, ...]
+    body_disclaimer_regex_terms_zh: tuple[str, ...]
 
     def term(self, section: dict[str, dict[str, str]], key: str, locale: str) -> str:
         """Look up one term in *section* (e.g. `self.vendor_names`) for *locale*.
@@ -78,4 +82,8 @@ def load_i18n_glossary(path: Path | None = None) -> I18nGlossary:
         forbidden_renderings=raw["forbidden_renderings"],
         ta_observation_terms=raw["ta_observation_terms"],
         vendor_names=raw["vendor_names"],
+        templates=raw["templates"],
+        release_delay_terms_zh=tuple(raw["release_delay_terms_zh"]),
+        legacy_removed_markers_zh=tuple(raw["legacy_removed_markers_zh"]),
+        body_disclaimer_regex_terms_zh=tuple(raw["body_disclaimer_regex_terms_zh"]),
     )
