@@ -93,7 +93,8 @@ class Settings(BaseSettings):
     #
     # Was google/gemma-4-31b-it pinned to the OpenInference bf16 endpoint
     # (verified at 100% / 210/210 on the PC611-homepage eval case set — see
-    # Hermes/Homepage/LLM-No-Reasoning-eval设计与实现.md §19-21) until issue
+    # the PC611-homepage project's "LLM No-Reasoning Eval" design/implementation
+    # notes §19-21) until issue
     # #84 (2026-08-06): direct production probing found the OpenInference
     # bf16 endpoint itself was the bottleneck (371s worst case on a 30-row
     # holdings file — pinning it made every variant *slower*, not more
@@ -153,6 +154,18 @@ class Settings(BaseSettings):
     # asset_class anomaly + concentration thresholds (admin-editable, #35)
     # Empty string = use the default path: backend/config/asset_class_thresholds.yml
     ASSET_CLASS_CONFIG_PATH: str = ""
+
+    # Locale-keyed glossary of fixed non-English terms (#90)
+    # Empty string = use the default path: backend/config/i18n_glossary.yml
+    I18N_GLOSSARY_PATH: str = ""
+
+    # Chinese-language compliance vocabulary data (#90)
+    # Empty string = use the default path: backend/config/compliance_vocab.yml
+    COMPLIANCE_VOCAB_PATH: str = ""
+
+    # Chinese-language example/vocabulary data for the holdings-extraction prompt (#90)
+    # Empty string = use the default path: backend/config/holding_parser_vocab.yml
+    HOLDING_PARSER_VOCAB_PATH: str = ""
 
     @property
     def database_url(self) -> str:

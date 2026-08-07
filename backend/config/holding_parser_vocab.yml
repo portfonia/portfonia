@@ -1,0 +1,60 @@
+# Chinese-language example/vocabulary data for the LLM extraction system
+# prompt in app/services/holding_parser.py (issue #90 follow-up). The prompt
+# needs real Chinese examples so the LLM recognizes Chinese-language holdings
+# exports (mainland brokers, Alipay/WeChat-linked funds, HK Stock Connect,
+# fund/WMP terminology) — this file holds that example data; holding_parser.py
+# interpolates it into the (otherwise English) prompt template. No test
+# asserts the prompt's exact text (only its downstream parsing effect via
+# mocked LLM calls), so this is a formatting normalization, not a byte-exact
+# preservation of the prior inline string — semantic content is unchanged.
+
+# Mainland Chinese bank/institution + consumer-platform names (currency
+# inference rule 6: presence in name/broker implies CNY).
+cny_institutions:
+  - 招商
+  - 建设
+  - 工商
+  - 农业
+  - 中信
+  - 兴业
+  - 浦发
+  - 民生
+  - 光大
+  - 平安
+  - 支付宝
+  - 微信
+  - 天天基金
+  - 蚂蚁
+  - 余额宝
+  - 招财宝
+  - 零钱通
+  - 招行
+  - 建行
+  - 工行
+  - 农行
+
+# Consumer-platform subset, referenced again by market inference rule 5
+# (cash/WMP/deposit holdings routed to A-Share market).
+common_cn_platforms: [支付宝, 微信, 余额宝, 天天基金]
+
+futu: 富途
+stock_connect: 港股通
+cash: 现金
+margin: 保证金
+deposit: 存款
+money_market: 货币
+index_fund: 指数
+wmp_terms: 理财产品/财富管理/结构性存款/代销
+a_share_terms: A股/沪深
+us_market_zh: 美股
+hk_market_zh: 港股
+
+# Chinese aliases the model may emit for market labels (holding_parser._MARKET_ALIASES).
+market_aliases_zh:
+  美股: US
+  美国: US
+  港股: HK
+  香港: HK
+  a股: A-Share
+  沪深: A-Share
+

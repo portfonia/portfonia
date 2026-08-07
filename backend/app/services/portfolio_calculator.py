@@ -87,7 +87,7 @@ class Concentration:
     """Raw §6.5 concentration figures + threshold breach flags.
 
     Numbers only — no prose. The advisory-sounding language templates in §6.5
-    ("参考上限 25%") belong to the report layer, not here.
+    ("reference cap 25%") belong to the report layer, not here.
     """
 
     top_holding_name: str | None = None

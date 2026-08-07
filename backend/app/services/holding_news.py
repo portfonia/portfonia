@@ -1,4 +1,4 @@
-"""Holding-relevant news recall (R-3, 映射缺口).
+"""Holding-relevant news recall (R-3, mapping gap).
 
 After ``detect_window_anomalies`` flags the holdings that moved, this module
 recalls news captured in the report window that is relevant to each flagged

@@ -5,10 +5,13 @@ import json
 import logging
 import re
 import time
+from dataclasses import dataclass
 from pathlib import Path
+from string import Template
 from typing import Any
 
 import openai
+import yaml
 
 from app.core.config import OR_ATTRIBUTION_HEADERS, get_settings
 from app.core.llm import structured_provider
@@ -22,7 +25,65 @@ from app.schemas.holdings import (
 
 _SUPPORTED_EXTENSIONS = {".md", ".txt", ".csv", ".xlsx", ".xls"}
 
-_SYSTEM_PROMPT = """\
+# backend/ = two levels above this file (services/holding_parser.py → app/ → backend/)
+_BACKEND_DIR = Path(__file__).resolve().parents[2]
+_DEFAULT_VOCAB_FILE = _BACKEND_DIR / "config" / "holding_parser_vocab.yml"
+
+
+@dataclass(frozen=True)
+class _HoldingParserVocab:
+    cny_institutions: tuple[str, ...]
+    common_cn_platforms: tuple[str, ...]
+    futu: str
+    stock_connect: str
+    cash: str
+    margin: str
+    deposit: str
+    money_market: str
+    index_fund: str
+    wmp_terms: str
+    a_share_terms: str
+    us_market_zh: str
+    hk_market_zh: str
+    market_aliases_zh: dict[str, str]
+
+
+def _get_holding_parser_vocab_path() -> Path:
+    override = get_settings().HOLDING_PARSER_VOCAB_PATH
+    return Path(override) if override else _DEFAULT_VOCAB_FILE
+
+
+def _load_holding_parser_vocab(path: Path | None = None) -> _HoldingParserVocab:
+    """Load the Chinese-language example data for the extraction system prompt."""
+    target = path or _get_holding_parser_vocab_path()
+    with target.open(encoding="utf-8") as fh:
+        raw = yaml.safe_load(fh)
+    return _HoldingParserVocab(
+        cny_institutions=tuple(raw["cny_institutions"]),
+        common_cn_platforms=tuple(raw["common_cn_platforms"]),
+        futu=raw["futu"],
+        stock_connect=raw["stock_connect"],
+        cash=raw["cash"],
+        margin=raw["margin"],
+        deposit=raw["deposit"],
+        money_market=raw["money_market"],
+        index_fund=raw["index_fund"],
+        wmp_terms=raw["wmp_terms"],
+        a_share_terms=raw["a_share_terms"],
+        us_market_zh=raw["us_market_zh"],
+        hk_market_zh=raw["hk_market_zh"],
+        market_aliases_zh=dict(raw["market_aliases_zh"]),
+    )
+
+
+# Loaded once at import — shared by the system-prompt template and _MARKET_ALIASES.
+_VOCAB = _load_holding_parser_vocab()
+
+
+# string.Template ($identifier substitution) rather than str.format(): the
+# prompt's JSON schema examples below are full of literal { } braces that
+# str.format() would try (and fail) to parse as fields.
+_SYSTEM_PROMPT_TEMPLATE = Template("""\
 You are a structured data extractor for an investment portfolio service.
 
 The user uploads a free-form text file listing their holdings. Extract each holding
@@ -76,34 +137,32 @@ note the ambiguity in issues.
 4. ticker ends in .L → GBP
 5. identifier is all digits (6-digit fund code or A-share code) → CNY
 6. name or broker contains a mainland Chinese institution
-   (招商, 建设, 工商, 农业, 中信, 兴业, 浦发, 民生, 光大, 平安,
-    支付宝, 微信, 天天基金, 蚂蚁, 余额宝, 招财宝, 零钱通,
-    招行, 建行, 工行, 农行) → CNY
+   ($cny_institutions) → CNY
 7. ticker is pure ASCII letters with no suffix AND no other CNY/HKD signals → USD
-8. asset is cash/现金/保证金/margin/deposit: infer from broker context;
+8. asset is cash/$cash/$margin/margin/deposit: infer from broker context;
    if broker is foreign (IBKR, Schwab, Fidelity, TD, Futu USD account) → USD;
    if broker is mainland Chinese → CNY;
-   if broker is Hong Kong platform (富途/Futu HKD, 港股通) → HKD;
+   if broker is Hong Kong platform ($futu/Futu HKD, $stock_connect) → HKD;
    if cannot determine → add note to issues, set confidence < 0.7.
 9. Otherwise: make best guess and add explanation to issues.
 
 --- asset_type inference ---
 - Has ticker with exchange suffix (.HK, .SS, .SZ) or well-known US ticker → "stock"
-- Name contains ETF/指数/index fund keywords or ticker starts with common ETF pattern → "etf"
+- Name contains ETF/$index_fund/index fund keywords or ticker starts with common ETF pattern → "etf"
 - Has a 6-digit fund_code → "fund"
-- Name contains 现金/cash/存款/货币/保证金/margin/deposit → "cash"
-- Bank-sold WMP (理财产品/财富管理/结构性存款/代销) → "wmf"
+- Name contains $cash/cash/$deposit/$money_market/$margin/margin/deposit → "cash"
+- Bank-sold WMP ($wmp_terms) → "wmf"
 - Cannot determine → unknown (omit the key — see output compactness below)
 
 --- market inference (the user groups capital by market; preserve their intent) ---
-1. The user explicitly gives a market/exchange column (US, HK, A-Share/A股/沪深,
-   美股, 港股, etc.) → map it to one of US / HK / A-Share / Other and use it.
+1. The user explicitly gives a market/exchange column (US, HK, A-Share/$a_share_terms,
+   $us_market_zh, $hk_market_zh, etc.) → map it to one of US / HK / A-Share / Other and use it.
 2. ticker ends in .HK → HK
 3. ticker ends in .SS or .SZ, OR a 6-digit fund_code, OR a 6-digit A-share code → A-Share
 4. plain US-listed ticker (no suffix) → US
 5. cash / WMP / deposit: follow the ACCOUNT's market via broker context —
-   IBKR / Schwab / Fidelity / TD / Futu-USD → US; 港股通 / Futu-HKD → HK;
-   mainland bank / 支付宝 / 微信 / 余额宝 / 天天基金 → A-Share.
+   IBKR / Schwab / Fidelity / TD / Futu-USD → US; $stock_connect / Futu-HKD → HK;
+   mainland bank / $common_cn_platforms → A-Share.
 6. cannot determine → Other.
 
 --- quality bar for valid_rows ---
@@ -121,7 +180,28 @@ present. Every other key is optional: when a field is unknown, not
 applicable, or would otherwise be null/an empty string/an empty list, OMIT
 that key from the object entirely rather than writing it as null/[]/"". This
 keeps output size proportional to actual content, not the full schema.
-"""
+""")
+
+
+def _build_system_prompt(v: _HoldingParserVocab) -> str:
+    return _SYSTEM_PROMPT_TEMPLATE.substitute(
+        cny_institutions=", ".join(v.cny_institutions),
+        common_cn_platforms=" / ".join(v.common_cn_platforms),
+        futu=v.futu,
+        stock_connect=v.stock_connect,
+        cash=v.cash,
+        margin=v.margin,
+        deposit=v.deposit,
+        money_market=v.money_market,
+        index_fund=v.index_fund,
+        wmp_terms=v.wmp_terms,
+        a_share_terms=v.a_share_terms,
+        us_market_zh=v.us_market_zh,
+        hk_market_zh=v.hk_market_zh,
+    )
+
+
+_SYSTEM_PROMPT = _build_system_prompt(_VOCAB)
 
 
 def _strip_comments(text: str) -> str:
@@ -144,9 +224,9 @@ def _extract_text(file_bytes: bytes, filename: str) -> str:
             f"Unsupported file type '{suffix}'. Please upload .md, .txt, .csv, .xlsx, or .xls."
         )
     if suffix in (".md", ".txt", ".csv"):
-        # Chinese brokers (天天基金, 招商, etc.) commonly export GBK/GB2312, not
-        # UTF-8. Try UTF-8 first, then fall back to gb18030 (a superset of both)
-        # so a legitimately-encoded CN export doesn't 500 on decode.
+        # Mainland Chinese broker/fund-platform exports commonly use GBK/GB2312,
+        # not UTF-8. Try UTF-8 first, then fall back to gb18030 (a superset of
+        # both) so a legitimately-encoded CN export doesn't 500 on decode.
         try:
             return _strip_comments(file_bytes.decode("utf-8"))
         except UnicodeDecodeError:
@@ -234,13 +314,13 @@ _TICKER_ASSET_CLASS: dict[str, str] = {
     # US tech / Nasdaq 100
     "QQQM": "EQUITY_US_TECH",
     "QQQ": "EQUITY_US_TECH",
-    "019547": "EQUITY_US_TECH",  # 招商纳斯达克100指数基金
+    "019547": "EQUITY_US_TECH",  # China Merchants Nasdaq 100 Index Fund
     # Developed markets ex-US
     "EWJ": "EQUITY_DM",
     # China equity (A-share / HK Chinese / China-focused QDII)
     "FXI": "EQUITY_CN",
     "KWEB": "EQUITY_CN",
-    "110011": "EQUITY_CN",  # 易方达优质精选混合(QDII) — China concept
+    "110011": "EQUITY_CN",  # E Fund Premium Select mixed fund (QDII) — China concept
     # Precious metals (gold) — split from the generic COMMODITY catch-all
     # 2026-06-20: gold's volatility/concentration profile is distinct from
     # energy and other commodities, see config/asset_class_thresholds.yml.
@@ -251,7 +331,7 @@ _TICKER_ASSET_CLASS: dict[str, str] = {
     "518660.SS": "PRECIOUS_METALS",
     "518800": "PRECIOUS_METALS",
     "518800.SS": "PRECIOUS_METALS",
-    "008142": "PRECIOUS_METALS",  # 工银黄金ETF联接
+    "008142": "PRECIOUS_METALS",  # ICBC Gold ETF feeder fund
     # Bond / T-bill funds
     "BOXX": "BOND_FUND",
     "BIL": "BOND_FUND",
@@ -280,22 +360,19 @@ def _classify_asset_class(row: dict[str, Any]) -> str:
     return _ASSET_TYPE_CLASS.get(row.get("asset_type") or "", "STOCK")
 
 
-# Map common free-text market labels the model may emit onto the canonical bucket.
-_MARKET_ALIASES = {
+# Map common free-text market labels the model may emit onto the canonical
+# bucket. EN aliases here; Chinese-language aliases load from
+# holding_parser_vocab.yml's market_aliases_zh (issue #90).
+_MARKET_ALIASES: dict[str, str] = {
     "us": "US",
     "usa": "US",
-    "美股": "US",
-    "美国": "US",
     "hk": "HK",
     "hkex": "HK",
-    "港股": "HK",
-    "香港": "HK",
     "a-share": "A-Share",
-    "a股": "A-Share",
     "ashare": "A-Share",
-    "沪深": "A-Share",
     "cn": "A-Share",
     "china": "A-Share",
+    **_VOCAB.market_aliases_zh,
 }
 
 
@@ -386,7 +463,7 @@ def _row_cost_basis(row: ParsedRow) -> float | None:
 
 
 def _summarize(rows: list[ParsedRow]) -> list[BrokerGroup]:
-    """Per-broker (持仓机构) cross-check summary in upload order.
+    """Per-broker (Custodian) cross-check summary in upload order.
 
     Mirrors §1's grouping: brokers appear in first-seen order, broker-less rows
     fall under "Other". Cost basis is split by currency so a mixed-currency
