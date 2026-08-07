@@ -26,9 +26,74 @@ This file holds **conventions and mechanisms**, not a project status board.
 | Report statuses | `success` · `skipped` (quiet day, still emails heartbeat — EXCEPT a short manual quiet window: `session_node="manual"` + <2h span + 0 news + 0 anomalies suppresses the heartbeat as a same-day re-run artifact) · `needs_review` (compliance scan hit, NOT emailed) · `failed` · `in_progress` |
 | Report title / email subject | `Portfonia 财经分析报告 — YYYY-MM-DD HH:MM ET` (title timestamp from `period_end`); no "智能"/"Intelligence" wording anywhere. |
 | Holdings model | `market` + `broker` are user-declared fields; `position` preserves upload order. **§1 groups by `broker` (持仓机构)** in upload order with per-institution subtotals; cash sits inside its institution, broker-less rows fall into "Other". `position` is populated automatically on confirm. |
+| Holdings upload | Async, not a single blocking request — see "Async holdings upload" section below (issue #77/#82/#85). |
 | Re-render | `regenerate_report(mode=render\|analyze)` rebuilds from stored `report_inputs` without re-fetching; `POST /reports/{id}/regenerate`. render = token-free, analyze = Pass 2 only. |
 | §1 / distribution / §4.1 classification dimension | **`asset_class`** (geography-first taxonomy — see table below), not `sector` or `asset_type`. `sector` (yfinance GICS) is retained ONLY for forward-event holding-relevance mapping (rate-sensitive/consumer sectors for FOMC/CPI events) — never reintroduce it into §1/distribution/§4.1. `by_asset_class` has no "Other" fallback (every `Holding` always has one, default `STOCK`). |
 | Tests must mock external notify calls | `send_ops_alert`, `create_bug_report`, `send_report_email` are mocked via an **autouse** fixture in `app/tests/conftest.py` (`_no_external_notifications`) — never rely on individual tests remembering to patch them. A gap here previously sent 42 real "FX rates stale" emails to the admin inbox from three same-day pytest runs (test clock fixed to a historical date that always trips the staleness check against the real current date). |
+
+### Async holdings upload (issue #77/#82/#85)
+
+`POST /holdings/upload` used to run `holding_parser.parse()` synchronously
+inside the request — up to 3 sequential LLM attempts that could take
+minutes, fragile against any interruption on the long-lived connection in
+the meantime (issue #77: confirmed once in production — the backend
+completed and returned 200, but the client never saw it because the
+connection had already dropped, so `POST /holdings/confirm` was never
+called and nothing committed. Not itself a data-loss bug — just a
+never-happened commit — but the UX read as "upload failed").
+
+- **Shape**: `POST /holdings/upload` extracts text, writes it onto a new
+  `UploadJob` row (`status="pending"`), enqueues `parse_holdings_upload`,
+  and returns 202 immediately with the job. `GET
+  /holdings/upload/{job_id}` is the poll target — same shape `/upload` used
+  to return directly (`preview`/`error`), scoped to the requesting user
+  (404 for another user's job). Mirrors the existing `Report.status`
+  pattern rather than inventing a new one.
+- **`raw_text` never becomes a Celery/Redis broker argument** — the task
+  takes `job_id` only. Redis persists queued task payloads until ack under
+  `task_acks_late=True` (global setting), so passing the extracted holdings
+  text as a task arg would put plaintext portfolio content in the broker
+  itself, a new surface the old request-scoped in-memory path never had.
+  `raw_text` is cleared the moment the parse attempt is done with it
+  (success, failure, or timeout-driven resolution) — never left populated
+  once a job leaves `pending`.
+- **45s SLA** (`_SLA_SECONDS` in `holdings_tasks.py`, `soft_time_limit=43,
+  time_limit=45`): based on `STRUCTURED_LLM_MODEL` real latency
+  (`openai/gpt-5.6-luna`, 10.9-13.8s per attempt — issue #84/#86, moved off
+  `google/gemma-4-31b-it` whose OpenInference bf16 pin was itself the
+  bottleneck, 371s worst case observed).
+- **Hard-kill resolution is two layers, not one** (issue #85 — a
+  Celery hard `time_limit` sends the worker process SIGKILL, an OS signal
+  the task's own `except`/`finally` can never catch): `_UploadJobRequest`
+  (a `Task.Request` subclass wired via the task's `Request=` kwarg)
+  overrides `on_timeout()` to resolve the job to `failed` from Celery's
+  MainProcess the moment the hard kill is detected — verified against a
+  real SIGKILL in dev (`time_limit=2`), not just mocked. `Request.terminate()`
+  (`task_revoked` signal) is NOT this path — verified against the installed
+  `celery==5.6.3` source that a hard `time_limit` kill never emits
+  `task_revoked`; that signal only fires from an explicit admin
+  `revoke(terminate=True)`, kept as a separate, narrower safety net for
+  that case. Backstop: `sweep_stale_upload_jobs` (Celery beat, every 30s)
+  marks any row still `pending` past `_SLA_SECONDS + 45` as `failed` —
+  catches whatever the immediate hook itself misses (MainProcess restart,
+  worker host down). The 45s buffer accounts for queue wait (holdings jobs
+  share the default worker pool with capture tasks), not just parse time.
+- **Idempotent against Celery redelivery**: `task_acks_late=True` means a
+  worker that dies after committing success/failure but before acking gets
+  the same message redelivered. The task checks `job.status != "pending"`
+  first and returns early for anything already terminal — otherwise a
+  redelivered run would see `raw_text` already cleared, misread that as
+  "nothing to parse," and overwrite a real success with a false failure.
+- **Frontend poll** (`uploadHoldings` in `api.ts`): polls immediately after
+  POST (no fixed floor delay), then backs off 500ms→2s, capped at 120s
+  total before throwing a clear timeout `ApiError` — a stuck-pending job
+  (worker down, broker loss after enqueue) must not spin the UI forever.
+- **Upload size cap** (`_MAX_UPLOAD_BYTES` in `holdings.py`, 5 MiB):
+  `Content-Length` fast-reject before reading any body, then a chunked
+  read (64 KiB) that aborts once the running total crosses the cap —
+  never materializes an oversized body fully into memory first.
+- **Known accepted gap**: no retention/cleanup for successful `preview`
+  JSONB rows (Ring 0, small row count — revisit before Ring 1).
 
 ### Capture layer + incremental reporting (ADR-002)
 
