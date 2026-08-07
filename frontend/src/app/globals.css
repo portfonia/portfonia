@@ -10,6 +10,12 @@
   --font-sans: var(--font-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
+  --font-serif: var(--font-serif);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-tier-established: var(--tier-established);
+  --color-tier-probable: var(--tier-probable);
+  --color-tier-speculative: var(--tier-speculative);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -50,6 +56,17 @@
 
 :root {
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-newsreader), "Iowan Old Style", "Palatino Linotype",
+    Georgia, serif;
+  /* Brand accent + confidence-label tiers (issue #94) — light-mode values,
+     tuned for contrast on a white ground. The dark-mode values in .dark
+     below are the ones the researched Edgen-informed homepage actually
+     uses; these exist so the tokens aren't dark-only. */
+  --brand: #9c7a2e;
+  --brand-foreground: #fffaf0;
+  --tier-established: #1f8a5f;
+  --tier-probable: #9c7a2e;
+  --tier-speculative: #64748b;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -73,7 +90,7 @@
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
+  --radius: 0.75rem;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
@@ -85,24 +102,31 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  /* Approved 2026-08-07 homepage direction (issue #94), not shadcn's
+     scaffold gray defaults — see Obsidian design doc "首页/欢迎页方向决定". */
+  --brand: #dcaa4a;
+  --brand-foreground: #050f13;
+  --tier-established: #5fbe8b;
+  --tier-probable: #dcaa4a;
+  --tier-speculative: #8b93a8;
+  --background: #050f13;
+  --foreground: #eef3f1;
+  --card: #0d1c22;
+  --card-foreground: #eef3f1;
+  --popover: #0d1c22;
+  --popover-foreground: #eef3f1;
+  --primary: #eef3f1;
+  --primary-foreground: #050f13;
+  --secondary: #142a32;
+  --secondary-foreground: #eef3f1;
+  --muted: #0d1c22;
+  --muted-foreground: #8fa19d;
+  --accent: #142a32;
+  --accent-foreground: #eef3f1;
+  --destructive: #e5484d;
+  --border: rgba(238, 243, 241, 0.1);
+  --input: rgba(238, 243, 241, 0.14);
+  --ring: #dcaa4a;
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -127,5 +151,30 @@
   }
   html {
     @apply font-sans;
+  }
+}
+
+/* Homepage hero ambient pulse (issue #94) — slow and low-opacity by design;
+   disabled entirely under reduced-motion rather than just slowed down. */
+.hero-pulse {
+  opacity: 0.65;
+  animation: hero-pulse 9s ease-in-out infinite;
+}
+
+@keyframes hero-pulse {
+  0%,
+  100% {
+    opacity: 0.65;
+    transform: translateX(-50%) scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1.06);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-pulse {
+    animation: none;
   }
 }
