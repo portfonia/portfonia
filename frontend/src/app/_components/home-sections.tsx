@@ -123,6 +123,57 @@ export function HomeSections() {
         </div>
       </section>
 
+      <section id="preview" className="px-6 py-16 sm:py-20">
+        <div className="mx-auto max-w-4xl">
+          <div className="mb-10 flex items-baseline justify-between gap-6 border-b border-white/10 pb-5">
+            <h2 className="font-serif text-2xl sm:text-3xl">{t.preview.heading}</h2>
+            <span className="whitespace-nowrap font-mono text-xs uppercase tracking-wide text-foreground/45">
+              {t.preview.tag}
+            </span>
+          </div>
+
+          <div className="rounded-2xl border border-dashed border-white/15 bg-card p-6 sm:p-8">
+            <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1 font-mono text-[11px] uppercase tracking-wide text-foreground/55">
+              <span className="h-1.5 w-1.5 rounded-full bg-foreground/40" />
+              {t.preview.badge}
+            </div>
+
+            <h3 className="mb-3 text-sm font-medium text-foreground/70">
+              {t.preview.distributionLabel}
+            </h3>
+            <div className="mb-7 space-y-2.5">
+              {t.preview.distribution.map((d) => (
+                <div key={d.label} className="flex items-center gap-3">
+                  <span className="w-24 shrink-0 text-xs text-foreground/60">{d.label}</span>
+                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-secondary">
+                    <div className="h-full rounded-full bg-brand/70" style={{ width: `${d.pct}%` }} />
+                  </div>
+                  <span className="w-9 shrink-0 text-right font-mono text-xs text-foreground/50">
+                    {d.pct}%
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-3 border-t border-white/10 pt-6">
+              {t.preview.highlights.map((h) => (
+                <div key={h.text} className="flex items-start gap-2.5 text-sm leading-relaxed text-foreground/70">
+                  <span
+                    className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: `var(--tier-${h.tier})` }}
+                  />
+                  {h.text}
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-1.5 font-mono text-xs text-foreground/55">
+              {t.preview.calendarChip}
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section id="boundary" className="px-6 py-16 sm:py-20">
         <div className="mx-auto max-w-4xl rounded-2xl border border-white/10 bg-card p-7 sm:p-11">
           <div className="mb-7 flex flex-wrap items-start justify-between gap-8">
@@ -137,6 +188,25 @@ export function HomeSections() {
               </li>
             ))}
           </ul>
+        </div>
+      </section>
+
+      <section id="faq" className="px-6 py-16 sm:py-20">
+        <div className="mx-auto max-w-4xl">
+          <div className="mb-10 flex items-baseline justify-between gap-6 border-b border-white/10 pb-5">
+            <h2 className="font-serif text-2xl sm:text-3xl">{t.faq.heading}</h2>
+            <span className="whitespace-nowrap font-mono text-xs uppercase tracking-wide text-foreground/45">
+              {t.faq.tag}
+            </span>
+          </div>
+          <dl className="grid gap-x-10 gap-y-8 sm:grid-cols-2">
+            {t.faq.items.map((item) => (
+              <div key={item.q}>
+                <dt className="mb-1.5 font-serif text-base">{item.q}</dt>
+                <dd className="text-sm leading-relaxed text-foreground/70">{item.a}</dd>
+              </div>
+            ))}
+          </dl>
         </div>
       </section>
 
