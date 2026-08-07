@@ -6,7 +6,7 @@ export const locales: { value: Locale; label: string }[] = [
 ];
 
 interface HomeMessages {
-  nav: { boundary: string; how: string; cta: string };
+  nav: { boundary: string; how: string; cta: string; language: string };
   hero: {
     eyebrow: string;
     titleLine1: string;
@@ -34,6 +34,7 @@ export const homeMessages: Record<Locale, HomeMessages> = {
       boundary: "What we don't do",
       how: "How it works",
       cta: "Get started",
+      language: "Language",
     },
     hero: {
       eyebrow: "Ring 0 · single-user prototype",
@@ -92,6 +93,7 @@ export const homeMessages: Record<Locale, HomeMessages> = {
       boundary: "我们不做什么",
       how: "工作原理",
       cta: "开始使用",
+      language: "语言",
     },
     hero: {
       eyebrow: "Ring 0 · 单用户原型",
@@ -123,7 +125,10 @@ export const homeMessages: Record<Locale, HomeMessages> = {
       ],
       confidenceLead: "每一条因果归因都标有置信度标签",
       confidenceBody: "把校准过的不确定性讲清楚，而不是藏起来。",
-      tiers: { established: "已确认", probable: "较可能", speculative: "推测性" },
+      // Canonical zh-Hans renderings from backend/config/i18n_glossary.yml's
+      // report_glossary ([Established]/[Probable]/[Speculative]), brackets
+      // dropped to match this page's bracket-free English labels.
+      tiers: { established: "确定", probable: "较可能", speculative: "推测" },
     },
     boundary: {
       heading: "明确不做的事",

@@ -1,6 +1,8 @@
 "use client";
 
-import { useHomeMessages } from "./locale-provider";
+import Link from "next/link";
+
+import { useHomeMessages, useLocale } from "./locale-provider";
 
 const CARD_ICONS = [
   <path key="ingest" d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" />,
@@ -12,6 +14,7 @@ const TIER_KEYS = ["established", "probable", "speculative"] as const;
 
 export function HomeSections() {
   const t = useHomeMessages();
+  const { locale } = useLocale();
 
   return (
     <>
@@ -32,18 +35,20 @@ export function HomeSections() {
           <h1 className="max-w-[15ch] font-serif text-4xl leading-[1.08] sm:text-6xl">
             {t.hero.titleLine1}
             <br />
-            <em className="text-brand italic">{t.hero.titleAccent}</em>
+            <em className={locale === "en" ? "text-brand italic" : "text-brand not-italic"}>
+              {t.hero.titleAccent}
+            </em>
           </h1>
           <p className="mt-6 max-w-[46ch] text-lg leading-relaxed text-foreground/70">
             {t.hero.sub}
           </p>
           <div className="mt-9 flex flex-wrap items-center gap-4">
-            <a
+            <Link
               href="/holdings"
               className="rounded-md bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground"
             >
               {t.hero.ctaPrimary}
-            </a>
+            </Link>
             <a href="#how" className="rounded-md border border-white/10 px-6 py-3 text-sm font-semibold">
               {t.hero.ctaSecondary} →
             </a>
@@ -67,7 +72,15 @@ export function HomeSections() {
                 className="flex flex-col gap-3 rounded-xl border border-white/10 bg-card p-6 shadow-[0_25px_50px_-22px_rgba(0,0,0,0.55)]"
               >
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-secondary text-brand">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+                  <svg
+                    aria-hidden="true"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                  >
                     {CARD_ICONS[i]}
                   </svg>
                 </div>

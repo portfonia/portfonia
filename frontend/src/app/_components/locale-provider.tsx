@@ -20,14 +20,24 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
     // after mount. A lazy useState initializer would read localStorage
     // during the client's first render too, which is exactly what causes a
     // hydration text mismatch against the server-rendered "en" HTML.
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (stored === "en" || stored === "zh") setLocaleState(stored);
+    try {
+      const stored = window.localStorage.getItem(STORAGE_KEY);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (stored === "en" || stored === "zh") setLocaleState(stored);
+    } catch {
+      // Storage inaccessible (private browsing, blocked, quota) — fall
+      // back to the "en" default already set; nothing to restore.
+    }
   }, []);
 
   function setLocale(next: Locale) {
     setLocaleState(next);
-    window.localStorage.setItem(STORAGE_KEY, next);
+    try {
+      window.localStorage.setItem(STORAGE_KEY, next);
+    } catch {
+      // Persistence best-effort only — the toggle still works for this
+      // session even if it can't be saved.
+    }
   }
 
   return (

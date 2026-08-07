@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { locales, type Locale } from "@/lib/i18n/home-messages";
 import { useHomeMessages, useLocale } from "./locale-provider";
 
@@ -27,7 +29,7 @@ export function HomeNav() {
             {t.nav.how}
           </a>
           <label className="sr-only" htmlFor="locale-select">
-            Language
+            {t.nav.language}
           </label>
           <select
             id="locale-select"
@@ -41,12 +43,12 @@ export function HomeNav() {
               </option>
             ))}
           </select>
-          <a
+          <Link
             href="/holdings"
             className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
           >
             {t.nav.cta}
-          </a>
+          </Link>
         </div>
       </nav>
     </div>
