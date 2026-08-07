@@ -28,6 +28,18 @@ export function HomeNav() {
           >
             {t.nav.how}
           </a>
+          <a
+            href="#preview"
+            className="hidden text-sm text-foreground/70 hover:text-foreground sm:inline"
+          >
+            {t.nav.preview}
+          </a>
+          <a
+            href="#faq"
+            className="hidden text-sm text-foreground/70 hover:text-foreground sm:inline"
+          >
+            {t.nav.faq}
+          </a>
           <label className="sr-only" htmlFor="locale-select">
             {t.nav.language}
           </label>
