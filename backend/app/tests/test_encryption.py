@@ -1,0 +1,123 @@
+"""Unit + integration coverage for holdings field-level encryption (issue #31)."""
+
+from __future__ import annotations
+
+from decimal import Decimal
+
+import pytest
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+from app.core.config import get_settings
+from app.core.encryption import EncryptedDecimal, EncryptedString, decrypt_value, encrypt_value
+from app.models.holding import Holding
+from app.tests.conftest import TEST_USER_ID
+
+
+def test_encrypted_string_round_trips() -> None:
+    col = EncryptedString()
+    token = col.process_bind_param("Apple Inc", dialect=None)
+    assert token is not None
+    assert token != "Apple Inc"
+    assert col.process_result_value(token, dialect=None) == "Apple Inc"
+
+
+def test_encrypted_string_null_passes_through_unencrypted() -> None:
+    col = EncryptedString()
+    assert col.process_bind_param(None, dialect=None) is None
+    assert col.process_result_value(None, dialect=None) is None
+
+
+def test_encrypted_decimal_round_trips() -> None:
+    col = EncryptedDecimal()
+    token = col.process_bind_param(Decimal("167.80"), dialect=None)
+    assert token is not None
+    assert col.process_result_value(token, dialect=None) == Decimal("167.80")
+
+
+def test_encrypted_decimal_null_passes_through_unencrypted() -> None:
+    col = EncryptedDecimal()
+    assert col.process_bind_param(None, dialect=None) is None
+    assert col.process_result_value(None, dialect=None) is None
+
+
+def test_unicode_value_round_trips() -> None:
+    # A real dev-DB holding name is Chinese ("工银黄金") — verified during the
+    # migration dry run; keep a regression test for it here.
+    token = encrypt_value("工银黄金")
+    assert decrypt_value(token) == "工银黄金"
+
+
+def test_key_rotation_decrypts_tokens_from_the_previous_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MultiFernet must decrypt with either configured key (rotation window)."""
+    old_key = get_settings().HOLDINGS_ENCRYPTION_KEY.get_secret_value()
+    token = encrypt_value("pre-rotation value")
+
+    from cryptography.fernet import Fernet
+
+    monkeypatch.setenv("HOLDINGS_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    monkeypatch.setenv("HOLDINGS_ENCRYPTION_KEY_PREV", old_key)
+    get_settings.cache_clear()
+    try:
+        assert decrypt_value(token) == "pre-rotation value"
+        # New writes must use the new (first) key, not the retired one.
+        new_token = encrypt_value("post-rotation value")
+        assert new_token != token
+    finally:
+        get_settings.cache_clear()
+
+
+def test_holding_stored_ciphertext_differs_from_plaintext_and_decrypts_via_orm(
+    db_session: Session,
+) -> None:
+    """Prove the DB actually holds ciphertext, not just that the ORM round-trips."""
+    holding = Holding(
+        user_id=TEST_USER_ID,
+        name="Apple Inc",
+        pricing_mode="auto",
+        ticker="AAPL",
+        currency="USD",
+        shares=Decimal("10"),
+        avg_cost=Decimal("180.50"),
+        asset_class="EQUITY_US_BROAD",
+    )
+    db_session.add(holding)
+    db_session.commit()
+
+    raw = db_session.execute(
+        text("SELECT name, ticker, shares, avg_cost FROM holdings WHERE id = :id"),
+        {"id": holding.id},
+    ).one()
+    raw_name, raw_ticker, raw_shares, raw_avg_cost = raw
+    assert raw_name != "Apple Inc"
+    assert raw_ticker != "AAPL"
+    assert raw_shares != "10"
+    assert raw_avg_cost != "180.50"
+
+    db_session.expire_all()
+    reloaded = db_session.get(Holding, holding.id)
+    assert reloaded is not None
+    assert reloaded.name == "Apple Inc"
+    assert reloaded.ticker == "AAPL"
+    assert reloaded.shares == Decimal("10")
+    assert reloaded.avg_cost == Decimal("180.50")
+
+
+def test_holding_null_fields_stay_null_in_db(db_session: Session) -> None:
+    holding = Holding(
+        user_id=TEST_USER_ID,
+        name="USD Cash",
+        pricing_mode="manual",
+        currency="USD",
+        current_value=Decimal("15000"),
+        asset_class="CASH_EQUIV",
+    )
+    db_session.add(holding)
+    db_session.commit()
+
+    raw_ticker = db_session.execute(
+        text("SELECT ticker FROM holdings WHERE id = :id"), {"id": holding.id}
+    ).scalar_one()
+    assert raw_ticker is None

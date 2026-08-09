@@ -142,6 +142,13 @@ class Settings(BaseSettings):
     DEV_USER_ID: str
     DEV_USER_EMAIL: str
 
+    # Holdings field-level encryption at rest (issue #31). Fernet key
+    # (Fernet.generate_key(), url-safe base64, 44 chars). _PREV is optional —
+    # set during key rotation only (see app/core/encryption.py for the
+    # rotation mechanics); leave unset otherwise.
+    HOLDINGS_ENCRYPTION_KEY: SecretStr
+    HOLDINGS_ENCRYPTION_KEY_PREV: SecretStr | None = None
+
     # Macro keyword config
     # Empty string = use the default path: backend/config/macro_keywords.yml
     # Override via .env.local to point at a different file.

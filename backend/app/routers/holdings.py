@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
@@ -23,6 +24,21 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _ASSET_TYPE_ORDER = {"stock": 0, "etf": 1, "fund": 2, "wmf": 3, "cash": 4, "other": 5}
+
+
+def _sorted_holdings(rows: Sequence[Holding]) -> list[Holding]:
+    """Order by asset_type (NULLs last) then name, both encrypted (issue #31).
+
+    Encrypted columns are ciphertext at the SQL level, so ``ORDER BY`` at the
+    database can no longer sort by their real value — this used to be
+    ``.order_by(Holding.asset_type.nulls_last(), Holding.name)`` in the
+    caller's query. TypeDecorator decryption happens transparently on ORM
+    attribute access, so sorting the already-fetched Python objects by
+    ``h.name``/``h.asset_type`` sees plaintext.
+    """
+    return sorted(rows, key=lambda h: (h.asset_type is None, h.asset_type or "", h.name))
+
+
 _MIN_BARS_FOR_TECHNICAL = 50
 # A holdings file is a few dozen to a few thousand rows of text/spreadsheet
 # data — this is generous headroom, not a realistic size, meant only to stop
@@ -201,11 +217,9 @@ def list_holdings(
     session: Session = Depends(get_session),
     user_id: UUID = Depends(get_current_user_id),
 ) -> list[Holding]:
-    rows = session.scalars(
-        select(Holding)
-        .where(Holding.user_id == user_id)
-        .order_by(Holding.asset_type.nulls_last(), Holding.name)
-    ).all()
+    rows = _sorted_holdings(
+        session.scalars(select(Holding).where(Holding.user_id == user_id)).all()
+    )
     return list(rows)
 
 
@@ -214,11 +228,9 @@ def export_holdings(
     session: Session = Depends(get_session),
     user_id: UUID = Depends(get_current_user_id),
 ) -> Response:
-    rows = session.scalars(
-        select(Holding)
-        .where(Holding.user_id == user_id)
-        .order_by(Holding.asset_type.nulls_last(), Holding.name)
-    ).all()
+    rows = _sorted_holdings(
+        session.scalars(select(Holding).where(Holding.user_id == user_id)).all()
+    )
     md = _render_markdown(list(rows))
     return Response(
         content=md,
