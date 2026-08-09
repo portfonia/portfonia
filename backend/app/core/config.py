@@ -3,7 +3,8 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import SecretStr
+from cryptography.fernet import Fernet
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Project root contains .env.local (one level above backend/)
@@ -148,6 +149,27 @@ class Settings(BaseSettings):
     # rotation mechanics); leave unset otherwise.
     HOLDINGS_ENCRYPTION_KEY: SecretStr
     HOLDINGS_ENCRYPTION_KEY_PREV: SecretStr | None = None
+
+    @field_validator("HOLDINGS_ENCRYPTION_KEY", "HOLDINGS_ENCRYPTION_KEY_PREV")
+    @classmethod
+    def _validate_fernet_key(cls, v: SecretStr | None) -> SecretStr | None:
+        """Fail at settings load (app boot), not on first holdings read.
+
+        A blank env value (e.g. HOLDINGS_ENCRYPTION_KEY_PREV=) is treated as
+        unset rather than validated — matches the runtime handling in
+        app/core/encryption.py's _build_fernet, which also treats "" as
+        absent (PR #111 review).
+        """
+        if v is None or not v.get_secret_value():
+            return v
+        try:
+            Fernet(v.get_secret_value().encode())
+        except ValueError as exc:
+            raise ValueError(
+                "must be a valid Fernet key (Fernet.generate_key(), 44-char "
+                "url-safe base64) — see app/core/encryption.py"
+            ) from exc
+        return v
 
     # Macro keyword config
     # Empty string = use the default path: backend/config/macro_keywords.yml

@@ -27,14 +27,16 @@ _ASSET_TYPE_ORDER = {"stock": 0, "etf": 1, "fund": 2, "wmf": 3, "cash": 4, "othe
 
 
 def _sorted_holdings(rows: Sequence[Holding]) -> list[Holding]:
-    """Order by asset_type (NULLs last) then name, both encrypted (issue #31).
+    """Order by asset_type (NULLs last) then name (issue #31).
 
-    Encrypted columns are ciphertext at the SQL level, so ``ORDER BY`` at the
-    database can no longer sort by their real value — this used to be
+    ``name`` is encrypted (ciphertext at the SQL level), so ``ORDER BY`` at
+    the database can no longer sort by its real value — this used to be
     ``.order_by(Holding.asset_type.nulls_last(), Holding.name)`` in the
-    caller's query. TypeDecorator decryption happens transparently on ORM
-    attribute access, so sorting the already-fetched Python objects by
-    ``h.name``/``h.asset_type`` sees plaintext.
+    caller's query. ``asset_type`` itself stays plaintext (a classification
+    column, not encrypted by design) but is included here for stable
+    ordering, matching the old query. TypeDecorator decryption happens
+    transparently on ORM attribute access, so sorting the already-fetched
+    Python objects by ``h.name`` sees plaintext.
     """
     return sorted(rows, key=lambda h: (h.asset_type is None, h.asset_type or "", h.name))
 

@@ -28,19 +28,41 @@ reads, not a bulk re-encrypt).
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
+from typing import Any, ClassVar
 
-from cryptography.fernet import Fernet, MultiFernet
+from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 from sqlalchemy import Text
+from sqlalchemy.sql import operators
+from sqlalchemy.sql.elements import ColumnElement
+from sqlalchemy.sql.operators import OperatorType
 from sqlalchemy.types import TypeDecorator
 
 from app.core.config import get_settings
 
 
+class HoldingsDecryptionError(RuntimeError):
+    """Raised when a stored holdings value can't be decrypted with the
+    configured key(s). Never includes the token/ciphertext — only ops-facing
+    context, since the message may end up in logs or an error tracker.
+    """
+
+
 def _build_fernet() -> MultiFernet:
     settings = get_settings()
-    keys = [Fernet(settings.HOLDINGS_ENCRYPTION_KEY.get_secret_value().encode())]
-    if settings.HOLDINGS_ENCRYPTION_KEY_PREV is not None:
-        keys.append(Fernet(settings.HOLDINGS_ENCRYPTION_KEY_PREV.get_secret_value().encode()))
+    try:
+        keys = [Fernet(settings.HOLDINGS_ENCRYPTION_KEY.get_secret_value().encode())]
+        prev = settings.HOLDINGS_ENCRYPTION_KEY_PREV
+        # A blank env value (HOLDINGS_ENCRYPTION_KEY_PREV=) still reaches here
+        # as SecretStr(""), not None — `is not None` alone would treat it as
+        # "set" and Fernet(b"") raises, taking down every encrypt/decrypt path
+        # including rows encrypted only with the current key.
+        if prev is not None and prev.get_secret_value():
+            keys.append(Fernet(prev.get_secret_value().encode()))
+    except ValueError as exc:
+        raise HoldingsDecryptionError(
+            "HOLDINGS_ENCRYPTION_KEY / HOLDINGS_ENCRYPTION_KEY_PREV is not a "
+            "well-formed Fernet key — check the deployed .env value."
+        ) from exc
     return MultiFernet(keys)
 
 
@@ -55,7 +77,59 @@ def encrypt_value(plaintext: str) -> str:
 
 
 def decrypt_value(token: str) -> str:
-    return _build_fernet().decrypt(token.encode()).decode()
+    try:
+        return _build_fernet().decrypt(token.encode()).decode()
+    except InvalidToken as exc:
+        # Common causes: wrong HOLDINGS_ENCRYPTION_KEY for this environment,
+        # this migration (379fdb627ee8) not applied yet (value is still
+        # plaintext, not a Fernet token), or a downgrade that left plaintext
+        # in the DB while the app still runs the encrypted TypeDecorator.
+        raise HoldingsDecryptionError(
+            "Failed to decrypt a holdings value — the configured key doesn't "
+            "match, or migration 379fdb627ee8 isn't applied against this "
+            "database. Never logs the token itself."
+        ) from exc
+
+
+class _NoEqualityComparator(TypeDecorator.Comparator):  # type: ignore[type-arg]
+    """Blocks SQL-level equality/comparison on encrypted columns.
+
+    Fernet encrypts with a fresh random IV every call, so two encryptions of
+    the same plaintext never produce the same ciphertext — a SQL `==`,
+    `.in_()`, `.like()`, etc. against an encrypted column silently matches
+    zero rows instead of erroring. Every current query only needs
+    `.is_(None)`/`.isnot(None)` (NULL-ness, not value), which this keeps
+    working since NULL never gets encrypted (see the TypeDecorator
+    docstrings below) — everything else must fetch rows and filter/sort in
+    Python, as `_sorted_holdings()` in `app/routers/holdings.py` already does.
+    """
+
+    _ALLOWED: ClassVar[set[OperatorType]] = {
+        operators.is_,
+        operators.isnot,
+        operators.is_distinct_from,
+        operators.isnot_distinct_from,
+    }
+
+    def operate(self, op: OperatorType, *other: Any, **kwargs: Any) -> ColumnElement[Any]:
+        if op not in self._ALLOWED:
+            raise NotImplementedError(
+                f"{op.__name__} is not supported on encrypted columns — Fernet "
+                "ciphertext changes on every encryption call, so SQL-level "
+                "equality/comparison always misses stored rows. Fetch rows and "
+                "filter in Python instead."
+            )
+        return super().operate(op, *other, **kwargs)
+
+    def reverse_operate(self, op: OperatorType, other: Any, **kwargs: Any) -> ColumnElement[Any]:
+        if op not in self._ALLOWED:
+            raise NotImplementedError(
+                f"{op.__name__} is not supported on encrypted columns — Fernet "
+                "ciphertext changes on every encryption call, so SQL-level "
+                "equality/comparison always misses stored rows. Fetch rows and "
+                "filter in Python instead."
+            )
+        return super().reverse_operate(op, other, **kwargs)
 
 
 class EncryptedString(TypeDecorator[str]):
@@ -72,6 +146,7 @@ class EncryptedString(TypeDecorator[str]):
 
     impl = Text
     cache_ok = True
+    comparator_factory = _NoEqualityComparator
 
     def process_bind_param(self, value: str | None, dialect: object) -> str | None:
         if value is None:
@@ -93,6 +168,7 @@ class EncryptedDecimal(TypeDecorator[Decimal]):
 
     impl = Text
     cache_ok = True
+    comparator_factory = _NoEqualityComparator
 
     def process_bind_param(self, value: Decimal | None, dialect: object) -> str | None:
         if value is None:
@@ -102,7 +178,10 @@ class EncryptedDecimal(TypeDecorator[Decimal]):
     def process_result_value(self, value: str | None, dialect: object) -> Decimal | None:
         if value is None:
             return None
+        plaintext = decrypt_value(value)
         try:
-            return Decimal(decrypt_value(value))
+            return Decimal(plaintext)
         except InvalidOperation as exc:
-            raise ValueError(f"Decrypted value is not a valid Decimal: {value!r}") from exc
+            # Deliberately omit the value — it's a decrypted holdings amount,
+            # not safe to put in logs/error trackers either.
+            raise ValueError("Decrypted holdings value is not a valid Decimal") from exc
