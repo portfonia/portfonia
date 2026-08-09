@@ -258,3 +258,4 @@ backend/venv
 
 # Local daemon logs (worker/beat)
 .run/
+.env.local.backups/
