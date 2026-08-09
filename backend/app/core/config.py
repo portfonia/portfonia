@@ -3,7 +3,8 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import SecretStr
+from cryptography.fernet import Fernet
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Project root contains .env.local (one level above backend/)
@@ -19,6 +20,20 @@ OR_ATTRIBUTION_HEADERS: dict[str, str] = {
     "HTTP-Referer": "https://github.com/portfonia/portfonia",
     "X-OpenRouter-Title": "Portfonia",
 }
+
+
+def _require_fernet_key(v: SecretStr) -> SecretStr:
+    """Shared check for the two HOLDINGS_ENCRYPTION_KEY* validators below —
+    v must decode as a well-formed Fernet key. Callers decide separately
+    whether a blank value is an error or means "unset"."""
+    try:
+        Fernet(v.get_secret_value().encode())
+    except ValueError as exc:
+        raise ValueError(
+            "must be a valid Fernet key (Fernet.generate_key(), 44-char "
+            "url-safe base64) — see app/core/encryption.py"
+        ) from exc
+    return v
 
 
 class Settings(BaseSettings):
@@ -141,6 +156,40 @@ class Settings(BaseSettings):
     # Ring 0 dev identity
     DEV_USER_ID: str
     DEV_USER_EMAIL: str
+
+    # Holdings field-level encryption at rest (issue #31). Fernet key
+    # (Fernet.generate_key(), url-safe base64, 44 chars). _PREV is optional —
+    # set during key rotation only (see app/core/encryption.py for the
+    # rotation mechanics); leave unset otherwise.
+    HOLDINGS_ENCRYPTION_KEY: SecretStr
+    HOLDINGS_ENCRYPTION_KEY_PREV: SecretStr | None = None
+
+    @field_validator("HOLDINGS_ENCRYPTION_KEY")
+    @classmethod
+    def _validate_primary_fernet_key(cls, v: SecretStr) -> SecretStr:
+        """Required key — blank or malformed must fail at boot.
+
+        Unlike HOLDINGS_ENCRYPTION_KEY_PREV below, a blank value here is NOT
+        treated as "unset" — there's no unset state for the required active
+        key, so a blank env value (HOLDINGS_ENCRYPTION_KEY=) is a
+        misconfiguration and must fail loudly now, not on first holdings
+        read via HoldingsDecryptionError (PR #111 re-review — sharing one
+        validator with the optional PREV field let a blank primary key
+        silently pass settings load).
+        """
+        return _require_fernet_key(v)
+
+    @field_validator("HOLDINGS_ENCRYPTION_KEY_PREV")
+    @classmethod
+    def _validate_prev_fernet_key(cls, v: SecretStr | None) -> SecretStr | None:
+        """Optional rotation key — a blank env value means unset, not malformed.
+
+        Matches the runtime handling in app/core/encryption.py's
+        _build_fernet, which also treats "" as absent.
+        """
+        if v is None or not v.get_secret_value():
+            return v
+        return _require_fernet_key(v)
 
     # Macro keyword config
     # Empty string = use the default path: backend/config/macro_keywords.yml

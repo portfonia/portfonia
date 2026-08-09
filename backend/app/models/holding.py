@@ -4,10 +4,11 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Integer, Numeric, Text, func, text
+from sqlalchemy import Integer, Text, func, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.encryption import EncryptedDecimal, EncryptedString
 from app.models.base import Base
 
 
@@ -20,14 +21,21 @@ class Holding(Base):
         server_default=text("gen_random_uuid()"),
     )
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    name: Mapped[str] = mapped_column(Text, nullable=False)
+    # Encrypted at rest (issue #31) — identity/amount fields that reveal what
+    # the user holds and how much. See app/core/encryption.py for the key
+    # scope decision (system-wide key, not per-user). NOT encrypted:
+    # asset_type/asset_class/sector/market/currency/pricing_mode/position —
+    # classification buckets, not individually identifying, and needed
+    # queryable for SQL-level NULL/equality filters elsewhere in this file's
+    # callers (see EncryptedString docstring).
+    name: Mapped[str] = mapped_column(EncryptedString, nullable=False)
     pricing_mode: Mapped[str] = mapped_column(Text, nullable=False)
-    ticker: Mapped[str | None] = mapped_column(Text)
-    fund_code: Mapped[str | None] = mapped_column(Text)
+    ticker: Mapped[str | None] = mapped_column(EncryptedString)
+    fund_code: Mapped[str | None] = mapped_column(EncryptedString)
     currency: Mapped[str] = mapped_column(Text, nullable=False)
-    shares: Mapped[Decimal | None] = mapped_column(Numeric)
-    avg_cost: Mapped[Decimal | None] = mapped_column(Numeric)
-    current_value: Mapped[Decimal | None] = mapped_column(Numeric)
+    shares: Mapped[Decimal | None] = mapped_column(EncryptedDecimal)
+    avg_cost: Mapped[Decimal | None] = mapped_column(EncryptedDecimal)
+    current_value: Mapped[Decimal | None] = mapped_column(EncryptedDecimal)
     asset_type: Mapped[str | None] = mapped_column(Text)
     # Economic-exposure classification, geography-first (STOCK / EQUITY_US_BROAD /
     # EQUITY_US_TECH / EQUITY_DM / EQUITY_CN / EQUITY_EM / EQUITY_BROAD /
@@ -42,11 +50,11 @@ class Holding(Base):
     market: Mapped[str | None] = mapped_column(Text)
     # Row order in the uploaded file, so reports can mirror the user's layout.
     position: Mapped[int | None] = mapped_column(Integer)
-    broker: Mapped[str | None] = mapped_column(Text)
-    account: Mapped[str | None] = mapped_column(Text)
-    portfolio: Mapped[str | None] = mapped_column(Text)
-    notes: Mapped[str | None] = mapped_column(Text)
-    market_price: Mapped[Decimal | None] = mapped_column(Numeric)
+    broker: Mapped[str | None] = mapped_column(EncryptedString)
+    account: Mapped[str | None] = mapped_column(EncryptedString)
+    portfolio: Mapped[str | None] = mapped_column(EncryptedString)
+    notes: Mapped[str | None] = mapped_column(EncryptedString)
+    market_price: Mapped[Decimal | None] = mapped_column(EncryptedDecimal)
     price_as_of: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     price_fetched_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     last_manual_update: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))

@@ -144,5 +144,5 @@ def test_backfill_unknown_sector_becomes_other(db_session: Session) -> None:
     with patch.object(price_fetcher, "_fetch_yf_sector", return_value=None):
         price_fetcher.backfill_sectors(db_session)
 
-    row = db_session.query(Holding).filter_by(ticker="0700.HK").one()
-    assert row.sector == "Other"
+    rows = {h.ticker: h for h in db_session.query(Holding).all()}
+    assert rows["0700.HK"].sector == "Other"

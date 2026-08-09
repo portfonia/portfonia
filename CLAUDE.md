@@ -95,6 +95,69 @@ never-happened commit — but the UX read as "upload failed").
 - **Known accepted gap**: no retention/cleanup for successful `preview`
   JSONB rows (Ring 0, small row count — revisit before Ring 1).
 
+### Holdings encryption at rest (issue #31)
+
+Ring 0 audit deferred item, implemented 2026-08-09 as a Ring 1 prep gate.
+Field-level, application-layer encryption via SQLAlchemy `TypeDecorator`
+(`app/core/encryption.py`) — not Postgres transparent disk encryption, since
+the threat is DB-dump/backup theft, which disk encryption alone doesn't stop.
+
+- **Key scope decision: one system-wide key, not per-user.** The threat this
+  protects against (disk/DB-dump theft) is independent of who's logged in.
+  Per-user key isolation is a materially bigger design (key wrapping,
+  rotation, loss-of-access recovery) with no concrete driver yet — building
+  it now would be speculative. Revisit only when there's an actual
+  multi-tenant isolation requirement, not just because a user system exists.
+  Full rationale in Obsidian `Portfonia Concept & Design.md`, §5 Ring 0→1
+  addendum (2026-08-09).
+- **Algorithm: Fernet** (`cryptography` lib), not raw AES-GCM — Fernet
+  manages IV/nonce generation internally, removing a misuse class hand-rolled
+  AEAD invites for field-sized values. `HOLDINGS_ENCRYPTION_KEY` (Settings,
+  `SecretStr`) is the active key; `HOLDINGS_ENCRYPTION_KEY_PREV` (optional) is
+  read via `MultiFernet` during a rotation window — encrypt always uses the
+  first (current) key, decrypt tries every configured key. No key-version
+  column; rotation today only protects reads against a key swap, there is no
+  bulk re-encryption pass (would be needed before dropping `_PREV`).
+- **Scope — `Holding` columns encrypted**: `name`, `ticker`, `fund_code`,
+  `shares`, `avg_cost`, `current_value`, `market_price`, `broker`, `account`,
+  `portfolio`, `notes`. **Not encrypted**: `asset_type`/`asset_class`/
+  `sector`/`market`/`currency`/`pricing_mode`/`position` — classification
+  buckets, not individually identifying, and left queryable because
+  `price_fetcher.py`/`price_capture.py`/`price_anomaly_detector.py`/
+  `fund_nav_fetcher.py`/`window_data.py` all filter
+  `Holding.ticker`/`Holding.fund_code` with SQL-level `.is_not(None)` —
+  NULL-ness must stay visible at the SQL level (this still works fine under
+  encryption; only value-level SQL equality/ordering breaks).
+- **`ORDER BY` on encrypted columns breaks at the SQL level** (ciphertext
+  sorts as ciphertext, not as the real value). `holdings.py`'s
+  `list_holdings`/`export_holdings` used to `.order_by(Holding.asset_type
+  .nulls_last(), Holding.name)` in the query; now fetch un-ordered and sort
+  the already-decrypted Python objects via `_sorted_holdings()`. Same
+  constraint applies to any future `.filter_by(ticker=...)`-style equality
+  query on an encrypted column — fetch-then-filter in Python instead (two
+  existing tests hit exactly this and were fixed:
+  `test_price_fetcher.py::test_backfill_unknown_sector_becomes_other`,
+  `test_fund_nav_fetcher.py::test_official_nav_parsed_and_anchored_to_cst`).
+- **Migration** (`379fdb627ee8_encrypt_holdings_at_rest.py`): already-`Text`
+  columns are encrypted in place (no type change); `Numeric` columns
+  (`shares`/`avg_cost`/`current_value`/`market_price`) go through an
+  add-populate-drop-rename sequence since a Fernet token isn't a valid
+  numeric literal. Both directions verified against real local dev data
+  (22 holdings, including a Chinese fund name) — round-trips exactly,
+  including `upgrade → downgrade → upgrade`.
+- **Not yet covered**: `Report.report_inputs` and rendered report bodies
+  still carry holdings-derived plaintext (ticker, shares, values quoted in
+  prose/tables) — issue #31 is scoped to the `holdings` table only. Worth a
+  follow-up issue before treating "holdings encrypted" as covering the whole
+  data surface; the public FAQ copy (PR #98) already says plainly that data
+  is not yet encrypted at rest — needs updating once this PR merges and
+  deploys, and again if/when reports are covered too.
+- **Prod key setup is NOT part of this PR** — `.env` never travels through
+  Git (see Secrets and Configuration below); generating and deploying
+  `HOLDINGS_ENCRYPTION_KEY` to production `.env` is a manual step for
+  whoever runs the Env-only sync procedure, before running this migration
+  against production data.
+
 ### Capture layer + incremental reporting (ADR-002)
 
 Full spec in Obsidian: `Hermes/Portfonia/Docs/Incremental Report & Capture Layer Design.md`.

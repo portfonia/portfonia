@@ -75,7 +75,8 @@ def test_official_nav_parsed_and_anchored_to_cst(db_session: Session) -> None:
     assert result.updated == 1
     assert result.failed == []
 
-    row = db_session.query(Holding).filter_by(fund_code="005827").one()
+    rows = {h.fund_code: h for h in db_session.query(Holding).all()}
+    row = rows["005827"]
     assert row.market_price == Decimal("1.5800")  # dwjz, not gsz
     assert row.price_as_of is not None
     # Stored as TIMESTAMPTZ; normalise to CST to check the anchored instant.
