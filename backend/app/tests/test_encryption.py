@@ -6,6 +6,7 @@ from decimal import Decimal
 
 import pytest
 from cryptography.fernet import Fernet, InvalidToken
+from pydantic import ValidationError
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
@@ -146,6 +147,31 @@ def test_null_filters_on_encrypted_column_still_work(db_session: Session) -> Non
     """IS NULL / IS NOT NULL must keep working — that's the one SQL-level check real code uses."""
     db_session.execute(select(Holding).where(Holding.ticker.is_(None))).all()
     db_session.execute(select(Holding).where(Holding.ticker.isnot(None))).all()
+
+
+def test_none_equality_on_encrypted_column_compiles_to_null_check() -> None:
+    """`col == None`/`col != None` must not raise — SQLAlchemy already rewrites these to
+    IS NULL/IS NOT NULL before any SQL is emitted, so blocking them like other equality
+    ops would only produce a confusing error for something that was never unsafe
+    (PR #111 re-review)."""
+    clause_eq = Holding.__table__.c.ticker == None  # noqa: E711
+    clause_ne = Holding.__table__.c.ticker != None  # noqa: E711
+    assert "IS NULL" in str(clause_eq)
+    assert "IS NOT NULL" in str(clause_ne)
+
+
+def test_blank_primary_key_fails_at_settings_load(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The required key has no unset state — blank must fail at boot, not first read.
+
+    Unlike HOLDINGS_ENCRYPTION_KEY_PREV (test_empty_prev_key_treated_as_unset), a blank
+    HOLDINGS_ENCRYPTION_KEY is a misconfiguration, not "leave it unset" (PR #111 re-review)."""
+    monkeypatch.setenv("HOLDINGS_ENCRYPTION_KEY", "")
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(ValidationError):
+            get_settings()
+    finally:
+        get_settings.cache_clear()
 
 
 def test_holding_stored_ciphertext_differs_from_plaintext_and_decrypts_via_orm(

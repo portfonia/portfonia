@@ -102,6 +102,13 @@ class _NoEqualityComparator(TypeDecorator.Comparator):  # type: ignore[type-arg]
     working since NULL never gets encrypted (see the TypeDecorator
     docstrings below) — everything else must fetch rows and filter/sort in
     Python, as `_sorted_holdings()` in `app/routers/holdings.py` already does.
+
+    `col == None` / `col != None` are also let through despite `eq`/`ne` not
+    being in `_ALLOWED`: SQLAlchemy's base `operate()` already rewrites these
+    to `IS NULL`/`IS NOT NULL` before any SQL is emitted (verified against
+    the installed SQLAlchemy — `other == (None,)` never reaches the database
+    as a literal equality), so blocking them would only produce a confusing
+    error for something that was never actually unsafe (PR #111 re-review).
     """
 
     _ALLOWED: ClassVar[set[OperatorType]] = {
@@ -110,9 +117,13 @@ class _NoEqualityComparator(TypeDecorator.Comparator):  # type: ignore[type-arg]
         operators.is_distinct_from,
         operators.isnot_distinct_from,
     }
+    _EQUALITY_OPS: ClassVar[set[OperatorType]] = {operators.eq, operators.ne}
+
+    def _is_none_check(self, op: OperatorType, other: tuple[Any, ...]) -> bool:
+        return op in self._EQUALITY_OPS and other == (None,)
 
     def operate(self, op: OperatorType, *other: Any, **kwargs: Any) -> ColumnElement[Any]:
-        if op not in self._ALLOWED:
+        if op not in self._ALLOWED and not self._is_none_check(op, other):
             raise NotImplementedError(
                 f"{op.__name__} is not supported on encrypted columns — Fernet "
                 "ciphertext changes on every encryption call, so SQL-level "
@@ -122,7 +133,7 @@ class _NoEqualityComparator(TypeDecorator.Comparator):  # type: ignore[type-arg]
         return super().operate(op, *other, **kwargs)
 
     def reverse_operate(self, op: OperatorType, other: Any, **kwargs: Any) -> ColumnElement[Any]:
-        if op not in self._ALLOWED:
+        if op not in self._ALLOWED and not self._is_none_check(op, (other,)):
             raise NotImplementedError(
                 f"{op.__name__} is not supported on encrypted columns — Fernet "
                 "ciphertext changes on every encryption call, so SQL-level "
