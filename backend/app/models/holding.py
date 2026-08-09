@@ -4,16 +4,50 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Integer, Text, func, text
+from sqlalchemy import CheckConstraint, Integer, Text, func, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.encryption import EncryptedDecimal, EncryptedString
 from app.models.base import Base
+from app.schemas.holdings import VALID_CURRENCIES
+from app.services.asset_class_config import VALID_ASSET_CLASSES
+
+# Kept in sync by hand with the Literal definitions in
+# app/schemas/holdings.py's ParsedRow — see migration 6cd7544f63cf.
+_PRICING_MODES = ("auto", "manual")
+_ASSET_TYPES = ("stock", "etf", "fund", "cash", "wmf", "other")
+
+
+def _in_list_sql(column: str, values: tuple[str, ...]) -> str:
+    quoted = ", ".join(f"'{v}'" for v in values)
+    return f"{column} IN ({quoted})"
 
 
 class Holding(Base):
     __tablename__ = "holdings"
+
+    # Domain CHECK constraints (issue #25) — mirrors migration 6cd7544f63cf.
+    # Values come from the same sources of truth the migration uses, so the
+    # ORM model can't quietly drift from the real DB schema.
+    #
+    # `name=` here is the bare token, not the full "ck_holdings_<x>" — Base's
+    # naming_convention ("ck": "ck_%(table_name)s_%(constraint_name)s") re-
+    # renders whatever name is passed, so a pre-rendered full name doubles
+    # the prefix. Verified: Holding.__table__.constraints showed
+    # "ck_holdings_ck_holdings_pricing_mode" before this fix.
+    __table_args__ = (
+        CheckConstraint(_in_list_sql("pricing_mode", _PRICING_MODES), name="pricing_mode"),
+        CheckConstraint(_in_list_sql("asset_type", _ASSET_TYPES), name="asset_type"),
+        CheckConstraint(
+            _in_list_sql("currency", tuple(sorted(VALID_CURRENCIES))),
+            name="currency",
+        ),
+        CheckConstraint(
+            _in_list_sql("asset_class", tuple(sorted(VALID_ASSET_CLASSES))),
+            name="asset_class",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

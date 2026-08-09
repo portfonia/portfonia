@@ -3,7 +3,36 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+# ISO 4217 codes this app is willing to accept from the holdings parser.
+# Not exhaustive ISO 4217 — scoped to currencies plausible for a retail
+# investor's holdings (the three markets this product supports natively —
+# US/HK/A-Share, per holding_parser.py's currency-inference rules — plus
+# the other majors an international brokerage account or cash holding might
+# carry). Single source of truth: also imported by the domain-constraint
+# migration (issue #25) so the DB CHECK and this validator can't drift
+# apart. Adding a currency is a code change (mirrors VALID_ASSET_CLASSES in
+# app/services/asset_class_config.py), not a config edit — a migration is
+# needed to widen the DB-side CHECK too.
+VALID_CURRENCIES: frozenset[str] = frozenset(
+    {
+        "USD",
+        "CNY",
+        "HKD",
+        "GBP",
+        "EUR",
+        "JPY",
+        "SGD",
+        "AUD",
+        "CAD",
+        "CHF",
+        "KRW",
+        "TWD",
+        "MOP",
+        "NZD",
+    }
+)
 
 
 class IssueRow(BaseModel):
@@ -16,9 +45,16 @@ class ParsedRow(BaseModel):
     ticker: str | None = None
     fund_code: str | None = None
     currency: str
-    shares: float | None = None
-    avg_cost: float | None = None
-    current_value: float | None = None
+    # Boundary validation (issue #25): this is the only user-writable entry
+    # point for these fields — POST /holdings/confirm takes list[ParsedRow]
+    # directly. A DB-level CHECK on shares/avg_cost/current_value is no
+    # longer possible after encryption at rest (issue #31/PR #111 made these
+    # columns Fernet ciphertext, not plaintext numeric) — see issue #113.
+    # market_price is deliberately excluded: it's never user input, only
+    # written by trusted fetcher code (yfinance/NAV).
+    shares: float | None = Field(default=None, ge=0)
+    avg_cost: float | None = Field(default=None, ge=0)
+    current_value: float | None = Field(default=None, ge=0)
     pricing_mode: Literal["auto", "manual"]
     asset_type: Literal["stock", "etf", "fund", "cash", "wmf", "other"] | None = None
     # Economic classification set by _postprocess (ticker lookup + asset_type fallback).
@@ -33,6 +69,13 @@ class ParsedRow(BaseModel):
     notes: str | None = None
     issues: list[str] = Field(default_factory=list)
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+
+    @field_validator("currency")
+    @classmethod
+    def _currency_must_be_known(cls, v: str) -> str:
+        if v not in VALID_CURRENCIES:
+            raise ValueError(f"unrecognized currency {v!r} — not in VALID_CURRENCIES")
+        return v
 
 
 class CurrencySubtotal(BaseModel):
