@@ -152,11 +152,15 @@ the threat is DB-dump/backup theft, which disk encryption alone doesn't stop.
   data surface; the public FAQ copy (PR #98) already says plainly that data
   is not yet encrypted at rest — needs updating once this PR merges and
   deploys, and again if/when reports are covered too.
-- **Prod key setup is NOT part of this PR** — `.env` never travels through
-  Git (see Secrets and Configuration below); generating and deploying
-  `HOLDINGS_ENCRYPTION_KEY` to production `.env` is a manual step for
-  whoever runs the Env-only sync procedure, before running this migration
-  against production data.
+- **Prod key generated and deployed 2026-08-09**, alongside the "生产部署"
+  run that shipped this feature — a dedicated key, never copied from
+  `.env.local`'s dev value (per "single system-wide key" above, "system"
+  means per-environment, not one key shared dev↔prod). Verified against
+  real production holdings: `docker compose exec backend python -c "..."`
+  reading `Holding` rows through the live app process decrypted correctly
+  (26 rows). `.env` never travels through Git (see Secrets and
+  Configuration below) — the key lives only in the server's `.env` and the
+  local `.env.production` staging copy, neither committed.
 
 ### Capture layer + incremental reporting (ADR-002)
 
@@ -512,6 +516,36 @@ to the production server:
 5. `curl https://api.portfonia.com/health` — confirm `{"status":"ok",...}`.
 6. Report success (what changed) or failure (which step, what the logs
    showed) — don't declare done without step 5 passing.
+
+**Before step 3, check whether the commits being deployed add a new
+required `Settings` field** (`app/core/config.py` — no default, not
+`| None`). If so, that value must already be in the server's `.env` (or be
+added there — a fresh key, never copied from `.env.local`'s dev value)
+*before* `docker compose up -d --build` runs, or `migrate`/`backend`/
+`celery-worker`/`celery-beat` will all fail Pydantic validation at
+container start. `docker-compose.yml`'s `migrate` service (one-shot
+`alembic upgrade head`, gated by `depends_on: postgres:
+service_healthy`) runs before `backend`/`celery-worker`/`celery-beat`
+via `condition: service_completed_successfully` — so a missing required
+var fails cleanly (migrate exits non-zero, dependents never start) rather
+than partially starting, but it's still a failed deploy. Confirmed this
+gate actually encrypts real production rows correctly (issue #31 deploy,
+2026-08-09): `docker compose exec backend python -c "..."` reading
+`Holding` rows through the live app process, not just `/health`, is the
+right depth of check when a migration transforms existing data — a green
+`/health` alone doesn't prove the migration ran or that decryption works
+against real rows.
+
+**`systemd-run --unit=portfonia-deploy` fails with "Unit ... was already
+loaded or has a fragment file" if a previous attempt's unit is still
+registered in a `failed` state** (systemd doesn't auto-clean failed
+transient units — only successful ones vanish). Hit this 2026-08-09 from a
+stale unit left over from the unrelated 2026-08-07 `frontend/public/`
+build failure (issue #100/#101, long since fixed). Fix: `sudo systemctl
+reset-failed portfonia-deploy` before retrying `systemd-run` with the same
+unit name — don't rename the unit to dodge this, the reset is one command
+and keeps the naming convention stable for the next session's `systemctl
+status portfonia-deploy` check.
 
 **A second, unrelated instance exists in the same cloud tenancy — never
 touch it** (stop/resize/reconfigure/reuse) when working on Portfonia infra.
