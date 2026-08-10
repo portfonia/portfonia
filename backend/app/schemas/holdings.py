@@ -1,24 +1,31 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Literal, get_args
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.services.asset_class_config import VALID_ASSET_CLASSES
 
 # ISO 4217 codes this app is willing to accept from the holdings parser.
 # Not exhaustive ISO 4217 — scoped to currencies plausible for a retail
 # investor's holdings (the three markets this product supports natively —
 # US/HK/A-Share, per holding_parser.py's currency-inference rules — plus
 # the other majors an international brokerage account or cash holding might
-# carry). Single source of truth: also imported by the domain-constraint
-# migration (issue #25) so the DB CHECK and this validator can't drift
-# apart. Adding a currency is a code change (mirrors VALID_ASSET_CLASSES in
+# carry). CNH (offshore yuan) is distinct from CNY and already a first-class
+# currency elsewhere in the app (portfolio_calculator.py's
+# _CURRENCY_TO_FX_PAIR, fx_fetcher.py's USDCNH pair) — omitting it here was
+# a real gap caught in PR #114 review (blacktomb42). Single source of
+# truth: also imported by the domain-constraint migration (issue #25) so
+# the DB CHECK and this validator can't drift apart. Adding a currency is a
+# code change (mirrors VALID_ASSET_CLASSES in
 # app/services/asset_class_config.py), not a config edit — a migration is
 # needed to widen the DB-side CHECK too.
 VALID_CURRENCIES: frozenset[str] = frozenset(
     {
         "USD",
         "CNY",
+        "CNH",
         "HKD",
         "GBP",
         "EUR",
@@ -33,6 +40,18 @@ VALID_CURRENCIES: frozenset[str] = frozenset(
         "NZD",
     }
 )
+
+# Canonical closed sets for pricing_mode/asset_type, derived from the
+# Literal types below (get_args) rather than duplicated as separate
+# constants — the Literal stays the one place these values are written.
+# Imported by app/models/holding.py and the domain-constraint migration
+# (issue #25) so all three layers can't drift apart (PR #114 review nit:
+# these two used to be hand-copied in three places while currency/
+# asset_class already had a single source of truth).
+PricingMode = Literal["auto", "manual"]
+AssetTypeValue = Literal["stock", "etf", "fund", "cash", "wmf", "other"]
+VALID_PRICING_MODES: tuple[str, ...] = get_args(PricingMode)
+VALID_ASSET_TYPES: tuple[str, ...] = get_args(AssetTypeValue)
 
 
 class IssueRow(BaseModel):
@@ -55,10 +74,15 @@ class ParsedRow(BaseModel):
     shares: float | None = Field(default=None, ge=0)
     avg_cost: float | None = Field(default=None, ge=0)
     current_value: float | None = Field(default=None, ge=0)
-    pricing_mode: Literal["auto", "manual"]
-    asset_type: Literal["stock", "etf", "fund", "cash", "wmf", "other"] | None = None
-    # Economic classification set by _postprocess (ticker lookup + asset_type fallback).
-    # Not emitted by the LLM; always populated before confirm.
+    pricing_mode: PricingMode
+    asset_type: AssetTypeValue | None = None
+    # Economic classification set by _postprocess (ticker lookup + asset_type
+    # fallback) — not emitted by the LLM, always populated before confirm.
+    # Still validated here (not just DB-CHECKed): POST /holdings/confirm
+    # takes list[ParsedRow] straight from the client, so a caller bypassing
+    # the normal upload flow could otherwise hit a raw IntegrityError/500
+    # instead of a clean 422 (PR #114 review finding — same boundary
+    # argument as the currency validator above).
     asset_class: str = "STOCK"
     # User-declared market bucket; normalized in _postprocess. None = let the
     # calculator derive it from the ticker.
@@ -75,6 +99,13 @@ class ParsedRow(BaseModel):
     def _currency_must_be_known(cls, v: str) -> str:
         if v not in VALID_CURRENCIES:
             raise ValueError(f"unrecognized currency {v!r} — not in VALID_CURRENCIES")
+        return v
+
+    @field_validator("asset_class")
+    @classmethod
+    def _asset_class_must_be_known(cls, v: str) -> str:
+        if v not in VALID_ASSET_CLASSES:
+            raise ValueError(f"unrecognized asset_class {v!r} — not in VALID_ASSET_CLASSES")
         return v
 
 

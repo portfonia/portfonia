@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from string import Template
@@ -12,10 +13,12 @@ from typing import Any
 
 import openai
 import yaml
+from pydantic import ValidationError
 
 from app.core.config import OR_ATTRIBUTION_HEADERS, get_settings
 from app.core.llm import structured_provider
 from app.schemas.holdings import (
+    VALID_CURRENCIES,
     BrokerGroup,
     CurrencySubtotal,
     IssueRow,
@@ -376,8 +379,20 @@ _MARKET_ALIASES: dict[str, str] = {
 }
 
 
-def _postprocess(raw_rows: list[dict[str, Any]]) -> list[ParsedRow]:
-    """Apply deterministic post-processing on top of LLM output."""
+def _postprocess(
+    raw_rows: list[dict[str, Any]],
+    on_invalid_row: Callable[[dict[str, Any], str], None] | None = None,
+) -> list[ParsedRow]:
+    """Apply deterministic post-processing on top of LLM output.
+
+    `on_invalid_row`, if given, is invoked for any row that still fails
+    ParsedRow validation after normalization (e.g. a currency the LLM
+    hallucinated that isn't in VALID_CURRENCIES) — the row is dropped from
+    the returned list rather than raising, so one bad row can't fail the
+    whole upload (issue #25/PR #114 review: currency validation used to
+    propagate a bare ValidationError out of parse(), killing every other
+    valid row in the same file).
+    """
     result: list[ParsedRow] = []
     # Dedup only collapses byte-identical rows (an LLM emitting the same holding
     # twice). The key includes broker/account/quantity so two genuinely distinct
@@ -399,6 +414,22 @@ def _postprocess(raw_rows: list[dict[str, Any]]) -> list[ParsedRow]:
         mkt = row.get("market")
         if mkt is not None and mkt not in {"US", "HK", "A-Share", "Other"}:
             row["market"] = _MARKET_ALIASES.get(str(mkt).strip().lower(), "Other")
+
+        # Normalize currency case/whitespace before validation — an LLM
+        # emitting "usd" instead of "USD" shouldn't trip the exact-match
+        # VALID_CURRENCIES check (PR #114 review: this was previously
+        # case/alias-strict with no normalization pass, unlike asset_type
+        # and market above).
+        cur = row.get("currency")
+        if isinstance(cur, str):
+            normalized_cur = cur.strip().upper()
+            if normalized_cur != cur:
+                row["issues"] = list(row.get("issues") or [])
+                row["issues"].append(f"Currency normalized to {normalized_cur!r}")
+                row["currency"] = normalized_cur
+            if row["currency"] not in VALID_CURRENCIES:
+                row["issues"] = list(row.get("issues") or [])
+                row["issues"].append(f"Unrecognized currency {row['currency']!r}")
 
         # Canonicalize HK tickers to yfinance's 4-digit form (02333.HK -> 2333.HK)
         # so price lookups don't miss on a leading-zero variant. (issue #49)
@@ -446,7 +477,16 @@ def _postprocess(raw_rows: list[dict[str, Any]]) -> list[ParsedRow]:
             continue
         seen.add(key)
 
-        result.append(ParsedRow.model_validate(row))
+        try:
+            parsed = ParsedRow.model_validate(row)
+        except ValidationError as exc:
+            logging.getLogger(__name__).warning(
+                "Dropping row that failed ParsedRow validation: %s (row=%r)", exc, row
+            )
+            if on_invalid_row is not None:
+                on_invalid_row(row, str(exc))
+            continue
+        result.append(parsed)
     return result
 
 
@@ -605,8 +645,18 @@ def parse(text: str) -> UploadPreview:
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"LLM returned invalid JSON: {exc}") from exc
 
-    valid_rows = _postprocess(payload.get("valid_rows") or [])
-    issue_rows = [IssueRow.model_validate(r) for r in (payload.get("issue_rows") or [])]
+    rejected_rows: list[IssueRow] = []
+    valid_rows = _postprocess(
+        payload.get("valid_rows") or [],
+        on_invalid_row=lambda row, reason: rejected_rows.append(
+            IssueRow(
+                raw=json.dumps(row, default=str), reason=f"Rejected during validation: {reason}"
+            )
+        ),
+    )
+    issue_rows = [
+        IssueRow.model_validate(r) for r in (payload.get("issue_rows") or [])
+    ] + rejected_rows
     return UploadPreview(
         valid_rows=valid_rows,
         issue_rows=issue_rows,

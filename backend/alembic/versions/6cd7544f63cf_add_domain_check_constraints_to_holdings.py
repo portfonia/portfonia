@@ -19,8 +19,10 @@ Audited existing dev rows before writing this (2026-08-09, portfonia_dev,
 22 rows): pricing_mode in {auto, manual}; asset_type in {cash, etf, fund,
 stock}; currency in {CNY, HKD, USD}; asset_class in {STOCK, EQUITY_US_BROAD,
 EQUITY_US_TECH, EQUITY_CN, BOND_FUND, CASH_EQUIV, PRECIOUS_METALS} — all
-within the new constraints. Production has not been audited; run the same
-query there before this migration runs against it:
+within the new constraints (VALID_CURRENCIES has since gained CNH, PR #114
+review — no dev rows used it, so the audit result above is unaffected).
+Production has not been audited; run the same query there before this
+migration runs against it:
 
     SELECT 'pricing_mode', pricing_mode, count(*) FROM holdings GROUP BY pricing_mode
     UNION ALL SELECT 'asset_type', asset_type, count(*) FROM holdings GROUP BY asset_type
@@ -40,7 +42,7 @@ from typing import Sequence, Union
 
 from alembic import op
 
-from app.schemas.holdings import VALID_CURRENCIES
+from app.schemas.holdings import VALID_ASSET_TYPES, VALID_CURRENCIES, VALID_PRICING_MODES
 from app.services.asset_class_config import VALID_ASSET_CLASSES
 
 # revision identifiers, used by Alembic.
@@ -49,15 +51,9 @@ down_revision: Union[str, Sequence[str], None] = "379fdb627ee8"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-# pricing_mode/asset_type aren't extracted into shared constants elsewhere
-# in the codebase (small, stable 2- and 6-value sets) — kept in sync by
-# hand with the Literal definitions in app/schemas/holdings.py's ParsedRow.
-_PRICING_MODES = ("auto", "manual")
-_ASSET_TYPES = ("stock", "etf", "fund", "cash", "wmf", "other")
-
 _CONSTRAINTS = (
-    ("pricing_mode", _PRICING_MODES),
-    ("asset_type", _ASSET_TYPES),
+    ("pricing_mode", tuple(sorted(VALID_PRICING_MODES))),
+    ("asset_type", tuple(sorted(VALID_ASSET_TYPES))),
     ("currency", tuple(sorted(VALID_CURRENCIES))),
     ("asset_class", tuple(sorted(VALID_ASSET_CLASSES))),
 )

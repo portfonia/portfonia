@@ -10,13 +10,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.encryption import EncryptedDecimal, EncryptedString
 from app.models.base import Base
-from app.schemas.holdings import VALID_CURRENCIES
+from app.schemas.holdings import VALID_ASSET_TYPES, VALID_CURRENCIES, VALID_PRICING_MODES
 from app.services.asset_class_config import VALID_ASSET_CLASSES
-
-# Kept in sync by hand with the Literal definitions in
-# app/schemas/holdings.py's ParsedRow — see migration 6cd7544f63cf.
-_PRICING_MODES = ("auto", "manual")
-_ASSET_TYPES = ("stock", "etf", "fund", "cash", "wmf", "other")
 
 
 def _in_list_sql(column: str, values: tuple[str, ...]) -> str:
@@ -37,8 +32,8 @@ class Holding(Base):
     # the prefix. Verified: Holding.__table__.constraints showed
     # "ck_holdings_ck_holdings_pricing_mode" before this fix.
     __table_args__ = (
-        CheckConstraint(_in_list_sql("pricing_mode", _PRICING_MODES), name="pricing_mode"),
-        CheckConstraint(_in_list_sql("asset_type", _ASSET_TYPES), name="asset_type"),
+        CheckConstraint(_in_list_sql("pricing_mode", VALID_PRICING_MODES), name="pricing_mode"),
+        CheckConstraint(_in_list_sql("asset_type", VALID_ASSET_TYPES), name="asset_type"),
         CheckConstraint(
             _in_list_sql("currency", tuple(sorted(VALID_CURRENCIES))),
             name="currency",

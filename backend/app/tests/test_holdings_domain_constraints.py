@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.models.holding import Holding
 from app.schemas.holdings import VALID_CURRENCIES, ParsedRow
+from app.services.asset_class_config import VALID_ASSET_CLASSES
 from app.tests.conftest import TEST_USER_ID
 
 
@@ -58,6 +59,25 @@ def test_parsed_row_accepts_every_valid_currency() -> None:
     for currency in VALID_CURRENCIES:
         row = ParsedRow(name="X", currency=currency, pricing_mode="auto")
         assert row.currency == currency
+
+
+def test_parsed_row_accepts_cnh() -> None:
+    """Regression (PR #114 review): CNH (offshore yuan) is distinct from CNY
+    and already first-class in portfolio_calculator.py's _CURRENCY_TO_FX_PAIR
+    and fx_fetcher.py's USDCNH pair — it must not be rejected here."""
+    row = ParsedRow(name="X", currency="CNH", pricing_mode="auto")
+    assert row.currency == "CNH"
+
+
+def test_parsed_row_rejects_unknown_asset_class() -> None:
+    with pytest.raises(ValidationError):
+        ParsedRow(name="X", currency="USD", pricing_mode="auto", asset_class="BOGUS_CLASS")
+
+
+def test_parsed_row_accepts_every_valid_asset_class() -> None:
+    for asset_class in VALID_ASSET_CLASSES:
+        row = ParsedRow(name="X", currency="USD", pricing_mode="auto", asset_class=asset_class)
+        assert row.asset_class == asset_class
 
 
 # --- DB-level CHECK constraints (migration 6cd7544f63cf) ---
