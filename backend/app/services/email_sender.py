@@ -257,7 +257,10 @@ def send_report_email(report: Report, session: Session) -> bool:
         logger.exception("report %s: email delivery failed", report.id)
         return False
 
-    resend_id = resp.json().get("id", "unknown")
+    # None (not "unknown") when Resend's response is missing an id — issue #45
+    # persists this to provider_message_id, and a placeholder string would be
+    # indistinguishable from a real id when cross-referencing Resend's dashboard.
+    resend_id: str | None = resp.json().get("id")
     sent_at = datetime.now(tz=UTC)
 
     # Atomic conditional UPDATE: only one concurrent sender can win the
@@ -270,27 +273,32 @@ def send_report_email(report: Report, session: Session) -> bool:
         result: CursorResult[tuple[()]] = session.execute(  # type: ignore[assignment]
             sa_update(Report)
             .where(Report.id == report.id, Report.email_sent_at.is_(None))
-            .values(email_sent_at=sent_at, report_html=html_body)
+            .values(
+                email_sent_at=sent_at,
+                report_html=html_body,
+                provider_message_id=resend_id,
+            )
         )
         session.commit()
     except Exception:
         logger.exception(
             "report %s: email delivered (resend_id=%s) but failed to persist email_sent_at",
             report.id,
-            resend_id,
+            resend_id or "unknown",
         )
         session.rollback()
         send_ops_alert(
             subject=f"[Portfonia] email sent but state unconfirmed — report {report.id}",
             body=(
                 f"Report {report.id} ({report.report_date}) was delivered by Resend "
-                f"(resend_id={resend_id}) but the follow-up DB commit failed, so "
+                f"(resend_id={resend_id or 'unknown'}) but the follow-up DB commit failed, so "
                 f"email_sent_at remains NULL.\n\n"
                 f"The dedup guard will NOT fire on the next retry for this report. "
                 f"If the report content is regenerated before the next run, a second "
                 f"delivery is possible.\n\n"
                 f"Action: verify delivery in the Resend dashboard, then manually set "
-                f"email_sent_at on this report row if confirmed."
+                f"email_sent_at and provider_message_id (to {resend_id or 'unknown'}) "
+                f"on this report row if confirmed."
             ),
         )
         return False
@@ -306,13 +314,14 @@ def send_report_email(report: Report, session: Session) -> bool:
     # check fires correctly for any subsequent call in the same process.
     report.email_sent_at = sent_at
     report.report_html = html_body
+    report.provider_message_id = resend_id
 
     logger.info(
         "report %s: email delivered to %s (subject: %s, resend_id: %s)",
         report.id,
         recipient,
         subject,
-        resend_id,
+        resend_id or "unknown",
     )
     return True
 

@@ -295,6 +295,57 @@ def test_send_success(mock_client_cls: MagicMock, mock_settings: MagicMock) -> N
 
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
+def test_send_persists_provider_message_id(
+    mock_client_cls: MagicMock, mock_settings: MagicMock
+) -> None:
+    """issue #45: Resend's message id is persisted, not just logged."""
+    mock_settings.return_value = _mock_settings()
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {"id": "resend-abc123"}
+    mock_client_cls.return_value.__enter__.return_value.post.return_value = mock_resp
+
+    report = _make_report()
+    session = MagicMock()
+    session.execute.return_value.rowcount = 1
+
+    result = send_report_email(report, session)
+
+    assert result is True
+    update_stmt = session.execute.call_args[0][0]
+    values_by_name = {col.name: bind.value for col, bind in update_stmt._values.items()}
+    assert values_by_name["provider_message_id"] == "resend-abc123"
+    assert report.provider_message_id == "resend-abc123"
+
+
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
+def test_send_missing_resend_id_persists_none(
+    mock_client_cls: MagicMock, mock_settings: MagicMock
+) -> None:
+    """A Resend response without an id must not fall back to the literal string
+    "unknown" in the DB — that would be indistinguishable from a real id."""
+    mock_settings.return_value = _mock_settings()
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {}
+    mock_client_cls.return_value.__enter__.return_value.post.return_value = mock_resp
+
+    report = _make_report()
+    session = MagicMock()
+    session.execute.return_value.rowcount = 1
+
+    result = send_report_email(report, session)
+
+    assert result is True
+    update_stmt = session.execute.call_args[0][0]
+    values_by_name = {col.name: bind.value for col, bind in update_stmt._values.items()}
+    assert values_by_name["provider_message_id"] is None
+    assert report.provider_message_id is None
+
+
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
 def test_send_concurrent_dedup(mock_client_cls: MagicMock, mock_settings: MagicMock) -> None:
     """rowcount == 0 means another sender already committed email_sent_at — return True."""
     mock_settings.return_value = _mock_settings()
@@ -413,6 +464,11 @@ def test_send_commit_failure_returns_false_and_alerts(
     mock_alert.assert_called_once()
     subject = mock_alert.call_args.kwargs["subject"]
     assert "unconfirmed" in subject
+    # issue #45 review follow-up: manual-repair instructions must cover both
+    # halves of the pair, not just email_sent_at — otherwise a manual fix
+    # leaves provider_message_id stale/NULL even after confirming delivery.
+    body = mock_alert.call_args.kwargs["body"]
+    assert "provider_message_id" in body
 
 
 @patch("app.services.email_sender.get_settings")
