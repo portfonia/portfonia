@@ -23,6 +23,7 @@ from app.services.email_sender import (
     send_report_email,
 )
 
+
 def _td(row: Tag) -> Tag:
     """Find a row's first td, asserting it exists (mypy-strict-friendly
     wrapper around BeautifulSoup's Tag | None find())."""
@@ -37,9 +38,15 @@ def _td(row: Tag) -> Tag:
 
 
 def test_render_html_wraps_body() -> None:
+    """Grok review round 2 (PR #117): assert real BS4 elements, not bare
+    substrings — a substring check doesn't prove markdown structure (h1/p)
+    survived style-inlining, only that the words appear somewhere."""
     html = _render_html("# Hello\n\nWorld")
-    assert "Hello" in html
-    assert "World" in html
+    soup = BeautifulSoup(html, "html.parser")
+    h1 = soup.find("h1")
+    assert h1 is not None and h1.get_text() == "Hello"
+    p = soup.find("p")
+    assert p is not None and p.get_text() == "World"
     # Bulletproof-table wrapper (issue #24), not a div.wrapper — Outlook's
     # Word engine centers via a fixed-width table, not CSS margin/max-width.
     assert 'width="720"' in html
@@ -170,6 +177,43 @@ def test_zebra_striping_falls_back_to_bare_tr_children() -> None:
     assert "background-color" not in str(_td(rows[0]).get("style", ""))
     assert "background-color" in str(_td(rows[1]).get("style", ""))
     assert "background-color" not in str(_td(rows[2]).get("style", ""))
+
+
+def test_zebra_fill_appended_after_base_cell_style() -> None:
+    """Grok review round 2 (PR #117): zebra background-color must be
+    appended after the cell's base style, not prepended — CSS resolves
+    same-attribute conflicts by last-declaration-wins, so appending is what
+    guarantees the zebra fill can't be silently overridden by a future
+    `_TAG_STYLES["td"]` background."""
+    md = "| A |\n|---|\n| 1 |\n| 2 |"
+    html = _render_html(md)
+
+    soup = BeautifulSoup(html, "html.parser")
+    tbody = soup.find("tbody")
+    assert tbody is not None
+    striped_cell = _td(tbody.find_all("tr")[1])
+    style = str(striped_cell.get("style", ""))
+
+    base_pos = style.find("border")
+    zebra_pos = style.find("background-color")
+    assert base_pos != -1 and zebra_pos != -1
+    assert zebra_pos > base_pos, f"zebra fill must come after base style: {style!r}"
+
+
+def test_render_html_cjk_content_survives_bs4_round_trip() -> None:
+    """Grok review round 2 (PR #117): production reports render in zh-Hans by
+    default (Ring 0) — existing tests only used ASCII, so a BeautifulSoup
+    serialization quirk on Chinese text wouldn't be caught. Also checks a
+    literal ampersand round-trips as an entity rather than raw."""
+    md = "# 财经分析报告\n\n持仓 A & B 的表现"
+    html = _render_html(md)
+
+    soup = BeautifulSoup(html, "html.parser")
+    h1 = soup.find("h1")
+    assert h1 is not None and h1.get_text() == "财经分析报告"
+    p = soup.find("p")
+    assert p is not None and p.get_text() == "持仓 A & B 的表现"
+    assert "&amp;" in html
 
 
 def test_head_style_block_matches_tag_styles_single_source() -> None:

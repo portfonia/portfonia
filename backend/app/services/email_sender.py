@@ -69,10 +69,9 @@ _BODY_STYLE = (
 _ZEBRA_CELL_STYLE = "background-color:#fafafa;"
 _ZEBRA_CELL_BGCOLOR = "#fafafa"
 
-# The bulletproof wrapper's inner content cell — extracted to a named
-# constant (rather than a literal baked into _HTML_TEMPLATE) so it is
-# unambiguously "load-bearing and referenced by name", matching what the
-# module docstring below claims.
+# The bulletproof wrapper's inner content cell padding. Load-bearing because
+# _HTML_TEMPLATE interpolates it directly and tests assert it appears in the
+# rendered output — not just a name mentioned in a comment.
 _WRAPPER_TD_STYLE = "padding:32px 24px;"
 
 
@@ -122,12 +121,18 @@ __REPORT_BODY__
 
 def _stripe_rows(rows: list[Tag]) -> None:
     """Apply even-row zebra fill to each row's td/th cells (not the row
-    itself — see _ZEBRA_CELL_STYLE)."""
+    itself — see _ZEBRA_CELL_STYLE). Appended AFTER the cell's existing
+    style, not prepended — CSS resolves same-attribute conflicts by
+    last-declaration-wins, so appending is what guarantees the zebra fill
+    can't be silently overridden if _TAG_STYLES["td"] ever gains its own
+    background (Grok PR #117 round-2 review)."""
     for i, row in enumerate(rows):
         if i % 2 == 1:
             for cell in row.find_all(["td", "th"], recursive=False):
-                existing = cell.get("style", "")
-                cell["style"] = f"{_ZEBRA_CELL_STYLE}{existing}"
+                existing = str(cell.get("style", ""))
+                if existing and not existing.endswith(";"):
+                    existing += ";"
+                cell["style"] = f"{existing}{_ZEBRA_CELL_STYLE}"
                 cell["bgcolor"] = _ZEBRA_CELL_BGCOLOR
 
 
