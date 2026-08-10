@@ -188,13 +188,32 @@ bypassing the API (a script, a manual `UPDATE`) had no guard at all.
 - **`currency`**: not ISO-4217-exhaustive — `VALID_CURRENCIES` in
   `app/schemas/holdings.py` is a fixed list of currencies plausible for this
   product's holdings (the three natively-supported markets' currencies —
-  USD/CNY/HKD — plus other majors an international account might carry:
-  GBP/EUR/JPY/SGD/AUD/CAD/CHF/KRW/TWD/MOP/NZD). Adding a currency is a code
-  change + migration, same pattern as `VALID_ASSET_CLASSES`
-  (`app/services/asset_class_config.py`) — not a config edit.
-  `ParsedRow.currency` also gets a matching `field_validator` so an
-  unrecognized currency 422s at the API boundary instead of hitting the DB
-  as a raw `IntegrityError`.
+  USD/CNY/HKD/CNH — plus other majors an international account might carry:
+  GBP/EUR/JPY/SGD/AUD/CAD/CHF/KRW/TWD/MOP/NZD). **CNH (offshore yuan) was
+  missing from the first pass** — caught in PR #114 review round 1: it's
+  distinct from CNY and already first-class in `portfolio_calculator.py`'s
+  `_CURRENCY_TO_FX_PAIR`/`fx_fetcher.py`'s `USDCNH` pair, so omitting it was
+  a real regression for a supported FX pair, not just an incomplete list.
+  Adding a currency is a code change + migration, same pattern as
+  `VALID_ASSET_CLASSES` (`app/services/asset_class_config.py`) — not a
+  config edit. `ParsedRow.currency` also gets a matching `field_validator`
+  so an unrecognized currency 422s at the API boundary instead of hitting
+  the DB as a raw `IntegrityError`; `asset_class` gets the same treatment
+  (round 1 finding — it had the DB CHECK but no app-layer validator, so a
+  forged value on `POST /holdings/confirm` could 500 instead of 422).
+  `VALID_PRICING_MODES`/`VALID_ASSET_TYPES` are derived from `ParsedRow`'s
+  existing `Literal` types via `typing.get_args()` rather than hand-copied,
+  so model/migration/schema can't drift apart (also a round-1 finding).
+- **Currency validation degrades per-row, doesn't fail the whole upload**
+  (round 1 finding): `_postprocess` in `holding_parser.py` normalizes
+  currency case/whitespace before the `VALID_CURRENCIES` check (matching
+  the existing `asset_type`/`market` normalization), and a row that still
+  fails `ParsedRow` validation is dropped into `issue_rows` via an
+  `on_invalid_row` callback rather than raising and killing every other
+  valid row in the same file. The unrecognized-currency check itself runs
+  **last**, after ticker-suffix correction (round 2 finding) — otherwise a
+  wrong-but-fixable value (e.g. `"RMB"` on a `.HK` ticker) left a stale
+  "Unrecognized currency" note on a row whose final currency was valid.
 - **`shares`/`avg_cost`/`current_value` `>= 0` is explicitly OUT of scope
   here** — see the "Side effect discovered 2026-08-09" bullet in the
   encryption section above and issue #113. Handled instead via
@@ -211,16 +230,45 @@ bypassing the API (a script, a manual `UPDATE`) had no guard at all.
   token (`"pricing_mode"`) instead and let the convention render it. Verified
   against a real Postgres run both ways (doubled name confirmed, then fixed)
   before this migration/model landed.
+- **Migration freezes a literal snapshot, does not live-import `VALID_*`**
+  (round 2 finding): an earlier version imported `VALID_CURRENCIES` etc.
+  directly into the migration, which meant `alembic upgrade head` on a
+  fresh database run after those constants changed elsewhere (without a
+  matching new migration) would silently produce a *different* CHECK
+  constraint than an already-migrated database has — migrations must be
+  immutable historical snapshots, not re-derived from current code state.
+  Widening any of these sets is a **new migration**, never an edit to this
+  one or to the source constant alone.
+- `_in_list_sql` (in both the migration and `app/models/holding.py`) sorts
+  its value list internally so every `CheckConstraint`'s SQL text is
+  deterministic regardless of the source constant's declaration order —
+  two of the four constraints were previously unsorted in the ORM model
+  while the migration sorted all four (round 2 nit), which could have
+  tripped `alembic revision --autogenerate` as spurious drift.
 - **Audited existing dev rows before writing the migration** (2026-08-09,
   `portfonia_dev`, 22 rows) — all values already fit the new constraints, no
-  data blocked the migration. **Production has not been audited** — run the
-  same `GROUP BY`-per-column query against prod before this migration runs
-  there (see the migration file's docstring for the exact query); a CHECK
-  that fails against legacy data blocks the migration outright.
+  data blocked the migration. **Production audited and deployed 2026-08-10**:
+  same `GROUP BY`-per-column query run against prod first (26 rows, all
+  conformant — no values outside the new constraints), then deployed via
+  the standard `systemd-run docker compose up -d --build` flow. Verified
+  beyond `/health`: `docker logs portfonia-migrate` confirmed the migration
+  reached `6cd7544f63cf`, `\d holdings` on the live DB shows all four CHECK
+  constraints (including CNH in the currency list), and a real
+  `UPDATE ... SET pricing_mode = 'bogus'` against production (inside
+  `BEGIN`/`ROLLBACK`, no data touched) raised
+  `violates check constraint "ck_holdings_pricing_mode"` — the constraint
+  is live, not just present in the migration file.
 - Verified the constraint actually blocks a bad write at the SQL level (not
-  just "tests are green"): a direct `UPDATE ... SET pricing_mode = 'bogus'`
-  against a real local-dev row raised
-  `violates check constraint "ck_holdings_pricing_mode"`.
+  just "tests are green"): the same direct `UPDATE` check above was also
+  run against a real local-dev row first, before the production check.
+- **Provenance**: two rounds of independent code review (blacktomb42) on
+  PR #114 — round 1 found 1 real bug (the CNH gap above) + 3
+  suggestions/nits, round 2 (after fixes) found 0 bugs + 2 suggestions/2
+  nits, all verified against actual code and fixed. Both PENDING reviews
+  submitted with resolution replies posted inline on each finding, plus a
+  top-level PR comment summarizing both rounds — commit messages alone
+  don't surface resolution status on the PR page (lesson now codified
+  globally in `~/.claude/CLAUDE.md`'s Grok review workflow, step 6.5).
 
 ### Capture layer + incremental reporting (ADR-002)
 
