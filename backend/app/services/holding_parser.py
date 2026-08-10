@@ -480,17 +480,33 @@ def _postprocess(
                 )
                 row["ticker"] = None
                 row["fund_code"] = None
-            # Only moves the amount when current_value is still None — a
-            # row where the model populated BOTH fields (e.g. a bogus
-            # current_value alongside the real balance in shares) keeps
-            # current_value as-is rather than guessing which of two
-            # conflicting numbers is real (round-2 nit on PR #121). Inert
-            # either way: compute_portfolio()'s manual branch never reads
-            # shares.
+            # Only moves the amount from shares when current_value is still
+            # None — a row where the model populated BOTH fields (e.g. a
+            # bogus current_value alongside the real balance in shares)
+            # keeps current_value as originally given rather than guessing
+            # which of two conflicting numbers is real.
             if row.get("current_value") is None and row.get("shares") is not None:
                 row["issues"] = list(row.get("issues") or [])
                 row["issues"].append("Cash/wmf amount moved from shares to current_value")
                 row["current_value"] = row["shares"]
+                row["shares"] = None
+                row["avg_cost"] = None
+            # Once current_value is settled as the source of truth, always
+            # clear any residual shares/avg_cost — leaving them isn't inert
+            # (round-2 finding on PR #121): _row_cost_basis() prefers
+            # shares*avg_cost over current_value whenever both are
+            # non-null, so a stray pair would surface a wrong number in
+            # the upload-preview broker cost-basis subtotal even though
+            # compute_portfolio()'s report valuation stays correct (it
+            # never reads shares).
+            elif row.get("current_value") is not None and (
+                row.get("shares") is not None or row.get("avg_cost") is not None
+            ):
+                row["issues"] = list(row.get("issues") or [])
+                row["issues"].append(
+                    "Cleared residual shares/avg_cost on cash/wmf row "
+                    "(current_value is authoritative)"
+                )
                 row["shares"] = None
                 row["avg_cost"] = None
             row["pricing_mode"] = "manual"

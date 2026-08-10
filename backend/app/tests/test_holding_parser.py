@@ -151,23 +151,34 @@ def test_postprocess_coerces_unknown_asset_type_to_null() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_postprocess_coerces_cash_row_with_fabricated_ticker_and_amount_in_shares() -> None:
+@pytest.mark.parametrize(
+    "asset_type,identifier_field,identifier_value,extra",
+    [
+        ("cash", "ticker", "CASH", {"broker": "IBKR"}),
+        ("wmf", "fund_code", "654321", {"currency": "CNY"}),
+    ],
+)
+def test_postprocess_coerces_cash_wmf_row_with_fabricated_id_and_amount_in_shares(
+    asset_type: str, identifier_field: str, identifier_value: str, extra: dict[str, object]
+) -> None:
     """Regression for issue #120: production data showed the structured
     extraction model inventing a ticker "CASH" that wasn't in the source text
     at all, and putting the cash balance in `shares` instead of
     `current_value`. compute_portfolio()'s manual-pricing branch only reads
-    `current_value`, so this silently dropped every cash holding out of
-    every report."""
+    `current_value`, so this silently dropped every cash/wmf holding out of
+    every report. Parametrized cash+wmf (round-2 PR #121 nit: the wmf case
+    previously only asserted fund_code/current_value/shares, not
+    pricing_mode/issues like the cash case did)."""
     raw = [
         _raw_row(
-            name="USD Cash",
-            ticker="CASH",
+            name="Bank WMP" if asset_type == "wmf" else "USD Cash",
             shares=199.98,
             avg_cost=None,
             current_value=None,
             pricing_mode="manual",
-            asset_type="cash",
-            broker="IBKR",
+            asset_type=asset_type,
+            **{identifier_field: identifier_value},
+            **extra,
         )
     ]
     rows = _postprocess(raw)
@@ -177,26 +188,7 @@ def test_postprocess_coerces_cash_row_with_fabricated_ticker_and_amount_in_share
     assert rows[0].shares is None
     assert rows[0].avg_cost is None
     assert rows[0].pricing_mode == "manual"
-    assert any("CASH" in i for i in rows[0].issues)
-
-
-def test_postprocess_coerces_wmf_row_with_fund_code_and_amount_in_shares() -> None:
-    raw = [
-        _raw_row(
-            name="Bank WMP",
-            fund_code="654321",
-            shares=50000.0,
-            avg_cost=None,
-            current_value=None,
-            pricing_mode="manual",
-            asset_type="wmf",
-            currency="CNY",
-        )
-    ]
-    rows = _postprocess(raw)
-    assert rows[0].fund_code is None
-    assert rows[0].current_value == 50000.0
-    assert rows[0].shares is None
+    assert any(identifier_value in i for i in rows[0].issues)
 
 
 def test_postprocess_leaves_correctly_shaped_cash_row_unchanged() -> None:
@@ -220,17 +212,19 @@ def test_postprocess_leaves_correctly_shaped_cash_row_unchanged() -> None:
     assert rows[0].issues == []
 
 
-def test_postprocess_forces_cash_row_from_auto_to_manual() -> None:
+@pytest.mark.parametrize("asset_type", ["cash", "wmf"])
+def test_postprocess_forces_cash_wmf_row_from_auto_to_manual(asset_type: str) -> None:
     """Round-2 finding on PR #121: the earlier cash regression tests all set
     pricing_mode="manual" in the fixture already (matching the observed
     production shape), so they never proved the `row["pricing_mode"] =
     "manual"` line actually flips a model that emitted "auto" — which the
     prompt's own inference rule invites whenever a (fabricated) ticker is
     present ("A ticker or fund_code is present -> auto"). That force is
-    load-bearing: without it, a cash row with a fabricated ticker would
+    load-bearing: without it, a cash/wmf row with a fabricated ticker would
     still get moved to current_value but stay pricing_mode="auto", and
     compute_portfolio()'s auto branch has no ticker to fetch a price for
-    either — same silent drop, different branch."""
+    either — same silent drop, different branch. Parametrized cash+wmf
+    (round-2 nit: previously cash-only)."""
     raw = [
         _raw_row(
             name="USD Cash",
@@ -239,7 +233,7 @@ def test_postprocess_forces_cash_row_from_auto_to_manual() -> None:
             avg_cost=None,
             current_value=None,
             pricing_mode="auto",
-            asset_type="cash",
+            asset_type=asset_type,
         )
     ]
     rows = _postprocess(raw)
@@ -247,21 +241,25 @@ def test_postprocess_forces_cash_row_from_auto_to_manual() -> None:
     assert rows[0].current_value == 199.98
 
 
-def test_postprocess_prefers_current_value_when_cash_row_has_both() -> None:
-    """Documents the deliberate choice (round-2 nit on PR #121) for a cash/
-    wmf row where the model populated BOTH current_value and shares: the
-    amount is only moved from shares when current_value is still None.
-    A non-null current_value is trusted as-is and shares is left alone
-    (still stripped by asset_type coercion elsewhere only for tickers, not
-    for this field) — compute_portfolio()'s manual branch never reads
-    shares anyway, so a stray value there is inert, not a correctness bug.
-    Not attempting to guess which of two conflicting numbers is "real"."""
+def test_postprocess_prefers_current_value_and_clears_residual_shares_when_both_set() -> None:
+    """Round-2 finding on PR #121: leaving a dual-populated row's stray
+    `shares`/`avg_cost` in place (the round-1 fix's behavior) isn't fully
+    inert — `_row_cost_basis()` prefers `shares*avg_cost` over
+    `current_value` whenever both `shares` AND `avg_cost` are non-null, so
+    a residual pair would surface a wrong number in the upload-preview
+    broker cost-basis subtotal (`_summarize()`) even though
+    `compute_portfolio()`'s report valuation stays correct (it never reads
+    shares). Fix: once current_value is settled as the source of truth for
+    a cash/wmf row, shares/avg_cost are always cleared — current_value is
+    kept as originally given, never overwritten by shares' value, since
+    there's no reliable way to tell which of two conflicting numbers is
+    real."""
     raw = [
         _raw_row(
             name="USD Cash",
             ticker=None,
             shares=199.98,
-            avg_cost=None,
+            avg_cost=1.0,
             current_value=50.0,
             pricing_mode="manual",
             asset_type="cash",
@@ -269,7 +267,8 @@ def test_postprocess_prefers_current_value_when_cash_row_has_both() -> None:
     ]
     rows = _postprocess(raw)
     assert rows[0].current_value == 50.0
-    assert rows[0].shares == 199.98
+    assert rows[0].shares is None
+    assert rows[0].avg_cost is None
 
 
 def test_extract_xlsx_single_sheet(tmp_path: Path) -> None:
