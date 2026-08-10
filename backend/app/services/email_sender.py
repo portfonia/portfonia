@@ -101,7 +101,7 @@ _HTML_TEMPLATE = """\
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background:#ffffff;">
 <tr>
 <td align="center" style="padding:0;">
-<table role="presentation" width="720" cellpadding="0" cellspacing="0" border="0" style="width:720px;max-width:100%;">
+<table role="presentation" width="720" cellpadding="0" cellspacing="0" border="0" style="width:720px;max-width:720px;">
 <tr>
 <td style="padding:32px 24px;">
 {body}

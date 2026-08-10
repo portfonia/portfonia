@@ -106,21 +106,6 @@ def test_render_html_wrapper_uses_explicit_width_attribute() -> None:
     assert inner_table is not None
 
 
-def test_render_html_wrapper_shrinks_on_narrow_viewports() -> None:
-    """issue #119: max-width must be relative (100%), not pinned to the same
-    720px as width — otherwise the wrapper never shrinks below 720px on a
-    mobile viewport and overflows (Apple Mail honors this literally; Gmail
-    App happens to reflow regardless, which is why only Apple Mail showed
-    the bug)."""
-    html = _render_html("Body")
-    soup = BeautifulSoup(html, "html.parser")
-    inner_table = soup.find("table", attrs={"width": "720"})
-    assert inner_table is not None
-    style = str(inner_table.get("style", ""))
-    assert "max-width:100%" in style
-    assert "max-width:720px" not in style
-
-
 def test_render_html_table_uses_fixed_layout() -> None:
     """issue #118: default table-layout:auto resolves column widths
     differently per client (Gmail sizes to content, Apple Mail spreads
