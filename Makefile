@@ -86,6 +86,9 @@ db-shell:  ## Open psql shell inside postgres container
 seed:  ## Seed local dev demo data (developer fixture)
 	@cd backend && ../$(PY) -m app.scripts.seed
 
+backup:  ## Trigger one pg_dump -> OCI Object Storage backup now (needs BACKUP_OCI_NAMESPACE set)
+	@cd backend && ../$(PY) -c "from app.services.db_backup import backup_database; print(backup_database())"
+
 # =====================================================================
 # Tests
 # =====================================================================

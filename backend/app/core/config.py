@@ -216,6 +216,16 @@ class Settings(BaseSettings):
     # Empty string = use the default path: backend/config/holding_parser_vocab.yml
     HOLDING_PARSER_VOCAB_PATH: str = ""
 
+    # Daily Postgres -> OCI Object Storage backup (issue #106). Empty
+    # namespace disables the scheduled task entirely — local dev never has
+    # this set, so a locally-started Beat never uploads dev dumps anywhere.
+    # Retention is enforced by the bucket's Object Lifecycle Policy, not by
+    # this app — see Obsidian `Hermes/Portfonia/Portfonia Environment
+    # Config.md` for the current policy (do not copy the retention number
+    # here; it would drift out of sync with the actual bucket config).
+    BACKUP_OCI_NAMESPACE: str = ""
+    BACKUP_OCI_BUCKET: str = "portfonia-db-backups"
+
     @property
     def database_url(self) -> str:
         return (

@@ -36,6 +36,7 @@ _EXTERNAL_NOTIFY_MODULES = (
     "app.services.report_generator",
     "app.tasks.report_tasks",
     "app.tasks.capture_tasks",
+    "app.tasks.backup_tasks",
 )
 
 
