@@ -461,6 +461,33 @@ def _postprocess(
             row["issues"] = list(row.get("issues") or [])
             row["issues"].append(f"Unrecognized currency {row.get('currency')!r}")
 
+        # Cash/wmf rows carry no real instrument identifier (issue #120): the
+        # model has been observed both fabricating a ticker like "CASH" that
+        # isn't even in the source text, and echoing a stray "CASH"-shaped
+        # token from the source into the ticker/fund_code field. Either way,
+        # a leftover ticker/fund_code plus a missing current_value silently
+        # drops the row out of every report — compute_portfolio()'s
+        # manual-pricing branch only ever reads current_value, never shares.
+        # Coerce deterministically rather than trust the prompt's "no
+        # ticker, amount in current_value" rule to always be followed.
+        if row.get("asset_type") in ("cash", "wmf"):
+            bogus_id = row.get("ticker") or row.get("fund_code")
+            if bogus_id:
+                row["issues"] = list(row.get("issues") or [])
+                row["issues"].append(
+                    f"Dropped spurious ticker/fund_code {bogus_id!r} on cash/wmf row "
+                    "(cash/wmf products carry no real instrument identifier)"
+                )
+                row["ticker"] = None
+                row["fund_code"] = None
+            if row.get("current_value") is None and row.get("shares") is not None:
+                row["issues"] = list(row.get("issues") or [])
+                row["issues"].append("Cash/wmf amount moved from shares to current_value")
+                row["current_value"] = row["shares"]
+                row["shares"] = None
+                row["avg_cost"] = None
+            row["pricing_mode"] = "manual"
+
         # Coerce optional string fields: LLM occasionally emits [] instead of null.
         for str_field in ("notes", "account", "portfolio", "broker"):
             v = row.get(str_field)

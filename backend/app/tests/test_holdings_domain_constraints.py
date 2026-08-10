@@ -80,6 +80,37 @@ def test_parsed_row_accepts_every_valid_asset_class() -> None:
         assert row.asset_class == asset_class
 
 
+@pytest.mark.parametrize("field,value", [("ticker", "CASH"), ("fund_code", "123456")])
+def test_parsed_row_rejects_cash_with_ticker_or_fund_code(field: str, value: str) -> None:
+    """Boundary guard for issue #120: cash/wmf products carry no real
+    instrument identifier. _postprocess coerces this away for the normal
+    upload path, but POST /holdings/confirm takes list[ParsedRow] directly
+    from the client — a caller bypassing _postprocess must get a clean 422,
+    not a row that silently misses `current_value` and vanishes from every
+    report."""
+    with pytest.raises(ValidationError):
+        ParsedRow(
+            name="X",
+            currency="USD",
+            pricing_mode="manual",
+            asset_type="cash",
+            current_value=100,
+            **{field: value},
+        )
+
+
+def test_parsed_row_accepts_cash_without_ticker_or_fund_code() -> None:
+    row = ParsedRow(
+        name="USD Cash",
+        currency="USD",
+        pricing_mode="manual",
+        asset_type="cash",
+        current_value=100,
+    )
+    assert row.ticker is None
+    assert row.fund_code is None
+
+
 # --- DB-level CHECK constraints (migration 6cd7544f63cf) ---
 
 

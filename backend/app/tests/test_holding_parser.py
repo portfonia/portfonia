@@ -146,6 +146,80 @@ def test_postprocess_coerces_unknown_asset_type_to_null() -> None:
     assert any("crypto" in i for i in rows[0].issues)
 
 
+# ---------------------------------------------------------------------------
+# _postprocess — cash/wmf ticker + shares coercion (issue #120)
+# ---------------------------------------------------------------------------
+
+
+def test_postprocess_coerces_cash_row_with_fabricated_ticker_and_amount_in_shares() -> None:
+    """Regression for issue #120: production data showed the structured
+    extraction model inventing a ticker "CASH" that wasn't in the source text
+    at all, and putting the cash balance in `shares` instead of
+    `current_value`. compute_portfolio()'s manual-pricing branch only reads
+    `current_value`, so this silently dropped every cash holding out of
+    every report."""
+    raw = [
+        _raw_row(
+            name="USD Cash",
+            ticker="CASH",
+            shares=199.98,
+            avg_cost=None,
+            current_value=None,
+            pricing_mode="manual",
+            asset_type="cash",
+            broker="IBKR",
+        )
+    ]
+    rows = _postprocess(raw)
+    assert rows[0].ticker is None
+    assert rows[0].fund_code is None
+    assert rows[0].current_value == 199.98
+    assert rows[0].shares is None
+    assert rows[0].avg_cost is None
+    assert rows[0].pricing_mode == "manual"
+    assert any("CASH" in i for i in rows[0].issues)
+
+
+def test_postprocess_coerces_wmf_row_with_fund_code_and_amount_in_shares() -> None:
+    raw = [
+        _raw_row(
+            name="Bank WMP",
+            fund_code="654321",
+            shares=50000.0,
+            avg_cost=None,
+            current_value=None,
+            pricing_mode="manual",
+            asset_type="wmf",
+            currency="CNY",
+        )
+    ]
+    rows = _postprocess(raw)
+    assert rows[0].fund_code is None
+    assert rows[0].current_value == 50000.0
+    assert rows[0].shares is None
+
+
+def test_postprocess_leaves_correctly_shaped_cash_row_unchanged() -> None:
+    """A cash row already following the prompt's rules (no ticker, amount in
+    current_value) must not be mangled or flagged."""
+    raw = [
+        _raw_row(
+            name="现金",
+            ticker=None,
+            shares=None,
+            avg_cost=None,
+            current_value=100.0,
+            pricing_mode="manual",
+            asset_type="cash",
+            currency="CNY",
+        )
+    ]
+    rows = _postprocess(raw)
+    assert rows[0].ticker is None
+    assert rows[0].current_value == 100.0
+    assert rows[0].issues == []
+
+
 def test_extract_xlsx_single_sheet(tmp_path: Path) -> None:
     pytest.importorskip("pandas")
     import pandas as pd

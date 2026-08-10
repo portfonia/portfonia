@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Literal, get_args
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.services.asset_class_config import VALID_ASSET_CLASSES
 
@@ -107,6 +107,22 @@ class ParsedRow(BaseModel):
         if v not in VALID_ASSET_CLASSES:
             raise ValueError(f"unrecognized asset_class {v!r} — not in VALID_ASSET_CLASSES")
         return v
+
+    @model_validator(mode="after")
+    def _cash_wmf_has_no_ticker(self) -> "ParsedRow":
+        # Boundary guard (issue #120): cash/wmf products carry no real
+        # instrument identifier. holding_parser._postprocess coerces this
+        # away for the normal upload path, but POST /holdings/confirm takes
+        # list[ParsedRow] straight from the client — a caller bypassing
+        # _postprocess must get a clean 422 rather than a row that silently
+        # misses current_value and vanishes from every report.
+        if self.asset_type in ("cash", "wmf") and (self.ticker or self.fund_code):
+            raise ValueError(
+                f"cash/wmf row {self.name!r} has a ticker/fund_code "
+                f"({self.ticker or self.fund_code!r}) — cash/wmf products carry no "
+                "real instrument identifier; the amount belongs in current_value"
+            )
+        return self
 
 
 class CurrencySubtotal(BaseModel):
