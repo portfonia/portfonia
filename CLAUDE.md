@@ -270,6 +270,65 @@ bypassing the API (a script, a manual `UPDATE`) had no guard at all.
   don't surface resolution status on the PR page (lesson now codified
   globally in `~/.claude/CLAUDE.md`'s Grok review workflow, step 6.5).
 
+### Cash/wmf holdings silently excluded from reports (issue #120/PR #121)
+
+Surfaced by a real "missing price data" ops notice on a production report
+(2026-08-07). Cash/wmf are deliberately excluded from the capture layer
+(`price_anomaly_detector.py`: "cash/wmf have no daily price") — the
+notice's `stale_tickers` list was not a capture-layer miss, it was
+`compute_portfolio()`'s manual-pricing branch excluding a row for missing
+`current_value`.
+
+- **Root cause**: `holding_parser.py`'s system prompt says a cash/wmf row
+  should have no ticker and the amount in `current_value`. The structured
+  extraction model (`STRUCTURED_LLM_MODEL`) didn't reliably follow this —
+  verified against the actual affected production rows (decrypted via the
+  `backend` app process, since `ticker`/`shares`/`current_value` are
+  Fernet ciphertext at rest, issue #31) and against the original upload
+  text: two of three rows had a ticker `"CASH"` fabricated out of thin air
+  (not present in the source text at all), the third echoed a stray
+  literal `"CASH"` token from the source into the ticker field. All three
+  had the amount sitting in `shares` with `current_value=None`.
+  `compute_portfolio()`'s manual branch only ever reads `current_value`,
+  never `shares` — silent exclusion from every report and from the
+  portfolio total, not just a report-rendering issue.
+- **Fix, two independent layers** (`_postprocess` can't be the only guard —
+  `POST /holdings/confirm` takes `list[ParsedRow]` straight from the
+  client and bypasses it):
+  1. `_postprocess` (`holding_parser.py`) deterministically coerces any
+     `asset_type in ("cash", "wmf")` row: strips a spurious ticker/
+     fund_code, moves the amount from `shares` to `current_value` when
+     `current_value` is still null, forces `pricing_mode="manual"`, and —
+     once `current_value` is settled as the source of truth — clears any
+     residual `shares`/`avg_cost` unconditionally (round 2 finding below:
+     leaving them populated isn't inert, see below).
+  2. `ParsedRow` (`schemas/holdings.py`) gets a `model_validator`
+     (`_cash_wmf_boundary`) rejecting the same three failure shapes
+     (non-null ticker/fund_code, `pricing_mode != "manual"`,
+     `current_value is None`) for cash/wmf rows — a clean 422 for any
+     caller that bypasses `_postprocess`, same boundary-validation
+     pattern as issue #25's currency/asset_class checks.
+- **Two rounds of Grok review** (blacktomb42): round 1 (Request changes,
+  1 bug + 2 suggestion/nit) found the `ParsedRow` validator's first draft
+  only checked ticker/fund_code — a confirm payload with the amount only
+  in `shares`, or `pricing_mode="auto"`, still passed and still
+  silent-dropped; verified by directly constructing the failing
+  `ParsedRow` before fixing. Round 2 (Approve, 0 bug + 1 suggestion/nit,
+  required since round 1 found a bug) found round 1's "leave a
+  dual-populated row's `shares`/`avg_cost` in place, it's inert" claim was
+  wrong for the upload-preview cost-basis summary: `_row_cost_basis()`
+  (used by `_summarize()`'s broker subtotals, not by `compute_portfolio`)
+  prefers `shares*avg_cost` over `current_value` whenever both are
+  non-null, so a residual pair could surface a wrong preview number even
+  though report valuation itself was already correct — fixed by
+  unconditionally clearing `shares`/`avg_cost` once `current_value` is
+  settled, verified red against the round-1 code first.
+- **Known gap, not covered by this PR**: three existing production rows
+  for one user still have the pre-fix shape (amount in `shares`,
+  `current_value` null) — not data loss (`shares` holds the right number),
+  tracked in issue #123 for a backfill or waiting on the user to
+  re-confirm holdings.
+
 ### Capture layer + incremental reporting (ADR-002)
 
 Full spec in Obsidian: `Hermes/Portfonia/Docs/Incremental Report & Capture Layer Design.md`.
