@@ -13,7 +13,24 @@ import uuid
 from datetime import UTC, date, datetime
 from unittest.mock import MagicMock, patch
 
-from app.services.email_sender import _render_html, send_report_email
+from bs4 import BeautifulSoup, Tag
+
+from app.services.email_sender import (
+    _TAG_STYLES,
+    _WRAPPER_TD_STYLE,
+    _inline_body_styles,
+    _render_html,
+    send_report_email,
+)
+
+
+def _td(row: Tag) -> Tag:
+    """Find a row's first td, asserting it exists (mypy-strict-friendly
+    wrapper around BeautifulSoup's Tag | None find())."""
+    cell = row.find("td")
+    assert isinstance(cell, Tag), f"expected a <td> in {row!r}"
+    return cell
+
 
 # ---------------------------------------------------------------------------
 # _render_html
@@ -21,23 +38,31 @@ from app.services.email_sender import _render_html, send_report_email
 
 
 def test_render_html_wraps_body() -> None:
+    """Grok review round 2 (PR #117): assert real BS4 elements, not bare
+    substrings — a substring check doesn't prove markdown structure (h1/p)
+    survived style-inlining, only that the words appear somewhere."""
     html = _render_html("# Hello\n\nWorld")
-    assert "<h1>Hello</h1>" in html
-    assert "<p>World</p>" in html
-    assert 'class="wrapper"' in html
+    soup = BeautifulSoup(html, "html.parser")
+    h1 = soup.find("h1")
+    assert h1 is not None and h1.get_text() == "Hello"
+    p = soup.find("p")
+    assert p is not None and p.get_text() == "World"
+    # Bulletproof-table wrapper (issue #24), not a div.wrapper — Outlook's
+    # Word engine centers via a fixed-width table, not CSS margin/max-width.
+    assert 'width="720"' in html
 
 
 def test_render_html_renders_table() -> None:
     md = "| A | B |\n|---|---|\n| 1 | 2 |"
     html = _render_html(md)
-    assert "<table>" in html
-    assert "<th>A</th>" in html
-    assert "<td>1</td>" in html
+    assert "<table" in html
+    assert "A</th>" in html
+    assert "1</td>" in html
 
 
 def test_render_html_empty_string() -> None:
     html = _render_html("")
-    assert "<div" in html  # wrapper present even with no content
+    assert "<table" in html  # bulletproof wrapper present even with no content
 
 
 def test_render_html_escapes_raw_html() -> None:
@@ -46,6 +71,174 @@ def test_render_html_escapes_raw_html() -> None:
     assert "<script>" not in html
     assert "onerror=alert(1)>" not in html
     assert "&lt;script&gt;" in html
+
+
+# ---------------------------------------------------------------------------
+# _render_html — issue #24: Outlook/Gmail client-compat inlining
+# ---------------------------------------------------------------------------
+
+
+def test_render_html_inlines_heading_and_table_styles() -> None:
+    """Critical layout styling must be inline `style="..."`, not solely in
+    <head><style> — Outlook's Word rendering engine does not reliably apply
+    <style> block rules."""
+    html = _render_html("# Title\n\n| A | B |\n|---|---|\n| 1 | 2 |")
+
+    soup = BeautifulSoup(html, "html.parser")
+    h1 = soup.find("h1")
+    assert h1 is not None
+    assert h1.get("style"), "h1 must carry an inline style attribute"
+    assert "color" in h1["style"]
+
+    # The two outer bulletproof-layout tables carry role="presentation";
+    # the markdown-rendered table does not — that distinguishes it.
+    content_table = next(t for t in soup.find_all("table") if not t.has_attr("role"))
+    td = content_table.find("td")
+    assert td is not None
+    assert td.get("style"), "td must carry an inline style attribute"
+    assert "border" in td["style"]
+    assert "padding" in td["style"]
+
+
+def test_render_html_zebra_striping_is_inlined_not_nth_child() -> None:
+    """tr:nth-child(even) is not reliably honored by Outlook — each row must
+    carry its own explicit inline style rather than relying on the selector
+    (the <style> block may still keep nth-child as a harmless enhancement for
+    clients that do support it)."""
+    md = "| A |\n|---|\n| 1 |\n| 2 |\n| 3 |"
+    html = _render_html(md)
+
+    soup = BeautifulSoup(html, "html.parser")
+    tbody = soup.find("tbody")
+    assert tbody is not None
+    rows = tbody.find_all("tr")
+    assert len(rows) == 3
+    assert "background-color" not in str(_td(rows[0]).get("style", ""))
+    assert "background-color" in str(_td(rows[1]).get("style", ""))  # second: striped
+    assert "background-color" not in str(_td(rows[2]).get("style", ""))
+
+
+def test_render_html_wrapper_uses_explicit_width_attribute() -> None:
+    """The centering wrapper must use an explicit `width` table attribute,
+    not rely solely on CSS max-width, which Outlook does not honor reliably."""
+    html = _render_html("Body")
+    soup = BeautifulSoup(html, "html.parser")
+    inner_table = soup.find("table", attrs={"width": "720"})
+    assert inner_table is not None
+
+
+def test_render_html_preserves_content_inside_inlined_markup() -> None:
+    """Inlining styles onto the markdown-rendered body must not lose or
+    reorder content."""
+    md = "# Title\n\nSome *emphasis* and a [link](https://example.com)."
+    html = _render_html(md)
+    assert "Title" in html
+    assert "<em>emphasis</em>" in html
+    assert 'href="https://example.com"' in html
+
+
+# ---------------------------------------------------------------------------
+# _render_html — PR #117 Grok review fixes
+# ---------------------------------------------------------------------------
+
+
+def test_zebra_striping_paints_cells_not_only_row() -> None:
+    """Grok review (PR #117): Word-based Outlook often ignores `background`
+    set on a <tr>. The even-row fill must also land on each td/th cell
+    (background-color longhand + bgcolor attribute), not only the row."""
+    md = "| A |\n|---|\n| 1 |\n| 2 |\n| 3 |"
+    html = _render_html(md)
+
+    soup = BeautifulSoup(html, "html.parser")
+    tbody = soup.find("tbody")
+    assert tbody is not None
+    rows = tbody.find_all("tr")
+
+    unstriped_cell = _td(rows[0])
+    assert "background-color" not in str(unstriped_cell.get("style", ""))
+
+    striped_cell = _td(rows[1])
+    assert "background-color" in str(striped_cell.get("style", ""))
+    assert striped_cell.get("bgcolor"), "striped cell must also carry a bgcolor attribute"
+
+
+def test_zebra_striping_falls_back_to_bare_tr_children() -> None:
+    """Grok review (PR #117): markdown-it always emits thead/tbody, but
+    _inline_body_styles should not silently no-op on a bare <table><tr>...
+    structure (e.g. hand-built HTML) with no thead/tbody wrapper."""
+    bare_table_html = "<table><tr><td>1</td></tr><tr><td>2</td></tr><tr><td>3</td></tr></table>"
+    result = _inline_body_styles(bare_table_html)
+
+    soup = BeautifulSoup(result, "html.parser")
+    table = soup.find("table")
+    assert isinstance(table, Tag)
+    rows = table.find_all("tr", recursive=False)
+    assert len(rows) == 3
+    assert "background-color" not in str(_td(rows[0]).get("style", ""))
+    assert "background-color" in str(_td(rows[1]).get("style", ""))
+    assert "background-color" not in str(_td(rows[2]).get("style", ""))
+
+
+def test_zebra_fill_appended_after_base_cell_style() -> None:
+    """Grok review round 2 (PR #117): zebra background-color must be
+    appended after the cell's base style, not prepended — CSS resolves
+    same-attribute conflicts by last-declaration-wins, so appending is what
+    guarantees the zebra fill can't be silently overridden by a future
+    `_TAG_STYLES["td"]` background."""
+    md = "| A |\n|---|\n| 1 |\n| 2 |"
+    html = _render_html(md)
+
+    soup = BeautifulSoup(html, "html.parser")
+    tbody = soup.find("tbody")
+    assert tbody is not None
+    striped_cell = _td(tbody.find_all("tr")[1])
+    style = str(striped_cell.get("style", ""))
+
+    base_pos = style.find("border")
+    zebra_pos = style.find("background-color")
+    assert base_pos != -1 and zebra_pos != -1
+    assert zebra_pos > base_pos, f"zebra fill must come after base style: {style!r}"
+
+
+def test_render_html_cjk_content_survives_bs4_round_trip() -> None:
+    """Grok review round 2 (PR #117): production reports render in zh-Hans by
+    default (Ring 0) — existing tests only used ASCII, so a BeautifulSoup
+    serialization quirk on Chinese text wouldn't be caught. Also checks a
+    literal ampersand round-trips as an entity rather than raw."""
+    md = "# 财经分析报告\n\n持仓 A & B 的表现"
+    html = _render_html(md)
+
+    soup = BeautifulSoup(html, "html.parser")
+    h1 = soup.find("h1")
+    assert h1 is not None and h1.get_text() == "财经分析报告"
+    p = soup.find("p")
+    assert p is not None and p.get_text() == "持仓 A & B 的表现"
+    assert "&amp;" in html
+
+
+def test_head_style_block_matches_tag_styles_single_source() -> None:
+    """Grok review (PR #117): the <head><style> per-tag rules and _TAG_STYLES
+    (used for inline injection) must not silently drift — both must be
+    generated from the same source, so every _TAG_STYLES declaration is also
+    present in the <style> block for the same tag."""
+    html = _render_html("# T\n\nx")
+    head = html.split("<style>", 1)[1].split("</style>", 1)[0]
+
+    for tag, style in _TAG_STYLES.items():
+        rule = head.split(f"{tag} {{", 1)
+        assert len(rule) == 2, f"<style> block has no rule for {tag!r}"
+        rule_body = rule[1].split("}", 1)[0]
+        assert style.rstrip(";").replace(";", "; ") in rule_body or all(
+            decl.strip() in rule_body for decl in style.split(";") if decl.strip()
+        ), f"{tag!r} inline style {style!r} not reflected in <style> block: {rule_body!r}"
+
+
+def test_wrapper_td_style_constant_is_real_and_used() -> None:
+    """Grok review nit (PR #117): the module comment claims a load-bearing
+    `_WRAPPER_TD_STYLE` constant — it must actually exist and be used in the
+    rendered wrapper, not just be a name in a comment."""
+    html = _render_html("Body")
+    assert _WRAPPER_TD_STYLE in html
 
 
 # ---------------------------------------------------------------------------
