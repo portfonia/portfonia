@@ -145,6 +145,16 @@ the threat is DB-dump/backup theft, which disk encryption alone doesn't stop.
   numeric literal. Both directions verified against real local dev data
   (22 holdings, including a Chinese fund name) — round-trips exactly,
   including `upgrade → downgrade → upgrade`.
+- **Side effect discovered 2026-08-09 (issue #25/#113): a DB-level `>= 0`
+  CHECK on `shares`/`avg_cost`/`current_value` is no longer possible.** These
+  columns are now Fernet ciphertext (`impl = Text`), so the database never
+  sees the plaintext number — only `ParsedRow`'s `Field(ge=0)` in
+  `app/schemas/holdings.py` guards this now, and only for writes going
+  through `POST /holdings/confirm` (the only user-writable entry point for
+  these fields). This tradeoff wasn't called out when the encryption
+  decision was made — see issue #113 for the full writeup. Treat this as a
+  standing lesson: framing a change as "must do" doesn't mean it has no
+  costs elsewhere — say what breaks, not just what it fixes.
 - **Not yet covered**: `Report.report_inputs` and rendered report bodies
   still carry holdings-derived plaintext (ticker, shares, values quoted in
   prose/tables) — issue #31 is scoped to the `holdings` table only. Worth a
@@ -161,6 +171,56 @@ the threat is DB-dump/backup theft, which disk encryption alone doesn't stop.
   (26 rows). `.env` never travels through Git (see Secrets and
   Configuration below) — the key lives only in the server's `.env` and the
   local `.env.production` staging copy, neither committed.
+
+### Holdings domain CHECK constraints (issue #25)
+
+DB-level `CHECK` constraints on `holdings`, migration
+`6cd7544f63cf_add_domain_check_constraints_to_holdings.py` — previously only
+app-layer (`ParsedRow` Pydantic `Literal`s) guarded correctness, so any write
+bypassing the API (a script, a manual `UPDATE`) had no guard at all.
+
+- **Covered**: `pricing_mode` (`auto`/`manual`), `asset_type` (nullable, 6
+  values), `currency`, `asset_class`. `asset_class` wasn't in the original
+  issue text but is the same shape (Text column, closed set already defined
+  in code) — folded in rather than deferred to a separate issue, since the
+  user's stated preference is to bundle same-pattern low-risk work now
+  rather than risk it being forgotten later.
+- **`currency`**: not ISO-4217-exhaustive — `VALID_CURRENCIES` in
+  `app/schemas/holdings.py` is a fixed list of currencies plausible for this
+  product's holdings (the three natively-supported markets' currencies —
+  USD/CNY/HKD — plus other majors an international account might carry:
+  GBP/EUR/JPY/SGD/AUD/CAD/CHF/KRW/TWD/MOP/NZD). Adding a currency is a code
+  change + migration, same pattern as `VALID_ASSET_CLASSES`
+  (`app/services/asset_class_config.py`) — not a config edit.
+  `ParsedRow.currency` also gets a matching `field_validator` so an
+  unrecognized currency 422s at the API boundary instead of hitting the DB
+  as a raw `IntegrityError`.
+- **`shares`/`avg_cost`/`current_value` `>= 0` is explicitly OUT of scope
+  here** — see the "Side effect discovered 2026-08-09" bullet in the
+  encryption section above and issue #113. Handled instead via
+  `Field(ge=0)` on `ParsedRow` (app-layer only, DB can't enforce this
+  anymore).
+- **Naming-convention gotcha** (cost real debugging time — worth remembering
+  for the next CHECK constraint added anywhere in this codebase): `Base`'s
+  `naming_convention` (`app/models/base.py`, `"ck":
+  "ck_%(table_name)s_%(constraint_name)s"`) re-renders whatever name is
+  passed to `op.create_check_constraint`/`op.drop_constraint` in a migration,
+  or to `CheckConstraint(name=...)` in an ORM model. Passing an
+  already-fully-rendered name (e.g. `"ck_holdings_pricing_mode"`) doubles the
+  prefix (`ck_holdings_ck_holdings_pricing_mode`) — pass the bare column
+  token (`"pricing_mode"`) instead and let the convention render it. Verified
+  against a real Postgres run both ways (doubled name confirmed, then fixed)
+  before this migration/model landed.
+- **Audited existing dev rows before writing the migration** (2026-08-09,
+  `portfonia_dev`, 22 rows) — all values already fit the new constraints, no
+  data blocked the migration. **Production has not been audited** — run the
+  same `GROUP BY`-per-column query against prod before this migration runs
+  there (see the migration file's docstring for the exact query); a CHECK
+  that fails against legacy data blocks the migration outright.
+- Verified the constraint actually blocks a bad write at the SQL level (not
+  just "tests are green"): a direct `UPDATE ... SET pricing_mode = 'bogus'`
+  against a real local-dev row raised
+  `violates check constraint "ck_holdings_pricing_mode"`.
 
 ### Capture layer + incremental reporting (ADR-002)
 

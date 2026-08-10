@@ -222,6 +222,19 @@ def test_postprocess_corrects_hk_ticker_currency() -> None:
     assert any("HKD" in issue for issue in rows[0].issues)
 
 
+def test_postprocess_ticker_correction_of_unrecognized_currency_leaves_no_stale_issue() -> None:
+    """Regression (PR #114 review round 2): the LLM emitting a currency
+    that isn't in VALID_CURRENCIES at all (not just wrong) must not leave a
+    stale "Unrecognized currency" note once the ticker suffix corrects it
+    to a valid one — the unrecognized-currency check must run AFTER
+    ticker-suffix correction, not before."""
+    raw = [_raw_row(name="Tencent", ticker="0700.HK", currency="RMB")]
+    rows = _postprocess(raw)
+    assert rows[0].currency == "HKD"
+    assert not any("nrecognized" in issue for issue in rows[0].issues)
+    assert any("corrected to HKD" in issue for issue in rows[0].issues)
+
+
 def test_postprocess_corrects_ss_ticker_currency() -> None:
     raw: list[dict[str, object]] = [
         {
@@ -269,6 +282,58 @@ def test_postprocess_no_correction_when_currency_correct() -> None:
     rows = _postprocess(raw)
     assert rows[0].currency == "USD"
     assert rows[0].issues == []
+
+
+# ---------------------------------------------------------------------------
+# _postprocess — currency validation degrades per-row, doesn't fail the batch
+# (issue #25/PR #114 review)
+# ---------------------------------------------------------------------------
+
+
+def test_postprocess_normalizes_currency_case() -> None:
+    raw: list[dict[str, object]] = [
+        {
+            "name": "Apple",
+            "ticker": None,
+            "fund_code": None,
+            "currency": "usd",  # lowercase — must not trip the exact-match check
+            "shares": 10.0,
+            "avg_cost": 100.0,
+            "current_value": None,
+            "pricing_mode": "auto",
+            "asset_type": "stock",
+            "broker": None,
+            "account": None,
+            "portfolio": None,
+            "notes": None,
+            "issues": [],
+            "confidence": 1.0,
+        }
+    ]
+    rows = _postprocess(raw)
+    assert rows[0].currency == "USD"
+    assert any("normalized" in issue.lower() for issue in rows[0].issues)
+
+
+def test_postprocess_drops_row_with_unrecognized_currency_without_raising() -> None:
+    """A single bad currency must not kill the whole batch (previously a bare
+    ValidationError from ParsedRow.model_validate propagated out of
+    _postprocess and failed every other row in the same upload)."""
+    raw = [
+        _raw_row(name="Apple", currency="USD"),
+        _raw_row(name="Bogus", currency="ZZZ"),
+    ]
+    rows = _postprocess(raw)
+    assert [r.name for r in rows] == ["Apple"]
+
+
+def test_postprocess_invokes_on_invalid_row_callback() -> None:
+    rejected: list[tuple[dict[str, object], str]] = []
+    raw = [_raw_row(name="Bogus", currency="ZZZ")]
+    rows = _postprocess(raw, on_invalid_row=lambda row, reason: rejected.append((row, reason)))
+    assert rows == []
+    assert len(rejected) == 1
+    assert "ZZZ" in rejected[0][1]
 
 
 # ---------------------------------------------------------------------------
@@ -561,6 +626,59 @@ def test_parse_issue_row_included() -> None:
     ):
         result = parse("some text")
     assert result.issue_rows[0].reason == "Cannot identify asset name or value"
+
+
+def test_parse_moves_invalid_currency_row_to_issue_rows() -> None:
+    """End-to-end: a row with an unrecognized currency degrades to an
+    issue_row instead of failing the whole parse (issue #25/PR #114
+    review) — the other valid row in the same response still succeeds."""
+    payload: dict[str, object] = {
+        "valid_rows": [
+            {
+                "name": "Apple",
+                "ticker": "AAPL",
+                "fund_code": None,
+                "currency": "USD",
+                "shares": 10.0,
+                "avg_cost": 180.0,
+                "current_value": None,
+                "pricing_mode": "auto",
+                "asset_type": "stock",
+                "broker": None,
+                "account": None,
+                "portfolio": None,
+                "notes": None,
+                "issues": [],
+                "confidence": 1.0,
+            },
+            {
+                "name": "Bogus",
+                "ticker": None,
+                "fund_code": None,
+                "currency": "ZZZ",
+                "shares": 1.0,
+                "avg_cost": None,
+                "current_value": None,
+                "pricing_mode": "auto",
+                "asset_type": None,
+                "broker": None,
+                "account": None,
+                "portfolio": None,
+                "notes": None,
+                "issues": [],
+                "confidence": 1.0,
+            },
+        ],
+        "issue_rows": [],
+    }
+    with patch(
+        "app.services.holding_parser.openai.OpenAI",
+        return_value=_make_mock_client(payload),
+    ):
+        result = parse("some text")
+    assert [r.name for r in result.valid_rows] == ["Apple"]
+    assert len(result.issue_rows) == 1
+    assert "ZZZ" in result.issue_rows[0].reason
 
 
 def test_parse_empty_response_returns_empty_preview() -> None:

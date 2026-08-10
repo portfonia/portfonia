@@ -4,16 +4,47 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Integer, Text, func, text
+from sqlalchemy import CheckConstraint, Integer, Text, func, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.encryption import EncryptedDecimal, EncryptedString
 from app.models.base import Base
+from app.schemas.holdings import VALID_ASSET_TYPES, VALID_CURRENCIES, VALID_PRICING_MODES
+from app.services.asset_class_config import VALID_ASSET_CLASSES
+
+
+def _in_list_sql(column: str, values: tuple[str, ...]) -> str:
+    # Sorted here (not left to call sites) so every CheckConstraint's SQL
+    # text is deterministic regardless of the source constant's declaration
+    # order — PR #114 review: pricing_mode/asset_type previously used
+    # declaration order here while currency/asset_class were sorted,
+    # producing SQL text that wouldn't match the (also-sorted) migration's
+    # DDL and could trip `alembic revision --autogenerate` as spurious drift.
+    quoted = ", ".join(f"'{v}'" for v in sorted(values))
+    return f"{column} IN ({quoted})"
 
 
 class Holding(Base):
     __tablename__ = "holdings"
+
+    # Domain CHECK constraints (issue #25) — mirrors migration 6cd7544f63cf.
+    # Values come from the same sources of truth the migration uses, so the
+    # ORM model can't quietly drift from the real DB schema.
+    #
+    # `name=` here is the bare token, not the full "ck_holdings_<x>" — Base's
+    # naming_convention ("ck": "ck_%(table_name)s_%(constraint_name)s") re-
+    # renders whatever name is passed, so a pre-rendered full name doubles
+    # the prefix. Verified: Holding.__table__.constraints showed
+    # "ck_holdings_ck_holdings_pricing_mode" before this fix.
+    __table_args__ = (
+        CheckConstraint(_in_list_sql("pricing_mode", VALID_PRICING_MODES), name="pricing_mode"),
+        CheckConstraint(_in_list_sql("asset_type", VALID_ASSET_TYPES), name="asset_type"),
+        CheckConstraint(_in_list_sql("currency", tuple(VALID_CURRENCIES)), name="currency"),
+        CheckConstraint(
+            _in_list_sql("asset_class", tuple(VALID_ASSET_CLASSES)), name="asset_class"
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
