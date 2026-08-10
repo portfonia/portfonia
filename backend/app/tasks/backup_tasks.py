@@ -41,8 +41,12 @@ def _backup_failed(exc: BaseException) -> None:
     bind=True,
     max_retries=2,
     default_retry_delay=300,
-    time_limit=900,
-    soft_time_limit=870,
+    # Must exceed db_backup.py's own subprocess timeouts (dump 600s + upload
+    # 300s = 900s worst case) — a soft/hard limit below that sum would fire
+    # mid-subprocess via signal, which subprocess.run's own `timeout=` cleanup
+    # never sees, potentially orphaning the pg_dump/oci child process.
+    time_limit=960,
+    soft_time_limit=920,
 )
 def backup_database_task(self: Any) -> dict[str, str | None]:
     from app.services.db_backup import backup_database

@@ -8,10 +8,13 @@ on the `daily/` prefix), not by this module — see Obsidian
 do not copy the retention number here, it would drift out of sync with the
 actual bucket config (same trap as the asset_class threshold table once did).
 
-Auth: production runs this ON `instance-portfonia-web` itself, so the `oci`
-CLI authenticates via instance principal (`--auth instance_principal`) — no
-key file ever touches the server. Local/manual runs (e.g. a restore drill)
-fall back to the CLI's default `~/.oci/config` file auth.
+Auth: production runs this on the app VM itself, so the `oci` CLI
+authenticates via instance principal (`--auth instance_principal`) — no key
+file ever touches the server. This requires the container to reach the
+instance metadata service (169.254.169.254); if that's ever blocked (e.g. a
+future network-mode change), instance-principal auth fails and the task
+alerts via its normal retry-exhaustion path. Local/manual runs (e.g. a
+restore drill) fall back to the CLI's default `~/.oci/config` file auth.
 
 Both `pg_dump` and `oci` are invoked as subprocesses, not imported as
 Python libraries: `oci`/`oci-cli` pin `cryptography<50.0.0`, which conflicts
@@ -69,6 +72,7 @@ def run_pg_dump(dest_path: Path) -> None:
         "-d",
         settings.DB_NAME,
         "-Fc",
+        "-w",
         "-f",
         str(dest_path),
     ]
@@ -130,10 +134,21 @@ def download_object(object_name: str, dest_path: Path) -> None:
 def backup_database() -> str | None:
     """Dump the configured database and upload it. Returns the uploaded
     object name, or None if backups are disabled (BACKUP_OCI_NAMESPACE unset
-    — the default for local dev, so a locally-started Beat never uploads
-    dev dumps anywhere)."""
+    — the default for local dev, so a locally-started Beat never uploads dev
+    dumps anywhere).
+
+    In production, an unset namespace is NOT a silent no-op: this is the only
+    DB restore safety net after dropping managed Postgres backups
+    (2026-08-05 decision), so a misconfigured/missing env var must fail loudly
+    (and reach backup_tasks.py's ops-alert path) rather than report a daily
+    "success" that never actually backed anything up."""
     settings = get_settings()
     if not settings.BACKUP_OCI_NAMESPACE:
+        if settings.APP_ENV == "production":
+            raise BackupError(
+                "BACKUP_OCI_NAMESPACE is unset in production — refusing to "
+                "silently skip the only DB backup safety net"
+            )
         logger.info("backup_database: BACKUP_OCI_NAMESPACE unset, backups disabled — skipping")
         return None
 

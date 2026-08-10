@@ -27,6 +27,17 @@ def test_backup_schedule_is_picklable() -> None:
     pickle.dumps(entry["schedule"])
 
 
+def test_backup_schedule_fires_daily_at_0300_no_weekday_restriction() -> None:
+    """Locks the intended 03:00 (app default tz, America/New_York) daily
+    cadence — a stray day_of_week or a wrong hour/minute would otherwise
+    still pass test_backup_schedule_entry_exists."""
+    entry = celery_app.conf.beat_schedule["backup-database-daily"]
+    schedule = entry["schedule"]
+    assert schedule.hour == {3}
+    assert schedule.minute == {0}
+    assert schedule.day_of_week == set(range(7))
+
+
 @patch("app.services.db_backup.backup_database", return_value="daily/portfonia_prod-x.dump")
 def test_backup_database_task_success(mock_backup: MagicMock) -> None:
     from app.tasks.backup_tasks import backup_database_task
