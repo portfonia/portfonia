@@ -13,6 +13,8 @@ import uuid
 from datetime import UTC, date, datetime
 from unittest.mock import MagicMock, patch
 
+from bs4 import BeautifulSoup
+
 from app.services.email_sender import _render_html, send_report_email
 
 # ---------------------------------------------------------------------------
@@ -22,22 +24,24 @@ from app.services.email_sender import _render_html, send_report_email
 
 def test_render_html_wraps_body() -> None:
     html = _render_html("# Hello\n\nWorld")
-    assert "<h1>Hello</h1>" in html
-    assert "<p>World</p>" in html
-    assert 'class="wrapper"' in html
+    assert "Hello" in html
+    assert "World" in html
+    # Bulletproof-table wrapper (issue #24), not a div.wrapper — Outlook's
+    # Word engine centers via a fixed-width table, not CSS margin/max-width.
+    assert 'width="720"' in html
 
 
 def test_render_html_renders_table() -> None:
     md = "| A | B |\n|---|---|\n| 1 | 2 |"
     html = _render_html(md)
-    assert "<table>" in html
-    assert "<th>A</th>" in html
-    assert "<td>1</td>" in html
+    assert "<table" in html
+    assert "A</th>" in html
+    assert "1</td>" in html
 
 
 def test_render_html_empty_string() -> None:
     html = _render_html("")
-    assert "<div" in html  # wrapper present even with no content
+    assert "<table" in html  # bulletproof wrapper present even with no content
 
 
 def test_render_html_escapes_raw_html() -> None:
@@ -46,6 +50,70 @@ def test_render_html_escapes_raw_html() -> None:
     assert "<script>" not in html
     assert "onerror=alert(1)>" not in html
     assert "&lt;script&gt;" in html
+
+
+# ---------------------------------------------------------------------------
+# _render_html — issue #24: Outlook/Gmail client-compat inlining
+# ---------------------------------------------------------------------------
+
+
+def test_render_html_inlines_heading_and_table_styles() -> None:
+    """Critical layout styling must be inline `style="..."`, not solely in
+    <head><style> — Outlook's Word rendering engine does not reliably apply
+    <style> block rules."""
+    html = _render_html("# Title\n\n| A | B |\n|---|---|\n| 1 | 2 |")
+
+    soup = BeautifulSoup(html, "html.parser")
+    h1 = soup.find("h1")
+    assert h1 is not None
+    assert h1.get("style"), "h1 must carry an inline style attribute"
+    assert "color" in h1["style"]
+
+    # The two outer bulletproof-layout tables carry role="presentation";
+    # the markdown-rendered table does not — that distinguishes it.
+    content_table = next(t for t in soup.find_all("table") if not t.has_attr("role"))
+    td = content_table.find("td")
+    assert td is not None
+    assert td.get("style"), "td must carry an inline style attribute"
+    assert "border" in td["style"]
+    assert "padding" in td["style"]
+
+
+def test_render_html_zebra_striping_is_inlined_not_nth_child() -> None:
+    """tr:nth-child(even) is not reliably honored by Outlook — each row must
+    carry its own explicit inline style rather than relying on the selector
+    (the <style> block may still keep nth-child as a harmless enhancement for
+    clients that do support it)."""
+    md = "| A |\n|---|\n| 1 |\n| 2 |\n| 3 |"
+    html = _render_html(md)
+
+    soup = BeautifulSoup(html, "html.parser")
+    tbody = soup.find("tbody")
+    assert tbody is not None
+    rows = tbody.find_all("tr")
+    assert len(rows) == 3
+    assert not rows[0].get("style", "")  # first data row: unstriped
+    assert "background" in str(rows[1].get("style", ""))  # second: striped
+    assert not rows[2].get("style", "")  # third: unstriped
+
+
+def test_render_html_wrapper_uses_explicit_width_attribute() -> None:
+    """The centering wrapper must use an explicit `width` table attribute,
+    not rely solely on CSS max-width, which Outlook does not honor reliably."""
+    html = _render_html("Body")
+    soup = BeautifulSoup(html, "html.parser")
+    inner_table = soup.find("table", attrs={"width": "720"})
+    assert inner_table is not None
+
+
+def test_render_html_preserves_content_inside_inlined_markup() -> None:
+    """Inlining styles onto the markdown-rendered body must not lose or
+    reorder content."""
+    md = "# Title\n\nSome *emphasis* and a [link](https://example.com)."
+    html = _render_html(md)
+    assert "Title" in html
+    assert "<em>emphasis</em>" in html
+    assert 'href="https://example.com"' in html
 
 
 # ---------------------------------------------------------------------------

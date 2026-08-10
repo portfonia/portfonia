@@ -13,6 +13,7 @@ import logging
 from datetime import UTC, datetime
 
 import httpx
+from bs4 import BeautifulSoup
 from markdown_it import MarkdownIt
 from sqlalchemy import update as sa_update
 from sqlalchemy.engine import CursorResult
@@ -26,7 +27,12 @@ logger = logging.getLogger(__name__)
 
 _RESEND_SEND_URL = "https://api.resend.com/emails"
 
-# Minimal inline-CSS email shell.  Outer braces are doubled to survive .format().
+# Outlook's Word rendering engine does not reliably apply <head><style> rules
+# (issue #24) — this block is kept only as an enhancement for clients that DO
+# support it (Gmail web/app, Apple Mail, ...). The load-bearing copy of every
+# rule below lives inline via _TAG_STYLES / _ZEBRA_EVEN_ROW_STYLE /
+# _WRAPPER_TD_STYLE, applied by _inline_body_styles. Outer braces are doubled
+# to survive .format().
 _HTML_TEMPLATE = """\
 <!DOCTYPE html>
 <html lang="en">
@@ -44,7 +50,6 @@ _HTML_TEMPLATE = """\
     margin: 0;
     padding: 0;
   }}
-  .wrapper {{ max-width: 720px; margin: 0 auto; padding: 32px 24px; }}
   h1 {{
     font-size: 1.45em;
     color: #111;
@@ -91,10 +96,20 @@ _HTML_TEMPLATE = """\
   hr {{ border: none; border-top: 1px solid #e0e0e0; margin: 2em 0; }}
 </style>
 </head>
-<body>
-<div class="wrapper">
+<body style="margin:0;padding:0;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:15px;line-height:1.65;color:#1a1a1a;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background:#ffffff;">
+<tr>
+<td align="center" style="padding:0;">
+<table role="presentation" width="720" cellpadding="0" cellspacing="0" border="0" style="width:720px;max-width:720px;">
+<tr>
+<td style="padding:32px 24px;">
 {body}
-</div>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
 </body>
 </html>
 """
@@ -106,9 +121,55 @@ _HTML_TEMPLATE = """\
 # - enable("table") restores GFM tables, which the commonmark baseline disables.
 _md = MarkdownIt("commonmark", {"html": False}).enable("table")
 
+# Inline copy of the <head><style> rules above, keyed by tag name — Outlook's
+# Word engine ignores <style> blocks, so every client-critical rule must also
+# be present as an inline `style="..."` attribute (issue #24).
+_TAG_STYLES: dict[str, str] = {
+    "h1": "font-size:1.45em;color:#111;border-bottom:2px solid #e8e8e8;padding-bottom:8px;margin:0 0 0.5em;",
+    "h2": "font-size:1.15em;color:#222;margin-top:2em;border-bottom:1px solid #ebebeb;padding-bottom:4px;",
+    "h3": "font-size:1.0em;color:#333;margin-top:1.4em;",
+    "table": "border-collapse:collapse;width:100%;margin:1em 0;font-size:0.88em;",
+    "th": "border:1px solid #d8d8d8;padding:6px 10px;text-align:left;vertical-align:top;background:#f5f5f5;font-weight:600;",
+    "td": "border:1px solid #d8d8d8;padding:6px 10px;text-align:left;vertical-align:top;",
+    "blockquote": "border-left:3px solid #ccc;margin:1em 0;padding:0.4em 1em;color:#555;",
+    "code": "background:#f3f3f3;padding:1px 4px;font-size:0.88em;",
+    "pre": "background:#f3f3f3;padding:12px;overflow-x:auto;",
+    "p": "margin:0.7em 0;",
+    "ul": "padding-left:1.5em;margin:0.7em 0;",
+    "ol": "padding-left:1.5em;margin:0.7em 0;",
+    "hr": "border:none;border-top:1px solid #e0e0e0;margin:2em 0;",
+}
+
+# tr:nth-child(even) is not reliably honored by Outlook — applied per-row
+# instead, scoped per thead/tbody to match nth-child's own per-parent counting.
+_ZEBRA_EVEN_ROW_STYLE = "background:#fafafa;"
+
+
+def _inline_body_styles(body_html: str) -> str:
+    """Duplicate the <head><style> rules onto each tag as inline `style=`
+    attributes, and inline table-row zebra striping in place of
+    `tr:nth-child(even)` — both required for Outlook's Word rendering engine,
+    which does not reliably apply <style> blocks or nth-child selectors
+    (issue #24)."""
+    soup = BeautifulSoup(body_html, "html.parser")
+
+    for tag_name, style in _TAG_STYLES.items():
+        for tag in soup.find_all(tag_name):
+            existing = tag.get("style", "")
+            tag["style"] = f"{style}{existing}"
+
+    for table in soup.find_all("table"):
+        for row_group in table.find_all(["thead", "tbody"], recursive=False):
+            for i, row in enumerate(row_group.find_all("tr", recursive=False)):
+                if i % 2 == 1:
+                    existing = row.get("style", "")
+                    row["style"] = f"{_ZEBRA_EVEN_ROW_STYLE}{existing}"
+
+    return str(soup)
+
 
 def _render_html(markdown: str) -> str:
-    body = _md.render(markdown)
+    body = _inline_body_styles(_md.render(markdown))
     return _HTML_TEMPLATE.format(body=body)
 
 
