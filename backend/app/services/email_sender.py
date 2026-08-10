@@ -66,7 +66,6 @@ _HTML_TEMPLATE = """\
   h3 {{ font-size: 1.0em; color: #333; margin-top: 1.4em; }}
   table {{
     border-collapse: collapse;
-    table-layout: fixed;
     width: 100%;
     margin: 1em 0;
     font-size: 0.88em;
@@ -129,7 +128,7 @@ _TAG_STYLES: dict[str, str] = {
     "h1": "font-size:1.45em;color:#111;border-bottom:2px solid #e8e8e8;padding-bottom:8px;margin:0 0 0.5em;",
     "h2": "font-size:1.15em;color:#222;margin-top:2em;border-bottom:1px solid #ebebeb;padding-bottom:4px;",
     "h3": "font-size:1.0em;color:#333;margin-top:1.4em;",
-    "table": "border-collapse:collapse;table-layout:fixed;width:100%;margin:1em 0;font-size:0.88em;",
+    "table": "border-collapse:collapse;width:100%;margin:1em 0;font-size:0.88em;",
     "th": "border:1px solid #d8d8d8;padding:6px 10px;text-align:left;vertical-align:top;background:#f5f5f5;font-weight:600;",
     "td": "border:1px solid #d8d8d8;padding:6px 10px;text-align:left;vertical-align:top;",
     "blockquote": "border-left:3px solid #ccc;margin:1em 0;padding:0.4em 1em;color:#555;",
