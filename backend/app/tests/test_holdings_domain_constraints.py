@@ -80,8 +80,11 @@ def test_parsed_row_accepts_every_valid_asset_class() -> None:
         assert row.asset_class == asset_class
 
 
+@pytest.mark.parametrize("asset_type", ["cash", "wmf"])
 @pytest.mark.parametrize("field,value", [("ticker", "CASH"), ("fund_code", "123456")])
-def test_parsed_row_rejects_cash_with_ticker_or_fund_code(field: str, value: str) -> None:
+def test_parsed_row_rejects_cash_with_ticker_or_fund_code(
+    asset_type: str, field: str, value: str
+) -> None:
     """Boundary guard for issue #120: cash/wmf products carry no real
     instrument identifier. _postprocess coerces this away for the normal
     upload path, but POST /holdings/confirm takes list[ParsedRow] directly
@@ -93,18 +96,53 @@ def test_parsed_row_rejects_cash_with_ticker_or_fund_code(field: str, value: str
             name="X",
             currency="USD",
             pricing_mode="manual",
-            asset_type="cash",
+            asset_type=asset_type,
             current_value=100,
             **{field: value},
         )
 
 
-def test_parsed_row_accepts_cash_without_ticker_or_fund_code() -> None:
+@pytest.mark.parametrize("asset_type", ["cash", "wmf"])
+def test_parsed_row_rejects_cash_with_amount_only_in_shares(asset_type: str) -> None:
+    """Round-2 finding on PR #121: the ticker/fund_code guard alone doesn't
+    close the #120 hole. A confirm payload with no ticker but the amount
+    still sitting in `shares` (current_value=None) still validates without
+    this check, persists, and gets silently dropped from every report by
+    compute_portfolio()'s manual-pricing branch, which only ever reads
+    current_value."""
+    with pytest.raises(ValidationError):
+        ParsedRow(
+            name="X",
+            currency="USD",
+            pricing_mode="manual",
+            asset_type=asset_type,
+            shares=199.98,
+            current_value=None,
+        )
+
+
+@pytest.mark.parametrize("asset_type", ["cash", "wmf"])
+def test_parsed_row_rejects_cash_with_auto_pricing_mode(asset_type: str) -> None:
+    """Round-2 finding on PR #121: cash/wmf has no fetchable price, so
+    pricing_mode="auto" can never be valued — compute_portfolio()'s auto
+    branch would just add it to stale_tickers too. Must be manual."""
+    with pytest.raises(ValidationError):
+        ParsedRow(
+            name="X",
+            currency="USD",
+            pricing_mode="auto",
+            asset_type=asset_type,
+            current_value=100,
+        )
+
+
+@pytest.mark.parametrize("asset_type", ["cash", "wmf"])
+def test_parsed_row_accepts_cash_without_ticker_or_fund_code(asset_type: str) -> None:
     row = ParsedRow(
         name="USD Cash",
         currency="USD",
         pricing_mode="manual",
-        asset_type="cash",
+        asset_type=asset_type,
         current_value=100,
     )
     assert row.ticker is None

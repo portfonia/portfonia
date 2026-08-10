@@ -109,19 +109,35 @@ class ParsedRow(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def _cash_wmf_has_no_ticker(self) -> "ParsedRow":
-        # Boundary guard (issue #120): cash/wmf products carry no real
-        # instrument identifier. holding_parser._postprocess coerces this
-        # away for the normal upload path, but POST /holdings/confirm takes
-        # list[ParsedRow] straight from the client — a caller bypassing
-        # _postprocess must get a clean 422 rather than a row that silently
-        # misses current_value and vanishes from every report.
-        if self.asset_type in ("cash", "wmf") and (self.ticker or self.fund_code):
-            raise ValueError(
-                f"cash/wmf row {self.name!r} has a ticker/fund_code "
-                f"({self.ticker or self.fund_code!r}) — cash/wmf products carry no "
-                "real instrument identifier; the amount belongs in current_value"
-            )
+    def _cash_wmf_boundary(self) -> "ParsedRow":
+        # Boundary guard (issue #120, tightened in PR #121 round 2 review):
+        # cash/wmf products carry no real instrument identifier and have no
+        # fetchable price. holding_parser._postprocess coerces all three of
+        # these away for the normal upload path, but POST /holdings/confirm
+        # takes list[ParsedRow] straight from the client — a caller
+        # bypassing _postprocess must get a clean 422 rather than a row
+        # that silently misses current_value and vanishes from every report
+        # (compute_portfolio()'s manual-pricing branch only ever reads
+        # current_value, and its auto branch has no ticker/fund_code to
+        # fetch a price for). The original version of this guard only
+        # checked ticker/fund_code, which left both of these open.
+        if self.asset_type in ("cash", "wmf"):
+            if self.ticker or self.fund_code:
+                raise ValueError(
+                    f"cash/wmf row {self.name!r} has a ticker/fund_code "
+                    f"({self.ticker or self.fund_code!r}) — cash/wmf products carry no "
+                    "real instrument identifier; the amount belongs in current_value"
+                )
+            if self.pricing_mode != "manual":
+                raise ValueError(
+                    f"cash/wmf row {self.name!r} has pricing_mode={self.pricing_mode!r} "
+                    "— cash/wmf has no fetchable price and must be priced manually"
+                )
+            if self.current_value is None:
+                raise ValueError(
+                    f"cash/wmf row {self.name!r} is missing current_value — cash/wmf "
+                    "rows are valued from current_value only, never shares"
+                )
         return self
 
 

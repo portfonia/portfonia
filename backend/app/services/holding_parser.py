@@ -480,6 +480,13 @@ def _postprocess(
                 )
                 row["ticker"] = None
                 row["fund_code"] = None
+            # Only moves the amount when current_value is still None — a
+            # row where the model populated BOTH fields (e.g. a bogus
+            # current_value alongside the real balance in shares) keeps
+            # current_value as-is rather than guessing which of two
+            # conflicting numbers is real (round-2 nit on PR #121). Inert
+            # either way: compute_portfolio()'s manual branch never reads
+            # shares.
             if row.get("current_value") is None and row.get("shares") is not None:
                 row["issues"] = list(row.get("issues") or [])
                 row["issues"].append("Cash/wmf amount moved from shares to current_value")

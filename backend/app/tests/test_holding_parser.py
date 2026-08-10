@@ -220,6 +220,58 @@ def test_postprocess_leaves_correctly_shaped_cash_row_unchanged() -> None:
     assert rows[0].issues == []
 
 
+def test_postprocess_forces_cash_row_from_auto_to_manual() -> None:
+    """Round-2 finding on PR #121: the earlier cash regression tests all set
+    pricing_mode="manual" in the fixture already (matching the observed
+    production shape), so they never proved the `row["pricing_mode"] =
+    "manual"` line actually flips a model that emitted "auto" — which the
+    prompt's own inference rule invites whenever a (fabricated) ticker is
+    present ("A ticker or fund_code is present -> auto"). That force is
+    load-bearing: without it, a cash row with a fabricated ticker would
+    still get moved to current_value but stay pricing_mode="auto", and
+    compute_portfolio()'s auto branch has no ticker to fetch a price for
+    either — same silent drop, different branch."""
+    raw = [
+        _raw_row(
+            name="USD Cash",
+            ticker="CASH",
+            shares=199.98,
+            avg_cost=None,
+            current_value=None,
+            pricing_mode="auto",
+            asset_type="cash",
+        )
+    ]
+    rows = _postprocess(raw)
+    assert rows[0].pricing_mode == "manual"
+    assert rows[0].current_value == 199.98
+
+
+def test_postprocess_prefers_current_value_when_cash_row_has_both() -> None:
+    """Documents the deliberate choice (round-2 nit on PR #121) for a cash/
+    wmf row where the model populated BOTH current_value and shares: the
+    amount is only moved from shares when current_value is still None.
+    A non-null current_value is trusted as-is and shares is left alone
+    (still stripped by asset_type coercion elsewhere only for tickers, not
+    for this field) — compute_portfolio()'s manual branch never reads
+    shares anyway, so a stray value there is inert, not a correctness bug.
+    Not attempting to guess which of two conflicting numbers is "real"."""
+    raw = [
+        _raw_row(
+            name="USD Cash",
+            ticker=None,
+            shares=199.98,
+            avg_cost=None,
+            current_value=50.0,
+            pricing_mode="manual",
+            asset_type="cash",
+        )
+    ]
+    rows = _postprocess(raw)
+    assert rows[0].current_value == 50.0
+    assert rows[0].shares == 199.98
+
+
 def test_extract_xlsx_single_sheet(tmp_path: Path) -> None:
     pytest.importorskip("pandas")
     import pandas as pd
