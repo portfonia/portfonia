@@ -46,6 +46,9 @@ class Report(Base):
     # any API schema/log; encrypt at rest before Ring 1 (see CLAUDE.md Data Handling).
     report_inputs: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     email_sent_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    # issue #45: Resend's own delivery id, so a sent report can be
+    # cross-referenced against Resend's delivery/bounce/complaint webhooks.
+    provider_message_id: Mapped[str | None] = mapped_column(Text)
     generated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     # ADR-002: the intel/price window this report covered. period_start = the
     # previous report's period_end (watermark); period_end = this run's cutoff.
