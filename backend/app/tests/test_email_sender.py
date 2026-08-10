@@ -106,6 +106,18 @@ def test_render_html_wrapper_uses_explicit_width_attribute() -> None:
     assert inner_table is not None
 
 
+def test_render_html_table_uses_fixed_layout() -> None:
+    """issue #118: default table-layout:auto resolves column widths
+    differently per client (Gmail sizes to content, Apple Mail spreads
+    evenly) — table-layout:fixed forces the same content-independent, even
+    column distribution everywhere."""
+    md = "| A | B |\n|---|---|\n| 1 | 2 |"
+    html = _render_html(md)
+    soup = BeautifulSoup(html, "html.parser")
+    content_table = next(t for t in soup.find_all("table") if not t.has_attr("role"))
+    assert "table-layout:fixed" in str(content_table.get("style", ""))
+
+
 def test_render_html_preserves_content_inside_inlined_markup() -> None:
     """Inlining styles onto the markdown-rendered body must not lose or
     reorder content."""
