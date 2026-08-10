@@ -13,9 +13,23 @@ import uuid
 from datetime import UTC, date, datetime
 from unittest.mock import MagicMock, patch
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
-from app.services.email_sender import _render_html, send_report_email
+from app.services.email_sender import (
+    _TAG_STYLES,
+    _WRAPPER_TD_STYLE,
+    _inline_body_styles,
+    _render_html,
+    send_report_email,
+)
+
+def _td(row: Tag) -> Tag:
+    """Find a row's first td, asserting it exists (mypy-strict-friendly
+    wrapper around BeautifulSoup's Tag | None find())."""
+    cell = row.find("td")
+    assert isinstance(cell, Tag), f"expected a <td> in {row!r}"
+    return cell
+
 
 # ---------------------------------------------------------------------------
 # _render_html
@@ -92,9 +106,9 @@ def test_render_html_zebra_striping_is_inlined_not_nth_child() -> None:
     assert tbody is not None
     rows = tbody.find_all("tr")
     assert len(rows) == 3
-    assert not rows[0].get("style", "")  # first data row: unstriped
-    assert "background" in str(rows[1].get("style", ""))  # second: striped
-    assert not rows[2].get("style", "")  # third: unstriped
+    assert "background-color" not in str(_td(rows[0]).get("style", ""))
+    assert "background-color" in str(_td(rows[1]).get("style", ""))  # second: striped
+    assert "background-color" not in str(_td(rows[2]).get("style", ""))
 
 
 def test_render_html_wrapper_uses_explicit_width_attribute() -> None:
@@ -114,6 +128,73 @@ def test_render_html_preserves_content_inside_inlined_markup() -> None:
     assert "Title" in html
     assert "<em>emphasis</em>" in html
     assert 'href="https://example.com"' in html
+
+
+# ---------------------------------------------------------------------------
+# _render_html — PR #117 Grok review fixes
+# ---------------------------------------------------------------------------
+
+
+def test_zebra_striping_paints_cells_not_only_row() -> None:
+    """Grok review (PR #117): Word-based Outlook often ignores `background`
+    set on a <tr>. The even-row fill must also land on each td/th cell
+    (background-color longhand + bgcolor attribute), not only the row."""
+    md = "| A |\n|---|\n| 1 |\n| 2 |\n| 3 |"
+    html = _render_html(md)
+
+    soup = BeautifulSoup(html, "html.parser")
+    tbody = soup.find("tbody")
+    assert tbody is not None
+    rows = tbody.find_all("tr")
+
+    unstriped_cell = _td(rows[0])
+    assert "background-color" not in str(unstriped_cell.get("style", ""))
+
+    striped_cell = _td(rows[1])
+    assert "background-color" in str(striped_cell.get("style", ""))
+    assert striped_cell.get("bgcolor"), "striped cell must also carry a bgcolor attribute"
+
+
+def test_zebra_striping_falls_back_to_bare_tr_children() -> None:
+    """Grok review (PR #117): markdown-it always emits thead/tbody, but
+    _inline_body_styles should not silently no-op on a bare <table><tr>...
+    structure (e.g. hand-built HTML) with no thead/tbody wrapper."""
+    bare_table_html = "<table><tr><td>1</td></tr><tr><td>2</td></tr><tr><td>3</td></tr></table>"
+    result = _inline_body_styles(bare_table_html)
+
+    soup = BeautifulSoup(result, "html.parser")
+    table = soup.find("table")
+    assert isinstance(table, Tag)
+    rows = table.find_all("tr", recursive=False)
+    assert len(rows) == 3
+    assert "background-color" not in str(_td(rows[0]).get("style", ""))
+    assert "background-color" in str(_td(rows[1]).get("style", ""))
+    assert "background-color" not in str(_td(rows[2]).get("style", ""))
+
+
+def test_head_style_block_matches_tag_styles_single_source() -> None:
+    """Grok review (PR #117): the <head><style> per-tag rules and _TAG_STYLES
+    (used for inline injection) must not silently drift — both must be
+    generated from the same source, so every _TAG_STYLES declaration is also
+    present in the <style> block for the same tag."""
+    html = _render_html("# T\n\nx")
+    head = html.split("<style>", 1)[1].split("</style>", 1)[0]
+
+    for tag, style in _TAG_STYLES.items():
+        rule = head.split(f"{tag} {{", 1)
+        assert len(rule) == 2, f"<style> block has no rule for {tag!r}"
+        rule_body = rule[1].split("}", 1)[0]
+        assert style.rstrip(";").replace(";", "; ") in rule_body or all(
+            decl.strip() in rule_body for decl in style.split(";") if decl.strip()
+        ), f"{tag!r} inline style {style!r} not reflected in <style> block: {rule_body!r}"
+
+
+def test_wrapper_td_style_constant_is_real_and_used() -> None:
+    """Grok review nit (PR #117): the module comment claims a load-bearing
+    `_WRAPPER_TD_STYLE` constant — it must actually exist and be used in the
+    rendered wrapper, not just be a name in a comment."""
+    html = _render_html("Body")
+    assert _WRAPPER_TD_STYLE in html
 
 
 # ---------------------------------------------------------------------------

@@ -13,7 +13,7 @@ import logging
 from datetime import UTC, datetime
 
 import httpx
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from markdown_it import MarkdownIt
 from sqlalchemy import update as sa_update
 from sqlalchemy.engine import CursorResult
@@ -27,83 +27,88 @@ logger = logging.getLogger(__name__)
 
 _RESEND_SEND_URL = "https://api.resend.com/emails"
 
+# Render report Markdown to HTML.
+# - html=False escapes any raw HTML in the LLM output (defense against
+#   <script>/<img onerror=...> injection if the report is ever viewed in a
+#   browser or admin UI; email clients usually strip it but we do not rely on that).
+# - enable("table") restores GFM tables, which the commonmark baseline disables.
+_md = MarkdownIt("commonmark", {"html": False}).enable("table")
+
+# Single source of truth for per-tag CSS, keyed by tag name — used BOTH to
+# generate the <head><style> block below AND to stamp inline `style="..."`
+# attributes via _inline_body_styles. Previously these were two hand-copied
+# CSS strings that had already drifted (PR #117 Grok review) — generating the
+# <style> block from this dict makes drift impossible.
+_TAG_STYLES: dict[str, str] = {
+    "h1": "font-size:1.45em;color:#111;border-bottom:2px solid #e8e8e8;padding-bottom:8px;margin:0 0 0.5em;",
+    "h2": "font-size:1.15em;color:#222;margin-top:2em;border-bottom:1px solid #ebebeb;padding-bottom:4px;",
+    "h3": "font-size:1.0em;color:#333;margin-top:1.4em;",
+    "table": "border-collapse:collapse;width:100%;margin:1em 0;font-size:0.88em;",
+    "th": "border:1px solid #d8d8d8;padding:6px 10px;text-align:left;vertical-align:top;background:#f5f5f5;font-weight:600;",
+    "td": "border:1px solid #d8d8d8;padding:6px 10px;text-align:left;vertical-align:top;",
+    "blockquote": "border-left:3px solid #ccc;margin:1em 0;padding:0.4em 1em;color:#555;",
+    "code": "background:#f3f3f3;padding:1px 4px;border-radius:3px;font-size:0.88em;",
+    "pre": "background:#f3f3f3;padding:12px;border-radius:4px;overflow-x:auto;",
+    "p": "margin:0.7em 0;",
+    "ul": "padding-left:1.5em;margin:0.7em 0;",
+    "ol": "padding-left:1.5em;margin:0.7em 0;",
+    "hr": "border:none;border-top:1px solid #e0e0e0;margin:2em 0;",
+}
+
+_BODY_STYLE = (
+    "margin:0;padding:0;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,"
+    "'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:15px;line-height:1.65;"
+    "color:#1a1a1a;"
+)
+
+# Even-row zebra fill, painted on td/th cells (not the <tr>) — Word-based
+# Outlook often ignores `background` set directly on a table row (PR #117
+# Grok review finding). background-color (longhand) plus a bgcolor attribute
+# cover older Word builds too. tr:nth-child(even) in the <style> block below
+# is kept only as a harmless enhancement for clients that do honor it.
+_ZEBRA_CELL_STYLE = "background-color:#fafafa;"
+_ZEBRA_CELL_BGCOLOR = "#fafafa"
+
+# The bulletproof wrapper's inner content cell — extracted to a named
+# constant (rather than a literal baked into _HTML_TEMPLATE) so it is
+# unambiguously "load-bearing and referenced by name", matching what the
+# module docstring below claims.
+_WRAPPER_TD_STYLE = "padding:32px 24px;"
+
+
+def _build_head_style_rules() -> str:
+    """Generate the <head><style> block's per-tag rules from _TAG_STYLES,
+    so it cannot silently diverge from the inline styles _inline_body_styles
+    applies (PR #117 Grok review — the two were previously hand-duplicated
+    and had already drifted)."""
+    return "\n".join(f"  {tag} {{ {style} }}" for tag, style in _TAG_STYLES.items())
+
+
 # Outlook's Word rendering engine does not reliably apply <head><style> rules
 # (issue #24) — this block is kept only as an enhancement for clients that DO
-# support it (Gmail web/app, Apple Mail, ...). The load-bearing copy of every
-# rule below lives inline via _TAG_STYLES / _ZEBRA_EVEN_ROW_STYLE /
-# _WRAPPER_TD_STYLE, applied by _inline_body_styles. Outer braces are doubled
-# to survive .format().
-_HTML_TEMPLATE = """\
+# support it (Gmail web/app, Apple Mail, ...); its per-tag rules are generated
+# from _TAG_STYLES (see _build_head_style_rules) so it can't drift from the
+# inline copy applied by _inline_body_styles, which is what's load-bearing.
+_HTML_TEMPLATE = f"""\
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <style>
-  body {{
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-                 'Helvetica Neue', Arial, sans-serif;
-    font-size: 15px;
-    line-height: 1.65;
-    color: #1a1a1a;
-    background: #ffffff;
-    margin: 0;
-    padding: 0;
-  }}
-  h1 {{
-    font-size: 1.45em;
-    color: #111;
-    border-bottom: 2px solid #e8e8e8;
-    padding-bottom: 8px;
-  }}
-  h2 {{
-    font-size: 1.15em;
-    color: #222;
-    margin-top: 2em;
-    border-bottom: 1px solid #ebebeb;
-    padding-bottom: 4px;
-  }}
-  h3 {{ font-size: 1.0em; color: #333; margin-top: 1.4em; }}
-  table {{
-    border-collapse: collapse;
-    width: 100%;
-    margin: 1em 0;
-    font-size: 0.88em;
-  }}
-  th, td {{
-    border: 1px solid #d8d8d8;
-    padding: 6px 10px;
-    text-align: left;
-    vertical-align: top;
-  }}
-  th {{ background: #f5f5f5; font-weight: 600; }}
+  body {{ {_BODY_STYLE} }}
+{_build_head_style_rules()}
   tr:nth-child(even) {{ background: #fafafa; }}
-  blockquote {{
-    border-left: 3px solid #ccc;
-    margin: 1em 0;
-    padding: 0.4em 1em;
-    color: #555;
-  }}
-  code {{
-    background: #f3f3f3;
-    padding: 1px 4px;
-    border-radius: 3px;
-    font-size: 0.88em;
-  }}
-  pre {{ background: #f3f3f3; padding: 12px; border-radius: 4px; overflow-x: auto; }}
-  p {{ margin: 0.7em 0; }}
-  ul, ol {{ padding-left: 1.5em; }}
-  hr {{ border: none; border-top: 1px solid #e0e0e0; margin: 2em 0; }}
 </style>
 </head>
-<body style="margin:0;padding:0;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:15px;line-height:1.65;color:#1a1a1a;">
+<body style="{_BODY_STYLE}">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background:#ffffff;">
 <tr>
 <td align="center" style="padding:0;">
 <table role="presentation" width="720" cellpadding="0" cellspacing="0" border="0" style="width:720px;max-width:720px;">
 <tr>
-<td style="padding:32px 24px;">
-{body}
+<td style="{_WRAPPER_TD_STYLE}">
+__REPORT_BODY__
 </td>
 </tr>
 </table>
@@ -114,35 +119,16 @@ _HTML_TEMPLATE = """\
 </html>
 """
 
-# Render report Markdown to HTML.
-# - html=False escapes any raw HTML in the LLM output (defense against
-#   <script>/<img onerror=...> injection if the report is ever viewed in a
-#   browser or admin UI; email clients usually strip it but we do not rely on that).
-# - enable("table") restores GFM tables, which the commonmark baseline disables.
-_md = MarkdownIt("commonmark", {"html": False}).enable("table")
 
-# Inline copy of the <head><style> rules above, keyed by tag name — Outlook's
-# Word engine ignores <style> blocks, so every client-critical rule must also
-# be present as an inline `style="..."` attribute (issue #24).
-_TAG_STYLES: dict[str, str] = {
-    "h1": "font-size:1.45em;color:#111;border-bottom:2px solid #e8e8e8;padding-bottom:8px;margin:0 0 0.5em;",
-    "h2": "font-size:1.15em;color:#222;margin-top:2em;border-bottom:1px solid #ebebeb;padding-bottom:4px;",
-    "h3": "font-size:1.0em;color:#333;margin-top:1.4em;",
-    "table": "border-collapse:collapse;width:100%;margin:1em 0;font-size:0.88em;",
-    "th": "border:1px solid #d8d8d8;padding:6px 10px;text-align:left;vertical-align:top;background:#f5f5f5;font-weight:600;",
-    "td": "border:1px solid #d8d8d8;padding:6px 10px;text-align:left;vertical-align:top;",
-    "blockquote": "border-left:3px solid #ccc;margin:1em 0;padding:0.4em 1em;color:#555;",
-    "code": "background:#f3f3f3;padding:1px 4px;font-size:0.88em;",
-    "pre": "background:#f3f3f3;padding:12px;overflow-x:auto;",
-    "p": "margin:0.7em 0;",
-    "ul": "padding-left:1.5em;margin:0.7em 0;",
-    "ol": "padding-left:1.5em;margin:0.7em 0;",
-    "hr": "border:none;border-top:1px solid #e0e0e0;margin:2em 0;",
-}
-
-# tr:nth-child(even) is not reliably honored by Outlook — applied per-row
-# instead, scoped per thead/tbody to match nth-child's own per-parent counting.
-_ZEBRA_EVEN_ROW_STYLE = "background:#fafafa;"
+def _stripe_rows(rows: list[Tag]) -> None:
+    """Apply even-row zebra fill to each row's td/th cells (not the row
+    itself — see _ZEBRA_CELL_STYLE)."""
+    for i, row in enumerate(rows):
+        if i % 2 == 1:
+            for cell in row.find_all(["td", "th"], recursive=False):
+                existing = cell.get("style", "")
+                cell["style"] = f"{_ZEBRA_CELL_STYLE}{existing}"
+                cell["bgcolor"] = _ZEBRA_CELL_BGCOLOR
 
 
 def _inline_body_styles(body_html: str) -> str:
@@ -159,18 +145,22 @@ def _inline_body_styles(body_html: str) -> str:
             tag["style"] = f"{style}{existing}"
 
     for table in soup.find_all("table"):
-        for row_group in table.find_all(["thead", "tbody"], recursive=False):
-            for i, row in enumerate(row_group.find_all("tr", recursive=False)):
-                if i % 2 == 1:
-                    existing = row.get("style", "")
-                    row["style"] = f"{_ZEBRA_EVEN_ROW_STYLE}{existing}"
+        row_groups = table.find_all(["thead", "tbody"], recursive=False)
+        if row_groups:
+            for row_group in row_groups:
+                _stripe_rows(row_group.find_all("tr", recursive=False))
+        else:
+            # No thead/tbody wrapper (e.g. hand-built HTML) — stripe the
+            # table's direct <tr> children instead of silently no-op'ing
+            # (PR #117 Grok review).
+            _stripe_rows(table.find_all("tr", recursive=False))
 
     return str(soup)
 
 
 def _render_html(markdown: str) -> str:
     body = _inline_body_styles(_md.render(markdown))
-    return _HTML_TEMPLATE.format(body=body)
+    return _HTML_TEMPLATE.replace("__REPORT_BODY__", body)
 
 
 def send_report_email(report: Report, session: Session) -> bool:
