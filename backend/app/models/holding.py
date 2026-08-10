@@ -15,7 +15,13 @@ from app.services.asset_class_config import VALID_ASSET_CLASSES
 
 
 def _in_list_sql(column: str, values: tuple[str, ...]) -> str:
-    quoted = ", ".join(f"'{v}'" for v in values)
+    # Sorted here (not left to call sites) so every CheckConstraint's SQL
+    # text is deterministic regardless of the source constant's declaration
+    # order — PR #114 review: pricing_mode/asset_type previously used
+    # declaration order here while currency/asset_class were sorted,
+    # producing SQL text that wouldn't match the (also-sorted) migration's
+    # DDL and could trip `alembic revision --autogenerate` as spurious drift.
+    quoted = ", ".join(f"'{v}'" for v in sorted(values))
     return f"{column} IN ({quoted})"
 
 
@@ -34,13 +40,9 @@ class Holding(Base):
     __table_args__ = (
         CheckConstraint(_in_list_sql("pricing_mode", VALID_PRICING_MODES), name="pricing_mode"),
         CheckConstraint(_in_list_sql("asset_type", VALID_ASSET_TYPES), name="asset_type"),
+        CheckConstraint(_in_list_sql("currency", tuple(VALID_CURRENCIES)), name="currency"),
         CheckConstraint(
-            _in_list_sql("currency", tuple(sorted(VALID_CURRENCIES))),
-            name="currency",
-        ),
-        CheckConstraint(
-            _in_list_sql("asset_class", tuple(sorted(VALID_ASSET_CLASSES))),
-            name="asset_class",
+            _in_list_sql("asset_class", tuple(VALID_ASSET_CLASSES)), name="asset_class"
         ),
     )
 

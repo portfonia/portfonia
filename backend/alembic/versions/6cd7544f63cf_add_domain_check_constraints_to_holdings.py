@@ -2,9 +2,7 @@
 
 Issue #25 (A-DEBT-1): pricing_mode/asset_type/currency were unconstrained
 Text columns with only app-layer (Pydantic Literal) guarding correctness.
-Adds a CHECK per column, closed-set values pulled from the single sources
-of truth already in the codebase (VALID_ASSET_CLASSES, VALID_CURRENCIES)
-so this migration can't silently drift from the app-layer validation.
+Adds a CHECK per column.
 
 asset_class is in scope too even though issue #25 didn't name it — same
 Text-column-with-a-closed-set-in-code shape, no reason to leave it out.
@@ -15,14 +13,25 @@ columns to Fernet ciphertext, so a numeric CHECK is no longer possible at
 the SQL level — see issue #113 and the Field(ge=0) validators added to
 ParsedRow in app/schemas/holdings.py instead.
 
+Values below are a FROZEN SNAPSHOT of VALID_PRICING_MODES/VALID_ASSET_TYPES/
+VALID_CURRENCIES (app/schemas/holdings.py) and VALID_ASSET_CLASSES
+(app/services/asset_class_config.py) as of this migration's authoring date —
+deliberately NOT imported live (PR #114 review round 2 finding: an earlier
+version of this migration imported the constants directly, so running
+`alembic upgrade head` on a fresh database after those constants changed
+would silently produce a DIFFERENT CHECK constraint than what an
+already-migrated database has, even though both ran the identically-named
+migration — migrations must be immutable historical snapshots, not
+re-derived from whatever the current code state happens to be). Widening
+any of these sets later is a NEW migration (ALTER the constraint), not an
+edit to this file or the source constants alone.
+
 Audited existing dev rows before writing this (2026-08-09, portfonia_dev,
 22 rows): pricing_mode in {auto, manual}; asset_type in {cash, etf, fund,
 stock}; currency in {CNY, HKD, USD}; asset_class in {STOCK, EQUITY_US_BROAD,
 EQUITY_US_TECH, EQUITY_CN, BOND_FUND, CASH_EQUIV, PRECIOUS_METALS} — all
-within the new constraints (VALID_CURRENCIES has since gained CNH, PR #114
-review — no dev rows used it, so the audit result above is unaffected).
-Production has not been audited; run the same query there before this
-migration runs against it:
+within the new constraints. Production has not been audited; run the same
+query there before this migration runs against it:
 
     SELECT 'pricing_mode', pricing_mode, count(*) FROM holdings GROUP BY pricing_mode
     UNION ALL SELECT 'asset_type', asset_type, count(*) FROM holdings GROUP BY asset_type
@@ -42,20 +51,53 @@ from typing import Sequence, Union
 
 from alembic import op
 
-from app.schemas.holdings import VALID_ASSET_TYPES, VALID_CURRENCIES, VALID_PRICING_MODES
-from app.services.asset_class_config import VALID_ASSET_CLASSES
-
 # revision identifiers, used by Alembic.
 revision: str = "6cd7544f63cf"
 down_revision: Union[str, Sequence[str], None] = "379fdb627ee8"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
+# Frozen snapshot — see module docstring. Do not import live constants here.
+_PRICING_MODES = ("auto", "manual")
+_ASSET_TYPES = ("cash", "etf", "fund", "other", "stock", "wmf")
+_CURRENCIES = (
+    "AUD",
+    "CAD",
+    "CHF",
+    "CNH",
+    "CNY",
+    "EUR",
+    "GBP",
+    "HKD",
+    "JPY",
+    "KRW",
+    "MOP",
+    "NZD",
+    "SGD",
+    "TWD",
+    "USD",
+)
+_ASSET_CLASSES = (
+    "BOND_FUND",
+    "CASH_EQUIV",
+    "COMMODITY",
+    "ENERGY",
+    "EQUITY_BROAD",
+    "EQUITY_CN",
+    "EQUITY_DM",
+    "EQUITY_EM",
+    "EQUITY_US_BROAD",
+    "EQUITY_US_TECH",
+    "PRECIOUS_METALS",
+    "REIT",
+    "STOCK",
+)
+
 _CONSTRAINTS = (
-    ("pricing_mode", tuple(sorted(VALID_PRICING_MODES))),
-    ("asset_type", tuple(sorted(VALID_ASSET_TYPES))),
-    ("currency", tuple(sorted(VALID_CURRENCIES))),
-    ("asset_class", tuple(sorted(VALID_ASSET_CLASSES))),
+    ("pricing_mode", _PRICING_MODES),
+    ("asset_type", _ASSET_TYPES),
+    ("currency", _CURRENCIES),
+    ("asset_class", _ASSET_CLASSES),
 )
 
 

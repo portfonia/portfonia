@@ -18,6 +18,7 @@ from pydantic import ValidationError
 from app.core.config import OR_ATTRIBUTION_HEADERS, get_settings
 from app.core.llm import structured_provider
 from app.schemas.holdings import (
+    VALID_ASSET_TYPES,
     VALID_CURRENCIES,
     BrokerGroup,
     CurrencySubtotal,
@@ -301,8 +302,6 @@ def _strip_code_fence(content: str) -> str:
     return match.group(1) if match else content.strip()
 
 
-_ALLOWED_ASSET_TYPES = {"stock", "etf", "fund", "cash", "wmf", "other"}
-
 # Ticker → canonical asset_class (economic exposure, not product form).
 # Covers known holdings; new tickers default via asset_type fallback below.
 _TICKER_ASSET_CLASS: dict[str, str] = {
@@ -404,7 +403,7 @@ def _postprocess(
         # value from the model is coerced to null (with a note) rather than
         # either crashing a strict Literal or silently persisting garbage.
         at = row.get("asset_type")
-        if at is not None and at not in _ALLOWED_ASSET_TYPES:
+        if at is not None and at not in VALID_ASSET_TYPES:
             row["issues"] = list(row.get("issues") or [])
             row["issues"].append(f"Unrecognized asset_type {at!r} dropped to null")
             row["asset_type"] = None
@@ -417,9 +416,14 @@ def _postprocess(
 
         # Normalize currency case/whitespace before validation — an LLM
         # emitting "usd" instead of "USD" shouldn't trip the exact-match
-        # VALID_CURRENCIES check (PR #114 review: this was previously
+        # VALID_CURRENCIES check below (PR #114 review: this was previously
         # case/alias-strict with no normalization pass, unlike asset_type
-        # and market above).
+        # and market above). Only case/whitespace normalization happens
+        # here — the VALID_CURRENCIES membership check itself runs LAST,
+        # after ticker-suffix correction, so a wrong-but-fixable value
+        # (e.g. "RMB" on a .HK ticker) doesn't leave a stale "unrecognized"
+        # issue note on a row whose final currency is actually valid
+        # (PR #114 review round 2 finding).
         cur = row.get("currency")
         if isinstance(cur, str):
             normalized_cur = cur.strip().upper()
@@ -427,9 +431,6 @@ def _postprocess(
                 row["issues"] = list(row.get("issues") or [])
                 row["issues"].append(f"Currency normalized to {normalized_cur!r}")
                 row["currency"] = normalized_cur
-            if row["currency"] not in VALID_CURRENCIES:
-                row["issues"] = list(row.get("issues") or [])
-                row["issues"].append(f"Unrecognized currency {row['currency']!r}")
 
         # Canonicalize HK tickers to yfinance's 4-digit form (02333.HK -> 2333.HK)
         # so price lookups don't miss on a leading-zero variant. (issue #49)
@@ -452,6 +453,13 @@ def _postprocess(
                         )
                         row["currency"] = currency
                     break
+
+        # Unrecognized-currency check runs last (after all corrections above
+        # had a chance to fix the value) so the note reflects the row's
+        # final currency, not an intermediate one.
+        if row.get("currency") not in VALID_CURRENCIES:
+            row["issues"] = list(row.get("issues") or [])
+            row["issues"].append(f"Unrecognized currency {row.get('currency')!r}")
 
         # Coerce optional string fields: LLM occasionally emits [] instead of null.
         for str_field in ("notes", "account", "portfolio", "broker"):

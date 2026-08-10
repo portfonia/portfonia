@@ -222,6 +222,19 @@ def test_postprocess_corrects_hk_ticker_currency() -> None:
     assert any("HKD" in issue for issue in rows[0].issues)
 
 
+def test_postprocess_ticker_correction_of_unrecognized_currency_leaves_no_stale_issue() -> None:
+    """Regression (PR #114 review round 2): the LLM emitting a currency
+    that isn't in VALID_CURRENCIES at all (not just wrong) must not leave a
+    stale "Unrecognized currency" note once the ticker suffix corrects it
+    to a valid one — the unrecognized-currency check must run AFTER
+    ticker-suffix correction, not before."""
+    raw = [_raw_row(name="Tencent", ticker="0700.HK", currency="RMB")]
+    rows = _postprocess(raw)
+    assert rows[0].currency == "HKD"
+    assert not any("nrecognized" in issue for issue in rows[0].issues)
+    assert any("corrected to HKD" in issue for issue in rows[0].issues)
+
+
 def test_postprocess_corrects_ss_ticker_currency() -> None:
     raw: list[dict[str, object]] = [
         {
