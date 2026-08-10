@@ -2006,6 +2006,11 @@ def generate_report(
         report.report_inputs = None
         report.generated_at = None
         report.email_sent_at = None
+        # issue #45 review follow-up: email_sent_at and provider_message_id are
+        # a pair (both set together in email_sender.send_report_email). Clearing
+        # only email_sent_at here would leave a stale Resend id from the prior
+        # send attached to a row that now reads as "not sent".
+        report.provider_message_id = None
     else:
         report = Report(
             user_id=user_id,

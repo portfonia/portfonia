@@ -233,6 +233,63 @@ def test_generate_report_normal_path(db_session: Session) -> None:
     assert len(report.report_inputs["search_results"]) == 2
 
 
+def test_generate_report_retry_clears_stale_provider_message_id(db_session: Session) -> None:
+    """issue #45 review follow-up: a row reused for retry (status not success/
+    skipped) must clear provider_message_id alongside email_sent_at — otherwise
+    a previously-sent report can carry a stale Resend id into its next attempt
+    while email_sent_at reads NULL, breaking the "both set or both unset"
+    invariant the pair is meant to hold."""
+
+    def _mock_pipeline() -> list[contextlib.AbstractContextManager[object]]:
+        return [
+            patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+            patch(
+                "app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()
+            ),
+            patch(
+                "app.services.report_generator.load_news_window",
+                return_value=[_news_item("Fed raises rates")],
+            ),
+            patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+            patch(
+                "app.services.report_generator.detect_window_anomalies",
+                return_value=([_anomaly()], 2),
+            ),
+            patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+            patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
+            patch(
+                "app.services.report_generator._run_tavily_search",
+                return_value=_FAKE_TAVILY_RESULTS,
+            ),
+        ]
+
+    with contextlib.ExitStack() as stack:
+        for cm in _mock_pipeline():
+            stack.enter_context(cm)
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert report.status == "success"
+
+    # Simulate a prior real send, then a state that makes the row eligible for
+    # reset on the next generate_report() call (anything not success/skipped).
+    report.status = "needs_review"
+    report.email_sent_at = _NOW
+    report.provider_message_id = "resend-stale-id-from-prior-send"
+    db_session.commit()
+
+    with contextlib.ExitStack() as stack:
+        for cm in _mock_pipeline():
+            stack.enter_context(cm)
+        retried = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert retried.id == report.id
+    assert retried.status == "success"
+    # send_report_email is mocked (module-level _no_email fixture) and never
+    # touches provider_message_id, so a None here proves the reset branch
+    # cleared it rather than it being silently repopulated by a real send.
+    assert retried.provider_message_id is None
+
+
 # ---------------------------------------------------------------------------
 # Tests: quiet-day skip
 # ---------------------------------------------------------------------------

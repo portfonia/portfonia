@@ -241,7 +241,8 @@ def send_report_email(report: Report, session: Session) -> bool:
                 f"If the report content is regenerated before the next run, a second "
                 f"delivery is possible.\n\n"
                 f"Action: verify delivery in the Resend dashboard, then manually set "
-                f"email_sent_at on this report row if confirmed."
+                f"email_sent_at and provider_message_id (to {resend_id or 'unknown'}) "
+                f"on this report row if confirmed."
             ),
         )
         return False

@@ -271,6 +271,11 @@ def test_send_commit_failure_returns_false_and_alerts(
     mock_alert.assert_called_once()
     subject = mock_alert.call_args.kwargs["subject"]
     assert "unconfirmed" in subject
+    # issue #45 review follow-up: manual-repair instructions must cover both
+    # halves of the pair, not just email_sent_at — otherwise a manual fix
+    # leaves provider_message_id stale/NULL even after confirming delivery.
+    body = mock_alert.call_args.kwargs["body"]
+    assert "provider_message_id" in body
 
 
 @patch("app.services.email_sender.get_settings")
