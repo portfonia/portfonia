@@ -595,6 +595,36 @@ def test_generate_report_blocks_noncompliant_body(
     _no_email.assert_not_called()
 
 
+def test_generate_report_retry_of_needs_review_unmarks_prior_surfaced_news(
+    db_session: Session, _no_email: MagicMock
+) -> None:
+    """PR #139 review: generate_report reopens a needs_review row and reuses its
+    frozen window — unmark_news_surfaced must run on the reopen so the retry's
+    load_news_window call reselects the same candidate set the first attempt
+    saw, instead of silently seeing a smaller set because of the first
+    attempt's own marks."""
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch("app.services.report_generator.load_news_window", return_value=[_news_item("Fed")]),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+        patch(
+            "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
+        ),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_mock_llm_noncompliant),
+        patch("app.services.report_generator._run_tavily_search", return_value=[]),
+        patch("app.services.report_generator.unmark_news_surfaced") as mock_unmark,
+    ):
+        report1 = rg.generate_report(db_session, report_date=_TODAY)
+        assert report1.status == "needs_review"
+        mock_unmark.assert_not_called()  # fresh row — nothing to unmark yet
+
+        report2 = rg.generate_report(db_session, report_date=_TODAY)
+        assert report2.id == report1.id  # same row, reopened for retry
+        mock_unmark.assert_called_once_with(db_session, report1.id)
+
+
 def test_generate_report_quiet_day_sends_heartbeat(
     db_session: Session, _no_email: MagicMock
 ) -> None:

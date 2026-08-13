@@ -6,11 +6,13 @@ import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.timezones import ET
 from app.models.holding import Holding
 from app.models.news import News
+from app.models.news_surfaced import NewsSurfaced
 from app.models.price_snapshot import PriceSnapshot
 from app.models.report import Report
 from app.services.window_data import (
@@ -18,10 +20,13 @@ from app.services.window_data import (
     _window_closes,
     detect_window_anomalies,
     load_news_window,
+    mark_news_surfaced,
+    unmark_news_surfaced,
     user_watermark,
 )
 
 _USER = uuid.UUID("00000000-0000-0000-0000-000000000001")
+_USER_B = uuid.UUID("00000000-0000-0000-0000-000000000002")
 
 
 def _news(url: str, when: datetime) -> News:
@@ -107,10 +112,14 @@ def test_watermark_excludes_the_report_being_regenerated(db_session: Session) ->
 # --- news window -------------------------------------------------------------
 
 
-def test_load_news_window_filters_by_published_at(db_session: Session) -> None:
+def test_load_news_window_filters_by_published_at_upper_bound_only(db_session: Session) -> None:
+    """No lower bound (H-DEBT-3 / issue #30): an unsurfaced item published
+    before `start` is still selected — a strict lower bound is exactly what
+    caused the permanent-miss bug this fixes, so only the upper bound
+    (`<= end`) and the surfaced-dedup ledger gate selection now."""
     db_session.add_all(
         [
-            _news("a", datetime(2026, 6, 1, tzinfo=UTC)),  # before window
+            _news("a", datetime(2026, 6, 1, tzinfo=UTC)),  # before window, never surfaced
             _news("b", datetime(2026, 6, 3, tzinfo=UTC)),  # in window
             _news("c", datetime(2026, 6, 5, tzinfo=UTC)),  # in window
             _news("d", datetime(2026, 6, 9, tzinfo=UTC)),  # after window
@@ -118,9 +127,177 @@ def test_load_news_window_filters_by_published_at(db_session: Session) -> None:
     )
     db_session.flush()
     items = load_news_window(
-        db_session, datetime(2026, 6, 2, tzinfo=UTC), datetime(2026, 6, 6, tzinfo=UTC)
+        db_session, datetime(2026, 6, 2, tzinfo=UTC), datetime(2026, 6, 6, tzinfo=UTC), _USER
     )
-    assert {i.url_hash for i in items} == {"b", "c"}
+    assert {i.url_hash for i in items} == {"a", "b", "c"}
+
+
+def test_load_news_window_excludes_already_surfaced(db_session: Session) -> None:
+    """The permanent-miss regression: 'straggler' is published inside window A's
+    date range but only ingested after window A already ran, so window A never
+    sees it. The old `> start` lower bound would then also exclude it from
+    window B (whose start = window A's period_end). The fix selects it once
+    (the first window run after ingestion) and never again once that window's
+    report is marked done."""
+    report = Report(
+        user_id=_USER,
+        report_date=date(2026, 6, 5),
+        report_type="incremental",
+        session_node="after_close",
+        status="success",
+        period_start=datetime(2026, 6, 3, tzinfo=UTC),
+        period_end=datetime(2026, 6, 5, tzinfo=UTC),
+    )
+    db_session.add(report)
+    db_session.add(_news("straggler", datetime(2026, 6, 4, tzinfo=UTC)))
+    db_session.flush()
+
+    # Window B picks up the straggler (published in A's range, never surfaced).
+    items = load_news_window(
+        db_session, datetime(2026, 6, 5, tzinfo=UTC), datetime(2026, 6, 7, tzinfo=UTC), _USER
+    )
+    assert {i.url_hash for i in items} == {"straggler"}
+
+    mark_news_surfaced(db_session, _USER, report.id, [i.url_hash for i in items])
+    db_session.flush()
+
+    # A later window (e.g. a same-day manual re-run) must not resurface it.
+    items_again = load_news_window(
+        db_session, datetime(2026, 6, 5, tzinfo=UTC), datetime(2026, 6, 8, tzinfo=UTC), _USER
+    )
+    assert items_again == []
+
+
+def test_load_news_window_surfaced_is_scoped_per_user(db_session: Session) -> None:
+    """PR #139 review: `news` is a global capture-layer store, but each user's
+    report stream has its own watermark/window. Marking an item surfaced for
+    User A must not hide it from User B, who may legitimately need to see it
+    for the first time in a report of their own."""
+    report_a = Report(
+        user_id=_USER,
+        report_date=date(2026, 6, 5),
+        report_type="incremental",
+        session_node="after_close",
+        status="success",
+        period_start=datetime(2026, 6, 3, tzinfo=UTC),
+        period_end=datetime(2026, 6, 5, tzinfo=UTC),
+    )
+    db_session.add(report_a)
+    db_session.add(_news("shared", datetime(2026, 6, 4, tzinfo=UTC)))
+    db_session.flush()
+
+    mark_news_surfaced(db_session, _USER, report_a.id, ["shared"])
+    db_session.flush()
+
+    # User A: already surfaced, excluded.
+    items_a = load_news_window(
+        db_session, datetime(2026, 6, 5, tzinfo=UTC), datetime(2026, 6, 8, tzinfo=UTC), _USER
+    )
+    assert items_a == []
+
+    # User B: never surfaced for them, still selectable.
+    items_b = load_news_window(
+        db_session, datetime(2026, 6, 1, tzinfo=UTC), datetime(2026, 6, 8, tzinfo=UTC), _USER_B
+    )
+    assert {i.url_hash for i in items_b} == {"shared"}
+
+
+def test_unmark_news_surfaced_restores_candidate_set_for_retry(db_session: Session) -> None:
+    """PR #139 review: generate_report reopens a needs_review row and reuses its
+    frozen window. Without unmarking, the retry's load_news_window would see
+    the first attempt's own marks and silently select a different (smaller)
+    news set for the identical window."""
+    report = Report(
+        user_id=_USER,
+        report_date=date(2026, 6, 5),
+        report_type="incremental",
+        session_node="after_close",
+        status="needs_review",
+        period_start=datetime(2026, 6, 3, tzinfo=UTC),
+        period_end=datetime(2026, 6, 5, tzinfo=UTC),
+    )
+    db_session.add(report)
+    db_session.add(_news("flagged", datetime(2026, 6, 4, tzinfo=UTC)))
+    db_session.flush()
+
+    mark_news_surfaced(db_session, _USER, report.id, ["flagged"])
+    db_session.flush()
+    assert (
+        load_news_window(
+            db_session, datetime(2026, 6, 5, tzinfo=UTC), datetime(2026, 6, 6, tzinfo=UTC), _USER
+        )
+        == []
+    )
+
+    unmark_news_surfaced(db_session, report.id)
+    db_session.flush()
+
+    items = load_news_window(
+        db_session, datetime(2026, 6, 5, tzinfo=UTC), datetime(2026, 6, 6, tzinfo=UTC), _USER
+    )
+    assert {i.url_hash for i in items} == {"flagged"}
+
+
+def test_unmark_news_surfaced_noop_for_report_with_no_marks(db_session: Session) -> None:
+    """A retry of a `failed` row (which never reached mark_news_surfaced) must
+    not raise even though there's nothing to delete."""
+    report = Report(
+        user_id=_USER,
+        report_date=date(2026, 6, 5),
+        report_type="incremental",
+        session_node="after_close",
+        status="failed",
+        period_start=datetime(2026, 6, 3, tzinfo=UTC),
+        period_end=datetime(2026, 6, 5, tzinfo=UTC),
+    )
+    db_session.add(report)
+    db_session.flush()
+
+    unmark_news_surfaced(db_session, report.id)  # must not raise
+
+
+def test_mark_news_surfaced_idempotent_on_redelivery(db_session: Session) -> None:
+    """A Celery redelivery (task_acks_late) of the same generation run must not
+    raise IntegrityError re-inserting the same (user_id, news_id) pair."""
+    report = Report(
+        user_id=_USER,
+        report_date=date(2026, 6, 5),
+        report_type="incremental",
+        session_node="after_close",
+        status="success",
+        period_start=datetime(2026, 6, 3, tzinfo=UTC),
+        period_end=datetime(2026, 6, 5, tzinfo=UTC),
+    )
+    db_session.add(report)
+    db_session.add(_news("dup", datetime(2026, 6, 4, tzinfo=UTC)))
+    db_session.flush()
+
+    mark_news_surfaced(db_session, _USER, report.id, ["dup"])
+    db_session.flush()
+    mark_news_surfaced(db_session, _USER, report.id, ["dup"])  # redelivery — must not raise
+    db_session.flush()
+
+    count = db_session.execute(select(func.count()).select_from(NewsSurfaced)).scalar_one()
+    assert count == 1
+
+
+def test_mark_news_surfaced_noop_on_empty_list(db_session: Session) -> None:
+    report = Report(
+        user_id=_USER,
+        report_date=date(2026, 6, 5),
+        report_type="incremental",
+        session_node="after_close",
+        status="skipped",
+        period_start=datetime(2026, 6, 3, tzinfo=UTC),
+        period_end=datetime(2026, 6, 5, tzinfo=UTC),
+    )
+    db_session.add(report)
+    db_session.flush()
+
+    mark_news_surfaced(db_session, _USER, report.id, [])  # must not raise or query
+
+    count = db_session.execute(select(func.count()).select_from(NewsSurfaced)).scalar_one()
+    assert count == 0
 
 
 # --- anomalies from snapshots ------------------------------------------------
