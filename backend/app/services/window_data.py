@@ -13,12 +13,17 @@ from datetime import date, datetime
 from decimal import Decimal
 from itertools import pairwise
 
+import uuid
+from collections.abc import Sequence
+
 from sqlalchemy import and_, func, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.core.timezones import ET
 from app.models.holding import Holding
 from app.models.news import News
+from app.models.news_surfaced import NewsSurfaced
 from app.models.price_snapshot import PriceSnapshot
 from app.models.report import Report
 from app.models.ticker_theme import TickerTheme
@@ -83,11 +88,24 @@ def user_watermark(
 
 
 def load_news_window(session: Session, start: datetime, end: datetime) -> list[NewsItem]:
-    """News captured in (start, end], newest first, from the `news` store."""
+    """News published at/before the window cutoff that hasn't yet been surfaced
+    in any DONE-status report, newest first, from the `news` store.
+
+    H-DEBT-3 / issue #30: this used to be a strict ``(start, end]`` range. A
+    news item published inside a window but not ingested until after that
+    window's period_end fell through BOTH the window it belongs to (not yet
+    ingested when that window was selected) and the next window (excluded by
+    the `> start` lower bound) — a permanent miss. `start` is intentionally
+    unused as a lower bound now; dedup is instead delegated entirely to
+    `news_surfaced` via `mark_news_surfaced`, which the caller invokes once
+    this report reaches a DONE status.
+    """
+    del start  # kept in the signature — every call site already threads a window
+    surfaced = select(NewsSurfaced.news_id)
     rows = (
         session.execute(
             select(News)
-            .where(News.published_at > start, News.published_at <= end)
+            .where(News.published_at <= end, News.id.not_in(surfaced))
             .order_by(News.published_at.desc())
         )
         .scalars()
@@ -104,6 +122,32 @@ def load_news_window(session: Session, start: datetime, end: datetime) -> list[N
         )
         for r in rows
     ]
+
+
+def mark_news_surfaced(
+    session: Session, report_id: uuid.UUID, url_hashes: Sequence[str]
+) -> None:
+    """Record that these news items appeared in a report that reached a DONE
+    status (success/needs_review/skipped) — the dedup ledger `load_news_window`
+    reads to never select them again.
+
+    Idempotent against Celery redelivery (`task_acks_late`): `news_id` is
+    unique on `news_surfaced`, so re-marking an already-surfaced item is a
+    no-op via ON CONFLICT DO NOTHING rather than an IntegrityError.
+    """
+    if not url_hashes:
+        return
+    news_ids = (
+        session.execute(select(News.id).where(News.url_hash.in_(url_hashes))).scalars().all()
+    )
+    if not news_ids:
+        return
+    stmt = (
+        pg_insert(NewsSurfaced)
+        .values([{"news_id": nid, "report_id": report_id} for nid in news_ids])
+        .on_conflict_do_nothing(constraint="uq_news_surfaced_news_id")
+    )
+    session.execute(stmt)
 
 
 def _close_snapshot_before_window(
