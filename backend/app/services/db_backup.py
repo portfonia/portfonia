@@ -45,6 +45,18 @@ class BackupError(RuntimeError):
     """pg_dump, or the OCI upload/download step, failed."""
 
 
+def _run(
+    cmd: list[str], *, timeout: int, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    """subprocess.run wrapper that converts TimeoutExpired into BackupError —
+    callers should only ever see one exception type from a failed subprocess,
+    same as a non-zero exit code."""
+    try:
+        return subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise BackupError(f"{cmd[0]} timed out after {timeout}s") from exc
+
+
 def _oci_auth_args() -> list[str]:
     settings = get_settings()
     if settings.APP_ENV == "production":
@@ -77,9 +89,7 @@ def run_pg_dump(dest_path: Path) -> None:
         str(dest_path),
     ]
     env = {**os.environ, "PGPASSWORD": settings.DB_PASSWORD.get_secret_value()}
-    result = subprocess.run(
-        cmd, env=env, capture_output=True, text=True, timeout=_DUMP_TIMEOUT_SECONDS
-    )
+    result = _run(cmd, env=env, timeout=_DUMP_TIMEOUT_SECONDS)
     if result.returncode != 0:
         raise BackupError(f"pg_dump exited {result.returncode}: {result.stderr.strip()}")
 
@@ -102,7 +112,7 @@ def upload_object(local_path: Path, object_name: str) -> None:
         "--force",
         *_oci_auth_args(),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=_TRANSFER_TIMEOUT_SECONDS)
+    result = _run(cmd, timeout=_TRANSFER_TIMEOUT_SECONDS)
     if result.returncode != 0:
         raise BackupError(f"oci upload exited {result.returncode}: {result.stderr.strip()}")
 
@@ -126,7 +136,7 @@ def download_object(object_name: str, dest_path: Path) -> None:
         str(dest_path),
         *_oci_auth_args(),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=_TRANSFER_TIMEOUT_SECONDS)
+    result = _run(cmd, timeout=_TRANSFER_TIMEOUT_SECONDS)
     if result.returncode != 0:
         raise BackupError(f"oci download exited {result.returncode}: {result.stderr.strip()}")
 
@@ -143,7 +153,7 @@ def backup_database() -> str | None:
     (and reach backup_tasks.py's ops-alert path) rather than report a daily
     "success" that never actually backed anything up."""
     settings = get_settings()
-    if not settings.BACKUP_OCI_NAMESPACE:
+    if not settings.BACKUP_OCI_NAMESPACE.strip():
         if settings.APP_ENV == "production":
             raise BackupError(
                 "BACKUP_OCI_NAMESPACE is unset in production — refusing to "

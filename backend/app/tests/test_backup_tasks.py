@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+from celery.exceptions import SoftTimeLimitExceeded  # type: ignore[import-untyped]
+
 from app.tasks import celery_app
 
 
@@ -68,6 +70,26 @@ def test_backup_database_task_retries_then_alerts_on_exhaustion(mock_backup: Mag
     assert result.failed()
     assert "pg_dump exploded" in str(result.result)
     mock_failed.assert_called_once()
+
+
+@patch("app.services.db_backup.backup_database", side_effect=SoftTimeLimitExceeded())
+def test_backup_database_task_alerts_immediately_on_soft_timeout(mock_backup: MagicMock) -> None:
+    """A soft-timeout at 920s means the task already burned most of its
+    budget — retrying (as a bare `except Exception` would, since
+    SoftTimeLimitExceeded is an Exception subclass) just delays the ops alert
+    by up to two more ~920s attempts. Alert on the first hit instead."""
+    from app.tasks.backup_tasks import backup_database_task
+
+    with patch("app.tasks.backup_tasks._backup_failed") as mock_failed:
+        result = backup_database_task.apply(throw=False)
+
+    assert result.failed()
+    mock_failed.assert_called_once()
+    # The real assertion: no retry happened at all. backup_database itself
+    # only ran once — a generic `except Exception` + self.retry() would have
+    # looped 3x under eager .apply() before alerting (see the RuntimeError
+    # test above), which would still pass `assert_called_once()` on its own.
+    assert mock_backup.call_count == 1
 
 
 def test_backup_failed_sends_ops_alert_and_creates_issue() -> None:

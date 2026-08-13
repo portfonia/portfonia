@@ -87,6 +87,10 @@ seed:  ## Seed local dev demo data (developer fixture)
 	@cd backend && ../$(PY) -m app.scripts.seed
 
 backup:  ## Trigger one pg_dump -> OCI Object Storage backup now (needs BACKUP_OCI_NAMESPACE set)
+	@# Runs with the HOST's pg_dump/oci CLI (Homebrew), not the container binaries
+	@# from backend/Dockerfile — this target is a local manual/ops trigger, not
+	@# how production runs it (that's the scheduled Celery task, in-container).
+	@# Requires pg_dump and the oci CLI on PATH locally.
 	@cd backend && ../$(PY) -c "from app.services.db_backup import backup_database; print(backup_database())"
 
 # =====================================================================

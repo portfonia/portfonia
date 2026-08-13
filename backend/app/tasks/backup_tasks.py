@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from celery.exceptions import SoftTimeLimitExceeded  # type: ignore[import-untyped]
+
 from app.services.email_sender import send_ops_alert
 from app.services.github_issues import create_bug_report
 from app.tasks import celery_app
@@ -54,6 +56,14 @@ def backup_database_task(self: Any) -> dict[str, str | None]:
     try:
         object_name = backup_database()
         return {"object_name": object_name}
+    except SoftTimeLimitExceeded as exc:
+        # A soft timeout at 920s means the attempt already burned nearly its
+        # full budget — retrying (like a generic transient error) would just
+        # delay the ops alert by up to two more ~920s attempts on a task
+        # billed as the only DB restore safety net. Alert immediately instead.
+        logger.exception("backup_database_task: soft time limit exceeded, alerting without retry")
+        _backup_failed(exc)
+        raise
     except Exception as exc:
         logger.exception("backup_database_task: failed, scheduling retry")
         if self.request.retries >= self.max_retries:

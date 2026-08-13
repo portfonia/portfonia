@@ -32,6 +32,20 @@ def test_run_pg_dump_raises_on_nonzero_exit(mock_run: MagicMock, tmp_path: Path)
 
 
 @patch("app.services.db_backup.subprocess.run")
+def test_run_pg_dump_wraps_timeout_as_backup_error(mock_run: MagicMock, tmp_path: Path) -> None:
+    """subprocess.TimeoutExpired must not leak as a raw exception type — callers
+    (backup_tasks.py) should see a consistent BackupError like every other
+    failure mode here."""
+    import subprocess
+
+    from app.services.db_backup import BackupError, run_pg_dump
+
+    mock_run.side_effect = subprocess.TimeoutExpired(cmd=["pg_dump"], timeout=600)
+    with pytest.raises(BackupError, match="timed out"):
+        run_pg_dump(tmp_path / "backup.dump")
+
+
+@patch("app.services.db_backup.subprocess.run")
 def test_run_pg_dump_passes_password_via_env_not_argv(mock_run: MagicMock, tmp_path: Path) -> None:
     from app.services.db_backup import run_pg_dump
 
@@ -68,6 +82,19 @@ def test_upload_object_raises_on_nonzero_exit(mock_run: MagicMock, tmp_path: Pat
     mock_run.return_value = MagicMock(returncode=1, stderr="NotAuthorized")
     with pytest.raises(BackupError, match="NotAuthorized"):
         upload_object(dump, "daily/portfonia_prod-20260810-030000.dump")
+
+
+@patch("app.services.db_backup.subprocess.run")
+def test_upload_object_wraps_timeout_as_backup_error(mock_run: MagicMock, tmp_path: Path) -> None:
+    import subprocess
+
+    from app.services.db_backup import BackupError, upload_object
+
+    dump = tmp_path / "backup.dump"
+    dump.write_bytes(b"fake dump content")
+    mock_run.side_effect = subprocess.TimeoutExpired(cmd=["oci"], timeout=300)
+    with pytest.raises(BackupError, match="timed out"):
+        upload_object(dump, "daily/x.dump")
 
 
 @patch("app.services.db_backup.subprocess.run")
@@ -161,6 +188,30 @@ def test_backup_database_raises_in_production_when_namespace_unset(
 
 @patch("app.services.db_backup.upload_object")
 @patch("app.services.db_backup.run_pg_dump")
+def test_backup_database_raises_in_production_when_namespace_whitespace_only(
+    mock_dump: MagicMock, mock_upload: MagicMock
+) -> None:
+    """A whitespace-only namespace ("  ") is truthy in Python, so the bare
+    `not settings.BACKUP_OCI_NAMESPACE` check alone would miss this and try to
+    use a blank-ish namespace instead of failing the same way as truly unset."""
+    from app.core.config import get_settings
+    from app.services.db_backup import BackupError, backup_database
+
+    get_settings.cache_clear()
+    with patch.dict("os.environ", {"BACKUP_OCI_NAMESPACE": "   ", "APP_ENV": "production"}):
+        get_settings.cache_clear()
+        try:
+            with pytest.raises(BackupError, match="BACKUP_OCI_NAMESPACE"):
+                backup_database()
+        finally:
+            get_settings.cache_clear()
+
+    mock_dump.assert_not_called()
+    mock_upload.assert_not_called()
+
+
+@patch("app.services.db_backup.upload_object")
+@patch("app.services.db_backup.run_pg_dump")
 def test_backup_database_uploads_and_returns_object_name(
     mock_dump: MagicMock, mock_upload: MagicMock
 ) -> None:
@@ -203,6 +254,17 @@ def test_backup_database_raises_on_empty_dump(mock_dump: MagicMock) -> None:
                 backup_database()
         finally:
             get_settings.cache_clear()
+
+
+@patch("app.services.db_backup.subprocess.run")
+def test_download_object_wraps_timeout_as_backup_error(mock_run: MagicMock, tmp_path: Path) -> None:
+    import subprocess
+
+    from app.services.db_backup import BackupError, download_object
+
+    mock_run.side_effect = subprocess.TimeoutExpired(cmd=["oci"], timeout=300)
+    with pytest.raises(BackupError, match="timed out"):
+        download_object("daily/x.dump", tmp_path / "out.dump")
 
 
 @patch("app.services.db_backup.subprocess.run")
