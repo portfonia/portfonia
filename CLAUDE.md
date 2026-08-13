@@ -1144,23 +1144,35 @@ Let CI handle versioning, changelog, tag, and publish.
 ## Tests
 
 - Unit tests live next to the code they cover.
-- Integration tests hit a real Postgres (docker-compose service), not a mock.
-  The whole point is to catch schema/migration drift.
+- Integration tests hit a real Postgres (Homebrew Postgres 16 locally, not a
+  mock). The whole point is to catch schema/migration drift.
+- **Test DB isolation (issues #26/#27, PR #137)**: `session_test_db` creates
+  `portfonia_test_roundtrip` and migrates to head **once per pytest session**.
+  `db_session` opens an outer transaction + SAVEPOINT
+  (`join_transaction_mode="create_savepoint"`, `autoflush=False` to match
+  production). `alembic_cfg` uses a **separate** database
+  (`portfonia_test_alembic`) so the revision walk cannot drop the session DB.
+  `SessionLocal` is lazy (`get_engine` / `reset_engine`); under pytest it
+  raises if `DB_NAME` is not `TEST_DATABASE_NAME` — a forgotten mock must
+  fail the test, not write `portfonia_dev`. Celery task tests still mock
+  `SessionLocal` (control flow, not SQL).
 - LLM prompt regressions: keep a small fixture of "input portfolio + expected
   shape of output" so prompt edits don't silently violate the layer-3 rule.
 - Never let tests touch the developer's real home directory.
 - **`caplog` assertions on an already-imported module's logger silently see
-  nothing, in any test using the `db_session` fixture** (first hit 2026-08-13,
-  `test_fund_nav_fetcher.py`): `alembic/env.py` calls
+  nothing after the session migrate** (first hit 2026-08-13,
+  `test_fund_nav_fetcher.py`; still true after #137 — upgrade now runs once
+  per session via `session_test_db`, not per test, but that first
+  `command.upgrade` is enough): `alembic/env.py` calls
   `fileConfig(config.config_file_name)` with no `disable_existing_loggers=
-  False`, so every `db_session`-triggered `command.upgrade(...)` disables any
-  logger that was already instantiated (e.g. any module-level `logger =
-  logging.getLogger(__name__)` from a test's own imports) — `caplog.records`
-  ends up empty with no error, which reads as "nothing got logged" rather
-  than "the logger got disabled out from under the test". Workaround, scoped
-  to the test file (not `alembic.ini`, which would be a wider blast radius
-  than this needs): `logging.getLogger("your.module").disabled = False`
-  right before the `caplog.at_level(...)` block.
+  False`, so it disables any logger that was already instantiated (e.g. any
+  module-level `logger = logging.getLogger(__name__)` from a test's own
+  imports) — `caplog.records` ends up empty with no error, which reads as
+  "nothing got logged" rather than "the logger got disabled out from under
+  the test". Workaround, scoped to the test file (not `alembic.ini`, which
+  would be a wider blast radius than this needs):
+  `logging.getLogger("your.module").disabled = False` right before the
+  `caplog.at_level(...)` block.
 
 ## Documentation
 
