@@ -62,6 +62,7 @@ from app.services.window_data import (
     detect_window_anomalies,
     latest_window_close_date,
     load_news_window,
+    mark_news_surfaced,
     user_watermark,
 )
 
@@ -2223,6 +2224,9 @@ def generate_report(
             report.report_md = quiet_md
             report.report_inputs = ctx.to_jsonb()
             report.generated_at = datetime.now(tz=UTC)
+            # H-DEBT-3 (#30): mark this window's news as surfaced in the same
+            # transaction as the status commit, so the two can never diverge.
+            mark_news_surfaced(session, report.id, [item.url_hash for item in news_items])
             session.commit()
             log_ops_event("report.generate.end", report_id=str(report.id), status="skipped")
             # R-7: a short manual re-run (e.g. a same-day second trigger minutes
@@ -2419,6 +2423,9 @@ def generate_report(
         report.report_md = full_md
         report.report_inputs = ctx.to_jsonb()
         report.generated_at = datetime.now(tz=UTC)
+        # H-DEBT-3 (#30): mark this window's news as surfaced in the same
+        # transaction as the status commit, so the two can never diverge.
+        mark_news_surfaced(session, report.id, [item.url_hash for item in news_items])
         session.commit()
         log_ops_event("report.generate.end", report_id=str(report.id), status=final_status)
 

@@ -9,12 +9,11 @@ the capture-layer stores, never re-fetched live.
 from __future__ import annotations
 
 import logging
+import uuid
+from collections.abc import Sequence
 from datetime import date, datetime
 from decimal import Decimal
 from itertools import pairwise
-
-import uuid
-from collections.abc import Sequence
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -87,7 +86,7 @@ def user_watermark(
     return latest or BOOTSTRAP_WATERMARK
 
 
-def load_news_window(session: Session, start: datetime, end: datetime) -> list[NewsItem]:
+def load_news_window(session: Session, _start: datetime, end: datetime) -> list[NewsItem]:
     """News published at/before the window cutoff that hasn't yet been surfaced
     in any DONE-status report, newest first, from the `news` store.
 
@@ -95,12 +94,12 @@ def load_news_window(session: Session, start: datetime, end: datetime) -> list[N
     news item published inside a window but not ingested until after that
     window's period_end fell through BOTH the window it belongs to (not yet
     ingested when that window was selected) and the next window (excluded by
-    the `> start` lower bound) — a permanent miss. `start` is intentionally
+    the `> start` lower bound) — a permanent miss. `_start` is kept in the
+    signature (every call site already threads a window) but intentionally
     unused as a lower bound now; dedup is instead delegated entirely to
     `news_surfaced` via `mark_news_surfaced`, which the caller invokes once
     this report reaches a DONE status.
     """
-    del start  # kept in the signature — every call site already threads a window
     surfaced = select(NewsSurfaced.news_id)
     rows = (
         session.execute(
@@ -124,9 +123,7 @@ def load_news_window(session: Session, start: datetime, end: datetime) -> list[N
     ]
 
 
-def mark_news_surfaced(
-    session: Session, report_id: uuid.UUID, url_hashes: Sequence[str]
-) -> None:
+def mark_news_surfaced(session: Session, report_id: uuid.UUID, url_hashes: Sequence[str]) -> None:
     """Record that these news items appeared in a report that reached a DONE
     status (success/needs_review/skipped) — the dedup ledger `load_news_window`
     reads to never select them again.
@@ -137,9 +134,7 @@ def mark_news_surfaced(
     """
     if not url_hashes:
         return
-    news_ids = (
-        session.execute(select(News.id).where(News.url_hash.in_(url_hashes))).scalars().all()
-    )
+    news_ids = session.execute(select(News.id).where(News.url_hash.in_(url_hashes))).scalars().all()
     if not news_ids:
         return
     stmt = (

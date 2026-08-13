@@ -467,6 +467,8 @@ layer** (per-user, incremental).
   `max(period_end)` over the user's completed reports (deleting a report
   rolls it back; regenerate keeps the stored period). News/anomalies are read
   from the stores via `window_data`, never live RSS or last-two-closes.
+  News selection is NOT range-bounded by this watermark on the lower end —
+  see "News dedup ledger" below (issue #30) for why.
 - **Cadence:** `generate_incremental_report` fires Mon/Wed/Fri 17:00 ET
   (moved from 16:30 ET on 2026-06-19, widening the gap after the 16:05 ET
   FX capture and 16:00 ET close capture).
@@ -479,6 +481,56 @@ layer** (per-user, incremental).
 - Portfolio valuation reads the **latest captured close** from
   `price_snapshots`, falling back to `holding.market_price` only for funds
   (no ticker). FX anomalies are not computed (FX stays daily in `fx_rates`).
+
+### News dedup ledger: closing the window-boundary permanent-miss gap (issue #30)
+
+`load_news_window` (`app/services/window_data.py`) used to select
+`News.published_at > start, <= end` — a strict range keyed to the report
+watermark. A news item published inside window A but not *ingested* until
+after window A's `period_end` fell through BOTH windows: window A never saw
+it (not yet in the `news` table when window A ran), and window B excluded it
+via the `> start` lower bound (its `published_at` predates window B's
+start). Two independent exclusions, zero windows that ever selected it — a
+permanent miss, not a delay. Same-day multi-run (manual + scheduled
+`session_node`s sharing overlapping-but-distinct watermarks) made the race
+more likely, not less.
+
+- **Fix**: `load_news_window` now selects `published_at <= end` with **no
+  lower bound at all** — decoupling news selection from the watermark
+  entirely, per the original issue's proposed direction. Dedup is delegated
+  to a new ledger table, `news_surfaced` (`app/models/news_surfaced.py`,
+  migration `f1a2b3c4d5e6`): `news_id` (unique) + `report_id` +
+  `surfaced_at`. Once a news item has appeared in a report that reaches a
+  DONE status (`success`/`needs_review`/`skipped` — the same set
+  `user_watermark()` already uses), it's excluded from every future
+  selection regardless of how old its `published_at` is.
+- **Why a join table, not a `surfaced_at` column on `news` directly**: the
+  issue was written 2026-06-20, before ADR-002's per-`session_node`
+  watermarks landed. A single timestamp column can't cleanly express "has
+  this appeared in any of several independently-watermarked report
+  streams" — the join table generalizes without assuming there's only one
+  watermark per user.
+- **Marking is atomic with the status commit**: `mark_news_surfaced(session,
+  report.id, url_hashes)` is called immediately before `session.commit()` at
+  both DONE-status sites in `generate_incremental_report` (the quiet-day
+  `skipped` path and the final `success`/`needs_review` path) — same
+  transaction, so a report can never end up DONE with its news unmarked (or
+  vice versa) from a partial commit.
+- **Idempotent against Celery redelivery**: `news_id` is unique on
+  `news_surfaced`; `mark_news_surfaced` inserts via
+  `ON CONFLICT (news_id) DO NOTHING` (`uq_news_surfaced_news_id`), so a
+  `task_acks_late` redelivery re-marking the same window's news is a no-op,
+  not an `IntegrityError`.
+- **`regenerate_report` does not call `mark_news_surfaced`** — it rebuilds
+  from `report_inputs` without re-fetching (existing #6 contract), so the
+  news for that report was already marked surfaced during the original
+  `generate_incremental_report` run.
+- **Test coverage** (`app/tests/test_window_data.py`): a regression test
+  reproduces the exact permanent-miss shape (a "straggler" item that would
+  have been dropped by the old lower bound) and asserts it's selected once,
+  then never resurfaces after being marked; a redelivery test asserts
+  `mark_news_surfaced` called twice for the same items produces exactly one
+  `news_surfaced` row, not an exception.
 
 ### Report content features (Ring0 #1-4 + R-3/R-5/R-6/R-7/R-8)
 
