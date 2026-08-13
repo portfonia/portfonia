@@ -111,8 +111,8 @@ def session_test_db() -> Generator[None, None, None]:
     os.environ["DB_NAME"] = TEST_DB_NAME
     get_settings.cache_clear()
     reset_engine()
-    command.upgrade(Config("alembic.ini"), "head")
     try:
+        command.upgrade(Config("alembic.ini"), "head")
         yield
     finally:
         _restore_db_name(previous)
@@ -152,7 +152,12 @@ def db_session(
     outer = connection.begin()
 
     def _session_local() -> Session:
-        return Session(bind=connection, join_transaction_mode="create_savepoint")
+        return Session(
+            bind=connection,
+            join_transaction_mode="create_savepoint",
+            autoflush=False,
+            autocommit=False,
+        )
 
     monkeypatch.setattr("app.core.database.SessionLocal", _session_local)
 

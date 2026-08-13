@@ -58,6 +58,13 @@ def test_session_test_db_fixture_is_session_scoped() -> None:
     assert session_test_db._fixture_function_marker.scope == "session"
 
 
+def test_session_test_db_upgrades_inside_try() -> None:
+    from app.tests import conftest
+
+    source = inspect.getsource(conftest.session_test_db)
+    assert source.index("try:") < source.index("command.upgrade")
+
+
 def test_db_session_does_not_reupgrade_per_test() -> None:
     from app.tests import conftest
 
@@ -73,7 +80,19 @@ def test_alembic_cfg_uses_a_dedicated_database() -> None:
     assert conftest.MIGRATION_DB_NAME != conftest.TEST_DB_NAME
 
 
-def test_committed_row_visible_inside_the_same_test(db_session: Session) -> None:
+def test_db_session_disables_autoflush(db_session: Session) -> None:
+    assert db_session.autoflush is False
+
+
+def test_commit_is_not_visible_outside_the_savepoint(db_session: Session) -> None:
+    """A commit in db_session must not land on a connection outside the outer txn.
+
+    This does not depend on another test having run first.
+    """
+    from sqlalchemy import text
+
+    from app.core.database import get_engine
+
     db_session.add(
         Holding(
             user_id=TEST_USER_ID,
@@ -88,10 +107,9 @@ def test_committed_row_visible_inside_the_same_test(db_session: Session) -> None
     names = [h.name for h in db_session.query(Holding).all()]
     assert _ISOLATION_MARKER in names
 
-
-def test_committed_row_from_sibling_test_is_invisible(db_session: Session) -> None:
-    names = [h.name for h in db_session.query(Holding).all()]
-    assert _ISOLATION_MARKER not in names
+    with get_engine().connect() as conn:
+        outside = conn.execute(text("SELECT count(*) FROM holdings")).scalar_one()
+    assert outside == 0
 
 
 def test_sessionlocal_shares_db_session_transaction(db_session: Session) -> None:
