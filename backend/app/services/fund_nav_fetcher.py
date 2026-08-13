@@ -11,6 +11,15 @@ Two data paths:
 Note: settled NAV is published after the A-share close (usually same evening),
 so the capture may run the next calendar day for the previous trade date — this
 is expected and the trade_date column reflects the NAV date, not capture time.
+
+Realtime path (path 1) has a Sina Finance fallback: fundgz's Eastmoney JSONP
+endpoint returns an app-layer block page (HTTP 200, HTML "页面未找到") for every
+fund code as of 2026-08-10, confirmed against real OCI production traffic
+(issue #20) — matches the same block first documented in the sibling
+`portfolio-agent` project's `collector_v2.py` (`_sina_fund_nav`, 2026-07-30),
+whose two-attempt-retry/GBK-decode pattern this fallback is ported from. The
+historical path (path 2, `fetch_nav_history`/lsjz) has no such block and needs
+no fallback — confirmed reachable from the same OCI host.
 """
 
 from __future__ import annotations
@@ -35,6 +44,19 @@ logger = logging.getLogger(__name__)
 _NAV_URL = "https://fundgz.1234567.com.cn/js/{fund_code}.js"
 _JSONP_RE = re.compile(r"jsonpgz\((\{.*\})\);?", re.DOTALL)
 
+# Sina Finance realtime endpoint — fallback when fundgz returns Eastmoney's
+# app-layer block page instead of JSONP. Response format:
+#   var hq_str_f_{code}="name,nav,nav_repeated,cumulative_nav,nav_date,...";
+# GBK-encoded, not UTF-8 — must decode explicitly (ported from portfolio-agent's
+# _sina_fund_nav, which cross-validated this endpoint against Tencent's
+# qt.gtimg.cn/q=jj{code} for a second independent source).
+_SINA_NAV_URL = "https://hq.sinajs.cn/list=f_{fund_code}"
+_SINA_HEADERS = {
+    "Referer": "https://finance.sina.com.cn/",
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+}
+_SINA_QUOTED_RE = re.compile(r'"([^"]+)"')
+
 # Tiantian Fund historical NAV list endpoint.
 # Returns JSON: {"Data": {"LSJZList": [{"FSRQ": "YYYY-MM-DD", "DWJZ": "1.2345"}, ...]}}
 _LSJZ_URL = (
@@ -51,31 +73,34 @@ _LSJZ_HEADERS = {
 _AMARKET_CLOSE_HOUR = 15
 
 
-def _fetch_nav(fund_code: str, client: httpx.Client) -> tuple[Decimal, datetime] | None:
-    """
-    Fetch NAV for a single fund code.
+def _anchor_nav_date(date_str: str) -> datetime | None:
+    """Parse a YYYY-MM-DD NAV date and anchor it to A-share close (15:00 CST).
 
-    Returns (nav, price_as_of) where price_as_of is the NAV date at
-    15:00 CST (A-share close). Returns None on any error.
+    Shared by both NAV sources — fundgz's `jzrq` and Sina's date field use the
+    same format. Returns None on any parse error.
     """
-    # Boundary guard: fund_code is interpolated into the request URL and
-    # originates from LLM-parsed holdings. CN mutual-fund codes are exactly six
-    # digits; reject anything else so malformed codes can't shape the URL or
-    # waste a request.
-    if not re.fullmatch(r"\d{6}", fund_code):
-        logger.warning("skipping NAV fetch for invalid fund_code %r (expect 6 digits)", fund_code)
+    try:
+        nav_date = datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
         return None
+    return nav_date.replace(hour=_AMARKET_CLOSE_HOUR, minute=0, second=0, tzinfo=CST)
+
+
+def _fetch_nav_fundgz(fund_code: str, client: httpx.Client) -> tuple[Decimal, datetime] | None:
+    """Fetch NAV from the Tiantian Fund (fundgz) JSONP endpoint. Returns None on any error."""
     url = _NAV_URL.format(fund_code=fund_code)
     try:
         resp = client.get(url, timeout=10)
         resp.raise_for_status()
     except httpx.HTTPError:
-        logger.exception("HTTP error fetching NAV for fund %s", fund_code)
+        logger.exception("HTTP error fetching fundgz NAV for fund %s", fund_code)
         return None
 
     match = _JSONP_RE.search(resp.text)
     if not match:
-        logger.error("unexpected response format for fund %s: %s", fund_code, resp.text[:200])
+        logger.error(
+            "unexpected fundgz response format for fund %s: %s", fund_code, resp.text[:200]
+        )
         return None
 
     try:
@@ -97,14 +122,81 @@ def _fetch_nav(fund_code: str, client: httpx.Client) -> tuple[Decimal, datetime]
         logger.exception("cannot parse dwjz=%r for fund %s", dwjz, fund_code)
         return None
 
-    try:
-        nav_date = datetime.strptime(jzrq, "%Y-%m-%d")
-        price_as_of = nav_date.replace(hour=_AMARKET_CLOSE_HOUR, minute=0, second=0, tzinfo=CST)
-    except ValueError:
-        logger.exception("cannot parse jzrq=%r for fund %s", jzrq, fund_code)
+    price_as_of = _anchor_nav_date(jzrq)
+    if price_as_of is None:
+        logger.error("cannot parse jzrq=%r for fund %s", jzrq, fund_code)
         return None
 
     return nav, price_as_of
+
+
+def _sina_fund_nav(fund_code: str, client: httpx.Client) -> tuple[Decimal, datetime] | None:
+    """Fallback NAV source when fundgz is blocked (see module docstring, issue #20).
+
+    Two-attempt retry (increasing timeout) ported from portfolio-agent's
+    `_sina_fund_nav` — that project measured 2.2s-8.2s response latency
+    variance on this same endpoint, absorbed by retrying rather than treating
+    a slow response as unavailable. Returns None if both attempts fail.
+    """
+    url = _SINA_NAV_URL.format(fund_code=fund_code)
+    for timeout in (10, 15):
+        try:
+            resp = client.get(url, headers=_SINA_HEADERS, timeout=timeout)
+            resp.raise_for_status()
+        except httpx.HTTPError:
+            logger.warning(
+                "HTTP error fetching Sina NAV for fund %s (timeout=%ds)", fund_code, timeout
+            )
+            continue
+
+        try:
+            text = resp.content.decode("gbk", errors="replace")
+            match = _SINA_QUOTED_RE.search(text)
+            if not match:
+                logger.error(
+                    "unexpected Sina response format for fund %s: %s", fund_code, text[:200]
+                )
+                continue
+            fields = match.group(1).split(",")
+            if len(fields) < 5:
+                logger.error("unexpected Sina field count for fund %s: %r", fund_code, fields)
+                continue
+            nav = Decimal(fields[1])
+            if nav <= 0:
+                logger.error("non-positive Sina NAV for fund %s: %r", fund_code, fields[1])
+                continue
+            price_as_of = _anchor_nav_date(fields[4])
+            if price_as_of is None:
+                logger.error("cannot parse Sina nav date=%r for fund %s", fields[4], fund_code)
+                continue
+            return nav, price_as_of
+        except Exception:
+            logger.exception("error parsing Sina response for fund %s", fund_code)
+            continue
+
+    return None
+
+
+def _fetch_nav(fund_code: str, client: httpx.Client) -> tuple[Decimal, datetime] | None:
+    """
+    Fetch NAV for a single fund code — Tiantian Fund (fundgz) first, falling
+    back to Sina Finance if that's blocked (see module docstring, issue #20).
+
+    Returns (nav, price_as_of) where price_as_of is the NAV date at
+    15:00 CST (A-share close). Returns None if both sources fail.
+    """
+    # Boundary guard: fund_code is interpolated into the request URL and
+    # originates from LLM-parsed holdings. CN mutual-fund codes are exactly six
+    # digits; reject anything else so malformed codes can't shape the URL or
+    # waste a request.
+    if not re.fullmatch(r"\d{6}", fund_code):
+        logger.warning("skipping NAV fetch for invalid fund_code %r (expect 6 digits)", fund_code)
+        return None
+
+    result = _fetch_nav_fundgz(fund_code, client)
+    if result is not None:
+        return result
+    return _sina_fund_nav(fund_code, client)
 
 
 def fetch_nav_history(

@@ -1,7 +1,7 @@
 # Portfonia — Agent Guidelines
 
 AI-facing guidance for agent tooling working in this repository.
-Last updated: 2026-08-10
+Last updated: 2026-08-13
 
 ## Where to find current state
 
@@ -406,6 +406,42 @@ notice's `stale_tickers` list was not a capture-layer miss, it was
   `current_value` null) — not data loss (`shares` holds the right number),
   tracked in issue #123 for a backfill or waiting on the user to
   re-confirm holdings.
+
+### Fund NAV realtime path: Sina Finance fallback (issue #20)
+
+`fund_nav_fetcher.py`'s realtime path (`_fetch_nav` → `update_fund_navs`, keeps
+`holding.market_price` current) reads Tiantian Fund's `fundgz.1234567.com.cn`
+JSONP endpoint. As of 2026-08-10, direct `curl` from the OCI production host
+confirmed this endpoint returns Eastmoney's app-layer block page (HTTP 200,
+HTML "页面未找到") for every fund code — not a network-reachability gap, an
+actual block, and the historical path (`fetch_nav_history`/lsjz, used by
+`capture_fund_navs` for `price_snapshots`) is unaffected and confirmed
+reachable from the same host. `_fetch_nav` now falls back to Sina Finance
+(`hq.sinajs.cn/list=f_{code}`, GBK-encoded) when fundgz fails, via a new
+`_sina_fund_nav` helper (two-attempt retry, increasing timeout) ported from
+the sibling `portfolio-agent` project's `collector_v2.py::_sina_fund_nav`,
+which hit and solved this same block on 2026-07-30 and cross-validated Sina's
+numbers against Tencent's `qt.gtimg.cn/q=jj{code}` as a second source.
+
+- **Scope**: only the realtime path. `fetch_nav_history`/`capture_fund_navs`
+  (lsjz) needed no fallback — confirmed working, left unchanged.
+- **Verification**: production `curl` (two fund codes, two Eastmoney block
+  hits, one Sina success matching the expected `name,nav,nav,cum_nav,date,...`
+  shape) before writing any code; TDD red→green in the worktree afterward
+  (`test_sina_fallback_used_when_fundgz_blocked`,
+  `test_both_fundgz_and_sina_fail_marks_failed` in
+  `test_fund_nav_fetcher.py`), full backend suite green (495 passed) after.
+- **Separate finding, not fixed by this change**: while investigating, 3
+  production holdings (fund_codes 019547/110011/008142, `pricing_mode=auto`)
+  were found with 0 `price_snapshots` rows despite `lsjz` being reachable and
+  `capture_fund_navs` working correctly when invoked manually in production
+  (70 rows written on manual run) — the scheduled `capture-fund-navs-daily`
+  beat task (`0 20 * * mon-fri`) had not populated them across at least 2
+  scheduled windows. Root cause not established (celery-beat/worker had been
+  recreated ~1h before diagnosis by an unrelated deploy, wiping the logs that
+  would show why); the 2026-08-13 20:00 CST run is the next real test of
+  whether this recurs. If it does, that's an independent celery-scheduling
+  bug, not a fundgz/Sina reachability issue — track separately from #20.
 
 ### Capture layer + incremental reporting (ADR-002)
 
