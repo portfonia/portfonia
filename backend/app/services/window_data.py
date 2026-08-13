@@ -15,7 +15,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from itertools import pairwise
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -86,9 +86,12 @@ def user_watermark(
     return latest or BOOTSTRAP_WATERMARK
 
 
-def load_news_window(session: Session, _start: datetime, end: datetime) -> list[NewsItem]:
+def load_news_window(
+    session: Session, _start: datetime, end: datetime, user_id: uuid.UUID
+) -> list[NewsItem]:
     """News published at/before the window cutoff that hasn't yet been surfaced
-    in any DONE-status report, newest first, from the `news` store.
+    in any of THIS USER's DONE-status reports, newest first, from the `news`
+    store.
 
     H-DEBT-3 / issue #30: this used to be a strict ``(start, end]`` range. A
     news item published inside a window but not ingested until after that
@@ -99,8 +102,13 @@ def load_news_window(session: Session, _start: datetime, end: datetime) -> list[
     unused as a lower bound now; dedup is instead delegated entirely to
     `news_surfaced` via `mark_news_surfaced`, which the caller invokes once
     this report reaches a DONE status.
+
+    Scoped per `user_id` (PR #139 review): `news` is a global capture-layer
+    store, but each user's report stream has its own watermark/window, so the
+    same news item can legitimately need to surface once for each user —
+    marking it surfaced for one user must not hide it from another.
     """
-    surfaced = select(NewsSurfaced.news_id)
+    surfaced = select(NewsSurfaced.news_id).where(NewsSurfaced.user_id == user_id)
     rows = (
         session.execute(
             select(News)
@@ -123,14 +131,16 @@ def load_news_window(session: Session, _start: datetime, end: datetime) -> list[
     ]
 
 
-def mark_news_surfaced(session: Session, report_id: uuid.UUID, url_hashes: Sequence[str]) -> None:
-    """Record that these news items appeared in a report that reached a DONE
-    status (success/needs_review/skipped) — the dedup ledger `load_news_window`
-    reads to never select them again.
+def mark_news_surfaced(
+    session: Session, user_id: uuid.UUID, report_id: uuid.UUID, url_hashes: Sequence[str]
+) -> None:
+    """Record that these news items appeared in a report of this user's that
+    reached a DONE status (success/needs_review/skipped) — the dedup ledger
+    `load_news_window` reads to never select them again for this user.
 
-    Idempotent against Celery redelivery (`task_acks_late`): `news_id` is
-    unique on `news_surfaced`, so re-marking an already-surfaced item is a
-    no-op via ON CONFLICT DO NOTHING rather than an IntegrityError.
+    Idempotent against Celery redelivery (`task_acks_late`): `(user_id,
+    news_id)` is unique on `news_surfaced`, so re-marking an already-surfaced
+    item is a no-op via ON CONFLICT DO NOTHING rather than an IntegrityError.
     """
     if not url_hashes:
         return
@@ -139,10 +149,27 @@ def mark_news_surfaced(session: Session, report_id: uuid.UUID, url_hashes: Seque
         return
     stmt = (
         pg_insert(NewsSurfaced)
-        .values([{"news_id": nid, "report_id": report_id} for nid in news_ids])
-        .on_conflict_do_nothing(constraint="uq_news_surfaced_news_id")
+        .values([{"user_id": user_id, "news_id": nid, "report_id": report_id} for nid in news_ids])
+        .on_conflict_do_nothing(constraint="uq_news_surfaced_user_news")
     )
     session.execute(stmt)
+
+
+def unmark_news_surfaced(session: Session, report_id: uuid.UUID) -> None:
+    """Undo `mark_news_surfaced` for a specific report — used when a
+    DONE-status report is reopened and reprocessed against its own frozen
+    window (PR #139 review).
+
+    `generate_report` reopens an existing `needs_review` row for retry,
+    clearing `report_inputs` but reusing the original `period_start`/
+    `period_end` (frozen once set). Without this, the retry's
+    `load_news_window` call would see this report's own prior marks and
+    silently select a DIFFERENT (smaller) news set than the first attempt did
+    for the identical window — call this before re-running `load_news_window`
+    on a reopened row so the original candidate set is fully selectable
+    again.
+    """
+    session.execute(delete(NewsSurfaced).where(NewsSurfaced.report_id == report_id))
 
 
 def _close_snapshot_before_window(

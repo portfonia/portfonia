@@ -63,6 +63,7 @@ from app.services.window_data import (
     latest_window_close_date,
     load_news_window,
     mark_news_surfaced,
+    unmark_news_surfaced,
     user_watermark,
 )
 
@@ -2012,6 +2013,13 @@ def generate_report(
         # only email_sent_at here would leave a stale Resend id from the prior
         # send attached to a row that now reads as "not sent".
         report.provider_message_id = None
+        # H-DEBT-3 / PR #139 review: this row's window is frozen and reused
+        # below, so a retry (e.g. a reopened needs_review row) must reselect
+        # the SAME news candidate set the first attempt saw. Without this, a
+        # prior attempt's own mark_news_surfaced call would make
+        # load_news_window silently exclude those items on retry — a no-op
+        # for a failed row (never marked), a real bug for needs_review.
+        unmark_news_surfaced(session, report.id)
     else:
         report = Report(
             user_id=user_id,
@@ -2163,7 +2171,7 @@ def generate_report(
             )
 
         logger.info("report %s: loading windowed news", report.id)
-        news_items = load_news_window(session, period_start, period_end)
+        news_items = load_news_window(session, period_start, period_end, user_id)
         ctx.news_items = _serialize_news(news_items)
 
         logger.info("report %s: detecting macro signals", report.id)
@@ -2226,7 +2234,7 @@ def generate_report(
             report.generated_at = datetime.now(tz=UTC)
             # H-DEBT-3 (#30): mark this window's news as surfaced in the same
             # transaction as the status commit, so the two can never diverge.
-            mark_news_surfaced(session, report.id, [item.url_hash for item in news_items])
+            mark_news_surfaced(session, user_id, report.id, [item.url_hash for item in news_items])
             session.commit()
             log_ops_event("report.generate.end", report_id=str(report.id), status="skipped")
             # R-7: a short manual re-run (e.g. a same-day second trigger minutes
@@ -2425,7 +2433,7 @@ def generate_report(
         report.generated_at = datetime.now(tz=UTC)
         # H-DEBT-3 (#30): mark this window's news as surfaced in the same
         # transaction as the status commit, so the two can never diverge.
-        mark_news_surfaced(session, report.id, [item.url_hash for item in news_items])
+        mark_news_surfaced(session, user_id, report.id, [item.url_hash for item in news_items])
         session.commit()
         log_ops_event("report.generate.end", report_id=str(report.id), status=final_status)
 
