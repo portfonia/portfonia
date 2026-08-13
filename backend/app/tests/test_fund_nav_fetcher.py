@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import date
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
+import pytest
 from sqlalchemy.orm import Session
 
 from app.core.timezones import CST
@@ -202,3 +204,110 @@ def test_both_fundgz_and_sina_fail_marks_failed(db_session: Session) -> None:
 
     assert result.updated == 0
     assert result.failed == ["999999"]
+
+
+def test_fundgz_block_does_not_log_error_when_sina_succeeds(
+    db_session: Session, caplog: pytest.LogCaptureFixture
+) -> None:
+    """fundgz's known Eastmoney block is now the happy path (Sina fallback
+    succeeds) — it must not log at ERROR per fund, or a working refresh of
+    N funds floods the log with N false-alarm ERROR lines (review finding)."""
+    db_session.add(_fund("Blocked on fundgz", "019547"))
+    db_session.flush()
+
+    sina_ok = (
+        'var hq_str_f_019547="天弘纳斯达克100指数发起式C,1.5882,1.5882,3.9150,2026-08-12,2.05";'
+    )
+
+    # db_session (above) runs `alembic upgrade` via Config().fileConfig(), which
+    # defaults disable_existing_loggers=True and silently disables this
+    # already-imported module's logger — re-enable so caplog can see it.
+    logging.getLogger("app.services.fund_nav_fetcher").disabled = False
+    with caplog.at_level(logging.WARNING, logger="app.services.fund_nav_fetcher"), patch(
+        "app.services.fund_nav_fetcher.httpx.Client",
+        return_value=_patched_client_by_source(
+            fundgz_by_code={"019547": _EASTMONEY_BLOCK_PAGE},
+            sina_by_code={"019547": sina_ok},
+        ),
+    ):
+        result = fund_nav_fetcher.update_fund_navs(db_session)
+
+    assert result.updated == 1
+    assert not any(r.levelno >= logging.ERROR for r in caplog.records)
+
+
+def test_both_sources_fail_logs_terminal_error(
+    db_session: Session, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Total failure (neither source has data) must still surface as ERROR —
+    only the individually-recoverable fundgz miss is downgraded, not the
+    final outcome when Sina also fails (review finding)."""
+    db_session.add(_fund("Unknown everywhere", "999999"))
+    db_session.flush()
+
+    # See comment in test_fundgz_block_does_not_log_error_when_sina_succeeds.
+    logging.getLogger("app.services.fund_nav_fetcher").disabled = False
+    with caplog.at_level(logging.WARNING, logger="app.services.fund_nav_fetcher"), patch(
+        "app.services.fund_nav_fetcher.httpx.Client",
+        return_value=_patched_client_by_source(
+            fundgz_by_code={"999999": _EASTMONEY_BLOCK_PAGE},
+            sina_by_code={"999999": 'var hq_str_f_999999="";'},
+        ),
+    ):
+        result = fund_nav_fetcher.update_fund_navs(db_session)
+
+    assert result.failed == ["999999"]
+    terminal_errors = [
+        r
+        for r in caplog.records
+        if r.levelno >= logging.ERROR and "999999" in r.getMessage() and "Sina" in r.getMessage()
+    ]
+    assert len(terminal_errors) == 1
+
+
+def test_sina_parse_failure_does_not_retry(db_session: Session) -> None:
+    """A well-formed HTTP 200 with an unparseable body won't change on a
+    retry — the second attempt must not fire (review finding: avoids
+    wasting ~15s on the synchronous /portfolio/refresh path for a body that
+    can't improve)."""
+    db_session.add(_fund("Bad Sina body", "019547"))
+    db_session.flush()
+
+    cm = _patched_client_by_source(
+        fundgz_by_code={"019547": _EASTMONEY_BLOCK_PAGE},
+        sina_by_code={"019547": 'var hq_str_f_019547="garbage, no real fields";'},
+    )
+    with patch("app.services.fund_nav_fetcher.httpx.Client", return_value=cm):
+        result = fund_nav_fetcher.update_fund_navs(db_session)
+
+    assert result.failed == ["019547"]
+    client_mock = cm.__enter__.return_value
+    sina_calls = [c for c in client_mock.get.call_args_list if "sinajs.cn" in c.args[0]]
+    assert len(sina_calls) == 1
+
+
+def test_sina_decoy_quoted_string_before_real_line_is_ignored(db_session: Session) -> None:
+    """A response containing an unrelated quoted comma-string before the real
+    hq_str_f_{code}= line must not be misparsed as NAV data — the regex has
+    to anchor on the field name, not just take the first quoted match (review
+    nit: an unanchored regex would silently fabricate a NAV from whatever
+    quoted string appears first)."""
+    db_session.add(_fund("Sina decoy", "019547"))
+    db_session.flush()
+
+    # A decoy 5-field quoted string appears before the real (here: empty/
+    # blocked) hq_str_f_019547 line -- an unanchored "first quoted string"
+    # regex would misparse the decoy as (nav=2, date=2026-01-01).
+    decoy_body = 'upstream_notice="1,2,3,4,2026-01-01";var hq_str_f_019547="";'
+
+    with patch(
+        "app.services.fund_nav_fetcher.httpx.Client",
+        return_value=_patched_client_by_source(
+            fundgz_by_code={"019547": _EASTMONEY_BLOCK_PAGE},
+            sina_by_code={"019547": decoy_body},
+        ),
+    ):
+        result = fund_nav_fetcher.update_fund_navs(db_session)
+
+    assert result.failed == ["019547"]
+    assert result.updated == 0
