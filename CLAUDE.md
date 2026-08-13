@@ -427,21 +427,29 @@ numbers against Tencent's `qt.gtimg.cn/q=jj{code}` as a second source.
   (lsjz) needed no fallback — confirmed working, left unchanged.
 - **Verification**: production `curl` (two fund codes, two Eastmoney block
   hits, one Sina success matching the expected `name,nav,nav,cum_nav,date,...`
-  shape) before writing any code; TDD red→green in the worktree afterward
-  (`test_sina_fallback_used_when_fundgz_blocked`,
-  `test_both_fundgz_and_sina_fail_marks_failed` in
-  `test_fund_nav_fetcher.py`), full backend suite green (495 passed) after.
-- **Separate finding, not fixed by this change**: while investigating, 3
-  production holdings (fund_codes 019547/110011/008142, `pricing_mode=auto`)
-  were found with 0 `price_snapshots` rows despite `lsjz` being reachable and
+  shape) before writing any code; TDD red→green in the worktree afterward.
+  PR #134 review (blacktomb42, Approve, 0 bugs / 2 suggestions / 1 nit) added
+  3 more red→green tests covering the fixes: fundgz's per-fund block-page log
+  downgraded ERROR→WARNING (only the terminal both-sources-fail case logs
+  ERROR now), Sina retry scoped to `httpx.HTTPError` only (a parsed-but-bad
+  200 returns immediately, no wasted second round-trip), and the Sina quote
+  regex anchored on `hq_str_f_{fund_code}=` instead of "any first quoted
+  string". 10 tests total in `test_fund_nav_fetcher.py`, full backend suite
+  green (499 passed).
+- **Test-infra gotcha hit while adding the log-level tests**: see "Tests"
+  section below (`caplog` + alembic `fileConfig`).
+- **Separate finding, not fixed by this change, tracked as issue #135**:
+  while investigating, 3 production holdings (fund_codes
+  019547/110011/008142, `pricing_mode=auto`) were found with 0
+  `price_snapshots` rows despite `lsjz` being reachable and
   `capture_fund_navs` working correctly when invoked manually in production
   (70 rows written on manual run) — the scheduled `capture-fund-navs-daily`
   beat task (`0 20 * * mon-fri`) had not populated them across at least 2
   scheduled windows. Root cause not established (celery-beat/worker had been
   recreated ~1h before diagnosis by an unrelated deploy, wiping the logs that
-  would show why); the 2026-08-13 20:00 CST run is the next real test of
-  whether this recurs. If it does, that's an independent celery-scheduling
-  bug, not a fundgz/Sina reachability issue — track separately from #20.
+  would show why). As of this note (2026-08-13, ~19:35 CST) the 20:00 CST
+  run that would be the next real test hadn't happened yet — check issue
+  #135 for the outcome rather than assuming either way.
 
 ### Capture layer + incremental reporting (ADR-002)
 
@@ -1141,6 +1149,18 @@ Let CI handle versioning, changelog, tag, and publish.
 - LLM prompt regressions: keep a small fixture of "input portfolio + expected
   shape of output" so prompt edits don't silently violate the layer-3 rule.
 - Never let tests touch the developer's real home directory.
+- **`caplog` assertions on an already-imported module's logger silently see
+  nothing, in any test using the `db_session` fixture** (first hit 2026-08-13,
+  `test_fund_nav_fetcher.py`): `alembic/env.py` calls
+  `fileConfig(config.config_file_name)` with no `disable_existing_loggers=
+  False`, so every `db_session`-triggered `command.upgrade(...)` disables any
+  logger that was already instantiated (e.g. any module-level `logger =
+  logging.getLogger(__name__)` from a test's own imports) — `caplog.records`
+  ends up empty with no error, which reads as "nothing got logged" rather
+  than "the logger got disabled out from under the test". Workaround, scoped
+  to the test file (not `alembic.ini`, which would be a wider blast radius
+  than this needs): `logging.getLogger("your.module").disabled = False`
+  right before the `caplog.at_level(...)` block.
 
 ## Documentation
 
