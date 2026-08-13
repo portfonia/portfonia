@@ -15,7 +15,12 @@ celery_app = Celery(
     "portfonia",
     broker=_settings.redis_url,
     backend=_settings.redis_url,
-    include=["app.tasks.report_tasks", "app.tasks.capture_tasks", "app.tasks.holdings_tasks"],
+    include=[
+        "app.tasks.report_tasks",
+        "app.tasks.capture_tasks",
+        "app.tasks.holdings_tasks",
+        "app.tasks.backup_tasks",
+    ],
 )
 
 # Market session nodes (ADR-002). Each (market, tz, [(node, hour, minute)]).
@@ -133,6 +138,16 @@ _beat_schedule: dict[str, dict[str, Any]] = {
     "sweep-stale-upload-jobs": {
         "task": "app.tasks.holdings_tasks.sweep_stale_upload_jobs",
         "schedule": 30.0,
+    },
+    # Daily Postgres -> OCI Object Storage backup (issue #106). Runs at
+    # 03:00 ET, off-peak relative to every other daily cadence (forward
+    # events 08:00 ET, FX 16:05 ET, fund NAV 20:00 CST). Every day, not just
+    # trading days — a weekend DB state (e.g. an in-progress holdings
+    # confirm) is still worth a restore point. No-ops locally
+    # (BACKUP_OCI_NAMESPACE unset by default — see Settings).
+    "backup-database-daily": {
+        "task": "app.tasks.backup_tasks.backup_database_task",
+        "schedule": crontab(hour=3, minute=0),
     },
 }
 _beat_schedule.update(_build_report_schedule())

@@ -1,0 +1,107 @@
+"""Tests for the daily backup Celery task + its Beat schedule entry (issue #106).
+
+send_ops_alert/create_bug_report are mocked globally by the autouse
+_no_external_notifications fixture in conftest.py — app.tasks.backup_tasks
+is registered there. Tests that assert on call args re-patch within a `with`
+block, matching the pattern used by other task test modules.
+"""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock, patch
+
+from celery.exceptions import SoftTimeLimitExceeded  # type: ignore[import-untyped]
+
+from app.tasks import celery_app
+
+
+def test_backup_schedule_entry_exists() -> None:
+    sched = celery_app.conf.beat_schedule
+    assert "backup-database-daily" in sched
+    entry = sched["backup-database-daily"]
+    assert entry["task"] == "app.tasks.backup_tasks.backup_database_task"
+
+
+def test_backup_schedule_is_picklable() -> None:
+    import pickle
+
+    entry = celery_app.conf.beat_schedule["backup-database-daily"]
+    pickle.dumps(entry["schedule"])
+
+
+def test_backup_schedule_fires_daily_at_0300_no_weekday_restriction() -> None:
+    """Locks the intended 03:00 (app default tz, America/New_York) daily
+    cadence — a stray day_of_week or a wrong hour/minute would otherwise
+    still pass test_backup_schedule_entry_exists."""
+    entry = celery_app.conf.beat_schedule["backup-database-daily"]
+    schedule = entry["schedule"]
+    assert schedule.hour == {3}
+    assert schedule.minute == {0}
+    assert schedule.day_of_week == set(range(7))
+
+
+@patch("app.services.db_backup.backup_database", return_value="daily/portfonia_prod-x.dump")
+def test_backup_database_task_success(mock_backup: MagicMock) -> None:
+    from app.tasks.backup_tasks import backup_database_task
+
+    result = backup_database_task.run()
+    assert result == {"object_name": "daily/portfonia_prod-x.dump"}
+
+
+@patch("app.services.db_backup.backup_database", return_value=None)
+def test_backup_database_task_returns_none_when_disabled(mock_backup: MagicMock) -> None:
+    from app.tasks.backup_tasks import backup_database_task
+
+    result = backup_database_task.run()
+    assert result == {"object_name": None}
+
+
+@patch("app.services.db_backup.backup_database", side_effect=RuntimeError("pg_dump exploded"))
+def test_backup_database_task_retries_then_alerts_on_exhaustion(mock_backup: MagicMock) -> None:
+    """.apply() (eager mode) loops through all retries synchronously within
+    one call — unlike a real worker, where each retry is a separate message
+    with retries persisted across invocations. So a single .apply() here
+    already exhausts max_retries=2 and should hit _backup_failed exactly once."""
+    from app.tasks.backup_tasks import backup_database_task
+
+    with patch("app.tasks.backup_tasks._backup_failed") as mock_failed:
+        result = backup_database_task.apply(throw=False)
+
+    assert result.failed()
+    assert "pg_dump exploded" in str(result.result)
+    mock_failed.assert_called_once()
+
+
+@patch("app.services.db_backup.backup_database", side_effect=SoftTimeLimitExceeded())
+def test_backup_database_task_alerts_immediately_on_soft_timeout(mock_backup: MagicMock) -> None:
+    """A soft-timeout at 920s means the task already burned most of its
+    budget — retrying (as a bare `except Exception` would, since
+    SoftTimeLimitExceeded is an Exception subclass) just delays the ops alert
+    by up to two more ~920s attempts. Alert on the first hit instead."""
+    from app.tasks.backup_tasks import backup_database_task
+
+    with patch("app.tasks.backup_tasks._backup_failed") as mock_failed:
+        result = backup_database_task.apply(throw=False)
+
+    assert result.failed()
+    mock_failed.assert_called_once()
+    # The real assertion: no retry happened at all. backup_database itself
+    # only ran once — a generic `except Exception` + self.retry() would have
+    # looped 3x under eager .apply() before alerting (see the RuntimeError
+    # test above), which would still pass `assert_called_once()` on its own.
+    assert mock_backup.call_count == 1
+
+
+def test_backup_failed_sends_ops_alert_and_creates_issue() -> None:
+    from app.tasks.backup_tasks import _backup_failed
+
+    with (
+        patch("app.tasks.backup_tasks.send_ops_alert") as mock_alert,
+        patch("app.tasks.backup_tasks.create_bug_report") as mock_issue,
+    ):
+        _backup_failed(RuntimeError("disk full"))
+
+    mock_alert.assert_called_once()
+    assert "disk full" in mock_alert.call_args.kwargs["body"]
+    mock_issue.assert_called_once()
+    assert mock_issue.call_args.kwargs["labels"] == ["bug", "ops", "backup"]
