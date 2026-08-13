@@ -1,9 +1,10 @@
 """Tests for the async holdings-upload Celery task (issue #77 / PR #82 review).
 
-Strategy mirrors test_report_tasks.py: SessionLocal is bound to the dev DB at
-import time (app.core.database), so task logic is tested by mocking it and
-calling the task's underlying function directly (`.run()` bypasses Celery
-routing) rather than spinning up a real worker or the test Postgres DB.
+Strategy mirrors test_report_tasks.py: task logic is tested by mocking
+SessionLocal and calling the task's underlying function directly (`.run()`
+bypasses Celery routing) rather than spinning up a real worker. SessionLocal
+is lazy (issue #27) and refuses the dev DB under pytest; these tests still
+mock it because they exercise control flow, not SQL.
 """
 
 from __future__ import annotations

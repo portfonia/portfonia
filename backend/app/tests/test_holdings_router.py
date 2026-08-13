@@ -142,8 +142,7 @@ def test_get_upload_job_returns_success_result(app_client: TestClient, db_sessio
     /upload used to return directly before issue #77's async rewrite. Writes
     the UploadJob row directly (via db_session, the same DB app_client's
     get_session override points at) rather than running the real Celery
-    task, since the task builds its own SessionLocal() bound to the dev DB
-    at import time — see test_holdings_tasks.py for the task's own tests.
+    task — see test_holdings_tasks.py for the task's own tests.
     """
     job = UploadJob(
         user_id=TEST_USER_ID, filename="holdings.md", status="success", preview=_MOCK_PREVIEW
