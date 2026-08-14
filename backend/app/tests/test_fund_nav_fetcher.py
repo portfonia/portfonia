@@ -223,11 +223,14 @@ def test_fundgz_block_does_not_log_error_when_sina_succeeds(
     # defaults disable_existing_loggers=True and silently disables this
     # already-imported module's logger — re-enable so caplog can see it.
     logging.getLogger("app.services.fund_nav_fetcher").disabled = False
-    with caplog.at_level(logging.WARNING, logger="app.services.fund_nav_fetcher"), patch(
-        "app.services.fund_nav_fetcher.httpx.Client",
-        return_value=_patched_client_by_source(
-            fundgz_by_code={"019547": _EASTMONEY_BLOCK_PAGE},
-            sina_by_code={"019547": sina_ok},
+    with (
+        caplog.at_level(logging.WARNING, logger="app.services.fund_nav_fetcher"),
+        patch(
+            "app.services.fund_nav_fetcher.httpx.Client",
+            return_value=_patched_client_by_source(
+                fundgz_by_code={"019547": _EASTMONEY_BLOCK_PAGE},
+                sina_by_code={"019547": sina_ok},
+            ),
         ),
     ):
         result = fund_nav_fetcher.update_fund_navs(db_session)
@@ -247,11 +250,14 @@ def test_both_sources_fail_logs_terminal_error(
 
     # See comment in test_fundgz_block_does_not_log_error_when_sina_succeeds.
     logging.getLogger("app.services.fund_nav_fetcher").disabled = False
-    with caplog.at_level(logging.WARNING, logger="app.services.fund_nav_fetcher"), patch(
-        "app.services.fund_nav_fetcher.httpx.Client",
-        return_value=_patched_client_by_source(
-            fundgz_by_code={"999999": _EASTMONEY_BLOCK_PAGE},
-            sina_by_code={"999999": 'var hq_str_f_999999="";'},
+    with (
+        caplog.at_level(logging.WARNING, logger="app.services.fund_nav_fetcher"),
+        patch(
+            "app.services.fund_nav_fetcher.httpx.Client",
+            return_value=_patched_client_by_source(
+                fundgz_by_code={"999999": _EASTMONEY_BLOCK_PAGE},
+                sina_by_code={"999999": 'var hq_str_f_999999="";'},
+            ),
         ),
     ):
         result = fund_nav_fetcher.update_fund_navs(db_session)
