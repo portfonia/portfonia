@@ -14,9 +14,9 @@ export function SiteHeader() {
   const { locale, setLocale } = useLocale();
 
   return (
-    <div className="sticky top-4 z-20 flex justify-center px-4">
+    <header className="sticky top-4 z-20 flex justify-center px-4">
       <nav className="flex w-full max-w-4xl items-center justify-between gap-4 rounded-full border border-white/10 bg-card/70 px-5 py-3 backdrop-blur-md">
-        <Link href="/" className="font-serif text-lg tracking-tight">
+        <Link href={isHome ? "#top" : "/"} className="font-serif text-lg tracking-tight">
           {messages.common.brandName}
         </Link>
         <div className="flex items-center gap-5">
@@ -67,10 +67,10 @@ export function SiteHeader() {
             href="/holdings"
             className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
           >
-            {isHome ? t.nav.cta : "Holdings"}
+            {isHome ? t.nav.cta : messages.holdings.pageTitle}
           </Link>
         </div>
       </nav>
-    </div>
+    </header>
   );
 }
