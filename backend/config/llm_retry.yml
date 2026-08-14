@@ -9,6 +9,11 @@
 # List length = number of in-process retries for that error class; an empty
 # list means fail immediately with no in-process retry.
 #
+# Each wait must be a finite, non-negative number no greater than 300s
+# (matches Celery's own default_retry_delay), and each list may have at most
+# 5 entries — the loader (llm_retry_config.py) rejects anything outside
+# these bounds rather than letting a typo (or `.inf`/`.nan`) pin a worker.
+#
 # NOT covered here: BYOK provider order (`_BYOK_PROVIDER_ORDER` in
 # report_generator.py). That pin is a compliance decision (issue #78/#79),
 # not an operational tuning knob — it stays a hardcoded constant so changing

@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.services import report_generator as rg
 from app.services.i18n_glossary import load_i18n_glossary
+from app.services.llm_retry_config import LLMRetryConfig
 from app.services.macro_detector import MacroSignals, ThemeHit
 from app.services.news_fetcher import NewsItem
 from app.services.portfolio_calculator import (
@@ -1510,6 +1511,44 @@ def test_call_llm_reraises_after_exhausting_rate_limit_retries() -> None:
     with patch("app.services.report_generator.time.sleep"), pytest.raises(openai.RateLimitError):
         rg._call_llm(client, "m", "sys", "user")
     assert client.chat.completions.create.call_count == 3  # initial + 2 backoff retries
+
+
+def test_call_llm_wiring_respects_custom_retry_config() -> None:
+    """#38 wiring: the retry budget must actually come from
+    load_llm_retry_config(), not a leftover hardcoded default. A test that
+    only ever exercises the shipped (5, 15) sequence would still pass even
+    if _call_llm silently ignored the loader entirely (PR #142 review,
+    suggestion 2) — this one uses a *different* sequence so it can only pass
+    if the loaded config is what actually drives the retry loop."""
+    client = MagicMock()
+    err = openai.RateLimitError("rate limited", response=MagicMock(status_code=429), body=None)
+    client.chat.completions.create.side_effect = err
+    custom_config = LLMRetryConfig(ratelimit_backoff_seconds=(1.0,), connect_backoff_seconds=())
+    with (
+        patch("app.services.report_generator.load_llm_retry_config", return_value=custom_config),
+        patch("app.services.report_generator.time.sleep") as sleep,
+        pytest.raises(openai.RateLimitError),
+    ):
+        rg._call_llm(client, "m", "sys", "user")
+    assert client.chat.completions.create.call_count == 2  # initial + 1 backoff retry, not 3
+    sleep.assert_called_once_with(1.0)
+
+
+def test_call_llm_wiring_empty_sequence_fails_immediately() -> None:
+    """An admin-set [] (documented as intentional fail-fast) must actually
+    skip in-process retry entirely, not just be tolerated by the loader."""
+    client = MagicMock()
+    err = openai.RateLimitError("rate limited", response=MagicMock(status_code=429), body=None)
+    client.chat.completions.create.side_effect = err
+    empty_config = LLMRetryConfig(ratelimit_backoff_seconds=(), connect_backoff_seconds=())
+    with (
+        patch("app.services.report_generator.load_llm_retry_config", return_value=empty_config),
+        patch("app.services.report_generator.time.sleep") as sleep,
+        pytest.raises(openai.RateLimitError),
+    ):
+        rg._call_llm(client, "m", "sys", "user")
+    assert client.chat.completions.create.call_count == 1  # no in-process retry at all
+    sleep.assert_not_called()
 
 
 def test_call_llm_default_keeps_marketplace_pin_and_deny() -> None:
