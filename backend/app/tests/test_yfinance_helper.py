@@ -17,7 +17,6 @@ from app.services._yfinance import (
     _classify_market,
     _download_batch,
     fetch_last_close,
-    fetch_last_two_closes,
 )
 
 _AS_OF = datetime(2026, 6, 4, 20, 0, tzinfo=UTC)
@@ -220,53 +219,3 @@ def test_download_batch_all_nan_series_omitted() -> None:
         result = _download_batch(["AAPL"])
 
     assert result == {}
-
-
-# ---------------------------------------------------------------------------
-# fetch_last_two_closes
-# ---------------------------------------------------------------------------
-
-_PREV_AS_OF = datetime(2026, 6, 3, 20, 0, tzinfo=UTC)
-
-
-def _make_two_day_hist(ticker: str, prices: list[float]) -> pd.DataFrame:
-    """Build a 2-row Close DataFrame simulating two trading days."""
-    dates = [_PREV_AS_OF, _AS_OF][: len(prices)]
-    idx = pd.DatetimeIndex(dates, name="Date")
-    close = pd.DataFrame({ticker: prices}, index=idx)
-    return pd.concat({"Close": close}, axis=1)
-
-
-def test_fetch_last_two_closes_returns_both_points() -> None:
-    hist = _make_two_day_hist("AAPL", [100.0, 105.0])
-
-    with (
-        patch("app.services._yfinance.yf.download", return_value=hist),
-        patch("app.services._yfinance.time.sleep"),
-    ):
-        result = fetch_last_two_closes(["AAPL"])
-
-    assert "AAPL" in result
-    current, prev = result["AAPL"]
-    assert current[0] == pytest.approx(105.0)
-    assert prev is not None
-    assert prev[0] == pytest.approx(100.0)
-
-
-def test_fetch_last_two_closes_only_one_day_prev_is_none() -> None:
-    hist = _make_two_day_hist("AAPL", [100.0])  # only 1 data point
-
-    with (
-        patch("app.services._yfinance.yf.download", return_value=hist),
-        patch("app.services._yfinance.time.sleep"),
-    ):
-        result = fetch_last_two_closes(["AAPL"])
-
-    assert "AAPL" in result
-    current, prev = result["AAPL"]
-    assert current[0] == pytest.approx(100.0)
-    assert prev is None
-
-
-def test_fetch_last_two_closes_empty_input() -> None:
-    assert fetch_last_two_closes([]) == {}

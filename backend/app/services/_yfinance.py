@@ -41,7 +41,7 @@ def _normalize_hk_ticker(ticker: str) -> str:
     return f"{digits}.HK"
 
 
-# Type alias used by both fetch_last_close and fetch_last_two_closes.
+# Type alias used by fetch_last_close.
 ClosePoint = tuple[float, datetime]  # (price, exchange-timestamp)
 
 # (trade_date, open, high, low, close, volume) — volume may be None.
@@ -129,28 +129,6 @@ def _download_batch(tickers: list[str]) -> dict[str, ClosePoint]:
     return out
 
 
-def _download_batch_two(
-    tickers: list[str],
-) -> dict[str, tuple[ClosePoint, ClosePoint | None]]:
-    """Like _download_batch but returns (current_close, prev_close_or_None) per ticker."""
-    if not tickers:
-        return {}
-    close = _raw_download(tickers)
-    if close.empty:
-        return {}
-    out: dict[str, tuple[ClosePoint, ClosePoint | None]] = {}
-    for ticker in tickers:
-        if ticker not in close.columns:
-            continue
-        pts = _extract_close_points(close[ticker], 2)
-        if not pts:
-            continue
-        current = pts[-1]
-        prev: ClosePoint | None = pts[-2] if len(pts) >= 2 else None
-        out[ticker] = (current, prev)
-    return out
-
-
 def fetch_last_close(tickers: list[str]) -> dict[str, ClosePoint]:
     """
     Batch-download tickers and return {ticker: (close, as_of)}.
@@ -185,41 +163,6 @@ def fetch_last_close(tickers: list[str]) -> dict[str, ClosePoint]:
         if i > 0:
             time.sleep(_INTER_BATCH_DELAY)
         out.update(_download_batch(batch))
-
-    return out
-
-
-def fetch_last_two_closes(
-    tickers: list[str],
-) -> dict[str, tuple[ClosePoint, ClosePoint | None]]:
-    """
-    Batch-download tickers and return {ticker: (current_close, prev_close_or_None)}.
-
-    Applies the same market-split + batch-size + inter-batch-delay strategy as
-    fetch_last_close.  `prev_close` is None when fewer than two trading days of
-    data are available (e.g. a ticker listed this week).
-
-    Used by price anomaly detection (E3) to compute daily percentage change.
-    """
-    if not tickers:
-        return {}
-
-    tickers = [_normalize_hk_ticker(t) for t in tickers]
-
-    by_market: dict[str, list[str]] = {"us": [], "hk": [], "cn": []}
-    for t in tickers:
-        by_market[_classify_market(t)].append(t)
-
-    batches: list[list[str]] = []
-    for market_tickers in by_market.values():
-        if market_tickers:
-            batches.extend(_chunk(market_tickers, _MAX_BATCH_SIZE))
-
-    out: dict[str, tuple[ClosePoint, ClosePoint | None]] = {}
-    for i, batch in enumerate(batches):
-        if i > 0:
-            time.sleep(_INTER_BATCH_DELAY)
-        out.update(_download_batch_two(batch))
 
     return out
 
