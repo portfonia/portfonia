@@ -683,8 +683,24 @@ inline via BeautifulSoup.
   silently-truncated `status=success` report.
 - `_call_llm` logs model/finish_reason/tokens/cost on every call and warns on
   non-`stop` finish; `LLMEmptyResponseError` on empty `choices` with bounded
-  429 backoff-retry. `pin_provider=False` (used only for translation) lets
-  OpenRouter route freely instead of restricting to the pinned provider order.
+  429/connection backoff-retry. `pin_provider=False` (used only for
+  translation) lets OpenRouter route freely instead of restricting to the
+  pinned provider order. Backoff sequences are admin-editable via
+  `config/llm_retry.yml` (issue #38, `app/services/llm_retry_config.py`),
+  loaded fresh on every call — same hot-reload pattern as
+  `asset_class_thresholds.yml` (#35, see below). Bounded (300s/wait, 5
+  entries/sequence, finite-only) so a config typo can't pin a worker
+  indefinitely. `_BYOK_PROVIDER_ORDER` (translation's DeepSeek pin,
+  issue #78/#79) is deliberately NOT in this config — it's a compliance
+  decision, not an operational tuning knob.
+- `report_inputs` (JSONB) is written via `ReportContext.to_jsonb()` (still
+  `dict[str, Any]` — the ORM column itself is untyped JSONB) but read back
+  through `ReportInputsDict` (issue #39, a `TypedDict, total=False` mirroring
+  `ReportContext`'s fields): `regenerate_report`/`_tavily_used_today` `cast`
+  into it so mypy catches a mismatched key/type at the call site instead of a
+  runtime `KeyError`. The two are kept in sync by hand — no automatic
+  enforcement — guarded by a test asserting the TypedDict's type hints match
+  `ReportContext`'s dataclass fields exactly.
 - Resend `Idempotency-Key` is content-addressed
   (`report-{id}-{sha256(html)[:16]}`) — a regenerated report with different
   content gets a different key, avoiding a 409 on corrected resends.
