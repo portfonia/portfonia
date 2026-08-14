@@ -31,39 +31,46 @@ This file holds **conventions and mechanisms**, not a project status board.
 | §1 / distribution / §4.1 classification dimension | **`asset_class`** (geography-first taxonomy — see table below), not `sector` or `asset_type`. `sector` (yfinance GICS) is retained ONLY for forward-event holding-relevance mapping (rate-sensitive/consumer sectors for FOMC/CPI events) — never reintroduce it into §1/distribution/§4.1. `by_asset_class` has no "Other" fallback (every `Holding` always has one, default `STOCK`). |
 | Tests must mock external notify calls | `send_ops_alert`, `create_bug_report`, `send_report_email` are mocked via an **autouse** fixture in `app/tests/conftest.py` (`_no_external_notifications`) — never rely on individual tests remembering to patch them. A gap here previously sent 42 real "FX rates stale" emails to the admin inbox from three same-day pytest runs (test clock fixed to a historical date that always trips the staleness check against the real current date). |
 
-### Frontend chrome (header/nav) convention — planned, not yet implemented (issue #146)
+### Frontend chrome (header/nav) convention — implemented (issue #146/#148)
 
-**Every route shares ONE header/nav component, rendered once from the root
-`app/layout.tsx`.** Do not add a second per-route header implementation —
-this is exactly the mistake that created the gap this section documents.
+**Every route shares ONE header/nav component (`frontend/src/components/site-header.tsx`),
+rendered once from the root `app/layout.tsx`.** Do not add a second
+per-route header implementation — that duplication (`HomeNav` vs a separate
+`SiteHeader`) is exactly the bug this convention fixed; see Obsidian
+`Hermes/Portfonia/Portfonia Concept & Design.md` §10 addendum (2026-08-14)
+for the full before/after and decision rationale.
 
-- **Current state (the bug this convention fixes)**: `/` and `/holdings`
-  currently render two structurally different components — `HomeNav`
-  (`frontend/src/app/_components/home-nav.tsx`, floating rounded pill,
-  `sticky top-4`, backdrop-blur, marketing anchor links, bilingual locale
-  switcher, CTA) vs `SiteHeader` (`frontend/src/components/site-header.tsx`,
-  flush full-width bordered bar, brand name only). Issue #94 (2026-08-07)
-  decided the whole app should share one dark-theme framework; PR #98 only
-  unified the color tokens, never the header component itself. Full
-  before/after + decision rationale: Obsidian `Hermes/Portfonia/Portfonia
-  Concept & Design.md` §10 addendum, 2026-08-14.
-- **Target shape (tracked in issue #146, not yet built)**: `HomeNav`'s
-  floating-pill dark framework becomes the single site-wide header,
-  replacing both `HomeNav` and `SiteHeader`. `LocaleProvider` moves from
-  wrapping only the home page to wrapping the whole app in root layout.
-  Universal elements (every route): brand/home link, Holdings entry link.
-  Home-only elements (`pathname === "/"` only): the four marketing anchor
-  links, and the locale switcher — both **hidden**, not adapted, on other
-  routes. The switcher is home-only because `/holdings`' `lib/messages.ts`
-  is still English-only (no `zh` map yet); showing the switcher everywhere
-  before that's fixed would let a user "switch language" on a page whose
-  text never changes. Relax that specific gate once `messages.ts` gains a
-  `zh` map — that's separate, unscheduled work, not part of issue #146.
-- When implementing: any new route added to the app inherits the header
-  for free by living under the root layout — do not wrap a new route in
-  its own header/layout unless it has a genuine reason to opt out of the
-  shared chrome (and if so, treat that as worth a design-doc note, not a
-  silent second implementation).
+- **Current shape**: `SiteHeader` renders as a `<header>` landmark
+  (floating rounded pill, `sticky top-4`, backdrop-blur, dark). `AppShell`
+  (`frontend/src/app/_components/app-shell.tsx`, renamed from the old
+  home-only `HomeShell`) and `LocaleProvider` both wrap the whole app from
+  root layout, not just the home page. Universal on every route:
+  brand/home link, Holdings entry link (`href="/holdings"`, label sourced
+  from `messages.holdings.pageTitle`). Home-only (`pathname === "/"`): the
+  four marketing anchor links, the locale switcher, and the brand link's
+  target changes to `#top` (in-page jump) instead of `/`.
+- **`lang` attribute is route-scoped, not just component-scoped**:
+  `AppShell` only follows the selected locale on `/`; every other route
+  (still English-only via `lib/messages.ts`, no `zh` map yet) stays
+  `lang="en"` regardless of what's stored in `localStorage` — a stored
+  `zh` from the home page must never mislabel `/holdings`' English content
+  for screen readers / in-browser translate. Covered by
+  `app-shell.test.tsx`.
+- **The locale switcher itself is home-only for the same reason**:
+  `/holdings`' `lib/messages.ts` has no `zh` map yet; showing the switcher
+  everywhere before that's fixed would let a user "switch language" on a
+  page whose text never changes. Relax that gate once `messages.ts` gains
+  a `zh` map — separate, unscheduled work.
+- **Tests**: `frontend` had no test framework before this — vitest +
+  React Testing Library were added specifically for this change
+  (`npm run test`). `site-header.test.tsx` / `app-shell.test.tsx` lock the
+  route-conditional rendering above; extend them, don't remove the
+  route-parametrized assertions, if this component changes again.
+- When adding a new route: it inherits the header for free by living
+  under the root layout — do not wrap it in its own header/layout unless
+  it has a genuine reason to opt out of the shared chrome (and if so,
+  treat that as worth a design-doc note, not a silent second
+  implementation).
 
 ### Async holdings upload (issue #77/#82/#85)
 
