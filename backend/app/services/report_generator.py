@@ -52,6 +52,7 @@ from app.services.forward_events import load_forward_events
 from app.services.github_issues import create_bug_report
 from app.services.holding_news import recall_holding_news
 from app.services.i18n_glossary import load_i18n_glossary, locale_for_output_lang
+from app.services.llm_retry_config import load_llm_retry_config
 from app.services.macro_detector import MacroSignals, detect_macro_signals
 from app.services.news_fetcher import NewsItem
 from app.services.portfolio_calculator import PortfolioSnapshot, compute_portfolio
@@ -348,11 +349,9 @@ class LLMEmptyResponseError(RuntimeError):
 
 # Backoff sequences inside _call_llm (bounded, then re-raise so the outer
 # Celery retry still sees a persistent failure). (I-DEBT-2)
-# 429: short waits — rate-limit windows are usually seconds.
-# Connection error: longer waits — network blips typically resolve in ~30-90s,
-# so absorbing them here avoids burning a whole Celery task retry.
-_LLM_RATELIMIT_BACKOFF_SECONDS = (5.0, 15.0)
-_LLM_CONNECT_BACKOFF_SECONDS = (30.0, 90.0)
+# Values are admin-editable via config/llm_retry.yml (#38), loaded fresh on
+# every call by load_llm_retry_config() — see that module's docstring for why
+# BYOK provider order is deliberately NOT included in the same config.
 
 
 def _call_llm(
@@ -447,11 +446,16 @@ def _call_llm(
     if disable_reasoning:
         extra["reasoning"] = {"enabled": False}
 
+    retry_config = load_llm_retry_config()
     resp: Any = None
     _rate_limit_attempts = 0
     _connect_attempts = 0
     for _attempt in range(
-        max(len(_LLM_RATELIMIT_BACKOFF_SECONDS), len(_LLM_CONNECT_BACKOFF_SECONDS)) + 1
+        max(
+            len(retry_config.ratelimit_backoff_seconds),
+            len(retry_config.connect_backoff_seconds),
+        )
+        + 1
     ):
         try:
             resp = client.chat.completions.create(
@@ -467,10 +471,10 @@ def _call_llm(
         except openai.RateLimitError:
             backoff_idx = _rate_limit_attempts
             _rate_limit_attempts += 1
-            if backoff_idx >= len(_LLM_RATELIMIT_BACKOFF_SECONDS):
+            if backoff_idx >= len(retry_config.ratelimit_backoff_seconds):
                 logger.warning("llm call: model=%s exhausted 429 backoff retries", model)
                 raise
-            wait = _LLM_RATELIMIT_BACKOFF_SECONDS[backoff_idx]
+            wait = retry_config.ratelimit_backoff_seconds[backoff_idx]
             logger.warning(
                 "llm call: model=%s got 429 (attempt %d), backing off %.0fs",
                 model,
@@ -481,10 +485,10 @@ def _call_llm(
         except openai.APIConnectionError:
             backoff_idx = _connect_attempts
             _connect_attempts += 1
-            if backoff_idx >= len(_LLM_CONNECT_BACKOFF_SECONDS):
+            if backoff_idx >= len(retry_config.connect_backoff_seconds):
                 logger.warning("llm call: model=%s exhausted connection backoff retries", model)
                 raise
-            wait = _LLM_CONNECT_BACKOFF_SECONDS[backoff_idx]
+            wait = retry_config.connect_backoff_seconds[backoff_idx]
             logger.warning(
                 "llm call: model=%s connection error (attempt %d), backing off %.0fs",
                 model,
