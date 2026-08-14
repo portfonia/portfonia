@@ -1385,6 +1385,19 @@ def test_report_context_to_jsonb_serialisable() -> None:
     json.dumps(data)  # must not raise
 
 
+def test_report_inputs_dict_mirrors_report_context_fields() -> None:
+    """#39: ReportInputsDict must declare exactly the same key set as
+    ReportContext's dataclass fields. The two are kept in sync by hand (see
+    ReportInputsDict's docstring) — this is the regression guard against
+    that sync silently drifting when a field is added to one but not the
+    other."""
+    import dataclasses
+
+    context_fields = {f.name for f in dataclasses.fields(rg.ReportContext)}
+    typeddict_keys = set(rg.ReportInputsDict.__annotations__)
+    assert typeddict_keys == context_fields
+
+
 # ---------------------------------------------------------------------------
 # Tests: _strip_markers (unit, no DB) — #9: inline tags/citations are removed
 # ---------------------------------------------------------------------------
