@@ -33,7 +33,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from string import Template
-from typing import Any
+from typing import Any, TypedDict, cast
 
 import httpx
 import openai
@@ -283,6 +283,44 @@ def _decimal_default(o: object) -> object:
     raise TypeError(f"not JSON-serialisable: {type(o)}")
 
 
+class ReportInputsDict(TypedDict, total=False):
+    """Static-typed view of the `report_inputs` JSONB shape (#39).
+
+    Mirrors ReportContext's field set — keep the two in sync by hand; the
+    to_jsonb() JSON round-trip (dataclasses.asdict -> json.dumps/loads) means
+    nothing enforces that sync automatically, only mypy's key/type checking
+    at call sites that `cast` a raw dict into this type.
+
+    `total=False`: every key is optional at read time. Rows written before a
+    later ReportContext field was added won't have it, and
+    regenerate_report's analyze-mode update (`{**inputs, "pass2_raw": ...}`)
+    only ever adds/overwrites the keys it touches, never re-derives the rest
+    — so no key here can be assumed universally present on a stored row.
+    """
+
+    portfolio_summary: dict[str, Any]
+    news_items: list[dict[str, Any]]
+    macro_signals: dict[str, Any]
+    price_anomalies: list[dict[str, Any]]
+    technical_positions: list[dict[str, Any]]
+    forward_events: list[dict[str, Any]]
+    holding_news: dict[str, list[dict[str, Any]]]
+    period_start: str
+    period_end: str
+    window_trading_days: int
+    price_data_through: str
+    pass1_model: str
+    pass1_prompt: str
+    pass1_raw: str
+    search_queries: list[str]
+    search_results: list[dict[str, Any]]
+    pass2_model: str
+    pass2_prompt: str
+    pass2_raw: str
+    llm_calls: list[dict[str, Any]]
+    pass2_translated: str
+
+
 @dataclass
 class ReportContext:
     """Intermediate documents captured for the report_inputs JSONB column."""
@@ -319,6 +357,17 @@ class ReportContext:
     pass2_translated: str = ""
 
     def to_jsonb(self) -> dict[str, Any]:
+        """Return the write-side dict for the `report_inputs` JSONB column.
+
+        Kept as `dict[str, Any]`, not `ReportInputsDict` (#39) — the column
+        itself is untyped JSONB (`Mapped[dict[str, Any] | None]` on the ORM
+        model), so a TypedDict return here would only fight that boundary at
+        every assignment site for no type-safety gain. `ReportInputsDict` is
+        the read-side contract instead: callers `cast` into it once they pull
+        a row's `report_inputs` back out, which is where the drift this issue
+        cares about (readers assuming a key/shape ReportContext never wrote)
+        actually gets caught.
+        """
         result: dict[str, Any] = json.loads(json.dumps(asdict(self), default=_decimal_default))
         return result
 
@@ -617,7 +666,7 @@ def _tavily_used_today(
         if row_id == exclude_report_id:
             continue
         if inputs and isinstance(inputs, dict):
-            total += len(inputs.get("search_queries", []))
+            total += len(cast(ReportInputsDict, inputs).get("search_queries", []))
     return total
 
 
@@ -2514,7 +2563,7 @@ def regenerate_report(
     ).scalar_one_or_none()
     if report is None:
         raise ValueError(f"report {report_id} not found")
-    inputs = report.report_inputs
+    inputs = cast(ReportInputsDict | None, report.report_inputs)
     if not inputs or not inputs.get("pass2_raw"):
         raise ValueError(f"report {report_id} has no stored Pass 2 body to regenerate from")
 
