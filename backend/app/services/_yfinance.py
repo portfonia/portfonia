@@ -55,8 +55,15 @@ _MAX_BATCH_SIZE = 8
 _INTER_BATCH_DELAY = 0.5  # seconds
 
 
-def _classify_market(ticker: str) -> str:
-    """Return market key for a ticker: 'hk', 'cn', or 'us'."""
+def _market_key_for_ticker(ticker: str) -> str:
+    """Return market key for a ticker: 'hk', 'cn', or 'us'.
+
+    Used for batch-fetch grouping. Not the same thing as
+    portfolio_calculator.py's `_infer_holding_market` (issue #41) — that one
+    classifies a `Holding` row for report display and returns different
+    values (`HK`/`A-Share`/`US`/`Other`, with fund_code/cash/wmf handling
+    this function has no notion of).
+    """
     upper = ticker.upper()
     if upper.endswith(".HK"):
         return "hk"
@@ -150,7 +157,7 @@ def fetch_last_close(tickers: list[str]) -> dict[str, ClosePoint]:
     # Group by market, preserving insertion order within each group.
     by_market: dict[str, list[str]] = {"us": [], "hk": [], "cn": []}
     for t in tickers:
-        by_market[_classify_market(t)].append(t)
+        by_market[_market_key_for_ticker(t)].append(t)
 
     # Build ordered list of sub-batches, each <= _MAX_BATCH_SIZE tickers.
     batches: list[list[str]] = []
@@ -205,7 +212,7 @@ def fetch_ohlcv_range(tickers: list[str], lookback_days: int = 7) -> dict[str, l
     period = f"{max(lookback_days, 2)}d"
     by_market: dict[str, list[str]] = {"us": [], "hk": [], "cn": []}
     for t in tickers:
-        by_market[_classify_market(t)].append(t)
+        by_market[_market_key_for_ticker(t)].append(t)
     batches: list[list[str]] = []
     for market_tickers in by_market.values():
         if market_tickers:

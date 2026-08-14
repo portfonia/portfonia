@@ -48,8 +48,14 @@ _DEFAULT_SINGLE_THRESHOLD = (Decimal("0.15"), Decimal("0.25"))
 _SECTOR_ASSET_TYPES = {"stock", "etf"}
 
 
-def _classify_market(holding: Holding) -> str:
-    """Infer the exchange/market for a holding from ticker suffix or fund_code."""
+def _infer_holding_market(holding: Holding) -> str:
+    """Infer the exchange/market for a holding from ticker suffix or fund_code.
+
+    Used for report display. Not the same thing as _yfinance.py's
+    `_market_key_for_ticker` (issue #41) — that one classifies a bare ticker
+    string for batch-fetch grouping and returns a different value set
+    (`hk`/`cn`/`us`, no fund_code/cash/wmf handling).
+    """
     ticker = holding.ticker or ""
     if ticker.endswith(".HK"):
         return "HK"
@@ -309,7 +315,7 @@ def compute_portfolio(
         market_value_base = converted.quantize(_CENT, rounding=ROUND_HALF_UP)
 
         # Prefer the user-declared market; derive from ticker only when absent.
-        market = h.market or _classify_market(h)
+        market = h.market or _infer_holding_market(h)
         snapshot.holdings.append(
             HoldingValue(
                 holding_id=h.id,
