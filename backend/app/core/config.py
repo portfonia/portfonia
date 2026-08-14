@@ -212,6 +212,10 @@ class Settings(BaseSettings):
     # Empty string = use the default path: backend/config/compliance_vocab.yml
     COMPLIANCE_VOCAB_PATH: str = ""
 
+    # LLM call retry/backoff tuning (admin-editable, #38)
+    # Empty string = use the default path: backend/config/llm_retry.yml
+    LLM_RETRY_CONFIG_PATH: str = ""
+
     # Chinese-language example/vocabulary data for the holdings-extraction prompt (#90)
     # Empty string = use the default path: backend/config/holding_parser_vocab.yml
     HOLDING_PARSER_VOCAB_PATH: str = ""

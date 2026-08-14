@@ -1,0 +1,28 @@
+# LLM call retry/backoff tuning — admin-editable, system-level (#38).
+#
+# Loaded fresh on every `_call_llm` invocation (report_generator.py), no
+# caching — an edit here takes effect on the next LLM call, no process
+# restart. Same pattern as asset_class_thresholds.yml (#35).
+#
+# Each list is the sequence of in-process backoff waits (seconds), tried in
+# order, before `_call_llm` gives up and re-raises to the outer Celery retry.
+# List length = number of in-process retries for that error class; an empty
+# list means fail immediately with no in-process retry.
+#
+# Each wait must be a finite, non-negative number no greater than 300s
+# (matches Celery's own default_retry_delay), and each list may have at most
+# 5 entries — the loader (llm_retry_config.py) rejects anything outside
+# these bounds rather than letting a typo (or `.inf`/`.nan`) pin a worker.
+#
+# NOT covered here: BYOK provider order (`_BYOK_PROVIDER_ORDER` in
+# report_generator.py). That pin is a compliance decision (issue #78/#79),
+# not an operational tuning knob — it stays a hardcoded constant so changing
+# it requires a code review + explicit product-owner sign-off, not an
+# unreviewed config edit.
+
+# 429 rate-limit: short waits — rate-limit windows are usually seconds.
+ratelimit_backoff_seconds: [5.0, 15.0]
+
+# Connection error: longer waits — network blips typically resolve in
+# ~30-90s, so absorbing them here avoids burning a whole Celery task retry.
+connect_backoff_seconds: [30.0, 90.0]
