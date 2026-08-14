@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
@@ -36,9 +37,25 @@ from sqlalchemy.orm import Session
 
 from app.core.timezones import CST
 from app.models.holding import Holding
-from app.services.price_fetcher import PriceFetchResult
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class FundNavFetchResult:
+    """Outcome of update_fund_navs(): fund NAV capture, not stock-price capture.
+
+    Same shape as price_fetcher.py's PriceFetchResult by coincidence, not by
+    a shared contract — fund NAV (Tiantian Fund) and stock price (yfinance)
+    are different domains with different data sources/cadence/failure modes.
+    Deliberately not imported from price_fetcher.py (issue #42): a future
+    stock-price-specific field added there should not silently affect fund
+    NAV capture.
+    """
+
+    updated: int = 0
+    failed: list[str] = field(default_factory=list)
+
 
 # Tiantian Fund realtime endpoint (JSONP); extracts the latest official settled NAV.
 _NAV_URL = "https://fundgz.1234567.com.cn/js/{fund_code}.js"
@@ -278,12 +295,12 @@ def fetch_nav_history(
     return result
 
 
-def update_fund_navs(session: Session) -> PriceFetchResult:
+def update_fund_navs(session: Session) -> FundNavFetchResult:
     """
     Load all auto-mode holdings with a fund_code, fetch NAVs from
     Tiantian Fund, and write market_price / price_as_of / price_fetched_at.
     """
-    result = PriceFetchResult()
+    result = FundNavFetchResult()
 
     rows: list[Holding] = list(
         session.execute(

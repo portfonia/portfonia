@@ -14,8 +14,8 @@ import pytest
 from app.services._yfinance import (
     _MAX_BATCH_SIZE,
     _chunk,
-    _classify_market,
     _download_batch,
+    _market_key_for_ticker,
     fetch_last_close,
 )
 
@@ -23,7 +23,7 @@ _AS_OF = datetime(2026, 6, 4, 20, 0, tzinfo=UTC)
 
 
 # ---------------------------------------------------------------------------
-# _classify_market
+# _market_key_for_ticker
 # ---------------------------------------------------------------------------
 
 
@@ -43,8 +43,8 @@ _AS_OF = datetime(2026, 6, 4, 20, 0, tzinfo=UTC)
         ("600519.ss", "cn"),
     ],
 )
-def test_classify_market(ticker: str, expected: str) -> None:
-    assert _classify_market(ticker) == expected
+def test_market_key_for_ticker(ticker: str, expected: str) -> None:
+    assert _market_key_for_ticker(ticker) == expected
 
 
 # ---------------------------------------------------------------------------

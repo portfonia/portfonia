@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models.fx_rate import FxRate
 from app.models.holding import Holding
+from app.services.fund_nav_fetcher import FundNavFetchResult
 from app.services.price_fetcher import PriceFetchResult
 
 _USER = uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -79,7 +80,7 @@ def test_refresh_orchestrates_all_fetchers(app_client: TestClient, db_session: S
         patch("app.routers.portfolio.price_fetcher.backfill_sectors", return_value=2),
         patch(
             "app.routers.portfolio.update_fund_navs",
-            return_value=PriceFetchResult(updated=1, failed=["999"]),
+            return_value=FundNavFetchResult(updated=1, failed=["999"]),
         ),
         patch.object(
             fx_fetcher, "update_fx_rates", return_value=FxFetchResult(upserted=2, failed=[])

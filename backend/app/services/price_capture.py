@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from app.core.timezones import MARKET_TZ
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
-from app.services._yfinance import _classify_market, fetch_ohlcv_range, fetch_spot
+from app.services._yfinance import _market_key_for_ticker, fetch_ohlcv_range, fetch_spot
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ def _effective_market(h: Holding) -> str:
     """User-declared market wins; otherwise derive from the ticker."""
     if h.market:
         return h.market
-    return _MARKET_KEY.get(_classify_market(h.ticker or ""), "Other")
+    return _MARKET_KEY.get(_market_key_for_ticker(h.ticker or ""), "Other")
 
 
 def _market_tickers(session: Session, market: str) -> list[str]:
