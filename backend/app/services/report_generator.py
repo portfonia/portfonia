@@ -698,7 +698,9 @@ def generate_report(
         l1_candidates, l1_facts = build_l1_candidates(
             ctx.price_anomalies, ctx.holding_news, ctx.technical_positions
         )
-        ctx.ticker_intel = get_l1_intel_batch(session, l1_candidates, eff_date, l1_facts)
+        ctx.ticker_intel = get_l1_intel_batch(
+            session, l1_candidates, eff_date, l1_facts, usage_sink=ctx.llm_calls
+        )
         logger.info(
             "report %s: L1 shared intel available for %d/%d candidate identifiers",
             report.id,

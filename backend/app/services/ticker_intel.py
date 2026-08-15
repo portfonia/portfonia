@@ -121,13 +121,19 @@ class L1Facts:
 
 
 def _build_l1_prompt(identifier: str, facts: L1Facts) -> str:
+    # `facts.trigger` (single_day vs cumulative) is deliberately NOT included
+    # here (round 2 review finding): it comes from the CALLING USER's own
+    # asset_class threshold (window_data.select_user_anomalies) — two holders
+    # of the same identifier can classify the identical move differently, and
+    # baking the first caller's classification into the shared prompt text
+    # would make the cached analysis reflect an arbitrary user's framing.
+    # Still recorded in `facts.to_jsonb()` for audit (which user's call
+    # produced this row), just not sent to the LLM.
     lines = [f"Identifier: {identifier}", ""]
     if facts.net_pct is not None:
         lines.append(f"Window net price change: {facts.net_pct:+.2%}")
     if facts.max_day_pct is not None:
         lines.append(f"Largest single-day move in window: {facts.max_day_pct:+.2%}")
-    if facts.trigger:
-        lines.append(f"Trigger type: {facts.trigger}")
     if facts.market:
         lines.append(f"Market: {facts.market}")
     if facts.current_price is not None and facts.prev_price is not None:
@@ -210,7 +216,13 @@ def _write_cache(
     session.flush()
 
 
-def _generate(session: Session, identifier: str, trade_date: date, facts: L1Facts) -> str | None:
+def _generate(
+    session: Session,
+    identifier: str,
+    trade_date: date,
+    facts: L1Facts,
+    usage_sink: list[dict[str, Any]] | None = None,
+) -> str | None:
     """Call the LLM, gate the output through the compliance scan, and ALWAYS
     write a row — either the real analysis, or (on an LLM failure or a
     compliance block) a null-analysis marker row, so a systematically
@@ -219,7 +231,13 @@ def _generate(session: Session, identifier: str, trade_date: date, facts: L1Fact
     nothing on failure, so the daily cap — which counts cache rows — never
     saw these attempts and could be bypassed entirely). Returns None (never
     raises) on either failure mode — both degrade to "no L1 intel this run",
-    not a report failure (design doc §4.3)."""
+    not a report failure (design doc §4.3).
+
+    `usage_sink` (round 2 review finding): forwarded straight to `_call_llm`,
+    same as Pass 1/Pass 2 already do — without it, L1's per-identifier spend
+    was invisible in `report_inputs.llm_calls`, so a report's total LLM cost
+    audit silently excluded whatever L1 analysis it triggered.
+    """
     settings = get_settings()
     model = settings.LOW_COST_LLM_MODEL
     prompt = _build_l1_prompt(identifier, facts)
@@ -232,6 +250,7 @@ def _generate(session: Session, identifier: str, trade_date: date, facts: L1Fact
             prompt,
             with_holdings=False,
             disable_reasoning=True,
+            usage_sink=usage_sink,
         )
     except Exception:
         logger.exception("ticker_intel: L1 analysis call failed for %s", identifier)
@@ -251,9 +270,12 @@ def _generate(session: Session, identifier: str, trade_date: date, facts: L1Fact
             body=(
                 f"L1 shared-cache analysis for identifier {identifier} on {trade_date} "
                 f"tripped the forbidden-vocabulary scan: {violations}\n\n"
-                f"This entry was NOT cached — a cached hit here would have been reused "
-                f"across every user holding {identifier}. Report generation for the "
-                f"affected user(s) continues without L1 intel for this identifier."
+                f"The forbidden text was NOT stored or served — a null-analysis marker "
+                f"row was written for (identifier={identifier}, trade_date={trade_date}, "
+                f"prompt_version={_PROMPT_VERSION}) instead, so this identifier will not "
+                f"be re-attempted today (do not manually retry it; that would just hit "
+                f"the same unique-key row). Report generation for the affected user(s) "
+                f"continues without L1 intel for this identifier."
             ),
             idempotency_key=f"ops-l1-blocked-{identifier}-{trade_date}",
         )
@@ -269,6 +291,7 @@ def get_l1_intel_batch(
     identifiers: list[str],
     trade_date: date,
     facts_by_identifier: dict[str, L1Facts],
+    usage_sink: list[dict[str, Any]] | None = None,
 ) -> dict[str, str]:
     """Read-through cache over `identifiers` (expected ordered by |move|
     descending — see `build_l1_candidates`). A cache HIT — whether it holds
@@ -283,6 +306,11 @@ def get_l1_intel_batch(
     writes let a systematically-blocked or -failing identifier bypass the
     daily cap entirely, since every user in the fan-out would see "not yet
     attempted" and retry it.
+
+    `usage_sink` (round 2 review finding): forwarded to every fresh
+    `_generate` call — a cache HIT makes no LLM call, so nothing to record.
+    Pass `ctx.llm_calls` from `generate_report` so a day's L1 spend shows up
+    in the SAME report_inputs.llm_calls list Pass 1/Pass 2 already use.
 
     Sequential fan-out (`generate_incremental_report` processes users one at
     a time, not concurrently) is what actually makes "shared across users"
@@ -309,7 +337,7 @@ def get_l1_intel_batch(
         facts = facts_by_identifier.get(identifier)
         if facts is None:
             continue
-        analysis = _generate(session, identifier, trade_date, facts)
+        analysis = _generate(session, identifier, trade_date, facts, usage_sink)
         fresh_budget -= 1
         if analysis is not None:
             result[identifier] = analysis
@@ -324,7 +352,8 @@ def build_l1_candidates(
     """Candidate identifiers for L1 analysis + their public facts, built from
     the same serialized shapes `generate_report` already holds
     (`ctx.price_anomalies`, `ctx.holding_news`, `ctx.technical_positions`) —
-    design doc §4.3: "本窗口触发异动的identifier 或 被持仓新闻召回命中的identifier".
+    design doc §4.3: identifiers that triggered a window anomaly this report,
+    or that holding-news recall matched.
 
     Ordering: anomaly identifiers first, in their given order (already
     sorted by |move| descending — see `window_data.select_user_anomalies`),
@@ -334,8 +363,28 @@ def build_l1_candidates(
     """
     technical_by_ticker = {t["ticker"]: t for t in technical_positions if t.get("ticker")}
 
-    def _apply_technical(facts_obj: L1Facts, identifier: str) -> None:
-        tech = technical_by_ticker.get(identifier, {})
+    def _technical_lookup_key(identifier: str, anomaly: dict[str, Any] | None) -> str:
+        """`technical_positions` is keyed by real ticker. A theme-merged
+        anomaly's `identifier` is the theme slug ("gold", "nasdaq_100" —
+        see `window_data._merge_theme_anomalies`), which never matches —
+        round 2 review finding: this silently dropped SMA/52w-range facts
+        from every theme-level L1 briefing. Fall back to the dominant
+        (highest-value) constituent's ticker, the same one
+        `_merge_theme_anomalies` already sources its OHLC/price facts from.
+        """
+        if identifier in technical_by_ticker:
+            return identifier
+        constituents = (anomaly or {}).get("constituents") or []
+        if constituents:
+            dominant = constituents[0].get("identifier")
+            if dominant:
+                return str(dominant)
+        return identifier
+
+    def _apply_technical(
+        facts_obj: L1Facts, identifier: str, anomaly: dict[str, Any] | None = None
+    ) -> None:
+        tech = technical_by_ticker.get(_technical_lookup_key(identifier, anomaly), {})
         facts_obj.pct_vs_sma50 = tech.get("pct_vs_sma50")
         facts_obj.pct_vs_sma200 = tech.get("pct_vs_sma200")
         facts_obj.pct_in_52w_range = tech.get("pct_in_52w_range")
@@ -359,7 +408,7 @@ def build_l1_candidates(
             latest_date=a.get("latest_date") or "",
             news_headlines=[n.get("title", "") for n in holding_news.get(identifier, [])],
         )
-        _apply_technical(new_facts, identifier)
+        _apply_technical(new_facts, identifier, a)
         facts[identifier] = new_facts
 
     for identifier, items in holding_news.items():

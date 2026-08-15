@@ -310,6 +310,60 @@ def test_targeted_search_budget_uses_real_api_calls_not_result_item_count(
     assert any("NVDA" in q for q in real_queries)
 
 
+def test_generate_report_pass2_call_excludes_l1_ticker_intel_text(db_session: Session) -> None:
+    """Round 2 review finding: `ctx.ticker_intel` is populated and persisted
+    on report_inputs, but nothing enforces that Pass 2 never receives it —
+    isolation held only because `_build_pass2_prompt` happens not to be
+    wired to it. Locks the contract with a red test, parallel to
+    test_generate_report_pass1_call_has_no_holdings, so a future "wire L1
+    into Pass 2" edit can't silently ship holdings-derived L1 prose into the
+    per-user Pass 2 call without breaking a test."""
+    _L1_MARKER = "ZZZ_L1_SHARED_ANALYSIS_MARKER_ZZZ"
+    captured: dict[str, str] = {}
+
+    def _capture_pass2_llm(
+        client: object,
+        model: str,
+        system: str,
+        user: str,
+        *,
+        with_holdings: bool = False,
+        **kwargs: object,
+    ) -> str:
+        if with_holdings:
+            captured["pass2_user"] = user
+            return _FAKE_LLM_PASS2
+        return _FAKE_LLM_PASS1
+
+    def _mock_l1_llm(*args: object, **kwargs: object) -> str:
+        return _L1_MARKER
+
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch(
+            "app.services.report_generator.load_news_window",
+            return_value=[_news_item("Fed raises rates")],
+        ),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+        patch(
+            "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
+        ),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_capture_pass2_llm),
+        patch("app.services.report_generator._run_tavily_search", return_value=[]),
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_mock_l1_llm),
+    ):
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert report.status == "success"
+    assert report.report_inputs is not None
+    assert report.report_inputs["ticker_intel"].get("NVDA") == _L1_MARKER  # sanity: L1 DID run
+    assert "pass2_user" in captured
+    assert _L1_MARKER not in captured["pass2_user"]
+
+
 def test_generate_report_retry_clears_stale_provider_message_id(db_session: Session) -> None:
     """issue #45 review follow-up: a row reused for retry (status not success/
     skipped) must clear provider_message_id alongside email_sent_at — otherwise

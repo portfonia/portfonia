@@ -21,6 +21,7 @@ from sqlalchemy import delete
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
+from app.services.email_sender import send_ops_alert
 from app.tasks import celery_app
 
 logger = logging.getLogger(__name__)
@@ -51,11 +52,23 @@ def _cleanup_expired(session: Session, cutoff: date) -> dict[str, int]:
     }
 
 
-@celery_app.task(name="app.tasks.cache_tasks.sweep_stale_shared_intel_cache")  # type: ignore[untyped-decorator]
-def sweep_stale_shared_intel_cache() -> dict[str, int]:
+@celery_app.task(  # type: ignore[untyped-decorator]
+    name="app.tasks.cache_tasks.sweep_stale_shared_intel_cache",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=300,
+)
+def sweep_stale_shared_intel_cache(self: Any) -> dict[str, int]:
     """Daily backstop: delete ticker_intel/search_cache rows older than
     `_RETENTION_DAYS`. See module docstring for why this table needs a
-    retention sweep where upload_job's "no cleanup" gap does not."""
+    retention sweep where upload_job's "no cleanup" gap does not.
+
+    Retry + ops-alert on exhaustion (round 2 review finding): unlike the
+    other beat tasks in this codebase (backup, capture), this previously
+    had no error handling at all — a silent sweep outage let both cache
+    tables grow without bound, exactly the failure mode this task exists
+    to prevent. Matches backup_database_task's pattern.
+    """
     from app.core.database import SessionLocal
 
     cutoff = (datetime.now(UTC) - timedelta(days=_RETENTION_DAYS)).date()
@@ -70,5 +83,20 @@ def sweep_stale_shared_intel_cache() -> dict[str, int]:
             cutoff,
         )
         return result
+    except Exception as exc:
+        logger.exception("sweep_stale_shared_intel_cache: failed, scheduling retry")
+        if self.request.retries >= self.max_retries:
+            send_ops_alert(
+                subject="[Portfonia] shared-intel cache sweep FAILED — retries exhausted",
+                body=(
+                    f"sweep_stale_shared_intel_cache failed after {self.max_retries} retries.\n\n"
+                    f"error: {type(exc).__name__}: {exc}\n\n"
+                    f"Impact: ticker_intel/search_cache rows older than {_RETENTION_DAYS} days "
+                    f"are not being cleaned up — both tables will keep growing until this is "
+                    f"fixed. Not a correctness issue for reports, but check disk usage if this "
+                    f"persists. Check worker.log for the full traceback."
+                ),
+            )
+        raise self.retry(exc=exc) from exc
     finally:
         session.close()

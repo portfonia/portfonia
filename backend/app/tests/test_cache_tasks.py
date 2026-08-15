@@ -89,6 +89,33 @@ def test_task_computes_cutoff_and_closes_session(mock_session_cls: MagicMock) ->
     mock_session.close.assert_called_once()
 
 
+@patch("app.tasks.cache_tasks.send_ops_alert")
+@patch("app.core.database.SessionLocal")
+def test_task_retries_and_alerts_on_exhaustion(
+    mock_session_cls: MagicMock, mock_alert: MagicMock
+) -> None:
+    """Round 2 review finding: unlike backup/capture beat tasks, the sweep
+    had no try/except/retry/ops-alert at all — a silent sweep outage let
+    both cache tables grow without bound, the exact failure mode this task
+    exists to prevent. Matches backup_database_task's pattern: catch,
+    retry, ops-alert on exhaustion, still close the session."""
+    mock_session = MagicMock()
+    mock_session.execute.side_effect = RuntimeError("DB down")
+    mock_session_cls.return_value = mock_session
+
+    import pytest
+
+    with (
+        patch.object(cache_tasks.sweep_stale_shared_intel_cache, "max_retries", 0),
+        pytest.raises(RuntimeError),
+    ):
+        cache_tasks.sweep_stale_shared_intel_cache.run()
+
+    mock_alert.assert_called_once()
+    assert "sweep" in mock_alert.call_args.kwargs["subject"].lower()
+    mock_session.close.assert_called_once()
+
+
 # ---------------------------------------------------------------------------
 # Beat schedule registration
 # ---------------------------------------------------------------------------

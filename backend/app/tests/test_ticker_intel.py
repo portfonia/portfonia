@@ -65,6 +65,45 @@ def test_generate_call_keeps_deny_enforced_no_byok_no_holdings(db_session: Sessi
     assert "allow_fallbacks" not in kwargs
 
 
+def test_fresh_analysis_records_usage_in_the_shared_sink(db_session: Session) -> None:
+    """Round 2 review finding: L1's per-identifier spend used to be invisible
+    in report_inputs.llm_calls (Pass 1/Pass 2 both record there) — a day's
+    L1 cost couldn't be audited from the report row that triggered it."""
+
+    def _mock_llm_with_usage(*args: object, **kwargs: object) -> str:
+        sink = kwargs.get("usage_sink")
+        if isinstance(sink, list):
+            sink.append({"model": "test-model", "cost": 0.001})
+        return "NVDA rallied on a confirmed earnings beat. [Established]"
+
+    usage: list[dict[str, object]] = []
+    with (
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_mock_llm_with_usage),
+    ):
+        ti.get_l1_intel_batch(db_session, ["NVDA"], _DATE, {"NVDA": _facts()}, usage_sink=usage)
+
+    assert usage == [{"model": "test-model", "cost": 0.001}]
+
+
+def test_cache_hit_records_no_usage(db_session: Session) -> None:
+    def _mock_llm_with_usage(*args: object, **kwargs: object) -> str:
+        sink = kwargs.get("usage_sink")
+        if isinstance(sink, list):
+            sink.append({"model": "test-model", "cost": 0.001})
+        return "NVDA rallied on a confirmed earnings beat. [Established]"
+
+    with (
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_mock_llm_with_usage),
+    ):
+        ti.get_l1_intel_batch(db_session, ["NVDA"], _DATE, {"NVDA": _facts()})
+        usage: list[dict[str, object]] = []
+        ti.get_l1_intel_batch(db_session, ["NVDA"], _DATE, {"NVDA": _facts()}, usage_sink=usage)
+
+    assert usage == []
+
+
 def test_first_call_generates_and_caches(db_session: Session) -> None:
     with (
         patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
@@ -334,3 +373,70 @@ def test_build_l1_candidates_attaches_technical_facts() -> None:
     _order, facts = ti.build_l1_candidates(anomalies, {}, technical)
     assert facts["NVDA"].pct_vs_sma50 == 0.1
     assert facts["NVDA"].pct_vs_sma200 == 0.2
+
+
+def test_build_l1_candidates_theme_anomaly_falls_back_to_dominant_constituent_technicals() -> None:
+    """Round 2 review finding: a theme-merged anomaly (window_data.py's
+    `_merge_theme_anomalies`) is keyed by the theme slug ("gold"), not a
+    real ticker — `technical_positions` is keyed by ticker, so a naive
+    lookup by `a["identifier"]` always misses for theme entries, silently
+    dropping SMA/52w-range facts from every theme-level L1 briefing.
+    `constituents[0]` is the dominant (highest-value) holding — the same
+    one `_merge_theme_anomalies` already sources OHLC/price facts from —
+    so it's the correct fallback key for the technical lookup too."""
+    anomalies = [
+        {
+            "identifier": "gold",
+            "window_net_pct": 0.05,
+            "max_day_pct": 0.03,
+            "trigger": "single_day",
+            "market": "US",
+            "current_price": 190.0,
+            "prev_price": 180.0,
+            "latest_date": "2026-08-14",
+            "constituents": [
+                {
+                    "name": "SPDR Gold",
+                    "identifier": "SGOL",
+                    "pct_change": 0.05,
+                    "current_value": 5000.0,
+                }
+            ],
+        }
+    ]
+    technical = [{"ticker": "SGOL", "pct_vs_sma50": 0.08, "pct_vs_sma200": 0.15}]
+    _order, facts = ti.build_l1_candidates(anomalies, {}, technical)
+    assert facts["gold"].pct_vs_sma50 == 0.08
+    assert facts["gold"].pct_vs_sma200 == 0.15
+
+
+def test_build_l1_candidates_theme_anomaly_with_no_constituents_leaves_technicals_none() -> None:
+    anomalies = [
+        {
+            "identifier": "gold",
+            "window_net_pct": 0.05,
+            "max_day_pct": 0.03,
+            "trigger": "single_day",
+            "market": "US",
+            "current_price": 190.0,
+            "prev_price": 180.0,
+            "latest_date": "2026-08-14",
+            "constituents": [],
+        }
+    ]
+    _order, facts = ti.build_l1_candidates(
+        anomalies, {}, [{"ticker": "SGOL", "pct_vs_sma50": 0.08}]
+    )
+    assert facts["gold"].pct_vs_sma50 is None
+
+
+def test_build_l1_prompt_excludes_per_user_trigger_classification() -> None:
+    """Round 2 review finding: `trigger` (single_day vs cumulative) is
+    determined by the CALLING USER's own asset_class threshold
+    (window_data.select_user_anomalies) — two holders of the same
+    identifier can classify the identical move differently. The first
+    writer's classification must not be baked into the shared prompt text
+    (kept in the stored `facts` JSONB for audit only, per L1Facts.to_jsonb)."""
+    prompt = ti._build_l1_prompt("NVDA", _facts(trigger="cumulative"))
+    assert "cumulative" not in prompt.lower()
+    assert "trigger" not in prompt.lower()
