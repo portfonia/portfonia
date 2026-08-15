@@ -518,7 +518,13 @@ def select_user_anomalies(
         if h.pricing_mode != "auto":
             continue
         raw = h.ticker or h.fund_code
-        identifier = _normalize_hk_ticker(raw) if raw else None
+        # .upper() here must match global_identifier_universe's key casing
+        # (PR #151 review round 2): POST /holdings/confirm accepts
+        # ParsedRow.ticker as-is, bypassing the upload parser's case
+        # normalization, so a mixed-case ticker's move gets computed
+        # correctly under moves' uppercase key but would silently miss here
+        # without the same normalization on this side of the lookup.
+        identifier = _normalize_hk_ticker(raw).upper() if raw else None
         if not identifier:
             continue
         move = moves.get(identifier)

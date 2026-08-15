@@ -720,6 +720,31 @@ def test_select_user_anomalies_skips_manual_pricing_mode(db_session: Session) ->
     assert anomalies == []
 
 
+def test_select_user_anomalies_matches_mixed_case_ticker_to_global_move(
+    db_session: Session,
+) -> None:
+    """PR #151 review round 2: compute_global_moves/global_identifier_universe
+    key `moves` by the UPPERCASED normalized identifier. A holding whose
+    ticker isn't already uppercase — possible via POST /holdings/confirm,
+    which accepts ParsedRow.ticker as-is and bypasses the upload parser's
+    case normalization — must still match its own globally-computed move,
+    not silently miss it because select_user_anomalies looked up with a
+    different casing."""
+    db_session.add(_hk_holding(_USER, "Apple", "aapl", "STOCK"))
+    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    db_session.add_all(
+        [
+            _close_at("AAPL", date(2026, 6, 2), 100.0, start),
+            _close("AAPL", date(2026, 6, 3), 106.0),  # +6%
+        ]
+    )
+    db_session.flush()
+    end = datetime(2026, 6, 3, 20, 30, tzinfo=UTC)
+
+    anomalies, _ = detect_window_anomalies(db_session, start, end, _USER)
+    assert [a.identifier for a in anomalies] == ["AAPL"]
+
+
 def test_detect_window_anomalies_cache_shares_compute_global_moves_across_calls(
     db_session: Session,
 ) -> None:
