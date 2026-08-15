@@ -99,6 +99,7 @@ from app.services.report_translation import _translate_md
 from app.services.report_types import validate_report_type
 from app.services.technical_position import compute_technical_positions
 from app.services.window_data import (
+    MovesCache,
     detect_window_anomalies,
     latest_window_close_date,
     load_news_window,
@@ -231,6 +232,8 @@ def generate_report(
     base_currency: str = "USD",
     output_lang: str = "en",
     session_node: str = "manual",
+    user_id: uuid.UUID | None = None,
+    moves_cache: MovesCache | None = None,
 ) -> Report:
     """
     Run the full F1 report generation pipeline and persist the result.
@@ -238,10 +241,21 @@ def generate_report(
     Returns the Report ORM object (status='success' or 'failed').
     Raises if the report record cannot be written (e.g. unique constraint violation
     when a report for the same date+type+session_node already exists).
+
+    `user_id` (issue #128 A1): `None` falls back to `get_current_user_id()`
+    (Ring 0's fixed dev user), preserving every existing single-user call
+    site unchanged. `generate_incremental_report`'s multi-user fan-out passes
+    the actual user being generated for.
+
+    `moves_cache` (issue #128 A1): forwarded to `detect_window_anomalies` —
+    see its docstring in `window_data.py`. Lets a multi-user batch share one
+    `compute_global_moves()` call across every user in the same window
+    instead of recomputing it once per user. `None` (every existing call
+    site) preserves the pre-A1 per-call behavior.
     """
     validate_report_type(report_type)
     settings = get_settings()
-    user_id = get_current_user_id()
+    user_id = user_id if user_id is not None else get_current_user_id()
     eff_date = report_date or datetime.now(tz=ET).date()
 
     # ------------------------------------------------------------------
@@ -455,7 +469,9 @@ def generate_report(
         ctx.macro_signals = _serialize_macro(macro_signals)
 
         logger.info("report %s: detecting windowed price anomalies", report.id)
-        anomalies, trading_days = detect_window_anomalies(session, period_start, period_end)
+        anomalies, trading_days = detect_window_anomalies(
+            session, period_start, period_end, user_id, moves_cache
+        )
         ctx.price_anomalies = _serialize_anomalies(anomalies)
         ctx.window_trading_days = trading_days
 

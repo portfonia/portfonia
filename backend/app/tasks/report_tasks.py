@@ -32,16 +32,18 @@ def generate_incremental_report(
     session_node: str = "after_close",
     trigger_hour: int | None = None,
     trigger_minute: int | None = None,
-) -> dict[str, str]:
-    """Generate an incremental report (changes since the user's last report of
-    this report_type).
+) -> dict[str, Any]:
+    """Generate an incremental report for every active user (changes since
+    each user's own last report of this report_type).
 
     `report_type`/`session_node` come from the Celery Beat schedule entry
     (`app.tasks._build_report_schedule`), not hardcoded here — a new cadence
     (e.g. a Ring 1 weekly/monthly type) is a new beat table row, not a new
     task function. A missed run needs no catch-up: the next run's window is
-    "since last report of this type", so it widens to cover the gap. On
-    failure retries up to 3 times with a 5-minute cooldown.
+    "since last report of this type", so it widens to cover the gap. On a
+    batch-level failure (e.g. the active-user query itself fails, before any
+    per-user isolation can apply) retries up to 3 times with a 5-minute
+    cooldown.
 
     `session_node` (H-DEBT-1): identifies this cadence in the dedup key
     `(user_id, report_date, report_type, session_node)`, so an earlier
@@ -55,12 +57,28 @@ def generate_incremental_report(
     intended one, this is that catch-up, not an on-time run, and must NOT
     silently generate + email a report. `None` (manual trigger / tests) skips
     the check entirely.
+
+    Multi-user fan-out (issue #128 A1): `active_user_ids` (SELECT DISTINCT
+    user_id FROM holdings — design doc §1.5, no `users` table needed yet)
+    replaces the pre-A1 single fixed-DEV_USER_ID call. Each user's
+    `generate_report` call is wrapped in its own try/except: one user's
+    failure is logged, ops-alerted, and does NOT stop or retry the batch —
+    the remaining users still get their reports (design doc §3.3/UAT-3).
+    Only a failure OUTSIDE the per-user loop (e.g. `active_user_ids` itself
+    can't reach the DB) is a batch-level failure that retries via
+    `self.retry`, matching the pre-A1 behavior for that class of error.
+    `moves_cache`, shared across every user in this batch, is what makes
+    `compute_global_moves()` run once per (period_start, period_end) window
+    instead of once per user who happens to share it — see
+    `window_data.detect_window_anomalies`.
     """
     # Imports are deferred so the module loads fast and avoids circular deps
     # when Celery first imports the task registry.
     from app.core.config import get_settings
     from app.core.database import SessionLocal
     from app.services.report_generator import generate_report
+    from app.services.user_scope import active_user_ids
+    from app.services.window_data import MovesCache
 
     if trigger_hour is not None and trigger_minute is not None:
         now_et = datetime.now(ET)
@@ -100,46 +118,86 @@ def generate_incremental_report(
     )
     session = SessionLocal()
     try:
-        report = generate_report(
-            session,
-            report_type=report_type,
-            output_lang=get_settings().OUTPUT_LANG,
-            session_node=session_node,
-        )
-        logger.info(
-            "generate_incremental_report: complete — report_id=%s status=%s",
-            report.id,
-            report.status,
-        )
-        if report.status == "needs_review":
-            send_ops_alert(
-                subject=f"[Portfonia] Report BLOCKED — compliance review {report.report_date}",
-                body=(
-                    f"Report {report.id} ({report.report_date}) was held for compliance review "
-                    f"and was NOT emailed to the user.\n\n"
-                    f"Check worker.log for the triggering terms.\n"
-                    f"To rerun: POST /reports/{report.id}/regenerate?mode=analyze"
-                ),
-            )
-        return {"report_id": str(report.id), "status": report.status}
+        user_ids = active_user_ids(session)
+        if not user_ids:
+            logger.info("generate_incremental_report: no active users, nothing to generate")
+            return {"status": "no_active_users", "results": []}
+
+        moves_cache: MovesCache = {}
+        results: list[dict[str, str]] = []
+        for user_id in user_ids:
+            try:
+                report = generate_report(
+                    session,
+                    report_type=report_type,
+                    output_lang=get_settings().OUTPUT_LANG,
+                    session_node=session_node,
+                    user_id=user_id,
+                    moves_cache=moves_cache,
+                )
+                logger.info(
+                    "generate_incremental_report: complete for user %s — report_id=%s status=%s",
+                    user_id,
+                    report.id,
+                    report.status,
+                )
+                if report.status == "needs_review":
+                    send_ops_alert(
+                        subject=f"[Portfonia] Report BLOCKED — compliance review {report.report_date}",
+                        body=(
+                            f"Report {report.id} ({report.report_date}, user {user_id}) was held "
+                            f"for compliance review and was NOT emailed to the user.\n\n"
+                            f"Check worker.log for the triggering terms.\n"
+                            f"To rerun: POST /reports/{report.id}/regenerate?mode=analyze"
+                        ),
+                    )
+                results.append(
+                    {"user_id": str(user_id), "report_id": str(report.id), "status": report.status}
+                )
+            except Exception as exc:
+                logger.exception(
+                    "generate_incremental_report: failed for user %s — continuing with "
+                    "remaining users in this batch",
+                    user_id,
+                )
+                # generate_report's own except block already commits/rolls back around
+                # its own failure; this is defense-in-depth for an error raised before
+                # that block starts (e.g. the idempotency lookup itself), which would
+                # otherwise leave the session's transaction aborted for the next user.
+                session.rollback()
+                send_ops_alert(
+                    subject=f"[Portfonia] Report generation FAILED for one user ({report_type})",
+                    body=(
+                        f"generate_incremental_report failed for user {user_id} "
+                        f"(report_type={report_type}, session_node={session_node}).\n\n"
+                        f"error: {type(exc).__name__}: {exc}\n\n"
+                        f"Other users in this batch were unaffected — this failure did not stop "
+                        f"the batch. Check worker.log for the full traceback."
+                    ),
+                )
+                results.append({"user_id": str(user_id), "status": "failed"})
+
+        return {"status": "completed", "results": results}
     except Exception as exc:
-        logger.exception("generate_incremental_report: failed, scheduling retry")
+        logger.exception("generate_incremental_report: batch failed, scheduling retry")
         if self.request.retries >= self.max_retries:
             send_ops_alert(
-                subject="[Portfonia] Report generation FAILED — all retries exhausted",
+                subject="[Portfonia] Report generation batch FAILED — all retries exhausted",
                 body=(
-                    f"generate_incremental_report failed after {self.max_retries} retries.\n\n"
+                    f"generate_incremental_report failed after {self.max_retries} retries, "
+                    f"before per-user isolation could even apply (e.g. the active-user query "
+                    f"itself failed).\n\n"
                     f"error: {type(exc).__name__}: {exc}\n\n"
                     f"Check worker.log for the full traceback."
                 ),
             )
             create_bug_report(
-                title=f"report generation failure: {type(exc).__name__}",
+                title=f"report generation batch failure: {type(exc).__name__}",
                 body=(
-                    f"## Incremental report generation exhausted all retries\n\n"
+                    f"## Incremental report generation batch exhausted all retries\n\n"
                     f"**Error:** `{type(exc).__name__}: {exc}`\n\n"
                     f"**Retries:** {self.max_retries}\n\n"
-                    f"No report was delivered to the user for this scheduled run.\n\n"
+                    f"No reports were delivered for this scheduled run.\n\n"
                     f"**Investigate:** check `worker.log` for the full traceback."
                 ),
                 labels=["bug", "ops", "report"],

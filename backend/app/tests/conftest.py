@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import Generator
+from decimal import Decimal
 from unittest.mock import MagicMock
 
 import pytest
@@ -32,10 +33,18 @@ from app.core.config import get_settings
 from app.core.database import TEST_DATABASE_NAME, get_engine, reset_engine
 from app.core.deps import get_current_user_id
 from app.main import app
+from app.models.holding import Holding
 
 TEST_DB_NAME = TEST_DATABASE_NAME
 MIGRATION_DB_NAME = "portfonia_test_alembic"
 TEST_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+
+# Ring 1 stage-A shared UAT fixture (design doc §7.1, Hermes/Portfonia/Docs/
+# Ring 1-A design.md, issue #128) — reused across the A1/A2/A3/A4 checkpoints
+# so each doesn't build its own ad hoc multi-user holdings set.
+U1_USER_ID = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
+U2_USER_ID = uuid.UUID("00000000-0000-0000-0000-0000000000a2")
+U3_USER_ID = uuid.UUID("00000000-0000-0000-0000-0000000000a3")
 
 # Modules that import these by name (`from x import y`), each needing its own patch.
 _EXTERNAL_NOTIFY_MODULES = (
@@ -169,6 +178,91 @@ def db_session(
         if outer.is_active:
             outer.rollback()
         connection.close()
+
+
+@pytest.fixture
+def three_user_holdings(db_session: Session) -> dict[str, uuid.UUID]:
+    """U1/U2/U3 holdings (design doc §7.1) shared across Ring 1 stage-A
+    checkpoints. Ticker/asset_class choices, verbatim from the design doc:
+
+    U1: NVDA, AAPL, QQQM, 110011 (offshore fund), cash — baseline user,
+        covers the auto/manual and fund paths.
+    U2: NVDA, AAPL, 0700.HK, USD cash — overlaps U1 on 2 tickers (shared L0
+        compute); AAPL is classified EQUITY_US_TECH here vs U1's STOCK, so
+        the SAME identifier's SAME global move can clear one user's
+        threshold and not the other's (design doc §3.3).
+    U3: 513650.SS, 019547, SGOL — zero overlap with U1/U2, to prove
+        isolation doesn't degenerate into "nobody's report has anything".
+
+    QQQM/110011/0700.HK/513650.SS/019547 intentionally get no price_snapshot
+    rows in this fixture alone — tests that need them anomalous add their
+    own snapshots; tests that don't just exercise the "holding present, no
+    usable baseline" path for free.
+    """
+
+    def _h(**kwargs: object) -> Holding:
+        defaults: dict[str, object] = {"pricing_mode": "auto", "currency": "USD"}
+        return Holding(**{**defaults, **kwargs})
+
+    db_session.add_all(
+        [
+            _h(user_id=U1_USER_ID, name="NVIDIA", ticker="NVDA", asset_class="EQUITY_US_TECH"),
+            _h(user_id=U1_USER_ID, name="Apple", ticker="AAPL", asset_class="STOCK"),
+            _h(
+                user_id=U1_USER_ID,
+                name="Invesco QQQM",
+                ticker="QQQM",
+                asset_class="EQUITY_US_BROAD",
+            ),
+            _h(
+                user_id=U1_USER_ID,
+                name="Offshore Fund",
+                fund_code="110011",
+                currency="CNY",
+                asset_class="EQUITY_CN",
+            ),
+            _h(
+                user_id=U1_USER_ID,
+                name="Cash",
+                pricing_mode="manual",
+                asset_class="CASH_EQUIV",
+                current_value=Decimal("1000"),
+            ),
+            _h(user_id=U2_USER_ID, name="NVIDIA", ticker="NVDA", asset_class="EQUITY_US_TECH"),
+            _h(user_id=U2_USER_ID, name="Apple", ticker="AAPL", asset_class="EQUITY_US_TECH"),
+            _h(
+                user_id=U2_USER_ID,
+                name="Tencent",
+                ticker="0700.HK",
+                currency="HKD",
+                asset_class="EQUITY_CN",
+            ),
+            _h(
+                user_id=U2_USER_ID,
+                name="Cash",
+                pricing_mode="manual",
+                asset_class="CASH_EQUIV",
+                current_value=Decimal("500"),
+            ),
+            _h(
+                user_id=U3_USER_ID,
+                name="CSI 500 ETF",
+                ticker="513650.SS",
+                currency="CNY",
+                asset_class="EQUITY_BROAD",
+            ),
+            _h(
+                user_id=U3_USER_ID,
+                name="Gold Fund",
+                fund_code="019547",
+                currency="CNY",
+                asset_class="PRECIOUS_METALS",
+            ),
+            _h(user_id=U3_USER_ID, name="Gold ETF", ticker="SGOL", asset_class="PRECIOUS_METALS"),
+        ]
+    )
+    db_session.flush()
+    return {"U1": U1_USER_ID, "U2": U2_USER_ID, "U3": U3_USER_ID}
 
 
 @pytest.fixture

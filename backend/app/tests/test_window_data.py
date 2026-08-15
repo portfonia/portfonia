@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from unittest.mock import patch
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -15,12 +16,15 @@ from app.models.news import News
 from app.models.news_surfaced import NewsSurfaced
 from app.models.price_snapshot import PriceSnapshot
 from app.models.report import Report
+from app.services import window_data
 from app.services.window_data import (
     BOOTSTRAP_WATERMARK,
     _window_closes,
+    compute_global_moves,
     detect_window_anomalies,
     load_news_window,
     mark_news_surfaced,
+    select_user_anomalies,
     unmark_news_surfaced,
     user_watermark,
 )
@@ -327,6 +331,7 @@ def test_detect_window_anomalies_flags_move_over_threshold(db_session: Session) 
         db_session,
         datetime(2026, 6, 2, 16, 0, tzinfo=UTC),
         datetime(2026, 6, 5, 20, 30, tzinfo=UTC),
+        _USER,
     )
     assert len(anomalies) == 1
     a = anomalies[0]
@@ -370,6 +375,7 @@ def test_detect_window_anomalies_ignores_small_move_and_new_position(db_session:
         db_session,
         datetime(2026, 6, 2, 16, 0, tzinfo=UTC),
         datetime(2026, 6, 5, 20, 30, tzinfo=UTC),
+        _USER,
     )
     assert anomalies == []
 
@@ -408,6 +414,7 @@ def test_cumulative_threshold_scales_with_trading_days(db_session: Session) -> N
         db_session,
         datetime(2026, 6, 2, 16, 0, tzinfo=UTC),
         datetime(2026, 6, 5, 20, 30, tzinfo=UTC),
+        _USER,
     )
     assert trading_days == 3
     assert [a.identifier for a in anomalies] == ["BIGM"]
@@ -434,6 +441,7 @@ def test_single_day_trigger_catches_violent_session(db_session: Session) -> None
         db_session,
         datetime(2026, 6, 1, 16, 0, tzinfo=UTC),
         datetime(2026, 6, 5, 20, 30, tzinfo=UTC),
+        _USER,
     )
     assert [a.identifier for a in anomalies] == ["WHIP"]
     a = anomalies[0]
@@ -471,6 +479,7 @@ def test_cumulative_threshold_capped_at_ten_percent(db_session: Session) -> None
         db_session,
         datetime(2026, 6, 1, 16, 0, tzinfo=UTC),
         datetime(2026, 6, 8, 20, 30, tzinfo=UTC),
+        _USER,
     )
     assert trading_days == 5
     assert [a.identifier for a in anomalies] == ["BIG"]
@@ -501,7 +510,7 @@ def test_premarket_window_includes_start_date_close_as_anomaly(db_session: Sessi
     )
     db_session.flush()
 
-    anomalies, trading_days = detect_window_anomalies(db_session, start, end)
+    anomalies, trading_days = detect_window_anomalies(db_session, start, end, _USER)
     assert trading_days == 1
     assert [a.identifier for a in anomalies] == ["INTC"]
     a = anomalies[0]
@@ -550,7 +559,7 @@ def test_trading_days_same_day_window_counts_captured_close(db_session: Session)
     )
     db_session.flush()
 
-    _, trading_days = detect_window_anomalies(db_session, start, end)
+    _, trading_days = detect_window_anomalies(db_session, start, end, _USER)
     assert trading_days == 1
 
 
@@ -562,5 +571,207 @@ def test_trading_days_same_day_window_excludes_stale_capture(db_session: Session
     db_session.add(_close_at("DDD", date(2026, 6, 5), 100.0, datetime(2026, 6, 5, 8, 0, tzinfo=ET)))
     db_session.flush()
 
-    _, trading_days = detect_window_anomalies(db_session, start, end)
+    _, trading_days = detect_window_anomalies(db_session, start, end, _USER)
     assert trading_days == 0
+
+
+# --- L0 split: compute_global_moves / select_user_anomalies (issue #128 A1) --
+
+
+def _hk_holding(user_id: uuid.UUID, name: str, ticker: str, asset_class: str) -> Holding:
+    return Holding(
+        user_id=user_id,
+        name=name,
+        ticker=ticker,
+        pricing_mode="auto",
+        currency="USD",
+        asset_type="stock",
+        asset_class=asset_class,
+    )
+
+
+def test_select_user_anomalies_threshold_differs_by_user_asset_class(db_session: Session) -> None:
+    """The whole point of keeping threshold judgment per-user (design doc
+    §3.3): the SAME identifier's SAME global move can clear one user's
+    threshold and not another's, because the two users classified it under
+    different asset_class rows. STOCK cumulative_cap=0.10, EQUITY_US_TECH
+    cumulative_cap=0.35 (both per_day=0.05) — a 12% net drift with no single
+    day >= 5% clears STOCK's cap but not EQUITY_US_TECH's."""
+    db_session.add_all(
+        [
+            _hk_holding(_USER, "Apple", "AAPL", "STOCK"),
+            _hk_holding(_USER_B, "Apple", "AAPL", "EQUITY_US_TECH"),
+        ]
+    )
+    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    db_session.add_all(
+        [
+            _close_at("AAPL", date(2026, 6, 2), 100.0, start),  # baseline
+            _close("AAPL", date(2026, 6, 3), 103.0),  # +3%
+            _close("AAPL", date(2026, 6, 4), 106.09),  # +3%
+            _close("AAPL", date(2026, 6, 5), 109.27),  # +3%
+            _close("AAPL", date(2026, 6, 6), 112.55),  # +3%; net ~+12.5%
+        ]
+    )
+    db_session.flush()
+    end = datetime(2026, 6, 6, 20, 30, tzinfo=UTC)
+
+    stock_anomalies, trading_days = detect_window_anomalies(db_session, start, end, _USER)
+    tech_anomalies, _ = detect_window_anomalies(db_session, start, end, _USER_B)
+
+    assert trading_days == 4
+    assert [a.identifier for a in stock_anomalies] == ["AAPL"]  # STOCK cap 10% cleared
+    assert stock_anomalies[0].trigger == "cumulative"
+    assert tech_anomalies == []  # EQUITY_US_TECH cap 35%*trading_days-capped 20% not cleared
+
+
+def test_compute_global_moves_computes_shared_identifier_once(db_session: Session) -> None:
+    """Two different users' Holding rows for the same identifier must not
+    cause its price series to be fetched/computed twice."""
+    db_session.add_all(
+        [
+            _hk_holding(_USER, "NVIDIA", "NVDA", "EQUITY_US_TECH"),
+            _hk_holding(_USER_B, "NVIDIA", "NVDA", "EQUITY_US_TECH"),
+        ]
+    )
+    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    db_session.add_all(
+        [
+            _close_at("NVDA", date(2026, 6, 2), 200.0, start),
+            _close("NVDA", date(2026, 6, 3), 215.0),  # +7.5% single day
+        ]
+    )
+    db_session.flush()
+    end = datetime(2026, 6, 3, 20, 30, tzinfo=UTC)
+
+    with patch(
+        "app.services.window_data._compute_identifier_move",
+        wraps=window_data._compute_identifier_move,
+    ) as spy:
+        moves, _ = compute_global_moves(db_session, start, end)
+
+    assert spy.call_count == 1  # NVDA queried once, not once per holding row
+    assert set(moves.keys()) == {"NVDA"}
+
+
+def test_select_user_anomalies_no_cross_user_leakage(db_session: Session) -> None:
+    """Two users with disjoint holdings: neither user's anomaly list may
+    contain the other's identifier, even though both are computed from the
+    same shared `moves` dict (issue #128 A1 §1.3 — the core regression this
+    checkpoint exists to fix)."""
+    db_session.add_all(
+        [
+            _hk_holding(_USER, "NVIDIA", "NVDA", "EQUITY_US_TECH"),
+            _hk_holding(_USER_B, "Apple", "AAPL", "STOCK"),
+        ]
+    )
+    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    db_session.add_all(
+        [
+            _close_at("NVDA", date(2026, 6, 2), 200.0, start),
+            _close("NVDA", date(2026, 6, 3), 215.0),  # +7.5%
+            _close_at("AAPL", date(2026, 6, 2), 100.0, start),
+            _close("AAPL", date(2026, 6, 3), 106.0),  # +6%
+        ]
+    )
+    db_session.flush()
+    end = datetime(2026, 6, 3, 20, 30, tzinfo=UTC)
+
+    moves, trading_days = compute_global_moves(db_session, start, end)
+    assert set(moves.keys()) == {"NVDA", "AAPL"}  # computed globally, both present
+
+    theme_map = window_data._load_theme_map(db_session)
+
+    def _holdings_of(user_id: uuid.UUID) -> list[Holding]:
+        return list(
+            db_session.execute(select(Holding).where(Holding.user_id == user_id)).scalars().all()
+        )
+
+    user_a_anomalies = select_user_anomalies(moves, _holdings_of(_USER), trading_days, theme_map)
+    user_b_anomalies = select_user_anomalies(moves, _holdings_of(_USER_B), trading_days, theme_map)
+
+    assert [a.identifier for a in user_a_anomalies] == ["NVDA"]
+    assert [a.identifier for a in user_b_anomalies] == ["AAPL"]
+
+
+def test_select_user_anomalies_skips_manual_pricing_mode(db_session: Session) -> None:
+    """A manually-priced holding must never be flagged even if its ticker
+    happens to be in the shared `moves` dict (e.g. because another user
+    auto-prices the same identifier) — belt-and-suspenders alongside
+    global_identifier_universe already excluding manual holdings."""
+    manual = _hk_holding(_USER, "NVIDIA (manual)", "NVDA", "EQUITY_US_TECH")
+    manual.pricing_mode = "manual"
+    db_session.add(manual)
+    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    db_session.add_all(
+        [
+            _close_at("NVDA", date(2026, 6, 2), 200.0, start),
+            _close("NVDA", date(2026, 6, 3), 215.0),
+        ]
+    )
+    db_session.flush()
+    end = datetime(2026, 6, 3, 20, 30, tzinfo=UTC)
+
+    moves, trading_days = compute_global_moves(db_session, start, end)
+    theme_map = window_data._load_theme_map(db_session)
+    anomalies = select_user_anomalies(moves, [manual], trading_days, theme_map)
+    assert anomalies == []
+
+
+def test_detect_window_anomalies_cache_shares_compute_global_moves_across_calls(
+    db_session: Session,
+) -> None:
+    """A shared `moves_cache` dict, passed to two detect_window_anomalies
+    calls for the SAME window, must make compute_global_moves run only once
+    — this is the mechanism (design doc §3.8) that keeps a multi-user batch's
+    per-identifier compute cost from scaling with user count."""
+    db_session.add_all(
+        [
+            _hk_holding(_USER, "NVIDIA", "NVDA", "EQUITY_US_TECH"),
+            _hk_holding(_USER_B, "NVIDIA", "NVDA", "EQUITY_US_TECH"),
+        ]
+    )
+    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    db_session.add_all(
+        [
+            _close_at("NVDA", date(2026, 6, 2), 200.0, start),
+            _close("NVDA", date(2026, 6, 3), 215.0),
+        ]
+    )
+    db_session.flush()
+    end = datetime(2026, 6, 3, 20, 30, tzinfo=UTC)
+
+    cache: window_data.MovesCache = {}
+    with patch(
+        "app.services.window_data.compute_global_moves", wraps=window_data.compute_global_moves
+    ) as spy:
+        anomalies_a, _ = detect_window_anomalies(db_session, start, end, _USER, cache)
+        anomalies_b, _ = detect_window_anomalies(db_session, start, end, _USER_B, cache)
+
+    assert spy.call_count == 1
+    assert [a.identifier for a in anomalies_a] == ["NVDA"]
+    assert [a.identifier for a in anomalies_b] == ["NVDA"]
+
+
+def test_detect_window_anomalies_without_cache_recomputes_each_call(db_session: Session) -> None:
+    """Omitting moves_cache (every pre-A1 call site) preserves the old
+    per-call behavior — no accidental cross-call state leakage between
+    independent single-report generations."""
+    db_session.add(_hk_holding(_USER, "NVIDIA", "NVDA", "EQUITY_US_TECH"))
+    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    db_session.add_all(
+        [
+            _close_at("NVDA", date(2026, 6, 2), 200.0, start),
+            _close("NVDA", date(2026, 6, 3), 215.0),
+        ]
+    )
+    db_session.flush()
+    end = datetime(2026, 6, 3, 20, 30, tzinfo=UTC)
+
+    with patch(
+        "app.services.window_data.compute_global_moves", wraps=window_data.compute_global_moves
+    ) as spy:
+        detect_window_anomalies(db_session, start, end, _USER)
+        detect_window_anomalies(db_session, start, end, _USER)
+
+    assert spy.call_count == 2
