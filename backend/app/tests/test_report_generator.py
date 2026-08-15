@@ -364,6 +364,69 @@ def test_generate_report_pass2_call_excludes_l1_ticker_intel_text(db_session: Se
     assert _L1_MARKER not in captured["pass2_user"]
 
 
+def test_generate_report_l1_sees_targeted_search_headline_pass2_input_unchanged(
+    db_session: Session,
+) -> None:
+    """Round 3 review finding: NVDA (the seeded anomaly) has no recalled
+    window news, so §5's targeted-search gap-fill fires for it — but the
+    targeted result used to be appended only to `ctx.search_results` (Pass
+    2's input), never merged into `ctx.holding_news` (what
+    `build_l1_candidates` reads for `news_headlines`). The identifier that
+    most needed a catalyst got an empty L1 headline list even when the
+    targeted search found one. Fix must reach L1 WITHOUT mutating
+    `ctx.holding_news`/`report_inputs["holding_news"]` itself — that's Pass
+    2's input too, and A2's report content must stay byte-identical."""
+    _TARGETED_TITLE = "NVIDIA announces new datacenter chip"
+    captured_l1_prompt: dict[str, str] = {}
+
+    def _capture_l1_llm(
+        client: object, model: str, system: str, user: str, **kwargs: object
+    ) -> str:
+        captured_l1_prompt["prompt"] = user
+        return "NVDA moved on the new chip announcement. [Established]"
+
+    def _fake_response(*args: object, **kwargs: object) -> MagicMock:
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.json.return_value = {
+            "results": [
+                {
+                    "title": _TARGETED_TITLE,
+                    "url": "https://reuters.com/nvda-chip",
+                    "content": "c",
+                    "score": 0.9,
+                }
+            ]
+        }
+        return resp
+
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch(
+            "app.services.report_generator.load_news_window",
+            return_value=[_news_item("Fed raises rates")],
+        ),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+        patch(
+            "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
+        ),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
+        patch("app.services.report_search.httpx.post", side_effect=_fake_response),
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_capture_l1_llm),
+    ):
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert report.status == "success"
+    assert report.report_inputs is not None
+    # L1's prompt DID receive the targeted-search headline.
+    assert _TARGETED_TITLE in captured_l1_prompt.get("prompt", "")
+    # Pass 2's stored input is untouched — report content stays byte-identical.
+    assert report.report_inputs["holding_news"].get("NVDA", []) == []
+
+
 def test_generate_report_retry_clears_stale_provider_message_id(db_session: Session) -> None:
     """issue #45 review follow-up: a row reused for retry (status not success/
     skipped) must clear provider_message_id alongside email_sent_at — otherwise

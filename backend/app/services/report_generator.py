@@ -656,6 +656,16 @@ def generate_report(
         )
 
         targeted = _targeted_anomaly_queries(ctx.price_anomalies, set(ctx.holding_news.keys()))
+        # L1-only view of holding_news (round 3 review finding): targeted
+        # results below are for identifiers with NO recalled window news —
+        # exactly the ones whose L1 briefing would otherwise be built from
+        # an empty headline list. Merging the found titles into a COPY
+        # (never into `ctx.holding_news` itself, which is Pass 2's stored
+        # input) keeps report content byte-identical while still giving L1
+        # the richer context.
+        l1_holding_news: dict[str, list[dict[str, Any]]] = {
+            ident: list(items) for ident, items in ctx.holding_news.items()
+        }
         if targeted:
             # Review round 1 bug: this used to be `daily_remaining -
             # len(ctx.search_results)` — subtracting a RESULT-ITEM count (up
@@ -670,6 +680,7 @@ def generate_report(
             targeted_budget = max(
                 0, settings.TAVILY_DAILY_BUDGET - _tavily_used_today(session, eff_date)
             )
+            query_to_identifier = {q: ident for ident, q in targeted}
             tq = [q for _ident, q in targeted]
             logger.info(
                 "report %s: %d targeted anomaly searches (budget %d)",
@@ -679,6 +690,10 @@ def generate_report(
             )
             targeted_results = _run_tavily_search(session, tq, eff_date, budget=targeted_budget)
             ctx.search_results.extend(targeted_results)
+            for r in targeted_results:
+                ident = query_to_identifier.get(r.get("query", ""))
+                if ident:
+                    l1_holding_news.setdefault(ident, []).append({"title": r.get("title", "")})
 
         # Re-index results globally for [S#] citation notation
         for i, r in enumerate(ctx.search_results):
@@ -696,7 +711,7 @@ def generate_report(
         # run", never blocks report generation.
         # ------------------------------------------------------------------
         l1_candidates, l1_facts = build_l1_candidates(
-            ctx.price_anomalies, ctx.holding_news, ctx.technical_positions
+            ctx.price_anomalies, l1_holding_news, ctx.technical_positions
         )
         ctx.ticker_intel = get_l1_intel_batch(
             session, l1_candidates, eff_date, l1_facts, usage_sink=ctx.llm_calls

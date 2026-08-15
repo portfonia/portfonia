@@ -99,8 +99,10 @@ class ReportContext:
     pass2_model: str = ""
     pass2_prompt: str = ""
     pass2_raw: str = ""
-    # LLM call records (Pass 1 + Pass 2; translation chunks excluded as they are
-    # cheap/many and the per-chunk token count is not material for cost audits).
+    # LLM call records (Pass 1 + Pass 2 + L1 shared-intel analyses, issue
+    # #128 A2 — `get_l1_intel_batch(..., usage_sink=ctx.llm_calls)`;
+    # translation chunks excluded as they are cheap/many and the per-chunk
+    # token count is not material for cost audits).
     llm_calls: list[dict[str, Any]] = field(default_factory=list)
     # Snapshot of the translated report body (dynamic section only, pre-footer).
     # Stored so compliance attribution can be traced per translation chunk if needed.

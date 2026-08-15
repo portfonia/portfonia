@@ -355,6 +355,26 @@ def build_l1_candidates(
     design doc §4.3: identifiers that triggered a window anomaly this report,
     or that holding-news recall matched.
 
+    Theme-merged anomalies (`window_data._merge_theme_anomalies` — entries
+    with a non-empty `constituents` list) are expanded to one candidate PER
+    CONSTITUENT, never a candidate under the theme slug itself (round 3
+    review bug): the merged entry's own `window_net_pct`/`current_price`/
+    `prev_price` are value-weighted by the CALLING USER's own holdings mix
+    (weighted/picked by `Holding.current_value`), so two holders of the same
+    theme with different constituent weightings would get different
+    numbers — exactly the per-user-data-in-a-shared-cache violation §4.3
+    forbids. Each constituent's own `pct_change` IS safe (global — set from
+    `compute_global_moves` before any per-user merge/weighting happens);
+    `max_day_pct`/prices/technicals have no per-constituent global source at
+    this level and are left absent rather than inheriting the theme-level
+    (per-user) figures. An anomaly with an EMPTY `constituents` list is
+    treated as a regular single-ticker anomaly, not a broken theme merge:
+    `_serialize_anomalies` renders `a.constituents or []`, so a genuine
+    single-ticker entry also serializes with `constituents: []` — there is
+    no reliable signal to tell the two apart from an empty list alone, and
+    `_merge_theme_anomalies` never actually produces a theme entry with zero
+    constituents (a theme bucket only exists if it has >=1 member).
+
     Ordering: anomaly identifiers first, in their given order (already
     sorted by |move| descending — see `window_data.select_user_anomalies`),
     then any holding-news-only identifiers (no anomaly, so no natural move
@@ -363,28 +383,8 @@ def build_l1_candidates(
     """
     technical_by_ticker = {t["ticker"]: t for t in technical_positions if t.get("ticker")}
 
-    def _technical_lookup_key(identifier: str, anomaly: dict[str, Any] | None) -> str:
-        """`technical_positions` is keyed by real ticker. A theme-merged
-        anomaly's `identifier` is the theme slug ("gold", "nasdaq_100" —
-        see `window_data._merge_theme_anomalies`), which never matches —
-        round 2 review finding: this silently dropped SMA/52w-range facts
-        from every theme-level L1 briefing. Fall back to the dominant
-        (highest-value) constituent's ticker, the same one
-        `_merge_theme_anomalies` already sources its OHLC/price facts from.
-        """
-        if identifier in technical_by_ticker:
-            return identifier
-        constituents = (anomaly or {}).get("constituents") or []
-        if constituents:
-            dominant = constituents[0].get("identifier")
-            if dominant:
-                return str(dominant)
-        return identifier
-
-    def _apply_technical(
-        facts_obj: L1Facts, identifier: str, anomaly: dict[str, Any] | None = None
-    ) -> None:
-        tech = technical_by_ticker.get(_technical_lookup_key(identifier, anomaly), {})
+    def _apply_technical(facts_obj: L1Facts, identifier: str) -> None:
+        tech = technical_by_ticker.get(identifier, {})
         facts_obj.pct_vs_sma50 = tech.get("pct_vs_sma50")
         facts_obj.pct_vs_sma200 = tech.get("pct_vs_sma200")
         facts_obj.pct_in_52w_range = tech.get("pct_in_52w_range")
@@ -395,7 +395,23 @@ def build_l1_candidates(
 
     for a in anomalies:
         identifier = a.get("identifier")
-        if not identifier or identifier in facts:
+        if not identifier:
+            continue
+        constituents = a.get("constituents") or []
+        if constituents:
+            for c in constituents:
+                c_identifier = c.get("identifier")
+                if not c_identifier or c_identifier in facts:
+                    continue
+                order.append(c_identifier)
+                c_facts = L1Facts(
+                    net_pct=c.get("pct_change"),
+                    news_headlines=[n.get("title", "") for n in holding_news.get(c_identifier, [])],
+                )
+                _apply_technical(c_facts, c_identifier)
+                facts[c_identifier] = c_facts
+            continue
+        if identifier in facts:
             continue
         order.append(identifier)
         new_facts = L1Facts(
@@ -408,7 +424,7 @@ def build_l1_candidates(
             latest_date=a.get("latest_date") or "",
             news_headlines=[n.get("title", "") for n in holding_news.get(identifier, [])],
         )
-        _apply_technical(new_facts, identifier, a)
+        _apply_technical(new_facts, identifier)
         facts[identifier] = new_facts
 
     for identifier, items in holding_news.items():
