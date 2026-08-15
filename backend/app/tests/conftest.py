@@ -36,7 +36,10 @@ from app.main import app
 from app.models.holding import Holding
 
 TEST_DB_NAME = TEST_DATABASE_NAME
-MIGRATION_DB_NAME = "portfonia_test_alembic"
+# Same PID-suffixing rationale as TEST_DATABASE_NAME (issue #152) — this is a
+# separate database from TEST_DB_NAME (see module docstring), so it needs its
+# own unique suffix, not a reuse of TEST_DATABASE_NAME's.
+MIGRATION_DB_NAME = f"portfonia_test_alembic_{os.getpid()}"
 TEST_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 # Ring 1 stage-A shared UAT fixture (design doc §7.1, Hermes/Portfonia/Docs/

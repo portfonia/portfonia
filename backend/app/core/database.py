@@ -18,7 +18,17 @@ from app.core.config import get_settings
 # Session-scoped integration tests bind here. The Alembic round-trip walk
 # uses a different database name (see conftest.MIGRATION_DB_NAME) so it
 # cannot drop this one mid-suite.
-TEST_DATABASE_NAME = "portfonia_test_roundtrip"
+#
+# Suffixed with this process's own PID (issue #152): development now happens
+# in isolated git worktrees, one per task/PR, so two `pytest` invocations
+# against the same local Postgres instance can genuinely run concurrently —
+# a fixed name meant one process's session-scoped teardown (DROP DATABASE)
+# could drop the database out from under the other's still-running suite.
+# Computed once at import time, so it's stable for the lifetime of one
+# pytest process; two live processes never share a PID, which is the only
+# collision window that matters here. A DB orphaned by a hard-killed run
+# just sits under its now-dead PID — harmless clutter, not a footgun.
+TEST_DATABASE_NAME = f"portfonia_test_roundtrip_{os.getpid()}"
 
 _engine: Engine | None = None
 _session_factory: sessionmaker[Session] | None = None
