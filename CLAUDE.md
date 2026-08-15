@@ -513,12 +513,48 @@ layer** (per-user, incremental).
 - **Cadence:** `generate_incremental_report` fires Mon/Wed/Fri 17:00 ET
   (moved from 16:30 ET on 2026-06-19, widening the gap after the 16:05 ET
   FX capture and 16:00 ET close capture).
-- **Anomaly detection** (`detect_window_anomalies`) fires on EITHER trigger:
-  `single_day` (one trading day beyond per-class per-day threshold — catches
-  a violent session a net move would smooth away) or `cumulative` (baseline→
-  latest net move beyond a scaled, capped threshold). Flagged holdings carry
-  a session arc (prev close/open-gap/intraday range/close/after-hours) for
-  §4.2. Report always says "this report period", never "today".
+- **Multi-user fan-out (Ring 1 stage A1, issue #128, PR #151)**:
+  `generate_incremental_report` now iterates `app.services.user_scope.
+  active_user_ids` (`SELECT DISTINCT user_id FROM holdings` — no `User`
+  table yet, see design doc) instead of the old fixed `DEV_USER_ID` single
+  call. Each user's `generate_report` call is isolated in its own
+  try/except: one user's failure is ops-alerted and logged, does NOT stop
+  or retry the rest of the batch — but if EVERY user in a batch fails, the
+  task still escalates to the normal 3x/5-minute Celery retry rather than
+  reporting a false "completed". `generate_report(user_id=..., moves_cache=...,
+  now=...)` — all three optional, `None`/omitted preserves the old
+  single-user behavior for any other call site (manual trigger, tests).
+- **Anomaly detection is split into a global pass + a per-user pass**
+  (issue #128 A1): `window_data.compute_global_moves` computes each
+  identifier's window price move exactly ONCE per batch (shared across
+  every user who holds it, via a `moves_cache` keyed on the exact
+  `(period_start, period_end)` window — `generate_incremental_report`
+  stamps one shared `now` for the whole batch so this cache key actually
+  collides across users); `window_data.select_user_anomalies` then does the
+  per-user threshold judgment (two users can classify the same identifier
+  under different `asset_class`, so the same move can clear one user's
+  threshold and not another's) + theme merge, in-memory, no DB/LLM calls.
+  `detect_window_anomalies(session, start, end, user_id, moves_cache=None)`
+  is the thin single-user wrapper — `user_id` is now a required argument;
+  the pre-A1 signature queried ALL holdings with no user filter at all,
+  which was a real cross-user data leak once more than one user exists.
+  Fires on EITHER trigger: `single_day` (one trading day beyond per-class
+  per-day threshold — catches a violent session a net move would smooth
+  away) or `cumulative` (baseline→latest net move beyond a scaled, capped
+  threshold). Flagged holdings carry a session arc (prev close/open-gap/
+  intraday range/close/after-hours) for §4.2. Report always says "this
+  report period", never "today".
+- **Known deferred issue (not an A1 bug, tracked for A2)**: the shared
+  Tavily daily search budget (`TAVILY_DAILY_BUDGET`) is consumed
+  sequentially in fixed `active_user_ids()` UUID order within a fan-out
+  batch — users processed later in a given day can inherit
+  `daily_remaining=0` and get no search-augmented context (silent quality
+  degradation, not a failure), and because the order is fixed, it's
+  systematically the same users every time, not random. Root-cause fix is
+  reuse/dedup (A2's planned `search_cache` — see `Docs/Ring 1-A design.md`
+  §4.9), not reallocating/rotating a fixed-size budget. Principle
+  generalizes beyond Tavily; see Obsidian `Portfonia Concept & Design.md`
+  §7.2's 2026-08-15 addendum.
 - Portfolio valuation reads the **latest captured close** from
   `price_snapshots`, falling back to `holding.market_price` only for funds
   (no ticker). FX anomalies are not computed (FX stays daily in `fx_rates`).
