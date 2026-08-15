@@ -19,7 +19,7 @@ This file holds **conventions and mechanisms**, not a project status board.
 
 | Item | Value |
 |------|-------|
-| LLM model | OpenRouter, split by call shape (issue #78, 2026-08-06). **Structured/JSON** (holdings parsing, `holding_parser.py`, the only call site requiring schema-compliant output) = `STRUCTURED_LLM_MODEL` (`openai/gpt-5.6-luna` — moved off `google/gemma-4-31b-it` in issue #84, 2026-08-06: the gemma pin to OpenInference's bf16 endpoint was itself the latency bottleneck, 371s worst case on a 30-row holdings file; `gpt-5.6-luna` measured 10.9-13.8s on the same file with 30/30 rows correct on manual audit — one manual run, not yet a systematic eval), `reasoning_effort=none` (`_STRUCTURED_REASONING_EFFORT` in `holding_parser.py` — this model defaults reasoning to "medium", wasted cost/latency for mechanical extraction), open/unpinned provider selection for both of 2 identical attempts (`app/core/llm.py:structured_provider` — no precision-pin concern for this model, unlike gemma's third-party quantized resellers); `data_collection=deny` applies throughout. **Unstructured/free-text** (Pass 1 search-query gen + translation render, `report_generator.py`) = `LOW_COST_LLM_MODEL` (`~deepseek/deepseek-v4-flash-latest` — leading `~` is OpenRouter's "-latest" alias convention), routed via OpenRouter BYOK straight to DeepSeek's own backend (`order=["DeepSeek"]`, module constant `_BYOK_PROVIDER_ORDER`) with `enforce_data_collection=False` — a scoped compliance exception for these two calls only — **and `allow_fallbacks=False` (hard pin, no marketplace fallback)**: since `deny` is off for these calls, an open fallback on DeepSeek unavailability could silently reroute the (holdings-bearing, for translation) payload to a training-permitting provider `deny` would normally have excluded; the call must fail rather than degrade that guarantee (PR #79 review finding). Reasoning/thinking tokens are explicitly disabled (`disable_reasoning=True`) since this alias defaults reasoning on unlike the non-aliased model. **PRIMARY (Pass 2 analysis + regenerate) = `deepseek/deepseek-v4-pro`**, unchanged — provider=DigitalOcean,Venice, `data_collection=deny`, no BYOK. Sonnet/Anthropic models are NOT used here — too expensive (~$0.2/call); if `PRIMARY_LLM_MODEL` ever shows an `anthropic/*` value it is config drift, revert it. |
+| LLM model | OpenRouter, split by call shape (issue #78, 2026-08-06). **Structured/JSON** (holdings parsing, `holding_parser.py`, the only call site requiring schema-compliant output) = `STRUCTURED_LLM_MODEL` (`openai/gpt-5.6-luna` — moved off `google/gemma-4-31b-it` in issue #84, 2026-08-06: the gemma pin to OpenInference's bf16 endpoint was itself the latency bottleneck, 371s worst case on a 30-row holdings file; `gpt-5.6-luna` measured 10.9-13.8s on the same file with 30/30 rows correct on manual audit — one manual run, not yet a systematic eval), `reasoning_effort=none` (`_STRUCTURED_REASONING_EFFORT` in `holding_parser.py` — this model defaults reasoning to "medium", wasted cost/latency for mechanical extraction), open/unpinned provider selection for both of 2 identical attempts (`app/core/llm.py:structured_provider` — no precision-pin concern for this model, unlike gemma's third-party quantized resellers); `data_collection=deny` applies throughout. **Unstructured/free-text** (Pass 1 search-query gen, `report_prompts.py`/`report_generator.py` + translation render, `report_translation.py` — split from a single `report_generator.py` in issue #37) = `LOW_COST_LLM_MODEL` (`~deepseek/deepseek-v4-flash-latest` — leading `~` is OpenRouter's "-latest" alias convention), routed via OpenRouter BYOK straight to DeepSeek's own backend (`order=["DeepSeek"]`, module constant `_BYOK_PROVIDER_ORDER` in `report_translation.py`) with `enforce_data_collection=False` — a scoped compliance exception for these two calls only — **and `allow_fallbacks=False` (hard pin, no marketplace fallback)**: since `deny` is off for these calls, an open fallback on DeepSeek unavailability could silently reroute the (holdings-bearing, for translation) payload to a training-permitting provider `deny` would normally have excluded; the call must fail rather than degrade that guarantee (PR #79 review finding). Reasoning/thinking tokens are explicitly disabled (`disable_reasoning=True`) since this alias defaults reasoning on unlike the non-aliased model. **PRIMARY (Pass 2 analysis + regenerate) = `deepseek/deepseek-v4-pro`**, unchanged — provider=DigitalOcean,Venice, `data_collection=deny`, no BYOK. Sonnet/Anthropic models are NOT used here — too expensive (~$0.2/call); if `PRIMARY_LLM_MODEL` ever shows an `anthropic/*` value it is config drift, revert it. |
 | Infrastructure | Homebrew PostgreSQL@16 + Redis (native, not Docker); `make infra-up` not needed |
 | **App runtime retired locally (2026-08-10)** | No local uvicorn/celery worker/celery beat/Next.js dev server anymore — running the app for manual verification happens only via production deploy (see Three-layer deployment flow below). Homebrew Postgres/Redis stay running locally, but only as backing services for `pytest` (real-Postgres integration tests per the Tests section) — never as targets for a locally-running app process. Do **not** start `uvicorn`/`celery worker`/`celery beat`/`next dev` on this machine; if a task needs to be seen working, that means deploying to production, not spinning up a local server. The old "kill and restart uvicorn/celery after any model/migration/router change" drill no longer applies — there is no long-lived local process to go stale. |
 | Output language | reason in EN, render in `OUTPUT_LANG` (Ring 0 default `zh`) via a translation pass with a fixed-term glossary — locale-keyed, single source of truth in `backend/config/i18n_glossary.yml` (`report_glossary`/`forbidden_renderings`; only `zh-Hans` populated today, schema reserves `zh-Hant`/`fr`/`es` for later); `en` = no-op |
@@ -626,6 +626,44 @@ more likely, not less.
   first review), `ruff format`/`ruff check`/`mypy --strict` clean. Merged
   2026-08-13 (`2946d0a`); not yet deployed to production.
 
+### `report_generator.py` split into modules (issue #37)
+
+`report_generator.py` had grown to 2657 lines mixing prompt construction,
+code-built section renderers, the LLM transport, Tavily search, JSONB
+serialization, the compliance output scan, translation, and orchestration.
+Split, pure refactor (no behavior change — every moved function kept its
+exact body, verified by the same test assertions passing before and after):
+
+| Module | Responsibility |
+|---|---|
+| `app/services/report_context.py` | `ReportContext`/`ReportInputsDict` (the `report_inputs` JSONB shape) |
+| `app/services/report_llm.py` | OpenRouter transport: `_openrouter_client`, `_call_llm`, `LLMEmptyResponseError` |
+| `app/services/report_serializers.py` | ORM/dataclass → JSONB dict (`_serialize_*`) |
+| `app/services/report_search.py` | Tavily search + daily-budget tracking + targeted anomaly queries |
+| `app/services/report_prompts.py` | Pass 1 / Pass 2 prompt text (system prompts, `_build_pass1_prompt`/`_build_pass2_prompt`, `_stale_ticker_hint`) |
+| `app/services/report_sections.py` | code-built §1/§4.2/§4.4/§2.5/footer/data-window renderers |
+| `app/compliance/output_scan.py` | Layer-4 output backstop (`_scan_forbidden_output`, `_strip_markers`, `_strip_body_disclaimer`) — co-located with `forbidden_vocab.py`, not a `report_*` module, since both are the same compliance-scaffolding concern |
+| `app/services/report_translation.py` | render-to-output-language pass (`_translate_md`, `_BYOK_PROVIDER_ORDER`) |
+| `app/services/report_generator.py` (stays) | orchestration only — `generate_report`, `regenerate_report`, `_render_full_md`, `_is_short_manual_quiet` |
+
+`report_generator.py` imports from all of the above (one dependency
+direction, no cycle) and is still the only module `app/routers/reports.py`
+and `app/tasks/report_tasks.py` import `generate_report`/`regenerate_report`
+from — `LLMEmptyResponseError` moved with `_call_llm`, so its import site
+changed to `app.services.report_llm`. The old `test_report_generator.py`
+(93 tests, 1826 lines) was redistributed to a matching test file per module
+(`test_report_context.py`, `test_report_llm.py`, `test_report_serializers.py`,
+`test_report_prompts.py`, `test_report_sections.py`, `test_output_scan.py`,
+`test_report_translation.py`); `test_report_generator.py` keeps only the
+`generate_report`/`regenerate_report` end-to-end tests. `mypy --strict`'s
+`no_implicit_reexport` (part of `--strict`) caught one leftover
+`rg._BYOK_PROVIDER_ORDER` test reference that only worked because
+`report_generator.py` happens to import that name for its own use — fixed to
+import `report_translation._BYOK_PROVIDER_ORDER` directly, which is the
+general lesson this refactor's design doc (issue #37 comment) called out:
+don't rely on a symbol being reachable through another module's unrelated
+import, reach for its actual owning module.
+
 ### Report content features (Ring0 #1-4 + R-3/R-5/R-6/R-7/R-8)
 
 All numbers are **code-built and stored in `report_inputs`** (deterministic,
@@ -722,7 +760,8 @@ inline via BeautifulSoup.
 - Pass 2 completeness guard: missing `## §3`/`## §4` markers or body
   <2000 chars raises `RuntimeError` so Celery retries instead of persisting a
   silently-truncated `status=success` report.
-- `_call_llm` logs model/finish_reason/tokens/cost on every call and warns on
+- `_call_llm` (`app/services/report_llm.py` — split from `report_generator.py`
+  in issue #37) logs model/finish_reason/tokens/cost on every call and warns on
   non-`stop` finish; `LLMEmptyResponseError` on empty `choices` with bounded
   429/connection backoff-retry. `pin_provider=False` (used only for
   translation) lets OpenRouter route freely instead of restricting to the
@@ -731,9 +770,9 @@ inline via BeautifulSoup.
   loaded fresh on every call — same hot-reload pattern as
   `asset_class_thresholds.yml` (#35, see below). Bounded (300s/wait, 5
   entries/sequence, finite-only) so a config typo can't pin a worker
-  indefinitely. `_BYOK_PROVIDER_ORDER` (translation's DeepSeek pin,
-  issue #78/#79) is deliberately NOT in this config — it's a compliance
-  decision, not an operational tuning knob.
+  indefinitely. `_BYOK_PROVIDER_ORDER` (`app/services/report_translation.py`
+  — translation's DeepSeek pin, issue #78/#79) is deliberately NOT in this
+  config — it's a compliance decision, not an operational tuning knob.
 - `report_inputs` (JSONB) is written via `ReportContext.to_jsonb()` (still
   `dict[str, Any]` — the ORM column itself is untyped JSONB) but read back
   through `ReportInputsDict` (issue #39, a `TypedDict, total=False` mirroring
@@ -1124,7 +1163,7 @@ smaller procedure from the code-deploy flow above** — established
   translation render — both on `LOW_COST_LLM_MODEL` — pass
   `enforce_data_collection=False` because they're routed via OpenRouter BYOK
   straight to DeepSeek's own first-party backend (`order=["DeepSeek"]`,
-  `_BYOK_PROVIDER_ORDER` in `report_generator.py`), the exact provider `deny`
+  `_BYOK_PROVIDER_ORDER` in `report_translation.py`), the exact provider `deny`
   exists to exclude. Translation carries holdings-derived report text
   (`with_holdings=True`); this was an explicit, scoped compliance tradeoff the
   product owner accepted for these two call sites only — Pass 2, regenerate,

@@ -1,13 +1,13 @@
 """Admin-configurable LLM call retry/backoff tuning (#38).
 
 Loads ``config/llm_retry.yml`` — the in-process backoff sequences
-``_call_llm`` (report_generator.py) tries before re-raising a rate-limit or
+``_call_llm`` (report_llm.py) tries before re-raising a rate-limit or
 connection error to the outer Celery retry. Loaded fresh on every call, no
 caching, same pattern as ``asset_class_config.py`` (#35): an admin edit takes
 effect on the next LLM call, no process restart.
 
 Deliberately NOT covered here: BYOK provider order
-(``_BYOK_PROVIDER_ORDER`` in report_generator.py) stays a hardcoded
+(``_BYOK_PROVIDER_ORDER`` in report_translation.py) stays a hardcoded
 constant — it is a compliance pin (issue #78/#79), not an operational
 tuning knob, and changing it must go through code review + explicit
 product-owner sign-off, not an unreviewed config edit.

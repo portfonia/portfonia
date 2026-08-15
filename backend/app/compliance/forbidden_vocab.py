@@ -9,7 +9,7 @@ Adding a term propagates automatically to both the scan and the prompt — edit
 ``config/compliance_vocab.yml`` (issue #90: the Chinese-language term/pattern
 data lives there now, out of this module's source; this file is the loading +
 compilation logic and its public API is unchanged). Run the compliance-scan
-regression tests (``pytest app/tests/test_report_generator.py -k scan``)
+regression tests (``pytest app/tests/test_output_scan.py``)
 before promoting new terms to production.
 """
 
