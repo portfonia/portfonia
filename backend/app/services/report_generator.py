@@ -234,6 +234,7 @@ def generate_report(
     session_node: str = "manual",
     user_id: uuid.UUID | None = None,
     moves_cache: MovesCache | None = None,
+    now: datetime | None = None,
 ) -> Report:
     """
     Run the full F1 report generation pipeline and persist the result.
@@ -252,11 +253,24 @@ def generate_report(
     `compute_global_moves()` call across every user in the same window
     instead of recomputing it once per user. `None` (every existing call
     site) preserves the pre-A1 per-call behavior.
+
+    `now` (issue #128 A1, PR #151 review): the wall-clock instant used for
+    BOTH `eff_date`'s fallback and a fresh row's `period_end`. `None`
+    (every pre-A1 call site) reads the real clock, unchanged. This exists
+    because `moves_cache` is keyed on the exact `(period_start, period_end)`
+    tuple — if each user's `generate_report` call in a fan-out stamped its
+    own independent `datetime.now()`, two users sharing a window would get
+    `period_end` values microseconds apart, the cache key would never
+    collide, and `compute_global_moves` would silently run once per user
+    again despite `moves_cache` being passed. `generate_incremental_report`
+    stamps ONE `now` for the whole batch and passes it to every user's call
+    so the cache key is actually shared, not just the dict object.
     """
     validate_report_type(report_type)
     settings = get_settings()
     user_id = user_id if user_id is not None else get_current_user_id()
-    eff_date = report_date or datetime.now(tz=ET).date()
+    now = now if now is not None else datetime.now(tz=UTC)
+    eff_date = report_date or now.astimezone(ET).date()
 
     # ------------------------------------------------------------------
     # Idempotency: (user_id, report_date, report_type, session_node) is unique
@@ -340,7 +354,7 @@ def generate_report(
             report_type,
             exclude_report_id=report.id if existing is not None else None,
         )
-        period_end = datetime.now(tz=UTC)
+        period_end = now
         report.period_start = period_start
         report.period_end = period_end
         session.flush()  # get the id without committing

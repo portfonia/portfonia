@@ -163,6 +163,36 @@ def test_task_shares_one_moves_cache_across_the_whole_batch(
 @patch("app.tasks.report_tasks.send_ops_alert")
 @patch("app.core.database.SessionLocal")
 @patch("app.services.report_generator.generate_report")
+def test_task_stamps_one_now_shared_across_the_whole_batch(
+    mock_gen: MagicMock,
+    mock_session_cls: MagicMock,
+    mock_alert: MagicMock,
+    mock_active_users: MagicMock,
+) -> None:
+    """PR #151 review (blocking): moves_cache is keyed on the exact
+    (period_start, period_end) window, and generate_report stamps a fresh
+    row's period_end from its `now` argument. Passing the same moves_cache
+    dict object (test above) is not sufficient by itself — every user's
+    call must also receive the SAME `now`, or each independently-computed
+    `datetime.now()` would land microseconds apart and the cache key would
+    never collide in production. Same dict-object identity check as the
+    moves_cache test above, applied to `now`."""
+    mock_active_users.return_value = [_U1, _U2]
+    mock_session_cls.return_value = MagicMock()
+    mock_gen.side_effect = lambda session, **kw: _make_report(kw["user_id"])
+
+    from app.tasks.report_tasks import generate_incremental_report
+
+    generate_incremental_report.run()
+
+    nows = [c.kwargs["now"] for c in mock_gen.call_args_list]
+    assert nows[0] is nows[1]
+
+
+@patch("app.services.user_scope.active_user_ids")
+@patch("app.tasks.report_tasks.send_ops_alert")
+@patch("app.core.database.SessionLocal")
+@patch("app.services.report_generator.generate_report")
 def test_task_single_user_failure_isolated_from_batch(
     mock_gen: MagicMock,
     mock_session_cls: MagicMock,
@@ -196,6 +226,47 @@ def test_task_single_user_failure_isolated_from_batch(
     mock_alert.assert_called_once()
     assert "FAILED for one user" in mock_alert.call_args.kwargs["subject"]
     mock_session.rollback.assert_called_once()
+
+
+@patch("app.services.user_scope.active_user_ids")
+@patch("app.tasks.report_tasks.send_ops_alert")
+@patch("app.core.database.SessionLocal")
+@patch("app.services.report_generator.generate_report")
+def test_task_retries_the_whole_batch_when_every_user_fails(
+    mock_gen: MagicMock,
+    mock_session_cls: MagicMock,
+    mock_alert: MagicMock,
+    mock_active_users: MagicMock,
+) -> None:
+    """PR #151 review (non-blocking, but real for today's single-user
+    production): per-user isolation must not silently swallow the task's
+    documented 3x / 5-minute Celery retry when EVERY user in the batch
+    fails — with one active user (today's production), this is functionally
+    the pre-A1 single-user failure path, which used to retry. `.run()`
+    bypasses Celery routing, so `self.retry()` re-raises the original
+    exception rather than scheduling a real retry."""
+    mock_active_users.return_value = [_U1]
+    mock_session_cls.return_value = MagicMock()
+    mock_gen.side_effect = RuntimeError("LLM down")
+
+    from app.tasks.report_tasks import generate_incremental_report
+
+    # Force the exhaustion branch (mirrors test_task_batch_failure_retries_
+    # and_alerts_on_exhaustion) so both the per-user alert AND the batch-level
+    # exhaustion alert fire in this one call, proving per-user isolation and
+    # the retry escalation both still work together rather than one replacing
+    # the other.
+    with (
+        patch.object(generate_incremental_report, "max_retries", 0),
+        pytest.raises(RuntimeError),
+    ):
+        generate_incremental_report.run()
+
+    mock_gen.assert_called_once()
+    assert mock_alert.call_count == 2
+    subjects = [c.kwargs["subject"] for c in mock_alert.call_args_list]
+    assert any("FAILED for one user" in s for s in subjects)
+    assert any("batch FAILED" in s for s in subjects)
 
 
 @patch("app.services.user_scope.active_user_ids")

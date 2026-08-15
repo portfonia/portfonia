@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -16,6 +17,7 @@ from app.models.news import News
 from app.models.news_surfaced import NewsSurfaced
 from app.models.price_snapshot import PriceSnapshot
 from app.models.report import Report
+from app.models.ticker_theme import TickerTheme
 from app.services import window_data
 from app.services.window_data import (
     BOOTSTRAP_WATERMARK,
@@ -775,3 +777,145 @@ def test_detect_window_anomalies_without_cache_recomputes_each_call(db_session: 
         detect_window_anomalies(db_session, start, end, _USER)
 
     assert spy.call_count == 2
+
+
+def test_detect_window_anomalies_single_user_golden_fields(db_session: Session) -> None:
+    """PR #151 review: design §3.7/§3.8 requires the split to leave a
+    single-user anomaly list field-EQUAL to the pre-split function. The
+    existing detect_window_anomalies_* tests above check only a few headline
+    fields (identifier/prev_price/current_price/trigger/threshold) — a
+    silent drop or rename elsewhere in the HoldingMove -> PriceAnomaly
+    rebuild (session-arc fields, theme merge fields, constituents) wouldn't
+    fail any of them. This locks the FULL dataclass, standalone and themed,
+    against a synthetic (not production-seeded) TickerTheme row so it can't
+    be silently invalidated by a future ticker_themes seed migration edit.
+    """
+    db_session.add_all(
+        [
+            _stock("Standalone Co", "STANDA"),
+            Holding(
+                user_id=_USER,
+                name="Theme Big",
+                ticker="THMBIG",
+                pricing_mode="auto",
+                currency="USD",
+                asset_type="stock",
+                asset_class="STOCK",
+                current_value=Decimal("9000"),
+            ),
+            Holding(
+                user_id=_USER,
+                name="Theme Small",
+                ticker="THMSML",
+                pricing_mode="auto",
+                currency="USD",
+                asset_type="stock",
+                asset_class="STOCK",
+                current_value=Decimal("1000"),
+            ),
+        ]
+    )
+    db_session.add_all(
+        [
+            TickerTheme(
+                ticker="THMBIG",
+                theme="golden_theme",
+                theme_label_zh="金测试主题",
+                theme_label_en="Golden Test Theme",
+                asset_class="STOCK",
+            ),
+            TickerTheme(
+                ticker="THMSML",
+                theme="golden_theme",
+                theme_label_zh="金测试主题",
+                theme_label_en="Golden Test Theme",
+                asset_class="STOCK",
+            ),
+        ]
+    )
+    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    db_session.add_all(
+        [
+            _close_at("STANDA", date(2026, 6, 2), 100.0, start),
+            _close("STANDA", date(2026, 6, 3), 106.0),  # +6%, standalone (no theme row)
+            _close_at("THMBIG", date(2026, 6, 2), 200.0, start),
+            _close("THMBIG", date(2026, 6, 3), 210.0),  # +5%, dominant (current_value=9000)
+            _close_at("THMSML", date(2026, 6, 2), 50.0, start),
+            _close("THMSML", date(2026, 6, 3), 53.5),  # +7%, minor (current_value=1000)
+        ]
+    )
+    db_session.flush()
+    end = datetime(2026, 6, 3, 20, 30, tzinfo=UTC)
+
+    anomalies, trading_days = detect_window_anomalies(db_session, start, end, _USER)
+    assert trading_days == 1
+
+    by_identifier = {a.identifier: a for a in anomalies}
+    assert set(by_identifier) == {"STANDA", "golden_theme"}
+
+    assert dataclasses.asdict(by_identifier["STANDA"]) == {
+        "name": "Standalone Co",
+        "identifier": "STANDA",
+        "asset_type": "STOCK",
+        "current_price": Decimal("106.0"),
+        "prev_price": Decimal("100.0"),
+        "pct_change": Decimal("0.0600"),
+        "threshold": Decimal("0.05"),
+        "trigger": "single_day",
+        "market": "US",
+        "baseline_date": date(2026, 6, 2),
+        "latest_date": date(2026, 6, 3),
+        "window_net_pct": Decimal("0.0600"),
+        "max_day_pct": Decimal("0.0600"),
+        "max_day_date": date(2026, 6, 3),
+        "prev_close": Decimal("100.0"),
+        "day_open": None,
+        "day_high": None,
+        "day_low": None,
+        "day_close": Decimal("106.0"),
+        "after_hours": None,
+        "theme": None,
+        "theme_label_zh": None,
+        "theme_label_en": None,
+        "constituents": [],
+    }
+
+    assert dataclasses.asdict(by_identifier["golden_theme"]) == {
+        "name": "金测试主题",
+        "identifier": "golden_theme",
+        "asset_type": "STOCK",
+        "current_price": Decimal("210.0"),
+        "prev_price": Decimal("200.0"),
+        "pct_change": Decimal("0.0520"),  # value-weighted: (9000*.05 + 1000*.07)/10000
+        "threshold": Decimal("0.05"),
+        "trigger": "single_day",
+        "market": "US",
+        "baseline_date": date(2026, 6, 2),
+        "latest_date": date(2026, 6, 3),
+        "window_net_pct": Decimal("0.0520"),
+        "max_day_pct": Decimal("0.0500"),  # dominant constituent's own max_day_pct
+        "max_day_date": date(2026, 6, 3),
+        "prev_close": Decimal("200.0"),
+        "day_open": None,
+        "day_high": None,
+        "day_low": None,
+        "day_close": Decimal("210.0"),
+        "after_hours": None,
+        "theme": "golden_theme",
+        "theme_label_zh": "金测试主题",
+        "theme_label_en": "Golden Test Theme",
+        "constituents": [
+            {
+                "name": "Theme Big",
+                "identifier": "THMBIG",
+                "pct_change": Decimal("0.0500"),
+                "current_value": Decimal("9000"),
+            },
+            {
+                "name": "Theme Small",
+                "identifier": "THMSML",
+                "pct_change": Decimal("0.0700"),
+                "current_value": Decimal("1000"),
+            },
+        ],
+    }

@@ -12,7 +12,7 @@ plumbing between mocks lines up.
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
@@ -26,13 +26,21 @@ from app.services.macro_detector import MacroSignals
 from app.services.portfolio_calculator import Concentration, PortfolioSnapshot
 from app.services.window_data import BOOTSTRAP_WATERMARK
 
-# Shared window every user's report ends up computed over: fixing `datetime.now()`
-# inside report_generator.py makes every user's period_end identical, which is
-# what makes moves_cache actually hit across users in a real (non-mocked) run —
-# see window_data.detect_window_anomalies' moves_cache docstring. period_start
-# for all three users is BOOTSTRAP_WATERMARK (2026-06-01 16:00 ET) since none
-# of them has a prior report — cold start, so it's identical too.
-_FIXED_NOW = datetime(2026, 6, 6, 20, 30, tzinfo=UTC)
+# The real (unfrozen) clock is used throughout this file (PR #151 review):
+# generate_incremental_report stamps ONE `now` for the whole batch and passes
+# it into every user's generate_report call (report_tasks.py), which is what
+# actually makes moves_cache hit across users — not test-side clock-freezing.
+# An earlier version of this file froze report_generator.datetime.now to a
+# fixed value, which made test_compute_global_moves_runs_once_for_the_whole_
+# batch pass for the WRONG reason (each generate_report call independently
+# landing on the same mocked instant) even before generate_incremental_report
+# stamped a shared `now` itself — see window_data.MovesCache /
+# detect_window_anomalies' docstring. period_start for all three users is
+# BOOTSTRAP_WATERMARK (2026-06-01 16:00 ET) since none of them has a prior
+# report — cold start, so it's identical regardless of the real clock too.
+# Snapshot dates below are fixed in the past; period_end being "whenever this
+# test actually runs" only widens the window past the last seeded snapshot,
+# it does not change which snapshots fall inside it.
 _BASELINE_DATE = date(2026, 6, 1)
 _BASELINE_AT = BOOTSTRAP_WATERMARK
 
@@ -140,11 +148,16 @@ def _run_batch(db_session: Session) -> None:
     generate_report(output_lang="zh") exercises the real translation pass,
     which imports its own `_call_llm`/`_openrouter_client` bindings
     independent of report_generator.py's; missing this mock makes the test
-    hang on a real OpenRouter network call instead of failing fast)."""
+    hang on a real OpenRouter network call instead of failing fast).
+
+    Deliberately does NOT freeze `datetime.now` (PR #151 review) — the real
+    clock exercises generate_incremental_report's own `batch_now` stamp,
+    which is what actually has to make moves_cache hit across users, not a
+    test-controlled clock.
+    """
     from app.tasks.report_tasks import generate_incremental_report
 
     with (
-        patch("app.services.report_generator.datetime") as mock_dt,
         patch(
             "app.services.report_generator.compute_portfolio", return_value=_empty_portfolio_snap()
         ),
@@ -159,7 +172,6 @@ def _run_batch(db_session: Session) -> None:
         patch("app.services.report_translation._call_llm", side_effect=_mock_llm),
         patch("app.services.report_translation.time.sleep"),  # skip the real 2s/chunk pacing
     ):
-        mock_dt.now.return_value = _FIXED_NOW
         result = generate_incremental_report.run()
 
     assert result["status"] == "completed"
@@ -229,7 +241,10 @@ def test_compute_global_moves_runs_once_for_the_whole_batch(
 ) -> None:
     """UAT-2: the global move computation must not scale with user count —
     three users sharing one window trigger exactly one compute_global_moves
-    call, not three."""
+    call, not three. Runs against the real (unfrozen) clock via _run_batch
+    (PR #151 review) — this is the actual regression for the bug where each
+    user's independent `datetime.now()` call defeated moves_cache's cache
+    key in production even though a test that froze the clock stayed green."""
     _seed_price_snapshots(db_session)
 
     with patch(

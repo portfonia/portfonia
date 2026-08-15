@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from app.core.timezones import ET
@@ -124,6 +124,14 @@ def generate_incremental_report(
             return {"status": "no_active_users", "results": []}
 
         moves_cache: MovesCache = {}
+        # Stamped ONCE for the whole batch (PR #151 review): moves_cache is keyed
+        # on the exact (period_start, period_end) tuple, and generate_report
+        # stamps a fresh row's period_end from `now`. Without a shared `now`,
+        # each user's independent datetime.now() call would land microseconds
+        # apart, the cache key would never collide across users, and
+        # compute_global_moves would silently run once per user again — passing
+        # the same moves_cache dict object alone does not make the cache hit.
+        batch_now = datetime.now(tz=UTC)
         results: list[dict[str, str]] = []
         for user_id in user_ids:
             try:
@@ -134,6 +142,7 @@ def generate_incremental_report(
                     session_node=session_node,
                     user_id=user_id,
                     moves_cache=moves_cache,
+                    now=batch_now,
                 )
                 logger.info(
                     "generate_incremental_report: complete for user %s — report_id=%s status=%s",
@@ -177,6 +186,21 @@ def generate_incremental_report(
                 )
                 results.append({"user_id": str(user_id), "status": "failed"})
 
+        if all(r["status"] == "failed" for r in results):
+            # PR #151 review: per-user isolation must not come at the cost of
+            # dropping the task's retry contract when EVERY user failed — today's
+            # production has exactly one active user, so this is functionally the
+            # pre-A1 single-user failure path, and it must still get the 3x /
+            # 5-minute Celery retry rather than silently reporting "completed"
+            # with every user marked failed. A retry re-fetches active_user_ids
+            # and re-attempts each one; generate_report's own idempotency check
+            # makes re-attempting an already-succeeded user's report a cheap
+            # no-op, so this is safe even for a batch with a mix that later
+            # turns "all failed" on a subsequent retry attempt.
+            raise RuntimeError(
+                f"generate_incremental_report: all {len(results)} user(s) failed in this batch"
+            )
+
         return {"status": "completed", "results": results}
     except Exception as exc:
         logger.exception("generate_incremental_report: batch failed, scheduling retry")
@@ -184,10 +208,12 @@ def generate_incremental_report(
             send_ops_alert(
                 subject="[Portfonia] Report generation batch FAILED — all retries exhausted",
                 body=(
-                    f"generate_incremental_report failed after {self.max_retries} retries, "
-                    f"before per-user isolation could even apply (e.g. the active-user query "
-                    f"itself failed).\n\n"
+                    f"generate_incremental_report failed after {self.max_retries} retries.\n\n"
                     f"error: {type(exc).__name__}: {exc}\n\n"
+                    f"This can happen before per-user isolation even applies (e.g. the "
+                    f"active-user query itself failed), or because every user's generation "
+                    f"failed independently within the same run — check the per-user ops "
+                    f"alerts already sent for this run's individual failures.\n\n"
                     f"Check worker.log for the full traceback."
                 ),
             )
