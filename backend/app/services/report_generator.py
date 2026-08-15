@@ -59,7 +59,7 @@ from app.services.news_fetcher import NewsItem
 from app.services.portfolio_calculator import compute_portfolio
 from app.services.price_anomaly_detector import PriceAnomaly
 from app.services.report_context import ReportContext, ReportInputsDict
-from app.services.report_llm import _call_llm, _openrouter_client
+from app.services.report_llm import _BYOK_PROVIDER_ORDER, _call_llm, _openrouter_client
 from app.services.report_prompts import (
     _COMPLIANCE_SYSTEM_PREFIX,
     _PASS2_MIN_CHARS,
@@ -95,7 +95,7 @@ from app.services.report_serializers import (
     _serialize_portfolio,
     _serialize_technical,
 )
-from app.services.report_translation import _BYOK_PROVIDER_ORDER, _translate_md
+from app.services.report_translation import _translate_md
 from app.services.report_types import validate_report_type
 from app.services.technical_position import compute_technical_positions
 from app.services.window_data import (

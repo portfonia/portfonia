@@ -51,7 +51,7 @@ def _scan_forbidden_output(body: str) -> list[str]:
 # strip them as a backstop. Covers EN and the zh tags produced before #9 — the
 # zh set loads from i18n_glossary.yml's legacy_removed_markers_zh, frozen into
 # this compiled-pattern list at import (restart to pick up a YAML edit —
-# same caveat as report_sections._RELEASE_DELAY_TERMS above).
+# same caveat as report_sections._RELEASE_DELAY_TERMS).
 _STRAY_TAGS = [
     re.compile(re.escape(_COMPLIANCE_MARKER)),
     re.compile(
@@ -71,8 +71,8 @@ _STRAY_TAGS = [
 # afterwards, untouched. zh-Hans fragments load from i18n_glossary.yml's
 # body_disclaimer_regex_terms_zh (some contain regex alternation/wildcard
 # syntax, not plain literal substrings) — frozen into this compiled pattern
-# at import, same restart caveat as report_sections._RELEASE_DELAY_TERMS/
-# _STRAY_TAGS above. i18n_glossary.py's loader rejects an empty
+# at import, same restart caveat as _STRAY_TAGS above and
+# report_sections._RELEASE_DELAY_TERMS. i18n_glossary.py's loader rejects an empty
 # body_disclaimer_regex_terms_zh at load time, so this can't silently become a
 # match-everything pattern via a leading empty regex alternative (PR #91 review).
 _BODY_DISCLAIMER_RE = re.compile(

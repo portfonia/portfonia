@@ -7,7 +7,7 @@ caching, same pattern as ``asset_class_config.py`` (#35): an admin edit takes
 effect on the next LLM call, no process restart.
 
 Deliberately NOT covered here: BYOK provider order
-(``_BYOK_PROVIDER_ORDER`` in report_translation.py) stays a hardcoded
+(``_BYOK_PROVIDER_ORDER`` in report_llm.py) stays a hardcoded
 constant — it is a compliance pin (issue #78/#79), not an operational
 tuning knob, and changing it must go through code review + explicit
 product-owner sign-off, not an unreviewed config edit.

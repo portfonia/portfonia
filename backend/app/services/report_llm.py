@@ -39,6 +39,29 @@ class LLMEmptyResponseError(RuntimeError):
     """
 
 
+# Provider preference for the unstructured/BYOK calls — Pass 1 search-query
+# generation (report_generator.py) and translation (report_translation.py),
+# issue #78, 2026-08-06. Lives here (transport/compliance policy), not in
+# either call site's own module (PR #150 review): both sites treat this as
+# THE shared hard pin, so a translation-only or Pass-1-only home would let a
+# future edit to that one leaf ("this module no longer needs BYOK") silently
+# break the other site's pin. Distinct from OPENROUTER_PROVIDER_ORDER
+# (DigitalOcean,Venice — used for pinned Pass2/regenerate calls on
+# PRIMARY_LLM_MODEL): pins straight to DeepSeek's own first-party backend via
+# OpenRouter BYOK rather than the DigitalOcean/Venice marketplace pool. Both
+# call sites also pass enforce_data_collection=False (see _call_llm) — a
+# scoped compliance exception, since routing to DeepSeek's own API means the
+# general OPENROUTER_DATA_COLLECTION=deny guard (which exists specifically to
+# keep calls off DeepSeek's first-party endpoint) would otherwise exclude this
+# provider entirely. UNLIKE _call_llm's usual allow_fallbacks=True default,
+# both call sites force allow_fallbacks=False — a HARD pin, not a preference:
+# since the deny guard is off for these calls, an open fallback on DeepSeek
+# unavailability could silently reroute a payload (translation ships
+# with_holdings=True) to an arbitrary marketplace provider deny would
+# normally have excluded. Fail the call rather than degrade the compliance
+# guarantee (PR #79 review finding).
+_BYOK_PROVIDER_ORDER = ["DeepSeek"]
+
 # Backoff sequences inside _call_llm (bounded, then re-raise so the outer
 # Celery retry still sees a persistent failure). (I-DEBT-2)
 # Values are admin-editable via config/llm_retry.yml (#38), loaded fresh on

@@ -11,6 +11,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from app.services import report_translation as rt
+from app.services.report_llm import _BYOK_PROVIDER_ORDER
 
 
 def _fake_llm_response(content: str | None) -> MagicMock:
@@ -80,7 +81,7 @@ def test_translate_chunk_uses_byok_hard_pin_no_deny_no_reasoning() -> None:
 
     kwargs = client.chat.completions.create.call_args.kwargs
     provider = kwargs["extra_body"]["provider"]
-    assert provider["order"] == rt._BYOK_PROVIDER_ORDER == ["DeepSeek"]
+    assert provider["order"] == _BYOK_PROVIDER_ORDER == ["DeepSeek"]
     assert provider["allow_fallbacks"] is False
     assert "data_collection" not in provider
     assert kwargs["extra_body"]["reasoning"] == {"enabled": False}

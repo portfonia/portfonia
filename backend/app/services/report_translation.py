@@ -13,7 +13,7 @@ import openai
 
 from app.core.config import get_settings
 from app.services.i18n_glossary import load_i18n_glossary, locale_for_output_lang
-from app.services.report_llm import _call_llm, _openrouter_client
+from app.services.report_llm import _BYOK_PROVIDER_ORDER, _call_llm, _openrouter_client
 
 logger = logging.getLogger(__name__)
 
@@ -31,23 +31,11 @@ _TRANSLATION_MIN_SOURCE_CHARS = 200
 # deepseek-v4-flash after repeated full-pipeline runs).
 _TRANSLATION_PACING_SECONDS = 2.0
 
-# Provider preference for the unstructured/BYOK calls — Pass 1 search-query
-# generation and translation (issue #78, 2026-08-06). Distinct from
-# OPENROUTER_PROVIDER_ORDER (DigitalOcean,Venice — used for pinned Pass2/
-# regenerate calls on PRIMARY_LLM_MODEL): pins straight to DeepSeek's own
-# first-party backend via OpenRouter BYOK rather than the DigitalOcean/Venice
-# marketplace pool. Both call sites also pass enforce_data_collection=False
-# (see _call_llm) — a scoped compliance exception, since routing to DeepSeek's
-# own API means the general OPENROUTER_DATA_COLLECTION=deny guard (which
-# exists specifically to keep calls off DeepSeek's first-party endpoint) would
-# otherwise exclude this provider entirely. UNLIKE _call_llm's usual
-# allow_fallbacks=True default, both call sites force allow_fallbacks=False —
-# a HARD pin, not a preference: since the deny guard is off for these calls,
-# an open fallback on DeepSeek unavailability could silently reroute
-# holdings-bearing payloads (translation ships with_holdings=True) to an
-# arbitrary marketplace provider deny would normally have excluded. Fail the
-# call rather than degrade the compliance guarantee (PR #79 review finding).
-_BYOK_PROVIDER_ORDER = ["DeepSeek"]
+# _BYOK_PROVIDER_ORDER lives in report_llm.py, next to _call_llm's deny/
+# allow_fallbacks pairing (PR #150 review) — it pins BOTH Pass 1 search-query
+# generation (report_generator.py) and translation (this module), so a
+# translation-only home would let a future "translation no longer needs BYOK"
+# edit silently break Pass 1's hard pin. Imported above.
 
 
 def _build_glossary_instruction(target_lang: str) -> str:

@@ -37,8 +37,9 @@ no [news], no [analysis], no source labels). Write clean prose.
 # Pass 2 task instructions (shared by live generation and re-analysis).
 # The §4.2 cross-reference example below reads i18n_glossary.yml's
 # cross_reference_example once (frozen into this module constant at import —
-# same restart-to-pick-up-a-YAML-edit caveat as _RELEASE_DELAY_TERMS/
-# _STRAY_TAGS/_BODY_DISCLAIMER_RE; see i18n_glossary.py's module docstring).
+# same restart-to-pick-up-a-YAML-edit caveat as report_sections.
+# _RELEASE_DELAY_TERMS and output_scan._STRAY_TAGS/_BODY_DISCLAIMER_RE; see
+# i18n_glossary.py's module docstring).
 _pass2_cross_ref = load_i18n_glossary().templates["cross_reference_example"]
 _PASS2_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + (
     "\nYou are writing a structured financial analysis briefing for a "

@@ -36,7 +36,7 @@ from app.services.portfolio_calculator import (
     PortfolioSnapshot,
 )
 from app.services.price_anomaly_detector import PriceAnomaly
-from app.services.report_translation import _BYOK_PROVIDER_ORDER
+from app.services.report_llm import _BYOK_PROVIDER_ORDER
 
 _USER = uuid.UUID("00000000-0000-0000-0000-000000000099")
 _NOW = datetime(2026, 6, 4, 20, 0, tzinfo=UTC)
@@ -849,3 +849,4 @@ def test_generate_report_quiet_day_has_footer(db_session: Session) -> None:
     mock_llm.assert_not_called()
     assert report.report_md is not None
     assert "免责声明" in report.report_md
+    assert "Data Sources & Disclaimer" in report.report_md
