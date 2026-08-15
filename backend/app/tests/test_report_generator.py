@@ -265,6 +265,51 @@ def test_generate_report_normal_path(db_session: Session) -> None:
     assert len(report.report_inputs["search_results"]) == 2
 
 
+def test_targeted_search_budget_uses_real_api_calls_not_result_item_count(
+    db_session: Session,
+) -> None:
+    """Review round 1 bug: the targeted-search gate used to compute
+    `daily_remaining - len(ctx.search_results)` — subtracting a RESULT-ITEM
+    count (up to 5/query) from an HTTP-CALL budget. With TAVILY_DAILY_BUDGET
+    at its default (10) and Pass 1 proposing 2 queries that each return 5
+    items, that arithmetic reached 0 (10 - 10) and skipped the targeted NVDA
+    search entirely — even though only 2 real HTTP calls (of the 10 allowed)
+    had actually been made. This exercises the real report_search.py cache
+    path (only httpx.post is mocked), unlike the other tests in this file
+    which mock `_run_tavily_search` itself."""
+    five_items = [
+        {"title": f"headline {i}", "url": f"https://x.com/{i}", "content": "c", "score": 0.5}
+        for i in range(5)
+    ]
+
+    def _fake_response(*args: object, **kwargs: object) -> MagicMock:
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.json.return_value = {"results": five_items}
+        return resp
+
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch(
+            "app.services.report_generator.load_news_window",
+            return_value=[_news_item("Fed raises rates")],
+        ),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+        patch(
+            "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
+        ),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
+        patch("app.services.report_search.httpx.post", side_effect=_fake_response) as mock_post,
+    ):
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert report.status == "success"
+    real_queries = [c.kwargs["json"]["query"] for c in mock_post.call_args_list]
+    assert any("NVDA" in q for q in real_queries)
+
+
 def test_generate_report_retry_clears_stale_provider_message_id(db_session: Session) -> None:
     """issue #45 review follow-up: a row reused for retry (status not success/
     skipped) must clear provider_message_id alongside email_sent_at — otherwise

@@ -100,13 +100,45 @@ def test_writes_search_cache_row(db_session: Session) -> None:
     assert row.results[0]["title"] == "NVDA earnings beat"
 
 
-def test_failed_query_is_not_cached(db_session: Session) -> None:
+def test_failed_query_is_cached_as_empty_for_the_rest_of_the_day(db_session: Session) -> None:
+    """Review round 1 bug: an exception (or a real 200-with-zero-results
+    response) is still a REAL, billed attempt — if it isn't recorded, every
+    later report the same day re-attempts (and re-pays for) the identical
+    query. Both are treated as "searched today, nothing usable" and cached
+    as an empty result — the tradeoff (a transient outage suppresses retries
+    for the rest of the day) is deliberate: the daily cache boundary already
+    treats "today" as the natural retry horizon everywhere else in this
+    design."""
     with patch("app.services.report_search.httpx.post", side_effect=RuntimeError("network down")):
         result = rs._run_tavily_search(db_session, ["NVDA earnings"], _DATE, budget=5)
 
     assert result == []
-    rows = db_session.execute(select(SearchCache)).scalars().all()
-    assert rows == []
+    row = db_session.execute(
+        select(SearchCache).where(SearchCache.trade_date == _DATE)
+    ).scalar_one()
+    assert row.results == []
+
+
+def test_second_call_after_failure_does_not_retry_the_network(db_session: Session) -> None:
+    with patch(
+        "app.services.report_search.httpx.post", side_effect=RuntimeError("network down")
+    ) as mock_post:
+        rs._run_tavily_search(db_session, ["NVDA earnings"], _DATE, budget=5)
+        rs._run_tavily_search(db_session, ["NVDA earnings"], _DATE, budget=5)
+
+    mock_post.assert_called_once()
+
+
+def test_successful_empty_response_is_cached_and_counted(db_session: Session) -> None:
+    """Review round 1 bug: `_tavily_used_today` is a COUNT(*) over
+    search_cache, but a genuinely successful 200-with-zero-results response
+    used to be silently dropped (`if fresh:` was falsy for `[]`), so it was
+    never counted as spend — a query that legitimately finds nothing got
+    re-billed by every subsequent report that day."""
+    with patch("app.services.report_search.httpx.post", return_value=_fake_response([])):
+        rs._run_tavily_search(db_session, ["totally obscure query"], _DATE, budget=5)
+
+    assert rs._tavily_used_today(db_session, _DATE) == 1
 
 
 # ---------------------------------------------------------------------------

@@ -30,6 +30,14 @@ class TickerIntel(Base):
     residual disclosure this table accepts is that a row's mere existence
     reveals "some user in the system holds this identifier today" — not
     attributable to any specific user, judged acceptable (design doc §4.4).
+
+    `analysis` is NULLABLE (review round 1 fix, PR #155): a row with
+    `analysis IS NULL` is an "attempted, no usable result" marker — written
+    when the LLM call failed or the compliance scan blocked the output.
+    Without this, a systematically-blocked or -failing identifier wrote NO
+    row at all, so every user in a multi-user fan-out re-attempted (and
+    re-risked) the exact same call for that identifier — the daily analysis
+    cap counted only successful writes, making it trivially bypassable.
     """
 
     __tablename__ = "ticker_intel"
@@ -51,7 +59,7 @@ class TickerIntel(Base):
     trade_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     prompt_version: Mapped[str] = mapped_column(Text, nullable=False)
     model: Mapped[str] = mapped_column(Text, nullable=False)
-    analysis: Mapped[str] = mapped_column(Text, nullable=False)
+    analysis: Mapped[str | None] = mapped_column(Text, nullable=True)
     facts: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False

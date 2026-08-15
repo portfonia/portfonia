@@ -6,7 +6,10 @@ pure new-table additions with no existing data to backfill:
 
 - `ticker_intel`: one LLM analysis per (identifier, trade_date,
   prompt_version), shared across every user who holds the identifier that
-  day instead of re-analyzing it once per user.
+  day instead of re-analyzing it once per user. `analysis` is nullable: a
+  NULL row is an "attempted, no usable result" marker (LLM failure or a
+  compliance-scan block) written so a systematically-failing identifier
+  isn't re-attempted by every user in the fan-out (review round 1 fix).
 - `search_cache`: one Tavily result set per (query_hash, trade_date), shared
   across every report that proposes the same query that day. This table is
   also the new source of truth for the daily Tavily spend count
@@ -46,7 +49,7 @@ def upgrade() -> None:
         sa.Column("trade_date", sa.Date(), nullable=False),
         sa.Column("prompt_version", sa.Text(), nullable=False),
         sa.Column("model", sa.Text(), nullable=False),
-        sa.Column("analysis", sa.Text(), nullable=False),
+        sa.Column("analysis", sa.Text(), nullable=True),
         sa.Column("facts", postgresql.JSONB(), nullable=False),
         sa.Column(
             "created_at",

@@ -122,6 +122,16 @@ def _run_tavily_search(
     cache-hit query didn't exist yet to distinguish from a real one — see
     `_tavily_used_today`). Once `budget` is exhausted, remaining cache-miss
     queries are skipped (degraded mode, same as the pre-A2 truncation).
+
+    ANY real attempt (a genuinely empty 200, or an exception) is cached as an
+    empty result — review round 1 bug: caching only non-empty results meant
+    an empty-but-successful response, or a failed request, was silently
+    uncounted, so the identical query got re-billed by every later report the
+    same day (`_tavily_used_today` derives its count from `search_cache` row
+    presence, not from the results inside them). The tradeoff — a transient
+    outage suppresses retries for the identifier for the rest of the day — is
+    deliberate and matches the daily-boundary retry horizon this whole cache
+    already uses everywhere else.
     """
     all_results: list[dict[str, Any]] = []
     remaining = budget
@@ -134,8 +144,7 @@ def _run_tavily_search(
             logger.info("Tavily query skipped (daily budget exhausted): %s", query)
             continue
         fresh = _fetch_one_query(query)
-        if fresh:
-            _put_cached_search(session, query, trade_date, fresh)
+        _put_cached_search(session, query, trade_date, fresh)
         all_results.extend(fresh)
         remaining -= 1
     return all_results

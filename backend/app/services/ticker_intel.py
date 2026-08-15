@@ -155,9 +155,14 @@ def _build_l1_prompt(identifier: str, facts: L1Facts) -> str:
     return "\n".join(lines)
 
 
-def _fetch_cached(session: Session, identifier: str, trade_date: date) -> str | None:
+def _fetch_cached(session: Session, identifier: str, trade_date: date) -> TickerIntel | None:
+    """Returns the full row, not just `.analysis` — a row can exist with
+    `analysis IS NULL` (an "attempted, no usable result" marker; see
+    TickerIntel's docstring), and the caller must be able to tell "never
+    attempted today" (no row) apart from "attempted today, nothing to serve"
+    (row present, analysis None) to avoid re-attempting the latter."""
     return session.execute(
-        select(TickerIntel.analysis).where(
+        select(TickerIntel).where(
             TickerIntel.identifier == identifier,
             TickerIntel.trade_date == trade_date,
             TickerIntel.prompt_version == _PROMPT_VERSION,
@@ -179,8 +184,16 @@ def _count_analyzed_today(session: Session, trade_date: date) -> int:
 
 
 def _write_cache(
-    session: Session, identifier: str, trade_date: date, model: str, analysis: str, facts: L1Facts
+    session: Session,
+    identifier: str,
+    trade_date: date,
+    model: str,
+    analysis: str | None,
+    facts: L1Facts,
 ) -> None:
+    """`analysis=None` writes the "attempted, no usable result" marker row
+    (see TickerIntel's docstring) — used for both an LLM failure and a
+    compliance block, so neither is re-attempted by a later user today."""
     stmt = (
         pg_insert(TickerIntel)
         .values(
@@ -198,10 +211,15 @@ def _write_cache(
 
 
 def _generate(session: Session, identifier: str, trade_date: date, facts: L1Facts) -> str | None:
-    """Call the LLM, gate the output through the compliance scan, cache on
-    success. Returns None (never raises) on either an LLM failure or a
-    compliance block — both degrade to "no L1 intel this run", not a report
-    failure (design doc §4.3)."""
+    """Call the LLM, gate the output through the compliance scan, and ALWAYS
+    write a row — either the real analysis, or (on an LLM failure or a
+    compliance block) a null-analysis marker row, so a systematically
+    failing/blocked identifier is attempted at most once per day rather than
+    once per user in the fan-out (review round 1 fix: the first draft wrote
+    nothing on failure, so the daily cap — which counts cache rows — never
+    saw these attempts and could be bypassed entirely). Returns None (never
+    raises) on either failure mode — both degrade to "no L1 intel this run",
+    not a report failure (design doc §4.3)."""
     settings = get_settings()
     model = settings.LOW_COST_LLM_MODEL
     prompt = _build_l1_prompt(identifier, facts)
@@ -217,6 +235,7 @@ def _generate(session: Session, identifier: str, trade_date: date, facts: L1Fact
         )
     except Exception:
         logger.exception("ticker_intel: L1 analysis call failed for %s", identifier)
+        _write_cache(session, identifier, trade_date, model, None, facts)
         return None
 
     violations = _scan_forbidden_output(analysis)
@@ -238,6 +257,7 @@ def _generate(session: Session, identifier: str, trade_date: date, facts: L1Fact
             ),
             idempotency_key=f"ops-l1-blocked-{identifier}-{trade_date}",
         )
+        _write_cache(session, identifier, trade_date, model, None, facts)
         return None
 
     _write_cache(session, identifier, trade_date, model, analysis, facts)
@@ -251,9 +271,18 @@ def get_l1_intel_batch(
     facts_by_identifier: dict[str, L1Facts],
 ) -> dict[str, str]:
     """Read-through cache over `identifiers` (expected ordered by |move|
-    descending — see `build_l1_candidates`). Cache hits are free; a cache
-    miss beyond the day's remaining fresh-analysis budget is simply skipped
-    (that identifier has no L1 intel this run — degrade, don't fail).
+    descending — see `build_l1_candidates`). A cache HIT — whether it holds
+    a real analysis or a null "attempted, no result" marker (see
+    TickerIntel's docstring) — never re-calls the LLM: an already-attempted
+    identifier is never retried today, success or not. A cache MISS beyond
+    the day's remaining fresh-analysis budget is simply skipped (that
+    identifier has no L1 intel this run — degrade, don't fail).
+
+    `fresh_budget` is decremented on EVERY fresh attempt via `_generate`,
+    regardless of outcome (review round 1 fix): counting only successful
+    writes let a systematically-blocked or -failing identifier bypass the
+    daily cap entirely, since every user in the fan-out would see "not yet
+    attempted" and retry it.
 
     Sequential fan-out (`generate_incremental_report` processes users one at
     a time, not concurrently) is what actually makes "shared across users"
@@ -267,7 +296,8 @@ def get_l1_intel_batch(
     for identifier in identifiers:
         cached = _fetch_cached(session, identifier, trade_date)
         if cached is not None:
-            result[identifier] = cached
+            if cached.analysis is not None:
+                result[identifier] = cached.analysis
             continue
         if fresh_budget <= 0:
             logger.info(
@@ -280,9 +310,9 @@ def get_l1_intel_batch(
         if facts is None:
             continue
         analysis = _generate(session, identifier, trade_date, facts)
+        fresh_budget -= 1
         if analysis is not None:
             result[identifier] = analysis
-            fresh_budget -= 1
     return result
 
 

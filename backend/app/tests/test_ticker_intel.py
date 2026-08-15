@@ -42,6 +42,29 @@ def _mock_llm_ok(*args: object, **kwargs: object) -> str:
 # ---------------------------------------------------------------------------
 
 
+def test_generate_call_keeps_deny_enforced_no_byok_no_holdings(db_session: Session) -> None:
+    """design doc §4.3 hard requirement: L1 is holdings-derived (identifiers
+    are drawn from anomalies/holding-news), so `data_collection=deny` must
+    stay enforced — L1 must NOT reuse Pass 1/translation's BYOK exception
+    (`enforce_data_collection=False` + `_BYOK_PROVIDER_ORDER`). Review round
+    1 flagged this as an untested compliance-critical parameter set —
+    locking it down the same way test_pass1_prompt_excludes_holdings_
+    derived_anomalies locks Pass 1's isolation contract."""
+    with (
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_mock_llm_ok) as mock_call,
+    ):
+        ti.get_l1_intel_batch(db_session, ["NVDA"], _DATE, {"NVDA": _facts()})
+
+    kwargs = mock_call.call_args.kwargs
+    assert kwargs.get("with_holdings") is False
+    assert (
+        "enforce_data_collection" not in kwargs
+    )  # must stay at _call_llm's deny-enforcing default
+    assert "provider_order" not in kwargs  # must not reuse the Pass 1/translation BYOK pin
+    assert "allow_fallbacks" not in kwargs
+
+
 def test_first_call_generates_and_caches(db_session: Session) -> None:
     with (
         patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
@@ -90,9 +113,13 @@ def test_different_trade_date_is_a_cache_miss(db_session: Session) -> None:
 
 def test_forbidden_output_not_cached_and_alerted(db_session: Session) -> None:
     """design doc §4.3: an L1 output tripping the forbidden-vocabulary scan
-    must NOT be cached (it would fan out to every user holding the
+    must NOT be served (it would fan out to every user holding the
     identifier) — the batch call degrades to "no L1 intel for this
-    identifier" rather than raising."""
+    identifier" rather than raising. Review round 1 bug: the FIRST draft
+    wrote nothing at all on a block, so every later user in the fan-out
+    re-attempted (and re-risked) the exact same call — this now writes a
+    null-analysis marker row so the attempt is remembered and not retried
+    (see test_forbidden_output_is_not_retried_by_a_later_call)."""
 
     def _bad_llm(*args: object, **kwargs: object) -> str:
         return "You should buy NVDA now."
@@ -106,12 +133,30 @@ def test_forbidden_output_not_cached_and_alerted(db_session: Session) -> None:
 
     assert result == {}
     mock_alert.assert_called_once()
-    count = (
-        db_session.execute(select(TickerIntel).where(TickerIntel.identifier == "NVDA"))
-        .scalars()
-        .all()
-    )
-    assert count == []
+    row = db_session.execute(
+        select(TickerIntel).where(TickerIntel.identifier == "NVDA")
+    ).scalar_one()
+    assert row.analysis is None
+
+
+def test_forbidden_output_is_not_retried_by_a_later_call(db_session: Session) -> None:
+    """The exact bug from review round 1: without a persisted marker, a
+    ticker that consistently trips the compliance scan bypasses the daily
+    cap entirely (every one of N users in the fan-out re-calls the LLM)."""
+
+    def _bad_llm(*args: object, **kwargs: object) -> str:
+        return "You should buy NVDA now."
+
+    with (
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_bad_llm) as mock_call,
+        patch("app.services.ticker_intel.send_ops_alert"),
+    ):
+        ti.get_l1_intel_batch(db_session, ["NVDA"], _DATE, {"NVDA": _facts()})
+        result = ti.get_l1_intel_batch(db_session, ["NVDA"], _DATE, {"NVDA": _facts()})
+
+    assert result == {}
+    mock_call.assert_called_once()
 
 
 def test_llm_failure_degrades_without_raising(db_session: Session) -> None:
@@ -125,6 +170,24 @@ def test_llm_failure_degrades_without_raising(db_session: Session) -> None:
         result = ti.get_l1_intel_batch(db_session, ["NVDA"], _DATE, {"NVDA": _facts()})
 
     assert result == {}
+    row = db_session.execute(
+        select(TickerIntel).where(TickerIntel.identifier == "NVDA")
+    ).scalar_one()
+    assert row.analysis is None
+
+
+def test_llm_failure_is_not_retried_by_a_later_call(db_session: Session) -> None:
+    def _raise(*args: object, **kwargs: object) -> str:
+        raise RuntimeError("provider down")
+
+    with (
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_raise) as mock_call,
+    ):
+        ti.get_l1_intel_batch(db_session, ["NVDA"], _DATE, {"NVDA": _facts()})
+        ti.get_l1_intel_batch(db_session, ["NVDA"], _DATE, {"NVDA": _facts()})
+
+    mock_call.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +214,34 @@ def test_daily_cap_blocks_fresh_analyses_but_not_cache_hits(db_session: Session)
             {"NVDA": _facts(), "AAPL": _facts()},
         )
         assert second == {"NVDA": first["NVDA"]}
+        mock_call.assert_called_once()  # no new call for AAPL
+
+
+def test_a_blocked_attempt_counts_against_the_daily_cap(db_session: Session) -> None:
+    """Review round 1 bug: `fresh_budget` used to only decrement on a
+    successful cache write, so a compliance-blocked (or failed) identifier
+    was free against the cap — a systematically-blocked ticker could bypass
+    the daily cap entirely (unbounded retries, one per user in the
+    fan-out). One blocked attempt must consume the same budget slot a
+    successful one would."""
+
+    def _bad_llm(*args: object, **kwargs: object) -> str:
+        return "You should buy NVDA now."
+
+    with (
+        patch("app.services.ticker_intel._MAX_L1_ANALYSES_PER_DAY", 1),
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_bad_llm) as mock_call,
+        patch("app.services.ticker_intel.send_ops_alert"),
+    ):
+        first = ti.get_l1_intel_batch(db_session, ["NVDA"], _DATE, {"NVDA": _facts()})
+        assert first == {}
+        mock_call.assert_called_once()
+
+        # Cap exhausted by the one (blocked) attempt above — a different,
+        # never-attempted identifier gets no fresh analysis this call.
+        second = ti.get_l1_intel_batch(db_session, ["AAPL"], _DATE, {"AAPL": _facts()})
+        assert second == {}
         mock_call.assert_called_once()  # no new call for AAPL
 
 

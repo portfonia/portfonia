@@ -264,9 +264,13 @@ def test_forbidden_l1_output_does_not_block_report_generation(
     reports = db_session.execute(select(Report)).scalars().all()
     assert all(r.status == "success" for r in reports)
 
+    # Review round 1 fix: a blocked attempt now writes a null-analysis
+    # marker row (so it isn't re-attempted by every user in the batch) —
+    # it just never serves the forbidden text.
     rows = (
         db_session.execute(select(TickerIntel).where(TickerIntel.identifier == "NVDA"))
         .scalars()
         .all()
     )
-    assert rows == []
+    assert len(rows) == 1
+    assert rows[0].analysis is None

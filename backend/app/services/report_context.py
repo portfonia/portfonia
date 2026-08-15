@@ -1,9 +1,13 @@
 """`report_inputs` JSONB shape: the write-side dataclass and its read-side
 TypedDict mirror.
 
-Split out of report_generator.py (#37) so the type can be imported by
-report_search.py (`_tavily_used_today` reads report_inputs back via
-ReportInputsDict) without report_search depending on the orchestrator.
+Split out of report_generator.py (#37) so the type can be imported by other
+report_* modules without them depending on the orchestrator — e.g.
+report_search.py's `_targeted_anomaly_queries` reads anomaly dicts shaped by
+this module. `_tavily_used_today` (issue #128 A2) no longer reads
+report_inputs at all — it counts `search_cache` rows directly, since a query
+that hit cache made no real API call but was still being counted as spend
+under the old report_inputs-summation approach.
 """
 
 from __future__ import annotations

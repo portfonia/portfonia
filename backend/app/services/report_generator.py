@@ -656,11 +656,28 @@ def generate_report(
         )
 
         targeted = _targeted_anomaly_queries(ctx.price_anomalies, set(ctx.holding_news.keys()))
-        targeted_remaining = max(0, daily_remaining - len(ctx.search_results))
-        if targeted and targeted_remaining > 0:
-            tq = [q for _ident, q in targeted][:targeted_remaining]
-            logger.info("report %s: %d targeted anomaly searches", report.id, len(tq))
-            targeted_results = _run_tavily_search(session, tq, eff_date, budget=targeted_remaining)
+        if targeted:
+            # Review round 1 bug: this used to be `daily_remaining -
+            # len(ctx.search_results)` — subtracting a RESULT-ITEM count (up
+            # to 5/query) from an HTTP-CALL budget, and pre-slicing the query
+            # list by that wrong number before the cache-first loop even ran
+            # (dropping queries that would have been free cache hits).
+            # Re-derive the real remaining HTTP-call budget from actual
+            # spend so far today (the Pass 1 search above may have written
+            # new search_cache rows) and pass every targeted query through
+            # unsliced — `_run_tavily_search`'s own cache-first loop decides
+            # per query whether it needs the budget at all.
+            targeted_budget = max(
+                0, settings.TAVILY_DAILY_BUDGET - _tavily_used_today(session, eff_date)
+            )
+            tq = [q for _ident, q in targeted]
+            logger.info(
+                "report %s: %d targeted anomaly searches (budget %d)",
+                report.id,
+                len(tq),
+                targeted_budget,
+            )
+            targeted_results = _run_tavily_search(session, tq, eff_date, budget=targeted_budget)
             ctx.search_results.extend(targeted_results)
 
         # Re-index results globally for [S#] citation notation
