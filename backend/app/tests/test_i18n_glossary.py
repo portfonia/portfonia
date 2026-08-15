@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from app.services import report_generator as rg
+from app.services import report_translation as rt
 from app.services.i18n_glossary import load_i18n_glossary, locale_for_output_lang
 
 _VALID_YAML = """
@@ -134,10 +134,10 @@ def test_default_config_loads_without_error() -> None:
 
 
 def test_build_glossary_instruction_unknown_target_lang_returns_empty() -> None:
-    assert rg._build_glossary_instruction("fr") == ""
+    assert rt._build_glossary_instruction("fr") == ""
 
 
 def test_build_glossary_instruction_zh_contains_full_fixed_term_set() -> None:
-    instruction = rg._build_glossary_instruction("zh")
+    instruction = rt._build_glossary_instruction("zh")
     assert '"Portfonia Financial Analysis Report" -> "Portfonia 财经分析报告"' in instruction
     assert 'Never render any word as "智能"' in instruction

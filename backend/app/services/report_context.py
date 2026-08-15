@@ -1,0 +1,117 @@
+"""`report_inputs` JSONB shape: the write-side dataclass and its read-side
+TypedDict mirror.
+
+Split out of report_generator.py (#37) so the type can be imported by
+report_search.py (`_tavily_used_today` reads report_inputs back via
+ReportInputsDict) without report_search depending on the orchestrator.
+"""
+
+from __future__ import annotations
+
+import json
+import uuid
+from dataclasses import asdict, dataclass, field
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Any, TypedDict
+
+
+def _decimal_default(o: object) -> object:
+    if isinstance(o, Decimal):
+        return float(o)
+    if isinstance(o, date):
+        return o.isoformat()
+    if isinstance(o, datetime):
+        return o.isoformat()
+    if isinstance(o, uuid.UUID):
+        return str(o)
+    raise TypeError(f"not JSON-serialisable: {type(o)}")
+
+
+class ReportInputsDict(TypedDict, total=False):
+    """Static-typed view of the `report_inputs` JSONB shape (#39).
+
+    Mirrors ReportContext's field set — keep the two in sync by hand; the
+    to_jsonb() JSON round-trip (dataclasses.asdict -> json.dumps/loads) means
+    nothing enforces that sync automatically, only mypy's key/type checking
+    at call sites that `cast` a raw dict into this type.
+
+    `total=False`: every key is optional at read time. Rows written before a
+    later ReportContext field was added won't have it, and
+    regenerate_report's analyze-mode update (`{**inputs, "pass2_raw": ...}`)
+    only ever adds/overwrites the keys it touches, never re-derives the rest
+    — so no key here can be assumed universally present on a stored row.
+    """
+
+    portfolio_summary: dict[str, Any]
+    news_items: list[dict[str, Any]]
+    macro_signals: dict[str, Any]
+    price_anomalies: list[dict[str, Any]]
+    technical_positions: list[dict[str, Any]]
+    forward_events: list[dict[str, Any]]
+    holding_news: dict[str, list[dict[str, Any]]]
+    period_start: str
+    period_end: str
+    window_trading_days: int
+    price_data_through: str
+    pass1_model: str
+    pass1_prompt: str
+    pass1_raw: str
+    search_queries: list[str]
+    search_results: list[dict[str, Any]]
+    pass2_model: str
+    pass2_prompt: str
+    pass2_raw: str
+    llm_calls: list[dict[str, Any]]
+    pass2_translated: str
+
+
+@dataclass
+class ReportContext:
+    """Intermediate documents captured for the report_inputs JSONB column."""
+
+    portfolio_summary: dict[str, Any] = field(default_factory=dict)
+    news_items: list[dict[str, Any]] = field(default_factory=list)
+    macro_signals: dict[str, Any] = field(default_factory=dict)
+    price_anomalies: list[dict[str, Any]] = field(default_factory=list)
+    technical_positions: list[dict[str, Any]] = field(default_factory=list)
+    forward_events: list[dict[str, Any]] = field(default_factory=list)
+    # R-3 holding-relevant news: {identifier: [news dict, ...]} recalled from the
+    # window store for the holdings that moved (plus any targeted-search items).
+    holding_news: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    # ADR-002 window bookkeeping (ISO strings / int) for re-render reproducibility.
+    period_start: str = ""
+    period_end: str = ""
+    window_trading_days: int = 0
+    # R-5: ISO date of the last in-window close (the real PRICE-data cutoff,
+    # distinct from period_end). Empty when the window has no captured close.
+    price_data_through: str = ""
+    pass1_model: str = ""
+    pass1_prompt: str = ""
+    pass1_raw: str = ""
+    search_queries: list[str] = field(default_factory=list)
+    search_results: list[dict[str, Any]] = field(default_factory=list)
+    pass2_model: str = ""
+    pass2_prompt: str = ""
+    pass2_raw: str = ""
+    # LLM call records (Pass 1 + Pass 2; translation chunks excluded as they are
+    # cheap/many and the per-chunk token count is not material for cost audits).
+    llm_calls: list[dict[str, Any]] = field(default_factory=list)
+    # Snapshot of the translated report body (dynamic section only, pre-footer).
+    # Stored so compliance attribution can be traced per translation chunk if needed.
+    pass2_translated: str = ""
+
+    def to_jsonb(self) -> dict[str, Any]:
+        """Return the write-side dict for the `report_inputs` JSONB column.
+
+        Kept as `dict[str, Any]`, not `ReportInputsDict` (#39) — the column
+        itself is untyped JSONB (`Mapped[dict[str, Any] | None]` on the ORM
+        model), so a TypedDict return here would only fight that boundary at
+        every assignment site for no type-safety gain. `ReportInputsDict` is
+        the read-side contract instead: callers `cast` into it once they pull
+        a row's `report_inputs` back out, which is where the drift this issue
+        cares about (readers assuming a key/shape ReportContext never wrote)
+        actually gets caught.
+        """
+        result: dict[str, Any] = json.loads(json.dumps(asdict(self), default=_decimal_default))
+        return result

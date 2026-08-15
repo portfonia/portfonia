@@ -21,18 +21,19 @@ regex); this module does not duplicate it.
 **Lifecycle — NOT uniformly "live" (PR #91 review):** `load_i18n_glossary()`
 itself always re-reads the YAML fresh (no cache), same as
 `asset_class_config.py`. But that parity stops at the call site: functions
-that call it *inside their own body* (`_build_footer`, `_stale_ticker_hint`,
-`_build_glossary_instruction` in `report_generator.py`) pick up an edit on
-the next call, with no restart needed. Consumers that instead bake the
-result into a **module-level constant** at import
-(`report_generator._RELEASE_DELAY_TERMS`, `_STRAY_TAGS`,
-`_BODY_DISCLAIMER_RE`, and the §4.2 cross-reference text folded into
-`_PASS2_SYSTEM`) freeze whatever the YAML said at process start — an admin
-edit to those specific lists needs a uvicorn/celery restart to take effect,
-per this project's existing "Dev process restart" convention in CLAUDE.md.
-This is a real inconsistency, not a design choice; if it matters enough to
-fix, the correct fix is loading fresh inside those functions too, not
-patching the docstring further.
+that call it *inside their own body* (`_build_footer`, `_stale_ticker_hint`
+in `report_sections.py`/`report_prompts.py`, `_build_glossary_instruction`
+in `report_translation.py`) pick up an edit on the next call, with no
+restart needed. Consumers that instead bake the result into a **module-level
+constant** at import (`report_sections._RELEASE_DELAY_TERMS`,
+`output_scan._STRAY_TAGS`/`_BODY_DISCLAIMER_RE` in
+`app/compliance/output_scan.py`, and the §4.2 cross-reference text folded
+into `report_prompts._PASS2_SYSTEM`) freeze whatever the YAML said at
+process start — an admin edit to those specific lists needs a
+uvicorn/celery restart to take effect, per this project's existing "Dev
+process restart" convention in CLAUDE.md. This is a real inconsistency, not
+a design choice; if it matters enough to fix, the correct fix is loading
+fresh inside those functions too, not patching the docstring further.
 """
 
 from __future__ import annotations
