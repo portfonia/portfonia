@@ -6,6 +6,8 @@ from app.models.news import News
 from app.models.news_surfaced import NewsSurfaced
 from app.models.price_snapshot import PriceSnapshot
 from app.models.report import Report
+from app.models.search_cache import SearchCache
+from app.models.ticker_intel import TickerIntel
 from app.models.upload_job import UploadJob
 
 __all__ = [
@@ -17,5 +19,7 @@ __all__ = [
     "NewsSurfaced",
     "PriceSnapshot",
     "Report",
+    "SearchCache",
+    "TickerIntel",
     "UploadJob",
 ]

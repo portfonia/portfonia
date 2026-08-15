@@ -98,6 +98,7 @@ from app.services.report_serializers import (
 from app.services.report_translation import _translate_md
 from app.services.report_types import validate_report_type
 from app.services.technical_position import compute_technical_positions
+from app.services.ticker_intel import build_l1_candidates, get_l1_intel_batch
 from app.services.window_data import (
     MovesCache,
     detect_window_anomalies,
@@ -618,7 +619,7 @@ def generate_report(
         # ------------------------------------------------------------------
         # 4. Tavily search  — daily budget enforced across runs
         # ------------------------------------------------------------------
-        used_today = _tavily_used_today(session, eff_date, exclude_report_id=report.id)
+        used_today = _tavily_used_today(session, eff_date)
         daily_remaining = max(0, settings.TAVILY_DAILY_BUDGET - used_today)
         if ctx.search_queries:
             logger.info(
@@ -629,7 +630,9 @@ def generate_report(
                 used_today,
                 daily_remaining,
             )
-            search_results = _run_tavily_search(ctx.search_queries, budget=daily_remaining)
+            search_results = _run_tavily_search(
+                session, ctx.search_queries, eff_date, budget=daily_remaining
+            )
         else:
             search_results = []
         ctx.search_results = search_results
@@ -657,12 +660,34 @@ def generate_report(
         if targeted and targeted_remaining > 0:
             tq = [q for _ident, q in targeted][:targeted_remaining]
             logger.info("report %s: %d targeted anomaly searches", report.id, len(tq))
-            targeted_results = _run_tavily_search(tq, budget=targeted_remaining)
+            targeted_results = _run_tavily_search(session, tq, eff_date, budget=targeted_remaining)
             ctx.search_results.extend(targeted_results)
 
         # Re-index results globally for [S#] citation notation
         for i, r in enumerate(ctx.search_results):
             r["index"] = i + 1
+
+        # ------------------------------------------------------------------
+        # 5.5 L1 shared ticker intel (issue #128 A2) — computed once per
+        # (identifier, trade_date) across the whole system and cached
+        # (ticker_intel table), so a multi-user fan-out sharing an
+        # identifier pays for one LLM analysis, not one per user. Does NOT
+        # feed into the Pass 2 prompt or the rendered body yet — A2 is
+        # cache-infrastructure only (design doc §1.2: report content stays
+        # byte-identical through A1-A3); A4 is what assembles this into the
+        # report. A blocked/failed identifier degrades to "no L1 intel this
+        # run", never blocks report generation.
+        # ------------------------------------------------------------------
+        l1_candidates, l1_facts = build_l1_candidates(
+            ctx.price_anomalies, ctx.holding_news, ctx.technical_positions
+        )
+        ctx.ticker_intel = get_l1_intel_batch(session, l1_candidates, eff_date, l1_facts)
+        logger.info(
+            "report %s: L1 shared intel available for %d/%d candidate identifiers",
+            report.id,
+            len(ctx.ticker_intel),
+            len(l1_candidates),
+        )
 
         # ------------------------------------------------------------------
         # 6. Pass 2 — full report body

@@ -1,0 +1,343 @@
+"""L1 shared ticker-level intel cache (issue #128, Ring 1 A2 — design doc
+§4, Hermes/Portfonia/Docs/Ring 1-A design.md).
+
+This is a NEW analysis stage, not a refactor: before A2 there was no
+per-identifier "what happened to this security this window" pass — Pass 2
+did all narrative work in one per-user call. `get_l1_intel_batch` computes
+that analysis exactly once per (identifier, trade_date, prompt_version) and
+caches it, so a multi-user fan-out that shares an identifier (two users both
+holding NVDA) pays for one LLM call, not one per user.
+
+Hard constraint (design doc §4.3): the L1 prompt must carry NO per-user
+data — no position size, portfolio weight, account value, or holder count —
+because the cached result is reused verbatim across every user who holds the
+identifier. `L1Facts` is a fixed dataclass of public, window-level facts
+only; there is no field a caller could populate to leak per-user data into
+the prompt (see test_ticker_intel.py's structural + prompt-content tests).
+
+Compliance (design doc §4.3): a cached entry that later ships to N users
+multiplies the blast radius of a forbidden-vocabulary slip by N. The output
+is scanned with the same Layer-4 backstop the report body uses
+(`_scan_forbidden_output`) BEFORE it is written to the cache — a violation is
+never cached, ops is alerted, and the caller simply gets no L1 intel for
+that identifier this run (report generation is not blocked by this).
+
+Model/compliance parameters (design doc §4.3): `data_collection=deny` stays
+enforced (no BYOK exception — identifiers are holdings-derived, unlike Pass
+1's public-only inputs). Model choice is `LOW_COST_LLM_MODEL`: this is a
+narrower, more mechanical task than Pass 2 ("what happened to this one
+identifier", not a full cross-holding narrative), and A2's whole point is
+cost reduction — no dedicated ASSEMBLY_LLM_MODEL-style setting was
+introduced for A2 (that pattern is reserved for A4's personalization pass,
+design doc §6.3, whose scope is different enough to warrant its own
+shadow-compared setting).
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from datetime import date
+from typing import Any
+
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.orm import Session
+
+from app.compliance.output_scan import _scan_forbidden_output
+from app.core.config import get_settings
+from app.models.ticker_intel import TickerIntel
+from app.services.email_sender import send_ops_alert
+from app.services.report_llm import _call_llm, _openrouter_client
+from app.services.report_prompts import _COMPLIANCE_SYSTEM_PREFIX
+
+logger = logging.getLogger(__name__)
+
+# Bumping this deliberately stops serving old cache entries under a new
+# prompt contract (design doc §4.4) — it is part of the table's unique key,
+# not just an audit column.
+_PROMPT_VERSION = "l1-v1"
+
+# Per-day cap on FRESH LLM analyses (design doc §4.3) — cache hits are free
+# and never count against this, so a broad anomaly day degrades to "some
+# identifiers have no L1 intel" rather than an unbounded cost spike.
+_MAX_L1_ANALYSES_PER_DAY = 15
+
+_L1_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + (
+    "\nYou are writing a short SHARED factual briefing about a single security "
+    "or theme for an internal cache. This text will be reused verbatim across "
+    "every user in the system who holds it — it must contain NOTHING specific "
+    "to any one user: no position size, portfolio weight, account value, or "
+    "how many people hold it. Describe ONLY what happened to this security in "
+    "the given window, using the facts provided.\n"
+    "End any causal attribution with a confidence label in square brackets: "
+    "[Established] (a named mechanism or citable event drives the move), "
+    "[Probable] (partial evidence, not conclusive), or [Speculative] (no "
+    "direct evidence — a hypothesis). If no catalyst is identifiable, say so "
+    "plainly and use [Speculative]. Write 2-4 sentences, no headings, no "
+    "bracketed citations."
+)
+
+
+@dataclass
+class L1Facts:
+    """Public, non-per-user facts about one identifier for the L1 prompt.
+
+    Every field here is either a window-level price-move fact (shared,
+    identical across every user who holds the identifier — the same
+    `compute_global_moves` output A1 introduced), a captured headline, or a
+    descriptive OHLCV fact (`technical_position.py`). None of it is
+    holdings-derived beyond the identifier string itself.
+    """
+
+    net_pct: float | None = None
+    max_day_pct: float | None = None
+    trigger: str = ""
+    market: str = ""
+    current_price: float | None = None
+    prev_price: float | None = None
+    latest_date: str = ""
+    news_headlines: list[str] = field(default_factory=list)
+    pct_vs_sma50: float | None = None
+    pct_vs_sma200: float | None = None
+    pct_in_52w_range: float | None = None
+    vol_20d_annualized: float | None = None
+
+    def to_jsonb(self) -> dict[str, Any]:
+        return {
+            "net_pct": self.net_pct,
+            "max_day_pct": self.max_day_pct,
+            "trigger": self.trigger,
+            "market": self.market,
+            "current_price": self.current_price,
+            "prev_price": self.prev_price,
+            "latest_date": self.latest_date,
+            "news_headlines": self.news_headlines,
+            "pct_vs_sma50": self.pct_vs_sma50,
+            "pct_vs_sma200": self.pct_vs_sma200,
+            "pct_in_52w_range": self.pct_in_52w_range,
+            "vol_20d_annualized": self.vol_20d_annualized,
+        }
+
+
+def _build_l1_prompt(identifier: str, facts: L1Facts) -> str:
+    lines = [f"Identifier: {identifier}", ""]
+    if facts.net_pct is not None:
+        lines.append(f"Window net price change: {facts.net_pct:+.2%}")
+    if facts.max_day_pct is not None:
+        lines.append(f"Largest single-day move in window: {facts.max_day_pct:+.2%}")
+    if facts.trigger:
+        lines.append(f"Trigger type: {facts.trigger}")
+    if facts.market:
+        lines.append(f"Market: {facts.market}")
+    if facts.current_price is not None and facts.prev_price is not None:
+        lines.append(f"Price: {facts.prev_price} -> {facts.current_price}")
+    if facts.latest_date:
+        lines.append(f"Latest data date: {facts.latest_date}")
+    if facts.pct_vs_sma50 is not None:
+        lines.append(f"Distance to 50-day average: {facts.pct_vs_sma50:+.2%}")
+    if facts.pct_vs_sma200 is not None:
+        lines.append(f"Distance to 200-day average: {facts.pct_vs_sma200:+.2%}")
+    if facts.pct_in_52w_range is not None:
+        lines.append(f"Position in 52-week range: {facts.pct_in_52w_range:.2%}")
+    if facts.vol_20d_annualized is not None:
+        lines.append(f"20-day annualized volatility: {facts.vol_20d_annualized:.2%}")
+    if facts.news_headlines:
+        lines.append("")
+        lines.append("Related headlines captured this window:")
+        for h in facts.news_headlines:
+            lines.append(f"- {h}")
+    lines.append("")
+    lines.append(
+        "Write the briefing described in your system instructions, grounded "
+        "ONLY in the facts above."
+    )
+    return "\n".join(lines)
+
+
+def _fetch_cached(session: Session, identifier: str, trade_date: date) -> str | None:
+    return session.execute(
+        select(TickerIntel.analysis).where(
+            TickerIntel.identifier == identifier,
+            TickerIntel.trade_date == trade_date,
+            TickerIntel.prompt_version == _PROMPT_VERSION,
+        )
+    ).scalar_one_or_none()
+
+
+def _count_analyzed_today(session: Session, trade_date: date) -> int:
+    return int(
+        session.execute(
+            select(func.count())
+            .select_from(TickerIntel)
+            .where(
+                TickerIntel.trade_date == trade_date,
+                TickerIntel.prompt_version == _PROMPT_VERSION,
+            )
+        ).scalar_one()
+    )
+
+
+def _write_cache(
+    session: Session, identifier: str, trade_date: date, model: str, analysis: str, facts: L1Facts
+) -> None:
+    stmt = (
+        pg_insert(TickerIntel)
+        .values(
+            identifier=identifier,
+            trade_date=trade_date,
+            prompt_version=_PROMPT_VERSION,
+            model=model,
+            analysis=analysis,
+            facts=facts.to_jsonb(),
+        )
+        .on_conflict_do_nothing(constraint="uq_ticker_intel_identifier_date_version")
+    )
+    session.execute(stmt)
+    session.flush()
+
+
+def _generate(session: Session, identifier: str, trade_date: date, facts: L1Facts) -> str | None:
+    """Call the LLM, gate the output through the compliance scan, cache on
+    success. Returns None (never raises) on either an LLM failure or a
+    compliance block — both degrade to "no L1 intel this run", not a report
+    failure (design doc §4.3)."""
+    settings = get_settings()
+    model = settings.LOW_COST_LLM_MODEL
+    prompt = _build_l1_prompt(identifier, facts)
+    try:
+        client = _openrouter_client()
+        analysis = _call_llm(
+            client,
+            model,
+            _L1_SYSTEM,
+            prompt,
+            with_holdings=False,
+            disable_reasoning=True,
+        )
+    except Exception:
+        logger.exception("ticker_intel: L1 analysis call failed for %s", identifier)
+        return None
+
+    violations = _scan_forbidden_output(analysis)
+    if violations:
+        logger.error(
+            "ticker_intel: L1 output for %s (%s) BLOCKED by compliance scan: %s",
+            identifier,
+            trade_date,
+            violations,
+        )
+        send_ops_alert(
+            subject=f"[Portfonia] L1 shared intel BLOCKED for compliance — {identifier}",
+            body=(
+                f"L1 shared-cache analysis for identifier {identifier} on {trade_date} "
+                f"tripped the forbidden-vocabulary scan: {violations}\n\n"
+                f"This entry was NOT cached — a cached hit here would have been reused "
+                f"across every user holding {identifier}. Report generation for the "
+                f"affected user(s) continues without L1 intel for this identifier."
+            ),
+            idempotency_key=f"ops-l1-blocked-{identifier}-{trade_date}",
+        )
+        return None
+
+    _write_cache(session, identifier, trade_date, model, analysis, facts)
+    return analysis
+
+
+def get_l1_intel_batch(
+    session: Session,
+    identifiers: list[str],
+    trade_date: date,
+    facts_by_identifier: dict[str, L1Facts],
+) -> dict[str, str]:
+    """Read-through cache over `identifiers` (expected ordered by |move|
+    descending — see `build_l1_candidates`). Cache hits are free; a cache
+    miss beyond the day's remaining fresh-analysis budget is simply skipped
+    (that identifier has no L1 intel this run — degrade, don't fail).
+
+    Sequential fan-out (`generate_incremental_report` processes users one at
+    a time, not concurrently) is what actually makes "shared across users"
+    hold here: the first user's call caches to the DB before the second
+    user's call ever runs, so no in-memory batch cache (unlike A1's
+    moves_cache) is needed for the sharing property itself — see design doc
+    §4.1 UAT-4 and test_ticker_intel.py's cache-hit tests.
+    """
+    result: dict[str, str] = {}
+    fresh_budget = max(0, _MAX_L1_ANALYSES_PER_DAY - _count_analyzed_today(session, trade_date))
+    for identifier in identifiers:
+        cached = _fetch_cached(session, identifier, trade_date)
+        if cached is not None:
+            result[identifier] = cached
+            continue
+        if fresh_budget <= 0:
+            logger.info(
+                "ticker_intel: daily L1 analysis cap (%d) reached, skipping %s",
+                _MAX_L1_ANALYSES_PER_DAY,
+                identifier,
+            )
+            continue
+        facts = facts_by_identifier.get(identifier)
+        if facts is None:
+            continue
+        analysis = _generate(session, identifier, trade_date, facts)
+        if analysis is not None:
+            result[identifier] = analysis
+            fresh_budget -= 1
+    return result
+
+
+def build_l1_candidates(
+    anomalies: list[dict[str, Any]],
+    holding_news: dict[str, list[dict[str, Any]]],
+    technical_positions: list[dict[str, Any]],
+) -> tuple[list[str], dict[str, L1Facts]]:
+    """Candidate identifiers for L1 analysis + their public facts, built from
+    the same serialized shapes `generate_report` already holds
+    (`ctx.price_anomalies`, `ctx.holding_news`, `ctx.technical_positions`) —
+    design doc §4.3: "本窗口触发异动的identifier 或 被持仓新闻召回命中的identifier".
+
+    Ordering: anomaly identifiers first, in their given order (already
+    sorted by |move| descending — see `window_data.select_user_anomalies`),
+    then any holding-news-only identifiers (no anomaly, so no natural move
+    ranking) appended after. This ordering is what `get_l1_intel_batch`'s
+    daily-cap truncation uses to prioritize the most-moved identifiers.
+    """
+    technical_by_ticker = {t["ticker"]: t for t in technical_positions if t.get("ticker")}
+
+    def _apply_technical(facts_obj: L1Facts, identifier: str) -> None:
+        tech = technical_by_ticker.get(identifier, {})
+        facts_obj.pct_vs_sma50 = tech.get("pct_vs_sma50")
+        facts_obj.pct_vs_sma200 = tech.get("pct_vs_sma200")
+        facts_obj.pct_in_52w_range = tech.get("pct_in_52w_range")
+        facts_obj.vol_20d_annualized = tech.get("vol_20d_annualized")
+
+    order: list[str] = []
+    facts: dict[str, L1Facts] = {}
+
+    for a in anomalies:
+        identifier = a.get("identifier")
+        if not identifier or identifier in facts:
+            continue
+        order.append(identifier)
+        new_facts = L1Facts(
+            net_pct=a.get("window_net_pct"),
+            max_day_pct=a.get("max_day_pct"),
+            trigger=a.get("trigger") or "",
+            market=a.get("market") or "",
+            current_price=a.get("current_price"),
+            prev_price=a.get("prev_price"),
+            latest_date=a.get("latest_date") or "",
+            news_headlines=[n.get("title", "") for n in holding_news.get(identifier, [])],
+        )
+        _apply_technical(new_facts, identifier)
+        facts[identifier] = new_facts
+
+    for identifier, items in holding_news.items():
+        if identifier in facts:
+            continue
+        order.append(identifier)
+        news_only_facts = L1Facts(news_headlines=[n.get("title", "") for n in items])
+        _apply_technical(news_only_facts, identifier)
+        facts[identifier] = news_only_facts
+
+    return order, facts

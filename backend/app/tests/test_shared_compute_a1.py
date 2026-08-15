@@ -141,14 +141,21 @@ def _mock_llm(client: object, model: str, system: str, user: str, **kwargs: obje
     return '{"queries": []}'
 
 
+def _mock_l1_llm(client: object, model: str, system: str, user: str, **kwargs: object) -> str:
+    return "Nothing notable. [Speculative]"
+
+
 def _run_batch(db_session: Session) -> None:
-    """Mocks the LLM/Tavily boundary in BOTH report_generator.py (Pass 1/2)
-    AND report_translation.py (OUTPUT_LANG defaults to "zh" — see
-    app/core/config.py — so generate_incremental_report's real call to
-    generate_report(output_lang="zh") exercises the real translation pass,
-    which imports its own `_call_llm`/`_openrouter_client` bindings
-    independent of report_generator.py's; missing this mock makes the test
-    hang on a real OpenRouter network call instead of failing fast).
+    """Mocks the LLM/Tavily boundary in report_generator.py (Pass 1/2),
+    report_translation.py, AND ticker_intel.py (issue #128 A2's L1 step) —
+    OUTPUT_LANG defaults to "zh" (app/core/config.py) so
+    generate_incremental_report's real call to generate_report(output_lang=
+    "zh") exercises the real translation pass, and every user with a
+    price-anomaly candidate exercises the real L1 step; each of these
+    modules imports its own `_call_llm`/`_openrouter_client` bindings
+    independent of report_generator.py's — missing any one of these mocks
+    makes the test hang on a real OpenRouter network call instead of
+    failing fast.
 
     Deliberately does NOT freeze `datetime.now` (PR #151 review) — the real
     clock exercises generate_incremental_report's own `batch_now` stamp,
@@ -171,6 +178,8 @@ def _run_batch(db_session: Session) -> None:
         patch("app.services.report_translation._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_translation._call_llm", side_effect=_mock_llm),
         patch("app.services.report_translation.time.sleep"),  # skip the real 2s/chunk pacing
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_mock_l1_llm),
     ):
         result = generate_incremental_report.run()
 

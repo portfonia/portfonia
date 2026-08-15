@@ -59,6 +59,29 @@ def _no_email() -> MagicMock:  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------
+# Module-level guard: generate_report always runs the L1 shared-intel step
+# (issue #128 A2, ticker_intel.get_l1_intel_batch) after anomaly detection.
+# Most tests here don't exercise it (no anomalies seeded -> no candidates ->
+# no LLM call), but any that do must not hit a real OpenRouter endpoint --
+# ticker_intel imports its own _call_llm/_openrouter_client bindings,
+# independent of report_generator.py's (same reason report_translation needs
+# its own mock, see test_shared_compute_a1.py's _run_batch docstring).
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _mock_l1_llm_boundary() -> None:  # type: ignore[misc]
+    with (
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch(
+            "app.services.ticker_intel._call_llm",
+            return_value="Nothing notable. [Speculative]",
+        ),
+    ):
+        yield
+
+
+# ---------------------------------------------------------------------------
 # Fixtures / factories
 # ---------------------------------------------------------------------------
 
