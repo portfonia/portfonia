@@ -375,6 +375,18 @@ def build_l1_candidates(
     `_merge_theme_anomalies` never actually produces a theme entry with zero
     constituents (a theme bucket only exists if it has >=1 member).
 
+    `holding_news` (round 4 review bug): `generate_report`'s upstream
+    recall/targeted-search is still keyed by the theme slug
+    (`anomaly_ids`/`_targeted_anomaly_queries` both read `a["identifier"]`
+    directly, unaware of the constituent expansion below), so `holding_news`
+    arrives here keyed by "gold" etc, not by constituent ticker. Every
+    constituent gets the theme slug's headlines (in addition to any headlines
+    recalled under its own ticker), and the theme slug itself is tracked in
+    `theme_slugs` so the news-only loop below never re-adds it as its own
+    candidate — the first draft of the round-3 fix missed this, letting the
+    news-only loop silently reintroduce the exact theme-slug candidate the
+    anomaly loop had just excluded.
+
     Ordering: anomaly identifiers first, in their given order (already
     sorted by |move| descending — see `window_data.select_user_anomalies`),
     then any holding-news-only identifiers (no anomaly, so no natural move
@@ -392,6 +404,14 @@ def build_l1_candidates(
 
     order: list[str] = []
     facts: dict[str, L1Facts] = {}
+    # Theme slugs must never surface as their own L1 candidate (round 3 fix)
+    # — but upstream recall/targeted-search in generate_report is still
+    # keyed by the theme slug (a["identifier"]), so holding_news arrives
+    # here keyed by "gold" etc, not by constituent ticker. Track slugs seen
+    # so the news-only loop below excludes them too (round 4 review bug:
+    # without this, "gold" news reintroduced "gold" as its own candidate
+    # via that loop, undoing the anomaly-loop fix in the common case).
+    theme_slugs: set[str] = set()
 
     for a in anomalies:
         identifier = a.get("identifier")
@@ -399,14 +419,17 @@ def build_l1_candidates(
             continue
         constituents = a.get("constituents") or []
         if constituents:
+            theme_slugs.add(identifier)
+            theme_headlines = [n.get("title", "") for n in holding_news.get(identifier, [])]
             for c in constituents:
                 c_identifier = c.get("identifier")
                 if not c_identifier or c_identifier in facts:
                     continue
                 order.append(c_identifier)
+                own_headlines = [n.get("title", "") for n in holding_news.get(c_identifier, [])]
                 c_facts = L1Facts(
                     net_pct=c.get("pct_change"),
-                    news_headlines=[n.get("title", "") for n in holding_news.get(c_identifier, [])],
+                    news_headlines=own_headlines + theme_headlines,
                 )
                 _apply_technical(c_facts, c_identifier)
                 facts[c_identifier] = c_facts
@@ -428,7 +451,7 @@ def build_l1_candidates(
         facts[identifier] = new_facts
 
     for identifier, items in holding_news.items():
-        if identifier in facts:
+        if identifier in facts or identifier in theme_slugs:
             continue
         order.append(identifier)
         news_only_facts = L1Facts(news_headlines=[n.get("title", "") for n in items])

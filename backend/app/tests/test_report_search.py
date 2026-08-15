@@ -79,6 +79,22 @@ def test_query_normalization_shares_cache_across_case_and_whitespace(db_session:
     mock_post.assert_called_once()
 
 
+def test_cache_hit_result_query_field_matches_the_current_caller(db_session: Session) -> None:
+    """Round 4 review finding: a cache HIT returns the FIRST writer's stored
+    results, whose `query` field is that writer's original (un-normalized)
+    string — not the current caller's. A downstream consumer that maps
+    results back to an identifier by exact `result["query"]` match (as
+    report_generator.py's targeted-search-to-L1-headline remap does) would
+    silently miss every cache-hit result whose caller used a differently-
+    cased/spaced (but same-hash) query string."""
+    with patch("app.services.report_search.httpx.post", return_value=_fake_response(_ONE_RESULT)):
+        rs._run_tavily_search(db_session, ["  NVDA Earnings  "], _DATE, budget=5)
+
+    result = rs._run_tavily_search(db_session, ["nvda earnings"], _DATE, budget=5)
+
+    assert result[0]["query"] == "nvda earnings"
+
+
 def test_different_trade_date_is_a_cache_miss(db_session: Session) -> None:
     with patch(
         "app.services.report_search.httpx.post", return_value=_fake_response(_ONE_RESULT)

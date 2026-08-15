@@ -424,6 +424,47 @@ def test_build_l1_candidates_theme_anomaly_expands_to_constituents_not_theme_slu
     assert facts["SGOL"].max_day_pct is None
 
 
+def test_build_l1_candidates_theme_slug_news_reaches_constituents_not_reintroduced_as_candidate() -> (
+    None
+):
+    """Round 4 review bug: round 3's constituent-expansion fix only touched
+    the anomaly loop. `anomaly_ids`/`_targeted_anomaly_queries` upstream in
+    `generate_report` still build recall/targeted news keyed by the THEME
+    SLUG (`a["identifier"]`, e.g. "gold"), not by constituent ticker — so
+    `holding_news` arrives here keyed by "gold". Two bugs followed: (1)
+    `holding_news.get(c_identifier)` for each constituent misses (wrong
+    key), so constituents get an empty headline list even when real news
+    was recalled; (2) the news-only loop then walks every `holding_news`
+    key including "gold", which is NOT in `facts` (constituents were added
+    under their own tickers) — re-adding the theme slug as its own
+    candidate, completely undoing the round-3 fix in the common case
+    (any theme anomaly that also has recalled/targeted news)."""
+    anomalies = [
+        {
+            "identifier": "gold",
+            "window_net_pct": 0.05,
+            "constituents": [
+                {
+                    "name": "SPDR Gold",
+                    "identifier": "SGOL",
+                    "pct_change": 0.08,
+                    "current_value": 5000.0,
+                },
+                {"name": "GLD", "identifier": "GLD", "pct_change": 0.02, "current_value": 1000.0},
+            ],
+        }
+    ]
+    holding_news = {"gold": [{"title": "Gold rallies on safe-haven demand"}]}
+
+    order, facts = ti.build_l1_candidates(anomalies, holding_news, [])
+
+    assert "gold" not in facts
+    assert "gold" not in order
+    assert set(order) == {"SGOL", "GLD"}
+    assert "Gold rallies on safe-haven demand" in facts["SGOL"].news_headlines
+    assert "Gold rallies on safe-haven demand" in facts["GLD"].news_headlines
+
+
 def test_build_l1_candidates_theme_constituent_gets_its_own_technical_facts() -> None:
     anomalies = [
         {

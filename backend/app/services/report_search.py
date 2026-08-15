@@ -138,7 +138,13 @@ def _run_tavily_search(
     for query in queries:
         cached = _get_cached_search(session, query, trade_date)
         if cached is not None:
-            all_results.extend(cached)
+            # Round 4 review finding: a cache hit returns the FIRST writer's
+            # stored results, whose "query" field is that writer's own
+            # (un-normalized) string — not this caller's. Rewrite it to the
+            # current query so a downstream exact-string remap (e.g.
+            # report_generator.py's targeted-search-to-L1-headline mapping)
+            # doesn't silently miss a same-hash, differently-cased/spaced hit.
+            all_results.extend({**r, "query": query} for r in cached)
             continue
         if remaining <= 0:
             logger.info("Tavily query skipped (daily budget exhausted): %s", query)
