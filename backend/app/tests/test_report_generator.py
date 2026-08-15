@@ -37,6 +37,7 @@ from app.services.portfolio_calculator import (
 )
 from app.services.price_anomaly_detector import PriceAnomaly
 from app.services.report_llm import _BYOK_PROVIDER_ORDER
+from app.services.window_data import MovesCache
 
 _USER = uuid.UUID("00000000-0000-0000-0000-000000000099")
 _NOW = datetime(2026, 6, 4, 20, 0, tzinfo=UTC)
@@ -850,3 +851,68 @@ def test_generate_report_quiet_day_has_footer(db_session: Session) -> None:
     assert report.report_md is not None
     assert "免责声明" in report.report_md
     assert "Data Sources & Disclaimer" in report.report_md
+
+
+# ---------------------------------------------------------------------------
+# Tests: explicit user_id (issue #128 A1)
+# ---------------------------------------------------------------------------
+
+_OTHER_USER = uuid.UUID("00000000-0000-0000-0000-0000000000aa")
+
+
+def test_generate_report_uses_explicit_user_id_not_current_user(db_session: Session) -> None:
+    """An explicit user_id must be used as-is and must NOT fall through to
+    get_current_user_id() — the multi-user fan-out (report_tasks.py) relies
+    on this to generate each user's report under their own identity."""
+    with (
+        patch("app.services.report_generator.get_current_user_id") as mock_current_user,
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch("app.services.report_generator.load_news_window", return_value=[]),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_quiet_signals()),
+        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 0)),
+        patch("app.services.report_generator._call_llm") as mock_llm,
+    ):
+        report = rg.generate_report(db_session, report_date=_TODAY, user_id=_OTHER_USER)
+
+    mock_current_user.assert_not_called()
+    mock_llm.assert_not_called()  # quiet day, never reaches Pass 1/2
+    assert report.user_id == _OTHER_USER
+
+
+def test_generate_report_falls_back_to_current_user_id_when_omitted(db_session: Session) -> None:
+    """user_id=None (every pre-A1 call site) must still resolve via
+    get_current_user_id() — the Ring 0 single-user path is unchanged."""
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER) as mock_cur,
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch("app.services.report_generator.load_news_window", return_value=[]),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_quiet_signals()),
+        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 0)),
+        patch("app.services.report_generator._call_llm"),
+    ):
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    mock_cur.assert_called_once()
+    assert report.user_id == _USER
+
+
+def test_generate_report_forwards_moves_cache_to_detect_window_anomalies(
+    db_session: Session,
+) -> None:
+    """moves_cache must reach detect_window_anomalies unchanged — this is
+    the plumbing that lets report_tasks.py's fan-out share one
+    compute_global_moves() call across a whole batch."""
+    cache: MovesCache = {}
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch("app.services.report_generator.load_news_window", return_value=[]),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_quiet_signals()),
+        patch(
+            "app.services.report_generator.detect_window_anomalies", return_value=([], 0)
+        ) as mock_detect,
+        patch("app.services.report_generator._call_llm"),
+    ):
+        rg.generate_report(db_session, report_date=_TODAY, moves_cache=cache)
+
+    assert mock_detect.call_args.args[-1] is cache

@@ -99,6 +99,7 @@ from app.services.report_translation import _translate_md
 from app.services.report_types import validate_report_type
 from app.services.technical_position import compute_technical_positions
 from app.services.window_data import (
+    MovesCache,
     detect_window_anomalies,
     latest_window_close_date,
     load_news_window,
@@ -231,6 +232,9 @@ def generate_report(
     base_currency: str = "USD",
     output_lang: str = "en",
     session_node: str = "manual",
+    user_id: uuid.UUID | None = None,
+    moves_cache: MovesCache | None = None,
+    now: datetime | None = None,
 ) -> Report:
     """
     Run the full F1 report generation pipeline and persist the result.
@@ -238,11 +242,35 @@ def generate_report(
     Returns the Report ORM object (status='success' or 'failed').
     Raises if the report record cannot be written (e.g. unique constraint violation
     when a report for the same date+type+session_node already exists).
+
+    `user_id` (issue #128 A1): `None` falls back to `get_current_user_id()`
+    (Ring 0's fixed dev user), preserving every existing single-user call
+    site unchanged. `generate_incremental_report`'s multi-user fan-out passes
+    the actual user being generated for.
+
+    `moves_cache` (issue #128 A1): forwarded to `detect_window_anomalies` —
+    see its docstring in `window_data.py`. Lets a multi-user batch share one
+    `compute_global_moves()` call across every user in the same window
+    instead of recomputing it once per user. `None` (every existing call
+    site) preserves the pre-A1 per-call behavior.
+
+    `now` (issue #128 A1, PR #151 review): the wall-clock instant used for
+    BOTH `eff_date`'s fallback and a fresh row's `period_end`. `None`
+    (every pre-A1 call site) reads the real clock, unchanged. This exists
+    because `moves_cache` is keyed on the exact `(period_start, period_end)`
+    tuple — if each user's `generate_report` call in a fan-out stamped its
+    own independent `datetime.now()`, two users sharing a window would get
+    `period_end` values microseconds apart, the cache key would never
+    collide, and `compute_global_moves` would silently run once per user
+    again despite `moves_cache` being passed. `generate_incremental_report`
+    stamps ONE `now` for the whole batch and passes it to every user's call
+    so the cache key is actually shared, not just the dict object.
     """
     validate_report_type(report_type)
     settings = get_settings()
-    user_id = get_current_user_id()
-    eff_date = report_date or datetime.now(tz=ET).date()
+    user_id = user_id if user_id is not None else get_current_user_id()
+    now = now if now is not None else datetime.now(tz=UTC)
+    eff_date = report_date or now.astimezone(ET).date()
 
     # ------------------------------------------------------------------
     # Idempotency: (user_id, report_date, report_type, session_node) is unique
@@ -326,7 +354,7 @@ def generate_report(
             report_type,
             exclude_report_id=report.id if existing is not None else None,
         )
-        period_end = datetime.now(tz=UTC)
+        period_end = now
         report.period_start = period_start
         report.period_end = period_end
         session.flush()  # get the id without committing
@@ -455,7 +483,9 @@ def generate_report(
         ctx.macro_signals = _serialize_macro(macro_signals)
 
         logger.info("report %s: detecting windowed price anomalies", report.id)
-        anomalies, trading_days = detect_window_anomalies(session, period_start, period_end)
+        anomalies, trading_days = detect_window_anomalies(
+            session, period_start, period_end, user_id, moves_cache
+        )
         ctx.price_anomalies = _serialize_anomalies(anomalies)
         ctx.window_trading_days = trading_days
 

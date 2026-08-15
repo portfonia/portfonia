@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from itertools import pairwise
@@ -30,6 +31,7 @@ from app.services._yfinance import _normalize_hk_ticker
 from app.services.asset_class_config import load_asset_class_config
 from app.services.news_fetcher import NewsItem
 from app.services.price_anomaly_detector import ConstituentMove, PriceAnomaly
+from app.services.user_scope import global_identifier_universe, user_holdings
 
 logger = logging.getLogger(__name__)
 
@@ -271,25 +273,51 @@ def _after_hours_last(session: Session, ticker: str, on: date) -> Decimal | None
     return snap.last if snap else None
 
 
-def _compute_holding_move(
-    session: Session,
-    h: Holding,
-    start: datetime,
-    end: datetime,
-    start_date: date,
-    trading_days: int,
-) -> PriceAnomaly | None:
-    """Compute the window move for a single holding; return None if not anomalous.
+@dataclass
+class HoldingMove:
+    """Raw window price-move facts for one identifier, computed exactly once
+    regardless of how many holdings (across however many users) carry it.
 
-    Uses h.ticker when present; falls back to h.fund_code as the price_snapshots
-    key (fund NAV is stored under fund_code via capture_fund_navs).
+    Deliberately carries NO threshold judgment and no per-holding fields
+    (name, asset_type) — see `select_user_anomalies` for why the
+    anomaly/non-anomaly decision has to stay per-user: two different users'
+    Holding rows can classify the very same identifier under different
+    `asset_class` values, which changes the threshold (design doc §3.3,
+    Ring 1-A design.md issue #128).
     """
-    raw = h.ticker or h.fund_code
-    identifier = _normalize_hk_ticker(raw) if raw else None
-    thresholds = load_asset_class_config().by_class.get(h.asset_class)
-    if thresholds is None or not identifier:
-        return None
-    per_day, cumulative_cap = thresholds.anomaly_per_day, thresholds.anomaly_cumulative_cap
+
+    identifier: str
+    market: str
+    current_price: Decimal
+    prev_price: Decimal
+    net_pct: Decimal
+    max_day_pct: Decimal | None
+    max_day_date: date | None
+    baseline_date: date
+    latest_date: date
+    prev_close: Decimal | None
+    day_open: Decimal | None
+    day_high: Decimal | None
+    day_low: Decimal | None
+    day_close: Decimal | None
+    after_hours: Decimal | None
+
+
+# Keyed by the exact (start, end) window a batch fan-out is generating over —
+# see detect_window_anomalies' `moves_cache` parameter.
+MovesCache = dict[tuple[datetime, datetime], tuple[dict[str, "HoldingMove"], int]]
+
+
+def _compute_identifier_move(
+    session: Session, identifier: str, start: datetime, end: datetime, start_date: date
+) -> HoldingMove | None:
+    """Fetch + compute the window price move for one identifier; return None
+    when there's no usable baseline/series. No threshold judgment here (see
+    HoldingMove) — ported out of the old per-holding `_compute_holding_move`,
+    which mixed "fetch the price series" with "does it clear THIS holding's
+    threshold" and so recomputed the same identifier's series once per
+    holding row that carried it, once per user.
+    """
     baseline = _close_snapshot_before_window(session, identifier, start, start_date)
     series = _window_closes(session, identifier, start, end)
     if baseline is None or baseline.close is None or not series:
@@ -311,29 +339,17 @@ def _compute_holding_move(
             max_day_pct = day_pct
             max_day_date = cur.trade_date
 
-    window_threshold = _window_threshold(per_day, cumulative_cap, trading_days)
-    single_day_hit = max_day_pct is not None and abs(max_day_pct) >= per_day
-    cumulative_hit = abs(net_pct) >= window_threshold
-    if not (single_day_hit or cumulative_hit):
-        return None
-
-    trigger = "single_day" if single_day_hit else "cumulative"
     prev_close = path[-2].close if len(path) >= 2 else None
-    return PriceAnomaly(
-        name=h.name,
+    return HoldingMove(
         identifier=identifier,
-        asset_type=h.asset_class,
+        market=latest.market,
         current_price=latest.close,
         prev_price=baseline.close,
-        pct_change=net_pct,
-        threshold=window_threshold,
-        trigger=trigger,
-        market=latest.market,
-        baseline_date=baseline.trade_date,
-        latest_date=latest.trade_date,
-        window_net_pct=net_pct,
+        net_pct=net_pct,
         max_day_pct=max_day_pct,
         max_day_date=max_day_date,
+        baseline_date=baseline.trade_date,
+        latest_date=latest.trade_date,
         prev_close=prev_close,
         day_open=latest.open,
         day_high=latest.high,
@@ -412,43 +428,12 @@ def _merge_theme_anomalies(
     )
 
 
-def detect_window_anomalies(
-    session: Session, start: datetime, end: datetime
-) -> tuple[list[PriceAnomaly], int]:
-    """Price moves over the report window, computed from stored snapshots.
-
-    A holding flags as an anomaly when EITHER condition holds:
-
-      * single-day  — any one trading day inside the window moved beyond the
-        per-day threshold. Catches a violent session that the endpoint-to-
-        endpoint net move would smooth away.
-      * cumulative  — the baseline-close → latest-close net move beyond the
-        scaled window threshold (per-day x trading-days, capped at the per-class
-        cumulative cap).
-
-    Holdings that share a theme in ``ticker_themes`` are merged into a single
-    anomaly entry if ANY constituent flags.  The headline pct_change is the
-    value-weighted average across all theme members; the session arc comes from
-    the value-dominant constituent.  Holdings with no theme entry are emitted as
-    individual anomaly rows.
-
-    A holding with no baseline close (added mid-window) is skipped. Returns
-    (anomalies sorted by largest |move|, trading_days_in_window).
-    """
-    holdings = (
-        session.execute(
-            select(Holding).where(
-                or_(Holding.ticker.is_not(None), Holding.fund_code.is_not(None)),
-                Holding.pricing_mode == "auto",
-            )
-        )
-        .scalars()
-        .all()
-    )
-    start_date = start.astimezone(ET).date()
+def _count_trading_days(session: Session, start: datetime, start_date: date, end: datetime) -> int:
+    """Distinct trade_dates with a captured close inside the window — shared by
+    compute_global_moves and (via the wrapper) every caller of the old
+    detect_window_anomalies signature."""
     end_date = end.astimezone(ET).date()
-
-    trading_days = int(
+    return int(
         session.execute(
             select(func.count(func.distinct(PriceSnapshot.trade_date))).where(
                 PriceSnapshot.session_node == "close",
@@ -468,34 +453,131 @@ def detect_window_anomalies(
         or 0
     )
 
-    # Load theme map: ticker (upper) → TickerTheme row.
-    theme_map: dict[str, TickerTheme] = {
-        row.ticker.upper(): row for row in session.execute(select(TickerTheme)).scalars().all()
-    }
 
-    # Compute per-holding moves; bucket into themed vs standalone.
-    # theme_buckets: theme key → [(Holding, PriceAnomaly)]
+def _load_theme_map(session: Session) -> dict[str, TickerTheme]:
+    """ticker (upper) -> TickerTheme row."""
+    return {row.ticker.upper(): row for row in session.execute(select(TickerTheme)).scalars().all()}
+
+
+def compute_global_moves(
+    session: Session, start: datetime, end: datetime
+) -> tuple[dict[str, HoldingMove], int]:
+    """Every identifier across ALL users' auto-priced holdings (design doc
+    §1.3/§3.3, issue #128 A1), window price move computed exactly once each.
+
+    price_capture's identifier universe is already global (no user_id
+    filter — see design doc §1.3); this makes that explicit and shares the
+    snapshot query + move computation across every user who happens to hold
+    the same identifier, instead of recomputing it once per Holding row (the
+    pre-A1 behavior, which meant N users each holding the same ticker paid
+    for the same query N times).
+
+    No threshold judgment happens here — see `select_user_anomalies`.
+    Returns (identifier(upper) -> HoldingMove, trading_days_in_window).
+    """
+    universe = global_identifier_universe(session)
+    start_date = start.astimezone(ET).date()
+    trading_days = _count_trading_days(session, start, start_date, end)
+
+    moves: dict[str, HoldingMove] = {}
+    for identifier in universe:
+        move = _compute_identifier_move(session, identifier, start, end, start_date)
+        if move is not None:
+            moves[identifier] = move
+    return moves, trading_days
+
+
+def select_user_anomalies(
+    moves: dict[str, HoldingMove],
+    holdings: Sequence[Holding],
+    trading_days: int,
+    theme_map: dict[str, TickerTheme],
+) -> list[PriceAnomaly]:
+    """Per-user threshold judgment + theme merge over globally-computed moves.
+
+    Threshold judgment stays per-user rather than folding into
+    compute_global_moves: two users can hold the very same identifier under
+    different `Holding.asset_class` values (design doc §3.3 — the same
+    ticker classified differently by two users' upload parses is a real,
+    already-possible case), so the exact same raw move can clear the
+    threshold for one user and not the other. Pure in-memory — no DB access,
+    no LLM, no I/O — so it's cheap to call once per user in a fan-out loop
+    even though compute_global_moves ran only once for the whole batch.
+
+    Holdings that share a theme in ``ticker_themes`` are merged into a single
+    anomaly entry if ANY constituent flags, exactly as the pre-split
+    ``detect_window_anomalies`` did — merging only ever considers the
+    holdings passed in here (this one user's), so it cannot pull another
+    user's holdings into a merged entry.
+    """
+    config = load_asset_class_config()
     theme_buckets: dict[str, list[tuple[Holding, PriceAnomaly]]] = {}
     standalone: list[PriceAnomaly] = []
 
     for h in holdings:
-        anomaly = _compute_holding_move(session, h, start, end, start_date, trading_days)
-        if anomaly is None:
+        if h.pricing_mode != "auto":
             continue
-        identifier = (h.ticker or h.fund_code or "").upper()
-        theme_row = theme_map.get(identifier)
+        raw = h.ticker or h.fund_code
+        # .upper() here must match global_identifier_universe's key casing
+        # (PR #151 review round 2): POST /holdings/confirm accepts
+        # ParsedRow.ticker as-is, bypassing the upload parser's case
+        # normalization, so a mixed-case ticker's move gets computed
+        # correctly under moves' uppercase key but would silently miss here
+        # without the same normalization on this side of the lookup.
+        identifier = _normalize_hk_ticker(raw).upper() if raw else None
+        if not identifier:
+            continue
+        move = moves.get(identifier)
+        if move is None:
+            continue
+        thresholds = config.by_class.get(h.asset_class)
+        if thresholds is None:
+            continue
+        per_day, cumulative_cap = thresholds.anomaly_per_day, thresholds.anomaly_cumulative_cap
+        window_threshold = _window_threshold(per_day, cumulative_cap, trading_days)
+        single_day_hit = move.max_day_pct is not None and abs(move.max_day_pct) >= per_day
+        cumulative_hit = abs(move.net_pct) >= window_threshold
+        if not (single_day_hit or cumulative_hit):
+            continue
+
+        anomaly = PriceAnomaly(
+            name=h.name,
+            identifier=identifier,
+            asset_type=h.asset_class,
+            current_price=move.current_price,
+            prev_price=move.prev_price,
+            pct_change=move.net_pct,
+            threshold=window_threshold,
+            trigger="single_day" if single_day_hit else "cumulative",
+            market=move.market,
+            baseline_date=move.baseline_date,
+            latest_date=move.latest_date,
+            window_net_pct=move.net_pct,
+            max_day_pct=move.max_day_pct,
+            max_day_date=move.max_day_date,
+            prev_close=move.prev_close,
+            day_open=move.day_open,
+            day_high=move.day_high,
+            day_low=move.day_low,
+            day_close=move.day_close,
+            after_hours=move.after_hours,
+        )
+        # Theme lookup key is the RAW ticker/fund_code uppercased (not the
+        # HK-normalized `identifier` above) — matches the pre-split behavior
+        # exactly; ticker_themes is keyed by the raw form (issue #128 A1
+        # single-user-identical requirement).
+        theme_key = (h.ticker or h.fund_code or "").upper()
+        theme_row = theme_map.get(theme_key)
         if theme_row is not None:
             theme_buckets.setdefault(theme_row.theme, []).append((h, anomaly))
         else:
             standalone.append(anomaly)
 
-    # Build merged theme anomalies.
     theme_anomalies: list[PriceAnomaly] = []
-    for _theme_key, members in theme_buckets.items():
-        # Use the first member's TickerTheme row (all share the same theme).
+    for members in theme_buckets.values():
         first_h = members[0][0]
-        identifier_upper = (first_h.ticker or first_h.fund_code or "").upper()
-        theme_row = theme_map[identifier_upper]
+        theme_key = (first_h.ticker or first_h.fund_code or "").upper()
+        theme_row = theme_map[theme_key]
         theme_anomalies.append(_merge_theme_anomalies(members, theme_row))
 
     anomalies = theme_anomalies + standalone
@@ -503,4 +585,44 @@ def detect_window_anomalies(
         key=lambda a: max(abs(a.window_net_pct or a.pct_change), abs(a.max_day_pct or _RATIO)),
         reverse=True,
     )
+    return anomalies
+
+
+def detect_window_anomalies(
+    session: Session,
+    start: datetime,
+    end: datetime,
+    user_id: uuid.UUID,
+    moves_cache: MovesCache | None = None,
+) -> tuple[list[PriceAnomaly], int]:
+    """Single-user anomaly list — composes compute_global_moves() +
+    select_user_anomalies() for one user (design doc §3.3, issue #128 A1).
+
+    Pre-A1 this function queried ALL holdings with no user filter at all —
+    a real cross-user data leak once more than one user exists (design doc
+    §1.3). `user_id` is now required; there is no "give me every user's
+    anomalies" call site left, by design.
+
+    `moves_cache`, keyed by the exact (start, end) window, is how a
+    multi-user batch (generate_incremental_report's fan-out) shares ONE
+    compute_global_moves() call across every user whose window happens to
+    match, instead of this wrapper recomputing the global move set from
+    scratch on every call — passing a dict that's shared across calls in the
+    same batch is what actually enforces "the same identifier's move is
+    computed once per window, not once per user" (design doc §3.8), not just
+    the existence of compute_global_moves as a separate function. Callers
+    that only ever generate one report (manual trigger, most existing tests
+    and call sites) omit it and get the pre-A1 per-call behavior, just now
+    scoped to one user instead of leaking every user's holdings.
+    """
+    cache_key = (start, end)
+    cached = moves_cache.get(cache_key) if moves_cache is not None else None
+    if cached is None:
+        cached = compute_global_moves(session, start, end)
+        if moves_cache is not None:
+            moves_cache[cache_key] = cached
+    moves, trading_days = cached
+    holdings = user_holdings(session, user_id)
+    theme_map = _load_theme_map(session)
+    anomalies = select_user_anomalies(moves, holdings, trading_days, theme_map)
     return anomalies, trading_days
