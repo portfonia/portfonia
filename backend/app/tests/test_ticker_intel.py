@@ -202,6 +202,44 @@ def test_forbidden_output_not_cached_and_alerted(db_session: Session) -> None:
     assert row.analysis is None
 
 
+def test_stray_disclaimer_line_is_stripped_before_the_compliance_scan(
+    db_session: Session,
+) -> None:
+    """Round 7 review finding: unlike Pass 2 (`cleaned = _strip_markers(raw_body)`
+    in report_generator.py, then scanned), L1's `_generate` used to scan the
+    LLM's raw output directly. A model-emitted disclaimer line legitimately
+    contains advisory-sounding wording (here: the literal substring '投资建议',
+    which is both a `compliance_vocab.yml` scan_term AND a
+    `body_disclaimer_regex_terms_zh` entry) — pre-fix, that line alone would
+    false-trip the scan and permanently blacklist the identifier for the day
+    (a null-analysis marker is cached and never retried). `_strip_markers`
+    drops the whole disclaimer line before the real analysis reaches the
+    scan, same as Pass 2, so the compliant remainder is served and cached."""
+
+    def _llm_with_stray_disclaimer(*args: object, **kwargs: object) -> str:
+        return (
+            "NVDA rallied on a confirmed earnings beat. [Established]\n"
+            "本简报不构成投资建议，仅供参考。"  # noqa: RUF001
+        )
+
+    with (
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_llm_with_stray_disclaimer),
+        patch("app.services.ticker_intel.send_ops_alert") as mock_alert,
+    ):
+        result = ti.get_l1_intel_batch(db_session, ["NVDA"], _DATE, {"NVDA": _facts()})
+
+    mock_alert.assert_not_called()
+    assert "NVDA" in result
+    assert "不构成投资建议" not in result["NVDA"]
+    assert "earnings beat" in result["NVDA"]
+    row = db_session.execute(
+        select(TickerIntel).where(TickerIntel.identifier == "NVDA")
+    ).scalar_one()
+    assert row.analysis is not None
+    assert "不构成投资建议" not in row.analysis
+
+
 def test_forbidden_output_is_not_retried_by_a_later_call(db_session: Session) -> None:
     """The exact bug from review round 1: without a persisted marker, a
     ticker that consistently trips the compliance scan bypasses the daily

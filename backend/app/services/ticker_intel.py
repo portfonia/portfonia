@@ -79,7 +79,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from app.compliance.output_scan import _scan_forbidden_output
+from app.compliance.output_scan import _scan_forbidden_output, _strip_markers
 from app.core.config import get_settings
 from app.models.ticker_intel import TickerIntel
 from app.services._yfinance import _normalize_hk_ticker
@@ -307,7 +307,14 @@ def _generate(
         _write_cache(session, identifier, trade_date, model, None, facts)
         return None
 
-    violations = _scan_forbidden_output(analysis)
+    # Strip stray citation/provenance/disclaimer noise before scanning, same
+    # as Pass 2's `cleaned = _strip_markers(raw_body)` (report_generator.py) —
+    # otherwise a model-emitted disclaimer line (legitimately containing
+    # advisory-sounding wording) could false-trip the scan and permanently
+    # blacklist this identifier for the day (round 7 review finding).
+    cleaned = _strip_markers(analysis)
+
+    violations = _scan_forbidden_output(cleaned)
     if violations:
         logger.error(
             "ticker_intel: L1 output for %s (%s) BLOCKED by compliance scan: %s",
@@ -332,8 +339,8 @@ def _generate(
         _write_cache(session, identifier, trade_date, model, None, facts)
         return None
 
-    _write_cache(session, identifier, trade_date, model, analysis, facts)
-    return analysis
+    _write_cache(session, identifier, trade_date, model, cleaned, facts)
+    return cleaned
 
 
 def get_l1_intel_batch(
