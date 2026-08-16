@@ -42,8 +42,7 @@ def _move(identifier: str, **overrides: object) -> HoldingMove:
 
 def _facts(**overrides: object) -> ti.L1Facts:
     defaults: dict[str, object] = {
-        "net_pct": 0.075,
-        "max_day_pct": 0.05,
+        "day_pct": 0.075,
         "market": "US",
         "current_price": 215.0,
         "prev_price": 200.0,
@@ -415,10 +414,17 @@ def test_l1_identifiers_for_user_deduplicates() -> None:
 
 
 def test_build_l1_facts_reads_every_number_from_global_moves() -> None:
+    """`day_moves` here stands in for what `report_generator.py` actually
+    passes: `resolve_global_moves` called with `day_window_bounds(eff_date)`,
+    never a user's `[period_start, period_end]` (design doc §4.8, second
+    addendum). `HoldingMove.net_pct` under those bounds already IS the
+    single trading day's move (baseline = the close immediately before
+    `eff_date`, latest = `eff_date`'s own close) — `build_l1_facts` maps it
+    straight onto `L1Facts.day_pct`, no separate `max_day_pct` needed since
+    a one-day window has exactly one day to report on."""
     moves = {"NVDA": _move("NVDA")}
     facts = ti.build_l1_facts(["NVDA"], moves, {}, [])
-    assert facts["NVDA"].net_pct == 0.075
-    assert facts["NVDA"].max_day_pct == 0.05
+    assert facts["NVDA"].day_pct == 0.075
     assert facts["NVDA"].current_price == 215.0
     assert facts["NVDA"].prev_price == 200.0
     assert facts["NVDA"].market == "US"
@@ -430,7 +436,7 @@ def test_build_l1_facts_tolerates_an_identifier_with_no_global_move() -> None:
     entry for (no usable baseline/series) gets a headline-only briefing
     rather than inheriting numbers from anywhere else."""
     facts = ti.build_l1_facts(["MISSING"], {}, {"MISSING": ["Some headline"]}, [])
-    assert facts["MISSING"].net_pct is None
+    assert facts["MISSING"].day_pct is None
     assert facts["MISSING"].current_price is None
     assert facts["MISSING"].news_headlines == ["Some headline"]
 
@@ -486,9 +492,8 @@ def test_theme_constituents_get_full_global_facts_not_a_stripped_subset() -> Non
     facts = ti.build_l1_facts(identifiers, moves, {}, technical)
 
     assert "gold" not in facts
-    assert facts["SGOL"].net_pct == 0.08
+    assert facts["SGOL"].day_pct == 0.08
     assert facts["SGOL"].current_price == 54.0
-    assert facts["SGOL"].max_day_pct is not None
     assert facts["SGOL"].pct_vs_sma50 == 0.08
 
 

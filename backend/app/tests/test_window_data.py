@@ -23,9 +23,12 @@ from app.services.window_data import (
     BOOTSTRAP_WATERMARK,
     _window_closes,
     compute_global_moves,
+    day_window_bounds,
     detect_window_anomalies,
+    load_day_news,
     load_news_window,
     mark_news_surfaced,
+    resolve_global_moves,
     select_user_anomalies,
     unmark_news_surfaced,
     user_watermark,
@@ -206,6 +209,54 @@ def test_load_news_window_surfaced_is_scoped_per_user(db_session: Session) -> No
         db_session, datetime(2026, 6, 1, tzinfo=UTC), datetime(2026, 6, 8, tzinfo=UTC), _USER_B
     )
     assert {i.url_hash for i in items_b} == {"shared"}
+
+
+# --- L1's own day-scoped window/news (design doc §4.8, second addendum) -----
+
+
+def test_day_window_bounds_spans_exactly_one_et_calendar_day() -> None:
+    """`day_window_bounds` is a pure function of `trade_date` — no session,
+    no user, nothing else. This is what makes it safe as L1's window
+    source: it cannot vary by who calls it."""
+    start, end = day_window_bounds(date(2026, 6, 5))
+    assert start.astimezone(ET).date() == date(2026, 6, 5)
+    assert end.astimezone(ET).date() == date(2026, 6, 5)
+    assert start < end
+
+
+def test_load_day_news_has_no_user_parameter_and_ignores_surfaced_ledger(
+    db_session: Session,
+) -> None:
+    """L1's news source must never route through `news_surfaced` (a per-user
+    Pass-2 dedup ledger) — doing so would make L1's candidate news set
+    depend on which user's report happens to mark it first, reintroducing
+    the exact per-user-contamination class this design closes. Unlike
+    `load_news_window`, `load_day_news` takes no `user_id` at all."""
+    report = Report(
+        user_id=_USER,
+        report_date=date(2026, 6, 5),
+        report_type="incremental",
+        session_node="after_close",
+        status="success",
+        period_start=datetime(2026, 6, 3, tzinfo=UTC),
+        period_end=datetime(2026, 6, 5, tzinfo=UTC),
+    )
+    db_session.add(report)
+    db_session.add_all(
+        [
+            _news("on_day", datetime(2026, 6, 5, 15, 0, tzinfo=UTC)),  # 11:00 ET Jun 5
+            _news("before_day", datetime(2026, 6, 4, 23, 0, tzinfo=UTC)),  # 19:00 ET Jun 4
+            _news("after_day", datetime(2026, 6, 6, 5, 0, tzinfo=UTC)),  # 01:00 ET Jun 6
+        ]
+    )
+    db_session.flush()
+
+    mark_news_surfaced(db_session, _USER, report.id, ["on_day"])
+    db_session.flush()
+
+    items = load_day_news(db_session, date(2026, 6, 5))
+
+    assert {i.url_hash for i in items} == {"on_day"}
 
 
 def test_unmark_news_surfaced_restores_candidate_set_for_retry(db_session: Session) -> None:
@@ -654,6 +705,51 @@ def test_compute_global_moves_computes_shared_identifier_once(db_session: Sessio
 
     assert spy.call_count == 1  # NVDA queried once, not once per holding row
     assert set(moves.keys()) == {"NVDA"}
+
+
+def test_resolve_global_moves_with_day_bounds_yields_single_trading_day_move(
+    db_session: Session,
+) -> None:
+    """L1's window (design doc §4.8, second addendum) is `day_window_bounds`,
+    NOT any user's `[period_start, period_end]`. Two users whose OWN report
+    windows differ wildly (one spans a single day, the other spans the full
+    5-day run below) must still resolve to the IDENTICAL day-scoped move for
+    the trade_date they share, because `day_window_bounds` never reads
+    either of their `period_start`s at all — it's a pure function of the
+    trade_date."""
+    db_session.add(_hk_holding(_USER, "Apple", "AAPL", "EQUITY_US_TECH"))
+    db_session.add_all(
+        [
+            _close_at("AAPL", date(2026, 6, 2), 100.0, datetime(2026, 6, 2, 16, 0, tzinfo=UTC)),
+            _close("AAPL", date(2026, 6, 3), 103.0),
+            _close("AAPL", date(2026, 6, 4), 106.09),
+            _close("AAPL", date(2026, 6, 5), 109.27),
+            _close("AAPL", date(2026, 6, 6), 112.55),  # today's close: +3% vs Jun 5's 109.27
+        ]
+    )
+    db_session.flush()
+
+    # User A's own report window: the full 5-day run (what §4.2 renders for them).
+    user_a_moves, _ = resolve_global_moves(
+        db_session,
+        datetime(2026, 6, 2, 16, 0, tzinfo=UTC),
+        datetime(2026, 6, 6, 20, 30, tzinfo=UTC),
+    )
+    # User B's own report window: just today (a fresh user, or a short manual re-run).
+    user_b_moves, _ = resolve_global_moves(
+        db_session,
+        datetime(2026, 6, 5, 20, 30, tzinfo=UTC),
+        datetime(2026, 6, 6, 20, 30, tzinfo=UTC),
+    )
+    assert user_a_moves["AAPL"].net_pct != user_b_moves["AAPL"].net_pct  # their OWN windows differ
+
+    # L1's day-scoped window ignores both of the above entirely.
+    day_start, day_end = day_window_bounds(date(2026, 6, 6))
+    day_moves, _ = resolve_global_moves(db_session, day_start, day_end)
+
+    assert day_moves["AAPL"].net_pct == Decimal("0.0300")  # (112.55-109.27)/109.27, quantized
+    assert day_moves["AAPL"].prev_price == Decimal("109.27")
+    assert day_moves["AAPL"].current_price == Decimal("112.55")
 
 
 def test_select_user_anomalies_no_cross_user_leakage(db_session: Session) -> None:

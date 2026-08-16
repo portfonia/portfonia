@@ -105,8 +105,10 @@ from app.services.ticker_intel import (
 )
 from app.services.window_data import (
     MovesCache,
+    day_window_bounds,
     detect_window_anomalies,
     latest_window_close_date,
+    load_day_news,
     load_news_window,
     mark_news_surfaced,
     resolve_global_moves,
@@ -718,27 +720,51 @@ def generate_report(
         # ------------------------------------------------------------------
         #
         # Inputs are assembled GLOBALLY, never re-derived from the per-user
-        # anomaly structures above (design doc §4.8 addendum — see
-        # ticker_intel.py's module docstring for the full rationale):
+        # anomaly structures above, AND day-scoped, never window-scoped
+        # (design doc §4.8, second addendum — see ticker_intel.py's module
+        # docstring for the full rationale):
         #   - which identifiers: `l1_identifiers_for_user` (returns list[str],
         #     the only channel the per-user list has into the shared cache)
-        #   - every number: `resolve_global_moves`, the same window-global
-        #     move set anomaly detection consumed (free — cached above)
-        #   - news: L1 recalls its OWN, keyed by ITS identifiers. Pass 2's
-        #     `ctx.holding_news` is keyed by the theme SLUG for merged
-        #     entries, so re-keying it into L1's constituent vocabulary meant
-        #     spraying theme headlines onto every constituent and then
-        #     blocking the slug from sneaking back in as its own candidate.
-        #     `recall_holding_news` is pure regex over already-loaded news
-        #     (no fetch, no LLM), so a second call is free and each consumer
-        #     just asks for what it needs. Constituent-level recall works
+        #   - every number: `resolve_global_moves` called with
+        #     `day_window_bounds(eff_date)`, NOT `period_start`/`period_end`.
+        #     `period_start = user_watermark(user_id)` is per-user — two users
+        #     analyzing the same identifier on the same `eff_date` could get
+        #     different report windows, and whichever `generate_report` call
+        #     reached L1 first would cache ITS window's numbers for every
+        #     other user that day (round-5 review bug). `day_window_bounds`
+        #     is a pure function of `eff_date` alone, so this cannot happen —
+        #     and because `eff_date` is shared across a whole fan-out batch,
+        #     this call also hits `moves_cache` for every user analyzing the
+        #     same day, not just the anomaly-detection call above.
+        #   - news: L1 recalls its OWN, via `load_day_news(eff_date)` — never
+        #     `news_items` (which is per-user: `load_news_window` filters by
+        #     THIS user's own `period_start`/`period_end` AND excludes
+        #     whatever THIS user's `news_surfaced` ledger already marked
+        #     seen). Two users would get different candidate news sets from
+        #     `news_items` even on an identical price window. `load_day_news`
+        #     takes no `user_id` at all, so there is nothing to diverge.
+        #     Pass 2's `ctx.holding_news` is keyed by the theme SLUG for
+        #     merged entries, so re-keying it into L1's constituent
+        #     vocabulary meant spraying theme headlines onto every
+        #     constituent and then blocking the slug from sneaking back in
+        #     as its own candidate — recalling fresh, day-scoped news per
+        #     constituent sidesteps that too. Constituent-level recall works
         #     through the DESIGNED mechanism — the `holding_news_keywords.yml`
         #     alias table already maps SGOL/518660.SS/518800.SS to
         #     "gold"/"bullion" and QQQM to "Nasdaq".
+        #
+        # Multi-day continuity across a user's own report window (when it
+        # spans more than one trading day) is deliberately NOT synthesized
+        # here: A4 (or whichever consumer eventually assembles L1 into a
+        # report) lists each covered day's L1 entry separately rather than
+        # stitching them into one narrative — a product decision, not a
+        # limitation of this cache; revisit if day-by-day reads poorly once
+        # there's real report content to judge it against.
         l1_identifiers = l1_identifiers_for_user(ctx.price_anomalies)
+        day_news = load_day_news(session, eff_date)
         l1_headlines: dict[str, list[str]] = {
             ident: [n.title for n in items]
-            for ident, items in recall_holding_news(news_items, l1_identifiers).items()
+            for ident, items in recall_holding_news(day_news, l1_identifiers).items()
         }
         # Targeted-search titles attach by EXACT key only. §5's queries are keyed
         # by anomaly identifier, which is the theme slug for a merged entry — and
@@ -750,10 +776,9 @@ def generate_report(
         for ident, titles in l1_targeted_titles.items():
             if ident in l1_identifier_set:
                 l1_headlines.setdefault(ident, []).extend(titles)
-        global_moves, _ = resolve_global_moves(session, period_start, period_end, moves_cache)
-        l1_facts = build_l1_facts(
-            l1_identifiers, global_moves, l1_headlines, ctx.technical_positions
-        )
+        day_start, day_end = day_window_bounds(eff_date)
+        day_moves, _ = resolve_global_moves(session, day_start, day_end, moves_cache)
+        l1_facts = build_l1_facts(l1_identifiers, day_moves, l1_headlines, ctx.technical_positions)
         ctx.ticker_intel = get_l1_intel_batch(
             session, l1_identifiers, eff_date, l1_facts, usage_sink=ctx.llm_calls
         )

@@ -25,6 +25,7 @@ from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from app.services import report_generator as rg
@@ -341,17 +342,23 @@ def test_generate_report_pass2_call_excludes_l1_ticker_intel_text(db_session: Se
     with (
         patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
-        # The Nvidia item is what gives L1 something to brief on. This test
-        # patches `detect_window_anomalies`, so the seeded NVDA anomaly has no
-        # corresponding row in the GLOBAL move set `build_l1_facts` now reads
-        # (in production an anomaly identifier always has one — it was selected
-        # from exactly that set), and a candidate with neither a move nor a
-        # headline is dropped rather than burning a fresh-analysis slot on an
-        # empty briefing. Recall matches this title via the `NVDA -> "Nvidia"`
-        # alias in config/holding_news_keywords.yml.
         patch(
             "app.services.report_generator.load_news_window",
-            return_value=[_news_item("Fed raises rates"), _news_item("Nvidia beats earnings")],
+            return_value=[_news_item("Fed raises rates")],
+        ),
+        # `load_day_news` is L1's OWN, separate news source (design doc §4.8,
+        # second addendum) — it queries the real `news` table directly, not
+        # `load_news_window`'s (mocked, per-user) return value, so it needs
+        # its own mock. This is what gives L1 something to brief on: this
+        # test patches `detect_window_anomalies`, so the seeded NVDA anomaly
+        # has no corresponding row in the GLOBAL move set `build_l1_facts`
+        # now reads (in production an anomaly identifier always has one — it
+        # was selected from exactly that set), and a candidate with neither a
+        # move nor a headline is dropped rather than burning a fresh-analysis
+        # slot on an empty briefing.
+        patch(
+            "app.services.report_generator.load_day_news",
+            return_value=[_news_item("Nvidia beats earnings")],
         ),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
         patch(
@@ -492,6 +499,17 @@ def test_generate_report_theme_anomaly_l1_keys_constituents_with_own_recall(
             "app.services.report_generator.load_news_window",
             return_value=[_news_item(_GOLD_TITLE)],
         ),
+        # L1's own news source (design doc §4.8, second addendum) — see the
+        # matching comment in
+        # test_generate_report_pass2_call_excludes_l1_ticker_intel_text.
+        # Without a global day-move for SGOL seeded either (this test mocks
+        # detect_window_anomalies, so there's no real price_snapshot row),
+        # this headline is the ONLY thing keeping SGOL from being dropped by
+        # build_l1_facts's "no move and no headline" guard.
+        patch(
+            "app.services.report_generator.load_day_news",
+            return_value=[_news_item(_GOLD_TITLE)],
+        ),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
         patch(
             "app.services.report_generator.detect_window_anomalies",
@@ -514,6 +532,144 @@ def test_generate_report_theme_anomaly_l1_keys_constituents_with_own_recall(
     assert _GOLD_TITLE in l1_prompts["Identifier: SGOL"]
     # The user's value-weighted theme figure never reaches the shared prompt.
     assert "5.12" not in l1_prompts["Identifier: SGOL"]
+
+
+def test_generate_report_l1_facts_are_independent_of_the_calling_users_watermark(
+    db_session: Session,
+) -> None:
+    """THE round-5 review bug, reproduced and locked at the level it actually
+    manifested: `ticker_intel` was cached as a system-wide daily row
+    `(identifier, trade_date, prompt_version)`, but the facts written into
+    it came from `resolve_global_moves(session, period_start, period_end,
+    ...)` — and `period_start = user_watermark(user_id)` is per-user. Two
+    users generating a report for the same `eff_date` could have very
+    different windows (a brand-new user's watermark vs. a long-standing
+    user's), so whichever one's `generate_report` call reached L1 first
+    would cache THEIR window's price move for every other user that day.
+
+    User A's watermark predates all seeded history by over a month (an
+    old/cold-start-like user); User B's watermark is midday two days before
+    `eff_date` (a long-running user who reported more recently). Under the
+    old per-user-window code, these two would compute genuinely different
+    multi-day `net_pct` figures for NVDA — this is verified directly below
+    via `resolve_global_moves` with each user's own bounds, so the test
+    doesn't just assert "the fix works," it also proves the fixture
+    actually would have exposed the bug. The redesigned L1 must ignore both
+    and always compute NVDA's single trading day's move (6/3's close of
+    210 -> 6/4's close of 220 = +4.76%).
+
+    All captured_at values are pinned to 16:00 ET (20:00 UTC, unambiguously
+    the same ET calendar day as their trade_date, no DST-boundary surprises
+    for this June/early-May range) so the window math below is exact and
+    independent of when this test actually runs."""
+    from app.models.holding import Holding
+    from app.models.price_snapshot import PriceSnapshot
+    from app.models.report import Report
+    from app.models.ticker_intel import TickerIntel
+    from app.services.window_data import resolve_global_moves
+
+    user_a = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
+    user_b = uuid.UUID("00000000-0000-0000-0000-0000000000a2")
+    watermark_a = datetime(2026, 5, 1, 12, 0, tzinfo=UTC)  # before ALL seeded closes
+    watermark_b = datetime(2026, 6, 2, 12, 0, tzinfo=UTC)  # after 6/1's close, before 6/3's
+
+    def _nvda_close(trade_date: date, close: str) -> PriceSnapshot:
+        return PriceSnapshot(
+            ticker="NVDA",
+            market="US",
+            session_node="close",
+            trade_date=trade_date,
+            close=Decimal(close),
+            captured_at=datetime(
+                trade_date.year, trade_date.month, trade_date.day, 20, 0, tzinfo=UTC
+            ),
+        )
+
+    db_session.add_all(
+        [
+            Holding(
+                user_id=user_a,
+                name="NVIDIA",
+                ticker="NVDA",
+                pricing_mode="auto",
+                currency="USD",
+                asset_type="stock",
+                asset_class="EQUITY_US_TECH",
+            ),
+            Report(
+                user_id=user_a,
+                report_date=date(2026, 4, 30),
+                report_type="incremental",
+                session_node="after_close",
+                status="success",
+                period_end=watermark_a,
+            ),
+            Report(
+                user_id=user_b,
+                report_date=date(2026, 6, 2),
+                report_type="incremental",
+                session_node="after_close",
+                status="success",
+                period_end=watermark_b,
+            ),
+            _nvda_close(date(2026, 4, 25), "190"),  # baseline for user A's own window
+            _nvda_close(date(2026, 6, 1), "200"),  # baseline for user B's own window
+            _nvda_close(date(2026, 6, 3), "210"),  # baseline for L1's day-scoped window
+            _nvda_close(_TODAY, "220"),  # 2026-06-04 — the day-scoped "latest"
+        ]
+    )
+    db_session.flush()
+
+    # Prove the fixture actually distinguishes the two users' own windows —
+    # otherwise this test would pass even under the old, buggy code.
+    end = datetime(2026, 6, 4, 22, 0, tzinfo=UTC)
+    moves_a, _ = resolve_global_moves(db_session, watermark_a, end)
+    moves_b, _ = resolve_global_moves(db_session, watermark_b, end)
+    assert moves_a["NVDA"].net_pct == Decimal("0.1579")  # (220-190)/190
+    assert moves_b["NVDA"].net_pct == Decimal("0.1000")  # (220-200)/200
+    assert moves_a["NVDA"].net_pct != moves_b["NVDA"].net_pct
+
+    captured_prompts: list[str] = []
+
+    def _capture_l1_llm(
+        client: object, model: str, system: str, user: str, **kwargs: object
+    ) -> str:
+        captured_prompts.append(user)
+        return "NVDA held roughly flat. [Speculative]"
+
+    def _run_for(user_id: uuid.UUID) -> None:
+        with (
+            patch("app.services.report_generator.get_current_user_id", return_value=user_id),
+            patch(
+                "app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()
+            ),
+            patch("app.services.report_generator.load_news_window", return_value=[]),
+            patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+            patch(
+                "app.services.report_generator.detect_window_anomalies",
+                return_value=([_anomaly()], 2),
+            ),
+            patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+            patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
+            patch("app.services.report_generator._run_tavily_search", return_value=[]),
+            patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+            patch("app.services.ticker_intel._call_llm", side_effect=_capture_l1_llm),
+        ):
+            report = rg.generate_report(
+                db_session, user_id=user_id, report_date=_TODAY, session_node="manual"
+            )
+        assert report.status == "success"
+
+    _run_for(user_a)
+    # Clear the cache row so user B's call actually recomputes instead of
+    # reading back user A's cached (and, pre-fix, potentially different) text.
+    db_session.execute(delete(TickerIntel).where(TickerIntel.identifier == "NVDA"))
+    db_session.flush()
+    _run_for(user_b)
+
+    assert len(captured_prompts) == 2
+    for prompt in captured_prompts:
+        assert "Price change vs. the prior trading day's close: +4.76%" in prompt
 
 
 def test_generate_report_retry_clears_stale_provider_message_id(db_session: Session) -> None:

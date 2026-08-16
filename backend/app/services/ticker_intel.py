@@ -92,8 +92,12 @@ logger = logging.getLogger(__name__)
 
 # Bumping this deliberately stops serving old cache entries under a new
 # prompt contract (design doc §4.4) — it is part of the table's unique key,
-# not just an audit column.
-_PROMPT_VERSION = "l1-v1"
+# not just an audit column. v1 -> v2 (design doc §4.8, second addendum):
+# the facts and prompt wording changed from a per-user window's cumulative
+# change to a single trading day's change — a v1 row's `analysis` describes
+# a different (and per-user-contaminated) quantity, must never be served
+# under the new contract.
+_PROMPT_VERSION = "l1-v2"
 
 # Per-day cap on FRESH LLM analyses (design doc §4.3) — cache hits are free
 # and never count against this, so a broad anomaly day degrades to "some
@@ -105,8 +109,8 @@ _L1_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + (
     "or theme for an internal cache. This text will be reused verbatim across "
     "every user in the system who holds it — it must contain NOTHING specific "
     "to any one user: no position size, portfolio weight, account value, or "
-    "how many people hold it. Describe ONLY what happened to this security in "
-    "the given window, using the facts provided.\n"
+    "how many people hold it. Describe ONLY what happened to this security on "
+    "this trading day, using the facts provided.\n"
     "End any causal attribution with a confidence label in square brackets: "
     "[Established] (a named mechanism or citable event drives the move), "
     "[Probable] (partial evidence, not conclusive), or [Speculative] (no "
@@ -120,25 +124,37 @@ _L1_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + (
 class L1Facts:
     """Public, non-per-user facts about one identifier for the L1 prompt.
 
-    Every field here is either a window-level price-move fact (shared,
-    identical across every user who holds the identifier — sourced straight
-    from A1's `HoldingMove`), a captured headline, or a descriptive OHLCV
-    fact (`technical_position.py`). None of it is holdings-derived beyond
-    the identifier string itself.
+    Every field here is either a single-trading-day price-move fact (shared,
+    identical across every user who holds the identifier — sourced from A1's
+    `HoldingMove`, computed over `window_data.day_window_bounds(trade_date)`,
+    never any user's own report window), a captured headline, or a
+    descriptive OHLCV fact (`technical_position.py`). None of it is
+    holdings-derived beyond the identifier string itself.
 
-    `trigger` (single_day vs cumulative) was a field here until the §4.8
-    redesign and is deliberately gone: it is derived from the CALLING
-    USER's own `asset_class` threshold, so two holders of one identifier
-    can classify the identical move differently. Review round 2 stopped it
-    reaching the prompt but left it in the dataclass and in the shared
-    row's `facts` JSONB "for audit" — recording whichever user's
-    classification happened to run first, on a row served to everyone
-    else, and leaving exactly the kind of field a later consumer would
-    read back in good faith. There is no per-user field left to audit.
+    `day_pct` (design doc §4.8, second addendum, 2026-08-15) replaced
+    `net_pct`/`max_day_pct`: the first draft's window was a user's own
+    `[period_start, period_end]`, which is per-user by construction
+    (`period_start = user_watermark(user)`) — two users analyzing the same
+    identifier on the same `trade_date` could get different windows, and
+    whichever one's `generate_report` call reached L1 first would cache
+    ITS window's numbers for everyone else that day. The fix is not a
+    better window definition; it's dropping the window concept from L1
+    entirely — L1 now describes exactly one trading day (`trade_date`),
+    which has no ambiguity to leak. Under a strictly one-day window,
+    "cumulative change" and "largest single-day move" are the same number,
+    so `max_day_pct` is gone too, not just renamed. Multi-day continuity
+    across a user's own report window is deliberately NOT synthesized here
+    — see `report_generator.py`'s L1 wiring comment for where that job
+    lives (plain day-by-day listing for now, per product decision).
+
+    `trigger` (single_day vs cumulative) was a field here until an earlier
+    pass of the same redesign and is deliberately gone too: it is derived
+    from the CALLING USER's own `asset_class` threshold, so two holders of
+    one identifier can classify the identical move differently — the same
+    per-user-contamination class as the window, just a different field.
     """
 
-    net_pct: float | None = None
-    max_day_pct: float | None = None
+    day_pct: float | None = None
     market: str = ""
     current_price: float | None = None
     prev_price: float | None = None
@@ -151,8 +167,7 @@ class L1Facts:
 
     def to_jsonb(self) -> dict[str, Any]:
         return {
-            "net_pct": self.net_pct,
-            "max_day_pct": self.max_day_pct,
+            "day_pct": self.day_pct,
             "market": self.market,
             "current_price": self.current_price,
             "prev_price": self.prev_price,
@@ -167,16 +182,14 @@ class L1Facts:
 
 def _build_l1_prompt(identifier: str, facts: L1Facts) -> str:
     lines = [f"Identifier: {identifier}", ""]
-    if facts.net_pct is not None:
-        lines.append(f"Window net price change: {facts.net_pct:+.2%}")
-    if facts.max_day_pct is not None:
-        lines.append(f"Largest single-day move in window: {facts.max_day_pct:+.2%}")
+    if facts.day_pct is not None:
+        lines.append(f"Price change vs. the prior trading day's close: {facts.day_pct:+.2%}")
     if facts.market:
         lines.append(f"Market: {facts.market}")
     if facts.current_price is not None and facts.prev_price is not None:
         lines.append(f"Price: {facts.prev_price} -> {facts.current_price}")
     if facts.latest_date:
-        lines.append(f"Latest data date: {facts.latest_date}")
+        lines.append(f"Trading date: {facts.latest_date}")
     if facts.pct_vs_sma50 is not None:
         lines.append(f"Distance to 50-day average: {facts.pct_vs_sma50:+.2%}")
     if facts.pct_vs_sma200 is not None:
@@ -187,7 +200,7 @@ def _build_l1_prompt(identifier: str, facts: L1Facts) -> str:
         lines.append(f"20-day annualized volatility: {facts.vol_20d_annualized:.2%}")
     if facts.news_headlines:
         lines.append("")
-        lines.append("Related headlines captured this window:")
+        lines.append("Related headlines published this trading day:")
         for h in facts.news_headlines:
             lines.append(f"- {h}")
     lines.append("")
@@ -430,19 +443,28 @@ def l1_identifiers_for_user(anomalies: list[dict[str, Any]]) -> list[str]:
 
 def build_l1_facts(
     identifiers: list[str],
-    moves: dict[str, HoldingMove],
+    day_moves: dict[str, HoldingMove],
     headlines: dict[str, list[str]],
     technical_positions: list[dict[str, Any]],
 ) -> dict[str, L1Facts]:
-    """Assemble each candidate's public facts from GLOBAL sources only.
+    """Assemble each candidate's public facts from GLOBAL, DAY-SCOPED
+    sources only.
 
-    `moves` is `window_data.resolve_global_moves`' output — computed once
-    per window for the whole system, carrying no threshold judgment and no
-    per-holding fields. Taking `dict[str, HoldingMove]` rather than the
-    serialized anomaly dicts is what makes "a per-user weighted number
-    reached the shared cache" a type error instead of a review finding.
+    `day_moves` MUST come from `window_data.resolve_global_moves` called
+    with `window_data.day_window_bounds(trade_date)` — never a user's own
+    `[period_start, period_end]` (design doc §4.8, second addendum). Under
+    day bounds, `HoldingMove.net_pct` (baseline = the close immediately
+    before `trade_date`, latest = `trade_date`'s own close) already IS the
+    single trading day's move; a window-scoped call would instead give a
+    per-user-contaminated cumulative figure (the round-5 review bug this
+    redesign closes) — the parameter is named `day_moves`, not `moves`, so
+    that mistake is visible at the call site, not just in a docstring.
+    Taking `dict[str, HoldingMove]` rather than the serialized per-user
+    anomaly dicts is what makes "a per-user number reached the shared
+    cache" a type error instead of a review finding in the first place.
 
-    An identifier with no `moves` entry (no usable baseline/series) gets a
+    An identifier with no `day_moves` entry (no close captured yet for
+    `trade_date`, or no prior close to baseline against) gets a
     headline-only briefing rather than inheriting numbers from anywhere
     else — degrade, never fabricate. One with neither a move nor a headline
     is dropped entirely: there is nothing to brief on, and a candidate with
@@ -451,8 +473,8 @@ def build_l1_facts(
     `technical_positions[].ticker` is normalized to match `identifiers`'
     casing before use as a lookup key: it comes straight from
     `HoldingValue.ticker` (`portfolio_calculator.py`), the RAW
-    `Holding.ticker` value, whereas `identifiers` (and `moves`' keys) are
-    always `_normalize_hk_ticker(...).upper()`'d — `select_user_anomalies`
+    `Holding.ticker` value, whereas `identifiers` (and `day_moves`' keys)
+    are always `_normalize_hk_ticker(...).upper()`'d — `select_user_anomalies`
     and `compute_global_moves` apply that normalization before either one
     ever produces a key. A holding whose `ticker` reached the DB without
     going through `holding_parser._postprocess` (e.g. `POST
@@ -468,14 +490,13 @@ def build_l1_facts(
     facts: dict[str, L1Facts] = {}
 
     for identifier in identifiers:
-        move = moves.get(identifier)
+        move = day_moves.get(identifier)
         titles = headlines.get(identifier, [])
         if move is None and not titles:
             continue
         entry = L1Facts(news_headlines=list(titles))
         if move is not None:
-            entry.net_pct = float(move.net_pct)
-            entry.max_day_pct = float(move.max_day_pct) if move.max_day_pct is not None else None
+            entry.day_pct = float(move.net_pct)
             entry.market = move.market
             entry.current_price = float(move.current_price)
             entry.prev_price = float(move.prev_price)

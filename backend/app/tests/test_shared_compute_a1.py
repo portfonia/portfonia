@@ -245,15 +245,27 @@ def test_sgol_only_flags_for_the_user_who_holds_it(
     assert _anomaly_identifiers(db_session, three_user_holdings["U3"]) == {"gold"}
 
 
-def test_compute_global_moves_runs_once_for_the_whole_batch(
+def test_compute_global_moves_runs_once_per_distinct_window_not_per_user(
     db_session: Session, three_user_holdings: dict[str, object]
 ) -> None:
     """UAT-2: the global move computation must not scale with user count —
     three users sharing one window trigger exactly one compute_global_moves
-    call, not three. Runs against the real (unfrozen) clock via _run_batch
-    (PR #151 review) — this is the actual regression for the bug where each
-    user's independent `datetime.now()` call defeated moves_cache's cache
-    key in production even though a test that froze the clock stayed green."""
+    call for that window, not three. Runs against the real (unfrozen) clock
+    via _run_batch (PR #151 review) — this is the actual regression for the
+    bug where each user's independent `datetime.now()` call defeated
+    moves_cache's cache key in production even though a test that froze the
+    clock stayed green.
+
+    2 calls total, not 1 (design doc §4.8, second addendum): the batch's
+    shared report window (`period_start`/`period_end`, identical for all
+    three users here — cold start, same BOOTSTRAP_WATERMARK) accounts for
+    one call, and L1's day-scoped window (`day_window_bounds(eff_date)`,
+    deliberately a DIFFERENT window from the report's — see
+    ticker_intel.build_l1_facts's docstring) accounts for the other. Both
+    are still shared across all three users via the same `moves_cache`, so
+    the count stays at 2 regardless of user count — the property this test
+    guards (no N-user scaling) still holds, it's just bounded by the number
+    of distinct windows requested per batch, not by 1."""
     _seed_price_snapshots(db_session)
 
     with patch(
@@ -261,4 +273,4 @@ def test_compute_global_moves_runs_once_for_the_whole_batch(
     ) as spy:
         _run_batch(db_session)
 
-    assert spy.call_count == 1
+    assert spy.call_count == 2
