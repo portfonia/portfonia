@@ -82,6 +82,7 @@ from sqlalchemy.orm import Session
 from app.compliance.output_scan import _scan_forbidden_output
 from app.core.config import get_settings
 from app.models.ticker_intel import TickerIntel
+from app.services._yfinance import _normalize_hk_ticker
 from app.services.email_sender import send_ops_alert
 from app.services.report_llm import _call_llm, _openrouter_client
 from app.services.report_prompts import _COMPLIANCE_SYSTEM_PREFIX
@@ -446,8 +447,24 @@ def build_l1_facts(
     else — degrade, never fabricate. One with neither a move nor a headline
     is dropped entirely: there is nothing to brief on, and a candidate with
     empty facts would still consume one of the day's fresh-analysis slots.
+
+    `technical_positions[].ticker` is normalized to match `identifiers`'
+    casing before use as a lookup key: it comes straight from
+    `HoldingValue.ticker` (`portfolio_calculator.py`), the RAW
+    `Holding.ticker` value, whereas `identifiers` (and `moves`' keys) are
+    always `_normalize_hk_ticker(...).upper()`'d — `select_user_anomalies`
+    and `compute_global_moves` apply that normalization before either one
+    ever produces a key. A holding whose `ticker` reached the DB without
+    going through `holding_parser._postprocess` (e.g. `POST
+    /holdings/confirm` posted directly — see CLAUDE.md's cash/wmf section)
+    can carry an un-normalized raw suffix like "700.HK", which would
+    otherwise never match the "0700.HK" key everything else in this
+    pipeline uses, silently dropping technical facts for exactly the
+    holdings most likely to need the normalization in the first place.
     """
-    technical_by_ticker = {t["ticker"]: t for t in technical_positions if t.get("ticker")}
+    technical_by_ticker = {
+        _normalize_hk_ticker(t["ticker"]).upper(): t for t in technical_positions if t.get("ticker")
+    }
     facts: dict[str, L1Facts] = {}
 
     for identifier in identifiers:

@@ -442,6 +442,24 @@ def test_build_l1_facts_attaches_technical_facts() -> None:
     assert facts["NVDA"].pct_vs_sma200 == 0.2
 
 
+def test_build_l1_facts_normalizes_hk_ticker_before_matching_technical_positions() -> None:
+    """`l1_identifiers_for_user`/`select_user_anomalies`/`compute_global_moves`
+    all key HK tickers via `_normalize_hk_ticker(...).upper()` (4-digit form,
+    e.g. "0700.HK"). `technical_positions[].ticker` comes straight from
+    `HoldingValue.ticker` (`portfolio_calculator.py`), which is the RAW
+    `Holding.ticker` value — un-normalized whenever a holding reached the DB
+    without going through `holding_parser._postprocess` (e.g. a client
+    posting directly to `POST /holdings/confirm`, which bypasses it; see
+    CLAUDE.md's cash/wmf section). A raw "700.HK" would never match the
+    normalized "0700.HK" key, silently dropping technical facts from the L1
+    briefing for exactly the holdings most likely to need suffix
+    normalization in the first place."""
+    identifiers = ti.l1_identifiers_for_user([{"identifier": "0700.HK", "constituents": []}])
+    technical = [{"ticker": "700.HK", "pct_vs_sma50": 0.06}]
+    facts = ti.build_l1_facts(identifiers, {"0700.HK": _move("0700.HK")}, {}, technical)
+    assert facts["0700.HK"].pct_vs_sma50 == 0.06
+
+
 def test_theme_constituents_get_full_global_facts_not_a_stripped_subset() -> None:
     """The round-3 fix could only give a theme constituent its own
     `pct_change`, leaving price/max_day/technical facts as None (no global
