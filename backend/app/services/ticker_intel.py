@@ -15,6 +15,41 @@ identifier. `L1Facts` is a fixed dataclass of public, window-level facts
 only; there is no field a caller could populate to leak per-user data into
 the prompt (see test_ticker_intel.py's structural + prompt-content tests).
 
+HOW that constraint is enforced (design doc §4.8 addendum, 2026-08-15) —
+this is the part that took four review rounds to get right, so do not
+"simplify" it back:
+
+    per-user anomalies --l1_identifiers_for_user()--> list[str] --+
+                                                                  |
+    global HoldingMove (window_data.resolve_global_moves) --------+
+                                                                  |
+                                          build_l1_facts() -------+--> L1Facts
+
+The pipeline used to be `global data -> per-user transform -> shared cache`:
+`build_l1_candidates` read its numbers straight out of `ctx.price_anomalies`,
+which `select_user_anomalies`/`_merge_theme_anomalies` had already
+threshold-judged (per the calling user's `asset_class`) and value-weighted
+(per that user's `Holding.current_value`). Every field of that structure is
+therefore a potential per-user contaminant, and review rounds 2, 3 and 4
+each found a different one that had reached the shared cache (`trigger`;
+then the weighted `window_net_pct`/`current_price`/`prev_price`; then the
+theme slug itself, via news routing). Auditing fields one at a time was
+losing that race.
+
+The fix is a type boundary, not a discipline: the per-user anomaly list may
+contribute EXACTLY ONE thing — which identifiers are worth analyzing —
+through `l1_identifiers_for_user`, whose return type is `list[str]`. Every
+number then comes from `HoldingMove`, which is global by construction (see
+its docstring in window_data.py: no threshold judgment, no per-holding
+fields). A future edit that reintroduces the old shape is a type error at
+the `build_l1_facts` call site rather than a fourth review finding.
+
+The same rule generalizes to A3 (`macro_event_intel`) and A4: a consumer
+writing into a cross-user shared cache may consume only globally-typed
+artifacts. Selection (WHICH keys to analyze) may legitimately be per-user —
+each user contributes their own candidates to a shared cache — but VALUES
+must not be.
+
 Compliance (design doc §4.3): a cached entry that later ships to N users
 multiplies the blast radius of a forbidden-vocabulary slip by N. The output
 is scanned with the same Layer-4 backstop the report body uses
@@ -50,6 +85,7 @@ from app.models.ticker_intel import TickerIntel
 from app.services.email_sender import send_ops_alert
 from app.services.report_llm import _call_llm, _openrouter_client
 from app.services.report_prompts import _COMPLIANCE_SYSTEM_PREFIX
+from app.services.window_data import HoldingMove
 
 logger = logging.getLogger(__name__)
 
@@ -84,15 +120,24 @@ class L1Facts:
     """Public, non-per-user facts about one identifier for the L1 prompt.
 
     Every field here is either a window-level price-move fact (shared,
-    identical across every user who holds the identifier — the same
-    `compute_global_moves` output A1 introduced), a captured headline, or a
-    descriptive OHLCV fact (`technical_position.py`). None of it is
-    holdings-derived beyond the identifier string itself.
+    identical across every user who holds the identifier — sourced straight
+    from A1's `HoldingMove`), a captured headline, or a descriptive OHLCV
+    fact (`technical_position.py`). None of it is holdings-derived beyond
+    the identifier string itself.
+
+    `trigger` (single_day vs cumulative) was a field here until the §4.8
+    redesign and is deliberately gone: it is derived from the CALLING
+    USER's own `asset_class` threshold, so two holders of one identifier
+    can classify the identical move differently. Review round 2 stopped it
+    reaching the prompt but left it in the dataclass and in the shared
+    row's `facts` JSONB "for audit" — recording whichever user's
+    classification happened to run first, on a row served to everyone
+    else, and leaving exactly the kind of field a later consumer would
+    read back in good faith. There is no per-user field left to audit.
     """
 
     net_pct: float | None = None
     max_day_pct: float | None = None
-    trigger: str = ""
     market: str = ""
     current_price: float | None = None
     prev_price: float | None = None
@@ -107,7 +152,6 @@ class L1Facts:
         return {
             "net_pct": self.net_pct,
             "max_day_pct": self.max_day_pct,
-            "trigger": self.trigger,
             "market": self.market,
             "current_price": self.current_price,
             "prev_price": self.prev_price,
@@ -121,14 +165,6 @@ class L1Facts:
 
 
 def _build_l1_prompt(identifier: str, facts: L1Facts) -> str:
-    # `facts.trigger` (single_day vs cumulative) is deliberately NOT included
-    # here (round 2 review finding): it comes from the CALLING USER's own
-    # asset_class threshold (window_data.select_user_anomalies) — two holders
-    # of the same identifier can classify the identical move differently, and
-    # baking the first caller's classification into the shared prompt text
-    # would make the cached analysis reflect an arbitrary user's framing.
-    # Still recorded in `facts.to_jsonb()` for audit (which user's call
-    # produced this row), just not sent to the LLM.
     lines = [f"Identifier: {identifier}", ""]
     if facts.net_pct is not None:
         lines.append(f"Window net price change: {facts.net_pct:+.2%}")
@@ -344,118 +380,94 @@ def get_l1_intel_batch(
     return result
 
 
-def build_l1_candidates(
-    anomalies: list[dict[str, Any]],
-    holding_news: dict[str, list[dict[str, Any]]],
-    technical_positions: list[dict[str, Any]],
-) -> tuple[list[str], dict[str, L1Facts]]:
-    """Candidate identifiers for L1 analysis + their public facts, built from
-    the same serialized shapes `generate_report` already holds
-    (`ctx.price_anomalies`, `ctx.holding_news`, `ctx.technical_positions`) —
-    design doc §4.3: identifiers that triggered a window anomaly this report,
-    or that holding-news recall matched.
+def l1_identifiers_for_user(anomalies: list[dict[str, Any]]) -> list[str]:
+    """The per-user -> global firewall: WHICH identifiers this user's report
+    makes worth analyzing, as plain strings and nothing else.
 
-    Theme-merged anomalies (`window_data._merge_theme_anomalies` — entries
-    with a non-empty `constituents` list) are expanded to one candidate PER
-    CONSTITUENT, never a candidate under the theme slug itself (round 3
-    review bug): the merged entry's own `window_net_pct`/`current_price`/
-    `prev_price` are value-weighted by the CALLING USER's own holdings mix
-    (weighted/picked by `Holding.current_value`), so two holders of the same
-    theme with different constituent weightings would get different
-    numbers — exactly the per-user-data-in-a-shared-cache violation §4.3
-    forbids. Each constituent's own `pct_change` IS safe (global — set from
-    `compute_global_moves` before any per-user merge/weighting happens);
-    `max_day_pct`/prices/technicals have no per-constituent global source at
-    this level and are left absent rather than inheriting the theme-level
-    (per-user) figures. An anomaly with an EMPTY `constituents` list is
-    treated as a regular single-ticker anomaly, not a broken theme merge:
-    `_serialize_anomalies` renders `a.constituents or []`, so a genuine
-    single-ticker entry also serializes with `constituents: []` — there is
-    no reliable signal to tell the two apart from an empty list alone, and
-    `_merge_theme_anomalies` never actually produces a theme entry with zero
-    constituents (a theme bucket only exists if it has >=1 member).
+    `anomalies` is `ctx.price_anomalies` — per-user through and through
+    (threshold-judged against this user's `asset_class`, theme entries
+    value-weighted by this user's `Holding.current_value`). Returning
+    `list[str]` is the whole point: no field of that structure can travel
+    into the shared cache, because nothing but the identifier survives the
+    call. See this module's docstring for why a field-by-field audit was
+    the wrong tool.
 
-    `holding_news` (round 4 review bug): `generate_report`'s upstream
-    recall/targeted-search is still keyed by the theme slug
-    (`anomaly_ids`/`_targeted_anomaly_queries` both read `a["identifier"]`
-    directly, unaware of the constituent expansion below), so `holding_news`
-    arrives here keyed by "gold" etc, not by constituent ticker. Every
-    constituent gets the theme slug's headlines (in addition to any headlines
-    recalled under its own ticker), and the theme slug itself is tracked in
-    `theme_slugs` so the news-only loop below never re-adds it as its own
-    candidate — the first draft of the round-3 fix missed this, letting the
-    news-only loop silently reintroduce the exact theme-slug candidate the
-    anomaly loop had just excluded.
+    Theme-merged entries (a non-empty `constituents` list — the merge
+    `window_data._merge_theme_anomalies` performs) expand to their real
+    constituent identifiers; the theme slug itself is NEVER a candidate.
+    A theme slug is a per-user merge artifact, not a security: it has no
+    row in `price_snapshots`, so no global move, and caching under it
+    would key shared intel by something A4 can never look up. Theme-level
+    narrative is A3/L2's job (design doc §5), decided 2026-08-15.
 
-    Ordering: anomaly identifiers first, in their given order (already
-    sorted by |move| descending — see `window_data.select_user_anomalies`),
-    then any holding-news-only identifiers (no anomaly, so no natural move
-    ranking) appended after. This ordering is what `get_l1_intel_batch`'s
-    daily-cap truncation uses to prioritize the most-moved identifiers.
+    ORDERING is deliberately left per-user: the caller's list is already
+    sorted by that user's |move|, and constituents keep their given order.
+    Ordering only decides who survives the daily fresh-analysis cap — a
+    SELECTION concern, which is per-user by design (every user contributes
+    candidates to one shared cache). It is values, not selection, that must
+    be global.
     """
-    technical_by_ticker = {t["ticker"]: t for t in technical_positions if t.get("ticker")}
-
-    def _apply_technical(facts_obj: L1Facts, identifier: str) -> None:
-        tech = technical_by_ticker.get(identifier, {})
-        facts_obj.pct_vs_sma50 = tech.get("pct_vs_sma50")
-        facts_obj.pct_vs_sma200 = tech.get("pct_vs_sma200")
-        facts_obj.pct_in_52w_range = tech.get("pct_in_52w_range")
-        facts_obj.vol_20d_annualized = tech.get("vol_20d_annualized")
-
-    order: list[str] = []
-    facts: dict[str, L1Facts] = {}
-    # Theme slugs must never surface as their own L1 candidate (round 3 fix)
-    # — but upstream recall/targeted-search in generate_report is still
-    # keyed by the theme slug (a["identifier"]), so holding_news arrives
-    # here keyed by "gold" etc, not by constituent ticker. Track slugs seen
-    # so the news-only loop below excludes them too (round 4 review bug:
-    # without this, "gold" news reintroduced "gold" as its own candidate
-    # via that loop, undoing the anomaly-loop fix in the common case).
-    theme_slugs: set[str] = set()
-
+    out: list[str] = []
+    seen: set[str] = set()
     for a in anomalies:
         identifier = a.get("identifier")
         if not identifier:
             continue
         constituents = a.get("constituents") or []
-        if constituents:
-            theme_slugs.add(identifier)
-            theme_headlines = [n.get("title", "") for n in holding_news.get(identifier, [])]
-            for c in constituents:
-                c_identifier = c.get("identifier")
-                if not c_identifier or c_identifier in facts:
-                    continue
-                order.append(c_identifier)
-                own_headlines = [n.get("title", "") for n in holding_news.get(c_identifier, [])]
-                c_facts = L1Facts(
-                    net_pct=c.get("pct_change"),
-                    news_headlines=own_headlines + theme_headlines,
-                )
-                _apply_technical(c_facts, c_identifier)
-                facts[c_identifier] = c_facts
-            continue
-        if identifier in facts:
-            continue
-        order.append(identifier)
-        new_facts = L1Facts(
-            net_pct=a.get("window_net_pct"),
-            max_day_pct=a.get("max_day_pct"),
-            trigger=a.get("trigger") or "",
-            market=a.get("market") or "",
-            current_price=a.get("current_price"),
-            prev_price=a.get("prev_price"),
-            latest_date=a.get("latest_date") or "",
-            news_headlines=[n.get("title", "") for n in holding_news.get(identifier, [])],
-        )
-        _apply_technical(new_facts, identifier)
-        facts[identifier] = new_facts
+        # An empty `constituents` means "not a theme merge": _serialize_anomalies
+        # renders `a.constituents or []`, so a genuine single-ticker anomaly
+        # serializes the same way, and _merge_theme_anomalies never produces a
+        # theme entry with zero members (a bucket exists only if it has >= 1).
+        for candidate in (
+            [c.get("identifier") for c in constituents] if constituents else [identifier]
+        ):
+            if candidate and candidate not in seen:
+                seen.add(candidate)
+                out.append(candidate)
+    return out
 
-    for identifier, items in holding_news.items():
-        if identifier in facts or identifier in theme_slugs:
-            continue
-        order.append(identifier)
-        news_only_facts = L1Facts(news_headlines=[n.get("title", "") for n in items])
-        _apply_technical(news_only_facts, identifier)
-        facts[identifier] = news_only_facts
 
-    return order, facts
+def build_l1_facts(
+    identifiers: list[str],
+    moves: dict[str, HoldingMove],
+    headlines: dict[str, list[str]],
+    technical_positions: list[dict[str, Any]],
+) -> dict[str, L1Facts]:
+    """Assemble each candidate's public facts from GLOBAL sources only.
+
+    `moves` is `window_data.resolve_global_moves`' output — computed once
+    per window for the whole system, carrying no threshold judgment and no
+    per-holding fields. Taking `dict[str, HoldingMove]` rather than the
+    serialized anomaly dicts is what makes "a per-user weighted number
+    reached the shared cache" a type error instead of a review finding.
+
+    An identifier with no `moves` entry (no usable baseline/series) gets a
+    headline-only briefing rather than inheriting numbers from anywhere
+    else — degrade, never fabricate. One with neither a move nor a headline
+    is dropped entirely: there is nothing to brief on, and a candidate with
+    empty facts would still consume one of the day's fresh-analysis slots.
+    """
+    technical_by_ticker = {t["ticker"]: t for t in technical_positions if t.get("ticker")}
+    facts: dict[str, L1Facts] = {}
+
+    for identifier in identifiers:
+        move = moves.get(identifier)
+        titles = headlines.get(identifier, [])
+        if move is None and not titles:
+            continue
+        entry = L1Facts(news_headlines=list(titles))
+        if move is not None:
+            entry.net_pct = float(move.net_pct)
+            entry.max_day_pct = float(move.max_day_pct) if move.max_day_pct is not None else None
+            entry.market = move.market
+            entry.current_price = float(move.current_price)
+            entry.prev_price = float(move.prev_price)
+            entry.latest_date = move.latest_date.isoformat()
+        tech = technical_by_ticker.get(identifier, {})
+        entry.pct_vs_sma50 = tech.get("pct_vs_sma50")
+        entry.pct_vs_sma200 = tech.get("pct_vs_sma200")
+        entry.pct_in_52w_range = tech.get("pct_in_52w_range")
+        entry.vol_20d_annualized = tech.get("vol_20d_annualized")
+        facts[identifier] = entry
+
+    return facts

@@ -35,7 +35,7 @@ from app.services.portfolio_calculator import (
     HoldingValue,
     PortfolioSnapshot,
 )
-from app.services.price_anomaly_detector import PriceAnomaly
+from app.services.price_anomaly_detector import ConstituentMove, PriceAnomaly
 from app.services.report_llm import _BYOK_PROVIDER_ORDER
 from app.services.window_data import MovesCache
 
@@ -341,9 +341,17 @@ def test_generate_report_pass2_call_excludes_l1_ticker_intel_text(db_session: Se
     with (
         patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        # The Nvidia item is what gives L1 something to brief on. This test
+        # patches `detect_window_anomalies`, so the seeded NVDA anomaly has no
+        # corresponding row in the GLOBAL move set `build_l1_facts` now reads
+        # (in production an anomaly identifier always has one — it was selected
+        # from exactly that set), and a candidate with neither a move nor a
+        # headline is dropped rather than burning a fresh-analysis slot on an
+        # empty briefing. Recall matches this title via the `NVDA -> "Nvidia"`
+        # alias in config/holding_news_keywords.yml.
         patch(
             "app.services.report_generator.load_news_window",
-            return_value=[_news_item("Fed raises rates")],
+            return_value=[_news_item("Fed raises rates"), _news_item("Nvidia beats earnings")],
         ),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
         patch(
@@ -425,6 +433,87 @@ def test_generate_report_l1_sees_targeted_search_headline_pass2_input_unchanged(
     assert _TARGETED_TITLE in captured_l1_prompt.get("prompt", "")
     # Pass 2's stored input is untouched — report content stays byte-identical.
     assert report.report_inputs["holding_news"].get("NVDA", []) == []
+
+
+def test_generate_report_theme_anomaly_l1_keys_constituents_with_own_recall(
+    db_session: Session,
+) -> None:
+    """Wiring-level lock for the round 3/4 bug family, at the level the
+    §4.8 redesign actually fixed it.
+
+    Pass 2's `ctx.holding_news` is keyed by the theme SLUG for a merged
+    anomaly ("gold"), because that is what §5's recall is asked for and
+    what Pass 2 renders. L1 must NOT re-key that map into its own
+    constituent vocabulary (the round-4 fix sprayed the theme's headlines
+    onto every constituent, then needed a `theme_slugs` guard to stop the
+    slug sneaking back in as its own candidate through the news-only
+    loop). It now runs its OWN `recall_holding_news` over its OWN
+    identifiers, so:
+
+      - the theme slug never appears in the shared cache (it has no
+        `price_snapshots` row, so no global move, and A4 could never look
+        it up by a real ticker);
+      - constituents get their news through the DESIGNED mechanism — the
+        `SGOL -> "gold"/"bullion"` alias already in
+        config/holding_news_keywords.yml — not through spraying.
+    """
+    _GOLD_TITLE = "Gold rallies on safe-haven demand"
+    l1_prompts: dict[str, str] = {}
+
+    def _capture_l1_llm(
+        client: object, model: str, system: str, user: str, **kwargs: object
+    ) -> str:
+        l1_prompts[user.splitlines()[0]] = user
+        return "Bullion advanced over the window. [Probable]"
+
+    theme_anomaly = PriceAnomaly(
+        name="黄金",
+        identifier="gold",
+        asset_type="COMMODITY",
+        current_price=Decimal("54.0"),
+        prev_price=Decimal("50.0"),
+        pct_change=Decimal("0.0512"),  # value-weighted by THIS user's mix
+        threshold=Decimal("0.03"),
+        theme="gold",
+        constituents=[
+            ConstituentMove(
+                name="SPDR Gold",
+                identifier="SGOL",
+                pct_change=Decimal("0.08"),
+                current_value=Decimal("9000"),
+            ),
+        ],
+    )
+
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch(
+            "app.services.report_generator.load_news_window",
+            return_value=[_news_item(_GOLD_TITLE)],
+        ),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+        patch(
+            "app.services.report_generator.detect_window_anomalies",
+            return_value=([theme_anomaly], 2),
+        ),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
+        patch("app.services.report_generator._run_tavily_search", return_value=[]),
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_capture_l1_llm),
+    ):
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert report.status == "success"
+    assert report.report_inputs is not None
+    intel = report.report_inputs["ticker_intel"]
+    assert "gold" not in intel
+    assert "SGOL" in intel
+    # SGOL's own briefing was built from news recalled under ITS identifier.
+    assert _GOLD_TITLE in l1_prompts["Identifier: SGOL"]
+    # The user's value-weighted theme figure never reaches the shared prompt.
+    assert "5.12" not in l1_prompts["Identifier: SGOL"]
 
 
 def test_generate_report_retry_clears_stale_provider_message_id(db_session: Session) -> None:

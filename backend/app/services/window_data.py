@@ -487,6 +487,32 @@ def compute_global_moves(
     return moves, trading_days
 
 
+def resolve_global_moves(
+    session: Session,
+    start: datetime,
+    end: datetime,
+    moves_cache: MovesCache | None = None,
+) -> tuple[dict[str, HoldingMove], int]:
+    """`compute_global_moves` behind the batch-shared `moves_cache` — the one
+    place the cache-or-compute decision lives.
+
+    Public because the global move set has a SECOND consumer besides anomaly
+    detection: the L1 shared ticker-intel cache (issue #128 A2) sources every
+    numeric fact it caches from here. That consumer must never re-derive
+    those numbers from `select_user_anomalies`' per-user output (design doc
+    §4.8 addendum — three consecutive review rounds found a different
+    per-user field leaking into the shared cache that way), and it must not
+    pay for a second full computation to avoid doing so either.
+    """
+    cache_key = (start, end)
+    cached = moves_cache.get(cache_key) if moves_cache is not None else None
+    if cached is None:
+        cached = compute_global_moves(session, start, end)
+        if moves_cache is not None:
+            moves_cache[cache_key] = cached
+    return cached
+
+
 def select_user_anomalies(
     moves: dict[str, HoldingMove],
     holdings: Sequence[Holding],
@@ -615,13 +641,7 @@ def detect_window_anomalies(
     and call sites) omit it and get the pre-A1 per-call behavior, just now
     scoped to one user instead of leaking every user's holdings.
     """
-    cache_key = (start, end)
-    cached = moves_cache.get(cache_key) if moves_cache is not None else None
-    if cached is None:
-        cached = compute_global_moves(session, start, end)
-        if moves_cache is not None:
-            moves_cache[cache_key] = cached
-    moves, trading_days = cached
+    moves, trading_days = resolve_global_moves(session, start, end, moves_cache)
     holdings = user_holdings(session, user_id)
     theme_map = _load_theme_map(session)
     anomalies = select_user_anomalies(moves, holdings, trading_days, theme_map)

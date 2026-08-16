@@ -98,13 +98,18 @@ from app.services.report_serializers import (
 from app.services.report_translation import _translate_md
 from app.services.report_types import validate_report_type
 from app.services.technical_position import compute_technical_positions
-from app.services.ticker_intel import build_l1_candidates, get_l1_intel_batch
+from app.services.ticker_intel import (
+    build_l1_facts,
+    get_l1_intel_batch,
+    l1_identifiers_for_user,
+)
 from app.services.window_data import (
     MovesCache,
     detect_window_anomalies,
     latest_window_close_date,
     load_news_window,
     mark_news_surfaced,
+    resolve_global_moves,
     unmark_news_surfaced,
     user_watermark,
 )
@@ -270,6 +275,11 @@ def generate_report(
     validate_report_type(report_type)
     settings = get_settings()
     user_id = user_id if user_id is not None else get_current_user_id()
+    # A local cache when the caller supplied none: the global move set has two
+    # consumers in this function (anomaly detection, then L1's shared-intel
+    # facts — see §5.5), and without a cache to share, the second would pay
+    # for a full second `compute_global_moves()` on every single-user call.
+    moves_cache = moves_cache if moves_cache is not None else {}
     now = now if now is not None else datetime.now(tz=UTC)
     eff_date = report_date or now.astimezone(ET).date()
 
@@ -656,16 +666,12 @@ def generate_report(
         )
 
         targeted = _targeted_anomaly_queries(ctx.price_anomalies, set(ctx.holding_news.keys()))
-        # L1-only view of holding_news (round 3 review finding): targeted
-        # results below are for identifiers with NO recalled window news —
-        # exactly the ones whose L1 briefing would otherwise be built from
-        # an empty headline list. Merging the found titles into a COPY
-        # (never into `ctx.holding_news` itself, which is Pass 2's stored
-        # input) keeps report content byte-identical while still giving L1
-        # the richer context.
-        l1_holding_news: dict[str, list[dict[str, Any]]] = {
-            ident: list(items) for ident, items in ctx.holding_news.items()
-        }
+        # L1 runs its OWN recall below (§5.5) over its own identifier
+        # vocabulary, so all that's collected here is the targeted-search
+        # titles keyed by the identifier that asked for them. `ctx.holding_news`
+        # itself is never mutated — it is Pass 2's stored input, and A2's
+        # report content must stay byte-identical (design doc §1.2).
+        l1_targeted_titles: dict[str, list[str]] = {}
         if targeted:
             # Review round 1 bug: this used to be `daily_remaining -
             # len(ctx.search_results)` — subtracting a RESULT-ITEM count (up
@@ -693,7 +699,7 @@ def generate_report(
             for r in targeted_results:
                 ident = query_to_identifier.get(r.get("query", ""))
                 if ident:
-                    l1_holding_news.setdefault(ident, []).append({"title": r.get("title", "")})
+                    l1_targeted_titles.setdefault(ident, []).append(r.get("title", ""))
 
         # Re-index results globally for [S#] citation notation
         for i, r in enumerate(ctx.search_results):
@@ -710,17 +716,52 @@ def generate_report(
         # report. A blocked/failed identifier degrades to "no L1 intel this
         # run", never blocks report generation.
         # ------------------------------------------------------------------
-        l1_candidates, l1_facts = build_l1_candidates(
-            ctx.price_anomalies, l1_holding_news, ctx.technical_positions
+        #
+        # Inputs are assembled GLOBALLY, never re-derived from the per-user
+        # anomaly structures above (design doc §4.8 addendum — see
+        # ticker_intel.py's module docstring for the full rationale):
+        #   - which identifiers: `l1_identifiers_for_user` (returns list[str],
+        #     the only channel the per-user list has into the shared cache)
+        #   - every number: `resolve_global_moves`, the same window-global
+        #     move set anomaly detection consumed (free — cached above)
+        #   - news: L1 recalls its OWN, keyed by ITS identifiers. Pass 2's
+        #     `ctx.holding_news` is keyed by the theme SLUG for merged
+        #     entries, so re-keying it into L1's constituent vocabulary meant
+        #     spraying theme headlines onto every constituent and then
+        #     blocking the slug from sneaking back in as its own candidate.
+        #     `recall_holding_news` is pure regex over already-loaded news
+        #     (no fetch, no LLM), so a second call is free and each consumer
+        #     just asks for what it needs. Constituent-level recall works
+        #     through the DESIGNED mechanism — the `holding_news_keywords.yml`
+        #     alias table already maps SGOL/518660.SS/518800.SS to
+        #     "gold"/"bullion" and QQQM to "Nasdaq".
+        l1_identifiers = l1_identifiers_for_user(ctx.price_anomalies)
+        l1_headlines: dict[str, list[str]] = {
+            ident: [n.title for n in items]
+            for ident, items in recall_holding_news(news_items, l1_identifiers).items()
+        }
+        # Targeted-search titles attach by EXACT key only. §5's queries are keyed
+        # by anomaly identifier, which is the theme slug for a merged entry — and
+        # a slug is never an L1 candidate, so its results simply don't reach L1.
+        # That is the point: fanning a theme's search hits out to its
+        # constituents is the spraying this redesign removed, and constituents
+        # get their own news through the alias table instead.
+        l1_identifier_set = set(l1_identifiers)
+        for ident, titles in l1_targeted_titles.items():
+            if ident in l1_identifier_set:
+                l1_headlines.setdefault(ident, []).extend(titles)
+        global_moves, _ = resolve_global_moves(session, period_start, period_end, moves_cache)
+        l1_facts = build_l1_facts(
+            l1_identifiers, global_moves, l1_headlines, ctx.technical_positions
         )
         ctx.ticker_intel = get_l1_intel_batch(
-            session, l1_candidates, eff_date, l1_facts, usage_sink=ctx.llm_calls
+            session, l1_identifiers, eff_date, l1_facts, usage_sink=ctx.llm_calls
         )
         logger.info(
             "report %s: L1 shared intel available for %d/%d candidate identifiers",
             report.id,
             len(ctx.ticker_intel),
-            len(l1_candidates),
+            len(l1_identifiers),
         )
 
         # ------------------------------------------------------------------
