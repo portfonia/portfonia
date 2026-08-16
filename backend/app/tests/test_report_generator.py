@@ -38,11 +38,38 @@ from app.services.portfolio_calculator import (
 )
 from app.services.price_anomaly_detector import ConstituentMove, PriceAnomaly
 from app.services.report_llm import _BYOK_PROVIDER_ORDER
-from app.services.window_data import MovesCache
+from app.services.window_data import HoldingMove, MovesCache
 
 _USER = uuid.UUID("00000000-0000-0000-0000-000000000099")
 _NOW = datetime(2026, 6, 4, 20, 0, tzinfo=UTC)
 _TODAY = date(2026, 6, 4)
+
+
+def _day_move(identifier: str, **overrides: object) -> HoldingMove:
+    """A minimal day-scoped `HoldingMove` for mocking `resolve_global_moves`
+    directly — avoids seeding real `Holding`/`PriceSnapshot` rows in tests
+    that only care whether L1 got a `day_pct`, not the number's specific
+    value (round 6 review fix: L1 now skips any candidate with no real
+    `day_pct`, so these tests need one to exercise the L1 path at all)."""
+    defaults: dict[str, object] = {
+        "identifier": identifier,
+        "market": "US",
+        "current_price": Decimal("215"),
+        "prev_price": Decimal("200"),
+        "net_pct": Decimal("0.075"),
+        "max_day_pct": Decimal("0.075"),
+        "max_day_date": _TODAY,
+        "baseline_date": _TODAY,
+        "latest_date": _TODAY,
+        "prev_close": Decimal("200"),
+        "day_open": Decimal("205"),
+        "day_high": Decimal("216"),
+        "day_low": Decimal("204"),
+        "day_close": Decimal("215"),
+        "after_hours": None,
+    }
+    defaults.update(overrides)
+    return HoldingMove(**defaults)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
@@ -349,16 +376,18 @@ def test_generate_report_pass2_call_excludes_l1_ticker_intel_text(db_session: Se
         # `load_day_news` is L1's OWN, separate news source (design doc §4.8,
         # second addendum) — it queries the real `news` table directly, not
         # `load_news_window`'s (mocked, per-user) return value, so it needs
-        # its own mock. This is what gives L1 something to brief on: this
-        # test patches `detect_window_anomalies`, so the seeded NVDA anomaly
-        # has no corresponding row in the GLOBAL move set `build_l1_facts`
-        # now reads (in production an anomaly identifier always has one — it
-        # was selected from exactly that set), and a candidate with neither a
-        # move nor a headline is dropped rather than burning a fresh-analysis
-        # slot on an empty briefing.
+        # its own mock.
         patch(
             "app.services.report_generator.load_day_news",
             return_value=[_news_item("Nvidia beats earnings")],
+        ),
+        # `resolve_global_moves` mocked too (round 6 review fix): a headline
+        # alone is no longer enough for L1 to analyze/cache an identifier —
+        # a candidate needs a real `day_pct`, which this test has no reason
+        # to seed real Holding/PriceSnapshot rows for.
+        patch(
+            "app.services.report_generator.resolve_global_moves",
+            return_value=({"NVDA": _day_move("NVDA")}, 1),
         ),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
         patch(
@@ -425,6 +454,12 @@ def test_generate_report_l1_sees_targeted_search_headline_pass2_input_unchanged(
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
         patch(
             "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
+        ),
+        # round 6 review fix: L1 needs a real `day_pct` to analyze/cache an
+        # identifier at all now, not just a headline — see _day_move's docstring.
+        patch(
+            "app.services.report_generator.resolve_global_moves",
+            return_value=({"NVDA": _day_move("NVDA")}, 1),
         ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
@@ -502,13 +537,16 @@ def test_generate_report_theme_anomaly_l1_keys_constituents_with_own_recall(
         # L1's own news source (design doc §4.8, second addendum) — see the
         # matching comment in
         # test_generate_report_pass2_call_excludes_l1_ticker_intel_text.
-        # Without a global day-move for SGOL seeded either (this test mocks
-        # detect_window_anomalies, so there's no real price_snapshot row),
-        # this headline is the ONLY thing keeping SGOL from being dropped by
-        # build_l1_facts's "no move and no headline" guard.
         patch(
             "app.services.report_generator.load_day_news",
             return_value=[_news_item(_GOLD_TITLE)],
+        ),
+        # round 6 review fix: a headline alone no longer keeps SGOL from
+        # being dropped — it needs a real `day_pct` too (this test mocks
+        # detect_window_anomalies, so there's no real price_snapshot row).
+        patch(
+            "app.services.report_generator.resolve_global_moves",
+            return_value=({"SGOL": _day_move("SGOL")}, 1),
         ),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
         patch(

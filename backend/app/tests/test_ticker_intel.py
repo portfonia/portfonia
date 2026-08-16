@@ -280,6 +280,71 @@ def test_daily_cap_blocks_fresh_analyses_but_not_cache_hits(db_session: Session)
         mock_call.assert_called_once()  # no new call for AAPL
 
 
+def test_headline_only_facts_are_not_cached_and_dont_consume_the_daily_cap(
+    db_session: Session,
+) -> None:
+    """Round 6 review finding: a pre-close manual run has no captured close
+    for `trade_date` yet, so `day_pct` is None for every candidate — but a
+    candidate with a matched headline still survives `build_l1_facts`'s own
+    "headline-only briefing" degrade path (see its docstring: a move-less
+    candidate with a headline is kept, not dropped). Caching such an
+    analysis under the day's unique key would make it FINAL for the day:
+    the real after_close batch, running later with a genuine `day_pct`
+    available, would hit the cache and never re-analyze — every user that
+    day permanently gets the numberless, pre-close briefing. The fix: an
+    identifier with no `day_pct` is skipped entirely — no LLM call, no
+    cache row of any kind (not even a null marker, which would ALSO
+    permanently block a later retry) — so a later call the same day, once
+    `day_pct` exists, can attempt it for real."""
+    with (
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_mock_llm_ok) as mock_call,
+    ):
+        result = ti.get_l1_intel_batch(db_session, ["NVDA"], _DATE, {"NVDA": _facts(day_pct=None)})
+
+    assert result == {}
+    mock_call.assert_not_called()
+    row = db_session.execute(
+        select(TickerIntel).where(TickerIntel.identifier == "NVDA", TickerIntel.trade_date == _DATE)
+    ).scalar_one_or_none()
+    assert row is None
+
+
+def test_headline_only_skip_does_not_consume_the_daily_cap(db_session: Session) -> None:
+    with (
+        patch("app.services.ticker_intel._MAX_L1_ANALYSES_PER_DAY", 1),
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_mock_llm_ok) as mock_call,
+    ):
+        # NVDA has no day_pct yet (pre-close) -> skipped, no budget spent.
+        result = ti.get_l1_intel_batch(db_session, ["NVDA"], _DATE, {"NVDA": _facts(day_pct=None)})
+        assert result == {}
+        mock_call.assert_not_called()
+
+        # AAPL DOES have a day_pct -> still gets its fresh analysis, cap intact.
+        result2 = ti.get_l1_intel_batch(db_session, ["AAPL"], _DATE, {"AAPL": _facts(day_pct=0.05)})
+        assert "AAPL" in result2
+        mock_call.assert_called_once()
+
+
+def test_headline_only_identifier_can_be_analyzed_later_same_day_once_day_pct_exists(
+    db_session: Session,
+) -> None:
+    with (
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_mock_llm_ok) as mock_call,
+    ):
+        # Morning manual run: no close captured yet.
+        first = ti.get_l1_intel_batch(db_session, ["NVDA"], _DATE, {"NVDA": _facts(day_pct=None)})
+        assert first == {}
+        mock_call.assert_not_called()
+
+        # After-close batch, same trade_date: real day_pct now available.
+        second = ti.get_l1_intel_batch(db_session, ["NVDA"], _DATE, {"NVDA": _facts(day_pct=0.03)})
+        assert "NVDA" in second
+        mock_call.assert_called_once()
+
+
 def test_a_blocked_attempt_counts_against_the_daily_cap(db_session: Session) -> None:
     """Review round 1 bug: `fresh_budget` used to only decrement on a
     successful cache write, so a compliance-blocked (or failed) identifier

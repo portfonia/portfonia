@@ -344,7 +344,7 @@ def get_l1_intel_batch(
     usage_sink: list[dict[str, Any]] | None = None,
 ) -> dict[str, str]:
     """Read-through cache over `identifiers` (expected ordered by |move|
-    descending — see `build_l1_candidates`). A cache HIT — whether it holds
+    descending — see `l1_identifiers_for_user`). A cache HIT — whether it holds
     a real analysis or a null "attempted, no result" marker (see
     TickerIntel's docstring) — never re-calls the LLM: an already-attempted
     identifier is never retried today, success or not. A cache MISS beyond
@@ -362,6 +362,22 @@ def get_l1_intel_batch(
     Pass `ctx.llm_calls` from `generate_report` so a day's L1 spend shows up
     in the SAME report_inputs.llm_calls list Pass 1/Pass 2 already use.
 
+    A candidate with `day_pct is None` (headline-only — `build_l1_facts`'s
+    own degrade path for an identifier with no captured close yet for
+    `trade_date`, e.g. a manual run before today's market close) is
+    skipped WITHOUT calling `_generate` at all (round 6 review finding,
+    design doc §4.8): caching such an analysis under the day's unique key
+    would make it FINAL for the day — the real after_close batch, running
+    later with a genuine `day_pct` available, would hit the cache and
+    never re-analyze, so every user that day would be permanently served
+    the numberless, pre-close briefing. Skipping BEFORE `_generate` (rather
+    than having `_generate` itself decline to write) means no cache row of
+    any kind is left behind — not even a null "attempted" marker, which
+    would ALSO permanently block a later, better-informed retry the same
+    day. This skip does not consume `fresh_budget` either: it never
+    attempted anything, so it must not count against the identifiers that
+    genuinely did.
+
     Sequential fan-out (`generate_incremental_report` processes users one at
     a time, not concurrently) is what actually makes "shared across users"
     hold here: the first user's call caches to the DB before the second
@@ -377,15 +393,15 @@ def get_l1_intel_batch(
             if cached.analysis is not None:
                 result[identifier] = cached.analysis
             continue
+        facts = facts_by_identifier.get(identifier)
+        if facts is None or facts.day_pct is None:
+            continue
         if fresh_budget <= 0:
             logger.info(
                 "ticker_intel: daily L1 analysis cap (%d) reached, skipping %s",
                 _MAX_L1_ANALYSES_PER_DAY,
                 identifier,
             )
-            continue
-        facts = facts_by_identifier.get(identifier)
-        if facts is None:
             continue
         analysis = _generate(session, identifier, trade_date, facts, usage_sink)
         fresh_budget -= 1

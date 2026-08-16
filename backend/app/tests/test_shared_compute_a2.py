@@ -18,7 +18,7 @@ code path actually runs and can be asserted on (UAT-5).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -26,6 +26,7 @@ from unittest.mock import MagicMock, patch
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.timezones import ET
 from app.models.price_snapshot import PriceSnapshot
 from app.models.report import Report
 from app.models.search_cache import SearchCache
@@ -61,7 +62,20 @@ def _seed_price_snapshots(db_session: Session) -> None:
     """Same shape as test_shared_compute_a1.py's fixture: NVDA flags for both
     U1 and U2, SGOL flags for U3 — every one of the three users has at least
     one anomaly, so none of them hits the quiet-day skip (which would bypass
-    Pass 1/Tavily/L1 entirely and confound these tests' assertions)."""
+    Pass 1/Tavily/L1 entirely and confound these tests' assertions).
+
+    `_run_batch` uses the real (unfrozen) clock, so `eff_date` is whatever
+    ET calendar date the test actually runs on — L1's day-scoped window
+    (design doc §4.8, second addendum) needs a REAL close captured on that
+    exact date, or `day_pct` is None and L1 skips every candidate (round 6
+    review fix: a headline-only candidate is no longer analyzed/cached at
+    all). The rest of the series stays fixed in the historical past — only
+    anomaly detection (which reads each user's own, still-wide watermark
+    window) needs the longer run; L1 only ever looks at "yesterday's close
+    -> today's close"."""
+    today = datetime.now(tz=ET).date()
+    yesterday = today - timedelta(days=1)
+    yesterday_close_at = datetime.combine(yesterday, time(20, 0), tzinfo=UTC)
     db_session.add_all(
         [
             _close_at("NVDA", _BASELINE_DATE, 200.0, _BASELINE_AT),
@@ -70,12 +84,16 @@ def _seed_price_snapshots(db_session: Session) -> None:
             _close("NVDA", date(2026, 6, 4), 215.0),
             _close("NVDA", date(2026, 6, 5), 215.0),
             _close("NVDA", date(2026, 6, 6), 215.0),
+            _close_at("NVDA", yesterday, 215.0, yesterday_close_at),
+            _close("NVDA", today, 215.0),
             _close_at("SGOL", _BASELINE_DATE, 180.0, _BASELINE_AT),
             _close("SGOL", date(2026, 6, 2), 190.0),
             _close("SGOL", date(2026, 6, 3), 190.0),
             _close("SGOL", date(2026, 6, 4), 190.0),
             _close("SGOL", date(2026, 6, 5), 190.0),
             _close("SGOL", date(2026, 6, 6), 190.0),
+            _close_at("SGOL", yesterday, 190.0, yesterday_close_at),
+            _close("SGOL", today, 190.0),
         ]
     )
     db_session.flush()
