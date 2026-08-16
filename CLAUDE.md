@@ -1,7 +1,7 @@
 # Portfonia — Agent Guidelines
 
 AI-facing guidance for agent tooling working in this repository.
-Last updated: 2026-08-13
+Last updated: 2026-08-16
 
 ## Where to find current state
 
@@ -544,20 +544,67 @@ layer** (per-user, incremental).
   threshold). Flagged holdings carry a session arc (prev close/open-gap/
   intraday range/close/after-hours) for §4.2. Report always says "this
   report period", never "today".
-- **Known deferred issue (not an A1 bug, tracked for A2)**: the shared
-  Tavily daily search budget (`TAVILY_DAILY_BUDGET`) is consumed
-  sequentially in fixed `active_user_ids()` UUID order within a fan-out
-  batch — users processed later in a given day can inherit
-  `daily_remaining=0` and get no search-augmented context (silent quality
-  degradation, not a failure), and because the order is fixed, it's
-  systematically the same users every time, not random. Root-cause fix is
-  reuse/dedup (A2's planned `search_cache` — see `Docs/Ring 1-A design.md`
-  §4.9), not reallocating/rotating a fixed-size budget. Principle
-  generalizes beyond Tavily; see Obsidian `Portfonia Concept & Design.md`
-  §7.2's 2026-08-15 addendum.
+- **Tavily fan-out fairness (issue #128 A1 finding, resolved by A2's
+  `search_cache`)**: the shared Tavily daily search budget used to be
+  consumed sequentially in fixed `active_user_ids()` UUID order within a
+  fan-out batch — users processed later in a given day could inherit
+  `daily_remaining=0` and get no search-augmented context. Root-cause fix
+  was reuse/dedup, not reallocating a fixed-size budget — see the L1
+  shared-intel entry below.
 - Portfolio valuation reads the **latest captured close** from
   `price_snapshots`, falling back to `holding.market_price` only for funds
   (no ticker). FX anomalies are not computed (FX stays daily in `fx_rates`).
+- **L1 shared ticker-intel cache (Ring 1 stage A2, issue #128, PR #155)**:
+  a new analysis stage (not a refactor — before A2, per-identifier "what
+  happened to this security" narrative only existed inside each user's own
+  Pass 2 call). `ticker_intel.get_l1_intel_batch` computes one LLM analysis
+  per `(identifier, trade_date, prompt_version)` and caches it in the
+  `ticker_intel` table — two users sharing an identifier in the same
+  fan-out batch pay for one LLM call, not one each. `search_cache`
+  (`(query_hash, trade_date)`) does the same for Tavily queries, closing
+  the A1 fan-out fairness gap above. Both get a 90-day cleanup beat task
+  (`cache_tasks.py`).
+  - **Hard type boundary, not a discipline, keeps per-user data out of the
+    shared cache**: `l1_identifiers_for_user` is the only channel from a
+    user's own (per-user-judged) anomaly list into L1 — its return type is
+    `list[str]`, identifiers only. Every numeric fact then comes from
+    `window_data.resolve_global_moves`/`HoldingMove`, which is global by
+    construction. This shape exists because the first draft read numbers
+    straight out of the per-user-weighted `PriceAnomaly` structure, and
+    three independent review rounds each found a different per-user value
+    (a threshold-derived `trigger` field, then value-weighted
+    price/pct fields from theme-merged anomalies, then a theme-slug-keyed
+    news lookup) that had leaked into the shared cache — auditing fields
+    one at a time was losing that race. The same rule applies to any
+    future cross-user shared-cache consumer (A3's `macro_event_intel`,
+    A4): selection may be per-user, values must not be.
+  - **L1 describes exactly one trading day, never a report window**: an
+    earlier version scoped L1's price-move fact to the calling user's own
+    `[period_start, period_end]` (`period_start = user_watermark(user)`,
+    per-user by construction) — two users analyzing the same identifier on
+    the same day could get different windows, and whichever `generate_report`
+    call reached L1 first cached its own window's numbers for everyone else
+    that day. Fixed by dropping the window concept entirely:
+    `window_data.day_window_bounds(trade_date)` is a pure function of the
+    date only.
+  - **Compliance scan runs on stripped output, matching Pass 2**:
+    `_generate` calls `_strip_markers` (same as Pass 2's
+    `cleaned = _strip_markers(raw_body)`) before `_scan_forbidden_output` —
+    without it, a model-emitted disclaimer line could false-trip the scan
+    and permanently blacklist that identifier's cache slot for the day.
+  - **A headline-only candidate (no captured close yet, e.g. a pre-market
+    manual run) is skipped entirely, not cached**: caching it would lock
+    that identifier's slot for the whole trading day — even after the real
+    close is captured later (e.g. the scheduled `after_close` batch), a
+    cache hit would keep serving the earlier, unsupported-by-data version.
+  - `LOW_COST_LLM_MODEL` is used with `data_collection=deny` kept enforced
+    (no BYOK exception — L1 identifiers are holdings-derived, unlike Pass
+    1's public-only inputs) under the default provider pin
+    (`OPENROUTER_PROVIDER_ORDER`) — confirmed via a real OpenRouter call
+    with these exact parameters that this alias is actually served under
+    deny, not just assumed.
+  - Full 7-round review history and design rationale:
+    `Docs/Ring 1-A design.md` §4.3/§4.8 (Obsidian).
 
 ### News dedup ledger: closing the window-boundary permanent-miss gap (issue #30)
 
