@@ -98,12 +98,20 @@ from app.services.report_serializers import (
 from app.services.report_translation import _translate_md
 from app.services.report_types import validate_report_type
 from app.services.technical_position import compute_technical_positions
+from app.services.ticker_intel import (
+    build_l1_facts,
+    get_l1_intel_batch,
+    l1_identifiers_for_user,
+)
 from app.services.window_data import (
     MovesCache,
+    day_window_bounds,
     detect_window_anomalies,
     latest_window_close_date,
+    load_day_news,
     load_news_window,
     mark_news_surfaced,
+    resolve_global_moves,
     unmark_news_surfaced,
     user_watermark,
 )
@@ -269,6 +277,11 @@ def generate_report(
     validate_report_type(report_type)
     settings = get_settings()
     user_id = user_id if user_id is not None else get_current_user_id()
+    # A local cache when the caller supplied none: the global move set has two
+    # consumers in this function (anomaly detection, then L1's shared-intel
+    # facts — see §5.5), and without a cache to share, the second would pay
+    # for a full second `compute_global_moves()` on every single-user call.
+    moves_cache = moves_cache if moves_cache is not None else {}
     now = now if now is not None else datetime.now(tz=UTC)
     eff_date = report_date or now.astimezone(ET).date()
 
@@ -618,7 +631,7 @@ def generate_report(
         # ------------------------------------------------------------------
         # 4. Tavily search  — daily budget enforced across runs
         # ------------------------------------------------------------------
-        used_today = _tavily_used_today(session, eff_date, exclude_report_id=report.id)
+        used_today = _tavily_used_today(session, eff_date)
         daily_remaining = max(0, settings.TAVILY_DAILY_BUDGET - used_today)
         if ctx.search_queries:
             logger.info(
@@ -629,7 +642,9 @@ def generate_report(
                 used_today,
                 daily_remaining,
             )
-            search_results = _run_tavily_search(ctx.search_queries, budget=daily_remaining)
+            search_results = _run_tavily_search(
+                session, ctx.search_queries, eff_date, budget=daily_remaining
+            )
         else:
             search_results = []
         ctx.search_results = search_results
@@ -653,16 +668,126 @@ def generate_report(
         )
 
         targeted = _targeted_anomaly_queries(ctx.price_anomalies, set(ctx.holding_news.keys()))
-        targeted_remaining = max(0, daily_remaining - len(ctx.search_results))
-        if targeted and targeted_remaining > 0:
-            tq = [q for _ident, q in targeted][:targeted_remaining]
-            logger.info("report %s: %d targeted anomaly searches", report.id, len(tq))
-            targeted_results = _run_tavily_search(tq, budget=targeted_remaining)
+        # L1 runs its OWN recall below (§5.5) over its own identifier
+        # vocabulary, so all that's collected here is the targeted-search
+        # titles keyed by the identifier that asked for them. `ctx.holding_news`
+        # itself is never mutated — it is Pass 2's stored input, and A2's
+        # report content must stay byte-identical (design doc §1.2).
+        l1_targeted_titles: dict[str, list[str]] = {}
+        if targeted:
+            # Review round 1 bug: this used to be `daily_remaining -
+            # len(ctx.search_results)` — subtracting a RESULT-ITEM count (up
+            # to 5/query) from an HTTP-CALL budget, and pre-slicing the query
+            # list by that wrong number before the cache-first loop even ran
+            # (dropping queries that would have been free cache hits).
+            # Re-derive the real remaining HTTP-call budget from actual
+            # spend so far today (the Pass 1 search above may have written
+            # new search_cache rows) and pass every targeted query through
+            # unsliced — `_run_tavily_search`'s own cache-first loop decides
+            # per query whether it needs the budget at all.
+            targeted_budget = max(
+                0, settings.TAVILY_DAILY_BUDGET - _tavily_used_today(session, eff_date)
+            )
+            query_to_identifier = {q: ident for ident, q in targeted}
+            tq = [q for _ident, q in targeted]
+            logger.info(
+                "report %s: %d targeted anomaly searches (budget %d)",
+                report.id,
+                len(tq),
+                targeted_budget,
+            )
+            targeted_results = _run_tavily_search(session, tq, eff_date, budget=targeted_budget)
             ctx.search_results.extend(targeted_results)
+            for r in targeted_results:
+                ident = query_to_identifier.get(r.get("query", ""))
+                if ident:
+                    l1_targeted_titles.setdefault(ident, []).append(r.get("title", ""))
 
         # Re-index results globally for [S#] citation notation
         for i, r in enumerate(ctx.search_results):
             r["index"] = i + 1
+
+        # ------------------------------------------------------------------
+        # 5.5 L1 shared ticker intel (issue #128 A2) — computed once per
+        # (identifier, trade_date) across the whole system and cached
+        # (ticker_intel table), so a multi-user fan-out sharing an
+        # identifier pays for one LLM analysis, not one per user. Does NOT
+        # feed into the Pass 2 prompt or the rendered body yet — A2 is
+        # cache-infrastructure only (design doc §1.2: report content stays
+        # byte-identical through A1-A3); A4 is what assembles this into the
+        # report. A blocked/failed identifier degrades to "no L1 intel this
+        # run", never blocks report generation.
+        # ------------------------------------------------------------------
+        #
+        # Inputs are assembled GLOBALLY, never re-derived from the per-user
+        # anomaly structures above, AND day-scoped, never window-scoped
+        # (design doc §4.8, second addendum — see ticker_intel.py's module
+        # docstring for the full rationale):
+        #   - which identifiers: `l1_identifiers_for_user` (returns list[str],
+        #     the only channel the per-user list has into the shared cache)
+        #   - every number: `resolve_global_moves` called with
+        #     `day_window_bounds(eff_date)`, NOT `period_start`/`period_end`.
+        #     `period_start = user_watermark(user_id)` is per-user — two users
+        #     analyzing the same identifier on the same `eff_date` could get
+        #     different report windows, and whichever `generate_report` call
+        #     reached L1 first would cache ITS window's numbers for every
+        #     other user that day (round-5 review bug). `day_window_bounds`
+        #     is a pure function of `eff_date` alone, so this cannot happen —
+        #     and because `eff_date` is shared across a whole fan-out batch,
+        #     this call also hits `moves_cache` for every user analyzing the
+        #     same day, not just the anomaly-detection call above.
+        #   - news: L1 recalls its OWN, via `load_day_news(eff_date)` — never
+        #     `news_items` (which is per-user: `load_news_window` filters by
+        #     THIS user's own `period_start`/`period_end` AND excludes
+        #     whatever THIS user's `news_surfaced` ledger already marked
+        #     seen). Two users would get different candidate news sets from
+        #     `news_items` even on an identical price window. `load_day_news`
+        #     takes no `user_id` at all, so there is nothing to diverge.
+        #     Pass 2's `ctx.holding_news` is keyed by the theme SLUG for
+        #     merged entries, so re-keying it into L1's constituent
+        #     vocabulary meant spraying theme headlines onto every
+        #     constituent and then blocking the slug from sneaking back in
+        #     as its own candidate — recalling fresh, day-scoped news per
+        #     constituent sidesteps that too. Constituent-level recall works
+        #     through the DESIGNED mechanism — the `holding_news_keywords.yml`
+        #     alias table already maps SGOL/518660.SS/518800.SS to
+        #     "gold"/"bullion" and QQQM to "Nasdaq".
+        #
+        # Multi-day continuity across a user's own report window (when it
+        # spans more than one trading day) is deliberately NOT synthesized
+        # here: A4 (or whichever consumer eventually assembles L1 into a
+        # report) lists each covered day's L1 entry separately rather than
+        # stitching them into one narrative — a product decision, not a
+        # limitation of this cache; revisit if day-by-day reads poorly once
+        # there's real report content to judge it against.
+        l1_identifiers = l1_identifiers_for_user(ctx.price_anomalies)
+        day_news = load_day_news(session, eff_date)
+        l1_headlines: dict[str, list[str]] = {
+            ident: [n.title for n in items]
+            for ident, items in recall_holding_news(day_news, l1_identifiers).items()
+        }
+        # Targeted-search titles attach by EXACT key only. §5's queries are keyed
+        # by anomaly identifier, which is the theme slug for a merged entry — and
+        # a slug is never an L1 candidate, so its results simply don't reach L1.
+        # That is the point: fanning a theme's search hits out to its
+        # constituents is the spraying this redesign removed, and constituents
+        # get their own news through the alias table instead.
+        l1_identifier_set = set(l1_identifiers)
+        for ident, titles in l1_targeted_titles.items():
+            if ident in l1_identifier_set:
+                l1_headlines.setdefault(ident, []).extend(titles)
+        day_start, day_end = day_window_bounds(eff_date)
+        day_moves, _ = resolve_global_moves(session, day_start, day_end, moves_cache)
+        l1_facts = build_l1_facts(l1_identifiers, day_moves, l1_headlines, ctx.technical_positions)
+        ctx.ticker_intel = get_l1_intel_batch(
+            session, l1_identifiers, eff_date, l1_facts, usage_sink=ctx.llm_calls
+        )
+        logger.info(
+            "report %s: L1 shared intel available for %d/%d candidate identifiers",
+            report.id,
+            len(ctx.ticker_intel),
+            len(l1_identifiers),
+        )
 
         # ------------------------------------------------------------------
         # 6. Pass 2 — full report body

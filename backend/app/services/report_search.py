@@ -1,22 +1,23 @@
 """Tavily search execution + daily-budget tracking + holding-relevant news gap-fill.
 
-Split out of report_generator.py (#37).
+Split out of report_generator.py (#37). Search-result caching added in issue
+#128 A2 (design doc §4.4, Hermes/Portfonia/Docs/Ring 1-A design.md).
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
-import uuid
 from datetime import date
-from typing import Any, cast
+from typing import Any
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.report import Report
-from app.services.report_context import ReportInputsDict
+from app.models.search_cache import SearchCache
 
 logger = logging.getLogger(__name__)
 
@@ -33,81 +34,150 @@ _TAVILY_SEARCH_DEPTH = "basic"
 _MAX_TARGETED_ANOMALY_SEARCHES = 3
 
 
-def _run_tavily_search(
-    queries: list[str],
-    budget: int,
-) -> list[dict[str, Any]]:
-    """Execute up to `budget` Tavily searches.  Returns flattened result list.
+def _normalize_query(query: str) -> str:
+    return " ".join(query.strip().lower().split())
 
-    Each result dict: {query, title, url, content, score}.
-    Failures on individual queries are logged and skipped (degraded mode).
-    """
+
+def _query_hash(query: str) -> str:
+    return hashlib.sha256(_normalize_query(query).encode()).hexdigest()
+
+
+def _get_cached_search(
+    session: Session, query: str, trade_date: date
+) -> list[dict[str, Any]] | None:
+    row = session.execute(
+        select(SearchCache.results).where(
+            SearchCache.query_hash == _query_hash(query), SearchCache.trade_date == trade_date
+        )
+    ).scalar_one_or_none()
+    return row
+
+
+def _put_cached_search(
+    session: Session, query: str, trade_date: date, results: list[dict[str, Any]]
+) -> None:
+    stmt = (
+        pg_insert(SearchCache)
+        .values(
+            query_hash=_query_hash(query),
+            query=query,
+            trade_date=trade_date,
+            results=results,
+        )
+        .on_conflict_do_nothing(constraint="uq_search_cache_query_date")
+    )
+    session.execute(stmt)
+    session.flush()
+
+
+def _fetch_one_query(query: str) -> list[dict[str, Any]]:
+    """Execute exactly one Tavily search HTTP call. Failures are logged and
+    swallowed (degraded mode) — same contract the pre-A2 batch loop had."""
     settings = get_settings()
     api_key = settings.TAVILY_API_KEY.get_secret_value()
-    effective_queries = queries[:budget]
-
-    all_results: list[dict[str, Any]] = []
-    for i, query in enumerate(effective_queries):
-        try:
-            resp = httpx.post(
-                "https://api.tavily.com/search",
-                json={
-                    "api_key": api_key,
+    results: list[dict[str, Any]] = []
+    try:
+        resp = httpx.post(
+            "https://api.tavily.com/search",
+            json={
+                "api_key": api_key,
+                "query": query,
+                "search_depth": _TAVILY_SEARCH_DEPTH,
+                "topic": "news",
+                "max_results": _TAVILY_MAX_RESULTS,
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        for r in data.get("results", []):
+            results.append(
+                {
                     "query": query,
-                    "search_depth": _TAVILY_SEARCH_DEPTH,
-                    "topic": "news",
-                    "max_results": _TAVILY_MAX_RESULTS,
-                },
-                timeout=30,
+                    "title": r.get("title", ""),
+                    "url": r.get("url", ""),
+                    "content": r.get("content", "")[:600],
+                    "score": r.get("score", 0.0),
+                    "index": len(results) + 1,
+                }
             )
-            resp.raise_for_status()
-            data = resp.json()
-            for r in data.get("results", []):
-                all_results.append(
-                    {
-                        "query": query,
-                        "title": r.get("title", ""),
-                        "url": r.get("url", ""),
-                        "content": r.get("content", "")[:600],
-                        "score": r.get("score", 0.0),
-                        "index": len(all_results) + 1,
-                    }
-                )
-            logger.info(
-                "Tavily query %d/%d: %d results",
-                i + 1,
-                len(effective_queries),
-                len(data.get("results", [])),
-            )
-        except Exception:
-            logger.exception("Tavily search failed for query: %s", query)
+        logger.info("Tavily query: %d results (%s)", len(results), query)
+    except Exception:
+        logger.exception("Tavily search failed for query: %s", query)
+    return results
+
+
+def _run_tavily_search(
+    session: Session,
+    queries: list[str],
+    trade_date: date,
+    budget: int,
+) -> list[dict[str, Any]]:
+    """Cache-first execution of Tavily searches. Returns flattened result list.
+
+    Each query is checked against `search_cache` (keyed by normalized-query
+    hash + trade_date, issue #128 A2) before hitting the network. A cache hit
+    costs nothing against `budget` — `budget` is the number of REAL HTTP calls
+    still allowed today (pre-A2 this parameter counted PROPOSED queries, and a
+    cache-hit query didn't exist yet to distinguish from a real one — see
+    `_tavily_used_today`). Once `budget` is exhausted, remaining cache-miss
+    queries are skipped (degraded mode, same as the pre-A2 truncation).
+
+    ANY real attempt (a genuinely empty 200, or an exception) is cached as an
+    empty result — review round 1 bug: caching only non-empty results meant
+    an empty-but-successful response, or a failed request, was silently
+    uncounted, so the identical query got re-billed by every later report the
+    same day (`_tavily_used_today` derives its count from `search_cache` row
+    presence, not from the results inside them). The tradeoff — a transient
+    outage suppresses retries for the identifier for the rest of the day — is
+    deliberate and matches the daily-boundary retry horizon this whole cache
+    already uses everywhere else.
+    """
+    all_results: list[dict[str, Any]] = []
+    remaining = budget
+    for query in queries:
+        cached = _get_cached_search(session, query, trade_date)
+        if cached is not None:
+            # Round 4 review finding: a cache hit returns the FIRST writer's
+            # stored results, whose "query" field is that writer's own
+            # (un-normalized) string — not this caller's. Rewrite it to the
+            # current query so a downstream exact-string remap (e.g.
+            # report_generator.py's targeted-search-to-L1-headline mapping)
+            # doesn't silently miss a same-hash, differently-cased/spaced hit.
+            all_results.extend({**r, "query": query} for r in cached)
+            continue
+        if remaining <= 0:
+            logger.info("Tavily query skipped (daily budget exhausted): %s", query)
+            continue
+        fresh = _fetch_one_query(query)
+        _put_cached_search(session, query, trade_date, fresh)
+        all_results.extend(fresh)
+        remaining -= 1
     return all_results
 
 
-def _tavily_used_today(
-    session: Session, report_date: date, exclude_report_id: uuid.UUID | None = None
-) -> int:
-    """Return the number of Tavily queries already fired today (ET calendar date).
+def _tavily_used_today(session: Session, report_date: date) -> int:
+    """Return the number of REAL Tavily API calls made today (ET calendar date).
 
-    Counts search_queries stored in report_inputs of terminal-state reports so
-    a second run in the same day (manual + after_close, or a retry) sees the
-    cumulative daily spend. Excludes the current in-progress row to avoid
-    double-counting a retry. Note: Hermes shares this Tavily key; cross-project
-    spend is not tracked here — the budget is a Portfonia-only floor.
+    Issue #128 A2: previously this counted `search_queries` stored in
+    report_inputs across today's reports — a query that hit `search_cache`
+    (no network call, no cost) was still counted as if it had spent budget.
+    `search_cache` rows are written exactly once per distinct
+    (normalized query, trade_date) via ON CONFLICT DO NOTHING regardless of
+    which report/user triggered the fetch, so counting rows for today IS the
+    actual spend — no per-report bookkeeping or exclude_report_id needed
+    anymore (a retry of the same report doesn't re-spend budget for queries
+    the day already paid for; search_cache isn't tied to any one report).
+    Note: Hermes shares this Tavily key; cross-project spend is not tracked
+    here — the budget is a Portfonia-only floor.
     """
-    rows = session.execute(
-        select(Report.report_inputs, Report.id).where(
-            Report.report_date == report_date,
-            Report.status.in_(("success", "skipped", "needs_review")),
-        )
-    ).all()
-    total = 0
-    for inputs, row_id in rows:
-        if row_id == exclude_report_id:
-            continue
-        if inputs and isinstance(inputs, dict):
-            total += len(cast(ReportInputsDict, inputs).get("search_queries", []))
-    return total
+    return int(
+        session.execute(
+            select(func.count())
+            .select_from(SearchCache)
+            .where(SearchCache.trade_date == report_date)
+        ).scalar_one()
+    )
 
 
 def _targeted_anomaly_queries(

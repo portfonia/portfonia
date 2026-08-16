@@ -141,14 +141,21 @@ def _mock_llm(client: object, model: str, system: str, user: str, **kwargs: obje
     return '{"queries": []}'
 
 
+def _mock_l1_llm(client: object, model: str, system: str, user: str, **kwargs: object) -> str:
+    return "Nothing notable. [Speculative]"
+
+
 def _run_batch(db_session: Session) -> None:
-    """Mocks the LLM/Tavily boundary in BOTH report_generator.py (Pass 1/2)
-    AND report_translation.py (OUTPUT_LANG defaults to "zh" — see
-    app/core/config.py — so generate_incremental_report's real call to
-    generate_report(output_lang="zh") exercises the real translation pass,
-    which imports its own `_call_llm`/`_openrouter_client` bindings
-    independent of report_generator.py's; missing this mock makes the test
-    hang on a real OpenRouter network call instead of failing fast).
+    """Mocks the LLM/Tavily boundary in report_generator.py (Pass 1/2),
+    report_translation.py, AND ticker_intel.py (issue #128 A2's L1 step) —
+    OUTPUT_LANG defaults to "zh" (app/core/config.py) so
+    generate_incremental_report's real call to generate_report(output_lang=
+    "zh") exercises the real translation pass, and every user with a
+    price-anomaly candidate exercises the real L1 step; each of these
+    modules imports its own `_call_llm`/`_openrouter_client` bindings
+    independent of report_generator.py's — missing any one of these mocks
+    makes the test hang on a real OpenRouter network call instead of
+    failing fast.
 
     Deliberately does NOT freeze `datetime.now` (PR #151 review) — the real
     clock exercises generate_incremental_report's own `batch_now` stamp,
@@ -171,6 +178,8 @@ def _run_batch(db_session: Session) -> None:
         patch("app.services.report_translation._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_translation._call_llm", side_effect=_mock_llm),
         patch("app.services.report_translation.time.sleep"),  # skip the real 2s/chunk pacing
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_mock_l1_llm),
     ):
         result = generate_incremental_report.run()
 
@@ -236,15 +245,27 @@ def test_sgol_only_flags_for_the_user_who_holds_it(
     assert _anomaly_identifiers(db_session, three_user_holdings["U3"]) == {"gold"}
 
 
-def test_compute_global_moves_runs_once_for_the_whole_batch(
+def test_compute_global_moves_runs_once_per_distinct_window_not_per_user(
     db_session: Session, three_user_holdings: dict[str, object]
 ) -> None:
     """UAT-2: the global move computation must not scale with user count —
     three users sharing one window trigger exactly one compute_global_moves
-    call, not three. Runs against the real (unfrozen) clock via _run_batch
-    (PR #151 review) — this is the actual regression for the bug where each
-    user's independent `datetime.now()` call defeated moves_cache's cache
-    key in production even though a test that froze the clock stayed green."""
+    call for that window, not three. Runs against the real (unfrozen) clock
+    via _run_batch (PR #151 review) — this is the actual regression for the
+    bug where each user's independent `datetime.now()` call defeated
+    moves_cache's cache key in production even though a test that froze the
+    clock stayed green.
+
+    2 calls total, not 1 (design doc §4.8, second addendum): the batch's
+    shared report window (`period_start`/`period_end`, identical for all
+    three users here — cold start, same BOOTSTRAP_WATERMARK) accounts for
+    one call, and L1's day-scoped window (`day_window_bounds(eff_date)`,
+    deliberately a DIFFERENT window from the report's — see
+    ticker_intel.build_l1_facts's docstring) accounts for the other. Both
+    are still shared across all three users via the same `moves_cache`, so
+    the count stays at 2 regardless of user count — the property this test
+    guards (no N-user scaling) still holds, it's just bounded by the number
+    of distinct windows requested per batch, not by 1."""
     _seed_price_snapshots(db_session)
 
     with patch(
@@ -252,4 +273,4 @@ def test_compute_global_moves_runs_once_for_the_whole_batch(
     ) as spy:
         _run_batch(db_session)
 
-    assert spy.call_count == 1
+    assert spy.call_count == 2

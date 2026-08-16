@@ -1,9 +1,13 @@
 """`report_inputs` JSONB shape: the write-side dataclass and its read-side
 TypedDict mirror.
 
-Split out of report_generator.py (#37) so the type can be imported by
-report_search.py (`_tavily_used_today` reads report_inputs back via
-ReportInputsDict) without report_search depending on the orchestrator.
+Split out of report_generator.py (#37) so the type can be imported by other
+report_* modules without them depending on the orchestrator — e.g.
+report_search.py's `_targeted_anomaly_queries` reads anomaly dicts shaped by
+this module. `_tavily_used_today` (issue #128 A2) no longer reads
+report_inputs at all — it counts `search_cache` rows directly, since a query
+that hit cache made no real API call but was still being counted as spend
+under the old report_inputs-summation approach.
 """
 
 from __future__ import annotations
@@ -64,6 +68,7 @@ class ReportInputsDict(TypedDict, total=False):
     pass2_raw: str
     llm_calls: list[dict[str, Any]]
     pass2_translated: str
+    ticker_intel: dict[str, str]
 
 
 @dataclass
@@ -94,12 +99,22 @@ class ReportContext:
     pass2_model: str = ""
     pass2_prompt: str = ""
     pass2_raw: str = ""
-    # LLM call records (Pass 1 + Pass 2; translation chunks excluded as they are
-    # cheap/many and the per-chunk token count is not material for cost audits).
+    # LLM call records (Pass 1 + Pass 2 + L1 shared-intel analyses, issue
+    # #128 A2 — `get_l1_intel_batch(..., usage_sink=ctx.llm_calls)`;
+    # translation chunks excluded as they are cheap/many and the per-chunk
+    # token count is not material for cost audits).
     llm_calls: list[dict[str, Any]] = field(default_factory=list)
     # Snapshot of the translated report body (dynamic section only, pre-footer).
     # Stored so compliance attribution can be traced per translation chunk if needed.
     pass2_translated: str = ""
+    # L1 shared ticker intel (issue #128 A2): {identifier: cached analysis}
+    # for the identifiers that triggered an anomaly or a holding-news recall
+    # this window. NOT consumed by the Pass 2 prompt or the rendered body yet
+    # — A2 only seeds/reads the shared cache (design doc §1.2: report content
+    # stays byte-identical through A1-A3); A4 is what assembles this into the
+    # report. Stored here for audit and so a future A4 read-back has it
+    # without a DB re-query.
+    ticker_intel: dict[str, str] = field(default_factory=dict)
 
     def to_jsonb(self) -> dict[str, Any]:
         """Return the write-side dict for the `report_inputs` JSONB column.

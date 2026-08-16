@@ -20,6 +20,7 @@ celery_app = Celery(
         "app.tasks.capture_tasks",
         "app.tasks.holdings_tasks",
         "app.tasks.backup_tasks",
+        "app.tasks.cache_tasks",
     ],
 )
 
@@ -148,6 +149,17 @@ _beat_schedule: dict[str, dict[str, Any]] = {
     "backup-database-daily": {
         "task": "app.tasks.backup_tasks.backup_database_task",
         "schedule": crontab(hour=3, minute=0),
+    },
+    # L1 shared-intel cache retention (issue #128 A2): ticker_intel/
+    # search_cache grow one row per (identifier|query, trade_date) per day
+    # under multi-user fan-out — see app/tasks/cache_tasks.py module
+    # docstring. Off-peak, distinct from the 03:00 ET backup and the other
+    # daily cadences (forward events 08:00 ET, FX 16:05 ET, fund NAV 20:00
+    # CST). Every day, not just trading days, matching backup-database-daily's
+    # rationale.
+    "sweep-stale-shared-intel-cache-daily": {
+        "task": "app.tasks.cache_tasks.sweep_stale_shared_intel_cache",
+        "schedule": crontab(hour=4, minute=0),
     },
 }
 _beat_schedule.update(_build_report_schedule())

@@ -12,7 +12,7 @@ import logging
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 from itertools import pairwise
 
@@ -88,6 +88,62 @@ def user_watermark(
     return latest or BOOTSTRAP_WATERMARK
 
 
+def _news_item(r: News) -> NewsItem:
+    return NewsItem(
+        url_hash=r.url_hash,
+        title=r.title,
+        url=r.url,
+        source=r.source,
+        published_at=r.published_at,
+        summary=r.summary or "",
+    )
+
+
+def day_window_bounds(trade_date: date) -> tuple[datetime, datetime]:
+    """The [00:00, 24:00) ET bounds of one ET calendar day — L1's own window
+    (design doc §4.8, second addendum), a pure function of `trade_date` alone.
+
+    No `Session`, no `user_id`, no `Report` row read anywhere in this
+    function's body — that is deliberate, not an oversight: it is what makes
+    it structurally impossible for a per-user report watermark to leak into
+    L1's window the way `[period_start, period_end]` did (the round-5 bug).
+    Passing these bounds into `resolve_global_moves`/`compute_global_moves`
+    yields each identifier's single trading day's move (latest close vs. the
+    most recent close before this day), not a multi-day cumulative change —
+    see `ticker_intel.build_l1_facts`'s docstring for why that distinction
+    matters and how the result is consumed.
+    """
+    start = datetime.combine(trade_date, time.min, tzinfo=ET)
+    end = datetime.combine(trade_date, time.max, tzinfo=ET)
+    return start, end
+
+
+def load_day_news(session: Session, trade_date: date) -> list[NewsItem]:
+    """News published on `trade_date` (one ET calendar day) — L1's own
+    recall source (design doc §4.8, second addendum).
+
+    Deliberately has NO `user_id` parameter and never touches
+    `news_surfaced`: that ledger is a per-user Pass-2 dedup mechanism (a
+    user's own report never re-shows them a headline they've already seen),
+    and routing L1 through it would make L1's candidate news set depend on
+    which user's report happens to run first in a fan-out — the same
+    per-user-contamination class `l1_identifiers_for_user`/`build_l1_facts`
+    already close off for identifiers and price moves. `load_news_window`
+    (per-user, ledger-aware) remains Pass 2's own source and is untouched.
+    """
+    start, end = day_window_bounds(trade_date)
+    rows = (
+        session.execute(
+            select(News)
+            .where(News.published_at >= start, News.published_at <= end)
+            .order_by(News.published_at.desc())
+        )
+        .scalars()
+        .all()
+    )
+    return [_news_item(r) for r in rows]
+
+
 def load_news_window(
     session: Session, _start: datetime, end: datetime, user_id: uuid.UUID
 ) -> list[NewsItem]:
@@ -120,17 +176,7 @@ def load_news_window(
         .scalars()
         .all()
     )
-    return [
-        NewsItem(
-            url_hash=r.url_hash,
-            title=r.title,
-            url=r.url,
-            source=r.source,
-            published_at=r.published_at,
-            summary=r.summary or "",
-        )
-        for r in rows
-    ]
+    return [_news_item(r) for r in rows]
 
 
 def mark_news_surfaced(
@@ -487,6 +533,32 @@ def compute_global_moves(
     return moves, trading_days
 
 
+def resolve_global_moves(
+    session: Session,
+    start: datetime,
+    end: datetime,
+    moves_cache: MovesCache | None = None,
+) -> tuple[dict[str, HoldingMove], int]:
+    """`compute_global_moves` behind the batch-shared `moves_cache` — the one
+    place the cache-or-compute decision lives.
+
+    Public because the global move set has a SECOND consumer besides anomaly
+    detection: the L1 shared ticker-intel cache (issue #128 A2) sources every
+    numeric fact it caches from here. That consumer must never re-derive
+    those numbers from `select_user_anomalies`' per-user output (design doc
+    §4.8 addendum — three consecutive review rounds found a different
+    per-user field leaking into the shared cache that way), and it must not
+    pay for a second full computation to avoid doing so either.
+    """
+    cache_key = (start, end)
+    cached = moves_cache.get(cache_key) if moves_cache is not None else None
+    if cached is None:
+        cached = compute_global_moves(session, start, end)
+        if moves_cache is not None:
+            moves_cache[cache_key] = cached
+    return cached
+
+
 def select_user_anomalies(
     moves: dict[str, HoldingMove],
     holdings: Sequence[Holding],
@@ -615,13 +687,7 @@ def detect_window_anomalies(
     and call sites) omit it and get the pre-A1 per-call behavior, just now
     scoped to one user instead of leaking every user's holdings.
     """
-    cache_key = (start, end)
-    cached = moves_cache.get(cache_key) if moves_cache is not None else None
-    if cached is None:
-        cached = compute_global_moves(session, start, end)
-        if moves_cache is not None:
-            moves_cache[cache_key] = cached
-    moves, trading_days = cached
+    moves, trading_days = resolve_global_moves(session, start, end, moves_cache)
     holdings = user_holdings(session, user_id)
     theme_map = _load_theme_map(session)
     anomalies = select_user_anomalies(moves, holdings, trading_days, theme_map)
