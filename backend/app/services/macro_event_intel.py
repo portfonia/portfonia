@@ -85,7 +85,7 @@ from app.core.config import get_settings
 from app.models.macro_event_intel import MacroEventIntel
 from app.services.asset_class_config import VALID_ASSET_CLASSES
 from app.services.email_sender import send_ops_alert
-from app.services.forward_events import load_forward_events
+from app.services.forward_events import FORWARD_WINDOW_DAYS, load_forward_events
 from app.services.macro_detector import detect_macro_signals
 from app.services.report_llm import _call_llm, _openrouter_client
 from app.services.report_prompts import _COMPLIANCE_SYSTEM_PREFIX
@@ -99,19 +99,30 @@ logger = logging.getLogger(__name__)
 # than serving an older classification under a new prompt.
 _PROMPT_VERSION = "l2-v1"
 
-# Per-day cap on FRESH inferences. Cache hits are free and never count against
-# it, so a day with many hit themes plus a dense earnings calendar degrades to
-# "some events have no L2 intel" instead of an unbounded cost spike. Matches
-# L1's cap for symmetry; the candidate set here is naturally small (8 macro
-# themes in the keyword table + whatever sits in the 10-day forward window).
-_MAX_L2_ANALYSES_PER_DAY = 15
-
-# How far ahead forward-calendar events are considered "current" — mirrors
-# report_generator._FORWARD_WINDOW_DAYS, which is what §2.5 actually renders.
-_FORWARD_WINDOW_DAYS = 10
-
 _THEME_PREFIX = "theme:"
 _FORWARD_PREFIX = "fwd:"
+
+# Per-day caps on FRESH inferences, counted SEPARATELY PER EVENT KIND. Cache
+# hits are free and never count against them, so a busy day degrades to "some
+# events have no L2 intel" instead of an unbounded cost spike.
+#
+# Two budgets rather than one (round-1 review finding, blacktomb42 on PR
+# #157): a single shared cap is consumed in whichever order the day's first
+# non-quiet user happens to present its candidates, and the two kinds are not
+# symmetric — every user sees the same `fwd:` calendar (global), while
+# `theme:` keys are per-user. So a first user who hit no themes could spend
+# the entire day's budget on calendar events and leave every later user's
+# themes unanalyzed until tomorrow. Deterministic global ORDERING (see
+# `l2_event_keys_for_user`) does not fix that on its own: it makes one user's
+# list stable, not the union across users whose lists differ.
+#
+# Theme count is bounded by the keyword table (8 entries today), so the theme
+# budget has headroom for a couple of additions and effectively never binds.
+# The forward budget is the one that genuinely can (earnings season) — that
+# is a cost ceiling, not a fairness defect: it truncates the same global list
+# for everyone.
+_MAX_L2_THEME_ANALYSES_PER_DAY = 10
+_MAX_L2_FORWARD_ANALYSES_PER_DAY = 15
 
 # `OTHER` is the bucket an UNCLASSIFIABLE holding falls into (see
 # sector_taxonomy.map_yf_sector), not a sector an event can meaningfully bear
@@ -241,6 +252,18 @@ def _filter_to_taxonomy(
     return kept
 
 
+def _loads_or_none(text: str) -> dict[str, Any] | None:
+    """Parse `text` as a JSON object, or None. Anything that is valid JSON but
+    not an object (a bare list, string or number) is treated as a miss too —
+    the caller only ever wants the object form, and folding the check in here
+    keeps its second-chance retry from having to re-check the shape."""
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
 def _parse_l2_response(event_key: str, raw: str) -> tuple[str, list[str], list[str]] | None:
     """Parse + taxonomy-validate the model's JSON. None means "unusable".
 
@@ -252,13 +275,19 @@ def _parse_l2_response(event_key: str, raw: str) -> tuple[str, list[str], list[s
     text = raw.strip()
     if text.startswith("```"):
         text = "\n".join(ln for ln in text.splitlines() if not ln.strip().startswith("```")).strip()
-    try:
-        parsed = json.loads(text)
-    except Exception:
-        logger.warning("macro_event_intel: %s returned unparseable JSON", event_key)
-        return None
-    if not isinstance(parsed, dict):
-        logger.warning("macro_event_intel: %s returned a non-object JSON payload", event_key)
+    parsed = _loads_or_none(text)
+    if parsed is None:
+        # Second chance on the outermost {...} span before giving up (round-1
+        # review finding, blacktomb42 on PR #157): a model that prefaces its
+        # JSON with a sentence is a formatting habit, but the failure it used
+        # to cause is a null marker row — FINAL for that event, for every
+        # user, until tomorrow. Too expensive an outcome to hang on wording
+        # the prompt can ask for but not guarantee.
+        start, end = text.find("{"), text.rfind("}")
+        if start != -1 and end > start:
+            parsed = _loads_or_none(text[start : end + 1])
+    if parsed is None:
+        logger.warning("macro_event_intel: %s returned no usable JSON object", event_key)
         return None
     analysis = parsed.get("analysis")
     if not isinstance(analysis, str) or not analysis.strip():
@@ -330,7 +359,7 @@ def _load_forward_rows(session: Session, trade_date: date) -> list[dict[str, str
     claim was re-checked instead of inherited.
     """
     rows = load_forward_events(
-        session, trade_date, trade_date + timedelta(days=_FORWARD_WINDOW_DAYS)
+        session, trade_date, trade_date + timedelta(days=FORWARD_WINDOW_DAYS)
     )
     return sorted(rows, key=lambda r: (r["scheduled_date"], r["name"], r["id"]))
 
@@ -414,7 +443,9 @@ def _fetch_cached(session: Session, event_key: str, trade_date: date) -> MacroEv
     ).scalar_one_or_none()
 
 
-def _count_analyzed_today(session: Session, trade_date: date) -> int:
+def _count_analyzed_today(session: Session, trade_date: date, prefix: str) -> int:
+    """Fresh attempts already made today for ONE event kind (see the budget
+    constants for why the two kinds are counted apart)."""
     return int(
         session.execute(
             select(func.count())
@@ -422,6 +453,7 @@ def _count_analyzed_today(session: Session, trade_date: date) -> int:
             .where(
                 MacroEventIntel.trade_date == trade_date,
                 MacroEventIntel.prompt_version == _PROMPT_VERSION,
+                MacroEventIntel.event_key.like(f"{prefix}%"),
             )
         ).scalar_one()
     )
@@ -565,7 +597,18 @@ def get_l2_intel_batch(
     next user's report reaches this function.
     """
     result: dict[str, dict[str, Any]] = {}
-    fresh_budget = max(0, _MAX_L2_ANALYSES_PER_DAY - _count_analyzed_today(session, trade_date))
+    fresh_budget = {
+        _THEME_PREFIX: max(
+            0,
+            _MAX_L2_THEME_ANALYSES_PER_DAY
+            - _count_analyzed_today(session, trade_date, _THEME_PREFIX),
+        ),
+        _FORWARD_PREFIX: max(
+            0,
+            _MAX_L2_FORWARD_ANALYSES_PER_DAY
+            - _count_analyzed_today(session, trade_date, _FORWARD_PREFIX),
+        ),
+    }
     for event_key in event_keys:
         cached = _fetch_cached(session, event_key, trade_date)
         if cached is not None:
@@ -579,15 +622,16 @@ def get_l2_intel_batch(
         facts = facts_by_key.get(event_key)
         if facts is None:
             continue
-        if fresh_budget <= 0:
+        kind = _THEME_PREFIX if event_key.startswith(_THEME_PREFIX) else _FORWARD_PREFIX
+        if fresh_budget[kind] <= 0:
             logger.info(
-                "macro_event_intel: daily L2 inference cap (%d) reached, skipping %s",
-                _MAX_L2_ANALYSES_PER_DAY,
+                "macro_event_intel: daily L2 inference cap for '%s' events reached, skipping %s",
+                kind,
                 event_key,
             )
             continue
         intel = _generate(session, event_key, trade_date, facts, usage_sink)
-        fresh_budget -= 1
+        fresh_budget[kind] -= 1
         if intel is not None:
             result[event_key] = intel
     return result

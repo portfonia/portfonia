@@ -266,16 +266,75 @@ def test_generate_call_keeps_deny_enforced_no_byok(db_session: Session) -> None:
     assert kwargs.get("with_holdings") is False
 
 
-def test_daily_cap_stops_fresh_inferences(db_session: Session) -> None:
+def _theme_facts(keys: list[str]) -> dict[str, l2.L2Facts]:
+    return {k: l2.L2Facts(event_kind="macro_theme", label=k, news_headlines=["h"]) for k in keys}
+
+
+def _forward_facts(keys: list[str]) -> dict[str, l2.L2Facts]:
+    return {
+        k: l2.L2Facts(
+            event_kind="forward_event",
+            label=k,
+            event_type="macro",
+            scheduled_date=_DATE.isoformat(),
+        )
+        for k in keys
+    }
+
+
+def test_daily_theme_cap_stops_fresh_inferences(db_session: Session) -> None:
     _seed_day_news(db_session)
-    keys = [f"theme:t{i}" for i in range(l2._MAX_L2_ANALYSES_PER_DAY + 3)]
-    facts = {k: l2.L2Facts(event_kind="macro_theme", label=k, news_headlines=["h"]) for k in keys}
+    keys = [f"theme:t{i}" for i in range(l2._MAX_L2_THEME_ANALYSES_PER_DAY + 3)]
 
     client_patch, call_patch = _patched_llm(_mock_llm_ok)
     with client_patch, call_patch as mock_call:
-        l2.get_l2_intel_batch(db_session, keys, _DATE, facts)
+        l2.get_l2_intel_batch(db_session, keys, _DATE, _theme_facts(keys))
 
-    assert mock_call.call_count == l2._MAX_L2_ANALYSES_PER_DAY
+    assert mock_call.call_count == l2._MAX_L2_THEME_ANALYSES_PER_DAY
+
+
+def test_daily_forward_cap_stops_fresh_inferences(db_session: Session) -> None:
+    keys = [f"fwd:f{i}" for i in range(l2._MAX_L2_FORWARD_ANALYSES_PER_DAY + 3)]
+
+    client_patch, call_patch = _patched_llm(_mock_llm_ok)
+    with client_patch, call_patch as mock_call:
+        l2.get_l2_intel_batch(db_session, keys, _DATE, _forward_facts(keys))
+
+    assert mock_call.call_count == l2._MAX_L2_FORWARD_ANALYSES_PER_DAY
+
+
+def test_forward_events_cannot_starve_themes_of_the_daily_budget(
+    db_session: Session,
+) -> None:
+    """Round-1 review finding (blacktomb42, PR #157): with ONE shared daily
+    cap, the budget was consumed in the calling user's own candidate order —
+    so the first user of the day who happened to hit no macro themes could
+    fill every slot with the day's `fwd:` calendar events, and every later
+    user's themes went unanalyzed until tomorrow. The global ORDERING fix
+    alone did not cover this: ordering is deterministic within one user's
+    candidate list, but the lists themselves differ (themes are per-user,
+    forward events are not).
+
+    Budgets are per event KIND now, so an earnings-season calendar cannot
+    crowd out macro themes. (Truncation WITHIN a kind is still possible —
+    that is a genuine cost ceiling, not a fairness defect.)"""
+    forward_keys = [f"fwd:f{i}" for i in range(l2._MAX_L2_FORWARD_ANALYSES_PER_DAY + 5)]
+
+    client_patch, call_patch = _patched_llm(_mock_llm_ok)
+    with client_patch, call_patch:
+        # A theme-less first caller burns the whole forward budget.
+        l2.get_l2_intel_batch(db_session, forward_keys, _DATE, _forward_facts(forward_keys))
+
+    _seed_day_news(db_session)
+    theme_keys = ["theme:货币政策"]
+    facts = l2.build_l2_facts(db_session, theme_keys, _DATE)
+
+    client_patch, call_patch = _patched_llm(_mock_llm_ok)
+    with client_patch, call_patch as mock_call:
+        result = l2.get_l2_intel_batch(db_session, theme_keys, _DATE, facts)
+
+    assert mock_call.call_count == 1
+    assert "theme:货币政策" in result
 
 
 def test_candidate_without_facts_is_skipped_without_writing_a_row(
@@ -336,6 +395,29 @@ def test_out_of_taxonomy_sector_is_dropped(db_session: Session) -> None:
     # affected sector for an event — accepting it would map every
     # unclassified holding into the event's exposure.
     assert result["theme:货币政策"]["affected_sectors"] == ["Financials"]
+
+
+def test_prose_wrapped_json_is_still_parsed(db_session: Session) -> None:
+    """Round-1 review finding (blacktomb42, PR #157): the parser accepted a
+    bare object or a ```-fenced one, but a model that prefaces its JSON with a
+    sentence produced a null marker row — which is FINAL for the day, for
+    every user. A day-locking failure mode is too expensive to hand to a
+    formatting habit the prompt cannot guarantee away."""
+    _seed_day_news(db_session)
+    keys = ["theme:货币政策"]
+    facts = l2.build_l2_facts(db_session, keys, _DATE)
+
+    def _chatty(*args: object, **kwargs: object) -> str:
+        return f"Sure — here is the JSON you asked for:\n{_llm_json()}\nHope that helps."
+
+    client_patch, call_patch = _patched_llm(_chatty)
+    with client_patch, call_patch:
+        result = l2.get_l2_intel_batch(db_session, keys, _DATE, facts)
+
+    assert "theme:货币政策" in result
+    assert result["theme:货币政策"]["affected_asset_classes"] == ["EQUITY_US_BROAD"]
+    row = db_session.execute(select(MacroEventIntel)).scalars().one()
+    assert row.analysis is not None
 
 
 def test_unparseable_llm_output_writes_a_marker_row_and_serves_nothing(

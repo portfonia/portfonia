@@ -665,16 +665,24 @@ Pass 2 — A4 is the consumer (design doc §1.2).
   per user; a candidate with NO global facts is skipped without calling the
   LLM and **without writing any row at all** (an "attempted" marker would
   itself lock out a later, better-informed run the same day).
-- **Daily cap fairness**: `_MAX_L2_ANALYSES_PER_DAY = 15`, consumed in a
-  DETERMINISTIC GLOBAL order (sorted themes, then forward events by
-  scheduled date) — unlike `l1_identifiers_for_user`, which deliberately
-  keeps the caller's own |move| ordering. L2's candidates are near-identical
-  across users, so ordering by whichever user the fan-out reached first
-  would systematically starve the users behind them (the shape of the Tavily
-  fairness problem A1 handed forward). This does NOT close the general case:
-  a cap that actually binds with genuinely disjoint per-user candidates (the
-  L1 situation) is still open and belongs to A4, where batch orchestration
-  lives.
+- **Daily cap fairness — TWO budgets, one per event kind**
+  (`_MAX_L2_THEME_ANALYSES_PER_DAY = 10`, `_MAX_L2_FORWARD_ANALYSES_PER_DAY
+  = 15`, counted separately by key prefix). Ordering alone is not enough and
+  the first draft got this wrong: candidates are ordered deterministically
+  and globally (sorted themes, then forward events by scheduled date —
+  unlike `l1_identifiers_for_user`, which deliberately keeps the caller's
+  own |move| order), but the ORDER is only stable within one user's list,
+  and the lists themselves differ, because `theme:` keys are per-user while
+  the `fwd:` calendar is global. Under one shared cap, the day's first
+  non-quiet user could therefore be a user with no theme hits, spend the
+  entire budget on calendar events, and leave every later user's themes
+  unanalyzed until tomorrow (caught by blacktomb42 review round 1 on PR
+  #157). Separate budgets make that impossible; truncation WITHIN a kind
+  (earnings season filling the forward budget) is a genuine cost ceiling
+  that truncates the same global list for everyone, not a fairness defect.
+  Still NOT closed in general: a cap that binds over genuinely disjoint
+  per-user candidates — L1's situation — needs batch-level orchestration and
+  belongs to A4.
 
 ### News dedup ledger: closing the window-boundary permanent-miss gap (issue #30)
 

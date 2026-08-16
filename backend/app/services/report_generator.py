@@ -51,7 +51,7 @@ from app.core.ops_log import log_ops_event
 from app.core.timezones import ET
 from app.models.report import Report
 from app.services.email_sender import send_ops_alert, send_report_email
-from app.services.forward_events import load_forward_events
+from app.services.forward_events import FORWARD_WINDOW_DAYS, load_forward_events
 from app.services.github_issues import create_bug_report
 from app.services.holding_news import recall_holding_news
 from app.services.macro_detector import detect_macro_signals
@@ -131,9 +131,10 @@ logger = logging.getLogger(__name__)
 _PROMPT_VERSION = "f2-v6"  # f2-v6: §4.2 cross-reference restricted to holdings actually in the anomaly table (R-8) + HOLDING-RELEVANT NEWS block from per-holding recall/targeted search (R-3); f2-v5 = direction-requires-evidence + divergence-is-the-signal (no price-direction claims without window data); f2-v4 = §4.2 code table + driver-only, evidence confidence labels, §4.4 technical position
 _DISCLAIMER_VERSION = "f3-bilingual-v2"
 
-# Forward calendar (#1): how far ahead §2.5 looks. The capture task fetches a
-# wider horizon so the read is always populated within this window.
-_FORWARD_WINDOW_DAYS = 10
+# Forward calendar (#1): how far ahead §2.5 looks — now defined once in
+# forward_events.py, since the L2 shared cache (issue #128 A3) must analyze
+# exactly the horizon this section renders (round-1 review nit, PR #157: two
+# copies of the same 10 could drift into two different horizons).
 
 
 # ---------------------------------------------------------------------------
@@ -526,7 +527,7 @@ def generate_report(
         # persisted. Stored so re-render reproduces §2.5 without a DB read.
         logger.info("report %s: loading forward calendar", report.id)
         ctx.forward_events = load_forward_events(
-            session, eff_date, eff_date + timedelta(days=_FORWARD_WINDOW_DAYS)
+            session, eff_date, eff_date + timedelta(days=FORWARD_WINDOW_DAYS)
         )
 
         # ------------------------------------------------------------------

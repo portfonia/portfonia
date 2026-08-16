@@ -525,6 +525,12 @@ def test_generate_report_pass2_call_excludes_l2_macro_event_intel_text(
     assert report.report_inputs["macro_event_exposure"] == {"theme:货币政策": ["STOCK"]}
     assert "pass2_user" in captured
     assert _L2_MARKER not in captured["pass2_user"]
+    # Round-1 review nit (blacktomb42, PR #157): the Pass 2 prompt is only
+    # the INPUT side of "A3 changes no report content". Assert the rendered
+    # body too — a future edit could inject L2 text at assembly time
+    # (_render_full_md) without ever touching the prompt.
+    assert report.report_md is not None
+    assert _L2_MARKER not in report.report_md
 
 
 def test_generate_report_l2_prompt_uses_day_news_not_the_users_window(
