@@ -22,6 +22,7 @@ import contextlib
 import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -104,6 +105,28 @@ def _mock_l1_llm_boundary() -> None:  # type: ignore[misc]
         patch(
             "app.services.ticker_intel._call_llm",
             return_value="Nothing notable. [Speculative]",
+        ),
+    ):
+        yield
+
+
+# ---------------------------------------------------------------------------
+# Same guard for the L2 shared macro-event step (issue #128 A3,
+# macro_event_intel.get_l2_intel_batch). Most tests here produce no L2
+# candidate with global facts (the `news`/`forward_events` tables are empty),
+# but macro_event_intel resolves its own _call_llm/_openrouter_client, so an
+# unmocked one would reach the live endpoint.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _mock_l2_llm_boundary() -> None:  # type: ignore[misc]
+    with (
+        patch("app.services.macro_event_intel._openrouter_client", return_value=MagicMock()),
+        patch(
+            "app.services.macro_event_intel._call_llm",
+            return_value='{"analysis": "Nothing notable. [Speculative]", '
+            '"affected_asset_classes": [], "affected_sectors": []}',
         ),
     ):
         yield
@@ -406,6 +429,152 @@ def test_generate_report_pass2_call_excludes_l1_ticker_intel_text(db_session: Se
     assert report.report_inputs["ticker_intel"].get("NVDA") == _L1_MARKER  # sanity: L1 DID run
     assert "pass2_user" in captured
     assert _L1_MARKER not in captured["pass2_user"]
+
+
+_L2_MARKER = "ZZZ_L2_SHARED_EVENT_MARKER_ZZZ"
+
+
+def _mock_l2_llm(*args: object, **kwargs: object) -> str:
+    import json
+
+    return json.dumps(
+        {
+            "analysis": f"{_L2_MARKER} rate policy datapoint. [Established]",
+            "affected_asset_classes": ["STOCK", "CRYPTO"],
+            "affected_sectors": ["Financials"],
+        }
+    )
+
+
+def _l2_patches(
+    llm: object = _mock_l2_llm, day_title: str = "Fed holds rates steady"
+) -> tuple[Any, Any, Any]:
+    """L2 resolves its own bindings (its own `_call_llm`, its own
+    `load_day_news`) — patching report_generator's does not reach it, the
+    same independence L1/report_translation already have."""
+    return (
+        patch("app.services.macro_event_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.macro_event_intel._call_llm", side_effect=llm),
+        patch(
+            "app.services.macro_event_intel.load_day_news",
+            return_value=[_news_item(day_title)],
+        ),
+    )
+
+
+def test_generate_report_pass2_call_excludes_l2_macro_event_intel_text(
+    db_session: Session,
+) -> None:
+    """Same contract A2 locked for L1 (issue #128 A3, design doc §1.2):
+    `ctx.macro_event_intel` is populated and persisted, but A3 is
+    cache-infrastructure only — report content stays byte-identical until A4
+    assembles it, so nothing L2 produced may reach the per-user Pass 2 call."""
+    captured: dict[str, str] = {}
+
+    def _capture_pass2_llm(
+        client: object,
+        model: str,
+        system: str,
+        user: str,
+        *,
+        with_holdings: bool = False,
+        **kwargs: object,
+    ) -> str:
+        if with_holdings:
+            captured["pass2_user"] = user
+            return _FAKE_LLM_PASS2
+        return _FAKE_LLM_PASS1
+
+    l2_client, l2_call, l2_news = _l2_patches()
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch(
+            "app.services.report_generator.load_news_window",
+            return_value=[_news_item("Fed raises rates")],
+        ),
+        patch(
+            "app.services.report_generator.load_day_news",
+            return_value=[_news_item("Nvidia beats earnings")],
+        ),
+        patch(
+            "app.services.report_generator.resolve_global_moves",
+            return_value=({"NVDA": _day_move("NVDA")}, 1),
+        ),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+        patch(
+            "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
+        ),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_capture_pass2_llm),
+        patch("app.services.report_generator._run_tavily_search", return_value=[]),
+        l2_client,
+        l2_call,
+        l2_news,
+    ):
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert report.status == "success"
+    assert report.report_inputs is not None
+    intel = report.report_inputs["macro_event_intel"]
+    # Sanity: L2 DID run for the theme the user's own signals selected.
+    assert _L2_MARKER in intel["theme:货币政策"]["analysis"]
+    # Out-of-taxonomy "CRYPTO" was dropped before it could be stored.
+    assert intel["theme:货币政策"]["affected_asset_classes"] == ["STOCK"]
+    # The per-user half: STOCK is the only class this portfolio holds.
+    assert report.report_inputs["macro_event_exposure"] == {"theme:货币政策": ["STOCK"]}
+    assert "pass2_user" in captured
+    assert _L2_MARKER not in captured["pass2_user"]
+
+
+def test_generate_report_l2_prompt_uses_day_news_not_the_users_window(
+    db_session: Session,
+) -> None:
+    """Design doc §4.8's second principle, applied to L2: the shared row must
+    describe the trading day, not the calling user's report window. The user's
+    own window headline ("Fed raises rates", from `load_news_window`) must not
+    reach a row every other user will read; the day's global headline must."""
+    captured: dict[str, str] = {}
+
+    def _capture_l2_llm(
+        client: object, model: str, system: str, user: str, **kwargs: object
+    ) -> str:
+        captured["l2_user"] = user
+        return _mock_l2_llm()
+
+    l2_client, l2_call, l2_news = _l2_patches(llm=_capture_l2_llm)
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch(
+            "app.services.report_generator.load_news_window",
+            return_value=[_news_item("Fed raises rates")],
+        ),
+        patch(
+            "app.services.report_generator.load_day_news",
+            return_value=[_news_item("Nvidia beats earnings")],
+        ),
+        patch(
+            "app.services.report_generator.resolve_global_moves",
+            return_value=({"NVDA": _day_move("NVDA")}, 1),
+        ),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+        patch(
+            "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
+        ),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
+        patch("app.services.report_generator._run_tavily_search", return_value=[]),
+        l2_client,
+        l2_call,
+        l2_news,
+    ):
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert report.status == "success"
+    assert "l2_user" in captured
+    assert "Fed holds rates steady" in captured["l2_user"]
+    assert "Fed raises rates" not in captured["l2_user"]
 
 
 def test_generate_report_l1_sees_targeted_search_headline_pass2_input_unchanged(

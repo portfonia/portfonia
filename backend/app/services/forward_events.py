@@ -168,7 +168,16 @@ def persist_forward_events(session: Session, events: list[ForwardEventData]) -> 
 
 
 def load_forward_events(session: Session, start: date, end: date) -> list[dict[str, str]]:
-    """Forward events scheduled in [start, end], soonest first (for the report)."""
+    """Forward events scheduled in [start, end], soonest first (for the report).
+
+    `id` is included (issue #128 A3) because the L2 shared macro-event cache
+    keys a scheduled event as `fwd:<id>` — the row's own primary key, stable
+    across captures since `persist_forward_events` upserts on
+    `uq_forward_events_key`. It is carried here rather than fetched by a
+    second, separately-written query so the events A3 analyzes and the events
+    §2.5 renders can never be two divergent sets. The report renderers read
+    by key and ignore it.
+    """
     rows = (
         session.execute(
             select(ForwardEvent)
@@ -183,6 +192,7 @@ def load_forward_events(session: Session, start: date, end: date) -> list[dict[s
     )
     return [
         {
+            "id": str(r.id),
             "event_type": r.event_type,
             "name": r.name,
             "ticker": r.ticker,
