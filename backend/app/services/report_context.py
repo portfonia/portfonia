@@ -69,6 +69,8 @@ class ReportInputsDict(TypedDict, total=False):
     llm_calls: list[dict[str, Any]]
     pass2_translated: str
     ticker_intel: dict[str, str]
+    macro_event_intel: dict[str, dict[str, Any]]
+    macro_event_exposure: dict[str, list[str]]
 
 
 @dataclass
@@ -115,6 +117,20 @@ class ReportContext:
     # report. Stored here for audit and so a future A4 read-back has it
     # without a DB re-query.
     ticker_intel: dict[str, str] = field(default_factory=dict)
+    # L2 shared macro-event intel (issue #128 A3): {event_key: {analysis,
+    # affected_asset_classes, affected_sectors}} for the macro themes this
+    # user's own signals hit plus the day's forward-calendar events. The
+    # values are SHARED across every user who touched the same event that
+    # day (see macro_event_intel.py); only which keys appear here is
+    # per-user.
+    macro_event_intel: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # The per-user half of L2: {event_key: [asset_class, ...]} — the cached
+    # affected classes intersected with THIS user's own by_asset_class keys.
+    # Pure set arithmetic, no LLM call. Like `ticker_intel`, neither field
+    # feeds Pass 2 or the rendered body yet — A4 is the consumer (design doc
+    # §1.2/§6.3); both are stored now so A4 reads them back without a
+    # re-query and so an audit can see what the shared layer produced.
+    macro_event_exposure: dict[str, list[str]] = field(default_factory=dict)
 
     def to_jsonb(self) -> dict[str, Any]:
         """Return the write-side dict for the `report_inputs` JSONB column.

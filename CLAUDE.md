@@ -606,6 +606,84 @@ layer** (per-user, incremental).
   - Full 7-round review history and design rationale:
     `Docs/Ring 1-A design.md` §4.3/§4.8 (Obsidian).
 
+### L2 shared macro-event cache (Ring 1 stage A3, issue #128)
+
+The second shared-analysis layer, same shape as A2's L1 but keyed on EVENTS
+instead of identifiers: `macro_event_intel.get_l2_intel_batch` computes one
+LLM inference per `(event_key, trade_date, prompt_version)` — "what is this
+event, and which asset classes/sectors does it bear on" — and caches it in
+the `macro_event_intel` table, so a macro theme or scheduled release that
+shows up in three users' reports is reasoned about once. Same 90-day beat
+cleanup as A2 (`cache_tasks.py`, extended rather than duplicated). Like A2,
+**A3 does not change report content**: `ctx.macro_event_intel` /
+`ctx.macro_event_exposure` are stored on `report_inputs` but never fed to
+Pass 2 — A4 is the consumer (design doc §1.2).
+
+- **Two event vocabularies, one table, prefixed keys**: `theme:<name>` (a
+  `macro_detector` ThemeHit, keyword table `config/macro_keywords.yml`) and
+  `fwd:<forward_events.id>` (a scheduled calendar row, already uniquely
+  keyed by `uq_forward_events_key`). `load_forward_events` now returns `id`
+  so the events A3 analyzes and the events §2.5 renders come from one
+  loader, never two divergent queries.
+- **The A2 type-boundary rule is applied harder here**:
+  `l2_event_keys_for_user(session, trade_date, macro_signals) -> list[str]`
+  is the only channel from per-user state into the cache (`ctx.macro_signals`
+  IS per-user — `detect_macro_signals` runs over
+  `load_news_window(..., user_id)`, so both the theme set and its backing
+  articles depend on that user's watermark and `news_surfaced` ledger).
+  `build_l2_facts(session, event_keys, trade_date)` then takes a Session,
+  plain strings and a date — there is no parameter through which a
+  watermark, portfolio or anomaly list COULD arrive; it re-derives theme
+  evidence itself from `load_day_news`. Same rule as `ticker_intel.py`
+  states for A3/A4: selection may be per-user, values must not be.
+- **Day-scoped by construction** (A2's round-5 lesson): nothing here reads
+  `period_start`/`period_end`. Theme evidence is one ET calendar day's
+  global news; a forward event's facts are its immutable calendar row.
+- **Closed-enum output, validated before storage**: the model picks
+  `affected_asset_classes` from `VALID_ASSET_CLASSES`
+  (`asset_class_config.py`) and `affected_sectors` from
+  `sector_taxonomy.VALID_SECTORS` minus `OTHER` (`OTHER` is the bucket an
+  UNCLASSIFIABLE holding falls into, so accepting it would sweep every
+  unknown-sector holding into the event's exposure). Out-of-taxonomy labels
+  are dropped and logged — an invented synonym would not error, it would
+  intersect with nothing and turn a real exposure into a silent miss.
+  `VALID_SECTORS` is derived from `_YF_SECTOR_MAP`'s values, not
+  hand-listed, so it cannot drift from `map_yf_sector`'s actual output.
+- **`sector` scope is NOT widened**: `affected_sectors` is stored for the
+  forward-event holding-relevance mapping that already runs on `sector`
+  (`report_sections._forward_exposure`) — this repo's one sanctioned use.
+  The per-user exposure step (`user_event_exposure`) reads asset_class only,
+  locked by a test.
+- **Per-user half costs nothing**: `user_event_exposure` intersects the
+  cached classes with the user's own `portfolio_summary["by_asset_class"]`
+  keys. Pure set arithmetic, zero LLM calls (design doc §5.3).
+- **Failure/compliance handling mirrors L1 exactly**: output is
+  `_strip_markers`'d before `_scan_forbidden_output` (so a model-emitted
+  disclaimer can't blacklist the day's only slot for that event); a
+  violation, an API failure, or unparseable JSON writes a null-analysis
+  marker row so the event is attempted at most once per day rather than once
+  per user; a candidate with NO global facts is skipped without calling the
+  LLM and **without writing any row at all** (an "attempted" marker would
+  itself lock out a later, better-informed run the same day).
+- **Daily cap fairness — TWO budgets, one per event kind**
+  (`_MAX_L2_THEME_ANALYSES_PER_DAY = 10`, `_MAX_L2_FORWARD_ANALYSES_PER_DAY
+  = 15`, counted separately by key prefix). Ordering alone is not enough and
+  the first draft got this wrong: candidates are ordered deterministically
+  and globally (sorted themes, then forward events by scheduled date —
+  unlike `l1_identifiers_for_user`, which deliberately keeps the caller's
+  own |move| order), but the ORDER is only stable within one user's list,
+  and the lists themselves differ, because `theme:` keys are per-user while
+  the `fwd:` calendar is global. Under one shared cap, the day's first
+  non-quiet user could therefore be a user with no theme hits, spend the
+  entire budget on calendar events, and leave every later user's themes
+  unanalyzed until tomorrow (caught by blacktomb42 review round 1 on PR
+  #157). Separate budgets make that impossible; truncation WITHIN a kind
+  (earnings season filling the forward budget) is a genuine cost ceiling
+  that truncates the same global list for everyone, not a fairness defect.
+  Still NOT closed in general: a cap that binds over genuinely disjoint
+  per-user candidates — L1's situation — needs batch-level orchestration and
+  belongs to A4.
+
 ### News dedup ledger: closing the window-boundary permanent-miss gap (issue #30)
 
 `load_news_window` (`app/services/window_data.py`) used to select

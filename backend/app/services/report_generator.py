@@ -51,10 +51,16 @@ from app.core.ops_log import log_ops_event
 from app.core.timezones import ET
 from app.models.report import Report
 from app.services.email_sender import send_ops_alert, send_report_email
-from app.services.forward_events import load_forward_events
+from app.services.forward_events import FORWARD_WINDOW_DAYS, load_forward_events
 from app.services.github_issues import create_bug_report
 from app.services.holding_news import recall_holding_news
 from app.services.macro_detector import detect_macro_signals
+from app.services.macro_event_intel import (
+    build_l2_facts,
+    get_l2_intel_batch,
+    l2_event_keys_for_user,
+    user_event_exposure,
+)
 from app.services.news_fetcher import NewsItem
 from app.services.portfolio_calculator import compute_portfolio
 from app.services.price_anomaly_detector import PriceAnomaly
@@ -125,9 +131,10 @@ logger = logging.getLogger(__name__)
 _PROMPT_VERSION = "f2-v6"  # f2-v6: §4.2 cross-reference restricted to holdings actually in the anomaly table (R-8) + HOLDING-RELEVANT NEWS block from per-holding recall/targeted search (R-3); f2-v5 = direction-requires-evidence + divergence-is-the-signal (no price-direction claims without window data); f2-v4 = §4.2 code table + driver-only, evidence confidence labels, §4.4 technical position
 _DISCLAIMER_VERSION = "f3-bilingual-v2"
 
-# Forward calendar (#1): how far ahead §2.5 looks. The capture task fetches a
-# wider horizon so the read is always populated within this window.
-_FORWARD_WINDOW_DAYS = 10
+# Forward calendar (#1): how far ahead §2.5 looks — now defined once in
+# forward_events.py, since the L2 shared cache (issue #128 A3) must analyze
+# exactly the horizon this section renders (round-1 review nit, PR #157: two
+# copies of the same 10 could drift into two different horizons).
 
 
 # ---------------------------------------------------------------------------
@@ -520,7 +527,7 @@ def generate_report(
         # persisted. Stored so re-render reproduces §2.5 without a DB read.
         logger.info("report %s: loading forward calendar", report.id)
         ctx.forward_events = load_forward_events(
-            session, eff_date, eff_date + timedelta(days=_FORWARD_WINDOW_DAYS)
+            session, eff_date, eff_date + timedelta(days=FORWARD_WINDOW_DAYS)
         )
 
         # ------------------------------------------------------------------
@@ -787,6 +794,47 @@ def generate_report(
             report.id,
             len(ctx.ticker_intel),
             len(l1_identifiers),
+        )
+
+        # ------------------------------------------------------------------
+        # 5.6 L2 shared macro-event intel (issue #128 A3) — one inference per
+        # (event_key, trade_date) across the whole system, cached in
+        # `macro_event_intel`, so a macro theme or a scheduled calendar event
+        # that appears in three users' reports is reasoned about once, not
+        # three times. Like L1 (§5.5), this does NOT feed the Pass 2 prompt or
+        # the rendered body — A3 is cache infrastructure only (design doc
+        # §1.2: report content stays byte-identical through A1-A3); A4 is the
+        # consumer. A blocked/failed event degrades to "no L2 intel for that
+        # event", never a report failure.
+        # ------------------------------------------------------------------
+        #
+        # The per-user/global split mirrors L1's exactly (design doc §4.8):
+        #   - SELECTION may be per-user: `l2_event_keys_for_user` takes this
+        #     user's `ctx.macro_signals` — per-user, since `detect_macro_signals`
+        #     ran over `load_news_window(..., user_id)` — and returns
+        #     `list[str]` event keys, the only channel into the shared cache.
+        #   - VALUES are global and day-scoped: `build_l2_facts` takes only
+        #     (session, keys, eff_date) and re-derives each theme's evidence
+        #     from `load_day_news`, so no watermark, portfolio or per-user
+        #     article set can reach a row that ships to every user.
+        # `user_event_exposure` is the personalization step and costs nothing:
+        # a set intersection of the cached asset classes with this user's own
+        # `by_asset_class` keys, zero LLM calls (design doc §5.3).
+        l2_event_keys = l2_event_keys_for_user(session, eff_date, ctx.macro_signals)
+        l2_facts = build_l2_facts(session, l2_event_keys, eff_date)
+        ctx.macro_event_intel = get_l2_intel_batch(
+            session, l2_event_keys, eff_date, l2_facts, usage_sink=ctx.llm_calls
+        )
+        ctx.macro_event_exposure = user_event_exposure(
+            ctx.macro_event_intel, ctx.portfolio_summary.get("by_asset_class", {})
+        )
+        logger.info(
+            "report %s: L2 shared intel available for %d/%d candidate events, "
+            "%d relevant to this portfolio",
+            report.id,
+            len(ctx.macro_event_intel),
+            len(l2_event_keys),
+            len(ctx.macro_event_exposure),
         )
 
         # ------------------------------------------------------------------

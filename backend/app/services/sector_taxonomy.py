@@ -43,6 +43,15 @@ _YF_SECTOR_MAP: dict[str, str] = {
 }
 
 
+# The closed set every `Holding.sector` value is drawn from — derived from the
+# map above plus the OTHER fallback rather than hand-listed, so it cannot drift
+# out of sync with `map_yf_sector`'s actual output. Used by the L2 shared
+# macro-event cache (issue #128 A3) to reject a sector label the LLM invented:
+# an out-of-taxonomy synonym would silently match no holding at all, turning a
+# real exposure into a silent miss.
+VALID_SECTORS: frozenset[str] = frozenset(_YF_SECTOR_MAP.values()) | {OTHER}
+
+
 def map_yf_sector(yf_sector: str | None) -> str:
     """Map a raw yfinance sector string to a unified class, OTHER on miss."""
     if not yf_sector:
