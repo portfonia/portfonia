@@ -115,6 +115,44 @@ def test_upload_rejects_oversized_file(app_client: TestClient) -> None:
     assert "too large" in resp.json()["detail"].lower()
 
 
+def test_upload_rejects_oversized_extracted_text(app_client: TestClient) -> None:
+    """Issue #54: the 5 MiB raw-byte cap only bounds the uploaded file, not
+    what it extracts to. A plain-text file well under _MAX_UPLOAD_BYTES can
+    still extract to more text than any real holdings file would ever
+    contain — reject before it's persisted to UploadJob.raw_text or shipped
+    to the LLM."""
+    from app.routers import holdings as holdings_router
+
+    assert holdings_router._MAX_TEXT_BYTES < holdings_router._MAX_UPLOAD_BYTES
+    oversized_text = b"a" * (holdings_router._MAX_TEXT_BYTES + 1)
+    resp = app_client.post(
+        "/holdings/upload",
+        files={"file": ("holdings.txt", oversized_text, "text/plain")},
+    )
+    assert resp.status_code == 422
+    assert "too large" in resp.json()["detail"].lower()
+
+
+def test_upload_accepts_text_at_the_cap(app_client: TestClient) -> None:
+    """Boundary check: exactly at the cap must still succeed (off-by-one
+    guard against the oversized-text rejection above)."""
+    from app.routers import holdings as holdings_router
+
+    with patch("app.routers.holdings.parse_holdings_upload") as mock_task:
+        resp = app_client.post(
+            "/holdings/upload",
+            files={
+                "file": (
+                    "holdings.txt",
+                    b"a" * holdings_router._MAX_TEXT_BYTES,
+                    "text/plain",
+                )
+            },
+        )
+    assert resp.status_code == 202
+    mock_task.delay.assert_called_once()
+
+
 def test_upload_marks_job_failed_and_returns_503_when_enqueue_fails(
     app_client: TestClient, db_session: Session
 ) -> None:
