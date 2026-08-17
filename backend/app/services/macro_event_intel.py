@@ -86,6 +86,7 @@ from app.models.macro_event_intel import MacroEventIntel
 from app.services.asset_class_config import VALID_ASSET_CLASSES
 from app.services.email_sender import send_ops_alert
 from app.services.forward_events import FORWARD_WINDOW_DAYS, load_forward_events
+from app.services.llm_errors import is_retryable
 from app.services.macro_detector import detect_macro_signals
 from app.services.report_llm import _call_llm, _openrouter_client
 from app.services.report_prompts import _COMPLIANCE_SYSTEM_PREFIX
@@ -121,8 +122,21 @@ _FORWARD_PREFIX = "fwd:"
 # The forward budget is the one that genuinely can (earnings season) — that
 # is a cost ceiling, not a fairness defect: it truncates the same global list
 # for everyone.
+#
+# Both budgets are counted in ATTEMPTS (`SUM(attempt_count)`), not rows, so a
+# key retried under #160 spends as much of its kind's budget as two distinct
+# keys would — otherwise the ceiling silently loosens by a factor of
+# `_MAX_ATTEMPTS_PER_KEY` on exactly the day that ceiling matters most.
 _MAX_L2_THEME_ANALYSES_PER_DAY = 10
 _MAX_L2_FORWARD_ANALYSES_PER_DAY = 15
+
+# Attempts the SYSTEM (not each user) may spend on one event_key in one
+# trade_date before its marker row is final — same contract, same value, and
+# for the same reason as `ticker_intel._MAX_ATTEMPTS_PER_KEY`: whatever
+# reaches this handler already survived `_call_llm`'s own backoff, so the
+# retry only exists to cover a blip that cleared between two users of one
+# fan-out. Keep the two in step; they are one mechanism applied twice.
+_MAX_ATTEMPTS_PER_KEY = 3
 
 # `OTHER` is the bucket an UNCLASSIFIABLE holding falls into (see
 # sector_taxonomy.map_yf_sector), not a sector an event can meaningfully bear
@@ -433,24 +447,31 @@ def _fetch_cached(session: Session, event_key: str, trade_date: date) -> MacroEv
     """Returns the whole row: a row with `analysis IS NULL` is an "attempted,
     nothing servable" marker, and the caller must distinguish it from "never
     attempted today" (no row) so a failing event is not retried by every
-    user in the fan-out."""
+    user in the fan-out.
+
+    `populate_existing=True` for the reason spelled out in
+    `ticker_intel._fetch_cached`: the whole fan-out shares one Session, and
+    `_write_cache`'s Core upsert does not refresh an already-identity-mapped
+    instance — a stale `attempt_count` would let attempts run past the cap.
+    """
     return session.execute(
-        select(MacroEventIntel).where(
+        select(MacroEventIntel)
+        .where(
             MacroEventIntel.event_key == event_key,
             MacroEventIntel.trade_date == trade_date,
             MacroEventIntel.prompt_version == _PROMPT_VERSION,
         )
+        .execution_options(populate_existing=True)
     ).scalar_one_or_none()
 
 
-def _count_analyzed_today(session: Session, trade_date: date, prefix: str) -> int:
-    """Fresh attempts already made today for ONE event kind (see the budget
-    constants for why the two kinds are counted apart)."""
+def _attempts_today(session: Session, trade_date: date, prefix: str) -> int:
+    """LLM attempts already made today for ONE event kind (see the budget
+    constants for why the two kinds are counted apart) — attempts, not rows,
+    so a retried key does not get its extra attempts for free."""
     return int(
         session.execute(
-            select(func.count())
-            .select_from(MacroEventIntel)
-            .where(
+            select(func.coalesce(func.sum(MacroEventIntel.attempt_count), 0)).where(
                 MacroEventIntel.trade_date == trade_date,
                 MacroEventIntel.prompt_version == _PROMPT_VERSION,
                 MacroEventIntel.event_key.like(f"{prefix}%"),
@@ -468,22 +489,38 @@ def _write_cache(
     classes: list[str],
     sectors: list[str],
     facts: L2Facts,
+    attempt_count: int,
 ) -> None:
-    stmt = (
-        pg_insert(MacroEventIntel)
-        .values(
-            event_key=event_key,
-            trade_date=trade_date,
-            prompt_version=_PROMPT_VERSION,
-            model=model,
-            analysis=analysis,
-            affected_asset_classes=classes,
-            affected_sectors=sectors,
-            facts=facts.to_jsonb(),
-        )
-        .on_conflict_do_nothing(constraint="uq_macro_event_intel_key_date_version")
+    """Upsert rather than the pre-#160 `on_conflict_do_nothing`: a retry must
+    be able to raise an existing marker's `attempt_count`, and a retry that
+    succeeds must replace the marker with the real inference. The
+    `analysis IS NULL` guard keeps that one-directional — a stored inference
+    is never overwritten by a later marker."""
+    stmt = pg_insert(MacroEventIntel).values(
+        event_key=event_key,
+        trade_date=trade_date,
+        prompt_version=_PROMPT_VERSION,
+        model=model,
+        analysis=analysis,
+        affected_asset_classes=classes,
+        affected_sectors=sectors,
+        facts=facts.to_jsonb(),
+        attempt_count=attempt_count,
     )
-    session.execute(stmt)
+    session.execute(
+        stmt.on_conflict_do_update(
+            constraint="uq_macro_event_intel_key_date_version",
+            set_={
+                "model": stmt.excluded.model,
+                "analysis": stmt.excluded.analysis,
+                "affected_asset_classes": stmt.excluded.affected_asset_classes,
+                "affected_sectors": stmt.excluded.affected_sectors,
+                "facts": stmt.excluded.facts,
+                "attempt_count": stmt.excluded.attempt_count,
+            },
+            where=MacroEventIntel.analysis.is_(None),
+        )
+    )
     session.flush()
 
 
@@ -493,6 +530,7 @@ def _generate(
     trade_date: date,
     facts: L2Facts,
     usage_sink: list[dict[str, Any]] | None = None,
+    attempts_so_far: int = 0,
 ) -> dict[str, Any] | None:
     """Infer, validate, compliance-gate, and ALWAYS write a row — the real
     result, or a null-analysis marker on any failure mode (API error,
@@ -504,10 +542,23 @@ def _generate(
     successful writes would let a systematically failing event be retried by
     every user in the fan-out (A2 review round 1's finding, inherited here
     rather than rediscovered).
+
+    How final the marker is depends on WHY it failed (issue #160, mirroring
+    `ticker_intel._generate`):
+
+    - Retryable per `llm_errors.is_retryable`, or unusable JSON: record the
+      attempt and leave the rest of the key's budget to a later caller.
+      Unparseable output belongs on this side because the taxonomy classifies
+      INVALID_JSON retryable — the model is non-deterministic even at
+      temperature 0, and `_parse_l2_response` has already spent its
+      free (no-new-call) second chance on the same text before giving up.
+    - Not retryable, or blocked by the compliance scan: write
+      `_MAX_ATTEMPTS_PER_KEY` and lock the key immediately.
     """
     settings = get_settings()
     model = settings.LOW_COST_LLM_MODEL
     prompt = _build_l2_prompt(event_key, facts)
+    this_attempt = attempts_so_far + 1
     try:
         client = _openrouter_client()
         raw = _call_llm(
@@ -519,14 +570,20 @@ def _generate(
             disable_reasoning=True,
             usage_sink=usage_sink,
         )
-    except Exception:
-        logger.exception("macro_event_intel: L2 inference call failed for %s", event_key)
-        _write_cache(session, event_key, trade_date, model, None, [], [], facts)
+    except Exception as exc:
+        logger.exception(
+            "macro_event_intel: L2 inference call failed for %s (attempt %d/%d)",
+            event_key,
+            this_attempt,
+            _MAX_ATTEMPTS_PER_KEY,
+        )
+        recorded = this_attempt if is_retryable(exc) else _MAX_ATTEMPTS_PER_KEY
+        _write_cache(session, event_key, trade_date, model, None, [], [], facts, recorded)
         return None
 
     parsed = _parse_l2_response(event_key, raw)
     if parsed is None:
-        _write_cache(session, event_key, trade_date, model, None, [], [], facts)
+        _write_cache(session, event_key, trade_date, model, None, [], [], facts, this_attempt)
         return None
     analysis, classes, sectors = parsed
 
@@ -559,10 +616,15 @@ def _generate(
             ),
             idempotency_key=f"ops-l2-blocked-{event_key}-{trade_date}",
         )
-        _write_cache(session, event_key, trade_date, model, None, [], [], facts)
+        # Locked on the spot, not retried — see `_generate`'s docstring.
+        _write_cache(
+            session, event_key, trade_date, model, None, [], [], facts, _MAX_ATTEMPTS_PER_KEY
+        )
         return None
 
-    _write_cache(session, event_key, trade_date, model, cleaned, classes, sectors, facts)
+    _write_cache(
+        session, event_key, trade_date, model, cleaned, classes, sectors, facts, this_attempt
+    )
     return {
         "analysis": cleaned,
         "affected_asset_classes": classes,
@@ -580,8 +642,10 @@ def get_l2_intel_batch(
     """Read-through cache over `event_keys`, in the caller's (globally
     ordered — see `l2_event_keys_for_user`) sequence.
 
-    A cache HIT never re-calls the LLM, whether it holds a real inference or
-    a null marker. A MISS with no facts is skipped WITHOUT calling the model
+    A cache HIT holding a real inference never re-calls the LLM; a HIT
+    holding a null marker re-calls only while the key has attempts left under
+    `_MAX_ATTEMPTS_PER_KEY` (issue #160 — see `_generate` for which failures
+    leave any). A MISS with no facts is skipped WITHOUT calling the model
     and WITHOUT writing any row — not even an "attempted" marker, which
     would itself lock the day's single slot for that key against a later run
     that does have coverage. A MISS beyond the day's remaining fresh budget
@@ -600,17 +664,17 @@ def get_l2_intel_batch(
     fresh_budget = {
         _THEME_PREFIX: max(
             0,
-            _MAX_L2_THEME_ANALYSES_PER_DAY
-            - _count_analyzed_today(session, trade_date, _THEME_PREFIX),
+            _MAX_L2_THEME_ANALYSES_PER_DAY - _attempts_today(session, trade_date, _THEME_PREFIX),
         ),
         _FORWARD_PREFIX: max(
             0,
             _MAX_L2_FORWARD_ANALYSES_PER_DAY
-            - _count_analyzed_today(session, trade_date, _FORWARD_PREFIX),
+            - _attempts_today(session, trade_date, _FORWARD_PREFIX),
         ),
     }
     for event_key in event_keys:
         cached = _fetch_cached(session, event_key, trade_date)
+        attempts_so_far = 0
         if cached is not None:
             if cached.analysis is not None:
                 result[event_key] = {
@@ -618,7 +682,10 @@ def get_l2_intel_batch(
                     "affected_asset_classes": list(cached.affected_asset_classes),
                     "affected_sectors": list(cached.affected_sectors),
                 }
-            continue
+                continue
+            attempts_so_far = cached.attempt_count
+            if attempts_so_far >= _MAX_ATTEMPTS_PER_KEY:
+                continue
         facts = facts_by_key.get(event_key)
         if facts is None:
             continue
@@ -630,7 +697,7 @@ def get_l2_intel_batch(
                 event_key,
             )
             continue
-        intel = _generate(session, event_key, trade_date, facts, usage_sink)
+        intel = _generate(session, event_key, trade_date, facts, usage_sink, attempts_so_far)
         fresh_budget[kind] -= 1
         if intel is not None:
             result[event_key] = intel

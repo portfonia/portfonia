@@ -7,6 +7,8 @@ from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import httpx
+import openai
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -59,6 +61,22 @@ def _facts(**overrides: object) -> ti.L1Facts:
 
 def _mock_llm_ok(*args: object, **kwargs: object) -> str:
     return "NVDA rallied on a confirmed earnings beat. [Established]"
+
+
+def _request() -> httpx.Request:
+    return httpx.Request("POST", "https://openrouter.test/v1/chat/completions")
+
+
+def _connection_error() -> openai.APIConnectionError:
+    """A retryable transport fault — what `_call_llm` re-raises AFTER its own
+    connection backoff sequence is exhausted."""
+    return openai.APIConnectionError(request=_request())
+
+
+def _status_error(status: int) -> openai.APIStatusError:
+    return openai.APIStatusError(
+        "upstream said no", response=httpx.Response(status, request=_request()), body=None
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -409,6 +427,140 @@ def test_a_blocked_attempt_counts_against_the_daily_cap(db_session: Session) -> 
         second = ti.get_l1_intel_batch(db_session, ["AAPL"], _DATE, {"AAPL": _facts()})
         assert second == {}
         mock_call.assert_called_once()  # no new call for AAPL
+
+
+# ---------------------------------------------------------------------------
+# Transient vs. permanent failure (issue #160)
+#
+# A marker row locks a key for the rest of the trade_date. That is right for
+# a failure an identical call would reproduce (bad key, malformed request) and
+# for a compliance block, but wrong for a transient one: `_call_llm` has
+# already absorbed its own backoff by the time it re-raises, and the next user
+# in the fan-out may well be calling after the blip cleared. `attempt_count`
+# bounds how many times the system as a whole may try, regardless of how many
+# users ask.
+# ---------------------------------------------------------------------------
+
+
+def test_attempt_cap_is_three() -> None:
+    """N is a product decision (issue #160): initial + 2 retries, chosen
+    because anything reaching this module already survived `_call_llm`'s
+    120s connection backoff. Locked so a future edit is deliberate."""
+    assert ti._MAX_ATTEMPTS_PER_KEY == 3
+
+
+def test_transient_failure_is_retried_by_the_next_caller(db_session: Session) -> None:
+    """The issue #160 bug: one connection blip during the first user's report
+    used to write a marker that silently starved every later user in the
+    same fan-out (and every manual re-run) of that identifier's intel for the
+    whole trading day."""
+    with (
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_connection_error()) as mock_call,
+    ):
+        assert ti.get_l1_intel_batch(db_session, ["NVDA"], _DATE, {"NVDA": _facts()}) == {}
+        assert ti.get_l1_intel_batch(db_session, ["NVDA"], _DATE, {"NVDA": _facts()}) == {}
+
+    assert mock_call.call_count == 2
+
+
+def test_transient_failure_stops_after_the_per_key_attempt_cap(db_session: Session) -> None:
+    """The other half of the trade-off: a genuinely persistent outage must
+    not turn into one LLM call per user. Every caller shares ONE session here
+    on purpose — that is the fan-out's real shape
+    (`generate_incremental_report` hands the same Session to every user), so
+    a stale identity-mapped row would show up as attempts past the cap."""
+    with (
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_connection_error()) as mock_call,
+    ):
+        for _ in range(6):
+            assert ti.get_l1_intel_batch(db_session, ["NVDA"], _DATE, {"NVDA": _facts()}) == {}
+
+    assert mock_call.call_count == ti._MAX_ATTEMPTS_PER_KEY
+
+
+def test_transient_failure_then_success_serves_the_real_analysis(db_session: Session) -> None:
+    """A retry that succeeds must upgrade the marker row in place, not leave
+    a NULL row shadowing the real analysis for the rest of the day."""
+    outcomes: list[object] = [
+        _connection_error(),
+        "NVDA rallied on an earnings beat. [Established]",
+    ]
+
+    def _flaky(*args: object, **kwargs: object) -> str:
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return str(outcome)
+
+    with (
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_flaky),
+    ):
+        assert ti.get_l1_intel_batch(db_session, ["NVDA"], _DATE, {"NVDA": _facts()}) == {}
+        second = ti.get_l1_intel_batch(db_session, ["NVDA"], _DATE, {"NVDA": _facts()})
+
+    assert "NVDA" in second
+    row = db_session.execute(
+        select(TickerIntel).where(TickerIntel.identifier == "NVDA")
+    ).scalar_one()
+    assert row.analysis is not None
+    assert row.attempt_count == 2
+
+
+def test_non_retryable_failure_locks_the_key_immediately(db_session: Session) -> None:
+    """A 401 reproduces exactly on an identical call — spending the retry
+    budget on it only delays the real diagnosis (llm_errors' own rationale)."""
+    with (
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_status_error(401)) as mock_call,
+    ):
+        for _ in range(3):
+            assert ti.get_l1_intel_batch(db_session, ["NVDA"], _DATE, {"NVDA": _facts()}) == {}
+
+    mock_call.assert_called_once()
+
+
+def test_compliance_block_locks_the_key_immediately(db_session: Session) -> None:
+    """A compliance block is not a transient fault: retrying re-risks the
+    same violation, re-alerts ops, and costs a real call each time."""
+
+    def _bad_llm(*args: object, **kwargs: object) -> str:
+        return "You should buy NVDA now."
+
+    with (
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_bad_llm) as mock_call,
+        patch("app.services.ticker_intel.send_ops_alert"),
+    ):
+        for _ in range(3):
+            assert ti.get_l1_intel_batch(db_session, ["NVDA"], _DATE, {"NVDA": _facts()}) == {}
+
+    mock_call.assert_called_once()
+    row = db_session.execute(
+        select(TickerIntel).where(TickerIntel.identifier == "NVDA")
+    ).scalar_one()
+    assert row.attempt_count == ti._MAX_ATTEMPTS_PER_KEY
+
+
+def test_retry_attempts_count_against_the_daily_budget(db_session: Session) -> None:
+    """The daily cap counts ATTEMPTS, not rows: a retried key must not get
+    its extra attempts for free, or the cap silently loosens by a factor of
+    `_MAX_ATTEMPTS_PER_KEY` on a bad day."""
+    with (
+        patch("app.services.ticker_intel._MAX_L1_ANALYSES_PER_DAY", 2),
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_connection_error()) as mock_call,
+    ):
+        ti.get_l1_intel_batch(db_session, ["NVDA"], _DATE, {"NVDA": _facts()})
+        ti.get_l1_intel_batch(db_session, ["NVDA"], _DATE, {"NVDA": _facts()})
+        assert mock_call.call_count == 2
+
+        # Two attempts spent on NVDA exhaust the day's budget: a
+        # never-attempted identifier gets nothing.
+        assert ti.get_l1_intel_batch(db_session, ["AAPL"], _DATE, {"AAPL": _facts()}) == {}
+        assert mock_call.call_count == 2
 
 
 # ---------------------------------------------------------------------------

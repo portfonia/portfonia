@@ -18,6 +18,8 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import httpx
+import openai
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -100,6 +102,22 @@ def _llm_json(
 
 def _mock_llm_ok(*args: object, **kwargs: object) -> str:
     return _llm_json()
+
+
+def _request() -> httpx.Request:
+    return httpx.Request("POST", "https://openrouter.test/v1/chat/completions")
+
+
+def _connection_error() -> openai.APIConnectionError:
+    """A retryable transport fault — what `_call_llm` re-raises AFTER its own
+    connection backoff sequence is exhausted."""
+    return openai.APIConnectionError(request=_request())
+
+
+def _status_error(status: int) -> openai.APIStatusError:
+    return openai.APIStatusError(
+        "upstream said no", response=httpx.Response(status, request=_request()), body=None
+    )
 
 
 def _patched_llm(side_effect: object) -> Any:
@@ -455,6 +473,124 @@ def test_llm_failure_writes_a_marker_row_and_is_not_retried_today(
         assert l2.get_l2_intel_batch(db_session, keys, _DATE, facts) == {}
 
     assert mock_call.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Transient vs. permanent failure (issue #160) — mirrors test_ticker_intel.py's
+# section of the same name; the two caches share this mechanism deliberately,
+# so a change to one that isn't made to the other should break these.
+# ---------------------------------------------------------------------------
+
+
+def test_attempt_cap_is_three() -> None:
+    assert l2._MAX_ATTEMPTS_PER_KEY == 3
+
+
+def test_transient_failure_is_retried_by_the_next_caller(db_session: Session) -> None:
+    _seed_day_news(db_session)
+    keys = ["theme:货币政策"]
+    facts = l2.build_l2_facts(db_session, keys, _DATE)
+
+    client_patch, call_patch = _patched_llm(_connection_error())
+    with client_patch, call_patch as mock_call:
+        assert l2.get_l2_intel_batch(db_session, keys, _DATE, facts) == {}
+        assert l2.get_l2_intel_batch(db_session, keys, _DATE, facts) == {}
+
+    assert mock_call.call_count == 2
+
+
+def test_transient_failure_stops_after_the_per_key_attempt_cap(db_session: Session) -> None:
+    """Every caller shares ONE session on purpose — that is the fan-out's
+    real shape, so a stale identity-mapped row would show as extra attempts."""
+    _seed_day_news(db_session)
+    keys = ["theme:货币政策"]
+    facts = l2.build_l2_facts(db_session, keys, _DATE)
+
+    client_patch, call_patch = _patched_llm(_connection_error())
+    with client_patch, call_patch as mock_call:
+        for _ in range(6):
+            assert l2.get_l2_intel_batch(db_session, keys, _DATE, facts) == {}
+
+    assert mock_call.call_count == l2._MAX_ATTEMPTS_PER_KEY
+
+
+def test_transient_failure_then_success_serves_the_real_inference(db_session: Session) -> None:
+    _seed_day_news(db_session)
+    keys = ["theme:货币政策"]
+    facts = l2.build_l2_facts(db_session, keys, _DATE)
+    outcomes: list[object] = [_connection_error(), _llm_json()]
+
+    def _flaky(*args: object, **kwargs: object) -> str:
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return str(outcome)
+
+    client_patch, call_patch = _patched_llm(_flaky)
+    with client_patch, call_patch:
+        assert l2.get_l2_intel_batch(db_session, keys, _DATE, facts) == {}
+        second = l2.get_l2_intel_batch(db_session, keys, _DATE, facts)
+
+    assert "theme:货币政策" in second
+    row = db_session.execute(select(MacroEventIntel)).scalars().one()
+    assert row.analysis is not None
+    assert row.affected_asset_classes == ["EQUITY_US_BROAD"]
+    assert row.attempt_count == 2
+
+
+def test_unparseable_output_is_retried_by_the_next_caller(db_session: Session) -> None:
+    """Unusable JSON classifies as INVALID_JSON, which the taxonomy calls
+    retryable: the model is non-deterministic even at temperature 0, so the
+    identical call is the primary remedy. It must not lock the day's only
+    slot on the first miss."""
+    _seed_day_news(db_session)
+    keys = ["theme:货币政策"]
+    facts = l2.build_l2_facts(db_session, keys, _DATE)
+
+    def _garbage(*args: object, **kwargs: object) -> str:
+        return "not json at all"
+
+    client_patch, call_patch = _patched_llm(_garbage)
+    with client_patch, call_patch as mock_call:
+        assert l2.get_l2_intel_batch(db_session, keys, _DATE, facts) == {}
+        assert l2.get_l2_intel_batch(db_session, keys, _DATE, facts) == {}
+
+    assert mock_call.call_count == 2
+
+
+def test_non_retryable_failure_locks_the_key_immediately(db_session: Session) -> None:
+    _seed_day_news(db_session)
+    keys = ["theme:货币政策"]
+    facts = l2.build_l2_facts(db_session, keys, _DATE)
+
+    client_patch, call_patch = _patched_llm(_status_error(401))
+    with client_patch, call_patch as mock_call:
+        for _ in range(3):
+            assert l2.get_l2_intel_batch(db_session, keys, _DATE, facts) == {}
+
+    mock_call.assert_called_once()
+
+
+def test_retry_attempts_count_against_the_daily_budget(db_session: Session) -> None:
+    """The per-kind daily cap counts ATTEMPTS, not rows."""
+    _seed_day_news(db_session)
+    keys = ["theme:货币政策"]
+    facts = l2.build_l2_facts(db_session, keys, _DATE)
+
+    client_patch, call_patch = _patched_llm(_connection_error())
+    with (
+        patch("app.services.macro_event_intel._MAX_L2_THEME_ANALYSES_PER_DAY", 2),
+        client_patch,
+        call_patch as mock_call,
+    ):
+        l2.get_l2_intel_batch(db_session, keys, _DATE, facts)
+        l2.get_l2_intel_batch(db_session, keys, _DATE, facts)
+        assert mock_call.call_count == 2
+
+        other = ["theme:通胀"]
+        other_facts = {"theme:通胀": facts[keys[0]]}
+        assert l2.get_l2_intel_batch(db_session, other, _DATE, other_facts) == {}
+        assert mock_call.call_count == 2
 
 
 # ---------------------------------------------------------------------------
