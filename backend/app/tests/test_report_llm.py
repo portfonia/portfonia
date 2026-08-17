@@ -9,11 +9,15 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import httpx
 import openai
 import pytest
 
 from app.services import report_llm as rl
+from app.services.llm_errors import LLMEmptyResponseError
 from app.services.llm_retry_config import LLMRetryConfig
+
+_REQUEST = httpx.Request("POST", "https://openrouter.test/v1/chat/completions")
 
 
 def _fake_llm_response(content: str | None) -> MagicMock:
@@ -34,8 +38,100 @@ def _fake_llm_response(content: str | None) -> MagicMock:
 def test_call_llm_raises_on_empty_choices() -> None:
     client = MagicMock()
     client.chat.completions.create.return_value = _fake_llm_response(None)
-    with pytest.raises(rl.LLMEmptyResponseError):
+    with patch("app.services.report_llm.time.sleep"), pytest.raises(LLMEmptyResponseError):
         rl._call_llm(client, "m", "sys", "user")
+
+
+def test_call_llm_retries_a_malformed_empty_200_then_succeeds() -> None:
+    """EMPTY_RESPONSE is classified retryable, so it must actually be retried
+    in-process (#55). Before the taxonomy the choices guard sat AFTER the
+    retry loop, so a malformed 200 always escalated straight to the outer
+    Celery retry — a 5-minute delay for a fault that clears immediately,
+    contradicting its own classification."""
+    client = MagicMock()
+    client.chat.completions.create.side_effect = [
+        _fake_llm_response(None),
+        _fake_llm_response("ok"),
+    ]
+    with patch("app.services.report_llm.time.sleep") as sleep:
+        out = rl._call_llm(client, "m", "sys", "user")
+    assert out == "ok"
+    assert client.chat.completions.create.call_count == 2
+    sleep.assert_called_once()
+
+
+def test_call_llm_retries_server_errors() -> None:
+    """A provider 5xx is an APIStatusError, not an APIConnectionError, so the
+    pre-#55 loop let it through unretried despite being exactly the kind of
+    transient upstream fault a short backoff absorbs."""
+    client = MagicMock()
+    err = openai.InternalServerError(
+        "502", response=httpx.Response(502, request=_REQUEST), body=None
+    )
+    client.chat.completions.create.side_effect = [err, _fake_llm_response("ok")]
+    with patch("app.services.report_llm.time.sleep") as sleep:
+        out = rl._call_llm(client, "m", "sys", "user")
+    assert out == "ok"
+    assert client.chat.completions.create.call_count == 2
+    sleep.assert_called_once()
+
+
+def test_call_llm_does_not_retry_auth_failures() -> None:
+    """A bad key reproduces identically; retrying it just delays the real
+    diagnosis behind two backoff waits."""
+    client = MagicMock()
+    err = openai.AuthenticationError(
+        "401", response=httpx.Response(401, request=_REQUEST), body=None
+    )
+    client.chat.completions.create.side_effect = err
+    with (
+        patch("app.services.report_llm.time.sleep") as sleep,
+        pytest.raises(openai.AuthenticationError),
+    ):
+        rl._call_llm(client, "m", "sys", "user")
+    assert client.chat.completions.create.call_count == 1
+    sleep.assert_not_called()
+
+
+def test_call_llm_mixed_error_kinds_surface_the_real_cause() -> None:
+    """Each retry group draws from its own budget, and the loop bound is their
+    sum. The pre-#55 loop shared one `max(len(a), len(b)) + 1` bound across two
+    independent per-type counters, so an alternating run (429, connection, 429)
+    fell out of the loop with `resp` never assigned and died on `resp.choices`
+    with a bare AttributeError — discarding the actual cause."""
+    client = MagicMock()
+    rate_limit = openai.RateLimitError(
+        "429", response=httpx.Response(429, request=_REQUEST), body=None
+    )
+    connection = openai.APIConnectionError(request=_REQUEST)
+    client.chat.completions.create.side_effect = [
+        rate_limit,
+        connection,
+        rate_limit,
+        connection,
+        rate_limit,
+    ]
+    with (
+        patch("app.services.report_llm.time.sleep"),
+        pytest.raises(openai.RateLimitError),
+    ):
+        rl._call_llm(client, "m", "sys", "user")
+    # 2 upstream + 2 connection backoffs, then the 5th call re-raises for real.
+    assert client.chat.completions.create.call_count == 5
+
+
+def test_call_llm_does_not_swallow_programming_errors() -> None:
+    """An unclassifiable exception is UNKNOWN, hence non-retryable — it must
+    propagate unchanged rather than be retried as if it were transient."""
+    client = MagicMock()
+    client.chat.completions.create.side_effect = TypeError("bug in our own code")
+    with (
+        patch("app.services.report_llm.time.sleep") as sleep,
+        pytest.raises(TypeError, match="bug in our own code"),
+    ):
+        rl._call_llm(client, "m", "sys", "user")
+    assert client.chat.completions.create.call_count == 1
+    sleep.assert_not_called()
 
 
 def test_call_llm_retries_on_rate_limit_then_succeeds() -> None:
