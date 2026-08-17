@@ -27,6 +27,7 @@ from app.schemas.holdings import (
     UploadPreview,
 )
 from app.services.llm_errors import (
+    LLMCallError,
     LLMEmptyResponseError,
     LLMErrorCode,
     LLMInvalidJSONError,
@@ -731,7 +732,17 @@ def parse(text: str) -> UploadPreview:
                 time.monotonic() - started,
             )
             break
-        except Exception as exc:
+        except (openai.OpenAIError, json.JSONDecodeError, LLMCallError) as exc:
+            # Narrowed to exactly what this try block can raise (PR #161
+            # review, round 2): the SDK call, json.loads, and the isinstance
+            # guard above. A blanket `except Exception` here would also
+            # launder Celery's SoftTimeLimitExceeded (this task runs under a
+            # soft_time_limit, holdings_tasks.py) and genuine programming
+            # bugs into a classified, retryable-looking RuntimeError —
+            # routing them through holdings_tasks' normal parse-failure path
+            # (a `logger.warning`) instead of its unexpected-exception path
+            # (`logger.exception`, full traceback), which is the outer
+            # handler this loop is not meant to preempt.
             code = classify(exc)
             last_exc = exc
             if not is_retryable(exc):

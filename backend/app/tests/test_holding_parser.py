@@ -974,6 +974,43 @@ def test_parse_does_not_retry_a_malformed_request() -> None:
     assert mock_client.chat.completions.create.call_count == 1
 
 
+def test_parse_does_not_launder_programming_errors_into_runtimeerror() -> None:
+    """A blanket `except Exception` would classify a genuine bug as UNKNOWN
+    and re-raise it as RuntimeError, routing it through holdings_tasks'
+    normal parse-failure path (`logger.warning`) instead of its unexpected-
+    exception path (`logger.exception`, full traceback) — the outer handler
+    this loop must not preempt (PR #161 review, round 2)."""
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = TypeError("boom - programming bug")
+
+    with (
+        patch("app.services.holding_parser.openai.OpenAI", return_value=mock_client),
+        pytest.raises(TypeError, match="boom - programming bug"),
+    ):
+        parse("text")
+
+    assert mock_client.chat.completions.create.call_count == 1
+
+
+def test_parse_does_not_launder_soft_time_limit_exceeded() -> None:
+    """Same reasoning as the programming-error case, for the concrete signal
+    that motivated it: holdings_tasks.py runs this under a soft_time_limit,
+    and its own comment says SoftTimeLimitExceeded is meant to be caught by
+    the task's outer except/finally, not swallowed inside parse()."""
+    from billiard.exceptions import SoftTimeLimitExceeded  # type: ignore[import-untyped]
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = SoftTimeLimitExceeded()
+
+    with (
+        patch("app.services.holding_parser.openai.OpenAI", return_value=mock_client),
+        pytest.raises(SoftTimeLimitExceeded),
+    ):
+        parse("text")
+
+    assert mock_client.chat.completions.create.call_count == 1
+
+
 def test_parse_never_sleeps_between_attempts() -> None:
     """parse() runs under holdings_tasks' 45s SLA with each attempt capped at
     20s. Sharing the taxonomy with _call_llm must NOT drag in its backoff
