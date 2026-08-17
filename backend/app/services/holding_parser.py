@@ -26,6 +26,14 @@ from app.schemas.holdings import (
     ParsedRow,
     UploadPreview,
 )
+from app.services.llm_errors import (
+    LLMCallError,
+    LLMEmptyResponseError,
+    LLMErrorCode,
+    LLMInvalidJSONError,
+    classify,
+    is_retryable,
+)
 
 _SUPPORTED_EXTENSIONS = {".md", ".txt", ".csv", ".xlsx", ".xls"}
 
@@ -633,7 +641,22 @@ def _parse_attempt(
         temperature=0,
         extra_body=extra_body,
     )
-    return response.choices[0].message.content or "{}"
+    # Same malformed-200 guard report_llm._call_llm has carried since I-DEBT-2
+    # — OpenRouter has been observed returning a 200 with choices=None. Indexing
+    # it raised a bare TypeError/IndexError here, which (not being an
+    # openai.OpenAIError) escaped parse()'s retry loop entirely and failed the
+    # upload on what the taxonomy classifies as a retryable provider fault (#55).
+    if not response.choices:
+        raise LLMEmptyResponseError(
+            f"model={model} resp_model={getattr(response, 'model', '?')} returned no choices"
+        )
+    content = response.choices[0].message.content
+    # An empty body is not "an empty portfolio" — before #55 this coerced to
+    # "{}" and surfaced as a successful upload with zero rows parsed, instead
+    # of a retryable failure.
+    if not content or not content.strip():
+        raise LLMEmptyResponseError(f"model={model} returned an empty message body")
+    return content
 
 
 # Bounds each attempt so parse() reliably finishes in tens of seconds, not
@@ -646,6 +669,13 @@ def _parse_attempt(
 # multiplying worst-case latency unpredictably. parse()'s loop already owns
 # retry behavior, so the SDK doesn't need to also retry.
 _PARSE_ATTEMPT_TIMEOUT_SECONDS = 20.0
+
+# Two identical attempts (issue #84). Deliberately NOT paired with any backoff
+# sleep, unlike report_llm._call_llm: this runs inside an interactive upload
+# under holdings_tasks' 45s SLA, and 2 x 20s already spends most of it — see
+# llm_errors.py's module docstring on why the taxonomy is shared but the two
+# retry loops are not.
+_PARSE_MAX_ATTEMPTS = 2
 
 
 def parse(text: str) -> UploadPreview:
@@ -668,40 +698,97 @@ def parse(text: str) -> UploadPreview:
         timeout=_PARSE_ATTEMPT_TIMEOUT_SECONDS,
         max_retries=0,
     )
+    logger = logging.getLogger(__name__)
     model = settings.STRUCTURED_LLM_MODEL
     provider = structured_provider()
-    attempts = [(model, provider), (model, provider)]
 
-    content: str | None = None
-    last_exc: openai.OpenAIError | None = None
-    for i, (attempt_model, provider) in enumerate(attempts, start=1):
+    payload: dict[str, Any] | None = None
+    last_exc: Exception | None = None
+    for i in range(1, _PARSE_MAX_ATTEMPTS + 1):
         started = time.monotonic()
         try:
-            content = _parse_attempt(client, attempt_model, provider, text)
-            logging.getLogger(__name__).info(
+            content = _parse_attempt(client, model, provider, text)
+            raw_payload = json.loads(_strip_code_fence(content))
+            # A model that returns `[]`, `"..."`, or `null` did not honour the
+            # requested object shape — the same "wrong shape" miss as a
+            # decode error, and JSON-legal enough that json.loads alone
+            # can't catch it. Left unchecked, `null` slips past the loop as
+            # a false "success" (payload=None is later misread as "every
+            # attempt failed"), and a list/string dies on `.get()` as an
+            # AttributeError that `holdings_tasks` records via its
+            # unexpected-Exception path instead of the RuntimeError
+            # parse-failure path (PR #161 review finding).
+            if not isinstance(raw_payload, dict):
+                raise LLMInvalidJSONError(
+                    f"model={model} returned valid JSON of the wrong shape "
+                    f"({type(raw_payload).__name__}, expected an object)"
+                )
+            payload = raw_payload
+            logger.info(
                 "holding_parser: attempt %d/%d model=%s succeeded in %.1fs",
                 i,
-                len(attempts),
-                attempt_model,
+                _PARSE_MAX_ATTEMPTS,
+                model,
                 time.monotonic() - started,
             )
             break
-        except openai.OpenAIError as exc:
+        except (openai.OpenAIError, json.JSONDecodeError, LLMCallError) as exc:
+            # Narrowed to exactly what this try block can raise (PR #161
+            # review, round 2): the SDK call, json.loads, and the isinstance
+            # guard above. A blanket `except Exception` here would also
+            # launder Celery's SoftTimeLimitExceeded (this task runs under a
+            # soft_time_limit, holdings_tasks.py) and genuine programming
+            # bugs into a classified, retryable-looking RuntimeError —
+            # routing them through holdings_tasks' normal parse-failure path
+            # (a `logger.warning`) instead of its unexpected-exception path
+            # (`logger.exception`, full traceback), which is the outer
+            # handler this loop is not meant to preempt.
+            code = classify(exc)
             last_exc = exc
-            logging.getLogger(__name__).warning(
-                "holding_parser: attempt %d/%d model=%s failed after %.1fs (%s), trying next",
-                i,
-                len(attempts),
-                attempt_model,
-                time.monotonic() - started,
-                exc,
-            )
-    if content is None:
-        raise RuntimeError(f"LLM call failed: {last_exc}") from last_exc
-    try:
-        payload = json.loads(_strip_code_fence(content))
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"LLM returned invalid JSON: {exc}") from exc
+            if not is_retryable(exc):
+                # A bad key or a malformed request reproduces identically on
+                # the next attempt — before #55 the blanket `except
+                # openai.OpenAIError` retried these too, burning one of only
+                # two attempts (and up to 20s of a 45s SLA) to reach the same
+                # failure with the real cause buried a level deeper.
+                logger.warning(
+                    "holding_parser: attempt %d/%d model=%s failed after %.1fs "
+                    "with code=%s (not retryable), giving up: %s",
+                    i,
+                    _PARSE_MAX_ATTEMPTS,
+                    model,
+                    time.monotonic() - started,
+                    code,
+                    exc,
+                )
+                break
+            if i < _PARSE_MAX_ATTEMPTS:
+                logger.warning(
+                    "holding_parser: attempt %d/%d model=%s failed after %.1fs "
+                    "with code=%s (retryable), trying next: %s",
+                    i,
+                    _PARSE_MAX_ATTEMPTS,
+                    model,
+                    time.monotonic() - started,
+                    code,
+                    exc,
+                )
+            else:
+                # This was the last attempt — "trying next" would be a lie;
+                # the loop exits and payload stays None (PR #161 review nit).
+                logger.warning(
+                    "holding_parser: attempt %d/%d model=%s failed after %.1fs "
+                    "with code=%s (retryable), retry budget exhausted: %s",
+                    i,
+                    _PARSE_MAX_ATTEMPTS,
+                    model,
+                    time.monotonic() - started,
+                    code,
+                    exc,
+                )
+    if payload is None:
+        code = classify(last_exc) if last_exc is not None else LLMErrorCode.UNKNOWN
+        raise RuntimeError(f"LLM call failed ({code}): {last_exc}") from last_exc
 
     rejected_rows: list[IssueRow] = []
     valid_rows = _postprocess(

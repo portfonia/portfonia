@@ -810,7 +810,7 @@ exact body, verified by the same test assertions passing before and after):
 | Module | Responsibility |
 |---|---|
 | `app/services/report_context.py` | `ReportContext`/`ReportInputsDict` (the `report_inputs` JSONB shape) |
-| `app/services/report_llm.py` | OpenRouter transport: `_openrouter_client`, `_call_llm`, `LLMEmptyResponseError`, `_BYOK_PROVIDER_ORDER` |
+| `app/services/report_llm.py` | OpenRouter transport: `_openrouter_client`, `_call_llm`, `_BYOK_PROVIDER_ORDER` |
 | `app/services/report_serializers.py` | ORM/dataclass → JSONB dict (`_serialize_*`) |
 | `app/services/report_search.py` | Tavily search + daily-budget tracking + targeted anomaly queries |
 | `app/services/report_prompts.py` | Pass 1 / Pass 2 prompt text (system prompts, `_build_pass1_prompt`/`_build_pass2_prompt`, `_stale_ticker_hint`) |
@@ -822,8 +822,10 @@ exact body, verified by the same test assertions passing before and after):
 `report_generator.py` imports from all of the above (one dependency
 direction, no cycle) and is still the only module `app/routers/reports.py`
 and `app/tasks/report_tasks.py` import `generate_report`/`regenerate_report`
-from — `LLMEmptyResponseError` moved with `_call_llm`, so its import site
-changed to `app.services.report_llm`. The old `test_report_generator.py`
+from — `LLMEmptyResponseError` moved with `_call_llm` at the time, so its
+import site changed to `app.services.report_llm` (superseded by issue #55,
+which moved it again to `app/services/llm_errors.py` — see that section
+below for the current home). The old `test_report_generator.py`
 (93 tests, 1826 lines) was redistributed to a matching test file per module
 (`test_report_context.py`, `test_report_llm.py`, `test_report_serializers.py`,
 `test_report_prompts.py`, `test_report_sections.py`, `test_output_scan.py`,
@@ -943,6 +945,69 @@ inline via BeautifulSoup.
   3 suggestions/nits, round 2 (after fixes) found 0 bugs + 2 suggestions/2
   nits, all verified against actual code and fixed before merge.
 
+### LLM failure taxonomy (issue #55)
+
+`app/services/llm_errors.py` classifies any exception raised by an LLM call
+into an `LLMErrorCode`, and each code carries an `ErrorPolicy`
+(`retryable` / `fallbackable`). Both LLM call sites branch on that verdict
+instead of on concrete SDK exception types.
+
+- **The module owns classification, NOT retry policy.** The two call sites
+  have order-of-magnitude different budgets and keep separate loops:
+  `_call_llm` (Celery report task, minutes of headroom) uses
+  `config/llm_retry.yml`'s backoff sequences; `holding_parser.parse()`
+  (interactive upload, 45s SLA, 2 x 20s attempts) must never sleep at all —
+  the connection sequence alone (30s+90s) would blow the hard time limit and
+  get the worker SIGKILLed. A test (`test_parse_never_sleeps_between_attempts`)
+  locks that. Do not "unify" the loops.
+- **Classification is by HTTP status, not SDK subclass**
+  (`_classify_status`), so an SDK version that stops mapping a status to its
+  own subclass still gets the right verdict rather than falling to `UNKNOWN`.
+  `UNKNOWN` is deliberately non-retryable — a programming error must not be
+  retried as if transient. Note `APITimeoutError` subclasses
+  `APIConnectionError`; both are `CONNECTION`.
+- **`fallbackable` has no consumer today and must not be given a speculative
+  one.** No call site has a second-tier model to escalate to (holdings
+  parsing runs one model twice since #84; `_BYOK_PROVIDER_ORDER` is a
+  compliance hard pin that by definition must not fall back). It is stored
+  because it is half of the classification's meaning, not as scaffolding for
+  a fallback orchestrator that does not exist.
+- **Five real defects this replaced** (all reproduced as failing tests
+  before the fix, none of them theoretical):
+  1. `holding_parser` indexed `response.choices[0]` with no empty-choices
+     guard. OpenRouter's malformed 200 (`choices=None`, the same fault
+     `_call_llm` has guarded since I-DEBT-2) raised a `TypeError` — not an
+     `openai.OpenAIError`, so it escaped the retry loop entirely and failed
+     the upload on first occurrence.
+  2. `holding_parser` parsed JSON *outside* the attempt loop, so a malformed
+     body — the single most retry-worthy failure mode — was the only one
+     never retried, with the second attempt still unspent.
+  3. `holding_parser`'s blanket `except openai.OpenAIError` retried
+     non-retryable faults (bad key, malformed request), burning up to 20s of
+     a 45s SLA to reach the identical failure.
+  4. `_call_llm`'s two per-type counters shared one
+     `max(len(a), len(b)) + 1` loop bound, so an alternating run (429,
+     connection, 429) exited the loop with `resp` unassigned and died on
+     `resp.choices` with a bare `AttributeError`, discarding the real cause.
+     Each group now draws from its own budget and the bound is their sum.
+  5. Provider 5xx (`APIStatusError`, not `APIConnectionError`) was never
+     retried by `_call_llm`, and `LLMEmptyResponseError` was raised *after*
+     the loop — classified retryable but escalated straight to the 5-minute
+     Celery retry, contradicting its own classification.
+- **`LLMEmptyResponseError` moved here from `report_llm.py`** and is
+  deliberately NOT re-exported from it — importers reach for
+  `app.services.llm_errors` (mypy `--strict`'s `no_implicit_reexport`
+  enforces this; same lesson issue #37's split already paid for once).
+  It subclasses `LLMCallError(RuntimeError)`, preserving the pre-existing
+  contract that `routers/reports.py` / `holdings_tasks.py` branch on
+  `RuntimeError`.
+- **Deliberately NOT extended to `ticker_intel`/`macro_event_intel`** —
+  their `except Exception` writes a null-marker row that suppresses retries
+  for the rest of the trading day, so a transient blip locks a shared cache
+  slot for every user in the fan-out. Real gap, but the fix changes
+  cost/coverage behavior and needs a product call, not a refactor: issue
+  #160.
+
 ### Reliability mechanisms (window/dedup/LLM-call correctness)
 
 - Same-day report windows (retry/regenerate within one ET calendar date) use
@@ -957,8 +1022,9 @@ inline via BeautifulSoup.
   silently-truncated `status=success` report.
 - `_call_llm` (`app/services/report_llm.py` — split from `report_generator.py`
   in issue #37) logs model/finish_reason/tokens/cost on every call and warns on
-  non-`stop` finish; `LLMEmptyResponseError` on empty `choices` with bounded
-  429/connection backoff-retry. `pin_provider=False` (used only for
+  non-`stop` finish; raises `LLMEmptyResponseError` on empty `choices` and
+  retries per the failure taxonomy above (issue #55) with bounded backoff.
+  `pin_provider=False` (used only for
   translation) lets OpenRouter route freely instead of restricting to the
   pinned provider order. Backoff sequences are admin-editable via
   `config/llm_retry.yml` (issue #38, `app/services/llm_retry_config.py`),

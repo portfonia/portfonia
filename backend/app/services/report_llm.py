@@ -10,14 +10,27 @@ from __future__ import annotations
 
 import logging
 import time
+from enum import StrEnum
 from typing import Any
 
 import openai
 
 from app.core.config import OR_ATTRIBUTION_HEADERS, get_settings
+from app.services.llm_errors import (
+    LLMEmptyResponseError,
+    LLMErrorCode,
+    classify,
+    is_retryable,
+)
 from app.services.llm_retry_config import load_llm_retry_config
 
 logger = logging.getLogger(__name__)
+
+# LLMEmptyResponseError is imported (and raised) here but deliberately NOT
+# re-exported: importers must reach for app.services.llm_errors, its owning
+# module, rather than relying on it being reachable through this one — the
+# lesson issue #37's split already paid for once (mypy --strict's
+# no_implicit_reexport enforces it).
 
 
 def _openrouter_client() -> openai.OpenAI:
@@ -27,16 +40,6 @@ def _openrouter_client() -> openai.OpenAI:
         base_url=settings.OPENROUTER_BASE_URL,
         default_headers=OR_ATTRIBUTION_HEADERS,
     )
-
-
-class LLMEmptyResponseError(RuntimeError):
-    """A 200 response from OpenRouter carried no usable choices.
-
-    Observed once as a malformed 200 (`choices=None`) from a low-cost model via
-    DigitalOcean/Venice — `resp.choices[0]` then raised a bare, unclassified
-    TypeError. Raising a named error lets callers (and Celery's retry) treat it
-    as a transient provider fault rather than a code bug. (I-DEBT-2)
-    """
 
 
 # Provider preference for the unstructured/BYOK calls — Pass 1 search-query
@@ -62,6 +65,33 @@ class LLMEmptyResponseError(RuntimeError):
 # guarantee (PR #79 review finding).
 _BYOK_PROVIDER_ORDER = ["DeepSeek"]
 
+
+class _RetryGroup(StrEnum):
+    """Which configured backoff sequence a retryable failure draws from.
+
+    A group, not one sequence per error code, because `llm_retry.yml` (#38)
+    exposes exactly two admin-tunable sequences and adding a third key would
+    break every deployment whose `LLM_RETRY_CONFIG_PATH` points at a file
+    outside this repo (the loader treats a missing key as a hard error, by
+    design). Codes that want the same waiting behaviour share a budget.
+    """
+
+    # "Upstream is momentarily unwilling or unable" — a 429, a provider 5xx,
+    # or a malformed empty 200. All clear in seconds, so they share the short
+    # ratelimit sequence rather than the much longer connection one.
+    UPSTREAM = "upstream"
+    # Our own hop to OpenRouter never completed (connection reset, timeout).
+    # Network blips typically take tens of seconds to resolve.
+    CONNECTION = "connection"
+
+
+_RETRY_GROUPS: dict[LLMErrorCode, _RetryGroup] = {
+    LLMErrorCode.RATE_LIMIT: _RetryGroup.UPSTREAM,
+    LLMErrorCode.SERVER_ERROR: _RetryGroup.UPSTREAM,
+    LLMErrorCode.EMPTY_RESPONSE: _RetryGroup.UPSTREAM,
+    LLMErrorCode.CONNECTION: _RetryGroup.CONNECTION,
+}
+
 # Backoff sequences inside _call_llm (bounded, then re-raise so the outer
 # Celery retry still sees a persistent failure). (I-DEBT-2)
 # Values are admin-editable via config/llm_retry.yml (#38), loaded fresh on
@@ -82,6 +112,7 @@ def _call_llm(
     enforce_data_collection: bool = True,
     disable_reasoning: bool = False,
     usage_sink: list[dict[str, Any]] | None = None,
+    allow_empty_content: bool = False,
 ) -> str:
     """Call an OpenRouter model.  Returns the assistant content string.
 
@@ -132,6 +163,16 @@ def _call_llm(
     pair, enforced at runtime (not just by docstring/call-site discipline —
     PR #81 review): a caller cannot silently reopen the PR #79
     marketplace-fallback gap by passing the former without the latter.
+
+    `allow_empty_content=True` opts a call OUT of the blank-body guard below
+    (default False — a missing/blank `message.content` raises
+    LLMEmptyResponseError so EMPTY_RESPONSE is retried in-process, matching
+    the empty-choices fix; PR #161 review). Only `report_translation.py`'s
+    `_translate_chunk` passes True: it already runs its own
+    truncation-detection retry-then-fall-back-to-source-text logic keyed on
+    getting a (possibly empty) string back, so raising here would replace
+    that graceful degradation with a hard failure of the whole translation
+    pass over one chunk.
     """
     extra: dict[str, Any] = {}
     settings = get_settings()
@@ -162,16 +203,22 @@ def _call_llm(
         extra["reasoning"] = {"enabled": False}
 
     retry_config = load_llm_retry_config()
+    backoff_by_group = {
+        _RetryGroup.UPSTREAM: retry_config.ratelimit_backoff_seconds,
+        _RetryGroup.CONNECTION: retry_config.connect_backoff_seconds,
+    }
+    # Each group draws from its OWN budget, and the loop bound is their sum —
+    # the pre-#55 loop shared a single `max(len(a), len(b)) + 1` bound across
+    # two independent per-type counters, so a run that alternated error kinds
+    # (429, connection, 429) could exit the loop having never assigned `resp`
+    # and then die on `resp.choices` with a bare AttributeError, discarding
+    # the real cause on the way out.
+    max_calls = sum(len(seq) for seq in backoff_by_group.values()) + 1
+    attempts_by_group: dict[_RetryGroup, int] = dict.fromkeys(backoff_by_group, 0)
+
     resp: Any = None
-    _rate_limit_attempts = 0
-    _connect_attempts = 0
-    for _attempt in range(
-        max(
-            len(retry_config.ratelimit_backoff_seconds),
-            len(retry_config.connect_backoff_seconds),
-        )
-        + 1
-    ):
+    last_exc: Exception | None = None
+    for _attempt in range(max_calls):
         try:
             resp = client.chat.completions.create(
                 model=model,
@@ -182,43 +229,80 @@ def _call_llm(
                 temperature=0.3,
                 extra_body=extra if extra else None,
             )
+            # OpenRouter has been observed returning a 200 with choices=None
+            # for some providers. Raise inside the loop so the taxonomy's
+            # `retryable` verdict for EMPTY_RESPONSE actually drives a retry
+            # — before #55 this was checked after the loop and always
+            # escalated straight to the outer Celery retry, contradicting
+            # its own classification.
+            if not resp.choices:
+                raise LLMEmptyResponseError(
+                    f"model={model} resp_model={getattr(resp, 'model', '?')} returned no choices"
+                )
+            # A 200 with a choice whose message.content is None/blank is the
+            # same "nothing usable came back" shape as empty choices — before
+            # this, `content or ""` silently swallowed it into an empty
+            # string, so a caller relying on non-empty output (Pass 2's
+            # completeness guard) only found out several steps later as a
+            # RuntimeError, escalating straight to the 5-minute Celery retry
+            # despite EMPTY_RESPONSE being classified retryable (PR #161
+            # review — the same contradiction this PR fixed for empty
+            # choices).
+            if not allow_empty_content and not (resp.choices[0].message.content or "").strip():
+                raise LLMEmptyResponseError(
+                    f"model={model} resp_model={getattr(resp, 'model', '?')} "
+                    "returned an empty message body"
+                )
             break
-        except openai.RateLimitError:
-            backoff_idx = _rate_limit_attempts
-            _rate_limit_attempts += 1
-            if backoff_idx >= len(retry_config.ratelimit_backoff_seconds):
-                logger.warning("llm call: model=%s exhausted 429 backoff retries", model)
+        except Exception as exc:
+            code = classify(exc)
+            group = _RETRY_GROUPS.get(code)
+            if not is_retryable(exc) or group is None:
+                # Non-retryable (bad key, malformed request) or retryable in
+                # principle but with no backoff budget defined here — either
+                # way an in-process retry is not the remedy. Re-raise as-is
+                # so the caller sees the original exception type.
+                logger.warning(
+                    "llm call: model=%s failed with code=%s (not retried here): %s",
+                    model,
+                    code,
+                    exc,
+                )
                 raise
-            wait = retry_config.ratelimit_backoff_seconds[backoff_idx]
-            logger.warning(
-                "llm call: model=%s got 429 (attempt %d), backing off %.0fs",
-                model,
-                backoff_idx + 1,
-                wait,
-            )
-            time.sleep(wait)
-        except openai.APIConnectionError:
-            backoff_idx = _connect_attempts
-            _connect_attempts += 1
-            if backoff_idx >= len(retry_config.connect_backoff_seconds):
-                logger.warning("llm call: model=%s exhausted connection backoff retries", model)
+            last_exc = exc
+            resp = None
+            backoff = backoff_by_group[group]
+            backoff_idx = attempts_by_group[group]
+            attempts_by_group[group] += 1
+            if backoff_idx >= len(backoff):
+                logger.warning(
+                    "llm call: model=%s exhausted %s backoff retries (code=%s)",
+                    model,
+                    group.value,
+                    code,
+                )
                 raise
-            wait = retry_config.connect_backoff_seconds[backoff_idx]
+            wait = backoff[backoff_idx]
             logger.warning(
-                "llm call: model=%s connection error (attempt %d), backing off %.0fs",
+                "llm call: model=%s code=%s (%s attempt %d), backing off %.0fs",
                 model,
+                code,
+                group.value,
                 backoff_idx + 1,
                 wait,
             )
             time.sleep(wait)
 
-    # OpenRouter has been observed returning a 200 with choices=None for some
-    # providers; guard before indexing so this surfaces as a classified,
-    # retryable error rather than a bare TypeError.
-    if not resp.choices:
-        raise LLMEmptyResponseError(
-            f"model={model} resp_model={getattr(resp, 'model', '?')} returned no choices"
+    if resp is None:
+        # Every configured budget was spent on a mix of retryable errors
+        # without any single group exceeding its own. Surface the last real
+        # cause rather than a bare AttributeError on `resp.choices`.
+        logger.warning(
+            "llm call: model=%s exhausted the combined retry budget (%d calls)", model, max_calls
         )
+        if last_exc is not None:
+            raise last_exc
+        raise LLMEmptyResponseError(f"model={model} produced no response and no error")
     choice = resp.choices[0]
     usage = resp.usage
     logger.info(

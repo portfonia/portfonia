@@ -12,8 +12,8 @@ from app.core.deps import get_current_user_id
 from app.models.report import Report
 from app.schemas.reports import GenerateReportRequest, ReportListItem, ReportOut
 from app.services.email_sender import send_report_email
+from app.services.llm_errors import LLMEmptyResponseError
 from app.services.report_generator import generate_report, regenerate_report
-from app.services.report_llm import LLMEmptyResponseError
 
 router = APIRouter()
 

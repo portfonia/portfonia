@@ -101,6 +101,22 @@ def test_translate_chunk_falls_back_to_source_when_truncated() -> None:
     assert out == source  # kept the English source rather than dropping the section
 
 
+def test_translate_chunk_falls_back_to_source_on_real_empty_response() -> None:
+    """End-to-end through the real (unmocked) _call_llm: a blank model
+    response must resolve via _translate_chunk's own short-then-retry-then-
+    fallback logic, not propagate as LLMEmptyResponseError and fail the
+    whole translation pass over one chunk."""
+    source = "## §3 Holdings Analysis\n\n" + ("This holding matters because " * 20)
+    client = MagicMock()
+    client.chat.completions.create.return_value = _fake_llm_response("   ")
+
+    with patch("app.services.report_translation.time.sleep"):
+        out = rt._translate_chunk(client, "m", "sys", source)
+
+    assert out == source  # kept the English source rather than raising
+    assert client.chat.completions.create.call_count == 2  # tried once, retried once
+
+
 def test_translate_chunk_keeps_good_translation() -> None:
     source = "## §3 Holdings Analysis\n\n" + ("This holding matters. " * 20)
 
