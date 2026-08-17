@@ -125,6 +125,11 @@ def _translate_chunk(client: openai.OpenAI, model: str, system: str, chunk: str)
             out.strip()
         ) < _TRANSLATION_MIN_RATIO * len(chunk)
 
+    # allow_empty_content=True: this function already runs its own
+    # truncation-detection retry (below) with a fall-back to the English
+    # source (_short()) — _call_llm raising on a blank body by default
+    # (PR #161 review) would replace that graceful degradation with a hard
+    # failure of the whole translation pass over one chunk.
     out = _call_llm(
         client,
         model,
@@ -136,6 +141,7 @@ def _translate_chunk(client: openai.OpenAI, model: str, system: str, chunk: str)
         allow_fallbacks=False,
         enforce_data_collection=False,
         disable_reasoning=True,
+        allow_empty_content=True,
     )
     if _short(out):
         logger.warning(
@@ -153,6 +159,7 @@ def _translate_chunk(client: openai.OpenAI, model: str, system: str, chunk: str)
             allow_fallbacks=False,
             enforce_data_collection=False,
             disable_reasoning=True,
+            allow_empty_content=True,
         )
     if _short(out):
         logger.error("translation chunk still truncated after retry; keeping source for this chunk")

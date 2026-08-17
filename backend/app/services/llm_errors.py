@@ -161,6 +161,15 @@ def _classify_status(exc: openai.APIStatusError) -> LLMErrorCode:
         return LLMErrorCode.RATE_LIMIT
     if status in (401, 403):
         return LLMErrorCode.AUTH
+    # OpenRouter documents 408 as "Your request timed out" — a transient
+    # provider-side timeout, not a malformed request. The openai SDK does not
+    # map it onto APITimeoutError (that class is the no-response client
+    # timeout; a completed HTTP 408 arrives as a bare APIStatusError), so
+    # without this it fell through to the >= 400 BAD_REQUEST bucket and
+    # parse()/`_call_llm` both gave up on the first occurrence instead of
+    # retrying (PR #161 review finding).
+    if status == 408:
+        return LLMErrorCode.SERVER_ERROR
     if status >= 500:
         return LLMErrorCode.SERVER_ERROR
     if status >= 400:

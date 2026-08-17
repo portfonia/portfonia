@@ -46,6 +46,9 @@ def test_every_code_has_a_policy() -> None:
         (500, LLMErrorCode.SERVER_ERROR),
         (502, LLMErrorCode.SERVER_ERROR),
         (503, LLMErrorCode.SERVER_ERROR),
+        # OpenRouter's "your request timed out" — transient, not malformed.
+        # Not mapped to APITimeoutError by the SDK (PR #161 review finding).
+        (408, LLMErrorCode.SERVER_ERROR),
     ],
 )
 def test_status_errors_classify_by_code_not_subclass(status: int, expected: LLMErrorCode) -> None:

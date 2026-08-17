@@ -832,6 +832,38 @@ def test_parse_raises_on_invalid_json_after_retrying() -> None:
     assert mock_client.chat.completions.create.call_count == 2
 
 
+@pytest.mark.parametrize("bad_body", ["null", "[]", '"a string"', "42"])
+def test_parse_retries_json_of_the_wrong_shape(bad_body: str) -> None:
+    """`json.loads` accepts null/list/string/number just fine — none of them
+    honour the requested JSON-object shape. Before the fix, `null` slipped
+    past the loop as a false "success" (payload=None misread later as "every
+    attempt failed"), and list/string/number died on `.get()` as an
+    AttributeError routed through holdings_tasks' unexpected-Exception path
+    instead of its RuntimeError parse-failure path (PR #161 review)."""
+    bad = _make_mock_client_raw(bad_body).chat.completions.create.return_value
+    good = _make_mock_client(_MOCK_LLM_RESPONSE).chat.completions.create.return_value
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = [bad, good]
+
+    with patch("app.services.holding_parser.openai.OpenAI", return_value=mock_client):
+        result = parse("some holdings text")
+
+    assert mock_client.chat.completions.create.call_count == 2
+    assert result.valid_rows[0].name == "Apple"
+
+
+def test_parse_raises_when_every_attempt_returns_wrong_shape_json() -> None:
+    mock_client = _make_mock_client_raw("null")
+
+    with (
+        patch("app.services.holding_parser.openai.OpenAI", return_value=mock_client),
+        pytest.raises(RuntimeError, match="invalid_json"),
+    ):
+        parse("text")
+
+    assert mock_client.chat.completions.create.call_count == 2
+
+
 def test_parse_recovers_when_second_attempt_returns_valid_json() -> None:
     """The point of retrying a malformed body: the upload succeeds instead of
     failing the user for one non-deterministic miss."""
@@ -875,6 +907,25 @@ def test_parse_treats_empty_body_as_retryable_not_empty_portfolio() -> None:
     good = _make_mock_client(_MOCK_LLM_RESPONSE).chat.completions.create.return_value
     mock_client = MagicMock()
     mock_client.chat.completions.create.side_effect = [blank, good]
+
+    with patch("app.services.holding_parser.openai.OpenAI", return_value=mock_client):
+        result = parse("some holdings text")
+
+    assert mock_client.chat.completions.create.call_count == 2
+    assert result.valid_rows[0].name == "Apple"
+
+
+def test_parse_retries_408_request_timeout() -> None:
+    """Same SDK gap as report_llm's: OpenRouter's 408 arrives as a bare
+    APIStatusError, not APITimeoutError (PR #161 review)."""
+    err = openai.APIStatusError(
+        "408",
+        response=httpx.Response(408, request=httpx.Request("POST", "https://x.test")),
+        body=None,
+    )
+    good = _make_mock_client(_MOCK_LLM_RESPONSE).chat.completions.create.return_value
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = [err, good]
 
     with patch("app.services.holding_parser.openai.OpenAI", return_value=mock_client):
         result = parse("some holdings text")

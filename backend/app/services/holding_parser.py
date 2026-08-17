@@ -29,6 +29,7 @@ from app.schemas.holdings import (
 from app.services.llm_errors import (
     LLMEmptyResponseError,
     LLMErrorCode,
+    LLMInvalidJSONError,
     classify,
     is_retryable,
 )
@@ -706,7 +707,22 @@ def parse(text: str) -> UploadPreview:
         started = time.monotonic()
         try:
             content = _parse_attempt(client, model, provider, text)
-            payload = json.loads(_strip_code_fence(content))
+            raw_payload = json.loads(_strip_code_fence(content))
+            # A model that returns `[]`, `"..."`, or `null` did not honour the
+            # requested object shape — the same "wrong shape" miss as a
+            # decode error, and JSON-legal enough that json.loads alone
+            # can't catch it. Left unchecked, `null` slips past the loop as
+            # a false "success" (payload=None is later misread as "every
+            # attempt failed"), and a list/string dies on `.get()` as an
+            # AttributeError that `holdings_tasks` records via its
+            # unexpected-Exception path instead of the RuntimeError
+            # parse-failure path (PR #161 review finding).
+            if not isinstance(raw_payload, dict):
+                raise LLMInvalidJSONError(
+                    f"model={model} returned valid JSON of the wrong shape "
+                    f"({type(raw_payload).__name__}, expected an object)"
+                )
+            payload = raw_payload
             logger.info(
                 "holding_parser: attempt %d/%d model=%s succeeded in %.1fs",
                 i,
@@ -735,16 +751,30 @@ def parse(text: str) -> UploadPreview:
                     exc,
                 )
                 break
-            logger.warning(
-                "holding_parser: attempt %d/%d model=%s failed after %.1fs "
-                "with code=%s (retryable), trying next: %s",
-                i,
-                _PARSE_MAX_ATTEMPTS,
-                model,
-                time.monotonic() - started,
-                code,
-                exc,
-            )
+            if i < _PARSE_MAX_ATTEMPTS:
+                logger.warning(
+                    "holding_parser: attempt %d/%d model=%s failed after %.1fs "
+                    "with code=%s (retryable), trying next: %s",
+                    i,
+                    _PARSE_MAX_ATTEMPTS,
+                    model,
+                    time.monotonic() - started,
+                    code,
+                    exc,
+                )
+            else:
+                # This was the last attempt — "trying next" would be a lie;
+                # the loop exits and payload stays None (PR #161 review nit).
+                logger.warning(
+                    "holding_parser: attempt %d/%d model=%s failed after %.1fs "
+                    "with code=%s (retryable), retry budget exhausted: %s",
+                    i,
+                    _PARSE_MAX_ATTEMPTS,
+                    model,
+                    time.monotonic() - started,
+                    code,
+                    exc,
+                )
     if payload is None:
         code = classify(last_exc) if last_exc is not None else LLMErrorCode.UNKNOWN
         raise RuntimeError(f"LLM call failed ({code}): {last_exc}") from last_exc

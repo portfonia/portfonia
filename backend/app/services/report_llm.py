@@ -112,6 +112,7 @@ def _call_llm(
     enforce_data_collection: bool = True,
     disable_reasoning: bool = False,
     usage_sink: list[dict[str, Any]] | None = None,
+    allow_empty_content: bool = False,
 ) -> str:
     """Call an OpenRouter model.  Returns the assistant content string.
 
@@ -162,6 +163,16 @@ def _call_llm(
     pair, enforced at runtime (not just by docstring/call-site discipline —
     PR #81 review): a caller cannot silently reopen the PR #79
     marketplace-fallback gap by passing the former without the latter.
+
+    `allow_empty_content=True` opts a call OUT of the blank-body guard below
+    (default False — a missing/blank `message.content` raises
+    LLMEmptyResponseError so EMPTY_RESPONSE is retried in-process, matching
+    the empty-choices fix; PR #161 review). Only `report_translation.py`'s
+    `_translate_chunk` passes True: it already runs its own
+    truncation-detection retry-then-fall-back-to-source-text logic keyed on
+    getting a (possibly empty) string back, so raising here would replace
+    that graceful degradation with a hard failure of the whole translation
+    pass over one chunk.
     """
     extra: dict[str, Any] = {}
     settings = get_settings()
@@ -227,6 +238,20 @@ def _call_llm(
             if not resp.choices:
                 raise LLMEmptyResponseError(
                     f"model={model} resp_model={getattr(resp, 'model', '?')} returned no choices"
+                )
+            # A 200 with a choice whose message.content is None/blank is the
+            # same "nothing usable came back" shape as empty choices — before
+            # this, `content or ""` silently swallowed it into an empty
+            # string, so a caller relying on non-empty output (Pass 2's
+            # completeness guard) only found out several steps later as a
+            # RuntimeError, escalating straight to the 5-minute Celery retry
+            # despite EMPTY_RESPONSE being classified retryable (PR #161
+            # review — the same contradiction this PR fixed for empty
+            # choices).
+            if not allow_empty_content and not (resp.choices[0].message.content or "").strip():
+                raise LLMEmptyResponseError(
+                    f"model={model} resp_model={getattr(resp, 'model', '?')} "
+                    "returned an empty message body"
                 )
             break
         except Exception as exc:

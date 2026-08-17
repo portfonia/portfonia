@@ -76,6 +76,47 @@ def test_call_llm_retries_server_errors() -> None:
     sleep.assert_called_once()
 
 
+def test_call_llm_raises_and_retries_on_blank_message_content() -> None:
+    """A 200 with message.content=None/blank is the same "nothing usable"
+    shape as empty choices — before the fix `content or ""` silently
+    swallowed it, so a caller relying on non-empty output only found out
+    several steps later, after EMPTY_RESPONSE's own retry budget was never
+    spent (PR #161 review)."""
+    client = MagicMock()
+    client.chat.completions.create.side_effect = [
+        _fake_llm_response("   "),  # whitespace-only
+        _fake_llm_response("ok"),
+    ]
+    with patch("app.services.report_llm.time.sleep") as sleep:
+        out = rl._call_llm(client, "m", "sys", "user")
+    assert out == "ok"
+    assert client.chat.completions.create.call_count == 2
+    sleep.assert_called_once()
+
+
+def test_call_llm_allow_empty_content_opts_out_of_the_guard() -> None:
+    """report_translation.py's _translate_chunk runs its own truncation
+    retry-then-fallback logic keyed on getting a (possibly empty) string
+    back — it must not have that replaced by a raised exception."""
+    client = MagicMock()
+    client.chat.completions.create.return_value = _fake_llm_response("")
+    out = rl._call_llm(client, "m", "sys", "user", allow_empty_content=True)
+    assert out == ""
+
+
+def test_call_llm_retries_408_request_timeout() -> None:
+    """OpenRouter's 408 arrives as a bare APIStatusError, not APITimeoutError
+    (PR #161 review) — must land in a retry group, not BAD_REQUEST."""
+    client = MagicMock()
+    err = openai.APIStatusError("408", response=httpx.Response(408, request=_REQUEST), body=None)
+    client.chat.completions.create.side_effect = [err, _fake_llm_response("ok")]
+    with patch("app.services.report_llm.time.sleep") as sleep:
+        out = rl._call_llm(client, "m", "sys", "user")
+    assert out == "ok"
+    assert client.chat.completions.create.call_count == 2
+    sleep.assert_called_once()
+
+
 def test_call_llm_does_not_retry_auth_failures() -> None:
     """A bad key reproduces identically; retrying it just delays the real
     diagnosis behind two backoff waits."""

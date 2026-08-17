@@ -810,7 +810,7 @@ exact body, verified by the same test assertions passing before and after):
 | Module | Responsibility |
 |---|---|
 | `app/services/report_context.py` | `ReportContext`/`ReportInputsDict` (the `report_inputs` JSONB shape) |
-| `app/services/report_llm.py` | OpenRouter transport: `_openrouter_client`, `_call_llm`, `LLMEmptyResponseError`, `_BYOK_PROVIDER_ORDER` |
+| `app/services/report_llm.py` | OpenRouter transport: `_openrouter_client`, `_call_llm`, `_BYOK_PROVIDER_ORDER` |
 | `app/services/report_serializers.py` | ORM/dataclass → JSONB dict (`_serialize_*`) |
 | `app/services/report_search.py` | Tavily search + daily-budget tracking + targeted anomaly queries |
 | `app/services/report_prompts.py` | Pass 1 / Pass 2 prompt text (system prompts, `_build_pass1_prompt`/`_build_pass2_prompt`, `_stale_ticker_hint`) |
@@ -822,8 +822,10 @@ exact body, verified by the same test assertions passing before and after):
 `report_generator.py` imports from all of the above (one dependency
 direction, no cycle) and is still the only module `app/routers/reports.py`
 and `app/tasks/report_tasks.py` import `generate_report`/`regenerate_report`
-from — `LLMEmptyResponseError` moved with `_call_llm`, so its import site
-changed to `app.services.report_llm`. The old `test_report_generator.py`
+from — `LLMEmptyResponseError` moved with `_call_llm` at the time, so its
+import site changed to `app.services.report_llm` (superseded by issue #55,
+which moved it again to `app/services/llm_errors.py` — see that section
+below for the current home). The old `test_report_generator.py`
 (93 tests, 1826 lines) was redistributed to a matching test file per module
 (`test_report_context.py`, `test_report_llm.py`, `test_report_serializers.py`,
 `test_report_prompts.py`, `test_report_sections.py`, `test_output_scan.py`,
