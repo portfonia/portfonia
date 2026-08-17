@@ -84,6 +84,7 @@ from app.core.config import get_settings
 from app.models.ticker_intel import TickerIntel
 from app.services._yfinance import _normalize_hk_ticker
 from app.services.email_sender import send_ops_alert
+from app.services.llm_errors import is_retryable
 from app.services.report_llm import _call_llm, _openrouter_client
 from app.services.report_prompts import _COMPLIANCE_SYSTEM_PREFIX
 from app.services.window_data import HoldingMove
@@ -101,8 +102,21 @@ _PROMPT_VERSION = "l1-v2"
 
 # Per-day cap on FRESH LLM analyses (design doc §4.3) — cache hits are free
 # and never count against this, so a broad anomaly day degrades to "some
-# identifiers have no L1 intel" rather than an unbounded cost spike.
+# identifiers have no L1 intel" rather than an unbounded cost spike. Counted
+# in ATTEMPTS (`SUM(attempt_count)`), not rows: a key retried under #160 must
+# not get its extra attempts for free, or this cap silently loosens by a
+# factor of _MAX_ATTEMPTS_PER_KEY on exactly the day it matters most.
 _MAX_L1_ANALYSES_PER_DAY = 15
+
+# How many times the SYSTEM — not each user — may attempt one identifier in
+# one trade_date before its marker row becomes final (issue #160). N=3
+# (initial + 2 retries): anything that reaches this module's handler has
+# already survived `_call_llm`'s own backoff sequence (up to 30s+90s for a
+# connection fault), so the remaining value of a retry is covering the case
+# where the blip cleared between two users of the same fan-out — a couple of
+# extra chances, not a persistent hammer. A non-retryable failure or a
+# compliance block writes this value directly and locks the key immediately.
+_MAX_ATTEMPTS_PER_KEY = 3
 
 _L1_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + (
     "\nYou are writing a short SHARED factual briefing about a single security "
@@ -213,25 +227,39 @@ def _build_l1_prompt(identifier: str, facts: L1Facts) -> str:
 
 def _fetch_cached(session: Session, identifier: str, trade_date: date) -> TickerIntel | None:
     """Returns the full row, not just `.analysis` — a row can exist with
-    `analysis IS NULL` (an "attempted, no usable result" marker; see
-    TickerIntel's docstring), and the caller must be able to tell "never
-    attempted today" (no row) apart from "attempted today, nothing to serve"
-    (row present, analysis None) to avoid re-attempting the latter."""
+    `analysis IS NULL` (an "attempted, nothing to serve" marker; see
+    TickerIntel's docstring). The caller needs the whole row because the
+    decision is three-way, not two-way: no row = never attempted today;
+    marker with `attempt_count < _MAX_ATTEMPTS_PER_KEY` = attempted, nothing
+    to serve, but attempts remain (retry); marker at the cap = final for
+    today (skip).
+
+    `populate_existing=True` is load-bearing since #160, not tidiness: the
+    whole fan-out shares ONE Session (`generate_incremental_report` opens it
+    once and hands it to every user's `generate_report`), and `_write_cache`
+    updates `attempt_count` through a Core upsert, which does NOT refresh an
+    already-identity-mapped ORM instance. Without this, the third user in a
+    fan-out would re-read the SECOND user's stale in-memory row, see one
+    attempt fewer than really happened, and keep re-attempting past the cap —
+    the exact unbounded-retry failure this issue's design set out to avoid.
+    """
     return session.execute(
-        select(TickerIntel).where(
+        select(TickerIntel)
+        .where(
             TickerIntel.identifier == identifier,
             TickerIntel.trade_date == trade_date,
             TickerIntel.prompt_version == _PROMPT_VERSION,
         )
+        .execution_options(populate_existing=True)
     ).scalar_one_or_none()
 
 
-def _count_analyzed_today(session: Session, trade_date: date) -> int:
+def _attempts_today(session: Session, trade_date: date) -> int:
+    """Total LLM attempts made today, NOT rows written — one retried key
+    consumes as much of the daily budget as two distinct keys would."""
     return int(
         session.execute(
-            select(func.count())
-            .select_from(TickerIntel)
-            .where(
+            select(func.coalesce(func.sum(TickerIntel.attempt_count), 0)).where(
                 TickerIntel.trade_date == trade_date,
                 TickerIntel.prompt_version == _PROMPT_VERSION,
             )
@@ -246,23 +274,41 @@ def _write_cache(
     model: str,
     analysis: str | None,
     facts: L1Facts,
+    attempt_count: int,
 ) -> None:
     """`analysis=None` writes the "attempted, no usable result" marker row
-    (see TickerIntel's docstring) — used for both an LLM failure and a
-    compliance block, so neither is re-attempted by a later user today."""
-    stmt = (
-        pg_insert(TickerIntel)
-        .values(
-            identifier=identifier,
-            trade_date=trade_date,
-            prompt_version=_PROMPT_VERSION,
-            model=model,
-            analysis=analysis,
-            facts=facts.to_jsonb(),
-        )
-        .on_conflict_do_nothing(constraint="uq_ticker_intel_identifier_date_version")
+    (see TickerIntel's docstring); `attempt_count` says whether that marker
+    is final (`>= _MAX_ATTEMPTS_PER_KEY`) or still leaves a later caller a
+    chance.
+
+    Upsert rather than the pre-#160 `on_conflict_do_nothing`: a retry has to
+    be able to raise an existing marker's `attempt_count`, and a retry that
+    finally succeeds has to replace the marker with the real analysis. The
+    `analysis IS NULL` guard keeps that from cutting the other way — once a
+    real analysis is stored, no concurrent writer or redelivered attempt can
+    overwrite it with a marker.
+    """
+    stmt = pg_insert(TickerIntel).values(
+        identifier=identifier,
+        trade_date=trade_date,
+        prompt_version=_PROMPT_VERSION,
+        model=model,
+        analysis=analysis,
+        facts=facts.to_jsonb(),
+        attempt_count=attempt_count,
     )
-    session.execute(stmt)
+    session.execute(
+        stmt.on_conflict_do_update(
+            constraint="uq_ticker_intel_identifier_date_version",
+            set_={
+                "model": stmt.excluded.model,
+                "analysis": stmt.excluded.analysis,
+                "facts": stmt.excluded.facts,
+                "attempt_count": stmt.excluded.attempt_count,
+            },
+            where=TickerIntel.analysis.is_(None),
+        )
+    )
     session.flush()
 
 
@@ -272,16 +318,38 @@ def _generate(
     trade_date: date,
     facts: L1Facts,
     usage_sink: list[dict[str, Any]] | None = None,
-) -> str | None:
+    attempts_so_far: int = 0,
+) -> tuple[str | None, int]:
     """Call the LLM, gate the output through the compliance scan, and ALWAYS
     write a row — either the real analysis, or (on an LLM failure or a
     compliance block) a null-analysis marker row, so a systematically
-    failing/blocked identifier is attempted at most once per day rather than
-    once per user in the fan-out (review round 1 fix: the first draft wrote
-    nothing on failure, so the daily cap — which counts cache rows — never
-    saw these attempts and could be bypassed entirely). Returns None (never
-    raises) on either failure mode — both degrade to "no L1 intel this run",
-    not a report failure (design doc §4.3).
+    failing/blocked identifier is attempted a bounded number of times per day
+    rather than once per user in the fan-out (review round 1 fix: the first
+    draft wrote nothing on failure, so the daily cap never saw these attempts
+    and could be bypassed entirely). Returns None (never raises) on either
+    failure mode — both degrade to "no L1 intel this run", not a report
+    failure (design doc §4.3).
+
+    How final that marker is depends on WHY the call failed (issue #160):
+
+    - Retryable per `llm_errors.is_retryable` (connection, 429, provider 5xx,
+      empty 200): record this attempt and leave the rest of the key's budget
+      for a later caller. `_call_llm` has already burned its own backoff by
+      the time it re-raises, so the case worth covering is a blip that
+      cleared between two users of the same fan-out.
+    - Not retryable (bad key, malformed request) or blocked by the compliance
+      scan: write `_MAX_ATTEMPTS_PER_KEY` and lock the key on the spot. An
+      identical call reproduces the first exactly, and a re-run of a blocked
+      generation re-risks the same violation and re-alerts ops for nothing.
+
+    Returns `(analysis, budget_charged)`, where `budget_charged` is exactly
+    how much this write moved `SUM(attempt_count)` — 1 for a success or a
+    retryable failure, the whole remaining key allowance for a lock. The
+    caller subtracts that from its in-flight `fresh_budget`, so the budget it
+    is spending and the budget the NEXT caller recomputes from the SUM are
+    the same quantity (round 1 review finding, blacktomb42 on PR #162: the
+    first draft always decremented by 1, so a lock cost the batch 1 and every
+    later caller 3).
 
     `usage_sink` (round 2 review finding): forwarded straight to `_call_llm`,
     same as Pass 1/Pass 2 already do — without it, L1's per-identifier spend
@@ -291,6 +359,7 @@ def _generate(
     settings = get_settings()
     model = settings.LOW_COST_LLM_MODEL
     prompt = _build_l1_prompt(identifier, facts)
+    this_attempt = attempts_so_far + 1
     try:
         client = _openrouter_client()
         analysis = _call_llm(
@@ -302,10 +371,16 @@ def _generate(
             disable_reasoning=True,
             usage_sink=usage_sink,
         )
-    except Exception:
-        logger.exception("ticker_intel: L1 analysis call failed for %s", identifier)
-        _write_cache(session, identifier, trade_date, model, None, facts)
-        return None
+    except Exception as exc:
+        logger.exception(
+            "ticker_intel: L1 analysis call failed for %s (attempt %d/%d)",
+            identifier,
+            this_attempt,
+            _MAX_ATTEMPTS_PER_KEY,
+        )
+        recorded = this_attempt if is_retryable(exc) else _MAX_ATTEMPTS_PER_KEY
+        _write_cache(session, identifier, trade_date, model, None, facts, recorded)
+        return None, recorded - attempts_so_far
 
     # Strip stray citation/provenance/disclaimer noise before scanning, same
     # as Pass 2's `cleaned = _strip_markers(raw_body)` (report_generator.py) —
@@ -336,11 +411,14 @@ def _generate(
             ),
             idempotency_key=f"ops-l1-blocked-{identifier}-{trade_date}",
         )
-        _write_cache(session, identifier, trade_date, model, None, facts)
-        return None
+        # Locked immediately, not retried: #160's retry budget is for
+        # transport faults, and re-running a generation that already produced
+        # forbidden vocabulary just re-risks it and re-alerts ops.
+        _write_cache(session, identifier, trade_date, model, None, facts, _MAX_ATTEMPTS_PER_KEY)
+        return None, _MAX_ATTEMPTS_PER_KEY - attempts_so_far
 
-    _write_cache(session, identifier, trade_date, model, cleaned, facts)
-    return cleaned
+    _write_cache(session, identifier, trade_date, model, cleaned, facts, this_attempt)
+    return cleaned, this_attempt - attempts_so_far
 
 
 def get_l1_intel_batch(
@@ -351,18 +429,24 @@ def get_l1_intel_batch(
     usage_sink: list[dict[str, Any]] | None = None,
 ) -> dict[str, str]:
     """Read-through cache over `identifiers` (expected ordered by |move|
-    descending — see `l1_identifiers_for_user`). A cache HIT — whether it holds
-    a real analysis or a null "attempted, no result" marker (see
-    TickerIntel's docstring) — never re-calls the LLM: an already-attempted
-    identifier is never retried today, success or not. A cache MISS beyond
-    the day's remaining fresh-analysis budget is simply skipped (that
-    identifier has no L1 intel this run — degrade, don't fail).
+    descending — see `l1_identifiers_for_user`). A cache HIT holding a real
+    analysis never re-calls the LLM. A HIT holding a null "attempted, no
+    result" marker (see TickerIntel's docstring) re-calls only while the key
+    still has attempts left under `_MAX_ATTEMPTS_PER_KEY` — see `_generate`
+    for which failures leave any (issue #160). A cache MISS beyond the day's
+    remaining fresh-analysis budget is simply skipped (that identifier has no
+    L1 intel this run — degrade, don't fail).
 
     `fresh_budget` is decremented on EVERY fresh attempt via `_generate`,
-    regardless of outcome (review round 1 fix): counting only successful
-    writes let a systematically-blocked or -failing identifier bypass the
-    daily cap entirely, since every user in the fan-out would see "not yet
-    attempted" and retry it.
+    regardless of outcome (PR #155 review round 1 fix): counting only
+    successful writes let a systematically-blocked or -failing identifier
+    bypass the daily cap entirely, since every user in the fan-out would see
+    "not yet attempted" and retry it. It is decremented by what `_generate`
+    reports charging, not a flat 1, so the budget spent in this batch and the
+    budget the next caller recomputes from `SUM(attempt_count)` are the same
+    quantity (PR #162 review round 1). The cap can therefore be overshot by
+    at most one key's charge — the charge isn't known until the attempt
+    resolves — which is the same bounded overshoot a flat 1 already had.
 
     `usage_sink` (round 2 review finding): forwarded to every fresh
     `_generate` call — a cache HIT makes no LLM call, so nothing to record.
@@ -393,13 +477,17 @@ def get_l1_intel_batch(
     §4.1 UAT-4 and test_ticker_intel.py's cache-hit tests.
     """
     result: dict[str, str] = {}
-    fresh_budget = max(0, _MAX_L1_ANALYSES_PER_DAY - _count_analyzed_today(session, trade_date))
+    fresh_budget = max(0, _MAX_L1_ANALYSES_PER_DAY - _attempts_today(session, trade_date))
     for identifier in identifiers:
         cached = _fetch_cached(session, identifier, trade_date)
+        attempts_so_far = 0
         if cached is not None:
             if cached.analysis is not None:
                 result[identifier] = cached.analysis
-            continue
+                continue
+            attempts_so_far = cached.attempt_count
+            if attempts_so_far >= _MAX_ATTEMPTS_PER_KEY:
+                continue
         facts = facts_by_identifier.get(identifier)
         if facts is None or facts.day_pct is None:
             continue
@@ -410,8 +498,10 @@ def get_l1_intel_batch(
                 identifier,
             )
             continue
-        analysis = _generate(session, identifier, trade_date, facts, usage_sink)
-        fresh_budget -= 1
+        analysis, charged = _generate(
+            session, identifier, trade_date, facts, usage_sink, attempts_so_far
+        )
+        fresh_budget -= charged
         if analysis is not None:
             result[identifier] = analysis
     return result

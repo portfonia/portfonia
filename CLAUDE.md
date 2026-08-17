@@ -1001,12 +1001,62 @@ instead of on concrete SDK exception types.
   It subclasses `LLMCallError(RuntimeError)`, preserving the pre-existing
   contract that `routers/reports.py` / `holdings_tasks.py` branch on
   `RuntimeError`.
-- **Deliberately NOT extended to `ticker_intel`/`macro_event_intel`** —
-  their `except Exception` writes a null-marker row that suppresses retries
-  for the rest of the trading day, so a transient blip locks a shared cache
-  slot for every user in the fan-out. Real gap, but the fix changes
-  cost/coverage behavior and needs a product call, not a refactor: issue
-  #160.
+- **Extended to `ticker_intel`/`macro_event_intel` by issue #160** — see the
+  section below for what the product call turned out to be.
+
+### Bounded retry for the shared intel caches (issue #160)
+
+L1/L2 wrote a null-analysis marker on EVERY failure, and a marker is final
+for the rest of the `trade_date`. Correct for a failure an identical call
+reproduces; wrong for a transient one — one connection reset during the first
+user's report starved every later user in the same fan-out, and every manual
+re-run that day, of that key's intel. `attempt_count` (migration
+`c5d6e7f8a9b0`, both tables) now bounds attempts by the SYSTEM rather than
+locking on the first failure.
+
+- **`_MAX_ATTEMPTS_PER_KEY = 3`** in both modules (initial + 2 retries), a
+  product decision: whatever reaches these handlers already survived
+  `_call_llm`'s own backoff (up to 30s+90s on a connection fault), so the
+  retry only covers a blip that cleared between two users of one fan-out.
+  Locked by a test in each module; keep the two values in step.
+- **One integer expresses both states, so there is no second "permanent"
+  flag column to drift**: a retryable failure (`llm_errors.is_retryable` —
+  the #55 taxonomy) records `this_attempt`; a non-retryable one (auth, bad
+  request) and a compliance block write `_MAX_ATTEMPTS_PER_KEY` directly and
+  lock the key on the spot. L2 additionally treats unparseable JSON as
+  retryable (the taxonomy's INVALID_JSON — the model is non-deterministic
+  even at temperature 0, and `_parse_l2_response` already spent its free
+  no-new-call second chance on the same text).
+- **The daily caps now count `SUM(attempt_count)`, not rows**
+  (`_attempts_today`, renamed from `_count_analyzed_today`) — otherwise a
+  retried key gets its extra attempts free and the ceiling silently loosens
+  by a factor of 3 on exactly the day it matters. `_generate` therefore
+  returns `(result, budget_charged)` and the batch loop subtracts what was
+  actually charged rather than a flat 1 (PR #162 review round 1): a lock
+  writes 3 to the row, so a flat decrement made the budget the batch was
+  spending and the budget the next caller recomputes from the SUM two
+  different quantities. `attempt_count` is best read as "slots consumed from
+  this key's allowance", not "HTTP calls made" — a lock consumes the whole
+  allowance after one call, which keeps the cap conservative (an upper bound
+  on real spend), never permissive.
+- **`_write_cache` is an upsert, not `on_conflict_do_nothing`** (a retry must
+  raise an existing marker's count, and a retry that succeeds must replace
+  the marker with the real analysis), guarded by `where analysis IS NULL` so
+  a stored analysis can never be overwritten by a later marker.
+- **`_fetch_cached` passes `populate_existing=True`, and that is
+  load-bearing**: the whole fan-out shares ONE Session, and the Core upsert
+  does not refresh an already-identity-mapped instance — without it the third
+  user would re-read the second user's stale row, see one attempt fewer than
+  really happened, and keep attempting past the cap. Both modules' cap tests
+  drive several callers through a single session for this reason; do not
+  "simplify" them into separate sessions.
+- **What this deliberately does NOT fix**: there is one scheduled report
+  batch per `trade_date` (Mon/Wed/Fri 17:00 ET) and it runs for minutes, so
+  an outage longer than the batch loses that day's L1/L2 regardless. Covering
+  that needs a delayed re-attempt plus report re-render, which is A4-adjacent
+  work, not this mechanism. Note also that as of A3 neither cache feeds Pass
+  2 at all (`report_inputs` only), so today a miss costs no report content —
+  that changes when A4 lands.
 
 ### Reliability mechanisms (window/dedup/LLM-call correctness)
 

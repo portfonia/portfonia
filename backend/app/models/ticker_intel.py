@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import Date, Text, UniqueConstraint, func, text
+from sqlalchemy import Date, Integer, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -38,6 +38,19 @@ class TickerIntel(Base):
     row at all, so every user in a multi-user fan-out re-attempted (and
     re-risked) the exact same call for that identifier — the daily analysis
     cap counted only successful writes, making it trivially bypassable.
+
+    `attempt_count` (issue #160) is how many times the SYSTEM — not each
+    user — has attempted this key today; a marker row is final only once it
+    reaches `ticker_intel._MAX_ATTEMPTS_PER_KEY`. The marker above was
+    written on EVERY failure, so a single transient blip (a connection reset,
+    a provider 5xx) during the first user's report silently starved every
+    later user in the fan-out of that identifier's intel for the whole
+    trading day. A failure the taxonomy calls retryable
+    (`llm_errors.is_retryable`) now leaves budget for a later caller;
+    a non-retryable one and a compliance block still lock the key on the
+    spot by writing the cap value directly — one integer expresses both
+    states, so no separate "permanent" flag column exists to drift out of
+    sync with it.
     """
 
     __tablename__ = "ticker_intel"
@@ -60,6 +73,7 @@ class TickerIntel(Base):
     prompt_version: Mapped[str] = mapped_column(Text, nullable=False)
     model: Mapped[str] = mapped_column(Text, nullable=False)
     analysis: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
     facts: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False

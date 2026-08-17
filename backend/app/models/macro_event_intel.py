@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import Date, Text, UniqueConstraint, func, text
+from sqlalchemy import Date, Integer, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -31,7 +31,17 @@ class MacroEventIntel(Base):
     NULL row is an "attempted, no usable result" marker, written when the
     LLM call failed, its JSON could not be parsed, or the compliance scan
     blocked the output — so a systematically failing/blocked event is
-    attempted at most once per day rather than once per user in the fan-out.
+    attempted a bounded number of times per day rather than once per user in
+    the fan-out.
+
+    `attempt_count` (issue #160) carries exactly the semantics documented on
+    `TickerIntel.attempt_count`: attempts by the system as a whole, with the
+    marker becoming final only at `macro_event_intel._MAX_ATTEMPTS_PER_KEY`,
+    so a transient blip does not cost every later user in the fan-out this
+    event's intel for the rest of the trading day. Unparseable JSON counts
+    as retryable here (the taxonomy's INVALID_JSON) — the model is
+    non-deterministic even at temperature 0, so an identical call is the
+    primary remedy.
 
     `affected_asset_classes` / `affected_sectors` hold the STRUCTURED half of
     the inference, already filtered to the closed taxonomies
@@ -73,6 +83,7 @@ class MacroEventIntel(Base):
     prompt_version: Mapped[str] = mapped_column(Text, nullable=False)
     model: Mapped[str] = mapped_column(Text, nullable=False)
     analysis: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
     affected_asset_classes: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
     affected_sectors: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
     facts: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
