@@ -133,6 +133,18 @@ never-happened commit — but the UX read as "upload failed").
   `Content-Length` fast-reject before reading any body, then a chunked
   read (64 KiB) that aborts once the running total crosses the cap —
   never materializes an oversized body fully into memory first.
+- **Extracted-text size cap** (`_MAX_TEXT_BYTES` in `holdings.py`, 100 KiB,
+  issue #54/PR #158): `_MAX_UPLOAD_BYTES` only bounds the raw uploaded
+  file — a high text-to-byte-ratio file (e.g. an `.xlsx`/`.xls` that
+  unpacks into a much larger CSV) could still extract to far more text
+  than any real holdings file, with nothing bounding what actually
+  reached the LLM or got persisted to `UploadJob.raw_text`. Checked via
+  `len(text.encode("utf-8"))` right after `_extract_text()`, before
+  persist/enqueue — 422 on overage, matching this endpoint's existing
+  convention. Byte-based (not `len(text)`) deliberately, since this
+  product's mainland broker/fund exports are often CJK — a char-count
+  check would accept a payload well over the real byte budget; locked by
+  a CJK-content regression test, not just the ASCII off-by-one pair.
 - **Known accepted gap**: no retention/cleanup for successful `preview`
   JSONB rows (Ring 0, small row count — revisit before Ring 1).
 
