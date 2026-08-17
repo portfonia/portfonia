@@ -227,10 +227,12 @@ def _build_l1_prompt(identifier: str, facts: L1Facts) -> str:
 
 def _fetch_cached(session: Session, identifier: str, trade_date: date) -> TickerIntel | None:
     """Returns the full row, not just `.analysis` — a row can exist with
-    `analysis IS NULL` (an "attempted, no usable result" marker; see
-    TickerIntel's docstring), and the caller must be able to tell "never
-    attempted today" (no row) apart from "attempted today, nothing to serve"
-    (row present, analysis None) to avoid re-attempting the latter.
+    `analysis IS NULL` (an "attempted, nothing to serve" marker; see
+    TickerIntel's docstring). The caller needs the whole row because the
+    decision is three-way, not two-way: no row = never attempted today;
+    marker with `attempt_count < _MAX_ATTEMPTS_PER_KEY` = attempted, nothing
+    to serve, but attempts remain (retry); marker at the cap = final for
+    today (skip).
 
     `populate_existing=True` is load-bearing since #160, not tidiness: the
     whole fan-out shares ONE Session (`generate_incremental_report` opens it
@@ -317,7 +319,7 @@ def _generate(
     facts: L1Facts,
     usage_sink: list[dict[str, Any]] | None = None,
     attempts_so_far: int = 0,
-) -> str | None:
+) -> tuple[str | None, int]:
     """Call the LLM, gate the output through the compliance scan, and ALWAYS
     write a row — either the real analysis, or (on an LLM failure or a
     compliance block) a null-analysis marker row, so a systematically
@@ -339,6 +341,15 @@ def _generate(
       scan: write `_MAX_ATTEMPTS_PER_KEY` and lock the key on the spot. An
       identical call reproduces the first exactly, and a re-run of a blocked
       generation re-risks the same violation and re-alerts ops for nothing.
+
+    Returns `(analysis, budget_charged)`, where `budget_charged` is exactly
+    how much this write moved `SUM(attempt_count)` — 1 for a success or a
+    retryable failure, the whole remaining key allowance for a lock. The
+    caller subtracts that from its in-flight `fresh_budget`, so the budget it
+    is spending and the budget the NEXT caller recomputes from the SUM are
+    the same quantity (round 1 review finding, blacktomb42 on PR #162: the
+    first draft always decremented by 1, so a lock cost the batch 1 and every
+    later caller 3).
 
     `usage_sink` (round 2 review finding): forwarded straight to `_call_llm`,
     same as Pass 1/Pass 2 already do — without it, L1's per-identifier spend
@@ -369,7 +380,7 @@ def _generate(
         )
         recorded = this_attempt if is_retryable(exc) else _MAX_ATTEMPTS_PER_KEY
         _write_cache(session, identifier, trade_date, model, None, facts, recorded)
-        return None
+        return None, recorded - attempts_so_far
 
     # Strip stray citation/provenance/disclaimer noise before scanning, same
     # as Pass 2's `cleaned = _strip_markers(raw_body)` (report_generator.py) —
@@ -404,10 +415,10 @@ def _generate(
         # transport faults, and re-running a generation that already produced
         # forbidden vocabulary just re-risks it and re-alerts ops.
         _write_cache(session, identifier, trade_date, model, None, facts, _MAX_ATTEMPTS_PER_KEY)
-        return None
+        return None, _MAX_ATTEMPTS_PER_KEY - attempts_so_far
 
     _write_cache(session, identifier, trade_date, model, cleaned, facts, this_attempt)
-    return cleaned
+    return cleaned, this_attempt - attempts_so_far
 
 
 def get_l1_intel_batch(
@@ -427,10 +438,15 @@ def get_l1_intel_batch(
     L1 intel this run — degrade, don't fail).
 
     `fresh_budget` is decremented on EVERY fresh attempt via `_generate`,
-    regardless of outcome (review round 1 fix): counting only successful
-    writes let a systematically-blocked or -failing identifier bypass the
-    daily cap entirely, since every user in the fan-out would see "not yet
-    attempted" and retry it.
+    regardless of outcome (PR #155 review round 1 fix): counting only
+    successful writes let a systematically-blocked or -failing identifier
+    bypass the daily cap entirely, since every user in the fan-out would see
+    "not yet attempted" and retry it. It is decremented by what `_generate`
+    reports charging, not a flat 1, so the budget spent in this batch and the
+    budget the next caller recomputes from `SUM(attempt_count)` are the same
+    quantity (PR #162 review round 1). The cap can therefore be overshot by
+    at most one key's charge — the charge isn't known until the attempt
+    resolves — which is the same bounded overshoot a flat 1 already had.
 
     `usage_sink` (round 2 review finding): forwarded to every fresh
     `_generate` call — a cache HIT makes no LLM call, so nothing to record.
@@ -482,8 +498,10 @@ def get_l1_intel_batch(
                 identifier,
             )
             continue
-        analysis = _generate(session, identifier, trade_date, facts, usage_sink, attempts_so_far)
-        fresh_budget -= 1
+        analysis, charged = _generate(
+            session, identifier, trade_date, facts, usage_sink, attempts_so_far
+        )
+        fresh_budget -= charged
         if analysis is not None:
             result[identifier] = analysis
     return result

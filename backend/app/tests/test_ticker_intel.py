@@ -544,6 +544,39 @@ def test_compliance_block_locks_the_key_immediately(db_session: Session) -> None
     assert row.attempt_count == ti._MAX_ATTEMPTS_PER_KEY
 
 
+def test_a_lock_charges_the_daily_budget_what_it_writes(db_session: Session) -> None:
+    """Review round 1 (blacktomb42, PR #162): a permanent lock writes
+    `attempt_count = _MAX_ATTEMPTS_PER_KEY` while the in-batch loop used to
+    decrement `fresh_budget` by 1, so the two halves of the same cap
+    disagreed — the first caller in a batch could spend a full 1-per-call
+    budget, while every later caller (reading `SUM(attempt_count)`) saw three
+    slots gone per lock. The invariant is that the in-batch decrement equals
+    the change this write makes to the SUM."""
+
+    def _bad_llm(*args: object, **kwargs: object) -> str:
+        return "You should buy NVDA now."
+
+    identifiers = ["NVDA", "AAPL", "MSFT", "GOOG", "AMZN"]
+    with (
+        patch("app.services.ticker_intel._MAX_L1_ANALYSES_PER_DAY", 4),
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_bad_llm) as mock_call,
+        patch("app.services.ticker_intel.send_ops_alert"),
+    ):
+        assert (
+            ti.get_l1_intel_batch(
+                db_session, identifiers, _DATE, {i: _facts() for i in identifiers}
+            )
+            == {}
+        )
+
+    # Each lock charges 3, so a budget of 4 buys two attempts, not four.
+    # (Overshooting the cap by at most one key's charge is inherent: the
+    # charge isn't known until the attempt resolves.)
+    assert mock_call.call_count == 2
+    assert ti._attempts_today(db_session, _DATE) == 2 * ti._MAX_ATTEMPTS_PER_KEY
+
+
 def test_retry_attempts_count_against_the_daily_budget(db_session: Session) -> None:
     """The daily cap counts ATTEMPTS, not rows: a retried key must not get
     its extra attempts for free, or the cap silently loosens by a factor of

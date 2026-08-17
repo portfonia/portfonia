@@ -1030,7 +1030,15 @@ locking on the first failure.
 - **The daily caps now count `SUM(attempt_count)`, not rows**
   (`_attempts_today`, renamed from `_count_analyzed_today`) — otherwise a
   retried key gets its extra attempts free and the ceiling silently loosens
-  by a factor of 3 on exactly the day it matters.
+  by a factor of 3 on exactly the day it matters. `_generate` therefore
+  returns `(result, budget_charged)` and the batch loop subtracts what was
+  actually charged rather than a flat 1 (PR #162 review round 1): a lock
+  writes 3 to the row, so a flat decrement made the budget the batch was
+  spending and the budget the next caller recomputes from the SUM two
+  different quantities. `attempt_count` is best read as "slots consumed from
+  this key's allowance", not "HTTP calls made" — a lock consumes the whole
+  allowance after one call, which keeps the cap conservative (an upper bound
+  on real spend), never permissive.
 - **`_write_cache` is an upsert, not `on_conflict_do_nothing`** (a retry must
   raise an existing marker's count, and a retry that succeeds must replace
   the marker with the real analysis), guarded by `where analysis IS NULL` so

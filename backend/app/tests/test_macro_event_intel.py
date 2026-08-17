@@ -571,6 +571,32 @@ def test_non_retryable_failure_locks_the_key_immediately(db_session: Session) ->
     mock_call.assert_called_once()
 
 
+def test_a_lock_charges_the_daily_budget_what_it_writes(db_session: Session) -> None:
+    """Round-1 review finding (blacktomb42, PR #162) — see the same-named
+    test in test_ticker_intel.py: the in-batch decrement must equal the
+    change the write makes to `SUM(attempt_count)`, or the first caller in a
+    batch and every later one disagree about how much of the cap is left."""
+    _seed_day_news(db_session)
+    facts_one = l2.build_l2_facts(db_session, ["theme:货币政策"], _DATE)["theme:货币政策"]
+    keys = [f"theme:t{n}" for n in range(5)]
+    facts = dict.fromkeys(keys, facts_one)
+
+    def _advisory(*args: object, **kwargs: object) -> str:
+        return _llm_json(analysis="You should buy equities now.")
+
+    client_patch, call_patch = _patched_llm(_advisory)
+    with (
+        patch("app.services.macro_event_intel._MAX_L2_THEME_ANALYSES_PER_DAY", 4),
+        client_patch,
+        call_patch as mock_call,
+        patch("app.services.macro_event_intel.send_ops_alert"),
+    ):
+        assert l2.get_l2_intel_batch(db_session, keys, _DATE, facts) == {}
+
+    assert mock_call.call_count == 2
+    assert l2._attempts_today(db_session, _DATE, l2._THEME_PREFIX) == 2 * l2._MAX_ATTEMPTS_PER_KEY
+
+
 def test_retry_attempts_count_against_the_daily_budget(db_session: Session) -> None:
     """The per-kind daily cap counts ATTEMPTS, not rows."""
     _seed_day_news(db_session)

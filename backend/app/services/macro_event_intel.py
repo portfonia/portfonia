@@ -445,9 +445,11 @@ def build_l2_facts(session: Session, event_keys: list[str], trade_date: date) ->
 
 def _fetch_cached(session: Session, event_key: str, trade_date: date) -> MacroEventIntel | None:
     """Returns the whole row: a row with `analysis IS NULL` is an "attempted,
-    nothing servable" marker, and the caller must distinguish it from "never
-    attempted today" (no row) so a failing event is not retried by every
-    user in the fan-out.
+    nothing servable" marker. The caller needs the whole row because the
+    decision is three-way (same as `ticker_intel._fetch_cached`): no row =
+    never attempted today; marker below `_MAX_ATTEMPTS_PER_KEY` = attempts
+    remain, retry; marker at the cap = final for today, so a failing event is
+    never retried once per user in the fan-out.
 
     `populate_existing=True` for the reason spelled out in
     `ticker_intel._fetch_cached`: the whole fan-out shares one Session, and
@@ -531,7 +533,7 @@ def _generate(
     facts: L2Facts,
     usage_sink: list[dict[str, Any]] | None = None,
     attempts_so_far: int = 0,
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any] | None, int]:
     """Infer, validate, compliance-gate, and ALWAYS write a row — the real
     result, or a null-analysis marker on any failure mode (API error,
     unparseable output, compliance block). Returns None on all of those, and
@@ -554,6 +556,11 @@ def _generate(
       free (no-new-call) second chance on the same text before giving up.
     - Not retryable, or blocked by the compliance scan: write
       `_MAX_ATTEMPTS_PER_KEY` and lock the key immediately.
+
+    Returns `(intel, budget_charged)` with `budget_charged` equal to how much
+    this write moved `SUM(attempt_count)`, for the reason spelled out in
+    `ticker_intel._generate`: the batch must spend the cap in the same unit
+    the next caller reads it back in (PR #162 review round 1).
     """
     settings = get_settings()
     model = settings.LOW_COST_LLM_MODEL
@@ -579,12 +586,12 @@ def _generate(
         )
         recorded = this_attempt if is_retryable(exc) else _MAX_ATTEMPTS_PER_KEY
         _write_cache(session, event_key, trade_date, model, None, [], [], facts, recorded)
-        return None
+        return None, recorded - attempts_so_far
 
     parsed = _parse_l2_response(event_key, raw)
     if parsed is None:
         _write_cache(session, event_key, trade_date, model, None, [], [], facts, this_attempt)
-        return None
+        return None, this_attempt - attempts_so_far
     analysis, classes, sectors = parsed
 
     # Strip stray citation/provenance/disclaimer noise BEFORE scanning, same
@@ -620,7 +627,7 @@ def _generate(
         _write_cache(
             session, event_key, trade_date, model, None, [], [], facts, _MAX_ATTEMPTS_PER_KEY
         )
-        return None
+        return None, _MAX_ATTEMPTS_PER_KEY - attempts_so_far
 
     _write_cache(
         session, event_key, trade_date, model, cleaned, classes, sectors, facts, this_attempt
@@ -629,7 +636,7 @@ def _generate(
         "analysis": cleaned,
         "affected_asset_classes": classes,
         "affected_sectors": sectors,
-    }
+    }, this_attempt - attempts_so_far
 
 
 def get_l2_intel_batch(
@@ -697,8 +704,10 @@ def get_l2_intel_batch(
                 event_key,
             )
             continue
-        intel = _generate(session, event_key, trade_date, facts, usage_sink, attempts_so_far)
-        fresh_budget[kind] -= 1
+        intel, charged = _generate(
+            session, event_key, trade_date, facts, usage_sink, attempts_so_far
+        )
+        fresh_budget[kind] -= charged
         if intel is not None:
             result[event_key] = intel
     return result
