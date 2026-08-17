@@ -55,10 +55,10 @@ _MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 _UPLOAD_READ_CHUNK_BYTES = 64 * 1024
 
 # _MAX_UPLOAD_BYTES bounds the raw file only. A high text-to-byte-ratio file
-# (e.g. a compressed PDF/docx, or an .xlsx that unpacks into a large CSV) can
-# still extract to far more text than any real holdings file — same "a few
-# dozen to a few thousand rows" headroom logic as _MAX_UPLOAD_BYTES above,
-# applied to the extracted text that actually reaches the LLM (issue #54).
+# (e.g. an .xlsx/.xls that unpacks into a much larger CSV) can still extract
+# to far more text than any real holdings file — same "a few dozen to a few
+# thousand rows" headroom logic as _MAX_UPLOAD_BYTES above, applied to the
+# extracted text that actually reaches the LLM (issue #54).
 _MAX_TEXT_BYTES = 100 * 1024
 
 

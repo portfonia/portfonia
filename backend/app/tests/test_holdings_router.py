@@ -115,22 +115,58 @@ def test_upload_rejects_oversized_file(app_client: TestClient) -> None:
     assert "too large" in resp.json()["detail"].lower()
 
 
-def test_upload_rejects_oversized_extracted_text(app_client: TestClient) -> None:
+def test_upload_rejects_oversized_extracted_text(
+    app_client: TestClient, db_session: Session
+) -> None:
     """Issue #54: the 5 MiB raw-byte cap only bounds the uploaded file, not
     what it extracts to. A plain-text file well under _MAX_UPLOAD_BYTES can
     still extract to more text than any real holdings file would ever
     contain — reject before it's persisted to UploadJob.raw_text or shipped
-    to the LLM."""
+    to the LLM.
+
+    PR #158 review: the 422 alone doesn't prove nothing leaked — assert the
+    row was never written and the parse task never enqueued, the same
+    property the enqueue-failure test above already guards for its own
+    failure path."""
     from app.routers import holdings as holdings_router
 
     assert holdings_router._MAX_TEXT_BYTES < holdings_router._MAX_UPLOAD_BYTES
     oversized_text = b"a" * (holdings_router._MAX_TEXT_BYTES + 1)
-    resp = app_client.post(
-        "/holdings/upload",
-        files={"file": ("holdings.txt", oversized_text, "text/plain")},
-    )
+    with patch("app.routers.holdings.parse_holdings_upload") as mock_task:
+        resp = app_client.post(
+            "/holdings/upload",
+            files={"file": ("holdings.txt", oversized_text, "text/plain")},
+        )
     assert resp.status_code == 422
     assert "too large" in resp.json()["detail"].lower()
+    mock_task.delay.assert_not_called()
+    assert db_session.query(UploadJob).count() == 0
+
+
+def test_upload_rejects_oversized_extracted_text_multibyte(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """PR #158 review: the cap is byte-based (``len(text.encode("utf-8"))``),
+    which is the right unit for the LLM/DB payload — this product's broker
+    exports are often CJK. A body whose character count is under the cap but
+    whose UTF-8 byte count is over it must still be rejected; this guards
+    against a future "simplification" to ``len(text)`` (char count), which
+    the ASCII-only cases above wouldn't catch."""
+    from app.routers import holdings as holdings_router
+
+    char_count = holdings_router._MAX_TEXT_BYTES // 3 + 1
+    oversized_text = ("中" * char_count).encode("utf-8")
+    assert char_count < holdings_router._MAX_TEXT_BYTES
+    assert len(oversized_text) > holdings_router._MAX_TEXT_BYTES
+    with patch("app.routers.holdings.parse_holdings_upload") as mock_task:
+        resp = app_client.post(
+            "/holdings/upload",
+            files={"file": ("holdings.txt", oversized_text, "text/plain")},
+        )
+    assert resp.status_code == 422
+    assert "too large" in resp.json()["detail"].lower()
+    mock_task.delay.assert_not_called()
+    assert db_session.query(UploadJob).count() == 0
 
 
 def test_upload_accepts_text_at_the_cap(app_client: TestClient) -> None:
