@@ -54,6 +54,13 @@ _MIN_BARS_FOR_TECHNICAL = 50
 _MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 _UPLOAD_READ_CHUNK_BYTES = 64 * 1024
 
+# _MAX_UPLOAD_BYTES bounds the raw file only. A high text-to-byte-ratio file
+# (e.g. an .xlsx/.xls that unpacks into a much larger CSV) can still extract
+# to far more text than any real holdings file — same "a few dozen to a few
+# thousand rows" headroom logic as _MAX_UPLOAD_BYTES above, applied to the
+# extracted text that actually reaches the LLM (issue #54).
+_MAX_TEXT_BYTES = 100 * 1024
+
 
 def _tickers_with_sparse_history(session: Session) -> list[str]:
     """Return tickers that are auto-priced with a ticker but have < _MIN_BARS_FOR_TECHNICAL
@@ -139,6 +146,11 @@ async def upload_holdings(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
+    if len(text.encode("utf-8")) > _MAX_TEXT_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Extracted text too large — max {_MAX_TEXT_BYTES} bytes.",
+        )
 
     # raw_text is cleared by the Celery task once the parse attempt finishes
     # (success or failure) — the task takes job_id only, never the text
