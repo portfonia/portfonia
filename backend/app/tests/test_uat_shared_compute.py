@@ -1,0 +1,349 @@
+"""Tests for the one-shot §7.3 production UAT script (issue #128).
+
+The script itself talks to a live container; these tests lock the invariants
+that must hold before that happens: fixture shape, fan-out wiring, email
+hard-off, SELECT-before-delete cleanup, and no writes to the shared cache
+tables.
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import UTC, datetime
+from decimal import Decimal
+from typing import Any
+from unittest.mock import MagicMock, patch
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.core.config import get_settings
+from app.models.holding import Holding
+from app.models.news_surfaced import NewsSurfaced
+from app.models.report import Report
+from app.scripts import uat_shared_compute as uat
+from app.services.window_data import BOOTSTRAP_WATERMARK, user_watermark
+from app.tests.conftest import TEST_USER_ID, U1_USER_ID, U2_USER_ID, U3_USER_ID
+
+
+def test_synthetic_ids_are_distinct_from_the_pytest_fixture() -> None:
+    """Production UAT must not reuse the a1/a2/a3 pytest fixture ids."""
+    assert uat.U1_USER_ID != U1_USER_ID
+    assert uat.U2_USER_ID != U2_USER_ID
+    assert uat.U3_USER_ID != U3_USER_ID
+    assert uat.UAT_USER_IDS == (uat.U1_USER_ID, uat.U2_USER_ID, uat.U3_USER_ID)
+    assert str(uat.U1_USER_ID).endswith("b1")
+    assert str(uat.U2_USER_ID).endswith("b2")
+    assert str(uat.U3_USER_ID).endswith("b3")
+
+
+def test_seed_holdings_matches_design_doc_section_7_1(db_session: Session) -> None:
+    uat.seed_holdings(db_session)
+    db_session.flush()
+
+    rows = list(db_session.execute(select(Holding)).scalars())
+    by_user: dict[uuid.UUID, list[Holding]] = {}
+    for row in rows:
+        by_user.setdefault(row.user_id, []).append(row)
+
+    assert set(by_user) == set(uat.UAT_USER_IDS)
+
+    u1 = {(h.ticker, h.fund_code, h.asset_class, h.pricing_mode) for h in by_user[uat.U1_USER_ID]}
+    assert (
+        ("NVDA", None, "EQUITY_US_TECH", "auto") in u1
+        and ("AAPL", None, "STOCK", "auto") in u1
+        and ("QQQM", None, "EQUITY_US_BROAD", "auto") in u1
+        and (None, "110011", "EQUITY_CN", "auto") in u1
+    )
+    cash = [h for h in by_user[uat.U1_USER_ID] if h.pricing_mode == "manual"]
+    assert len(cash) == 1
+    assert cash[0].ticker is None and cash[0].fund_code is None
+    assert cash[0].current_value is not None and cash[0].current_value > 0
+    assert cash[0].asset_class == "CASH_EQUIV"
+
+    u2 = {(h.ticker, h.asset_class, h.currency) for h in by_user[uat.U2_USER_ID]}
+    assert ("NVDA", "EQUITY_US_TECH", "USD") in u2
+    assert ("AAPL", "EQUITY_US_TECH", "USD") in u2
+    assert ("0700.HK", "EQUITY_CN", "HKD") in u2
+    u2_cash = [h for h in by_user[uat.U2_USER_ID] if h.pricing_mode == "manual"]
+    assert len(u2_cash) == 1
+    assert u2_cash[0].currency == "USD"
+
+    u3_tickers = {h.ticker or h.fund_code for h in by_user[uat.U3_USER_ID]}
+    assert u3_tickers == {"513650.SS", "019547", "SGOL"}
+
+    # Auto-priced rows must have shares so compute_portfolio can value them.
+    auto = [h for h in rows if h.pricing_mode == "auto"]
+    assert auto and all(h.shares is not None and h.shares > 0 for h in auto)
+
+
+def test_same_ticker_different_asset_class_on_u1_and_u2(db_session: Session) -> None:
+    """Design doc §7.1 extra requirement: threshold judgment stays per-user."""
+    uat.seed_holdings(db_session)
+    db_session.flush()
+    aapl = [h for h in db_session.execute(select(Holding)).scalars() if h.ticker == "AAPL"]
+    classes = {h.user_id: h.asset_class for h in aapl}
+    assert classes[uat.U1_USER_ID] != classes[uat.U2_USER_ID]
+
+
+def test_classify_llm_calls_splits_by_pipeline_order() -> None:
+    cheap = "~deepseek/deepseek-v4-flash-latest"
+    mid = "deepseek/deepseek-v4-pro"
+    primary = "deepseek/deepseek-v4-pro"
+    # When mid == primary the shadow mid call is still the last one; the
+    # classifier keys off position, not just the model name.
+    calls = [
+        {"model": cheap, "prompt_tokens": 100, "completion_tokens": 10, "cost": 0},
+        {"model": cheap, "prompt_tokens": 200, "completion_tokens": 20, "cost": 0.001},
+        {"model": primary, "prompt_tokens": 7000, "completion_tokens": 3000, "cost": 0.01},
+        {"model": cheap, "prompt_tokens": 500, "completion_tokens": 400, "cost": 0.002},
+        {"model": mid, "prompt_tokens": 500, "completion_tokens": 400, "cost": 0.005},
+    ]
+    split = uat.classify_llm_calls(calls, primary=primary, cheap=cheap, mid=mid)
+    assert [c["model"] for c in split["pass1"]] == [cheap]
+    assert [c["model"] for c in split["shared_intel"]] == [cheap]
+    assert [c["model"] for c in split["pass2"]] == [primary]
+    assert [c["model"] for c in split["shadow_cheap"]] == [cheap]
+    assert [c["model"] for c in split["shadow_mid"]] == [mid]
+
+
+def test_leak_check_flags_a_foreign_holding() -> None:
+    reports = {
+        uat.U1_USER_ID: {
+            "report_md": "NVDA moved. QQQM held.",
+            "report_inputs": {"portfolio_summary": {"holdings": [{"ticker": "NVDA"}]}},
+        },
+        uat.U3_USER_ID: {
+            "report_md": "SGOL and also NVDA leaked in.",
+            "report_inputs": {"portfolio_summary": {"holdings": [{"ticker": "SGOL"}]}},
+        },
+    }
+    leaks = uat.find_cross_user_leaks(reports)
+    assert any("NVDA" in item for item in leaks)
+    assert not any("SGOL" in item and "U1" in item for item in leaks)
+
+
+def test_leak_check_passes_when_exclusive_holdings_stay_put() -> None:
+    reports = {
+        uat.U1_USER_ID: {
+            "report_md": "NVDA and QQQM and 110011",
+            "report_inputs": {"holdings": [{"ticker": "NVDA"}, {"ticker": "QQQM"}]},
+        },
+        uat.U2_USER_ID: {
+            "report_md": "NVDA and 0700.HK",
+            "report_inputs": {"holdings": [{"ticker": "0700.HK"}]},
+        },
+        uat.U3_USER_ID: {
+            "report_md": "SGOL and 019547 and 513650.SS",
+            "report_inputs": {"holdings": [{"ticker": "SGOL"}]},
+        },
+    }
+    assert uat.find_cross_user_leaks(reports) == []
+
+
+def _holding_count(session: Session, user_id: uuid.UUID) -> int:
+    return len(list(session.execute(select(Holding).where(Holding.user_id == user_id)).scalars()))
+
+
+def test_cleanup_deletes_only_the_three_synthetic_users(db_session: Session) -> None:
+    uat.seed_holdings(db_session)
+    db_session.add(
+        Holding(
+            user_id=TEST_USER_ID,
+            name="Real User VOO",
+            ticker="VOO",
+            pricing_mode="auto",
+            currency="USD",
+            asset_class="EQUITY_US_BROAD",
+            shares=Decimal("5"),
+        )
+    )
+    seed = Report(
+        user_id=uat.U1_USER_ID,
+        report_date=datetime(2026, 8, 14, tzinfo=UTC).date(),
+        report_type="incremental",
+        session_node="uat_watermark",
+        status="success",
+        report_md="seed",
+        period_start=datetime(2026, 8, 14, tzinfo=UTC),
+        period_end=datetime(2026, 8, 14, tzinfo=UTC),
+    )
+    db_session.add(seed)
+    db_session.flush()
+    db_session.add(
+        NewsSurfaced(
+            user_id=uat.U1_USER_ID,
+            news_id=uuid.uuid4(),
+            report_id=seed.id,
+        )
+    )
+    real_report = Report(
+        user_id=TEST_USER_ID,
+        report_date=datetime(2026, 8, 14, tzinfo=UTC).date(),
+        report_type="incremental",
+        session_node="after_close",
+        status="success",
+        report_md="keep me",
+        period_start=datetime(2026, 8, 14, tzinfo=UTC),
+        period_end=datetime(2026, 8, 14, tzinfo=UTC),
+    )
+    db_session.add(real_report)
+    db_session.flush()
+
+    deleted = uat.cleanup_synthetic_rows(db_session)
+    db_session.flush()
+
+    assert deleted["holdings"] == 12
+    assert deleted["reports"] == 1
+    assert deleted["news_surfaced"] == 1
+    assert _holding_count(db_session, TEST_USER_ID) == 1
+    assert (
+        db_session.execute(select(Report).where(Report.user_id == TEST_USER_ID))
+        .scalar_one()
+        .report_md
+        == "keep me"
+    )
+    leftover = list(
+        db_session.execute(select(Holding).where(Holding.user_id.in_(uat.UAT_USER_IDS))).scalars()
+    )
+    assert leftover == []
+
+
+def test_cleanup_refuses_when_a_row_is_not_a_synthetic_user(db_session: Session) -> None:
+    """Defense against a SELECT/DELETE mismatch — never delete first."""
+    db_session.add(
+        Holding(
+            user_id=TEST_USER_ID,
+            name="should not be deletable via this path",
+            ticker="VOO",
+            pricing_mode="auto",
+            currency="USD",
+            asset_class="EQUITY_US_BROAD",
+            shares=Decimal("1"),
+        )
+    )
+    db_session.flush()
+    try:
+        uat.cleanup_synthetic_rows(
+            db_session,
+            holding_ids_override=[
+                db_session.execute(select(Holding.id)).scalar_one(),
+            ],
+        )
+    except uat.CleanupGuardError as exc:
+        assert "not a synthetic" in str(exc).lower() or "user_id" in str(exc).lower()
+    else:
+        raise AssertionError("cleanup must refuse a non-synthetic row")
+    assert _holding_count(db_session, TEST_USER_ID) == 1
+
+
+def test_run_batch_wires_fan_out_like_the_celery_task(db_session: Session) -> None:
+    uat.seed_holdings(db_session)
+    db_session.flush()
+
+    seen: list[dict[str, Any]] = []
+
+    def _fake_generate(session: Session, **kwargs: Any) -> MagicMock:
+        seen.append(kwargs)
+        report = MagicMock()
+        report.id = uuid.uuid4()
+        report.status = "success"
+        report.user_id = kwargs["user_id"]
+        report.report_md = "ok"
+        report.report_inputs = {"llm_calls": [], "assembly_shadow": {}}
+        return report
+
+    batch_now = datetime(2026, 8, 17, 20, 0, tzinfo=UTC)
+    # The task module is deliberately not imported: calling
+    # generate_incremental_report.run() would fan out to every real user.
+    assert not hasattr(uat, "generate_incremental_report")
+    with patch("app.scripts.uat_shared_compute.generate_report", side_effect=_fake_generate):
+        reports = uat.run_synthetic_batch(db_session, now=batch_now)
+    assert len(seen) == 3
+    assert [c["user_id"] for c in seen] == list(uat.UAT_USER_IDS)
+    assert all(c["session_node"] == "manual" for c in seen)
+    assert all(c["now"] is batch_now for c in seen)
+    assert [c["users_remaining"] for c in seen] == [3, 2, 1]
+    cache = seen[0]["moves_cache"]
+    assert seen[1]["moves_cache"] is cache
+    assert seen[2]["moves_cache"] is cache
+    assert set(reports) == set(uat.UAT_USER_IDS)
+
+
+def test_install_email_guards_replaces_send_report_email() -> None:
+    sent: list[str] = []
+
+    def _real(_report: object, _session: object) -> bool:
+        sent.append("sent")
+        return True
+
+    with patch("app.services.report_generator.send_report_email", _real):
+        restore = uat.install_email_guards()
+        try:
+            import app.services.report_generator as rg
+
+            patched = vars(rg)["send_report_email"]
+            assert patched(MagicMock(), MagicMock()) is True
+            assert sent == []
+        finally:
+            restore()
+
+
+def test_window_alignment_copies_real_watermark_and_news_ledger(
+    db_session: Session,
+) -> None:
+    """Cold-start synthetic users would otherwise see the entire news table."""
+    settings = get_settings()
+    real_end = datetime(2026, 8, 14, 21, 0, tzinfo=UTC)
+    real_report = Report(
+        user_id=uuid.UUID(settings.DEV_USER_ID),
+        report_date=real_end.date(),
+        report_type="incremental",
+        session_node="after_close",
+        status="success",
+        period_start=datetime(2026, 8, 12, 21, 0, tzinfo=UTC),
+        period_end=real_end,
+    )
+    db_session.add(real_report)
+    db_session.flush()
+    news_id = uuid.uuid4()
+    db_session.add(
+        NewsSurfaced(user_id=real_report.user_id, news_id=news_id, report_id=real_report.id)
+    )
+    db_session.flush()
+
+    result = uat.seed_window_alignment(db_session)
+    db_session.flush()
+
+    assert result["aligned"] is True
+    assert result["copied_news"] == 3
+    for uid in uat.UAT_USER_IDS:
+        assert user_watermark(db_session, uid, "incremental") == real_end
+        assert user_watermark(db_session, uid, "incremental") != BOOTSTRAP_WATERMARK
+        marks = list(
+            db_session.execute(select(NewsSurfaced).where(NewsSurfaced.user_id == uid)).scalars()
+        )
+        assert {m.news_id for m in marks} == {news_id}
+    real_marks = list(
+        db_session.execute(
+            select(NewsSurfaced).where(NewsSurfaced.user_id == real_report.user_id)
+        ).scalars()
+    )
+    assert len(real_marks) == 1
+
+
+def test_apply_runtime_settings_does_not_enable_shared_compute() -> None:
+    settings = MagicMock()
+    settings.SHARED_COMPUTE_ENABLED = False
+    settings.ASSEMBLY_SHADOW_MODELS = ""
+    settings.LOW_COST_LLM_MODEL = "~deepseek/deepseek-v4-flash-latest"
+    restore = uat.apply_runtime_settings(
+        settings, cheap="~deepseek/deepseek-v4-flash-latest", mid="some/mid-model"
+    )
+    try:
+        assert settings.SHARED_COMPUTE_ENABLED is False
+        assert settings.ASSEMBLY_SHADOW_MODELS == (
+            "~deepseek/deepseek-v4-flash-latest,some/mid-model"
+        )
+    finally:
+        restore()
