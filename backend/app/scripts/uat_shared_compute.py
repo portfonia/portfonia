@@ -84,24 +84,32 @@ _TRACKED_IDENTIFIERS = (
 
 _WATERMARK_SESSION_NODE = "uat_watermark"
 
-# Holdings-derived report_inputs keys. news_items / search_results / pass1 /
-# pass2_prompt are a global public corpus and must not participate in the
-# leak scan (PR #164 review).
+# Holdings-derived report_inputs keys only. Rendered prose (report_md /
+# pass2_raw / assembly_*) can quote global NVDA/AAPL headlines and is not
+# a leak signal (PR #164 review rounds 1-2).
 _LEAK_INPUT_KEYS = (
     "portfolio_summary",
     "price_anomalies",
     "ticker_intel",
     "holding_news",
     "macro_event_exposure",
-    "assembly_prompt",
-    "assembly_raw",
-    "pass2_raw",
+)
+
+EMAIL_GUARD_TARGETS: tuple[str, ...] = (
+    "app.services.report_generator.send_report_email",
+    "app.services.report_generator.send_ops_alert",
+    "app.services.report_generator.create_bug_report",
+    "app.services.ticker_intel.send_ops_alert",
+    "app.services.macro_event_intel.send_ops_alert",
 )
 
 _BEAT_WEEKDAYS = {0, 2, 4}  # Mon / Wed / Fri
 _BEAT_HOUR = 17
 _BEAT_MINUTE = 0
 _BEAT_GUARD_MINUTES = 30
+# Three Pass 2 + six shadow + zh translation can run past 17:00 if we only
+# guard ±30 min around the Beat instant. Block from 15:30 ET (90 min lead).
+_BEAT_LEAD_MINUTES = 90
 
 
 class CleanupGuardError(RuntimeError):
@@ -295,14 +303,7 @@ def seed_window_alignment(session: Session, *, now: datetime | None = None) -> d
 def install_email_guards() -> Callable[[], None]:
     """Hard-disable outbound notify in this process. Env flags are not enough."""
     stack = ExitStack()
-    targets = (
-        "app.services.report_generator.send_report_email",
-        "app.services.report_generator.send_ops_alert",
-        "app.services.report_generator.create_bug_report",
-        "app.services.ticker_intel.send_ops_alert",
-        "app.services.macro_event_intel.send_ops_alert",
-    )
-    for target in targets:
+    for target in EMAIL_GUARD_TARGETS:
         stack.enter_context(patch(target, _NoOpEmail(target)))
     return stack.close
 
@@ -410,13 +411,30 @@ def classify_llm_calls(
 
 
 def beat_window_blocks(now: datetime) -> bool:
-    """True inside ±30 minutes of the Mon/Wed/Fri 17:00 ET Beat."""
+    """True if a run starting now could still be in the Beat fire window.
+
+    Mon/Wed/Fri 15:30-17:30 ET: 90 min lead (expected UAT runtime) plus the
+    original ±30 min guard around 17:00. Tuesday 17:00 is not a Beat tick.
+    """
     et = now.astimezone(ET)
     if et.weekday() not in _BEAT_WEEKDAYS:
         return False
     scheduled = et.replace(hour=_BEAT_HOUR, minute=_BEAT_MINUTE, second=0, microsecond=0)
-    delta_minutes = abs((et - scheduled).total_seconds()) / 60.0
-    return delta_minutes <= _BEAT_GUARD_MINUTES
+    start = scheduled - timedelta(minutes=_BEAT_LEAD_MINUTES)
+    end = scheduled + timedelta(minutes=_BEAT_GUARD_MINUTES)
+    return start <= et <= end
+
+
+def keep_reports_blocked(now: datetime) -> bool:
+    """--keep-reports on a Beat weekday leaves synthetics in active_user_ids."""
+    return now.astimezone(ET).weekday() in _BEAT_WEEKDAYS
+
+
+def failed_run(summary: dict[str, Any]) -> bool:
+    if summary.get("leaks"):
+        return True
+    rerender = summary.get("rerender") or {}
+    return rerender.get("ok") is False
 
 
 def report_has_stored_body(report: Any) -> bool:
@@ -463,21 +481,17 @@ def _blob_contains(blob: str, token: str) -> bool:
     return token.lower() in blob.lower()
 
 
-def _report_blob(report_md: str, report_inputs: object) -> str:
-    parts = [report_md]
-    if isinstance(report_inputs, dict):
-        sliced = {key: report_inputs[key] for key in _LEAK_INPUT_KEYS if key in report_inputs}
-        parts.append(json.dumps(sliced, default=str))
-    return "\n".join(parts)
+def _report_blob(report_inputs: object) -> str:
+    if not isinstance(report_inputs, dict):
+        return ""
+    sliced = {key: report_inputs[key] for key in _LEAK_INPUT_KEYS if key in report_inputs}
+    return json.dumps(sliced, default=str)
 
 
 def find_cross_user_leaks(reports: dict[uuid.UUID, dict[str, Any]]) -> list[str]:
-    """U1/U3 (and U2 exclusives) must not appear in each other's outputs."""
+    """U1/U3 (and U2 exclusives) must not appear in each other's holdings fields."""
     leaks: list[str] = []
-    blobs = {
-        uid: _report_blob(str(payload.get("report_md") or ""), payload.get("report_inputs"))
-        for uid, payload in reports.items()
-    }
+    blobs = {uid: _report_blob(payload.get("report_inputs")) for uid, payload in reports.items()}
     checks: list[tuple[uuid.UUID, tuple[str, ...], str]] = [
         (U3_USER_ID, _U1_EXCLUSIVE + _U1U2_SHARED, "U3"),
         (U1_USER_ID, _U3_EXCLUSIVE, "U1"),
@@ -726,9 +740,17 @@ def main(argv: list[str] | None = None) -> int:
     now_et = datetime.now(tz=UTC)
     if beat_window_blocks(now_et) and not args.i_know:
         print(
-            "[ERR] now is inside the Mon/Wed/Fri 17:00 ET Beat safety window "
-            f"(±{_BEAT_GUARD_MINUTES} min). Celery is a different process and "
-            "will email synthetic users to DEV_USER_EMAIL. Wait, or pass --i-know."
+            "[ERR] now is inside the Mon/Wed/Fri Beat safety window "
+            "(15:30-17:30 ET). A run starting now can still be in generate "
+            "when Celery fires at 17:00 ET and emails synthetic users to "
+            "DEV_USER_EMAIL. Wait, or pass --i-know."
+        )
+        return 2
+    if args.keep_reports and keep_reports_blocked(now_et) and not args.i_know:
+        print(
+            "[ERR] --keep-reports on a Mon/Wed/Fri leaves b1/b2/b3 in "
+            "active_user_ids() for the 17:00 ET Beat. Use --cleanup-only "
+            "before Beat, or pass --i-know."
         )
         return 2
 
@@ -843,11 +865,11 @@ def main(argv: list[str] | None = None) -> int:
                     "skipped": "no success/needs_review row with a stored body",
                 }
 
-            print(f"[uat] leaks: {leaks or 'none'}")
-            _print_summary(summary)
-
             if keep:
-                print("[uat] --keep-reports: leaving synthetic rows in place")
+                print(
+                    "[uat] --keep-reports: leaving synthetic rows in place. "
+                    "Beat will treat these UUIDs as active users until --cleanup-only."
+                )
             else:
                 deleted = cleanup_synthetic_rows(session)
                 session.commit()
@@ -859,6 +881,19 @@ def main(argv: list[str] | None = None) -> int:
                 if any(leftover_after.values()):
                     print("[ERR] synthetic rows remain after cleanup")
                     exit_code = 1
+
+            leftover_after = summary.get("leftover_at_end") or {"holdings": 0}
+            cleanup_ok = keep or not any(leftover_after.values()) if leftover_after else True
+            if failed_run(summary):
+                exit_code = 1
+            print(
+                "[uat] verdict "
+                f"zero_leak={summary['zero_leak']} "
+                f"rerender={summary['rerender'].get('ok')} "
+                f"cleanup_ok={cleanup_ok} "
+                f"exit={exit_code}"
+            )
+            _print_summary(summary)
         return exit_code
     finally:
         restore_settings()

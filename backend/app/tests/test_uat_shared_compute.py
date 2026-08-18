@@ -115,8 +115,10 @@ def test_leak_check_flags_a_foreign_holding() -> None:
             "report_inputs": {"portfolio_summary": {"holdings": [{"ticker": "NVDA"}]}},
         },
         uat.U3_USER_ID: {
-            "report_md": "SGOL and also NVDA leaked in.",
-            "report_inputs": {"portfolio_summary": {"holdings": [{"ticker": "SGOL"}]}},
+            "report_md": "SGOL held.",
+            "report_inputs": {
+                "portfolio_summary": {"holdings": [{"ticker": "SGOL"}, {"ticker": "NVDA"}]},
+            },
         },
     }
     leaks = uat.find_cross_user_leaks(reports)
@@ -165,6 +167,22 @@ def test_leak_check_ignores_nvda_in_u3_news_corpus() -> None:
                 "pass2_prompt": "Headlines mention NVDA and AAPL",
             },
         },
+    }
+    assert uat.find_cross_user_leaks(reports) == []
+
+
+def test_leak_check_ignores_nvda_headline_in_u3_report_md() -> None:
+    """Round-2 review: shipped Pass 2 / report_md can quote global headlines."""
+    reports = {
+        uat.U3_USER_ID: {
+            "report_md": "Markets: NVDA crushes earnings. We hold SGOL.",
+            "report_inputs": {
+                "portfolio_summary": {"holdings": [{"ticker": "SGOL"}]},
+                "pass2_raw": "NVDA led the tape; AAPL suppliers followed.",
+                "assembly_raw": "NVDA mentioned in a headline.",
+                "assembly_prompt": "news mentioned NVDA",
+            },
+        }
     }
     assert uat.find_cross_user_leaks(reports) == []
 
@@ -311,23 +329,31 @@ def test_run_batch_wires_fan_out_like_the_celery_task(db_session: Session) -> No
     assert set(reports) == set(uat.UAT_USER_IDS)
 
 
-def test_install_email_guards_replaces_send_report_email() -> None:
+def test_install_email_guards_replaces_every_notify_target() -> None:
     sent: list[str] = []
 
-    def _real(_report: object, _session: object) -> bool:
+    def _real(*_args: object, **_kwargs: object) -> bool:
         sent.append("sent")
         return True
 
-    with patch("app.services.report_generator.send_report_email", _real):
-        restore = uat.install_email_guards()
-        try:
-            import app.services.report_generator as rg
+    patches = [patch(target, _real) for target in uat.EMAIL_GUARD_TARGETS]
+    for p in patches:
+        p.start()
+    restore = uat.install_email_guards()
+    try:
+        import importlib
 
-            patched = vars(rg)["send_report_email"]
-            assert patched(MagicMock(), MagicMock()) is True
-            assert sent == []
-        finally:
-            restore()
+        for target in uat.EMAIL_GUARD_TARGETS:
+            module_name, attr = target.rsplit(".", 1)
+            module = importlib.import_module(module_name)
+            patched = vars(module)[attr]
+            assert isinstance(patched, uat._NoOpEmail), target
+            assert patched("x", "y") is True
+        assert sent == []
+    finally:
+        restore()
+        for p in patches:
+            p.stop()
 
 
 def test_one_trading_week_start_is_five_weekdays_back_at_et_midnight() -> None:
@@ -423,11 +449,25 @@ def test_apply_runtime_settings_does_not_enable_shared_compute() -> None:
         restore()
 
 
-def test_beat_window_blocks_mon_wed_fri_1700_et() -> None:
+def test_beat_window_blocks_mon_wed_fri_from_1530_et() -> None:
     assert uat.beat_window_blocks(datetime(2026, 8, 17, 17, 0, tzinfo=ET)) is True
     assert uat.beat_window_blocks(datetime(2026, 8, 17, 16, 40, tzinfo=ET)) is True
+    assert uat.beat_window_blocks(datetime(2026, 8, 17, 15, 31, tzinfo=ET)) is True
+    assert uat.beat_window_blocks(datetime(2026, 8, 17, 15, 0, tzinfo=ET)) is False
     assert uat.beat_window_blocks(datetime(2026, 8, 17, 17, 31, tzinfo=ET)) is False
     assert uat.beat_window_blocks(datetime(2026, 8, 18, 17, 0, tzinfo=ET)) is False
+
+
+def test_keep_reports_blocked_on_beat_weekdays() -> None:
+    assert uat.keep_reports_blocked(datetime(2026, 8, 17, 10, 0, tzinfo=ET)) is True
+    assert uat.keep_reports_blocked(datetime(2026, 8, 18, 10, 0, tzinfo=ET)) is False
+
+
+def test_failed_run_when_leaks_or_rerender_fails() -> None:
+    assert uat.failed_run({"leaks": ["U3 contains NVDA"], "rerender": {"ok": True}}) is True
+    assert uat.failed_run({"leaks": [], "rerender": {"ok": False}}) is True
+    assert uat.failed_run({"leaks": [], "rerender": {"ok": None, "skipped": "n/a"}}) is False
+    assert uat.failed_run({"leaks": [], "rerender": {"ok": True}}) is False
 
 
 def test_report_has_stored_body_skips_quiet_skipped_rows() -> None:
