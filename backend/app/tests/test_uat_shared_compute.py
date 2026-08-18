@@ -17,8 +17,9 @@ from unittest.mock import MagicMock, patch
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.timezones import ET
 from app.models.holding import Holding
+from app.models.news import News
 from app.models.news_surfaced import NewsSurfaced
 from app.models.report import Report
 from app.scripts import uat_shared_compute as uat
@@ -289,44 +290,77 @@ def test_install_email_guards_replaces_send_report_email() -> None:
             restore()
 
 
-def test_window_alignment_copies_real_watermark_and_news_ledger(
+def test_one_trading_week_start_is_five_weekdays_back_at_et_midnight() -> None:
+    # Monday 17 Aug 2026 23:45 ET → five weekdays back is Monday 10 Aug.
+    now = datetime(2026, 8, 17, 23, 45, tzinfo=ET)
+    start = uat.one_trading_week_start(now)
+    assert start == datetime(2026, 8, 10, 0, 0, tzinfo=ET)
+    # Wednesday: skip Tue/Mon/Fri/Thu/Wed → previous Wednesday.
+    wed = datetime(2026, 8, 19, 12, 0, tzinfo=ET)
+    assert uat.one_trading_week_start(wed) == datetime(2026, 8, 12, 0, 0, tzinfo=ET)
+
+
+def test_window_alignment_uses_one_trading_week_not_another_users_watermark(
     db_session: Session,
 ) -> None:
-    """Cold-start synthetic users would otherwise see the entire news table."""
-    settings = get_settings()
-    real_end = datetime(2026, 8, 14, 21, 0, tzinfo=UTC)
-    real_report = Report(
-        user_id=uuid.UUID(settings.DEV_USER_ID),
-        report_date=real_end.date(),
+    """No prior report for THIS user → period is one trading week.
+
+    Must not copy another user's watermark or news_surfaced ledger. News
+    published at or before the week start is marked surfaced so the no-lower-
+    bound selector does not dump the entire capture table into a first report.
+    """
+    now = datetime(2026, 8, 17, 23, 45, tzinfo=ET)
+    week_start = uat.one_trading_week_start(now)
+    older = News(
+        url_hash="uat-old",
+        title="old",
+        source="x",
+        url="https://example.test/old",
+        published_at=datetime(2026, 8, 7, 12, 0, tzinfo=ET),
+    )
+    inside = News(
+        url_hash="uat-new",
+        title="new",
+        source="x",
+        url="https://example.test/new",
+        published_at=datetime(2026, 8, 13, 12, 0, tzinfo=ET),
+    )
+    other_user_report = Report(
+        user_id=TEST_USER_ID,
+        report_date=datetime(2026, 8, 14).date(),
         report_type="incremental",
         session_node="after_close",
         status="success",
-        period_start=datetime(2026, 8, 12, 21, 0, tzinfo=UTC),
-        period_end=real_end,
+        period_start=datetime(2026, 6, 1, tzinfo=ET),
+        period_end=datetime(2026, 8, 14, 21, 0, tzinfo=UTC),
     )
-    db_session.add(real_report)
+    db_session.add_all([older, inside, other_user_report])
     db_session.flush()
-    news_id = uuid.uuid4()
     db_session.add(
-        NewsSurfaced(user_id=real_report.user_id, news_id=news_id, report_id=real_report.id)
+        NewsSurfaced(user_id=TEST_USER_ID, news_id=older.id, report_id=other_user_report.id)
     )
     db_session.flush()
 
-    result = uat.seed_window_alignment(db_session)
+    result = uat.seed_window_alignment(db_session, now=now)
     db_session.flush()
 
     assert result["aligned"] is True
-    assert result["copied_news"] == 3
+    assert result["source"] == "one_trading_week"
     for uid in uat.UAT_USER_IDS:
-        assert user_watermark(db_session, uid, "incremental") == real_end
+        assert user_watermark(db_session, uid, "incremental") == week_start
         assert user_watermark(db_session, uid, "incremental") != BOOTSTRAP_WATERMARK
-        marks = list(
-            db_session.execute(select(NewsSurfaced).where(NewsSurfaced.user_id == uid)).scalars()
-        )
-        assert {m.news_id for m in marks} == {news_id}
+        assert user_watermark(db_session, uid, "incremental") != other_user_report.period_end
+        marked = {
+            m.news_id
+            for m in db_session.execute(
+                select(NewsSurfaced).where(NewsSurfaced.user_id == uid)
+            ).scalars()
+        }
+        assert older.id in marked
+        assert inside.id not in marked
     real_marks = list(
         db_session.execute(
-            select(NewsSurfaced).where(NewsSurfaced.user_id == real_report.user_id)
+            select(NewsSurfaced).where(NewsSurfaced.user_id == TEST_USER_ID)
         ).scalars()
     )
     assert len(real_marks) == 1

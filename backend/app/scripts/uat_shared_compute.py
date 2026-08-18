@@ -11,6 +11,10 @@ active user. Never write SHARED_COMPUTE_ENABLED or ASSEMBLY_* into .env;
 runtime patches stay inside this process. Never delete ticker_intel /
 macro_event_intel / search_cache.
 
+If THIS user has no prior report, the period is one complete trading week
+(five weekdays back, ET midnight) — not BOOTSTRAP_WATERMARK, not another
+user's watermark.
+
     docker compose exec backend python -m app.scripts.uat_shared_compute \
         --mid-model <mid-tier model id>
 """
@@ -24,7 +28,7 @@ import time
 import uuid
 from collections.abc import Callable
 from contextlib import ExitStack
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from unittest.mock import patch
@@ -37,6 +41,7 @@ from app.core.database import SessionLocal
 from app.core.timezones import ET
 from app.models.holding import Holding
 from app.models.macro_event_intel import MacroEventIntel
+from app.models.news import News
 from app.models.news_surfaced import NewsSurfaced
 from app.models.report import Report
 from app.models.ticker_intel import TickerIntel
@@ -198,78 +203,73 @@ def seed_holdings(session: Session) -> None:
     )
 
 
-def seed_window_alignment(session: Session) -> dict[str, Any]:
-    """Give synthetic users the same incremental window the real user would see.
+def one_trading_week_start(now: datetime) -> datetime:
+    """ET midnight five weekdays before `now` — one complete trading week.
 
-    A brand-new user_id has no news_surfaced rows and no watermark, so
-    load_news_window would select the entire captured news table (design doc
-    §2.3 / issue #30) and period_start would fall back to BOOTSTRAP_WATERMARK
-    (2026-06-01). That is not comparable to the §10 single-user baseline.
-
-    Copy the real DEV_USER_ID's latest incremental period_end and their
-    news_surfaced ledger onto the three synthetic users. The copied ledger
-    rows point at a synthetic watermark report so cleanup can delete them
-    by user_id without touching the real user's rows.
+    Used when THIS user has no prior report. Do not borrow another user's
+    watermark. Saturday/Sunday are skipped so a Monday run lands on the
+    previous Monday, not the intervening weekend.
     """
-    settings = get_settings()
-    real_user = uuid.UUID(settings.DEV_USER_ID)
-    latest = session.execute(
-        select(Report)
-        .where(
-            Report.user_id == real_user,
-            Report.report_type == "incremental",
-            Report.status.in_(("success", "needs_review", "skipped")),
-            Report.period_end.is_not(None),
-        )
-        .order_by(Report.period_end.desc())
-        .limit(1)
-    ).scalar_one_or_none()
-    if latest is None or latest.period_end is None:
-        logger.warning(
-            "uat: no real incremental watermark found — synthetic users will "
-            "cold-start from BOOTSTRAP_WATERMARK; cost will not be comparable"
-        )
-        return {"aligned": False, "copied_news": 0}
+    cursor = now.astimezone(ET).date()
+    remaining = 5
+    while remaining > 0:
+        cursor -= timedelta(days=1)
+        if cursor.weekday() < 5:
+            remaining -= 1
+    return datetime(cursor.year, cursor.month, cursor.day, tzinfo=ET)
 
-    watermark_end = latest.period_end
-    watermark_start = latest.period_start or watermark_end
+
+def seed_window_alignment(session: Session, *, now: datetime | None = None) -> dict[str, Any]:
+    """Cold-start the three synthetic users onto a one-trading-week window.
+
+    Product rule (2026-08-17): if THIS user has no prior report, the period
+    is one complete trading week — not BOOTSTRAP_WATERMARK (2026-06-01) and
+    not some other user's watermark.
+
+    News selection has no published_at lower bound (issue #30); without a
+    ledger the first report would still ingest the entire capture table.
+    Mark news published at or before the week start as already surfaced for
+    these synthetic users only, so the visible news set matches the week.
+    """
+    batch_now = now if now is not None else datetime.now(tz=UTC)
+    week_start = one_trading_week_start(batch_now)
     seeded_reports: list[Report] = []
     for user_id in UAT_USER_IDS:
         row = Report(
             user_id=user_id,
-            report_date=watermark_end.astimezone(ET).date(),
+            report_date=week_start.astimezone(ET).date(),
             report_type="incremental",
             session_node=_WATERMARK_SESSION_NODE,
             status="success",
             report_md="uat watermark seed — not a real report",
-            report_inputs={"uat_seed": True},
-            period_start=watermark_start,
-            period_end=watermark_end,
+            report_inputs={"uat_seed": True, "source": "one_trading_week"},
+            period_start=week_start,
+            period_end=week_start,
         )
         session.add(row)
         seeded_reports.append(row)
     session.flush()
 
-    real_marks = list(
-        session.execute(select(NewsSurfaced).where(NewsSurfaced.user_id == real_user)).scalars()
+    prior_news_ids = list(
+        session.execute(select(News.id).where(News.published_at <= week_start)).scalars()
     )
-    copied = 0
-    for mark in real_marks:
+    marked = 0
+    for news_id in prior_news_ids:
         for seed in seeded_reports:
             session.add(
                 NewsSurfaced(
                     user_id=seed.user_id,
-                    news_id=mark.news_id,
+                    news_id=news_id,
                     report_id=seed.id,
                 )
             )
-            copied += 1
+            marked += 1
     session.flush()
     return {
         "aligned": True,
-        "watermark_end": watermark_end.isoformat(),
-        "copied_news": copied,
-        "source_report_id": str(latest.id),
+        "source": "one_trading_week",
+        "watermark_end": week_start.isoformat(),
+        "marked_news": marked,
     }
 
 
@@ -685,15 +685,16 @@ def main(argv: list[str] | None = None) -> int:
                 session.commit()
 
             seed_holdings(session)
-            alignment = seed_window_alignment(session)
+            batch_now = datetime.now(tz=UTC)
+            alignment = seed_window_alignment(session, now=batch_now)
             session.commit()
             summary["window_alignment"] = alignment
 
-            trade_date = datetime.now(tz=UTC).astimezone(ET).date()
+            trade_date = batch_now.astimezone(ET).date()
             cache_before = snapshot_shared_cache(session, trade_date)
             summary["cache_before"] = cache_before
 
-            reports = run_synthetic_batch(session)
+            reports = run_synthetic_batch(session, now=batch_now)
             elapsed = time.perf_counter() - started
             summary["wall_clock_seconds"] = round(elapsed, 1)
             summary["cache_after"] = snapshot_shared_cache(session, trade_date)
