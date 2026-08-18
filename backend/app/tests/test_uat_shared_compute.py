@@ -458,16 +458,55 @@ def test_beat_window_blocks_mon_wed_fri_from_1530_et() -> None:
     assert uat.beat_window_blocks(datetime(2026, 8, 18, 17, 0, tzinfo=ET)) is False
 
 
-def test_keep_reports_blocked_on_beat_weekdays() -> None:
+def test_keep_reports_always_blocked_without_i_know() -> None:
     assert uat.keep_reports_blocked(datetime(2026, 8, 17, 10, 0, tzinfo=ET)) is True
-    assert uat.keep_reports_blocked(datetime(2026, 8, 18, 10, 0, tzinfo=ET)) is False
+    assert uat.keep_reports_blocked(datetime(2026, 8, 18, 10, 0, tzinfo=ET)) is True
+
+
+def _complete_users(**statuses: str) -> dict[str, dict[str, str]]:
+    return {label: {"status": status} for label, status in statuses.items()}
 
 
 def test_failed_run_when_leaks_or_rerender_fails() -> None:
-    assert uat.failed_run({"leaks": ["U3 contains NVDA"], "rerender": {"ok": True}}) is True
-    assert uat.failed_run({"leaks": [], "rerender": {"ok": False}}) is True
-    assert uat.failed_run({"leaks": [], "rerender": {"ok": None, "skipped": "n/a"}}) is False
-    assert uat.failed_run({"leaks": [], "rerender": {"ok": True}}) is False
+    complete = _complete_users(U1="success", U2="success", U3="skipped")
+    assert (
+        uat.failed_run({"leaks": ["U3 contains NVDA"], "rerender": {"ok": True}, "users": complete})
+        is True
+    )
+    assert uat.failed_run({"leaks": [], "rerender": {"ok": False}, "users": complete}) is True
+    assert (
+        uat.failed_run({"leaks": [], "rerender": {"ok": None, "skipped": "n/a"}, "users": complete})
+        is False
+    )
+    assert uat.failed_run({"leaks": [], "rerender": {"ok": True}, "users": complete}) is False
+
+
+def test_failed_run_when_a_synthetic_user_is_missing() -> None:
+    two = _complete_users(U1="success", U2="success")
+    assert uat.failed_run({"leaks": [], "rerender": {"ok": None}, "users": two}) is True
+    none: dict[str, dict[str, str]] = {}
+    assert uat.failed_run({"leaks": [], "rerender": {"ok": None}, "users": none}) is True
+    failed = _complete_users(U1="success", U2="success", U3="failed")
+    assert uat.failed_run({"leaks": [], "rerender": {"ok": True}, "users": failed}) is True
+
+
+def test_restore_shipped_body_puts_back_zh_markdown(db_session: Session) -> None:
+    row = Report(
+        user_id=uat.U1_USER_ID,
+        report_date=datetime(2026, 8, 17).date(),
+        report_type="incremental",
+        session_node="manual",
+        status="success",
+        report_md="EN overwrite",
+        report_inputs={"pass2_translated": "en body", "pass2_raw": "raw"},
+    )
+    db_session.add(row)
+    db_session.flush()
+    uat.restore_shipped_body(db_session, row, "shipped-zh-body", "zh-translated")
+    db_session.refresh(row)
+    assert row.report_md == "shipped-zh-body"
+    assert row.report_inputs is not None
+    assert row.report_inputs["pass2_translated"] == "zh-translated"
 
 
 def test_report_has_stored_body_skips_quiet_skipped_rows() -> None:

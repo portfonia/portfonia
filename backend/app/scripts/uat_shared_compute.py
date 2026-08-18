@@ -425,16 +425,25 @@ def beat_window_blocks(now: datetime) -> bool:
     return start <= et <= end
 
 
-def keep_reports_blocked(now: datetime) -> bool:
-    """--keep-reports on a Beat weekday leaves synthetics in active_user_ids."""
-    return now.astimezone(ET).weekday() in _BEAT_WEEKDAYS
+def keep_reports_blocked(_now: datetime | None = None) -> bool:
+    """--keep-reports always needs --i-know: leftovers survive until the next Beat."""
+    return True
+
+
+_DONE_STATUSES = frozenset({"success", "needs_review", "skipped"})
+_REQUIRED_LABELS = frozenset({"U1", "U2", "U3"})
 
 
 def failed_run(summary: dict[str, Any]) -> bool:
     if summary.get("leaks"):
         return True
     rerender = summary.get("rerender") or {}
-    return rerender.get("ok") is False
+    if rerender.get("ok") is False:
+        return True
+    users = summary.get("users") or {}
+    if set(users) != _REQUIRED_LABELS:
+        return True
+    return any(str(row.get("status")) not in _DONE_STATUSES for row in users.values())
 
 
 def report_has_stored_body(report: Any) -> bool:
@@ -651,9 +660,27 @@ def _sum_tokens(calls: list[dict[str, Any]], key: str) -> int:
     return sum(int(c[key]) for c in calls if isinstance(c.get(key), int))
 
 
+def restore_shipped_body(
+    session: Session, report: Report, shipped_md: str | None, shipped_translated: object
+) -> None:
+    """Put back the shipped body after a mode=render check that commits English."""
+    report.report_md = shipped_md
+    inputs = report.report_inputs
+    if isinstance(inputs, dict):
+        report.report_inputs = {**inputs, "pass2_translated": shipped_translated}
+    session.commit()
+
+
 def verify_rerender_zero_llm(session: Session, report: Report) -> dict[str, Any]:
-    """Re-run mode=render as the report's owner; count every _call_llm site."""
+    """Re-run mode=render as the report's owner; count every _call_llm site.
+
+    regenerate commits. Snapshot the shipped zh body and write it back so
+    --keep-reports still stores what was actually emailed/printed.
+    """
     calls = {"generator": 0, "assembly": 0, "translation": 0}
+    shipped_md = report.report_md
+    shipped_inputs = report.report_inputs if isinstance(report.report_inputs, dict) else {}
+    shipped_translated = shipped_inputs.get("pass2_translated")
 
     def _counter(bucket: str) -> Callable[..., str]:
         def _inner(*_args: Any, **_kwargs: Any) -> str:
@@ -670,12 +697,14 @@ def verify_rerender_zero_llm(session: Session, report: Report) -> dict[str, Any]
     ):
         rebuilt = regenerate_report(session, report.id, mode="render", output_lang="en")
     total = sum(calls.values())
+    restore_shipped_body(session, report, shipped_md, shipped_translated)
     return {
         "report_id": str(rebuilt.id),
         "calls": calls,
         "total": total,
         "ok": total == 0,
         "rebuilt_chars": len(rebuilt.report_md or ""),
+        "shipped_md_restored": report.report_md == shipped_md,
     }
 
 
@@ -710,7 +739,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--i-know",
         action="store_true",
-        help="Bypass the Mon/Wed/Fri 17:00 ET Beat safety window.",
+        help="Bypass the Beat safety window and allow --keep-reports.",
     )
     args = parser.parse_args(argv)
 
@@ -748,9 +777,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.keep_reports and keep_reports_blocked(now_et) and not args.i_know:
         print(
-            "[ERR] --keep-reports on a Mon/Wed/Fri leaves b1/b2/b3 in "
-            "active_user_ids() for the 17:00 ET Beat. Use --cleanup-only "
-            "before Beat, or pass --i-know."
+            "[ERR] --keep-reports leaves b1/b2/b3 in active_user_ids() until "
+            "the next Beat emails them to DEV_USER_EMAIL. Pass --i-know "
+            "and run --cleanup-only before that Beat."
         )
         return 2
 
@@ -836,6 +865,7 @@ def main(argv: list[str] | None = None) -> int:
                     print(body)
 
             summary["users"] = per_user
+            summary["missing_users"] = sorted(_REQUIRED_LABELS - set(per_user))
             leaks = find_cross_user_leaks(leak_payload)
             summary["leaks"] = leaks
             summary["zero_leak"] = leaks == []
