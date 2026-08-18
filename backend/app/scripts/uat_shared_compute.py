@@ -84,6 +84,25 @@ _TRACKED_IDENTIFIERS = (
 
 _WATERMARK_SESSION_NODE = "uat_watermark"
 
+# Holdings-derived report_inputs keys. news_items / search_results / pass1 /
+# pass2_prompt are a global public corpus and must not participate in the
+# leak scan (PR #164 review).
+_LEAK_INPUT_KEYS = (
+    "portfolio_summary",
+    "price_anomalies",
+    "ticker_intel",
+    "holding_news",
+    "macro_event_exposure",
+    "assembly_prompt",
+    "assembly_raw",
+    "pass2_raw",
+)
+
+_BEAT_WEEKDAYS = {0, 2, 4}  # Mon / Wed / Fri
+_BEAT_HOUR = 17
+_BEAT_MINUTE = 0
+_BEAT_GUARD_MINUTES = 30
+
 
 class CleanupGuardError(RuntimeError):
     """Raised when a to-be-deleted row is not owned by a synthetic UAT user."""
@@ -390,16 +409,66 @@ def classify_llm_calls(
     return split
 
 
+def beat_window_blocks(now: datetime) -> bool:
+    """True inside ±30 minutes of the Mon/Wed/Fri 17:00 ET Beat."""
+    et = now.astimezone(ET)
+    if et.weekday() not in _BEAT_WEEKDAYS:
+        return False
+    scheduled = et.replace(hour=_BEAT_HOUR, minute=_BEAT_MINUTE, second=0, microsecond=0)
+    delta_minutes = abs((et - scheduled).total_seconds()) / 60.0
+    return delta_minutes <= _BEAT_GUARD_MINUTES
+
+
+def report_has_stored_body(report: Any) -> bool:
+    """regenerate(mode=render) needs assembly_raw or pass2_raw. Quiet skipped rows have neither."""
+    if getattr(report, "status", None) not in ("success", "needs_review"):
+        return False
+    inputs = getattr(report, "report_inputs", None) or {}
+    if not isinstance(inputs, dict):
+        return False
+    return bool(inputs.get("assembly_raw") or inputs.get("pass2_raw"))
+
+
+def evidence_blocks(
+    label: str,
+    report_md: str,
+    inputs: dict[str, Any],
+    *,
+    cheap: str,
+    mid: str,
+) -> list[tuple[str, str]]:
+    """Shipped body plus both shadow raws — the A4 side-by-side read."""
+    shadow = inputs.get("assembly_shadow") or {}
+    cheap_entry = shadow.get(cheap) or {}
+    mid_entry = shadow.get(mid) or {}
+    cheap_text = (
+        str(cheap_entry.get("raw"))
+        if "raw" in cheap_entry
+        else json.dumps(cheap_entry, ensure_ascii=False, indent=2)
+    )
+    mid_text = (
+        str(mid_entry.get("raw"))
+        if "raw" in mid_entry
+        else json.dumps(mid_entry, ensure_ascii=False, indent=2)
+    )
+    return [
+        (f"{label} shipped report_md", report_md or ""),
+        (f"{label} pass2_raw", str(inputs.get("pass2_raw") or "")),
+        (f"{label} assembly_shadow / cheap ({cheap})", cheap_text),
+        (f"{label} assembly_shadow / mid ({mid})", mid_text),
+    ]
+
+
 def _blob_contains(blob: str, token: str) -> bool:
     return token.lower() in blob.lower()
 
 
 def _report_blob(report_md: str, report_inputs: object) -> str:
-    try:
-        dumped = json.dumps(report_inputs, default=str)
-    except TypeError:
-        dumped = str(report_inputs)
-    return f"{report_md}\n{dumped}"
+    parts = [report_md]
+    if isinstance(report_inputs, dict):
+        sliced = {key: report_inputs[key] for key in _LEAK_INPUT_KEYS if key in report_inputs}
+        parts.append(json.dumps(sliced, default=str))
+    return "\n".join(parts)
 
 
 def find_cross_user_leaks(reports: dict[uuid.UUID, dict[str, Any]]) -> list[str]:
@@ -596,21 +665,6 @@ def verify_rerender_zero_llm(session: Session, report: Report) -> dict[str, Any]
     }
 
 
-def _print_shadow_bodies(label: str, shadow: dict[str, Any], cheap: str, mid: str) -> None:
-    print(f"\n===== {label} assembly_shadow / cheap ({cheap}) =====")
-    cheap_entry = shadow.get(cheap) or {}
-    if "raw" in cheap_entry:
-        print(cheap_entry["raw"])
-    else:
-        print(json.dumps(cheap_entry, ensure_ascii=False, indent=2))
-    print(f"\n===== {label} assembly_shadow / mid ({mid}) =====")
-    mid_entry = shadow.get(mid) or {}
-    if "raw" in mid_entry:
-        print(mid_entry["raw"])
-    else:
-        print(json.dumps(mid_entry, ensure_ascii=False, indent=2))
-
-
 def _print_summary(payload: dict[str, Any]) -> None:
     print("\n===== UAT SUMMARY =====")
     print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
@@ -633,6 +687,16 @@ def main(argv: list[str] | None = None) -> int:
         "--force-reset",
         action="store_true",
         help="Delete leftover synthetic rows before seeding a new run.",
+    )
+    parser.add_argument(
+        "--keep-reports",
+        action="store_true",
+        help="Leave synthetic rows in place after the run so evidence can be re-read.",
+    )
+    parser.add_argument(
+        "--i-know",
+        action="store_true",
+        help="Bypass the Mon/Wed/Fri 17:00 ET Beat safety window.",
     )
     args = parser.parse_args(argv)
 
@@ -659,6 +723,14 @@ def main(argv: list[str] | None = None) -> int:
             "Aborting — UAT must run against the production default (false)."
         )
         return 2
+    now_et = datetime.now(tz=UTC)
+    if beat_window_blocks(now_et) and not args.i_know:
+        print(
+            "[ERR] now is inside the Mon/Wed/Fri 17:00 ET Beat safety window "
+            f"(±{_BEAT_GUARD_MINUTES} min). Celery is a different process and "
+            "will email synthetic users to DEV_USER_EMAIL. Wait, or pass --i-know."
+        )
+        return 2
 
     restore_email = install_email_guards()
     restore_settings = apply_runtime_settings(settings, cheap=cheap, mid=mid)
@@ -670,6 +742,9 @@ def main(argv: list[str] | None = None) -> int:
         "shared_compute_enabled": bool(settings.SHARED_COMPUTE_ENABLED),
         "output_lang": settings.OUTPUT_LANG,
     }
+    seeded = False
+    keep = bool(args.keep_reports)
+    exit_code = 0
 
     try:
         with SessionLocal() as session:
@@ -688,6 +763,7 @@ def main(argv: list[str] | None = None) -> int:
             batch_now = datetime.now(tz=UTC)
             alignment = seed_window_alignment(session, now=batch_now)
             session.commit()
+            seeded = True
             summary["window_alignment"] = alignment
 
             trade_date = batch_now.astimezone(ET).date()
@@ -731,13 +807,11 @@ def main(argv: list[str] | None = None) -> int:
                     "report_md": report.report_md or "",
                     "report_inputs": inputs,
                 }
-                if label == "U1":
-                    _print_shadow_bodies(
-                        "U1",
-                        inputs.get("assembly_shadow") or {},
-                        cheap,
-                        mid,
-                    )
+                for title, body in evidence_blocks(
+                    label, report.report_md or "", inputs, cheap=cheap, mid=mid
+                ):
+                    print(f"\n===== {title} =====")
+                    print(body)
 
             summary["users"] = per_user
             leaks = find_cross_user_leaks(leak_payload)
@@ -757,26 +831,47 @@ def main(argv: list[str] | None = None) -> int:
                 }
             summary["l1_identifier_delta"] = l1_fresh
 
-            if reports:
-                first = next(iter(reports.values()))
-                summary["rerender"] = verify_rerender_zero_llm(session, first)
+            rerender_target = next(
+                (report for report in reports.values() if report_has_stored_body(report)),
+                None,
+            )
+            if rerender_target is not None:
+                summary["rerender"] = verify_rerender_zero_llm(session, rerender_target)
+            else:
+                summary["rerender"] = {
+                    "ok": None,
+                    "skipped": "no success/needs_review row with a stored body",
+                }
 
             print(f"[uat] leaks: {leaks or 'none'}")
             _print_summary(summary)
 
-            deleted = cleanup_synthetic_rows(session)
-            session.commit()
-            summary["deleted"] = deleted
-            leftover_after = leftover_counts(session)
-            summary["leftover_at_end"] = leftover_after
-            print("[uat] cleanup:", deleted, "leftover:", leftover_after)
-            if any(leftover_after.values()):
-                print("[ERR] synthetic rows remain after cleanup")
-                return 1
-        return 0
+            if keep:
+                print("[uat] --keep-reports: leaving synthetic rows in place")
+            else:
+                deleted = cleanup_synthetic_rows(session)
+                session.commit()
+                seeded = False
+                summary["deleted"] = deleted
+                leftover_after = leftover_counts(session)
+                summary["leftover_at_end"] = leftover_after
+                print("[uat] cleanup:", deleted, "leftover:", leftover_after)
+                if any(leftover_after.values()):
+                    print("[ERR] synthetic rows remain after cleanup")
+                    exit_code = 1
+        return exit_code
     finally:
         restore_settings()
         restore_email()
+        if seeded and not keep:
+            try:
+                with SessionLocal() as session:
+                    if any(leftover_counts(session).values()):
+                        deleted = cleanup_synthetic_rows(session)
+                        session.commit()
+                        print("[uat] finally cleanup:", deleted)
+            except Exception:
+                logger.exception("uat: finally cleanup failed — run --cleanup-only")
 
 
 if __name__ == "__main__":

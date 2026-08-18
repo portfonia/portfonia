@@ -128,18 +128,58 @@ def test_leak_check_passes_when_exclusive_holdings_stay_put() -> None:
     reports = {
         uat.U1_USER_ID: {
             "report_md": "NVDA and QQQM and 110011",
-            "report_inputs": {"holdings": [{"ticker": "NVDA"}, {"ticker": "QQQM"}]},
+            "report_inputs": {
+                "portfolio_summary": {
+                    "holdings": [{"ticker": "NVDA"}, {"ticker": "QQQM"}, {"fund_code": "110011"}]
+                }
+            },
         },
         uat.U2_USER_ID: {
             "report_md": "NVDA and 0700.HK",
-            "report_inputs": {"holdings": [{"ticker": "0700.HK"}]},
+            "report_inputs": {"portfolio_summary": {"holdings": [{"ticker": "0700.HK"}]}},
         },
         uat.U3_USER_ID: {
             "report_md": "SGOL and 019547 and 513650.SS",
-            "report_inputs": {"holdings": [{"ticker": "SGOL"}]},
+            "report_inputs": {"portfolio_summary": {"holdings": [{"ticker": "SGOL"}]}},
         },
     }
     assert uat.find_cross_user_leaks(reports) == []
+
+
+def test_leak_check_ignores_nvda_in_u3_news_corpus() -> None:
+    """Review finding: news_items/search_results are global headlines, not holdings."""
+    reports = {
+        uat.U1_USER_ID: {
+            "report_md": "QQQM held.",
+            "report_inputs": {
+                "portfolio_summary": {"holdings": [{"ticker": "QQQM"}]},
+                "news_items": [{"title": "SGOL rally"}],
+            },
+        },
+        uat.U3_USER_ID: {
+            "report_md": "SGOL held.",
+            "report_inputs": {
+                "portfolio_summary": {"holdings": [{"ticker": "SGOL"}]},
+                "news_items": [{"title": "NVDA crushes earnings"}],
+                "search_results": [{"title": "AAPL supplier note"}],
+                "pass2_prompt": "Headlines mention NVDA and AAPL",
+            },
+        },
+    }
+    assert uat.find_cross_user_leaks(reports) == []
+
+
+def test_leak_check_still_flags_nvda_in_u3_ticker_intel() -> None:
+    reports = {
+        uat.U3_USER_ID: {
+            "report_md": "SGOL held.",
+            "report_inputs": {
+                "portfolio_summary": {"holdings": [{"ticker": "SGOL"}]},
+                "ticker_intel": {"NVDA": "shared analysis"},
+            },
+        }
+    }
+    assert any("NVDA" in item for item in uat.find_cross_user_leaks(reports))
 
 
 def _holding_count(session: Session, user_id: uuid.UUID) -> int:
@@ -381,3 +421,46 @@ def test_apply_runtime_settings_does_not_enable_shared_compute() -> None:
         )
     finally:
         restore()
+
+
+def test_beat_window_blocks_mon_wed_fri_1700_et() -> None:
+    assert uat.beat_window_blocks(datetime(2026, 8, 17, 17, 0, tzinfo=ET)) is True
+    assert uat.beat_window_blocks(datetime(2026, 8, 17, 16, 40, tzinfo=ET)) is True
+    assert uat.beat_window_blocks(datetime(2026, 8, 17, 17, 31, tzinfo=ET)) is False
+    assert uat.beat_window_blocks(datetime(2026, 8, 18, 17, 0, tzinfo=ET)) is False
+
+
+def test_report_has_stored_body_skips_quiet_skipped_rows() -> None:
+    skipped = MagicMock()
+    skipped.status = "skipped"
+    skipped.report_inputs = {"portfolio_summary": {}, "news_items": []}
+    assert uat.report_has_stored_body(skipped) is False
+    ok = MagicMock()
+    ok.status = "success"
+    ok.report_inputs = {"pass2_raw": "## §2\n## §3\n## §4"}
+    assert uat.report_has_stored_body(ok) is True
+
+
+def test_evidence_blocks_include_shipped_body_and_both_shadows() -> None:
+    blocks = uat.evidence_blocks(
+        "U2",
+        "shipped md",
+        {
+            "pass2_raw": "pass2 body",
+            "assembly_shadow": {
+                "cheap/m": {"raw": "cheap body"},
+                "mid/m": {"raw": "mid body"},
+            },
+        },
+        cheap="cheap/m",
+        mid="mid/m",
+    )
+    titles = [title for title, _ in blocks]
+    assert any("shipped" in t.lower() or "report_md" in t for t in titles)
+    assert any("pass2" in t.lower() for t in titles)
+    assert any("cheap" in t for t in titles)
+    assert any("mid" in t for t in titles)
+    texts = "\n".join(body for _, body in blocks)
+    assert "shipped md" in texts
+    assert "cheap body" in texts
+    assert "mid body" in texts
