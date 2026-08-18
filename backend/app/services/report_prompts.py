@@ -41,14 +41,27 @@ no [news], no [analysis], no source labels). Write clean prose.
 # _RELEASE_DELAY_TERMS and output_scan._STRAY_TAGS/_BODY_DISCLAIMER_RE; see
 # i18n_glossary.py's module docstring).
 _pass2_cross_ref = load_i18n_glossary().templates["cross_reference_example"]
-_PASS2_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + (
+
+# --- Narrative rules shared by every body-writing pass ---------------------
+# Extracted (issue #128 A4) so the Pass 2 body pass and the A4 personalized
+# assembly pass compose from ONE source. These are compliance-adjacent — a
+# pass that lost DIRECTION REQUIRES EVIDENCE would emit unsupported directional
+# claims about a specific holding — and this repo has twice paid for the same
+# class of bug (report_generator's two hand-copied CSS strings in PR #117; the
+# two copies of _FORWARD_WINDOW_DAYS in PR #157). Composition below is a pure
+# rearrangement: _PASS2_SYSTEM's text is byte-identical to its pre-A4 value.
+_RULE_BRIEFING_ROLE = (
     "\nYou are writing a structured financial analysis briefing for a "
     "private investor. Use Markdown. Be concise and factual. Write clean prose "
     "with no bracketed tags or citations.\n"
+)
+_RULE_FORWARD_EVENTS = (
     "FORWARD EVENTS: if you reference a scheduled event (an upcoming data release, "
     "FOMC meeting, or earnings date), state only that it is scheduled and what is "
     "worth watching — NEVER predict its outcome, direction, or market impact "
     "('will rise/fall', 'likely to beat', 'expected to lift/hurt' are forbidden).\n"
+)
+_RULE_DIRECTION_REQUIRES_EVIDENCE = (
     "DIRECTION REQUIRES EVIDENCE: a sentence that asserts how a SPECIFIC HOLDING'S "
     "PRICE moved, or is positioned to move (e.g. 'gained safe-haven buying', "
     "'sold off', 'outperformed', 'will see buying support'), must be grounded in "
@@ -60,10 +73,14 @@ _PASS2_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + (
     "narratives (e.g. 'war risk -> gold rallies') are mechanisms, not "
     "observations — do not restate them as something that already happened to a "
     "specific holding without window price data.\n"
+)
+_RULE_DIVERGENCE_IS_THE_SIGNAL = (
     "DIVERGENCE IS THE SIGNAL: if a holding's actual window price move CONTRADICTS "
     "the textbook direction implied by a macro narrative (e.g. gold falling during "
     "a war-risk spike), report that divergence itself as the noteworthy signal — "
     "do not silently follow the narrative and do not omit the contradiction.\n"
+)
+_RULE_CROSS_REFERENCES = (
     f"§4.2 CROSS-REFERENCES: '{_pass2_cross_ref['en']}' / "
     f"'{_pass2_cross_ref['zh-Hans']}' may only be used for a holding "
     "that actually appears in the PRICE ANOMALIES data (the §4.2 table is built "
@@ -74,10 +91,37 @@ _PASS2_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + (
     "window')."
 )
 
+_SHARED_BODY_RULES = (
+    _RULE_BRIEFING_ROLE
+    + _RULE_FORWARD_EVENTS
+    + _RULE_DIRECTION_REQUIRES_EVIDENCE
+    + _RULE_DIVERGENCE_IS_THE_SIGNAL
+    + _RULE_CROSS_REFERENCES
+)
+
+_PASS2_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + _SHARED_BODY_RULES
+
 # H-DEBT-2 completeness guard: a Pass 2 body shorter than this, or missing
 # either heading, is treated as a truncated provider response.
 _PASS2_REQUIRED_MARKERS = ("## §3", "## §4")
 _PASS2_MIN_CHARS = 2000
+
+
+def body_is_incomplete(body: str) -> bool:
+    """Whether a generated §2/§3/§4 body looks like a truncated 200.
+
+    One expression of the rule, applied to every pass that writes a body:
+    Pass 2, its regenerate-analyze rerun, and A4's assembly pass — which
+    produces a drop-in replacement for Pass 2's output and is injected into
+    by the same `_render_full_md`, so it must clear the same bar. The two
+    passes act on the verdict differently (Pass 2 raises so Celery retries;
+    assembly falls back to Pass 2 in the same run), but what counts as
+    incomplete must not be able to drift between them.
+    """
+    return len(body) < _PASS2_MIN_CHARS or not all(
+        marker in body for marker in _PASS2_REQUIRED_MARKERS
+    )
+
 
 # Mechanism prep for Ring 1 multi-cadence report types (see the Obsidian
 # multi-cadence report redesign notes, phase 3): the §2/§3/§4 narrative
@@ -133,14 +177,13 @@ _NARRATIVE_SECTION_BLOCKS: dict[str, str] = {
 }
 ALL_NARRATIVE_SECTIONS: frozenset[str] = frozenset(_NARRATIVE_SECTION_BLOCKS)
 
-_PASS2_PREAMBLE_TEMPLATE = (
-    "Write {sections_clause} of the financial analysis briefing in Markdown.\n"
-    "Use the portfolio and signal data above. Do NOT emit bracketed tags, "
-    "citations, or per-sentence disclaimers — write clean prose.\n\n"
+_RULE_TIME_REFERENCES = (
     "TIME REFERENCES: this is an incremental report over the window stated above. "
     "Refer to events as happening 'in this report period' unless an event "
     "demonstrably occurred on one specific day (then name the date). Never write "
     "'today' or 'this week' as a stand-in for the window.\n\n"
+)
+_RULE_CONFIDENCE_LABELS = (
     "CONFIDENCE LABELS: end every causal attribution (in §3 and §4.2) with one "
     "evidence-ordinal label in square brackets — NEVER a numeric percentage:\n"
     "  [Established] — a named mechanism or a citable event drives the move "
@@ -153,6 +196,14 @@ _PASS2_PREAMBLE_TEMPLATE = (
     "a view on future direction. Do not drop or downgrade a large unexplained "
     "move: label it [Speculative], keep it brief, and say the catalyst is "
     "unidentified — an unexplained move is itself worth noting.\n\n"
+)
+
+_PASS2_PREAMBLE_TEMPLATE = (
+    "Write {sections_clause} of the financial analysis briefing in Markdown.\n"
+    "Use the portfolio and signal data above. Do NOT emit bracketed tags, "
+    "citations, or per-sentence disclaimers — write clean prose.\n\n"
+    + _RULE_TIME_REFERENCES
+    + _RULE_CONFIDENCE_LABELS
 )
 
 

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -157,6 +158,66 @@ def test_task_shares_one_moves_cache_across_the_whole_batch(
 
     caches = [c.kwargs["moves_cache"] for c in mock_gen.call_args_list]
     assert caches[0] is caches[1]
+
+
+@patch("app.services.user_scope.active_user_ids")
+@patch("app.tasks.report_tasks.send_ops_alert")
+@patch("app.core.database.SessionLocal")
+@patch("app.services.report_generator.generate_report")
+def test_task_tells_each_user_how_many_remain_in_the_batch(
+    mock_gen: MagicMock,
+    mock_session_cls: MagicMock,
+    mock_alert: MagicMock,
+    mock_active_users: MagicMock,
+) -> None:
+    """Issue #128 A4: the shared daily caps (L1 analyses, L2 inferences) are
+    sliced by how many users still have to be served, so the first user in
+    the fixed `active_user_ids` order cannot spend the whole day's budget and
+    starve the SAME later users every day — see shared_budget.py for why this
+    pattern kept recurring across A1/A2/A3.
+
+    Counts the current user too: 3, 2, 1 for a three-user batch, so the last
+    one may spend everything still left rather than stranding it.
+    """
+    mock_active_users.return_value = [_U1, _U2, _U3]
+    mock_session_cls.return_value = MagicMock()
+    mock_gen.side_effect = lambda session, **kw: _make_report(kw["user_id"])
+
+    from app.tasks.report_tasks import generate_incremental_report
+
+    generate_incremental_report.run()
+
+    assert [c.kwargs["users_remaining"] for c in mock_gen.call_args_list] == [3, 2, 1]
+
+
+@patch("app.services.user_scope.active_user_ids")
+@patch("app.tasks.report_tasks.send_ops_alert")
+@patch("app.core.database.SessionLocal")
+@patch("app.services.report_generator.generate_report")
+def test_task_countdown_is_unaffected_by_a_failing_user(
+    mock_gen: MagicMock,
+    mock_session_cls: MagicMock,
+    mock_alert: MagicMock,
+    mock_active_users: MagicMock,
+) -> None:
+    """A user whose report raises still consumed its turn — the countdown is
+    a position in the batch, not a success counter, so a failure must not
+    make the remaining users over- or under-claim their share."""
+    mock_active_users.return_value = [_U1, _U2, _U3]
+    mock_session_cls.return_value = MagicMock()
+
+    def _side_effect(session: object, **kw: Any) -> object:
+        if kw["user_id"] == _U1:
+            raise RuntimeError("boom")
+        return _make_report(kw["user_id"])
+
+    mock_gen.side_effect = _side_effect
+
+    from app.tasks.report_tasks import generate_incremental_report
+
+    generate_incremental_report.run()
+
+    assert [c.kwargs["users_remaining"] for c in mock_gen.call_args_list] == [3, 2, 1]
 
 
 @patch("app.services.user_scope.active_user_ids")

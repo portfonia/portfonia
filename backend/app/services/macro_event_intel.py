@@ -91,6 +91,7 @@ from app.services.macro_detector import detect_macro_signals
 from app.services.report_llm import _call_llm, _openrouter_client
 from app.services.report_prompts import _COMPLIANCE_SYSTEM_PREFIX
 from app.services.sector_taxonomy import OTHER, VALID_SECTORS
+from app.services.shared_budget import fair_share_budget
 from app.services.window_data import load_day_news
 
 logger = logging.getLogger(__name__)
@@ -645,6 +646,7 @@ def get_l2_intel_batch(
     trade_date: date,
     facts_by_key: dict[str, L2Facts],
     usage_sink: list[dict[str, Any]] | None = None,
+    users_remaining: int = 1,
 ) -> dict[str, dict[str, Any]]:
     """Read-through cache over `event_keys`, in the caller's (globally
     ordered — see `l2_event_keys_for_user`) sequence.
@@ -662,21 +664,34 @@ def get_l2_intel_batch(
     the same `report_inputs.llm_calls` list Pass 1/Pass 2/L1 already use;
     cache hits make no call and record nothing.
 
+    `users_remaining` (issue #128 A4) caps this call at its fair share of
+    EACH per-kind budget still left today — see `shared_budget.
+    fair_share_budget`. A3 split the cap per event-kind, which stopped
+    `fwd:` events from starving `theme:` ones; it did not stop one USER from
+    starving another within the theme budget, since theme keys come from
+    that user's own `macro_signals`. `1` (every pre-A4 call site) means no
+    restriction.
+
     Sharing across users relies on the fan-out being sequential
     (`generate_incremental_report` processes users one at a time), exactly as
     L1's does: the first user's inference is committed to the DB before the
-    next user's report reaches this function.
+    next user's report reaches this function — which is also what makes each
+    user's share reflect earlier users' ACTUAL spend rather than their
+    permitted share.
     """
     result: dict[str, dict[str, Any]] = {}
+    # Sliced per kind, not pooled: A3's split budgets are what stop `fwd:`
+    # events from starving `theme:` ones, and the fan-out share must not
+    # collapse them back into a single pot.
     fresh_budget = {
-        _THEME_PREFIX: max(
-            0,
+        _THEME_PREFIX: fair_share_budget(
             _MAX_L2_THEME_ANALYSES_PER_DAY - _attempts_today(session, trade_date, _THEME_PREFIX),
+            users_remaining,
         ),
-        _FORWARD_PREFIX: max(
-            0,
+        _FORWARD_PREFIX: fair_share_budget(
             _MAX_L2_FORWARD_ANALYSES_PER_DAY
             - _attempts_today(session, trade_date, _FORWARD_PREFIX),
+            users_remaining,
         ),
     }
     for event_key in event_keys:

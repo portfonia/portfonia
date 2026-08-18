@@ -844,3 +844,82 @@ def test_l1_facts_has_no_trigger_field_at_all() -> None:
         "trigger"
         not in ti.build_l1_facts(["NVDA"], {"NVDA": _move("NVDA")}, {}, [])["NVDA"].to_jsonb()
     )
+
+
+# ---------------------------------------------------------------------------
+# Multi-user fan-out fairness (issue #128 A4, design doc §5.7 hand-off item 1)
+# ---------------------------------------------------------------------------
+
+
+def test_first_user_in_a_fanout_cannot_spend_the_whole_daily_cap(
+    db_session: Session,
+) -> None:
+    """The third recurrence of the fan-out fairness bug (A1 Tavily budget ->
+    A2 L1 cap -> A3 L2 cap), and the one A3 explicitly could not fix its own
+    way: L1 candidates are per-user (different users hold different
+    identifiers), so there is no key prefix to split the budget on.
+
+    Without a share, the first user in the fixed `active_user_ids` order
+    analyzes candidates until the day's cap is gone, and every later user —
+    the SAME users every day, since that order never rotates — gets nothing
+    fresh.
+    """
+    idents = [f"T{i}" for i in range(9)]
+    facts = {i: _facts() for i in idents}
+    with (
+        patch("app.services.ticker_intel._MAX_L1_ANALYSES_PER_DAY", 9),
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_mock_llm_ok) as mock_call,
+    ):
+        # User 1 of 3 offers every candidate; its share is ceil(9/3) = 3.
+        first = ti.get_l1_intel_batch(db_session, idents, _DATE, facts, users_remaining=3)
+        assert len(first) == 3, "first user must be capped at its own share"
+        assert mock_call.call_count == 3
+
+        # Budget genuinely survives for the users that come after.
+        second = ti.get_l1_intel_batch(db_session, idents, _DATE, facts, users_remaining=2)
+        assert len(second) == 6, "3 cache hits + 3 fresh from this user's share"
+        assert mock_call.call_count == 6
+
+        third = ti.get_l1_intel_batch(db_session, idents, _DATE, facts, users_remaining=1)
+        assert len(third) == 9, "last user may spend everything still left"
+        assert mock_call.call_count == 9
+
+
+def test_unused_share_flows_forward_instead_of_being_stranded(
+    db_session: Session,
+) -> None:
+    """A user with fewer candidates than its share must not strand the
+    remainder: the next user's share is recomputed from what is actually
+    left, not from a fixed per-user quota."""
+    with (
+        patch("app.services.ticker_intel._MAX_L1_ANALYSES_PER_DAY", 9),
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_mock_llm_ok) as mock_call,
+    ):
+        ti.get_l1_intel_batch(db_session, ["AAA"], _DATE, {"AAA": _facts()}, users_remaining=3)
+        assert mock_call.call_count == 1
+
+        # 8 slots left, 2 users to go -> this user may take 4, not 3.
+        idents = [f"U{i}" for i in range(8)]
+        second = ti.get_l1_intel_batch(
+            db_session, idents, _DATE, {i: _facts() for i in idents}, users_remaining=2
+        )
+        assert len(second) == 4
+        assert mock_call.call_count == 5
+
+
+def test_default_call_site_is_unrestricted_by_the_fanout_share(
+    db_session: Session,
+) -> None:
+    """Every pre-A4 caller omits `users_remaining` and must keep the whole
+    budget — this mechanism may not change single-user behavior."""
+    idents = [f"V{i}" for i in range(4)]
+    with (
+        patch("app.services.ticker_intel._MAX_L1_ANALYSES_PER_DAY", 4),
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_mock_llm_ok) as mock_call,
+    ):
+        got = ti.get_l1_intel_batch(db_session, idents, _DATE, {i: _facts() for i in idents})
+        assert len(got) == 4
+        assert mock_call.call_count == 4

@@ -127,6 +127,37 @@ class Settings(BaseSettings):
     # fully validated long-term.
     STRUCTURED_LLM_MODEL: str = "openai/gpt-5.6-luna"
 
+    # --- Shared-compute personalized assembly (issue #128 A4) ---------------
+    # Master switch for the second-layer assembly path (design doc §6.3). When
+    # false — the default, and the only value in production until the shadow
+    # comparison below has been read and signed off — generate_report behaves
+    # exactly as it did before A4: one PRIMARY_LLM_MODEL Pass 2 call writes the
+    # whole body. When true, the body is assembled from the pre-computed L1/L2
+    # shared intel instead, falling back to Pass 2 whenever that intel is
+    # missing or the assembled body fails the same completeness guard. The
+    # worst case of enabling it is therefore "today's behavior", never a
+    # degraded report.
+    SHARED_COMPUTE_ENABLED: bool = False
+    # Model for the assembly pass. Carries holdings (portfolio weights), so it
+    # runs with OPENROUTER_DATA_COLLECTION=deny ENFORCED and does NOT use the
+    # BYOK exception scoped to Pass 1 + translation (design doc §6.3). Left
+    # empty deliberately: the value is an OUTPUT of the shadow comparison, not
+    # an input to it (decision 2026-08-14 — the assembly task shape differs
+    # from Pass 1/translation, so a cheap model's quality here cannot be
+    # assumed). An empty value with SHARED_COMPUTE_ENABLED=true falls back to
+    # Pass 2 rather than guessing a model.
+    ASSEMBLY_LLM_MODEL: str = ""
+    # Shadow comparison harness (design doc §6.3.1). Comma-separated model ids;
+    # empty disables it. Each listed model runs the assembly pass over the same
+    # inputs as the shipped report and its output is stored under
+    # report_inputs["assembly_shadow"] — never rendered, never emailed, never
+    # able to fail the report. Run this with SHARED_COMPUTE_ENABLED=false so
+    # one round yields BOTH comparisons the design asks for in a single pass:
+    # architecture (the shipped Pass 2 body vs each assembled body) and model
+    # (the listed models against each other), with costs read straight off
+    # report_inputs["llm_calls"].
+    ASSEMBLY_SHADOW_MODELS: str = ""
+
     # Report output language. The LLM reasons in English (higher quality), then
     # the assembled report is translated to this language at render time. "en"
     # skips translation. Ring 0 default: Simplified Chinese.

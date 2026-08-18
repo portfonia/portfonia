@@ -710,3 +710,83 @@ def test_user_event_exposure_never_reads_sector() -> None:
         }
     }
     assert l2.user_event_exposure(intel, {"EQUITY_US_BROAD": 10.0}) == {}
+
+
+# ---------------------------------------------------------------------------
+# Multi-user fan-out fairness (issue #128 A4, design doc §5.7 hand-off item 1)
+# ---------------------------------------------------------------------------
+
+
+def test_first_user_in_a_fanout_cannot_spend_the_whole_theme_budget(
+    db_session: Session,
+) -> None:
+    """A3 split the cap per event-kind, which stopped `fwd:` events from
+    starving `theme:` ones — but NOT one user from starving another within
+    the theme budget. Theme keys are per-user (`l2_event_keys_for_user`
+    reads this user's own `macro_signals`), so the first user in the fixed
+    fan-out order could still take every theme slot.
+    """
+    _seed_day_news(db_session)
+    keys = [f"theme:t{i}" for i in range(9)]
+    facts = _theme_facts(keys)
+
+    client_patch, call_patch = _patched_llm(_mock_llm_ok)
+    with (
+        patch("app.services.macro_event_intel._MAX_L2_THEME_ANALYSES_PER_DAY", 9),
+        client_patch,
+        call_patch as mock_call,
+    ):
+        l2.get_l2_intel_batch(db_session, keys, _DATE, facts, users_remaining=3)
+        assert mock_call.call_count == 3, "first user is capped at ceil(9/3)"
+
+        l2.get_l2_intel_batch(db_session, keys, _DATE, facts, users_remaining=2)
+        assert mock_call.call_count == 6
+
+        l2.get_l2_intel_batch(db_session, keys, _DATE, facts, users_remaining=1)
+        assert mock_call.call_count == 9, "last user may spend what is left"
+
+
+def test_fanout_share_applies_to_each_event_kind_independently(
+    db_session: Session,
+) -> None:
+    """The share slices each per-kind budget separately — it must not
+    collapse A3's theme/forward split back into one pooled budget."""
+    _seed_day_news(db_session)
+    theme_keys = [f"theme:s{i}" for i in range(6)]
+    fwd_keys = [f"fwd:s{i}" for i in range(6)]
+    facts = {**_theme_facts(theme_keys), **_forward_facts(fwd_keys)}
+
+    client_patch, call_patch = _patched_llm(_mock_llm_ok)
+    with (
+        patch("app.services.macro_event_intel._MAX_L2_THEME_ANALYSES_PER_DAY", 6),
+        patch("app.services.macro_event_intel._MAX_L2_FORWARD_ANALYSES_PER_DAY", 6),
+        client_patch,
+        call_patch as mock_call,
+    ):
+        got = l2.get_l2_intel_batch(
+            db_session, theme_keys + fwd_keys, _DATE, facts, users_remaining=2
+        )
+
+    # ceil(6/2) = 3 from EACH budget, not 3 across both.
+    assert mock_call.call_count == 6
+    assert sum(1 for k in got if k.startswith("theme:")) == 3
+    assert sum(1 for k in got if k.startswith("fwd:")) == 3
+
+
+def test_default_call_site_is_unrestricted_by_the_fanout_share(
+    db_session: Session,
+) -> None:
+    """Every pre-A4 caller omits `users_remaining` and keeps the whole
+    budget — single-user behavior must be unchanged."""
+    _seed_day_news(db_session)
+    keys = [f"theme:w{i}" for i in range(4)]
+
+    client_patch, call_patch = _patched_llm(_mock_llm_ok)
+    with (
+        patch("app.services.macro_event_intel._MAX_L2_THEME_ANALYSES_PER_DAY", 4),
+        client_patch,
+        call_patch as mock_call,
+    ):
+        l2.get_l2_intel_batch(db_session, keys, _DATE, _theme_facts(keys))
+
+    assert mock_call.call_count == 4
