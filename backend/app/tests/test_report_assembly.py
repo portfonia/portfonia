@@ -259,3 +259,110 @@ def test_shadow_models_empty_setting_disables_the_harness() -> None:
 def test_shadow_models_deduplicate_while_keeping_order() -> None:
     """A duplicated entry would otherwise bill the same comparison twice."""
     assert ra.parse_shadow_models("a/one, b/two, a/one") == ["a/one", "b/two"]
+
+
+# ---------------------------------------------------------------------------
+# Fund-only holdings (no `ticker`, only `fund_code`) — review round-1 finding,
+# PR #163: a fund row previously carried no identifier in the Holdings
+# listing and fell out of the L1 weight lookup entirely (matched on `ticker`
+# only), silently sorting to the bottom of the L1 block regardless of size.
+# ---------------------------------------------------------------------------
+
+_FUND_PORTFOLIO: dict[str, Any] = {
+    "base_currency": "USD",
+    "total_base": 400000.0,
+    "fx_date": "2026-08-17",
+    "holdings": [
+        {
+            "name": "Offshore Fund",
+            "fund_code": "110011",
+            "currency": "CNY",
+            "market_value": 300000.0,
+            "market_value_base": 300000.0,
+            "asset_class": "EQUITY_CN",
+        },
+        {
+            "name": "NVIDIA",
+            "ticker": "NVDA",
+            "currency": "USD",
+            "market_value": 100000.0,
+            "market_value_base": 100000.0,
+            "asset_class": "STOCK",
+        },
+    ],
+    "by_asset_class": {"EQUITY_CN": 300000.0, "STOCK": 100000.0},
+    "by_currency": {"CNY": 300000.0, "USD": 100000.0},
+    "by_market": {},
+    "concentration": {},
+}
+
+
+def test_holdings_listing_shows_the_fund_code_for_a_ticker_less_row() -> None:
+    prompt = ra.build_assembly_prompt(
+        portfolio=_FUND_PORTFOLIO,
+        price_anomalies=[],
+        ticker_intel={},
+        macro_event_intel={},
+        macro_event_exposure={},
+    )
+    assert "(110011)" in prompt
+
+
+def test_fund_row_is_ordered_by_its_real_weight_in_the_l1_block() -> None:
+    """The fund is 75% of the portfolio and has an L1 entry — it must sort
+    ahead of NVDA (25%), not fall to the bottom for lack of a `ticker` key."""
+    prompt = ra.build_assembly_prompt(
+        portfolio=_FUND_PORTFOLIO,
+        price_anomalies=[],
+        ticker_intel={
+            "110011": "The fund's NAV rose on broad CN equity strength. [Established]",
+            "NVDA": "NVDA rose on an earnings beat. [Established]",
+        },
+        macro_event_intel={},
+        macro_event_exposure={},
+    )
+    l1_section = prompt.split("=== SHARED TICKER INTEL")[1]
+    assert l1_section.index("110011") < l1_section.index("NVDA")
+
+
+# ---------------------------------------------------------------------------
+# Stale-ticker callout — review round-1 finding, PR #163: Pass 2's prompt
+# tells the model which holdings have no price data and are excluded from
+# valuations (`_build_pass2_prompt`'s "Stale/no-price identifiers" block);
+# the assembly prompt omitted it, so the model could not know a holding
+# named in the portfolio was silently missing from every total.
+# ---------------------------------------------------------------------------
+
+
+def test_prompt_carries_stale_ticker_callouts_when_present() -> None:
+    portfolio = {**_PORTFOLIO, "stale_tickers": ["TSLA"]}
+    prompt = _prompt(portfolio=portfolio)
+    assert "Stale/no-price identifiers" in prompt
+    assert "TSLA" in prompt
+
+
+def test_prompt_omits_the_stale_ticker_section_when_empty() -> None:
+    """No stale tickers -> no empty/misleading section header."""
+    prompt = _prompt()
+    assert "Stale/no-price identifiers" not in prompt
+
+
+# ---------------------------------------------------------------------------
+# Report window rendering — review round-1 finding, PR #163: Pass 2's prompt
+# converts the stored UTC window to ET and labels it explicitly
+# (`_build_pass2_prompt`: `.astimezone(ET).strftime(...)` + "ET" suffix), so
+# the model's date/time references match the report's own stated timezone.
+# The assembly prompt printed the raw UTC ISO strings verbatim instead.
+# ---------------------------------------------------------------------------
+
+
+def test_report_window_is_rendered_in_et_like_pass2() -> None:
+    prompt = _prompt(
+        period_start="2026-08-14T21:00:00+00:00",  # 17:00 ET
+        period_end="2026-08-17T21:00:00+00:00",  # 17:00 ET
+    )
+    window_line = prompt.splitlines()[1]
+    assert "2026-08-14 17:00" in window_line
+    assert "2026-08-17 17:00" in window_line
+    assert "ET" in window_line
+    assert "+00:00" not in window_line

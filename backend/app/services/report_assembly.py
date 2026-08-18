@@ -48,16 +48,21 @@ footer disclaimer all apply unchanged.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any
 
 from openai import OpenAI
 
+from app.core.timezones import ET
+from app.services._yfinance import _normalize_hk_ticker
+from app.services.i18n_glossary import load_i18n_glossary
 from app.services.report_llm import _call_llm
 from app.services.report_prompts import (
     _COMPLIANCE_SYSTEM_PREFIX,
     _RULE_CONFIDENCE_LABELS,
     _RULE_TIME_REFERENCES,
     _SHARED_BODY_RULES,
+    _stale_ticker_hint,
 )
 
 logger = logging.getLogger(__name__)
@@ -141,6 +146,25 @@ def _weight(holding: dict[str, Any], total: float) -> float:
     return float(value) / total
 
 
+def _identifier(holding: dict[str, Any]) -> str:
+    """The key a holding is looked up under elsewhere in this pipeline:
+    `_normalize_hk_ticker(...).upper()`'d ticker, or fund_code for a
+    fund-only row (`_normalize_hk_ticker` passes a non-HK-shaped string —
+    including a plain numeric fund code — through unchanged, so this is
+    safe for both). Matches `select_user_anomalies`/`compute_global_moves`'s
+    key convention, which `ticker_intel.build_l1_facts` already had to
+    reconcile once for the same reason (see its docstring on the raw-vs-
+    normalized HK ticker bug).
+
+    Review round-1 finding, PR #163: this module previously read `ticker`
+    only, so a fund-only row fell out of the weight lookup below entirely
+    and silently sorted to the bottom of the L1 block, plus the Holdings
+    listing printed no identifier for it at all — nothing in the prompt
+    connected "Offshore Fund" prose to an L1 entry keyed by "110011"."""
+    raw = holding.get("ticker") or holding.get("fund_code") or ""
+    return _normalize_hk_ticker(str(raw)).upper()
+
+
 def build_assembly_prompt(
     portfolio: dict[str, Any],
     price_anomalies: list[dict[str, Any]],
@@ -164,7 +188,15 @@ def build_assembly_prompt(
     lines: list[str] = []
 
     lines.append("=== REPORT WINDOW ===")
-    span = f"{period_start} to {period_end}" if period_start and period_end else "unknown"
+    # Rendered in ET, matching Pass 2's own window line exactly (review
+    # round-1 finding, PR #163: this previously printed the raw UTC ISO
+    # strings, which disagreed with every other ET-labeled timestamp the
+    # model is given elsewhere in the pipeline).
+    span = "unknown"
+    if period_start and period_end:
+        ps_et = datetime.fromisoformat(period_start).astimezone(ET).strftime("%Y-%m-%d %H:%M")
+        pe_et = datetime.fromisoformat(period_end).astimezone(ET).strftime("%Y-%m-%d %H:%M")
+        span = f"{ps_et} to {pe_et} ET"
     lines.append(f"This report covers {span} ({trading_days} trading day(s)).")
     lines.append("")
 
@@ -180,15 +212,29 @@ def build_assembly_prompt(
         reverse=True,
     )
     for h in holdings:
+        # Fund-only rows (no ticker) still need an identifier printed, or the
+        # model has no way to connect this line's holding name to an L1 entry
+        # keyed by fund_code below (review round-1 finding, PR #163).
+        ident = h.get("ticker") or h.get("fund_code")
         lines.append(
             f"  {h.get('name', '')}"
-            + (f" ({h['ticker']})" if h.get("ticker") else "")
+            + (f" ({ident})" if ident else "")
             + f" — {_weight(h, total):.1%} of portfolio"
             + (f" | asset_class: {h['asset_class']}" if h.get("asset_class") else "")
         )
     lines.append("")
     lines.append(f"By asset class: {portfolio.get('by_asset_class', {})}")
     lines.append(f"By currency: {portfolio.get('by_currency', {})}")
+
+    # Which holdings have no usable price and are excluded from every total —
+    # the model must not describe one as if it were valued (review round-1
+    # finding, PR #163: Pass 2 carries this, the assembly prompt did not).
+    stale = portfolio.get("stale_tickers", [])
+    if stale:
+        lines.append("Stale/no-price identifiers (excluded from valuations):")
+        vendor_zh = load_i18n_glossary().vendor_names["Tiantian Fund"]["zh-Hans"]
+        for ident in stale:
+            lines.append(f"  - {_stale_ticker_hint(ident, vendor_zh)}")
 
     conc = portfolio.get("concentration", {})
     if conc.get("single_holding_watch") or conc.get("top3_watch") or conc.get("asset_class_watch"):
@@ -225,10 +271,14 @@ def build_assembly_prompt(
     lines.append("")
     lines.append("=== SHARED TICKER INTEL (already analyzed — restate, do not re-derive) ===")
     if ticker_intel:
+        # Keyed via `_identifier` (ticker OR fund_code), not `ticker` alone —
+        # a fund-only row previously fell out of this map entirely and
+        # sorted to the bottom of the L1 block regardless of its actual size
+        # (review round-1 finding, PR #163).
         weight_by_ident = {
-            str(h.get("ticker") or "").upper(): _weight(h, total)
+            _identifier(h): _weight(h, total)
             for h in portfolio.get("holdings", [])
-            if h.get("ticker")
+            if h.get("ticker") or h.get("fund_code")
         }
         for ident in sorted(
             ticker_intel, key=lambda i: weight_by_ident.get(i.upper(), 0.0), reverse=True

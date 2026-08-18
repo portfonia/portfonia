@@ -316,15 +316,90 @@ def test_uat9_assembled_report_rerenders_with_zero_llm_calls(
 # ---------------------------------------------------------------------------
 
 
+def _seed_hoggable_price_snapshots(db_session: Session) -> None:
+    """Deliberately does NOT reuse `_seed_price_snapshots` — NVDA there is
+    shared with U2, which defeats the point (see below). Seeds two
+    identifiers held ONLY by U1 (QQQM, a ticker; 110011, a fund-code-only
+    holding — CLAUDE.md's fund NAV note: fund NAV is captured into
+    `price_snapshots` keyed by `fund_code`, same table/shape as a ticker)
+    plus one held only by U3 (SGOL).
+
+    Why exclusivity matters: an earlier version of this test seeded NVDA
+    (shared with U2) as one of U1's two candidates. The fair share DID stop
+    U1 from taking both itself — but since U2 also legitimately wants NVDA,
+    U2 simply picked up whichever of U1's two candidates U1 left unspent,
+    using U2's OWN share. U1+U2's combined LEGITIMATE demand (2 distinct
+    identifiers between them) still exhausted a cap of 2, leaving U3
+    starved regardless of the fix — a false negative in the other
+    direction. Making BOTH of U1's candidates exclusive to U1 removes that
+    escape hatch: nobody else can "finish" what U1 left on the table, so
+    whether U3 gets served is governed ONLY by whether U1 was capped at its
+    fair share of 1 (with the fix) or could take both (without it).
+    """
+    today = datetime.now(tz=ET).date()
+    yesterday = today - timedelta(days=1)
+    yesterday_at = datetime.combine(yesterday, time(20, 0), tzinfo=UTC)
+    # Same shape as the project's other anomaly fixtures (7.5%/5.5%
+    # cumulative moves, flat on the last day) — proven to clear each
+    # asset_class's window threshold elsewhere in this test suite, not a
+    # newly-guessed magnitude.
+    db_session.add_all(
+        [
+            _close_at("QQQM", _BASELINE_DATE, 300.0, BOOTSTRAP_WATERMARK),
+            _close("QQQM", date(2026, 6, 2), 322.5),
+            _close_at("QQQM", yesterday, 322.5, yesterday_at),
+            _close("QQQM", today, 322.5),
+            PriceSnapshot(
+                ticker="110011",
+                market="A-Share",
+                session_node="close",
+                trade_date=_BASELINE_DATE,
+                close=Decimal("100"),
+                captured_at=BOOTSTRAP_WATERMARK,
+            ),
+            _close("110011", date(2026, 6, 2), 107.5),
+            _close_at("110011", yesterday, 107.5, yesterday_at),
+            _close("110011", today, 107.5),
+            _close_at("SGOL", _BASELINE_DATE, 180.0, BOOTSTRAP_WATERMARK),
+            _close("SGOL", date(2026, 6, 2), 190.0),
+            _close_at("SGOL", yesterday, 190.0, yesterday_at),
+            _close("SGOL", today, 190.0),
+        ]
+    )
+    db_session.flush()
+
+
 def test_the_first_user_cannot_exhaust_the_days_l1_budget(
     db_session: Session, three_user_holdings: dict[str, Any]
 ) -> None:
     """The third recurrence of the fairness bug, closed at the level it
-    actually bit: a real three-user batch with a cap of 1. Pre-fix, the first
-    user took the single slot and the same later users starved every day.
-    With the share, a cap of 1 across 3 users gives each user one slot of its
-    own — so no user is systematically last."""
-    _seed_price_snapshots(db_session)
+    actually bit: a real three-user batch where the first user in the fixed
+    fan-out order (U1) has two candidates EXCLUSIVE to itself — QQQM and
+    the fund-code-only holding 110011, neither shared with U2 or U3 — and
+    the last user (U3) has exactly one exclusive candidate (SGOL). Cap = 2.
+
+    Review round-1 finding (PR #163): the original version of this test
+    used a shared identifier (NVDA) as one of U1's two "own" candidates.
+    That masked the mechanism two different ways in two different drafts —
+    first with a budget equal to total demand (so unrestricted first-come
+    already served everyone, proving nothing), then with NVDA shared with
+    U2 (so whichever of U1's two candidates U1 left unspent, U2 simply
+    picked up with U2's OWN share — U1+U2's combined LEGITIMATE demand
+    still exhausted the cap regardless of the fix, a false negative in the
+    other direction). Both of U1's candidates being exclusive to U1 closes
+    that escape hatch: nobody else can finish what U1 leaves on the table,
+    so whether U3 gets served is governed ONLY by whether U1 was capped at
+    its fair share.
+
+    Provably discriminating (verified by hand before writing this
+    docstring, not asserted on faith): patching `fair_share_budget` to
+    "always return the full remaining budget" — i.e. simulating the
+    pre-fix behavior — makes U1 spend the whole cap on QQQM + 110011 and
+    this test's assertion FAIL. With the real fix, U1's share is
+    ceil(2/3)=1, so it spends on only one of its two candidates, and the
+    unspent unit flows forward to U3's turn — SGOL gets analyzed.
+    """
+    _seed_hoggable_price_snapshots(db_session)
 
     from app.tasks.report_tasks import generate_incremental_report
 
@@ -333,7 +408,7 @@ def test_the_first_user_cannot_exhaust_the_days_l1_budget(
         for p in _boundary_patches():
             stack.enter_context(p)  # type: ignore[arg-type]
         stack.enter_context(patch.object(settings, "SHARED_COMPUTE_ENABLED", False))
-        stack.enter_context(patch("app.services.ticker_intel._MAX_L1_ANALYSES_PER_DAY", 3))
+        stack.enter_context(patch("app.services.ticker_intel._MAX_L1_ANALYSES_PER_DAY", 2))
         mock_l1 = stack.enter_context(
             patch(
                 "app.services.ticker_intel._call_llm",
@@ -342,10 +417,9 @@ def test_the_first_user_cannot_exhaust_the_days_l1_budget(
         )
         generate_incremental_report.run()
 
-    # U1/U2 share NVDA (one analysis, cached for the second), U3's SGOL is
-    # its own — the day's 3 slots were not consumed by whoever ran first.
     analyzed = {c.args[3].split("\n")[0] for c in mock_l1.call_args_list}
-    assert any("NVDA" in a for a in analyzed)
     assert any("SGOL" in a for a in analyzed), (
-        "U3, last in the fixed fan-out order, still got a fresh analysis"
+        "U3, last in the fixed fan-out order, was starved because U1 spent "
+        "the whole cap on its own two candidates — the exact bug "
+        "fair_share_budget exists to close"
     )
