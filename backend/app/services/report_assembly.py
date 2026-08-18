@@ -165,6 +165,51 @@ def _identifier(holding: dict[str, Any]) -> str:
     return _normalize_hk_ticker(str(raw)).upper()
 
 
+# Closed mechanism labels for assembly (issue #128 quality gate).
+# Code-built from asset_class — not LLM free text, not a per-user value.
+# L2 still supplies the event analysis; this only names the channel so
+# assembly can attach THIS book's holdings without inventing a mechanism.
+VALID_TRANSMISSIONS: frozenset[str] = frozenset(
+    {
+        "discount_rate",
+        "ai_capex_stack",
+        "growth_inflation",
+        "oil_freight_demand",
+        "safe_haven",
+        "currency_usd",
+        "rates_duration",
+    }
+)
+
+_CLASS_TRANSMISSION: dict[str, tuple[str, ...]] = {
+    "EQUITY_US_TECH": ("discount_rate", "ai_capex_stack"),
+    "EQUITY_US_BROAD": ("discount_rate", "growth_inflation"),
+    "STOCK": ("discount_rate",),
+    "EQUITY_CN": ("currency_usd", "growth_inflation"),
+    "EQUITY_DM": ("discount_rate", "growth_inflation"),
+    "EQUITY_EM": ("currency_usd", "growth_inflation"),
+    "EQUITY_BROAD": ("discount_rate", "growth_inflation"),
+    "PRECIOUS_METALS": ("safe_haven",),
+    "ENERGY": ("oil_freight_demand",),
+    "COMMODITY": ("oil_freight_demand", "growth_inflation"),
+    "BOND_FUND": ("rates_duration", "discount_rate"),
+    "CASH_EQUIV": ("rates_duration",),
+    "REIT": ("discount_rate", "rates_duration"),
+}
+
+
+def transmissions_for_classes(asset_classes: list[str]) -> list[str]:
+    """Closed-enum mechanisms for a set of asset classes. Unknown classes drop."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for cls in asset_classes:
+        for mech in _CLASS_TRANSMISSION.get(cls, ()):
+            if mech in VALID_TRANSMISSIONS and mech not in seen:
+                seen.add(mech)
+                out.append(mech)
+    return out
+
+
 def build_assembly_prompt(
     portfolio: dict[str, Any],
     price_anomalies: list[dict[str, Any]],
@@ -174,6 +219,7 @@ def build_assembly_prompt(
     period_start: str = "",
     period_end: str = "",
     trading_days: int = 0,
+    technical_positions: list[dict[str, Any]] | None = None,
 ) -> str:
     """Assemble the user-turn prompt. Takes no `Session` by design — see the
     module docstring's type-boundary note; every value here arrives already
@@ -320,6 +366,9 @@ def build_assembly_prompt(
                 "  your exposure (asset classes you hold that this event bears on): "
                 + ", ".join(macro_event_exposure[key])
             )
+            channels = transmissions_for_classes(macro_event_exposure[key])
+            if channels:
+                lines.append("  TRANSMISSION (code-built, closed set): " + ", ".join(channels))
     else:
         lines.append("(no macro event this period bears on an asset class in this portfolio)")
 
@@ -339,14 +388,43 @@ def build_assembly_prompt(
         lines.append("(no holding moved beyond its threshold this window)")
 
     lines.append("")
+    lines.append("=== TECHNICAL POSITION (code-built OHLCV facts, not signals) ===")
+    tech_rows = list(technical_positions or [])
+    if tech_rows:
+        for t in tech_rows:
+            ident = t.get("ticker") or t.get("identifier") or ""
+            bits: list[str] = []
+            sma50 = t.get("pct_vs_sma50")
+            sma200 = t.get("pct_vs_sma200")
+            rng = t.get("pct_in_52w_range")
+            vol = t.get("vol_20d_annualized")
+            if sma50 is not None:
+                bits.append(f"vs 50-day avg {float(sma50):+.1%}")
+            if sma200 is not None:
+                bits.append(f"vs 200-day avg {float(sma200):+.1%}")
+            if rng is not None:
+                bits.append(f"in 52-week range {float(rng):.0%}")
+            if vol is not None:
+                bits.append(f"20-day vol {float(vol):.0%}")
+            if ident and bits:
+                lines.append(f"  {ident}: " + "; ".join(bits))
+    else:
+        lines.append("(no technical-position facts supplied)")
+
+    lines.append("")
     lines.append(
         "Write sections §2, §3 and §4 of the financial analysis briefing in Markdown, "
         "using the headings '## §2 Macro Signals', '## §3 Holdings Analysis' and "
         "'## §4 Risk Radar'.\n"
         "Your job is assembly, not investigation: the analysis above has already "
         "established what happened and why. Select what matters for THIS portfolio, "
-        "connect each supplied conclusion to the specific holdings it bears on, and "
-        "prioritize by weight and exposure.\n\n"
+        "connect each supplied conclusion to the specific holdings it bears on "
+        "(including a large holding that has L1 intel even if it did not print a "
+        "price anomaly), and prioritize by weight and exposure. You MUST NOT invent "
+        "facts, events, figures or catalysts that appear nowhere in the supplied "
+        "blocks. You MAY connect facts that ARE supplied: an L2 event plus its "
+        "TRANSMISSION labels plus an L1 entry on a related holding is one chain, "
+        "not three unrelated notes. Do not introduce new facts.\n\n"
         + _RULE_TIME_REFERENCES
         + _RULE_CONFIDENCE_LABELS
         + "## §2 Macro Signals\n"

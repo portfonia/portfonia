@@ -524,7 +524,29 @@ def get_l1_intel_batch(
     return result
 
 
-def l1_identifiers_for_user(anomalies: list[dict[str, Any]]) -> list[str]:
+# Extra L1 selection (issue #128 quality gate, 2026-08-18): anomaly-only
+# candidates left a 22% TSMC line with nothing for assembly to restate.
+# These are SELECTION knobs — they still only emit identifier strings.
+_L1_TOP_K_BY_WEIGHT = 5
+_L1_MIN_WEIGHT = 0.05
+
+
+def _holding_identifier(holding: dict[str, Any]) -> str:
+    raw = holding.get("ticker") or holding.get("fund_code") or ""
+    if not raw:
+        return ""
+    return _normalize_hk_ticker(str(raw)).upper()
+
+
+def l1_identifiers_for_user(
+    anomalies: list[dict[str, Any]],
+    *,
+    holdings: list[dict[str, Any]] | None = None,
+    portfolio_total: float | None = None,
+    exposed_asset_classes: list[str] | None = None,
+    top_k: int = _L1_TOP_K_BY_WEIGHT,
+    min_weight: float = _L1_MIN_WEIGHT,
+) -> list[str]:
     """The per-user -> global firewall: WHICH identifiers this user's report
     makes worth analyzing, as plain strings and nothing else.
 
@@ -544,15 +566,32 @@ def l1_identifiers_for_user(anomalies: list[dict[str, Any]]) -> list[str]:
     would key shared intel by something A4 can never look up. Theme-level
     narrative is A3/L2's job (design doc §5), decided 2026-08-15.
 
-    ORDERING is deliberately left per-user: the caller's list is already
-    sorted by that user's |move|, and constituents keep their given order.
-    Ordering only decides who survives the daily fresh-analysis cap — a
-    SELECTION concern, which is per-user by design (every user contributes
-    candidates to one shared cache). It is values, not selection, that must
-    be global.
+    Two extra selection channels (issue #128, 2026-08-18) — still identifiers
+    only, still per-user selection:
+      * weight: top `top_k` holdings at or above `min_weight`, so a large
+        name that did not cross an anomaly threshold still gets a day-scoped
+        L1 row for assembly to restate.
+      * L2 class intersection: holdings whose `asset_class` is in
+        `exposed_asset_classes` (the keys `user_event_exposure` already
+        intersected with this book). Values of L2 stay global; this only
+        decides WHICH identifiers to ask L1 about.
+
+    ORDERING is deliberately left per-user: anomalies keep the caller's
+    |move| order, then weight extras, then class extras. Ordering only
+    decides who survives the daily fresh-analysis cap — a SELECTION
+    concern. It is values, not selection, that must be global.
     """
     out: list[str] = []
     seen: set[str] = set()
+
+    def _add(candidate: object) -> None:
+        if not candidate:
+            return
+        ident = str(candidate)
+        if ident not in seen:
+            seen.add(ident)
+            out.append(ident)
+
     for a in anomalies:
         identifier = a.get("identifier")
         if not identifier:
@@ -565,9 +604,33 @@ def l1_identifiers_for_user(anomalies: list[dict[str, Any]]) -> list[str]:
         for candidate in (
             [c.get("identifier") for c in constituents] if constituents else [identifier]
         ):
-            if candidate and candidate not in seen:
-                seen.add(candidate)
-                out.append(candidate)
+            _add(candidate)
+
+    rows = list(holdings or [])
+    total = float(portfolio_total or 0.0)
+    if total <= 0:
+        total = sum(float(h.get("market_value_base") or 0.0) for h in rows)
+
+    weighted: list[tuple[float, str]] = []
+    if total > 0:
+        for holding in rows:
+            ident = _holding_identifier(holding)
+            if not ident:
+                continue
+            weight = float(holding.get("market_value_base") or 0.0) / total
+            weighted.append((weight, ident))
+        weighted.sort(key=lambda item: item[0], reverse=True)
+        extras = [ident for weight, ident in weighted if weight >= min_weight][:top_k]
+        for ident in extras:
+            _add(ident)
+
+    exposed = {c for c in (exposed_asset_classes or []) if c}
+    if exposed:
+        class_by_ident = {_holding_identifier(h): h.get("asset_class") for h in rows}
+        for _weight, ident in weighted:
+            if class_by_ident.get(ident) in exposed:
+                _add(ident)
+
     return out
 
 

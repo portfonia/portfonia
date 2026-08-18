@@ -240,6 +240,7 @@ def _assembly_prompt_from_ctx(ctx: ReportContext) -> str:
         ctx.period_start,
         ctx.period_end,
         ctx.window_trading_days,
+        ctx.technical_positions,
     )
 
 
@@ -893,7 +894,38 @@ def generate_report(
         # stitching them into one narrative — a product decision, not a
         # limitation of this cache; revisit if day-by-day reads poorly once
         # there's real report content to judge it against.
-        l1_identifiers = l1_identifiers_for_user(ctx.price_anomalies)
+        # L2 first so class-intersection extras can join the L1 candidate
+        # list. L2 does not depend on L1. (issue #128 quality gate)
+        l2_event_keys = l2_event_keys_for_user(session, eff_date, ctx.macro_signals)
+        l2_facts = build_l2_facts(session, l2_event_keys, eff_date)
+        ctx.macro_event_intel = get_l2_intel_batch(
+            session,
+            l2_event_keys,
+            eff_date,
+            l2_facts,
+            usage_sink=ctx.llm_calls,
+            users_remaining=users_remaining,
+        )
+        ctx.macro_event_exposure = user_event_exposure(
+            ctx.macro_event_intel, ctx.portfolio_summary.get("by_asset_class", {})
+        )
+        logger.info(
+            "report %s: L2 shared intel available for %d/%d candidate events, "
+            "%d relevant to this portfolio",
+            report.id,
+            len(ctx.macro_event_intel),
+            len(l2_event_keys),
+            len(ctx.macro_event_exposure),
+        )
+
+        l1_identifiers = l1_identifiers_for_user(
+            ctx.price_anomalies,
+            holdings=list(ctx.portfolio_summary.get("holdings") or []),
+            portfolio_total=float(ctx.portfolio_summary.get("total_base") or 0.0),
+            exposed_asset_classes=sorted(
+                {cls for classes in ctx.macro_event_exposure.values() for cls in classes}
+            ),
+        )
         day_news = load_day_news(session, eff_date)
         l1_headlines: dict[str, list[str]] = {
             ident: [n.title for n in items]
@@ -927,52 +959,10 @@ def generate_report(
             len(l1_identifiers),
         )
 
-        # ------------------------------------------------------------------
-        # 5.6 L2 shared macro-event intel (issue #128 A3) — one inference per
-        # (event_key, trade_date) across the whole system, cached in
-        # `macro_event_intel`, so a macro theme or a scheduled calendar event
-        # that appears in three users' reports is reasoned about once, not
-        # three times. Like L1 (§5.5), this does NOT feed the Pass 2 prompt or
-        # the rendered body — A3 is cache infrastructure only (design doc
-        # §1.2: report content stays byte-identical through A1-A3); A4 is the
-        # consumer. A blocked/failed event degrades to "no L2 intel for that
-        # event", never a report failure.
-        # ------------------------------------------------------------------
-        #
-        # The per-user/global split mirrors L1's exactly (design doc §4.8):
-        #   - SELECTION may be per-user: `l2_event_keys_for_user` takes this
-        #     user's `ctx.macro_signals` — per-user, since `detect_macro_signals`
-        #     ran over `load_news_window(..., user_id)` — and returns
-        #     `list[str]` event keys, the only channel into the shared cache.
-        #   - VALUES are global and day-scoped: `build_l2_facts` takes only
-        #     (session, keys, eff_date) and re-derives each theme's evidence
-        #     from `load_day_news`, so no watermark, portfolio or per-user
-        #     article set can reach a row that ships to every user.
-        # `user_event_exposure` is the personalization step and costs nothing:
-        # a set intersection of the cached asset classes with this user's own
-        # `by_asset_class` keys, zero LLM calls (design doc §5.3).
-        l2_event_keys = l2_event_keys_for_user(session, eff_date, ctx.macro_signals)
-        l2_facts = build_l2_facts(session, l2_event_keys, eff_date)
-        ctx.macro_event_intel = get_l2_intel_batch(
-            session,
-            l2_event_keys,
-            eff_date,
-            l2_facts,
-            usage_sink=ctx.llm_calls,
-            users_remaining=users_remaining,
-        )
-        ctx.macro_event_exposure = user_event_exposure(
-            ctx.macro_event_intel, ctx.portfolio_summary.get("by_asset_class", {})
-        )
-        logger.info(
-            "report %s: L2 shared intel available for %d/%d candidate events, "
-            "%d relevant to this portfolio",
-            report.id,
-            len(ctx.macro_event_intel),
-            len(l2_event_keys),
-            len(ctx.macro_event_exposure),
-        )
-
+        # L2 ran immediately above L1 so class-intersection extras can join
+        # the L1 candidate list (issue #128 quality gate). Selection/values
+        # split is unchanged: l2_event_keys_for_user -> list[str], facts
+        # from build_l2_facts (session, keys, date only).
         # ------------------------------------------------------------------
         # 6. Report body — A4 personalized assembly, else Pass 2
         # ------------------------------------------------------------------

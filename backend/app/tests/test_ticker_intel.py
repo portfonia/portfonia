@@ -696,6 +696,87 @@ def test_l1_identifiers_for_user_deduplicates() -> None:
     assert ti.l1_identifiers_for_user(anomalies) == ["SGOL", "GLD"]
 
 
+def test_l1_identifiers_adds_top_weight_holdings_after_anomalies() -> None:
+    """Issue #128 quality gate: a 22% name with no price move still needs
+    L1, or assembly can only write [Speculative] for the book's anchor."""
+    anomalies = [{"identifier": "AAOI", "window_net_pct": 0.19, "constituents": []}]
+    holdings = [
+        {
+            "ticker": "TSM",
+            "market_value_base": 225_000.0,
+            "asset_class": "STOCK",
+        },
+        {
+            "ticker": "VOO",
+            "market_value_base": 260_000.0,
+            "asset_class": "EQUITY_US_BROAD",
+        },
+        {
+            "ticker": "AAOI",
+            "market_value_base": 50_000.0,
+            "asset_class": "STOCK",
+        },
+        {
+            "ticker": "TINY",
+            "market_value_base": 10_000.0,
+            "asset_class": "STOCK",
+        },
+    ]
+    result = ti.l1_identifiers_for_user(
+        anomalies,
+        holdings=holdings,
+        portfolio_total=545_000.0,
+    )
+    assert result[0] == "AAOI"
+    assert "TSM" in result
+    assert "VOO" in result
+    assert "TINY" not in result
+    assert all(isinstance(i, str) for i in result)
+
+
+def test_l1_identifiers_adds_holdings_in_l2_exposed_classes() -> None:
+    anomalies: list[dict[str, Any]] = []
+    holdings = [
+        {
+            "ticker": "QQQ",
+            "market_value_base": 40_000.0,
+            "asset_class": "EQUITY_US_TECH",
+        },
+        {
+            "ticker": "GLD",
+            "market_value_base": 1_000.0,
+            "asset_class": "PRECIOUS_METALS",
+        },
+    ]
+    result = ti.l1_identifiers_for_user(
+        anomalies,
+        holdings=holdings,
+        portfolio_total=41_000.0,
+        exposed_asset_classes=["EQUITY_US_TECH"],
+    )
+    assert "QQQ" in result
+    assert "GLD" not in result
+
+
+def test_l1_identifiers_extra_channels_still_return_strings_only() -> None:
+    holdings = [
+        {
+            "ticker": "TSM",
+            "name": "do-not-leak",
+            "market_value_base": 90_000.0,
+            "asset_class": "STOCK",
+            "weight": 0.9,
+        }
+    ]
+    result = ti.l1_identifiers_for_user(
+        [],
+        holdings=holdings,
+        portfolio_total=100_000.0,
+        exposed_asset_classes=["STOCK"],
+    )
+    assert result == ["TSM"]
+
+
 # ---------------------------------------------------------------------------
 # build_l1_facts: every number comes from the global HoldingMove
 # ---------------------------------------------------------------------------

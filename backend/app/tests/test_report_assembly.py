@@ -148,6 +148,37 @@ def test_prompt_orders_holdings_by_weight_descending() -> None:
     assert prompt.index("NVIDIA") < prompt.index("Vanguard S&P 500")
 
 
+def test_prompt_includes_code_built_transmission_for_exposed_classes() -> None:
+    """L2 analysis alone is not enough for assembly to trace a rate move
+    onto TSMC. The mechanism labels are code-built from a closed map, not
+    free-text from the model."""
+    prompt = _prompt()
+    assert "TRANSMISSION" in prompt
+    assert "discount_rate" in prompt
+
+
+def test_prompt_includes_technical_positions_when_supplied() -> None:
+    prompt = _prompt(
+        technical_positions=[
+            {
+                "ticker": "NVDA",
+                "pct_vs_sma50": 0.12,
+                "pct_vs_sma200": 0.4,
+                "pct_in_52w_range": 0.81,
+            }
+        ]
+    )
+    assert "TECHNICAL POSITION" in prompt
+    assert "NVDA" in prompt
+    assert "50" in prompt
+
+
+def test_prompt_tells_the_model_to_connect_supplied_facts_not_invent() -> None:
+    prompt = _prompt()
+    assert "connect" in prompt.lower()
+    assert "do not introduce" in prompt.lower() or "must not invent" in prompt.lower()
+
+
 def test_prompt_omits_raw_news_and_search_results() -> None:
     """Where the cost reduction actually comes from (design doc §6.3): the
     raw corpus was already digested into L1/L2, so the assembly pass never
