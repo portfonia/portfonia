@@ -29,6 +29,7 @@ import pytest
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.services import report_generator as rg
 from app.services.macro_detector import MacroSignals, ThemeHit
 from app.services.news_fetcher import NewsItem
@@ -1559,3 +1560,402 @@ def test_generate_report_forwards_moves_cache_to_detect_window_anomalies(
         rg.generate_report(db_session, report_date=_TODAY, moves_cache=cache)
 
     assert mock_detect.call_args.args[-1] is cache
+
+
+# ---------------------------------------------------------------------------
+# A4 personalized assembly wiring (issue #128, design doc §6)
+#
+# The assembly pass resolves its OWN _call_llm binding (app.services.
+# report_assembly), so these tests patch it separately from
+# report_generator's — the same module-boundary reason the L1/L2 fixtures
+# above exist.
+# ---------------------------------------------------------------------------
+
+_FAKE_ASSEMBLED_BODY = (
+    "## §2 Macro Signals\n\nRates repriced; the portfolio's US equity sleeve is exposed.\n\n"
+    "## §3 Holdings Analysis\n\nNVIDIA, the heaviest position, rose on an earnings beat. "
+    "[Established]\n\n"
+    "## §4 Risk Radar\n\nNVDA — earnings beat drove the move [Established]\n\n" + _PASS2_FILLER
+)
+
+
+def _assembly_ready_patches(**setting_overrides: object) -> list[object]:
+    """The normal path, plus a real L1 result so there IS shared intel to
+    assemble from, plus the requested A4 settings."""
+    settings = get_settings()
+    patches = _normal_path_patches()
+    patches.append(
+        patch(
+            "app.services.report_generator.resolve_global_moves",
+            return_value=({"NVDA": _day_move("NVDA")}, 1),
+        )
+    )
+    for name, value in setting_overrides.items():
+        patches.append(patch.object(settings, name, value))
+    return patches
+
+
+def test_generate_report_uses_pass2_when_shared_compute_is_disabled(
+    db_session: Session,
+) -> None:
+    """`SHARED_COMPUTE_ENABLED=false` is the production default and must be
+    byte-for-byte the pre-A4 pipeline (design doc §6.5): the assembly pass is
+    never even constructed."""
+    with contextlib.ExitStack() as stack:
+        for p in _assembly_ready_patches(
+            SHARED_COMPUTE_ENABLED=False, ASSEMBLY_LLM_MODEL="cheap/model"
+        ):
+            stack.enter_context(p)  # type: ignore[arg-type]
+        mock_assembly = stack.enter_context(patch("app.services.report_assembly._call_llm"))
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    mock_assembly.assert_not_called()
+    assert report.report_inputs is not None
+    assert report.report_inputs["body_source"] == "pass2"
+    assert report.report_inputs["pass2_raw"]
+    assert not report.report_inputs["assembly_raw"]
+
+
+def test_generate_report_assembles_from_shared_intel_when_enabled(
+    db_session: Session,
+) -> None:
+    """The A4 architecture switch: the body comes from the assembly pass over
+    pre-computed L1/L2 intel, and the giant Pass 2 call does not happen at
+    all — that call not happening IS the cost reduction."""
+    with contextlib.ExitStack() as stack:
+        for p in _assembly_ready_patches(
+            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
+        ):
+            stack.enter_context(p)  # type: ignore[arg-type]
+        mock_assembly = stack.enter_context(
+            patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
+        )
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    mock_assembly.assert_called_once()
+    assert mock_assembly.call_args.kwargs["with_holdings"] is True, (
+        "the assembly payload carries portfolio weights — deny must stay enforced"
+    )
+    assert report.status == "success"
+    assert report.report_inputs is not None
+    assert report.report_inputs["body_source"] == "assembly"
+    assert report.report_inputs["assembly_raw"] == _FAKE_ASSEMBLED_BODY
+    assert report.report_inputs["assembly_model"] == "cheap/model"
+    # Pass 2 never ran, so it left no body behind.
+    assert not report.report_inputs["pass2_raw"]
+    assert report.report_md is not None
+    assert "heaviest position" in report.report_md
+
+
+def test_generate_report_assembly_keeps_the_code_built_sections(
+    db_session: Session,
+) -> None:
+    """Design doc §6.3 contract table: §1/§4.2/§4.4 stay code-built. The
+    assembled body is a drop-in replacement for Pass 2's, so the same
+    injection points must still fire."""
+    with contextlib.ExitStack() as stack:
+        for p in _assembly_ready_patches(
+            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
+        ):
+            stack.enter_context(p)  # type: ignore[arg-type]
+        stack.enter_context(
+            patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
+        )
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert report.report_md is not None
+    assert "§1" in report.report_md
+    assert "Data window" in report.report_md
+    # The single footer disclaimer, unchanged.
+    assert "Data Sources & Disclaimer" in report.report_md
+
+
+def test_generate_report_falls_back_to_pass2_when_shared_caches_are_empty(
+    db_session: Session,
+) -> None:
+    """Cold start / capped / every candidate blocked: there is nothing to
+    assemble, so the run degrades to Pass 2 rather than shipping a hollow
+    report (design doc §6.3)."""
+    with contextlib.ExitStack() as stack:
+        for p in _assembly_ready_patches(
+            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
+        ):
+            stack.enter_context(p)  # type: ignore[arg-type]
+        # No L1 and no L2 intel this run.
+        stack.enter_context(
+            patch("app.services.report_generator.get_l1_intel_batch", return_value={})
+        )
+        stack.enter_context(
+            patch("app.services.report_generator.get_l2_intel_batch", return_value={})
+        )
+        mock_assembly = stack.enter_context(patch("app.services.report_assembly._call_llm"))
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    mock_assembly.assert_not_called()
+    assert report.status == "success"
+    assert report.report_inputs is not None
+    assert report.report_inputs["body_source"] == "pass2"
+
+
+def test_generate_report_falls_back_to_pass2_when_assembled_body_is_truncated(
+    db_session: Session,
+) -> None:
+    """A provider can return a short/mangled 200. Pass 2 raises on that so
+    Celery retries; the assembly path instead degrades to Pass 2 in the same
+    run — the promise is that enabling A4 can never produce a WORSE report
+    than not enabling it."""
+    with contextlib.ExitStack() as stack:
+        for p in _assembly_ready_patches(
+            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
+        ):
+            stack.enter_context(p)  # type: ignore[arg-type]
+        mock_assembly = stack.enter_context(
+            patch("app.services.report_assembly._call_llm", return_value="## §2 too short")
+        )
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    mock_assembly.assert_called_once()
+    assert report.status == "success"
+    assert report.report_inputs is not None
+    assert report.report_inputs["body_source"] == "pass2"
+    assert report.report_inputs["pass2_raw"]
+    assert report.report_md is not None
+    assert "NVIDIA up 9%" in report.report_md
+
+
+def test_generate_report_falls_back_to_pass2_when_the_assembly_call_raises(
+    db_session: Session,
+) -> None:
+    with contextlib.ExitStack() as stack:
+        for p in _assembly_ready_patches(
+            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
+        ):
+            stack.enter_context(p)  # type: ignore[arg-type]
+        stack.enter_context(
+            patch("app.services.report_assembly._call_llm", side_effect=RuntimeError("provider"))
+        )
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert report.status == "success"
+    assert report.report_inputs is not None
+    assert report.report_inputs["body_source"] == "pass2"
+
+
+def test_generate_report_scans_the_assembled_body_for_compliance(
+    db_session: Session,
+) -> None:
+    """Compliance > everything: the assembled body goes through the identical
+    Layer-4 backstop, so a forbidden phrase holds the report as needs_review
+    and it is never emailed."""
+    bad_body = (
+        "## §2 Macro Signals\n\nRates moved.\n\n"
+        "## §3 Holdings Analysis\n\nWe recommend you buy more NVDA immediately.\n\n"
+        "## §4 Risk Radar\n\nNVDA — moved [Established]\n\n" + _PASS2_FILLER
+    )
+    with contextlib.ExitStack() as stack:
+        for p in _assembly_ready_patches(
+            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
+        ):
+            stack.enter_context(p)  # type: ignore[arg-type]
+        stack.enter_context(patch("app.services.report_assembly._call_llm", return_value=bad_body))
+        mock_email = stack.enter_context(
+            patch("app.services.report_generator.send_report_email", return_value=True)
+        )
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert report.status == "needs_review"
+    assert report.report_inputs is not None
+    assert report.report_inputs["body_source"] == "assembly"
+    mock_email.assert_not_called()
+
+
+# --- Shadow comparison (design doc §6.3.1) ---------------------------------
+
+
+def test_generate_report_shadow_models_are_stored_but_never_shipped(
+    db_session: Session,
+) -> None:
+    """One round yields both comparisons the design asks for: the shipped
+    Pass 2 body vs each assembled body (architecture), and the listed models
+    against each other (selection). The shadow output must not touch what
+    the user receives."""
+    shadow_body = "## §2 shadow\n\n## §3 shadow\n\n## §4 shadow\n\n" + _PASS2_FILLER
+    with contextlib.ExitStack() as stack:
+        for p in _assembly_ready_patches(
+            SHARED_COMPUTE_ENABLED=False,
+            ASSEMBLY_SHADOW_MODELS="cheap/model, mid/model",
+        ):
+            stack.enter_context(p)  # type: ignore[arg-type]
+        mock_assembly = stack.enter_context(
+            patch("app.services.report_assembly._call_llm", return_value=shadow_body)
+        )
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert mock_assembly.call_count == 2, "one assembly pass per shadow model"
+    assert report.report_inputs is not None
+    shadow = report.report_inputs["assembly_shadow"]
+    assert set(shadow) == {"cheap/model", "mid/model"}
+    assert shadow["cheap/model"]["raw"] == shadow_body
+    # The shipped report is untouched by the shadow run.
+    assert report.report_inputs["body_source"] == "pass2"
+    assert report.report_md is not None
+    assert "shadow" not in report.report_md
+    assert "NVIDIA up 9%" in report.report_md
+
+
+def test_generate_report_shadow_failure_never_fails_the_report(
+    db_session: Session,
+) -> None:
+    """A comparison harness must not be able to break the thing it measures."""
+    with contextlib.ExitStack() as stack:
+        for p in _assembly_ready_patches(
+            SHARED_COMPUTE_ENABLED=False, ASSEMBLY_SHADOW_MODELS="broken/model"
+        ):
+            stack.enter_context(p)  # type: ignore[arg-type]
+        stack.enter_context(
+            patch("app.services.report_assembly._call_llm", side_effect=RuntimeError("provider"))
+        )
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert report.status == "success"
+    assert report.report_inputs is not None
+    assert "error" in report.report_inputs["assembly_shadow"]["broken/model"]
+
+
+def test_generate_report_shadow_is_skipped_when_there_is_no_shared_intel(
+    db_session: Session,
+) -> None:
+    """Nothing to compare against — spending two model calls on an empty
+    assembly prompt would just bill for noise."""
+    with contextlib.ExitStack() as stack:
+        for p in _assembly_ready_patches(ASSEMBLY_SHADOW_MODELS="cheap/model"):
+            stack.enter_context(p)  # type: ignore[arg-type]
+        stack.enter_context(
+            patch("app.services.report_generator.get_l1_intel_batch", return_value={})
+        )
+        stack.enter_context(
+            patch("app.services.report_generator.get_l2_intel_batch", return_value={})
+        )
+        mock_assembly = stack.enter_context(patch("app.services.report_assembly._call_llm"))
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    mock_assembly.assert_not_called()
+    assert report.report_inputs is not None
+    assert report.report_inputs["assembly_shadow"] == {}
+
+
+# --- Re-render contract (#6) with an assembled body ------------------------
+
+
+def test_regenerate_render_rebuilds_an_assembled_report_without_llm_calls(
+    db_session: Session,
+) -> None:
+    """Design doc §6.3 contract: `mode=render` stays token-free (except
+    translation) for an assembly-sourced report too — the stored
+    `assembly_raw` is the body it rebuilds from."""
+    with contextlib.ExitStack() as stack:
+        for p in _assembly_ready_patches(
+            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
+        ):
+            stack.enter_context(p)  # type: ignore[arg-type]
+        stack.enter_context(
+            patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
+        )
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert report.report_inputs is not None
+    assert report.report_inputs["body_source"] == "assembly"
+
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator._call_llm") as mock_pass2,
+        patch("app.services.report_assembly._call_llm") as mock_assembly,
+    ):
+        rebuilt = rg.regenerate_report(db_session, report.id, mode="render")
+
+    mock_pass2.assert_not_called()
+    mock_assembly.assert_not_called()
+    assert rebuilt.report_md is not None
+    assert "heaviest position" in rebuilt.report_md
+
+
+def test_regenerate_analyze_reruns_the_pass_that_wrote_the_body(
+    db_session: Session,
+) -> None:
+    """`analyze` means "re-run this report's body pass". For an
+    assembly-sourced report that is the assembly pass, not Pass 2.
+
+    Re-running Pass 2 here would not just be the wrong pass — it would leave
+    `assembly_raw` holding the SUPERSEDED body while `report_md` showed the
+    new one, so a later `mode=render` would silently rebuild the old report.
+    """
+    with contextlib.ExitStack() as stack:
+        for p in _assembly_ready_patches(
+            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
+        ):
+            stack.enter_context(p)  # type: ignore[arg-type]
+        stack.enter_context(
+            patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
+        )
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    reanalyzed = (
+        "## §2 Macro Signals\n\nReanalyzed macro read.\n\n"
+        "## §3 Holdings Analysis\n\nReanalyzed holdings read. [Probable]\n\n"
+        "## §4 Risk Radar\n\nNVDA — reanalyzed [Probable]\n\n" + _PASS2_FILLER
+    )
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch("app.services.report_generator._call_llm") as mock_pass2,
+        patch("app.services.report_assembly._call_llm", return_value=reanalyzed) as mock_assembly,
+    ):
+        updated = rg.regenerate_report(db_session, report.id, mode="analyze")
+
+    mock_pass2.assert_not_called()
+    mock_assembly.assert_called_once()
+    assert updated.report_md is not None
+    assert "Reanalyzed holdings read" in updated.report_md
+    assert updated.report_inputs is not None
+    assert updated.report_inputs["assembly_raw"] == reanalyzed
+
+    # And the stored body is now genuinely the one that shipped: a follow-up
+    # render must not resurrect the superseded text.
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator._call_llm"),
+        patch("app.services.report_assembly._call_llm"),
+    ):
+        rerendered = rg.regenerate_report(db_session, report.id, mode="render")
+
+    assert rerendered.report_md is not None
+    assert "Reanalyzed holdings read" in rerendered.report_md
+    assert "heaviest position" not in rerendered.report_md
+
+
+def test_regenerate_render_still_works_for_a_pre_a4_report(db_session: Session) -> None:
+    """Historical rows have no `assembly_raw` key at all (`ReportInputsDict`
+    is total=False). They must keep rebuilding from `pass2_raw` exactly as
+    before — design doc §6.4's stored-structure risk."""
+    with contextlib.ExitStack() as stack:
+        for p in _normal_path_patches():
+            stack.enter_context(p)  # type: ignore[arg-type]
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    # Simulate a row written before A4 existed.
+    report.report_inputs = {
+        k: v
+        for k, v in dict(report.report_inputs or {}).items()
+        if not k.startswith("assembly_") and k != "body_source"
+    }
+    db_session.commit()
+
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator._call_llm") as mock_pass2,
+    ):
+        rebuilt = rg.regenerate_report(db_session, report.id, mode="render")
+
+    mock_pass2.assert_not_called()
+    assert rebuilt.report_md is not None
+    assert "NVIDIA up 9%" in rebuilt.report_md

@@ -133,7 +133,7 @@ def generate_incremental_report(
         # the same moves_cache dict object alone does not make the cache hit.
         batch_now = datetime.now(tz=UTC)
         results: list[dict[str, str]] = []
-        for user_id in user_ids:
+        for index, user_id in enumerate(user_ids):
             try:
                 report = generate_report(
                     session,
@@ -143,6 +143,14 @@ def generate_incremental_report(
                     user_id=user_id,
                     moves_cache=moves_cache,
                     now=batch_now,
+                    # Issue #128 A4: how many users (including this one) are
+                    # still to be served, so the shared daily caps can be
+                    # sliced fairly instead of first-come-first-served — see
+                    # shared_budget.py. Derived from the batch POSITION, not
+                    # from how many succeeded: a failed user still consumed
+                    # its turn, and the countdown must stay monotonic so
+                    # later users neither over- nor under-claim.
+                    users_remaining=len(user_ids) - index,
                 )
                 logger.info(
                     "generate_incremental_report: complete for user %s — report_id=%s status=%s",

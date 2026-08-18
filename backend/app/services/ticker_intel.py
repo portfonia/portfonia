@@ -87,6 +87,7 @@ from app.services.email_sender import send_ops_alert
 from app.services.llm_errors import is_retryable
 from app.services.report_llm import _call_llm, _openrouter_client
 from app.services.report_prompts import _COMPLIANCE_SYSTEM_PREFIX
+from app.services.shared_budget import fair_share_budget
 from app.services.window_data import HoldingMove
 
 logger = logging.getLogger(__name__)
@@ -427,6 +428,7 @@ def get_l1_intel_batch(
     trade_date: date,
     facts_by_identifier: dict[str, L1Facts],
     usage_sink: list[dict[str, Any]] | None = None,
+    users_remaining: int = 1,
 ) -> dict[str, str]:
     """Read-through cache over `identifiers` (expected ordered by |move|
     descending — see `l1_identifiers_for_user`). A cache HIT holding a real
@@ -469,15 +471,30 @@ def get_l1_intel_batch(
     attempted anything, so it must not count against the identifiers that
     genuinely did.
 
+    `users_remaining` (issue #128 A4) caps this call at its fair share of
+    what is left of the day's budget — see `shared_budget.fair_share_budget`
+    for the rule and for why this pattern kept recurring. It counts the
+    current user plus everyone after them in the batch; `1` (every pre-A4
+    call site) means no restriction. Without it, the first user in the fixed
+    `active_user_ids` order could spend the whole cap and starve the same
+    later users every day. It bounds only HOW MANY of this user's candidates
+    get a fresh analysis, never WHICH — that ordering stays per-user by
+    design (`l1_identifiers_for_user`).
+
     Sequential fan-out (`generate_incremental_report` processes users one at
     a time, not concurrently) is what actually makes "shared across users"
     hold here: the first user's call caches to the DB before the second
     user's call ever runs, so no in-memory batch cache (unlike A1's
     moves_cache) is needed for the sharing property itself — see design doc
-    §4.1 UAT-4 and test_ticker_intel.py's cache-hit tests.
+    §4.1 UAT-4 and test_ticker_intel.py's cache-hit tests. It is also what
+    makes `users_remaining` correct: each call re-reads `_attempts_today`,
+    so an earlier user's actual spend (not its permitted share) is what the
+    next user's share is computed from.
     """
     result: dict[str, str] = {}
-    fresh_budget = max(0, _MAX_L1_ANALYSES_PER_DAY - _attempts_today(session, trade_date))
+    fresh_budget = fair_share_budget(
+        _MAX_L1_ANALYSES_PER_DAY - _attempts_today(session, trade_date), users_remaining
+    )
     for identifier in identifiers:
         cached = _fetch_cached(session, identifier, trade_date)
         attempts_so_far = 0

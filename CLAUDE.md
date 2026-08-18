@@ -696,6 +696,85 @@ Pass 2 — A4 is the consumer (design doc §1.2).
   per-user candidates — L1's situation — needs batch-level orchestration and
   belongs to A4.
 
+### Personalized assembly + fan-out budget fairness (Ring 1 stage A4, issue #128)
+
+The consumer the first three checkpoints were built for. When
+`SHARED_COMPUTE_ENABLED` is on, the §2/§3/§4 body is ASSEMBLED from the L1/L2
+analyses (`report_assembly.py`) instead of inferred from scratch by one giant
+per-user Pass 2 — that skipped `PRIMARY_LLM_MODEL` call is the cost
+reduction, and the shape becomes `O(|identifier union|) + O(N)`.
+
+- **The saving is the narrowed task, not a smaller model.** The assembly
+  prompt never carries the raw news corpus or search snippets — those were
+  already digested into L1/L2 — so `build_assembly_prompt` has no
+  `news_items`/`search_results` parameter at all. Re-adding one would
+  silently restore Pass 2's token profile while looking like a feature.
+- **The type boundary is INVERTED from A2/A3's, because the risk is.** A2/A3
+  had to keep per-user values OUT of a shared cache; A4 writes no cache — it
+  READS two and mixes in per-user holdings, so its failure mode is another
+  user's shared rows landing in this user's report (CLAUDE.md's §1.3
+  cross-user leak, at the last checkpoint). `build_assembly_prompt` therefore
+  takes **no `Session`** and `report_assembly.py` imports **no ORM model**:
+  with no DB handle it cannot ask for "everything cached today", only for
+  what the per-user caller passes — and that (`ctx.ticker_intel`,
+  `ctx.macro_event_intel`) is already scoped by `l1_identifiers_for_user` /
+  `l2_event_keys_for_user`. Locked by structural tests plus a real
+  three-user fan-out assertion (`test_shared_compute_a4.py`), not by review
+  attention.
+- **Degradation is the default, and that is the whole safety story.**
+  `_try_assembly` returns `None` — meaning "fall back to Pass 2" — for every
+  failure mode: switch off, `ASSEMBLY_LLM_MODEL` unset, both caches empty,
+  provider error, or a body failing the same completeness guard. The worst
+  case of enabling A4 is the pre-A4 report, never a thinner one. Pass 2 still
+  RAISES on a truncated body (nothing left to fall back to); assembly falls
+  back in the same run. `body_is_incomplete` (`report_prompts.py`) is the one
+  expression of that rule so the two cannot drift.
+- **`ASSEMBLY_LLM_MODEL` is deliberately empty by default** — it is an
+  OUTPUT of the shadow comparison, not an input. Enabling the switch without
+  it falls back rather than guessing a model whose quality on this task
+  nobody has measured.
+- **Shadow comparison** (`ASSEMBLY_SHADOW_MODELS`, comma-separated): runs the
+  assembly pass once per listed model over the SAME prompt, stores results in
+  `report_inputs["assembly_shadow"]`, ships and emails nothing. Run it with
+  `SHARED_COMPUTE_ENABLED=false` and one round yields both comparisons at
+  once — architecture (shipped Pass 2 body vs each assembled body) and model
+  selection — with costs read off `report_inputs["llm_calls"]`. Exception-
+  isolated: a measurement harness must not be able to fail what it measures.
+- **`regenerate_report(mode="analyze")` re-runs the pass that WROTE the
+  body**, keyed on the stored `body_source`. Re-running Pass 2 on an
+  assembled report would not just be the wrong pass — it would write
+  `pass2_raw` while leaving the superseded `assembly_raw` in place, and since
+  that key wins in `assembly_raw or pass2_raw`, the next `mode=render` would
+  silently rebuild the OLD report. `mode="render"` stays token-free for both
+  sources; pre-A4 rows carry neither key (`ReportInputsDict` is
+  `total=False`) and resolve to `pass2_raw` unchanged.
+- **Fan-out budget fairness, finally solved generally** (`shared_budget.py`).
+  The same bug surfaced once per checkpoint — A1's Tavily budget, A2's L1
+  cap, A3's L2 cap — because a shared capped daily resource consumed
+  sequentially in a never-rotating user order (`active_user_ids` is sorted)
+  starves the same users every day. A3's per-event-kind split only worked
+  because L2 candidates group on a key prefix; L1's are per-user by nature,
+  so it handed the general problem forward. The rule: **allocate from what is
+  actually LEFT, divided by how many users still have to be served
+  (including this one)** — `fair_share_budget(remaining, users_remaining)`,
+  threaded as `generate_report(users_remaining=len(user_ids) - index)` into
+  both `get_l1_intel_batch` and `get_l2_intel_batch` (which slices each of
+  its per-kind budgets independently, preserving A3's split). No user can
+  starve a later one; unused share flows forward because the divisor shrinks;
+  `users_remaining=1` (every pre-A4 call site) means no restriction. It
+  decides HOW MANY, never WHICH — candidate ordering stays per-user by
+  design. Deliberately NOT a reservation table or a round-robin merge of all
+  users' candidate lists: those need every user's candidates derived before
+  any user's report is generated, a whole extra pass whose only product is an
+  ordering.
+- **"User investment context" (design doc §6.3) is scoped to the portfolio
+  snapshot** — weights, concentration flags, asset-class and currency mix.
+  There is no user-profile/risk-tolerance model in this codebase (that is
+  Stage B), and A4 does not invent one.
+- **A3's `sector` boundary holds**: the assembly path reads `asset_class`
+  exposure only (`user_event_exposure`); `sector` stays scoped to the
+  forward-event mapping in `report_sections._forward_exposure`.
+
 ### News dedup ledger: closing the window-boundary permanent-miss gap (issue #30)
 
 `load_news_window` (`app/services/window_data.py`) used to select

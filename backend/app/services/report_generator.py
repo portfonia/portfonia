@@ -64,15 +64,21 @@ from app.services.macro_event_intel import (
 from app.services.news_fetcher import NewsItem
 from app.services.portfolio_calculator import compute_portfolio
 from app.services.price_anomaly_detector import PriceAnomaly
+from app.services.report_assembly import (
+    ASSEMBLY_PROMPT_VERSION,
+    build_assembly_prompt,
+    parse_shadow_models,
+    run_assembly_pass,
+    should_use_assembly,
+)
 from app.services.report_context import ReportContext, ReportInputsDict
 from app.services.report_llm import _BYOK_PROVIDER_ORDER, _call_llm, _openrouter_client
 from app.services.report_prompts import (
     _COMPLIANCE_SYSTEM_PREFIX,
-    _PASS2_MIN_CHARS,
-    _PASS2_REQUIRED_MARKERS,
     _PASS2_SYSTEM,
     _build_pass1_prompt,
     _build_pass2_prompt,
+    body_is_incomplete,
 )
 from app.services.report_search import (
     _MAX_SEARCH_QUERIES,
@@ -211,6 +217,117 @@ def _render_full_md(
     return full_md, violations, dynamic_out
 
 
+# ---------------------------------------------------------------------------
+# A4 personalized assembly (issue #128, design doc §6)
+# ---------------------------------------------------------------------------
+
+
+def _assembly_prompt_from_ctx(ctx: ReportContext) -> str:
+    """Build the assembly prompt from THIS report's context and nothing else.
+
+    Every argument is a `ctx` field already scoped to one user — the shared
+    caches are read through `ctx.ticker_intel`/`ctx.macro_event_intel`, which
+    `l1_identifiers_for_user`/`l2_event_keys_for_user` narrowed to this user's
+    own candidates. `build_assembly_prompt` takes no Session precisely so this
+    stays the only way in (see report_assembly.py's docstring).
+    """
+    return build_assembly_prompt(
+        ctx.portfolio_summary,
+        ctx.price_anomalies,
+        ctx.ticker_intel,
+        ctx.macro_event_intel,
+        ctx.macro_event_exposure,
+        ctx.period_start,
+        ctx.period_end,
+        ctx.window_trading_days,
+    )
+
+
+def _try_assembly(
+    client: Any, settings: Any, ctx: ReportContext, report_id: uuid.UUID
+) -> str | None:
+    """The assembled body, or None meaning "fall back to Pass 2".
+
+    Every failure mode returns None rather than raising: a switch that is
+    off, a model not yet chosen, empty shared caches, a provider error, or a
+    truncated body. That is the design doc §6.3 guarantee — the worst case of
+    enabling A4 is the pre-A4 report, never a thinner one. The cost of a
+    fallback is one wasted assembly call, which is the cheap half of the
+    pair.
+    """
+    if not should_use_assembly(
+        enabled=bool(settings.SHARED_COMPUTE_ENABLED),
+        model=str(settings.ASSEMBLY_LLM_MODEL),
+        ticker_intel=ctx.ticker_intel,
+        macro_event_intel=ctx.macro_event_intel,
+    ):
+        return None
+
+    model = str(settings.ASSEMBLY_LLM_MODEL).strip()
+    prompt = _assembly_prompt_from_ctx(ctx)
+    logger.info("report %s: assembly pass (%s)", report_id, model)
+    try:
+        body = run_assembly_pass(client, model, prompt, usage_sink=ctx.llm_calls)
+    except Exception:
+        logger.exception("report %s: assembly pass failed — falling back to Pass 2", report_id)
+        return None
+
+    if body_is_incomplete(body):
+        logger.warning(
+            "report %s: assembled body looks truncated (%d chars) — falling back to Pass 2",
+            report_id,
+            len(body),
+        )
+        return None
+
+    ctx.body_source = "assembly"
+    ctx.assembly_model = model
+    ctx.assembly_prompt = prompt
+    ctx.assembly_raw = body
+    ctx.assembly_prompt_version = ASSEMBLY_PROMPT_VERSION
+    return body
+
+
+def _run_shadow_assembly(
+    client: Any, settings: Any, ctx: ReportContext, report_id: uuid.UUID
+) -> None:
+    """Run the assembly pass once per shadow model, store, ship nothing.
+
+    Design doc §6.3.1: one round produces BOTH comparisons — architecture
+    (the shipped body vs each assembled body) and model selection (the listed
+    models against each other) — over an identical prompt, with costs landing
+    in the same `ctx.llm_calls` the shipped passes use.
+
+    Wrapped so a shadow failure is recorded and moved past: a measurement
+    harness must never be able to fail the thing it measures.
+    """
+    models = parse_shadow_models(str(settings.ASSEMBLY_SHADOW_MODELS))
+    if not models:
+        return
+    if not ctx.ticker_intel and not ctx.macro_event_intel:
+        logger.info("report %s: no shared intel this run — skipping shadow assembly", report_id)
+        return
+
+    prompt = _assembly_prompt_from_ctx(ctx)
+    for model in models:
+        entry: dict[str, Any] = {"prompt_version": ASSEMBLY_PROMPT_VERSION}
+        if ctx.body_source == "assembly" and model == ctx.assembly_model:
+            # Already ran as the shipped body — re-running would bill twice
+            # for identical output. Point at it so the side-by-side read is
+            # still complete.
+            entry["raw"] = ctx.assembly_raw
+            entry["shipped"] = True
+            ctx.assembly_shadow[model] = entry
+            continue
+        logger.info("report %s: shadow assembly pass (%s)", report_id, model)
+        try:
+            entry["raw"] = run_assembly_pass(client, model, prompt, usage_sink=ctx.llm_calls)
+        except Exception as exc:
+            logger.exception("report %s: shadow assembly failed (%s)", report_id, model)
+            entry["error"] = f"{type(exc).__name__}: {exc}"
+        ctx.assembly_shadow[model] = entry
+
+
 # A manual window this short (hours) with nothing in it is a same-day re-run
 # artifact, not a real reporting period. (R-7)
 _SHORT_MANUAL_WINDOW_HOURS = 2.0
@@ -250,6 +367,7 @@ def generate_report(
     user_id: uuid.UUID | None = None,
     moves_cache: MovesCache | None = None,
     now: datetime | None = None,
+    users_remaining: int = 1,
 ) -> Report:
     """
     Run the full F1 report generation pipeline and persist the result.
@@ -280,6 +398,14 @@ def generate_report(
     again despite `moves_cache` being passed. `generate_incremental_report`
     stamps ONE `now` for the whole batch and passes it to every user's call
     so the cache key is actually shared, not just the dict object.
+
+    `users_remaining` (issue #128 A4): how many users, INCLUDING this one,
+    the current fan-out still has to serve. Forwarded to the L1/L2 shared
+    caches so each user gets a fair slice of the day's remaining analysis
+    budget instead of the first user in a never-rotating order spending it
+    all — see `shared_budget.fair_share_budget` for why this same problem
+    surfaced once per checkpoint. `1` (every non-fan-out call site: manual
+    trigger, tests, a single-user system) means no restriction at all.
     """
     validate_report_type(report_type)
     settings = get_settings()
@@ -787,7 +913,12 @@ def generate_report(
         day_moves, _ = resolve_global_moves(session, day_start, day_end, moves_cache)
         l1_facts = build_l1_facts(l1_identifiers, day_moves, l1_headlines, ctx.technical_positions)
         ctx.ticker_intel = get_l1_intel_batch(
-            session, l1_identifiers, eff_date, l1_facts, usage_sink=ctx.llm_calls
+            session,
+            l1_identifiers,
+            eff_date,
+            l1_facts,
+            usage_sink=ctx.llm_calls,
+            users_remaining=users_remaining,
         )
         logger.info(
             "report %s: L1 shared intel available for %d/%d candidate identifiers",
@@ -823,7 +954,12 @@ def generate_report(
         l2_event_keys = l2_event_keys_for_user(session, eff_date, ctx.macro_signals)
         l2_facts = build_l2_facts(session, l2_event_keys, eff_date)
         ctx.macro_event_intel = get_l2_intel_batch(
-            session, l2_event_keys, eff_date, l2_facts, usage_sink=ctx.llm_calls
+            session,
+            l2_event_keys,
+            eff_date,
+            l2_facts,
+            usage_sink=ctx.llm_calls,
+            users_remaining=users_remaining,
         )
         ctx.macro_event_exposure = user_event_exposure(
             ctx.macro_event_intel, ctx.portfolio_summary.get("by_asset_class", {})
@@ -838,46 +974,62 @@ def generate_report(
         )
 
         # ------------------------------------------------------------------
-        # 6. Pass 2 — full report body
+        # 6. Report body — A4 personalized assembly, else Pass 2
         # ------------------------------------------------------------------
-        primary_model = settings.PRIMARY_LLM_MODEL
-        pass2_user = _build_pass2_prompt(
-            ctx.portfolio_summary,
-            ctx.macro_signals,
-            ctx.price_anomalies,
-            ctx.search_results,
-            ctx.period_start,
-            ctx.period_end,
-            ctx.window_trading_days,
-            ctx.holding_news,
-        )
+        # A4 (issue #128, design doc §6): when the shared-compute switch is on
+        # and there is L1/L2 intel to work from, the body is ASSEMBLED from
+        # those pre-computed analyses instead of inferred from scratch by one
+        # giant per-user Pass 2 — that skipped Pass 2 call is the cost
+        # reduction. `_try_assembly` returns None for every failure mode
+        # (switch off, model unchosen, cold cache, provider error, truncated
+        # body), so the line below degrades to the exact pre-A4 path rather
+        # than to a worse report.
+        raw_body = _try_assembly(client, settings, ctx, report.id)
 
-        ctx.pass2_model = primary_model
-        ctx.pass2_prompt = pass2_user
-
-        logger.info("report %s: Pass 2 LLM call (%s)", report.id, primary_model)
-        # Pass 2 carries holdings → enforce data_collection=deny
-        raw_pass2 = _call_llm(
-            client,
-            primary_model,
-            _PASS2_SYSTEM,
-            pass2_user,
-            with_holdings=True,
-            usage_sink=ctx.llm_calls,
-        )
-
-        # H-DEBT-2: a provider can return a truncated HTTP 200 (rate-limiting,
-        # mid-response cutoff). A short body missing §3/§4 must not ship as
-        # status='success' with code-injected §2.5/§4.2/§4.4 masking the gap —
-        # raise so the Celery task retries (max_retries=2).
-        if len(raw_pass2) < _PASS2_MIN_CHARS or not all(
-            marker in raw_pass2 for marker in _PASS2_REQUIRED_MARKERS
-        ):
-            raise RuntimeError(
-                f"report {report.id}: Pass 2 output looks truncated "
-                f"({len(raw_pass2)} chars, missing one of {_PASS2_REQUIRED_MARKERS})"
+        if raw_body is None:
+            primary_model = settings.PRIMARY_LLM_MODEL
+            pass2_user = _build_pass2_prompt(
+                ctx.portfolio_summary,
+                ctx.macro_signals,
+                ctx.price_anomalies,
+                ctx.search_results,
+                ctx.period_start,
+                ctx.period_end,
+                ctx.window_trading_days,
+                ctx.holding_news,
             )
-        ctx.pass2_raw = raw_pass2
+
+            ctx.pass2_model = primary_model
+            ctx.pass2_prompt = pass2_user
+
+            logger.info("report %s: Pass 2 LLM call (%s)", report.id, primary_model)
+            # Pass 2 carries holdings → enforce data_collection=deny
+            raw_pass2 = _call_llm(
+                client,
+                primary_model,
+                _PASS2_SYSTEM,
+                pass2_user,
+                with_holdings=True,
+                usage_sink=ctx.llm_calls,
+            )
+
+            # H-DEBT-2: a provider can return a truncated HTTP 200 (rate-limiting,
+            # mid-response cutoff). A short body missing §3/§4 must not ship as
+            # status='success' with code-injected §2.5/§4.2/§4.4 masking the gap —
+            # raise so the Celery task retries (max_retries=2). Unlike the
+            # assembly path there is nothing left to fall back TO, so this stays
+            # a raise.
+            if body_is_incomplete(raw_pass2):
+                raise RuntimeError(
+                    f"report {report.id}: Pass 2 output looks truncated "
+                    f"({len(raw_pass2)} chars, missing one of §3/§4)"
+                )
+            ctx.pass2_raw = raw_pass2
+            raw_body = raw_pass2
+
+        # Shadow comparison (design doc §6.3.1) — runs after the shipped body
+        # is settled, never influences it, never blocks the report.
+        _run_shadow_assembly(client, settings, ctx, report.id)
 
         # ------------------------------------------------------------------
         # 7/8. Annotate + assemble + render language + compliance scan (#5/#7/#8)
@@ -887,7 +1039,7 @@ def generate_report(
             report_date_str,
             ctx.portfolio_summary,
             ctx.news_items,
-            raw_pass2,
+            raw_body,
             output_lang,
             ctx.period_start,
             ctx.period_end,
@@ -976,9 +1128,12 @@ def regenerate_report(
     mode='render'  : zero new LLM cost except translation. Re-runs annotation +
                      assembly + language render from the stored Pass 2 body.
                      Use it to iterate on formatting/output language.
-    mode='analyze' : re-runs only Pass 2 from the stored portfolio + search
-                     results (no fetch/Tavily/Pass 1). Use it to iterate on the
-                     Pass 2 prompt. Updates the stored Pass 2 body.
+    mode='analyze' : re-runs only the body pass from the stored inputs (no
+                     fetch/Tavily/Pass 1). Use it to iterate on the body
+                     prompt. Which pass runs follows the report's own
+                     `body_source` (A4): Pass 2 from the stored portfolio +
+                     search results, or the assembly pass from the stored
+                     L1/L2 intel. Updates that pass's stored body.
 
     Does not email — this is an iteration/inspection tool.
     """
@@ -990,8 +1145,14 @@ def regenerate_report(
     if report is None:
         raise ValueError(f"report {report_id} not found")
     inputs = cast(ReportInputsDict | None, report.report_inputs)
-    if not inputs or not inputs.get("pass2_raw"):
-        raise ValueError(f"report {report_id} has no stored Pass 2 body to regenerate from")
+    # A4: `assembly_raw` is populated only when the assembly pass produced the
+    # shipped body (a fallback to Pass 2 leaves it empty), so this pair reads
+    # unambiguously as "the body that shipped". Pre-A4 rows carry neither key —
+    # `ReportInputsDict` is total=False — and resolve to `pass2_raw` exactly as
+    # before.
+    stored_body = (inputs.get("assembly_raw") or inputs.get("pass2_raw") or "") if inputs else ""
+    if not inputs or not stored_body:
+        raise ValueError(f"report {report_id} has no stored report body to regenerate from")
 
     portfolio = inputs.get("portfolio_summary", {})
     news_items = inputs.get("news_items", [])
@@ -1008,33 +1169,75 @@ def regenerate_report(
             as_of=report.period_end.astimezone(ET).date() if report.period_end else None,
         )
         portfolio = _serialize_portfolio(fresh_snap)
-
-        pass2_user = _build_pass2_prompt(
-            portfolio,
-            inputs.get("macro_signals", {}),
-            inputs.get("price_anomalies", []),
-            inputs.get("search_results", []),
-            report.period_start.isoformat() if report.period_start else "",
-            report.period_end.isoformat() if report.period_end else "",
-            int(inputs.get("window_trading_days", 0)),
-            inputs.get("holding_news", {}),
-        )
         regen_calls: list[dict[str, Any]] = []
-        raw_body = _call_llm(
-            _openrouter_client(),
-            get_settings().PRIMARY_LLM_MODEL,
-            _PASS2_SYSTEM,
-            pass2_user,
-            with_holdings=True,
-            usage_sink=regen_calls,
-        )
-        if len(raw_body) < _PASS2_MIN_CHARS or not all(
-            marker in raw_body for marker in _PASS2_REQUIRED_MARKERS
-        ):
-            raise RuntimeError(
-                f"report {report.id}: regenerated Pass 2 output looks truncated "
-                f"({len(raw_body)} chars, missing one of {_PASS2_REQUIRED_MARKERS})"
+        period_start_iso = report.period_start.isoformat() if report.period_start else ""
+        period_end_iso = report.period_end.isoformat() if report.period_end else ""
+        trading_days = int(inputs.get("window_trading_days", 0))
+
+        # A4: re-run the pass that WROTE this body, not always Pass 2. Beyond
+        # being the wrong pass for an assembled report, re-running Pass 2 here
+        # would write `pass2_raw` while leaving the superseded `assembly_raw`
+        # in place — and since that key wins when both are present, the next
+        # `mode=render` would silently rebuild the OLD report.
+        if inputs.get("body_source") == "assembly":
+            assembly_model = str(
+                inputs.get("assembly_model") or get_settings().ASSEMBLY_LLM_MODEL
+            ).strip()
+            if not assembly_model:
+                raise ValueError(
+                    f"report {report.id}: assembled body cannot be re-analyzed — "
+                    "no assembly model recorded and ASSEMBLY_LLM_MODEL is unset"
+                )
+            assembly_user = build_assembly_prompt(
+                portfolio,
+                inputs.get("price_anomalies", []),
+                inputs.get("ticker_intel", {}),
+                inputs.get("macro_event_intel", {}),
+                inputs.get("macro_event_exposure", {}),
+                period_start_iso,
+                period_end_iso,
+                trading_days,
             )
+            raw_body = run_assembly_pass(
+                _openrouter_client(), assembly_model, assembly_user, usage_sink=regen_calls
+            )
+            if body_is_incomplete(raw_body):
+                raise RuntimeError(
+                    f"report {report.id}: regenerated assembly output looks truncated "
+                    f"({len(raw_body)} chars, missing one of §3/§4)"
+                )
+            body_update: dict[str, Any] = {
+                "assembly_raw": raw_body,
+                "assembly_prompt": assembly_user,
+                "assembly_model": assembly_model,
+                "assembly_prompt_version": ASSEMBLY_PROMPT_VERSION,
+            }
+        else:
+            pass2_user = _build_pass2_prompt(
+                portfolio,
+                inputs.get("macro_signals", {}),
+                inputs.get("price_anomalies", []),
+                inputs.get("search_results", []),
+                period_start_iso,
+                period_end_iso,
+                trading_days,
+                inputs.get("holding_news", {}),
+            )
+            raw_body = _call_llm(
+                _openrouter_client(),
+                get_settings().PRIMARY_LLM_MODEL,
+                _PASS2_SYSTEM,
+                pass2_user,
+                with_holdings=True,
+                usage_sink=regen_calls,
+            )
+            if body_is_incomplete(raw_body):
+                raise RuntimeError(
+                    f"report {report.id}: regenerated Pass 2 output looks truncated "
+                    f"({len(raw_body)} chars, missing one of §3/§4)"
+                )
+            body_update = {"pass2_raw": raw_body, "pass2_prompt": pass2_user}
+
         # Recompute technical positions from the live DB so a backfill run
         # between the original generation and this regenerate is reflected.
         fresh_technical = _serialize_technical(
@@ -1044,15 +1247,14 @@ def regenerate_report(
         # in-place mutation of the existing dict would not be detected).
         report.report_inputs = {
             **inputs,
-            "pass2_raw": raw_body,
-            "pass2_prompt": pass2_user,
+            **body_update,
             "llm_calls": regen_calls,
             "technical_positions": fresh_technical,
             "portfolio_summary": portfolio,
         }
         technical_positions = fresh_technical
     elif mode == "render":
-        raw_body = inputs["pass2_raw"]
+        raw_body = stored_body
         technical_positions = inputs.get("technical_positions", [])
     else:
         raise ValueError(f"unknown mode {mode!r} (expected 'render' or 'analyze')")

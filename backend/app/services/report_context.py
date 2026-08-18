@@ -71,6 +71,12 @@ class ReportInputsDict(TypedDict, total=False):
     ticker_intel: dict[str, str]
     macro_event_intel: dict[str, dict[str, Any]]
     macro_event_exposure: dict[str, list[str]]
+    body_source: str
+    assembly_model: str
+    assembly_prompt: str
+    assembly_raw: str
+    assembly_prompt_version: str
+    assembly_shadow: dict[str, dict[str, Any]]
 
 
 @dataclass
@@ -131,6 +137,23 @@ class ReportContext:
     # §1.2/§6.3); both are stored now so A4 reads them back without a
     # re-query and so an audit can see what the shared layer produced.
     macro_event_exposure: dict[str, list[str]] = field(default_factory=dict)
+    # --- A4 personalized assembly (issue #128) -----------------------------
+    # Which pass actually wrote the shipped body: "pass2" (pre-A4 behavior,
+    # and every fallback path) or "assembly". Recorded rather than inferred,
+    # so a stored row states plainly which architecture produced it — and so
+    # regenerate_report knows which pass to re-run in analyze mode.
+    body_source: str = "pass2"
+    assembly_model: str = ""
+    assembly_prompt: str = ""
+    # The assembled §2/§3/§4 body. Populated ONLY when the assembly pass
+    # produced the shipped body; a fallback to Pass 2 leaves it empty, so
+    # `assembly_raw or pass2_raw` is an unambiguous "the body that shipped".
+    assembly_raw: str = ""
+    assembly_prompt_version: str = ""
+    # Shadow comparison (design doc §6.3.1): {model: {prompt, raw, error}}.
+    # Never rendered, never emailed — read side by side by the product owner
+    # against the shipped body, with costs in `llm_calls`.
+    assembly_shadow: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def to_jsonb(self) -> dict[str, Any]:
         """Return the write-side dict for the `report_inputs` JSONB column.
