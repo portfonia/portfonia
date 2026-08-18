@@ -202,7 +202,11 @@ def build_assembly_prompt(
 
     total = float(portfolio.get("total_base") or 0.0)
     base_ccy = portfolio.get("base_currency", "USD")
-    lines.append(f"=== PORTFOLIO (base: {base_ccy}) ===")
+    fx_date = portfolio.get("fx_date", "unknown")
+    # §4.3 asks for an FX note; fx_date is the only FX fact the snapshot
+    # carries, and Pass 2's header includes it (review round-2 finding, PR
+    # #163: this prompt previously omitted it entirely).
+    lines.append(f"=== PORTFOLIO (base: {base_ccy}, FX date: {fx_date}) ===")
     lines.append(f"Total: {base_ccy} {total:,.0f}")
     lines.append("")
     lines.append("Holdings, largest first (weight is what this report should prioritize by):")
@@ -212,10 +216,14 @@ def build_assembly_prompt(
         reverse=True,
     )
     for h in holdings:
-        # Fund-only rows (no ticker) still need an identifier printed, or the
-        # model has no way to connect this line's holding name to an L1 entry
-        # keyed by fund_code below (review round-1 finding, PR #163).
-        ident = h.get("ticker") or h.get("fund_code")
+        # Printed via `_identifier()` — the SAME key the L1 weight lookup
+        # and L1 block below use — not the raw `ticker`/`fund_code` value.
+        # A fund-only row needs an identifier printed at all (round 1
+        # finding); a raw un-normalized HK ticker ("700.HK") needs the SAME
+        # spelling L1 keys everything under ("0700.HK"), or the model can't
+        # connect this line to its L1 entry either (round 2 nit, PR #163 —
+        # the same join failure, one spelling short of round 1's fix).
+        ident = _identifier(h) or None
         lines.append(
             f"  {h.get('name', '')}"
             + (f" ({ident})" if ident else "")
@@ -289,12 +297,22 @@ def build_assembly_prompt(
         lines.append("(no per-holding intel available for this period)")
 
     # L2: macro/calendar events, filtered to those touching classes this user
-    # actually holds, and ordered by how much of the portfolio they touch.
+    # actually holds, and ordered by how much of the portfolio they touch —
+    # the SUM of overlapping classes' weight, not how many classes overlap
+    # (review round-2 finding, PR #163: a class-count sort could rank an
+    # event touching two 3% sleeves above one touching a single 80% sleeve,
+    # inverting the "lead by weight" personalization this docstring and the
+    # system prompt both promise).
     lines.append("")
     lines.append("=== SHARED MACRO EVENT INTEL (already analyzed — restate, do not re-derive) ===")
     exposed_keys = [k for k in macro_event_intel if macro_event_exposure.get(k)]
+    by_asset_class = portfolio.get("by_asset_class", {})
+
+    def _exposure_weight(key: str) -> float:
+        return sum(float(by_asset_class.get(c, 0.0)) for c in macro_event_exposure[key])
+
     if exposed_keys:
-        for key in sorted(exposed_keys, key=lambda k: len(macro_event_exposure[k]), reverse=True):
+        for key in sorted(exposed_keys, key=_exposure_weight, reverse=True):
             intel = macro_event_intel[key]
             lines.append(f"{key}:")
             lines.append(f"  {intel.get('analysis', '')}")

@@ -1822,6 +1822,36 @@ def test_generate_report_shadow_failure_never_fails_the_report(
     assert "error" in report.report_inputs["assembly_shadow"]["broken/model"]
 
 
+def test_generate_report_shadow_prompt_construction_failure_never_fails_the_report(
+    db_session: Session,
+) -> None:
+    """Round 2 review finding (PR #163): `_run_shadow_assembly`'s own
+    try/except only wraps the per-model `run_assembly_pass` call — the ONE
+    prompt-build call before that loop (`_assembly_prompt_from_ctx`) was
+    unguarded. A defect there would propagate past a Pass 2 body that
+    already succeeded and flip the whole report to 'failed', which is
+    exactly the "measurement breaks what it measures" contract this
+    harness exists to avoid."""
+    with contextlib.ExitStack() as stack:
+        for p in _assembly_ready_patches(
+            SHARED_COMPUTE_ENABLED=False, ASSEMBLY_SHADOW_MODELS="broken/model"
+        ):
+            stack.enter_context(p)  # type: ignore[arg-type]
+        stack.enter_context(
+            patch(
+                "app.services.report_generator.build_assembly_prompt",
+                side_effect=RuntimeError("prompt construction blew up"),
+            )
+        )
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert report.status == "success"
+    assert report.report_inputs is not None
+    assert report.report_inputs["body_source"] == "pass2"
+    assert report.report_inputs["pass2_raw"]
+    assert report.report_inputs["assembly_shadow"] == {}
+
+
 def test_generate_report_shadow_is_skipped_when_there_is_no_shared_intel(
     db_session: Session,
 ) -> None:
@@ -1931,6 +1961,68 @@ def test_regenerate_analyze_reruns_the_pass_that_wrote_the_body(
     assert rerendered.report_md is not None
     assert "Reanalyzed holdings read" in rerendered.report_md
     assert "heaviest position" not in rerendered.report_md
+
+
+def test_regenerate_analyze_recomputes_macro_event_exposure_from_fresh_portfolio(
+    db_session: Session,
+) -> None:
+    """Round 2 review finding (PR #163): `analyze` already refreshes
+    `portfolio` from the live DB (so a holdings edit between generation and
+    regenerate is picked up), but was replaying the STORED
+    `macro_event_exposure` — the intersection computed against the
+    ORIGINAL `by_asset_class`. If a confirm between generation and
+    regenerate drops the only class an event bore on, the stale exposure
+    would still tell the model "your exposure: <class you no longer
+    hold>". Exposure is cheap set arithmetic (`user_event_exposure`, zero
+    LLM calls) and must be recomputed against the SAME fresh portfolio the
+    prompt is otherwise built from.
+    """
+    with contextlib.ExitStack() as stack:
+        for p in _assembly_ready_patches(
+            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
+        ):
+            stack.enter_context(p)  # type: ignore[arg-type]
+        stack.enter_context(
+            patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
+        )
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert report.report_inputs is not None
+    assert report.report_inputs["body_source"] == "assembly"
+
+    # Simulate the original exposure having been computed against a
+    # portfolio that held STOCK — matches _portfolio_snap()'s by_asset_class.
+    stale_inputs = dict(report.report_inputs)
+    stale_inputs["macro_event_intel"] = {
+        "theme:x": {
+            "analysis": "STALE_EVENT_MARKER touches the STOCK sleeve.",
+            "affected_asset_classes": ["STOCK"],
+            "affected_sectors": [],
+        }
+    }
+    stale_inputs["macro_event_exposure"] = {"theme:x": ["STOCK"]}
+    report.report_inputs = stale_inputs
+    db_session.commit()
+
+    # A holdings edit since generation moved this portfolio entirely out of
+    # STOCK — the event no longer bears on anything this user holds.
+    fresh_snap = _portfolio_snap()
+    fresh_snap.by_asset_class = {"EQUITY_US_BROAD": Decimal("10000")}
+
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator.compute_portfolio", return_value=fresh_snap),
+        patch(
+            "app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY
+        ) as mock_assembly,
+    ):
+        rg.regenerate_report(db_session, report.id, mode="analyze")
+
+    sent_prompt = mock_assembly.call_args.args[3]
+    assert "theme:x" not in sent_prompt, (
+        "a dropped asset class must remove the event from the prompt, "
+        "not carry forward the exposure computed against the OLD portfolio"
+    )
 
 
 def test_regenerate_render_still_works_for_a_pre_a4_report(db_session: Session) -> None:

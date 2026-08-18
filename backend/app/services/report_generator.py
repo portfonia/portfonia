@@ -1028,8 +1028,20 @@ def generate_report(
             raw_body = raw_pass2
 
         # Shadow comparison (design doc §6.3.1) — runs after the shipped body
-        # is settled, never influences it, never blocks the report.
-        _run_shadow_assembly(client, settings, ctx, report.id)
+        # is settled, never influences it, never blocks the report. The
+        # per-model try/except inside `_run_shadow_assembly` only covers
+        # `run_assembly_pass`; the isolation must also cover the ONE
+        # prompt-build call before that loop (`_assembly_prompt_from_ctx`),
+        # or a defect there would propagate past an already-succeeded body
+        # and flip the whole report to 'failed' (round 2 review finding, PR
+        # #163) — exactly the "measurement breaks what it measures" failure
+        # this harness exists to rule out.
+        try:
+            _run_shadow_assembly(client, settings, ctx, report.id)
+        except Exception:
+            logger.exception(
+                "report %s: shadow assembly harness failed — shipped body unaffected", report.id
+            )
 
         # ------------------------------------------------------------------
         # 7/8. Annotate + assemble + render language + compliance scan (#5/#7/#8)
@@ -1188,12 +1200,24 @@ def regenerate_report(
                     f"report {report.id}: assembled body cannot be re-analyzed — "
                     "no assembly model recorded and ASSEMBLY_LLM_MODEL is unset"
                 )
+            # Exposure must be recomputed against the FRESH portfolio just
+            # fetched above, not replayed from the stored value (round 2
+            # review finding, PR #163): the stored exposure is the
+            # intersection of L2's cached classes with the ORIGINAL
+            # by_asset_class, and a holdings edit between generation and
+            # this regenerate can add or drop a class. Recomputing is zero
+            # LLM cost (`user_event_exposure` is pure set arithmetic) —
+            # only the analysis TEXT (`macro_event_intel`) stays stored,
+            # since that's the part `analyze` must not re-fetch/re-derive.
+            fresh_exposure = user_event_exposure(
+                inputs.get("macro_event_intel", {}), portfolio.get("by_asset_class", {})
+            )
             assembly_user = build_assembly_prompt(
                 portfolio,
                 inputs.get("price_anomalies", []),
                 inputs.get("ticker_intel", {}),
                 inputs.get("macro_event_intel", {}),
-                inputs.get("macro_event_exposure", {}),
+                fresh_exposure,
                 period_start_iso,
                 period_end_iso,
                 trading_days,
@@ -1211,6 +1235,11 @@ def regenerate_report(
                 "assembly_prompt": assembly_user,
                 "assembly_model": assembly_model,
                 "assembly_prompt_version": ASSEMBLY_PROMPT_VERSION,
+                # Persist the exposure actually used, not the stale value —
+                # otherwise the stored row and the prompt that produced its
+                # body disagree, and a later render/audit would see the
+                # OLD intersection again.
+                "macro_event_exposure": fresh_exposure,
             }
         else:
             pass2_user = _build_pass2_prompt(

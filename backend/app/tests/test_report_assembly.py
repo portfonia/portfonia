@@ -366,3 +366,101 @@ def test_report_window_is_rendered_in_et_like_pass2() -> None:
     assert "2026-08-17 17:00" in window_line
     assert "ET" in window_line
     assert "+00:00" not in window_line
+
+
+# ---------------------------------------------------------------------------
+# L2 event ordering — review round-2 finding, PR #163: events were sorted by
+# how MANY asset classes they overlap (`len(macro_event_exposure[k])`), not
+# by how much of the portfolio those classes actually weigh — inverting the
+# "lead by weight and exposure" personalization the module's own docstring
+# and system prompt both promise.
+# ---------------------------------------------------------------------------
+
+_WEIGHTED_PORTFOLIO: dict[str, Any] = {
+    "base_currency": "USD",
+    "total_base": 500000.0,
+    "fx_date": "2026-08-17",
+    "holdings": [],
+    "by_asset_class": {"BIG": 400000.0, "SMALL_A": 50000.0, "SMALL_B": 50000.0},
+    "by_currency": {},
+}
+
+
+def test_l2_events_are_ordered_by_portfolio_weight_not_class_count() -> None:
+    """One event overlapping two tiny classes (20% combined) must not
+    outrank an event overlapping a single class that is 80% of the book —
+    a count-based sort would put the two-class event first; a weight-based
+    sort must put the single-class event first."""
+    macro_event_intel = {
+        "theme:two_small": {"analysis": "TWO_SMALL touches SMALL_A and SMALL_B."},
+        "theme:one_big": {"analysis": "ONE_BIG touches BIG."},
+    }
+    macro_event_exposure = {
+        "theme:two_small": ["SMALL_A", "SMALL_B"],
+        "theme:one_big": ["BIG"],
+    }
+    prompt = ra.build_assembly_prompt(
+        portfolio=_WEIGHTED_PORTFOLIO,
+        price_anomalies=[],
+        ticker_intel={},
+        macro_event_intel=macro_event_intel,
+        macro_event_exposure=macro_event_exposure,
+    )
+    assert prompt.index("theme:one_big") < prompt.index("theme:two_small")
+
+
+# ---------------------------------------------------------------------------
+# fx_date — review round-2 finding, PR #163: the assembly prompt asks the
+# model to write §4.3 FX exposure but never supplies `fx_date`, the only FX
+# fact the portfolio snapshot carries. Pass 2's header
+# (`_build_pass2_prompt`) includes it.
+# ---------------------------------------------------------------------------
+
+
+def test_prompt_includes_fx_date_for_section_4_3() -> None:
+    prompt = _prompt()
+    portfolio_header = prompt.splitlines()[3]
+    assert "=== PORTFOLIO" in portfolio_header
+    assert "2026-08-17" in portfolio_header
+
+
+# ---------------------------------------------------------------------------
+# Holdings listing must print the SAME key the L1 block is keyed under —
+# review round-2 nit, PR #163: the listing printed the raw `ticker`/
+# `fund_code` value, while the L1 weight lookup and L1 block both key via
+# `_identifier()` (`_normalize_hk_ticker(...).upper()`'d). A raw HK ticker
+# stored as "700.HK" would print one spelling while L1 keys everything
+# "0700.HK" — the model has no way to connect the two, the same join
+# failure the fund_code fix (round 1) was for.
+# ---------------------------------------------------------------------------
+
+_HK_PORTFOLIO: dict[str, Any] = {
+    "base_currency": "HKD",
+    "total_base": 100000.0,
+    "fx_date": "2026-08-17",
+    "holdings": [
+        {
+            "name": "Tencent",
+            "ticker": "700.HK",  # raw, un-normalized form
+            "currency": "HKD",
+            "market_value": 100000.0,
+            "market_value_base": 100000.0,
+            "asset_class": "EQUITY_CN",
+        }
+    ],
+    "by_asset_class": {"EQUITY_CN": 100000.0},
+    "by_currency": {"HKD": 100000.0},
+}
+
+
+def test_holdings_listing_prints_the_normalized_identifier_l1_is_keyed_under() -> None:
+    prompt = ra.build_assembly_prompt(
+        portfolio=_HK_PORTFOLIO,
+        price_anomalies=[],
+        ticker_intel={"0700.HK": "Tencent moved on regulatory news. [Established]"},
+        macro_event_intel={},
+        macro_event_exposure={},
+    )
+    holdings_section = prompt.split("Holdings, largest first")[1].split("===")[0]
+    assert "(0700.HK)" in holdings_section
+    assert "(700.HK)" not in holdings_section
