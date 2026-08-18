@@ -1416,6 +1416,19 @@ ssh <host-from-obsidian-doc> "sudo systemd-run --unit=portfonia-deploy --working
 ssh <host-from-obsidian-doc> "systemctl status portfonia-deploy; sudo journalctl -u portfonia-deploy --no-pager"
 ```
 
+**Watching is the same problem as launching.** After `systemd-run`, drop
+the SSH session. Check progress with short reconnects (`systemctl
+is-active` / `systemctl show` / `tail` of an on-server log). Do not hold
+`ssh '... while systemctl is-active ...'`, a local monitor whose child is
+a long-lived SSH, or `run_in_background` on an SSH that stays connected
+for the job — those die with the VPN/TUN drop the same way a foreground
+`docker compose up` does. A dropped check is not task failure; reconnect
+and read the unit and the log. Redirect the job's stdout to a file on the
+server when `journalctl` will not carry the full stream (interactive
+Python, `docker compose exec`). This applies to every long production
+command (deploy, UAT, one-shot `docker compose exec`), not only
+`portfonia-deploy`.
+
 Do not trust a `nohup`/`disown`/backgrounded-SSH exit code as proof a long
 remote command finished — verify by checking the actual resulting state
 (containers running, files present), not just the shell's reported exit
