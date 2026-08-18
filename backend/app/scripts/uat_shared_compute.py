@@ -84,16 +84,8 @@ _TRACKED_IDENTIFIERS = (
 
 _WATERMARK_SESSION_NODE = "uat_watermark"
 
-# Holdings-derived report_inputs keys only. Rendered prose (report_md /
-# pass2_raw / assembly_*) can quote global NVDA/AAPL headlines and is not
-# a leak signal (PR #164 review rounds 1-2).
-_LEAK_INPUT_KEYS = (
-    "portfolio_summary",
-    "price_anomalies",
-    "ticker_intel",
-    "holding_news",
-    "macro_event_exposure",
-)
+# Holdings-derived report_inputs keys only. ticker_intel / holding_news
+# values are L1/headline prose and are not scanned (PR #164 review round 4).
 
 EMAIL_GUARD_TARGETS: tuple[str, ...] = (
     "app.services.report_generator.send_report_email",
@@ -493,8 +485,28 @@ def _blob_contains(blob: str, token: str) -> bool:
 def _report_blob(report_inputs: object) -> str:
     if not isinstance(report_inputs, dict):
         return ""
-    sliced = {key: report_inputs[key] for key in _LEAK_INPUT_KEYS if key in report_inputs}
-    return json.dumps(sliced, default=str)
+    pieces: list[str] = []
+    portfolio = report_inputs.get("portfolio_summary")
+    if portfolio is not None:
+        pieces.append(json.dumps(portfolio, default=str))
+    anomalies = report_inputs.get("price_anomalies")
+    if isinstance(anomalies, list):
+        idents: list[object] = []
+        for item in anomalies:
+            if not isinstance(item, dict):
+                continue
+            ident = item.get("identifier")
+            if ident:
+                idents.append(ident)
+            constituents = item.get("constituents")
+            if isinstance(constituents, list):
+                idents.extend(constituents)
+        pieces.append(json.dumps(idents, default=str))
+    for key in ("ticker_intel", "holding_news", "macro_event_exposure"):
+        value = report_inputs.get(key)
+        if isinstance(value, dict):
+            pieces.append(json.dumps(list(value.keys()), default=str))
+    return "\n".join(pieces)
 
 
 def find_cross_user_leaks(reports: dict[uuid.UUID, dict[str, Any]]) -> list[str]:
@@ -689,21 +701,29 @@ def verify_rerender_zero_llm(session: Session, report: Report) -> dict[str, Any]
 
         return _inner
 
-    with (
-        patch("app.services.report_generator._call_llm", _counter("generator")),
-        patch("app.services.report_assembly._call_llm", _counter("assembly")),
-        patch("app.services.report_translation._call_llm", _counter("translation")),
-        patch("app.services.report_generator.get_current_user_id", lambda: report.user_id),
-    ):
-        rebuilt = regenerate_report(session, report.id, mode="render", output_lang="en")
+    rebuilt: Report | None = None
+    error: str | None = None
+    try:
+        with (
+            patch("app.services.report_generator._call_llm", _counter("generator")),
+            patch("app.services.report_assembly._call_llm", _counter("assembly")),
+            patch("app.services.report_translation._call_llm", _counter("translation")),
+            patch("app.services.report_generator.get_current_user_id", lambda: report.user_id),
+        ):
+            rebuilt = regenerate_report(session, report.id, mode="render", output_lang="en")
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
+    finally:
+        restore_shipped_body(session, report, shipped_md, shipped_translated)
     total = sum(calls.values())
-    restore_shipped_body(session, report, shipped_md, shipped_translated)
+    ok = error is None and total == 0
     return {
-        "report_id": str(rebuilt.id),
+        "report_id": str(rebuilt.id) if rebuilt is not None else str(report.id),
         "calls": calls,
         "total": total,
-        "ok": total == 0,
-        "rebuilt_chars": len(rebuilt.report_md or ""),
+        "ok": ok,
+        "error": error,
+        "rebuilt_chars": len(rebuilt.report_md or "") if rebuilt is not None else 0,
         "shipped_md_restored": report.report_md == shipped_md,
     }
 

@@ -200,6 +200,21 @@ def test_leak_check_still_flags_nvda_in_u3_ticker_intel() -> None:
     assert any("NVDA" in item for item in uat.find_cross_user_leaks(reports))
 
 
+def test_leak_check_ignores_nvda_in_u3_l1_prose() -> None:
+    """Round-4 review: L1/holding_news values are global prose, not identifiers."""
+    reports = {
+        uat.U3_USER_ID: {
+            "report_md": "SGOL held.",
+            "report_inputs": {
+                "portfolio_summary": {"holdings": [{"ticker": "SGOL"}]},
+                "ticker_intel": {"SGOL": "gold bid on an NVDA selloff"},
+                "holding_news": {"SGOL": [{"title": "AAPL suppliers and gold"}]},
+            },
+        }
+    }
+    assert uat.find_cross_user_leaks(reports) == []
+
+
 def _holding_count(session: Session, user_id: uuid.UUID) -> int:
     return len(list(session.execute(select(Holding).where(Holding.user_id == user_id)).scalars()))
 
@@ -507,6 +522,31 @@ def test_restore_shipped_body_puts_back_zh_markdown(db_session: Session) -> None
     assert row.report_md == "shipped-zh-body"
     assert row.report_inputs is not None
     assert row.report_inputs["pass2_translated"] == "zh-translated"
+
+
+def test_verify_rerender_restores_body_if_regenerate_raises(db_session: Session) -> None:
+    row = Report(
+        user_id=uat.U1_USER_ID,
+        report_date=datetime(2026, 8, 17).date(),
+        report_type="incremental",
+        session_node="manual",
+        status="success",
+        report_md="shipped-zh-body",
+        report_inputs={"pass2_raw": "## §2\n## §3\n## §4", "pass2_translated": "zh-translated"},
+    )
+    db_session.add(row)
+    db_session.flush()
+
+    def _boom(*_args: object, **_kwargs: object) -> Report:
+        row.report_md = "EN overwrite"
+        db_session.commit()
+        raise RuntimeError("render failed")
+
+    with patch("app.scripts.uat_shared_compute.regenerate_report", side_effect=_boom):
+        result = uat.verify_rerender_zero_llm(db_session, row)
+    db_session.refresh(row)
+    assert row.report_md == "shipped-zh-body"
+    assert result["ok"] is False
 
 
 def test_report_has_stored_body_skips_quiet_skipped_rows() -> None:
