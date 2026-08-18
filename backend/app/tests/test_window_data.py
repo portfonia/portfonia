@@ -27,6 +27,7 @@ from app.services.window_data import (
     detect_window_anomalies,
     load_day_news,
     load_news_window,
+    lookback_trading_dates,
     mark_news_surfaced,
     resolve_global_moves,
     select_user_anomalies,
@@ -222,6 +223,21 @@ def test_day_window_bounds_spans_exactly_one_et_calendar_day() -> None:
     assert start.astimezone(ET).date() == date(2026, 6, 5)
     assert end.astimezone(ET).date() == date(2026, 6, 5)
     assert start < end
+
+
+def test_lookback_trading_dates_is_a_pure_function_of_the_end_date() -> None:
+    """Issue #128: L1 may carry multi-day headlines, but the date list
+    cannot come from a user's watermark. Five weekdays ending on a Friday
+    are the prior Mon-Fri; a Monday lookback skips the weekend."""
+    assert lookback_trading_dates(date(2026, 8, 17), n=5) == [
+        date(2026, 8, 11),
+        date(2026, 8, 12),
+        date(2026, 8, 13),
+        date(2026, 8, 14),
+        date(2026, 8, 17),
+    ]
+    monday = lookback_trading_dates(date(2026, 8, 17), n=1)
+    assert monday == [date(2026, 8, 17)]
 
 
 def test_load_day_news_has_no_user_parameter_and_ignores_surfaced_ledger(

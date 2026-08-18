@@ -12,7 +12,7 @@ import logging
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from itertools import pairwise
 
@@ -116,6 +116,33 @@ def day_window_bounds(trade_date: date) -> tuple[datetime, datetime]:
     start = datetime.combine(trade_date, time.min, tzinfo=ET)
     end = datetime.combine(trade_date, time.max, tzinfo=ET)
     return start, end
+
+
+# L1 lookback length (issue #128 quality gate). A weekday list ending on
+# trade_date — not a user's report watermark. Keep generate_report and the
+# A1 "moves computed once per window" test on this same number.
+L1_LOOKBACK_TRADING_DAYS = 5
+
+
+def lookback_trading_dates(end: date, n: int = L1_LOOKBACK_TRADING_DAYS) -> list[date]:
+    """``n`` weekdays ending on ``end``, oldest first.
+
+    Pure function of ``end`` — no Session, no user_id, no report watermark.
+    That is the point: L1 may carry multi-day headlines and own-price path,
+    but the date list cannot come from a user's ``period_start``. Weekends
+    are skipped; exchange holidays are not (this is a weekday calendar, not
+    an exchange calendar). ``n < 1`` returns an empty list.
+    """
+    if n < 1:
+        return []
+    out: list[date] = []
+    cursor = end
+    while len(out) < n:
+        if cursor.weekday() < 5:
+            out.append(cursor)
+        cursor -= timedelta(days=1)
+    out.reverse()
+    return out
 
 
 def load_day_news(session: Session, trade_date: date) -> list[NewsItem]:

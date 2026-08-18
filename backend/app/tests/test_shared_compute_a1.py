@@ -256,16 +256,15 @@ def test_compute_global_moves_runs_once_per_distinct_window_not_per_user(
     moves_cache's cache key in production even though a test that froze the
     clock stayed green.
 
-    2 calls total, not 1 (design doc §4.8, second addendum): the batch's
-    shared report window (`period_start`/`period_end`, identical for all
-    three users here — cold start, same BOOTSTRAP_WATERMARK) accounts for
-    one call, and L1's day-scoped window (`day_window_bounds(eff_date)`,
-    deliberately a DIFFERENT window from the report's — see
-    ticker_intel.build_l1_facts's docstring) accounts for the other. Both
-    are still shared across all three users via the same `moves_cache`, so
-    the count stays at 2 regardless of user count — the property this test
-    guards (no N-user scaling) still holds, it's just bounded by the number
-    of distinct windows requested per batch, not by 1."""
+    1 + L1_LOOKBACK_TRADING_DAYS calls, not 1 (design doc §4.8 + issue #128
+    lookback): the batch's shared report window (`period_start`/`period_end`,
+    identical for all three users here — cold start, same
+    BOOTSTRAP_WATERMARK) accounts for one call, and L1's weekday lookback
+    (`lookback_trading_dates(eff_date)`) accounts for one single-day window
+    each. All of those keys are still shared across all three users via the
+    same `moves_cache`, so the count stays fixed regardless of user count —
+    the property this test guards (no N-user scaling) still holds, it's
+    just bounded by the number of distinct windows requested per batch."""
     _seed_price_snapshots(db_session)
 
     with patch(
@@ -273,4 +272,4 @@ def test_compute_global_moves_runs_once_per_distinct_window_not_per_user(
     ) as spy:
         _run_batch(db_session)
 
-    assert spy.call_count == 2
+    assert spy.call_count == 1 + window_data.L1_LOOKBACK_TRADING_DAYS

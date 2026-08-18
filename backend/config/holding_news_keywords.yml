@@ -48,3 +48,18 @@ holdings:
     - "Nasdaq"
   VOO:
     - "S&P 500"
+  TSM:
+    - "TSMC"
+    - "Taiwan Semiconductor"
+    - "CoWoS"
+    - "HBM"
+  AAOI:
+    - "Applied Optoelectronics"
+    - "optical transceiver"
+    - "800G"
+  ASML:
+    - "EUV"
+    - "lithography"
+  MUU:
+    - "Micron"
+    - "HBM"

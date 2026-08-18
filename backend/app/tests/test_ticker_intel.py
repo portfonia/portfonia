@@ -627,6 +627,53 @@ def test_build_l1_prompt_excludes_per_user_keywords() -> None:
         assert term not in lowered
 
 
+def test_l1_prompt_version_is_v3_after_lookback_contract_change() -> None:
+    assert ti._PROMPT_VERSION == "l1-v3"
+
+
+def test_l1_uses_luna_with_effort_none_not_flash(monkeypatch: Any) -> None:
+    captured: dict[str, Any] = {}
+
+    def _fake_call(_client: Any, model: str, system: str, user: str, **kwargs: Any) -> str:
+        captured["model"] = model
+        captured["kwargs"] = kwargs
+        captured["system"] = system
+        return "TSM rose with no company-specific headline. AI-capex brief applies. [Probable]"
+
+    monkeypatch.setattr(ti, "_openrouter_client", lambda: object())
+    monkeypatch.setattr(ti, "_call_llm", _fake_call)
+    monkeypatch.setattr(ti, "_scan_forbidden_output", lambda _text: [])
+    monkeypatch.setattr(ti, "_strip_markers", lambda text: text)
+    monkeypatch.setattr(ti, "_write_cache", lambda *a, **k: None)
+    facts = ti.L1Facts(day_pct=0.012, latest_date="2026-08-17")
+    text, _charged = ti._generate(
+        session=object(),  # type: ignore[arg-type]
+        identifier="TSM",
+        trade_date=date(2026, 8, 17),
+        facts=facts,
+    )
+    assert captured["model"] == "openai/gpt-5.6-luna"
+    assert captured["kwargs"].get("reasoning_effort") == "none"
+    assert captured["kwargs"].get("disable_reasoning") is not True
+    assert "2-4 sentences" not in captured["system"]
+    assert text is not None
+
+
+def test_build_l1_prompt_dates_lookback_headlines_and_macro_briefs() -> None:
+    facts = ti.L1Facts(
+        day_pct=0.012,
+        latest_date="2026-08-17",
+        news_headlines=["2026-08-16: Anthropic revenue run-rate hits $65B"],
+        dated_moves=["2026-08-14: +0.40%", "2026-08-17: +1.22%"],
+        macro_briefs=["2026-08-17 theme:科技监管: AI-infrastructure demand remains elevated."],
+    )
+    prompt = ti._build_l1_prompt("TSM", facts)
+    assert "2026-08-16: Anthropic" in prompt
+    assert "2026-08-14: +0.40%" in prompt
+    assert "theme:科技监管" in prompt
+    assert "date" in prompt.lower()
+
+
 # ---------------------------------------------------------------------------
 # l1_identifiers_for_user: the per-user -> global type firewall
 # ---------------------------------------------------------------------------
@@ -808,6 +855,24 @@ def test_build_l1_facts_tolerates_an_identifier_with_no_global_move() -> None:
     assert facts["MISSING"].day_pct is None
     assert facts["MISSING"].current_price is None
     assert facts["MISSING"].news_headlines == ["Some headline"]
+
+
+def test_build_l1_facts_formats_dated_lookback_moves_and_macro_briefs() -> None:
+    lookback = {
+        date(2026, 8, 14): {"TSM": _move("TSM", net_pct=Decimal("0.004"))},
+        date(2026, 8, 17): {"TSM": _move("TSM", net_pct=Decimal("0.0122"))},
+    }
+    briefs = ["2026-08-17 theme:科技监管: AI-infrastructure demand remains elevated."]
+    facts = ti.build_l1_facts(
+        ["TSM"],
+        lookback[date(2026, 8, 17)],
+        {},
+        [],
+        lookback_moves=lookback,
+        macro_briefs=briefs,
+    )
+    assert facts["TSM"].dated_moves == ["2026-08-14: +0.40%", "2026-08-17: +1.22%"]
+    assert facts["TSM"].macro_briefs == briefs
 
 
 def test_build_l1_facts_attaches_technical_facts() -> None:

@@ -111,6 +111,7 @@ def _call_llm(
     allow_fallbacks: bool | None = None,
     enforce_data_collection: bool = True,
     disable_reasoning: bool = False,
+    reasoning_effort: str | None = None,
     usage_sink: list[dict[str, Any]] | None = None,
     allow_empty_content: bool = False,
 ) -> str:
@@ -159,6 +160,12 @@ def _call_llm(
     counterparts — without this a mechanical, low-cost call silently starts
     paying for and waiting on reasoning tokens it never asked for.
 
+    `reasoning_effort` sets `extra_body={"reasoning": {"effort": ...}}` on
+    models that take an effort knob (L1 uses `openai/gpt-5.6-luna` with
+    `"none"`). Do not pair this with `disable_reasoning` — they write the
+    same `reasoning` key. Do not use the `-pro` suffix to turn reasoning
+    off: Homepage eval showed luna-pro re-injects prior reasoning tokens.
+
     `enforce_data_collection=False` and `allow_fallbacks=False` are a required
     pair, enforced at runtime (not just by docstring/call-site discipline —
     PR #81 review): a caller cannot silently reopen the PR #79
@@ -199,8 +206,15 @@ def _call_llm(
     # that would strip the pin from the actual request (PR #81 review).
     if provider.keys() - {"allow_fallbacks"} or allow_fallbacks is not None:
         extra["provider"] = provider
+    if disable_reasoning and reasoning_effort is not None:
+        raise ValueError(
+            "_call_llm: pass disable_reasoning or reasoning_effort, not both "
+            "(they write the same extra_body.reasoning key)"
+        )
     if disable_reasoning:
         extra["reasoning"] = {"enabled": False}
+    elif reasoning_effort is not None:
+        extra["reasoning"] = {"effort": reasoning_effort}
 
     retry_config = load_llm_retry_config()
     backoff_by_group = {
