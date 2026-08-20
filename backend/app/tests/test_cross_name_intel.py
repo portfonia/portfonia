@@ -644,6 +644,40 @@ def test_denylist_catches_a_configured_alias_not_just_the_ticker() -> None:
     assert out == []
 
 
+def test_denylist_does_not_over_drop_on_theme_vocabulary_a_summary_may_legitimately_use() -> None:
+    """PR #167 review round 2, suggestion: round 1's fix dumped EVERY
+    `holding_news_keywords.yml` alias for an excluded identifier into the
+    denylist, but that YAML is a news-RECALL table, not a "this text names
+    that holding" synonym list — it mixes real entity names ("Micron",
+    "TSMC") with theme/technology tokens a name-free mechanism summary is
+    SUPPOSED to use ("lithography" for ASML, "gold"/"bullion" for three
+    different gold funds, "Nasdaq" for QQQM, "HBM" for MUU). Under the
+    unfixed logic, a summary about a completely different cluster (here:
+    TSM + MUU, both held) that happens to use "lithography" or "gold" as
+    ordinary mechanism vocabulary would be dropped for ANY reader missing
+    ASML or SGOL that day — silently deleting the exact cross-name sentence
+    this layer exists to produce, on the semiconductor/haven clusters the
+    whole PR was built around.
+
+    ASML and SGOL are briefed that day (in `all_briefed_identifiers`) but
+    this reader holds neither — they are the two excluded identifiers whose
+    THEME aliases must NOT reach the denylist. The summary is genuinely
+    name-free: it never says "ASML" or "SGOL", only their theme vocabulary.
+    """
+    clusters = [
+        _cluster(
+            ["TSM", "MUU"],
+            summary=(
+                "TSM and MUU rose together on lithography-driven capex demand "
+                "and a broader haven bid in gold."
+            ),
+        )
+    ]
+    out = l3.clusters_for_user(clusters, ["TSM", "MUU"], ["TSM", "MUU", "ASML", "SGOL"])
+    assert len(out) == 1
+    assert out[0]["identifiers"] == ["TSM", "MUU"]
+
+
 def test_denylist_catches_the_unsuffixed_stem_of_an_excluded_identifier() -> None:
     """PR #167 review round 1, bug 2, part 2: "513650" (no ".SS" suffix)
     naming the excluded "513650.SS" bypassed the raw-ticker-only check."""

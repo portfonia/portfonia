@@ -52,6 +52,30 @@ def load_holding_keywords(path: Path | None = None) -> dict[str, list[str]]:
     return {str(k): [str(a) for a in (v or [])] for k, v in holdings.items()}
 
 
+def load_entity_aliases(path: Path | None = None) -> dict[str, list[str]]:
+    """Load the per-holding ENTITY-NAME alias table (issue #128 quality gate,
+    PR #167 review round 2) — a strict subset of `load_holding_keywords`'s
+    table, scoped to a different consumer.
+
+    `holding_news_keywords.yml`'s main `holdings` key deliberately mixes real
+    entity/company names ("Micron", "TSMC") with theme/technology recall
+    tokens ("gold", "lithography", "Nasdaq") to cast a wide net for THIS
+    module's own recall purpose. `cross_name_intel.clusters_for_user` asks a
+    different question — "does this prose NAME an identifier" — and a theme
+    word failing that test is a false positive with a real cost: it silently
+    deletes a legitimate, name-free mechanism sentence. The YAML's separate
+    `entity_aliases` key holds only the subset where the term genuinely is
+    the identifier's company/entity name.
+    """
+    actual = path or _get_keywords_path()
+    if not actual.exists():
+        return {}
+    with actual.open(encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    entities = data.get("entity_aliases", {}) or {}
+    return {str(k): [str(a) for a in (v or [])] for k, v in entities.items()}
+
+
 def recall_holding_news(
     news_items: list[NewsItem],
     identifiers: list[str],

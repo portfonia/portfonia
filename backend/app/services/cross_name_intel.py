@@ -96,7 +96,7 @@ from app.models.cross_name_intel import CrossNameIntel
 from app.models.macro_event_intel import MacroEventIntel
 from app.models.ticker_intel import TickerIntel
 from app.services.email_sender import send_ops_alert
-from app.services.holding_news import load_holding_keywords
+from app.services.holding_news import load_entity_aliases
 from app.services.llm_errors import is_retryable
 from app.services.macro_event_intel import _PROMPT_VERSION as _L2_PROMPT_VERSION
 from app.services.report_llm import _call_llm, _openrouter_client
@@ -709,19 +709,29 @@ def _mentions(text: str, identifier: str) -> bool:
     )
 
 
-def _denylist_terms(identifier: str, keyword_table: dict[str, list[str]]) -> list[str]:
+def _denylist_terms(identifier: str, entity_aliases: dict[str, list[str]]) -> list[str]:
     """Every text form `_mentions` should treat as naming `identifier`: the
     identifier itself, its un-suffixed stem (`"513650.SS"` -> `"513650"`),
-    and any configured recall alias (`"MUU"` -> `"Micron"`, from the SAME
-    `holding_news_keywords.yml` table L1's own recall uses) — so a leak
+    and any configured ENTITY-NAME alias (`"MUU"` -> `"Micron"`) — so a leak
     cannot route around the raw ticker by using the company name or a bare
     A-share/HK code the model was equally free to write (PR #167 review
-    round 1, bug 2, part 2)."""
+    round 1, bug 2, part 2).
+
+    `entity_aliases` (PR #167 review round 2, suggestion) is
+    `holding_news.load_entity_aliases`'s table — a STRICT SUBSET of the
+    recall-purpose `holding_news_keywords.yml` `holdings` key L1's own
+    recall uses, not that table itself. The full recall table mixes real
+    entity names with theme/technology tokens ("gold", "lithography",
+    "Nasdaq") that a genuinely name-free mechanism summary is EXPECTED to
+    use; dumping the whole thing in here silently dropped legitimate
+    cross-name sentences for any reader missing an unrelated identifier
+    that merely shares a theme word that day. Only a real company/entity
+    name is grounds to say the prose "names" the identifier."""
     terms = [identifier]
     stem = identifier.split(".", 1)[0]
     if stem != identifier:
         terms.append(stem)
-    terms.extend(keyword_table.get(identifier, []))
+    terms.extend(entity_aliases.get(identifier, []))
     return terms
 
 
@@ -766,9 +776,9 @@ def clusters_for_user(
     keys = {k.upper() for k in l1_keys if k}
     universe = {str(i).upper() for i in all_briefed_identifiers if i}
     excluded = sorted(universe - keys)
-    keyword_table = load_holding_keywords()
+    entity_aliases = load_entity_aliases()
     denylist = [
-        term for identifier in excluded for term in _denylist_terms(identifier, keyword_table)
+        term for identifier in excluded for term in _denylist_terms(identifier, entity_aliases)
     ]
 
     out: list[dict[str, Any]] = []

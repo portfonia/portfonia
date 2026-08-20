@@ -909,6 +909,20 @@ def test_build_l1_facts_has_no_macro_briefs_channel() -> None:
     assert "macro_briefs" not in fields
 
 
+def test_l1_system_prompt_does_not_reference_macro_briefs() -> None:
+    """PR #167 review round 2, suggestion: removing the DATA channel
+    (previous test) is not the same as removing the INSTRUCTION to use it.
+    `_L1_SYSTEM` still told the model to cover "any supplied macro brief"
+    and, absent a company catalyst, to "connect a supplied macro brief when
+    its date and mechanism fit" — a field `_build_l1_prompt` never emits
+    (the user turn says "grounded ONLY in the facts above"). An instruction
+    to use a field that no longer exists is worse than a no-op: it invites
+    the model to either misread a dated headline as a "macro brief" or
+    invent a mechanism to satisfy the system prompt, which is exactly the
+    fabrication l1-v4 exists to prevent."""
+    assert "macro brief" not in ti._L1_SYSTEM.lower()
+
+
 def test_build_l1_facts_attaches_technical_facts() -> None:
     technical = [{"ticker": "NVDA", "pct_vs_sma50": 0.1, "pct_vs_sma200": 0.2}]
     facts = ti.build_l1_facts(["NVDA"], {"NVDA": _move("NVDA")}, {}, technical)
