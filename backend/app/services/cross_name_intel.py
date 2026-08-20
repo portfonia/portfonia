@@ -125,10 +125,60 @@ _L3_REASONING_EFFORT = "none"
 # (`SUM(attempt_count)`) rather than rows for the same reason L1/L2 count that
 # way (issue #160): a retried key must not get its extra attempts free, or the
 # ceiling loosens by a factor of `_MAX_ATTEMPTS_PER_KEY` on exactly the day it
-# matters. Three is one per user at today's fan-out size — enough that each
-# user's newly-written L1 rows can buy one refreshed synthesis, bounded enough
-# that a pathological day cannot spend more than a few cents here.
-_MAX_SYNTHESES_PER_DAY = 3
+# matters.
+#
+# MUST stay a multiple of `_MAX_ATTEMPTS_PER_KEY` well above 1x (PR #167
+# review round 3): the original value (3, equal to `_MAX_ATTEMPTS_PER_KEY`)
+# meant a SINGLE non-retryable failure or compliance block on the day's
+# FIRST fingerprint wrote `attempt_count=3` in one shot — the entire daily
+# budget — so every later, genuinely different fingerprint that trading day
+# (a later fan-out user's newly-written L1 rows, the whole reason the
+# fingerprint mechanism exists) hit `budget <= 0` and degraded to "serve the
+# most recent stored synthesis", which on that day had none to serve. One
+# incident lost the WHOLE DAY's cross-name conclusion for every user, not
+# just the one who hit it.
+#
+# 9 = 3x `_MAX_ATTEMPTS_PER_KEY`: one lock still leaves 2x its own cost of
+# headroom for later fingerprints, matching L2's forward-event ratio (15:3 =
+# 5x) closely enough for L3's much smaller expected fingerprint count per
+# day (identifier-set changes are comparatively rare within one trading
+# day's fan-out) without being needlessly generous like L1's 15:3 (calibrated
+# for potentially dozens of identifiers, not a handful of fingerprints).
+#
+# THIS IS THE CHEAPER OF TWO FIXES CONSIDERED, NOT A FULL FIX (design doc
+# §6.7, PR #167 review round 3) — recorded here so a future session hitting
+# the same shape does not re-litigate the tradeoff from scratch. The
+# alternative — stop `attempt_count` from meaning both "real LLM calls
+# spent" and "shared daily-budget slots consumed" at once — was rejected for
+# THIS PR because both ways to actually separate them reopen a version of
+# the problem #160 already closed:
+#   (a) Give locks their own flag (e.g. a `locked: bool` column) so a lock
+#       only ever records `attempt_count=1` against the daily sum. This is
+#       the more surgical version of "just count separately" and DOES
+#       shrink the blast radius of one lock — but it requires a schema
+#       change, and it explicitly undoes a stated design decision in
+#       `CrossNameIntel`'s own docstring ("one integer expresses both
+#       states, so there is no second 'permanent' flag column to drift") —
+#       and unless `TickerIntel`/`MacroEventIntel` get the same column, L3's
+#       `attempt_count` and its two siblings would silently mean different
+#       things despite being "one mechanism applied three times" by design.
+#   (b) Make the daily cap count successful syntheses or distinct
+#       fingerprints instead of `SUM(attempt_count)`. This is worse: it
+#       means a failure that lands on a NEW fingerprint (which happens
+#       naturally as the day's L1 data grows) never counts against the cap
+#       at all — a bad provider day could retry unboundedly across an
+#       ever-changing fingerprint stream with zero rate-limiting. That is
+#       exactly the original pre-#160 bug ("a retried key gets extra
+#       attempts free"), just relocated from identifier-granularity to
+#       fingerprint-granularity.
+# Bumping the constant keeps `attempt_count`'s meaning, the schema, and the
+# three-table symmetry all unchanged; its only real cost is that it does not
+# fully eliminate the failure mode (several locks in one day can still
+# collectively exhaust 9), only bound it — a monotonic, easy-to-reason-about
+# risk, unlike (a)/(b) above. Revisit if operational experience shows 9 is
+# still not enough headroom, or if a future session wants to invest in (a)
+# for all three tables at once (never for L3 alone).
+_MAX_SYNTHESES_PER_DAY = 9
 
 # Attempts the SYSTEM (not each user) may spend on one key before its marker
 # row is final. Same value and same reasoning as `ticker_intel` and

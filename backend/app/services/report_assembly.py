@@ -70,7 +70,12 @@ logger = logging.getLogger(__name__)
 
 # Bumped when the assembly prompt's contract changes. Recorded on the report
 # row alongside the body so a stored report says which contract produced it.
-ASSEMBLY_PROMPT_VERSION = "a4-v1"
+# a4-v1 -> a4-v2 (issue #128 quality gate, PR #167 review round 3, nit): the
+# user-turn contract grew a CROSS-NAME MECHANISM block, closed-set
+# TRANSMISSION labels, TRACKING POSITION display rules, and a TECHNICAL
+# POSITION block — a stale version string would make a pre- and
+# post-quality-gate assembled report indistinguishable in `report_inputs`.
+ASSEMBLY_PROMPT_VERSION = "a4-v2"
 
 # The assembly pass writes the same §2/§3/§4 body Pass 2 writes — same
 # markers, same downstream injection points — so it reuses Pass 2's narrative

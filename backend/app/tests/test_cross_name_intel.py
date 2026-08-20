@@ -567,6 +567,55 @@ def test_non_retryable_failure_locks_the_key_immediately(db_session: Session) ->
         assert l3.get_day_synthesis(db_session, _DATE) == []
 
 
+def test_a_single_lock_does_not_exhaust_the_whole_days_budget(db_session: Session) -> None:
+    """PR #167 review round 3, suggestion: `_MAX_SYNTHESES_PER_DAY` and
+    `_MAX_ATTEMPTS_PER_KEY` used to both be 3 — a single non-retryable
+    failure or compliance block on the FIRST fingerprint of the day wrote
+    `attempt_count=3` in one shot, which is the entire daily budget.
+    A later, genuinely different fingerprint (new identifiers briefed later
+    in the same fan-out — the whole reason the fingerprint mechanism
+    exists) then hit `budget <= 0` and degraded to "serve the most recent
+    stored synthesis", which that day had none of (the only row was a null
+    marker) — so the WHOLE DAY lost its cross-name conclusion over one
+    incident, for every user, not just the one who hit it.
+
+    Fixed by direction (a), recorded in the design doc: give
+    `_MAX_SYNTHESES_PER_DAY` enough headroom over `_MAX_ATTEMPTS_PER_KEY`
+    that a single lock cannot zero the day. This is deliberately the
+    cheaper, narrower fix — see the design doc for why the "separate the
+    cost-tracking meaning of `attempt_count` from the daily-budget meaning"
+    alternative was not taken: both variants of that either need new
+    persisted state or reopen a version of the exact issue-#160 problem
+    `attempt_count`'s current single-integer design was built to close.
+    """
+    _seed_l1(db_session, "TSM")
+    _seed_l1(db_session, "ASML")
+
+    boom = openai.AuthenticationError(
+        "bad key",
+        response=httpx.Response(401, request=httpx.Request("POST", "https://x.test")),
+        body=None,
+    )
+    with (
+        patch.object(l3, "_openrouter_client", return_value=MagicMock()),
+        patch.object(l3, "_call_llm", side_effect=boom),
+    ):
+        assert l3.get_day_synthesis(db_session, _DATE) == []
+
+    # A different fingerprint: two more identifiers briefed later the same
+    # day change the global input set entirely.
+    _seed_l1(db_session, "SGOL")
+    _seed_l1(db_session, "GLD")
+
+    with _patched_llm({"clusters": [_cluster(["SGOL", "GLD"], mechanism="safe_haven")]}):
+        result = l3.get_day_synthesis(db_session, _DATE)
+
+    assert result, (
+        "a single earlier lock must not zero the day's entire budget for a "
+        "later, genuinely different fingerprint"
+    )
+
+
 # ---------------------------------------------------------------------------
 # 6. The per-user filter — where a leak would become visible in a report
 # ---------------------------------------------------------------------------

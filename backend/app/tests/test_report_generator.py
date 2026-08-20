@@ -2249,6 +2249,51 @@ def test_big_mover_without_a_headline_gets_the_leftover_tavily_budget(
     )
 
 
+def test_leftover_tavily_topup_respects_fair_share_budget(db_session: Session) -> None:
+    """PR #167 review round 3, suggestion: the leftover-budget top-up used
+    `settings.TAVILY_DAILY_BUDGET - _tavily_used_today(...)` directly — the
+    FULL remaining daily budget — with no `fair_share_budget(remaining,
+    users_remaining)` division, unlike every other shared-budget consumer in
+    this same function (L1's own analyses, L2's, L3's synthesis). In a
+    fan-out the first `active_user_ids` user could therefore spend the
+    day's entire remaining Tavily budget on its own top-up searches before
+    any later user gets a turn — the exact sequential-starvation shape A4's
+    `fair_share_budget` exists to close everywhere else."""
+    with contextlib.ExitStack() as stack:
+        for p in _assembly_ready_patches():
+            stack.enter_context(p)  # type: ignore[arg-type]
+        stack.enter_context(
+            patch(
+                "app.services.report_generator.resolve_global_moves",
+                return_value=({"NVDA": _day_move("NVDA", net_pct=0.09)}, 1),
+            )
+        )
+        stack.enter_context(
+            patch("app.services.report_generator.recall_holding_news", return_value={})
+        )
+        stack.enter_context(
+            patch("app.services.report_generator._tavily_used_today", return_value=0)
+        )
+        settings = get_settings()
+        stack.enter_context(patch.object(settings, "TAVILY_DAILY_BUDGET", 9))
+        search_mock = stack.enter_context(
+            patch("app.services.report_generator._run_tavily_search", return_value=[])
+        )
+        rg.generate_report(db_session, report_date=_TODAY, users_remaining=3)
+
+    # `_anomaly()` (from `_normal_path_patches`, via `detect_window_anomalies`)
+    # also fires the PRE-EXISTING targeted-anomaly search for NVDA — a
+    # different, out-of-scope-for-this-PR call that builds a DIFFERENTLY
+    # SHAPED query ("NVIDIA NVDA stock news catalyst", via the anomaly's
+    # name+identifier) than the top-up's own ("NVDA stock news catalyst",
+    # identifier alone) — matched on the exact top-up format so this test
+    # isolates only the call under fix, not the older one.
+    topup_calls = [c for c in search_mock.call_args_list if "NVDA stock news catalyst" in c.args[1]]
+    assert topup_calls, "expected the leftover top-up search to fire for NVDA's uncovered move"
+    # fair_share_budget(9, 3) == 3, not the full remaining 9.
+    assert topup_calls[0].kwargs["budget"] == 3
+
+
 def test_leftover_search_is_skipped_when_the_candidate_already_has_a_headline(
     db_session: Session,
 ) -> None:
@@ -2294,3 +2339,71 @@ def test_pass2_prompt_never_receives_cross_name_intel(db_session: Session) -> No
 
     assert report.report_inputs is not None
     assert "ai_capex_stack" not in report.report_inputs["pass2_prompt"]
+
+
+def test_regenerate_analyze_persists_the_renarrowed_cross_name_clusters(
+    db_session: Session,
+) -> None:
+    """PR #167 review round 3, suggestion: `analyze` already re-narrows
+    stored clusters with `clusters_for_user` against the FRESH portfolio (a
+    holdings edit since generation must not leave a stale cluster naming a
+    position no longer held — same correction PR #163 made for
+    `macro_event_exposure`), and feeds the result into the assembly prompt.
+    But the re-narrowed result was never written back to
+    `report_inputs["cross_name_intel"]` — only the prompt saw it. The stored
+    field is a PER-USER PROJECTION (already narrowed once at generation via
+    `clusters_for_user`), exactly like `macro_event_exposure`, not shared
+    mechanism text that must stay untouched; leaving it stale means a later
+    reader of `report_inputs["cross_name_intel"]` sees identifiers the fresh
+    book no longer holds, even though the body just generated does not.
+    """
+    with contextlib.ExitStack() as stack:
+        for p in _assembly_ready_patches(
+            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
+        ):
+            stack.enter_context(p)  # type: ignore[arg-type]
+        stack.enter_context(
+            patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
+        )
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert report.report_inputs is not None
+
+    # Simulate a stored cluster naming two identifiers, both present in the
+    # generation-time L1 key set.
+    stale_inputs = dict(report.report_inputs)
+    stale_inputs["ticker_intel"] = {
+        "NVDA": "NVDA rose on an earnings beat. [Established]",
+        "AAPL": "AAPL tracked the broader move. [Probable]",
+    }
+    stale_inputs["cross_name_intel"] = [
+        {
+            "identifiers": ["NVDA", "AAPL"],
+            "mechanism": "discount_rate",
+            "summary": "NVDA and AAPL moved together on the rate channel.",
+            "confidence": "Probable",
+        }
+    ]
+    report.report_inputs = stale_inputs
+    db_session.commit()
+
+    # A holdings edit since generation drops AAPL entirely — the fresh
+    # portfolio holds only NVDA. Re-narrowing a 2-identifier cluster against
+    # a 1-identifier held set must drop the cluster (below the 2-name floor).
+    fresh_snap = _portfolio_snap()
+    fresh_snap.holdings[0].ticker = "NVDA"
+    fresh_snap.holdings[0].name = "NVIDIA"
+
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator.compute_portfolio", return_value=fresh_snap),
+        patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY),
+    ):
+        rebuilt = rg.regenerate_report(db_session, report.id, mode="analyze")
+
+    assert rebuilt.report_inputs is not None
+    assert rebuilt.report_inputs["cross_name_intel"] == [], (
+        "the stored field must reflect the re-narrowed (now empty) cluster set "
+        "actually sent to the prompt, not the stale 2-identifier value from "
+        "before the holdings edit"
+    )

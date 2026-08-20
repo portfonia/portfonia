@@ -612,3 +612,14 @@ def test_a_large_holding_is_never_labelled_a_tracking_position() -> None:
     )
     tsm_line = next(ln for ln in prompt.splitlines() if "Taiwan Semiconductor" in ln)
     assert "tracking" not in tsm_line.lower()
+
+
+def test_assembly_prompt_version_bumped_for_the_quality_gate_contract() -> None:
+    """PR #167 review round 3, nit: the user-turn contract grew a CROSS-NAME
+    block, closed-set TRANSMISSION labels, TRACKING POSITION display rules,
+    and a TECHNICAL POSITION block, but `ASSEMBLY_PROMPT_VERSION` stayed at
+    the pre-PR value — the constant documented as existing precisely so a
+    stored report's `report_inputs["assembly_prompt_version"]` says which
+    contract produced it. A stale value means a pre- and post-quality-gate
+    assembled report are indistinguishable by that field alone."""
+    assert ra.ASSEMBLY_PROMPT_VERSION != "a4-v1"

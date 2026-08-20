@@ -115,6 +115,7 @@ from app.services.report_serializers import (
 )
 from app.services.report_translation import _translate_md
 from app.services.report_types import validate_report_type
+from app.services.shared_budget import fair_share_budget
 from app.services.technical_position import compute_technical_positions
 from app.services.ticker_intel import (
     build_l1_facts,
@@ -1020,8 +1021,18 @@ def generate_report(
             reverse=True,
         )[:_MAX_L1_TOPUP_SEARCHES]
         if uncovered:
-            topup_budget = max(
-                0, settings.TAVILY_DAILY_BUDGET - _tavily_used_today(session, eff_date)
+            # `fair_share_budget` (PR #167 review round 3, suggestion): this
+            # was the one shared-budget consumer in this function that did
+            # NOT divide by `users_remaining` — L1's own analyses, L2's, and
+            # L3's synthesis all do. Without it, the first
+            # `active_user_ids` user in a fan-out could spend the day's
+            # entire remaining Tavily budget on its own top-up searches
+            # before any later user's turn — the same sequential-starvation
+            # shape A4's `fair_share_budget` exists to close everywhere
+            # else in this pipeline.
+            topup_budget = fair_share_budget(
+                max(0, settings.TAVILY_DAILY_BUDGET - _tavily_used_today(session, eff_date)),
+                users_remaining,
             )
             queries = {f"{ident} stock news catalyst": ident for ident in uncovered}
             logger.info(
@@ -1356,13 +1367,19 @@ def regenerate_report(
                 inputs.get("macro_event_intel", {}), portfolio.get("by_asset_class", {})
             )
             # Cross-name clusters get the same treatment for the same reason:
-            # a stored cluster is a per-user projection (already narrowed to
-            # the L1 keys this user had at generation time), so a holdings
-            # edit since then could leave it naming a position no longer held.
-            # Re-narrowing is pure set arithmetic — zero LLM cost — and the
-            # SHARED half (which identifiers share a mechanism, and what that
-            # mechanism is) is what `analyze` must not re-derive, so it stays
-            # stored and untouched.
+            # `report_inputs["cross_name_intel"]` is a PER-USER PROJECTION
+            # (already narrowed to the L1 keys this user had at generation
+            # time via `clusters_for_user`) — the same shape as
+            # `macro_event_exposure` above, not shared mechanism text. A
+            # holdings edit since generation could leave it naming a
+            # position no longer held. Re-narrowing is pure set arithmetic
+            # — zero LLM cost — and, exactly like `fresh_exposure` above,
+            # the re-narrowed result gets WRITTEN BACK below (round-3 review
+            # finding, PR #167): only re-deriving the underlying MECHANISM
+            # TEXT inside each cluster (which identifiers share a mechanism,
+            # and what it is) would need an LLM call and must not happen
+            # here — the stored `identifiers`/`summary`/`mechanism` content
+            # itself is untouched, only which clusters survive narrowing.
             #
             # `all_briefed_identifiers` here is the GENERATION-TIME
             # `ticker_intel` key set (`inputs["ticker_intel"]`), not the
@@ -1410,6 +1427,11 @@ def regenerate_report(
                 # body disagree, and a later render/audit would see the
                 # OLD intersection again.
                 "macro_event_exposure": fresh_exposure,
+                # Same reasoning, same fix (round-3 review finding, PR
+                # #167): persist the re-narrowed projection actually sent
+                # to the prompt, not the stale value from before whatever
+                # holdings edit triggered this regenerate.
+                "cross_name_intel": fresh_clusters,
             }
         else:
             pass2_user = _build_pass2_prompt(
