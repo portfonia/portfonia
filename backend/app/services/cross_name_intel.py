@@ -96,10 +96,13 @@ from app.models.cross_name_intel import CrossNameIntel
 from app.models.macro_event_intel import MacroEventIntel
 from app.models.ticker_intel import TickerIntel
 from app.services.email_sender import send_ops_alert
+from app.services.holding_news import load_holding_keywords
 from app.services.llm_errors import is_retryable
+from app.services.macro_event_intel import _PROMPT_VERSION as _L2_PROMPT_VERSION
 from app.services.report_llm import _call_llm, _openrouter_client
 from app.services.report_prompts import _COMPLIANCE_SYSTEM_PREFIX
 from app.services.shared_budget import fair_share_budget
+from app.services.ticker_intel import _PROMPT_VERSION as _L1_PROMPT_VERSION
 from app.services.transmission_taxonomy import VALID_TRANSMISSIONS
 
 logger = logging.getLogger(__name__)
@@ -152,6 +155,10 @@ _MAX_EVENT_CHARS = 600
 # rather than being dropped or silently upgraded.
 _VALID_CONFIDENCE = ("Established", "Probable", "Speculative")
 _WEAKEST_CONFIDENCE = "Speculative"
+# Case-folded lookup back to the canonical spelling (PR #167 review round 1,
+# nit): comparison is case-insensitive, but what gets STORED is always one of
+# `_VALID_CONFIDENCE`'s exact strings, never the model's raw casing.
+_CONFIDENCE_BY_CASEFOLD = {label.casefold(): label for label in _VALID_CONFIDENCE}
 
 _L3_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + (
     "\nYou are performing ONE joint inference for an internal SHARED cache, "
@@ -205,18 +212,31 @@ class L3Facts:
 
 
 def _load_day_briefings(session: Session, trade_date: date) -> dict[str, str]:
-    """Every servable L1 analysis written for `trade_date`, system-wide.
+    """Every servable L1 analysis written for `trade_date`, system-wide, UNDER
+    L1's CURRENT prompt contract only.
 
     Null-analysis marker rows are excluded: they mean "attempted, nothing to
     serve", so they carry no text to reason from and must not count toward the
     two-identifier floor either. Ordering is by identifier so the prompt (and
     therefore the fingerprint of what was fed) is deterministic.
+
+    Filtering on `_L1_PROMPT_VERSION` (PR #167 review round 1, suggestion): a
+    prior draft selected every non-null analysis for the date with no version
+    filter at all. `ticker_intel` is unique on `(identifier, trade_date,
+    prompt_version)`, so a same-day prompt-contract bump — or, as observed in
+    production, a stale `l1-v3` row for an identifier sitting alongside its
+    real `l1-v4` replacement — means two rows for one identifier can coexist
+    on the same date. Without this filter, L3 could hash and synthesize from
+    a RETIRED stub, reintroducing the "do not serve an older contract under a
+    new one" rule ticker_intel's own unique key encodes, violated one layer up
+    by this consumer.
     """
     rows = (
         session.execute(
             select(TickerIntel)
             .where(
                 TickerIntel.trade_date == trade_date,
+                TickerIntel.prompt_version == _L1_PROMPT_VERSION,
                 TickerIntel.analysis.is_not(None),
             )
             .order_by(TickerIntel.identifier)
@@ -233,14 +253,17 @@ def _load_day_briefings(session: Session, trade_date: date) -> dict[str, str]:
 
 
 def _load_day_events(session: Session, trade_date: date) -> dict[str, str]:
-    """Every servable L2 analysis for `trade_date`, system-wide — the macro
-    half of the join. Without it the model can observe that names moved
-    together but has no vocabulary for WHY."""
+    """Every servable L2 analysis for `trade_date`, system-wide, UNDER L2's
+    CURRENT prompt contract only — the macro half of the join. Without it the
+    model can observe that names moved together but has no vocabulary for
+    WHY. Same `prompt_version` filter and rationale as `_load_day_briefings`
+    above (PR #167 review round 1)."""
     rows = (
         session.execute(
             select(MacroEventIntel)
             .where(
                 MacroEventIntel.trade_date == trade_date,
+                MacroEventIntel.prompt_version == _L2_PROMPT_VERSION,
                 MacroEventIntel.analysis.is_not(None),
             )
             .order_by(MacroEventIntel.event_key)
@@ -377,9 +400,15 @@ def _parse_clusters(raw: str, allowed: set[str]) -> list[dict[str, Any]] | None:
         if len(identifiers) < _MIN_CLUSTER_SIZE:
             continue
         confidence = entry.get("confidence")
-        label = confidence.strip() if isinstance(confidence, str) else ""
-        if label not in _VALID_CONFIDENCE:
-            label = _WEAKEST_CONFIDENCE
+        raw_label = confidence.strip() if isinstance(confidence, str) else ""
+        # Case-folded lookup (PR #167 review round 1, nit): a case-sensitive
+        # `in` check treated a real, correctly-spelled answer like "probable"
+        # as unrecognized and silently downgraded it — conservative, but a
+        # real conclusion mislabeled. The canonical (title-cased) spelling is
+        # what gets stored, never the model's raw casing, so downstream
+        # consumers can keep comparing against the exact `_VALID_CONFIDENCE`
+        # strings.
+        label = _CONFIDENCE_BY_CASEFOLD.get(raw_label.casefold(), _WEAKEST_CONFIDENCE)
         out.append(
             {
                 "identifiers": identifiers,
@@ -652,6 +681,21 @@ def get_day_synthesis(
     return clusters
 
 
+def day_briefed_identifiers(session: Session, trade_date: date) -> list[str]:
+    """Every identifier with a servable L1 briefing on `trade_date`, under
+    L1's current prompt contract — the full universe the L3 synthesis prompt
+    exposed the model to, whether or not a given identifier ended up assigned
+    to a returned cluster.
+
+    This is what `clusters_for_user`'s leak guard is built from (PR #167
+    review round 1, bug 2): the model saw every one of these names in its
+    prompt, so a leak is not confined to "an identifier that was in THIS
+    cluster before filtering" — it can be any name the model was shown,
+    whether or not the model chose to group it into any cluster at all.
+    """
+    return list(_load_day_briefings(session, trade_date))
+
+
 def _mentions(text: str, identifier: str) -> bool:
     """Whether `text` names `identifier` as a standalone token.
 
@@ -665,12 +709,36 @@ def _mentions(text: str, identifier: str) -> bool:
     )
 
 
-def clusters_for_user(clusters: list[dict[str, Any]], l1_keys: list[str]) -> list[dict[str, Any]]:
+def _denylist_terms(identifier: str, keyword_table: dict[str, list[str]]) -> list[str]:
+    """Every text form `_mentions` should treat as naming `identifier`: the
+    identifier itself, its un-suffixed stem (`"513650.SS"` -> `"513650"`),
+    and any configured recall alias (`"MUU"` -> `"Micron"`, from the SAME
+    `holding_news_keywords.yml` table L1's own recall uses) — so a leak
+    cannot route around the raw ticker by using the company name or a bare
+    A-share/HK code the model was equally free to write (PR #167 review
+    round 1, bug 2, part 2)."""
+    terms = [identifier]
+    stem = identifier.split(".", 1)[0]
+    if stem != identifier:
+        terms.append(stem)
+    terms.extend(keyword_table.get(identifier, []))
+    return terms
+
+
+def clusters_for_user(
+    clusters: list[dict[str, Any]],
+    l1_keys: list[str],
+    all_briefed_identifiers: list[str],
+) -> list[dict[str, Any]]:
     """Narrow a day's global clusters to what this reader may see.
 
     Takes no `Session` — with no DB handle it cannot widen its own input to
     "every cluster cached today", only filter what the per-user caller passed
     (the same argument `report_assembly` makes for its own signature).
+    `all_briefed_identifiers` (from `day_briefed_identifiers`, above) is
+    itself just a plain list the caller already has a `Session` to fetch —
+    passing it in, rather than letting this function query for it, keeps that
+    boundary intact while still giving the leak guard below the full picture.
 
     Two rules, and the second is the one that matters:
 
@@ -678,22 +746,38 @@ def clusters_for_user(clusters: list[dict[str, Any]], l1_keys: list[str]) -> lis
        cluster left with fewer than two: one name is not a cross-name
        conclusion, and "this holding belongs to a group" whose other members
        the reader does not hold is both useless and disclosive.
-    2. Drop the cluster entirely if its summary NAMES an identifier that was
-       filtered out. The identifier list is filterable; prose is not. The
-       system prompt tells the model to write name-free mechanism summaries,
-       but a prompt is an instruction, not a guarantee — and the failure it
-       guards against is another user's holding appearing in this user's
-       report body.
+    2. Drop the cluster entirely if its summary NAMES an identifier this
+       reader does not hold. The identifier list is filterable; prose is
+       not. The system prompt tells the model to write name-free mechanism
+       summaries, but a prompt is an instruction, not a guarantee — and the
+       failure it guards against is another user's holding appearing in this
+       user's report body.
+
+    `all_briefed_identifiers` — not just this cluster's own filtered-out
+    members — is the denylist's source (PR #167 review round 1, bug 2, part
+    1): a summary can name ANY identifier the model was shown that day,
+    including one that belongs to a DIFFERENT cluster in the same set, or
+    one the model chose not to cluster at all. Checking only "this cluster's
+    own excluded members" left both of those unrouted. The denylist is also
+    expanded through `_denylist_terms` (part 2): a raw-ticker-only check
+    missed a company name or an un-suffixed stem naming the same excluded
+    identifier.
     """
     keys = {k.upper() for k in l1_keys if k}
+    universe = {str(i).upper() for i in all_briefed_identifiers if i}
+    excluded = sorted(universe - keys)
+    keyword_table = load_holding_keywords()
+    denylist = [
+        term for identifier in excluded for term in _denylist_terms(identifier, keyword_table)
+    ]
+
     out: list[dict[str, Any]] = []
     for cluster in clusters:
         identifiers = [i for i in cluster.get("identifiers", []) if str(i).upper() in keys]
         if len(identifiers) < _MIN_CLUSTER_SIZE:
             continue
-        excluded = [i for i in cluster.get("identifiers", []) if str(i).upper() not in keys]
         summary = str(cluster.get("summary", ""))
-        if any(_mentions(summary, str(name)) for name in excluded):
+        if any(_mentions(summary, term) for term in denylist):
             logger.warning(
                 "cross_name_intel: dropping a cluster whose summary names an identifier "
                 "this reader does not hold"

@@ -47,6 +47,8 @@ from app.models.cross_name_intel import CrossNameIntel
 from app.models.macro_event_intel import MacroEventIntel
 from app.models.ticker_intel import TickerIntel
 from app.services import cross_name_intel as l3
+from app.services import macro_event_intel as l2_module
+from app.services import ticker_intel as l1_module
 
 _DATE = date(2026, 8, 17)
 
@@ -62,11 +64,12 @@ def _seed_l1(
     identifier: str,
     analysis: str | None = "It rose on supply-chain news. [Probable]",
     trade_date: date = _DATE,
+    prompt_version: str = l1_module._PROMPT_VERSION,
 ) -> TickerIntel:
     row = TickerIntel(
         identifier=identifier,
         trade_date=trade_date,
-        prompt_version="l1-v3",
+        prompt_version=prompt_version,
         model="openai/gpt-5.6-luna",
         analysis=analysis,
         attempt_count=1,
@@ -82,11 +85,12 @@ def _seed_l2(
     event_key: str = "theme:monetary_policy",
     analysis: str | None = "Long-end yields rose after the auction. [Established]",
     trade_date: date = _DATE,
+    prompt_version: str = l2_module._PROMPT_VERSION,
 ) -> MacroEventIntel:
     row = MacroEventIntel(
         event_key=event_key,
         trade_date=trade_date,
-        prompt_version="l2-v1",
+        prompt_version=prompt_version,
         model="openai/gpt-5.6-luna",
         analysis=analysis,
         attempt_count=1,
@@ -265,6 +269,47 @@ def test_l2_analyses_of_the_day_reach_the_prompt(db_session: Session) -> None:
     assert "5.31%" in captured["prompt"]
 
 
+def test_stale_prompt_version_rows_never_reach_the_synthesis(db_session: Session) -> None:
+    """PR #167 review round 1, suggestion: `_load_day_briefings`/
+    `_load_day_events` selected every non-null analysis for `trade_date` with
+    NO `prompt_version` filter. `ticker_intel` is unique on `(identifier,
+    trade_date, prompt_version)`, and a same-day deploy (or, as it happened,
+    a stale `l1-v3` row still sitting in production alongside real `l1-v4`
+    rows for the same identifier and date) means two rows for one identifier
+    can coexist. Without the filter, L3 could hash and synthesize from a
+    retired stub — exactly the "do not serve an older contract under a new
+    one" rule the unique key encodes for L1/L2 themselves, violated one layer
+    up by their consumer.
+    """
+    _seed_l1(db_session, "TSM", analysis="STALE stub text.", prompt_version="l1-v2")
+    _seed_l1(db_session, "TSM", analysis="Current dated briefing text.")
+    _seed_l1(db_session, "ASML")
+    _seed_l2(
+        db_session,
+        event_key="theme:old",
+        analysis="STALE macro stub.",
+        prompt_version="l2-v0",
+    )
+    _seed_l2(db_session, analysis="Current macro briefing text.")
+
+    captured: dict[str, str] = {}
+
+    def _capture(*args: Any, **kwargs: Any) -> Any:
+        captured["prompt"] = args[3] if len(args) > 3 else kwargs["user_prompt"]
+        return json.dumps({"clusters": []})
+
+    with (
+        patch.object(l3, "_openrouter_client", return_value=MagicMock()),
+        patch.object(l3, "_call_llm", side_effect=_capture),
+    ):
+        l3.get_day_synthesis(db_session, _DATE)
+
+    assert "Current dated briefing text" in captured["prompt"]
+    assert "STALE stub text" not in captured["prompt"]
+    assert "Current macro briefing text" in captured["prompt"]
+    assert "STALE macro stub" not in captured["prompt"]
+
+
 # ---------------------------------------------------------------------------
 # 3. Sharing: one inference per trade date
 # ---------------------------------------------------------------------------
@@ -410,6 +455,22 @@ def test_missing_or_invalid_confidence_falls_back_to_the_weakest_label(
     assert clusters[0]["confidence"] == "Speculative"
 
 
+def test_confidence_case_is_normalized_not_downgraded(db_session: Session) -> None:
+    """PR #167 review round 1, nit: the closed-set check was case-sensitive,
+    so a real, well-formed answer like "probable" (lowercase, a plausible
+    model output despite the system prompt's exact casing) was silently
+    treated as an unrecognized label and downgraded to Speculative — a
+    conservative failure mode, not a leak, but a real conclusion mislabeled
+    as a closed enum value it should have matched."""
+    _seed_l1(db_session, "TSM")
+    _seed_l1(db_session, "ASML")
+
+    with _patched_llm({"clusters": [_cluster(["TSM", "ASML"], confidence="probable")]}):
+        clusters = l3.get_day_synthesis(db_session, _DATE)
+
+    assert clusters[0]["confidence"] == "Probable"
+
+
 def test_prose_wrapped_json_still_parses(db_session: Session) -> None:
     """Same second chance A3's `_parse_l2_response` gives: a model that
     prefaces its JSON with a sentence is a formatting habit, and the cost of
@@ -513,7 +574,7 @@ def test_non_retryable_failure_locks_the_key_immediately(db_session: Session) ->
 
 def test_clusters_for_user_narrows_to_the_users_own_l1_keys() -> None:
     clusters = [_cluster(["TSM", "ASML", "MUU"])]
-    out = l3.clusters_for_user(clusters, ["TSM", "ASML"])
+    out = l3.clusters_for_user(clusters, ["TSM", "ASML"], ["TSM", "ASML", "MUU"])
     assert out[0]["identifiers"] == ["TSM", "ASML"]
 
 
@@ -521,7 +582,7 @@ def test_clusters_for_user_drops_a_cluster_with_fewer_than_two_of_the_users_name
     """One name is not a cross-name conclusion, and printing "TSM belongs to a
     group" whose other members this user does not hold is both useless and
     disclosive."""
-    assert l3.clusters_for_user([_cluster(["TSM", "ASML"])], ["TSM"]) == []
+    assert l3.clusters_for_user([_cluster(["TSM", "ASML"])], ["TSM"], ["TSM", "ASML"]) == []
 
 
 def test_cluster_summary_naming_an_unheld_identifier_is_dropped_for_that_user() -> None:
@@ -536,12 +597,64 @@ def test_cluster_summary_naming_an_unheld_identifier_is_dropped_for_that_user() 
     alternative is a leak.
     """
     clusters = [_cluster(["TSM", "ASML", "MUU"], summary="TSM, ASML and MUU rose together.")]
-    assert l3.clusters_for_user(clusters, ["TSM", "ASML"]) == []
+    assert l3.clusters_for_user(clusters, ["TSM", "ASML"], ["TSM", "ASML", "MUU"]) == []
+
+
+def test_summary_naming_an_identifier_from_a_DIFFERENT_cluster_is_dropped() -> None:
+    """PR #167 review round 1, bug 2, part 1: the first draft only built its
+    denylist from THIS cluster's own filtered-out identifiers, so a leak
+    routed through a name that belongs to a DIFFERENT cluster in the same
+    day's set — never a member of this one — sailed through untouched.
+
+    SGOL never appears in this cluster's `identifiers`, so under the old
+    "excluded = this cluster's own filtered members" logic there was nothing
+    to catch it. It is still a name this reader does not hold and the model
+    saw in its prompt (it was briefed, and clustered elsewhere that day).
+    """
+    clusters = [
+        _cluster(["TSM", "ASML"], summary="TSM and ASML moved with SGOL on the same driver."),
+        _cluster(["SGOL", "GLD"], mechanism="safe_haven"),
+    ]
+    out = l3.clusters_for_user(clusters, ["TSM", "ASML"], ["TSM", "ASML", "SGOL", "GLD"])
+    assert out == []
+
+
+def test_summary_naming_a_briefed_but_never_clustered_identifier_is_dropped() -> None:
+    """PR #167 review round 1, bug 2, part 1 (the stronger form the review
+    calls out as the correct fix, not just the cluster-set union): the model
+    is exposed to EVERY identifier briefed that day in its prompt, whether or
+    not that identifier ended up assigned to any returned cluster. A leak
+    naming one of those never-clustered identifiers has no cluster to be
+    "from" at all — only the full day's briefing universe catches it."""
+    clusters = [_cluster(["TSM", "ASML"], summary="TSM and ASML moved with MUU's memory read.")]
+    # MUU was briefed that day but the model chose not to group it into any
+    # cluster — it appears only in `all_briefed_identifiers`, nowhere in
+    # `clusters` itself.
+    out = l3.clusters_for_user(clusters, ["TSM", "ASML"], ["TSM", "ASML", "MUU"])
+    assert out == []
+
+
+def test_denylist_catches_a_configured_alias_not_just_the_ticker() -> None:
+    """PR #167 review round 1, bug 2, part 2: `_mentions` only ever checked
+    the raw ticker token. A model naming an excluded identifier by its
+    company name — the exact vocabulary `holding_news_keywords.yml` already
+    maps for this identifier — passed straight through."""
+    clusters = [_cluster(["TSM", "ASML"], summary="TSM and ASML tracked Micron's read higher.")]
+    out = l3.clusters_for_user(clusters, ["TSM", "ASML"], ["TSM", "ASML", "MUU"])
+    assert out == []
+
+
+def test_denylist_catches_the_unsuffixed_stem_of_an_excluded_identifier() -> None:
+    """PR #167 review round 1, bug 2, part 2: "513650" (no ".SS" suffix)
+    naming the excluded "513650.SS" bypassed the raw-ticker-only check."""
+    clusters = [_cluster(["TSM", "ASML"], summary="TSM and ASML moved alongside 513650 today.")]
+    out = l3.clusters_for_user(clusters, ["TSM", "ASML"], ["TSM", "ASML", "513650.SS"])
+    assert out == []
 
 
 def test_summary_mentioning_only_held_names_survives() -> None:
     clusters = [_cluster(["TSM", "ASML"], summary="TSM and ASML rose together.")]
-    assert len(l3.clusters_for_user(clusters, ["TSM", "ASML"])) == 1
+    assert len(l3.clusters_for_user(clusters, ["TSM", "ASML"], ["TSM", "ASML"])) == 1
 
 
 def test_clusters_for_user_is_a_pure_function_with_no_session(db_session: Session) -> None:
@@ -549,3 +662,13 @@ def test_clusters_for_user_is_a_pure_function_with_no_session(db_session: Sessio
     today" — the same argument `report_assembly` makes for taking no Session."""
     params = set(inspect.signature(l3.clusters_for_user).parameters)
     assert "session" not in params
+
+
+def test_day_briefed_identifiers_is_a_pure_read_no_narrowing(db_session: Session) -> None:
+    """`day_briefed_identifiers` is the source `clusters_for_user`'s denylist
+    is built from — it must return every identifier with a servable L1
+    briefing that day, not just ones that ended up in a cluster."""
+    _seed_l1(db_session, "TSM")
+    _seed_l1(db_session, "MUU", analysis=None)  # attempted marker, not servable
+    result = l3.day_briefed_identifiers(db_session, _DATE)
+    assert result == ["TSM"]

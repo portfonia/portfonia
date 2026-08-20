@@ -52,6 +52,7 @@ from app.core.timezones import ET
 from app.models.report import Report
 from app.services.cross_name_intel import (
     clusters_for_user,
+    day_briefed_identifiers,
     get_day_synthesis,
 )
 from app.services.email_sender import send_ops_alert, send_report_email
@@ -910,9 +911,10 @@ def generate_report(
         #
         # Lookback dates are a global weekday list ending on `eff_date`,
         # never this user's watermark (same contamination class as the
-        # round-5 window leak). Dated own-price path + headlines + today's
-        # L2 briefs go into L1Facts as context; the cache key stays
-        # (identifier, trade_date, l1-v3).
+        # round-5 window leak). Dated own-price path + headlines go into
+        # L1Facts as context; the cache key stays (identifier, trade_date,
+        # l1-v4). No L2 join here (see the comment further below, at the
+        # `build_l1_facts` call site, for why) — L3 is the only L1+L2 join.
         # L2 first so class-intersection extras can join the L1 candidate
         # list. L2 does not depend on L1. (issue #128 quality gate)
         l2_event_keys = l2_event_keys_for_user(session, eff_date, ctx.macro_signals)
@@ -977,6 +979,17 @@ def generate_report(
             lookback_moves[session_date] = moves
         day_moves = lookback_moves.get(eff_date, {})
 
+        # No L2 macro-brief join into L1 facts here (removed PR #167 review
+        # round 1): `ctx.macro_event_intel`'s KEYS are this user's own L2
+        # selection (`l2_event_keys_for_user` over `ctx.macro_signals`,
+        # itself per-user via watermark/`news_surfaced`). Baking that
+        # selection's text into a value written to the shared `ticker_intel`
+        # cache meant whichever user's report reached an identifier first
+        # would freeze THEIR macro-brief set into a row every later holder
+        # reads — the round-5 window-leak shape in a new field. L3
+        # (`get_day_synthesis`, below) already performs the L1+L2 join
+        # globally, once per trading day; that is the only join point now.
+
         # Leftover-budget top-up (issue #128 quality gate, design doc §6.7
         # item 3). §5's targeted search covers ANOMALIES only, so an L1
         # candidate that arrived through the weight or L2-class channel — a
@@ -1023,18 +1036,12 @@ def generate_report(
                 if ident and title:
                     l1_headlines.setdefault(ident, []).append(f"{trade_day}: {title}")
 
-        l1_macro_briefs = [
-            f"{trade_day} {key}: {(intel.get('analysis') or '').strip()}"
-            for key, intel in ctx.macro_event_intel.items()
-            if (intel.get("analysis") or "").strip()
-        ]
         l1_facts = build_l1_facts(
             l1_identifiers,
             day_moves,
             l1_headlines,
             ctx.technical_positions,
             lookback_moves=lookback_moves,
-            macro_briefs=l1_macro_briefs,
         )
         ctx.ticker_intel = get_l1_intel_batch(
             session,
@@ -1089,7 +1096,15 @@ def generate_report(
                 usage_sink=ctx.llm_calls,
                 users_remaining=users_remaining,
             )
-            ctx.cross_name_intel = clusters_for_user(day_clusters, list(ctx.ticker_intel))
+            # `all_briefed_identifiers` (PR #167 review round 1, bug 2): the
+            # denylist `clusters_for_user` builds its leak guard from must be
+            # every name the synthesis prompt exposed the model to, not just
+            # what happened to land in a returned cluster — a summary could
+            # name any of them.
+            all_briefed = day_briefed_identifiers(session, eff_date)
+            ctx.cross_name_intel = clusters_for_user(
+                day_clusters, list(ctx.ticker_intel), all_briefed
+            )
         except Exception:
             logger.exception(
                 "report %s: cross-name synthesis failed — continuing without it", report.id
@@ -1348,10 +1363,22 @@ def regenerate_report(
             # SHARED half (which identifiers share a mechanism, and what that
             # mechanism is) is what `analyze` must not re-derive, so it stays
             # stored and untouched.
+            #
+            # `all_briefed_identifiers` here is the GENERATION-TIME
+            # `ticker_intel` key set (`inputs["ticker_intel"]`), not the
+            # fresh portfolio's identifiers and not a re-fetch of "everything
+            # briefed that day" (this is a re-render, no Session-scoped
+            # re-query of that global state is appropriate here). It is a
+            # sound upper bound: the stored summary was already validated at
+            # generation to name nothing outside that exact set, so re-
+            # checking against it (rather than the now-possibly-smaller
+            # `still_held`) still catches a name that was legitimately
+            # in-scope then but is a holding this reader no longer owns now.
             still_held = set(portfolio_identifiers(portfolio))
             fresh_clusters = clusters_for_user(
                 list(inputs.get("cross_name_intel", [])),
                 [k for k in inputs.get("ticker_intel", {}) if k in still_held],
+                list(inputs.get("ticker_intel", {})),
             )
             assembly_user = build_assembly_prompt(
                 portfolio,

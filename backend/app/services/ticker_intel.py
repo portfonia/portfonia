@@ -97,8 +97,14 @@ logger = logging.getLogger(__name__)
 # a different (and per-user-contaminated) quantity, must never be served
 # under the new contract. v2 -> v3 (issue #128 quality gate, 2026-08-18):
 # lookback-dated headlines/moves + L2 briefs + luna/effort=none. A v2
-# flash stub ("no catalyst / [Speculative]") must not be reused.
-_PROMPT_VERSION = "l1-v3"
+# flash stub ("no catalyst / [Speculative]") must not be reused. v3 -> v4
+# (PR #167 review round 1): the L2 briefs were removed from the prompt
+# entirely (per-user L2 selection was leaking into this shared cache's
+# VALUES — see L1Facts's docstring); a v3 row's `analysis` may have been
+# grounded in a macro brief that will never appear in the prompt again,
+# and may have been written under a per-user-contaminated brief set in the
+# first place, so it must not be served under the new contract.
+_PROMPT_VERSION = "l1-v4"
 
 # Same weights as assembly; effort=none, never the -pro suffix.
 _L1_MODEL = "openai/gpt-5.6-luna"
@@ -175,11 +181,29 @@ class L1Facts:
     one identifier can classify the identical move differently — the same
     per-user-contamination class as the window, just a different field.
 
-    `dated_moves` / dated headlines / `macro_briefs` (l1-v3) are lookback
-    CONTEXT for this trade_date's briefing. The cache key is still
-    (identifier, trade_date, prompt_version) — lookback dates come from
+    `dated_moves` / dated headlines (l1-v3) are lookback CONTEXT for this
+    trade_date's briefing. The cache key is still (identifier, trade_date,
+    prompt_version) — lookback dates come from
     `lookback_trading_dates(trade_date)`, a pure function of the end date,
     never a user's watermark.
+
+    There is deliberately NO macro-brief field here (removed in l1-v4, PR
+    #167 review round 1). A first draft passed `ctx.macro_event_intel` in as
+    `macro_briefs` — that dict's KEYS are a per-user SELECTION
+    (`l2_event_keys_for_user` over THIS user's `macro_signals`, which itself
+    depends on this user's watermark and `news_surfaced` ledger), and baking
+    a selection outcome into a value written to a cross-user shared cache row
+    is exactly the class of bug design doc §4.8 exists to rule out: whichever
+    user's `generate_report` reached a given identifier first would freeze
+    THEIR macro-event selection into the row every later holder reads,
+    non-deterministically depending on write order — the round-5 window leak
+    in a new field. The fix is not a global loader for L1 to read L2 through;
+    it is dropping the join from this layer entirely. L3
+    (`cross_name_intel.get_day_synthesis`) already performs this exact join —
+    L1 identifier + L2 event, both read fresh with no per-user selection —
+    once per trading day for the whole system, which is strictly cheaper and
+    already correct. Passing macro context into L1 as well would have been
+    redundant even had it been safe.
     """
 
     day_pct: float | None = None
@@ -189,7 +213,6 @@ class L1Facts:
     latest_date: str = ""
     news_headlines: list[str] = field(default_factory=list)
     dated_moves: list[str] = field(default_factory=list)
-    macro_briefs: list[str] = field(default_factory=list)
     pct_vs_sma50: float | None = None
     pct_vs_sma200: float | None = None
     pct_in_52w_range: float | None = None
@@ -204,7 +227,6 @@ class L1Facts:
             "latest_date": self.latest_date,
             "news_headlines": self.news_headlines,
             "dated_moves": self.dated_moves,
-            "macro_briefs": self.macro_briefs,
             "pct_vs_sma50": self.pct_vs_sma50,
             "pct_vs_sma200": self.pct_vs_sma200,
             "pct_in_52w_range": self.pct_in_52w_range,
@@ -242,14 +264,6 @@ def _build_l1_prompt(identifier: str, facts: L1Facts) -> str:
         lines.append("Related headlines (already date-prefixed; keep the date in any citation):")
         for h in facts.news_headlines:
             lines.append(f"- {h}")
-    if facts.macro_briefs:
-        lines.append("")
-        lines.append(
-            "Shared macro briefs from the same period (date-prefixed; "
-            "use only if they bear on this identifier):"
-        )
-        for brief in facts.macro_briefs:
-            lines.append(f"- {brief}")
     lines.append("")
     lines.append(
         "Write the briefing described in your system instructions, grounded "
@@ -671,7 +685,6 @@ def build_l1_facts(
     headlines: dict[str, list[str]],
     technical_positions: list[dict[str, Any]],
     lookback_moves: dict[date, dict[str, HoldingMove]] | None = None,
-    macro_briefs: list[str] | None = None,
 ) -> dict[str, L1Facts]:
     """Assemble each candidate's public facts from GLOBAL, DAY-SCOPED
     sources only.
@@ -730,7 +743,6 @@ def build_l1_facts(
         entry = L1Facts(
             news_headlines=list(titles),
             dated_moves=dated,
-            macro_briefs=list(macro_briefs or []),
         )
         if move is not None:
             entry.day_pct = float(move.net_pct)
