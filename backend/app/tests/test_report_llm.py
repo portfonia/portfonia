@@ -263,6 +263,17 @@ def test_call_llm_default_keeps_marketplace_pin_and_deny() -> None:
     assert "reasoning" not in kwargs.get("extra_body", {})
 
 
+def test_call_llm_reasoning_effort_none_is_passed_through() -> None:
+    """L1 uses luna with effort=none — not disable_reasoning (flash alias)
+    and not luna-pro. Homepage eval: the -pro suffix re-injects reasoning
+    history; explicit effort on non-pro does not."""
+    client = MagicMock()
+    client.chat.completions.create.return_value = _fake_llm_response("ok")
+    rl._call_llm(client, "openai/gpt-5.6-luna", "sys", "user", reasoning_effort="none")
+    extra = client.chat.completions.create.call_args.kwargs["extra_body"]
+    assert extra["reasoning"] == {"effort": "none"}
+
+
 def test_call_llm_raises_if_data_collection_disabled_without_hard_pin() -> None:
     """PR #81 review: enforce_data_collection=False and allow_fallbacks=False
     are a required pair, enforced at runtime — a caller passing the former

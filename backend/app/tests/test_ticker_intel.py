@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+import inspect
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -627,6 +629,51 @@ def test_build_l1_prompt_excludes_per_user_keywords() -> None:
         assert term not in lowered
 
 
+def test_l1_prompt_version_is_v4_after_macro_briefs_removal() -> None:
+    assert ti._PROMPT_VERSION == "l1-v4"
+
+
+def test_l1_uses_luna_with_effort_none_not_flash(monkeypatch: Any) -> None:
+    captured: dict[str, Any] = {}
+
+    def _fake_call(_client: Any, model: str, system: str, user: str, **kwargs: Any) -> str:
+        captured["model"] = model
+        captured["kwargs"] = kwargs
+        captured["system"] = system
+        return "TSM rose with no company-specific headline. AI-capex brief applies. [Probable]"
+
+    monkeypatch.setattr(ti, "_openrouter_client", lambda: object())
+    monkeypatch.setattr(ti, "_call_llm", _fake_call)
+    monkeypatch.setattr(ti, "_scan_forbidden_output", lambda _text: [])
+    monkeypatch.setattr(ti, "_strip_markers", lambda text: text)
+    monkeypatch.setattr(ti, "_write_cache", lambda *a, **k: None)
+    facts = ti.L1Facts(day_pct=0.012, latest_date="2026-08-17")
+    text, _charged = ti._generate(
+        session=object(),  # type: ignore[arg-type]
+        identifier="TSM",
+        trade_date=date(2026, 8, 17),
+        facts=facts,
+    )
+    assert captured["model"] == "openai/gpt-5.6-luna"
+    assert captured["kwargs"].get("reasoning_effort") == "none"
+    assert captured["kwargs"].get("disable_reasoning") is not True
+    assert "2-4 sentences" not in captured["system"]
+    assert text is not None
+
+
+def test_build_l1_prompt_dates_lookback_and_headlines() -> None:
+    facts = ti.L1Facts(
+        day_pct=0.012,
+        latest_date="2026-08-17",
+        news_headlines=["2026-08-16: Anthropic revenue run-rate hits $65B"],
+        dated_moves=["2026-08-14: +0.40%", "2026-08-17: +1.22%"],
+    )
+    prompt = ti._build_l1_prompt("TSM", facts)
+    assert "2026-08-16: Anthropic" in prompt
+    assert "2026-08-14: +0.40%" in prompt
+    assert "date" in prompt.lower()
+
+
 # ---------------------------------------------------------------------------
 # l1_identifiers_for_user: the per-user -> global type firewall
 # ---------------------------------------------------------------------------
@@ -696,6 +743,107 @@ def test_l1_identifiers_for_user_deduplicates() -> None:
     assert ti.l1_identifiers_for_user(anomalies) == ["SGOL", "GLD"]
 
 
+def test_l1_identifiers_adds_top_weight_holdings_after_anomalies() -> None:
+    """Issue #128 quality gate: a 22% name with no price move still needs
+    L1, or assembly can only write [Speculative] for the book's anchor."""
+    anomalies = [{"identifier": "AAOI", "window_net_pct": 0.19, "constituents": []}]
+    holdings = [
+        {
+            "ticker": "TSM",
+            "market_value_base": 225_000.0,
+            "asset_class": "STOCK",
+        },
+        {
+            "ticker": "VOO",
+            "market_value_base": 260_000.0,
+            "asset_class": "EQUITY_US_BROAD",
+        },
+        {
+            "ticker": "AAOI",
+            "market_value_base": 50_000.0,
+            "asset_class": "STOCK",
+        },
+        {
+            "ticker": "TINY",
+            "market_value_base": 10_000.0,
+            "asset_class": "STOCK",
+        },
+    ]
+    result = ti.l1_identifiers_for_user(
+        anomalies,
+        holdings=holdings,
+        portfolio_total=545_000.0,
+    )
+    assert result[0] == "AAOI"
+    assert "TSM" in result
+    assert "VOO" in result
+    assert "TINY" not in result
+    assert all(isinstance(i, str) for i in result)
+
+
+def test_l1_identifiers_adds_holdings_in_l2_exposed_classes() -> None:
+    """PR #167 review round 1, suggestion: the original version of this test
+    put the exposed holding (QQQ) at ~97% of the book — already selected by
+    the WEIGHT channel (`top_k=5`, `min_weight=5%`) regardless of whether the
+    class-intersection channel does anything at all, so it could not fail if
+    that channel were deleted outright (verified: it did not, when the
+    channel was temporarily gutted to check).
+
+    `l1_identifiers_for_user`'s own docstring says the class channel has NO
+    weight floor specifically so a tracking position still gets L1 coverage —
+    that claim is what needed a holding placed BELOW `_L1_MIN_WEIGHT` to
+    actually test. TSM here is a control at the same tiny weight but in a
+    class NOT in `exposed_asset_classes`, so a bug that added every small
+    holding regardless of class (not just the exposed one) would also be
+    caught.
+    """
+    anomalies: list[dict[str, Any]] = []
+    holdings = [
+        {
+            "ticker": "QQQ",
+            "market_value_base": 400.0,
+            "asset_class": "EQUITY_US_TECH",
+        },
+        {
+            "ticker": "TSM",
+            "market_value_base": 400.0,
+            "asset_class": "STOCK",
+        },
+        {
+            "ticker": "VOO",
+            "market_value_base": 99_200.0,
+            "asset_class": "EQUITY_US_BROAD",
+        },
+    ]
+    result = ti.l1_identifiers_for_user(
+        anomalies,
+        holdings=holdings,
+        portfolio_total=100_000.0,
+        exposed_asset_classes=["EQUITY_US_TECH"],
+    )
+    assert "QQQ" in result, "the exposed small holding must be added despite being under min_weight"
+    assert "TSM" not in result, "an unexposed small holding must not ride along"
+
+
+def test_l1_identifiers_extra_channels_still_return_strings_only() -> None:
+    holdings = [
+        {
+            "ticker": "TSM",
+            "name": "do-not-leak",
+            "market_value_base": 90_000.0,
+            "asset_class": "STOCK",
+            "weight": 0.9,
+        }
+    ]
+    result = ti.l1_identifiers_for_user(
+        [],
+        holdings=holdings,
+        portfolio_total=100_000.0,
+        exposed_asset_classes=["STOCK"],
+    )
+    assert result == ["TSM"]
+
+
 # ---------------------------------------------------------------------------
 # build_l1_facts: every number comes from the global HoldingMove
 # ---------------------------------------------------------------------------
@@ -727,6 +875,52 @@ def test_build_l1_facts_tolerates_an_identifier_with_no_global_move() -> None:
     assert facts["MISSING"].day_pct is None
     assert facts["MISSING"].current_price is None
     assert facts["MISSING"].news_headlines == ["Some headline"]
+
+
+def test_build_l1_facts_formats_dated_lookback_moves() -> None:
+    lookback = {
+        date(2026, 8, 14): {"TSM": _move("TSM", net_pct=Decimal("0.004"))},
+        date(2026, 8, 17): {"TSM": _move("TSM", net_pct=Decimal("0.0122"))},
+    }
+    facts = ti.build_l1_facts(
+        ["TSM"],
+        lookback[date(2026, 8, 17)],
+        {},
+        [],
+        lookback_moves=lookback,
+    )
+    assert facts["TSM"].dated_moves == ["2026-08-14: +0.40%", "2026-08-17: +1.22%"]
+
+
+def test_build_l1_facts_has_no_macro_briefs_channel() -> None:
+    """Regression lock (PR #167 review round 1, bug 1): `ctx.macro_event_intel`
+    is a per-user L2 SELECTION (`l2_event_keys_for_user` over this user's own
+    `macro_signals`/watermark/`news_surfaced`). A prior draft passed it into
+    `build_l1_facts` as `macro_briefs`, baking that per-user selection into a
+    value written to the shared `ticker_intel` cache — whichever user's report
+    reached an identifier first would freeze THEIR macro-brief set into a row
+    every later holder reads. `build_l1_facts` must have no parameter through
+    which that dict (or any dict shaped like it) could arrive; `L1Facts` must
+    have no field to carry it. L3 (`cross_name_intel.get_day_synthesis`)
+    performs the L1+L2 join instead — globally, once per trading day."""
+    params = set(inspect.signature(ti.build_l1_facts).parameters)
+    assert "macro_briefs" not in params
+    fields = {f.name for f in dataclasses.fields(ti.L1Facts)}
+    assert "macro_briefs" not in fields
+
+
+def test_l1_system_prompt_does_not_reference_macro_briefs() -> None:
+    """PR #167 review round 2, suggestion: removing the DATA channel
+    (previous test) is not the same as removing the INSTRUCTION to use it.
+    `_L1_SYSTEM` still told the model to cover "any supplied macro brief"
+    and, absent a company catalyst, to "connect a supplied macro brief when
+    its date and mechanism fit" — a field `_build_l1_prompt` never emits
+    (the user turn says "grounded ONLY in the facts above"). An instruction
+    to use a field that no longer exists is worse than a no-op: it invites
+    the model to either misread a dated headline as a "macro brief" or
+    invent a mechanism to satisfy the system prompt, which is exactly the
+    fabrication l1-v4 exists to prevent."""
+    assert "macro brief" not in ti._L1_SYSTEM.lower()
 
 
 def test_build_l1_facts_attaches_technical_facts() -> None:

@@ -50,6 +50,11 @@ from app.core.deps import get_current_user_id
 from app.core.ops_log import log_ops_event
 from app.core.timezones import ET
 from app.models.report import Report
+from app.services.cross_name_intel import (
+    clusters_for_user,
+    day_briefed_identifiers,
+    get_day_synthesis,
+)
 from app.services.email_sender import send_ops_alert, send_report_email
 from app.services.forward_events import FORWARD_WINDOW_DAYS, load_forward_events
 from app.services.github_issues import create_bug_report
@@ -68,6 +73,7 @@ from app.services.report_assembly import (
     ASSEMBLY_PROMPT_VERSION,
     build_assembly_prompt,
     parse_shadow_models,
+    portfolio_identifiers,
     run_assembly_pass,
     should_use_assembly,
 )
@@ -109,6 +115,7 @@ from app.services.report_serializers import (
 )
 from app.services.report_translation import _translate_md
 from app.services.report_types import validate_report_type
+from app.services.shared_budget import fair_share_budget
 from app.services.technical_position import compute_technical_positions
 from app.services.ticker_intel import (
     build_l1_facts,
@@ -116,12 +123,15 @@ from app.services.ticker_intel import (
     l1_identifiers_for_user,
 )
 from app.services.window_data import (
+    L1_LOOKBACK_TRADING_DAYS,
+    HoldingMove,
     MovesCache,
     day_window_bounds,
     detect_window_anomalies,
     latest_window_close_date,
     load_day_news,
     load_news_window,
+    lookback_trading_dates,
     mark_news_surfaced,
     resolve_global_moves,
     unmark_news_surfaced,
@@ -136,6 +146,15 @@ logger = logging.getLogger(__name__)
 
 _PROMPT_VERSION = "f2-v6"  # f2-v6: §4.2 cross-reference restricted to holdings actually in the anomaly table (R-8) + HOLDING-RELEVANT NEWS block from per-holding recall/targeted search (R-3); f2-v5 = direction-requires-evidence + divergence-is-the-signal (no price-direction claims without window data); f2-v4 = §4.2 code table + driver-only, evidence confidence labels, §4.4 technical position
 _DISCLAIMER_VERSION = "f3-bilingual-v2"
+
+# L1 leftover-budget top-up (issue #128 quality gate, design doc §6.7 item 3).
+# An L1 candidate that moved this much with NOTHING recalled is the case that
+# is guaranteed to come back [Speculative]; below it, an unexplained move is
+# ordinary noise and not worth a scarce shared search. Two per report keeps the
+# spend bounded when a whole sleeve moves at once — the daily Tavily budget is
+# shared across the fan-out, so this must stay a top-up, never a sweep.
+_L1_SEARCH_MIN_MOVE = 0.03
+_MAX_L1_TOPUP_SEARCHES = 2
 
 # Forward calendar (#1): how far ahead §2.5 looks — now defined once in
 # forward_events.py, since the L2 shared cache (issue #128 A3) must analyze
@@ -240,6 +259,8 @@ def _assembly_prompt_from_ctx(ctx: ReportContext) -> str:
         ctx.period_start,
         ctx.period_end,
         ctx.window_trading_days,
+        ctx.technical_positions,
+        ctx.cross_name_intel,
     )
 
 
@@ -869,13 +890,16 @@ def generate_report(
         #     and because `eff_date` is shared across a whole fan-out batch,
         #     this call also hits `moves_cache` for every user analyzing the
         #     same day, not just the anomaly-detection call above.
-        #   - news: L1 recalls its OWN, via `load_day_news(eff_date)` — never
-        #     `news_items` (which is per-user: `load_news_window` filters by
-        #     THIS user's own `period_start`/`period_end` AND excludes
-        #     whatever THIS user's `news_surfaced` ledger already marked
-        #     seen). Two users would get different candidate news sets from
-        #     `news_items` even on an identical price window. `load_day_news`
-        #     takes no `user_id` at all, so there is nothing to diverge.
+        #   - news: L1 recalls its OWN, via `load_day_news` over a weekday
+        #     lookback ending on `eff_date` (`lookback_trading_dates`) —
+        #     never `news_items` (which is per-user: `load_news_window`
+        #     filters by THIS user's own `period_start`/`period_end` AND
+        #     excludes whatever THIS user's `news_surfaced` ledger already
+        #     marked seen). Two users would get different candidate news
+        #     sets from `news_items` even on an identical price window.
+        #     `load_day_news` takes no `user_id` at all, so there is
+        #     nothing to diverge. Headlines are date-prefixed so the L1
+        #     model can name the session they belong to.
         #     Pass 2's `ctx.holding_news` is keyed by the theme SLUG for
         #     merged entries, so re-keying it into L1's constituent
         #     vocabulary meant spraying theme headlines onto every
@@ -886,71 +910,14 @@ def generate_report(
         #     alias table already maps SGOL/518660.SS/518800.SS to
         #     "gold"/"bullion" and QQQM to "Nasdaq".
         #
-        # Multi-day continuity across a user's own report window (when it
-        # spans more than one trading day) is deliberately NOT synthesized
-        # here: A4 (or whichever consumer eventually assembles L1 into a
-        # report) lists each covered day's L1 entry separately rather than
-        # stitching them into one narrative — a product decision, not a
-        # limitation of this cache; revisit if day-by-day reads poorly once
-        # there's real report content to judge it against.
-        l1_identifiers = l1_identifiers_for_user(ctx.price_anomalies)
-        day_news = load_day_news(session, eff_date)
-        l1_headlines: dict[str, list[str]] = {
-            ident: [n.title for n in items]
-            for ident, items in recall_holding_news(day_news, l1_identifiers).items()
-        }
-        # Targeted-search titles attach by EXACT key only. §5's queries are keyed
-        # by anomaly identifier, which is the theme slug for a merged entry — and
-        # a slug is never an L1 candidate, so its results simply don't reach L1.
-        # That is the point: fanning a theme's search hits out to its
-        # constituents is the spraying this redesign removed, and constituents
-        # get their own news through the alias table instead.
-        l1_identifier_set = set(l1_identifiers)
-        for ident, titles in l1_targeted_titles.items():
-            if ident in l1_identifier_set:
-                l1_headlines.setdefault(ident, []).extend(titles)
-        day_start, day_end = day_window_bounds(eff_date)
-        day_moves, _ = resolve_global_moves(session, day_start, day_end, moves_cache)
-        l1_facts = build_l1_facts(l1_identifiers, day_moves, l1_headlines, ctx.technical_positions)
-        ctx.ticker_intel = get_l1_intel_batch(
-            session,
-            l1_identifiers,
-            eff_date,
-            l1_facts,
-            usage_sink=ctx.llm_calls,
-            users_remaining=users_remaining,
-        )
-        logger.info(
-            "report %s: L1 shared intel available for %d/%d candidate identifiers",
-            report.id,
-            len(ctx.ticker_intel),
-            len(l1_identifiers),
-        )
-
-        # ------------------------------------------------------------------
-        # 5.6 L2 shared macro-event intel (issue #128 A3) — one inference per
-        # (event_key, trade_date) across the whole system, cached in
-        # `macro_event_intel`, so a macro theme or a scheduled calendar event
-        # that appears in three users' reports is reasoned about once, not
-        # three times. Like L1 (§5.5), this does NOT feed the Pass 2 prompt or
-        # the rendered body — A3 is cache infrastructure only (design doc
-        # §1.2: report content stays byte-identical through A1-A3); A4 is the
-        # consumer. A blocked/failed event degrades to "no L2 intel for that
-        # event", never a report failure.
-        # ------------------------------------------------------------------
-        #
-        # The per-user/global split mirrors L1's exactly (design doc §4.8):
-        #   - SELECTION may be per-user: `l2_event_keys_for_user` takes this
-        #     user's `ctx.macro_signals` — per-user, since `detect_macro_signals`
-        #     ran over `load_news_window(..., user_id)` — and returns
-        #     `list[str]` event keys, the only channel into the shared cache.
-        #   - VALUES are global and day-scoped: `build_l2_facts` takes only
-        #     (session, keys, eff_date) and re-derives each theme's evidence
-        #     from `load_day_news`, so no watermark, portfolio or per-user
-        #     article set can reach a row that ships to every user.
-        # `user_event_exposure` is the personalization step and costs nothing:
-        # a set intersection of the cached asset classes with this user's own
-        # `by_asset_class` keys, zero LLM calls (design doc §5.3).
+        # Lookback dates are a global weekday list ending on `eff_date`,
+        # never this user's watermark (same contamination class as the
+        # round-5 window leak). Dated own-price path + headlines go into
+        # L1Facts as context; the cache key stays (identifier, trade_date,
+        # l1-v4). No L2 join here (see the comment further below, at the
+        # `build_l1_facts` call site, for why) — L3 is the only L1+L2 join.
+        # L2 first so class-intersection extras can join the L1 candidate
+        # list. L2 does not depend on L1. (issue #128 quality gate)
         l2_event_keys = l2_event_keys_for_user(session, eff_date, ctx.macro_signals)
         l2_facts = build_l2_facts(session, l2_event_keys, eff_date)
         ctx.macro_event_intel = get_l2_intel_batch(
@@ -971,6 +938,193 @@ def generate_report(
             len(ctx.macro_event_intel),
             len(l2_event_keys),
             len(ctx.macro_event_exposure),
+        )
+
+        l1_identifiers = l1_identifiers_for_user(
+            ctx.price_anomalies,
+            holdings=list(ctx.portfolio_summary.get("holdings") or []),
+            portfolio_total=float(ctx.portfolio_summary.get("total_base") or 0.0),
+            exposed_asset_classes=sorted(
+                {cls for classes in ctx.macro_event_exposure.values() for cls in classes}
+            ),
+        )
+        lookback = lookback_trading_dates(eff_date, n=L1_LOOKBACK_TRADING_DAYS)
+        span_news: list[NewsItem] = []
+        cursor = lookback[0] if lookback else eff_date
+        while cursor <= eff_date:
+            span_news.extend(load_day_news(session, cursor))
+            cursor += timedelta(days=1)
+        l1_headlines: dict[str, list[str]] = {
+            ident: [f"{n.published_at.astimezone(ET).date().isoformat()}: {n.title}" for n in items]
+            for ident, items in recall_holding_news(
+                span_news, l1_identifiers, max_per_holding=8
+            ).items()
+        }
+        # Targeted-search titles attach by EXACT key only. §5's queries are keyed
+        # by anomaly identifier, which is the theme slug for a merged entry — and
+        # a slug is never an L1 candidate, so its results simply don't reach L1.
+        # That is the point: fanning a theme's search hits out to its
+        # constituents is the spraying this redesign removed, and constituents
+        # get their own news through the alias table instead.
+        l1_identifier_set = set(l1_identifiers)
+        trade_day = eff_date.isoformat()
+        for ident, titles in l1_targeted_titles.items():
+            if ident in l1_identifier_set:
+                l1_headlines.setdefault(ident, []).extend(
+                    t if t[:10].isdigit() else f"{trade_day}: {t}" for t in titles
+                )
+        lookback_moves: dict[date, dict[str, HoldingMove]] = {}
+        for session_date in lookback:
+            day_start, day_end = day_window_bounds(session_date)
+            moves, _ = resolve_global_moves(session, day_start, day_end, moves_cache)
+            lookback_moves[session_date] = moves
+        day_moves = lookback_moves.get(eff_date, {})
+
+        # No L2 macro-brief join into L1 facts here (removed PR #167 review
+        # round 1): `ctx.macro_event_intel`'s KEYS are this user's own L2
+        # selection (`l2_event_keys_for_user` over `ctx.macro_signals`,
+        # itself per-user via watermark/`news_surfaced`). Baking that
+        # selection's text into a value written to the shared `ticker_intel`
+        # cache meant whichever user's report reached an identifier first
+        # would freeze THEIR macro-brief set into a row every later holder
+        # reads — the round-5 window-leak shape in a new field. L3
+        # (`get_day_synthesis`, below) already performs the L1+L2 join
+        # globally, once per trading day; that is the only join point now.
+
+        # Leftover-budget top-up (issue #128 quality gate, design doc §6.7
+        # item 3). §5's targeted search covers ANOMALIES only, so an L1
+        # candidate that arrived through the weight or L2-class channel — a
+        # 22% holding that moved but never crossed its threshold — could not
+        # reach it however hard it moved. A candidate with a large move and NO
+        # recalled headline is precisely the case that is guaranteed to come
+        # back [Speculative], and therefore the best use of a search nobody
+        # else spent.
+        #
+        # Results deliberately do NOT join `ctx.search_results`: that list is
+        # Pass 2's prompt input, and improving both arms of an A/B comparison
+        # measures nothing (design doc §6.3.1). These titles feed L1 only.
+        # Spend is still accounted for, because `_run_tavily_search` writes
+        # `search_cache` rows and `_tavily_used_today` counts those.
+        uncovered = sorted(
+            (
+                ident
+                for ident in l1_identifiers
+                # `ident in day_moves` is not redundant with the threshold: a
+                # candidate with no captured close for `eff_date` has no move
+                # at all, and `build_l1_facts` would drop it anyway — buying it
+                # a search would spend the budget on a name L1 never briefs.
+                if not l1_headlines.get(ident)
+                and ident in day_moves
+                and abs(float(day_moves[ident].net_pct)) >= _L1_SEARCH_MIN_MOVE
+            ),
+            key=lambda i: abs(float(day_moves[i].net_pct)),
+            reverse=True,
+        )[:_MAX_L1_TOPUP_SEARCHES]
+        if uncovered:
+            # `fair_share_budget` (PR #167 review round 3, suggestion): this
+            # was the one shared-budget consumer in this function that did
+            # NOT divide by `users_remaining` — L1's own analyses, L2's, and
+            # L3's synthesis all do. Without it, the first
+            # `active_user_ids` user in a fan-out could spend the day's
+            # entire remaining Tavily budget on its own top-up searches
+            # before any later user's turn — the same sequential-starvation
+            # shape A4's `fair_share_budget` exists to close everywhere
+            # else in this pipeline.
+            topup_budget = fair_share_budget(
+                max(0, settings.TAVILY_DAILY_BUDGET - _tavily_used_today(session, eff_date)),
+                users_remaining,
+            )
+            queries = {f"{ident} stock news catalyst": ident for ident in uncovered}
+            logger.info(
+                "report %s: %d L1 top-up searches for un-recalled movers (budget %d)",
+                report.id,
+                len(queries),
+                topup_budget,
+            )
+            for result in _run_tavily_search(session, list(queries), eff_date, budget=topup_budget):
+                ident = queries.get(result.get("query", ""))
+                title = result.get("title", "")
+                if ident and title:
+                    l1_headlines.setdefault(ident, []).append(f"{trade_day}: {title}")
+
+        l1_facts = build_l1_facts(
+            l1_identifiers,
+            day_moves,
+            l1_headlines,
+            ctx.technical_positions,
+            lookback_moves=lookback_moves,
+        )
+        ctx.ticker_intel = get_l1_intel_batch(
+            session,
+            l1_identifiers,
+            eff_date,
+            l1_facts,
+            usage_sink=ctx.llm_calls,
+            users_remaining=users_remaining,
+        )
+        logger.info(
+            "report %s: L1 shared intel available for %d/%d candidate identifiers",
+            report.id,
+            len(ctx.ticker_intel),
+            len(l1_identifiers),
+        )
+
+        # L2 ran immediately above L1 so class-intersection extras can join
+        # the L1 candidate list (issue #128 quality gate). Selection/values
+        # split is unchanged: l2_event_keys_for_user -> list[str], facts
+        # from build_l2_facts (session, keys, date only).
+
+        # ------------------------------------------------------------------
+        # 5.7 L3 day-level cross-identifier synthesis (issue #128 quality
+        # gate, design doc §6.7 item 1) — the ONE thing L1 (per identifier)
+        # and L2 (per event) structurally cannot express: which identifiers
+        # moved together today for one mechanism. Pass 2 makes that join
+        # inside its single call; assembly is forbidden to invent edges, so
+        # the join has to exist as a fact before assembly runs.
+        # ------------------------------------------------------------------
+        #
+        # ORDER MATTERS: this runs AFTER `get_l1_intel_batch` because it reads
+        # the day's L1 rows back out of `ticker_intel` — running it earlier
+        # would analyze a day missing exactly the names this report is about.
+        #
+        # `get_day_synthesis(session, eff_date, ...)` takes no per-user
+        # argument at all, unlike L1/L2's `*_for_user` selection channels: what
+        # it analyzes ("every identifier the system briefed today") is already
+        # a global fact. The per-user narrowing happens on the way OUT, via
+        # `clusters_for_user`, and it happens HERE rather than downstream
+        # because `ctx.cross_name_intel` is persisted to `report_inputs`, read
+        # back by regenerate, and re-rendered — an unnarrowed cluster stored
+        # there would outlive any later filtering.
+        #
+        # Wrapped: a cross-name conclusion is an enrichment, so a failure in
+        # this layer costs a sentence, never a report — the same degradation
+        # contract L1 and L2 answer to, except that those degrade inside their
+        # own batch functions while this one is a single call.
+        try:
+            day_clusters = get_day_synthesis(
+                session,
+                eff_date,
+                usage_sink=ctx.llm_calls,
+                users_remaining=users_remaining,
+            )
+            # `all_briefed_identifiers` (PR #167 review round 1, bug 2): the
+            # denylist `clusters_for_user` builds its leak guard from must be
+            # every name the synthesis prompt exposed the model to, not just
+            # what happened to land in a returned cluster — a summary could
+            # name any of them.
+            all_briefed = day_briefed_identifiers(session, eff_date)
+            ctx.cross_name_intel = clusters_for_user(
+                day_clusters, list(ctx.ticker_intel), all_briefed
+            )
+        except Exception:
+            logger.exception(
+                "report %s: cross-name synthesis failed — continuing without it", report.id
+            )
+            ctx.cross_name_intel = []
+        logger.info(
+            "report %s: %d cross-name cluster(s) bear on this portfolio",
+            report.id,
+            len(ctx.cross_name_intel),
         )
 
         # ------------------------------------------------------------------
@@ -1212,6 +1366,37 @@ def regenerate_report(
             fresh_exposure = user_event_exposure(
                 inputs.get("macro_event_intel", {}), portfolio.get("by_asset_class", {})
             )
+            # Cross-name clusters get the same treatment for the same reason:
+            # `report_inputs["cross_name_intel"]` is a PER-USER PROJECTION
+            # (already narrowed to the L1 keys this user had at generation
+            # time via `clusters_for_user`) — the same shape as
+            # `macro_event_exposure` above, not shared mechanism text. A
+            # holdings edit since generation could leave it naming a
+            # position no longer held. Re-narrowing is pure set arithmetic
+            # — zero LLM cost — and, exactly like `fresh_exposure` above,
+            # the re-narrowed result gets WRITTEN BACK below (round-3 review
+            # finding, PR #167): only re-deriving the underlying MECHANISM
+            # TEXT inside each cluster (which identifiers share a mechanism,
+            # and what it is) would need an LLM call and must not happen
+            # here — the stored `identifiers`/`summary`/`mechanism` content
+            # itself is untouched, only which clusters survive narrowing.
+            #
+            # `all_briefed_identifiers` here is the GENERATION-TIME
+            # `ticker_intel` key set (`inputs["ticker_intel"]`), not the
+            # fresh portfolio's identifiers and not a re-fetch of "everything
+            # briefed that day" (this is a re-render, no Session-scoped
+            # re-query of that global state is appropriate here). It is a
+            # sound upper bound: the stored summary was already validated at
+            # generation to name nothing outside that exact set, so re-
+            # checking against it (rather than the now-possibly-smaller
+            # `still_held`) still catches a name that was legitimately
+            # in-scope then but is a holding this reader no longer owns now.
+            still_held = set(portfolio_identifiers(portfolio))
+            fresh_clusters = clusters_for_user(
+                list(inputs.get("cross_name_intel", [])),
+                [k for k in inputs.get("ticker_intel", {}) if k in still_held],
+                list(inputs.get("ticker_intel", {})),
+            )
             assembly_user = build_assembly_prompt(
                 portfolio,
                 inputs.get("price_anomalies", []),
@@ -1221,6 +1406,8 @@ def regenerate_report(
                 period_start_iso,
                 period_end_iso,
                 trading_days,
+                inputs.get("technical_positions", []),
+                fresh_clusters,
             )
             raw_body = run_assembly_pass(
                 _openrouter_client(), assembly_model, assembly_user, usage_sink=regen_calls
@@ -1240,6 +1427,11 @@ def regenerate_report(
                 # body disagree, and a later render/audit would see the
                 # OLD intersection again.
                 "macro_event_exposure": fresh_exposure,
+                # Same reasoning, same fix (round-3 review finding, PR
+                # #167): persist the re-narrowed projection actually sent
+                # to the prompt, not the stale value from before whatever
+                # holdings edit triggered this regenerate.
+                "cross_name_intel": fresh_clusters,
             }
         else:
             pass2_user = _build_pass2_prompt(

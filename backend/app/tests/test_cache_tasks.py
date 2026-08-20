@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.cross_name_intel import CrossNameIntel
 from app.models.macro_event_intel import MacroEventIntel
 from app.models.search_cache import SearchCache
 from app.models.ticker_intel import TickerIntel
@@ -60,6 +61,22 @@ def _seed(db_session: Session) -> None:
                 affected_sectors=[],
                 facts={},
             ),
+            CrossNameIntel(
+                trade_date=_OLD,
+                prompt_version="l3-v1",
+                input_fingerprint="old",
+                model="x",
+                clusters=[],
+                facts={},
+            ),
+            CrossNameIntel(
+                trade_date=_RECENT,
+                prompt_version="l3-v1",
+                input_fingerprint="recent",
+                model="x",
+                clusters=[],
+                facts={},
+            ),
         ]
     )
     db_session.flush()
@@ -75,13 +92,16 @@ def test_cleanup_expired_deletes_only_rows_older_than_90_days(db_session: Sessio
         "ticker_intel_deleted": 1,
         "search_cache_deleted": 1,
         "macro_event_intel_deleted": 1,
+        "cross_name_intel_deleted": 1,
     }
     remaining_ti = db_session.execute(select(TickerIntel)).scalars().all()
     remaining_sc = db_session.execute(select(SearchCache)).scalars().all()
     remaining_mei = db_session.execute(select(MacroEventIntel)).scalars().all()
+    remaining_cni = db_session.execute(select(CrossNameIntel)).scalars().all()
     assert [r.trade_date for r in remaining_ti] == [_RECENT]
     assert [r.trade_date for r in remaining_sc] == [_RECENT]
     assert [r.trade_date for r in remaining_mei] == [_RECENT]
+    assert [r.trade_date for r in remaining_cni] == [_RECENT]
 
 
 def test_cleanup_expired_noop_when_nothing_is_stale(db_session: Session) -> None:
@@ -104,6 +124,7 @@ def test_cleanup_expired_noop_when_nothing_is_stale(db_session: Session) -> None
         "ticker_intel_deleted": 0,
         "search_cache_deleted": 0,
         "macro_event_intel_deleted": 0,
+        "cross_name_intel_deleted": 0,
     }
 
 
@@ -119,6 +140,7 @@ def test_task_computes_cutoff_and_closes_session(mock_session_cls: MagicMock) ->
         "ticker_intel_deleted": 0,
         "search_cache_deleted": 0,
         "macro_event_intel_deleted": 0,
+        "cross_name_intel_deleted": 0,
     }
     mock_session.commit.assert_called_once()
     mock_session.close.assert_called_once()

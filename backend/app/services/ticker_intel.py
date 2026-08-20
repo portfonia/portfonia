@@ -59,13 +59,11 @@ that identifier this run (report generation is not blocked by this).
 
 Model/compliance parameters (design doc §4.3): `data_collection=deny` stays
 enforced (no BYOK exception — identifiers are holdings-derived, unlike Pass
-1's public-only inputs). Model choice is `LOW_COST_LLM_MODEL`: this is a
-narrower, more mechanical task than Pass 2 ("what happened to this one
-identifier", not a full cross-holding narrative), and A2's whole point is
-cost reduction — no dedicated ASSEMBLY_LLM_MODEL-style setting was
-introduced for A2 (that pattern is reserved for A4's personalization pass,
-design doc §6.3, whose scope is different enough to warrant its own
-shadow-compared setting).
+1's public-only inputs). Model is `_L1_MODEL` (`openai/gpt-5.6-luna`) with
+`reasoning_effort=none` — not `LOW_COST_LLM_MODEL` (flash + disable_reasoning
+produced 2-4 sentence "no catalyst / [Speculative]" stubs that assembly
+could only restate) and not luna-pro (Homepage eval: the -pro suffix
+re-injects prior reasoning tokens).
 """
 
 from __future__ import annotations
@@ -80,7 +78,6 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.compliance.output_scan import _scan_forbidden_output, _strip_markers
-from app.core.config import get_settings
 from app.models.ticker_intel import TickerIntel
 from app.services._yfinance import _normalize_hk_ticker
 from app.services.email_sender import send_ops_alert
@@ -98,8 +95,19 @@ logger = logging.getLogger(__name__)
 # the facts and prompt wording changed from a per-user window's cumulative
 # change to a single trading day's change — a v1 row's `analysis` describes
 # a different (and per-user-contaminated) quantity, must never be served
-# under the new contract.
-_PROMPT_VERSION = "l1-v2"
+# under the new contract. v2 -> v3 (issue #128 quality gate, 2026-08-18):
+# lookback-dated headlines/moves + L2 briefs + luna/effort=none. A v2
+# flash stub ("no catalyst / [Speculative]") must not be reused. v3 -> v4
+# (PR #167 review round 1): the L2 briefs were removed from the prompt
+# entirely (per-user L2 selection was leaking into this shared cache's
+# VALUES — see L1Facts's docstring); a v3 row's `analysis` may have been
+# grounded in a macro brief that will never appear in the prompt again,
+# and may have been written under a per-user-contaminated brief set in the
+# first place, so it must not be served under the new contract.
+_PROMPT_VERSION = "l1-v4"
+
+# Same weights as assembly; effort=none, never the -pro suffix.
+_L1_MODEL = "openai/gpt-5.6-luna"
 
 # Per-day cap on FRESH LLM analyses (design doc §4.3) — cache hits are free
 # and never count against this, so a broad anomaly day degrades to "some
@@ -120,18 +128,22 @@ _MAX_L1_ANALYSES_PER_DAY = 15
 _MAX_ATTEMPTS_PER_KEY = 3
 
 _L1_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + (
-    "\nYou are writing a short SHARED factual briefing about a single security "
-    "or theme for an internal cache. This text will be reused verbatim across "
-    "every user in the system who holds it — it must contain NOTHING specific "
-    "to any one user: no position size, portfolio weight, account value, or "
-    "how many people hold it. Describe ONLY what happened to this security on "
-    "this trading day, using the facts provided.\n"
-    "End any causal attribution with a confidence label in square brackets: "
-    "[Established] (a named mechanism or citable event drives the move), "
-    "[Probable] (partial evidence, not conclusive), or [Speculative] (no "
-    "direct evidence — a hypothesis). If no catalyst is identifiable, say so "
-    "plainly and use [Speculative]. Write 2-4 sentences, no headings, no "
-    "bracketed citations."
+    "\nYou are writing a SHARED factual briefing about a single security "
+    "for an internal cache. This text will be reused verbatim across "
+    "every user who holds it — it must contain NOTHING specific to any one "
+    "user: no position size, portfolio weight, account value, or how many "
+    "people hold it.\n"
+    "The TRADE DATE is this report day's close. Earlier dated items are "
+    "lookback context from recent sessions in the same period — always name "
+    "the date of any fact you use. Cover: the day's move, the dated own-price "
+    "path when supplied, and named headlines. A short stub is not enough when "
+    "dated lookback facts exist.\n"
+    "If no company-specific catalyst is in the facts, say so plainly; do not "
+    "invent one. End any causal attribution with [Established] (a named "
+    "mechanism or citable event), [Probable] (partial evidence), or "
+    "[Speculative] (hypothesis). "
+    "Do not invent prices, events, or headlines that are not in the facts. "
+    "No headings, no bracketed citations."
 )
 
 
@@ -167,6 +179,30 @@ class L1Facts:
     from the CALLING USER's own `asset_class` threshold, so two holders of
     one identifier can classify the identical move differently — the same
     per-user-contamination class as the window, just a different field.
+
+    `dated_moves` / dated headlines (l1-v3) are lookback CONTEXT for this
+    trade_date's briefing. The cache key is still (identifier, trade_date,
+    prompt_version) — lookback dates come from
+    `lookback_trading_dates(trade_date)`, a pure function of the end date,
+    never a user's watermark.
+
+    There is deliberately NO macro-brief field here (removed in l1-v4, PR
+    #167 review round 1). A first draft passed `ctx.macro_event_intel` in as
+    `macro_briefs` — that dict's KEYS are a per-user SELECTION
+    (`l2_event_keys_for_user` over THIS user's `macro_signals`, which itself
+    depends on this user's watermark and `news_surfaced` ledger), and baking
+    a selection outcome into a value written to a cross-user shared cache row
+    is exactly the class of bug design doc §4.8 exists to rule out: whichever
+    user's `generate_report` reached a given identifier first would freeze
+    THEIR macro-event selection into the row every later holder reads,
+    non-deterministically depending on write order — the round-5 window leak
+    in a new field. The fix is not a global loader for L1 to read L2 through;
+    it is dropping the join from this layer entirely. L3
+    (`cross_name_intel.get_day_synthesis`) already performs this exact join —
+    L1 identifier + L2 event, both read fresh with no per-user selection —
+    once per trading day for the whole system, which is strictly cheaper and
+    already correct. Passing macro context into L1 as well would have been
+    redundant even had it been safe.
     """
 
     day_pct: float | None = None
@@ -175,6 +211,7 @@ class L1Facts:
     prev_price: float | None = None
     latest_date: str = ""
     news_headlines: list[str] = field(default_factory=list)
+    dated_moves: list[str] = field(default_factory=list)
     pct_vs_sma50: float | None = None
     pct_vs_sma200: float | None = None
     pct_in_52w_range: float | None = None
@@ -188,6 +225,7 @@ class L1Facts:
             "prev_price": self.prev_price,
             "latest_date": self.latest_date,
             "news_headlines": self.news_headlines,
+            "dated_moves": self.dated_moves,
             "pct_vs_sma50": self.pct_vs_sma50,
             "pct_vs_sma200": self.pct_vs_sma200,
             "pct_in_52w_range": self.pct_in_52w_range,
@@ -213,9 +251,16 @@ def _build_l1_prompt(identifier: str, facts: L1Facts) -> str:
         lines.append(f"Position in 52-week range: {facts.pct_in_52w_range:.2%}")
     if facts.vol_20d_annualized is not None:
         lines.append(f"20-day annualized volatility: {facts.vol_20d_annualized:.2%}")
+    if facts.dated_moves:
+        lines.append("")
+        lines.append(
+            "Dated own-price path (each line is one session; name the date when you use it):"
+        )
+        for line in facts.dated_moves:
+            lines.append(f"- {line}")
     if facts.news_headlines:
         lines.append("")
-        lines.append("Related headlines published this trading day:")
+        lines.append("Related headlines (already date-prefixed; keep the date in any citation):")
         for h in facts.news_headlines:
             lines.append(f"- {h}")
     lines.append("")
@@ -357,8 +402,7 @@ def _generate(
     was invisible in `report_inputs.llm_calls`, so a report's total LLM cost
     audit silently excluded whatever L1 analysis it triggered.
     """
-    settings = get_settings()
-    model = settings.LOW_COST_LLM_MODEL
+    model = _L1_MODEL
     prompt = _build_l1_prompt(identifier, facts)
     this_attempt = attempts_so_far + 1
     try:
@@ -369,7 +413,7 @@ def _generate(
             _L1_SYSTEM,
             prompt,
             with_holdings=False,
-            disable_reasoning=True,
+            reasoning_effort="none",
             usage_sink=usage_sink,
         )
     except Exception as exc:
@@ -524,7 +568,29 @@ def get_l1_intel_batch(
     return result
 
 
-def l1_identifiers_for_user(anomalies: list[dict[str, Any]]) -> list[str]:
+# Extra L1 selection (issue #128 quality gate, 2026-08-18): anomaly-only
+# candidates left a 22% TSMC line with nothing for assembly to restate.
+# These are SELECTION knobs — they still only emit identifier strings.
+_L1_TOP_K_BY_WEIGHT = 5
+_L1_MIN_WEIGHT = 0.05
+
+
+def _holding_identifier(holding: dict[str, Any]) -> str:
+    raw = holding.get("ticker") or holding.get("fund_code") or ""
+    if not raw:
+        return ""
+    return _normalize_hk_ticker(str(raw)).upper()
+
+
+def l1_identifiers_for_user(
+    anomalies: list[dict[str, Any]],
+    *,
+    holdings: list[dict[str, Any]] | None = None,
+    portfolio_total: float | None = None,
+    exposed_asset_classes: list[str] | None = None,
+    top_k: int = _L1_TOP_K_BY_WEIGHT,
+    min_weight: float = _L1_MIN_WEIGHT,
+) -> list[str]:
     """The per-user -> global firewall: WHICH identifiers this user's report
     makes worth analyzing, as plain strings and nothing else.
 
@@ -544,15 +610,32 @@ def l1_identifiers_for_user(anomalies: list[dict[str, Any]]) -> list[str]:
     would key shared intel by something A4 can never look up. Theme-level
     narrative is A3/L2's job (design doc §5), decided 2026-08-15.
 
-    ORDERING is deliberately left per-user: the caller's list is already
-    sorted by that user's |move|, and constituents keep their given order.
-    Ordering only decides who survives the daily fresh-analysis cap — a
-    SELECTION concern, which is per-user by design (every user contributes
-    candidates to one shared cache). It is values, not selection, that must
-    be global.
+    Two extra selection channels (issue #128, 2026-08-18) — still identifiers
+    only, still per-user selection:
+      * weight: top `top_k` holdings at or above `min_weight`, so a large
+        name that did not cross an anomaly threshold still gets a day-scoped
+        L1 row for assembly to restate.
+      * L2 class intersection: holdings whose `asset_class` is in
+        `exposed_asset_classes` (the keys `user_event_exposure` already
+        intersected with this book). Values of L2 stay global; this only
+        decides WHICH identifiers to ask L1 about.
+
+    ORDERING is deliberately left per-user: anomalies keep the caller's
+    |move| order, then weight extras, then class extras. Ordering only
+    decides who survives the daily fresh-analysis cap — a SELECTION
+    concern. It is values, not selection, that must be global.
     """
     out: list[str] = []
     seen: set[str] = set()
+
+    def _add(candidate: object) -> None:
+        if not candidate:
+            return
+        ident = str(candidate)
+        if ident not in seen:
+            seen.add(ident)
+            out.append(ident)
+
     for a in anomalies:
         identifier = a.get("identifier")
         if not identifier:
@@ -565,9 +648,33 @@ def l1_identifiers_for_user(anomalies: list[dict[str, Any]]) -> list[str]:
         for candidate in (
             [c.get("identifier") for c in constituents] if constituents else [identifier]
         ):
-            if candidate and candidate not in seen:
-                seen.add(candidate)
-                out.append(candidate)
+            _add(candidate)
+
+    rows = list(holdings or [])
+    total = float(portfolio_total or 0.0)
+    if total <= 0:
+        total = sum(float(h.get("market_value_base") or 0.0) for h in rows)
+
+    weighted: list[tuple[float, str]] = []
+    if total > 0:
+        for holding in rows:
+            ident = _holding_identifier(holding)
+            if not ident:
+                continue
+            weight = float(holding.get("market_value_base") or 0.0) / total
+            weighted.append((weight, ident))
+        weighted.sort(key=lambda item: item[0], reverse=True)
+        extras = [ident for weight, ident in weighted if weight >= min_weight][:top_k]
+        for ident in extras:
+            _add(ident)
+
+    exposed = {c for c in (exposed_asset_classes or []) if c}
+    if exposed:
+        class_by_ident = {_holding_identifier(h): h.get("asset_class") for h in rows}
+        for _weight, ident in weighted:
+            if class_by_ident.get(ident) in exposed:
+                _add(ident)
+
     return out
 
 
@@ -576,6 +683,7 @@ def build_l1_facts(
     day_moves: dict[str, HoldingMove],
     headlines: dict[str, list[str]],
     technical_positions: list[dict[str, Any]],
+    lookback_moves: dict[date, dict[str, HoldingMove]] | None = None,
 ) -> dict[str, L1Facts]:
     """Assemble each candidate's public facts from GLOBAL, DAY-SCOPED
     sources only.
@@ -624,7 +732,17 @@ def build_l1_facts(
         titles = headlines.get(identifier, [])
         if move is None and not titles:
             continue
-        entry = L1Facts(news_headlines=list(titles))
+        dated: list[str] = []
+        if lookback_moves:
+            for session_date in sorted(lookback_moves):
+                prior = lookback_moves[session_date].get(identifier)
+                if prior is None or prior.net_pct is None:
+                    continue
+                dated.append(f"{session_date.isoformat()}: {float(prior.net_pct):+.2%}")
+        entry = L1Facts(
+            news_headlines=list(titles),
+            dated_moves=dated,
+        )
         if move is not None:
             entry.day_pct = float(move.net_pct)
             entry.market = move.market

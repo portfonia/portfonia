@@ -35,10 +35,16 @@ _RETENTION_DAYS = 90
 
 
 def _cleanup_expired(session: Session, cutoff: date) -> dict[str, int]:
-    """Delete every ticker_intel/search_cache/macro_event_intel row with
-    trade_date < cutoff. Commits and returns the per-table delete counts.
-    Split out from the Celery task itself so it's testable against a real
-    db_session without mocking SessionLocal (issue #128 A2)."""
+    """Delete every ticker_intel/search_cache/macro_event_intel/
+    cross_name_intel row with trade_date < cutoff. Commits and returns the
+    per-table delete counts. Split out from the Celery task itself so it's
+    testable against a real db_session without mocking SessionLocal (issue
+    #128 A2).
+
+    Each new shared cache extends this one task rather than adding its own —
+    they share a retention policy and a sweep cadence, so a second beat entry
+    would only create a second place for `_RETENTION_DAYS` to drift."""
+    from app.models.cross_name_intel import CrossNameIntel
     from app.models.macro_event_intel import MacroEventIntel
     from app.models.search_cache import SearchCache
     from app.models.ticker_intel import TickerIntel
@@ -55,11 +61,16 @@ def _cleanup_expired(session: Session, cutoff: date) -> dict[str, int]:
         CursorResult[Any],
         session.execute(delete(MacroEventIntel).where(MacroEventIntel.trade_date < cutoff)),
     )
+    cni_result = cast(
+        CursorResult[Any],
+        session.execute(delete(CrossNameIntel).where(CrossNameIntel.trade_date < cutoff)),
+    )
     session.commit()
     return {
         "ticker_intel_deleted": ti_result.rowcount or 0,
         "search_cache_deleted": sc_result.rowcount or 0,
         "macro_event_intel_deleted": mei_result.rowcount or 0,
+        "cross_name_intel_deleted": cni_result.rowcount or 0,
     }
 
 

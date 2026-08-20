@@ -48,3 +48,58 @@ holdings:
     - "Nasdaq"
   VOO:
     - "S&P 500"
+  # "HBM" was dropped here on 2026-08-20 (issue #128 quality gate, design doc
+  # §6.7 item 3). It is a memory technology — first-party news for MUU below,
+  # but for TSM only ever a supply-chain adjacency, so it recalled generic AI
+  # stories that crowded out headlines actually about the company. "CoWoS" is
+  # kept because it is TSMC's own packaging process, not an industry-wide term.
+  TSM:
+    - "TSMC"
+    - "Taiwan Semiconductor"
+    - "CoWoS"
+  AAOI:
+    - "Applied Optoelectronics"
+    - "optical transceiver"
+    - "800G"
+  ASML:
+    - "EUV"
+    - "lithography"
+  MUU:
+    - "Micron"
+    - "HBM"
+
+# Entity/company-name aliases (issue #128 quality gate, PR #167 review round
+# 2). A STRICT SUBSET of `holdings` above, scoped to a different consumer:
+# `cross_name_intel.clusters_for_user`'s leak guard, which asks "does this
+# prose NAME an identifier the reader does not hold" — not "is this article
+# relevant to that holding". The two questions have different tolerance for
+# false positives. `holdings` above deliberately mixes real entity/company
+# names ("Micron", "TSMC") with theme/technology recall tokens ("gold",
+# "lithography", "HBM", "Nasdaq", "S&P 500") to cast a wide RECALL net; a
+# leak guard built from that same list silently drops a legitimate,
+# genuinely name-free mechanism summary just for using ordinary theme
+# vocabulary ("a haven bid in gold" dropped for any reader missing SGOL that
+# day, even though the sentence never said "SGOL"). Only entries here are an
+# actual company/entity name — the only cases where an LLM using the term
+# WOULD be naming the identifier. Keep this list short; when in doubt, leave
+# a term out of it and in `holdings` only.
+entity_aliases:
+  INTC:
+    - "Intel"
+  NVDA:
+    - "Nvidia"
+  TSLA:
+    - "Tesla"
+  QCOM:
+    - "Qualcomm"
+  AMKR:
+    - "Amkor"
+  "0700.HK":
+    - "Tencent"
+  TSM:
+    - "TSMC"
+    - "Taiwan Semiconductor"
+  AAOI:
+    - "Applied Optoelectronics"
+  MUU:
+    - "Micron"

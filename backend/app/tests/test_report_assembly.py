@@ -148,6 +148,37 @@ def test_prompt_orders_holdings_by_weight_descending() -> None:
     assert prompt.index("NVIDIA") < prompt.index("Vanguard S&P 500")
 
 
+def test_prompt_includes_code_built_transmission_for_exposed_classes() -> None:
+    """L2 analysis alone is not enough for assembly to trace a rate move
+    onto TSMC. The mechanism labels are code-built from a closed map, not
+    free-text from the model."""
+    prompt = _prompt()
+    assert "TRANSMISSION" in prompt
+    assert "discount_rate" in prompt
+
+
+def test_prompt_includes_technical_positions_when_supplied() -> None:
+    prompt = _prompt(
+        technical_positions=[
+            {
+                "ticker": "NVDA",
+                "pct_vs_sma50": 0.12,
+                "pct_vs_sma200": 0.4,
+                "pct_in_52w_range": 0.81,
+            }
+        ]
+    )
+    assert "TECHNICAL POSITION" in prompt
+    assert "NVDA" in prompt
+    assert "50" in prompt
+
+
+def test_prompt_tells_the_model_to_connect_supplied_facts_not_invent() -> None:
+    prompt = _prompt()
+    assert "connect" in prompt.lower()
+    assert "do not introduce" in prompt.lower() or "must not invent" in prompt.lower()
+
+
 def test_prompt_omits_raw_news_and_search_results() -> None:
     """Where the cost reduction actually comes from (design doc §6.3): the
     raw corpus was already digested into L1/L2, so the assembly pass never
@@ -464,3 +495,131 @@ def test_holdings_listing_prints_the_normalized_identifier_l1_is_keyed_under() -
     holdings_section = prompt.split("Holdings, largest first")[1].split("===")[0]
     assert "(0700.HK)" in holdings_section
     assert "(700.HK)" not in holdings_section
+
+
+# ---------------------------------------------------------------------------
+# L3 cross-name clusters in the prompt (issue #128 quality gate, §6.7 item 1)
+# ---------------------------------------------------------------------------
+
+
+_CLUSTERS: list[dict[str, Any]] = [
+    {
+        "identifiers": ["NVDA", "VOO"],
+        "mechanism": "ai_capex_stack",
+        "summary": "Accelerator demand set the tape while the long end cut the other way.",
+        "confidence": "Probable",
+    }
+]
+
+
+def test_cross_name_clusters_reach_the_prompt_with_mechanism_and_confidence() -> None:
+    """The whole point of L3: assembly may state a cross-name conclusion only
+    because a prior pass established it. Mechanism, member names and the
+    confidence label all have to survive into the prompt, or the body can only
+    restate per-name notes again."""
+    prompt = _prompt(cross_name_intel=_CLUSTERS)
+    assert "CROSS-NAME" in prompt
+    assert "ai_capex_stack" in prompt
+    assert "NVDA, VOO" in prompt
+    assert "[Probable]" in prompt
+    assert "Accelerator demand" in prompt
+
+
+def test_prompt_without_clusters_says_so_rather_than_omitting_the_block() -> None:
+    """An absent block reads to the model as "not part of this task"; an
+    explicit "none" reads as "this was checked and there was nothing" — the
+    difference between silence and a licence to invent one."""
+    prompt = _prompt(cross_name_intel=[])
+    assert "CROSS-NAME" in prompt
+    assert "no cross-holding mechanism" in prompt
+
+
+def test_cluster_block_is_absent_from_the_instruction_when_no_clusters() -> None:
+    """Instructing the model to "state the cross-name conclusion" when none was
+    supplied is precisely how an invented one gets written."""
+    assert "state the shared mechanism" not in _prompt(cross_name_intel=[])
+    assert "state the shared mechanism" in _prompt(cross_name_intel=_CLUSTERS)
+
+
+# ---------------------------------------------------------------------------
+# Tracking-position display clamp (design doc §6.7, ruled 2026-08-18)
+# ---------------------------------------------------------------------------
+
+
+_TRACKING_PORTFOLIO: dict[str, Any] = {
+    "base_currency": "USD",
+    "total_base": 840000.0,
+    "fx_date": "2026-08-17",
+    "holdings": [
+        {
+            "name": "Taiwan Semiconductor",
+            "ticker": "TSM",
+            "market_value_base": 189000.0,
+            "asset_class": "STOCK",
+        },
+        {
+            "name": "China A50 ETF",
+            "ticker": "513650.SS",
+            "market_value_base": 53.0,
+            "asset_class": "EQUITY_CN",
+        },
+    ],
+    "by_asset_class": {"STOCK": 189000.0, "EQUITY_CN": 53.0},
+    "by_currency": {"USD": 840000.0},
+}
+
+
+def test_sub_one_percent_holdings_are_labelled_as_tracking_positions() -> None:
+    """A ruled product decision, not a cleanup: a near-zero position is a
+    deliberate way to watch a name that is not owned yet, so it must stay
+    VISIBLE. What it must not do is occupy a section the size of a 22.5%
+    holding's — that is a display problem, and it is fixed in display."""
+    prompt = ra.build_assembly_prompt(
+        portfolio=_TRACKING_PORTFOLIO,
+        price_anomalies=[],
+        ticker_intel={
+            "TSM": "TSM rose 1.2%. [Probable]",
+            "513650.SS": "The A50 tracker drifted. [Speculative]",
+        },
+        macro_event_intel={},
+        macro_event_exposure={},
+    )
+    assert "513650.SS" in prompt, "a tracking position must remain visible"
+    assert "tracking position" in prompt.lower()
+
+
+def test_tracking_positions_are_denied_a_section_of_their_own() -> None:
+    prompt = ra.build_assembly_prompt(
+        portfolio=_TRACKING_PORTFOLIO,
+        price_anomalies=[],
+        ticker_intel={"513650.SS": "The A50 tracker drifted. [Speculative]"},
+        macro_event_intel={},
+        macro_event_exposure={},
+    )
+    # Matched on the tracking-specific wording, not on a bare "one line" —
+    # §4.2's own "ONE line per holding" instruction already contains that
+    # phrase, so a looser assertion would pass without this feature existing.
+    assert "never a heading of its own" in prompt
+
+
+def test_a_large_holding_is_never_labelled_a_tracking_position() -> None:
+    prompt = ra.build_assembly_prompt(
+        portfolio=_TRACKING_PORTFOLIO,
+        price_anomalies=[],
+        ticker_intel={"TSM": "TSM rose 1.2%. [Probable]"},
+        macro_event_intel={},
+        macro_event_exposure={},
+    )
+    tsm_line = next(ln for ln in prompt.splitlines() if "Taiwan Semiconductor" in ln)
+    assert "tracking" not in tsm_line.lower()
+
+
+def test_assembly_prompt_version_bumped_for_the_quality_gate_contract() -> None:
+    """PR #167 review round 3, nit: the user-turn contract grew a CROSS-NAME
+    block, closed-set TRANSMISSION labels, TRACKING POSITION display rules,
+    and a TECHNICAL POSITION block, but `ASSEMBLY_PROMPT_VERSION` stayed at
+    the pre-PR value — the constant documented as existing precisely so a
+    stored report's `report_inputs["assembly_prompt_version"]` says which
+    contract produced it. A stale value means a pre- and post-quality-gate
+    assembled report are indistinguishable by that field alone."""
+    assert ra.ASSEMBLY_PROMPT_VERSION != "a4-v1"

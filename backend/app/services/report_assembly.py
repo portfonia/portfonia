@@ -64,12 +64,18 @@ from app.services.report_prompts import (
     _SHARED_BODY_RULES,
     _stale_ticker_hint,
 )
+from app.services.transmission_taxonomy import transmissions_for_classes
 
 logger = logging.getLogger(__name__)
 
 # Bumped when the assembly prompt's contract changes. Recorded on the report
 # row alongside the body so a stored report says which contract produced it.
-ASSEMBLY_PROMPT_VERSION = "a4-v1"
+# a4-v1 -> a4-v2 (issue #128 quality gate, PR #167 review round 3, nit): the
+# user-turn contract grew a CROSS-NAME MECHANISM block, closed-set
+# TRANSMISSION labels, TRACKING POSITION display rules, and a TECHNICAL
+# POSITION block — a stale version string would make a pre- and
+# post-quality-gate assembled report indistinguishable in `report_inputs`.
+ASSEMBLY_PROMPT_VERSION = "a4-v2"
 
 # The assembly pass writes the same §2/§3/§4 body Pass 2 writes — same
 # markers, same downstream injection points — so it reuses Pass 2's narrative
@@ -165,6 +171,79 @@ def _identifier(holding: dict[str, Any]) -> str:
     return _normalize_hk_ticker(str(raw)).upper()
 
 
+# Below this share of the book a holding is treated as a TRACKING POSITION:
+# a deliberate near-zero stake used to watch a name that is not owned yet
+# (design doc §6.7, ruled by the product owner 2026-08-18 — the real 8/17 book
+# carries three of them at ~CNY 383 against ~USD 840k). The ruling is explicit
+# that these are legitimate and must stay VISIBLE; what they must not do is
+# occupy a `###` section the size of a 22.5% holding's. So this is a DISPLAY
+# threshold only — it never touches L1 selection, which deliberately has no
+# weight floor on the L2-class-intersection channel precisely so these names
+# get analyzed.
+_TRACKING_POSITION_MAX_WEIGHT = 0.01
+
+
+def portfolio_identifiers(portfolio: dict[str, Any]) -> list[str]:
+    """Every identifier this portfolio snapshot currently holds, in the
+    normalized spelling L1/L2/L3 key everything under.
+
+    Public because `regenerate_report` needs it to re-narrow stored cross-name
+    clusters against the FRESH portfolio — the same correction PR #163's round
+    2 made for `macro_event_exposure`: a per-user projection replayed from
+    storage can name a holding sold between generation and regeneration.
+    """
+    out: list[str] = []
+    for holding in portfolio.get("holdings", []):
+        ident = _identifier(holding)
+        if ident and ident not in out:
+            out.append(ident)
+    return out
+
+
+def _cross_name_instruction(has_clusters: bool) -> str:
+    """The §3 instruction covering L3's clusters — present ONLY when clusters
+    were actually supplied.
+
+    Asking for a cross-name conclusion when none was established is how an
+    invented one gets written: the model reads a standing instruction as a
+    requirement to satisfy. When the day produced nothing, the block above
+    says so plainly and §3 simply does not raise the subject.
+    """
+    if not has_clusters:
+        return ""
+    return (
+        "Where the CROSS-NAME MECHANISM block links several of these holdings, "
+        "state the shared mechanism ONCE — name the holdings it binds, carry its "
+        "confidence label, and say what it would take to confirm or dissolve it — "
+        "rather than repeating it under each name separately. Do not extend a "
+        "cluster to holdings it does not list, and do not assert a connection the "
+        "block does not contain.\n"
+    )
+
+
+def _tracking_identifiers(portfolio: dict[str, Any]) -> set[str]:
+    """Identifiers whose weight puts them under the display clamp.
+
+    A holding with no price (excluded from every total, hence weight 0) is NOT
+    swept in here: `stale_tickers` already carries its own prompt line saying
+    it is unvalued, and labelling it a tracking position would assert
+    something about position size that the missing price cannot support.
+    """
+    total = float(portfolio.get("total_base") or 0.0)
+    if total <= 0:
+        return set()
+    stale = {str(s).upper() for s in portfolio.get("stale_tickers", [])}
+    out: set[str] = set()
+    for holding in portfolio.get("holdings", []):
+        ident = _identifier(holding)
+        value = float(holding.get("market_value_base") or 0.0)
+        if not ident or ident in stale or value <= 0:
+            continue
+        if value / total < _TRACKING_POSITION_MAX_WEIGHT:
+            out.add(ident)
+    return out
+
+
 def build_assembly_prompt(
     portfolio: dict[str, Any],
     price_anomalies: list[dict[str, Any]],
@@ -174,6 +253,8 @@ def build_assembly_prompt(
     period_start: str = "",
     period_end: str = "",
     trading_days: int = 0,
+    technical_positions: list[dict[str, Any]] | None = None,
+    cross_name_intel: list[dict[str, Any]] | None = None,
 ) -> str:
     """Assemble the user-turn prompt. Takes no `Session` by design — see the
     module docstring's type-boundary note; every value here arrives already
@@ -210,6 +291,7 @@ def build_assembly_prompt(
     lines.append(f"Total: {base_ccy} {total:,.0f}")
     lines.append("")
     lines.append("Holdings, largest first (weight is what this report should prioritize by):")
+    tracking = _tracking_identifiers(portfolio)
     holdings = sorted(
         portfolio.get("holdings", []),
         key=lambda h: _weight(h, total),
@@ -229,6 +311,7 @@ def build_assembly_prompt(
             + (f" ({ident})" if ident else "")
             + f" — {_weight(h, total):.1%} of portfolio"
             + (f" | asset_class: {h['asset_class']}" if h.get("asset_class") else "")
+            + (" | TRACKING POSITION" if ident and ident in tracking else "")
         )
     lines.append("")
     lines.append(f"By asset class: {portfolio.get('by_asset_class', {})}")
@@ -320,8 +403,35 @@ def build_assembly_prompt(
                 "  your exposure (asset classes you hold that this event bears on): "
                 + ", ".join(macro_event_exposure[key])
             )
+            channels = transmissions_for_classes(macro_event_exposure[key])
+            if channels:
+                lines.append("  TRANSMISSION (code-built, closed set): " + ", ".join(channels))
     else:
         lines.append("(no macro event this period bears on an asset class in this portfolio)")
+
+    # L3: the day's cross-name conclusions, already narrowed by
+    # `cross_name_intel.clusters_for_user` to clusters with at least two of
+    # THIS user's own L1 names. This block is what makes a stack sentence
+    # possible at all: without it the pass has per-name notes and per-event
+    # notes and is contractually barred from drawing the edge between them
+    # itself (design doc §6.7). The summaries are written about the mechanism
+    # and carry no identifiers; the member names come from the structured
+    # list, which is the half that could be filtered.
+    lines.append("")
+    lines.append("=== CROSS-NAME MECHANISM (already inferred — restate, do not re-derive) ===")
+    clusters = list(cross_name_intel or [])
+    if clusters:
+        for cluster in clusters:
+            members = ", ".join(str(i) for i in cluster.get("identifiers", []))
+            mechanism = str(cluster.get("mechanism", ""))
+            confidence = str(cluster.get("confidence", "Speculative"))
+            lines.append(f"{mechanism} [{confidence}]")
+            lines.append(f"  your holdings on this channel: {members}")
+            lines.append(f"  mechanism: {cluster.get('summary', '')}")
+    else:
+        lines.append(
+            "(no cross-holding mechanism was established for this period — do not assert one)"
+        )
 
     # Per-user anomaly list: which holdings crossed THIS user's thresholds.
     # The numeric table under §4.2 is code-built downstream from this same
@@ -339,14 +449,43 @@ def build_assembly_prompt(
         lines.append("(no holding moved beyond its threshold this window)")
 
     lines.append("")
+    lines.append("=== TECHNICAL POSITION (code-built OHLCV facts, not signals) ===")
+    tech_rows = list(technical_positions or [])
+    if tech_rows:
+        for t in tech_rows:
+            ident = t.get("ticker") or t.get("identifier") or ""
+            bits: list[str] = []
+            sma50 = t.get("pct_vs_sma50")
+            sma200 = t.get("pct_vs_sma200")
+            rng = t.get("pct_in_52w_range")
+            vol = t.get("vol_20d_annualized")
+            if sma50 is not None:
+                bits.append(f"vs 50-day avg {float(sma50):+.1%}")
+            if sma200 is not None:
+                bits.append(f"vs 200-day avg {float(sma200):+.1%}")
+            if rng is not None:
+                bits.append(f"in 52-week range {float(rng):.0%}")
+            if vol is not None:
+                bits.append(f"20-day vol {float(vol):.0%}")
+            if ident and bits:
+                lines.append(f"  {ident}: " + "; ".join(bits))
+    else:
+        lines.append("(no technical-position facts supplied)")
+
+    lines.append("")
     lines.append(
         "Write sections §2, §3 and §4 of the financial analysis briefing in Markdown, "
         "using the headings '## §2 Macro Signals', '## §3 Holdings Analysis' and "
         "'## §4 Risk Radar'.\n"
         "Your job is assembly, not investigation: the analysis above has already "
         "established what happened and why. Select what matters for THIS portfolio, "
-        "connect each supplied conclusion to the specific holdings it bears on, and "
-        "prioritize by weight and exposure.\n\n"
+        "connect each supplied conclusion to the specific holdings it bears on "
+        "(including a large holding that has L1 intel even if it did not print a "
+        "price anomaly), and prioritize by weight and exposure. You MUST NOT invent "
+        "facts, events, figures or catalysts that appear nowhere in the supplied "
+        "blocks. You MAY connect facts that ARE supplied: an L2 event plus its "
+        "TRANSMISSION labels plus an L1 entry on a related holding is one chain, "
+        "not three unrelated notes. Do not introduce new facts.\n\n"
         + _RULE_TIME_REFERENCES
         + _RULE_CONFIDENCE_LABELS
         + "## §2 Macro Signals\n"
@@ -361,7 +500,11 @@ def build_assembly_prompt(
         "that holding, how it sits against the rest of the portfolio "
         "(concentration, currency), and what would confirm or dissolve the read. "
         "Depth over breadth. End each causal attribution with its confidence "
-        "label.\n\n"
+        "label.\n"
+        + _cross_name_instruction(bool(clusters))
+        + "A holding marked TRACKING POSITION gets ONE line at most and never a "
+        "heading of its own — it is a deliberate watch-only stake, so it stays "
+        "visible but must not take the space of a real position.\n\n"
         "## §4 Risk Radar\n"
         "### 4.1 Concentration — state the flagged ratios above.\n"
         "### 4.2 Price anomalies — a numeric table is inserted by the system "
