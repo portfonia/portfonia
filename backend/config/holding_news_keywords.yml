@@ -48,11 +48,15 @@ holdings:
     - "Nasdaq"
   VOO:
     - "S&P 500"
+  # "HBM" was dropped here on 2026-08-20 (issue #128 quality gate, design doc
+  # §6.7 item 3). It is a memory technology — first-party news for MUU below,
+  # but for TSM only ever a supply-chain adjacency, so it recalled generic AI
+  # stories that crowded out headlines actually about the company. "CoWoS" is
+  # kept because it is TSMC's own packaging process, not an industry-wide term.
   TSM:
     - "TSMC"
     - "Taiwan Semiconductor"
     - "CoWoS"
-    - "HBM"
   AAOI:
     - "Applied Optoelectronics"
     - "optical transceiver"

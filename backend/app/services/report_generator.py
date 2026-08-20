@@ -50,6 +50,10 @@ from app.core.deps import get_current_user_id
 from app.core.ops_log import log_ops_event
 from app.core.timezones import ET
 from app.models.report import Report
+from app.services.cross_name_intel import (
+    clusters_for_user,
+    get_day_synthesis,
+)
 from app.services.email_sender import send_ops_alert, send_report_email
 from app.services.forward_events import FORWARD_WINDOW_DAYS, load_forward_events
 from app.services.github_issues import create_bug_report
@@ -68,6 +72,7 @@ from app.services.report_assembly import (
     ASSEMBLY_PROMPT_VERSION,
     build_assembly_prompt,
     parse_shadow_models,
+    portfolio_identifiers,
     run_assembly_pass,
     should_use_assembly,
 )
@@ -139,6 +144,15 @@ logger = logging.getLogger(__name__)
 
 _PROMPT_VERSION = "f2-v6"  # f2-v6: §4.2 cross-reference restricted to holdings actually in the anomaly table (R-8) + HOLDING-RELEVANT NEWS block from per-holding recall/targeted search (R-3); f2-v5 = direction-requires-evidence + divergence-is-the-signal (no price-direction claims without window data); f2-v4 = §4.2 code table + driver-only, evidence confidence labels, §4.4 technical position
 _DISCLAIMER_VERSION = "f3-bilingual-v2"
+
+# L1 leftover-budget top-up (issue #128 quality gate, design doc §6.7 item 3).
+# An L1 candidate that moved this much with NOTHING recalled is the case that
+# is guaranteed to come back [Speculative]; below it, an unexplained move is
+# ordinary noise and not worth a scarce shared search. Two per report keeps the
+# spend bounded when a whole sleeve moves at once — the daily Tavily budget is
+# shared across the fan-out, so this must stay a top-up, never a sweep.
+_L1_SEARCH_MIN_MOVE = 0.03
+_MAX_L1_TOPUP_SEARCHES = 2
 
 # Forward calendar (#1): how far ahead §2.5 looks — now defined once in
 # forward_events.py, since the L2 shared cache (issue #128 A3) must analyze
@@ -244,6 +258,7 @@ def _assembly_prompt_from_ctx(ctx: ReportContext) -> str:
         ctx.period_end,
         ctx.window_trading_days,
         ctx.technical_positions,
+        ctx.cross_name_intel,
     )
 
 
@@ -961,6 +976,53 @@ def generate_report(
             moves, _ = resolve_global_moves(session, day_start, day_end, moves_cache)
             lookback_moves[session_date] = moves
         day_moves = lookback_moves.get(eff_date, {})
+
+        # Leftover-budget top-up (issue #128 quality gate, design doc §6.7
+        # item 3). §5's targeted search covers ANOMALIES only, so an L1
+        # candidate that arrived through the weight or L2-class channel — a
+        # 22% holding that moved but never crossed its threshold — could not
+        # reach it however hard it moved. A candidate with a large move and NO
+        # recalled headline is precisely the case that is guaranteed to come
+        # back [Speculative], and therefore the best use of a search nobody
+        # else spent.
+        #
+        # Results deliberately do NOT join `ctx.search_results`: that list is
+        # Pass 2's prompt input, and improving both arms of an A/B comparison
+        # measures nothing (design doc §6.3.1). These titles feed L1 only.
+        # Spend is still accounted for, because `_run_tavily_search` writes
+        # `search_cache` rows and `_tavily_used_today` counts those.
+        uncovered = sorted(
+            (
+                ident
+                for ident in l1_identifiers
+                # `ident in day_moves` is not redundant with the threshold: a
+                # candidate with no captured close for `eff_date` has no move
+                # at all, and `build_l1_facts` would drop it anyway — buying it
+                # a search would spend the budget on a name L1 never briefs.
+                if not l1_headlines.get(ident)
+                and ident in day_moves
+                and abs(float(day_moves[ident].net_pct)) >= _L1_SEARCH_MIN_MOVE
+            ),
+            key=lambda i: abs(float(day_moves[i].net_pct)),
+            reverse=True,
+        )[:_MAX_L1_TOPUP_SEARCHES]
+        if uncovered:
+            topup_budget = max(
+                0, settings.TAVILY_DAILY_BUDGET - _tavily_used_today(session, eff_date)
+            )
+            queries = {f"{ident} stock news catalyst": ident for ident in uncovered}
+            logger.info(
+                "report %s: %d L1 top-up searches for un-recalled movers (budget %d)",
+                report.id,
+                len(queries),
+                topup_budget,
+            )
+            for result in _run_tavily_search(session, list(queries), eff_date, budget=topup_budget):
+                ident = queries.get(result.get("query", ""))
+                title = result.get("title", "")
+                if ident and title:
+                    l1_headlines.setdefault(ident, []).append(f"{trade_day}: {title}")
+
         l1_macro_briefs = [
             f"{trade_day} {key}: {(intel.get('analysis') or '').strip()}"
             for key, intel in ctx.macro_event_intel.items()
@@ -993,6 +1055,52 @@ def generate_report(
         # the L1 candidate list (issue #128 quality gate). Selection/values
         # split is unchanged: l2_event_keys_for_user -> list[str], facts
         # from build_l2_facts (session, keys, date only).
+
+        # ------------------------------------------------------------------
+        # 5.7 L3 day-level cross-identifier synthesis (issue #128 quality
+        # gate, design doc §6.7 item 1) — the ONE thing L1 (per identifier)
+        # and L2 (per event) structurally cannot express: which identifiers
+        # moved together today for one mechanism. Pass 2 makes that join
+        # inside its single call; assembly is forbidden to invent edges, so
+        # the join has to exist as a fact before assembly runs.
+        # ------------------------------------------------------------------
+        #
+        # ORDER MATTERS: this runs AFTER `get_l1_intel_batch` because it reads
+        # the day's L1 rows back out of `ticker_intel` — running it earlier
+        # would analyze a day missing exactly the names this report is about.
+        #
+        # `get_day_synthesis(session, eff_date, ...)` takes no per-user
+        # argument at all, unlike L1/L2's `*_for_user` selection channels: what
+        # it analyzes ("every identifier the system briefed today") is already
+        # a global fact. The per-user narrowing happens on the way OUT, via
+        # `clusters_for_user`, and it happens HERE rather than downstream
+        # because `ctx.cross_name_intel` is persisted to `report_inputs`, read
+        # back by regenerate, and re-rendered — an unnarrowed cluster stored
+        # there would outlive any later filtering.
+        #
+        # Wrapped: a cross-name conclusion is an enrichment, so a failure in
+        # this layer costs a sentence, never a report — the same degradation
+        # contract L1 and L2 answer to, except that those degrade inside their
+        # own batch functions while this one is a single call.
+        try:
+            day_clusters = get_day_synthesis(
+                session,
+                eff_date,
+                usage_sink=ctx.llm_calls,
+                users_remaining=users_remaining,
+            )
+            ctx.cross_name_intel = clusters_for_user(day_clusters, list(ctx.ticker_intel))
+        except Exception:
+            logger.exception(
+                "report %s: cross-name synthesis failed — continuing without it", report.id
+            )
+            ctx.cross_name_intel = []
+        logger.info(
+            "report %s: %d cross-name cluster(s) bear on this portfolio",
+            report.id,
+            len(ctx.cross_name_intel),
+        )
+
         # ------------------------------------------------------------------
         # 6. Report body — A4 personalized assembly, else Pass 2
         # ------------------------------------------------------------------
@@ -1232,6 +1340,19 @@ def regenerate_report(
             fresh_exposure = user_event_exposure(
                 inputs.get("macro_event_intel", {}), portfolio.get("by_asset_class", {})
             )
+            # Cross-name clusters get the same treatment for the same reason:
+            # a stored cluster is a per-user projection (already narrowed to
+            # the L1 keys this user had at generation time), so a holdings
+            # edit since then could leave it naming a position no longer held.
+            # Re-narrowing is pure set arithmetic — zero LLM cost — and the
+            # SHARED half (which identifiers share a mechanism, and what that
+            # mechanism is) is what `analyze` must not re-derive, so it stays
+            # stored and untouched.
+            still_held = set(portfolio_identifiers(portfolio))
+            fresh_clusters = clusters_for_user(
+                list(inputs.get("cross_name_intel", [])),
+                [k for k in inputs.get("ticker_intel", {}) if k in still_held],
+            )
             assembly_user = build_assembly_prompt(
                 portfolio,
                 inputs.get("price_anomalies", []),
@@ -1241,6 +1362,8 @@ def regenerate_report(
                 period_start_iso,
                 period_end_iso,
                 trading_days,
+                inputs.get("technical_positions", []),
+                fresh_clusters,
             )
             raw_body = run_assembly_pass(
                 _openrouter_client(), assembly_model, assembly_user, usage_sink=regen_calls

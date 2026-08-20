@@ -99,6 +99,54 @@ def _mock_report_llm(client: object, model: str, system: str, user: str, **kwarg
     return '{"queries": []}'
 
 
+def _seed_second_mover_for_u1(db_session: Session) -> None:
+    """A second moving holding for U1 (and U2, who also holds AAPL).
+
+    Needed by the L3 tests only: a cross-name cluster requires at least two of
+    the reader's OWN names to survive `clusters_for_user`, so with the base
+    one-mover-per-user seeding there is nothing for the narrowing step to get
+    wrong.
+    """
+    today = datetime.now(tz=ET).date()
+    yesterday = today - timedelta(days=1)
+    yesterday_at = datetime.combine(yesterday, time(20, 0), tzinfo=UTC)
+    db_session.add_all(
+        [
+            _close_at("AAPL", _BASELINE_DATE, 150.0, BOOTSTRAP_WATERMARK),
+            _close("AAPL", date(2026, 6, 2), 168.0),
+            _close_at("AAPL", yesterday, 168.0, yesterday_at),
+            _close("AAPL", today, 168.0),
+        ]
+    )
+    db_session.flush()
+
+
+def _mock_l3_llm(client: object, model: str, system: str, user: str, **kwargs: object) -> str:
+    """Group whichever of the day's briefed identifiers the batch actually
+    produced.
+
+    Echoing the supplied identifiers back (rather than returning a fixed
+    cluster) is what makes the fan-out leak test meaningful: the stored
+    clusters then genuinely span every user's names, exactly as a real
+    synthesis over a shared cache would, so `clusters_for_user` has something
+    real to fail to narrow.
+    """
+    supplied = [
+        line.rstrip(":")
+        for line in user.splitlines()
+        if line and not line.startswith((" ", "=", "(")) and line.endswith(":")
+    ]
+    tickers = [s for s in supplied if not s.startswith(("theme:", "fwd:"))]
+    if len(tickers) < 2:
+        return '{"clusters": []}'
+    members = ", ".join(f'"{t}"' for t in tickers)
+    return (
+        '{"clusters": [{"identifiers": [' + members + '], "mechanism": "discount_rate", '
+        '"summary": "The long end repriced and the whole channel followed.", '
+        '"confidence": "Probable"}]}'
+    )
+
+
 def _boundary_patches() -> list[object]:
     """Every LLM/HTTP boundary the fan-out can reach. Each module resolves its
     own `_call_llm`, so they are patched independently (same reason
@@ -122,6 +170,8 @@ def _boundary_patches() -> list[object]:
             return_value='{"analysis": "Policy steady. [Established]", '
             '"affected_asset_classes": ["EQUITY_US_TECH"], "affected_sectors": []}',
         ),
+        patch("app.services.cross_name_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.cross_name_intel._call_llm", side_effect=_mock_l3_llm),
         patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY),
     ]
 
@@ -422,4 +472,92 @@ def test_the_first_user_cannot_exhaust_the_days_l1_budget(
         "U3, last in the fixed fan-out order, was starved because U1 spent "
         "the whole cap on its own two candidates — the exact bug "
         "fair_share_budget exists to close"
+    )
+
+
+# ---------------------------------------------------------------------------
+# L3 day-level cross-name synthesis at fan-out scale (issue #128 quality gate,
+# design doc §6.7 item 1)
+# ---------------------------------------------------------------------------
+
+
+def test_cross_name_clusters_never_carry_another_users_holdings(
+    db_session: Session, three_user_holdings: dict[str, Any]
+) -> None:
+    """The sharpest form of A4's leak risk, and the reason this layer needed
+    its own test rather than an extension of the assembly one.
+
+    L1 and L2 rows are keyed to a thing (an identifier, an event) — a user
+    simply never asks for a key they do not hold. An L3 cluster is a statement
+    ABOUT A GROUP drawn from every user's book at once, so the day's stored
+    conclusion legitimately spans U1's NVDA and U3's SGOL. The `_mock_l3_llm`
+    stub above reproduces exactly that: it groups whatever the day briefed.
+    Everything therefore rests on `clusters_for_user` narrowing on the way
+    out — if it did not, U3's report would state that their gold position
+    moved with a name they have never owned.
+
+    U1 is given a SECOND moving holding on purpose. With one L1 key each, the
+    two-name floor drops every cluster for everybody and the isolation
+    assertions below hold trivially — a green test proving nothing. AAPL gives
+    U1 a surviving cluster, so "the foreign name is absent" becomes a claim
+    about narrowing rather than about emptiness.
+    """
+    _seed_price_snapshots(db_session)
+    _seed_second_mover_for_u1(db_session)
+
+    _run_batch(SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL=_ASSEMBLY_MODEL)
+
+    reports = _reports(db_session)
+    u1 = reports[three_user_holdings["U1"]]
+    u3 = reports[three_user_holdings["U3"]]
+    assert u1.report_inputs is not None and u3.report_inputs is not None
+
+    # Discriminating precondition: U1 must actually HAVE a cluster, or the
+    # isolation assertions below are satisfied by an empty list and prove
+    # nothing about narrowing.
+    u1_clusters = u1.report_inputs["cross_name_intel"]
+    assert u1_clusters, "U1 should have a surviving cluster (NVDA + AAPL both moved)"
+    assert sorted(u1_clusters[0]["identifiers"]) == ["AAPL", "NVDA"]
+
+    for report, foreign in ((u1, "SGOL"), (u3, "NVDA")):
+        assert report.report_inputs is not None
+        for cluster in report.report_inputs["cross_name_intel"]:
+            assert foreign not in cluster["identifiers"], (
+                f"a shared cluster carried {foreign} into a report that does not hold it"
+            )
+            assert foreign not in cluster["summary"]
+        assert report.report_md is not None
+        assert foreign not in report.report_md
+
+
+def test_the_days_synthesis_is_computed_once_and_shared(
+    db_session: Session, three_user_holdings: dict[str, Any]
+) -> None:
+    """The cost property, for the layer that exists to be paid for once.
+
+    Three users, one trading day: the synthesis may run more than once ONLY
+    when a later user's newly-written L1 rows change the global input set
+    (that is what the fingerprint in the cache key buys). It must never run
+    once per user unconditionally, and it must stay under the daily cap.
+    """
+    _seed_price_snapshots(db_session)
+
+    from app.tasks.report_tasks import generate_incremental_report
+
+    settings = get_settings()
+    with contextlib.ExitStack() as stack:
+        for p in _boundary_patches():
+            stack.enter_context(p)  # type: ignore[arg-type]
+        stack.enter_context(patch.object(settings, "SHARED_COMPUTE_ENABLED", True))
+        stack.enter_context(patch.object(settings, "ASSEMBLY_LLM_MODEL", _ASSEMBLY_MODEL))
+        mock_l3 = stack.enter_context(
+            patch("app.services.cross_name_intel._call_llm", side_effect=_mock_l3_llm)
+        )
+        generate_incremental_report.run()
+
+    from app.services import cross_name_intel as l3
+
+    assert mock_l3.call_count <= l3._MAX_SYNTHESES_PER_DAY, (
+        "the day-level synthesis must stay bounded by its daily cap, "
+        "not scale with the number of users"
     )

@@ -71,6 +71,7 @@ class ReportInputsDict(TypedDict, total=False):
     ticker_intel: dict[str, str]
     macro_event_intel: dict[str, dict[str, Any]]
     macro_event_exposure: dict[str, list[str]]
+    cross_name_intel: list[dict[str, Any]]
     body_source: str
     assembly_model: str
     assembly_prompt: str
@@ -137,6 +138,15 @@ class ReportContext:
     # §1.2/§6.3); both are stored now so A4 reads them back without a
     # re-query and so an audit can see what the shared layer produced.
     macro_event_exposure: dict[str, list[str]] = field(default_factory=dict)
+    # L3 day-level cross-identifier synthesis (issue #128 quality gate),
+    # already narrowed to this user: [{identifiers, mechanism, summary,
+    # confidence}]. The stored clusters are GLOBAL (one inference per trading
+    # day for the whole system — see cross_name_intel.py); what makes this
+    # field per-user is `clusters_for_user`, which intersects each cluster's
+    # identifiers with this user's own L1 keys and drops what is left too
+    # small. Same selection/values split as `ticker_intel` above, one layer
+    # up: selection per-user, values global.
+    cross_name_intel: list[dict[str, Any]] = field(default_factory=list)
     # --- A4 personalized assembly (issue #128) -----------------------------
     # Which pass actually wrote the shipped body: "pass2" (pre-A4 behavior,
     # and every fallback path) or "assembly". Recorded rather than inferred,

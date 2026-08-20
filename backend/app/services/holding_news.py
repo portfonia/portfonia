@@ -62,9 +62,24 @@ def recall_holding_news(
 
     For every identifier we match the ticker itself (word-boundary) plus any
     aliases configured for it. A news item matches when the term appears in its
-    title or summary. Items are returned newest-first (``news_items`` is already
-    sorted that way by the window loader), capped per holding. Identifiers with
-    no match are omitted from the result.
+    title or summary. Identifiers with no match are omitted from the result.
+
+    RANKING (issue #128 quality gate, design doc §6.7 item 3): matches are
+    ordered TITLE-MATCHES-FIRST, then by the order they arrive in
+    ``news_items`` (already newest-first from the window loader), and only then
+    capped. Recency alone was the sort key until the 2026-08-17 comparison
+    showed what that costs at a cap of 3: TSM's recall returned a generic AI
+    piece that mentioned a supply-chain term in its body, while a headline
+    actually about TSMC never made the cut — the weaker match won purely by
+    being newer. A term in the headline is what the story is ABOUT; a term in
+    the body may be a passing reference, and the difference decides whether L1
+    gets a company catalyst or a [Speculative] shrug.
+
+    Ranking reorders, it never discards: a body-only match still lands in the
+    result whenever the cap leaves room. The whole scan runs before the cap is
+    applied (the previous version stopped at the first ``max_per_holding``
+    hits, which is why a later, stronger match could never displace an
+    earlier, weaker one).
     """
     table = keyword_table if keyword_table is not None else load_holding_keywords()
     result: dict[str, list[NewsItem]] = {}
@@ -73,14 +88,19 @@ def recall_holding_news(
         # The ticker is always a recall term; aliases add entity/theme coverage.
         terms = [ident, *table.get(ident, [])]
         patterns = [_make_pattern(t) for t in terms if t]
-        matched: list[NewsItem] = []
-        for item in news_items:
-            haystack = f"{item.title}\n{item.summary or ''}"
-            if any(p.search(haystack) for p in patterns):
-                matched.append(item)
-            if len(matched) >= max_per_holding:
-                break
-        if matched:
-            result[ident] = matched
+        # (rank, arrival index, item) — rank 0 = the term is in the headline.
+        # `arrival` keeps the loader's newest-first order as the tiebreaker
+        # within a rank, and makes the sort deterministic for equal keys.
+        scored: list[tuple[int, int, NewsItem]] = []
+        for arrival, item in enumerate(news_items):
+            in_title = any(p.search(item.title) for p in patterns)
+            in_summary = any(p.search(item.summary or "") for p in patterns)
+            if in_title:
+                scored.append((0, arrival, item))
+            elif in_summary:
+                scored.append((1, arrival, item))
+        if scored:
+            scored.sort(key=lambda entry: (entry[0], entry[1]))
+            result[ident] = [item for _rank, _arrival, item in scored[:max_per_holding]]
 
     return result
