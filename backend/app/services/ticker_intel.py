@@ -582,6 +582,59 @@ def _holding_identifier(holding: dict[str, Any]) -> str:
     return _normalize_hk_ticker(str(raw)).upper()
 
 
+def _weighted_identifiers(
+    holdings: list[dict[str, Any]], portfolio_total: float | None
+) -> list[tuple[float, str]]:
+    """(weight, identifier) pairs for every priced holding in `holdings`,
+    weight descending. Selection-only plumbing shared by
+    `l1_identifiers_for_user`'s weight-extras channel and by
+    `large_weight_identifiers` below — both need "how big is this holding",
+    never a dollar value itself, so factoring this out carries none of this
+    module's cross-user shared-cache contamination risk.
+    """
+    rows = list(holdings or [])
+    total = float(portfolio_total or 0.0)
+    if total <= 0:
+        total = sum(float(h.get("market_value_base") or 0.0) for h in rows)
+    if total <= 0:
+        return []
+    weighted: list[tuple[float, str]] = []
+    for holding in rows:
+        ident = _holding_identifier(holding)
+        if not ident:
+            continue
+        weight = float(holding.get("market_value_base") or 0.0) / total
+        weighted.append((weight, ident))
+    weighted.sort(key=lambda item: item[0], reverse=True)
+    return weighted
+
+
+def large_weight_identifiers(
+    holdings: list[dict[str, Any]],
+    portfolio_total: float | None = None,
+    top_k: int = _L1_TOP_K_BY_WEIGHT,
+    min_weight: float = _L1_MIN_WEIGHT,
+) -> list[str]:
+    """Identifiers among `holdings` at or above `min_weight`, capped to the
+    top `top_k` by weight — the same "big holding, no anomaly required"
+    selection `l1_identifiers_for_user`'s weight channel uses, exposed
+    standalone (issue #128 narrative-layer redesign, 2026-08-20) so Pass 2's
+    OWN material-gathering (`report_generator.py`'s news recall + targeted
+    search) can make the identical selection for its own inputs — not just
+    for the L1 shared cache.
+
+    Root cause this closes: on the 2026-08-17 anchor report, TSM (22.5% of
+    the portfolio, +1.22% on the day — below its own asset-class anomaly
+    threshold) got ZERO recalled news and ZERO targeted search in Pass 2's
+    prompt, because Pass 2's material-gathering only ever looked at
+    `ctx.price_anomalies`. A holding large enough to matter should not need
+    to cross an anomaly threshold to get material at all (design doc,
+    "narrative-layer redesign — quality gate reversal", step 1).
+    """
+    weighted = _weighted_identifiers(holdings, portfolio_total)
+    return [ident for weight, ident in weighted if weight >= min_weight][:top_k]
+
+
 def l1_identifiers_for_user(
     anomalies: list[dict[str, Any]],
     *,
@@ -651,22 +704,10 @@ def l1_identifiers_for_user(
             _add(candidate)
 
     rows = list(holdings or [])
-    total = float(portfolio_total or 0.0)
-    if total <= 0:
-        total = sum(float(h.get("market_value_base") or 0.0) for h in rows)
-
-    weighted: list[tuple[float, str]] = []
-    if total > 0:
-        for holding in rows:
-            ident = _holding_identifier(holding)
-            if not ident:
-                continue
-            weight = float(holding.get("market_value_base") or 0.0) / total
-            weighted.append((weight, ident))
-        weighted.sort(key=lambda item: item[0], reverse=True)
-        extras = [ident for weight, ident in weighted if weight >= min_weight][:top_k]
-        for ident in extras:
-            _add(ident)
+    weighted = _weighted_identifiers(rows, portfolio_total)
+    extras = [ident for weight, ident in weighted if weight >= min_weight][:top_k]
+    for ident in extras:
+        _add(ident)
 
     exposed = {c for c in (exposed_asset_classes or []) if c}
     if exposed:

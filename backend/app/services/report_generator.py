@@ -121,6 +121,7 @@ from app.services.ticker_intel import (
     build_l1_facts,
     get_l1_intel_batch,
     l1_identifiers_for_user,
+    large_weight_identifiers,
 )
 from app.services.window_data import (
     L1_LOOKBACK_TRADING_DAYS,
@@ -155,6 +156,17 @@ _DISCLAIMER_VERSION = "f3-bilingual-v2"
 # shared across the fan-out, so this must stay a top-up, never a sweep.
 _L1_SEARCH_MIN_MOVE = 0.03
 _MAX_L1_TOPUP_SEARCHES = 2
+
+# Weight-driven material for Pass 2 itself, not just L1 (issue #128
+# narrative-layer redesign, 2026-08-20 — design doc "第一步"). Anomaly-only
+# material-gathering left large no-anomaly holdings (TSM at 22.5%, +1.22% on
+# the 2026-08-17 anchor report) with zero recalled news and zero targeted
+# search in Pass 2's OWN prompt — not just L1's shared cache, which already
+# had a weight channel. Capped at the same top-K L1 already uses for its own
+# weight channel (`ticker_intel._L1_TOP_K_BY_WEIGHT`): a holding large enough
+# to need material without an anomaly is, by definition, a small set per
+# report.
+_MAX_WEIGHT_TARGETED_SEARCHES = 5
 
 # Forward calendar (#1): how far ahead §2.5 looks — now defined once in
 # forward_events.py, since the L2 shared cache (issue #128 A3) must analyze
@@ -804,24 +816,52 @@ def generate_report(
         ctx.search_results = search_results
 
         # ------------------------------------------------------------------
-        # 5. Holding-relevant news enrichment (R-3) — anomaly-driven
+        # 5. Holding-relevant news enrichment (R-3) — anomaly- AND
+        #    weight-driven (issue #128 narrative-layer redesign, 2026-08-20)
         # ------------------------------------------------------------------
         # After we know WHICH holdings moved, recall window news relevant to each
         # (mapping gap: a captured story that matched no macro theme), and for the
         # most-moved holdings the store has NOTHING for, run a targeted live
         # search (source gap: a window-relevant story the RSS sources never carried).
         # Both are holdings-derived, so they run AFTER Pass 1 and feed only Pass 2.
+        #
+        # A large holding that never crosses its own anomaly threshold used to
+        # get NONE of this — anomaly_ids only. On the 2026-08-17 anchor report
+        # TSM (22.5% of the portfolio, +1.22% on the day) got zero recalled
+        # news and zero targeted search here, so Pass 2 wrote its TSM section
+        # from prior knowledge alone. `large_weight_identifiers` is the same
+        # top-K-by-weight selection L1 already uses (`ticker_intel.py`'s
+        # weight channel) so a big holding gets material without needing an
+        # anomaly — unioned into `anomaly_ids` so it reaches Pass 2's OWN
+        # inputs too, not just L1's shared cache.
         anomaly_ids = [a["identifier"] for a in ctx.price_anomalies if a.get("identifier")]
-        recalled = recall_holding_news(news_items, anomaly_ids)
+        weight_ids = large_weight_identifiers(
+            list(ctx.portfolio_summary.get("holdings") or []),
+            float(ctx.portfolio_summary.get("total_base") or 0.0),
+        )
+        material_ids = list(dict.fromkeys([*anomaly_ids, *weight_ids]))
+        recalled = recall_holding_news(news_items, material_ids)
         ctx.holding_news = {ident: _serialize_news(items) for ident, items in recalled.items()}
         logger.info(
-            "report %s: recalled holding news for %d/%d moved holdings",
+            "report %s: recalled holding news for %d/%d moved+large holdings",
             report.id,
             len(ctx.holding_news),
-            len(anomaly_ids),
+            len(material_ids),
         )
 
         targeted = _targeted_anomaly_queries(ctx.price_anomalies, set(ctx.holding_news.keys()))
+        # Large-weight holdings never reach `_targeted_anomaly_queries` above
+        # (it only iterates `ctx.price_anomalies`) — give the un-recalled ones
+        # the same ticker-driven query, capped independently so a portfolio
+        # with both a busy anomaly day AND several large quiet holdings can't
+        # let one channel starve the other.
+        already_targeted = {ident for ident, _q in targeted}
+        weight_targeted = [
+            (ident, f"{ident} stock news catalyst")
+            for ident in weight_ids
+            if ident not in ctx.holding_news and ident not in already_targeted
+        ][:_MAX_WEIGHT_TARGETED_SEARCHES]
+        targeted = targeted + weight_targeted
         # L1 runs its OWN recall below (§5.5) over its own identifier
         # vocabulary, so all that's collected here is the targeted-search
         # titles keyed by the identifier that asked for them. `ctx.holding_news`

@@ -384,6 +384,72 @@ def test_targeted_search_budget_uses_real_api_calls_not_result_item_count(
     assert any("NVDA" in q for q in real_queries)
 
 
+def test_large_weight_holding_without_anomaly_gets_material(db_session: Session) -> None:
+    """Narrative-layer redesign (issue #128, 2026-08-20): the 2026-08-17
+    anchor report's TSM line (22.5% of the portfolio, +1.22% on the day —
+    below its own asset-class anomaly threshold) got ZERO recalled news and
+    ZERO targeted search in Pass 2's own inputs, because both only ever
+    looked at `ctx.price_anomalies` — a holding that never crosses its
+    threshold was invisible to material-gathering no matter how large its
+    weight. Pass 2 wrote it from prior knowledge alone; the redesign doc's
+    diagnosis is that this — not the writing model or its instructions — is
+    the actual root cause (design doc, "narrative-layer redesign — quality
+    gate reversal", the TSM worked example pinning down the gap).
+
+    `_portfolio_snap()`'s single AAPL holding is 100% of the portfolio,
+    which reproduces the "large weight, no anomaly" shape directly: with
+    `detect_window_anomalies` returning an empty anomaly list and no window
+    news to recall, AAPL must still trigger a targeted search whose result
+    lands in `ctx.search_results` (persisted as
+    `report_inputs["search_results"]`) — the same BACKGROUND RESEARCH slot
+    the existing anomaly-targeted search already uses — so Pass 2's own
+    prompt carries the material, not just L1's shared cache.
+    """
+    tavily_calls: list[list[str]] = []
+
+    def _capture_tavily(
+        session: Session, queries: list[str], eff_date: date, *, budget: int
+    ) -> list[dict[str, Any]]:
+        tavily_calls.append(list(queries))
+        return [
+            {
+                "query": q,
+                "title": f"headline for {q}",
+                "url": "https://example.com/x",
+                "content": "c",
+                "score": 0.5,
+            }
+            for q in queries
+        ]
+
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch("app.services.report_generator.load_news_window", return_value=[]),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 2)),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
+        patch("app.services.report_generator._run_tavily_search", side_effect=_capture_tavily),
+    ):
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert report.status == "success"
+    all_queries = [q for batch in tavily_calls for q in batch]
+    assert any("AAPL" in q for q in all_queries), (
+        f"expected a targeted search query naming the large no-anomaly "
+        f"holding AAPL among {all_queries}"
+    )
+    assert report.report_inputs is not None
+    aapl_results = [
+        r for r in report.report_inputs["search_results"] if "AAPL" in r.get("title", "")
+    ]
+    assert aapl_results, (
+        f"expected an AAPL-titled result in search_results: "
+        f"{report.report_inputs['search_results']}"
+    )
+
+
 def test_generate_report_pass2_call_excludes_l1_ticker_intel_text(db_session: Session) -> None:
     """Round 2 review finding: `ctx.ticker_intel` is populated and persisted
     on report_inputs, but nothing enforces that Pass 2 never receives it —
@@ -1021,7 +1087,17 @@ def test_generate_report_tavily_failure_degraded(db_session: Session) -> None:
 
 
 def test_generate_report_pass1_invalid_json(db_session: Session) -> None:
-    """Pass 1 returns garbage JSON → search_queries empty, pipeline continues."""
+    """Pass 1 returns garbage JSON → search_queries empty, pipeline continues.
+
+    `mock_tavily` is NOT asserted uncalled (pre-2026-08-20 behavior): the
+    weight-driven targeted search added for issue #128's narrative-layer
+    redesign runs independently of Pass 1's own query list — `_portfolio_snap()`'s
+    single AAPL holding is 100% of the portfolio with no anomaly and no
+    recalled news (the Fed-themed fixture article doesn't match AAPL), so it
+    still triggers exactly one targeted call regardless of whether Pass 1
+    parsed. What this test actually locks is narrower: Pass 1 failing to
+    parse must not itself add any OF ITS OWN queries to `search_queries`.
+    """
 
     def bad_pass1(
         client: object,
@@ -1051,7 +1127,8 @@ def test_generate_report_pass1_invalid_json(db_session: Session) -> None:
     assert report.status == "success"
     assert report.report_inputs is not None
     assert report.report_inputs["search_queries"] == []
-    mock_tavily.assert_not_called()
+    called_queries = [c.args[1] for c in mock_tavily.call_args_list]
+    assert called_queries == [["AAPL stock news catalyst"]]
 
 
 # ---------------------------------------------------------------------------
