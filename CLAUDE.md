@@ -775,6 +775,76 @@ reduction, and the shape becomes `O(|identifier union|) + O(N)`.
   exposure only (`user_event_exposure`); `sector` stays scoped to the
   forward-event mapping in `report_sections._forward_exposure`.
 
+### L3 day-level cross-name synthesis (Ring 1 quality gate, issue #128, PR #167)
+
+The gap A1–A4 left open: L1 (per identifier) and L2 (per event) structurally
+cannot express "these identifiers moved together today for one mechanism" —
+three overlay comparisons on a real 26-holding book showed assembly was
+otherwise as deep as Pass 2 per-name, but never produced that cross-name
+sentence, because nothing in the input shape could. `cross_name_intel.py`
+adds a third shared layer that performs exactly that join, once per trading
+day for the whole system.
+
+- **No per-user selection channel at all, unlike L1/L2.** What this layer
+  analyzes ("every identifier the system briefed today") is already a global
+  fact, readable straight from `ticker_intel`/`macro_event_intel` — so
+  `get_day_synthesis(session, trade_date, ...)` has no parameter a
+  watermark, portfolio, or anomaly list could arrive through. The per-user
+  narrowing happens entirely on the way OUT, via `clusters_for_user`.
+- **Output is decomposable clusters, not a day-level paragraph, because that
+  shape is a leak-prevention property, not a formatting choice.** A summary
+  naming everything analyzed today could not be narrowed to one user's
+  book — it would carry other users' holdings into this report as prose no
+  matter how the identifier list beside it were filtered. So:
+  `clusters: [{identifiers, mechanism, summary, confidence}]`, with the
+  summary required to describe the mechanism and name no identifiers.
+  `clusters_for_user` additionally drops any cluster whose summary NAMES an
+  identifier the reader does not hold (a prompt rule is an instruction, not
+  a guarantee) — checked against the FULL day's briefed-identifier universe
+  (`day_briefed_identifiers`), not just a cluster's own filtered members,
+  and expanded through `holding_news.load_entity_aliases()` — a genuine
+  entity/company-name subset, deliberately NOT the full
+  `holding_news_keywords.yml` recall table, which mixes in theme/tech tokens
+  ("gold", "lithography", "Nasdaq") a legitimate mechanism summary is
+  expected to use.
+- **Cache key carries an `input_fingerprint`** (sha256 over the day's
+  global L1 identifier set), not just `(trade_date, prompt_version)` — a
+  date-only key would freeze the day's conclusion to whichever user's
+  `generate_report` reached it first, and every later user would read a
+  conclusion that structurally cannot mention any of their names (the same
+  "early write locks the day" shape L1's headline-only path hit once).
+- **`_MAX_SYNTHESES_PER_DAY` (9) is 3x `_MAX_ATTEMPTS_PER_KEY` (3), not
+  equal to it** — the first version had them equal, so one non-retryable
+  failure or compliance block on the day's first fingerprint could write
+  `attempt_count=3` in a single shot, zeroing the entire daily budget for
+  every later, genuinely different fingerprint that day. Widening the
+  constant was the accepted fix over splitting `attempt_count`'s dual
+  meaning (cost tracking vs daily-budget accounting) — both concrete ways to
+  split it reopen a version of the bug issue #160 already closed (a new
+  flag column either lands on all three sibling tables or splits their
+  semantics; capping on distinct-fingerprint/success count instead of
+  `SUM(attempt_count)` lets a bad-provider day retry unboundedly across an
+  ever-changing fingerprint stream). Full tradeoff write-up: Obsidian
+  `Hermes/Portfonia/Docs/Ring 1-A design.md` §6.7.
+- **L1's own prompt (`l1-v4`) dropped its macro-brief channel entirely,
+  rather than reading L2 through a global loader.** An earlier draft passed
+  `ctx.macro_event_intel` (a per-user L2 SELECTION) into L1 facts as
+  `macro_briefs`, baking a per-user selection outcome into a value written
+  to the shared `ticker_intel` cache — the round-5 window-leak shape in a
+  new field. L3 already performs the L1+L2 join globally, so the fix was
+  removing the join from L1 rather than reading L2 without contamination a
+  second time.
+- **`ASSEMBLY_PROMPT_VERSION` = `a4-v2`** (bumped from `a4-v1` alongside the
+  new CROSS-NAME MECHANISM block, closed-set TRANSMISSION labels, TRACKING
+  POSITION display rules — sub-1%-weight holdings get one line, never a
+  heading, but are NOT floored out of L1 selection; deliberate legal
+  tracking-position use case — and a TECHNICAL POSITION block).
+- **Status**: merged (squash `c308e6c`, PR #167), three independent review
+  rounds (2 bugs / 7 suggestions / 2 nits, all verified and fixed).
+  `SHARED_COMPUTE_ENABLED` stays **false** — this closes the quality-gate
+  structural gap, it does not itself authorize switching the production
+  body-source; that is a separate, later decision.
+
 ### News dedup ledger: closing the window-boundary permanent-miss gap (issue #30)
 
 `load_news_window` (`app/services/window_data.py`) used to select
