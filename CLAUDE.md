@@ -861,7 +861,7 @@ supports) — assembly's design deliberately withholds both. Direction set:
 caches, but every user's report body is still written by their own real
 Pass 2 call, now fed richer material. `SHARED_COMPUTE_ENABLED` is
 unaffected either way; full design rationale and iteration history: Obsidian
-`Hermes/Portfonia/Docs/Ring 1-A 叙述层重设计（质量门推翻）.md`.
+`Hermes/Portfonia/Docs/Ring 1-A Narrative Layer Redesign (Quality Gate Reversal).md`.
 
 - **Large no-anomaly holdings get material too** (`large_weight_identifiers`
   in `ticker_intel.py`, top-5 by weight ≥5%, identifier strings only — same
