@@ -211,18 +211,47 @@ def test_pass2_system_requires_the_causal_chain_not_just_names() -> None:
 
 def test_pass2_prompt_includes_large_holding_window_price() -> None:
     """Design amendment item 3: a large holding below the anomaly threshold
-    (e.g. TSM at 22.5% weight, +1.22% on 2026-08-17) previously had NO price
-    fact anywhere in the prompt. `large_holding_moves` supplies exactly that
-    number in its own section, separate from PRICE ANOMALIES."""
+    previously had NO price fact anywhere in the prompt. `large_holding_moves`
+    supplies exactly that number in its own section, separate from PRICE
+    ANOMALIES."""
     prompt = rp._build_pass2_prompt(
         rs._serialize_portfolio(_portfolio_snap()),
         {},
         [],
         [],
-        large_holding_moves={"TSM": 0.0122},
+        large_holding_moves={"TSM": {"net_pct": 0.0011, "max_day_pct": None, "max_day_date": None}},
     )
     assert "LARGE HOLDINGS WINDOW PRICE" in prompt
-    assert "TSM: +1.22% this report period" in prompt
+    assert "TSM: +0.11% net this report period" in prompt
+
+
+def test_pass2_prompt_large_holding_net_and_max_day_are_separate_facts() -> None:
+    """Second design amendment (2026-08-20), item 3: net_pct and max_day_pct
+    must render as two distinguishable facts, not blended into one number —
+    v6 fed only net_pct and the body then conflated a quiet window net with a
+    real sharp single day inside that window."""
+    prompt = rp._build_pass2_prompt(
+        rs._serialize_portfolio(_portfolio_snap()),
+        {},
+        [],
+        [],
+        large_holding_moves={
+            "TSM": {"net_pct": 0.0011, "max_day_pct": 0.0122, "max_day_date": "2026-08-17"}
+        },
+    )
+    assert "TSM: +0.11% net this report period" in prompt
+    assert "largest single day +1.22% on 2026-08-17" in prompt
+
+
+def test_pass2_prompt_large_holding_omits_max_day_clause_when_absent() -> None:
+    prompt = rp._build_pass2_prompt(
+        rs._serialize_portfolio(_portfolio_snap()),
+        {},
+        [],
+        [],
+        large_holding_moves={"TSM": {"net_pct": 0.0011, "max_day_pct": None, "max_day_date": None}},
+    )
+    assert "largest single day" not in prompt
 
 
 def test_pass2_prompt_omits_large_holding_block_when_empty() -> None:
@@ -237,3 +266,30 @@ def test_direction_requires_evidence_accepts_large_holding_price_as_grounding() 
     # pre-existing two — otherwise a strict reading of the rule would still
     # forbid stating TSM's own supplied window move.
     assert "LARGE HOLDINGS WINDOW PRICE" in rp._RULE_DIRECTION_REQUIRES_EVIDENCE
+
+
+def test_pass2_system_forbids_recomputing_concentration() -> None:
+    """Second design amendment (2026-08-20), item 2: v6's §4.1 summed TSM
+    (22.5%) + a merged two-lot VOO figure (31.8%) + QQQ (12.9%) into 67.2%,
+    contradicting the code-built top-3 table's own 61.4% (VOO's single
+    largest lot, 26.0%, not the merged total). Concentration numbers must be
+    restated verbatim, never recomputed."""
+    assert "CONCENTRATION NUMBERS ARE SUPPLIED, NOT COMPUTED" in rp._PASS2_SYSTEM
+    assert "never be substituted for, or added into" in rp._PASS2_SYSTEM
+
+
+def test_pass2_section4_points_to_the_concentration_rule() -> None:
+    assert "CONCENTRATION NUMBERS ARE SUPPLIED, NOT COMPUTED" in rp._SECTION4_INSTRUCTIONS
+
+
+def test_pass2_system_requires_grounded_connections() -> None:
+    """Second design amendment (2026-08-20), item 4: v6's TSM section
+    connected the Strait-of-Hormuz theme to TSMC's shipping costs and a
+    China-cloud-procurement narrative to TSMC's leading-edge nodes — neither
+    connection was actually stated in the supplied window research, just
+    plausible-sounding reasoning. A theme with no holding-specific grounding
+    must stay at the macro level, not get forced into that holding's own
+    causal chain."""
+    assert "GROUNDED CONNECTIONS ONLY" in rp._PASS2_SYSTEM
+    assert "is not grounding" in rp._PASS2_SYSTEM
+    assert "never restate it as something already observed" in rp._PASS2_SYSTEM

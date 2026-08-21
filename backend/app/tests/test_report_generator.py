@@ -452,22 +452,23 @@ def test_large_weight_holding_without_anomaly_gets_material(db_session: Session)
 
 def test_large_weight_holding_window_price_reaches_pass2_prompt(db_session: Session) -> None:
     """Design amendment item 3 (issue #128, 2026-08-20, "make Pass 2 write the
-    connection again, not just name it"): a large holding below the anomaly
-    threshold previously had
-    NO price fact anywhere in Pass 2's prompt at all — not even its own
-    unremarkable window move — because PRICE ANOMALIES only lists holdings
-    that crossed threshold. `resolve_global_moves` is mocked directly (the
-    real captured-close store has no seeded price_snapshots for this
-    fixture's synthetic AAPL holding); everything else is the same shape as
+    connection again, not just name it"), extended by the second design
+    amendment's item 3 (net and max-day fed as two separate facts): a large
+    holding below the anomaly threshold previously had NO price fact anywhere
+    in Pass 2's prompt at all — not even its own unremarkable window move —
+    because PRICE ANOMALIES only lists holdings that crossed threshold.
+    `resolve_global_moves` is mocked directly (the real captured-close store
+    has no seeded price_snapshots for this fixture's synthetic AAPL holding);
+    everything else is the same shape as
     `test_large_weight_holding_without_anomaly_gets_material`."""
     aapl_move = HoldingMove(
         identifier="AAPL",
         market="US",
         current_price=Decimal("101.22"),
         prev_price=Decimal("100.0"),
-        net_pct=Decimal("0.0122"),
-        max_day_pct=None,
-        max_day_date=None,
+        net_pct=Decimal("0.0011"),
+        max_day_pct=Decimal("0.0122"),
+        max_day_date=_TODAY,
         baseline_date=_TODAY,
         latest_date=_TODAY,
         prev_close=None,
@@ -511,10 +512,14 @@ def test_large_weight_holding_window_price_reaches_pass2_prompt(db_session: Sess
 
     assert report.status == "success"
     assert report.report_inputs is not None
-    assert report.report_inputs["large_holding_moves"] == {"AAPL": pytest.approx(0.0122)}
+    stored = report.report_inputs["large_holding_moves"]
+    assert stored["AAPL"]["net_pct"] == pytest.approx(0.0011)
+    assert stored["AAPL"]["max_day_pct"] == pytest.approx(0.0122)
+    assert stored["AAPL"]["max_day_date"] == _TODAY.isoformat()
     assert "pass2_user" in captured
     assert "LARGE HOLDINGS WINDOW PRICE" in captured["pass2_user"]
-    assert "AAPL: +1.22% this report period" in captured["pass2_user"]
+    assert "AAPL: +0.11% net this report period" in captured["pass2_user"]
+    assert f"largest single day +1.22% on {_TODAY.isoformat()}" in captured["pass2_user"]
 
 
 def test_weight_targeted_search_promotes_title_matches_first(db_session: Session) -> None:

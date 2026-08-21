@@ -205,3 +205,56 @@ def _targeted_anomaly_queries(
         if len(queries) >= max_n:
             break
     return queries
+
+
+def _targeted_weight_queries(
+    weight_ids: list[str],
+    covered: set[str],
+    window_start: date,
+    window_end: date,
+    max_n: int,
+) -> list[tuple[str, str]]:
+    """Build (identifier, query) for large-weight holdings with no recalled
+    window news (issue #128 narrative-layer redesign, 2026-08-20 design
+    amendment "先把 v6 变成生产路径" item 1).
+
+    Unlike `_targeted_anomaly_queries`, the query is date-locked to this
+    report's own window — an unqualified "{ident} stock news catalyst" pulled
+    generic, sometimes months-stale articles in the v5 overlay compare (one
+    TSM hit was dated ~9 months before the window). Extracted as a standalone
+    function (previously inlined in report_generator.py) specifically so a
+    verification script can import and call the SAME code the real
+    generate_report() path runs, rather than re-deriving the query string
+    format itself — v5/v6's overlay compares had reimplemented this logic in
+    the one-off script, which is exactly what this refactor stops needing.
+
+    Callers append these results to whatever Pass 1's own macro-theme search
+    already produced (never replace it) — this function only builds queries,
+    it has no opinion on how its results get merged into ctx.search_results.
+    """
+    return [
+        (
+            ident,
+            f"{ident} stock news catalyst {window_start.isoformat()} to {window_end.isoformat()}",
+        )
+        for ident in weight_ids
+        if ident not in covered
+    ][:max_n]
+
+
+def _rank_title_matches_first(
+    results: list[dict[str, Any]], query_to_identifier: dict[str, str]
+) -> list[dict[str, Any]]:
+    """Stable-sort targeted-search results so a title that actually names the
+    identifier is ranked ahead of one that only matched Tavily's own
+    relevance score (design amendment item 1) — the same "a term in the
+    headline is what the story is ABOUT" lesson `recall_holding_news` already
+    applies. Reorders only; never discards or truncates. Returns a new list
+    (does not mutate `results`).
+    """
+
+    def _not_title_match(result: dict[str, Any]) -> int:
+        ident = query_to_identifier.get(result.get("query", ""), "")
+        return 0 if ident and ident.upper() in result.get("title", "").upper() else 1
+
+    return sorted(results, key=_not_title_match)

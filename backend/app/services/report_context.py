@@ -54,7 +54,7 @@ class ReportInputsDict(TypedDict, total=False):
     technical_positions: list[dict[str, Any]]
     forward_events: list[dict[str, Any]]
     holding_news: dict[str, list[dict[str, Any]]]
-    large_holding_moves: dict[str, float]
+    large_holding_moves: dict[str, dict[str, Any]]
     period_start: str
     period_end: str
     window_trading_days: int
@@ -97,14 +97,22 @@ class ReportContext:
     # Window price move for a large-weight holding that never crossed this
     # window's anomaly threshold (issue #128 narrative-layer redesign,
     # 2026-08-20 design amendment "make Pass 2 write the connection again, not
-    # just name it", item 3): {identifier: net_pct}. Without this, a holding
-    # like TSM (weight-selected into `large_weight_identifiers`, but not an
-    # anomaly) had ZERO price fact
-    # in Pass 2's prompt — DIRECTION REQUIRES EVIDENCE then forced the body to
-    # drop the holding's own window move entirely rather than state the real,
-    # unremarkable number. Anomaly holdings are excluded (they already have a
-    # PRICE ANOMALIES row); this is strictly the below-threshold set.
-    large_holding_moves: dict[str, float] = field(default_factory=dict)
+    # just name it", item 3). Without this, a holding like TSM
+    # (weight-selected into `large_weight_identifiers`, but not an anomaly)
+    # had ZERO price fact in Pass 2's prompt — DIRECTION REQUIRES EVIDENCE
+    # then forced the body to drop the holding's own window move entirely
+    # rather than state the real, unremarkable number. Anomaly holdings are
+    # excluded (they already have a PRICE ANOMALIES row); this is strictly
+    # the below-threshold set.
+    #
+    # {identifier: {"net_pct": float, "max_day_pct": float | None,
+    # "max_day_date": str | None}} — net and max-day are two SEPARATE facts
+    # (2026-08-20 second design amendment, item 3), not merged into one
+    # number: the v6 compare fed only net_pct, and the body conflated it with
+    # the window's largest single-day move in prose (TSM's window net was a
+    # quiet +0.11%, but the window also contained a real +1.22% single day —
+    # a reader cannot recover that distinction from one blended figure).
+    large_holding_moves: dict[str, dict[str, Any]] = field(default_factory=dict)
     # ADR-002 window bookkeeping (ISO strings / int) for re-render reproducibility.
     period_start: str = ""
     period_end: str = ""

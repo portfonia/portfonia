@@ -188,3 +188,69 @@ def test_cache_hit_does_not_inflate_tavily_used_today(db_session: Session) -> No
         rs._run_tavily_search(db_session, ["NVDA earnings"], _DATE, budget=5)
 
     assert rs._tavily_used_today(db_session, _DATE) == 1
+
+
+# ---------------------------------------------------------------------------
+# _targeted_weight_queries / _rank_title_matches_first (issue #128
+# narrative-layer redesign, 2026-08-20 design amendment — extracted from
+# report_generator.py so the real generate_report() path and a verification
+# script import the SAME functions, not two independently-maintained copies).
+# ---------------------------------------------------------------------------
+
+
+def test_targeted_weight_queries_date_locks_to_the_report_window() -> None:
+    queries = rs._targeted_weight_queries(
+        ["TSM"], set(), date(2026, 8, 14), date(2026, 8, 17), max_n=5
+    )
+    assert queries == [("TSM", "TSM stock news catalyst 2026-08-14 to 2026-08-17")]
+
+
+def test_targeted_weight_queries_skips_already_covered_identifiers() -> None:
+    queries = rs._targeted_weight_queries(
+        ["TSM", "QQQ"], {"TSM"}, date(2026, 8, 14), date(2026, 8, 17), max_n=5
+    )
+    assert [ident for ident, _q in queries] == ["QQQ"]
+
+
+def test_targeted_weight_queries_respects_max_n() -> None:
+    queries = rs._targeted_weight_queries(
+        ["TSM", "QQQ", "ASML"], set(), date(2026, 8, 14), date(2026, 8, 17), max_n=2
+    )
+    assert len(queries) == 2
+
+
+def test_rank_title_matches_first_promotes_title_hit_over_relevance_score() -> None:
+    """The v5 compare's TSM query returned a mostly-generic Tavily result set
+    despite a stronger relevance score on the off-target item — this is the
+    reranking that fixes it, now a standalone tested function rather than
+    inline logic only exercised end-to-end."""
+    off_target = {
+        "query": "TSM stock news catalyst 2026-08-14 to 2026-08-17",
+        "title": "Broad market roundup",
+    }
+    on_target = {
+        "query": "TSM stock news catalyst 2026-08-14 to 2026-08-17",
+        "title": "TSM posts record Q1",
+    }
+    ranked = rs._rank_title_matches_first(
+        [off_target, on_target], {"TSM stock news catalyst 2026-08-14 to 2026-08-17": "TSM"}
+    )
+    assert ranked == [on_target, off_target]
+
+
+def test_rank_title_matches_first_is_stable_within_each_group() -> None:
+    """Reorders only; never discards or reshuffles ties — two title-matching
+    results keep their original relative order, and so do two non-matching
+    ones."""
+    a = {"query": "q", "title": "TSM alpha"}
+    b = {"query": "q", "title": "TSM beta"}
+    c = {"query": "q", "title": "unrelated one"}
+    d = {"query": "q", "title": "unrelated two"}
+    ranked = rs._rank_title_matches_first([a, c, b, d], {"q": "TSM"})
+    assert ranked == [a, b, c, d]
+
+
+def test_rank_title_matches_first_returns_a_new_list() -> None:
+    original = [{"query": "q", "title": "x"}]
+    ranked = rs._rank_title_matches_first(original, {"q": "TSM"})
+    assert ranked is not original

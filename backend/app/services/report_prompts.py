@@ -96,6 +96,29 @@ _RULE_DIVERGENCE_IS_THE_SIGNAL = (
     "a war-risk spike), report that divergence itself as the noteworthy signal — "
     "do not silently follow the narrative and do not omit the contradiction.\n"
 )
+_RULE_CONCENTRATION_IS_SUPPLIED = (
+    "CONCENTRATION NUMBERS ARE SUPPLIED, NOT COMPUTED: the top-3 combined, top "
+    "holding, and top asset-class percentages given in the Concentration flags "
+    "data above are already correct — restate them exactly, in every section "
+    "that references them (§3 as well as §4.1). Never add, re-sum, or merge "
+    "holding rows — including combining one security's multiple lots — to "
+    "produce a different top-3 or concentration figure. A combined-lot weight "
+    "(e.g. 'these two rows total X% together') may be stated as its own "
+    "portfolio-composition fact, but must never be substituted for, or added "
+    "into, the supplied concentration number.\n"
+)
+_RULE_GROUNDED_CONNECTIONS_ONLY = (
+    "GROUNDED CONNECTIONS ONLY: connect a macro theme or research item to a "
+    "specific holding only when the supplied material for THAT theme or "
+    "holding actually states the connection. A plausible-sounding mechanism "
+    "you construct yourself (e.g. 'higher shipping costs would raise this "
+    "chipmaker's logistics costs' with no shipping-cost research supplied for "
+    "that chipmaker) is not grounding — omit the connection rather than "
+    "include it as padding. This applies equally to forward-looking or "
+    "'outlook' material: a projection or plan described in the research is a "
+    "projection — never restate it as something already observed 'this "
+    "report period'.\n"
+)
 _RULE_CROSS_REFERENCES = (
     f"§4.2 CROSS-REFERENCES: '{_pass2_cross_ref['en']}' / "
     f"'{_pass2_cross_ref['zh-Hans']}' may only be used for a holding "
@@ -113,6 +136,8 @@ _SHARED_BODY_RULES = (
     + _RULE_DIRECTION_REQUIRES_EVIDENCE
     + _RULE_DIVERGENCE_IS_THE_SIGNAL
     + _RULE_NAMING_IS_NOT_ANALYSIS
+    + _RULE_CONCENTRATION_IS_SUPPLIED
+    + _RULE_GROUNDED_CONNECTIONS_ONLY
     + _RULE_CROSS_REFERENCES
 )
 
@@ -174,7 +199,9 @@ _SECTION3_INSTRUCTIONS = (
 )
 _SECTION4_INSTRUCTIONS = (
     "## §4 Risk Radar\n"
-    "### 4.1 Concentration — state the flagged ratios.\n"
+    "### 4.1 Concentration — state the flagged ratios EXACTLY as supplied "
+    "(see CONCENTRATION NUMBERS ARE SUPPLIED, NOT COMPUTED above); do not "
+    "recompute a different top-3 or concentration percentage here.\n"
     "### 4.2 Price anomalies — a numeric table (net %, worst day, the latest-day "
     "session arc, trigger) is inserted by the system directly under this heading; "
     "do NOT restate those numbers. Under the heading write ONE line per holding in "
@@ -360,19 +387,28 @@ def _build_holding_news_block(holding_news: dict[str, list[dict[str, Any]]]) -> 
     return "\n".join(lines)
 
 
-def _build_large_holding_price_block(large_holding_moves: dict[str, float]) -> str:
+def _build_large_holding_price_block(large_holding_moves: dict[str, dict[str, Any]]) -> str:
     """Render the LARGE HOLDINGS WINDOW PRICE section of the Pass 2 prompt
     (issue #128 narrative-layer redesign, 2026-08-20 design amendment "make
     Pass 2 write the connection again, not just name it", item 3).
 
     A large-weight holding that never crosses this window's anomaly threshold
-    (e.g. TSM at 22.5% weight, +1.22% on 2026-08-17) previously had NO price
-    fact anywhere in this prompt — PRICE ANOMALIES only lists holdings that
-    crossed threshold, so DIRECTION REQUIRES EVIDENCE forced the body to drop
-    the holding's own window move entirely, even though the number was already
-    captured and simply unremarkable. This section supplies exactly that
-    number so the body can state it plainly ("+1.22% this report period")
-    without inventing an intraday narrative the data does not support.
+    (e.g. TSM at 22.5% weight) previously had NO price fact anywhere in this
+    prompt — PRICE ANOMALIES only lists holdings that crossed threshold, so
+    DIRECTION REQUIRES EVIDENCE forced the body to drop the holding's own
+    window move entirely, even though the number was already captured and
+    simply unremarkable. This section supplies exactly that number so the
+    body can state it plainly without inventing an intraday narrative the
+    data does not support.
+
+    `net_pct` (the report window's cumulative move) and `max_day_pct` (the
+    largest single trading day inside that window) are rendered as TWO
+    SEPARATE facts (second design amendment, 2026-08-20, item 3) — a
+    holding can have a quiet window net move that still contains one sharp
+    day, and blending them into one number silently discards that. A holding
+    with no captured `max_day_pct` (e.g. only one trading day in the window,
+    so "largest day" and "net" are the same session) omits that clause
+    rather than repeating the net figure under a different label.
 
     Empty input → empty string (no section emitted).
     """
@@ -383,8 +419,14 @@ def _build_large_holding_price_block(large_holding_moves: dict[str, float]) -> s
         "=== LARGE HOLDINGS WINDOW PRICE (below this window's anomaly "
         "threshold, not in the §4.2 table above) ===",
     ]
-    for ident, net_pct in large_holding_moves.items():
-        lines.append(f"{ident}: {net_pct:+.2%} this report period")
+    for ident, move in large_holding_moves.items():
+        net_pct = move.get("net_pct")
+        line = f"{ident}: {net_pct:+.2%} net this report period"
+        max_day_pct = move.get("max_day_pct")
+        max_day_date = move.get("max_day_date")
+        if max_day_pct is not None and max_day_date:
+            line += f"; largest single day {max_day_pct:+.2%} on {max_day_date}"
+        lines.append(line)
     return "\n".join(lines)
 
 
@@ -398,7 +440,7 @@ def _build_pass2_prompt(
     trading_days: int = 0,
     holding_news: dict[str, list[dict[str, Any]]] | None = None,
     enabled_sections: frozenset[str] = ALL_NARRATIVE_SECTIONS,
-    large_holding_moves: dict[str, float] | None = None,
+    large_holding_moves: dict[str, dict[str, Any]] | None = None,
 ) -> str:
     lines: list[str] = []
 

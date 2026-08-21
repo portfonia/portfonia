@@ -88,8 +88,10 @@ from app.services.report_prompts import (
 )
 from app.services.report_search import (
     _MAX_SEARCH_QUERIES,
+    _rank_title_matches_first,
     _run_tavily_search,
     _targeted_anomaly_queries,
+    _targeted_weight_queries,
     _tavily_used_today,
 )
 from app.services.report_sections import (
@@ -847,9 +849,27 @@ def generate_report(
         # above via the same `moves_cache` — this is a cache hit, not a second
         # DB round trip. A weight-selected identifier with no anomaly entry
         # otherwise had NO price fact anywhere in Pass 2's prompt at all.
+        #
+        # net_pct and max_day_pct are supplied as TWO SEPARATE facts, never
+        # merged into one number (2026-08-20 second design amendment, item 3):
+        # the v6 compare fed only the window's cumulative net_pct, and the
+        # body then conflated it with the window's largest single-day move in
+        # prose ("TSM +0.11%" reads as a small move, when the window also
+        # contained a real +1.22% single day) — the model cannot recover that
+        # distinction from one blended number.
         window_moves, _ = resolve_global_moves(session, period_start, period_end, moves_cache)
+
+        def _serialize_move(move: HoldingMove) -> dict[str, Any]:
+            max_day_pct = move.max_day_pct
+            max_day_date = move.max_day_date
+            return {
+                "net_pct": float(move.net_pct),
+                "max_day_pct": float(max_day_pct) if max_day_pct is not None else None,
+                "max_day_date": max_day_date.isoformat() if max_day_date is not None else None,
+            }
+
         ctx.large_holding_moves = {
-            ident: float(window_moves[ident].net_pct)
+            ident: _serialize_move(window_moves[ident])
             for ident in weight_ids
             if ident not in anomaly_ids and ident in window_moves
         }
@@ -877,15 +897,13 @@ def generate_report(
         already_targeted = {ident for ident, _q in targeted}
         window_start_date = period_start.astimezone(ET).date()
         window_end_date = period_end.astimezone(ET).date()
-        weight_targeted = [
-            (
-                ident,
-                f"{ident} stock news catalyst "
-                f"{window_start_date.isoformat()} to {window_end_date.isoformat()}",
-            )
-            for ident in weight_ids
-            if ident not in ctx.holding_news and ident not in already_targeted
-        ][:_MAX_WEIGHT_TARGETED_SEARCHES]
+        weight_targeted = _targeted_weight_queries(
+            weight_ids,
+            set(ctx.holding_news) | already_targeted,
+            window_start_date,
+            window_end_date,
+            _MAX_WEIGHT_TARGETED_SEARCHES,
+        )
         targeted = targeted + weight_targeted
         # L1 runs its OWN recall below (§5.5) over its own identifier
         # vocabulary, so all that's collected here is the targeted-search
@@ -916,21 +934,7 @@ def generate_report(
                 targeted_budget,
             )
             targeted_results = _run_tavily_search(session, tq, eff_date, budget=targeted_budget)
-
-            # Title-match-first ranking (design amendment item 1, 2026-08-20):
-            # promote a result whose title actually names the identifier over
-            # one that only matched on body text or Tavily's own relevance
-            # score — the same "a term in the headline is what the story is
-            # ABOUT" lesson `recall_holding_news` already applies (issue #128
-            # quality gate). Stable sort: reorders within each query's own
-            # results, never discards or truncates, and never touches Pass 1's
-            # macro-theme results already in `ctx.search_results` above.
-            def _not_title_match(result: dict[str, Any]) -> int:
-                ident = query_to_identifier.get(result.get("query", ""), "")
-                title = result.get("title", "").upper()
-                return 0 if ident and ident.upper() in title else 1
-
-            targeted_results.sort(key=_not_title_match)
+            targeted_results = _rank_title_matches_first(targeted_results, query_to_identifier)
             ctx.search_results.extend(targeted_results)
             for r in targeted_results:
                 ident = query_to_identifier.get(r.get("query", ""))
