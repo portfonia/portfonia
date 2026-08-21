@@ -65,14 +65,30 @@ _RULE_DIRECTION_REQUIRES_EVIDENCE = (
     "DIRECTION REQUIRES EVIDENCE: a sentence that asserts how a SPECIFIC HOLDING'S "
     "PRICE moved, or is positioned to move (e.g. 'gained safe-haven buying', "
     "'sold off', 'outperformed', 'will see buying support'), must be grounded in "
-    "the PRICE ANOMALIES or TECHNICAL POSITION data supplied for THAT holding. If "
-    "no window price data is supplied for a holding, do not assert a price "
-    "direction for it — describe only that a transmission channel exists, say "
-    "plainly 'this report period has no price data to confirm the holding's "
-    "direction', and cap the confidence label at [Speculative]. Textbook macro "
-    "narratives (e.g. 'war risk -> gold rallies') are mechanisms, not "
-    "observations — do not restate them as something that already happened to a "
-    "specific holding without window price data.\n"
+    "the PRICE ANOMALIES, LARGE HOLDINGS WINDOW PRICE, or TECHNICAL POSITION data "
+    "supplied for THAT holding. If no window price data is supplied for a holding "
+    "in ANY of those three, do not assert a price direction for it — describe "
+    "only that a transmission channel exists, say plainly 'this report period has "
+    "no price data to confirm the holding's direction', and cap the confidence "
+    "label at [Speculative]. Textbook macro narratives (e.g. 'war risk -> gold "
+    "rallies') are mechanisms, not observations — do not restate them as "
+    "something that already happened to a specific holding without window price "
+    "data.\n"
+)
+_RULE_NAMING_IS_NOT_ANALYSIS = (
+    "NAMING IS NOT ANALYSIS: if the supplied research or recalled news describes "
+    "a development (a company's revenue, capacity, capex, demand, or a policy "
+    "action) and a holding in this portfolio sits on the chain that development "
+    "would transmit through, write the connection as a coherent causal sentence "
+    "— signal -> transmission channel -> this specific holding. Listing related "
+    "entities or tickers (customers, suppliers, competitors) without stating HOW "
+    "the development reaches THAT holding does not satisfy the mechanism "
+    "requirement above, even if the sentence names the right companies. A large "
+    "holding (one of this portfolio's biggest weights) is exactly the position "
+    "§3 should analyze deepest, even when it did not cross this window's anomaly "
+    "threshold — do not reduce it to an identity line plus a watchlist just "
+    "because PRICE ANOMALIES has nothing for it; check LARGE HOLDINGS WINDOW "
+    "PRICE below for its own window move before treating it as price-blind.\n"
 )
 _RULE_DIVERGENCE_IS_THE_SIGNAL = (
     "DIVERGENCE IS THE SIGNAL: if a holding's actual window price move CONTRADICTS "
@@ -96,6 +112,7 @@ _SHARED_BODY_RULES = (
     + _RULE_FORWARD_EVENTS
     + _RULE_DIRECTION_REQUIRES_EVIDENCE
     + _RULE_DIVERGENCE_IS_THE_SIGNAL
+    + _RULE_NAMING_IS_NOT_ANALYSIS
     + _RULE_CROSS_REFERENCES
 )
 
@@ -343,6 +360,34 @@ def _build_holding_news_block(holding_news: dict[str, list[dict[str, Any]]]) -> 
     return "\n".join(lines)
 
 
+def _build_large_holding_price_block(large_holding_moves: dict[str, float]) -> str:
+    """Render the LARGE HOLDINGS WINDOW PRICE section of the Pass 2 prompt
+    (issue #128 narrative-layer redesign, 2026-08-20 design amendment "make
+    Pass 2 write the connection again, not just name it", item 3).
+
+    A large-weight holding that never crosses this window's anomaly threshold
+    (e.g. TSM at 22.5% weight, +1.22% on 2026-08-17) previously had NO price
+    fact anywhere in this prompt — PRICE ANOMALIES only lists holdings that
+    crossed threshold, so DIRECTION REQUIRES EVIDENCE forced the body to drop
+    the holding's own window move entirely, even though the number was already
+    captured and simply unremarkable. This section supplies exactly that
+    number so the body can state it plainly ("+1.22% this report period")
+    without inventing an intraday narrative the data does not support.
+
+    Empty input → empty string (no section emitted).
+    """
+    if not large_holding_moves:
+        return ""
+    lines = [
+        "",
+        "=== LARGE HOLDINGS WINDOW PRICE (below this window's anomaly "
+        "threshold, not in the §4.2 table above) ===",
+    ]
+    for ident, net_pct in large_holding_moves.items():
+        lines.append(f"{ident}: {net_pct:+.2%} this report period")
+    return "\n".join(lines)
+
+
 def _build_pass2_prompt(
     portfolio: dict[str, Any],
     macro: dict[str, Any],
@@ -353,6 +398,7 @@ def _build_pass2_prompt(
     trading_days: int = 0,
     holding_news: dict[str, list[dict[str, Any]]] | None = None,
     enabled_sections: frozenset[str] = ALL_NARRATIVE_SECTIONS,
+    large_holding_moves: dict[str, float] | None = None,
 ) -> str:
     lines: list[str] = []
 
@@ -446,6 +492,13 @@ def _build_pass2_prompt(
             lines.append(_fmt_anomaly_arc(a))
     else:
         lines.append("(no holding moved beyond its threshold this window)")
+
+    # Large holdings' own window price, below anomaly threshold (issue #128
+    # narrative-layer redesign item 3) — otherwise these holdings had no price
+    # fact anywhere in this prompt at all, not even a non-anomalous number.
+    large_price_block = _build_large_holding_price_block(large_holding_moves or {})
+    if large_price_block:
+        lines.append(large_price_block)
 
     # Holding-relevant news (R-3): captured-window recall + targeted search for
     # the holdings that moved. Distinct from BACKGROUND RESEARCH (macro-themed).

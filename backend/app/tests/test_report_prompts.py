@@ -194,3 +194,46 @@ def test_pass2_system_restricts_section42_cross_reference() -> None:
     # R-8: 'see §4.2' may only point at holdings actually in the anomaly table.
     assert "§4.2 CROSS-REFERENCES" in rp._PASS2_SYSTEM
     assert "did not cross" in rp._PASS2_SYSTEM
+
+
+def test_pass2_system_requires_the_causal_chain_not_just_names() -> None:
+    """Issue #128 narrative-layer redesign, 2026-08-20 design amendment
+    ("make Pass 2 write the connection again, not just name it"): the v5
+    compare's TSM section named
+    Apple/Nvidia/Taiwan without ever writing how Anthropic's capex reaches
+    TSM's own process nodes — naming a related entity is not the same as
+    stating the transmission. This locks the hardened instruction that makes
+    that distinction explicit and un-skippable."""
+    assert "NAMING IS NOT ANALYSIS" in rp._PASS2_SYSTEM
+    assert "signal -> transmission channel -> this specific holding" in rp._PASS2_SYSTEM
+    assert "does not satisfy the mechanism requirement" in rp._PASS2_SYSTEM
+
+
+def test_pass2_prompt_includes_large_holding_window_price() -> None:
+    """Design amendment item 3: a large holding below the anomaly threshold
+    (e.g. TSM at 22.5% weight, +1.22% on 2026-08-17) previously had NO price
+    fact anywhere in the prompt. `large_holding_moves` supplies exactly that
+    number in its own section, separate from PRICE ANOMALIES."""
+    prompt = rp._build_pass2_prompt(
+        rs._serialize_portfolio(_portfolio_snap()),
+        {},
+        [],
+        [],
+        large_holding_moves={"TSM": 0.0122},
+    )
+    assert "LARGE HOLDINGS WINDOW PRICE" in prompt
+    assert "TSM: +1.22% this report period" in prompt
+
+
+def test_pass2_prompt_omits_large_holding_block_when_empty() -> None:
+    prompt = rp._build_pass2_prompt(
+        rs._serialize_portfolio(_portfolio_snap()), {}, [], [], large_holding_moves={}
+    )
+    assert "LARGE HOLDINGS WINDOW PRICE" not in prompt
+
+
+def test_direction_requires_evidence_accepts_large_holding_price_as_grounding() -> None:
+    # The grounding sources list must include the new section, not just the
+    # pre-existing two — otherwise a strict reading of the rule would still
+    # forbid stating TSM's own supplied window move.
+    assert "LARGE HOLDINGS WINDOW PRICE" in rp._RULE_DIRECTION_REQUIRES_EVIDENCE

@@ -54,6 +54,7 @@ class ReportInputsDict(TypedDict, total=False):
     technical_positions: list[dict[str, Any]]
     forward_events: list[dict[str, Any]]
     holding_news: dict[str, list[dict[str, Any]]]
+    large_holding_moves: dict[str, float]
     period_start: str
     period_end: str
     window_trading_days: int
@@ -93,6 +94,17 @@ class ReportContext:
     # R-3 holding-relevant news: {identifier: [news dict, ...]} recalled from the
     # window store for the holdings that moved (plus any targeted-search items).
     holding_news: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    # Window price move for a large-weight holding that never crossed this
+    # window's anomaly threshold (issue #128 narrative-layer redesign,
+    # 2026-08-20 design amendment "make Pass 2 write the connection again, not
+    # just name it", item 3): {identifier: net_pct}. Without this, a holding
+    # like TSM (weight-selected into `large_weight_identifiers`, but not an
+    # anomaly) had ZERO price fact
+    # in Pass 2's prompt — DIRECTION REQUIRES EVIDENCE then forced the body to
+    # drop the holding's own window move entirely rather than state the real,
+    # unremarkable number. Anomaly holdings are excluded (they already have a
+    # PRICE ANOMALIES row); this is strictly the below-threshold set.
+    large_holding_moves: dict[str, float] = field(default_factory=dict)
     # ADR-002 window bookkeeping (ISO strings / int) for re-render reproducibility.
     period_start: str = ""
     period_end: str = ""

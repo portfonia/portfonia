@@ -450,6 +450,136 @@ def test_large_weight_holding_without_anomaly_gets_material(db_session: Session)
     )
 
 
+def test_large_weight_holding_window_price_reaches_pass2_prompt(db_session: Session) -> None:
+    """Design amendment item 3 (issue #128, 2026-08-20, "make Pass 2 write the
+    connection again, not just name it"): a large holding below the anomaly
+    threshold previously had
+    NO price fact anywhere in Pass 2's prompt at all — not even its own
+    unremarkable window move — because PRICE ANOMALIES only lists holdings
+    that crossed threshold. `resolve_global_moves` is mocked directly (the
+    real captured-close store has no seeded price_snapshots for this
+    fixture's synthetic AAPL holding); everything else is the same shape as
+    `test_large_weight_holding_without_anomaly_gets_material`."""
+    aapl_move = HoldingMove(
+        identifier="AAPL",
+        market="US",
+        current_price=Decimal("101.22"),
+        prev_price=Decimal("100.0"),
+        net_pct=Decimal("0.0122"),
+        max_day_pct=None,
+        max_day_date=None,
+        baseline_date=_TODAY,
+        latest_date=_TODAY,
+        prev_close=None,
+        day_open=None,
+        day_high=None,
+        day_low=None,
+        day_close=None,
+        after_hours=None,
+    )
+    captured: dict[str, str] = {}
+
+    def _capture_pass2_llm(
+        client: object,
+        model: str,
+        system: str,
+        user: str,
+        *,
+        with_holdings: bool = False,
+        **kwargs: object,
+    ) -> str:
+        if with_holdings:
+            captured["pass2_user"] = user
+            return _FAKE_LLM_PASS2
+        return _FAKE_LLM_PASS1
+
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch("app.services.report_generator.load_news_window", return_value=[]),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 2)),
+        patch(
+            "app.services.report_generator.resolve_global_moves",
+            return_value=({"AAPL": aapl_move}, 2),
+        ),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_capture_pass2_llm),
+        patch("app.services.report_generator._run_tavily_search", return_value=[]),
+    ):
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert report.status == "success"
+    assert report.report_inputs is not None
+    assert report.report_inputs["large_holding_moves"] == {"AAPL": pytest.approx(0.0122)}
+    assert "pass2_user" in captured
+    assert "LARGE HOLDINGS WINDOW PRICE" in captured["pass2_user"]
+    assert "AAPL: +1.22% this report period" in captured["pass2_user"]
+
+
+def test_weight_targeted_search_promotes_title_matches_first(db_session: Session) -> None:
+    """Design amendment item 1 (2026-08-20): a targeted-search result whose
+    title actually names the identifier must be ranked ahead of a result that
+    only matched Tavily's own relevance score — the v5 compare's TSM query
+    returned a mostly-generic result set, and burying the one on-target title
+    among four off-target ones wastes the model's attention on exactly the
+    holding this fix targets."""
+
+    def _fake_tavily(
+        session: Session, queries: list[str], eff_date: date, *, budget: int
+    ) -> list[dict[str, Any]]:
+        # Only the weight-targeted AAPL query returns results — Pass 1's own
+        # (differently worded) queries return nothing, so the two calls don't
+        # bleed into each other in report_inputs["search_results"]. The real
+        # `_run_tavily_search` always stamps each result's "query" with the
+        # caller's own (date-qualified) query string — mirrored here since a
+        # mismatched "query" field would make the identifier lookup miss.
+        matches = [q for q in queries if "AAPL stock news catalyst" in q]
+        if not matches:
+            return []
+        query = matches[0]
+        # Off-target result first, exactly as Tavily's own relevance score
+        # would rank it here (0.9 > 0.4) — the fix must still put the title
+        # match ahead of it.
+        return [
+            {
+                "query": query,
+                "title": "Broad market roundup: tech stocks mixed",
+                "url": "https://example.com/roundup",
+                "content": "c",
+                "score": 0.9,
+            },
+            {
+                "query": query,
+                "title": "Apple (AAPL) reports strong iPhone demand",
+                "url": "https://example.com/aapl",
+                "content": "c",
+                "score": 0.4,
+            },
+        ]
+
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch("app.services.report_generator.load_news_window", return_value=[]),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 2)),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
+        patch("app.services.report_generator._run_tavily_search", side_effect=_fake_tavily),
+    ):
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert report.status == "success"
+    assert report.report_inputs is not None
+    titles = [r["title"] for r in report.report_inputs["search_results"] if r.get("title")]
+    aapl_titles = [t for t in titles if "iPhone" in t or "roundup" in t]
+    assert aapl_titles == [
+        "Apple (AAPL) reports strong iPhone demand",
+        "Broad market roundup: tech stocks mixed",
+    ]
+
+
 def test_generate_report_pass2_call_excludes_l1_ticker_intel_text(db_session: Session) -> None:
     """Round 2 review finding: `ctx.ticker_intel` is populated and persisted
     on report_inputs, but nothing enforces that Pass 2 never receives it —
@@ -1128,7 +1258,9 @@ def test_generate_report_pass1_invalid_json(db_session: Session) -> None:
     assert report.report_inputs is not None
     assert report.report_inputs["search_queries"] == []
     called_queries = [c.args[1] for c in mock_tavily.call_args_list]
-    assert called_queries == [["AAPL stock news catalyst"]]
+    assert len(called_queries) == 1
+    assert len(called_queries[0]) == 1
+    assert called_queries[0][0].startswith("AAPL stock news catalyst ")
 
 
 # ---------------------------------------------------------------------------

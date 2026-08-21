@@ -840,6 +840,19 @@ def generate_report(
             float(ctx.portfolio_summary.get("total_base") or 0.0),
         )
         material_ids = list(dict.fromkeys([*anomaly_ids, *weight_ids]))
+
+        # Large holdings' own window price (design amendment item 3, 2026-08-20):
+        # `resolve_global_moves` was already computed for this exact
+        # (period_start, period_end) window inside `detect_window_anomalies`
+        # above via the same `moves_cache` — this is a cache hit, not a second
+        # DB round trip. A weight-selected identifier with no anomaly entry
+        # otherwise had NO price fact anywhere in Pass 2's prompt at all.
+        window_moves, _ = resolve_global_moves(session, period_start, period_end, moves_cache)
+        ctx.large_holding_moves = {
+            ident: float(window_moves[ident].net_pct)
+            for ident in weight_ids
+            if ident not in anomaly_ids and ident in window_moves
+        }
         recalled = recall_holding_news(news_items, material_ids)
         ctx.holding_news = {ident: _serialize_news(items) for ident, items in recalled.items()}
         logger.info(
@@ -854,10 +867,22 @@ def generate_report(
         # (it only iterates `ctx.price_anomalies`) — give the un-recalled ones
         # the same ticker-driven query, capped independently so a portfolio
         # with both a busy anomaly day AND several large quiet holdings can't
-        # let one channel starve the other.
+        # let one channel starve the other. Query is date-locked to this
+        # report's own window (design amendment item 1, 2026-08-20): an
+        # unqualified "{ident} stock news catalyst" pulled generic, sometimes
+        # months-stale articles in the v5 compare (one TSM hit dated ~9 months
+        # before the window) — this only appends to whatever Pass 1's
+        # macro-theme background research already put in ctx.search_results
+        # below, never replaces it.
         already_targeted = {ident for ident, _q in targeted}
+        window_start_date = period_start.astimezone(ET).date()
+        window_end_date = period_end.astimezone(ET).date()
         weight_targeted = [
-            (ident, f"{ident} stock news catalyst")
+            (
+                ident,
+                f"{ident} stock news catalyst "
+                f"{window_start_date.isoformat()} to {window_end_date.isoformat()}",
+            )
             for ident in weight_ids
             if ident not in ctx.holding_news and ident not in already_targeted
         ][:_MAX_WEIGHT_TARGETED_SEARCHES]
@@ -891,6 +916,21 @@ def generate_report(
                 targeted_budget,
             )
             targeted_results = _run_tavily_search(session, tq, eff_date, budget=targeted_budget)
+
+            # Title-match-first ranking (design amendment item 1, 2026-08-20):
+            # promote a result whose title actually names the identifier over
+            # one that only matched on body text or Tavily's own relevance
+            # score — the same "a term in the headline is what the story is
+            # ABOUT" lesson `recall_holding_news` already applies (issue #128
+            # quality gate). Stable sort: reorders within each query's own
+            # results, never discards or truncates, and never touches Pass 1's
+            # macro-theme results already in `ctx.search_results` above.
+            def _not_title_match(result: dict[str, Any]) -> int:
+                ident = query_to_identifier.get(result.get("query", ""), "")
+                title = result.get("title", "").upper()
+                return 0 if ident and ident.upper() in title else 1
+
+            targeted_results.sort(key=_not_title_match)
             ctx.search_results.extend(targeted_results)
             for r in targeted_results:
                 ident = query_to_identifier.get(r.get("query", ""))
@@ -1191,6 +1231,7 @@ def generate_report(
                 ctx.period_end,
                 ctx.window_trading_days,
                 ctx.holding_news,
+                large_holding_moves=ctx.large_holding_moves,
             )
 
             ctx.pass2_model = primary_model
@@ -1483,6 +1524,7 @@ def regenerate_report(
                 period_end_iso,
                 trading_days,
                 inputs.get("holding_news", {}),
+                large_holding_moves=inputs.get("large_holding_moves", {}),
             )
             raw_body = _call_llm(
                 _openrouter_client(),
