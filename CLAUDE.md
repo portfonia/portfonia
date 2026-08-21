@@ -1,7 +1,7 @@
 # Portfonia — Agent Guidelines
 
 AI-facing guidance for agent tooling working in this repository.
-Last updated: 2026-08-16
+Last updated: 2026-08-20
 
 ## Where to find current state
 
@@ -844,6 +844,85 @@ day for the whole system.
   `SHARED_COMPUTE_ENABLED` stays **false** — this closes the quality-gate
   structural gap, it does not itself authorize switching the production
   body-source; that is a separate, later decision.
+
+### Narrative-layer redesign: Pass 2 material widening for large no-anomaly holdings (Ring 1 quality gate, issue #128, PR #168)
+
+The product owner rejected assembly (L1-recap style) as the primary send
+path after a 2026-08-17 side-by-side compare (26-holding book): assembly's
+TSM section — 22.5% of the portfolio, +1.22% on the day but below its own
+anomaly threshold — had only a moving-average line and "shares an AI capex
+mechanism with other holdings"; Pass 2's own section for the same holding
+had quarterly revenue, customer names, CEO commentary, and a full
+Anthropic-demand -> advanced-node -> TSM transmission chain. Root cause:
+Pass 2's depth comes from seeing raw search/news text and being allowed to
+use public industry structure (which is what "grounded" material genuinely
+supports) — assembly's design deliberately withholds both. Direction set:
+**material sharing, not narrative sharing** — L1/L2/L3 stay as shared
+caches, but every user's report body is still written by their own real
+Pass 2 call, now fed richer material. `SHARED_COMPUTE_ENABLED` is
+unaffected either way; full design rationale and iteration history: Obsidian
+`Hermes/Portfonia/Docs/Ring 1-A Narrative Layer Redesign (Quality Gate Reversal).md`.
+
+- **Large no-anomaly holdings get material too** (`large_weight_identifiers`
+  in `ticker_intel.py`, top-5 by weight ≥5%, identifier strings only — same
+  type-boundary discipline as every other L1 selection channel). Pass 2's
+  own material-gathering in `report_generator.py` used to look only at
+  `ctx.price_anomalies`; it now unions `anomaly_ids | weight_ids`, so a
+  holding large enough to matter no longer needs to cross an anomaly
+  threshold to get recalled news + a targeted search.
+- **Weight-targeted search queries are date-locked to the report window**
+  (`_targeted_weight_queries`/`_rank_title_matches_first`,
+  `report_search.py`) — an unqualified `"{ident} stock news catalyst"` query
+  pulled generic, sometimes months-stale articles in an early compare. The
+  date lock is now enforced two ways: the query text embeds the window
+  (`"{ident} stock news catalyst {start} to {end}"`, still the
+  `search_cache` key) AND `_run_tavily_search`/`_fetch_one_query` accept an
+  optional `date_windows: dict[str, tuple[date, date]]` param that maps to
+  Tavily's real `start_date`/`end_date` publish-date filter — the query text
+  alone was never enough, since Tavily itself was never told to restrict by
+  date (PR #168 round 2 review). Every other caller (Pass 1, anomaly-targeted
+  search, L1 leftover top-up) passes no `date_windows` and is unaffected.
+- **`_weighted_identifiers` aggregates by identifier before ranking** — a
+  position split across lots (this product preserves upload order, so the
+  same ticker can legitimately appear as more than one `Holding` row; VOO is
+  the worked example) used to be ranked as separate half-sized rows, letting
+  one identifier occupy two `top_k` slots and evict a genuinely distinct 5th
+  holding. `l1_identifiers_for_user`'s weight channel now calls
+  `large_weight_identifiers` directly instead of re-slicing the same data
+  inline, so the two call sites can't drift.
+- **Combined targeted-search budget now respects `fair_share_budget`**
+  (`report_generator.py`) — the anomaly + weight-targeted Tavily budget used
+  to spend the full remaining daily allowance with no
+  `fair_share_budget(remaining, users_remaining)` division, unlike every
+  other shared-budget consumer in the same function (L1/L2/L3, and the
+  leftover top-up right below it). This call runs earlier in a fan-out
+  batch, so it could exhaust the day's budget before any later user — or
+  even that top-up — got a turn.
+- **`NAMING IS NOT ANALYSIS` no longer contradicts `GROUNDED CONNECTIONS
+  ONLY`** (`report_prompts.py`, both part of `_SHARED_BODY_RULES`). The
+  former told the model to write a causal chain whenever "a holding sits on
+  the chain that development would transmit through" — a judgment the model
+  itself would make; the latter forbids exactly that ("a plausible-sounding
+  mechanism you construct yourself... is not grounding"). Rewritten to
+  require the SUPPLIED MATERIAL state the exposure, and to explicitly defer
+  to `GROUNDED CONNECTIONS ONLY` by name. Also fixed the `LARGE HOLDINGS
+  WINDOW PRICE` reference leaking into assembly's system prompt —
+  `build_assembly_prompt` never renders that section (no
+  `large_holding_moves` parameter at all), so `_ASSEMBLY_SYSTEM` was
+  pointing the model at data that, for that consumer, never exists.
+  `_rule_direction_requires_evidence`/`_rule_naming_is_not_analysis` are now
+  parameterized functions; `_SHARED_BODY_RULES_NO_LARGE_HOLDINGS` (imported
+  by `report_assembly.py` instead of `_SHARED_BODY_RULES`) composes the
+  no-large-holdings variant of both — duplicating only the composition
+  wiring, not the rule prose, for the six rules unaffected either way.
+- **Status**: merged (squash `1a831a9`, PR #168), two independent review
+  rounds on the review-fix commits (1 bug / 1 suggestion / 1 nit, then
+  0 bugs / 3 suggestions, plus 1 nit from an independent redundant review
+  pass — all verified against actual code and fixed with TDD). Deployed to
+  production (`systemd-run docker compose up -d --build`, no new migration,
+  `/health` verified, 7 containers stable, clean logs). `SHARED_COMPUTE_ENABLED`
+  stays **false** — this closes gaps in Pass 2's own material-gathering, it
+  does not touch the assembly path or authorize turning it on.
 
 ### News dedup ledger: closing the window-boundary permanent-miss gap (issue #30)
 
