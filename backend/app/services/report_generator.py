@@ -160,7 +160,7 @@ _L1_SEARCH_MIN_MOVE = 0.03
 _MAX_L1_TOPUP_SEARCHES = 2
 
 # Weight-driven material for Pass 2 itself, not just L1 (issue #128
-# narrative-layer redesign, 2026-08-20 — design doc "第一步"). Anomaly-only
+# narrative-layer redesign, 2026-08-20 — design doc "step 1"). Anomaly-only
 # material-gathering left large no-anomaly holdings (TSM at 22.5%, +1.22% on
 # the 2026-08-17 anchor report) with zero recalled news and zero targeted
 # search in Pass 2's OWN prompt — not just L1's shared cache, which already
@@ -916,6 +916,16 @@ def generate_report(
             window_end_date,
             _MAX_WEIGHT_TARGETED_SEARCHES,
         )
+        # PR #168 round 2 review, suggestion: the query-string date tokens
+        # above are not a real Tavily filter on their own — pass the same
+        # window through as Tavily's actual `start_date`/`end_date` API
+        # params (see `_run_tavily_search`'s `date_windows`), so an old
+        # article that never happens to mention those ISO strings in its
+        # own text can no longer slip past the "date lock" this amendment
+        # was meant to enforce.
+        weight_query_windows = {
+            q: (window_start_date, window_end_date) for _ident, q in weight_targeted
+        }
         targeted = targeted + weight_targeted
         # L1 runs its OWN recall below (§5.5) over its own identifier
         # vocabulary, so all that's collected here is the ANOMALY-targeted-
@@ -936,8 +946,16 @@ def generate_report(
             # new search_cache rows) and pass every targeted query through
             # unsliced — `_run_tavily_search`'s own cache-first loop decides
             # per query whether it needs the budget at all.
-            targeted_budget = max(
-                0, settings.TAVILY_DAILY_BUDGET - _tavily_used_today(session, eff_date)
+            # PR #168 round 2 review, suggestion: this used to be the FULL
+            # remaining daily budget with no `fair_share_budget` division —
+            # unlike every other shared-budget consumer in this function
+            # (L1's own analyses, L2's, L3's synthesis, and the leftover
+            # top-up further below). This call sits earlier and runs first
+            # in a fan-out, so it could exhaust the day's budget before any
+            # later consumer — including that very top-up — gets a turn.
+            targeted_budget = fair_share_budget(
+                max(0, settings.TAVILY_DAILY_BUDGET - _tavily_used_today(session, eff_date)),
+                users_remaining,
             )
             query_to_identifier = {q: ident for ident, q in targeted}
             tq = [q for _ident, q in targeted]
@@ -947,7 +965,9 @@ def generate_report(
                 len(tq),
                 targeted_budget,
             )
-            targeted_results = _run_tavily_search(session, tq, eff_date, budget=targeted_budget)
+            targeted_results = _run_tavily_search(
+                session, tq, eff_date, budget=targeted_budget, date_windows=weight_query_windows
+            )
             targeted_results = _rank_title_matches_first(targeted_results, query_to_identifier)
             ctx.search_results.extend(targeted_results)
             for r in targeted_results:

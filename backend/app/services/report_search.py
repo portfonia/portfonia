@@ -70,22 +70,39 @@ def _put_cached_search(
     session.flush()
 
 
-def _fetch_one_query(query: str) -> list[dict[str, Any]]:
+def _fetch_one_query(
+    query: str, *, start_date: date | None = None, end_date: date | None = None
+) -> list[dict[str, Any]]:
     """Execute exactly one Tavily search HTTP call. Failures are logged and
-    swallowed (degraded mode) — same contract the pre-A2 batch loop had."""
+    swallowed (degraded mode) — same contract the pre-A2 batch loop had.
+
+    `start_date`/`end_date` (PR #168 round 2 review, suggestion) are
+    Tavily's own publish-date filter params (YYYY-MM-DD), included only when
+    given — every pre-existing caller passes neither and gets the exact
+    unfiltered request this function always sent. Before this, a
+    weight-targeted query's date lock was query-STRING text only
+    (`_targeted_weight_queries` above); nothing stopped Tavily from
+    returning an old article that never happens to mention those ISO
+    strings — the exact stale-article failure the 2026-08-20 design
+    amendment set out to close."""
     settings = get_settings()
     api_key = settings.TAVILY_API_KEY.get_secret_value()
     results: list[dict[str, Any]] = []
     try:
+        payload: dict[str, Any] = {
+            "api_key": api_key,
+            "query": query,
+            "search_depth": _TAVILY_SEARCH_DEPTH,
+            "topic": "news",
+            "max_results": _TAVILY_MAX_RESULTS,
+        }
+        if start_date is not None:
+            payload["start_date"] = start_date.isoformat()
+        if end_date is not None:
+            payload["end_date"] = end_date.isoformat()
         resp = httpx.post(
             "https://api.tavily.com/search",
-            json={
-                "api_key": api_key,
-                "query": query,
-                "search_depth": _TAVILY_SEARCH_DEPTH,
-                "topic": "news",
-                "max_results": _TAVILY_MAX_RESULTS,
-            },
+            json=payload,
             timeout=30,
         )
         resp.raise_for_status()
@@ -112,8 +129,25 @@ def _run_tavily_search(
     queries: list[str],
     trade_date: date,
     budget: int,
+    date_windows: dict[str, tuple[date, date]] | None = None,
 ) -> list[dict[str, Any]]:
     """Cache-first execution of Tavily searches. Returns flattened result list.
+
+    `date_windows` (PR #168 round 2 review, suggestion): an optional
+    query-string -> (start_date, end_date) map, passed through to
+    `_fetch_one_query`'s real Tavily API filter for the queries present in
+    it — everything else in `queries` gets no date filter, exactly as
+    before this parameter existed. Deliberately keyed by query STRING, not
+    by identifier: `_run_tavily_search` has no identifier vocabulary of its
+    own (queries arrive as a flat `list[str]`, already stripped of the
+    (identifier, query) pairing its callers built them from), and a
+    query-keyed map is the only association this function can look up
+    without widening its own signature further. Does not change
+    `search_cache`'s key (still `(normalized query text, trade_date)`) —
+    the weight-targeted query's date lock is already baked into its own
+    text (`_targeted_weight_queries`), so two different windows already
+    produce two different cache rows; the API filter is orthogonal, purely
+    about what Tavily itself is allowed to return for a cache MISS.
 
     Each query is checked against `search_cache` (keyed by normalized-query
     hash + trade_date, issue #128 A2) before hitting the network. A cache hit
@@ -149,7 +183,12 @@ def _run_tavily_search(
         if remaining <= 0:
             logger.info("Tavily query skipped (daily budget exhausted): %s", query)
             continue
-        fresh = _fetch_one_query(query)
+        window = (date_windows or {}).get(query)
+        fresh = _fetch_one_query(
+            query,
+            start_date=window[0] if window else None,
+            end_date=window[1] if window else None,
+        )
         _put_cached_search(session, query, trade_date, fresh)
         all_results.extend(fresh)
         remaining -= 1

@@ -408,7 +408,7 @@ def test_large_weight_holding_without_anomaly_gets_material(db_session: Session)
     tavily_calls: list[list[str]] = []
 
     def _capture_tavily(
-        session: Session, queries: list[str], eff_date: date, *, budget: int
+        session: Session, queries: list[str], eff_date: date, *, budget: int, **_kwargs: object
     ) -> list[dict[str, Any]]:
         tavily_calls.append(list(queries))
         return [
@@ -531,7 +531,7 @@ def test_weight_targeted_search_promotes_title_matches_first(db_session: Session
     holding this fix targets."""
 
     def _fake_tavily(
-        session: Session, queries: list[str], eff_date: date, *, budget: int
+        session: Session, queries: list[str], eff_date: date, *, budget: int, **_kwargs: object
     ) -> list[dict[str, Any]]:
         # Only the weight-targeted AAPL query returns results — Pass 1's own
         # (differently worded) queries return nothing, so the two calls don't
@@ -906,7 +906,7 @@ def test_weight_targeted_search_stays_out_of_shared_l1_cache(db_session: Session
         return "AAPL held steady on services growth. [Established]"
 
     def _fake_tavily(
-        session: Session, queries: list[str], eff_date: date, *, budget: int
+        session: Session, queries: list[str], eff_date: date, *, budget: int, **_kwargs: object
     ) -> list[dict[str, Any]]:
         return [
             {
@@ -960,6 +960,50 @@ def test_weight_targeted_search_stays_out_of_shared_l1_cache(db_session: Session
     )
     # The bug: the same title must NOT have reached L1's shared-cache prompt.
     assert _WEIGHT_TITLE not in captured_l1_prompt.get("prompt", "")
+
+
+def test_weight_targeted_search_passes_real_date_window_to_tavily_api(
+    db_session: Session,
+) -> None:
+    """PR #168 round 2 review, suggestion: the weight-targeted query's date
+    lock was query-STRING text only — `_run_tavily_search` was never told
+    Tavily's own `start_date`/`end_date` API filter. Locks that
+    `generate_report` actually builds and passes `date_windows` for the
+    weight-targeted query (report_search.py's own unit tests cover the
+    plumbing itself; this is the wiring-level lock, same pairing as
+    test_weight_targeted_search_stays_out_of_shared_l1_cache above)."""
+    captured: dict[str, Any] = {}
+
+    def _capture_tavily(
+        session: Session, queries: list[str], eff_date: date, *, budget: int, **kwargs: object
+    ) -> list[dict[str, Any]]:
+        captured["date_windows"] = kwargs.get("date_windows")
+        return []
+
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch("app.services.report_generator.load_news_window", return_value=[]),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 2)),
+        patch(
+            "app.services.report_generator.resolve_global_moves",
+            return_value=({"AAPL": _day_move("AAPL", net_pct=Decimal("0.01"))}, 2),
+        ),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
+        patch("app.services.report_generator._run_tavily_search", side_effect=_capture_tavily),
+    ):
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert report.status == "success"
+    date_windows = captured.get("date_windows")
+    assert date_windows, f"expected a non-empty date_windows map, got {date_windows}"
+    aapl_queries = [q for q in date_windows if "AAPL stock news catalyst" in q]
+    assert aapl_queries, f"expected an AAPL weight-targeted query key, got {list(date_windows)}"
+    start, end = date_windows[aapl_queries[0]]
+    assert isinstance(start, date) and isinstance(end, date)
+    assert start <= end
 
 
 def test_generate_report_theme_anomaly_l1_keys_constituents_with_own_recall(
@@ -2592,6 +2636,43 @@ def test_leftover_tavily_topup_respects_fair_share_budget(db_session: Session) -
     assert topup_calls, "expected the leftover top-up search to fire for NVDA's uncovered move"
     # fair_share_budget(9, 3) == 3, not the full remaining 9.
     assert topup_calls[0].kwargs["budget"] == 3
+
+
+def test_targeted_search_budget_respects_fair_share_budget(db_session: Session) -> None:
+    """PR #168 round 2 review, suggestion: the combined anomaly+weight
+    targeted-search budget (`targeted_budget`, the call feeding both
+    `_targeted_anomaly_queries` and `_targeted_weight_queries` results) used
+    the FULL remaining daily Tavily budget with no `fair_share_budget`
+    division — the same sequential-starvation shape
+    `test_leftover_tavily_topup_respects_fair_share_budget` already locks for
+    the L1 leftover top-up, reopened here because this call sits earlier in
+    `generate_report` and runs first in a fan-out, so it could exhaust the
+    day's budget before any later consumer (including that very top-up) gets
+    a turn."""
+    with contextlib.ExitStack() as stack:
+        for p in _normal_path_patches():
+            stack.enter_context(p)  # type: ignore[arg-type]
+        stack.enter_context(
+            patch("app.services.report_generator._tavily_used_today", return_value=0)
+        )
+        settings = get_settings()
+        stack.enter_context(patch.object(settings, "TAVILY_DAILY_BUDGET", 9))
+        search_mock = stack.enter_context(
+            patch("app.services.report_generator._run_tavily_search", return_value=[])
+        )
+        rg.generate_report(db_session, report_date=_TODAY, users_remaining=3)
+
+    # `_anomaly()` (from `_normal_path_patches`) has no recalled window news,
+    # so the targeted-anomaly query fires and is the one call this test's
+    # budget assertion targets — the ONLY `_run_tavily_search` call in this
+    # path besides Pass 1's own macro-theme search (a separate, earlier call
+    # with a differently-shaped query list, unaffected by this fix).
+    targeted_calls = [
+        c for c in search_mock.call_args_list if any("NVIDIA NVDA" in q for q in c.args[1])
+    ]
+    assert targeted_calls, "expected the targeted-anomaly search to fire for NVDA"
+    # fair_share_budget(9, 3) == 3, not the full remaining 9.
+    assert targeted_calls[0].kwargs["budget"] == 3
 
 
 def test_leftover_search_is_skipped_when_the_candidate_already_has_a_headline(

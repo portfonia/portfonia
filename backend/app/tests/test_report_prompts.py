@@ -293,3 +293,32 @@ def test_pass2_system_requires_grounded_connections() -> None:
     assert "GROUNDED CONNECTIONS ONLY" in rp._PASS2_SYSTEM
     assert "is not grounding" in rp._PASS2_SYSTEM
     assert "never restate it as something already observed" in rp._PASS2_SYSTEM
+
+
+def test_naming_is_not_analysis_does_not_contradict_grounded_connections_only() -> None:
+    """PR #168 round 2 review, suggestion: NAMING IS NOT ANALYSIS told the
+    model to write a causal chain whenever "a holding in this portfolio sits
+    on the chain that development would transmit through" — a judgment the
+    model itself would have to make, since the rule never required the
+    SUPPLIED MATERIAL to state that exposure. GROUNDED CONNECTIONS ONLY, in
+    the same system prompt, forbids exactly that: "a plausible-sounding
+    mechanism you construct yourself... is not grounding". The two rules
+    therefore pulled the model in opposite directions on the same question —
+    may it infer a transmission mechanism, or must the material state it?
+    NAMING IS NOT ANALYSIS must require the mechanism come from the supplied
+    material (not the model's own construction) and say so explicitly, so a
+    model reading both rules gets one consistent instruction."""
+    naming_rule = rp._RULE_NAMING_IS_NOT_ANALYSIS
+    assert naming_rule in rp._PASS2_SYSTEM
+    # The rule now requires the material to STATE the exposure, not just
+    # describe a development in isolation — "sits on the chain... would
+    # transmit through" (the model's own inference) is gone.
+    assert "sits on the chain" not in naming_rule
+    assert "states how" in naming_rule and "exposed" in naming_rule
+    # And it explicitly defers to GROUNDED CONNECTIONS ONLY rather than
+    # silently conflicting with it.
+    assert "GROUNDED CONNECTIONS ONLY" in naming_rule
+    # Existing coverage (test_pass2_system_requires_the_causal_chain_not_just_names)
+    # must still hold — these are the load-bearing phrases that test locks.
+    assert "signal -> transmission channel -> this specific holding" in naming_rule
+    assert "does not satisfy the mechanism requirement" in naming_rule

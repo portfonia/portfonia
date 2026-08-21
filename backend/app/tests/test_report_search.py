@@ -219,6 +219,51 @@ def test_targeted_weight_queries_respects_max_n() -> None:
     assert len(queries) == 2
 
 
+# ---------------------------------------------------------------------------
+# date_windows: real Tavily start_date/end_date filtering, not just query text
+# (PR #168 round 2 review, suggestion) — the "date lock" `_targeted_weight_
+# queries` builds above was, until this fix, only extra tokens in the query
+# STRING; Tavily's actual `start_date`/`end_date` publish-date filters were
+# never sent, so an old article that never happens to mention those ISO
+# strings could still return — the exact stale-article failure the 2026-08-20
+# design amendment set out to close.
+# ---------------------------------------------------------------------------
+
+
+def test_run_tavily_search_sends_date_window_to_tavily_api(db_session: Session) -> None:
+    query = "TSM stock news catalyst 2026-08-14 to 2026-08-17"
+    with patch(
+        "app.services.report_search.httpx.post", return_value=_fake_response(_ONE_RESULT)
+    ) as mock_post:
+        rs._run_tavily_search(
+            db_session,
+            [query],
+            _DATE,
+            budget=5,
+            date_windows={query: (date(2026, 8, 14), date(2026, 8, 17))},
+        )
+
+    sent = mock_post.call_args.kwargs["json"]
+    assert sent["start_date"] == "2026-08-14"
+    assert sent["end_date"] == "2026-08-17"
+
+
+def test_run_tavily_search_omits_date_params_for_queries_outside_date_windows(
+    db_session: Session,
+) -> None:
+    """A query with no entry in `date_windows` (every pre-existing caller —
+    Pass 1's macro queries, `_targeted_anomaly_queries`, the L1 leftover
+    top-up) must send no date filter at all, exactly as before this fix."""
+    with patch(
+        "app.services.report_search.httpx.post", return_value=_fake_response(_ONE_RESULT)
+    ) as mock_post:
+        rs._run_tavily_search(db_session, ["NVDA earnings"], _DATE, budget=5)
+
+    sent = mock_post.call_args.kwargs["json"]
+    assert "start_date" not in sent
+    assert "end_date" not in sent
+
+
 def test_rank_title_matches_first_promotes_title_hit_over_relevance_score() -> None:
     """The v5 compare's TSM query returned a mostly-generic Tavily result set
     despite a stronger relevance score on the off-target item — this is the

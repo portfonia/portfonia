@@ -61,35 +61,86 @@ _RULE_FORWARD_EVENTS = (
     "worth watching — NEVER predict its outcome, direction, or market impact "
     "('will rise/fall', 'likely to beat', 'expected to lift/hurt' are forbidden).\n"
 )
-_RULE_DIRECTION_REQUIRES_EVIDENCE = (
-    "DIRECTION REQUIRES EVIDENCE: a sentence that asserts how a SPECIFIC HOLDING'S "
-    "PRICE moved, or is positioned to move (e.g. 'gained safe-haven buying', "
-    "'sold off', 'outperformed', 'will see buying support'), must be grounded in "
-    "the PRICE ANOMALIES, LARGE HOLDINGS WINDOW PRICE, or TECHNICAL POSITION data "
-    "supplied for THAT holding. If no window price data is supplied for a holding "
-    "in ANY of those three, do not assert a price direction for it — describe "
-    "only that a transmission channel exists, say plainly 'this report period has "
-    "no price data to confirm the holding's direction', and cap the confidence "
-    "label at [Speculative]. Textbook macro narratives (e.g. 'war risk -> gold "
-    "rallies') are mechanisms, not observations — do not restate them as "
-    "something that already happened to a specific holding without window price "
-    "data.\n"
-)
-_RULE_NAMING_IS_NOT_ANALYSIS = (
-    "NAMING IS NOT ANALYSIS: if the supplied research or recalled news describes "
-    "a development (a company's revenue, capacity, capex, demand, or a policy "
-    "action) and a holding in this portfolio sits on the chain that development "
-    "would transmit through, write the connection as a coherent causal sentence "
-    "— signal -> transmission channel -> this specific holding. Listing related "
-    "entities or tickers (customers, suppliers, competitors) without stating HOW "
-    "the development reaches THAT holding does not satisfy the mechanism "
-    "requirement above, even if the sentence names the right companies. A large "
-    "holding (one of this portfolio's biggest weights) is exactly the position "
-    "§3 should analyze deepest, even when it did not cross this window's anomaly "
-    "threshold — do not reduce it to an identity line plus a watchlist just "
-    "because PRICE ANOMALIES has nothing for it; check LARGE HOLDINGS WINDOW "
-    "PRICE below for its own window move before treating it as price-blind.\n"
-)
+
+
+def _rule_direction_requires_evidence(*, large_holdings_price: bool) -> str:
+    """DIRECTION REQUIRES EVIDENCE, parameterized by whether this pass's own
+    prompt actually carries a LARGE HOLDINGS WINDOW PRICE data block (PR #168
+    round 2 review, suggestion): Pass 2's user-turn prompt does
+    (`large_holding_moves`, `_build_pass2_prompt`); `build_assembly_prompt`
+    never does (report_assembly.py has no `large_holding_moves` parameter at
+    all — see its module docstring). Pointing the model at a data source
+    that, for one of its two consumers, is never actually rendered would be a
+    dangling reference in that consumer's prompt."""
+    sources = (
+        "PRICE ANOMALIES, LARGE HOLDINGS WINDOW PRICE, or TECHNICAL POSITION"
+        if large_holdings_price
+        else "PRICE ANOMALIES or TECHNICAL POSITION"
+    )
+    count = "three" if large_holdings_price else "two"
+    return (
+        "DIRECTION REQUIRES EVIDENCE: a sentence that asserts how a SPECIFIC HOLDING'S "
+        "PRICE moved, or is positioned to move (e.g. 'gained safe-haven buying', "
+        "'sold off', 'outperformed', 'will see buying support'), must be grounded in "
+        f"the {sources} data "
+        "supplied for THAT holding. If no window price data is supplied for a holding "
+        f"in ANY of those {count}, do not assert a price direction for it — describe "
+        "only that a transmission channel exists, say plainly 'this report period has "
+        "no price data to confirm the holding's direction', and cap the confidence "
+        "label at [Speculative]. Textbook macro narratives (e.g. 'war risk -> gold "
+        "rallies') are mechanisms, not observations — do not restate them as "
+        "something that already happened to a specific holding without window price "
+        "data.\n"
+    )
+
+
+_RULE_DIRECTION_REQUIRES_EVIDENCE = _rule_direction_requires_evidence(large_holdings_price=True)
+
+
+def _rule_naming_is_not_analysis(*, large_holdings_price: bool) -> str:
+    """NAMING IS NOT ANALYSIS, parameterized the same way and for the same
+    reason as `_rule_direction_requires_evidence` above (PR #168 round 2
+    review, suggestion).
+
+    Also fixes a real conflict with GROUNDED CONNECTIONS ONLY, in the same
+    system prompt: the earlier wording told the model to write a causal
+    chain whenever "a holding in this portfolio sits on the chain that
+    development would transmit through" — a judgment the MODEL made, since
+    nothing required the supplied material to state that exposure.
+    GROUNDED CONNECTIONS ONLY forbids exactly that ("a plausible-sounding
+    mechanism you construct yourself... is not grounding"). Rewritten to
+    require the material itself state how the holding is exposed, and to
+    say explicitly that it does not license inventing a mechanism the
+    material does not give — so a model reading both rules gets one
+    consistent instruction instead of two that disagree on the same
+    question."""
+    trailer = (
+        "check LARGE HOLDINGS WINDOW PRICE below for its own window move before "
+        "treating it as price-blind.\n"
+        if large_holdings_price
+        else "say so in the causal-chain sentence rather than treating it as price-blind.\n"
+    )
+    return (
+        "NAMING IS NOT ANALYSIS: when the supplied research, recalled news, or "
+        "shared intel for a holding both describes a development (a company's "
+        "revenue, capacity, capex, demand, or a policy action) AND states how "
+        "that holding is exposed to it, write the connection as a coherent "
+        "causal sentence — signal -> transmission channel -> this specific "
+        "holding — using the mechanism the material itself supplies (this does "
+        "not license inventing a mechanism the material does not give you: see "
+        "GROUNDED CONNECTIONS ONLY below, which still governs whether a "
+        "connection may be drawn at all). Listing related entities or tickers "
+        "(customers, suppliers, competitors) without stating HOW "
+        "the development reaches THAT holding does not satisfy the mechanism "
+        "requirement above, even if the sentence names the right companies. A large "
+        "holding (one of this portfolio's biggest weights) is exactly the position "
+        "§3 should analyze deepest, even when it did not cross this window's anomaly "
+        "threshold — do not reduce it to an identity line plus a watchlist just "
+        "because PRICE ANOMALIES has nothing for it; " + trailer
+    )
+
+
+_RULE_NAMING_IS_NOT_ANALYSIS = _rule_naming_is_not_analysis(large_holdings_price=True)
 _RULE_DIVERGENCE_IS_THE_SIGNAL = (
     "DIVERGENCE IS THE SIGNAL: if a holding's actual window price move CONTRADICTS "
     "the textbook direction implied by a macro narrative (e.g. gold falling during "
@@ -142,6 +193,27 @@ _SHARED_BODY_RULES = (
 )
 
 _PASS2_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + _SHARED_BODY_RULES
+
+# Assembly-specific composition (PR #168 round 2 review, suggestion): the
+# same eight rules, unchanged, EXCEPT the two large-holdings-aware ones swap
+# in their no-large-holdings variant — build_assembly_prompt never renders a
+# LARGE HOLDINGS WINDOW PRICE section (report_assembly.py has no
+# `large_holding_moves` parameter at all). This duplicates only the WIRING
+# (which constants compose into which combined string), never the rule
+# PROSE itself, for the six rules that are identical either way — the
+# hand-copied-string drift this module's docstring warns about (PR #117's
+# CSS strings, PR #157's `_FORWARD_WINDOW_DAYS`) was duplicated CONTENT, not
+# a second composition of the same constants.
+_SHARED_BODY_RULES_NO_LARGE_HOLDINGS = (
+    _RULE_BRIEFING_ROLE
+    + _RULE_FORWARD_EVENTS
+    + _rule_direction_requires_evidence(large_holdings_price=False)
+    + _RULE_DIVERGENCE_IS_THE_SIGNAL
+    + _rule_naming_is_not_analysis(large_holdings_price=False)
+    + _RULE_CONCENTRATION_IS_SUPPLIED
+    + _RULE_GROUNDED_CONNECTIONS_ONLY
+    + _RULE_CROSS_REFERENCES
+)
 
 # H-DEBT-2 completeness guard: a Pass 2 body shorter than this, or missing
 # either heading, is treated as a truncated provider response.
