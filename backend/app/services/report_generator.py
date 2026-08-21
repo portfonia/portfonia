@@ -88,8 +88,10 @@ from app.services.report_prompts import (
 )
 from app.services.report_search import (
     _MAX_SEARCH_QUERIES,
+    _rank_title_matches_first,
     _run_tavily_search,
     _targeted_anomaly_queries,
+    _targeted_weight_queries,
     _tavily_used_today,
 )
 from app.services.report_sections import (
@@ -121,6 +123,7 @@ from app.services.ticker_intel import (
     build_l1_facts,
     get_l1_intel_batch,
     l1_identifiers_for_user,
+    large_weight_identifiers,
 )
 from app.services.window_data import (
     L1_LOOKBACK_TRADING_DAYS,
@@ -155,6 +158,17 @@ _DISCLAIMER_VERSION = "f3-bilingual-v2"
 # shared across the fan-out, so this must stay a top-up, never a sweep.
 _L1_SEARCH_MIN_MOVE = 0.03
 _MAX_L1_TOPUP_SEARCHES = 2
+
+# Weight-driven material for Pass 2 itself, not just L1 (issue #128
+# narrative-layer redesign, 2026-08-20 — design doc "step 1"). Anomaly-only
+# material-gathering left large no-anomaly holdings (TSM at 22.5%, +1.22% on
+# the 2026-08-17 anchor report) with zero recalled news and zero targeted
+# search in Pass 2's OWN prompt — not just L1's shared cache, which already
+# had a weight channel. Capped at the same top-K L1 already uses for its own
+# weight channel (`ticker_intel._L1_TOP_K_BY_WEIGHT`): a holding large enough
+# to need material without an anomaly is, by definition, a small set per
+# report.
+_MAX_WEIGHT_TARGETED_SEARCHES = 5
 
 # Forward calendar (#1): how far ahead §2.5 looks — now defined once in
 # forward_events.py, since the L2 shared cache (issue #128 A3) must analyze
@@ -804,29 +818,122 @@ def generate_report(
         ctx.search_results = search_results
 
         # ------------------------------------------------------------------
-        # 5. Holding-relevant news enrichment (R-3) — anomaly-driven
+        # 5. Holding-relevant news enrichment (R-3) — anomaly- AND
+        #    weight-driven (issue #128 narrative-layer redesign, 2026-08-20)
         # ------------------------------------------------------------------
         # After we know WHICH holdings moved, recall window news relevant to each
         # (mapping gap: a captured story that matched no macro theme), and for the
         # most-moved holdings the store has NOTHING for, run a targeted live
         # search (source gap: a window-relevant story the RSS sources never carried).
         # Both are holdings-derived, so they run AFTER Pass 1 and feed only Pass 2.
+        #
+        # A large holding that never crosses its own anomaly threshold used to
+        # get NONE of this — anomaly_ids only. On the 2026-08-17 anchor report
+        # TSM (22.5% of the portfolio, +1.22% on the day) got zero recalled
+        # news and zero targeted search here, so Pass 2 wrote its TSM section
+        # from prior knowledge alone. `large_weight_identifiers` is the same
+        # top-K-by-weight selection L1 already uses (`ticker_intel.py`'s
+        # weight channel) so a big holding gets material without needing an
+        # anomaly — unioned into `anomaly_ids` so it reaches Pass 2's OWN
+        # inputs too, not just L1's shared cache.
         anomaly_ids = [a["identifier"] for a in ctx.price_anomalies if a.get("identifier")]
-        recalled = recall_holding_news(news_items, anomaly_ids)
+        weight_ids = large_weight_identifiers(
+            list(ctx.portfolio_summary.get("holdings") or []),
+            float(ctx.portfolio_summary.get("total_base") or 0.0),
+        )
+        material_ids = list(dict.fromkeys([*anomaly_ids, *weight_ids]))
+
+        # Large holdings' own window price (design amendment item 3, 2026-08-20):
+        # `resolve_global_moves` was already computed for this exact
+        # (period_start, period_end) window inside `detect_window_anomalies`
+        # above via the same `moves_cache` — this is a cache hit, not a second
+        # DB round trip. A weight-selected identifier with no anomaly entry
+        # otherwise had NO price fact anywhere in Pass 2's prompt at all.
+        #
+        # net_pct and max_day_pct are supplied as TWO SEPARATE facts, never
+        # merged into one number (2026-08-20 second design amendment, item 3):
+        # the v6 compare fed only the window's cumulative net_pct, and the
+        # body then conflated it with the window's largest single-day move in
+        # prose ("TSM +0.11%" reads as a small move, when the window also
+        # contained a real +1.22% single day) — the model cannot recover that
+        # distinction from one blended number.
+        window_moves, _ = resolve_global_moves(session, period_start, period_end, moves_cache)
+
+        def _serialize_move(move: HoldingMove) -> dict[str, Any]:
+            max_day_pct = move.max_day_pct
+            max_day_date = move.max_day_date
+            return {
+                "net_pct": float(move.net_pct),
+                "max_day_pct": float(max_day_pct) if max_day_pct is not None else None,
+                "max_day_date": max_day_date.isoformat() if max_day_date is not None else None,
+            }
+
+        ctx.large_holding_moves = {
+            ident: _serialize_move(window_moves[ident])
+            for ident in weight_ids
+            if ident not in anomaly_ids and ident in window_moves
+        }
+        recalled = recall_holding_news(news_items, material_ids)
         ctx.holding_news = {ident: _serialize_news(items) for ident, items in recalled.items()}
         logger.info(
-            "report %s: recalled holding news for %d/%d moved holdings",
+            "report %s: recalled holding news for %d/%d moved+large holdings",
             report.id,
             len(ctx.holding_news),
-            len(anomaly_ids),
+            len(material_ids),
         )
 
         targeted = _targeted_anomaly_queries(ctx.price_anomalies, set(ctx.holding_news.keys()))
+        # Large-weight holdings never reach `_targeted_anomaly_queries` above
+        # (it only iterates `ctx.price_anomalies`) — give the un-recalled ones
+        # the same ticker-driven query, capped independently so a portfolio
+        # with both a busy anomaly day AND several large quiet holdings can't
+        # let one channel starve the other. Query is date-locked to this
+        # report's own window (design amendment item 1, 2026-08-20): an
+        # unqualified "{ident} stock news catalyst" pulled generic, sometimes
+        # months-stale articles in the v5 compare (one TSM hit dated ~9 months
+        # before the window) — this only appends to whatever Pass 1's
+        # macro-theme background research already put in ctx.search_results
+        # below, never replaces it.
+        already_targeted = {ident for ident, _q in targeted}
+        # PR #168 review round 1 bug: `_targeted_weight_queries`' queries
+        # below are date-locked to THIS user's own period_start/period_end (a
+        # per-user watermark, by design — see the comment above the call) —
+        # unlike `_targeted_anomaly_queries`' queries, which carry no date
+        # qualifier and are safe for L1's day-scoped, cross-user shared
+        # cache. Captured here, before `weight_targeted` is merged into
+        # `targeted` below, because after the merge the two origins are no
+        # longer distinguishable by shape — only by which query string
+        # produced them. This is what keeps a weight-targeted title (a
+        # per-user-window fact) out of `l1_targeted_titles` further down,
+        # while still letting it reach `ctx.search_results` for Pass 2.
+        anomaly_query_strings = {q for _ident, q in targeted}
+        window_start_date = period_start.astimezone(ET).date()
+        window_end_date = period_end.astimezone(ET).date()
+        weight_targeted = _targeted_weight_queries(
+            weight_ids,
+            set(ctx.holding_news) | already_targeted,
+            window_start_date,
+            window_end_date,
+            _MAX_WEIGHT_TARGETED_SEARCHES,
+        )
+        # PR #168 round 2 review, suggestion: the query-string date tokens
+        # above are not a real Tavily filter on their own — pass the same
+        # window through as Tavily's actual `start_date`/`end_date` API
+        # params (see `_run_tavily_search`'s `date_windows`), so an old
+        # article that never happens to mention those ISO strings in its
+        # own text can no longer slip past the "date lock" this amendment
+        # was meant to enforce.
+        weight_query_windows = {
+            q: (window_start_date, window_end_date) for _ident, q in weight_targeted
+        }
+        targeted = targeted + weight_targeted
         # L1 runs its OWN recall below (§5.5) over its own identifier
-        # vocabulary, so all that's collected here is the targeted-search
-        # titles keyed by the identifier that asked for them. `ctx.holding_news`
-        # itself is never mutated — it is Pass 2's stored input, and A2's
-        # report content must stay byte-identical (design doc §1.2).
+        # vocabulary, so all that's collected here is the ANOMALY-targeted-
+        # search titles keyed by the identifier that asked for them (weight-
+        # targeted titles are excluded below — see `anomaly_query_strings`
+        # above). `ctx.holding_news` itself is never mutated — it is Pass 2's
+        # stored input, and A2's report content must stay byte-identical
+        # (design doc §1.2).
         l1_targeted_titles: dict[str, list[str]] = {}
         if targeted:
             # Review round 1 bug: this used to be `daily_remaining -
@@ -839,8 +946,16 @@ def generate_report(
             # new search_cache rows) and pass every targeted query through
             # unsliced — `_run_tavily_search`'s own cache-first loop decides
             # per query whether it needs the budget at all.
-            targeted_budget = max(
-                0, settings.TAVILY_DAILY_BUDGET - _tavily_used_today(session, eff_date)
+            # PR #168 round 2 review, suggestion: this used to be the FULL
+            # remaining daily budget with no `fair_share_budget` division —
+            # unlike every other shared-budget consumer in this function
+            # (L1's own analyses, L2's, L3's synthesis, and the leftover
+            # top-up further below). This call sits earlier and runs first
+            # in a fan-out, so it could exhaust the day's budget before any
+            # later consumer — including that very top-up — gets a turn.
+            targeted_budget = fair_share_budget(
+                max(0, settings.TAVILY_DAILY_BUDGET - _tavily_used_today(session, eff_date)),
+                users_remaining,
             )
             query_to_identifier = {q: ident for ident, q in targeted}
             tq = [q for _ident, q in targeted]
@@ -850,11 +965,14 @@ def generate_report(
                 len(tq),
                 targeted_budget,
             )
-            targeted_results = _run_tavily_search(session, tq, eff_date, budget=targeted_budget)
+            targeted_results = _run_tavily_search(
+                session, tq, eff_date, budget=targeted_budget, date_windows=weight_query_windows
+            )
+            targeted_results = _rank_title_matches_first(targeted_results, query_to_identifier)
             ctx.search_results.extend(targeted_results)
             for r in targeted_results:
                 ident = query_to_identifier.get(r.get("query", ""))
-                if ident:
+                if ident and r.get("query", "") in anomaly_query_strings:
                     l1_targeted_titles.setdefault(ident, []).append(r.get("title", ""))
 
         # Re-index results globally for [S#] citation notation
@@ -992,10 +1110,15 @@ def generate_report(
         # globally, once per trading day; that is the only join point now.
 
         # Leftover-budget top-up (issue #128 quality gate, design doc §6.7
-        # item 3). §5's targeted search covers ANOMALIES only, so an L1
-        # candidate that arrived through the weight or L2-class channel — a
-        # 22% holding that moved but never crossed its threshold — could not
-        # reach it however hard it moved. A candidate with a large move and NO
+        # item 3). §5's targeted search now also covers large-weight
+        # holdings (`_targeted_weight_queries`, 2026-08-20 design amendment),
+        # but those results are date-locked to THIS user's own report window
+        # and deliberately excluded from L1's shared cache (see
+        # `anomaly_query_strings` above) — from L1's perspective §5 still
+        # reaches ANOMALIES only. So an L1 candidate that arrived through the
+        # weight or L2-class channel — a 22% holding that moved but never
+        # crossed its threshold — still could not reach a targeted search
+        # however hard it moved. A candidate with a large move and NO
         # recalled headline is precisely the case that is guaranteed to come
         # back [Speculative], and therefore the best use of a search nobody
         # else spent.
@@ -1151,6 +1274,7 @@ def generate_report(
                 ctx.period_end,
                 ctx.window_trading_days,
                 ctx.holding_news,
+                large_holding_moves=ctx.large_holding_moves,
             )
 
             ctx.pass2_model = primary_model
@@ -1443,6 +1567,7 @@ def regenerate_report(
                 period_end_iso,
                 trading_days,
                 inputs.get("holding_news", {}),
+                large_holding_moves=inputs.get("large_holding_moves", {}),
             )
             raw_body = _call_llm(
                 _openrouter_client(),

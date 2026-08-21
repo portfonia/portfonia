@@ -61,7 +61,7 @@ from app.services.report_prompts import (
     _COMPLIANCE_SYSTEM_PREFIX,
     _RULE_CONFIDENCE_LABELS,
     _RULE_TIME_REFERENCES,
-    _SHARED_BODY_RULES,
+    _SHARED_BODY_RULES_NO_LARGE_HOLDINGS,
     _stale_ticker_hint,
 )
 from app.services.transmission_taxonomy import transmissions_for_classes
@@ -79,12 +79,14 @@ ASSEMBLY_PROMPT_VERSION = "a4-v2"
 
 # The assembly pass writes the same §2/§3/§4 body Pass 2 writes — same
 # markers, same downstream injection points — so it reuses Pass 2's narrative
-# rules verbatim (report_prompts._SHARED_BODY_RULES) and adds only what makes
-# this pass different: restate the supplied conclusions, do not re-derive
-# them.
+# rules (report_prompts._SHARED_BODY_RULES_NO_LARGE_HOLDINGS — the same eight
+# rules Pass 2 uses, minus the LARGE HOLDINGS WINDOW PRICE references neither
+# `build_assembly_prompt` below nor its caller ever has data for; see that
+# constant's own comment in report_prompts.py) and adds only what makes this
+# pass different: restate the supplied conclusions, do not re-derive them.
 _ASSEMBLY_SYSTEM = (
     _COMPLIANCE_SYSTEM_PREFIX
-    + _SHARED_BODY_RULES
+    + _SHARED_BODY_RULES_NO_LARGE_HOLDINGS
     + (
         "SUPPLIED CONCLUSIONS ARE YOUR ONLY EVIDENCE: the SHARED TICKER INTEL and "
         "SHARED MACRO EVENT INTEL blocks below were produced by a prior analysis "

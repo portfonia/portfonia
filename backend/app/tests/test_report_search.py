@@ -188,3 +188,114 @@ def test_cache_hit_does_not_inflate_tavily_used_today(db_session: Session) -> No
         rs._run_tavily_search(db_session, ["NVDA earnings"], _DATE, budget=5)
 
     assert rs._tavily_used_today(db_session, _DATE) == 1
+
+
+# ---------------------------------------------------------------------------
+# _targeted_weight_queries / _rank_title_matches_first (issue #128
+# narrative-layer redesign, 2026-08-20 design amendment — extracted from
+# report_generator.py so the real generate_report() path and a verification
+# script import the SAME functions, not two independently-maintained copies).
+# ---------------------------------------------------------------------------
+
+
+def test_targeted_weight_queries_date_locks_to_the_report_window() -> None:
+    queries = rs._targeted_weight_queries(
+        ["TSM"], set(), date(2026, 8, 14), date(2026, 8, 17), max_n=5
+    )
+    assert queries == [("TSM", "TSM stock news catalyst 2026-08-14 to 2026-08-17")]
+
+
+def test_targeted_weight_queries_skips_already_covered_identifiers() -> None:
+    queries = rs._targeted_weight_queries(
+        ["TSM", "QQQ"], {"TSM"}, date(2026, 8, 14), date(2026, 8, 17), max_n=5
+    )
+    assert [ident for ident, _q in queries] == ["QQQ"]
+
+
+def test_targeted_weight_queries_respects_max_n() -> None:
+    queries = rs._targeted_weight_queries(
+        ["TSM", "QQQ", "ASML"], set(), date(2026, 8, 14), date(2026, 8, 17), max_n=2
+    )
+    assert len(queries) == 2
+
+
+# ---------------------------------------------------------------------------
+# date_windows: real Tavily start_date/end_date filtering, not just query text
+# (PR #168 round 2 review, suggestion) — the "date lock" `_targeted_weight_
+# queries` builds above was, until this fix, only extra tokens in the query
+# STRING; Tavily's actual `start_date`/`end_date` publish-date filters were
+# never sent, so an old article that never happens to mention those ISO
+# strings could still return — the exact stale-article failure the 2026-08-20
+# design amendment set out to close.
+# ---------------------------------------------------------------------------
+
+
+def test_run_tavily_search_sends_date_window_to_tavily_api(db_session: Session) -> None:
+    query = "TSM stock news catalyst 2026-08-14 to 2026-08-17"
+    with patch(
+        "app.services.report_search.httpx.post", return_value=_fake_response(_ONE_RESULT)
+    ) as mock_post:
+        rs._run_tavily_search(
+            db_session,
+            [query],
+            _DATE,
+            budget=5,
+            date_windows={query: (date(2026, 8, 14), date(2026, 8, 17))},
+        )
+
+    sent = mock_post.call_args.kwargs["json"]
+    assert sent["start_date"] == "2026-08-14"
+    assert sent["end_date"] == "2026-08-17"
+
+
+def test_run_tavily_search_omits_date_params_for_queries_outside_date_windows(
+    db_session: Session,
+) -> None:
+    """A query with no entry in `date_windows` (every pre-existing caller —
+    Pass 1's macro queries, `_targeted_anomaly_queries`, the L1 leftover
+    top-up) must send no date filter at all, exactly as before this fix."""
+    with patch(
+        "app.services.report_search.httpx.post", return_value=_fake_response(_ONE_RESULT)
+    ) as mock_post:
+        rs._run_tavily_search(db_session, ["NVDA earnings"], _DATE, budget=5)
+
+    sent = mock_post.call_args.kwargs["json"]
+    assert "start_date" not in sent
+    assert "end_date" not in sent
+
+
+def test_rank_title_matches_first_promotes_title_hit_over_relevance_score() -> None:
+    """The v5 compare's TSM query returned a mostly-generic Tavily result set
+    despite a stronger relevance score on the off-target item — this is the
+    reranking that fixes it, now a standalone tested function rather than
+    inline logic only exercised end-to-end."""
+    off_target = {
+        "query": "TSM stock news catalyst 2026-08-14 to 2026-08-17",
+        "title": "Broad market roundup",
+    }
+    on_target = {
+        "query": "TSM stock news catalyst 2026-08-14 to 2026-08-17",
+        "title": "TSM posts record Q1",
+    }
+    ranked = rs._rank_title_matches_first(
+        [off_target, on_target], {"TSM stock news catalyst 2026-08-14 to 2026-08-17": "TSM"}
+    )
+    assert ranked == [on_target, off_target]
+
+
+def test_rank_title_matches_first_is_stable_within_each_group() -> None:
+    """Reorders only; never discards or reshuffles ties — two title-matching
+    results keep their original relative order, and so do two non-matching
+    ones."""
+    a = {"query": "q", "title": "TSM alpha"}
+    b = {"query": "q", "title": "TSM beta"}
+    c = {"query": "q", "title": "unrelated one"}
+    d = {"query": "q", "title": "unrelated two"}
+    ranked = rs._rank_title_matches_first([a, c, b, d], {"q": "TSM"})
+    assert ranked == [a, b, c, d]
+
+
+def test_rank_title_matches_first_returns_a_new_list() -> None:
+    original = [{"query": "q", "title": "x"}]
+    ranked = rs._rank_title_matches_first(original, {"q": "TSM"})
+    assert ranked is not original

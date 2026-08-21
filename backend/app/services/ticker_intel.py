@@ -582,6 +582,70 @@ def _holding_identifier(holding: dict[str, Any]) -> str:
     return _normalize_hk_ticker(str(raw)).upper()
 
 
+def _weighted_identifiers(
+    holdings: list[dict[str, Any]], portfolio_total: float | None
+) -> list[tuple[float, str]]:
+    """(weight, identifier) pairs, ONE per distinct identifier, weight
+    descending. Selection-only plumbing shared by `l1_identifiers_for_user`'s
+    weight-extras channel and by `large_weight_identifiers` below — both need
+    "how big is this holding", never a dollar value itself, so factoring this
+    out carries none of this module's cross-user shared-cache contamination
+    risk.
+
+    Aggregates `market_value_base` by identifier BEFORE ranking (PR #168
+    review round 1 suggestion) — this product preserves upload order, so the
+    same ticker legitimately appears as more than one `Holding` row (a
+    position split across two lots). Ranking un-aggregated rows let a single
+    identifier occupy more than one `top_k` slot in `large_weight_identifiers`
+    (a literal duplicate in its output) and, even where the caller
+    (`l1_identifiers_for_user`) deduplicated the identifier itself, still let
+    that identifier's two half-sized rows silently evict a genuinely distinct
+    5th holding from `top_k` that would have made the cut under the
+    identifier's true combined weight.
+    """
+    rows = list(holdings or [])
+    total = float(portfolio_total or 0.0)
+    if total <= 0:
+        total = sum(float(h.get("market_value_base") or 0.0) for h in rows)
+    if total <= 0:
+        return []
+    combined: dict[str, float] = {}
+    for holding in rows:
+        ident = _holding_identifier(holding)
+        if not ident:
+            continue
+        combined[ident] = combined.get(ident, 0.0) + float(holding.get("market_value_base") or 0.0)
+    weighted = [(value / total, ident) for ident, value in combined.items()]
+    weighted.sort(key=lambda item: item[0], reverse=True)
+    return weighted
+
+
+def large_weight_identifiers(
+    holdings: list[dict[str, Any]],
+    portfolio_total: float | None = None,
+    top_k: int = _L1_TOP_K_BY_WEIGHT,
+    min_weight: float = _L1_MIN_WEIGHT,
+) -> list[str]:
+    """Identifiers among `holdings` at or above `min_weight`, capped to the
+    top `top_k` by weight — the same "big holding, no anomaly required"
+    selection `l1_identifiers_for_user`'s weight channel uses, exposed
+    standalone (issue #128 narrative-layer redesign, 2026-08-20) so Pass 2's
+    OWN material-gathering (`report_generator.py`'s news recall + targeted
+    search) can make the identical selection for its own inputs — not just
+    for the L1 shared cache.
+
+    Root cause this closes: on the 2026-08-17 anchor report, TSM (22.5% of
+    the portfolio, +1.22% on the day — below its own asset-class anomaly
+    threshold) got ZERO recalled news and ZERO targeted search in Pass 2's
+    prompt, because Pass 2's material-gathering only ever looked at
+    `ctx.price_anomalies`. A holding large enough to matter should not need
+    to cross an anomaly threshold to get material at all (design doc,
+    "narrative-layer redesign — quality gate reversal", step 1).
+    """
+    weighted = _weighted_identifiers(holdings, portfolio_total)
+    return [ident for weight, ident in weighted if weight >= min_weight][:top_k]
+
+
 def l1_identifiers_for_user(
     anomalies: list[dict[str, Any]],
     *,
@@ -651,22 +715,15 @@ def l1_identifiers_for_user(
             _add(candidate)
 
     rows = list(holdings or [])
-    total = float(portfolio_total or 0.0)
-    if total <= 0:
-        total = sum(float(h.get("market_value_base") or 0.0) for h in rows)
-
-    weighted: list[tuple[float, str]] = []
-    if total > 0:
-        for holding in rows:
-            ident = _holding_identifier(holding)
-            if not ident:
-                continue
-            weight = float(holding.get("market_value_base") or 0.0) / total
-            weighted.append((weight, ident))
-        weighted.sort(key=lambda item: item[0], reverse=True)
-        extras = [ident for weight, ident in weighted if weight >= min_weight][:top_k]
-        for ident in extras:
-            _add(ident)
+    weighted = _weighted_identifiers(rows, portfolio_total)
+    # PR #168 review round 1 suggestion: share the exact selection
+    # `large_weight_identifiers` makes (both call sites must apply the same
+    # per-identifier aggregation — see that function's docstring) rather than
+    # re-slicing `weighted` inline here, which had drifted out of sync with
+    # it before this fix.
+    extras = large_weight_identifiers(rows, portfolio_total, top_k=top_k, min_weight=min_weight)
+    for ident in extras:
+        _add(ident)
 
     exposed = {c for c in (exposed_asset_classes or []) if c}
     if exposed:

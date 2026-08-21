@@ -61,24 +61,114 @@ _RULE_FORWARD_EVENTS = (
     "worth watching — NEVER predict its outcome, direction, or market impact "
     "('will rise/fall', 'likely to beat', 'expected to lift/hurt' are forbidden).\n"
 )
-_RULE_DIRECTION_REQUIRES_EVIDENCE = (
-    "DIRECTION REQUIRES EVIDENCE: a sentence that asserts how a SPECIFIC HOLDING'S "
-    "PRICE moved, or is positioned to move (e.g. 'gained safe-haven buying', "
-    "'sold off', 'outperformed', 'will see buying support'), must be grounded in "
-    "the PRICE ANOMALIES or TECHNICAL POSITION data supplied for THAT holding. If "
-    "no window price data is supplied for a holding, do not assert a price "
-    "direction for it — describe only that a transmission channel exists, say "
-    "plainly 'this report period has no price data to confirm the holding's "
-    "direction', and cap the confidence label at [Speculative]. Textbook macro "
-    "narratives (e.g. 'war risk -> gold rallies') are mechanisms, not "
-    "observations — do not restate them as something that already happened to a "
-    "specific holding without window price data.\n"
-)
+
+
+def _rule_direction_requires_evidence(*, large_holdings_price: bool) -> str:
+    """DIRECTION REQUIRES EVIDENCE, parameterized by whether this pass's own
+    prompt actually carries a LARGE HOLDINGS WINDOW PRICE data block (PR #168
+    round 2 review, suggestion): Pass 2's user-turn prompt does
+    (`large_holding_moves`, `_build_pass2_prompt`); `build_assembly_prompt`
+    never does (report_assembly.py has no `large_holding_moves` parameter at
+    all — see its module docstring). Pointing the model at a data source
+    that, for one of its two consumers, is never actually rendered would be a
+    dangling reference in that consumer's prompt."""
+    sources = (
+        "PRICE ANOMALIES, LARGE HOLDINGS WINDOW PRICE, or TECHNICAL POSITION"
+        if large_holdings_price
+        else "PRICE ANOMALIES or TECHNICAL POSITION"
+    )
+    count = "three" if large_holdings_price else "two"
+    return (
+        "DIRECTION REQUIRES EVIDENCE: a sentence that asserts how a SPECIFIC HOLDING'S "
+        "PRICE moved, or is positioned to move (e.g. 'gained safe-haven buying', "
+        "'sold off', 'outperformed', 'will see buying support'), must be grounded in "
+        f"the {sources} data "
+        "supplied for THAT holding. If no window price data is supplied for a holding "
+        f"in ANY of those {count}, do not assert a price direction for it — describe "
+        "only that a transmission channel exists, say plainly 'this report period has "
+        "no price data to confirm the holding's direction', and cap the confidence "
+        "label at [Speculative]. Textbook macro narratives (e.g. 'war risk -> gold "
+        "rallies') are mechanisms, not observations — do not restate them as "
+        "something that already happened to a specific holding without window price "
+        "data.\n"
+    )
+
+
+_RULE_DIRECTION_REQUIRES_EVIDENCE = _rule_direction_requires_evidence(large_holdings_price=True)
+
+
+def _rule_naming_is_not_analysis(*, large_holdings_price: bool) -> str:
+    """NAMING IS NOT ANALYSIS, parameterized the same way and for the same
+    reason as `_rule_direction_requires_evidence` above (PR #168 round 2
+    review, suggestion).
+
+    Also fixes a real conflict with GROUNDED CONNECTIONS ONLY, in the same
+    system prompt: the earlier wording told the model to write a causal
+    chain whenever "a holding in this portfolio sits on the chain that
+    development would transmit through" — a judgment the MODEL made, since
+    nothing required the supplied material to state that exposure.
+    GROUNDED CONNECTIONS ONLY forbids exactly that ("a plausible-sounding
+    mechanism you construct yourself... is not grounding"). Rewritten to
+    require the material itself state how the holding is exposed, and to
+    say explicitly that it does not license inventing a mechanism the
+    material does not give — so a model reading both rules gets one
+    consistent instruction instead of two that disagree on the same
+    question."""
+    trailer = (
+        "check LARGE HOLDINGS WINDOW PRICE below for its own window move before "
+        "treating it as price-blind.\n"
+        if large_holdings_price
+        else "say so in the causal-chain sentence rather than treating it as price-blind.\n"
+    )
+    return (
+        "NAMING IS NOT ANALYSIS: when the supplied research, recalled news, or "
+        "shared intel for a holding both describes a development (a company's "
+        "revenue, capacity, capex, demand, or a policy action) AND states how "
+        "that holding is exposed to it, write the connection as a coherent "
+        "causal sentence — signal -> transmission channel -> this specific "
+        "holding — using the mechanism the material itself supplies (this does "
+        "not license inventing a mechanism the material does not give you: see "
+        "GROUNDED CONNECTIONS ONLY below, which still governs whether a "
+        "connection may be drawn at all). Listing related entities or tickers "
+        "(customers, suppliers, competitors) without stating HOW "
+        "the development reaches THAT holding does not satisfy the mechanism "
+        "requirement above, even if the sentence names the right companies. A large "
+        "holding (one of this portfolio's biggest weights) is exactly the position "
+        "§3 should analyze deepest, even when it did not cross this window's anomaly "
+        "threshold — do not reduce it to an identity line plus a watchlist just "
+        "because PRICE ANOMALIES has nothing for it; " + trailer
+    )
+
+
+_RULE_NAMING_IS_NOT_ANALYSIS = _rule_naming_is_not_analysis(large_holdings_price=True)
 _RULE_DIVERGENCE_IS_THE_SIGNAL = (
     "DIVERGENCE IS THE SIGNAL: if a holding's actual window price move CONTRADICTS "
     "the textbook direction implied by a macro narrative (e.g. gold falling during "
     "a war-risk spike), report that divergence itself as the noteworthy signal — "
     "do not silently follow the narrative and do not omit the contradiction.\n"
+)
+_RULE_CONCENTRATION_IS_SUPPLIED = (
+    "CONCENTRATION NUMBERS ARE SUPPLIED, NOT COMPUTED: the top-3 combined, top "
+    "holding, and top asset-class percentages given in the Concentration flags "
+    "data above are already correct — restate them exactly, in every section "
+    "that references them (§3 as well as §4.1). Never add, re-sum, or merge "
+    "holding rows — including combining one security's multiple lots — to "
+    "produce a different top-3 or concentration figure. A combined-lot weight "
+    "(e.g. 'these two rows total X% together') may be stated as its own "
+    "portfolio-composition fact, but must never be substituted for, or added "
+    "into, the supplied concentration number.\n"
+)
+_RULE_GROUNDED_CONNECTIONS_ONLY = (
+    "GROUNDED CONNECTIONS ONLY: connect a macro theme or research item to a "
+    "specific holding only when the supplied material for THAT theme or "
+    "holding actually states the connection. A plausible-sounding mechanism "
+    "you construct yourself (e.g. 'higher shipping costs would raise this "
+    "chipmaker's logistics costs' with no shipping-cost research supplied for "
+    "that chipmaker) is not grounding — omit the connection rather than "
+    "include it as padding. This applies equally to forward-looking or "
+    "'outlook' material: a projection or plan described in the research is a "
+    "projection — never restate it as something already observed 'this "
+    "report period'.\n"
 )
 _RULE_CROSS_REFERENCES = (
     f"§4.2 CROSS-REFERENCES: '{_pass2_cross_ref['en']}' / "
@@ -96,10 +186,34 @@ _SHARED_BODY_RULES = (
     + _RULE_FORWARD_EVENTS
     + _RULE_DIRECTION_REQUIRES_EVIDENCE
     + _RULE_DIVERGENCE_IS_THE_SIGNAL
+    + _RULE_NAMING_IS_NOT_ANALYSIS
+    + _RULE_CONCENTRATION_IS_SUPPLIED
+    + _RULE_GROUNDED_CONNECTIONS_ONLY
     + _RULE_CROSS_REFERENCES
 )
 
 _PASS2_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + _SHARED_BODY_RULES
+
+# Assembly-specific composition (PR #168 round 2 review, suggestion): the
+# same eight rules, unchanged, EXCEPT the two large-holdings-aware ones swap
+# in their no-large-holdings variant — build_assembly_prompt never renders a
+# LARGE HOLDINGS WINDOW PRICE section (report_assembly.py has no
+# `large_holding_moves` parameter at all). This duplicates only the WIRING
+# (which constants compose into which combined string), never the rule
+# PROSE itself, for the six rules that are identical either way — the
+# hand-copied-string drift this module's docstring warns about (PR #117's
+# CSS strings, PR #157's `_FORWARD_WINDOW_DAYS`) was duplicated CONTENT, not
+# a second composition of the same constants.
+_SHARED_BODY_RULES_NO_LARGE_HOLDINGS = (
+    _RULE_BRIEFING_ROLE
+    + _RULE_FORWARD_EVENTS
+    + _rule_direction_requires_evidence(large_holdings_price=False)
+    + _RULE_DIVERGENCE_IS_THE_SIGNAL
+    + _rule_naming_is_not_analysis(large_holdings_price=False)
+    + _RULE_CONCENTRATION_IS_SUPPLIED
+    + _RULE_GROUNDED_CONNECTIONS_ONLY
+    + _RULE_CROSS_REFERENCES
+)
 
 # H-DEBT-2 completeness guard: a Pass 2 body shorter than this, or missing
 # either heading, is treated as a truncated provider response.
@@ -157,7 +271,9 @@ _SECTION3_INSTRUCTIONS = (
 )
 _SECTION4_INSTRUCTIONS = (
     "## §4 Risk Radar\n"
-    "### 4.1 Concentration — state the flagged ratios.\n"
+    "### 4.1 Concentration — state the flagged ratios EXACTLY as supplied "
+    "(see CONCENTRATION NUMBERS ARE SUPPLIED, NOT COMPUTED above); do not "
+    "recompute a different top-3 or concentration percentage here.\n"
     "### 4.2 Price anomalies — a numeric table (net %, worst day, the latest-day "
     "session arc, trigger) is inserted by the system directly under this heading; "
     "do NOT restate those numbers. Under the heading write ONE line per holding in "
@@ -343,6 +459,49 @@ def _build_holding_news_block(holding_news: dict[str, list[dict[str, Any]]]) -> 
     return "\n".join(lines)
 
 
+def _build_large_holding_price_block(large_holding_moves: dict[str, dict[str, Any]]) -> str:
+    """Render the LARGE HOLDINGS WINDOW PRICE section of the Pass 2 prompt
+    (issue #128 narrative-layer redesign, 2026-08-20 design amendment "make
+    Pass 2 write the connection again, not just name it", item 3).
+
+    A large-weight holding that never crosses this window's anomaly threshold
+    (e.g. TSM at 22.5% weight) previously had NO price fact anywhere in this
+    prompt — PRICE ANOMALIES only lists holdings that crossed threshold, so
+    DIRECTION REQUIRES EVIDENCE forced the body to drop the holding's own
+    window move entirely, even though the number was already captured and
+    simply unremarkable. This section supplies exactly that number so the
+    body can state it plainly without inventing an intraday narrative the
+    data does not support.
+
+    `net_pct` (the report window's cumulative move) and `max_day_pct` (the
+    largest single trading day inside that window) are rendered as TWO
+    SEPARATE facts (second design amendment, 2026-08-20, item 3) — a
+    holding can have a quiet window net move that still contains one sharp
+    day, and blending them into one number silently discards that. A holding
+    with no captured `max_day_pct` (e.g. only one trading day in the window,
+    so "largest day" and "net" are the same session) omits that clause
+    rather than repeating the net figure under a different label.
+
+    Empty input → empty string (no section emitted).
+    """
+    if not large_holding_moves:
+        return ""
+    lines = [
+        "",
+        "=== LARGE HOLDINGS WINDOW PRICE (below this window's anomaly "
+        "threshold, not in the §4.2 table above) ===",
+    ]
+    for ident, move in large_holding_moves.items():
+        net_pct = move.get("net_pct")
+        line = f"{ident}: {net_pct:+.2%} net this report period"
+        max_day_pct = move.get("max_day_pct")
+        max_day_date = move.get("max_day_date")
+        if max_day_pct is not None and max_day_date:
+            line += f"; largest single day {max_day_pct:+.2%} on {max_day_date}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def _build_pass2_prompt(
     portfolio: dict[str, Any],
     macro: dict[str, Any],
@@ -353,6 +512,7 @@ def _build_pass2_prompt(
     trading_days: int = 0,
     holding_news: dict[str, list[dict[str, Any]]] | None = None,
     enabled_sections: frozenset[str] = ALL_NARRATIVE_SECTIONS,
+    large_holding_moves: dict[str, dict[str, Any]] | None = None,
 ) -> str:
     lines: list[str] = []
 
@@ -446,6 +606,13 @@ def _build_pass2_prompt(
             lines.append(_fmt_anomaly_arc(a))
     else:
         lines.append("(no holding moved beyond its threshold this window)")
+
+    # Large holdings' own window price, below anomaly threshold (issue #128
+    # narrative-layer redesign item 3) — otherwise these holdings had no price
+    # fact anywhere in this prompt at all, not even a non-anomalous number.
+    large_price_block = _build_large_holding_price_block(large_holding_moves or {})
+    if large_price_block:
+        lines.append(large_price_block)
 
     # Holding-relevant news (R-3): captured-window recall + targeted search for
     # the holdings that moved. Distinct from BACKGROUND RESEARCH (macro-themed).

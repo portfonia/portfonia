@@ -209,6 +209,18 @@ def test_assembly_system_prompt_keeps_every_shared_narrative_rule() -> None:
         assert marker in system, f"assembly system prompt lost: {marker}"
 
 
+def test_assembly_system_prompt_never_mentions_large_holdings_window_price() -> None:
+    """PR #168 round 2 review, suggestion: `build_assembly_prompt` never
+    renders a LARGE HOLDINGS WINDOW PRICE data block (no `large_holding_moves`
+    parameter at all — see this module's docstring), but the shared narrative
+    rules (DIRECTION REQUIRES EVIDENCE, NAMING IS NOT ANALYSIS) used to
+    reference it verbatim as a grounding source / "check below" pointer
+    regardless of which pass composed them. A dangling reference to data that
+    is never actually present would tell the assembly model to check a
+    section that does not exist."""
+    assert "LARGE HOLDINGS WINDOW PRICE" not in ra._ASSEMBLY_SYSTEM
+
+
 def test_assembly_prompt_requests_the_same_section_markers_pass2_emits() -> None:
     """The assembled body is a drop-in replacement for Pass 2's: the same
     `_render_full_md` injects §2.5/§4.2/§4.4 into it and the same
