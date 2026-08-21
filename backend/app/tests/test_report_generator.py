@@ -876,6 +876,92 @@ def test_generate_report_l1_sees_targeted_search_headline_pass2_input_unchanged(
     assert report.report_inputs["holding_news"].get("NVDA", []) == []
 
 
+def test_weight_targeted_search_stays_out_of_shared_l1_cache(db_session: Session) -> None:
+    """PR #168 review round 1 bug: `_targeted_weight_queries`' results are
+    date-locked to THIS user's own `period_start`/`period_end` (a per-user
+    watermark) — unlike `_targeted_anomaly_queries`' results, which carry no
+    date qualifier and are safe for L1's day-scoped, cross-user shared cache.
+    The merge at `targeted = targeted + weight_targeted` let both flow through
+    the same `l1_targeted_titles` collection undifferentiated, so a weight-
+    targeted title reached `ticker_intel` (the shared L1 cache) exactly like
+    an anomaly-targeted one does in
+    test_generate_report_l1_sees_targeted_search_headline_pass2_input_unchanged
+    above — reintroducing the "whoever's report reaches an identifier first
+    freezes their own per-user data into the shared row for everyone else
+    that day" leak the L1 redesign (design doc §4.8) already closed once, this
+    time through a news-title channel instead of a price one.
+
+    AAPL (100% weight, `_portfolio_snap()`) has no anomaly and no recalled
+    window news, so `_targeted_weight_queries` is the only source of a
+    targeted search here. The result must still land in Pass 2's own
+    `ctx.search_results` (unchanged, existing contract) but must NOT reach
+    L1's prompt."""
+    _WEIGHT_TITLE = "Apple unveils new services push"
+    captured_l1_prompt: dict[str, str] = {}
+
+    def _capture_l1_llm(
+        client: object, model: str, system: str, user: str, **kwargs: object
+    ) -> str:
+        captured_l1_prompt["prompt"] = user
+        return "AAPL held steady on services growth. [Established]"
+
+    def _fake_tavily(
+        session: Session, queries: list[str], eff_date: date, *, budget: int
+    ) -> list[dict[str, Any]]:
+        return [
+            {
+                "query": q,
+                "title": _WEIGHT_TITLE,
+                "url": "https://example.com/aapl-services",
+                "content": "c",
+                "score": 0.5,
+            }
+            for q in queries
+        ]
+
+    with (
+        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch("app.services.report_generator.load_news_window", return_value=[]),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 2)),
+        patch(
+            "app.services.report_generator.resolve_global_moves",
+            # Net move kept BELOW `_L1_SEARCH_MIN_MOVE` (0.03) on purpose: at
+            # 0.075 (the `_day_move` default) AAPL would also qualify for the
+            # unrelated "leftover-budget top-up" search (an un-dated query
+            # that legitimately IS meant to reach L1) further down in
+            # generate_report, which would make this test pass for the wrong
+            # reason — the top-up path returning the same mocked title,
+            # not the weight-targeted-query filter under test.
+            return_value=(
+                {"AAPL": _day_move("AAPL", net_pct=Decimal("0.01"), max_day_pct=Decimal("0.01"))},
+                2,
+            ),
+        ),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
+        patch("app.services.report_generator._run_tavily_search", side_effect=_fake_tavily),
+        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
+        patch("app.services.ticker_intel._call_llm", side_effect=_capture_l1_llm),
+    ):
+        report = rg.generate_report(db_session, report_date=_TODAY)
+
+    assert report.status == "success"
+    assert report.report_inputs is not None
+    # Existing contract, unchanged: Pass 2's own material-gathering still
+    # gets the weight-targeted title in ctx.search_results.
+    aapl_results = [
+        r for r in report.report_inputs["search_results"] if r.get("title") == _WEIGHT_TITLE
+    ]
+    assert aapl_results, (
+        f"expected the weight-targeted AAPL title in search_results: "
+        f"{report.report_inputs['search_results']}"
+    )
+    # The bug: the same title must NOT have reached L1's shared-cache prompt.
+    assert _WEIGHT_TITLE not in captured_l1_prompt.get("prompt", "")
+
+
 def test_generate_report_theme_anomaly_l1_keys_constituents_with_own_recall(
     db_session: Session,
 ) -> None:

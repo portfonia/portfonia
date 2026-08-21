@@ -216,7 +216,7 @@ def _targeted_weight_queries(
 ) -> list[tuple[str, str]]:
     """Build (identifier, query) for large-weight holdings with no recalled
     window news (issue #128 narrative-layer redesign, 2026-08-20 design
-    amendment "先把 v6 变成生产路径" item 1).
+    amendment "make v6 the production path" item 1).
 
     Unlike `_targeted_anomaly_queries`, the query is date-locked to this
     report's own window — an unqualified "{ident} stock news catalyst" pulled

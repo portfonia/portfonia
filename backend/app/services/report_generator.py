@@ -895,6 +895,18 @@ def generate_report(
         # macro-theme background research already put in ctx.search_results
         # below, never replaces it.
         already_targeted = {ident for ident, _q in targeted}
+        # PR #168 review round 1 bug: `_targeted_weight_queries`' queries
+        # below are date-locked to THIS user's own period_start/period_end (a
+        # per-user watermark, by design — see the comment above the call) —
+        # unlike `_targeted_anomaly_queries`' queries, which carry no date
+        # qualifier and are safe for L1's day-scoped, cross-user shared
+        # cache. Captured here, before `weight_targeted` is merged into
+        # `targeted` below, because after the merge the two origins are no
+        # longer distinguishable by shape — only by which query string
+        # produced them. This is what keeps a weight-targeted title (a
+        # per-user-window fact) out of `l1_targeted_titles` further down,
+        # while still letting it reach `ctx.search_results` for Pass 2.
+        anomaly_query_strings = {q for _ident, q in targeted}
         window_start_date = period_start.astimezone(ET).date()
         window_end_date = period_end.astimezone(ET).date()
         weight_targeted = _targeted_weight_queries(
@@ -906,10 +918,12 @@ def generate_report(
         )
         targeted = targeted + weight_targeted
         # L1 runs its OWN recall below (§5.5) over its own identifier
-        # vocabulary, so all that's collected here is the targeted-search
-        # titles keyed by the identifier that asked for them. `ctx.holding_news`
-        # itself is never mutated — it is Pass 2's stored input, and A2's
-        # report content must stay byte-identical (design doc §1.2).
+        # vocabulary, so all that's collected here is the ANOMALY-targeted-
+        # search titles keyed by the identifier that asked for them (weight-
+        # targeted titles are excluded below — see `anomaly_query_strings`
+        # above). `ctx.holding_news` itself is never mutated — it is Pass 2's
+        # stored input, and A2's report content must stay byte-identical
+        # (design doc §1.2).
         l1_targeted_titles: dict[str, list[str]] = {}
         if targeted:
             # Review round 1 bug: this used to be `daily_remaining -
@@ -938,7 +952,7 @@ def generate_report(
             ctx.search_results.extend(targeted_results)
             for r in targeted_results:
                 ident = query_to_identifier.get(r.get("query", ""))
-                if ident:
+                if ident and r.get("query", "") in anomaly_query_strings:
                     l1_targeted_titles.setdefault(ident, []).append(r.get("title", ""))
 
         # Re-index results globally for [S#] citation notation
@@ -1076,10 +1090,15 @@ def generate_report(
         # globally, once per trading day; that is the only join point now.
 
         # Leftover-budget top-up (issue #128 quality gate, design doc §6.7
-        # item 3). §5's targeted search covers ANOMALIES only, so an L1
-        # candidate that arrived through the weight or L2-class channel — a
-        # 22% holding that moved but never crossed its threshold — could not
-        # reach it however hard it moved. A candidate with a large move and NO
+        # item 3). §5's targeted search now also covers large-weight
+        # holdings (`_targeted_weight_queries`, 2026-08-20 design amendment),
+        # but those results are date-locked to THIS user's own report window
+        # and deliberately excluded from L1's shared cache (see
+        # `anomaly_query_strings` above) — from L1's perspective §5 still
+        # reaches ANOMALIES only. So an L1 candidate that arrived through the
+        # weight or L2-class channel — a 22% holding that moved but never
+        # crossed its threshold — still could not reach a targeted search
+        # however hard it moved. A candidate with a large move and NO
         # recalled headline is precisely the case that is guaranteed to come
         # back [Speculative], and therefore the best use of a search nobody
         # else spent.
