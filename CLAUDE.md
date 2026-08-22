@@ -1832,6 +1832,35 @@ main (production) ← dev (integration, Ring 1+ target — not yet in use) ← f
   lines while A's does — re-check anything B deliberately deleted after
   merging.
 
+## Admin surface: API endpoint first, UI later (MANDATORY)
+
+Any feature with an **administrative purpose** — something only the product
+owner uses, not part of a normal user's journey — ships first as an
+`/admin/*` API endpoint authenticated by an ops token. A management UI is an
+optional layer on top of those endpoints, never a prerequisite for the
+capability existing.
+
+- **Status**: convention adopted 2026-08-21, ahead of implementation. The
+  `/admin` router and its `require_ops_token` dependency are Ring 1 stage B
+  checkpoint B2 and **do not exist in the code yet** — this entry is here
+  because it constrains how every subsequent feature is designed, not
+  because it describes current behavior. Do not go looking for `/admin`
+  routes before B2 lands; do design new admin-purpose work to fit this shape.
+- **The ops channel is deliberately NOT the user auth system.** It
+  authenticates with a static bearer secret from `.env`, queries no tables,
+  and does not depend on the user system existing. The reason is the failure
+  mode it has to survive: the channel must still work when the login system
+  itself is broken and is the thing being repaired. Hanging it off the same
+  auth welds the only repair path to the fault source. (B2 also lands before
+  the `users` table exists at all, which makes the separation a structural
+  fact rather than a discipline anyone has to remember.)
+- Consequence to accept openly: some capabilities will exist with **no user
+  interface**, reachable only via curl or an agent calling the endpoint. That
+  is the intended tradeoff, not an oversight.
+
+Full design, including token rotation, constant-time comparison, router-level
+auth declaration, and audit logging: Obsidian `Hermes/Portfonia/Docs/Ring 1-B design.md` §4.
+
 ## Issue Tracking (MANDATORY)
 
 Every new feature/improvement request and every bug — regardless of whether
