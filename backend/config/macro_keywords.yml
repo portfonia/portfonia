@@ -53,10 +53,19 @@ themes:
       - "中美"
       - "芯片禁令"
 
+  # Bare "PLA" (2026-08-22 Grok review round 2, PR #174) collides with
+  # "Project Labor Agreement", a common acronym in US construction/
+  # infrastructure business news — the exact source corpus this product's
+  # RSS feeds draw from. Qualified to phrases specific to PLA military
+  # activity near Taiwan.
   - name: "地缘：台海"
     keywords:
       - "Taiwan"
       - "Taiwan Strait"
+      - "cross-strait"
+      - "PLA drills"
+      - "PLA aircraft"
+      - "PLA Navy"
       - "台湾"
       - "台海"
 
@@ -68,6 +77,7 @@ themes:
       - "oil supply"
       - "Gaza"
       - "Israel"
+      - "IRGC"
       - "石油"
       - "中东"
 
@@ -177,6 +187,7 @@ themes:
       - "Ukraine"
       - "Putin"
       - "Zelensky"
+      - "Kyiv"
       - "俄乌"
       - "俄罗斯"
       - "乌克兰"
@@ -194,10 +205,54 @@ themes:
       - "菲律宾"
       - "美日韩"
 
+  # "Europe"/"EU"/bare "sanctions" (2026-08-22 Grok review rounds 1-2, PR
+  # #174) fire on routine Europe-market roundups and on virtually any
+  # sanctions headline (Russia/Iran/North Korea sanctions are already
+  # covered by their own themes) — same false-positive class as PR #172's
+  # bare "breakthrough"/"突破". Bare "sanctions" is also worse than a
+  # generic miscategorization: theme_keys in macro_event_intel.py are
+  # sorted() and the daily L2 cap is consumed in that sorted order, so a
+  # broadly-firing "G7与全球治理" (an ASCII name, sorting before every
+  # Chinese-named theme) would systematically win the L2 budget race over
+  # genuinely rarer themes on days it spuriously triggers.
   - name: "G7与全球治理"
     keywords:
       - "G7"
       - "G20"
       - "sanctions coordination"
+      - "NATO"
+      - "EU sanctions"
+      - "EU summit"
       - "G7峰会"
       - "全球治理"
+
+  # Added 2026-08-22 (product owner review of a candidate list): no existing
+  # theme covers US domestic political process (legislation, executive
+  # action) as distinct from Fed monetary policy (货币政策, Fed-specific) or
+  # tariff actions (贸易与关税) — a real gap given this portfolio's heavy
+  # US-equity weighting and tariff/policy sensitivity. English-only per
+  # repo Language Policy — config/macro_keywords.yml is not under a
+  # locales/ directory, so it is not the exception that policy carves out.
+  # Bare "Congress" (2026-08-22 Grok review round 2) collides with
+  # "National People's Congress" (China's legislature) and "Indian
+  # National Congress" (a political party) — qualified to "US Congress".
+  - name: "美国内政"
+    keywords:
+      - "Trump"
+      - "US Congress"
+      - "White House"
+
+  # Added 2026-08-22: China-Japan friction (Senkaku/Diaoyu dispute) is a
+  # distinct geopolitical axis from 地缘：东亚同盟 (framed as the US-Japan-
+  # Korea-Philippines ALLIANCE, not China-Japan TENSION) and from 日债
+  # (BOJ/JGB macro, not geopolitics). Bare "yen" (2026-08-22 Grok review, PR
+  # #174) fires on ordinary Japan-FX copy, not Senkaku — dropped along with
+  # its Chinese counterpart for the same reason as 美国内政 above.
+  # "Diaoyu"/"East China Sea" are the English-alphabet terms this dispute
+  # is actually reported under in the configured (English-only) RSS
+  # sources — see news_fetcher.py's five feeds, all hl=en-US.
+  - name: "中日摩擦"
+    keywords:
+      - "Senkaku"
+      - "Diaoyu"
+      - "East China Sea"
