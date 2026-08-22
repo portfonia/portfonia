@@ -108,18 +108,28 @@ themes:
   # every trigger (report_prompts._SECTION2_INSTRUCTIONS) — that selection
   # is only as good as the candidate pool it selects from, so the pool needed
   # to widen alongside the prompt change, not stay narrow.
+  # 2026-08-22 (Grok review, PR #172): the first pass used bare "breakthrough"
+  # (English, word-boundary matched — still fires on any ordinary tech
+  # marketing headline containing that word) and bare "突破" (Chinese, direct
+  # substring — fires on completely unrelated financial phrases like
+  # "股价突破新高"/"订单突破百亿"). Tightened to compound phrases that require
+  # the qualifying context to be present in the substring itself, not just a
+  # generic word that a company/AI PR item, or an unrelated price/order
+  # threshold headline, would also trip.
   - name: "科技突破"
     keywords:
-      - "breakthrough"
+      - "scientific breakthrough"
+      - "research breakthrough"
+      - "technology breakthrough"
       - "quantum computing"
       - "quantum supremacy"
       - "frontier model"
       - "AGI"
-      - "world's first"
-      - "突破"
+      - "科技突破"
+      - "重大突破"
+      - "技术突破"
       - "量子计算"
       - "量子霸权"
-      - "首次实现"
 
   - name: "美债"
     keywords:

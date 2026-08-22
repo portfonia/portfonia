@@ -274,3 +274,26 @@ def test_default_keyword_table_covers_the_widened_candidate_pool() -> None:
     ):
         assert theme in table, f"macro_keywords.yml missing theme: {theme}"
         assert table[theme], f"macro_keywords.yml theme has no keywords: {theme}"
+
+
+def test_tech_breakthrough_theme_uses_qualified_phrases_not_bare_generic_words() -> None:
+    """2026-08-22 Grok review (PR #172): the first widening pass used bare
+    "breakthrough" (word-boundary matched, but still fires on any ordinary
+    tech-marketing headline containing that word) and bare "突破" (direct
+    substring match, fires on completely unrelated financial phrases like
+    "股价突破新高"/"订单突破百亿"). Locks that neither bare form survives and
+    that the compound, context-qualified replacements are present."""
+    keywords = _load_keywords()["科技突破"]
+    assert "breakthrough" not in keywords
+    assert "突破" not in keywords
+    assert "首次实现" not in keywords
+    assert "world's first" not in keywords
+    for phrase in (
+        "scientific breakthrough",
+        "research breakthrough",
+        "technology breakthrough",
+        "科技突破",
+        "重大突破",
+        "技术突破",
+    ):
+        assert phrase in keywords, f"macro_keywords.yml missing tightened phrase: {phrase}"

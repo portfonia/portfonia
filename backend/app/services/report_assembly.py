@@ -76,7 +76,13 @@ logger = logging.getLogger(__name__)
 # TRANSMISSION labels, TRACKING POSITION display rules, and a TECHNICAL
 # POSITION block — a stale version string would make a pre- and
 # post-quality-gate assembled report indistinguishable in `report_inputs`.
-ASSEMBLY_PROMPT_VERSION = "a4-v2"
+# a4-v2 -> a4-v3 (issue #128 Ring 1 stage B / B1 PR, Grok review PR #172):
+# _build_assembly_system() now injects the analysis framework basis and the
+# §2 "no direct holding mapping -> no standalone paragraph" tightening — a
+# real system-prompt contract change caught by review for not bumping this
+# constant, the same class of gap _PROMPT_VERSION's own f2-v6 comment
+# documents on the Pass 2 side.
+ASSEMBLY_PROMPT_VERSION = "a4-v3"
 
 
 def _build_assembly_system() -> str:
