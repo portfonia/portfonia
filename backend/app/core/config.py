@@ -247,6 +247,12 @@ class Settings(BaseSettings):
     # Empty string = use the default path: backend/config/llm_retry.yml
     LLM_RETRY_CONFIG_PATH: str = ""
 
+    # System default analysis framework — house investment-analysis stance
+    # injected into every Pass 2 / assembly system prompt (issue #128 Ring 1
+    # stage B, checkpoint B1). Empty string = use the default path:
+    # backend/config/analysis_framework.yml
+    ANALYSIS_FRAMEWORK_CONFIG_PATH: str = ""
+
     # Chinese-language example/vocabulary data for the holdings-extraction prompt (#90)
     # Empty string = use the default path: backend/config/holding_parser_vocab.yml
     HOLDING_PARSER_VOCAB_PATH: str = ""

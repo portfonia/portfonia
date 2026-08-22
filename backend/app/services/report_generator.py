@@ -50,6 +50,7 @@ from app.core.deps import get_current_user_id
 from app.core.ops_log import log_ops_event
 from app.core.timezones import ET
 from app.models.report import Report
+from app.services.analysis_framework import load_analysis_framework
 from app.services.cross_name_intel import (
     clusters_for_user,
     day_briefed_identifiers,
@@ -81,9 +82,9 @@ from app.services.report_context import ReportContext, ReportInputsDict
 from app.services.report_llm import _BYOK_PROVIDER_ORDER, _call_llm, _openrouter_client
 from app.services.report_prompts import (
     _COMPLIANCE_SYSTEM_PREFIX,
-    _PASS2_SYSTEM,
     _build_pass1_prompt,
     _build_pass2_prompt,
+    _build_pass2_system,
     body_is_incomplete,
 )
 from app.services.report_search import (
@@ -147,7 +148,7 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_PROMPT_VERSION = "f2-v6"  # f2-v6: §4.2 cross-reference restricted to holdings actually in the anomaly table (R-8) + HOLDING-RELEVANT NEWS block from per-holding recall/targeted search (R-3); f2-v5 = direction-requires-evidence + divergence-is-the-signal (no price-direction claims without window data); f2-v4 = §4.2 code table + driver-only, evidence confidence labels, §4.4 technical position
+_PROMPT_VERSION = "f2-v7"  # f2-v7: analysis framework basis injected into _PASS2_SYSTEM (issue #128 Ring 1 stage B, checkpoint B1 — config/analysis_framework.yml, reloaded fresh via _build_pass2_system, its own `version` recorded separately in report_inputs.analysis_framework_version); f2-v6 was itself under-documented — besides its own §4.2/HOLDING-RELEVANT NEWS change, PR #168's narrative-layer redesign rewrote NAMING IS NOT ANALYSIS and parameterized the LARGE HOLDINGS references without bumping this constant (design doc §2.8, PR #167 round 3 caught the same gap on ASSEMBLY_PROMPT_VERSION); f2-v5 = direction-requires-evidence + divergence-is-the-signal (no price-direction claims without window data); f2-v4 = §4.2 code table + driver-only, evidence confidence labels, §4.4 technical position
 _DISCLAIMER_VERSION = "f3-bilingual-v2"
 
 # L1 leftover-budget top-up (issue #128 quality gate, design doc §6.7 item 3).
@@ -571,6 +572,11 @@ def generate_report(
     ctx = ReportContext()
     ctx.period_start = period_start.isoformat()
     ctx.period_end = period_end.isoformat()
+    # Recorded once, regardless of which pass ends up writing the body (§3.3(6)):
+    # Pass 2 and assembly compose from the same framework text, so one version
+    # covers both. Audit/reproducibility only — the framework's full text is
+    # deliberately never stored here (see ReportContext.analysis_framework_version).
+    ctx.analysis_framework_version = load_analysis_framework().version
 
     try:
         # ------------------------------------------------------------------
@@ -1285,7 +1291,7 @@ def generate_report(
             raw_pass2 = _call_llm(
                 client,
                 primary_model,
-                _PASS2_SYSTEM,
+                _build_pass2_system(),
                 pass2_user,
                 with_holdings=True,
                 usage_sink=ctx.llm_calls,
@@ -1546,6 +1552,7 @@ def regenerate_report(
                 "assembly_prompt": assembly_user,
                 "assembly_model": assembly_model,
                 "assembly_prompt_version": ASSEMBLY_PROMPT_VERSION,
+                "analysis_framework_version": load_analysis_framework().version,
                 # Persist the exposure actually used, not the stale value —
                 # otherwise the stored row and the prompt that produced its
                 # body disagree, and a later render/audit would see the
@@ -1572,7 +1579,7 @@ def regenerate_report(
             raw_body = _call_llm(
                 _openrouter_client(),
                 get_settings().PRIMARY_LLM_MODEL,
-                _PASS2_SYSTEM,
+                _build_pass2_system(),
                 pass2_user,
                 with_holdings=True,
                 usage_sink=regen_calls,
@@ -1582,7 +1589,11 @@ def regenerate_report(
                     f"report {report.id}: regenerated Pass 2 output looks truncated "
                     f"({len(raw_body)} chars, missing one of §3/§4)"
                 )
-            body_update = {"pass2_raw": raw_body, "pass2_prompt": pass2_user}
+            body_update = {
+                "pass2_raw": raw_body,
+                "pass2_prompt": pass2_user,
+                "analysis_framework_version": load_analysis_framework().version,
+            }
 
         # Recompute technical positions from the live DB so a backfill run
         # between the original generation and this regenerate is reflected.

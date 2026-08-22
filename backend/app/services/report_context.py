@@ -79,6 +79,7 @@ class ReportInputsDict(TypedDict, total=False):
     assembly_raw: str
     assembly_prompt_version: str
     assembly_shadow: dict[str, dict[str, Any]]
+    analysis_framework_version: str
 
 
 @dataclass
@@ -184,6 +185,14 @@ class ReportContext:
     # Never rendered, never emailed — read side by side by the product owner
     # against the shipped body, with costs in `llm_calls`.
     assembly_shadow: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # System default analysis framework version (issue #128 Ring 1 stage B,
+    # checkpoint B1 — config/analysis_framework.yml's own `version` field,
+    # NOT the full framework text: audit/reproducibility only, kept out of
+    # report_inputs to avoid the text ever being incidentally exposed
+    # through a future endpoint that reads this column). Same version
+    # regardless of body_source — both Pass 2 and assembly compose from the
+    # same framework text (§3.3(3)).
+    analysis_framework_version: str = ""
 
     def to_jsonb(self) -> dict[str, Any]:
         """Return the write-side dict for the `report_inputs` JSONB column.

@@ -192,13 +192,13 @@ def test_prompt_omits_raw_news_and_search_results() -> None:
 def test_prompt_forbids_introducing_facts_beyond_the_supplied_intel() -> None:
     """Design doc §6.4 risk: the assembly pass re-deriving its own analysis
     would defeat the whole architecture (and spend the tokens twice)."""
-    assert "do not introduce" in ra._ASSEMBLY_SYSTEM.lower()
+    assert "do not introduce" in ra._build_assembly_system().lower()
 
 
 def test_assembly_system_prompt_keeps_every_shared_narrative_rule() -> None:
     """These rules are compliance-adjacent — a body pass that lost DIRECTION
     REQUIRES EVIDENCE would assert price direction with no window data."""
-    system = ra._ASSEMBLY_SYSTEM
+    system = ra._build_assembly_system()
     for marker in (
         "MANDATORY COMPLIANCE",
         "FORWARD EVENTS:",
@@ -218,7 +218,29 @@ def test_assembly_system_prompt_never_mentions_large_holdings_window_price() -> 
     regardless of which pass composed them. A dangling reference to data that
     is never actually present would tell the assembly model to check a
     section that does not exist."""
-    assert "LARGE HOLDINGS WINDOW PRICE" not in ra._ASSEMBLY_SYSTEM
+    assert "LARGE HOLDINGS WINDOW PRICE" not in ra._build_assembly_system()
+
+
+def test_assembly_prompt_section2_instructs_selection_not_mechanical_coverage() -> None:
+    """2026-08-21 §2 rewrite, assembly's own inline instruction block (issue
+    #128 Ring 1 stage B / B1 PR follow-up) — same rewrite as Pass 2's
+    report_prompts._SECTION2_INSTRUCTIONS: select a few genuinely-changed
+    events into flowing paragraphs, not mechanical bulleted coverage of
+    every supplied one."""
+    prompt = _prompt()
+    assert "2 to 4" in prompt
+    assert "Impact on this portfolio" not in prompt
+    for label in ("short-term (this period", "medium-term (weeks to a quarter)"):
+        assert label not in prompt
+
+
+def test_assembly_prompt_section2_no_mapping_means_no_standalone_paragraph() -> None:
+    """Same 2026-08-22 tightening as report_prompts._SECTION2_INSTRUCTIONS —
+    assembly's own inline §2 block gets the matching no-direct-mapping
+    rule."""
+    prompt = " ".join(_prompt().split())
+    assert "no direct, concrete mapping to a holding" in prompt
+    assert "does not earn its own paragraph by default" in prompt
 
 
 def test_assembly_prompt_requests_the_same_section_markers_pass2_emits() -> None:

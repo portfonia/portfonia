@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from app.services.macro_detector import (
+    _load_keywords,
     _make_pattern,
     detect_macro_signals,
 )
@@ -241,3 +242,58 @@ def test_empty_keyword_table_returns_no_hits() -> None:
     result = detect_macro_signals(items, keyword_table={})
     assert result.has_any_hit is False
     assert result.hits == []
+
+
+def test_default_keyword_table_covers_the_widened_candidate_pool() -> None:
+    """Regression guard for the 2026-08-21 widening (issue #128 Ring 1 stage
+    B / B1 PR): §2's prompt now asks the model to SELECT 2-4 themes with
+    genuine change, which is only meaningful if the candidate pool it
+    selects from is actually broad. Locks that the original Ring 0 eight
+    themes plus the new macro/geopolitical categories both survive — a
+    regression here would silently shrink the selection pool back down."""
+    # Some theme names use a fullwidth colon, matching macro_keywords.yml's own
+    # naming convention — noqa'd per-line below rather than renamed, since
+    # renaming here without renaming the YAML keys would just break the match.
+    table = _load_keywords()
+    for theme in (
+        "货币政策",
+        "贸易与关税",
+        "地缘：中美",  # noqa: RUF001
+        "地缘：台海",  # noqa: RUF001
+        "地缘：中东",  # noqa: RUF001
+        "A股政策",
+        "科技监管",
+        "宏观：衰退",  # noqa: RUF001
+        "科技突破",
+        "美债",
+        "日债",
+        "中国宏观",
+        "地缘：俄乌",  # noqa: RUF001
+        "地缘：东亚同盟",  # noqa: RUF001
+        "G7与全球治理",
+    ):
+        assert theme in table, f"macro_keywords.yml missing theme: {theme}"
+        assert table[theme], f"macro_keywords.yml theme has no keywords: {theme}"
+
+
+def test_tech_breakthrough_theme_uses_qualified_phrases_not_bare_generic_words() -> None:
+    """2026-08-22 Grok review (PR #172): the first widening pass used bare
+    "breakthrough" (word-boundary matched, but still fires on any ordinary
+    tech-marketing headline containing that word) and bare "突破" (direct
+    substring match, fires on completely unrelated financial phrases like
+    "股价突破新高"/"订单突破百亿"). Locks that neither bare form survives and
+    that the compound, context-qualified replacements are present."""
+    keywords = _load_keywords()["科技突破"]
+    assert "breakthrough" not in keywords
+    assert "突破" not in keywords
+    assert "首次实现" not in keywords
+    assert "world's first" not in keywords
+    for phrase in (
+        "scientific breakthrough",
+        "research breakthrough",
+        "technology breakthrough",
+        "科技突破",
+        "重大突破",
+        "技术突破",
+    ):
+        assert phrase in keywords, f"macro_keywords.yml missing tightened phrase: {phrase}"

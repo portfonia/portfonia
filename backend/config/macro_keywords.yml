@@ -100,3 +100,104 @@ themes:
       - "credit crunch"
       - "衰退"
       - "失业率"
+
+  # Widened 2026-08-21 (issue #128 Ring 1 stage B / B1 PR) — the eight themes
+  # above were the Ring 0 starting set (Concept §7.1.3) and had gone
+  # unexpanded since. §2's prompt now asks the model to SELECT 2-4 themes
+  # with genuine evidenced change this window rather than mechanically cover
+  # every trigger (report_prompts._SECTION2_INSTRUCTIONS) — that selection
+  # is only as good as the candidate pool it selects from, so the pool needed
+  # to widen alongside the prompt change, not stay narrow.
+  # 2026-08-22 (Grok review, PR #172): the first pass used bare "breakthrough"
+  # (English, word-boundary matched — still fires on any ordinary tech
+  # marketing headline containing that word) and bare "突破" (Chinese, direct
+  # substring — fires on completely unrelated financial phrases like
+  # "股价突破新高"/"订单突破百亿"). Tightened to compound phrases that require
+  # the qualifying context to be present in the substring itself, not just a
+  # generic word that a company/AI PR item, or an unrelated price/order
+  # threshold headline, would also trip.
+  - name: "科技突破"
+    keywords:
+      - "scientific breakthrough"
+      - "research breakthrough"
+      - "technology breakthrough"
+      - "quantum computing"
+      - "quantum supremacy"
+      - "frontier model"
+      - "AGI"
+      - "科技突破"
+      - "重大突破"
+      - "技术突破"
+      - "量子计算"
+      - "量子霸权"
+
+  - name: "美债"
+    keywords:
+      - "Treasury auction"
+      - "Treasury yield"
+      - "10-year yield"
+      - "30-year yield"
+      - "term premium"
+      - "debt ceiling"
+      - "Treasury supply"
+      - "美债"
+      - "美国国债"
+      - "期限溢价"
+      - "美债拍卖"
+
+  - name: "日债"
+    keywords:
+      - "JGB"
+      - "Bank of Japan"
+      - "BOJ"
+      - "yield curve control"
+      - "Japan bond"
+      - "日债"
+      - "日本国债"
+      - "日本央行"
+      - "收益率曲线控制"
+
+  - name: "中国宏观"
+    keywords:
+      - "China GDP"
+      - "China deflation"
+      - "local government debt"
+      - "property crisis"
+      - "China stimulus"
+      - "China property"
+      - "中国GDP"
+      - "地方政府债务"
+      - "房地产"
+      - "刺激政策"
+      - "通缩"
+
+  - name: "地缘：俄乌"
+    keywords:
+      - "Russia"
+      - "Ukraine"
+      - "Putin"
+      - "Zelensky"
+      - "俄乌"
+      - "俄罗斯"
+      - "乌克兰"
+      - "普京"
+
+  - name: "地缘：东亚同盟"
+    keywords:
+      - "South China Sea"
+      - "Philippines"
+      - "AUKUS"
+      - "Quad"
+      - "Japan-Korea"
+      - "东海"
+      - "南海"
+      - "菲律宾"
+      - "美日韩"
+
+  - name: "G7与全球治理"
+    keywords:
+      - "G7"
+      - "G20"
+      - "sanctions coordination"
+      - "G7峰会"
+      - "全球治理"

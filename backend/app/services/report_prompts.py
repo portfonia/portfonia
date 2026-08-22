@@ -12,6 +12,7 @@ from typing import Any
 
 from app.compliance.forbidden_vocab import PROMPT_VOCAB_STRING as _FORBIDDEN_PROMPT_VOCAB
 from app.core.timezones import ET
+from app.services.analysis_framework import load_analysis_framework
 from app.services.i18n_glossary import load_i18n_glossary
 from app.services.macro_detector import MacroSignals
 from app.services.news_fetcher import NewsItem
@@ -192,7 +193,21 @@ _SHARED_BODY_RULES = (
     + _RULE_CROSS_REFERENCES
 )
 
-_PASS2_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + _SHARED_BODY_RULES
+
+def _build_pass2_system() -> str:
+    """Compose Pass 2's system prompt fresh on every call (issue #128 Ring 1
+    stage B, checkpoint B1): compliance prefix -> analysis framework ->
+    shared body rules, in that order, each layer explicitly subordinate to
+    the one before it (§3.3(2)). The analysis framework is reloaded from
+    config/analysis_framework.yml on every call — same hot-reload contract
+    as asset_class_config — so an edit to the philosophy text takes effect
+    on the next report with no process restart. This is why the composed
+    prompt is a function, not a module-level constant: a frozen constant
+    computed once at import time could never pick up a later config edit in
+    a long-lived Celery worker process.
+    """
+    return _COMPLIANCE_SYSTEM_PREFIX + load_analysis_framework().text + "\n" + _SHARED_BODY_RULES
+
 
 # Assembly-specific composition (PR #168 round 2 review, suggestion): the
 # same eight rules, unchanged, EXCEPT the two large-holdings-aware ones swap
@@ -245,18 +260,29 @@ def body_is_incomplete(body: str) -> bool:
 # which sections) is a Ring 1 decision, not built here.
 _SECTION2_INSTRUCTIONS = (
     "## §2 Macro Signals\n"
-    "For each triggered macro theme: (a) describe what is happening and what is "
-    "driving it; (b) under a bold sub-heading 'Impact on this portfolio', do NOT "
-    "stop at naming exposed tickers — trace the transmission mechanism (signal -> "
-    "channel -> the specific holding), then separate the read into short-term "
-    "(this period / next few sessions), medium-term (weeks to a quarter), and "
-    "long-term (structural) effects, and end with the concrete follow-on signals "
-    "or scenarios worth watching for each named holding. Stay descriptive: report "
-    "what to WATCH, never what to DO (no buy/sell/hold/hedge/trim language). The "
-    "short-term read describes a CHANNEL ('X would transmit via Y'), not an "
-    "observed move — see DIRECTION REQUIRES EVIDENCE / DIVERGENCE IS THE SIGNAL "
-    "above; check PRICE ANOMALIES before stating a holding already moved a "
-    "given direction.\n\n"
+    "From the macro themes and signals supplied above, select the ones — typically "
+    "2 to 4 — that show a genuine, evidenced change THIS report period; apply the "
+    "analysis framework's own judgment (see ANALYSIS FRAMEWORK above) for how much "
+    "space each earns and how its time horizon is framed. Write each selected theme "
+    "as ONE flowing paragraph, not a bulleted or sub-headed structure: describe what "
+    "is happening, do NOT stop at naming exposed tickers — trace the transmission "
+    "mechanism (signal -> channel -> the specific holding) — and let the near-term "
+    "channel, the medium-term development, and any structural/multi-year "
+    "significance appear in whatever order and proportion the evidence actually "
+    "supports. Do not label them 'short-term'/'medium-term'/'long-term' and do not "
+    "add a sub-heading before naming holdings. A theme that triggered but shows no "
+    "material change this period does not need its own paragraph — say so in one "
+    "line, or omit it, rather than restating it at the same length report after "
+    "report. A theme with no direct, concrete mapping to an identifier actually "
+    "held does not earn its own §2 paragraph by default, regardless of how much "
+    "genuine change it shows elsewhere — at most, mention it as one aside sentence "
+    "inside the relevant holding's §3 analysis, not as a standalone §2 paragraph. "
+    "If nothing shows genuine change this period, say so plainly rather "
+    "than padding coverage. Stay descriptive: report what to WATCH, never what to "
+    "DO (no buy/sell/hold/hedge/trim language). Any near-term read describes a "
+    "CHANNEL ('X would transmit via Y'), not an observed move — see DIRECTION "
+    "REQUIRES EVIDENCE / DIVERGENCE IS THE SIGNAL above; check PRICE ANOMALIES "
+    "before stating a holding already moved a given direction.\n\n"
 )
 _SECTION3_INSTRUCTIONS = (
     "## §3 Holdings Analysis\n"
