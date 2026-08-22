@@ -181,6 +181,20 @@ def test_section2_instructs_selection_not_mechanical_coverage() -> None:
     assert "does not need its own paragraph" in rp._SECTION2_INSTRUCTIONS
 
 
+def test_section2_no_direct_holding_mapping_means_no_standalone_paragraph() -> None:
+    """2026-08-22 overlay-driven tightening: the 2026-08-21 comparison still
+    showed §2 giving standalone space to a theme with no concrete tie to any
+    held identifier. §5's relevance rule already covered this in the
+    framework text; §2's own task instruction is tightened to match — no
+    direct, concrete mapping to a holding means no standalone §2 paragraph
+    BY DEFAULT, regardless of how much genuine change the theme shows
+    elsewhere. At most an aside inside the relevant holding's §3 analysis."""
+    text = " ".join(rp._SECTION2_INSTRUCTIONS.split())
+    assert "no direct, concrete mapping to an identifier actually held" in text
+    assert "does not earn its own §2 paragraph by default" in text
+    assert "aside" in text
+
+
 def test_section2_forbids_the_rigid_subheaded_time_tiers() -> None:
     """The old structure forced a bold 'Impact on this portfolio' sub-heading
     plus three literal short/medium/long-term sub-labels on every theme —

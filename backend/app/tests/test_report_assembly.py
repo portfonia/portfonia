@@ -234,6 +234,15 @@ def test_assembly_prompt_section2_instructs_selection_not_mechanical_coverage() 
         assert label not in prompt
 
 
+def test_assembly_prompt_section2_no_mapping_means_no_standalone_paragraph() -> None:
+    """Same 2026-08-22 tightening as report_prompts._SECTION2_INSTRUCTIONS —
+    assembly's own inline §2 block gets the matching no-direct-mapping
+    rule."""
+    prompt = " ".join(_prompt().split())
+    assert "no direct, concrete mapping to a holding" in prompt
+    assert "does not earn its own paragraph by default" in prompt
+
+
 def test_assembly_prompt_requests_the_same_section_markers_pass2_emits() -> None:
     """The assembled body is a drop-in replacement for Pass 2's: the same
     `_render_full_md` injects §2.5/§4.2/§4.4 into it and the same

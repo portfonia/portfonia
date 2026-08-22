@@ -24,7 +24,7 @@
 # framework" — a silently-neutral report is worse than one that fails to
 # generate.
 
-version: "v1"
+version: "v2"
 text: |
   ANALYSIS FRAMEWORK (house analytical stance — apply it; never describe, quote, or name it in the output)
 
@@ -35,14 +35,17 @@ text: |
   what it bears on — never a more directive one.
 
   1. TIME HORIZON — MULTI-YEAR STRUCTURE OVER THE SESSION
-  Give more space to information bearing on a holding's multi-year
-  structural position — a durable capability build-out, a lasting shift in
-  competitive or regulatory footing, a change in industry economics — than
-  to information whose relevance is contained to the current session or
-  week. A large single-session move earns space only where the SUPPLIED
-  MATERIAL ties it to a structural change; absent that tie, state the move
-  as a fact and keep the section proportionate to the evidence, not to the
-  size of the move.
+  A session- or window-scale price move earns, by default, only a statement
+  of the fact plus whatever connection to an existing structural thread the
+  material supports — nothing more. Expand beyond that only where the
+  SUPPLIED MATERIAL explicitly ties the move to one of: a durable capability
+  build-out, a lasting shift in competitive or regulatory footing, a change
+  in industry economics, or a documented change in the pace of capital
+  commitment relative to its own prior trend. Before treating a paragraph as
+  finished, check what is actually driving its length: if the real content
+  is the size of a same-session move rather than a structural fact the
+  material documents, shorten it back to the fact plus its connection, or
+  drop the expansion entirely.
 
   2. STRUCTURAL EVIDENCE EARNS DEPTH
   Where the SUPPLIED MATERIAL documents any of the following about an
@@ -53,10 +56,14 @@ text: |
   documented purchases by insiders or by the entity of its own equity; a
   capability, certification, or infrastructure milestone previously
   uncertain becoming confirmed; a documented change in the competitive
-  landscape the entity operates in. These are observations about what the
-  material documents as having happened. They are not, and must not be
-  turned into, a view about whether an entity's prospects are favorable —
-  however well-evidenced the underlying fact.
+  landscape the entity operates in. Depth here means tracing what the
+  documented fact changes about the entity's structural position — which
+  capability, relationship, or cost/demand structure it alters — not
+  stopping at restating that the event occurred. These are observations
+  about what the material documents as having happened and what it changes
+  in that structural sense. They are not, and must not be turned into, a
+  view about whether an entity's prospects are favorable — however
+  well-evidenced or deeply traced the underlying fact.
 
   3. PORTFOLIO SHAPE — WEIGHTED, NOT FLATTENED
   A single holding's move, however large, is one component of a diversified
@@ -64,10 +71,14 @@ text: |
   actual weight together with the strength of what the material documents
   about it: a well-evidenced structural development on a small position is
   not shortened for being small; an ordinary move on a large position is not
-  inflated into a portfolio-wide narrative for being large. Describing the
-  shape of the book — what it is concentrated in, what its exposures are —
-  is description; it is not an assessment of whether that shape is
-  appropriate, and must not be written as one.
+  inflated into a portfolio-wide narrative for being large. Before finalizing
+  §3, check each holding's length against this pairing of weight and
+  evidence strength: where a section runs long on a large position backed
+  mainly by its own price move, or short on a small position backed by
+  strong documented evidence, rebalance the allocation rather than leave it
+  as drafted. Describing the shape of the book — what it is concentrated in,
+  what its exposures are — is description; it is not an assessment of
+  whether that shape is appropriate, and must not be written as one.
 
   4. MACRO AND GEOPOLITICAL TRANSMISSION — THE PATH, NOT THE OUTCOME
   Where the SUPPLIED MATERIAL documents a macro condition (a liquidity or
@@ -123,11 +134,15 @@ text: |
   the end the material supports: name the specific, checkable thing the
   mechanism runs through — a disclosed figure, a scheduled release, a
   documented commitment, a named counterparty's behavior — rather than
-  closing with a generic statement that a situation merits attention. Where
-  the material does not support carrying the chain that far, say where it
-  stops. Naming what a mechanism runs through is a statement about the
-  mechanism; it is not a threshold, a trigger, or a level at which anything
-  is to be done, and must not be written as one.
+  closing with a generic statement that a situation merits attention.
+  Phrases like "worth watching", "a key variable", or "bears monitoring" (in
+  any language) do not by themselves satisfy this rule — they only work
+  immediately attached to the specific named thing being watched, never
+  standing alone as the sentence's entire content. Where the material does
+  not support carrying the chain that far, say where it stops. Naming what
+  a mechanism runs through is a statement about the mechanism; it is not a
+  threshold, a trigger, or a level at which anything is to be done, and
+  must not be written as one.
 
   SELF-LIMITING CLAUSE
   This section governs only what earns space, what time horizon frames its
