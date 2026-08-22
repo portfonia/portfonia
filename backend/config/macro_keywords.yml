@@ -53,12 +53,19 @@ themes:
       - "中美"
       - "芯片禁令"
 
+  # Bare "PLA" (2026-08-22 Grok review round 2, PR #174) collides with
+  # "Project Labor Agreement", a common acronym in US construction/
+  # infrastructure business news — the exact source corpus this product's
+  # RSS feeds draw from. Qualified to phrases specific to PLA military
+  # activity near Taiwan.
   - name: "地缘：台海"
     keywords:
       - "Taiwan"
       - "Taiwan Strait"
       - "cross-strait"
-      - "PLA"
+      - "PLA drills"
+      - "PLA aircraft"
+      - "PLA Navy"
       - "台湾"
       - "台海"
 
@@ -198,16 +205,21 @@ themes:
       - "菲律宾"
       - "美日韩"
 
-  # "Europe"/"EU" bare (2026-08-22 Grok review, PR #174) fire on routine
-  # Europe-market roundups, not G7/global-governance coordination — same
-  # false-positive class as PR #172's bare "breakthrough"/"突破". Qualified
-  # to the phrases that actually carry the coordination signal.
+  # "Europe"/"EU"/bare "sanctions" (2026-08-22 Grok review rounds 1-2, PR
+  # #174) fire on routine Europe-market roundups and on virtually any
+  # sanctions headline (Russia/Iran/North Korea sanctions are already
+  # covered by their own themes) — same false-positive class as PR #172's
+  # bare "breakthrough"/"突破". Bare "sanctions" is also worse than a
+  # generic miscategorization: theme_keys in macro_event_intel.py are
+  # sorted() and the daily L2 cap is consumed in that sorted order, so a
+  # broadly-firing "G7与全球治理" (an ASCII name, sorting before every
+  # Chinese-named theme) would systematically win the L2 budget race over
+  # genuinely rarer themes on days it spuriously triggers.
   - name: "G7与全球治理"
     keywords:
       - "G7"
       - "G20"
       - "sanctions coordination"
-      - "sanctions"
       - "NATO"
       - "EU sanctions"
       - "EU summit"
@@ -221,10 +233,13 @@ themes:
   # US-equity weighting and tariff/policy sensitivity. English-only per
   # repo Language Policy — config/macro_keywords.yml is not under a
   # locales/ directory, so it is not the exception that policy carves out.
+  # Bare "Congress" (2026-08-22 Grok review round 2) collides with
+  # "National People's Congress" (China's legislature) and "Indian
+  # National Congress" (a political party) — qualified to "US Congress".
   - name: "美国内政"
     keywords:
       - "Trump"
-      - "Congress"
+      - "US Congress"
       - "White House"
 
   # Added 2026-08-22: China-Japan friction (Senkaku/Diaoyu dispute) is a
