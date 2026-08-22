@@ -284,7 +284,13 @@ def test_2026_08_22_geopolitics_widening_adds_expected_keywords() -> None:
     friction) plus targeted additions to existing themes — while explicitly
     rejecting the over-generic tokens from that same candidate list ("war",
     bare "nuclear", bare "strait", bare "chips") for the same false-positive
-    reason 科技突破's bare "breakthrough"/"突破" were rejected in PR #172."""
+    reason 科技突破's bare "breakthrough"/"突破" were rejected in PR #172.
+
+    English-only (repo Language Policy — this file is not under locales/,
+    so pre-existing Chinese keywords elsewhere in it are an accepted-for-now
+    gap, not a license to add more): the two new themes and the targeted
+    additions below carry no Chinese counterpart, unlike the themes PR #172
+    widened."""
     table = _load_keywords()
 
     assert "Kyiv" in table["地缘：俄乌"]  # noqa: RUF001
@@ -293,15 +299,21 @@ def test_2026_08_22_geopolitics_widening_adds_expected_keywords() -> None:
     assert "cross-strait" in table["地缘：台海"]  # noqa: RUF001
 
     us_domestic = table["美国内政"]
-    for kw in ("Trump", "Congress", "White House", "特朗普", "国会", "白宫"):
+    for kw in ("Trump", "Congress", "White House"):
         assert kw in us_domestic, f"美国内政 missing: {kw}"
+    assert "特朗普" not in us_domestic
+    assert "国会" not in us_domestic
+    assert "白宫" not in us_domestic
 
     japan_friction = table["中日摩擦"]
-    for kw in ("Senkaku", "yen", "尖阁诸岛", "钓鱼岛", "日元"):
+    for kw in ("Senkaku", "Diaoyu", "East China Sea"):
         assert kw in japan_friction, f"中日摩擦 missing: {kw}"
+    assert "尖阁诸岛" not in japan_friction
+    assert "钓鱼岛" not in japan_friction
+    assert "日元" not in japan_friction
 
     g7 = table["G7与全球治理"]
-    for kw in ("NATO", "Europe", "EU", "sanctions"):
+    for kw in ("NATO", "EU sanctions", "EU summit", "sanctions"):
         assert kw in g7, f"G7与全球治理 missing: {kw}"
 
     # Rejected as too generic — same false-positive class as bare
@@ -309,9 +321,11 @@ def test_2026_08_22_geopolitics_widening_adds_expected_keywords() -> None:
     # price war headlines already covered elsewhere; bare "nuclear" fires on
     # nuclear-energy/nuclear-physics content; bare "strait" collides with
     # "Strait of Hormuz" (already a phrase in the Middle East theme) and any
-    # other strait; bare "chips" fires on potato chips / casino chips.
+    # other strait; bare "chips" fires on potato chips / casino chips; bare
+    # "Europe"/"EU"/"yen" (2026-08-22 Grok review, PR #174) fire on routine
+    # Europe-market roundups and ordinary Japan-FX copy respectively.
     all_keywords = {kw for kws in table.values() for kw in kws}
-    for rejected in ("war", "nuclear", "strait", "chips"):
+    for rejected in ("war", "nuclear", "strait", "chips", "Europe", "EU", "yen"):
         assert rejected not in all_keywords, f"rejected over-generic keyword slipped in: {rejected}"
 
 

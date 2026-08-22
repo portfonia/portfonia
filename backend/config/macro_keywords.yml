@@ -198,6 +198,10 @@ themes:
       - "菲律宾"
       - "美日韩"
 
+  # "Europe"/"EU" bare (2026-08-22 Grok review, PR #174) fire on routine
+  # Europe-market roundups, not G7/global-governance coordination — same
+  # false-positive class as PR #172's bare "breakthrough"/"突破". Qualified
+  # to the phrases that actually carry the coordination signal.
   - name: "G7与全球治理"
     keywords:
       - "G7"
@@ -205,8 +209,8 @@ themes:
       - "sanctions coordination"
       - "sanctions"
       - "NATO"
-      - "Europe"
-      - "EU"
+      - "EU sanctions"
+      - "EU summit"
       - "G7峰会"
       - "全球治理"
 
@@ -214,26 +218,26 @@ themes:
   # theme covers US domestic political process (legislation, executive
   # action) as distinct from Fed monetary policy (货币政策, Fed-specific) or
   # tariff actions (贸易与关税) — a real gap given this portfolio's heavy
-  # US-equity weighting and tariff/policy sensitivity.
+  # US-equity weighting and tariff/policy sensitivity. English-only per
+  # repo Language Policy — config/macro_keywords.yml is not under a
+  # locales/ directory, so it is not the exception that policy carves out.
   - name: "美国内政"
     keywords:
       - "Trump"
       - "Congress"
       - "White House"
-      - "特朗普"
-      - "国会"
-      - "白宫"
 
   # Added 2026-08-22: China-Japan friction (Senkaku/Diaoyu dispute) is a
   # distinct geopolitical axis from 地缘：东亚同盟 (framed as the US-Japan-
   # Korea-Philippines ALLIANCE, not China-Japan TENSION) and from 日债
-  # (BOJ/JGB macro, not geopolitics). "yen" is a single English word matched
-  # word-boundary — its literary sense ("a yen for adventure") is a small,
-  # accepted false-positive surface in a financial-news-only corpus.
+  # (BOJ/JGB macro, not geopolitics). Bare "yen" (2026-08-22 Grok review, PR
+  # #174) fires on ordinary Japan-FX copy, not Senkaku — dropped along with
+  # its Chinese counterpart for the same reason as 美国内政 above.
+  # "Diaoyu"/"East China Sea" are the English-alphabet terms this dispute
+  # is actually reported under in the configured (English-only) RSS
+  # sources — see news_fetcher.py's five feeds, all hl=en-US.
   - name: "中日摩擦"
     keywords:
       - "Senkaku"
-      - "yen"
-      - "尖阁诸岛"
-      - "钓鱼岛"
-      - "日元"
+      - "Diaoyu"
+      - "East China Sea"
