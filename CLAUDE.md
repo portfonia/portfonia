@@ -927,7 +927,7 @@ unaffected either way; full design rationale and iteration history: Obsidian
 ### System default analysis framework — B1 (Ring 1 stage B, issue #128, PR #172)
 
 The system-wide "house analytical stance" from `Portfonia Concept & Design.md`
-§4.3 ("系统默认投资理念") had sat as unimplemented prose since 2026-05-14 — the
+§4.3 ("System Default Investment Philosophy") had sat as unimplemented prose since 2026-05-14 — the
 real system prompt (`_COMPLIANCE_SYSTEM_PREFIX` + `_SHARED_BODY_RULES`) never
 carried any product-specific investment philosophy, only compliance
 constraints and structural writing rules. B1 closes that gap.
@@ -993,27 +993,30 @@ constraints and structural writing rules. B1 closes that gap.
   `ASSEMBLY_PROMPT_VERSION`).
 - **Provenance**: two rounds of independent code review (blacktomb42) —
   round 1 found 2 real bugs (`ASSEMBLY_PROMPT_VERSION` not bumped for a real
-  contract change; the widened `科技突破` theme's bare `breakthrough`/`突破`
-  keywords firing on ordinary headlines), round 2 (after fixes) found 0 bugs.
+  contract change; the widened tech-breakthrough theme's bare `breakthrough`
+  keyword and its Chinese-language counterpart firing on ordinary headlines),
+  round 2 (after fixes) found 0 bugs.
   Merged squash `8287dd3`. Deployed to production 2026-08-22.
 
 ### Macro keyword theme pool — widened to 17 themes (issue #128 B1 + issue #175)
 
 `config/macro_keywords.yml` grew from the Ring 0 starting set of 8 themes
 (`Portfonia Concept & Design.md` §7.1.3) to 17, across two PRs in the same
-session — the B1 PR itself (7 new themes: 科技突破/美债/日债/中国宏观/地缘：俄乌/
-地缘：东亚同盟/G7与全球治理, needed because §2's rewrite above now asks the
-model to *select* from the candidate pool rather than mechanically cover
-every trigger — the selection is only as good as what it can select from)
-and a same-day follow-up (issue #175, PR #174: 2 more new themes —
-美国内政/中日摩擦 — plus targeted keyword additions to several existing themes,
-from a product-owner-reviewed candidate list).
+session — the B1 PR itself (7 new themes: tech breakthroughs, US Treasury,
+JGB, China macro, Russia-Ukraine, the East Asia alliance, and G7/global
+governance, needed because §2's rewrite above now asks the model to
+*select* from the candidate pool rather than mechanically cover every
+trigger — the selection is only as good as what it can select from) and a
+same-day follow-up (issue #175, PR #174: 2 more new themes — US domestic
+politics and China-Japan friction — plus targeted keyword additions to
+several existing themes, from a product-owner-reviewed candidate list).
 
 - **Recurring lesson across both PRs, caught by Grok review each time: bare
   generic-word keywords false-fire far more than they look like they would.**
-  Every one of these was added, then caught and fixed: bare `breakthrough`/
-  `突破` (fires on routine tech-marketing headlines / any "X突破新高" price
-  phrase), bare `Europe`/`EU`/`yen` (fires on routine Europe-market
+  Every one of these was added, then caught and fixed: bare `breakthrough`
+  and its Chinese-language counterpart (fires on routine tech-marketing
+  headlines / any generic price-threshold phrase), bare `Europe`/`EU`/`yen`
+  (fires on routine Europe-market
   roundups / ordinary Japan-FX copy), bare `sanctions` (fires on virtually
   any sanctions headline), bare `Congress` (collides with "National
   People's Congress" / "Indian National Congress"), bare `PLA` (collides
@@ -1028,8 +1031,8 @@ from a product-owner-reviewed candidate list).
 - **A single-token match can also be a *fairness* bug, not just a
   false-positive one**: `macro_event_intel.py`'s `theme_keys` are
   `sorted()`, and the daily L2 analysis cap is consumed in that sorted
-  order — an ASCII-named theme (e.g. `G7与全球治理`) sorts before every
-  Chinese-named theme, so a keyword that fires too broadly on that theme
+  order — an ASCII-named theme (e.g. the G7/global-governance theme) sorts
+  before every Chinese-named theme, so a keyword that fires too broadly on that theme
   would systematically win the shared daily L2 budget over genuinely
   rarer themes, not just miscategorize one article. Caught on bare
   `sanctions` in PR #174 round 2 review — worth remembering for any future
@@ -1038,9 +1041,10 @@ from a product-owner-reviewed candidate list).
   keywords are NOT the Language Policy's carved-out exception** (see
   "Language Policy (MANDATORY)" below) — a real gap the product owner
   caught mid-PR #174. Scoped fix so far: **no new Chinese keywords added**
-  to that PR's own two new themes (美国内政/中日摩擦 are English-only).
+  to that PR's own two new themes (US domestic politics and China-Japan
+  friction are English-only).
   Pre-existing Chinese keywords elsewhere in the file (Ring 0 onward,
-  including the whole `A股政策` theme) are **left as-is for now, a known,
+  including the whole China A-share-policy theme) are **left as-is for now, a known,
   separately-tracked gap** — and, checked against `news_fetcher.py`'s five
   configured RSS sources (NYT/FT/Reuters-via-Google-News/CNBC/Google News
   Business, all `hl=en-US`), **currently match nothing**: there is no
