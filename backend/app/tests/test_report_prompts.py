@@ -9,8 +9,12 @@ import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
+import pytest
+
+from app.services import report_assembly as ra
 from app.services import report_prompts as rp
 from app.services import report_serializers as rs
+from app.services.analysis_framework import AnalysisFramework
 from app.services.i18n_glossary import load_i18n_glossary
 from app.services.macro_detector import MacroSignals, ThemeHit
 from app.services.news_fetcher import NewsItem
@@ -167,6 +171,43 @@ def test_pass2_prompt_enabled_sections_restricts_instructions() -> None:
     assert "## §4 Risk Radar" not in prompt
 
 
+def test_section2_instructs_selection_not_mechanical_coverage() -> None:
+    """2026-08-21 §2 rewrite (issue #128 Ring 1 stage B / B1 PR follow-up):
+    the model must SELECT a handful of themes with genuine change, not
+    mechanically write up every triggered theme — that was the "呆板、冗长"
+    complaint driving this change."""
+    assert "2 to 4" in rp._SECTION2_INSTRUCTIONS
+    assert "genuine" in rp._SECTION2_INSTRUCTIONS.lower()
+    assert "does not need its own paragraph" in rp._SECTION2_INSTRUCTIONS
+
+
+def test_section2_forbids_the_rigid_subheaded_time_tiers() -> None:
+    """The old structure forced a bold 'Impact on this portfolio' sub-heading
+    plus three literal short/medium/long-term sub-labels on every theme —
+    mechanical, repetitive across reports, and not something the analysis
+    framework's own time-horizon judgment (item 1/item 6) could ever
+    override. Locks that neither literal artifact survives."""
+    assert "Impact on this portfolio" not in rp._SECTION2_INSTRUCTIONS
+    assert "sub-heading" not in rp._SECTION2_INSTRUCTIONS.lower() or (
+        "do not add a sub-heading" in rp._SECTION2_INSTRUCTIONS.lower()
+    )
+    for label in ("short-term (this period", "medium-term (weeks to a quarter)"):
+        assert label not in rp._SECTION2_INSTRUCTIONS
+
+
+def test_section2_still_requires_transmission_mechanism_and_evidence_rules() -> None:
+    """The rewrite changes FORM (paragraph vs sub-headed bullets), not the
+    substantive constraints: still must trace signal -> channel -> holding,
+    still must defer to DIRECTION REQUIRES EVIDENCE / DIVERGENCE IS THE
+    SIGNAL for any price-direction claim, still forbidden from directive
+    language."""
+    assert "transmission mechanism" in rp._SECTION2_INSTRUCTIONS.lower()
+    assert "DIRECTION REQUIRES EVIDENCE" in rp._SECTION2_INSTRUCTIONS
+    assert "DIVERGENCE IS THE SIGNAL" in rp._SECTION2_INSTRUCTIONS
+    assert "WATCH" in rp._SECTION2_INSTRUCTIONS
+    assert "never what to DO" in rp._SECTION2_INSTRUCTIONS
+
+
 def test_pass2_prompt_42_asks_for_drivers_not_restated_numbers() -> None:
     prompt = rp._build_pass2_prompt(rs._serialize_portfolio(_portfolio_snap()), {}, [], [])
     # The numeric table is code-built; the model must not restate the arc numbers.
@@ -186,14 +227,14 @@ def test_pass2_prompt_defines_evidence_ordinal_labels() -> None:
 
 
 def test_pass2_system_forbids_forecasting_scheduled_events() -> None:
-    assert "FORWARD EVENTS" in rp._PASS2_SYSTEM
-    assert "NEVER predict its outcome" in rp._PASS2_SYSTEM
+    assert "FORWARD EVENTS" in rp._build_pass2_system()
+    assert "NEVER predict its outcome" in rp._build_pass2_system()
 
 
 def test_pass2_system_restricts_section42_cross_reference() -> None:
     # R-8: 'see §4.2' may only point at holdings actually in the anomaly table.
-    assert "§4.2 CROSS-REFERENCES" in rp._PASS2_SYSTEM
-    assert "did not cross" in rp._PASS2_SYSTEM
+    assert "§4.2 CROSS-REFERENCES" in rp._build_pass2_system()
+    assert "did not cross" in rp._build_pass2_system()
 
 
 def test_pass2_system_requires_the_causal_chain_not_just_names() -> None:
@@ -204,9 +245,9 @@ def test_pass2_system_requires_the_causal_chain_not_just_names() -> None:
     TSM's own process nodes — naming a related entity is not the same as
     stating the transmission. This locks the hardened instruction that makes
     that distinction explicit and un-skippable."""
-    assert "NAMING IS NOT ANALYSIS" in rp._PASS2_SYSTEM
-    assert "signal -> transmission channel -> this specific holding" in rp._PASS2_SYSTEM
-    assert "does not satisfy the mechanism requirement" in rp._PASS2_SYSTEM
+    assert "NAMING IS NOT ANALYSIS" in rp._build_pass2_system()
+    assert "signal -> transmission channel -> this specific holding" in rp._build_pass2_system()
+    assert "does not satisfy the mechanism requirement" in rp._build_pass2_system()
 
 
 def test_pass2_prompt_includes_large_holding_window_price() -> None:
@@ -274,8 +315,8 @@ def test_pass2_system_forbids_recomputing_concentration() -> None:
     contradicting the code-built top-3 table's own 61.4% (VOO's single
     largest lot, 26.0%, not the merged total). Concentration numbers must be
     restated verbatim, never recomputed."""
-    assert "CONCENTRATION NUMBERS ARE SUPPLIED, NOT COMPUTED" in rp._PASS2_SYSTEM
-    assert "never be substituted for, or added into" in rp._PASS2_SYSTEM
+    assert "CONCENTRATION NUMBERS ARE SUPPLIED, NOT COMPUTED" in rp._build_pass2_system()
+    assert "never be substituted for, or added into" in rp._build_pass2_system()
 
 
 def test_pass2_section4_points_to_the_concentration_rule() -> None:
@@ -290,9 +331,9 @@ def test_pass2_system_requires_grounded_connections() -> None:
     plausible-sounding reasoning. A theme with no holding-specific grounding
     must stay at the macro level, not get forced into that holding's own
     causal chain."""
-    assert "GROUNDED CONNECTIONS ONLY" in rp._PASS2_SYSTEM
-    assert "is not grounding" in rp._PASS2_SYSTEM
-    assert "never restate it as something already observed" in rp._PASS2_SYSTEM
+    assert "GROUNDED CONNECTIONS ONLY" in rp._build_pass2_system()
+    assert "is not grounding" in rp._build_pass2_system()
+    assert "never restate it as something already observed" in rp._build_pass2_system()
 
 
 def test_naming_is_not_analysis_does_not_contradict_grounded_connections_only() -> None:
@@ -309,7 +350,7 @@ def test_naming_is_not_analysis_does_not_contradict_grounded_connections_only() 
     material (not the model's own construction) and say so explicitly, so a
     model reading both rules gets one consistent instruction."""
     naming_rule = rp._RULE_NAMING_IS_NOT_ANALYSIS
-    assert naming_rule in rp._PASS2_SYSTEM
+    assert naming_rule in rp._build_pass2_system()
     # The rule now requires the material to STATE the exposure, not just
     # describe a development in isolation — "sits on the chain... would
     # transmit through" (the model's own inference) is gone.
@@ -322,3 +363,109 @@ def test_naming_is_not_analysis_does_not_contradict_grounded_connections_only() 
     # must still hold — these are the load-bearing phrases that test locks.
     assert "signal -> transmission channel -> this specific holding" in naming_rule
     assert "does not satisfy the mechanism requirement" in naming_rule
+
+
+# ---------------------------------------------------------------------------
+# Analysis framework injection (issue #128 Ring 1 stage B, checkpoint B1)
+# ---------------------------------------------------------------------------
+
+
+def test_pass2_system_includes_analysis_framework() -> None:
+    system = rp._build_pass2_system()
+    assert "ANALYSIS FRAMEWORK" in system
+    assert "TIME HORIZON — MULTI-YEAR STRUCTURE" in system
+    assert "SELF-LIMITING CLAUSE" in system
+
+
+def test_pass2_system_orders_framework_between_compliance_and_shared_rules() -> None:
+    """§3.3(2): compliance prefix -> analysis framework -> shared body rules,
+    each layer explicitly subordinate to the one before it."""
+    system = rp._build_pass2_system()
+    compliance_pos = system.index("MANDATORY COMPLIANCE")
+    framework_pos = system.index("ANALYSIS FRAMEWORK")
+    rules_pos = system.index("FORWARD EVENTS:")
+    assert compliance_pos < framework_pos < rules_pos
+
+
+def test_pass2_system_and_assembly_system_share_the_same_analysis_framework_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Structural test (§3.5 step 4): both build functions must call the
+    SAME loader rather than each carrying its own hand-copied framework
+    text — this repo has twice paid for exactly that kind of drift (PR
+    #117's two CSS strings, PR #157's two `_FORWARD_WINDOW_DAYS`)."""
+    marker = AnalysisFramework(version="marker-v0", text="MARKER FRAMEWORK TEXT XYZ")
+    monkeypatch.setattr(rp, "load_analysis_framework", lambda: marker)
+    monkeypatch.setattr(ra, "load_analysis_framework", lambda: marker)
+    assert "MARKER FRAMEWORK TEXT XYZ" in rp._build_pass2_system()
+    assert "MARKER FRAMEWORK TEXT XYZ" in ra._build_assembly_system()
+
+
+def test_pass2_system_propagates_analysis_framework_load_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A broken/missing config must fail loudly at prompt-build time, not
+    silently degrade to a framework-less (neutral) system prompt."""
+
+    def _raise() -> AnalysisFramework:
+        raise ValueError("config missing")
+
+    monkeypatch.setattr(rp, "load_analysis_framework", _raise)
+    with pytest.raises(ValueError, match="config missing"):
+        rp._build_pass2_system()
+
+
+# ---------------------------------------------------------------------------
+# Compliance regression under the analysis framework (§3.5 step 5)
+# ---------------------------------------------------------------------------
+
+
+def test_analysis_framework_text_itself_contains_no_forbidden_vocabulary() -> None:
+    """The framework text is injected verbatim into every system prompt — it
+    must not itself contain literal advisory vocabulary the Layer-4 scan
+    would flag if it ever leaked into a report body."""
+    from app.compliance.output_scan import _scan_forbidden_output
+
+    system = rp._build_pass2_system()
+    framework_start = system.index("ANALYSIS FRAMEWORK")
+    framework_end = system.index("FORWARD EVENTS:")
+    framework_only = system[framework_start:framework_end]
+    assert _scan_forbidden_output(framework_only) == []
+
+
+def test_compliant_body_style_survives_output_scan_under_the_framework() -> None:
+    """Diagnostic input designed to invite a directional slip (a large
+    drawdown on a heavily-weighted holding, plus a strong macro theme): a
+    body written in the style the framework asks for — structural evidence,
+    documented transmission, a named observable, no directive verb — must
+    still pass the Layer-4 backstop untouched."""
+    from app.compliance.output_scan import _scan_forbidden_output
+
+    compliant_body = (
+        "## §3 Holdings Intelligence\n"
+        "NVDA fell 8% this report period as broader AI-capex sentiment "
+        "reset. The company disclosed continued capital commitment from "
+        "three hyperscaler customers through this period of price "
+        "pressure, and Q2 filings documented data-center revenue growth "
+        "of 59% year over year. A downstream customer's capex guidance "
+        "for the next quarter, scheduled for release in three weeks, is "
+        "the next observable that would confirm or contradict this "
+        "structural read. [Probable]\n"
+    )
+    assert _scan_forbidden_output(compliant_body) == []
+
+
+def test_directive_slip_still_caught_by_output_scan_under_the_framework() -> None:
+    """The mirror case: a body that drifts into directive language despite
+    the same drawdown + macro-theme inputs must still be caught — the
+    framework changes what earns space, never what the Layer-4 backstop
+    tolerates."""
+    from app.compliance.output_scan import _scan_forbidden_output
+
+    directive_body = (
+        "## §3 Holdings Intelligence\n"
+        "NVDA fell 8% this report period on AI-capex sentiment. Given the "
+        "strength of the underlying structural story, investors should "
+        "buy the dip.\n"
+    )
+    assert _scan_forbidden_output(directive_body) != []

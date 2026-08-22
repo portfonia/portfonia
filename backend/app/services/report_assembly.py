@@ -55,6 +55,7 @@ from openai import OpenAI
 
 from app.core.timezones import ET
 from app.services._yfinance import _normalize_hk_ticker
+from app.services.analysis_framework import load_analysis_framework
 from app.services.i18n_glossary import load_i18n_glossary
 from app.services.report_llm import _call_llm
 from app.services.report_prompts import (
@@ -77,32 +78,47 @@ logger = logging.getLogger(__name__)
 # post-quality-gate assembled report indistinguishable in `report_inputs`.
 ASSEMBLY_PROMPT_VERSION = "a4-v2"
 
-# The assembly pass writes the same §2/§3/§4 body Pass 2 writes — same
-# markers, same downstream injection points — so it reuses Pass 2's narrative
-# rules (report_prompts._SHARED_BODY_RULES_NO_LARGE_HOLDINGS — the same eight
-# rules Pass 2 uses, minus the LARGE HOLDINGS WINDOW PRICE references neither
-# `build_assembly_prompt` below nor its caller ever has data for; see that
-# constant's own comment in report_prompts.py) and adds only what makes this
-# pass different: restate the supplied conclusions, do not re-derive them.
-_ASSEMBLY_SYSTEM = (
-    _COMPLIANCE_SYSTEM_PREFIX
-    + _SHARED_BODY_RULES_NO_LARGE_HOLDINGS
-    + (
-        "SUPPLIED CONCLUSIONS ARE YOUR ONLY EVIDENCE: the SHARED TICKER INTEL and "
-        "SHARED MACRO EVENT INTEL blocks below were produced by a prior analysis "
-        "pass over this trading day's news and price data. Restate, connect and "
-        "prioritize them for THIS portfolio — do not introduce facts, events, "
-        "causes or figures that appear nowhere in the supplied data, and do not "
-        "re-derive an explanation the intel already gives. If the supplied intel "
-        "does not explain a holding's move, say plainly that no catalyst was "
-        "identified and label it [Speculative]; never fill the gap from prior "
-        "knowledge.\n"
-        "RELEVANCE IS THE PERSONALIZATION: lead with what matters most to this "
-        "portfolio by weight and by exposure, not with whatever the intel "
-        "happens to list first. A macro event is worth space only to the extent "
-        "the stated exposure connects it to holdings actually held.\n"
+
+def _build_assembly_system() -> str:
+    """Compose the assembly pass's system prompt fresh on every call.
+
+    The assembly pass writes the same §2/§3/§4 body Pass 2 writes — same
+    markers, same downstream injection points — so it reuses Pass 2's
+    narrative rules (report_prompts._SHARED_BODY_RULES_NO_LARGE_HOLDINGS —
+    the same eight rules Pass 2 uses, minus the LARGE HOLDINGS WINDOW PRICE
+    references neither `build_assembly_prompt` below nor its caller ever has
+    data for; see that constant's own comment in report_prompts.py) and adds
+    only what makes this pass different: restate the supplied conclusions,
+    do not re-derive them.
+
+    Same analysis-framework injection and hot-reload contract as
+    report_prompts._build_pass2_system (issue #128 Ring 1 stage B,
+    checkpoint B1), and the SAME loader call, not a second copy of the
+    framework text (§3.3(3): the two paths must stay in one philosophy, not
+    two, even while SHARED_COMPUTE_ENABLED is off and this path does not
+    ship).
+    """
+    return (
+        _COMPLIANCE_SYSTEM_PREFIX
+        + load_analysis_framework().text
+        + "\n"
+        + _SHARED_BODY_RULES_NO_LARGE_HOLDINGS
+        + (
+            "SUPPLIED CONCLUSIONS ARE YOUR ONLY EVIDENCE: the SHARED TICKER INTEL and "
+            "SHARED MACRO EVENT INTEL blocks below were produced by a prior analysis "
+            "pass over this trading day's news and price data. Restate, connect and "
+            "prioritize them for THIS portfolio — do not introduce facts, events, "
+            "causes or figures that appear nowhere in the supplied data, and do not "
+            "re-derive an explanation the intel already gives. If the supplied intel "
+            "does not explain a holding's move, say plainly that no catalyst was "
+            "identified and label it [Speculative]; never fill the gap from prior "
+            "knowledge.\n"
+            "RELEVANCE IS THE PERSONALIZATION: lead with what matters most to this "
+            "portfolio by weight and by exposure, not with whatever the intel "
+            "happens to list first. A macro event is worth space only to the extent "
+            "the stated exposure connects it to holdings actually held.\n"
+        )
     )
-)
 
 
 def parse_shadow_models(raw: str) -> list[str]:
@@ -491,11 +507,17 @@ def build_assembly_prompt(
         + _RULE_TIME_REFERENCES
         + _RULE_CONFIDENCE_LABELS
         + "## §2 Macro Signals\n"
-        "For each supplied macro event: restate what it is and trace the "
-        "transmission mechanism to the named holdings it reaches through the stated "
-        "exposure. Separate short-term (this period), medium-term (weeks to a "
-        "quarter) and structural reads, and end with the follow-on signals worth "
-        "watching. Report what to WATCH, never what to DO.\n\n"
+        "From the supplied macro events, select the ones — typically 2 to 4 — "
+        "that the supplied intel shows a genuine, evidenced change in this period; "
+        "apply the analysis framework's own judgment (see ANALYSIS FRAMEWORK above) "
+        "for how much space each earns. Write each selected event as ONE flowing "
+        "paragraph, not a bulleted or sub-headed structure: restate what it is and "
+        "trace the transmission mechanism to the named holdings it reaches through "
+        "the stated exposure, letting near-term, medium-term and structural "
+        "significance appear in whatever order and proportion the supplied intel "
+        "supports — do not label them and do not add a sub-heading before naming "
+        "holdings. An event with no material change this period does not need its "
+        "own paragraph. Report what to WATCH, never what to DO.\n\n"
         "## §3 Holdings Analysis\n"
         "Take the holdings the supplied intel actually covers, heaviest weight "
         "first. For each: why it surfaced, the mechanism linking the development to "
@@ -538,7 +560,7 @@ def run_assembly_pass(
     return _call_llm(
         client,
         model,
-        _ASSEMBLY_SYSTEM,
+        _build_assembly_system(),
         prompt,
         with_holdings=True,
         usage_sink=usage_sink,
