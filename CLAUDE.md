@@ -924,6 +924,140 @@ unaffected either way; full design rationale and iteration history: Obsidian
   stays **false** — this closes gaps in Pass 2's own material-gathering, it
   does not touch the assembly path or authorize turning it on.
 
+### System default analysis framework — B1 (Ring 1 stage B, issue #128, PR #172)
+
+The system-wide "house analytical stance" from `Portfonia Concept & Design.md`
+§4.3 ("系统默认投资理念") had sat as unimplemented prose since 2026-05-14 — the
+real system prompt (`_COMPLIANCE_SYSTEM_PREFIX` + `_SHARED_BODY_RULES`) never
+carried any product-specific investment philosophy, only compliance
+constraints and structural writing rules. B1 closes that gap.
+
+- **`config/analysis_framework.yml`** (`app/services/analysis_framework.py`
+  loader) — English-only prose (reasoning layer, never surfaced to the
+  reader), **hot-reloaded on every call** (same contract as
+  `asset_class_config.load_asset_class_config`: an edit takes effect on the
+  next report, no process restart), fails loudly on a missing file or an
+  empty/missing `version`/`text` rather than silently degrading to a
+  neutral framework. `version` is written to
+  `report_inputs.analysis_framework_version` on every report (audit only —
+  the full text is deliberately never stored, to keep it out of any future
+  endpoint that reads `report_inputs`). Bilingual review record + the
+  product owner's sign-off: Obsidian `Hermes/Portfonia/Analysis Framework
+  Philosophy.md`.
+- **Injection order is compliance -> framework -> shared body rules**, each
+  layer explicitly subordinate to the one before it — `_build_pass2_system()`
+  / `_build_assembly_system()` (`report_prompts.py` / `report_assembly.py`)
+  compose this fresh on every call. These became **functions, not module
+  constants** — the pre-B1 `_PASS2_SYSTEM`/`_ASSEMBLY_SYSTEM` were frozen at
+  import time, which would never pick up a config edit in a long-lived
+  Celery worker process. Both call the same `load_analysis_framework()` —
+  one philosophy, not two hand-copied texts (this module has twice paid for
+  that class of drift: PR #117's two CSS strings, PR #157's two
+  `_FORWARD_WINDOW_DAYS`).
+- **The framework only reallocates attention, never produces a directional
+  claim** — it decides what earns space and how a time horizon frames
+  significance; a self-limiting clause makes it explicitly subordinate to
+  every evidence/directional-claim rule below it in the same prompt. Eight
+  numbered items (time horizon, structural-evidence depth, portfolio-shape
+  weighting, macro/geopolitical transmission, relevance-not-prevalence,
+  condition-change-without-forecast, valuation-as-documented-relationship,
+  trace-to-a-named-observable) plus that clause — full text and the
+  Concept §4.3 mapping: Obsidian doc above.
+- **`v1` -> `v2`** (2026-08-22, same PR cycle): after a real-report overlay
+  comparison the product owner tightened items 1/2/3/8 — explicit defaults
+  for session-scale price moves, a "trace to structural-position change"
+  requirement for item 2, an explicit weight/evidence rebalance self-check
+  for item 3, and named example phrases for item 8's "no generic closer"
+  rule ("worth watching" etc. banned only standing alone). **A code-level
+  automated version of the item-3 weight/evidence check (parse §3, score
+  evidence strength, reject-and-retry) was explicitly deferred** — no
+  evidence-strength scoring mechanism exists yet; tracked in issue #173.
+- **§2 Macro Signals rewrite** (same PR, product owner's explicit ask):
+  `_SECTION2_INSTRUCTIONS` (`report_prompts.py`) and the inline §2 block in
+  `report_assembly.py` changed from "cover every triggered macro theme
+  under a rigid bold 'Impact on this portfolio' sub-heading with forced
+  short/medium/long-term sub-bullets" to "select 2-4 themes with genuine
+  evidenced change this period, write each as one flowing paragraph, let
+  the analysis framework's own judgment decide space/time-horizon framing".
+  A theme with no direct, concrete mapping to a held identifier does not
+  earn its own §2 paragraph by default — at most an aside inside the
+  relevant holding's §3 analysis. **Cross-report repetition avoidance is
+  prompt-only today** ("don't restate at the same length report after
+  report") — there is no persisted memory of what a previous report
+  covered; a real fix needs a ledger analogous to `news_surfaced` (see
+  below), tracked in issue #171.
+- **`_PROMPT_VERSION` -> `f2-v7`** (`report_generator.py`) — the bump
+  comment also documents that `f2-v6` was itself under-documented (PR #168's
+  narrative-layer rewrite changed `_SHARED_BODY_RULES` without bumping this
+  constant, the same class of gap PR #167 round 3 caught on
+  `ASSEMBLY_PROMPT_VERSION`).
+- **Provenance**: two rounds of independent code review (blacktomb42) —
+  round 1 found 2 real bugs (`ASSEMBLY_PROMPT_VERSION` not bumped for a real
+  contract change; the widened `科技突破` theme's bare `breakthrough`/`突破`
+  keywords firing on ordinary headlines), round 2 (after fixes) found 0 bugs.
+  Merged squash `8287dd3`. Deployed to production 2026-08-22.
+
+### Macro keyword theme pool — widened to 17 themes (issue #128 B1 + issue #175)
+
+`config/macro_keywords.yml` grew from the Ring 0 starting set of 8 themes
+(`Portfonia Concept & Design.md` §7.1.3) to 17, across two PRs in the same
+session — the B1 PR itself (7 new themes: 科技突破/美债/日债/中国宏观/地缘：俄乌/
+地缘：东亚同盟/G7与全球治理, needed because §2's rewrite above now asks the
+model to *select* from the candidate pool rather than mechanically cover
+every trigger — the selection is only as good as what it can select from)
+and a same-day follow-up (issue #175, PR #174: 2 more new themes —
+美国内政/中日摩擦 — plus targeted keyword additions to several existing themes,
+from a product-owner-reviewed candidate list).
+
+- **Recurring lesson across both PRs, caught by Grok review each time: bare
+  generic-word keywords false-fire far more than they look like they would.**
+  Every one of these was added, then caught and fixed: bare `breakthrough`/
+  `突破` (fires on routine tech-marketing headlines / any "X突破新高" price
+  phrase), bare `Europe`/`EU`/`yen` (fires on routine Europe-market
+  roundups / ordinary Japan-FX copy), bare `sanctions` (fires on virtually
+  any sanctions headline), bare `Congress` (collides with "National
+  People's Congress" / "Indian National Congress"), bare `PLA` (collides
+  with "Project Labor Agreement", a real term in the US construction/
+  infrastructure business news this product's own RSS feeds carry). The
+  fix pattern is always the same: replace the bare word with a compound,
+  context-qualified phrase (`scientific breakthrough`, `EU sanctions`,
+  `US Congress`, `PLA drills`/`PLA aircraft`/`PLA Navy`, etc.) — **when
+  adding any new keyword to this file, default to a qualified phrase, not
+  a bare single word, and ask what unrelated headline it could plausibly
+  match before adding it.**
+- **A single-token match can also be a *fairness* bug, not just a
+  false-positive one**: `macro_event_intel.py`'s `theme_keys` are
+  `sorted()`, and the daily L2 analysis cap is consumed in that sorted
+  order — an ASCII-named theme (e.g. `G7与全球治理`) sorts before every
+  Chinese-named theme, so a keyword that fires too broadly on that theme
+  would systematically win the shared daily L2 budget over genuinely
+  rarer themes, not just miscategorize one article. Caught on bare
+  `sanctions` in PR #174 round 2 review — worth remembering for any future
+  ASCII-named theme.
+- **`config/macro_keywords.yml` is not under `locales/`, so its Chinese
+  keywords are NOT the Language Policy's carved-out exception** (see
+  "Language Policy (MANDATORY)" below) — a real gap the product owner
+  caught mid-PR #174. Scoped fix so far: **no new Chinese keywords added**
+  to that PR's own two new themes (美国内政/中日摩擦 are English-only).
+  Pre-existing Chinese keywords elsewhere in the file (Ring 0 onward,
+  including the whole `A股政策` theme) are **left as-is for now, a known,
+  separately-tracked gap** — and, checked against `news_fetcher.py`'s five
+  configured RSS sources (NYT/FT/Reuters-via-Google-News/CNBC/Google News
+  Business, all `hl=en-US`), **currently match nothing**: there is no
+  Chinese-language source in the capture pipeline today, so none of the
+  file's existing Chinese keywords are actually reachable in production —
+  this lowers the urgency of a cleanup (nothing regresses today either
+  way) but does not make the Language Policy violation acceptable to
+  extend further.
+- **Provenance**: PR #174, two rounds of independent code review
+  (blacktomb42) — round 1 found 2 bugs (bare `Europe`, bare `yen`) + 1
+  suggestion (bare `EU`), round 2 (after fixes) found 1 bug (bare
+  `sanctions`) + 2 suggestions (bare `Congress`, bare `PLA`), both rounds
+  fully fixed and verified. Retroactively tracked as issue #175 (filed
+  after implementation — this PR started directly from conversation, a gap
+  against the Issue Tracking convention below). Merged squash `57b75c7`.
+  Deployed to production 2026-08-22 alongside B1.
+
 ### News dedup ledger: closing the window-boundary permanent-miss gap (issue #30)
 
 `load_news_window` (`app/services/window_data.py`) used to select
