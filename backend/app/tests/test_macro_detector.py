@@ -271,9 +271,48 @@ def test_default_keyword_table_covers_the_widened_candidate_pool() -> None:
         "地缘：俄乌",  # noqa: RUF001
         "地缘：东亚同盟",  # noqa: RUF001
         "G7与全球治理",
+        "美国内政",
+        "中日摩擦",
     ):
         assert theme in table, f"macro_keywords.yml missing theme: {theme}"
         assert table[theme], f"macro_keywords.yml theme has no keywords: {theme}"
+
+
+def test_2026_08_22_geopolitics_widening_adds_expected_keywords() -> None:
+    """Product owner reviewed a candidate geopolitics keyword list and asked
+    for the genuinely new ground (US domestic politics, China-Japan
+    friction) plus targeted additions to existing themes — while explicitly
+    rejecting the over-generic tokens from that same candidate list ("war",
+    bare "nuclear", bare "strait", bare "chips") for the same false-positive
+    reason 科技突破's bare "breakthrough"/"突破" were rejected in PR #172."""
+    table = _load_keywords()
+
+    assert "Kyiv" in table["地缘：俄乌"]  # noqa: RUF001
+    assert "IRGC" in table["地缘：中东"]  # noqa: RUF001
+    assert "PLA" in table["地缘：台海"]  # noqa: RUF001
+    assert "cross-strait" in table["地缘：台海"]  # noqa: RUF001
+
+    us_domestic = table["美国内政"]
+    for kw in ("Trump", "Congress", "White House", "特朗普", "国会", "白宫"):
+        assert kw in us_domestic, f"美国内政 missing: {kw}"
+
+    japan_friction = table["中日摩擦"]
+    for kw in ("Senkaku", "yen", "尖阁诸岛", "钓鱼岛", "日元"):
+        assert kw in japan_friction, f"中日摩擦 missing: {kw}"
+
+    g7 = table["G7与全球治理"]
+    for kw in ("NATO", "Europe", "EU", "sanctions"):
+        assert kw in g7, f"G7与全球治理 missing: {kw}"
+
+    # Rejected as too generic — same false-positive class as bare
+    # "breakthrough"/"突破" (PR #172): "war" fires on trade war/AI arms race/
+    # price war headlines already covered elsewhere; bare "nuclear" fires on
+    # nuclear-energy/nuclear-physics content; bare "strait" collides with
+    # "Strait of Hormuz" (already a phrase in the Middle East theme) and any
+    # other strait; bare "chips" fires on potato chips / casino chips.
+    all_keywords = {kw for kws in table.values() for kw in kws}
+    for rejected in ("war", "nuclear", "strait", "chips"):
+        assert rejected not in all_keywords, f"rejected over-generic keyword slipped in: {rejected}"
 
 
 def test_tech_breakthrough_theme_uses_qualified_phrases_not_bare_generic_words() -> None:
