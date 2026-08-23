@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from cryptography.fernet import Fernet
-from pydantic import SecretStr, field_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Project root contains .env.local (one level above backend/)
@@ -274,9 +274,17 @@ class Settings(BaseSettings):
     # HOLDINGS_ENCRYPTION_KEY / ADMIN_API_TOKEN. Verification uses the
     # project's JWKS (ES256/RS256), derived from SUPABASE_URL — there is
     # no JWT_SECRET setting. See Ring 1-B design.md §6.5.
+    #
+    # Dashboard names (2026): publishable key / secret key. Env aliases
+    # accept both the dashboard names and the older anon / service_role
+    # names. Do not store the JWT signing secret — we never verify HS256.
     SUPABASE_URL: str
-    SUPABASE_ANON_KEY: SecretStr
-    SUPABASE_SERVICE_ROLE_KEY: SecretStr
+    SUPABASE_ANON_KEY: SecretStr = Field(
+        validation_alias=AliasChoices("SUPABASE_ANON_KEY", "SUPABASE_PUBLISHABLE_KEY")
+    )
+    SUPABASE_SERVICE_ROLE_KEY: SecretStr = Field(
+        validation_alias=AliasChoices("SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SECRET_KEY")
+    )
 
     @field_validator("SUPABASE_URL")
     @classmethod

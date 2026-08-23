@@ -85,12 +85,21 @@ def verify_access_token(token: str) -> AccessTokenClaims:
 
 
 def _admin_headers() -> dict[str, str]:
+    """Headers for GoTrue admin endpoints.
+
+    Legacy `service_role` keys are JWTs and go on both `apikey` and
+    `Authorization: Bearer`. New-project secret keys (`sb_secret_...`) are
+    opaque; sending them as Bearer is rejected as Invalid JWT. Those go on
+    `apikey` only (Supabase API keys docs, 2026).
+    """
     key = get_settings().SUPABASE_SERVICE_ROLE_KEY.get_secret_value()
-    return {
-        "Authorization": f"Bearer {key}",
+    headers = {
         "apikey": key,
         "Content-Type": "application/json",
     }
+    if not key.startswith("sb_"):
+        headers["Authorization"] = f"Bearer {key}"
+    return headers
 
 
 def create_auth_user(email: str, password: str) -> str:
