@@ -1620,7 +1620,9 @@ in any other language.
   every fund holding into `stale_tickers` and out of the portfolio. (issue #1)
 - **Sector backfill on re-upload**: `confirm_holdings` must call
   `backfill_sectors()` after commit — re-uploading holdings clears all rows,
-  and `sector` is otherwise only populated by `POST /portfolio/refresh`.
+  and `sector` is otherwise only populated by `POST /admin/portfolio/refresh`
+  (moved from `POST /portfolio/refresh`, removed, in issue #128 checkpoint B2)
+  or the scheduled capture tasks.
 - **Next.js Turbopack + multipart**: Turbopack's `rewrites()` fails on
   `multipart/form-data` POST (ECONNRESET at proxy). Upload routes need a real
   Next.js API Route (`route.ts`) that manually forwards to the backend.

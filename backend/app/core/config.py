@@ -272,19 +272,30 @@ class Settings(BaseSettings):
     @field_validator("ADMIN_API_TOKEN")
     @classmethod
     def _validate_admin_api_token(cls, v: SecretStr) -> SecretStr:
-        """Required secret — blank must fail at boot, not on first admin call."""
-        if not v.get_secret_value().strip():
+        """Required secret — blank must fail at boot, not on first admin call.
+
+        Stored stripped: a stray leading/trailing space in .env previously
+        passed this blank check (`.strip()`) but was kept in the stored
+        value, silently producing a token that could never match a real
+        client's Authorization header (PR #177 review round 2).
+        """
+        stripped = v.get_secret_value().strip()
+        if not stripped:
             raise ValueError("ADMIN_API_TOKEN must not be blank")
-        return v
+        return SecretStr(stripped)
 
     @field_validator("ADMIN_API_TOKEN_PREV")
     @classmethod
     def _validate_admin_api_token_prev(cls, v: SecretStr | None) -> SecretStr | None:
-        """Optional rotation token — a blank env value means unset, not malformed
-        (matches HOLDINGS_ENCRYPTION_KEY_PREV's handling)."""
-        if v is None or not v.get_secret_value():
+        """Optional rotation token — blank OR whitespace-only means unset, not
+        malformed (matches HOLDINGS_ENCRYPTION_KEY_PREV's handling for blank;
+        extended to whitespace after PR #177 review round 2 found that a
+        bare space could otherwise become a live matchable credential, since
+        `Authorization: Bearer  ` — two trailing spaces — parses to a
+        single-space token)."""
+        if v is None or not v.get_secret_value().strip():
             return None
-        return v
+        return SecretStr(v.get_secret_value().strip())
 
     # Daily Postgres -> OCI Object Storage backup (issue #106). Empty
     # namespace disables the scheduled task entirely — local dev never has

@@ -83,6 +83,33 @@ def test_comparison_uses_compare_digest_not_eq(monkeypatch: pytest.MonkeyPatch) 
     assert spy.called
 
 
+def test_non_ascii_bearer_token_rejected_not_raised() -> None:
+    """`secrets.compare_digest` raises TypeError on non-ASCII str pairs — a
+    crafted header must not turn into an unhandled exception (PR #177 review
+    round 2: reproduced as a real 500 through the full TestClient stack,
+    which also reset the consecutive-401 anti-flood counter)."""
+    with pytest.raises(HTTPException) as exc_info:
+        require_ops_token(authorization="Bearer café")
+    assert exc_info.value.status_code == 401
+
+
+def test_every_candidate_compared_no_short_circuit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`any(...)` on a generator short-circuits at the first match — during a
+    rotation window that means matching the primary token costs one
+    `compare_digest` call while matching `_PREV` (or missing entirely) costs
+    two, a timing side-channel revealing which candidate matched (PR #177
+    review round 2, reproduced by counting real calls)."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "ADMIN_API_TOKEN_PREV", SecretStr("some-other-token"))
+
+    spy = MagicMock(wraps=secrets_module.compare_digest)
+    monkeypatch.setattr("app.core.deps.secrets.compare_digest", spy)
+
+    require_ops_token(authorization=f"Bearer {_primary_token()}")
+
+    assert spy.call_count == 2
+
+
 def test_admin_api_token_blank_fails_at_settings_load(monkeypatch: pytest.MonkeyPatch) -> None:
     """The required token has no unset state — blank must fail at boot, not first use
     (same discipline as HOLDINGS_ENCRYPTION_KEY, PR #111 re-review)."""
@@ -107,5 +134,49 @@ def test_admin_api_token_prev_blank_treated_as_unset(monkeypatch: pytest.MonkeyP
         # Either representation must fail to authenticate an empty credential.
         with pytest.raises(HTTPException):
             require_ops_token(authorization="Bearer ")
+    finally:
+        get_settings.cache_clear()
+
+
+def test_admin_api_token_strips_leading_trailing_whitespace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stray space in .env must not silently produce a token that never
+    matches a real client's Authorization header (PR #177 review round 2)."""
+    monkeypatch.setenv("ADMIN_API_TOKEN", "  padded-token  ")
+    get_settings.cache_clear()
+    try:
+        settings = get_settings()
+        assert settings.ADMIN_API_TOKEN.get_secret_value() == "padded-token"
+    finally:
+        get_settings.cache_clear()
+
+
+def test_admin_api_token_whitespace_only_fails_at_settings_load(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Whitespace-only is just as blank as empty-string for the required token."""
+    monkeypatch.setenv("ADMIN_API_TOKEN", "   ")
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(ValidationError):
+            get_settings()
+    finally:
+        get_settings.cache_clear()
+
+
+def test_admin_api_token_prev_whitespace_only_treated_as_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A whitespace-only _PREV must not become a live `" "`-matching credential
+    (PR #177 review round 2: `_bearer_token("Bearer  ")` returns `" "`, which
+    would otherwise authenticate against a whitespace-only _PREV)."""
+    monkeypatch.setenv("ADMIN_API_TOKEN_PREV", "   ")
+    get_settings.cache_clear()
+    try:
+        settings = get_settings()
+        assert settings.ADMIN_API_TOKEN_PREV is None
+        with pytest.raises(HTTPException):
+            require_ops_token(authorization="Bearer  ")
     finally:
         get_settings.cache_clear()

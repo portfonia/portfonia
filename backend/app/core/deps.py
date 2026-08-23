@@ -1,3 +1,4 @@
+import hashlib
 import secrets
 from uuid import UUID
 
@@ -20,6 +21,20 @@ def _bearer_token(authorization: str | None) -> str | None:
     return token
 
 
+def _digest(value: str) -> bytes:
+    """Fixed-length digest for comparison, not a security-hardening hash.
+
+    `secrets.compare_digest` requires ASCII-only when given two `str`s and
+    raises `TypeError` otherwise — a crafted `Authorization` header with a
+    non-ASCII byte would turn into an unhandled 500 (PR #177 review round 2).
+    `str.encode("utf-8")` never raises, and `bytes` vs `bytes` has no such
+    restriction, so hashing first closes that off entirely. It also fixes
+    every digest at 32 bytes regardless of input length, closing the
+    `any()`-short-circuit / length timing side-channel below.
+    """
+    return hashlib.sha256(value.encode("utf-8")).digest()
+
+
 def require_ops_token(authorization: str | None = Header(default=None)) -> None:
     """Bearer <ADMIN_API_TOKEN>. Completely independent of current_principal —
     queries no table, doesn't care whether the user system exists or is
@@ -39,5 +54,14 @@ def require_ops_token(authorization: str | None = Header(default=None)) -> None:
     if settings.ADMIN_API_TOKEN_PREV is not None:
         candidates.append(settings.ADMIN_API_TOKEN_PREV.get_secret_value())
 
-    if not any(secrets.compare_digest(provided, candidate) for candidate in candidates):
+    # Every candidate is compared unconditionally (no `any()` short-circuit) —
+    # matching the primary token must take exactly as long as matching _PREV
+    # or matching nothing, or the timing itself would reveal which candidate
+    # matched during a rotation window (PR #177 review round 2).
+    provided_digest = _digest(provided)
+    matched = False
+    for candidate in candidates:
+        matched |= secrets.compare_digest(provided_digest, _digest(candidate))
+
+    if not matched:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid ops token")

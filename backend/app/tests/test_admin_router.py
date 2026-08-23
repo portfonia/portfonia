@@ -73,6 +73,37 @@ def test_refresh_rejects_wrong_token(app_client: TestClient) -> None:
     assert resp.status_code == 401
 
 
+def test_non_ascii_bearer_header_returns_401_not_500(app_client: TestClient) -> None:
+    """A raw non-ASCII byte in the header must not become an unhandled
+    exception -> 500 (PR #177 review round 2: `secrets.compare_digest`
+    raises `TypeError` on non-ASCII str pairs). httpx's TestClient refuses
+    to encode a non-ASCII `str` header value client-side, so the raw-bytes
+    header form is used here to actually exercise what a real HTTP request
+    could carry."""
+    resp = app_client.post(
+        "/admin/portfolio/refresh",
+        headers=[(b"authorization", b"Bearer caf\xe9")],
+    )
+    assert resp.status_code == 401
+
+
+def test_non_ascii_bearer_header_counts_as_401_not_a_reset(app_client: TestClient) -> None:
+    """The same bug let an attacker dodge the anti-flood alert: a 500 took
+    the "else" branch in AdminLoggingRoute and reset the consecutive-401
+    counter. A non-ASCII credential must count as an ordinary 401 instead."""
+    threshold = admin_module._CONSECUTIVE_401_ALERT_THRESHOLD
+    for _ in range(threshold - 1):
+        app_client.post("/admin/portfolio/refresh", headers=_headers("bad-token"))
+
+    resp = app_client.post(
+        "/admin/portfolio/refresh",
+        headers=[(b"authorization", b"Bearer caf\xe9")],
+    )
+
+    assert resp.status_code == 401
+    assert admin_module._consecutive_401_count == threshold
+
+
 def test_refresh_accepts_correct_token(app_client: TestClient, db_session: Session) -> None:
     with (
         patch(
