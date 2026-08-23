@@ -10,7 +10,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_session
-from app.core.deps import get_current_user_id
+from app.core.deps import Principal, current_principal
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
 from app.models.upload_job import UploadJob
@@ -62,9 +62,15 @@ _UPLOAD_READ_CHUNK_BYTES = 64 * 1024
 _MAX_TEXT_BYTES = 100 * 1024
 
 
-def _tickers_with_sparse_history(session: Session) -> list[str]:
+def _tickers_with_sparse_history(session: Session, user_id: UUID) -> list[str]:
     """Return tickers that are auto-priced with a ticker but have < _MIN_BARS_FOR_TECHNICAL
-    close bars in price_snapshots. These need an OHLCV backfill."""
+    close bars in price_snapshots. These need an OHLCV backfill.
+
+    The query itself stays global (CLAUDE.md §2.2 class C: OHLCV backfill is
+    a system-wide task, not scoped to one user's holdings) — `user_id` is
+    used only to attribute the log line below to whoever triggered this
+    confirm, never to filter the query.
+    """
     holdings = session.scalars(
         select(Holding).where(Holding.ticker.is_not(None), Holding.pricing_mode == "auto")
     ).all()
@@ -88,7 +94,8 @@ def _tickers_with_sparse_history(session: Session) -> list[str]:
         # Concept §8.8: application logs record user_id, never holdings
         # content — a ticker list is holdings-derived (issue #129 §2.2 D).
         logger.info(
-            "confirm_holdings: %d ticker(s) with < %d close bars — backfill enqueued",
+            "confirm_holdings: user_id=%s triggered backfill for %d ticker(s) with < %d close bars",
+            user_id,
             len(sparse),
             _MIN_BARS_FOR_TECHNICAL,
         )
@@ -100,7 +107,7 @@ async def upload_holdings(
     request: Request,
     file: UploadFile,
     session: Session = Depends(get_session),
-    user_id: UUID = Depends(get_current_user_id),
+    principal: Principal = Depends(current_principal),
 ) -> UploadJob:
     """Kick off an async parse of the uploaded file (issue #77).
 
@@ -157,7 +164,9 @@ async def upload_holdings(
     # (success or failure) — the task takes job_id only, never the text
     # itself, so a holdings file's content never becomes a Celery/Redis
     # broker message argument (PR #82 review).
-    job = UploadJob(user_id=user_id, filename=file.filename, status="pending", raw_text=text)
+    job = UploadJob(
+        user_id=principal.user_id, filename=file.filename, status="pending", raw_text=text
+    )
     session.add(job)
     session.commit()
     session.refresh(job)
@@ -183,10 +192,10 @@ async def upload_holdings(
 def get_upload_job(
     job_id: UUID,
     session: Session = Depends(get_session),
-    user_id: UUID = Depends(get_current_user_id),
+    principal: Principal = Depends(current_principal),
 ) -> UploadJob:
     job = session.get(UploadJob, job_id)
-    if job is None or job.user_id != user_id:
+    if job is None or job.user_id != principal.user_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upload job not found.")
     return job
 
@@ -195,8 +204,9 @@ def get_upload_job(
 def confirm_holdings(
     rows: list[ParsedRow],
     session: Session = Depends(get_session),
-    user_id: UUID = Depends(get_current_user_id),
+    principal: Principal = Depends(current_principal),
 ) -> list[Holding]:
+    user_id = principal.user_id
     session.execute(delete(Holding).where(Holding.user_id == user_id))
     holdings: list[Holding] = []
     now = datetime.now(tz=UTC)
@@ -217,7 +227,7 @@ def confirm_holdings(
     backfill_sectors(session)
     # If any ticker has fewer than 50 close bars, it was recently added and
     # needs a historical backfill so §4.4 technical position can populate.
-    tickers_needing_backfill = _tickers_with_sparse_history(session)
+    tickers_needing_backfill = _tickers_with_sparse_history(session, user_id)
     if tickers_needing_backfill:
         from app.tasks.capture_tasks import backfill_ohlcv_task
 
@@ -230,10 +240,10 @@ def confirm_holdings(
 @router.get("", response_model=list[HoldingOut])
 def list_holdings(
     session: Session = Depends(get_session),
-    user_id: UUID = Depends(get_current_user_id),
+    principal: Principal = Depends(current_principal),
 ) -> list[Holding]:
     rows = _sorted_holdings(
-        session.scalars(select(Holding).where(Holding.user_id == user_id)).all()
+        session.scalars(select(Holding).where(Holding.user_id == principal.user_id)).all()
     )
     return list(rows)
 
@@ -241,10 +251,10 @@ def list_holdings(
 @router.get("/export")
 def export_holdings(
     session: Session = Depends(get_session),
-    user_id: UUID = Depends(get_current_user_id),
+    principal: Principal = Depends(current_principal),
 ) -> Response:
     rows = _sorted_holdings(
-        session.scalars(select(Holding).where(Holding.user_id == user_id)).all()
+        session.scalars(select(Holding).where(Holding.user_id == principal.user_id)).all()
     )
     md = _render_markdown(list(rows))
     return Response(

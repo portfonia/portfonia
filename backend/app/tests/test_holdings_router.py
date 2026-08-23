@@ -369,6 +369,9 @@ def test_confirm_sparse_history_log_omits_ticker_list(
     assert backfill_records, "expected a sparse-history log line"
     for record in backfill_records:
         assert "AAPL" not in record.getMessage()
+        # PR #181 review: dropping the ticker list must not also drop the
+        # one identifier the rule (Concept §8.8) actually asks for.
+        assert str(TEST_USER_ID) in record.getMessage()
 
 
 def test_confirm_full_replace_does_not_touch_other_users(

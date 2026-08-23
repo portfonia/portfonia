@@ -1304,6 +1304,38 @@ def test_generate_report_quiet_day_returns_skipped(db_session: Session) -> None:
     assert "§1 Portfolio Snapshot" in report.report_md
 
 
+def test_generate_report_quiet_day_unsent_email_does_not_log_sent(
+    db_session: Session, caplog: pytest.LogCaptureFixture
+) -> None:
+    """PR #181 review: send_report_email returning False now also means
+    "recipient could not be resolved" (fail-closed), not just "commit
+    failed after a real send". The caller's log line must not claim the
+    email was sent when it demonstrably wasn't. Uses session_node=
+    after_close so the short-manual-quiet suppression doesn't skip the
+    email branch entirely."""
+    import logging as _logging
+
+    _logging.getLogger("app.services.report_generator").disabled = False
+    with (
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch("app.services.report_generator.load_news_window", return_value=[]),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_quiet_signals()),
+        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 0)),
+        patch("app.services.report_generator._call_llm"),
+        patch("app.services.report_generator.send_report_email", return_value=False),
+        caplog.at_level("WARNING", logger="app.services.report_generator"),
+    ):
+        report = rg.generate_report(
+            db_session, user_id=_USER, report_date=_TODAY, session_node="after_close"
+        )
+
+    assert report.status == "skipped"
+    sent_claims = [r for r in caplog.records if "email sent" in r.getMessage().lower()]
+    assert not sent_claims, (
+        f"log line falsely claims delivery: {[r.getMessage() for r in sent_claims]}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Tests: Tavily failure (degraded mode)
 # ---------------------------------------------------------------------------

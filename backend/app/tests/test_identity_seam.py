@@ -14,6 +14,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from fastapi.routing import APIRoute
+
+from app.core.deps import current_principal
+from app.main import app
+
 _SERVICES_DIR = Path(__file__).resolve().parent.parent / "services"
 _TASKS_DIR = Path(__file__).resolve().parent.parent / "tasks"
 
@@ -61,3 +66,32 @@ def test_dev_user_id_shim_file_still_exists_and_actually_uses_it() -> None:
     this test should fail and force removing it from the carve-out too."""
     assert _DEV_USER_ID_SHIM.exists()
     assert "DEV_USER_ID" in _DEV_USER_ID_SHIM.read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# PR #181 review: current_principal must be the ONE request-scoped identity
+# entry point, not just the one reports.py happens to use. A route still
+# wired to Depends(get_current_user_id) directly gets `dependency_overrides`
+# for free (get_current_user_id is itself a Depends target), but it does
+# NOT follow B4's JWT swap — that swap lands entirely inside
+# current_principal's body, so any route bypassing it keeps serving
+# DEV_USER_ID forever, a split-identity leak between routers.
+# ---------------------------------------------------------------------------
+
+
+def test_every_identity_bearing_route_depends_on_current_principal() -> None:
+    """Every route under /holdings, /portfolio, and /reports that needs a
+    caller identity must depend on current_principal, not the lower-level
+    get_current_user_id — mirrors test_admin_router.py's coverage-by-
+    iteration pattern rather than trusting per-endpoint review attention."""
+    scoped_prefixes = ("/holdings", "/portfolio", "/reports")
+    routes = [
+        r for r in app.routes if isinstance(r, APIRoute) and r.path.startswith(scoped_prefixes)
+    ]
+    assert routes, "expected at least one route under /holdings, /portfolio, /reports"
+    offenders = []
+    for route in routes:
+        dep_calls = {dep.call for dep in route.dependant.dependencies}
+        if current_principal not in dep_calls:
+            offenders.append(f"{route.methods} {route.path}")
+    assert not offenders, f"routes not wired to Depends(current_principal): {offenders}"

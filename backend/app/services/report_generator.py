@@ -744,8 +744,16 @@ def generate_report(
                 return report
             try:
                 if not send_report_email(report, session):
+                    # False now covers more than "sent but the commit
+                    # failed" — it's also send_report_email's fail-closed
+                    # response to an unresolved recipient (issue #129 B3).
+                    # Don't claim delivery either way; email_sender's own
+                    # logging (ERROR on unresolved recipient, warning/
+                    # exception on the specific transport failure) already
+                    # states the real cause — PR #181 review.
                     logger.warning(
-                        "report %s: email sent but state unconfirmed (commit failed)",
+                        "report %s: email delivery not confirmed — see "
+                        "email_sender logs above for the cause",
                         report.id,
                     )
             except Exception:
@@ -1386,8 +1394,11 @@ def generate_report(
         # flip an already-persisted success to 'failed'.
         try:
             if not send_report_email(report, session):
+                # See the quiet-day branch above for why this no longer
+                # claims delivery (PR #181 review).
                 logger.warning(
-                    "report %s: email sent but state unconfirmed (commit failed)",
+                    "report %s: email delivery not confirmed — see "
+                    "email_sender logs above for the cause",
                     report.id,
                 )
         except Exception:
