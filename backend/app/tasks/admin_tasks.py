@@ -1,4 +1,4 @@
-"""Celery task for /admin/* ops alerts (issue #128 Ring 1 stage B, checkpoint B2).
+"""Celery task for /admin/* ops alerts (issue #129 Ring 1 stage B, checkpoint B2).
 
 `send_ops_alert` makes a blocking `httpx.Client(timeout=15.0)` call to Resend.
 Every other call site in this codebase already runs inside a Celery task (a

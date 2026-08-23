@@ -1,4 +1,4 @@
-"""Unit test for the admin ops-alert Celery task (issue #128 Ring 1 stage B,
+"""Unit test for the admin ops-alert Celery task (issue #129 Ring 1 stage B,
 checkpoint B2, PR #177 review round 3)."""
 
 from __future__ import annotations

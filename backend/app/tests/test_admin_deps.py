@@ -1,4 +1,4 @@
-"""Unit tests for the B2 ops API auth mechanism (issue #128 Ring 1 stage B).
+"""Unit tests for the B2 ops API auth mechanism (issue #129 Ring 1 stage B).
 
 `require_ops_token` (app/core/deps.py) is deliberately independent of
 `current_principal`/the user auth system — see Ring 1-B design.md §4.3. These

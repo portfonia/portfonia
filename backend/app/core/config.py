@@ -248,7 +248,7 @@ class Settings(BaseSettings):
     LLM_RETRY_CONFIG_PATH: str = ""
 
     # System default analysis framework — house investment-analysis stance
-    # injected into every Pass 2 / assembly system prompt (issue #128 Ring 1
+    # injected into every Pass 2 / assembly system prompt (issue #129 Ring 1
     # stage B, checkpoint B1). Empty string = use the default path:
     # backend/config/analysis_framework.yml
     ANALYSIS_FRAMEWORK_CONFIG_PATH: str = ""
@@ -257,7 +257,7 @@ class Settings(BaseSettings):
     # Empty string = use the default path: backend/config/holding_parser_vocab.yml
     HOLDING_PARSER_VOCAB_PATH: str = ""
 
-    # Ops API token channel (issue #128 Ring 1 stage B, checkpoint B2) —
+    # Ops API token channel (issue #129 Ring 1 stage B, checkpoint B2) —
     # bearer secret guarding /admin/* routes, deliberately independent of the
     # user auth system (must still work if that system itself is what's
     # broken). Required everywhere, no unset state — a missing value fails
