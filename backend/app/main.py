@@ -2,8 +2,11 @@
 
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
 from app.routers import admin, auth, holdings, portfolio, reports
@@ -46,6 +49,36 @@ app.include_router(portfolio.router, prefix="/portfolio", tags=["portfolio"])
 app.include_router(reports.router, prefix="/reports", tags=["reports"])
 app.include_router(admin.router, prefix="/admin", tags=["admin"])
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
+
+# Pydantic/FastAPI 422 bodies include `"input"`. SecretStr does not strip it
+# (validation runs on the raw string). Redact known secret fields so a public
+# endpoint cannot echo a submitted password.
+_SECRET_BODY_FIELDS = frozenset({"password"})
+
+
+def _redact_secret_validation_errors(errors: list[object]) -> list[object]:
+    redacted: list[object] = []
+    for err in errors:
+        if not isinstance(err, dict):
+            redacted.append(err)
+            continue
+        loc = err.get("loc", ())
+        if isinstance(loc, list | tuple) and any(part in _SECRET_BODY_FIELDS for part in loc):
+            redacted.append({**err, "input": "[redacted]"})
+        else:
+            redacted.append(err)
+    return redacted
+
+
+@app.exception_handler(RequestValidationError)
+async def _hide_secrets_in_422(_request: Request, exc: RequestValidationError) -> JSONResponse:
+    errors = jsonable_encoder(exc.errors())
+    if not isinstance(errors, list):
+        errors = [errors]
+    return JSONResponse(
+        status_code=422,
+        content={"detail": _redact_secret_validation_errors(errors)},
+    )
 
 
 @app.get("/health")

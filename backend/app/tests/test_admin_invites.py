@@ -109,6 +109,50 @@ def test_bind_subject_rejects_already_bound(app_client: TestClient, db_session: 
     assert resp.status_code == 409
 
 
+def test_bind_subject_rejects_subject_already_used(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """Unique `auth_subject` must 409, not an unhandled IntegrityError 500."""
+    from app.tests.test_user_scope import _user
+
+    uid1 = uuid.UUID("00000000-0000-0000-0000-0000000000b1")
+    uid2 = uuid.UUID("00000000-0000-0000-0000-0000000000b2")
+    taken = _user(uid1, "bound@example.com")
+    unbound = _user(uid2, "seed@example.com")
+    unbound.auth_subject = None
+    db_session.add_all([taken, unbound])
+    db_session.flush()
+
+    resp = app_client.post(
+        f"/admin/users/{uid2}/bind-subject",
+        headers=_headers(),
+        json={"auth_subject": taken.auth_subject},
+    )
+    assert resp.status_code == 409
+
+
+def test_bind_subject_rejects_whitespace_only(app_client: TestClient, db_session: Session) -> None:
+    from app.models.user import User
+    from app.tests.test_user_scope import _user
+
+    uid = uuid.UUID("00000000-0000-0000-0000-0000000000b1")
+    row = _user(uid, "seed@example.com")
+    row.auth_subject = None
+    db_session.add(row)
+    db_session.flush()
+
+    resp = app_client.post(
+        f"/admin/users/{uid}/bind-subject",
+        headers=_headers(),
+        json={"auth_subject": "   "},
+    )
+    assert resp.status_code == 422
+    db_session.expire_all()
+    bound = db_session.get(User, uid)
+    assert bound is not None
+    assert bound.auth_subject is None
+
+
 def test_bind_subject_requires_ops_token(app_client: TestClient) -> None:
     resp = app_client.post(
         "/admin/users/00000000-0000-0000-0000-0000000000b1/bind-subject",

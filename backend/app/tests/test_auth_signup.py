@@ -109,6 +109,21 @@ def test_signup_deletes_auth_user_if_db_work_fails_after_create(
     )
 
 
+def test_signup_validation_error_does_not_echo_password(app_client: TestClient) -> None:
+    """Public 422 must not echo the submitted password (`input` in Pydantic errors)."""
+    password = "s3cret7"
+    resp = app_client.post(
+        "/auth/signup",
+        json={
+            "invite_token": "x",
+            "email": "a@example.com",
+            "password": password,
+        },
+    )
+    assert resp.status_code == 422
+    assert password not in resp.text
+
+
 def test_signup_does_not_log_password(
     app_client: TestClient,
     db_session: Session,

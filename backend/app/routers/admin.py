@@ -27,7 +27,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.routing import APIRoute
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -207,6 +208,14 @@ def revoke_invite_endpoint(invite_id: UUID, session: Session = Depends(get_sessi
 class BindSubjectBody(BaseModel):
     auth_subject: str = Field(min_length=1)
 
+    @field_validator("auth_subject")
+    @classmethod
+    def _strip_nonempty(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("auth_subject must not be blank")
+        return stripped
+
 
 class BindSubjectOut(BaseModel):
     id: UUID
@@ -227,6 +236,10 @@ def bind_user_subject(
         raise HTTPException(status_code=404, detail="user not found")
     if user.auth_subject is not None:
         raise HTTPException(status_code=409, detail="auth_subject already set")
-    user.auth_subject = body.auth_subject.strip()
-    session.commit()
+    user.auth_subject = body.auth_subject
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="auth_subject already bound") from None
     return BindSubjectOut(id=user.id, auth_subject=user.auth_subject)

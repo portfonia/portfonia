@@ -7,7 +7,7 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -26,7 +26,7 @@ router = APIRouter()
 class SignupRequest(BaseModel):
     invite_token: str
     email: str
-    password: str = Field(min_length=8)
+    password: SecretStr = Field(min_length=8)
 
 
 class SignupResponse(BaseModel):
@@ -47,7 +47,7 @@ def signup(req: SignupRequest, session: Session = Depends(get_session)) -> Signu
         if existing is not None:
             raise InviteRejected(INVITE_REJECTED_MESSAGE)
         redeem_invite(session, req.invite_token, used_by=new_id, email=email)
-        sub = create_auth_user(email, req.password)
+        sub = create_auth_user(email, req.password.get_secret_value())
         user = User(
             id=new_id,
             auth_provider="supabase",
