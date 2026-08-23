@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.models.holding import Holding
 from app.models.upload_job import UploadJob
 from app.tests.conftest import TEST_USER_ID
 
@@ -350,6 +351,51 @@ def test_confirm_full_replace_on_second_call(app_client: TestClient) -> None:
     rows = list_resp.json()
     assert len(rows) == 1
     assert rows[0]["name"] == "Tencent"
+
+
+def test_confirm_sparse_history_log_omits_ticker_list(
+    app_client: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Concept §8.8: application logs record user_id, never holdings content.
+    A freshly-confirmed auto-priced ticker has zero price_snapshots rows, so
+    it's always "sparse" — the log line must say how many, not which."""
+    import logging as _logging
+
+    _logging.getLogger("app.routers.holdings").disabled = False
+    with caplog.at_level("INFO", logger="app.routers.holdings"):
+        resp = app_client.post("/holdings/confirm", json=[_PARSED_APPLE])
+    assert resp.status_code == 200
+    backfill_records = [r for r in caplog.records if "close bars" in r.getMessage()]
+    assert backfill_records, "expected a sparse-history log line"
+    for record in backfill_records:
+        assert "AAPL" not in record.getMessage()
+
+
+def test_confirm_full_replace_does_not_touch_other_users(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """B-UAT-13 (Ring 1-B design doc §5.3/§10.2): confirm_holdings' full-
+    replace DELETE is the one call in this codebase that wipes an entire
+    user's holdings in one statement — it must stay scoped to the caller's
+    own user_id no matter how identity resolution changes upstream."""
+    other_user_id = uuid.uuid4()
+    other_holding = Holding(
+        user_id=other_user_id,
+        name="Other User's Fund",
+        ticker="MSFT",
+        pricing_mode="auto",
+        currency="USD",
+        asset_class="STOCK",
+    )
+    db_session.add(other_holding)
+    db_session.commit()
+
+    resp = app_client.post("/holdings/confirm", json=[_PARSED_APPLE, _PARSED_CASH])
+    assert resp.status_code == 200
+
+    remaining = db_session.query(Holding).filter(Holding.user_id == other_user_id).all()
+    assert len(remaining) == 1
+    assert remaining[0].name == "Other User's Fund"
 
 
 def test_confirm_empty_list_clears_holdings(app_client: TestClient) -> None:

@@ -85,11 +85,12 @@ def _tickers_with_sparse_history(session: Session) -> list[str]:
     }
     sparse = [t for t in tickers if bar_counts.get(t, 0) < _MIN_BARS_FOR_TECHNICAL]
     if sparse:
+        # Concept §8.8: application logs record user_id, never holdings
+        # content — a ticker list is holdings-derived (issue #129 §2.2 D).
         logger.info(
-            "confirm_holdings: %d ticker(s) with < %d close bars — backfill enqueued: %s",
+            "confirm_holdings: %d ticker(s) with < %d close bars — backfill enqueued",
             len(sparse),
             _MIN_BARS_FOR_TECHNICAL,
-            sparse,
         )
     return sparse
 

@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.models.report import Report
 from app.services.i18n_glossary import load_i18n_glossary, locale_for_output_lang
+from app.services.user_directory import recipient_email
 
 logger = logging.getLogger(__name__)
 
@@ -188,8 +189,31 @@ def send_report_email(report: Report, session: Session) -> bool:
         return False
 
     settings = get_settings()
+    recipient = recipient_email(session, report.user_id)
+    if recipient is None:
+        # Fail closed, never fall back to ADMIN_EMAIL or any other default:
+        # a report we can't resolve a recipient for still belongs to a real
+        # user, and sending it anywhere else — even to an address we trust —
+        # is still a leak, and one that would read as "delivered" in the
+        # logs, permanently masking the identity-resolution bug (Ring 1-B
+        # design doc §5.3).
+        logger.error(
+            "report %s: could not resolve a recipient for user_id=%s — refusing to send",
+            report.id,
+            report.user_id,
+        )
+        send_ops_alert(
+            subject="Portfonia: report recipient could not be resolved",
+            body=(
+                f"report_id={report.id} user_id={report.user_id} — "
+                "recipient_email() returned None. Report was NOT sent. "
+                "email_sent_at left null; can be resent manually once the "
+                "user's identity resolves."
+            ),
+        )
+        return False
+
     api_key = settings.RESEND_API_KEY.get_secret_value()
-    recipient = settings.DEV_USER_EMAIL
 
     report_date_str = (
         report.report_date.strftime("%Y-%m-%d")

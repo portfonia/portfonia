@@ -46,7 +46,6 @@ from app.compliance.output_scan import (
     _strip_markers,
 )
 from app.core.config import get_settings
-from app.core.deps import get_current_user_id
 from app.core.ops_log import log_ops_event
 from app.core.timezones import ET
 from app.models.report import Report
@@ -395,12 +394,12 @@ def _is_short_manual_quiet(
 
 def generate_report(
     session: Session,
+    user_id: uuid.UUID,
     report_date: date | None = None,
     report_type: str = "incremental",
     base_currency: str = "USD",
     output_lang: str = "en",
     session_node: str = "manual",
-    user_id: uuid.UUID | None = None,
     moves_cache: MovesCache | None = None,
     now: datetime | None = None,
     users_remaining: int = 1,
@@ -412,10 +411,10 @@ def generate_report(
     Raises if the report record cannot be written (e.g. unique constraint violation
     when a report for the same date+type+session_node already exists).
 
-    `user_id` (issue #128 A1): `None` falls back to `get_current_user_id()`
-    (Ring 0's fixed dev user), preserving every existing single-user call
-    site unchanged. `generate_incremental_report`'s multi-user fan-out passes
-    the actual user being generated for.
+    `user_id` (issue #129 B3): required, no ambient fallback — every caller
+    (the `/reports/generate` router via `Depends(current_principal)`,
+    `generate_incremental_report`'s multi-user fan-out, scripts) must
+    resolve identity itself and pass it in explicitly.
 
     `moves_cache` (issue #128 A1): forwarded to `detect_window_anomalies` —
     see its docstring in `window_data.py`. Lets a multi-user batch share one
@@ -445,7 +444,6 @@ def generate_report(
     """
     validate_report_type(report_type)
     settings = get_settings()
-    user_id = user_id if user_id is not None else get_current_user_id()
     # A local cache when the caller supplied none: the global move set has two
     # consumers in this function (anomaly detection, then L1's shared-intel
     # facts — see §5.5), and without a cache to share, the second would pay
@@ -1413,6 +1411,7 @@ def regenerate_report(
     session: Session,
     report_id: uuid.UUID,
     *,
+    user_id: uuid.UUID,
     mode: str = "render",
     output_lang: str = "en",
 ) -> Report:
@@ -1431,9 +1430,14 @@ def regenerate_report(
                      search results, or the assembly pass from the stored
                      L1/L2 intel. Updates that pass's stored body.
 
+    `user_id` (issue #129 B3): required, no ambient fallback — the caller
+    (the `/reports/{id}/regenerate` router via `Depends(current_principal)`)
+    resolves identity itself. Used both to scope the ownership lookup below
+    and, in mode='analyze', to re-fetch the live portfolio under the right
+    user.
+
     Does not email — this is an iteration/inspection tool.
     """
-    user_id = get_current_user_id()
     log_ops_event("report.regenerate.start", report_id=str(report_id), mode=mode)
     report = session.execute(
         select(Report).where(Report.id == report_id, Report.user_id == user_id)

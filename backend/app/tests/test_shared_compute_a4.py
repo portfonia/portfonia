@@ -344,15 +344,17 @@ def test_uat9_assembled_report_rerenders_with_zero_llm_calls(
     assert report.report_inputs["body_source"] == "assembly"
 
     with (
-        patch(
-            "app.services.report_generator.get_current_user_id",
-            return_value=three_user_holdings["U1"],
-        ),
         patch("app.services.report_generator._call_llm") as mock_pass2,
         patch("app.services.report_assembly._call_llm") as mock_assembly,
         patch("app.services.report_translation._call_llm") as mock_translate,
     ):
-        rebuilt = rg.regenerate_report(db_session, report.id, mode="render", output_lang="en")
+        rebuilt = rg.regenerate_report(
+            db_session,
+            report.id,
+            user_id=three_user_holdings["U1"],
+            mode="render",
+            output_lang="en",
+        )
 
     mock_pass2.assert_not_called()
     mock_assembly.assert_not_called()
