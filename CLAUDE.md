@@ -998,6 +998,59 @@ constraints and structural writing rules. B1 closes that gap.
   round 2 (after fixes) found 0 bugs.
   Merged squash `8287dd3`. Deployed to production 2026-08-22.
 
+### Identity seam: current_principal + explicit user_id — B3 (Ring 1 stage B, issue #129, PR #181)
+
+Before B3, "who is calling" was resolved three different ways, all
+ambient: a bare `get_current_user_id()` call inside `routers/reports.py`'s
+three read endpoints (invisible to FastAPI's `dependency_overrides`, since
+that only intercepts `Depends(...)`, not a direct function call); a
+`user_id: UUID | None = None` fallback inside `generate_report`/
+`regenerate_report` that silently resolved to the dev user if a caller
+forgot to pass one; and `email_sender.send_report_email` hardcoding every
+recipient to `settings.DEV_USER_EMAIL` regardless of whose report it was.
+B3 collapses this into two explicit channels, still resolving to
+`DEV_USER_ID` today — no real auth exists yet (B4 adds it) — but closing
+every seam a real auth swap would otherwise silently miss.
+
+- **`Principal` + `current_principal(request)`** (`app/core/deps.py`) is the
+  one request-scoped identity entry point. Every identity-bearing route
+  across `/reports/*`, `/holdings/*`, and `/portfolio/*` depends on it via
+  `Depends(current_principal)` — B4 replaces this one function's body with
+  JWT extraction; no call site changes. Locked by a structural test
+  (`test_every_identity_bearing_route_depends_on_current_principal` in
+  `test_identity_seam.py`) that iterates `app.routes`, added in review round
+  1 after `holdings.py`/`portfolio.py`'s 6 endpoints were found still wired
+  to the lower-level `Depends(get_current_user_id)` — harmless today (both
+  resolve to the same value), but a split-identity trap for B4: a JWT swap
+  landing only in `current_principal` would leave those 6 routes serving
+  `DEV_USER_ID` forever.
+- **`generate_report`/`regenerate_report` require `user_id`, no fallback.**
+  A structural test bans `get_current_user_id`/`DEV_USER_ID` from
+  `app/services/**` and `app/tasks/**` entirely, with one documented
+  exception: `app/services/user_directory.py`'s `recipient_email(session,
+  user_id)`, a temporary B3→B4 shim that resolves `DEV_USER_ID` to
+  `DEV_USER_EMAIL` and everything else to `None` — B4 replaces its body
+  with a `users` table lookup, same signature.
+- **`send_report_email` fails closed on an unresolved recipient**: no send,
+  an ops alert, `email_sent_at` stays null — never falls back to
+  `ADMIN_EMAIL` or any other default. A report belongs to a specific user;
+  routing it anywhere else is still a leak, and one that would read as
+  "delivered" in the logs, permanently masking the bug. Caller-side logging
+  in `report_generator.py` was reworded from "email sent but state
+  unconfirmed" to "email delivery not confirmed" (review round 1) — the old
+  wording was accurate only for the pre-existing commit-failure case and
+  became misleading once `False` also meant "recipient never resolved".
+- **Provenance**: one round of independent code review (blacktomb42) — 0
+  bugs, 3 suggestions (the `holdings.py`/`portfolio.py` split-identity gap
+  above; the misleading email-sent log; missing cross-user 404 coverage on
+  the `regenerate`/`send` write paths, closed with tests exercising the
+  real functions rather than mocks) + 1 nit (the sparse-history backfill
+  log line dropped the leaked ticker list but still had no `user_id`
+  attribution — fixed by threading it through
+  `_tickers_with_sparse_history`, which stays a global query; only the log
+  line is per-user). 0 bugs did not trigger a second review round per this
+  repo's standing convention. 957 tests passing. Merged squash `a06fc9c`.
+
 ### Macro keyword theme pool — widened to 17 themes (issue #129 B1 + issue #175)
 
 `config/macro_keywords.yml` grew from the Ring 0 starting set of 8 themes
