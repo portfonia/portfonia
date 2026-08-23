@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from urllib.error import URLError
 
 import httpx
 import jwt
@@ -71,9 +72,10 @@ def verify_access_token(token: str) -> AccessTokenClaims:
             algorithms=["ES256", "RS256"],
             audience="authenticated",
             issuer=_issuer(),
+            leeway=30,
             options={"require": ["exp", "sub", "iss", "aud"]},
         )
-    except jwt.PyJWTError as exc:
+    except (jwt.PyJWTError, URLError, TimeoutError, OSError) as exc:
         raise InvalidAccessToken("invalid token") from exc
     if payload.get("role") != "authenticated":
         raise InvalidAccessToken("invalid token")
@@ -105,16 +107,22 @@ def _admin_headers() -> dict[str, str]:
 def create_auth_user(email: str, password: str) -> str:
     """Create a confirmed Auth user via the service-role admin API. Returns sub."""
     url = f"{_issuer()}/admin/users"
-    with httpx.Client(timeout=15.0) as client:
-        resp = client.post(
-            url,
-            headers=_admin_headers(),
-            json={"email": email, "password": password, "email_confirm": True},
-        )
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.post(
+                url,
+                headers=_admin_headers(),
+                json={"email": email, "password": password, "email_confirm": True},
+            )
+    except httpx.HTTPError as exc:
+        raise AuthProviderError("create_user failed") from exc
     if resp.status_code not in (200, 201):
         logger.error("auth provider create_user failed status=%s", resp.status_code)
         raise AuthProviderError("create_user failed")
-    user_id = resp.json().get("id")
+    try:
+        user_id = resp.json().get("id")
+    except ValueError as exc:
+        raise AuthProviderError("create_user missing id") from exc
     if not isinstance(user_id, str) or not user_id:
         raise AuthProviderError("create_user missing id")
     return user_id
@@ -123,8 +131,11 @@ def create_auth_user(email: str, password: str) -> str:
 def delete_auth_user(sub: str) -> None:
     """Compensation for a signup that created the Auth user then failed to commit."""
     url = f"{_issuer()}/admin/users/{sub}"
-    with httpx.Client(timeout=15.0) as client:
-        resp = client.delete(url, headers=_admin_headers())
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.delete(url, headers=_admin_headers())
+    except httpx.HTTPError as exc:
+        raise AuthProviderError("delete_user failed") from exc
     if resp.status_code not in (200, 204, 404):
         logger.error("auth provider delete_user failed status=%s", resp.status_code)
         raise AuthProviderError("delete_user failed")

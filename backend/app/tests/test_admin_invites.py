@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
@@ -70,6 +71,50 @@ def test_create_invite_custom_expiry(app_client: TestClient) -> None:
     expires = datetime.fromisoformat(resp.json()["expires_at"])
     expected = datetime.now(tz=UTC) + timedelta(days=3)
     assert abs((expires - expected).total_seconds()) < 60
+
+
+def test_bind_subject_sets_null_auth_subject(app_client: TestClient, db_session: Session) -> None:
+    from app.models.user import User
+    from app.tests.test_user_scope import _user
+
+    uid = uuid.UUID("00000000-0000-0000-0000-0000000000b1")
+    row = _user(uid, "seed@example.com")
+    row.auth_subject = None
+    db_session.add(row)
+    db_session.flush()
+
+    resp = app_client.post(
+        f"/admin/users/{uid}/bind-subject",
+        headers=_headers(),
+        json={"auth_subject": "supabase-sub-seed"},
+    )
+    assert resp.status_code == 200
+    db_session.expire_all()
+    bound = db_session.get(User, uid)
+    assert bound is not None
+    assert bound.auth_subject == "supabase-sub-seed"
+
+
+def test_bind_subject_rejects_already_bound(app_client: TestClient, db_session: Session) -> None:
+    from app.tests.test_user_scope import _user
+
+    uid = uuid.UUID("00000000-0000-0000-0000-0000000000b1")
+    db_session.add(_user(uid, "seed@example.com"))
+    db_session.flush()
+    resp = app_client.post(
+        f"/admin/users/{uid}/bind-subject",
+        headers=_headers(),
+        json={"auth_subject": "another-sub"},
+    )
+    assert resp.status_code == 409
+
+
+def test_bind_subject_requires_ops_token(app_client: TestClient) -> None:
+    resp = app_client.post(
+        "/admin/users/00000000-0000-0000-0000-0000000000b1/bind-subject",
+        json={"auth_subject": "x"},
+    )
+    assert resp.status_code == 401
 
 
 def test_admin_invites_use_ops_token_not_user_session(app_client: TestClient) -> None:

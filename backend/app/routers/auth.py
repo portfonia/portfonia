@@ -67,15 +67,17 @@ def signup(req: SignupRequest, session: Session = Depends(get_session)) -> Signu
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=INVITE_REJECTED_MESSAGE
         ) from None
-    except (AuthProviderError, IntegrityError):
+    except Exception as exc:
         session.rollback()
         if sub is not None:
             try:
                 delete_auth_user(sub)
             except AuthProviderError:
                 logger.exception("signup compensation: failed to delete auth user")
-        logger.exception("signup failed")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=INVITE_REJECTED_MESSAGE
-        ) from None
+        if isinstance(exc, AuthProviderError | IntegrityError):
+            logger.exception("signup failed")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=INVITE_REJECTED_MESSAGE
+            ) from None
+        raise
     return SignupResponse(id=user.id, email=user.email)

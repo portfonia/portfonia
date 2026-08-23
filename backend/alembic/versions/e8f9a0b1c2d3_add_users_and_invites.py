@@ -64,9 +64,9 @@ def upgrade() -> None:
         sa.UniqueConstraint("email", name="uq_users_email"),
         sa.CheckConstraint(
             "status IN ('active', 'deleted', 'suspended')",
-            name="status",
+            name="ck_users_status",
         ),
-        sa.CheckConstraint("auth_provider IN ('supabase')", name="auth_provider"),
+        sa.CheckConstraint("auth_provider IN ('supabase')", name="ck_users_auth_provider"),
     )
     op.create_table(
         "invites",

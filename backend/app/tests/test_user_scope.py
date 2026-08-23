@@ -47,10 +47,23 @@ def test_active_user_ids_returns_distinct_sorted_users(db_session: Session) -> N
             _user(_U2, "u2@example.com"),
             _user(_U1, "u1@example.com"),
             _h(user_id=_U1, name="NVIDIA", ticker="NVDA"),
+            _h(user_id=_U2, name="Apple", ticker="AAPL"),
         ]
     )
     db_session.flush()
     assert active_user_ids(db_session) == sorted([_U1, _U2])
+
+
+def test_active_user_ids_excludes_users_with_no_holdings(db_session: Session) -> None:
+    db_session.add_all(
+        [
+            _user(_U1, "u1@example.com"),
+            _user(_U2, "u2@example.com"),
+            _h(user_id=_U1, name="NVIDIA", ticker="NVDA"),
+        ]
+    )
+    db_session.flush()
+    assert active_user_ids(db_session) == [_U1]
 
 
 # --- user_holdings --------------------------------------------------------------

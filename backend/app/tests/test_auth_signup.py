@@ -71,6 +71,44 @@ def test_signup_with_valid_invite_creates_user(
     _fake_auth_provider.assert_called_once()
 
 
+def test_signup_deletes_auth_user_if_db_work_fails_after_create(
+    app_client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PR #183 review: compensation must run for any failure after Auth create,
+    not only AuthProviderError/IntegrityError — otherwise the Auth user is
+    orphaned and retry maps to a generic invalid invite."""
+    issued = create_invite(db_session, created_by=_CREATOR)
+    db_session.flush()
+    create = MagicMock(return_value="sub-to-compensate")
+    delete = MagicMock()
+    monkeypatch.setattr("app.routers.auth.create_auth_user", create)
+    monkeypatch.setattr("app.routers.auth.delete_auth_user", delete)
+    monkeypatch.setattr(
+        "app.routers.auth.backfill_news_surfaced_before",
+        MagicMock(side_effect=RuntimeError("db work failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="db work failed"):
+        app_client.post(
+            "/auth/signup",
+            json={
+                "invite_token": issued.token,
+                "email": "orphan@example.com",
+                "password": "a-long-enough-password",
+            },
+        )
+    delete.assert_called_once_with("sub-to-compensate")
+    db_session.expire_all()
+    assert (
+        db_session.execute(
+            select(User).where(User.email == "orphan@example.com")
+        ).scalar_one_or_none()
+        is None
+    )
+
+
 def test_signup_does_not_log_password(
     app_client: TestClient,
     db_session: Session,

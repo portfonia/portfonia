@@ -58,9 +58,9 @@ def generate_incremental_report(
     silently generate + email a report. `None` (manual trigger / tests) skips
     the check entirely.
 
-    Multi-user fan-out (issue #128 A1): `active_user_ids` (SELECT DISTINCT
-    user_id FROM holdings — design doc §1.5, no `users` table needed yet)
-    replaces the pre-A1 single fixed-dev-user call. Each user's
+    Multi-user fan-out (issue #128 A1): `active_user_ids` (active `users`
+    rows that have at least one holding) replaces the pre-A1 single
+    fixed-dev-user call. Each user's
     `generate_report` call is wrapped in its own try/except: one user's
     failure is logged, ops-alerted, and does NOT stop or retry the batch —
     the remaining users still get their reports (design doc §3.3/UAT-3).

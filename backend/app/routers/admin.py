@@ -34,6 +34,7 @@ from app.core.config import get_settings
 from app.core.database import get_session
 from app.core.deps import require_ops_token
 from app.core.ops_log import log_ops_event
+from app.models.user import User
 from app.services import fx_fetcher, price_fetcher
 from app.services.fund_nav_fetcher import update_fund_navs
 from app.services.invites import create_invite, list_invites, revoke_invite
@@ -201,3 +202,31 @@ def revoke_invite_endpoint(invite_id: UUID, session: Session = Depends(get_sessi
     except LookupError:
         raise HTTPException(status_code=404, detail="invite not found") from None
     session.commit()
+
+
+class BindSubjectBody(BaseModel):
+    auth_subject: str = Field(min_length=1)
+
+
+class BindSubjectOut(BaseModel):
+    id: UUID
+    auth_subject: str
+
+
+@router.post("/users/{user_id}/bind-subject", response_model=BindSubjectOut)
+def bind_user_subject(
+    user_id: UUID, body: BindSubjectBody, session: Session = Depends(get_session)
+) -> BindSubjectOut:
+    """Attach a Supabase Auth `sub` to a users row that has none.
+
+    Needed for the production seed row (`auth_subject` is NULL after the
+    B4 migration). Does not insert users and will not overwrite a bound sub.
+    """
+    user = session.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    if user.auth_subject is not None:
+        raise HTTPException(status_code=409, detail="auth_subject already set")
+    user.auth_subject = body.auth_subject.strip()
+    session.commit()
+    return BindSubjectOut(id=user.id, auth_subject=user.auth_subject)

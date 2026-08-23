@@ -14,7 +14,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
 from app.models.holding import Holding
@@ -23,12 +23,22 @@ from app.services._yfinance import _normalize_hk_ticker
 
 
 def active_user_ids(session: Session) -> list[uuid.UUID]:
-    """Every active Portfonia account, sorted for deterministic fan-out.
+    """Active accounts that already have holdings, sorted for fan-out.
 
-    Stage A read this off `holdings` because there was no `users` table.
-    Stage B swaps the query (Ring 1-A design.md §1.5: "one-line swap").
+    Identity comes from `users` (Stage B). Fan-out still requires at least
+    one holding so a brand-new signup does not get an empty Pass 2 / email
+    on the next scheduled batch.
     """
-    rows = session.execute(select(User.id).where(User.status == "active")).scalars().all()
+    rows = (
+        session.execute(
+            select(User.id).where(
+                User.status == "active",
+                exists().where(Holding.user_id == User.id),
+            )
+        )
+        .scalars()
+        .all()
+    )
     return sorted(rows)
 
 

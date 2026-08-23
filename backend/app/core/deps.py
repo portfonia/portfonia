@@ -14,8 +14,8 @@ from app.services.auth_provider import InvalidAccessToken, verify_access_token
 
 
 def get_current_user_id() -> UUID:
-    """Ring 0: fixed dev user. Swap this for JWT extraction in MVP."""
-    return UUID(get_settings().DEV_USER_ID)
+    """Removed ambient identity. Request identity is `current_principal` only."""
+    raise RuntimeError("use Depends(current_principal); get_current_user_id is gone")
 
 
 @dataclass(frozen=True)
@@ -28,21 +28,15 @@ class Principal:
     base_currency: str | None = None
 
 
-_COOKIE_NAME = "portfonia_access_token"
-
-
 def _request_access_token(request: Request) -> str | None:
-    bearer = _bearer_token(request.headers.get("authorization"))
-    if bearer is not None:
-        return bearer
-    cookie = request.cookies.get(_COOKIE_NAME)
-    return cookie or None
+    """Bearer only until B5 sets a real session cookie (Supabase SSR)."""
+    return _bearer_token(request.headers.get("authorization"))
 
 
 def current_principal(request: Request, session: Session = Depends(get_session)) -> Principal:
     """The one request-scoped entry point for "who is calling".
 
-    Verifies the access token (Bearer or session cookie) against the Auth
+    Verifies the access token (`Authorization: Bearer`) against the Auth
     provider's JWKS, then looks up `users.auth_subject`. A valid token whose
     `sub` has no `users` row is 401 — never auto-inserted (Ring 1-B §6.5/§6.9).
     """

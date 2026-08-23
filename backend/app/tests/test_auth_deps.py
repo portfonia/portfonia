@@ -71,6 +71,13 @@ def test_verify_access_token_rejects_legacy_hs256() -> None:
     assert "JWT_SECRET" not in Settings.model_fields
 
 
+def test_get_current_user_id_hard_fails() -> None:
+    from app.core.deps import get_current_user_id
+
+    with pytest.raises(RuntimeError, match="current_principal"):
+        get_current_user_id()
+
+
 def test_holdings_without_token_is_401(raw_client: TestClient) -> None:
     resp = raw_client.get("/holdings")
     assert resp.status_code == 401
