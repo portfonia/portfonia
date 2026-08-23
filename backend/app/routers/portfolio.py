@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from typing import Annotated, Literal
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_session
-from app.core.deps import get_current_user_id
+from app.core.deps import Principal, current_principal
 from app.schemas.portfolio import (
     ConcentrationOut,
     HoldingValueOut,
@@ -24,9 +23,9 @@ BaseCurrency = Literal["USD", "HKD", "CNY"]
 def get_portfolio_summary(
     base_currency: Annotated[BaseCurrency, Query()] = "USD",
     session: Session = Depends(get_session),
-    user_id: UUID = Depends(get_current_user_id),
+    principal: Principal = Depends(current_principal),
 ) -> PortfolioSummaryResponse:
-    snap = compute_portfolio(session, user_id=user_id, base_currency=base_currency)
+    snap = compute_portfolio(session, user_id=principal.user_id, base_currency=base_currency)
 
     holdings_out = [
         HoldingValueOut(

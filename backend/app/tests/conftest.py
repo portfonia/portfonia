@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session
 from alembic import command
 from app.core.config import get_settings
 from app.core.database import TEST_DATABASE_NAME, get_engine, reset_engine
-from app.core.deps import get_current_user_id
+from app.core.deps import Principal, current_principal
 from app.main import app
 from app.models.holding import Holding
 
@@ -273,17 +273,23 @@ def three_user_holdings(db_session: Session) -> dict[str, uuid.UUID]:
 
 @pytest.fixture
 def app_client(db_session: Session) -> Generator[TestClient, None, None]:
-    """TestClient with DB and user-id dependencies overridden for the test DB."""
+    """TestClient with DB and identity dependencies overridden for the test DB.
+
+    Only `current_principal` needs overriding (PR #181 review): every
+    identity-bearing route depends on it now, not on `get_current_user_id`
+    directly — `current_principal` calls that as a plain function, not a
+    FastAPI sub-dependency, so overriding it separately would do nothing.
+    """
     from app.core.database import get_session
 
     def _override_session() -> Generator[Session, None, None]:
         yield db_session
 
-    def _override_user_id() -> uuid.UUID:
-        return TEST_USER_ID
+    def _override_principal() -> Principal:
+        return Principal(user_id=TEST_USER_ID)
 
     app.dependency_overrides[get_session] = _override_session
-    app.dependency_overrides[get_current_user_id] = _override_user_id
+    app.dependency_overrides[current_principal] = _override_principal
     try:
         yield TestClient(app)
     finally:

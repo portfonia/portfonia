@@ -708,9 +708,10 @@ def verify_rerender_zero_llm(session: Session, report: Report) -> dict[str, Any]
             patch("app.services.report_generator._call_llm", _counter("generator")),
             patch("app.services.report_assembly._call_llm", _counter("assembly")),
             patch("app.services.report_translation._call_llm", _counter("translation")),
-            patch("app.services.report_generator.get_current_user_id", lambda: report.user_id),
         ):
-            rebuilt = regenerate_report(session, report.id, mode="render", output_lang="en")
+            rebuilt = regenerate_report(
+                session, report.id, user_id=report.user_id, mode="render", output_lang="en"
+            )
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
     finally:

@@ -1,8 +1,9 @@
 import hashlib
 import secrets
+from dataclasses import dataclass
 from uuid import UUID
 
-from fastapi import Header, HTTPException, status
+from fastapi import Header, HTTPException, Request, status
 
 from app.core.config import get_settings
 
@@ -10,6 +11,32 @@ from app.core.config import get_settings
 def get_current_user_id() -> UUID:
     """Ring 0: fixed dev user. Swap this for JWT extraction in MVP."""
     return UUID(get_settings().DEV_USER_ID)
+
+
+@dataclass(frozen=True)
+class Principal:
+    """The authenticated caller of the current request.
+
+    B4 appends email/locale/base_currency once `users` exists — deliberately
+    absent now rather than reserved as placeholders for fields that don't
+    exist yet (Ring 1-B design doc §5.3).
+    """
+
+    user_id: UUID
+
+
+def current_principal(request: Request) -> Principal:
+    """The one request-scoped entry point for "who is calling".
+
+    B3: still resolves to `DEV_USER_ID` unconditionally — no real auth
+    exists yet. What changes is the shape: every identity-bearing route
+    depends on this via `Depends(current_principal)` instead of calling
+    `get_current_user_id()` directly, so `dependency_overrides` (which only
+    intercepts `Depends`, not a bare function call) works in tests, and B4
+    can swap this function's body for JWT extraction off `request` without
+    touching a single call site.
+    """
+    return Principal(user_id=get_current_user_id())
 
 
 def _bearer_token(authorization: str | None) -> str | None:

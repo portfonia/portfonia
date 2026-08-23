@@ -303,7 +303,6 @@ def _mock_llm(
 def test_generate_report_normal_path(db_session: Session) -> None:
     """Full pipeline: macro hit + anomaly → Pass1 → Tavily → Pass2 → DB write."""
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
             "app.services.report_generator.load_news_window",
@@ -319,7 +318,7 @@ def test_generate_report_normal_path(db_session: Session) -> None:
             "app.services.report_generator._run_tavily_search", return_value=_FAKE_TAVILY_RESULTS
         ),
     ):
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "success"
     assert report.report_date == _TODAY
@@ -363,7 +362,6 @@ def test_targeted_search_budget_uses_real_api_calls_not_result_item_count(
         return resp
 
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
             "app.services.report_generator.load_news_window",
@@ -377,7 +375,7 @@ def test_targeted_search_budget_uses_real_api_calls_not_result_item_count(
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
         patch("app.services.report_search.httpx.post", side_effect=_fake_response) as mock_post,
     ):
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "success"
     real_queries = [c.kwargs["json"]["query"] for c in mock_post.call_args_list]
@@ -423,7 +421,6 @@ def test_large_weight_holding_without_anomaly_gets_material(db_session: Session)
         ]
 
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch("app.services.report_generator.load_news_window", return_value=[]),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
@@ -432,7 +429,7 @@ def test_large_weight_holding_without_anomaly_gets_material(db_session: Session)
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
         patch("app.services.report_generator._run_tavily_search", side_effect=_capture_tavily),
     ):
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "success"
     all_queries = [q for batch in tavily_calls for q in batch]
@@ -495,7 +492,6 @@ def test_large_weight_holding_window_price_reaches_pass2_prompt(db_session: Sess
         return _FAKE_LLM_PASS1
 
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch("app.services.report_generator.load_news_window", return_value=[]),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
@@ -508,7 +504,7 @@ def test_large_weight_holding_window_price_reaches_pass2_prompt(db_session: Sess
         patch("app.services.report_generator._call_llm", side_effect=_capture_pass2_llm),
         patch("app.services.report_generator._run_tavily_search", return_value=[]),
     ):
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "success"
     assert report.report_inputs is not None
@@ -564,7 +560,6 @@ def test_weight_targeted_search_promotes_title_matches_first(db_session: Session
         ]
 
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch("app.services.report_generator.load_news_window", return_value=[]),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
@@ -573,7 +568,7 @@ def test_weight_targeted_search_promotes_title_matches_first(db_session: Session
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
         patch("app.services.report_generator._run_tavily_search", side_effect=_fake_tavily),
     ):
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "success"
     assert report.report_inputs is not None
@@ -614,7 +609,6 @@ def test_generate_report_pass2_call_excludes_l1_ticker_intel_text(db_session: Se
         return _L1_MARKER
 
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
             "app.services.report_generator.load_news_window",
@@ -646,7 +640,7 @@ def test_generate_report_pass2_call_excludes_l1_ticker_intel_text(db_session: Se
         patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
         patch("app.services.ticker_intel._call_llm", side_effect=_mock_l1_llm),
     ):
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "success"
     assert report.report_inputs is not None
@@ -711,7 +705,6 @@ def test_generate_report_pass2_call_excludes_l2_macro_event_intel_text(
 
     l2_client, l2_call, l2_news = _l2_patches()
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
             "app.services.report_generator.load_news_window",
@@ -736,7 +729,7 @@ def test_generate_report_pass2_call_excludes_l2_macro_event_intel_text(
         l2_call,
         l2_news,
     ):
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "success"
     assert report.report_inputs is not None
@@ -774,7 +767,6 @@ def test_generate_report_l2_prompt_uses_day_news_not_the_users_window(
 
     l2_client, l2_call, l2_news = _l2_patches(llm=_capture_l2_llm)
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
             "app.services.report_generator.load_news_window",
@@ -799,7 +791,7 @@ def test_generate_report_l2_prompt_uses_day_news_not_the_users_window(
         l2_call,
         l2_news,
     ):
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "success"
     assert "l2_user" in captured
@@ -844,7 +836,6 @@ def test_generate_report_l1_sees_targeted_search_headline_pass2_input_unchanged(
         return resp
 
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
             "app.services.report_generator.load_news_window",
@@ -866,7 +857,7 @@ def test_generate_report_l1_sees_targeted_search_headline_pass2_input_unchanged(
         patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
         patch("app.services.ticker_intel._call_llm", side_effect=_capture_l1_llm),
     ):
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "success"
     assert report.report_inputs is not None
@@ -920,7 +911,6 @@ def test_weight_targeted_search_stays_out_of_shared_l1_cache(db_session: Session
         ]
 
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch("app.services.report_generator.load_news_window", return_value=[]),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
@@ -945,7 +935,7 @@ def test_weight_targeted_search_stays_out_of_shared_l1_cache(db_session: Session
         patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
         patch("app.services.ticker_intel._call_llm", side_effect=_capture_l1_llm),
     ):
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "success"
     assert report.report_inputs is not None
@@ -981,7 +971,6 @@ def test_weight_targeted_search_passes_real_date_window_to_tavily_api(
         return []
 
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch("app.services.report_generator.load_news_window", return_value=[]),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
@@ -994,7 +983,7 @@ def test_weight_targeted_search_passes_real_date_window_to_tavily_api(
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
         patch("app.services.report_generator._run_tavily_search", side_effect=_capture_tavily),
     ):
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "success"
     date_windows = captured.get("date_windows")
@@ -1057,7 +1046,6 @@ def test_generate_report_theme_anomaly_l1_keys_constituents_with_own_recall(
     )
 
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
             "app.services.report_generator.load_news_window",
@@ -1088,7 +1076,7 @@ def test_generate_report_theme_anomaly_l1_keys_constituents_with_own_recall(
         patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
         patch("app.services.ticker_intel._call_llm", side_effect=_capture_l1_llm),
     ):
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "success"
     assert report.report_inputs is not None
@@ -1206,7 +1194,6 @@ def test_generate_report_l1_facts_are_independent_of_the_calling_users_watermark
 
     def _run_for(user_id: uuid.UUID) -> None:
         with (
-            patch("app.services.report_generator.get_current_user_id", return_value=user_id),
             patch(
                 "app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()
             ),
@@ -1248,7 +1235,6 @@ def test_generate_report_retry_clears_stale_provider_message_id(db_session: Sess
 
     def _mock_pipeline() -> list[contextlib.AbstractContextManager[object]]:
         return [
-            patch("app.services.report_generator.get_current_user_id", return_value=_USER),
             patch(
                 "app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()
             ),
@@ -1272,7 +1258,7 @@ def test_generate_report_retry_clears_stale_provider_message_id(db_session: Sess
     with contextlib.ExitStack() as stack:
         for cm in _mock_pipeline():
             stack.enter_context(cm)
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "success"
 
@@ -1286,7 +1272,7 @@ def test_generate_report_retry_clears_stale_provider_message_id(db_session: Sess
     with contextlib.ExitStack() as stack:
         for cm in _mock_pipeline():
             stack.enter_context(cm)
-        retried = rg.generate_report(db_session, report_date=_TODAY)
+        retried = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert retried.id == report.id
     assert retried.status == "success"
@@ -1304,19 +1290,50 @@ def test_generate_report_retry_clears_stale_provider_message_id(db_session: Sess
 def test_generate_report_quiet_day_returns_skipped(db_session: Session) -> None:
     """No signals and no anomalies → status=skipped, no LLM call."""
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch("app.services.report_generator.load_news_window", return_value=[]),
         patch("app.services.report_generator.detect_macro_signals", return_value=_quiet_signals()),
         patch("app.services.report_generator.detect_window_anomalies", return_value=([], 0)),
         patch("app.services.report_generator._call_llm") as mock_llm,
     ):
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "skipped"
     mock_llm.assert_not_called()
     assert report.report_md is not None
     assert "§1 Portfolio Snapshot" in report.report_md
+
+
+def test_generate_report_quiet_day_unsent_email_does_not_log_sent(
+    db_session: Session, caplog: pytest.LogCaptureFixture
+) -> None:
+    """PR #181 review: send_report_email returning False now also means
+    "recipient could not be resolved" (fail-closed), not just "commit
+    failed after a real send". The caller's log line must not claim the
+    email was sent when it demonstrably wasn't. Uses session_node=
+    after_close so the short-manual-quiet suppression doesn't skip the
+    email branch entirely."""
+    import logging as _logging
+
+    _logging.getLogger("app.services.report_generator").disabled = False
+    with (
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch("app.services.report_generator.load_news_window", return_value=[]),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_quiet_signals()),
+        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 0)),
+        patch("app.services.report_generator._call_llm"),
+        patch("app.services.report_generator.send_report_email", return_value=False),
+        caplog.at_level("WARNING", logger="app.services.report_generator"),
+    ):
+        report = rg.generate_report(
+            db_session, user_id=_USER, report_date=_TODAY, session_node="after_close"
+        )
+
+    assert report.status == "skipped"
+    sent_claims = [r for r in caplog.records if "email sent" in r.getMessage().lower()]
+    assert not sent_claims, (
+        f"log line falsely claims delivery: {[r.getMessage() for r in sent_claims]}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1327,7 +1344,6 @@ def test_generate_report_quiet_day_returns_skipped(db_session: Session) -> None:
 def test_generate_report_tavily_failure_degraded(db_session: Session) -> None:
     """When Tavily fails, the report is still generated (degraded mode)."""
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
             "app.services.report_generator.load_news_window",
@@ -1339,7 +1355,7 @@ def test_generate_report_tavily_failure_degraded(db_session: Session) -> None:
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
         patch("app.services.report_generator._run_tavily_search", return_value=[]),
     ):
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "success"
     assert report.report_inputs is not None
@@ -1378,7 +1394,6 @@ def test_generate_report_pass1_invalid_json(db_session: Session) -> None:
         return _FAKE_LLM_PASS2
 
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch("app.services.report_generator.load_news_window", return_value=[_news_item("Fed")]),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
@@ -1387,7 +1402,7 @@ def test_generate_report_pass1_invalid_json(db_session: Session) -> None:
         patch("app.services.report_generator._call_llm", side_effect=bad_pass1),
         patch("app.services.report_generator._run_tavily_search", return_value=[]) as mock_tavily,
     ):
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "success"
     assert report.report_inputs is not None
@@ -1406,7 +1421,6 @@ def test_generate_report_pass1_invalid_json(db_session: Session) -> None:
 def test_generate_report_llm_failure_marks_failed(db_session: Session) -> None:
     """LLM exception → report persisted with status=failed, exception re-raised."""
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch("app.services.report_generator.load_news_window", return_value=[_news_item("Fed")]),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
@@ -1415,7 +1429,7 @@ def test_generate_report_llm_failure_marks_failed(db_session: Session) -> None:
         patch("app.services.report_generator._call_llm", side_effect=RuntimeError("LLM down")),
         pytest.raises(RuntimeError, match="LLM down"),
     ):
-        rg.generate_report(db_session, report_date=_TODAY)
+        rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     # The failed report should have been persisted
     from sqlalchemy import select
@@ -1458,7 +1472,6 @@ def test_generate_report_pass1_call_has_no_holdings(db_session: Session) -> None
         threshold=Decimal("0.03"),
     )
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
             "app.services.report_generator.load_news_window",
@@ -1473,7 +1486,7 @@ def test_generate_report_pass1_call_has_no_holdings(db_session: Session) -> None
         patch("app.services.report_generator._call_llm", side_effect=_capture_llm),
         patch("app.services.report_generator._run_tavily_search", return_value=[]),
     ):
-        rg.generate_report(db_session, report_date=_TODAY)
+        rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert "pass1_user" in captured
     assert "AAPL" not in captured["pass1_user"]
@@ -1503,7 +1516,6 @@ def test_generate_report_pass1_call_uses_byok_hard_pin(db_session: Session) -> N
         return _FAKE_LLM_PASS2
 
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
             "app.services.report_generator.load_news_window",
@@ -1518,7 +1530,7 @@ def test_generate_report_pass1_call_uses_byok_hard_pin(db_session: Session) -> N
         patch("app.services.report_generator._call_llm", side_effect=_capture_llm),
         patch("app.services.report_generator._run_tavily_search", return_value=[]),
     ):
-        rg.generate_report(db_session, report_date=_TODAY)
+        rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert captured.get("provider_order") == _BYOK_PROVIDER_ORDER == ["DeepSeek"]
     assert captured.get("allow_fallbacks") is False
@@ -1557,7 +1569,6 @@ def test_generate_report_blocks_noncompliant_body(
 ) -> None:
     """A body that trips the blacklist is held as needs_review and never emailed."""
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch("app.services.report_generator.load_news_window", return_value=[_news_item("Fed")]),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
@@ -1568,7 +1579,7 @@ def test_generate_report_blocks_noncompliant_body(
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm_noncompliant),
         patch("app.services.report_generator._run_tavily_search", return_value=[]),
     ):
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "needs_review"
     assert report.report_md is not None  # content preserved for inspection
@@ -1584,7 +1595,6 @@ def test_generate_report_retry_of_needs_review_unmarks_prior_surfaced_news(
     saw, instead of silently seeing a smaller set because of the first
     attempt's own marks."""
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch("app.services.report_generator.load_news_window", return_value=[_news_item("Fed")]),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
@@ -1596,11 +1606,11 @@ def test_generate_report_retry_of_needs_review_unmarks_prior_surfaced_news(
         patch("app.services.report_generator._run_tavily_search", return_value=[]),
         patch("app.services.report_generator.unmark_news_surfaced") as mock_unmark,
     ):
-        report1 = rg.generate_report(db_session, report_date=_TODAY)
+        report1 = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
         assert report1.status == "needs_review"
         mock_unmark.assert_not_called()  # fresh row — nothing to unmark yet
 
-        report2 = rg.generate_report(db_session, report_date=_TODAY)
+        report2 = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
         assert report2.id == report1.id  # same row, reopened for retry
         mock_unmark.assert_called_once_with(db_session, report1.id)
 
@@ -1610,13 +1620,12 @@ def test_generate_report_quiet_day_sends_heartbeat(
 ) -> None:
     """A quiet week must still deliver a heartbeat email so silence != broken."""
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch("app.services.report_generator.load_news_window", return_value=[]),
         patch("app.services.report_generator.detect_macro_signals", return_value=_quiet_signals()),
         patch("app.services.report_generator.detect_window_anomalies", return_value=([], 0)),
     ):
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "skipped"
     _no_email.assert_called_once()
@@ -1629,7 +1638,6 @@ def test_generate_report_quiet_day_sends_heartbeat(
 
 def _normal_path_patches() -> list[object]:
     return [
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch("app.services.report_generator.load_news_window", return_value=[_news_item("Fed")]),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
@@ -1646,7 +1654,7 @@ def test_generate_report_includes_data_window(db_session: Session) -> None:
     with contextlib.ExitStack() as stack:
         for p in _normal_path_patches():
             stack.enter_context(p)  # type: ignore[arg-type]
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
     assert report.report_md is not None
     assert "Data window" in report.report_md
 
@@ -1662,7 +1670,7 @@ def test_generate_report_translates_when_output_lang_set(db_session: Session) ->
                 side_effect=lambda md, lang: f"[{lang}]\n{md}",
             )
         )
-        report = rg.generate_report(db_session, report_date=_TODAY, output_lang="zh")
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY, output_lang="zh")
     assert report.report_md is not None
     assert "[zh]" in report.report_md
 
@@ -1672,11 +1680,10 @@ def test_regenerate_render_is_token_free(db_session: Session) -> None:
     with contextlib.ExitStack() as stack:
         for p in _normal_path_patches():
             stack.enter_context(p)  # type: ignore[arg-type]
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
     rid = report.id
 
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch(
             "app.services.report_generator._call_llm",
             side_effect=AssertionError("render must not call the LLM"),
@@ -1686,7 +1693,7 @@ def test_regenerate_render_is_token_free(db_session: Session) -> None:
             side_effect=AssertionError("render must not re-fetch"),
         ),
     ):
-        out = rg.regenerate_report(db_session, rid, mode="render", output_lang="en")
+        out = rg.regenerate_report(db_session, rid, user_id=_USER, mode="render", output_lang="en")
 
     assert out.status == "success"
     assert out.report_md is not None
@@ -1699,7 +1706,7 @@ def test_regenerate_analyze_reruns_pass2_from_stored_intel(db_session: Session) 
     with contextlib.ExitStack() as stack:
         for p in _normal_path_patches():
             stack.enter_context(p)  # type: ignore[arg-type]
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
     rid = report.id
 
     new_body = (
@@ -1709,7 +1716,6 @@ def test_regenerate_analyze_reruns_pass2_from_stored_intel(db_session: Session) 
         + _PASS2_FILLER
     )
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", return_value=new_body),
         patch(
@@ -1721,7 +1727,7 @@ def test_regenerate_analyze_reruns_pass2_from_stored_intel(db_session: Session) 
             side_effect=AssertionError("analyze must not re-run search"),
         ),
     ):
-        out = rg.regenerate_report(db_session, rid, mode="analyze", output_lang="en")
+        out = rg.regenerate_report(db_session, rid, user_id=_USER, mode="analyze", output_lang="en")
 
     assert out.report_md is not None
     assert "Reanalyzed view" in out.report_md
@@ -1779,7 +1785,6 @@ def test_generate_report_strips_inline_markers(db_session: Session) -> None:
     """The generated report must carry no [S#] citations, provenance tags, or
     per-sentence disclaimer suffixes — only the footer disclaimer remains (#9)."""
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
             "app.services.report_generator.load_news_window",
@@ -1795,7 +1800,7 @@ def test_generate_report_strips_inline_markers(db_session: Session) -> None:
             "app.services.report_generator._run_tavily_search", return_value=_FAKE_TAVILY_RESULTS
         ),
     ):
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "success"
     assert report.report_md is not None
@@ -1820,7 +1825,6 @@ def test_generate_report_strips_inline_markers(db_session: Session) -> None:
 def test_generate_report_normal_path_has_footer(db_session: Session) -> None:
     """Footer must appear in every successfully generated report."""
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
             "app.services.report_generator.load_news_window",
@@ -1836,7 +1840,7 @@ def test_generate_report_normal_path_has_footer(db_session: Session) -> None:
             "app.services.report_generator._run_tavily_search", return_value=_FAKE_TAVILY_RESULTS
         ),
     ):
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "success"
     assert report.report_md is not None
@@ -1847,14 +1851,13 @@ def test_generate_report_normal_path_has_footer(db_session: Session) -> None:
 def test_generate_report_quiet_day_has_footer(db_session: Session) -> None:
     """Footer must also appear on quiet-day (status=skipped) reports."""
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch("app.services.report_generator.load_news_window", return_value=[]),
         patch("app.services.report_generator.detect_macro_signals", return_value=_quiet_signals()),
         patch("app.services.report_generator.detect_window_anomalies", return_value=([], 0)),
         patch("app.services.report_generator._call_llm") as mock_llm,
     ):
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "skipped"
     mock_llm.assert_not_called()
@@ -1870,40 +1873,21 @@ def test_generate_report_quiet_day_has_footer(db_session: Session) -> None:
 _OTHER_USER = uuid.UUID("00000000-0000-0000-0000-0000000000aa")
 
 
-def test_generate_report_uses_explicit_user_id_not_current_user(db_session: Session) -> None:
-    """An explicit user_id must be used as-is and must NOT fall through to
-    get_current_user_id() — the multi-user fan-out (report_tasks.py) relies
-    on this to generate each user's report under their own identity."""
+def test_generate_report_uses_explicit_user_id(db_session: Session) -> None:
+    """user_id (issue #129 B3: required, no ambient fallback) is used as-is
+    for the report row — the multi-user fan-out (report_tasks.py) relies on
+    this to generate each user's report under their own identity."""
     with (
-        patch("app.services.report_generator.get_current_user_id") as mock_current_user,
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch("app.services.report_generator.load_news_window", return_value=[]),
         patch("app.services.report_generator.detect_macro_signals", return_value=_quiet_signals()),
         patch("app.services.report_generator.detect_window_anomalies", return_value=([], 0)),
         patch("app.services.report_generator._call_llm") as mock_llm,
     ):
-        report = rg.generate_report(db_session, report_date=_TODAY, user_id=_OTHER_USER)
+        report = rg.generate_report(db_session, user_id=_OTHER_USER, report_date=_TODAY)
 
-    mock_current_user.assert_not_called()
     mock_llm.assert_not_called()  # quiet day, never reaches Pass 1/2
     assert report.user_id == _OTHER_USER
-
-
-def test_generate_report_falls_back_to_current_user_id_when_omitted(db_session: Session) -> None:
-    """user_id=None (every pre-A1 call site) must still resolve via
-    get_current_user_id() — the Ring 0 single-user path is unchanged."""
-    with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER) as mock_cur,
-        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
-        patch("app.services.report_generator.load_news_window", return_value=[]),
-        patch("app.services.report_generator.detect_macro_signals", return_value=_quiet_signals()),
-        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 0)),
-        patch("app.services.report_generator._call_llm"),
-    ):
-        report = rg.generate_report(db_session, report_date=_TODAY)
-
-    mock_cur.assert_called_once()
-    assert report.user_id == _USER
 
 
 def test_generate_report_forwards_moves_cache_to_detect_window_anomalies(
@@ -1914,7 +1898,6 @@ def test_generate_report_forwards_moves_cache_to_detect_window_anomalies(
     compute_global_moves() call across a whole batch."""
     cache: MovesCache = {}
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch("app.services.report_generator.load_news_window", return_value=[]),
         patch("app.services.report_generator.detect_macro_signals", return_value=_quiet_signals()),
@@ -1923,7 +1906,7 @@ def test_generate_report_forwards_moves_cache_to_detect_window_anomalies(
         ) as mock_detect,
         patch("app.services.report_generator._call_llm"),
     ):
-        rg.generate_report(db_session, report_date=_TODAY, moves_cache=cache)
+        rg.generate_report(db_session, user_id=_USER, report_date=_TODAY, moves_cache=cache)
 
     assert mock_detect.call_args.args[-1] is cache
 
@@ -1973,7 +1956,7 @@ def test_generate_report_uses_pass2_when_shared_compute_is_disabled(
         ):
             stack.enter_context(p)  # type: ignore[arg-type]
         mock_assembly = stack.enter_context(patch("app.services.report_assembly._call_llm"))
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     mock_assembly.assert_not_called()
     assert report.report_inputs is not None
@@ -1996,7 +1979,7 @@ def test_generate_report_assembles_from_shared_intel_when_enabled(
         mock_assembly = stack.enter_context(
             patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
         )
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     mock_assembly.assert_called_once()
     assert mock_assembly.call_args.kwargs["with_holdings"] is True, (
@@ -2027,7 +2010,7 @@ def test_generate_report_assembly_keeps_the_code_built_sections(
         stack.enter_context(
             patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
         )
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.report_md is not None
     assert "§1" in report.report_md
@@ -2055,7 +2038,7 @@ def test_generate_report_falls_back_to_pass2_when_shared_caches_are_empty(
             patch("app.services.report_generator.get_l2_intel_batch", return_value={})
         )
         mock_assembly = stack.enter_context(patch("app.services.report_assembly._call_llm"))
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     mock_assembly.assert_not_called()
     assert report.status == "success"
@@ -2078,7 +2061,7 @@ def test_generate_report_falls_back_to_pass2_when_assembled_body_is_truncated(
         mock_assembly = stack.enter_context(
             patch("app.services.report_assembly._call_llm", return_value="## §2 too short")
         )
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     mock_assembly.assert_called_once()
     assert report.status == "success"
@@ -2100,7 +2083,7 @@ def test_generate_report_falls_back_to_pass2_when_the_assembly_call_raises(
         stack.enter_context(
             patch("app.services.report_assembly._call_llm", side_effect=RuntimeError("provider"))
         )
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "success"
     assert report.report_inputs is not None
@@ -2127,7 +2110,7 @@ def test_generate_report_scans_the_assembled_body_for_compliance(
         mock_email = stack.enter_context(
             patch("app.services.report_generator.send_report_email", return_value=True)
         )
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "needs_review"
     assert report.report_inputs is not None
@@ -2155,7 +2138,7 @@ def test_generate_report_shadow_models_are_stored_but_never_shipped(
         mock_assembly = stack.enter_context(
             patch("app.services.report_assembly._call_llm", return_value=shadow_body)
         )
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert mock_assembly.call_count == 2, "one assembly pass per shadow model"
     assert report.report_inputs is not None
@@ -2181,7 +2164,7 @@ def test_generate_report_shadow_failure_never_fails_the_report(
         stack.enter_context(
             patch("app.services.report_assembly._call_llm", side_effect=RuntimeError("provider"))
         )
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "success"
     assert report.report_inputs is not None
@@ -2209,7 +2192,7 @@ def test_generate_report_shadow_prompt_construction_failure_never_fails_the_repo
                 side_effect=RuntimeError("prompt construction blew up"),
             )
         )
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "success"
     assert report.report_inputs is not None
@@ -2233,7 +2216,7 @@ def test_generate_report_shadow_is_skipped_when_there_is_no_shared_intel(
             patch("app.services.report_generator.get_l2_intel_batch", return_value={})
         )
         mock_assembly = stack.enter_context(patch("app.services.report_assembly._call_llm"))
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     mock_assembly.assert_not_called()
     assert report.report_inputs is not None
@@ -2257,17 +2240,16 @@ def test_regenerate_render_rebuilds_an_assembled_report_without_llm_calls(
         stack.enter_context(
             patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
         )
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.report_inputs is not None
     assert report.report_inputs["body_source"] == "assembly"
 
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator._call_llm") as mock_pass2,
         patch("app.services.report_assembly._call_llm") as mock_assembly,
     ):
-        rebuilt = rg.regenerate_report(db_session, report.id, mode="render")
+        rebuilt = rg.regenerate_report(db_session, report.id, user_id=_USER, mode="render")
 
     mock_pass2.assert_not_called()
     mock_assembly.assert_not_called()
@@ -2293,7 +2275,7 @@ def test_regenerate_analyze_reruns_the_pass_that_wrote_the_body(
         stack.enter_context(
             patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
         )
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     reanalyzed = (
         "## §2 Macro Signals\n\nReanalyzed macro read.\n\n"
@@ -2301,12 +2283,11 @@ def test_regenerate_analyze_reruns_the_pass_that_wrote_the_body(
         "## §4 Risk Radar\n\nNVDA — reanalyzed [Probable]\n\n" + _PASS2_FILLER
     )
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch("app.services.report_generator._call_llm") as mock_pass2,
         patch("app.services.report_assembly._call_llm", return_value=reanalyzed) as mock_assembly,
     ):
-        updated = rg.regenerate_report(db_session, report.id, mode="analyze")
+        updated = rg.regenerate_report(db_session, report.id, user_id=_USER, mode="analyze")
 
     mock_pass2.assert_not_called()
     mock_assembly.assert_called_once()
@@ -2318,11 +2299,10 @@ def test_regenerate_analyze_reruns_the_pass_that_wrote_the_body(
     # And the stored body is now genuinely the one that shipped: a follow-up
     # render must not resurrect the superseded text.
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator._call_llm"),
         patch("app.services.report_assembly._call_llm"),
     ):
-        rerendered = rg.regenerate_report(db_session, report.id, mode="render")
+        rerendered = rg.regenerate_report(db_session, report.id, user_id=_USER, mode="render")
 
     assert rerendered.report_md is not None
     assert "Reanalyzed holdings read" in rerendered.report_md
@@ -2351,7 +2331,7 @@ def test_regenerate_analyze_recomputes_macro_event_exposure_from_fresh_portfolio
         stack.enter_context(
             patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
         )
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.report_inputs is not None
     assert report.report_inputs["body_source"] == "assembly"
@@ -2376,13 +2356,12 @@ def test_regenerate_analyze_recomputes_macro_event_exposure_from_fresh_portfolio
     fresh_snap.by_asset_class = {"EQUITY_US_BROAD": Decimal("10000")}
 
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=fresh_snap),
         patch(
             "app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY
         ) as mock_assembly,
     ):
-        rg.regenerate_report(db_session, report.id, mode="analyze")
+        rg.regenerate_report(db_session, report.id, user_id=_USER, mode="analyze")
 
     sent_prompt = mock_assembly.call_args.args[3]
     assert "theme:x" not in sent_prompt, (
@@ -2398,7 +2377,7 @@ def test_regenerate_render_still_works_for_a_pre_a4_report(db_session: Session) 
     with contextlib.ExitStack() as stack:
         for p in _normal_path_patches():
             stack.enter_context(p)  # type: ignore[arg-type]
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     # Simulate a row written before A4 existed.
     report.report_inputs = {
@@ -2409,10 +2388,9 @@ def test_regenerate_render_still_works_for_a_pre_a4_report(db_session: Session) 
     db_session.commit()
 
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator._call_llm") as mock_pass2,
     ):
-        rebuilt = rg.regenerate_report(db_session, report.id, mode="render")
+        rebuilt = rg.regenerate_report(db_session, report.id, user_id=_USER, mode="render")
 
     mock_pass2.assert_not_called()
     assert rebuilt.report_md is not None
@@ -2466,7 +2444,7 @@ def test_generate_report_runs_the_synthesis_after_l1_rows_exist(
         stack.enter_context(
             patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
         )
-        rg.generate_report(db_session, report_date=_TODAY)
+        rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert call_order == ["l1", "l3"]
 
@@ -2505,7 +2483,7 @@ def test_generate_report_stores_only_clusters_touching_this_users_holdings(
         stack.enter_context(
             patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
         )
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.report_inputs is not None
     # Only NVDA has L1 intel for this user, so the two-name floor drops the
@@ -2531,7 +2509,7 @@ def test_synthesis_failure_never_fails_the_report(db_session: Session) -> None:
         stack.enter_context(
             patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
         )
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.status == "success"
     assert report.report_inputs is not None
@@ -2584,7 +2562,7 @@ def test_big_mover_without_a_headline_gets_the_leftover_tavily_budget(
         stack.enter_context(
             patch("app.services.report_generator._run_tavily_search", side_effect=_echo_search)
         )
-        rg.generate_report(db_session, report_date=_TODAY)
+        rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     headlines = captured_l1_facts["headlines"]
     assert isinstance(headlines, dict)
@@ -2623,7 +2601,7 @@ def test_leftover_tavily_topup_respects_fair_share_budget(db_session: Session) -
         search_mock = stack.enter_context(
             patch("app.services.report_generator._run_tavily_search", return_value=[])
         )
-        rg.generate_report(db_session, report_date=_TODAY, users_remaining=3)
+        rg.generate_report(db_session, user_id=_USER, report_date=_TODAY, users_remaining=3)
 
     # `_anomaly()` (from `_normal_path_patches`, via `detect_window_anomalies`)
     # also fires the PRE-EXISTING targeted-anomaly search for NVDA — a
@@ -2660,7 +2638,7 @@ def test_targeted_search_budget_respects_fair_share_budget(db_session: Session) 
         search_mock = stack.enter_context(
             patch("app.services.report_generator._run_tavily_search", return_value=[])
         )
-        rg.generate_report(db_session, report_date=_TODAY, users_remaining=3)
+        rg.generate_report(db_session, user_id=_USER, report_date=_TODAY, users_remaining=3)
 
     # `_anomaly()` (from `_normal_path_patches`) has no recalled window news,
     # so the targeted-anomaly query fires and is the one call this test's
@@ -2698,7 +2676,7 @@ def test_leftover_search_is_skipped_when_the_candidate_already_has_a_headline(
         search = stack.enter_context(
             patch("app.services.report_generator._run_tavily_search", return_value=[])
         )
-        rg.generate_report(db_session, report_date=_TODAY)
+        rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     l1_queries = [
         c for c in search.call_args_list if any("NVDA" in q for q in (c.args[1] if c.args else []))
@@ -2716,7 +2694,7 @@ def test_pass2_prompt_never_receives_cross_name_intel(db_session: Session) -> No
         stack.enter_context(
             patch("app.services.report_generator.get_day_synthesis", return_value=_L3_CLUSTERS)
         )
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.report_inputs is not None
     assert "ai_capex_stack" not in report.report_inputs["pass2_prompt"]
@@ -2746,7 +2724,7 @@ def test_regenerate_analyze_persists_the_renarrowed_cross_name_clusters(
         stack.enter_context(
             patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
         )
-        report = rg.generate_report(db_session, report_date=_TODAY)
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.report_inputs is not None
 
@@ -2776,11 +2754,10 @@ def test_regenerate_analyze_persists_the_renarrowed_cross_name_clusters(
     fresh_snap.holdings[0].name = "NVIDIA"
 
     with (
-        patch("app.services.report_generator.get_current_user_id", return_value=_USER),
         patch("app.services.report_generator.compute_portfolio", return_value=fresh_snap),
         patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY),
     ):
-        rebuilt = rg.regenerate_report(db_session, report.id, mode="analyze")
+        rebuilt = rg.regenerate_report(db_session, report.id, user_id=_USER, mode="analyze")
 
     assert rebuilt.report_inputs is not None
     assert rebuilt.report_inputs["cross_name_intel"] == [], (

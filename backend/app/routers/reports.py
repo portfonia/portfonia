@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_session
-from app.core.deps import get_current_user_id
+from app.core.deps import Principal, current_principal
 from app.models.report import Report
 from app.schemas.reports import GenerateReportRequest, ReportListItem, ReportOut
 from app.services.email_sender import send_report_email
@@ -22,6 +22,7 @@ router = APIRouter()
 def trigger_report_generation(
     req: GenerateReportRequest,
     session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
 ) -> Report:
     """Manually trigger report generation (Ring 0 entry point before Celery).
 
@@ -33,6 +34,7 @@ def trigger_report_generation(
     try:
         return generate_report(
             session,
+            user_id=principal.user_id,
             report_date=req.report_date,
             report_type=req.report_type,
             base_currency=req.base_currency,
@@ -54,6 +56,7 @@ def regenerate(
     output_lang: str | None = None,
     resend: bool = False,
     session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
 ) -> Report:
     """Rebuild a report from stored inputs without re-fetching intel (#6).
 
@@ -66,7 +69,9 @@ def regenerate(
         raise HTTPException(status_code=422, detail="mode must be 'render' or 'analyze'")
     lang = output_lang or get_settings().OUTPUT_LANG
     try:
-        report = regenerate_report(session, report_id, mode=mode, output_lang=lang)
+        report = regenerate_report(
+            session, report_id, user_id=principal.user_id, mode=mode, output_lang=lang
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     if resend and report.status == "success":
@@ -75,8 +80,11 @@ def regenerate(
 
 
 @router.get("/", response_model=list[ReportListItem])
-def list_reports(session: Session = Depends(get_session)) -> list[Report]:
-    user_id = get_current_user_id()
+def list_reports(
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+) -> list[Report]:
+    user_id = principal.user_id
     rows = session.execute(
         select(Report)
         .where(Report.user_id == user_id)
@@ -90,9 +98,10 @@ def list_reports(session: Session = Depends(get_session)) -> list[Report]:
 def send_report(
     report_id: uuid.UUID,
     session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
 ) -> dict[str, str | None]:
     """Manually trigger (or re-check) email delivery for an existing report."""
-    user_id = get_current_user_id()
+    user_id = principal.user_id
     report = session.execute(
         select(Report).where(Report.id == report_id, Report.user_id == user_id)
     ).scalar_one_or_none()
@@ -118,8 +127,9 @@ def send_report(
 def get_report(
     report_id: uuid.UUID,
     session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
 ) -> Report:
-    user_id = get_current_user_id()
+    user_id = principal.user_id
     report = session.execute(
         select(Report).where(Report.id == report_id, Report.user_id == user_id)
     ).scalar_one_or_none()
