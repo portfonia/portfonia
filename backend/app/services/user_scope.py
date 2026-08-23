@@ -18,19 +18,17 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.holding import Holding
+from app.models.user import User
 from app.services._yfinance import _normalize_hk_ticker
 
 
 def active_user_ids(session: Session) -> list[uuid.UUID]:
-    """Every distinct user_id with at least one holding row.
+    """Every active Portfonia account, sorted for deterministic fan-out.
 
-    This IS the Stage-A definition of "the system's active users" (design
-    doc §1.5) — not a placeholder pending a `users` table. `user_id` is not
-    Fernet-encrypted, so a SQL-level DISTINCT is valid here (unlike
-    ticker/fund_code — see `global_identifier_universe`). Sorted for
-    deterministic fan-out order in logs/tests.
+    Stage A read this off `holdings` because there was no `users` table.
+    Stage B swaps the query (Ring 1-A design.md §1.5: "one-line swap").
     """
-    rows = session.execute(select(Holding.user_id).distinct()).scalars().all()
+    rows = session.execute(select(User.id).where(User.status == "active")).scalars().all()
     return sorted(rows)
 
 

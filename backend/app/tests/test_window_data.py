@@ -8,6 +8,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from unittest.mock import patch
 
+import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -22,6 +23,8 @@ from app.services import window_data
 from app.services.window_data import (
     BOOTSTRAP_WATERMARK,
     _window_closes,
+    backfill_news_surfaced_before,
+    cold_start_watermark,
     compute_global_moves,
     day_window_bounds,
     detect_window_anomalies,
@@ -67,8 +70,39 @@ def _close_at(ticker: str, d: date, close: float, captured_at: datetime) -> Pric
 # --- watermark ---------------------------------------------------------------
 
 
-def test_watermark_cold_start(db_session: Session) -> None:
-    assert user_watermark(db_session, _USER, "incremental") == BOOTSTRAP_WATERMARK
+def test_cold_start_watermark_is_five_weekdays_before_now() -> None:
+    """B-UAT-11: a Wednesday 17:00 ET run opens at the prior Wednesday midnight."""
+    now = datetime(2026, 8, 19, 17, 0, tzinfo=ET)
+    assert cold_start_watermark(now) == datetime(2026, 8, 12, tzinfo=ET)
+
+
+def test_cold_start_watermark_skips_weekend() -> None:
+    """A Monday run lands on the previous Monday, not the intervening weekend."""
+    now = datetime(2026, 8, 17, 17, 0, tzinfo=ET)
+    assert cold_start_watermark(now) == datetime(2026, 8, 10, tzinfo=ET)
+
+
+def test_cold_start_watermark_reuses_the_given_now() -> None:
+    """Must not call datetime.now() — generate_report already stamps a batch `now`."""
+    import inspect
+    import re
+
+    source = re.sub(r'""".*?"""', "", inspect.getsource(cold_start_watermark), count=1, flags=re.S)
+    assert "datetime.now" not in source
+    assert "datetime.utcnow" not in source
+
+
+def test_watermark_cold_start_uses_batch_now(db_session: Session) -> None:
+    now = datetime(2026, 8, 19, 17, 0, tzinfo=ET)
+    assert user_watermark(db_session, _USER, "incremental", now=now) == datetime(
+        2026, 8, 12, tzinfo=ET
+    )
+    assert user_watermark(db_session, _USER, "incremental", now=now) != BOOTSTRAP_WATERMARK
+
+
+def test_watermark_cold_start_requires_now_when_no_history(db_session: Session) -> None:
+    with pytest.raises(ValueError, match="now"):
+        user_watermark(db_session, _USER, "incremental")
 
 
 def test_watermark_from_last_report(db_session: Session) -> None:
@@ -120,6 +154,32 @@ def test_watermark_excludes_the_report_being_regenerated(db_session: Session) ->
 
 
 # --- news window -------------------------------------------------------------
+
+
+def test_cold_start_news_backfill_hides_history_before_cutoff(db_session: Session) -> None:
+    """B-UAT-11: a new user's first news set must not swallow the whole capture table.
+
+    Backfill marks items published strictly before the cold-start period_start
+    so load_news_window (still no lower bound) only sees in-window items.
+    """
+    cutoff = datetime(2026, 8, 12, tzinfo=ET)
+    db_session.add_all(
+        [
+            _news("https://old.example/1", datetime(2026, 8, 1, tzinfo=ET)),
+            _news("https://on-cutoff.example/1", cutoff),
+            _news("https://new.example/1", datetime(2026, 8, 13, tzinfo=ET)),
+        ]
+    )
+    db_session.flush()
+
+    n = backfill_news_surfaced_before(db_session, _USER, cutoff)
+    assert n == 1
+
+    items = load_news_window(db_session, cutoff, datetime(2026, 8, 19, tzinfo=ET), _USER)
+    assert {i.url for i in items} == {
+        "https://on-cutoff.example/1",
+        "https://new.example/1",
+    }
 
 
 def test_load_news_window_filters_by_published_at_upper_bound_only(db_session: Session) -> None:

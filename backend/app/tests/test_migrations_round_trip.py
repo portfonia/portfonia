@@ -11,6 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
+import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine
@@ -132,4 +133,56 @@ def test_news_surfaced_backfill_reconstructs_from_report_history(alembic_cfg: Co
         assert rows[0].news_id == real_news_id
         assert rows[0].user_id == user_id
 
+    engine.dispose()
+
+
+def test_users_migration_binds_existing_dev_user(alembic_cfg: Config) -> None:
+    """A holdings row for DEV_USER_ID is bound into users; no other id present."""
+    from app.core.config import get_settings as _gs
+    from app.models.holding import Holding
+    from app.models.user import User
+
+    command.upgrade(alembic_cfg, "d6e7f8a9b0c1")
+    engine = create_engine(get_settings().database_url)
+    uid = uuid.UUID(_gs().DEV_USER_ID)
+    with Session(engine) as seed:
+        seed.add(
+            Holding(
+                user_id=uid,
+                name="Seed",
+                pricing_mode="auto",
+                currency="USD",
+                asset_class="STOCK",
+            )
+        )
+        seed.commit()
+
+    command.upgrade(alembic_cfg, "e8f9a0b1c2d3")
+    with Session(engine) as check:
+        row = check.get(User, uid)
+        assert row is not None
+        assert row.email == _gs().DEV_USER_EMAIL.strip().lower()
+        assert row.auth_subject is None
+    engine.dispose()
+
+
+def test_users_migration_refuses_unexpected_user_ids(alembic_cfg: Config) -> None:
+    from app.models.holding import Holding
+
+    command.upgrade(alembic_cfg, "d6e7f8a9b0c1")
+    engine = create_engine(get_settings().database_url)
+    with Session(engine) as seed:
+        seed.add(
+            Holding(
+                user_id=uuid.uuid4(),
+                name="Orphan",
+                pricing_mode="auto",
+                currency="USD",
+                asset_class="STOCK",
+            )
+        )
+        seed.commit()
+
+    with pytest.raises(Exception, match="unexpected user_id"):
+        command.upgrade(alembic_cfg, "e8f9a0b1c2d3")
     engine.dispose()

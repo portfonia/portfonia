@@ -22,14 +22,6 @@ from app.main import app
 _SERVICES_DIR = Path(__file__).resolve().parent.parent / "services"
 _TASKS_DIR = Path(__file__).resolve().parent.parent / "tasks"
 
-# `user_directory.py` is the one deliberate, temporary exception (Ring 1-B
-# design doc §5.3): a new B3-era shim that resolves DEV_USER_ID to
-# DEV_USER_EMAIL given an explicitly-passed user_id — not ambient
-# resolution, a lookup. B4 deletes this file's DEV_USER_ID reference when
-# `users` replaces it; nothing else in app/services/** or app/tasks/** gets
-# the same pass.
-_DEV_USER_ID_SHIM = _SERVICES_DIR / "user_directory.py"
-
 
 def _py_files(directory: Path) -> list[Path]:
     return sorted(p for p in directory.rglob("*.py") if "__pycache__" not in p.parts)
@@ -46,26 +38,31 @@ def test_services_and_tasks_do_not_call_get_current_user_id() -> None:
     assert not offenders, f"get_current_user_id referenced in: {offenders}"
 
 
-def test_services_and_tasks_do_not_reference_dev_user_id_except_the_shim() -> None:
-    """DEV_USER_ID may appear in exactly one file: the documented B3->B4
-    shim. Anywhere else, it's the same ambient-identity antipattern with a
-    different name."""
+def test_services_and_tasks_do_not_reference_dev_user_id() -> None:
+    """B4: the B3 user_directory.py shim is gone. DEV_USER_ID must not appear
+    under app/services/** or app/tasks/** — the bootstrap bind lives in the
+    migration and the ops invite `created_by` lives in the admin router."""
     offenders = []
     for path in _py_files(_SERVICES_DIR) + _py_files(_TASKS_DIR):
-        if path == _DEV_USER_ID_SHIM:
-            continue
         source = path.read_text(encoding="utf-8")
         if "DEV_USER_ID" in source:
             offenders.append(str(path))
-    assert not offenders, f"DEV_USER_ID referenced outside user_directory.py in: {offenders}"
+    assert not offenders, f"DEV_USER_ID referenced in: {offenders}"
 
 
-def test_dev_user_id_shim_file_still_exists_and_actually_uses_it() -> None:
-    """Guards against the exception list above going stale: if
-    user_directory.py stops referencing DEV_USER_ID (e.g. once B4 lands),
-    this test should fail and force removing it from the carve-out too."""
-    assert _DEV_USER_ID_SHIM.exists()
-    assert "DEV_USER_ID" in _DEV_USER_ID_SHIM.read_text(encoding="utf-8")
+def test_is_admin_is_never_read_outside_the_model() -> None:
+    """Decision point 12: users.is_admin is a reserved column. Ring 1 must
+    not consult it — the ops channel is ADMIN_API_TOKEN, not this flag."""
+    app_dir = Path(__file__).resolve().parent.parent
+    model = app_dir / "models" / "user.py"
+    offenders = []
+    for path in _py_files(app_dir):
+        if path == model or "tests" in path.parts:
+            continue
+        source = path.read_text(encoding="utf-8")
+        if ".is_admin" in source or "User.is_admin" in source:
+            offenders.append(str(path.relative_to(app_dir)))
+    assert not offenders, f"is_admin read in: {offenders}"
 
 
 # ---------------------------------------------------------------------------

@@ -5,3 +5,15 @@ portfonia.com, www.portfonia.com {
 api.portfonia.com {
 	reverse_proxy backend:8000
 }
+
+# Auth reverse-proxy (Ring 1-B decision point 2). Browser talks to our
+# domain; Caddy forwards to the hosted Auth origin. Do not log request
+# bodies on this route (passwords transit here). Do not enable caching.
+auth.portfonia.com {
+	reverse_proxy https://{$SUPABASE_PROJECT_HOST} {
+		header_up Host {$SUPABASE_PROJECT_HOST}
+	}
+	header {
+		Cache-Control "no-store"
+	}
+}

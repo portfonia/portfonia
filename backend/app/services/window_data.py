@@ -35,8 +35,11 @@ from app.services.user_scope import global_identifier_universe, user_holdings
 
 logger = logging.getLogger(__name__)
 
-# Cold start: the first report covers from US regular close on 2026-06-01.
+# Retired from the production watermark path (Ring 1-B §6.6). Kept as a
+# fixed fixture timestamp for tests that need a historical baseline — a new
+# user with no DONE reports now uses `cold_start_watermark(now)` instead.
 BOOTSTRAP_WATERMARK = datetime(2026, 6, 1, 16, 0, tzinfo=ET)
+COLD_START_WEEKDAYS = 5
 
 _RATIO = Decimal("0.0001")  # 4 dp for pct_change
 
@@ -61,14 +64,52 @@ def _window_threshold(per_day: Decimal, cap: Decimal, trading_days: int) -> Deci
 _DONE_STATUSES = ("success", "skipped", "needs_review")
 
 
+def cold_start_watermark(now: datetime) -> datetime:
+    """ET midnight of the date ``COLD_START_WEEKDAYS`` weekdays before ``now``.
+
+    Pure function of the given timestamp — must not call ``datetime.now()``.
+    ``generate_report`` already stamps a batch ``now``; using wall-clock here
+    would desync the window from that batch (Ring 1-B design.md §2.3 / §6.6).
+    """
+    cursor = now.astimezone(ET).date()
+    remaining = COLD_START_WEEKDAYS
+    while remaining > 0:
+        cursor -= timedelta(days=1)
+        if cursor.weekday() < 5:
+            remaining -= 1
+    return datetime(cursor.year, cursor.month, cursor.day, tzinfo=ET)
+
+
+def user_has_done_history(
+    session: Session,
+    user_id: object,
+    report_type: str,
+    exclude_report_id: object | None = None,
+) -> bool:
+    """True if this user has any DONE report of this type (optionally excluding one)."""
+    stmt = (
+        select(func.count())
+        .select_from(Report)
+        .where(
+            Report.user_id == user_id,
+            Report.report_type == report_type,
+            Report.status.in_(_DONE_STATUSES),
+        )
+    )
+    if exclude_report_id is not None:
+        stmt = stmt.where(Report.id != exclude_report_id)
+    return int(session.execute(stmt).scalar_one()) > 0
+
+
 def user_watermark(
     session: Session,
     user_id: object,
     report_type: str,
     exclude_report_id: object | None = None,
+    now: datetime | None = None,
 ) -> datetime:
     """period_start for the next report = max(period_end) over the user's completed
-    reports of this type, or the cold-start baseline when there are none.
+    reports of this type, or five weekdays before ``now`` when there are none.
 
     ``exclude_report_id`` drops the report currently being (re)generated from the
     watermark. Without it, regenerating an existing failed/needs_review/skipped row
@@ -76,6 +117,10 @@ def user_watermark(
     window to a few minutes (the session uses autoflush=False, so the in-flight
     status reset is not yet visible to this query). Always pass the row's id when
     regenerating in place.
+
+    ``now`` is required on the cold-start path and must be the same timestamp
+    ``generate_report`` already computed for the batch — do not omit it and
+    do not let this function read the wall clock.
     """
     stmt = select(func.max(Report.period_end)).where(
         Report.user_id == user_id,
@@ -85,7 +130,35 @@ def user_watermark(
     if exclude_report_id is not None:
         stmt = stmt.where(Report.id != exclude_report_id)
     latest = session.execute(stmt).scalar_one_or_none()
-    return latest or BOOTSTRAP_WATERMARK
+    if latest is not None:
+        return latest
+    if now is None:
+        raise ValueError("now is required to compute a cold-start watermark")
+    return cold_start_watermark(now)
+
+
+def backfill_news_surfaced_before(session: Session, user_id: uuid.UUID, cutoff: datetime) -> int:
+    """Mark news published strictly before ``cutoff`` as already surfaced.
+
+    Used for a brand-new user so ``load_news_window`` (no lower bound) does
+    not swallow the whole capture table on their first report. ``report_id``
+    on these rows is the user's own id — not a real Report — because
+    ``news_surfaced.report_id`` has no FK and this backfill is not attached
+    to a generated report. ``ON CONFLICT DO NOTHING`` makes a later
+    generate_report backfill of the same cutoff a no-op.
+    """
+    news_ids = list(
+        session.execute(select(News.id).where(News.published_at < cutoff)).scalars().all()
+    )
+    if not news_ids:
+        return 0
+    stmt = (
+        pg_insert(NewsSurfaced)
+        .values([{"user_id": user_id, "news_id": nid, "report_id": user_id} for nid in news_ids])
+        .on_conflict_do_nothing(constraint="uq_news_surfaced_user_news")
+    )
+    session.execute(stmt)
+    return len(news_ids)
 
 
 def _news_item(r: News) -> NewsItem:

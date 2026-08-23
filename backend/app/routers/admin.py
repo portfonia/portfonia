@@ -21,18 +21,22 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable, Coroutine
+from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.routing import APIRoute
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.database import get_session
 from app.core.deps import require_ops_token
 from app.core.ops_log import log_ops_event
 from app.services import fx_fetcher, price_fetcher
 from app.services.fund_nav_fetcher import update_fund_navs
+from app.services.invites import create_invite, list_invites, revoke_invite
 from app.tasks.admin_tasks import send_admin_alert_task
 
 logger = logging.getLogger(__name__)
@@ -144,3 +148,56 @@ def refresh_market_data(session: Session = Depends(get_session)) -> RefreshResul
         fx_upserted=fx.upserted,
         fx_failed=fx.failed,
     )
+
+
+class CreateInviteBody(BaseModel):
+    email: str | None = None
+    expires_days: int = Field(default=14, ge=1, le=90)
+
+
+class InviteOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    email: str | None
+    expires_at: datetime
+    used_at: datetime | None
+    revoked_at: datetime | None
+    created_at: datetime
+    token: str | None = None
+
+
+@router.post("/invites", response_model=InviteOut, status_code=201)
+def create_invite_endpoint(
+    body: CreateInviteBody, session: Session = Depends(get_session)
+) -> InviteOut:
+    issued = create_invite(
+        session,
+        created_by=UUID(get_settings().DEV_USER_ID),
+        email=body.email,
+        expires_days=body.expires_days,
+    )
+    session.commit()
+    return InviteOut(
+        id=issued.id,
+        email=issued.email,
+        expires_at=issued.expires_at,
+        used_at=None,
+        revoked_at=None,
+        created_at=issued.created_at,
+        token=issued.token,
+    )
+
+
+@router.get("/invites", response_model=list[InviteOut])
+def list_invites_endpoint(session: Session = Depends(get_session)) -> list[InviteOut]:
+    return [InviteOut.model_validate(row) for row in list_invites(session)]
+
+
+@router.delete("/invites/{invite_id}", status_code=204)
+def revoke_invite_endpoint(invite_id: UUID, session: Session = Depends(get_session)) -> None:
+    try:
+        revoke_invite(session, invite_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="invite not found") from None
+    session.commit()

@@ -279,7 +279,11 @@ def test_forbidden_l1_output_does_not_block_report_generation(
     assert all(r["status"] == "success" for r in outcome.result["results"])
     assert mock_alert.called
 
-    reports = db_session.execute(select(Report)).scalars().all()
+    reports = (
+        db_session.execute(select(Report).where(Report.session_node != "fixture_seed"))
+        .scalars()
+        .all()
+    )
     assert all(r.status == "success" for r in reports)
 
     # Review round 1 fix: a blocked attempt now writes a null-analysis

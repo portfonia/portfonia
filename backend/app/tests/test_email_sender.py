@@ -284,14 +284,14 @@ def _mock_settings() -> MagicMock:
 # ---------------------------------------------------------------------------
 
 
-@patch("app.services.user_directory.get_settings")
+@patch("app.services.email_sender.recipient_email", return_value="test@example.com")
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
 def test_send_success(
     mock_client_cls: MagicMock, mock_settings: MagicMock, mock_user_dir_settings: MagicMock
 ) -> None:
     mock_settings.return_value = _mock_settings()
-    mock_user_dir_settings.return_value = mock_settings.return_value
+
     mock_resp = MagicMock()
     mock_resp.raise_for_status.return_value = None
     mock_client_cls.return_value.__enter__.return_value.post.return_value = mock_resp
@@ -308,7 +308,7 @@ def test_send_success(
     assert report.email_sent_at is not None
 
 
-@patch("app.services.user_directory.get_settings")
+@patch("app.services.email_sender.recipient_email", return_value="test@example.com")
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
 def test_send_persists_provider_message_id(
@@ -316,7 +316,7 @@ def test_send_persists_provider_message_id(
 ) -> None:
     """issue #45: Resend's message id is persisted, not just logged."""
     mock_settings.return_value = _mock_settings()
-    mock_user_dir_settings.return_value = mock_settings.return_value
+
     mock_resp = MagicMock()
     mock_resp.raise_for_status.return_value = None
     mock_resp.json.return_value = {"id": "resend-abc123"}
@@ -335,7 +335,7 @@ def test_send_persists_provider_message_id(
     assert report.provider_message_id == "resend-abc123"
 
 
-@patch("app.services.user_directory.get_settings")
+@patch("app.services.email_sender.recipient_email", return_value="test@example.com")
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
 def test_send_missing_resend_id_persists_none(
@@ -344,7 +344,7 @@ def test_send_missing_resend_id_persists_none(
     """A Resend response without an id must not fall back to the literal string
     "unknown" in the DB — that would be indistinguishable from a real id."""
     mock_settings.return_value = _mock_settings()
-    mock_user_dir_settings.return_value = mock_settings.return_value
+
     mock_resp = MagicMock()
     mock_resp.raise_for_status.return_value = None
     mock_resp.json.return_value = {}
@@ -363,7 +363,7 @@ def test_send_missing_resend_id_persists_none(
     assert report.provider_message_id is None
 
 
-@patch("app.services.user_directory.get_settings")
+@patch("app.services.email_sender.recipient_email", return_value="test@example.com")
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
 def test_send_concurrent_dedup(
@@ -371,7 +371,7 @@ def test_send_concurrent_dedup(
 ) -> None:
     """rowcount == 0 means another sender already committed email_sent_at — return True."""
     mock_settings.return_value = _mock_settings()
-    mock_user_dir_settings.return_value = mock_settings.return_value
+
     mock_resp = MagicMock()
     mock_resp.raise_for_status.return_value = None
     mock_client_cls.return_value.__enter__.return_value.post.return_value = mock_resp
@@ -417,17 +417,20 @@ def test_send_empty_md_returns_false(mock_client_cls: MagicMock, mock_settings: 
 
 
 @patch("app.services.email_sender.send_ops_alert")
+@patch("app.services.email_sender.recipient_email", return_value=None)
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
 def test_send_unknown_recipient_fails_closed(
-    mock_client_cls: MagicMock, mock_settings: MagicMock, mock_alert: MagicMock
+    mock_client_cls: MagicMock,
+    mock_settings: MagicMock,
+    _recipient: MagicMock,
+    mock_alert: MagicMock,
 ) -> None:
-    """B3: a report whose user_id doesn't resolve to a known recipient must
-    never fall back to DEV_USER_EMAIL — that would deliver one user's report
-    (full holdings table, market values, concentration) to a different
-    inbox. Fail closed: no send, ops alert, email_sent_at stays null."""
+    """A report whose user_id doesn't resolve to a known recipient must
+    never fall back to a default inbox. Fail closed: no send, ops alert,
+    email_sent_at stays null."""
     mock_settings.return_value = _mock_settings()
-    report = _make_report(user_id=uuid.uuid4())  # not DEV_USER_ID
+    report = _make_report(user_id=uuid.uuid4())
     session = MagicMock()
 
     result = send_report_email(report, session)
@@ -439,7 +442,7 @@ def test_send_unknown_recipient_fails_closed(
     mock_alert.assert_called_once()
 
 
-@patch("app.services.user_directory.get_settings")
+@patch("app.services.email_sender.recipient_email", return_value="test@example.com")
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
 def test_send_http_error_returns_false(
@@ -448,7 +451,6 @@ def test_send_http_error_returns_false(
     import httpx as _httpx
 
     mock_settings.return_value = _mock_settings()
-    mock_user_dir_settings.return_value = mock_settings.return_value
 
     mock_resp = MagicMock()
     mock_resp.status_code = 422
@@ -466,7 +468,7 @@ def test_send_http_error_returns_false(
     session.commit.assert_not_called()
 
 
-@patch("app.services.user_directory.get_settings")
+@patch("app.services.email_sender.recipient_email", return_value="test@example.com")
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
 def test_send_network_exception_returns_false(
@@ -475,7 +477,7 @@ def test_send_network_exception_returns_false(
     import httpx as _httpx
 
     mock_settings.return_value = _mock_settings()
-    mock_user_dir_settings.return_value = mock_settings.return_value
+
     mock_client_cls.return_value.__enter__.return_value.post.side_effect = _httpx.ConnectError(
         "connection refused"
     )
@@ -489,7 +491,7 @@ def test_send_network_exception_returns_false(
     session.commit.assert_not_called()
 
 
-@patch("app.services.user_directory.get_settings")
+@patch("app.services.email_sender.recipient_email", return_value="test@example.com")
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
 def test_send_commit_failure_returns_false_and_alerts(
@@ -497,7 +499,7 @@ def test_send_commit_failure_returns_false_and_alerts(
 ) -> None:
     """Email delivered by Resend but commit fails → False + ops alert sent."""
     mock_settings.return_value = _mock_settings()
-    mock_user_dir_settings.return_value = mock_settings.return_value
+
     mock_resp = MagicMock()
     mock_resp.raise_for_status.return_value = None
     mock_resp.json.return_value = {"id": "resend-abc"}
@@ -523,14 +525,14 @@ def test_send_commit_failure_returns_false_and_alerts(
     assert "provider_message_id" in body
 
 
-@patch("app.services.user_directory.get_settings")
+@patch("app.services.email_sender.recipient_email", return_value="test@example.com")
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
 def test_send_subject_format(
     mock_client_cls: MagicMock, mock_settings: MagicMock, mock_user_dir_settings: MagicMock
 ) -> None:
     mock_settings.return_value = _mock_settings()
-    mock_user_dir_settings.return_value = mock_settings.return_value
+
     mock_resp = MagicMock()
     mock_resp.raise_for_status.return_value = None
     post_mock = mock_client_cls.return_value.__enter__.return_value.post
@@ -546,7 +548,7 @@ def test_send_subject_format(
     assert payload["to"] == ["test@example.com"]
 
 
-@patch("app.services.user_directory.get_settings")
+@patch("app.services.email_sender.recipient_email", return_value="test@example.com")
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
 def test_send_subject_resolves_via_output_lang(
@@ -556,7 +558,7 @@ def test_send_subject_resolves_via_output_lang(
     settings = _mock_settings()
     settings.OUTPUT_LANG = "en"
     mock_settings.return_value = settings
-    mock_user_dir_settings.return_value = mock_settings.return_value
+
     mock_resp = MagicMock()
     mock_resp.raise_for_status.return_value = None
     post_mock = mock_client_cls.return_value.__enter__.return_value.post
@@ -571,7 +573,7 @@ def test_send_subject_resolves_via_output_lang(
     assert payload["subject"] == "Portfonia Financial Analysis Report — 2026-06-06"
 
 
-@patch("app.services.user_directory.get_settings")
+@patch("app.services.email_sender.recipient_email", return_value="test@example.com")
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
 def test_send_sets_idempotency_key(
@@ -579,7 +581,7 @@ def test_send_sets_idempotency_key(
 ) -> None:
     """Idempotency-Key is content-addressed: report id + hash of the rendered body."""
     mock_settings.return_value = _mock_settings()
-    mock_user_dir_settings.return_value = mock_settings.return_value
+
     mock_resp = MagicMock()
     mock_resp.raise_for_status.return_value = None
     post_mock = mock_client_cls.return_value.__enter__.return_value.post
@@ -594,7 +596,7 @@ def test_send_sets_idempotency_key(
     assert len(key) == len(f"report-{report.id}-") + 16
 
 
-@patch("app.services.user_directory.get_settings")
+@patch("app.services.email_sender.recipient_email", return_value="test@example.com")
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
 def test_idempotency_key_changes_with_content(
@@ -603,7 +605,7 @@ def test_idempotency_key_changes_with_content(
     """A regenerated report with different content gets a different key, so a
     resend after regenerate is not rejected by Resend's stale-body 409 check."""
     mock_settings.return_value = _mock_settings()
-    mock_user_dir_settings.return_value = mock_settings.return_value
+
     mock_resp = MagicMock()
     mock_resp.raise_for_status.return_value = None
     post_mock = mock_client_cls.return_value.__enter__.return_value.post

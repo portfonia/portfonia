@@ -269,6 +269,23 @@ class Settings(BaseSettings):
     ADMIN_API_TOKEN: SecretStr
     ADMIN_API_TOKEN_PREV: SecretStr | None = None
 
+    # Hosted Auth (Supabase). Required — B4 is the first wiring of these
+    # fields; a missing value must fail Settings load, same as
+    # HOLDINGS_ENCRYPTION_KEY / ADMIN_API_TOKEN. Verification uses the
+    # project's JWKS (ES256/RS256), derived from SUPABASE_URL — there is
+    # no JWT_SECRET setting. See Ring 1-B design.md §6.5.
+    SUPABASE_URL: str
+    SUPABASE_ANON_KEY: SecretStr
+    SUPABASE_SERVICE_ROLE_KEY: SecretStr
+
+    @field_validator("SUPABASE_URL")
+    @classmethod
+    def _validate_supabase_url(cls, v: str) -> str:
+        stripped = v.strip().rstrip("/")
+        if not stripped.startswith("https://"):
+            raise ValueError("SUPABASE_URL must be an https URL")
+        return stripped
+
     @field_validator("ADMIN_API_TOKEN")
     @classmethod
     def _validate_admin_api_token(cls, v: SecretStr) -> SecretStr:

@@ -1,0 +1,59 @@
+from __future__ import annotations
+
+import uuid
+from datetime import datetime
+
+from sqlalchemy import Boolean, CheckConstraint, Text, func, text
+from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.core.encryption import EncryptedString
+from app.models.base import Base
+
+VALID_USER_STATUSES = ("active", "deleted", "suspended")
+VALID_AUTH_PROVIDERS = ("supabase",)
+
+
+def _in_list_sql(column: str, values: tuple[str, ...]) -> str:
+    quoted = ", ".join(f"'{v}'" for v in sorted(values))
+    return f"{column} IN ({quoted})"
+
+
+class User(Base):
+    """Portfonia account row. PK is ours, not the Auth provider's subject.
+
+    Ring 1-B design.md §6.3: keeping our own UUID lets the production
+    DEV_USER_ID bind in place (no UPDATE of holdings/reports) and keeps
+    the auth provider replaceable. `is_admin` is a reserved column —
+    Ring 1 code must not read it (decision point 12).
+    """
+
+    __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(_in_list_sql("status", VALID_USER_STATUSES), name="status"),
+        CheckConstraint(_in_list_sql("auth_provider", VALID_AUTH_PROVIDERS), name="auth_provider"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    auth_provider: Mapped[str] = mapped_column(Text, nullable=False)
+    auth_subject: Mapped[str | None] = mapped_column(Text, unique=True)
+    email: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    display_name: Mapped[str | None] = mapped_column(EncryptedString)
+    locale: Mapped[str] = mapped_column(Text, nullable=False)
+    base_currency: Mapped[str] = mapped_column(Text, nullable=False)
+    report_cadence: Mapped[str] = mapped_column(Text, nullable=False)
+    delivery_email: Mapped[str | None] = mapped_column(Text)
+    invited_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    last_login_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
