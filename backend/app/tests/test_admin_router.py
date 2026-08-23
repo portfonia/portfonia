@@ -23,6 +23,7 @@ from app.core.config import get_settings
 from app.core.deps import require_ops_token
 from app.main import app
 from app.services.fund_nav_fetcher import FundNavFetchResult
+from app.services.fx_fetcher import FxFetchResult
 from app.services.price_fetcher import PriceFetchResult
 
 
@@ -54,7 +55,10 @@ def _patched_fetchers_noop() -> Iterator[None]:
             "app.routers.admin.update_fund_navs",
             return_value=FundNavFetchResult(updated=0, failed=[]),
         ),
-        patch("app.routers.admin.fx_fetcher.update_fx_rates"),
+        patch(
+            "app.routers.admin.fx_fetcher.update_fx_rates",
+            return_value=FxFetchResult(upserted=0, failed=[]),
+        ),
     ):
         yield
 
@@ -70,8 +74,6 @@ def test_refresh_rejects_wrong_token(app_client: TestClient) -> None:
 
 
 def test_refresh_accepts_correct_token(app_client: TestClient, db_session: Session) -> None:
-    from app.services.fx_fetcher import FxFetchResult
-
     with (
         patch(
             "app.routers.admin.price_fetcher.update_holding_prices",
@@ -170,6 +172,15 @@ def test_repeated_401_triggers_one_ops_alert(
     app_client.post("/admin/portfolio/refresh", headers=_headers("bad-token"))
     alert_mock.assert_called_once()
 
+    # Discriminating check (Grok review round 1, PR #177): the assertions above
+    # alone can't tell "alert once per threshold, then quiet" (the `%` in the
+    # production code) apart from "alert on every request from the threshold
+    # onward" (a `>=` bug) — both produce exactly one call by request #5. A
+    # 6th and 9th bad request must NOT add a second alert; only the 10th would.
+    for _ in range(threshold - 1):
+        app_client.post("/admin/portfolio/refresh", headers=_headers("bad-token"))
+    alert_mock.assert_called_once()
+
     token = get_settings().ADMIN_API_TOKEN.get_secret_value()
     assert token not in str(alert_mock.call_args)
 
@@ -185,7 +196,13 @@ def test_success_resets_consecutive_401_counter(
         app_client.post("/admin/portfolio/refresh", headers=_headers("bad-token"))
 
     with _patched_fetchers_noop():
-        app_client.post("/admin/portfolio/refresh", headers=_headers())
+        resp = app_client.post("/admin/portfolio/refresh", headers=_headers())
+    # The reset logic fires on any non-401 status — a real bug that made this
+    # call fail some other way (e.g. 422/500) would still zero the counter,
+    # so this must assert the call was an actual success, not just non-401
+    # (Grok review round 1, PR #177: reproduced by injecting a 422 here and
+    # confirming this test still passed without this assertion).
+    assert resp.status_code == 200
 
     for _ in range(threshold - 1):
         app_client.post("/admin/portfolio/refresh", headers=_headers("bad-token"))
