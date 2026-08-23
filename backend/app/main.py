@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
-from app.routers import holdings, portfolio, reports
+from app.routers import admin, holdings, portfolio, reports
 
 # Without this the root logger defaults to WARNING and every logger.info() in the
 # service layer (notably the _call_llm finish_reason / token-usage / cost
@@ -44,6 +44,7 @@ app.add_middleware(
 app.include_router(holdings.router, prefix="/holdings", tags=["holdings"])
 app.include_router(portfolio.router, prefix="/portfolio", tags=["portfolio"])
 app.include_router(reports.router, prefix="/reports", tags=["reports"])
+app.include_router(admin.router, prefix="/admin", tags=["admin"])
 
 
 @app.get("/health")

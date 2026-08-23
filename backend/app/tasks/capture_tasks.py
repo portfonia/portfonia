@@ -148,7 +148,9 @@ def capture_fx_task(self: Any) -> dict[str, Any]:
     """Fetch today's FX rates and upsert into fx_rates.
 
     Until this task existed, FX was only refreshed by the manual
-    POST /portfolio/refresh entry point, so rates went stale whenever no one
+    POST /admin/portfolio/refresh entry point (then at POST /portfolio/refresh,
+    before the ops-token split — issue #128 checkpoint B2), so rates went
+    stale whenever no one
     triggered it (observed: rates frozen at 2026-06-04 while reports ran on
     06-10). The upsert is idempotent, so a missed fire is covered by the next
     daily run. (R-4)
