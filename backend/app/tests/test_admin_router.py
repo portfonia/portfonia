@@ -236,6 +236,44 @@ def test_alert_is_enqueued_not_called_directly(
     direct_call_mock.assert_not_called()
 
 
+def test_broker_failure_does_not_turn_401_into_500(
+    app_client: TestClient, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """PR #177 review round 4: reproduced a real broker outage (Redis
+    unreachable) turning a legitimate 401 into an unhandled 500, because
+    .delay() raised inside AdminLoggingRoute's `finally` and replaced the
+    HTTPException(401) that was already propagating. The enqueue is a
+    side-effect on top of an already-decided response — its failure must
+    never change that response."""
+    monkeypatch.setattr(
+        "app.routers.admin.send_admin_alert_task.delay",
+        MagicMock(side_effect=RuntimeError("broker down")),
+    )
+    logging.getLogger("app.routers.admin").disabled = False
+
+    threshold = admin_module._CONSECUTIVE_401_ALERT_THRESHOLD
+    with caplog.at_level(logging.ERROR, logger="app.routers.admin"):
+        for _ in range(threshold - 1):
+            resp = app_client.post("/admin/portfolio/refresh", headers=_headers("bad-token"))
+            assert resp.status_code == 401
+        resp = app_client.post("/admin/portfolio/refresh", headers=_headers("bad-token"))
+
+    assert resp.status_code == 401
+    assert any("enqueue" in r.message.lower() for r in caplog.records)
+
+
+def test_send_admin_alert_task_ignores_its_result() -> None:
+    """A fire-and-forget alert has no caller waiting on .get() — ignoring the
+    result avoids Celery's result-backend connection entirely. Reproduced
+    empirically (PR #177 review round 4): without this, .delay() against an
+    unreachable Redis took ~19s (retrying the result-backend connection)
+    before raising; with it, the same failure surfaces in under a second
+    from the broker connection alone."""
+    from app.tasks.admin_tasks import send_admin_alert_task
+
+    assert send_admin_alert_task.ignore_result is True
+
+
 def test_success_resets_consecutive_401_counter(
     app_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

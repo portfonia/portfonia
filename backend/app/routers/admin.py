@@ -18,6 +18,7 @@ and can't ship unauthenticated by a missed `Depends(...)` at the call site
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable, Coroutine
 from typing import Any
@@ -33,6 +34,8 @@ from app.core.ops_log import log_ops_event
 from app.services import fx_fetcher, price_fetcher
 from app.services.fund_nav_fetcher import update_fund_navs
 from app.tasks.admin_tasks import send_admin_alert_task
+
+logger = logging.getLogger(__name__)
 
 # A run of this many consecutive 401s on /admin/* is a real signal (nobody
 # stumbles onto this token by accident) — alert once per run, then keep
@@ -82,13 +85,24 @@ class AdminLoggingRoute(APIRoute):
                         # actual blocking send_ops_alert() call happens in a
                         # separate Celery worker process, never on this
                         # request's event loop (PR #177 review round 3).
-                        send_admin_alert_task.delay(
-                            "Portfonia ops: repeated /admin unauthorized attempts",
-                            f"{_consecutive_401_count} consecutive unauthorized /admin/* "
-                            f"requests, most recently {request.method} {request.url.path}. "
-                            "No legitimate caller should ever guess wrong this many times "
-                            "in a row.",
-                        )
+                        # Isolated in its own try/except: a broker outage
+                        # must never turn this already-decided 401 into a
+                        # 500 (PR #177 review round 4 — reproduced: an
+                        # unhandled exception here previously replaced the
+                        # HTTPException already propagating from `except`
+                        # above, since it's raised inside this `finally`).
+                        try:
+                            send_admin_alert_task.delay(
+                                "Portfonia ops: repeated /admin unauthorized attempts",
+                                f"{_consecutive_401_count} consecutive unauthorized "
+                                f"/admin/* requests, most recently {request.method} "
+                                f"{request.url.path}. No legitimate caller should ever "
+                                "guess wrong this many times in a row.",
+                            )
+                        except Exception:
+                            logger.exception(
+                                "AdminLoggingRoute: failed to enqueue repeated-401 ops alert"
+                            )
                 else:
                     _consecutive_401_count = 0
 
