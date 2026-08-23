@@ -163,7 +163,7 @@ def _sina_fund_nav(fund_code: str, client: httpx.Client) -> tuple[Decimal, datet
     failures only (httpx.HTTPError) — a well-formed HTTP 200 that fails to
     parse won't change on a second GET, so that path returns None immediately
     rather than wasting a second round-trip on the synchronous
-    /portfolio/refresh request path (review finding). Returns None if
+    /admin/portfolio/refresh request path (review finding). Returns None if
     unrecoverable.
     """
     url = _SINA_NAV_URL.format(fund_code=fund_code)

@@ -274,8 +274,8 @@ def test_both_sources_fail_logs_terminal_error(
 def test_sina_parse_failure_does_not_retry(db_session: Session) -> None:
     """A well-formed HTTP 200 with an unparseable body won't change on a
     retry — the second attempt must not fire (review finding: avoids
-    wasting ~15s on the synchronous /portfolio/refresh path for a body that
-    can't improve)."""
+    wasting ~15s on the synchronous /admin/portfolio/refresh path for a body
+    that can't improve)."""
     db_session.add(_fund("Bad Sina body", "019547"))
     db_session.flush()
 

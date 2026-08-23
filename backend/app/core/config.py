@@ -257,6 +257,46 @@ class Settings(BaseSettings):
     # Empty string = use the default path: backend/config/holding_parser_vocab.yml
     HOLDING_PARSER_VOCAB_PATH: str = ""
 
+    # Ops API token channel (issue #128 Ring 1 stage B, checkpoint B2) —
+    # bearer secret guarding /admin/* routes, deliberately independent of the
+    # user auth system (must still work if that system itself is what's
+    # broken). Required everywhere, no unset state — a missing value fails
+    # Settings load in every environment, same discipline as
+    # HOLDINGS_ENCRYPTION_KEY; production's own .env carries its own
+    # generated value, never copied from a dev .env.local (Ring 1-B design
+    # doc §4.4/§4.7). _PREV is optional, for a no-downtime rotation window —
+    # same double-key pattern as HOLDINGS_ENCRYPTION_KEY/_PREV.
+    ADMIN_API_TOKEN: SecretStr
+    ADMIN_API_TOKEN_PREV: SecretStr | None = None
+
+    @field_validator("ADMIN_API_TOKEN")
+    @classmethod
+    def _validate_admin_api_token(cls, v: SecretStr) -> SecretStr:
+        """Required secret — blank must fail at boot, not on first admin call.
+
+        Stored stripped: a stray leading/trailing space in .env previously
+        passed this blank check (`.strip()`) but was kept in the stored
+        value, silently producing a token that could never match a real
+        client's Authorization header (PR #177 review round 2).
+        """
+        stripped = v.get_secret_value().strip()
+        if not stripped:
+            raise ValueError("ADMIN_API_TOKEN must not be blank")
+        return SecretStr(stripped)
+
+    @field_validator("ADMIN_API_TOKEN_PREV")
+    @classmethod
+    def _validate_admin_api_token_prev(cls, v: SecretStr | None) -> SecretStr | None:
+        """Optional rotation token — blank OR whitespace-only means unset, not
+        malformed (matches HOLDINGS_ENCRYPTION_KEY_PREV's handling for blank;
+        extended to whitespace after PR #177 review round 2 found that a
+        bare space could otherwise become a live matchable credential, since
+        `Authorization: Bearer  ` — two trailing spaces — parses to a
+        single-space token)."""
+        if v is None or not v.get_secret_value().strip():
+            return None
+        return SecretStr(v.get_secret_value().strip())
+
     # Daily Postgres -> OCI Object Storage backup (issue #106). Empty
     # namespace disables the scheduled task entirely — local dev never has
     # this set, so a locally-started Beat never uploads dev dumps anywhere.

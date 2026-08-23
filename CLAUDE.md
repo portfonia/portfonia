@@ -1620,7 +1620,9 @@ in any other language.
   every fund holding into `stale_tickers` and out of the portfolio. (issue #1)
 - **Sector backfill on re-upload**: `confirm_holdings` must call
   `backfill_sectors()` after commit — re-uploading holdings clears all rows,
-  and `sector` is otherwise only populated by `POST /portfolio/refresh`.
+  and `sector` is otherwise only populated by `POST /admin/portfolio/refresh`
+  (moved from `POST /portfolio/refresh`, removed, in issue #128 checkpoint B2)
+  or the scheduled capture tasks.
 - **Next.js Turbopack + multipart**: Turbopack's `rewrites()` fails on
   `multipart/form-data` POST (ECONNRESET at proxy). Upload routes need a real
   Next.js API Route (`route.ts`) that manually forwards to the backend.
@@ -1978,12 +1980,26 @@ owner uses, not part of a normal user's journey — ships first as an
 optional layer on top of those endpoints, never a prerequisite for the
 capability existing.
 
-- **Status**: convention adopted 2026-08-21, ahead of implementation. The
-  `/admin` router and its `require_ops_token` dependency are Ring 1 stage B
-  checkpoint B2 and **do not exist in the code yet** — this entry is here
-  because it constrains how every subsequent feature is designed, not
-  because it describes current behavior. Do not go looking for `/admin`
-  routes before B2 lands; do design new admin-purpose work to fit this shape.
+- **Status**: implemented (issue #128 Ring 1 stage B, checkpoint B2,
+  2026-08-22). `app/routers/admin.py` (`APIRouter(dependencies=[Depends(
+  require_ops_token)])`) mounts at `/admin` in `main.py`; `require_ops_token`
+  lives in `app/core/deps.py`. `POST /admin/portfolio/refresh` is the first
+  real endpoint (moved from the now-removed `POST /portfolio/refresh` —
+  decision point 8/11: a global market-data refresh is an ops action, not
+  something an individual user should trigger). A structural test
+  (`test_all_admin_routes_require_ops_token` in `test_admin_router.py`)
+  iterates `app.routes` and asserts every `/admin`-prefixed route's
+  dependant chain includes `require_ops_token`, so a future endpoint that
+  forgets to opt in fails CI rather than shipping unauthenticated.
+- **Auth**: `ADMIN_API_TOKEN` (`Settings`, `SecretStr`, required — no unset
+  state, same discipline as `HOLDINGS_ENCRYPTION_KEY`) + optional
+  `ADMIN_API_TOKEN_PREV` for a no-downtime rotation window (identical
+  double-key pattern to `HOLDINGS_ENCRYPTION_KEY`/`_PREV`,
+  `app/core/encryption.py`). Compared via `secrets.compare_digest`, never
+  `==` (locked by a test spying on the real function). Header shape:
+  `Authorization: Bearer <token>`. Missing/malformed/wrong token → `401`
+  (not FastAPI's default 422 for a missing required header — B2's
+  acceptance criteria treat "no token" as an auth failure).
 - **The ops channel is deliberately NOT the user auth system.** It
   authenticates with a static bearer secret from `.env`, queries no tables,
   and does not depend on the user system existing. The reason is the failure
@@ -1992,6 +2008,28 @@ capability existing.
   auth welds the only repair path to the fault source. (B2 also lands before
   the `users` table exists at all, which makes the separation a structural
   fact rather than a discipline anyone has to remember.)
+- **Every `/admin/*` call is audit-logged** (`AdminLoggingRoute` in
+  `app/routers/admin.py`, the router's `route_class`) — endpoint, method,
+  path/query params, status code, duration, via the existing
+  `log_ops_event` (`app/core/ops_log.py`). Never logs the Authorization
+  header or token value. A run of 5 consecutive 401s on `/admin/*` fires
+  one alert, then resets — a sustained guessing attempt doesn't resend the
+  alert on every subsequent request; any 200 resets the counter. **The
+  alert is enqueued via `send_admin_alert_task.delay()`
+  (`app/tasks/admin_tasks.py`), never called as `send_ops_alert(...)`
+  directly from the router** — that function makes a blocking
+  `httpx.Client(timeout=15.0)` call, and this is an async request path on
+  what may be a single-uvicorn-worker box; a direct call would stall the
+  event loop for up to 15s on every 5th unauthorized hit (PR #177 review
+  round 3). Route new work needing "do this without blocking the request"
+  through the existing Celery queue (every other `send_ops_alert` call
+  site in this repo already does) — do not reach for a process-local
+  workaround (Starlette `BackgroundTask`, `asyncio.create_task`, etc.)
+  before checking whether the queue already covers it.
+- **Living endpoint reference**: every implemented and planned `/admin/*`
+  endpoint (path, auth, params, curl example) is tracked in Obsidian
+  `Hermes/Portfonia/Docs/Ops API Reference.md` — update it in the same
+  change that adds/modifies/removes an endpoint, not at stage cleanup.
 - Consequence to accept openly: some capabilities will exist with **no user
   interface**, reachable only via curl or an agent calling the endpoint. That
   is the intended tradeoff, not an oversight.

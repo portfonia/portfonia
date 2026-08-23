@@ -57,6 +57,7 @@ _EXTERNAL_NOTIFY_MODULES = (
     "app.tasks.capture_tasks",
     "app.tasks.backup_tasks",
     "app.tasks.cache_tasks",
+    "app.tasks.admin_tasks",
 )
 
 
