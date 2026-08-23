@@ -132,11 +132,22 @@ def lookback_trading_dates(end: date, n: int = L1_LOOKBACK_TRADING_DAYS) -> list
     but the date list cannot come from a user's ``period_start``. Weekends
     are skipped; exchange holidays are not (this is a weekday calendar, not
     an exchange calendar). ``n < 1`` returns an empty list.
+
+    ``end`` is always the list's last element, even when ``end`` itself
+    falls on a weekend (issue #178) — ``report_generator.py``'s only caller
+    passes ``eff_date`` here (the real ET calendar date a manual run happens
+    to fire on, with no weekday normalization) and then looks up
+    ``lookback_moves.get(eff_date, {})``, so silently dropping ``end`` from
+    this list — as the naive "skip anything that isn't a weekday, including
+    the very first cursor" loop used to — made that lookup always miss,
+    which made every L1 candidate's ``day_pct`` come out ``None`` and get
+    silently skipped, regardless of whether a real price close existed for
+    that date. Only the ``n - 1`` days *before* ``end`` are weekday-filtered.
     """
     if n < 1:
         return []
-    out: list[date] = []
-    cursor = end
+    out: list[date] = [end]
+    cursor = end - timedelta(days=1)
     while len(out) < n:
         if cursor.weekday() < 5:
             out.append(cursor)

@@ -240,6 +240,41 @@ def test_lookback_trading_dates_is_a_pure_function_of_the_end_date() -> None:
     assert monday == [date(2026, 8, 17)]
 
 
+def test_lookback_trading_dates_always_includes_a_weekend_end() -> None:
+    """Issue #178 regression: a manual report run's `eff_date` is whatever
+    real ET calendar date it happens to run on (report_generator.py's
+    `eff_date = report_date or now.astimezone(ET).date()`), which is not
+    guaranteed to be a weekday — the scheduled batch only fires Mon/Wed/Fri,
+    but a manual re-run (a documented, supported case — see CLAUDE.md's
+    "manual quiet window") can happen on a Saturday/Sunday.
+
+    Before the fix, `end` itself was silently dropped whenever it fell on a
+    weekend (the loop's very first `cursor` value never passed
+    `weekday() < 5`), so `lookback_moves.get(eff_date, {})` in
+    `report_generator.py` always missed — every L1 candidate's `day_pct`
+    came out `None` regardless of whether a real close existed for that
+    date, and `build_l1_facts` silently skips any candidate with
+    `day_pct is None`. `end` must always be the list's last element, exactly
+    as it is for a weekday `end` (the existing test above), since every
+    caller of this function treats the last/`end` element as "today"."""
+    saturday = date(2026, 8, 22)
+    assert saturday.weekday() == 5
+
+    result = lookback_trading_dates(saturday, n=5)
+
+    assert result[-1] == saturday
+    assert result == [
+        date(2026, 8, 18),
+        date(2026, 8, 19),
+        date(2026, 8, 20),
+        date(2026, 8, 21),
+        date(2026, 8, 22),
+    ]
+
+    sunday = date(2026, 8, 23)
+    assert lookback_trading_dates(sunday, n=1) == [sunday]
+
+
 def test_load_day_news_has_no_user_parameter_and_ignores_surfaced_ledger(
     db_session: Session,
 ) -> None:
