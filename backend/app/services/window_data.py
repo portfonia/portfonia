@@ -125,7 +125,8 @@ L1_LOOKBACK_TRADING_DAYS = 5
 
 
 def lookback_trading_dates(end: date, n: int = L1_LOOKBACK_TRADING_DAYS) -> list[date]:
-    """``n`` weekdays ending on ``end``, oldest first.
+    """``n`` dates ending on ``end``, oldest first; ``end`` is always
+    included, and only the preceding dates are restricted to weekdays.
 
     Pure function of ``end`` — no Session, no user_id, no report watermark.
     That is the point: L1 may carry multi-day headlines and own-price path,

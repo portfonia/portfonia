@@ -253,10 +253,17 @@ def test_lookback_trading_dates_always_includes_a_weekend_end() -> None:
     `weekday() < 5`), so `lookback_moves.get(eff_date, {})` in
     `report_generator.py` always missed — every L1 candidate's `day_pct`
     came out `None` regardless of whether a real close existed for that
-    date, and `build_l1_facts` silently skips any candidate with
-    `day_pct is None`. `end` must always be the list's last element, exactly
-    as it is for a weekday `end` (the existing test above), since every
-    caller of this function treats the last/`end` element as "today"."""
+    date, and `get_l1_intel_batch` (`ticker_intel.py`) silently skips any
+    candidate whose facts have `day_pct is None`. `end` must always be the
+    list's last element, exactly as it is for a weekday `end` (the existing
+    test above), since every caller of this function treats the last/`end`
+    element as "today".
+
+    The Saturday `n=5` case below is five *consecutive* calendar days
+    (Tue-Sat), so on its own it would not catch a prefix that dropped its
+    `weekday() < 5` filter and just walked back `n - 1` calendar days
+    unconditionally — a Sunday `end` is the smallest input where the prefix
+    must actually skip a weekend day (PR #179 review round 1 suggestion)."""
     saturday = date(2026, 8, 22)
     assert saturday.weekday() == 5
 
@@ -272,7 +279,13 @@ def test_lookback_trading_dates_always_includes_a_weekend_end() -> None:
     ]
 
     sunday = date(2026, 8, 23)
-    assert lookback_trading_dates(sunday, n=1) == [sunday]
+    assert lookback_trading_dates(sunday, n=5) == [
+        date(2026, 8, 18),
+        date(2026, 8, 19),
+        date(2026, 8, 20),
+        date(2026, 8, 21),
+        date(2026, 8, 23),
+    ]
 
 
 def test_load_day_news_has_no_user_parameter_and_ignores_surfaced_ledger(
