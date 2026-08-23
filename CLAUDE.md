@@ -924,7 +924,7 @@ unaffected either way; full design rationale and iteration history: Obsidian
   stays **false** — this closes gaps in Pass 2's own material-gathering, it
   does not touch the assembly path or authorize turning it on.
 
-### System default analysis framework — B1 (Ring 1 stage B, issue #128, PR #172)
+### System default analysis framework — B1 (Ring 1 stage B, issue #129, PR #172)
 
 The system-wide "house analytical stance" from `Portfonia Concept & Design.md`
 §4.3 ("System Default Investment Philosophy") had sat as unimplemented prose since 2026-05-14 — the
@@ -998,7 +998,7 @@ constraints and structural writing rules. B1 closes that gap.
   round 2 (after fixes) found 0 bugs.
   Merged squash `8287dd3`. Deployed to production 2026-08-22.
 
-### Macro keyword theme pool — widened to 17 themes (issue #128 B1 + issue #175)
+### Macro keyword theme pool — widened to 17 themes (issue #129 B1 + issue #175)
 
 `config/macro_keywords.yml` grew from the Ring 0 starting set of 8 themes
 (`Portfonia Concept & Design.md` §7.1.3) to 17, across two PRs in the same
@@ -1621,7 +1621,7 @@ in any other language.
 - **Sector backfill on re-upload**: `confirm_holdings` must call
   `backfill_sectors()` after commit — re-uploading holdings clears all rows,
   and `sector` is otherwise only populated by `POST /admin/portfolio/refresh`
-  (moved from `POST /portfolio/refresh`, removed, in issue #128 checkpoint B2)
+  (moved from `POST /portfolio/refresh`, removed, in issue #129 checkpoint B2)
   or the scheduled capture tasks.
 - **Next.js Turbopack + multipart**: Turbopack's `rewrites()` fails on
   `multipart/form-data` POST (ECONNRESET at proxy). Upload routes need a real
@@ -1980,7 +1980,7 @@ owner uses, not part of a normal user's journey — ships first as an
 optional layer on top of those endpoints, never a prerequisite for the
 capability existing.
 
-- **Status**: implemented (issue #128 Ring 1 stage B, checkpoint B2,
+- **Status**: implemented (issue #129 Ring 1 stage B, checkpoint B2,
   2026-08-22). `app/routers/admin.py` (`APIRouter(dependencies=[Depends(
   require_ops_token)])`) mounts at `/admin` in `main.py`; `require_ops_token`
   lives in `app/core/deps.py`. `POST /admin/portfolio/refresh` is the first

@@ -1,4 +1,4 @@
-"""Integration tests for /admin/* (issue #128 Ring 1 stage B, checkpoint B2).
+"""Integration tests for /admin/* (issue #129 Ring 1 stage B, checkpoint B2).
 
 Covers: token auth end-to-end through the real FastAPI dependency chain,
 the structural guarantee that every /admin route is protected (B-UAT-4), the

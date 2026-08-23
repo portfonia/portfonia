@@ -1,4 +1,4 @@
-"""Ops API channel (issue #128 Ring 1 stage B, checkpoint B2).
+"""Ops API channel (issue #129 Ring 1 stage B, checkpoint B2).
 
 An independent management surface, authenticated by `ADMIN_API_TOKEN` (a
 static bearer secret) rather than the user auth system — Ring 1-B design.md
