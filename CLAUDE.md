@@ -2013,8 +2013,19 @@ capability existing.
   path/query params, status code, duration, via the existing
   `log_ops_event` (`app/core/ops_log.py`). Never logs the Authorization
   header or token value. A run of 5 consecutive 401s on `/admin/*` fires
-  one `send_ops_alert`, then resets — a sustained guessing attempt doesn't
-  resend the alert on every subsequent request; any 200 resets the counter.
+  one alert, then resets — a sustained guessing attempt doesn't resend the
+  alert on every subsequent request; any 200 resets the counter. **The
+  alert is enqueued via `send_admin_alert_task.delay()`
+  (`app/tasks/admin_tasks.py`), never called as `send_ops_alert(...)`
+  directly from the router** — that function makes a blocking
+  `httpx.Client(timeout=15.0)` call, and this is an async request path on
+  what may be a single-uvicorn-worker box; a direct call would stall the
+  event loop for up to 15s on every 5th unauthorized hit (PR #177 review
+  round 3). Route new work needing "do this without blocking the request"
+  through the existing Celery queue (every other `send_ops_alert` call
+  site in this repo already does) — do not reach for a process-local
+  workaround (Starlette `BackgroundTask`, `asyncio.create_task`, etc.)
+  before checking whether the queue already covers it.
 - **Living endpoint reference**: every implemented and planned `/admin/*`
   endpoint (path, auth, params, curl example) is tracked in Obsidian
   `Hermes/Portfonia/Docs/Ops API Reference.md` — update it in the same

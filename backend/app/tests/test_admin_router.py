@@ -193,7 +193,7 @@ def test_repeated_401_triggers_one_ops_alert(
     app_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     alert_mock = MagicMock()
-    monkeypatch.setattr("app.routers.admin.send_ops_alert", alert_mock)
+    monkeypatch.setattr("app.routers.admin.send_admin_alert_task.delay", alert_mock)
 
     threshold = admin_module._CONSECUTIVE_401_ALERT_THRESHOLD
     for _ in range(threshold - 1):
@@ -216,11 +216,31 @@ def test_repeated_401_triggers_one_ops_alert(
     assert token not in str(alert_mock.call_args)
 
 
+def test_alert_is_enqueued_not_called_directly(
+    app_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PR #177 review round 3: send_ops_alert makes a blocking 15s-timeout
+    HTTP call. It must never run inline on the request's event loop — only
+    .delay() (a fast enqueue) is allowed here; the real send happens in a
+    separate Celery worker (app/tasks/admin_tasks.py)."""
+    direct_call_mock = MagicMock()
+    monkeypatch.setattr("app.tasks.admin_tasks.send_ops_alert", direct_call_mock)
+    delay_mock = MagicMock()
+    monkeypatch.setattr("app.routers.admin.send_admin_alert_task.delay", delay_mock)
+
+    threshold = admin_module._CONSECUTIVE_401_ALERT_THRESHOLD
+    for _ in range(threshold):
+        app_client.post("/admin/portfolio/refresh", headers=_headers("bad-token"))
+
+    delay_mock.assert_called_once()
+    direct_call_mock.assert_not_called()
+
+
 def test_success_resets_consecutive_401_counter(
     app_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     alert_mock = MagicMock()
-    monkeypatch.setattr("app.routers.admin.send_ops_alert", alert_mock)
+    monkeypatch.setattr("app.routers.admin.send_admin_alert_task.delay", alert_mock)
 
     threshold = admin_module._CONSECUTIVE_401_ALERT_THRESHOLD
     for _ in range(threshold - 1):

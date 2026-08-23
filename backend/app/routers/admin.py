@@ -31,8 +31,8 @@ from app.core.database import get_session
 from app.core.deps import require_ops_token
 from app.core.ops_log import log_ops_event
 from app.services import fx_fetcher, price_fetcher
-from app.services.email_sender import send_ops_alert
 from app.services.fund_nav_fetcher import update_fund_navs
+from app.tasks.admin_tasks import send_admin_alert_task
 
 # A run of this many consecutive 401s on /admin/* is a real signal (nobody
 # stumbles onto this token by accident) — alert once per run, then keep
@@ -78,7 +78,11 @@ class AdminLoggingRoute(APIRoute):
                 if status_code == 401:
                     _consecutive_401_count += 1
                     if _consecutive_401_count % _CONSECUTIVE_401_ALERT_THRESHOLD == 0:
-                        send_ops_alert(
+                        # .delay() only enqueues (a fast Redis write) — the
+                        # actual blocking send_ops_alert() call happens in a
+                        # separate Celery worker process, never on this
+                        # request's event loop (PR #177 review round 3).
+                        send_admin_alert_task.delay(
                             "Portfonia ops: repeated /admin unauthorized attempts",
                             f"{_consecutive_401_count} consecutive unauthorized /admin/* "
                             f"requests, most recently {request.method} {request.url.path}. "
