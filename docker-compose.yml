@@ -98,6 +98,12 @@ services:
       context: ./frontend
       args:
         BACKEND_URL: http://backend:8000
+        # See frontend/Dockerfile's comment: this is deliberately NOT
+        # ${SUPABASE_URL} (the backend's raw project host) — the browser
+        # needs the auth.portfonia.com reverse proxy, not a direct
+        # supabase.co connection (Ring 1-B design doc §2.7/§6.10/§7.3(5)).
+        NEXT_PUBLIC_SUPABASE_URL: ${SUPABASE_PUBLIC_AUTH_URL:-https://auth.portfonia.com}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
     container_name: portfonia-frontend
     restart: unless-stopped
     environment:

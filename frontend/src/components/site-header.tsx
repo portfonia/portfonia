@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { locales, type Locale } from "@/lib/i18n/home-messages";
 import { messages } from "@/lib/messages";
 import { useHomeMessages, useLocale } from "@/app/_components/locale-provider";
+import { AuthStatus } from "@/components/auth-status";
 
 export function SiteHeader() {
   const pathname = usePathname();
@@ -69,6 +70,10 @@ export function SiteHeader() {
           >
             {isHome ? t.nav.cta : messages.holdings.pageTitle}
           </Link>
+          <AuthStatus
+            loginLabel={isHome ? t.nav.login : messages.common.login}
+            logoutLabel={isHome ? t.nav.logout : messages.common.logout}
+          />
         </div>
       </nav>
     </header>

@@ -17,6 +17,20 @@ COPY . .
 ARG BACKEND_URL=http://backend:8000
 ENV BACKEND_URL=$BACKEND_URL
 
+# NEXT_PUBLIC_* vars are statically inlined into both the client bundle and
+# server code by `next build` — there is no runtime alternative, they MUST
+# be present here (Ring 1-B design doc §7.3(2)/(6), B5). SUPABASE_URL here
+# is deliberately NOT the same value as the backend's SUPABASE_URL Setting:
+# the backend talks to the raw Supabase project host directly (no
+# reachability concern — verification runs on our own server, §6.5 point
+# 2); the browser talks through the auth.portfonia.com Caddy reverse proxy
+# (mainland-reachability workaround, §2.7/§6.10). Getting these two swapped
+# silently breaks login for exactly the users the proxy exists for.
+ARG NEXT_PUBLIC_SUPABASE_URL=https://auth.portfonia.com
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
+ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
+
 RUN npm run build
 
 
