@@ -1,7 +1,7 @@
 # Portfonia — Agent Guidelines
 
 AI-facing guidance for agent tooling working in this repository.
-Last updated: 2026-08-20
+Last updated: 2026-08-24
 
 ## Where to find current state
 
@@ -30,6 +30,7 @@ This file holds **conventions and mechanisms**, not a project status board.
 | Re-render | `regenerate_report(mode=render\|analyze)` rebuilds from stored `report_inputs` without re-fetching; `POST /reports/{id}/regenerate`. render = token-free, analyze = Pass 2 only. |
 | §1 / distribution / §4.1 classification dimension | **`asset_class`** (geography-first taxonomy — see table below), not `sector` or `asset_type`. `sector` (yfinance GICS) is retained ONLY for forward-event holding-relevance mapping (rate-sensitive/consumer sectors for FOMC/CPI events) — never reintroduce it into §1/distribution/§4.1. `by_asset_class` has no "Other" fallback (every `Holding` always has one, default `STOCK`). |
 | Tests must mock external notify calls | `send_ops_alert`, `create_bug_report`, `send_report_email` are mocked via an **autouse** fixture in `app/tests/conftest.py` (`_no_external_notifications`) — never rely on individual tests remembering to patch them. A gap here previously sent 42 real "FX rates stale" emails to the admin inbox from three same-day pytest runs (test clock fixed to a historical date that always trips the staleness check against the real current date). |
+| Identity (B4, issue #129, PR #183) | Request identity is `Depends(current_principal)` only: `Authorization: Bearer` verified against hosted Auth JWKS (ES256/RS256; **no `JWT_SECRET` Settings field**), then `users.auth_subject` + `status=active`. Missing/forged/unknown-`sub` → 401, **no auto-insert**. `get_current_user_id()` raises. Ops `/admin/*` is a separate bearer (`ADMIN_API_TOKEN`), not this JWT. **Do not deploy this cutover without B5** — unauthenticated `/holdings` `/reports` `/portfolio` now 401. |
 
 ### Frontend chrome (header/nav) convention — implemented (issue #146/#148)
 
@@ -1008,29 +1009,29 @@ that only intercepts `Depends(...)`, not a direct function call); a
 `regenerate_report` that silently resolved to the dev user if a caller
 forgot to pass one; and `email_sender.send_report_email` hardcoding every
 recipient to `settings.DEV_USER_EMAIL` regardless of whose report it was.
-B3 collapses this into two explicit channels, still resolving to
-`DEV_USER_ID` today — no real auth exists yet (B4 adds it) — but closing
-every seam a real auth swap would otherwise silently miss.
+B3 collapses this into two explicit channels so a later auth swap cannot
+silently miss a call site. B4 filled `current_principal` with JWKS
+verification (next section); the seam itself is unchanged.
 
 - **`Principal` + `current_principal(request)`** (`app/core/deps.py`) is the
   one request-scoped identity entry point. Every identity-bearing route
   across `/reports/*`, `/holdings/*`, and `/portfolio/*` depends on it via
-  `Depends(current_principal)` — B4 replaces this one function's body with
-  JWT extraction; no call site changes. Locked by a structural test
+  `Depends(current_principal)` — B4 filled this function's body with JWKS
+  verification; no call site changes. Locked by a structural test
   (`test_every_identity_bearing_route_depends_on_current_principal` in
   `test_identity_seam.py`) that iterates `app.routes`, added in review round
   1 after `holdings.py`/`portfolio.py`'s 6 endpoints were found still wired
-  to the lower-level `Depends(get_current_user_id)` — harmless today (both
-  resolve to the same value), but a split-identity trap for B4: a JWT swap
-  landing only in `current_principal` would leave those 6 routes serving
-  `DEV_USER_ID` forever.
+  to the lower-level `Depends(get_current_user_id)` — that would have been
+  a split-identity trap for B4: a JWT swap landing only in
+  `current_principal` would leave those 6 routes serving `DEV_USER_ID`
+  forever.
 - **`generate_report`/`regenerate_report` require `user_id`, no fallback.**
   A structural test bans `get_current_user_id`/`DEV_USER_ID` from
-  `app/services/**` and `app/tasks/**` entirely, with one documented
-  exception: `app/services/user_directory.py`'s `recipient_email(session,
-  user_id)`, a temporary B3→B4 shim that resolves `DEV_USER_ID` to
-  `DEV_USER_EMAIL` and everything else to `None` — B4 replaces its body
-  with a `users` table lookup, same signature.
+  `app/services/**` and `app/tasks/**` entirely. B3's one documented
+  exception was `app/services/user_directory.py`'s `recipient_email` shim
+  (`DEV_USER_ID` → `DEV_USER_EMAIL`); B4 replaced that body with a `users`
+  table lookup (same signature) and the `DEV_USER_ID` ban has no remaining
+  exception.
 - **`send_report_email` fails closed on an unresolved recipient**: no send,
   an ops alert, `email_sent_at` stays null — never falls back to
   `ADMIN_EMAIL` or any other default. A report belongs to a specific user;
@@ -1050,6 +1051,61 @@ every seam a real auth swap would otherwise silently miss.
   `_tickers_with_sparse_history`, which stays a global query; only the log
   line is per-user). 0 bugs did not trigger a second review round per this
   repo's standing convention. 957 tests passing. Merged squash `a06fc9c`.
+
+### Users, invites, and JWKS auth — B4 (Ring 1 stage B, issue #129, PR #183)
+
+B4 is the identity *source* behind the B3 seam. `current_principal` reads
+`Authorization: Bearer`, verifies it locally against
+`{SUPABASE_URL}/auth/v1/.well-known/jwks.json` (ES256/RS256 only;
+`aud=authenticated`, `role=authenticated`), then looks up
+`users.auth_subject` with `status == "active"`. **Settings has no
+`JWT_SECRET`.** New hosted-Auth projects default to asymmetric JWKS, not
+HS256; do not add a shared signing secret.
+
+Dashboard names (2026): Publishable key → `SUPABASE_ANON_KEY` (alias
+`SUPABASE_PUBLISHABLE_KEY`); Secret key → `SUPABASE_SERVICE_ROLE_KEY`
+(alias `SUPABASE_SECRET_KEY`). An opaque `sb_secret_…` key is not a JWT —
+admin HTTP calls send it on the `apikey` header only, never
+`Authorization: Bearer` (`Invalid JWT`). Do not store the JWT signing
+secret or the Supabase database password (business Postgres is self-hosted).
+
+- **No auto-insert.** A valid token whose `sub` has no `users` row is 401.
+  `get_current_user_id()` raises (`use Depends(current_principal)`). Until
+  B5, identity is Bearer-only — do not parse a session cookie here.
+- **`users` PK is ours**, not the Auth `sub`. Invite redeem is atomic
+  (`UPDATE … WHERE used_at IS NULL AND revoked_at IS NULL AND expires_at > now() RETURNING`).
+  `POST /auth/signup` is backend-mediated; after Auth create succeeds, any
+  later failure calls `delete_auth_user`.
+- **Seed bind** (ops token): `POST /admin/users/{id}/bind-subject`. Sets
+  `auth_subject` only when it is still NULL. 409 if this row is already
+  bound **or** another row already holds that `sub`; 422 for whitespace-only
+  input. The B4 migration leaves the production seed row's `auth_subject`
+  NULL on purpose.
+- **`recipient_email(session, user_id)`** reads `users` (`delivery_email`
+  else `email`); missing or non-`active` → `None`. Send stays fail-closed.
+- **`active_user_ids`** is sourced from `users.status == "active"` but
+  requires `EXISTS` a holding row — a fresh signup is not fanned out on the
+  next M/W/F batch.
+- **Public 422 must not echo `password`.** `SignupRequest.password` is
+  `SecretStr`; Pydantic still puts the raw string in `"input"`. `main.py`
+  redacts `password` fields on `RequestValidationError` after
+  `jsonable_encoder(exc.errors())` so `ctx` stays JSON-serializable.
+- **Caddy** reverse-proxies `auth.portfonia.com` to `SUPABASE_PROJECT_HOST`.
+  Compose interpolation is `${SUPABASE_PROJECT_HOST:?required}` (fail-closed
+  empty default).
+- **Do not deploy B4 without B5.** Unauthenticated calls to `/holdings`,
+  `/reports`, and `/portfolio` now 401. Before production: re-run
+  `SELECT DISTINCT user_id` on the four tables (Ring 1-B design.md §6.7);
+  put `SUPABASE_URL`, the two keys, and `SUPABASE_PROJECT_HOST` in the
+  server `.env` (fresh values, never copied from `.env.local`); point DNS
+  for `auth.portfonia.com`.
+- **Provenance**: three independent review rounds (blacktomb42). Round 1
+  Request changes (signup compensation too narrow, plus bind-subject /
+  empty-book fan-out / JWKS network→401 / Bearer-only / CHECK names).
+  Round 2 Request changes (bind-subject unique `IntegrityError` → 500;
+  empty Caddy host; 422 echoed password — `SecretStr` alone does not strip
+  `"input"`). Round 3 Approve on `63a9023`. Merged squash `38afc68`
+  (2026-08-24). Not deployed; waits on B5.
 
 ### Macro keyword theme pool — widened to 17 themes (issue #129 B1 + issue #175)
 
@@ -2036,10 +2092,13 @@ capability existing.
 - **Status**: implemented (issue #129 Ring 1 stage B, checkpoint B2,
   2026-08-22). `app/routers/admin.py` (`APIRouter(dependencies=[Depends(
   require_ops_token)])`) mounts at `/admin` in `main.py`; `require_ops_token`
-  lives in `app/core/deps.py`. `POST /admin/portfolio/refresh` is the first
+  lives in `app/core/deps.py`. `POST /admin/portfolio/refresh` was the first
   real endpoint (moved from the now-removed `POST /portfolio/refresh` —
   decision point 8/11: a global market-data refresh is an ops action, not
-  something an individual user should trigger). A structural test
+  something an individual user should trigger). B4 added
+  `POST/GET/DELETE /admin/invites` and `POST /admin/users/{id}/bind-subject`
+  under the same ops-token router (plaintext invite token returned once on
+  create; bind-subject never overwrites a non-NULL `auth_subject`). A structural test
   (`test_all_admin_routes_require_ops_token` in `test_admin_router.py`)
   iterates `app.routes` and asserts every `/admin`-prefixed route's
   dependant chain includes `require_ops_token`, so a future endpoint that
@@ -2058,9 +2117,9 @@ capability existing.
   and does not depend on the user system existing. The reason is the failure
   mode it has to survive: the channel must still work when the login system
   itself is broken and is the thing being repaired. Hanging it off the same
-  auth welds the only repair path to the fault source. (B2 also lands before
-  the `users` table exists at all, which makes the separation a structural
-  fact rather than a discipline anyone has to remember.)
+  auth welds the only repair path to the fault source. (B2 shipped before
+  the `users` table existed; B4 added `users`, and ops-token auth still does
+  not read it.)
 - **Every `/admin/*` call is audit-logged** (`AdminLoggingRoute` in
   `app/routers/admin.py`, the router's `route_class`) — endpoint, method,
   path/query params, status code, duration, via the existing
