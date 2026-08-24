@@ -1212,11 +1212,23 @@ without B5 in the same release** — see the B4 section above.
 - **Verified real `docker compose build frontend`** per the Quality Gates
   addendum this checkpoint itself triggers (touches `frontend/Dockerfile`
   and `docker-compose.yml`).
-- **Not yet deployed.** Deployment is B4+B5 together, per the B4 section
-  above — production is still on the B2 commit (`b4f51c4`) as of this
-  writing. §6.7's four-table `SELECT DISTINCT user_id` re-check and the
-  production end-to-end UAT (design doc §10.3) happen at that deploy, not
-  in this implementation record.
+- **Merged, not yet deployed.** PR #185 squash-merged `e57b5e1`
+  (2026-08-24) after three independent review rounds (blacktomb42) — round
+  1: 1 bug (dropped `@supabase/ssr` `setAll` cache-prevention headers) + 2
+  suggestions + 1 nit; round 2: 1 bug (the round-1 fix's blanket header
+  copy clobbered Next's own `x-middleware-override-headers` bookkeeping
+  header, silently dropping the Authorization override even though the
+  header *value* stayed present — the round-1 regression test was
+  false-green, checking only that the value existed) — both bugs verified
+  by reproducing them with a failing test before fixing, not accepted on
+  the reviewer's word; round 3: 0 bugs, 1 suggestion (derive the
+  cache-prevention header set live from `setAll`'s own argument instead of
+  a hardcoded copy — closes the exact drift class round 1's fix risked)
+  + 1 nit. Deployment is still B4+B5 together, per the B4 section
+  above — production is on the B2 commit (`b4f51c4`) as of this writing.
+  §6.7's four-table `SELECT DISTINCT user_id` re-check and the production
+  end-to-end UAT (design doc §10.3, script: Obsidian `Hermes/Portfonia/
+  Docs/Ring 1-B5 UAT script.md`) happen at that deploy.
 
 ### Macro keyword theme pool — widened to 17 themes (issue #129 B1 + issue #175)
 
