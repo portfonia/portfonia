@@ -129,6 +129,7 @@ from app.services.window_data import (
     L1_LOOKBACK_TRADING_DAYS,
     HoldingMove,
     MovesCache,
+    backfill_news_surfaced_before,
     day_window_bounds,
     detect_window_anomalies,
     latest_window_close_date,
@@ -138,6 +139,7 @@ from app.services.window_data import (
     mark_news_surfaced,
     resolve_global_moves,
     unmark_news_surfaced,
+    user_has_done_history,
     user_watermark,
 )
 
@@ -528,15 +530,19 @@ def generate_report(
         # period_end must not become its own period_start — autoflush=False
         # means the status reset above is not yet visible to this query anyway,
         # but a brand-new row also has no period_end yet to read back.
+        exclude_id = report.id if existing is not None else None
         period_start = user_watermark(
             session,
             user_id,
             report_type,
-            exclude_report_id=report.id if existing is not None else None,
+            exclude_report_id=exclude_id,
+            now=now,
         )
         period_end = now
         report.period_start = period_start
         report.period_end = period_end
+        if not user_has_done_history(session, user_id, report_type, exclude_report_id=exclude_id):
+            backfill_news_surfaced_before(session, user_id, period_start)
         session.flush()  # get the id without committing
         logger.info(
             "report %s: generation started for %s (window %s → %s)",

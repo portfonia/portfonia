@@ -190,7 +190,11 @@ def _run_batch(**setting_overrides: object) -> dict[str, Any]:
 
 
 def _reports(db_session: Session) -> dict[Any, Report]:
-    rows = db_session.execute(select(Report)).scalars().all()
+    rows = (
+        db_session.execute(select(Report).where(Report.session_node != "fixture_seed"))
+        .scalars()
+        .all()
+    )
     return {r.user_id: r for r in rows}
 
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import Generator
+from datetime import date
 from decimal import Decimal
 from unittest.mock import MagicMock
 
@@ -34,6 +35,9 @@ from app.core.database import TEST_DATABASE_NAME, get_engine, reset_engine
 from app.core.deps import Principal, current_principal
 from app.main import app
 from app.models.holding import Holding
+from app.models.report import Report
+from app.models.user import User
+from app.services.window_data import BOOTSTRAP_WATERMARK
 
 TEST_DB_NAME = TEST_DATABASE_NAME
 # Same PID-suffixing rationale as TEST_DATABASE_NAME (issue #152) — this is a
@@ -210,6 +214,41 @@ def three_user_holdings(db_session: Session) -> dict[str, uuid.UUID]:
         defaults: dict[str, object] = {"pricing_mode": "auto", "currency": "USD"}
         return Holding(**{**defaults, **kwargs})
 
+    def _u(user_id: uuid.UUID, email: str) -> User:
+        return User(
+            id=user_id,
+            auth_provider="supabase",
+            auth_subject=f"sub-{user_id}",
+            email=email,
+            status="active",
+            locale="zh",
+            base_currency="USD",
+            report_cadence="mwf",
+        )
+
+    db_session.add_all(
+        [
+            _u(U1_USER_ID, "u1@example.com"),
+            _u(U2_USER_ID, "u2@example.com"),
+            _u(U3_USER_ID, "u3@example.com"),
+        ]
+    )
+    # These three are stand-ins for existing books, not brand-new signups.
+    # Seed a DONE report at the historical baseline so A1-A4 keep a stable
+    # window; new-user cold start is covered by test_window_data.py.
+    for uid in (U1_USER_ID, U2_USER_ID, U3_USER_ID):
+        db_session.add(
+            Report(
+                user_id=uid,
+                report_date=date(2026, 6, 1),
+                report_type="incremental",
+                session_node="fixture_seed",
+                status="success",
+                report_md="fixture watermark seed",
+                period_start=BOOTSTRAP_WATERMARK,
+                period_end=BOOTSTRAP_WATERMARK,
+            )
+        )
     db_session.add_all(
         [
             _h(user_id=U1_USER_ID, name="NVIDIA", ticker="NVDA", asset_class="EQUITY_US_TECH"),

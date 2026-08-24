@@ -3,40 +3,63 @@ import secrets
 from dataclasses import dataclass
 from uuid import UUID
 
-from fastapi import Header, HTTPException, Request, status
+from fastapi import Depends, Header, HTTPException, Request, status
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.database import get_session
+from app.models.user import User
+from app.services.auth_provider import InvalidAccessToken, verify_access_token
 
 
 def get_current_user_id() -> UUID:
-    """Ring 0: fixed dev user. Swap this for JWT extraction in MVP."""
-    return UUID(get_settings().DEV_USER_ID)
+    """Removed ambient identity. Request identity is `current_principal` only."""
+    raise RuntimeError("use Depends(current_principal); get_current_user_id is gone")
 
 
 @dataclass(frozen=True)
 class Principal:
-    """The authenticated caller of the current request.
-
-    B4 appends email/locale/base_currency once `users` exists — deliberately
-    absent now rather than reserved as placeholders for fields that don't
-    exist yet (Ring 1-B design doc §5.3).
-    """
+    """The authenticated caller of the current request."""
 
     user_id: UUID
+    email: str | None = None
+    locale: str | None = None
+    base_currency: str | None = None
 
 
-def current_principal(request: Request) -> Principal:
+def _request_access_token(request: Request) -> str | None:
+    """Bearer only until B5 sets a real session cookie (Supabase SSR)."""
+    return _bearer_token(request.headers.get("authorization"))
+
+
+def current_principal(request: Request, session: Session = Depends(get_session)) -> Principal:
     """The one request-scoped entry point for "who is calling".
 
-    B3: still resolves to `DEV_USER_ID` unconditionally — no real auth
-    exists yet. What changes is the shape: every identity-bearing route
-    depends on this via `Depends(current_principal)` instead of calling
-    `get_current_user_id()` directly, so `dependency_overrides` (which only
-    intercepts `Depends`, not a bare function call) works in tests, and B4
-    can swap this function's body for JWT extraction off `request` without
-    touching a single call site.
+    Verifies the access token (`Authorization: Bearer`) against the Auth
+    provider's JWKS, then looks up `users.auth_subject`. A valid token whose
+    `sub` has no `users` row is 401 — never auto-inserted (Ring 1-B §6.5/§6.9).
     """
-    return Principal(user_id=get_current_user_id())
+    token = _request_access_token(request)
+    if token is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized")
+    try:
+        claims = verify_access_token(token)
+    except InvalidAccessToken:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized"
+        ) from None
+    user = session.execute(
+        select(User).where(User.auth_subject == claims.sub, User.status == "active")
+    ).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized")
+    return Principal(
+        user_id=user.id,
+        email=user.email,
+        locale=user.locale,
+        base_currency=user.base_currency,
+    )
 
 
 def _bearer_token(authorization: str | None) -> str | None:

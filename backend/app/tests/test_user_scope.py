@@ -9,6 +9,7 @@ import uuid
 from sqlalchemy.orm import Session
 
 from app.models.holding import Holding
+from app.models.user import User
 from app.services.user_scope import active_user_ids, global_identifier_universe, user_holdings
 
 _U1 = uuid.UUID("00000000-0000-0000-0000-0000000000b1")
@@ -23,20 +24,46 @@ def _h(**kwargs: object) -> Holding:
 # --- active_user_ids ----------------------------------------------------------
 
 
-def test_active_user_ids_empty_when_no_holdings(db_session: Session) -> None:
+def _user(user_id: uuid.UUID, email: str) -> User:
+    return User(
+        id=user_id,
+        auth_provider="supabase",
+        auth_subject=f"sub-{user_id}",
+        email=email,
+        status="active",
+        locale="zh",
+        base_currency="USD",
+        report_cadence="mwf",
+    )
+
+
+def test_active_user_ids_empty_when_no_users(db_session: Session) -> None:
     assert active_user_ids(db_session) == []
 
 
 def test_active_user_ids_returns_distinct_sorted_users(db_session: Session) -> None:
     db_session.add_all(
         [
-            _h(user_id=_U2, name="Apple", ticker="AAPL"),
+            _user(_U2, "u2@example.com"),
+            _user(_U1, "u1@example.com"),
             _h(user_id=_U1, name="NVIDIA", ticker="NVDA"),
-            _h(user_id=_U1, name="Microsoft", ticker="MSFT"),  # same user, second row
+            _h(user_id=_U2, name="Apple", ticker="AAPL"),
         ]
     )
     db_session.flush()
     assert active_user_ids(db_session) == sorted([_U1, _U2])
+
+
+def test_active_user_ids_excludes_users_with_no_holdings(db_session: Session) -> None:
+    db_session.add_all(
+        [
+            _user(_U1, "u1@example.com"),
+            _user(_U2, "u2@example.com"),
+            _h(user_id=_U1, name="NVIDIA", ticker="NVDA"),
+        ]
+    )
+    db_session.flush()
+    assert active_user_ids(db_session) == [_U1]
 
 
 # --- user_holdings --------------------------------------------------------------

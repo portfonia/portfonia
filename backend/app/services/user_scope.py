@@ -14,23 +14,31 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
 from app.models.holding import Holding
+from app.models.user import User
 from app.services._yfinance import _normalize_hk_ticker
 
 
 def active_user_ids(session: Session) -> list[uuid.UUID]:
-    """Every distinct user_id with at least one holding row.
+    """Active accounts that already have holdings, sorted for fan-out.
 
-    This IS the Stage-A definition of "the system's active users" (design
-    doc §1.5) — not a placeholder pending a `users` table. `user_id` is not
-    Fernet-encrypted, so a SQL-level DISTINCT is valid here (unlike
-    ticker/fund_code — see `global_identifier_universe`). Sorted for
-    deterministic fan-out order in logs/tests.
+    Identity comes from `users` (Stage B). Fan-out still requires at least
+    one holding so a brand-new signup does not get an empty Pass 2 / email
+    on the next scheduled batch.
     """
-    rows = session.execute(select(Holding.user_id).distinct()).scalars().all()
+    rows = (
+        session.execute(
+            select(User.id).where(
+                User.status == "active",
+                exists().where(Holding.user_id == User.id),
+            )
+        )
+        .scalars()
+        .all()
+    )
     return sorted(rows)
 
 

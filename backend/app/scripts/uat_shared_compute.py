@@ -225,17 +225,12 @@ def seed_holdings(session: Session) -> None:
 def one_trading_week_start(now: datetime) -> datetime:
     """ET midnight five weekdays before `now` — one complete trading week.
 
-    Used when THIS user has no prior report. Do not borrow another user's
-    watermark. Saturday/Sunday are skipped so a Monday run lands on the
-    previous Monday, not the intervening weekend.
+    Delegates to the production cold-start helper so UAT and live reports
+    cannot drift (Ring 1-B §6.6).
     """
-    cursor = now.astimezone(ET).date()
-    remaining = 5
-    while remaining > 0:
-        cursor -= timedelta(days=1)
-        if cursor.weekday() < 5:
-            remaining -= 1
-    return datetime(cursor.year, cursor.month, cursor.day, tzinfo=ET)
+    from app.services.window_data import cold_start_watermark
+
+    return cold_start_watermark(now)
 
 
 def seed_window_alignment(session: Session, *, now: datetime | None = None) -> dict[str, Any]:

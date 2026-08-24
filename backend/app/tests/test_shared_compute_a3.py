@@ -231,7 +231,11 @@ def test_every_user_in_the_batch_reads_the_same_shared_analysis(
 
     _run_batch()
 
-    reports = db_session.execute(select(Report)).scalars().all()
+    reports = (
+        db_session.execute(select(Report).where(Report.session_node != "fixture_seed"))
+        .scalars()
+        .all()
+    )
     analyses = {
         r.user_id: (r.report_inputs or {}).get("macro_event_intel", {}).get("theme:货币政策", {})
         for r in reports
@@ -261,7 +265,11 @@ def test_out_of_taxonomy_class_never_reaches_any_users_exposure(
     )
     assert row.affected_asset_classes == ["EQUITY_US_BROAD"]
 
-    reports = db_session.execute(select(Report)).scalars().all()
+    reports = (
+        db_session.execute(select(Report).where(Report.session_node != "fixture_seed"))
+        .scalars()
+        .all()
+    )
     for r in reports:
         inputs = r.report_inputs or {}
         assert inputs["macro_event_exposure"] == {"theme:货币政策": ["EQUITY_US_BROAD"]}
@@ -282,7 +290,11 @@ def test_l2_failure_does_not_break_any_users_report(
     outcome = _run_batch(_boom)
 
     assert outcome.result["status"] == "completed"
-    reports = db_session.execute(select(Report)).scalars().all()
+    reports = (
+        db_session.execute(select(Report).where(Report.session_node != "fixture_seed"))
+        .scalars()
+        .all()
+    )
     assert len(reports) == 3
     assert all(r.status == "success" for r in reports)
     # One marker row for the whole batch — the failure is not re-attempted

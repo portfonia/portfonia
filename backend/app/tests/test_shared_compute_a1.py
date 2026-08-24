@@ -189,7 +189,11 @@ def _run_batch(db_session: Session) -> None:
 
 def _anomaly_identifiers(db_session: Session, user_id: object) -> set[str]:
     report = db_session.execute(
-        select(Report).where(Report.user_id == user_id, Report.report_type == "incremental")
+        select(Report).where(
+            Report.user_id == user_id,
+            Report.report_type == "incremental",
+            Report.session_node != "fixture_seed",
+        )
     ).scalar_one()
     assert report.report_inputs is not None
     anomalies = report.report_inputs["price_anomalies"]

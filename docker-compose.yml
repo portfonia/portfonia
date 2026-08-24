@@ -112,6 +112,8 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    environment:
+      SUPABASE_PROJECT_HOST: ${SUPABASE_PROJECT_HOST:?required}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./.data/caddy_data:/data
