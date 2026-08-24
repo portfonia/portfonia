@@ -117,7 +117,13 @@ describe("proxy", () => {
     );
   });
 
-  it("actually lists authorization in x-middleware-override-headers, not just the x-middleware-request-authorization value (Next only applies headers listed in the override index — PR #185 round-2 review caught this: the previous test only checked the value was present, which stayed true even when the override list itself got clobbered and the header was silently never applied)", async () => {
+  // Next only actually applies a header override if it's listed in
+  // x-middleware-override-headers — checking the x-middleware-request-*
+  // value alone (as the round-1 version of this test did) stays green
+  // even when that list gets clobbered and the header is silently never
+  // applied (PR #185 round-2 review: this is the exact regression class
+  // that slipped through the round-1 test).
+  it("lists authorization in x-middleware-override-headers", async () => {
     getUser.mockResolvedValue({ data: { user: AUTHED_USER } });
     getSession.mockResolvedValue({
       data: { session: { access_token: ACCESS_TOKEN } },
