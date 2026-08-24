@@ -17,6 +17,28 @@ COPY . .
 ARG BACKEND_URL=http://backend:8000
 ENV BACKEND_URL=$BACKEND_URL
 
+# NEXT_PUBLIC_* vars are statically inlined into both the client bundle and
+# server code by `next build` — there is no runtime alternative, they MUST
+# be present here (Ring 1-B design doc §7.3(2)/(6), B5). SUPABASE_URL here
+# is deliberately NOT the same value as the backend's SUPABASE_URL Setting:
+# the backend talks to the raw Supabase project host directly (no
+# reachability concern — verification runs on our own server, §6.5 point
+# 2); the browser talks through the auth.portfonia.com Caddy reverse proxy
+# (mainland-reachability workaround, §2.7/§6.10). Getting these two swapped
+# silently breaks login for exactly the users the proxy exists for.
+ARG NEXT_PUBLIC_SUPABASE_URL=https://auth.portfonia.com
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
+ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+# docker-compose.yml fails closed on a missing NEXT_PUBLIC_SUPABASE_ANON_KEY
+# (${SUPABASE_ANON_KEY:?required}), but a raw `docker build` bypasses that
+# entirely — the ARG above has no default, so an omitted build arg silently
+# bakes an empty key into an otherwise "successful" image (blacktomb42
+# review, PR #185). Fail here too, before the expensive build step runs.
+RUN test -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY" || \
+    (echo "NEXT_PUBLIC_SUPABASE_ANON_KEY build arg is required" >&2 && exit 1)
+
 RUN npm run build
 
 

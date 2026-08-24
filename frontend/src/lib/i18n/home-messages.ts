@@ -13,6 +13,8 @@ interface HomeMessages {
     faq: string;
     cta: string;
     language: string;
+    login: string;
+    logout: string;
   };
   hero: {
     eyebrow: string;
@@ -57,6 +59,8 @@ export const homeMessages: Record<Locale, HomeMessages> = {
       faq: "FAQ",
       cta: "Get started",
       language: "Language",
+      login: "Log in",
+      logout: "Log out",
     },
     hero: {
       eyebrow: "Ring 0 · single-user prototype",
@@ -165,6 +169,8 @@ export const homeMessages: Record<Locale, HomeMessages> = {
       faq: "常见问题",
       cta: "开始使用",
       language: "语言",
+      login: "登录",
+      logout: "退出登录",
     },
     hero: {
       eyebrow: "Ring 0 · 单用户原型",

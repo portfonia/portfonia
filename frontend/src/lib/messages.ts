@@ -6,6 +6,25 @@
 export const messages = {
   common: {
     brandName: "Portfonia",
+    login: "Log in",
+    logout: "Log out",
+  },
+  auth: {
+    loginHeading: "Log in",
+    loginSubtitle: "Welcome back.",
+    signupHeading: "Create your account",
+    signupSubtitle: "You'll need a valid invite link to sign up.",
+    emailLabel: "Email",
+    passwordLabel: "Password",
+    loginButton: "Log in",
+    loggingIn: "Logging in...",
+    signupButton: "Create account",
+    signingUp: "Creating account...",
+    missingInvite:
+      "This link is missing its invite token. Ask whoever invited you for a fresh link.",
+    noAccountYet: "Need an invite? Ask the person who referred you.",
+    alreadyHaveAccount: "Already have an account?",
+    backToLogin: "Log in instead",
   },
   holdings: {
     pageTitle: "Holdings",

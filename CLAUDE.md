@@ -1107,6 +1107,117 @@ secret or the Supabase database password (business Postgres is self-hosted).
   `"input"`). Round 3 Approve on `63a9023`. Merged squash `38afc68`
   (2026-08-24). Not deployed; waits on B5.
 
+### Frontend auth closure — B5 (Ring 1 stage B, issue #129)
+
+Closes the loop B4 opened: `current_principal` (B4) requires a Bearer JWT on
+every non-public backend route, but until this checkpoint nothing in the
+frontend could produce one — every route was unconditionally public. B5
+adds `/login` + `/signup?invite=<token>`, a cookie-based session via
+`@supabase/ssr`, and credential forwarding on the three paths the frontend
+uses to reach the backend (§2.6 of the design doc). **B4 must not deploy
+without B5 in the same release** — see the B4 section above.
+
+- **`src/proxy.ts`, not `src/middleware.ts`.** Next.js 16 (the version this
+  repo runs) renamed the `middleware.ts` file convention to `proxy.ts` —
+  same function, `export function proxy(request)` instead of `middleware`
+  (confirmed against `node_modules/next/dist/docs/.../file-conventions/
+  proxy.md`, not assumed from training data — see `frontend/AGENTS.md`'s
+  standing warning to check the vendored docs before writing Next.js code
+  in this repo). Do not "fix" this back to `middleware.ts`.
+- **Session shape: cookie, not `localStorage`** — `@supabase/ssr`'s
+  `createServerClient`/`createBrowserClient`, cookie-adapter pattern taken
+  verbatim from Supabase's own Next.js-16-specific AI-integration guide
+  (`getAll`/`setAll`, never the deprecated per-cookie `get`/`set`/`remove`
+  shape). Reason stays what the design doc gave: a Server Component reading
+  `listHoldingsServer()` has no access to `localStorage` at all. **CSRF**:
+  rests on the same-origin `/api` rewrite plus `@supabase/ssr`'s
+  library-default `SameSite=Lax` (also `httpOnly: false`, required so the
+  browser `AuthStatus` client can read the session) — FastAPI's CORS is not
+  on the user-browser path at all (§7.3(5) above), so it isn't part of this
+  story either way. Do not switch these cookies to `SameSite=None`.
+- **Backend stays Bearer-only** (`current_principal` was never touched this
+  checkpoint) — the frontend's job is turning "there is a valid session
+  cookie" into `Authorization: Bearer <access_token>` on every path that
+  reaches the backend. Three paths, three different mechanisms, each with
+  its own test (design doc §7.3(1) called this the easiest thing to miss):
+  - **Same-origin `/api/*` rewrite** (`lib/api.ts`, unchanged): a browser
+    `fetch("/api/...")` goes straight through `next.config.ts`'s
+    declarative rewrite with no Node code in between, so there is nowhere
+    else to attach a header — `proxy.ts` derives the token from the
+    (refreshed) session cookie and injects it via
+    `NextResponse.next({request:{headers}})` before the rewrite fires
+    (Proxy runs before rewrites in Next's execution order). Verified this
+    mechanism is real in this Next version via
+    `node_modules/next/dist/server/web/adapter.js`'s
+    `x-middleware-request-*` convention, not assumed.
+  - **`app/api/holdings/upload/route.ts`**: has its own filesystem route,
+    which wins over the declarative rewrite for this one path, so it never
+    sees proxy's injected header on its own outbound `fetch()` — it derives
+    the token itself via `lib/supabase/server.ts`'s `currentAccessToken()`.
+  - **`lib/server-api.ts`'s `listHoldingsServer()`** (SSR direct read): same
+    reasoning, same `currentAccessToken()` call — Server Components never
+    automatically inherit a browser's same-origin cookie forwarding.
+  - Deliberately NOT relying on proxy's header propagation for the latter
+    two, even though it might work — Next's own authentication guide is
+    explicit that Proxy must never be the only line of defense; each path
+    verifies its own credential independently.
+- **`lib/supabase/server.ts`'s `currentAccessToken()` reads `getSession()`,
+  not `getUser()`** — deliberate: `getUser()` makes a network round-trip to
+  re-verify against the Auth provider on every call, which is redundant
+  here since the backend's `current_principal` independently re-verifies
+  the JWT via JWKS anyway (B4). `proxy.ts` is the one place that DOES call
+  `getUser()` — that's what actually triggers a refresh of an expiring
+  token and rewrites the session cookie.
+- **`/auth/signup` (B4) does not itself issue a session** — its response
+  schema (`SignupResponse`) is just `{id, email}`. `app/signup/actions.ts`
+  calls the backend to redeem the invite and create the account, then
+  immediately calls `supabase.auth.signInWithPassword()` with the same
+  credentials so sign-up is one step, not two. This wasn't specified in the
+  design doc (which only fixed the registration mechanism, not the
+  post-signup UX) — noted here as an implementation decision, not a design
+  deviation.
+- **Route protection is optimistic only, matching Next's own guidance**:
+  `proxy.ts` redirects an unauthenticated request to a non-public page to
+  `/login`, but every `/api/*` path is exempted from the redirect (a
+  redirect would be nonsensical for a `fetch()`-consuming client — the
+  backend's own 401 is what `lib/api.ts`'s `ApiError` already handles). The
+  real, non-bypassable boundary stays `current_principal` on the backend.
+- **CORS left unchanged, not tightened further** — already scoped to
+  `allow_origins=[FRONTEND_URL]` (not a wildcard) before this checkpoint,
+  and since every browser-originated user-facing call already went through
+  the same-origin `/api/*` path (`lib/api.ts` never called `api.portfonia.com`
+  directly), there was nothing cross-origin left to tighten. The direct
+  face (`api.portfonia.com`) remains reserved for `/admin/*` (bearer-token
+  tooling, not browser+CORS — B2) and `/health`, per decision point 11.
+- **`NEXT_PUBLIC_SUPABASE_URL` (frontend build arg) is deliberately NOT the
+  same value as the backend's `SUPABASE_URL` Setting** — the backend talks
+  to the raw Supabase project host directly (JWKS verification happens on
+  our own server, no reachability concern, B4 §6.5 point 2); the browser
+  must go through the `auth.portfonia.com` Caddy reverse proxy (mainland-
+  reachability workaround, B4 §2.7/§6.10). Getting these swapped would
+  silently break login for exactly the users the proxy exists for. Wired
+  as new `frontend/Dockerfile` build args (mirroring the existing
+  `BACKEND_URL` pattern) and `docker-compose.yml`'s `frontend.build.args`
+  (`NEXT_PUBLIC_SUPABASE_ANON_KEY` reuses `SUPABASE_ANON_KEY` — same
+  publishable key, safe to expose to the browser by definition;
+  `NEXT_PUBLIC_SUPABASE_URL` defaults to `https://auth.portfonia.com`,
+  overridable via `SUPABASE_PUBLIC_AUTH_URL`).
+- **`messages.ts` still has no `zh` map** (pre-existing gap, issue tracked
+  separately) — `/login` and `/signup` render `lang="en"` like every other
+  non-home route (`AppShell`'s existing route-conditional `lang`, unchanged
+  by this checkpoint). `SiteHeader`'s new login/logout entry follows the
+  same split already established for the Holdings link: locale-aware
+  `home-messages.ts` strings on `/`, English-only `messages.ts` strings
+  everywhere else.
+- **Verified real `docker compose build frontend`** per the Quality Gates
+  addendum this checkpoint itself triggers (touches `frontend/Dockerfile`
+  and `docker-compose.yml`).
+- **Not yet deployed.** Deployment is B4+B5 together, per the B4 section
+  above — production is still on the B2 commit (`b4f51c4`) as of this
+  writing. §6.7's four-table `SELECT DISTINCT user_id` re-check and the
+  production end-to-end UAT (design doc §10.3) happen at that deploy, not
+  in this implementation record.
+
 ### Macro keyword theme pool — widened to 17 themes (issue #129 B1 + issue #175)
 
 `config/macro_keywords.yml` grew from the Ring 0 starting set of 8 themes
