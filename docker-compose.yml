@@ -103,7 +103,13 @@ services:
         # needs the auth.portfonia.com reverse proxy, not a direct
         # supabase.co connection (Ring 1-B design doc §2.7/§6.10/§7.3(5)).
         NEXT_PUBLIC_SUPABASE_URL: ${SUPABASE_PUBLIC_AUTH_URL:-https://auth.portfonia.com}
-        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+        # Fail closed like SUPABASE_PROJECT_HOST below, not a silent empty
+        # string: NEXT_PUBLIC_* is baked in at `next build`, so an unset key
+        # here would still produce a "successful" build — just one that
+        # throws on every request once deployed (blacktomb42 review, PR
+        # #185). The Dockerfile has its own belt-and-suspenders check too,
+        # for a raw `docker build` that bypasses this interpolation.
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:?required}
     container_name: portfonia-frontend
     restart: unless-stopped
     environment:

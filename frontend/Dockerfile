@@ -31,6 +31,14 @@ ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
 ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
 ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
 
+# docker-compose.yml fails closed on a missing NEXT_PUBLIC_SUPABASE_ANON_KEY
+# (${SUPABASE_ANON_KEY:?required}), but a raw `docker build` bypasses that
+# entirely — the ARG above has no default, so an omitted build arg silently
+# bakes an empty key into an otherwise "successful" image (blacktomb42
+# review, PR #185). Fail here too, before the expensive build step runs.
+RUN test -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY" || \
+    (echo "NEXT_PUBLIC_SUPABASE_ANON_KEY build arg is required" >&2 && exit 1)
+
 RUN npm run build
 
 

@@ -1129,7 +1129,12 @@ without B5 in the same release** — see the B4 section above.
   verbatim from Supabase's own Next.js-16-specific AI-integration guide
   (`getAll`/`setAll`, never the deprecated per-cookie `get`/`set`/`remove`
   shape). Reason stays what the design doc gave: a Server Component reading
-  `listHoldingsServer()` has no access to `localStorage` at all.
+  `listHoldingsServer()` has no access to `localStorage` at all. **CSRF**:
+  rests on the same-origin `/api` rewrite plus `@supabase/ssr`'s
+  library-default `SameSite=Lax` (also `httpOnly: false`, required so the
+  browser `AuthStatus` client can read the session) — FastAPI's CORS is not
+  on the user-browser path at all (§7.3(5) above), so it isn't part of this
+  story either way. Do not switch these cookies to `SameSite=None`.
 - **Backend stays Bearer-only** (`current_principal` was never touched this
   checkpoint) — the frontend's job is turning "there is a valid session
   cookie" into `Authorization: Bearer <access_token>` on every path that

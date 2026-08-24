@@ -1,6 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { supabasePublicEnv } from "@/lib/supabase/env";
+
 // Next.js 16 renamed the `middleware.ts` file convention to `proxy.ts` (the
 // function itself is unchanged) — see frontend/AGENTS.md's warning to check
 // node_modules/next/dist/docs before assuming a training-data API still
@@ -34,25 +36,29 @@ function isPublicPath(pathname: string): boolean {
 
 export async function proxy(request: NextRequest): Promise<NextResponse> {
   let response = NextResponse.next({ request });
+  const { url, anonKey } = supabasePublicEnv();
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-          response = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options),
-          );
-        },
+  const supabase = createServerClient(url, anonKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      // `headers` carries Cache-Control/Expires/Pragma that @supabase/ssr
+      // requires on any response that sets auth cookies, so a CDN/reverse
+      // proxy never caches a Set-Cookie and serves one user's session to
+      // another (the library's own SetAllCookies type doc — verified
+      // against node_modules/@supabase/ssr, not assumed). Unlike
+      // lib/supabase/server.ts, this context genuinely can apply them.
+      setAll(cookiesToSet, headers) {
+        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+        response = NextResponse.next({ request });
+        cookiesToSet.forEach(({ name, value, options }) =>
+          response.cookies.set(name, value, options),
+        );
+        Object.entries(headers).forEach(([key, value]) => response.headers.set(key, value));
       },
     },
-  );
+  });
 
   // getUser() re-verifies against the Auth provider (unlike getSession(),
   // which only reads the local JWT) — this is what actually refreshes an
@@ -79,10 +85,13 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
       const authedResponse = NextResponse.next({ request: { headers } });
       // Constructing a fresh NextResponse here (required to carry the
       // mutated request headers upstream) would otherwise silently drop
-      // any Set-Cookie the getUser() refresh above already queued on
-      // `response` via setAll — losing a just-refreshed session cookie on
-      // exactly the requests that prove a session is still active.
+      // anything the getUser() refresh above already queued on `response`
+      // via setAll — both the Set-Cookie itself and, same class of bug,
+      // the cache-prevention headers alongside it (blacktomb42 review,
+      // PR #185) — losing either on exactly the requests that prove a
+      // session is still active.
       response.cookies.getAll().forEach((cookie) => authedResponse.cookies.set(cookie));
+      response.headers.forEach((value, key) => authedResponse.headers.set(key, value));
       response = authedResponse;
     }
   }

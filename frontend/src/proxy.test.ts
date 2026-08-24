@@ -7,6 +7,15 @@ const { getUser, getSession, createServerClient } = vi.hoisted(() => ({
   createServerClient: vi.fn(),
 }));
 
+// The exact headers @supabase/ssr 0.12.4 passes as setAll's second argument
+// whenever it writes auth cookies (verified against
+// node_modules/@supabase/ssr/dist/module/cookies.js — not invented).
+const REFRESH_HEADERS = {
+  "Cache-Control": "private, no-cache, no-store, must-revalidate, max-age=0",
+  Expires: "0",
+  Pragma: "no-cache",
+};
+
 vi.mock("@supabase/ssr", () => ({
   createServerClient: (
     _url: string,
@@ -15,6 +24,7 @@ vi.mock("@supabase/ssr", () => ({
       cookies: {
         setAll?: (
           cookies: { name: string; value: string; options?: Record<string, unknown> }[],
+          headers: Record<string, string>,
         ) => void;
       };
     },
@@ -25,10 +35,12 @@ vi.mock("@supabase/ssr", () => ({
         getUser: async () => {
           // Simulate @supabase/ssr's real behavior: getUser() is what
           // triggers a token refresh and invokes the cookies.setAll
-          // adapter to queue the refreshed session cookie.
-          opts.cookies.setAll?.([
-            { name: "sb-refreshed-session", value: "new-token-value", options: { path: "/" } },
-          ]);
+          // adapter to queue the refreshed session cookie, along with the
+          // cache-prevention headers the real library always sends here.
+          opts.cookies.setAll?.(
+            [{ name: "sb-refreshed-session", value: "new-token-value", options: { path: "/" } }],
+            REFRESH_HEADERS,
+          );
           return getUser();
         },
         getSession,
@@ -129,5 +141,31 @@ describe("proxy", () => {
     expect(res.headers.get("x-middleware-request-authorization")).toBe(
       `Bearer ${ACCESS_TOKEN}`,
     );
+  });
+
+  it("applies the cache-prevention headers @supabase/ssr passes to setAll onto the response (a stale CDN/proxy cache must never serve one user's session to another)", async () => {
+    getUser.mockResolvedValue({ data: { user: AUTHED_USER } });
+    getSession.mockResolvedValue({
+      data: { session: { access_token: ACCESS_TOKEN } },
+    });
+
+    const res = await proxy(makeRequest("/holdings"));
+
+    for (const [key, value] of Object.entries(REFRESH_HEADERS)) {
+      expect(res.headers.get(key)).toBe(value);
+    }
+  });
+
+  it("keeps those cache-prevention headers on the final response even when the Authorization-injection branch rebuilds it for an /api/* request", async () => {
+    getUser.mockResolvedValue({ data: { user: AUTHED_USER } });
+    getSession.mockResolvedValue({
+      data: { session: { access_token: ACCESS_TOKEN } },
+    });
+
+    const res = await proxy(makeRequest("/api/holdings"));
+
+    for (const [key, value] of Object.entries(REFRESH_HEADERS)) {
+      expect(res.headers.get(key)).toBe(value);
+    }
   });
 });
