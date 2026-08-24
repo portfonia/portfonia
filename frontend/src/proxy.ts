@@ -29,6 +29,21 @@ import { supabasePublicEnv } from "@/lib/supabase/env";
 
 const PUBLIC_PATH_PREFIXES = ["/login", "/signup", "/api/"];
 
+// The exact headers @supabase/ssr passes to setAll's second argument
+// whenever it writes auth cookies (verified against
+// node_modules/@supabase/ssr/dist/module/cookies.js). Named explicitly,
+// not a blanket header copy: a NextResponse built via
+// `NextResponse.next({ request })` also carries Next-internal bookkeeping
+// headers (`x-middleware-override-headers`, `x-middleware-request-*`) that
+// record which request headers this specific response actually overrides.
+// Blindly forEach-copying every header from an earlier response to a later
+// one clobbers that list with a stale one — the Authorization header value
+// stays present but silently drops out of the override index, so Next
+// never applies it (PR #185 round-2 review: a real regression from the
+// round-1 fix, caught by asserting the override list's *contents*, not
+// just that the header value existed).
+const CACHE_PREVENTION_HEADERS = ["Cache-Control", "Expires", "Pragma"];
+
 function isPublicPath(pathname: string): boolean {
   if (pathname === "/") return true;
   return PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix));
@@ -91,7 +106,10 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
       // PR #185) — losing either on exactly the requests that prove a
       // session is still active.
       response.cookies.getAll().forEach((cookie) => authedResponse.cookies.set(cookie));
-      response.headers.forEach((value, key) => authedResponse.headers.set(key, value));
+      CACHE_PREVENTION_HEADERS.forEach((key) => {
+        const value = response.headers.get(key);
+        if (value) authedResponse.headers.set(key, value);
+      });
       response = authedResponse;
     }
   }

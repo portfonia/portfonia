@@ -117,6 +117,20 @@ describe("proxy", () => {
     );
   });
 
+  it("actually lists authorization in x-middleware-override-headers, not just the x-middleware-request-authorization value (Next only applies headers listed in the override index — PR #185 round-2 review caught this: the previous test only checked the value was present, which stayed true even when the override list itself got clobbered and the header was silently never applied)", async () => {
+    getUser.mockResolvedValue({ data: { user: AUTHED_USER } });
+    getSession.mockResolvedValue({
+      data: { session: { access_token: ACCESS_TOKEN } },
+    });
+
+    const res = await proxy(makeRequest("/api/holdings"));
+
+    const overridden = (res.headers.get("x-middleware-override-headers") ?? "")
+      .split(",")
+      .map((s) => s.trim());
+    expect(overridden).toContain("authorization");
+  });
+
   it("sets no Authorization header for an unauthenticated /api/* call", async () => {
     getUser.mockResolvedValue({ data: { user: null } });
     getSession.mockResolvedValue({ data: { session: null } });
