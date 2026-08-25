@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import date, timedelta
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -12,6 +14,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models.holding import Holding
+from app.models.price_snapshot import PriceSnapshot
 from app.models.upload_job import UploadJob
 from app.tests.conftest import TEST_USER_ID
 
@@ -372,6 +375,63 @@ def test_confirm_sparse_history_log_omits_ticker_list(
         # PR #181 review: dropping the ticker list must not also drop the
         # one identifier the rule (Concept §8.8) actually asks for.
         assert str(TEST_USER_ID) in record.getMessage()
+
+
+def test_confirm_backfill_passes_only_this_users_sparse_tickers(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """A second user's never-seen ticker must not ride along on this confirm (#194)."""
+    db_session.add(
+        Holding(
+            user_id=uuid.uuid4(),
+            name="Microsoft",
+            ticker="MSFT",
+            pricing_mode="auto",
+            currency="USD",
+            asset_class="STOCK",
+        )
+    )
+    db_session.commit()
+
+    with patch("app.tasks.capture_tasks.backfill_ohlcv_task") as mock_task:
+        resp = app_client.post("/holdings/confirm", json=[_PARSED_APPLE])
+    assert resp.status_code == 200
+    mock_task.delay.assert_called_once_with(["AAPL"])
+
+
+def test_confirm_skips_backfill_when_this_users_tickers_already_have_history(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """Someone else's sparse name must not fire a 420-day job on this confirm."""
+    db_session.add(
+        Holding(
+            user_id=uuid.uuid4(),
+            name="Microsoft",
+            ticker="MSFT",
+            pricing_mode="auto",
+            currency="USD",
+            asset_class="STOCK",
+        )
+    )
+    start = date(2026, 1, 1)
+    db_session.add_all(
+        [
+            PriceSnapshot(
+                ticker="AAPL",
+                market="US",
+                session_node="close",
+                trade_date=start + timedelta(days=i),
+                close=Decimal("100"),
+            )
+            for i in range(50)
+        ]
+    )
+    db_session.commit()
+
+    with patch("app.tasks.capture_tasks.backfill_ohlcv_task") as mock_task:
+        resp = app_client.post("/holdings/confirm", json=[_PARSED_APPLE])
+    assert resp.status_code == 200
+    mock_task.delay.assert_not_called()
 
 
 def test_confirm_full_replace_does_not_touch_other_users(

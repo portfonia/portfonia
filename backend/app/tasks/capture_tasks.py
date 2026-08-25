@@ -14,19 +14,36 @@ from datetime import datetime
 from typing import Any
 
 from app.services.email_sender import send_ops_alert
-from app.services.github_issues import create_bug_report
+from app.services.github_issues import create_bug_report, truncate_text
 from app.tasks import celery_app
 
 logger = logging.getLogger(__name__)
 
+# str(exc) for a multi-row INSERT overflow includes the compiled SQL
+# (thousands of chars). Unbounded interpolation 422s GitHub's issue-body
+# limit; the full traceback stays in worker.log (issue #195).
+_MAX_EXC_CHARS = 4_000
+# Per-market slice so three failures still fit under _MAX_EXC_CHARS after
+# join + the "RuntimeError: " prefix _format_exc adds.
+_MAX_MARKET_EXC_CHARS = 1_200
+_EXC_TRUNCATION_MARK = "...(truncated)"
+
+
+def _format_exc(exc: BaseException) -> str:
+    return truncate_text(f"{type(exc).__name__}: {exc}", _MAX_EXC_CHARS, mark=_EXC_TRUNCATION_MARK)
+
+
+def _market_failure_entry(market: str, exc: BaseException) -> str:
+    detail = truncate_text(
+        f"{type(exc).__name__}: {exc}", _MAX_MARKET_EXC_CHARS, mark=_EXC_TRUNCATION_MARK
+    )
+    return f"{market}: {detail}"
+
 
 def _capture_failed(task_name: str, exc: BaseException, context: str = "") -> None:
     """Send ops alert + create GitHub issue when a capture task exhausts retries."""
-    detail = (
-        f"{context}\n\nerror: {type(exc).__name__}: {exc}"
-        if context
-        else f"error: {type(exc).__name__}: {exc}"
-    )
+    formatted = _format_exc(exc)
+    detail = f"{context}\n\nerror: {formatted}" if context else f"error: {formatted}"
     send_ops_alert(
         subject=f"[Portfonia] capture FAILED — {task_name}",
         body=(
@@ -41,7 +58,7 @@ def _capture_failed(task_name: str, exc: BaseException, context: str = "") -> No
         body=(
             f"## Capture task exhausted retries\n\n"
             f"**Task:** `{task_name}`\n\n"
-            f"**Error:** `{type(exc).__name__}: {exc}`\n\n"
+            f"**Error:** `{formatted}`\n\n"
             f"{'**Context:** ' + context + chr(10) + chr(10) if context else ''}"
             f"**Impact:** data for this capture node will be missing from the next "
             f"report window, potentially causing stale prices, missing news, or "
@@ -108,32 +125,54 @@ def capture_prices_task(self: Any, market: str, session_node: str) -> dict[str, 
     max_retries=1,
     default_retry_delay=60,
 )
-def backfill_ohlcv_task(self: Any) -> dict[str, Any]:
-    """Backfill ~1 year of OHLCV closes for all auto-priced holdings.
+def backfill_ohlcv_task(self: Any, tickers: list[str] | None = None) -> dict[str, Any]:
+    """Backfill ~1 year of OHLCV closes for the given tickers.
 
-    Dispatched by confirm_holdings when it detects tickers with sparse history
-    (< 50 bars). Idempotent: the upsert key is (ticker, market, session_node,
-    trade_date), so re-running is safe.
+    Dispatched by confirm_holdings with that user's sparse auto-priced tickers
+    (< 50 close bars). Daily capture stays on capture_prices_task (full market
+    universe, 7-day lookback). The ops script backfill_ohlcv.py remains the
+    one-shot full-universe seed. Idempotent on (ticker, market, session_node,
+    trade_date).
     """
     from app.core.database import SessionLocal
     from app.services.price_capture import capture_prices
+
+    if not tickers:
+        logger.info("backfill_ohlcv_task: no tickers requested")
+        return {"written": 0}
 
     _LOOKBACK_DAYS = 420
     _MARKETS = ("US", "HK", "A-Share")
     session = SessionLocal()
     try:
         total = 0
+        failures: list[tuple[str, BaseException]] = []
+        # Full-market retry is deliberate: upsert is idempotent, and tracking
+        # which markets succeeded across Celery retries needs task state we
+        # do not have. Failures should be rare after the chunked-upsert fix.
         for market in _MARKETS:
-            written = capture_prices(session, market, "close", lookback_days=_LOOKBACK_DAYS)
-            logger.info("backfill_ohlcv_task: %s: %d bars upserted", market, written)
-            total += written
+            try:
+                written = capture_prices(
+                    session,
+                    market,
+                    "close",
+                    lookback_days=_LOOKBACK_DAYS,
+                    tickers=tickers,
+                )
+                logger.info("backfill_ohlcv_task: %s: %d bars upserted", market, written)
+                total += written
+            except Exception as exc:
+                logger.exception("backfill_ohlcv_task: %s failed", market)
+                failures.append((market, exc))
+                session.rollback()
+        if failures:
+            summary = "; ".join(_market_failure_entry(m, e) for m, e in failures)
+            combined = RuntimeError(summary)
+            if self.request.retries >= self.max_retries:
+                _capture_failed("backfill_ohlcv_task", combined)
+            raise self.retry(exc=combined) from combined
         logger.info("backfill_ohlcv_task: complete — %d bars total", total)
         return {"written": total}
-    except Exception as exc:
-        logger.exception("backfill_ohlcv_task: failed")
-        if self.request.retries >= self.max_retries:
-            _capture_failed("backfill_ohlcv_task", exc)
-        raise self.retry(exc=exc) from exc
     finally:
         session.close()
 

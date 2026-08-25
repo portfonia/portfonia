@@ -22,6 +22,24 @@ logger = logging.getLogger(__name__)
 
 _GITHUB_API = "https://api.github.com"
 
+# GitHub issue bodies 422 above this (documented REST limit). Applied here
+# so any caller interpolating a huge exception (issue #195) still files.
+_GITHUB_ISSUE_BODY_MAX = 65_536
+_TRUNCATION_MARK = "\n...(truncated)"
+
+
+def truncate_text(text: str, limit: int, mark: str = _TRUNCATION_MARK) -> str:
+    """Cap `text` at `limit` chars, appending `mark` when sliced.
+
+    Shared by create_bug_report (issue-body ceiling) and capture_tasks
+    (_format_exc / per-market failure summaries) so the slice-plus-marker
+    mechanic cannot drift. Limits and marks stay caller-specific.
+    """
+    if len(text) <= limit:
+        return text
+    keep = max(0, limit - len(mark))
+    return text[:keep] + mark
+
 
 def create_bug_report(
     title: str,
@@ -43,7 +61,10 @@ def create_bug_report(
     token = settings.GITHUB_TOKEN.get_secret_value()
     repo = settings.GITHUB_REPO
 
-    payload: dict[str, object] = {"title": title, "body": body}
+    payload: dict[str, object] = {
+        "title": title,
+        "body": truncate_text(body, _GITHUB_ISSUE_BODY_MAX),
+    }
     if labels:
         payload["labels"] = labels
 
