@@ -184,7 +184,8 @@ secret or the Supabase database password (business Postgres is self-hosted).
   Round 2 Request changes (bind-subject unique `IntegrityError` → 500;
   empty Caddy host; 422 echoed password — `SecretStr` alone does not strip
   `"input"`). Round 3 Approve on `63a9023`. Merged squash `38afc68`
-  (2026-08-24). Not deployed; waits on B5.
+  (2026-08-24). **Deployed to production together with B5 on 2026-08-25**
+  (see the B5 entry below for the deploy/UAT record).
 
 
 ### Frontend auth closure — B5 (Ring 1 stage B, issue #129)
@@ -292,22 +293,32 @@ without B5 in the same release** — see the B4 section above.
 - **Verified real `docker compose build frontend`** per the Quality Gates
   addendum this checkpoint itself triggers (touches `frontend/Dockerfile`
   and `docker-compose.yml`).
-- **Merged, not yet deployed.** PR #185 squash-merged `e57b5e1`
-  (2026-08-24) after three independent review rounds (blacktomb42) — round
-  1: 1 bug (dropped `@supabase/ssr` `setAll` cache-prevention headers) + 2
-  suggestions + 1 nit; round 2: 1 bug (the round-1 fix's blanket header
-  copy clobbered Next's own `x-middleware-override-headers` bookkeeping
-  header, silently dropping the Authorization override even though the
-  header *value* stayed present — the round-1 regression test was
-  false-green, checking only that the value existed) — both bugs verified
-  by reproducing them with a failing test before fixing, not accepted on
-  the reviewer's word; round 3: 0 bugs, 1 suggestion (derive the
-  cache-prevention header set live from `setAll`'s own argument instead of
-  a hardcoded copy — closes the exact drift class round 1's fix risked)
-  + 1 nit. Deployment is still B4+B5 together, per the B4 section
-  above — production is on the B2 commit (`b4f51c4`) as of this writing.
-  §6.7's four-table `SELECT DISTINCT user_id` re-check and the production
-  end-to-end UAT (design doc §10.3, script: Obsidian `Hermes/Portfonia/
-  Docs/Ring 1-B5 UAT script.md`) happen at that deploy.
+- **Merged and deployed to production, 2026-08-25.** PR #185 squash-merged
+  `e57b5e1` (2026-08-24) after three independent review rounds
+  (blacktomb42) — round 1: 1 bug (dropped `@supabase/ssr` `setAll`
+  cache-prevention headers) + 2 suggestions + 1 nit; round 2: 1 bug (the
+  round-1 fix's blanket header copy clobbered Next's own
+  `x-middleware-override-headers` bookkeeping header, silently dropping the
+  Authorization override even though the header *value* stayed present —
+  the round-1 regression test was false-green, checking only that the
+  value existed) — both bugs verified by reproducing them with a failing
+  test before fixing, not accepted on the reviewer's word; round 3: 0 bugs,
+  1 suggestion (derive the cache-prevention header set live from
+  `setAll`'s own argument instead of a hardcoded copy — closes the exact
+  drift class round 1's fix risked) + 1 nit.
+- **Deployment record**: B4+B5 were deployed together on 2026-08-25, per
+  the B4 section's "do not deploy B4 without B5" rule — production had
+  been sitting on the B2 commit (`b4f51c4`) until then. §6.7's four-table
+  `SELECT DISTINCT user_id` re-check, the server `.env` Supabase vars
+  (fresh values, never copied from `.env.local`), and the
+  `auth.portfonia.com` DNS record were all put in place ahead of the
+  deploy per the B4 section's checklist. Production completed **two
+  rounds** of end-to-end UAT (design doc §10.3, script: Obsidian
+  `Hermes/Portfonia/Docs/Ring 1-B5 UAT script.md`, execution record there)
+  — see `Hermes/Portfonia/Docs/Ring 1-B design.md`'s status line for the
+  authoritative confirmation that B1-B5 are implemented, merged, deployed,
+  and UAT'd; this repo's own session notes for the exact deploy session
+  were not captured in `CLAUDE.md` at the time, which is the gap this
+  entry corrects.
 
 

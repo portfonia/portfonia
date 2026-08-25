@@ -101,6 +101,7 @@ more likely, not less.
   ORM/migration index drift), all verified against actual code and fixed;
   round 2 (Approve) found 0 new issues. 516 tests passing (was 511 at
   first review), `ruff format`/`ruff check`/`mypy --strict` clean. Merged
-  2026-08-13 (`2946d0a`); not yet deployed to production.
+  2026-08-13 (`2946d0a`); deployed to production (confirmed an ancestor of
+  the 2026-08-25 production deploy, `bf74971`).
 
 
