@@ -140,24 +140,48 @@ def capture_prices(
     return written
 
 
-def capture_fund_navs(session: Session, lookback_days: int = 30) -> int:
-    """Fetch settled NAV history from Tiantian Fund for all fund_code holdings.
+def _auto_fund_codes(session: Session) -> dict[str, str]:
+    """Unique fund_code -> market for auto-priced fund holdings.
+
+    Two holdings of the same fund (two users, or two lots) must not produce
+    duplicate upsert rows — Postgres rejects ON CONFLICT DO UPDATE when one
+    INSERT proposes the same key twice.
+    """
+    holdings = session.execute(
+        select(Holding).where(
+            Holding.pricing_mode == "auto",
+            Holding.fund_code.is_not(None),
+        )
+    ).scalars()
+    out: dict[str, str] = {}
+    for h in holdings:
+        code = h.fund_code
+        if code and code not in out:
+            out[code] = h.market or "A-Share"
+    return out
+
+
+def capture_fund_navs(
+    session: Session,
+    lookback_days: int = 30,
+    fund_codes: list[str] | None = None,
+) -> int:
+    """Fetch settled NAV history from Tiantian Fund for fund_code holdings.
 
     Upserts into price_snapshots using fund_code as ticker key, market from the
     holding (defaulting to A-Share), session_node='close'. The upsert is
     idempotent so re-runs and catch-up are safe.
+
+    `fund_codes` restricts the fetch to that subset (confirm-time cold start).
+    ``None`` keeps the daily path's full auto-priced fund universe.
     """
     from app.services.fund_nav_fetcher import fetch_nav_history
 
-    holdings = list(
-        session.execute(
-            select(Holding).where(
-                Holding.pricing_mode == "auto",
-                Holding.fund_code.is_not(None),
-            )
-        ).scalars()
-    )
-    if not holdings:
+    selected = _auto_fund_codes(session)
+    if fund_codes is not None:
+        wanted = set(fund_codes)
+        selected = {code: market for code, market in selected.items() if code in wanted}
+    if not selected:
         logger.info("capture_fund_navs: no fund_code holdings to capture")
         return 0
 
@@ -165,15 +189,13 @@ def capture_fund_navs(session: Session, lookback_days: int = 30) -> int:
     rows: list[dict[str, object]] = []
 
     with httpx.Client() as client:
-        for h in holdings:
-            fund_code = h.fund_code
-            assert fund_code is not None
+        for fund_code, market in selected.items():
             nav_history = fetch_nav_history(fund_code, client, lookback_days=lookback_days)
             for nav_date, nav in nav_history:
                 rows.append(
                     {
                         "ticker": fund_code,
-                        "market": h.market or "A-Share",
+                        "market": market,
                         "session_node": "close",
                         "trade_date": nav_date,
                         "close": nav,
@@ -182,5 +204,5 @@ def capture_fund_navs(session: Session, lookback_days: int = 30) -> int:
                 )
 
     written = _upsert(session, rows)
-    logger.info("capture_fund_navs: holdings=%d written=%d", len(holdings), written)
+    logger.info("capture_fund_navs: funds=%d written=%d", len(selected), written)
     return written
