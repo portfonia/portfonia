@@ -111,6 +111,32 @@ def test_capture_declared_market_routes_ticker(db_session: Session) -> None:
         spot.assert_not_called()  # AAPL is not in the US bucket here
 
 
+def test_capture_prices_tickers_filter_restricts_fetch(db_session: Session) -> None:
+    """A confirm-time backfill must not pull the whole market universe (#194)."""
+    db_session.add_all([_holding("Apple", "AAPL"), _holding("Nvidia", "NVDA")])
+    db_session.flush()
+    ohlcv = {"AAPL": [(date(2026, 6, 5), 1.0, 1.0, 1.0, 100.0, 1.0)]}
+    with patch("app.services.price_capture.fetch_ohlcv_range", return_value=ohlcv) as fetch:
+        n = capture_prices(db_session, market="US", session_node="close", tickers=["AAPL"])
+    fetch.assert_called_once_with(["AAPL"], lookback_days=7)
+    assert n == 1
+    assert (
+        db_session.execute(
+            select(func.count()).select_from(PriceSnapshot).where(PriceSnapshot.ticker == "NVDA")
+        ).scalar_one()
+        == 0
+    )
+
+
+def test_capture_prices_empty_tickers_filter_fetches_nothing(db_session: Session) -> None:
+    db_session.add(_holding("Apple", "AAPL"))
+    db_session.flush()
+    with patch("app.services.price_capture.fetch_ohlcv_range") as fetch:
+        n = capture_prices(db_session, market="US", session_node="close", tickers=[])
+    assert n == 0
+    fetch.assert_not_called()
+
+
 # Close-node rows bind 10 parameters each. PostgreSQL/psycopg hard-cap a
 # single query at 65535 parameters, so 6554+ rows in one INSERT overflows
 # (issue #194). 7000 rows = 70000 params, past that cap with margin.

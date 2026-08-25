@@ -85,16 +85,31 @@ def test_capture_prices_task(mock_cap: MagicMock, mock_session_cls: MagicMock) -
 
 @patch("app.core.database.SessionLocal")
 @patch("app.services.price_capture.capture_prices", return_value=7)
-def test_backfill_ohlcv_task_sums_all_markets(
+def test_backfill_ohlcv_task_no_tickers_is_noop(
+    mock_cap: MagicMock, mock_session_cls: MagicMock
+) -> None:
+    from app.tasks.capture_tasks import backfill_ohlcv_task
+
+    result = backfill_ohlcv_task.run()
+    assert result == {"written": 0}
+    mock_cap.assert_not_called()
+
+
+@patch("app.core.database.SessionLocal")
+@patch("app.services.price_capture.capture_prices", return_value=7)
+def test_backfill_ohlcv_task_passes_tickers_to_each_market(
     mock_cap: MagicMock, mock_session_cls: MagicMock
 ) -> None:
     from app.tasks.capture_tasks import backfill_ohlcv_task
 
     session = MagicMock()
     mock_session_cls.return_value = session
-    result = backfill_ohlcv_task.run()
+    result = backfill_ohlcv_task.run(["AAPL"])
     assert result == {"written": 21}
     assert [c.args[1] for c in mock_cap.call_args_list] == ["US", "HK", "A-Share"]
+    for call in mock_cap.call_args_list:
+        assert call.kwargs["lookback_days"] == 420
+        assert call.kwargs["tickers"] == ["AAPL"]
     session.close.assert_called_once()
 
 
@@ -109,7 +124,13 @@ def test_backfill_ohlcv_continues_after_one_market_fails(
     session = MagicMock()
     mock_session_cls.return_value = session
 
-    def _cap(_session: object, market: str, _node: str, lookback_days: int = 7) -> int:
+    def _cap(
+        _session: object,
+        market: str,
+        _node: str,
+        lookback_days: int = 7,
+        **_kwargs: object,
+    ) -> int:
         if market == "US":
             raise RuntimeError("US exploded")
         return 5
@@ -119,7 +140,7 @@ def test_backfill_ohlcv_continues_after_one_market_fails(
     # .run() is called_directly, so Celery's retry re-raises the combined
     # RuntimeError rather than celery.exceptions.Retry.
     with pytest.raises(RuntimeError, match="US exploded"):
-        backfill_ohlcv_task.run()
+        backfill_ohlcv_task.run(["AAPL", "0700.HK", "000001.SS"])
 
     assert [c.args[1] for c in mock_cap.call_args_list] == ["US", "HK", "A-Share"]
     session.rollback.assert_called()

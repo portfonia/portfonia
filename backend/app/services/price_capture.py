@@ -76,15 +76,22 @@ def capture_prices(
     session_node: str,
     trade_date: date | None = None,
     lookback_days: int = 7,
+    tickers: list[str] | None = None,
 ) -> int:
     """Capture one (market, session_node) into price_snapshots. Returns rows written.
 
     close node → daily OHLCV over the last `lookback_days` (each bar keyed by its
     own trade_date, so missed days are backfilled); other nodes → best-effort
     `last` (trade_date = today in the market's local clock).
+
+    `tickers` restricts the fetch to that subset (confirm-time OHLCV backfill).
+    ``None`` keeps the daily path's full auto-priced market universe.
     """
-    tickers = _market_tickers(session, market)
-    if not tickers:
+    selected = _market_tickers(session, market)
+    if tickers is not None:
+        wanted = set(tickers)
+        selected = [t for t in selected if t in wanted]
+    if not selected:
         logger.info("capture_prices: no auto tickers for market %s", market)
         return 0
 
@@ -92,7 +99,7 @@ def capture_prices(
     rows: list[dict[str, object]] = []
 
     if session_node == "close":
-        for ticker, bars in fetch_ohlcv_range(tickers, lookback_days=lookback_days).items():
+        for ticker, bars in fetch_ohlcv_range(selected, lookback_days=lookback_days).items():
             for bar_date, o, h, low, c, vol in bars:
                 rows.append(
                     {
@@ -110,7 +117,7 @@ def capture_prices(
                 )
     else:
         td = trade_date or datetime.now(tz=MARKET_TZ.get(market, UTC)).date()
-        for ticker, last in fetch_spot(tickers).items():
+        for ticker, last in fetch_spot(selected).items():
             rows.append(
                 {
                     "ticker": ticker,
@@ -127,7 +134,7 @@ def capture_prices(
         "capture_prices: market=%s node=%s tickers=%d written=%d",
         market,
         session_node,
-        len(tickers),
+        len(selected),
         written,
     )
     return written

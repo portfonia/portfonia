@@ -63,16 +63,18 @@ _MAX_TEXT_BYTES = 100 * 1024
 
 
 def _tickers_with_sparse_history(session: Session, user_id: UUID) -> list[str]:
-    """Return tickers that are auto-priced with a ticker but have < _MIN_BARS_FOR_TECHNICAL
-    close bars in price_snapshots. These need an OHLCV backfill.
+    """Return this user's auto-priced tickers with < _MIN_BARS_FOR_TECHNICAL close bars.
 
-    The query itself stays global (CLAUDE.md §2.2 class C: OHLCV backfill is
-    a system-wide task, not scoped to one user's holdings) — `user_id` is
-    used only to attribute the log line below to whoever triggered this
-    confirm, never to filter the query.
+    price_snapshots is a global store (no user_id); the *fetch* still writes
+    shared rows. The *trigger* is this confirm's book — another user's sparse
+    name must not fire a 420-day job here (issue #194).
     """
     holdings = session.scalars(
-        select(Holding).where(Holding.ticker.is_not(None), Holding.pricing_mode == "auto")
+        select(Holding).where(
+            Holding.user_id == user_id,
+            Holding.ticker.is_not(None),
+            Holding.pricing_mode == "auto",
+        )
     ).all()
     tickers = {h.ticker for h in holdings if h.ticker}
     if not tickers:
@@ -89,7 +91,7 @@ def _tickers_with_sparse_history(session: Session, user_id: UUID) -> list[str]:
             .group_by(PriceSnapshot.ticker)
         ).all()
     }
-    sparse = [t for t in tickers if bar_counts.get(t, 0) < _MIN_BARS_FOR_TECHNICAL]
+    sparse = sorted(t for t in tickers if bar_counts.get(t, 0) < _MIN_BARS_FOR_TECHNICAL)
     if sparse:
         # Concept §8.8: application logs record user_id, never holdings
         # content — a ticker list is holdings-derived (issue #129 §2.2 D).
@@ -225,13 +227,13 @@ def confirm_holdings(
     session.commit()
     # Populate sector from yfinance for all auto-mode ticker holdings.
     backfill_sectors(session)
-    # If any ticker has fewer than 50 close bars, it was recently added and
-    # needs a historical backfill so §4.4 technical position can populate.
+    # If this user's auto tickers have fewer than 50 close bars, they were
+    # recently added and need a historical backfill so §4.4 can populate.
     tickers_needing_backfill = _tickers_with_sparse_history(session, user_id)
     if tickers_needing_backfill:
         from app.tasks.capture_tasks import backfill_ohlcv_task
 
-        backfill_ohlcv_task.delay()
+        backfill_ohlcv_task.delay(tickers_needing_backfill)
     for h in holdings:
         session.refresh(h)
     return holdings

@@ -119,15 +119,21 @@ def capture_prices_task(self: Any, market: str, session_node: str) -> dict[str, 
     max_retries=1,
     default_retry_delay=60,
 )
-def backfill_ohlcv_task(self: Any) -> dict[str, Any]:
-    """Backfill ~1 year of OHLCV closes for all auto-priced holdings.
+def backfill_ohlcv_task(self: Any, tickers: list[str] | None = None) -> dict[str, Any]:
+    """Backfill ~1 year of OHLCV closes for the given tickers.
 
-    Dispatched by confirm_holdings when it detects tickers with sparse history
-    (< 50 bars). Idempotent: the upsert key is (ticker, market, session_node,
-    trade_date), so re-running is safe.
+    Dispatched by confirm_holdings with that user's sparse auto-priced tickers
+    (< 50 close bars). Daily capture stays on capture_prices_task (full market
+    universe, 7-day lookback). The ops script backfill_ohlcv.py remains the
+    one-shot full-universe seed. Idempotent on (ticker, market, session_node,
+    trade_date).
     """
     from app.core.database import SessionLocal
     from app.services.price_capture import capture_prices
+
+    if not tickers:
+        logger.info("backfill_ohlcv_task: no tickers requested")
+        return {"written": 0}
 
     _LOOKBACK_DAYS = 420
     _MARKETS = ("US", "HK", "A-Share")
@@ -137,7 +143,13 @@ def backfill_ohlcv_task(self: Any) -> dict[str, Any]:
         failures: list[tuple[str, BaseException]] = []
         for market in _MARKETS:
             try:
-                written = capture_prices(session, market, "close", lookback_days=_LOOKBACK_DAYS)
+                written = capture_prices(
+                    session,
+                    market,
+                    "close",
+                    lookback_days=_LOOKBACK_DAYS,
+                    tickers=tickers,
+                )
                 logger.info("backfill_ohlcv_task: %s: %d bars upserted", market, written)
                 total += written
             except Exception as exc:
