@@ -22,6 +22,18 @@ logger = logging.getLogger(__name__)
 
 _GITHUB_API = "https://api.github.com"
 
+# GitHub issue bodies 422 above this (documented REST limit). Applied here
+# so any caller interpolating a huge exception (issue #195) still files.
+_GITHUB_ISSUE_BODY_MAX = 65_536
+_TRUNCATION_MARK = "\n...(truncated)"
+
+
+def _truncate(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    keep = max(0, limit - len(_TRUNCATION_MARK))
+    return text[:keep] + _TRUNCATION_MARK
+
 
 def create_bug_report(
     title: str,
@@ -43,7 +55,10 @@ def create_bug_report(
     token = settings.GITHUB_TOKEN.get_secret_value()
     repo = settings.GITHUB_REPO
 
-    payload: dict[str, object] = {"title": title, "body": body}
+    payload: dict[str, object] = {
+        "title": title,
+        "body": _truncate(body, _GITHUB_ISSUE_BODY_MAX),
+    }
     if labels:
         payload["labels"] = labels
 

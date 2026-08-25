@@ -26,6 +26,11 @@ logger = logging.getLogger(__name__)
 
 _MARKET_KEY = {"us": "US", "hk": "HK", "cn": "A-Share"}
 
+# PostgreSQL/psycopg hard-cap a single query at 65535 bound parameters.
+# Close-node rows bind 10 params each, so 6553 rows is the theoretical
+# ceiling; 2000 leaves margin if a future caller adds columns. Issue #194.
+_UPSERT_CHUNK_SIZE = 2000
+
 
 def _effective_market(h: Holding) -> str:
     """User-declared market wins; otherwise derive from the ticker."""
@@ -45,6 +50,13 @@ def _market_tickers(session: Session, market: str) -> list[str]:
 def _upsert(session: Session, rows: list[dict[str, object]]) -> int:
     if not rows:
         return 0
+    written = 0
+    for start in range(0, len(rows), _UPSERT_CHUNK_SIZE):
+        written += _upsert_chunk(session, rows[start : start + _UPSERT_CHUNK_SIZE])
+    return written
+
+
+def _upsert_chunk(session: Session, rows: list[dict[str, object]]) -> int:
     base = pg_insert(PriceSnapshot).values(rows)
     update_cols = {
         c: base.excluded[c]

@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
-from app.services.price_capture import capture_prices
+from app.services.price_capture import _upsert, capture_prices
 
 _USER = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
@@ -109,3 +109,43 @@ def test_capture_declared_market_routes_ticker(db_session: Session) -> None:
     with patch("app.services.price_capture.fetch_spot", return_value={"AAPL": 50.0}) as spot:
         assert capture_prices(db_session, market="US", session_node="open") == 0
         spot.assert_not_called()  # AAPL is not in the US bucket here
+
+
+# Close-node rows bind 10 parameters each. PostgreSQL/psycopg hard-cap a
+# single query at 65535 parameters, so 6554+ rows in one INSERT overflows
+# (issue #194). 7000 rows = 70000 params, past that cap with margin.
+_PARAM_OVERFLOW_ROW_COUNT = 7000
+
+
+def test_upsert_chunks_past_postgres_parameter_limit(db_session: Session) -> None:
+    """A batch that used to exceed psycopg's 65535-param cap must still write.
+
+    Production `backfill_ohlcv_task` hit this on 2026-08-25 when a second
+    user's holdings widened the system-wide US ticker set enough that
+    420 days x tickers x 10 bound params overflowed a single INSERT.
+    """
+    now = datetime.now(tz=UTC)
+    start = date(2000, 1, 1)
+    rows: list[dict[str, object]] = [
+        {
+            "ticker": "BULK",
+            "market": "US",
+            "session_node": "close",
+            "trade_date": start + timedelta(days=i),
+            "open": 1.0,
+            "high": 1.0,
+            "low": 1.0,
+            "close": 1.0,
+            "volume": 1.0,
+            "captured_at": now,
+        }
+        for i in range(_PARAM_OVERFLOW_ROW_COUNT)
+    ]
+
+    written = _upsert(db_session, rows)
+
+    assert written == _PARAM_OVERFLOW_ROW_COUNT
+    count = db_session.execute(
+        select(func.count()).select_from(PriceSnapshot).where(PriceSnapshot.ticker == "BULK")
+    ).scalar_one()
+    assert count == _PARAM_OVERFLOW_ROW_COUNT
