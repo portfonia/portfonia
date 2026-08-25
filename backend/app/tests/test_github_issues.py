@@ -83,3 +83,17 @@ def test_capture_failed_truncates_huge_exception_in_github_body() -> None:
     assert "truncated" in issue_body
     assert "truncated" in alert_body
     assert "backfill_ohlcv_task" in issue_body
+
+
+def test_format_exc_redacts_bound_sql_parameters() -> None:
+    """Compiled INSERT text can carry ticker/fund_code bindings (Concept §8.8)."""
+    from app.tasks.capture_tasks import _format_exc
+
+    text = _format_exc(
+        RuntimeError(
+            "INSERT INTO price_snapshots ... "
+            "[parameters: {'ticker_m0': '513100', 'market_m0': 'A-Share'}]"
+        )
+    )
+    assert "513100" not in text
+    assert "redacted" in text

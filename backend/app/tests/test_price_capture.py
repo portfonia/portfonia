@@ -233,6 +233,44 @@ def test_capture_fund_navs_dedupes_same_fund_code_across_holdings(
     assert n == 1
 
 
+def test_capture_fund_navs_prefers_declared_market_over_null_default(
+    db_session: Session,
+) -> None:
+    """Same fund_code, mixed NULL vs declared market: declared wins, stably."""
+    other = uuid.uuid4()
+    db_session.add_all(
+        [
+            Holding(
+                user_id=_USER,
+                name="Null market lot",
+                fund_code="513100",
+                pricing_mode="auto",
+                currency="CNY",
+                market=None,
+                asset_class="EQUITY_US_BROAD",
+            ),
+            Holding(
+                user_id=other,
+                name="Declared HK lot",
+                fund_code="513100",
+                pricing_mode="auto",
+                currency="CNY",
+                market="HK",
+                asset_class="EQUITY_US_BROAD",
+            ),
+        ]
+    )
+    db_session.flush()
+    history = [(date(2026, 8, 22), Decimal("1.23"))]
+    with patch("app.services.fund_nav_fetcher.fetch_nav_history", return_value=history):
+        n = capture_fund_navs(db_session)
+    assert n == 1
+    row = db_session.execute(
+        select(PriceSnapshot).where(PriceSnapshot.ticker == "513100")
+    ).scalar_one()
+    assert row.market == "HK"
+
+
 # Close-node rows bind 10 parameters each. PostgreSQL/psycopg hard-cap a
 # single query at 65535 parameters, so 6554+ rows in one INSERT overflows
 # (issue #194). 7000 rows = 70000 params, past that cap with margin.

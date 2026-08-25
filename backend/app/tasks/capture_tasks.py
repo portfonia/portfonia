@@ -10,6 +10,7 @@ horizon.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime
 from typing import Any
 
@@ -27,15 +28,29 @@ _MAX_EXC_CHARS = 4_000
 # join + the "RuntimeError: " prefix _format_exc adds.
 _MAX_MARKET_EXC_CHARS = 1_200
 _EXC_TRUNCATION_MARK = "...(truncated)"
+# SQLAlchemy/psycopg interpolates bound parameters into str(exc). Those
+# bindings are holdings-derived identifiers (ticker / fund_code). Application
+# logs omit them (Concept §8.8); ops email + auto GitHub issues used not to.
+_SQL_PARAMETERS_RE = re.compile(r"\[parameters:.*?\]", re.DOTALL)
+
+
+def _scrub_sql_parameters(text: str) -> str:
+    return _SQL_PARAMETERS_RE.sub("[parameters: redacted]", text)
 
 
 def _format_exc(exc: BaseException) -> str:
-    return truncate_text(f"{type(exc).__name__}: {exc}", _MAX_EXC_CHARS, mark=_EXC_TRUNCATION_MARK)
+    return truncate_text(
+        _scrub_sql_parameters(f"{type(exc).__name__}: {exc}"),
+        _MAX_EXC_CHARS,
+        mark=_EXC_TRUNCATION_MARK,
+    )
 
 
 def _market_failure_entry(market: str, exc: BaseException) -> str:
     detail = truncate_text(
-        f"{type(exc).__name__}: {exc}", _MAX_MARKET_EXC_CHARS, mark=_EXC_TRUNCATION_MARK
+        _scrub_sql_parameters(f"{type(exc).__name__}: {exc}"),
+        _MAX_MARKET_EXC_CHARS,
+        mark=_EXC_TRUNCATION_MARK,
     )
     return f"{market}: {detail}"
 
@@ -274,6 +289,17 @@ def backfill_fund_navs_task(self: Any, fund_codes: list[str] | None = None) -> d
     session = SessionLocal()
     try:
         written = capture_fund_navs(session, lookback_days=_LOOKBACK_DAYS, fund_codes=fund_codes)
+        if written == 0:
+            # fetch_nav_history swallows HTTP/parse errors as []. A total miss
+            # here is the #196 incident with no signal: the daily beat will
+            # retry tomorrow, but this one-shot would otherwise SUCCESS.
+            logger.warning(
+                "backfill_fund_navs_task: wrote 0 bars for %d requested fund_code(s)",
+                len(fund_codes),
+            )
+            raise RuntimeError(
+                f"NAV capture wrote 0 bars for {len(fund_codes)} requested fund_code(s)"
+            )
         logger.info("backfill_fund_navs_task: complete — %d bars total", written)
         return {"written": written}
     except Exception as exc:

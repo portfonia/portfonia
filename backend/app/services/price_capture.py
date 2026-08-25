@@ -153,12 +153,18 @@ def _auto_fund_codes(session: Session) -> dict[str, str]:
             Holding.fund_code.is_not(None),
         )
     ).scalars()
-    out: dict[str, str] = {}
+    declared: dict[str, set[str]] = {}
     for h in holdings:
         code = h.fund_code
-        if code and code not in out:
-            out[code] = h.market or "A-Share"
-    return out
+        if not code:
+            continue
+        declared.setdefault(code, set())
+        if h.market:
+            declared[code].add(h.market)
+    # Prefer an explicitly declared market over the A-Share default; if
+    # several lots disagree, the lexicographically smallest wins so the
+    # upsert key does not depend on query order.
+    return {code: (min(markets) if markets else "A-Share") for code, markets in declared.items()}
 
 
 def capture_fund_navs(

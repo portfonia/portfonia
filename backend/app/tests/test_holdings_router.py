@@ -56,8 +56,8 @@ _PARSED_CASH: dict[str, object] = {
     "confidence": 1.0,
 }
 
-# China A-share fund: fund_code only, no ticker. Confirm currently has no
-# cold-start NAV trigger for this shape (issue #196).
+# China A-share fund: fund_code only, no ticker — exercises the confirm-time
+# NAV cold-start dispatch (issue #196).
 _PARSED_FUND: dict[str, object] = {
     "name": "Huaxia SSE 50 ETF",
     "ticker": None,
@@ -490,6 +490,65 @@ def test_confirm_skips_fund_nav_backfill_when_close_already_cached(
         resp = app_client.post("/holdings/confirm", json=[_PARSED_FUND])
     assert resp.status_code == 200
     mock_nav.delay.assert_not_called()
+
+
+def test_confirm_skips_fund_nav_backfill_for_manual_fund(
+    app_client: TestClient,
+) -> None:
+    """Manual funds are user-priced; they must not trigger a NAV capture."""
+    manual = {
+        **_PARSED_FUND,
+        "pricing_mode": "manual",
+        "current_value": 1200.0,
+        "shares": None,
+        "avg_cost": None,
+    }
+    with patch("app.tasks.capture_tasks.backfill_fund_navs_task") as mock_nav:
+        resp = app_client.post("/holdings/confirm", json=[manual])
+    assert resp.status_code == 200
+    mock_nav.delay.assert_not_called()
+
+
+def test_confirm_dispatches_fund_nav_when_only_non_close_snapshot_exists(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """An after_close last-only row is not a cached NAV close."""
+    db_session.add(
+        PriceSnapshot(
+            ticker="513100",
+            market="A-Share",
+            session_node="after_close",
+            trade_date=date(2026, 8, 22),
+            last=Decimal("1.23"),
+        )
+    )
+    db_session.commit()
+
+    with patch("app.tasks.capture_tasks.backfill_fund_navs_task") as mock_nav:
+        resp = app_client.post("/holdings/confirm", json=[_PARSED_FUND])
+    assert resp.status_code == 200
+    mock_nav.delay.assert_called_once_with(["513100"])
+
+
+def test_confirm_still_succeeds_when_fund_nav_enqueue_fails(
+    app_client: TestClient,
+) -> None:
+    """A broker blip after commit must not 500 a successful confirm."""
+    with patch("app.tasks.capture_tasks.backfill_fund_navs_task") as mock_nav:
+        mock_nav.delay.side_effect = RuntimeError("broker down")
+        resp = app_client.post("/holdings/confirm", json=[_PARSED_FUND])
+    assert resp.status_code == 200
+    assert resp.json()[0]["fund_code"] == "513100"
+
+
+def test_confirm_still_succeeds_when_ohlcv_enqueue_fails(
+    app_client: TestClient,
+) -> None:
+    with patch("app.tasks.capture_tasks.backfill_ohlcv_task") as mock_ohlcv:
+        mock_ohlcv.delay.side_effect = RuntimeError("broker down")
+        resp = app_client.post("/holdings/confirm", json=[_PARSED_APPLE])
+    assert resp.status_code == 200
+    assert resp.json()[0]["ticker"] == "AAPL"
 
 
 def test_confirm_fund_nav_backfill_passes_only_this_users_uncached_codes(

@@ -261,3 +261,19 @@ def test_backfill_fund_navs_task_passes_codes_and_scheduled_lookback(
     assert result == {"written": 8}
     mock_cap.assert_called_once_with(session, lookback_days=30, fund_codes=["513100"])
     session.close.assert_called_once()
+
+
+@patch("app.core.database.SessionLocal")
+@patch("app.services.price_capture.capture_fund_navs", return_value=0)
+def test_backfill_fund_navs_task_zero_writes_is_retryable(
+    mock_cap: MagicMock, mock_session_cls: MagicMock
+) -> None:
+    """lsjz swallowing every error used to SUCCESS with written=0 and no alert."""
+    from app.tasks.capture_tasks import backfill_fund_navs_task
+
+    session = MagicMock()
+    mock_session_cls.return_value = session
+    with pytest.raises(RuntimeError, match="0 bars"):
+        backfill_fund_navs_task.run(["513100"])
+    mock_cap.assert_called_once()
+    session.close.assert_called_once()

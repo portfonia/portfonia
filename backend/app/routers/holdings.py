@@ -2,6 +2,7 @@ import logging
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
@@ -144,6 +145,25 @@ def _fund_codes_without_close(session: Session, user_id: UUID) -> list[str]:
     return missing
 
 
+def _enqueue_confirm_capture(task: Any, args: list[str], label: str, user_id: UUID) -> None:
+    """Fire-and-forget after holdings are already committed.
+
+    A broker blip must not turn a successful confirm into a 500 — the write
+    is done; the daily capture beat covers a missed enqueue. Unlike
+    upload_holdings (PR #82), there is no pending job row that would be
+    stuck without the task.
+    """
+    try:
+        task.delay(args)
+    except Exception:
+        logger.exception(
+            "confirm_holdings: user_id=%s failed to enqueue %s for %d identifier(s)",
+            user_id,
+            label,
+            len(args),
+        )
+
+
 @router.post("/upload", response_model=UploadJobOut, status_code=status.HTTP_202_ACCEPTED)
 async def upload_holdings(
     request: Request,
@@ -273,7 +293,9 @@ def confirm_holdings(
     if tickers_needing_backfill:
         from app.tasks.capture_tasks import backfill_ohlcv_task
 
-        backfill_ohlcv_task.delay(tickers_needing_backfill)
+        _enqueue_confirm_capture(
+            backfill_ohlcv_task, tickers_needing_backfill, "ohlcv backfill", user_id
+        )
     # Fund_code holdings are not on the OHLCV path. Without this dispatch
     # they wait until the next capture-fund-navs-daily beat (up to ~24h,
     # longer over a weekend) and the first report drops them as missing
@@ -283,7 +305,9 @@ def confirm_holdings(
     if fund_codes_needing_nav:
         from app.tasks.capture_tasks import backfill_fund_navs_task
 
-        backfill_fund_navs_task.delay(fund_codes_needing_nav)
+        _enqueue_confirm_capture(
+            backfill_fund_navs_task, fund_codes_needing_nav, "fund NAV capture", user_id
+        )
     for h in holdings:
         session.refresh(h)
     return holdings
