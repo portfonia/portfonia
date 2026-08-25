@@ -76,7 +76,7 @@ class _ZhVocab:
     scan_terms: tuple[str, ...]
     scan_regex_patterns: tuple[str, ...]
     prompt_only_terms: tuple[str, ...]
-    context_scan_term: str
+    context_scan_terms: tuple[str, ...]
 
 
 def _get_vocab_path() -> Path:
@@ -121,9 +121,9 @@ def _load_zh_vocab(path: Path | None = None) -> _ZhVocab:
     )
     for pattern in scan_regex_patterns:
         re.compile(pattern)
-    context_scan_term = raw["context_scan_term"]
-    if not isinstance(context_scan_term, str) or not context_scan_term:
-        raise ValueError("compliance_vocab.yml: context_scan_term must be a non-empty string")
+    context_scan_terms = tuple(
+        _require_non_empty_str_list(raw["context_scan_terms"], "context_scan_terms")
+    )
 
     scan_terms = tuple(entry["term"] for entry in raw["scan_terms"])
     if not scan_terms or not all(isinstance(t, str) and t for t in scan_terms):
@@ -140,7 +140,7 @@ def _load_zh_vocab(path: Path | None = None) -> _ZhVocab:
         scan_terms=scan_terms,
         scan_regex_patterns=tuple(scan_regex_patterns),
         prompt_only_terms=prompt_only_terms,
-        context_scan_term=context_scan_term,
+        context_scan_terms=context_scan_terms,
     )
 
 
@@ -148,7 +148,7 @@ _zh_vocab = _load_zh_vocab()
 _ZH_SCAN_TERMS: tuple[str, ...] = _zh_vocab.scan_terms
 _ZH_SCAN_REGEX_PATTERNS: tuple[str, ...] = _zh_vocab.scan_regex_patterns
 _ZH_PROMPT_ONLY_TERMS: tuple[str, ...] = _zh_vocab.prompt_only_terms
-_ZH_CONTEXT_SCAN_TERMS: tuple[str, ...] = (_zh_vocab.context_scan_term,)
+_ZH_CONTEXT_SCAN_TERMS: tuple[str, ...] = _zh_vocab.context_scan_terms
 
 # Combined set for the LLM prompt (scan terms + context-scan terms + prompt-only terms).
 _ZH_LITERAL_TERMS: tuple[str, ...] = _ZH_SCAN_TERMS + _ZH_CONTEXT_SCAN_TERMS + _ZH_PROMPT_ONLY_TERMS
