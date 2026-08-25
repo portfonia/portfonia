@@ -2269,7 +2269,15 @@ capability existing.
   something an individual user should trigger). B4 added
   `POST/GET/DELETE /admin/invites` and `POST /admin/users/{id}/bind-subject`
   under the same ops-token router (plaintext invite token returned once on
-  create; bind-subject never overwrites a non-NULL `auth_subject`). A structural test
+  create; bind-subject never overwrites a non-NULL `auth_subject`). Issue
+  #201 (PR #203) added `POST /admin/users/{id}/reports/generate`: ops-token,
+  synchronous `generate_report` for one user (`session_node="manual"`),
+  hitting `api.portfonia.com` directly so the Next.js proxy timeout on
+  self-service `POST /reports/generate` (issue #193) is not in the path.
+  404 if the user is missing; 422 if not active or has no holdings (mirrors
+  `active_user_ids()`); `openai.APIError` → 502; concurrent unique-key race
+  → 409. Success emails the target user. Admin email-resend was scoped out
+  (`POST /admin/reports/{id}/send` leftover). A structural test
   (`test_all_admin_routes_require_ops_token` in `test_admin_router.py`)
   iterates `app.routes` and asserts every `/admin`-prefixed route's
   dependant chain includes `require_ops_token`, so a future endpoint that

@@ -25,9 +25,11 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+import openai
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy import exists, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -35,10 +37,15 @@ from app.core.config import get_settings
 from app.core.database import get_session
 from app.core.deps import require_ops_token
 from app.core.ops_log import log_ops_event
+from app.models.holding import Holding
+from app.models.report import Report
 from app.models.user import User
+from app.schemas.reports import ReportOut
 from app.services import fx_fetcher, price_fetcher
 from app.services.fund_nav_fetcher import update_fund_navs
 from app.services.invites import create_invite, list_invites, revoke_invite
+from app.services.llm_errors import LLMEmptyResponseError
+from app.services.report_generator import generate_report
 from app.tasks.admin_tasks import send_admin_alert_task
 
 logger = logging.getLogger(__name__)
@@ -243,3 +250,64 @@ def bind_user_subject(
         session.rollback()
         raise HTTPException(status_code=409, detail="auth_subject already bound") from None
     return BindSubjectOut(id=user.id, auth_subject=user.auth_subject)
+
+
+@router.post(
+    "/users/{user_id}/reports/generate",
+    response_model=ReportOut,
+    status_code=201,
+)
+def generate_report_for_user(user_id: UUID, session: Session = Depends(get_session)) -> Report:
+    """Manually trigger report generation for one user (issue #201).
+
+    Synchronous by design: /admin/* hits api.portfonia.com directly, never
+    the frontend Next.js proxy that times out around 30s (issue #193). A
+    curl or agent caller waits for the full pipeline. The handler is a
+    sync def, so Starlette runs it in the threadpool — it occupies a
+    threadpool worker and a pooled DB connection for the full duration,
+    the same cost POST /reports/generate already pays. Acceptable because
+    this is a rare ops action. Do not invoke concurrently for the same
+    user; a second POST while the first is still running can race the
+    report dedup key.
+
+    session_node is always "manual", matching the self-service default, so
+    a same-day scheduled after_close run still gets its own row. Currency
+    and language are the system-wide defaults (generate_report's USD,
+    Settings.OUTPUT_LANG), not users.base_currency / users.locale — same
+    as the scheduled fan-out and the self-service endpoint. The user must
+    exist, be status=active, and have at least one holding — the same
+    predicate active_user_ids() uses for the scheduled fan-out.
+
+    A successful run emails the report to the target user. needs_review
+    does not. Quiet-day heartbeats email unless the short-manual-window
+    suppression applies. A repeat same-day call on an already-complete
+    report is an idempotent no-op (still 201, matching POST
+    /reports/generate) and does not re-send.
+    """
+    user = session.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    if user.status != "active":
+        raise HTTPException(status_code=422, detail="user is not active")
+    has_holdings = session.execute(select(exists().where(Holding.user_id == user_id))).scalar()
+    if not has_holdings:
+        raise HTTPException(status_code=422, detail="user has no holdings")
+    try:
+        return generate_report(
+            session,
+            user_id=user_id,
+            output_lang=get_settings().OUTPUT_LANG,
+            session_node="manual",
+        )
+    except LLMEmptyResponseError as exc:
+        raise HTTPException(
+            status_code=502, detail=f"LLM returned an empty response: {exc}"
+        ) from exc
+    except openai.APIError as exc:
+        raise HTTPException(status_code=502, detail=f"{type(exc).__name__}: {exc}") from exc
+    except IntegrityError as exc:
+        raise HTTPException(
+            status_code=409, detail="report generation already in progress"
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=f"Report generation failed: {exc}") from exc
