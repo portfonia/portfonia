@@ -11,6 +11,7 @@ interface HomeMessages {
     language: string;
     login: string;
     logout: string;
+    holdings: string;
   };
   hero: {
     eyebrow: string;
@@ -70,6 +71,7 @@ export const homeMessages: Record<Locale, HomeMessages> = {
       language: "Language",
       login: "Log in",
       logout: "Log out",
+      holdings: "Holdings",
     },
     hero: {
       eyebrow: "MVP · Multi-user closed beta",
@@ -111,32 +113,34 @@ export const homeMessages: Record<Locale, HomeMessages> = {
       footnote:
         "Actual content varies depending on your subscription tier.",
       snapshotTitle: "Portfolio snapshot",
-      totalLine: "Total value: $1,284,600 (FX date: 2026-08-21)",
-      // [name (ticker), currency, value, weight, custodian, asset class]
+      totalLine: "Total value: $1,000,000 (FX date: 2026-08-21)",
+      // Value is native-currency face for non-USD rows; weight and subtotals
+      // are USD (HKD 7.80, CNH 7.15). All USD subtotals sum to the total.
       holdingsColumns: ["Holding", "Currency", "Value", "Weight", "Custodian", "Asset class"],
       holdingsRows: [
-        ["TSMC (TSM)", "USD", "268,400", "20.9%", "Custodian A", "Stocks"],
-        ["Microsoft (MSFT)", "USD", "102,900", "8.0%", "Custodian A", "Stocks"],
-        ["Alphabet (GOOGL)", "USD", "88,150", "6.9%", "Custodian A", "Stocks"],
-        ["**Custodian A subtotal**", "USD", "**459,450**", "**35.7%**", "", ""],
-        ["QQQ (QQQ)", "USD", "205,300", "16.0%", "Custodian B", "US tech ETF"],
-        ["VOO (VOO)", "USD", "168,700", "13.1%", "Custodian B", "US broad ETF"],
-        ["BOXX (BOXX)", "USD", "61,800", "4.8%", "Custodian B", "Bond fund"],
-        ["Cash", "USD", "2,400", "0.2%", "Custodian B", "Cash equivalent"],
-        ["**Custodian B subtotal**", "USD", "**438,200**", "**34.1%**", "", ""],
-        ["Tencent (0700.HK)", "HKD", "921,000", "7.3%", "Custodian C", "Stocks"],
-        ["BYD (1211.HK)", "HKD", "641,000", "5.0%", "Custodian C", "Stocks"],
-        ["**Custodian C subtotal** (converted to USD)", "USD", "**158,100**", "**12.3%**", "", ""],
-        ["Gold ETF (518880.SS)", "CNH", "8,200", "0.6%", "Custodian D", "Precious metals"],
-        ["CSI 300 ETF (510300.SS)", "CNH", "5,900", "0.4%", "Custodian D", "China equities"],
-        ["Cash", "CNH", "2,750", "0.3%", "Custodian D", "Cash equivalent"],
-        ["**Custodian D subtotal** (converted to USD)", "USD", "**1,850**", "**1.3%**", "", ""],
-        ["USD cash & FX", "USD", "217,000", "16.6%", "Custodian E", "Cash equivalent"],
+        ["TSMC (TSM)", "USD", "209,000", "20.9%", "Custodian A", "Stocks"],
+        ["Microsoft (MSFT)", "USD", "80,000", "8.0%", "Custodian A", "Stocks"],
+        ["Alphabet (GOOGL)", "USD", "69,000", "6.9%", "Custodian A", "Stocks"],
+        ["**Custodian A subtotal**", "USD", "**358,000**", "**35.8%**", "", ""],
+        ["QQQ (QQQ)", "USD", "160,000", "16.0%", "Custodian B", "US tech ETF"],
+        ["VOO (VOO)", "USD", "131,000", "13.1%", "Custodian B", "US broad ETF"],
+        ["BOXX (BOXX)", "USD", "48,000", "4.8%", "Custodian B", "Bond fund"],
+        ["Cash", "USD", "2,000", "0.2%", "Custodian B", "Cash equivalent"],
+        ["**Custodian B subtotal**", "USD", "**341,000**", "**34.1%**", "", ""],
+        ["Tencent (0700.HK)", "HKD", "546,000", "7.0%", "Custodian C", "Stocks"],
+        ["BYD (1211.HK)", "HKD", "413,400", "5.3%", "Custodian C", "Stocks"],
+        ["**Custodian C subtotal** (converted to USD)", "USD", "**123,000**", "**12.3%**", "", ""],
+        ["Gold ETF (518880.SS)", "CNH", "14,300", "0.2%", "Custodian D", "Precious metals"],
+        ["CSI 300 ETF (510300.SS)", "CNH", "7,150", "0.1%", "Custodian D", "China equities"],
+        ["Cash", "CNH", "42,900", "0.6%", "Custodian D", "Cash equivalent"],
+        ["**Custodian D subtotal** (converted to USD)", "USD", "**9,000**", "**0.9%**", "", ""],
+        ["USD cash & FX", "USD", "169,000", "16.9%", "Custodian E", "Cash equivalent"],
       ],
       distributionLines: [
-        "**By market:** US 82.3%, HK 12.3%, A-shares 1.3%, Cash & FX 4.1%",
-        "**By currency:** USD 85.4%, HKD 12.3%, CNH 2.2%",
-        "**By asset class:** Stocks 48.1%, US broad ETF 13.1%, US tech ETF 16.0%, Bond funds 4.8%, Precious metals 0.6%, China equities 0.4%, Cash equivalents 16.9%",
+        "**By market:** US 86.8%, HK 12.3%, A-shares & CNH 0.9%",
+        "**By currency:** USD 86.8%, HKD 12.3%, CNH 0.9%",
+        "**By asset class:** Stocks 48.1%, US tech ETF 16.0%, US broad ETF 13.1%, Bond funds 4.8%, Precious metals 0.2%, China equities 0.1%, Cash equivalents 17.7%",
+        "**FX rates used:** HKD 7.80, CNH 7.15 vs USD",
       ],
       macroTitle: "Macro signals",
       macroBody:
@@ -156,7 +160,7 @@ export const homeMessages: Record<Locale, HomeMessages> = {
         "TSMC stands out this period not for a company-specific event but for its disproportionate weight and its exposure to several macro themes at once. The monetary-policy theme reaches it through the equity-duration channel: as a pure-play foundry, its forward multiples already embed years of capex-driven growth from advanced nodes, so its valuation is mechanically sensitive to rate expectations. The AI-infrastructure demand narrative underpinning the position is unchanged; what is new is a less predictable policy path adding an intermittent source of valuation volatility. The causal link between holding TSMC and the monetary-policy signal runs through that well-documented duration mechanism [Probable] — though no anomaly was observed in this window to confirm the market actually traded on it.",
       radarTitle: "Risk radar",
       concentrationBody:
-        "The top three holdings together account for 45.8% of portfolio value — below the 50% watch threshold. The largest single asset-class bucket (stocks) sits at 48.1%, also below threshold. Single-position concentration is dominated by TSMC at 20.9%; the two broad ETF positions diversify within US equities while raising correlation to US monetary-policy developments.",
+        "The top three holdings together account for 50.0% of portfolio value — at the 50% watch threshold. The largest single asset-class bucket (stocks) sits at 48.1%, just below it. Single-position concentration is dominated by TSMC at 20.9%; the two broad ETF positions diversify within US equities while raising correlation to US monetary-policy developments.",
       anomalyColumns: [
         "Holding",
         "Net move",
@@ -233,6 +237,7 @@ export const homeMessages: Record<Locale, HomeMessages> = {
       language: "语言",
       login: "登录",
       logout: "退出登录",
+      holdings: "持仓",
     },
     hero: {
       eyebrow: "MVP · 多用户封闭测试",
@@ -275,31 +280,32 @@ export const homeMessages: Record<Locale, HomeMessages> = {
       badge: "取自真实报告并脱敏——标的与数字为示例",
       footnote: "具体内容依订阅版本不同而有所差别。",
       snapshotTitle: "投资组合快照",
-      totalLine: "总价值：1,284,600 美元（外汇日期：2026-08-21）",
+      totalLine: "总价值：1,000,000 美元（外汇日期：2026-08-21）",
       holdingsColumns: ["持仓", "货币", "价值", "持仓占比", "托管机构", "资产类别"],
       holdingsRows: [
-        ["台积电 (TSM)", "美元", "268,400", "20.9%", "机构 A", "股票"],
-        ["微软 (MSFT)", "美元", "102,900", "8.0%", "机构 A", "股票"],
-        ["谷歌 (GOOGL)", "美元", "88,150", "6.9%", "机构 A", "股票"],
-        ["**机构 A 小计**", "美元", "**459,450**", "**35.7%**", "", ""],
-        ["纳指100ETF (QQQ)", "美元", "205,300", "16.0%", "机构 B", "美国科技股ETF"],
-        ["标普500ETF (VOO)", "美元", "168,700", "13.1%", "机构 B", "美国宽基ETF"],
-        ["BOXX (BOXX)", "美元", "61,800", "4.8%", "机构 B", "债券基金"],
-        ["现金", "美元", "2,400", "0.2%", "机构 B", "现金等价物"],
-        ["**机构 B 小计**", "美元", "**438,200**", "**34.1%**", "", ""],
-        ["腾讯控股 (0700.HK)", "港元", "921,000", "7.3%", "机构 C", "股票"],
-        ["比亚迪股份 (1211.HK)", "港元", "641,000", "5.0%", "机构 C", "股票"],
-        ["**机构 C 小计**（已换算为美元）", "美元", "**158,100**", "**12.3%**", "", ""],
-        ["黄金ETF (518880.SS)", "人民币", "8,200", "0.6%", "机构 D", "贵金属"],
-        ["沪深300ETF (510300.SS)", "人民币", "5,900", "0.4%", "机构 D", "中国股票"],
-        ["现金", "人民币", "2,750", "0.3%", "机构 D", "现金等价物"],
-        ["**机构 D 小计**（已换算为美元）", "美元", "**1,850**", "**1.3%**", "", ""],
-        ["美元现金与外汇", "美元", "217,000", "16.6%", "机构 E", "现金等价物"],
+        ["台积电 (TSM)", "美元", "209,000", "20.9%", "机构 A", "股票"],
+        ["微软 (MSFT)", "美元", "80,000", "8.0%", "机构 A", "股票"],
+        ["谷歌 (GOOGL)", "美元", "69,000", "6.9%", "机构 A", "股票"],
+        ["**机构 A 小计**", "美元", "**358,000**", "**35.8%**", "", ""],
+        ["纳指100ETF (QQQ)", "美元", "160,000", "16.0%", "机构 B", "美国科技股ETF"],
+        ["标普500ETF (VOO)", "美元", "131,000", "13.1%", "机构 B", "美国宽基ETF"],
+        ["BOXX (BOXX)", "美元", "48,000", "4.8%", "机构 B", "债券基金"],
+        ["现金", "美元", "2,000", "0.2%", "机构 B", "现金等价物"],
+        ["**机构 B 小计**", "美元", "**341,000**", "**34.1%**", "", ""],
+        ["腾讯控股 (0700.HK)", "港元", "546,000", "7.0%", "机构 C", "股票"],
+        ["比亚迪股份 (1211.HK)", "港元", "413,400", "5.3%", "机构 C", "股票"],
+        ["**机构 C 小计**（已换算为美元）", "美元", "**123,000**", "**12.3%**", "", ""],
+        ["黄金ETF (518880.SS)", "人民币", "14,300", "0.2%", "机构 D", "贵金属"],
+        ["沪深300ETF (510300.SS)", "人民币", "7,150", "0.1%", "机构 D", "中国股票"],
+        ["现金", "人民币", "42,900", "0.6%", "机构 D", "现金等价物"],
+        ["**机构 D 小计**（已换算为美元）", "美元", "**9,000**", "**0.9%**", "", ""],
+        ["美元现金与外汇", "美元", "169,000", "16.9%", "机构 E", "现金等价物"],
       ],
       distributionLines: [
-        "**按市场：** 美国 82.3%，香港 12.3%，A股 1.3%，现金与外汇 4.1%",
-        "**按货币：** 美元 85.4%，港元 12.3%，人民币 2.2%",
-        "**按资产类别：** 股票 48.1%，美国宽基ETF 13.1%，美国科技股ETF 16.0%，债券基金 4.8%，贵金属 0.6%，中国股票 0.4%，现金等价物 16.9%",
+        "**按市场：** 美国 86.8%，香港 12.3%，A股与人民币 0.9%",
+        "**按货币：** 美元 86.8%，港元 12.3%，人民币 0.9%",
+        "**按资产类别：** 股票 48.1%，美国科技股ETF 16.0%，美国宽基ETF 13.1%，债券基金 4.8%，贵金属 0.2%，中国股票 0.1%，现金等价物 17.7%",
+        "**所用汇率：** 港元 7.80、人民币 7.15 兑美元",
       ],
       macroTitle: "宏观信号",
       macroBody:
@@ -318,7 +324,7 @@ export const homeMessages: Record<Locale, HomeMessages> = {
         "台积电在本报告期内并非因公司特定事件而凸显，而是因其不成比例的投资组合权重及其同时暴露于多重宏观主题。货币政策主题通过权益久期渠道影响它：作为纯晶圆代工厂，其远期估值倍数已包含先进制程多年资本支出驱动增长的预期，因此对利率预期变化具有机械敏感性。支撑该持仓的 AI 基础设施需求叙事并未改变；新出现的是一条更难预测的政策路径，为间歇性的估值波动引入了新来源。持有台积电与货币政策信号之间的因果联系经由上述已被充分验证的久期机制 [较可能]——尽管本窗口期内未观察到异常以确认市场确实就此交易。",
       radarTitle: "风险雷达",
       concentrationBody:
-        "前三大持仓合计占投资组合价值的 45.8%——低于 50% 的警戒阈值。最大单一资产类别（股票）占比 48.1%，同样低于警戒线。个股集中度由台积电主导（20.9%）；两只宽基 ETF 在美股内部提供了分散化，同时放大了对美国货币政策走向的相关性风险。",
+        "前三大持仓合计占投资组合价值的 50.0%——恰好触及 50% 的警戒阈值。最大单一资产类别（股票）占比 48.1%，略低于阈值。个股集中度由台积电主导（20.9%）；两只宽基 ETF 在美股内部提供了分散化，同时放大了对美国货币政策走向的相关性风险。",
       anomalyColumns: [
         "持仓",
         "净占比",

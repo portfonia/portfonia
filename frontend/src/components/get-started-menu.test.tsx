@@ -186,6 +186,33 @@ describe("GetStartedMenu", () => {
       );
     });
 
+    it("uses the zh Holdings label on the home route when logged in", async () => {
+      const store = new Map<string, string>();
+      Object.defineProperty(window, "localStorage", {
+        value: {
+          getItem: (key: string) => store.get(key) ?? null,
+          setItem: (key: string, value: string) => void store.set(key, value),
+          removeItem: (key: string) => void store.delete(key),
+          clear: () => store.clear(),
+        },
+        configurable: true,
+      });
+      window.localStorage.setItem("portfonia:locale", "zh");
+
+      getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+      const user = userEvent.setup();
+      renderMenu("/");
+
+      await user.click(
+        await screen.findByRole("button", { name: "开始使用" }),
+      );
+
+      await waitFor(() =>
+        expect(screen.getByRole("menuitem", { name: "持仓" })).toBeInTheDocument(),
+      );
+      expect(screen.queryByRole("menuitem", { name: "Holdings" })).not.toBeInTheDocument();
+    });
+
     it("stays English on non-home routes even when zh is selected (messages.ts has no zh map yet)", async () => {
       const store = new Map<string, string>();
       Object.defineProperty(window, "localStorage", {

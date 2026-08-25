@@ -41,6 +41,7 @@ export function GetStartedMenu() {
   const triggerLabel = isHome ? t.nav.menu : messages.menu.trigger;
   const loginLabel = isHome ? t.nav.login : messages.menu.login;
   const logoutLabel = isHome ? t.nav.logout : messages.menu.logout;
+  const holdingsLabel = isHome ? t.nav.holdings : messages.menu.holdings;
 
   return (
     <MenuDropdown
@@ -57,7 +58,7 @@ export function GetStartedMenu() {
         <>
           {AUTHED_ENTRIES.map((entry) => (
             <MenuItemLink key={entry.id} href={entry.href}>
-              {messages.menu[entry.id]}
+              {entry.id === "holdings" ? holdingsLabel : messages.menu[entry.id]}
             </MenuItemLink>
           ))}
           <MenuSeparator />

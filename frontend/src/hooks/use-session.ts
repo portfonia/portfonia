@@ -13,50 +13,52 @@ export type SessionState =
 // INITIAL_SESSION auth event carries the locally persisted session WITHOUT
 // server verification — trusting it is what let a revoked/expired session
 // keep rendering its email after a refresh (issue #207 D1).
+//
+// Auth-event resolutions are guarded by a generation counter, not a sticky
+// flag: SIGNED_OUT bumps the generation so an in-flight getUser() that
+// resolves afterwards is discarded (it would otherwise flip the menu back to
+// authed mid-logout), while SIGNED_IN bumps it too and triggers a fresh
+// verify() — logout-then-login in the same tab must recover without a full
+// reload, and the SIGNED_IN payload itself is still not trusted (same D1
+// hole as INITIAL_SESSION).
 export function useSession(): SessionState {
   const [state, setState] = useState<SessionState>({ status: "checking" });
 
   useEffect(() => {
     const supabase = createClient();
     let cancelled = false;
-    // Set the moment a SIGNED_OUT event is observed: any verify() still in
-    // flight must not flip state back to authed after it resolves (the
-    // header survives client-side redirects, so a stale authed menu would
-    // otherwise persist until the next revalidation).
-    let signedOutObserved = false;
+    let generation = 0;
     let inFlight: Promise<void> | null = null;
 
-    const applyVerifiedUser = (user: { email?: string } | null | undefined) => {
-      if (cancelled || signedOutObserved) return;
-      setState(
-        user
-          ? { status: "authed", email: user.email ?? "" }
-          : { status: "guest" },
-      );
-    };
-
     const verify = () => {
-      // One shared in-flight promise per hook instance: focus and
-      // visibilitychange fire together on tab return — two listeners, one
-      // network call.
+      // Each verify() captures the current generation; a resolution from a
+      // superseded generation (a SIGNED_OUT/SIGNED_IN arrived meanwhile) is
+      // stale and ignored. One shared in-flight promise per generation:
+      // focus and visibilitychange fire together on tab return — two
+      // listeners, one network call.
       if (inFlight) return;
+      const myGeneration = generation;
       inFlight = supabase.auth
         .getUser()
         .then(({ data }) => {
-          applyVerifiedUser(data.user);
+          if (cancelled || myGeneration !== generation) return;
+          setState(
+            data.user
+              ? { status: "authed", email: data.user.email ?? "" }
+              : { status: "guest" },
+          );
         })
         .catch(() => {
           // Fail closed: an unverifiable session must never leave a stale
           // identity on screen. Worst case degrades to showing Log in (D2).
-          if (!cancelled && !signedOutObserved) {
-            setState({ status: "guest" });
-            console.warn(
-              "[i] useSession: getUser() failed; rendering logged-out state",
-            );
-          }
+          if (cancelled || myGeneration !== generation) return;
+          setState({ status: "guest" });
+          console.warn(
+            "[i] useSession: getUser() failed; rendering logged-out state",
+          );
         })
         .finally(() => {
-          inFlight = null;
+          if (myGeneration === generation) inFlight = null;
         });
     };
 
@@ -72,15 +74,24 @@ export function useSession(): SessionState {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
+    } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_OUT") {
-        signedOutObserved = true;
+        generation += 1; // discard any verify() launched before logout
+        inFlight = null; // allow a later SIGNED_IN verify to start immediately
         setState({ status: "guest" });
         return;
       }
-      if (event === "USER_UPDATED" && session?.user) {
-        signedOutObserved = false;
-        setState({ status: "authed", email: session.user.email ?? "" });
+      if (event === "SIGNED_IN") {
+        // Do NOT trust this event's session.user (local cache, D1). Bump the
+        // generation so any pre-login verify() is discarded, then re-verify.
+        generation += 1;
+        inFlight = null;
+        verify();
+        return;
+      }
+      if (event === "USER_UPDATED") {
+        verify();
+        return;
       }
       // INITIAL_SESSION / TOKEN_REFRESHED are deliberately ignored: they
       // reflect local cache, not server-verified truth. Revalidation runs

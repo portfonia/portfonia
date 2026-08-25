@@ -114,20 +114,51 @@ describe("useSession", () => {
     );
   });
 
-  it("refreshes the identity on USER_UPDATED", async () => {
-    getUser.mockResolvedValue({ data: { user: { email: "old@b.com" } } });
+  it("re-verifies on USER_UPDATED rather than trusting the event payload", async () => {
+    getUser
+      .mockResolvedValueOnce({ data: { user: { email: "old@b.com" } } })
+      .mockResolvedValueOnce({ data: { user: { email: "new@b.com" } } });
     render(<Probe />);
     await screen.findByTestId("session-state");
+    expect(screen.getByTestId("session-state")).toHaveTextContent("authed:old@b.com");
 
     act(() => {
       lastAuthCallback()("USER_UPDATED", {
-        user: { email: "new@b.com" },
+        user: { email: "spoofed@b.com" },
       });
     });
 
     await waitFor(() =>
       expect(screen.getByTestId("session-state")).toHaveTextContent(
         "authed:new@b.com",
+      ),
+    );
+    expect(screen.getByTestId("session-state").textContent).not.toContain(
+      "spoofed@b.com",
+    );
+  });
+
+  it("recovers to authed after logout-then-login in the same tab (SIGNED_IN re-verifies)", async () => {
+    getUser
+      .mockResolvedValueOnce({ data: { user: { email: "a@b.com" } } })
+      .mockResolvedValueOnce({ data: { user: { email: "a@b.com" } } });
+    render(<Probe />);
+    await screen.findByTestId("session-state");
+
+    act(() => {
+      lastAuthCallback()("SIGNED_OUT", null);
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("session-state")).toHaveTextContent("guest"),
+    );
+
+    act(() => {
+      lastAuthCallback()("SIGNED_IN", { user: { email: "a@b.com" } });
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("session-state")).toHaveTextContent(
+        "authed:a@b.com",
       ),
     );
   });
