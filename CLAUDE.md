@@ -1,7 +1,7 @@
 # Portfonia — Agent Guidelines
 
 AI-facing guidance for agent tooling working in this repository.
-Last updated: 2026-08-24
+Last updated: 2026-08-25
 
 ## Where to find current state
 
@@ -517,6 +517,20 @@ layer** (per-user, incremental).
   HK/CN fixed-offset. Nodes: US pre_open/open/close/after_close; HK/CN
   open/close. News captured at every node; catch-up logic lives in the task
   (range fetch + idempotent upsert), no watermark table.
+- **OHLCV upsert + confirm-time backfill (issue #194/#195, PR #197)**:
+  `price_snapshots` is global (no `user_id`) — two users holding NVDA share
+  one close series. `_upsert` writes in 2000-row chunks (close-node rows
+  bind 10 params; PostgreSQL/psycopg cap is 65535 per query). Daily
+  `capture_prices_task` stays full-universe, `lookback_days=7`. Confirm-time
+  `backfill_ohlcv_task` takes **this user's** auto tickers with <50 close
+  bars, passed through `capture_prices(..., tickers=)` — it must not rescan
+  `_market_tickers()` as the fetch universe (that is what overflowed when a
+  second user's eight new US names widened the system-wide set). The ops
+  script `backfill_ohlcv.py` remains the one-shot full-universe seed.
+  `create_bug_report` truncates bodies at GitHub's 65536-char limit via
+  `truncate_text` in `github_issues.py`; `_capture_failed` also caps
+  `str(exc)` (per-market entries sliced before join so one huge SQL dump
+  cannot crowd later markets out of the alert).
 - **Report window** = `[previous report.period_end, now]`; watermark =
   `max(period_end)` over the user's completed reports (deleting a report
   rolls it back; regenerate keeps the stored period). News/anomalies are read
@@ -1051,6 +1065,8 @@ verification (next section); the seam itself is unchanged.
   `_tickers_with_sparse_history`, which stays a global query; only the log
   line is per-user). 0 bugs did not trigger a second review round per this
   repo's standing convention. 957 tests passing. Merged squash `a06fc9c`.
+  **Superseded by issue #194 / PR #197 (2026-08-25):** the sparse *check* is
+  now this user's auto tickers; `price_snapshots` remains a global store.
 
 ### Users, invites, and JWKS auth — B4 (Ring 1 stage B, issue #129, PR #183)
 
@@ -1476,7 +1492,8 @@ re-render-safe); the LLM writes only prose/attribution. Current shape:
   signal vocabulary (support/resistance/golden-cross/death-cross, EN + zh-Hans
   — see `ta_observation_terms` in `i18n_glossary.yml`) is forbidden in the
   body. Needs ~200 captured closes — seed once via
-  `python -m app.scripts.backfill_ohlcv`.
+  `python -m app.scripts.backfill_ohlcv`, or let `confirm_holdings` dispatch
+  the scoped `backfill_ohlcv_task` for this user's sparse tickers.
 - **§2.5 forward calendar** (`forward_events.py`) — US macro releases (FRED,
   optional `FRED_API_KEY`), hardcoded FOMC dates (verify annually against
   federalreserve.gov — FRED has no forward FOMC schedule), earnings via
