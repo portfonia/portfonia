@@ -12,6 +12,24 @@ const CARD_ICONS = [
 
 const TIER_KEYS = ["established", "probable", "speculative"] as const;
 
+// Renders **bold** spans inside i18n table cells without pulling in a full
+// markdown renderer.
+function BoldText({ text }: { text: string }) {
+  const parts = text.split("**");
+  return (
+    <>
+      {parts.map((part, i) =>
+        i % 2 === 1 ? <strong key={i} className="font-semibold text-foreground">{part}</strong> : <span key={i}>{part}</span>,
+      )}
+    </>
+  );
+}
+
+const TABLE_CLS = "w-full min-w-[36rem] border-collapse text-left text-xs";
+const TH_CLS =
+  "whitespace-nowrap border-b border-white/15 px-2 py-2 font-mono font-medium uppercase tracking-wide text-foreground/50";
+const TD_CLS = "border-b border-white/5 px-2 py-1.5 align-top text-foreground/70";
+
 export function HomeSections() {
   const t = useHomeMessages();
   const { locale } = useLocale();
@@ -138,38 +156,142 @@ export function HomeSections() {
               {t.preview.badge}
             </div>
 
-            <h3 className="mb-3 text-sm font-medium text-foreground/70">
-              {t.preview.distributionLabel}
-            </h3>
-            <div className="mb-7 space-y-2.5">
-              {t.preview.distribution.map((d) => (
-                <div key={d.label} className="flex items-center gap-3">
-                  <span className="w-24 shrink-0 text-xs text-foreground/60">{d.label}</span>
-                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-secondary">
-                    <div className="h-full rounded-full bg-brand/70" style={{ width: `${d.pct}%` }} />
-                  </div>
-                  <span className="w-9 shrink-0 text-right font-mono text-xs text-foreground/50">
-                    {d.pct}%
-                  </span>
-                </div>
+            {/* §1 Portfolio snapshot */}
+            <h3 className="mb-3 font-serif text-base">{t.preview.snapshotTitle}</h3>
+            <p className="mb-4 text-sm font-medium text-foreground/80">{t.preview.totalLine}</p>
+            <div className="mb-6 overflow-x-auto">
+              <table className={TABLE_CLS}>
+                <thead>
+                  <tr>
+                    {t.preview.holdingsColumns.map((col) => (
+                      <th key={col} className={TH_CLS}>{col}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {t.preview.holdingsRows.map((row, i) => (
+                    <tr key={`holding-${i}`}>
+                      {row.map((cell, j) => (
+                        <td key={`holding-${i}-${j}`} className={TD_CLS}>
+                          <span className={j === 0 ? "text-xs leading-snug" : undefined}>
+                            <BoldText text={cell} />
+                          </span>
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mb-7 space-y-1.5 border-t border-white/10 pt-5 text-sm leading-relaxed text-foreground/70">
+              {t.preview.distributionLines.map((line) => (
+                <p key={line}><BoldText text={line} /></p>
               ))}
             </div>
 
-            <div className="space-y-3 border-t border-white/10 pt-6">
-              {t.preview.highlights.map((h) => (
-                <div key={h.text} className="flex items-start gap-2.5 text-sm leading-relaxed text-foreground/70">
-                  <span
-                    className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: `var(--tier-${h.tier})` }}
-                  />
-                  {h.text}
-                </div>
-              ))}
+            {/* §2 Macro signals */}
+            <div className="space-y-2 border-t border-white/10 pt-6">
+              <h3 className="font-serif text-base">{t.preview.macroTitle}</h3>
+              <p className="text-sm leading-relaxed text-foreground/70">{t.preview.macroBody}</p>
             </div>
 
-            <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-1.5 font-mono text-xs text-foreground/55">
-              {t.preview.calendarChip}
+            {/* §2.5 Forward calendar */}
+            <div className="mt-6 space-y-3 border-t border-white/10 pt-6">
+              <h3 className="font-serif text-base">{t.preview.calendarTitle}</h3>
+              <p className="text-sm leading-relaxed text-foreground/70">{t.preview.calendarNote}</p>
+              <div className="overflow-x-auto">
+                <table className={TABLE_CLS}>
+                  <thead>
+                    <tr>
+                      {t.preview.calendarColumns.map((col) => (
+                        <th key={col} className={TH_CLS}>{col}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {t.preview.calendarRows.map((row, i) => (
+                      <tr key={`cal-${i}`}>
+                        {row.map((cell, j) => (
+                          <td key={`cal-${i}-${j}`} className={TD_CLS}>{cell}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
+
+            {/* §3 Holding analysis */}
+            <div className="mt-6 space-y-2 border-t border-white/10 pt-6">
+              <h3 className="font-serif text-base">{t.preview.analysisTitle}</h3>
+              <p className="text-sm font-medium text-foreground/85">{t.preview.analysisHeading}</p>
+              <p className="text-sm leading-relaxed text-foreground/70">{t.preview.analysisBody}</p>
+            </div>
+
+            {/* §4 Risk radar */}
+            <div className="mt-6 space-y-3 border-t border-white/10 pt-6">
+              <h3 className="font-serif text-base">{t.preview.radarTitle}</h3>
+              <p className="text-sm leading-relaxed text-foreground/70">{t.preview.concentrationBody}</p>
+              <div className="overflow-x-auto">
+                <table className={TABLE_CLS}>
+                  <thead>
+                    <tr>
+                      {t.preview.anomalyColumns.map((col) => (
+                        <th key={col} className={TH_CLS}>{col}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {t.preview.anomalyRows.map((row, i) => (
+                      <tr key={`anom-${i}`}>
+                        {row.map((cell, j) => (
+                          <td key={`anom-${i}-${j}`} className={TD_CLS}>{cell}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <ul className="space-y-1.5">
+                {t.preview.anomalyBullets.map((bullet) => (
+                  <li
+                    key={bullet}
+                    className="flex items-start gap-2.5 text-sm leading-relaxed text-foreground/70"
+                  >
+                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand/70" />
+                    <span><BoldText text={bullet} /></span>
+                  </li>
+                ))}
+              </ul>
+              <div className="overflow-x-auto">
+                <table className={TABLE_CLS}>
+                  <thead>
+                    <tr>
+                      {t.preview.technicalColumns.map((col) => (
+                        <th key={col} className={TH_CLS}>{col}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {t.preview.technicalRows.map((row, i) => (
+                      <tr key={`tech-${i}`}>
+                        {row.map((cell, j) => (
+                          <td key={`tech-${i}-${j}`} className={TD_CLS}>{cell}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="text-xs text-foreground/50">
+                <BoldText text={t.preview.technicalNote} />
+              </div>
+            </div>
+
+            <p className="mt-6 border-t border-white/10 pt-5 text-sm text-foreground/60">
+              {t.preview.footnote}
+            </p>
           </div>
         </div>
       </section>

@@ -11,13 +11,11 @@ const { usePathname, getUser } = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({ usePathname }));
 
-// AuthStatus (embedded in every SiteHeader render) calls the browser
-// Supabase client on mount — stub it so these route-chrome tests don't
-// depend on real env vars or network. Defaults to a pending (never-
-// resolving) promise so AuthStatus stays in its "loading" (renders
-// nothing) state for the chrome tests below, which aren't about login
-// state itself (see auth-status.test.tsx for that) — individual tests in
-// the "login/logout entry" block override this to check label i18n.
+// GetStartedMenu calls the browser Supabase client on mount — stub it so
+// these route-chrome tests don't depend on real env vars or network.
+// Defaults to a pending (never-resolving) promise so the menu stays in its
+// "checking" (renders nothing) state for chrome tests that aren't about
+// session state itself (see get-started-menu.test.tsx for that).
 vi.mock("@/lib/supabase/browser", () => ({
   createClient: () => ({
     auth: {
@@ -27,11 +25,11 @@ vi.mock("@/lib/supabase/browser", () => ({
   }),
 }));
 
-// AuthStatus's logout button imports this Server Action directly (Next
-// compiles that into a client-safe fetch stub in a real build — vitest has
-// no such compiler pass, so importing the real module would drag in
-// lib/supabase/server.ts's `server-only` guard, which throws outside
-// Next's own bundler). Mock it the same way auth-status.test.tsx does.
+// The menu's Log out imports this Server Action directly (Next compiles that
+// into a client-safe fetch stub in a real build — vitest has no such
+// compiler pass, so importing the real module would drag in
+// lib/supabase/server.ts's `server-only` guard, which throws outside Next's
+// own bundler).
 vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
 
 function renderHeader() {
@@ -42,12 +40,6 @@ function renderHeader() {
   );
 }
 
-function holdingsEntryLink() {
-  return screen
-    .getAllByRole("link")
-    .find((el) => el.getAttribute("href") === "/holdings");
-}
-
 const ANCHOR_HREFS = ["#boundary", "#how", "#preview", "#faq"];
 
 describe("SiteHeader", () => {
@@ -56,12 +48,43 @@ describe("SiteHeader", () => {
   });
 
   it.each(["/", "/holdings"])(
-    "always has a Holdings entry link (href=/holdings) on %s",
+    "renders the same unified bar shape on %s: banner landmark, pill nav, brand, Get Started trigger",
+    async (route) => {
+      // Resolve the session check so the menu trigger renders (the suite
+      // default keeps it pending/"checking").
+      getUser.mockResolvedValue({ data: { user: null } });
+      usePathname.mockReturnValue(route);
+      const { container } = renderHeader();
+
+      expect(screen.getByRole("banner")).toBeInTheDocument();
+      expect(container.querySelector("nav")).toHaveClass("rounded-full", "backdrop-blur-md");
+      expect(
+        container.querySelector('a[href="#top"], a[href="/"]'),
+      ).not.toBeNull();
+      expect(
+        await screen.findByRole("button", { name: /get started/i }),
+      ).toBeInTheDocument();
+    },
+  );
+
+  it.each(["/", "/holdings"])("keeps zero marketing anchor links on %s", (route) => {
+    usePathname.mockReturnValue(route);
+    const { container } = renderHeader();
+
+    for (const href of ANCHOR_HREFS) {
+      expect(container.querySelector(`a[href="${href}"]`)).not.toBeInTheDocument();
+    }
+  });
+
+  it.each(["/", "/holdings"])(
+    "keeps no standalone Holdings button in the bar on %s (it lives inside the menu)",
     (route) => {
       usePathname.mockReturnValue(route);
       renderHeader();
 
-      expect(holdingsEntryLink()).toBeDefined();
+      expect(
+        screen.queryByRole("link", { name: /holdings/i }),
+      ).not.toBeInTheDocument();
     },
   );
 
@@ -85,96 +108,17 @@ describe("SiteHeader", () => {
     );
   });
 
-  it("hides every marketing anchor and the locale switcher outside the home route", () => {
+  it("hides the locale switcher outside the home route", () => {
     usePathname.mockReturnValue("/holdings");
-    const { container } = renderHeader();
+    renderHeader();
 
-    for (const href of ANCHOR_HREFS) {
-      expect(container.querySelector(`a[href="${href}"]`)).not.toBeInTheDocument();
-    }
     expect(screen.queryByRole("combobox", { name: /language/i })).not.toBeInTheDocument();
   });
 
-  it("shows every marketing anchor and the locale switcher on the home route", () => {
+  it("shows the locale switcher on the home route", () => {
     usePathname.mockReturnValue("/");
-    const { container } = renderHeader();
+    renderHeader();
 
-    for (const href of ANCHOR_HREFS) {
-      expect(container.querySelector(`a[href="${href}"]`)).toBeInTheDocument();
-    }
     expect(screen.getByRole("combobox", { name: /language/i })).toBeInTheDocument();
-  });
-
-  it("uses the same floating-pill dark chrome on every route (not just home)", () => {
-    usePathname.mockReturnValue("/holdings");
-    const { container } = renderHeader();
-
-    expect(container.querySelector("nav")).toHaveClass("rounded-full", "backdrop-blur-md");
-  });
-
-  it("renders as a <header> landmark on every route", () => {
-    usePathname.mockReturnValue("/holdings");
-    const { container } = renderHeader();
-
-    expect(container.querySelector("header")).not.toBeNull();
-    expect(screen.getByRole("banner")).toBeInTheDocument();
-  });
-
-  describe("login/logout entry", () => {
-    // This test environment's jsdom localStorage is broken (`setItem is
-    // not a function` — a jsdom/Node webstorage version mismatch, unrelated
-    // to LocaleProvider's own code, which already handles a genuinely
-    // inaccessible localStorage via try/catch). Stub a working in-memory
-    // Storage so these two locale-switch tests aren't testing that quirk.
-    function stubLocalStorage() {
-      const store = new Map<string, string>();
-      const fake: Pick<Storage, "getItem" | "setItem" | "removeItem" | "clear"> = {
-        getItem: (key) => store.get(key) ?? null,
-        setItem: (key, value) => void store.set(key, value),
-        removeItem: (key) => void store.delete(key),
-        clear: () => store.clear(),
-      };
-      Object.defineProperty(window, "localStorage", { value: fake, configurable: true });
-    }
-
-    it("shows a Log in link when logged out, on every route", async () => {
-      getUser.mockResolvedValue({ data: { user: null } });
-      usePathname.mockReturnValue("/holdings");
-      renderHeader();
-
-      expect(await screen.findByRole("link", { name: "Log in" })).toHaveAttribute(
-        "href",
-        "/login",
-      );
-    });
-
-    it("uses the zh nav label on the home route when zh is selected", async () => {
-      stubLocalStorage();
-      getUser.mockResolvedValue({ data: { user: null } });
-      window.localStorage.setItem("portfonia:locale", "zh");
-      usePathname.mockReturnValue("/");
-      renderHeader();
-
-      expect(await screen.findByRole("link", { name: "登录" })).toBeInTheDocument();
-    });
-
-    it("stays English on non-home routes even when zh is selected (messages.ts has no zh map yet)", async () => {
-      stubLocalStorage();
-      getUser.mockResolvedValue({ data: { user: null } });
-      window.localStorage.setItem("portfonia:locale", "zh");
-      usePathname.mockReturnValue("/holdings");
-      renderHeader();
-
-      expect(await screen.findByRole("link", { name: "Log in" })).toBeInTheDocument();
-    });
-
-    it("shows the account email and a Log out button when logged in", async () => {
-      getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
-      usePathname.mockReturnValue("/holdings");
-      renderHeader();
-
-      expect(await screen.findByText("a@b.com")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Log out" })).toBeInTheDocument();
-    });
   });
 });

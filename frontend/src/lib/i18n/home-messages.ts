@@ -7,14 +7,11 @@ export const locales: { value: Locale; label: string }[] = [
 
 interface HomeMessages {
   nav: {
-    boundary: string;
-    how: string;
-    preview: string;
-    faq: string;
-    cta: string;
+    menu: string;
     language: string;
     login: string;
     logout: string;
+    holdings: string;
   };
   hero: {
     eyebrow: string;
@@ -36,13 +33,30 @@ interface HomeMessages {
     heading: string;
     tag: string;
     badge: string;
-    distributionLabel: string;
-    distribution: { label: string; pct: number }[];
-    highlights: {
-      text: string;
-      tier: "established" | "probable" | "speculative";
-    }[];
-    calendarChip: string;
+    // Closing note under the sample (owner ask, issue #207 follow-up)
+    footnote: string;
+    snapshotTitle: string;
+    totalLine: string;
+    holdingsColumns: string[];
+    holdingsRows: string[][];
+    distributionLines: string[];
+    macroTitle: string;
+    macroBody: string;
+    calendarTitle: string;
+    calendarNote: string;
+    calendarColumns: string[];
+    calendarRows: string[][];
+    analysisTitle: string;
+    analysisHeading: string;
+    analysisBody: string;
+    radarTitle: string;
+    concentrationBody: string;
+    anomalyColumns: string[];
+    anomalyRows: string[][];
+    anomalyBullets: string[];
+    technicalColumns: string[];
+    technicalRows: string[][];
+    technicalNote: string;
   };
   boundary: { heading: string; body: string; items: string[] };
   faq: { heading: string; tag: string; items: { q: string; a: string }[] };
@@ -53,20 +67,17 @@ interface HomeMessages {
 export const homeMessages: Record<Locale, HomeMessages> = {
   en: {
     nav: {
-      boundary: "What we don't do",
-      how: "How it works",
-      preview: "Sample briefing",
-      faq: "FAQ",
-      cta: "Get started",
+      menu: "Get Started",
       language: "Language",
       login: "Log in",
       logout: "Log out",
+      holdings: "Holdings",
     },
     hero: {
-      eyebrow: "Ring 0 · single-user prototype",
+      eyebrow: "MVP · Multi-user closed beta",
       titleLine1: "What's worth noticing",
       titleAccent: "in your holdings.",
-      sub: "Portfonia watches the market and maps it back to your actual positions — US equities, HK equities, A-shares, funds, cash, and FX. It tells you what changed and why it matters. It never tells you what to do.",
+      sub: "Portfonia watches the market and maps it back to your actual positions — US equities, HK equities, A-shares, funds, cash, and FX. It tells you what changed and why it matters, helping you make timely, well-informed decisions.",
       ctaPrimary: "Get started",
       ctaSecondary: "See how it works",
     },
@@ -97,28 +108,87 @@ export const homeMessages: Record<Locale, HomeMessages> = {
     },
     preview: {
       heading: "What a briefing actually looks like",
-      tag: "Illustrative example",
-      badge: "Sample data — not a real portfolio",
-      distributionLabel: "Asset-class distribution",
-      distribution: [
-        { label: "US Equity", pct: 42 },
-        { label: "HK Equity", pct: 18 },
-        { label: "A-Share", pct: 15 },
-        { label: "Cash & FX", pct: 13 },
-        { label: "Gold", pct: 7 },
-        { label: "Bond Fund", pct: 5 },
+      tag: "Real report, anonymized",
+      badge: "Anonymized from a real report — sample holdings & figures",
+      footnote:
+        "Actual content varies depending on your subscription tier.",
+      snapshotTitle: "Portfolio snapshot",
+      totalLine: "Total value: $1,000,000 (FX date: 2026-08-21)",
+      // Value is native-currency face for non-USD rows; weight and subtotals
+      // are USD (HKD 7.80, CNH 7.15). All USD subtotals sum to the total.
+      holdingsColumns: ["Holding", "Currency", "Value", "Weight", "Custodian", "Asset class"],
+      holdingsRows: [
+        ["TSMC (TSM)", "USD", "209,000", "20.9%", "Custodian A", "Stocks"],
+        ["Microsoft (MSFT)", "USD", "80,000", "8.0%", "Custodian A", "Stocks"],
+        ["Alphabet (GOOGL)", "USD", "69,000", "6.9%", "Custodian A", "Stocks"],
+        ["**Custodian A subtotal**", "USD", "**358,000**", "**35.8%**", "", ""],
+        ["QQQ (QQQ)", "USD", "160,000", "16.0%", "Custodian B", "US tech ETF"],
+        ["VOO (VOO)", "USD", "131,000", "13.1%", "Custodian B", "US broad ETF"],
+        ["BOXX (BOXX)", "USD", "48,000", "4.8%", "Custodian B", "Bond fund"],
+        ["Cash", "USD", "2,000", "0.2%", "Custodian B", "Cash equivalent"],
+        ["**Custodian B subtotal**", "USD", "**341,000**", "**34.1%**", "", ""],
+        ["Tencent (0700.HK)", "HKD", "546,000", "7.0%", "Custodian C", "Stocks"],
+        ["BYD (1211.HK)", "HKD", "413,400", "5.3%", "Custodian C", "Stocks"],
+        ["**Custodian C subtotal** (converted to USD)", "USD", "**123,000**", "**12.3%**", "", ""],
+        ["Gold ETF (518880.SS)", "CNH", "14,300", "0.2%", "Custodian D", "Precious metals"],
+        ["CSI 300 ETF (510300.SS)", "CNH", "7,150", "0.1%", "Custodian D", "China equities"],
+        ["Cash", "CNH", "42,900", "0.6%", "Custodian D", "Cash equivalent"],
+        ["**Custodian D subtotal** (converted to USD)", "USD", "**9,000**", "**0.9%**", "", ""],
+        ["USD cash & FX", "USD", "169,000", "16.9%", "Custodian E", "Cash equivalent"],
       ],
-      highlights: [
-        {
-          text: "NVDA — single-session move of -6.2%, tied to a post-earnings guidance revision.",
-          tier: "established",
-        },
-        {
-          text: "USD/CNY drifting toward 7.30 as rate-differential commentary firms up.",
-          tier: "probable",
-        },
+      distributionLines: [
+        "**By market:** US 86.8%, HK 12.3%, A-shares & CNH 0.9%",
+        "**By currency:** USD 86.8%, HKD 12.3%, CNH 0.9%",
+        "**By asset class:** Stocks 48.1%, US tech ETF 16.0%, US broad ETF 13.1%, Bond funds 4.8%, Precious metals 0.2%, China equities 0.1%, Cash equivalents 17.7%",
+        "**FX rates used:** HKD 7.80, CNH 7.15 vs USD",
       ],
-      calendarChip: "Forward calendar flags events like FOMC decisions ahead of time",
+      macroTitle: "Macro signals",
+      macroBody:
+        "Markets repriced the policy path after the latest FOMC minutes showed a split committee. The transmission into this portfolio runs through the equity-duration channel: long-duration growth names (TSMC, Microsoft, Alphabet) and the broad ETFs are mechanically sensitive to shifts in rate expectations embedded in the yield curve. No price anomaly was triggered in this window to confirm a repricing in any specific holding, so this direction stands as structural exposure to monitor rather than an observed event. [Probable]",
+      calendarTitle: "Forward calendar",
+      calendarNote:
+        "Scheduled US events over the coming days and the holdings they bear on. Calendar facts only — not forecasts.",
+      calendarColumns: ["Date", "Event", "Affected holdings", "What to watch"],
+      calendarRows: [
+        ["08-27", "Jobless claims", "—", "Labor market momentum; rate-path implications"],
+        ["08-29", "Core PCE price index", "TSMC, MSFT, GOOGL +2", "Inflation vs consensus; rate-path implications"],
+        ["09-02", "ISM Manufacturing PMI", "—", "Factory-sector momentum"],
+      ],
+      analysisTitle: "Holding analysis",
+      analysisHeading: "TSMC — 20.9% of the portfolio, the single largest position",
+      analysisBody:
+        "TSMC stands out this period not for a company-specific event but for its disproportionate weight and its exposure to several macro themes at once. The monetary-policy theme reaches it through the equity-duration channel: as a pure-play foundry, its forward multiples already embed years of capex-driven growth from advanced nodes, so its valuation is mechanically sensitive to rate expectations. The AI-infrastructure demand narrative underpinning the position is unchanged; what is new is a less predictable policy path adding an intermittent source of valuation volatility. The causal link between holding TSMC and the monetary-policy signal runs through that well-documented duration mechanism [Probable] — though no anomaly was observed in this window to confirm the market actually traded on it.",
+      radarTitle: "Risk radar",
+      concentrationBody:
+        "The top three holdings together account for 50.0% of portfolio value — at the 50% watch threshold. The largest single asset-class bucket (stocks) sits at 48.1%, just below it. Single-position concentration is dominated by TSMC at 20.9%; the two broad ETF positions diversify within US equities while raising correlation to US monetary-policy developments.",
+      anomalyColumns: [
+        "Holding",
+        "Net move",
+        "Worst day (date)",
+        "Prev close",
+        "Open (gap %)",
+        "Intraday range",
+        "Close",
+        "Trigger",
+      ],
+      anomalyRows: [
+        ["QQQ (QQQ)", "+2.4%", "+1.8% (08-25)", "562.10", "564.20 (+0.4%)", "561.4–574.8", "573.90", "single_day"],
+        ["TSMC (TSM)", "+3.1%", "+2.2% (08-24)", "198.40", "197.90 (-0.3%)", "196.5–204.1", "203.85", "single_day"],
+      ],
+      anomalyBullets: [
+        "QQQ — +2.4% over the window; the +1.8% single-day surge came with no immediately identifiable fund-specific catalyst in this period's research; attribution remains open [Speculative].",
+        "TSMC — +3.1% over the window; coincided with an active AI-semiconductor news cycle, but no TSMC-specific driver was confirmed in research [Probable].",
+      ],
+      technicalColumns: ["Holding", "vs 50-day avg", "vs 200-day avg", "52-wk range position", "20-day vol (ann.)"],
+      technicalRows: [
+        ["TSMC (TSM)", "-2.5%", "+16.0%", "75%", "+45.3%"],
+        ["Microsoft (MSFT)", "+20.9%", "+12.9%", "73%", "+61.1%"],
+        ["Alphabet (GOOGL)", "+1.4%", "+10.7%", "81%", "+50.9%"],
+        ["QQQ (QQQ)", "+0.5%", "+11.2%", "86%", "+26.5%"],
+        ["VOO (VOO)", "+3.3%", "+10.2%", "99%", "+14.4%"],
+      ],
+      technicalNote:
+        "Range position: 0% = at the 52-week low, 100% = at the high. Describes where price sits — not a signal.",
     },
     boundary: {
       heading: "Deliberately out of scope",
@@ -138,11 +208,11 @@ export const homeMessages: Record<Locale, HomeMessages> = {
       items: [
         {
           q: "Is this investment advice?",
-          a: "No. Portfonia is an intelligence service — it tells you what happened and why it might matter, never what to do. See “Deliberately out of scope” above.",
+          a: "No. Portfonia is an intelligence service — it tells you what happened and why it might matter, helping you make timely, well-informed decisions. See “Deliberately out of scope” above.",
         },
         {
           q: "Is my holdings data safe?",
-          a: "Not yet encrypted at rest — that's planned before any public rollout. Today: LLM calls run with training-data collection denied by default, and each call only sees the data a given report actually needs — never the whole portfolio wholesale.",
+          a: "Yes — your holdings are strongly encrypted at rest (field-level encryption in our database). On top of that, AI calls run with training-data collection denied by default, and each call only sees the data a given report actually needs — never the whole portfolio wholesale.",
         },
         {
           q: "Which markets and holdings does it support?",
@@ -150,12 +220,12 @@ export const homeMessages: Record<Locale, HomeMessages> = {
         },
         {
           q: "What does it cost?",
-          a: "Portfonia is currently a single-user prototype (Ring 0) validating whether this is useful at all — pricing hasn't been decided yet.",
+          a: "Portfonia is in a multi-user closed beta right now — content and features may differ by subscription tier when plans are announced.",
         },
       ],
     },
     status:
-      "Ring 0 — single-user local prototype, validating whether AI-mapped market context creates real cognitive lift before any public rollout. AI-generated content, for information only — not investment advice.",
+      "MVP — multi-user closed beta. Portfonia maps market context back to your real holdings so you can make timely, well-informed decisions. AI-generated content, for information only — not investment advice.",
     footer: {
       stack1: "Next.js · FastAPI · Celery · PostgreSQL",
       stack2: "Pluggable LLM providers via OpenRouter",
@@ -163,20 +233,17 @@ export const homeMessages: Record<Locale, HomeMessages> = {
   },
   zh: {
     nav: {
-      boundary: "我们不做什么",
-      how: "工作原理",
-      preview: "示例简报",
-      faq: "常见问题",
-      cta: "开始使用",
+      menu: "开始使用",
       language: "语言",
       login: "登录",
       logout: "退出登录",
+      holdings: "持仓",
     },
     hero: {
-      eyebrow: "Ring 0 · 单用户原型",
+      eyebrow: "MVP · 多用户封闭测试",
       titleLine1: "什么值得关注",
       titleAccent: "就藏在你的持仓里。",
-      sub: "Portfonia 持续关注市场动态，并把它们对应到你的真实持仓——美股、港股、A股、公募基金、现金与外汇。我们会告诉你发生了什么变化、为什么重要，但从不告诉你该怎么做。",
+      sub: "Portfonia 持续关注市场动态，并把它们对应到你的真实持仓——美股、港股、A股、公募基金、现金与外汇。我们告诉你发生了什么变化、为什么重要，帮助你作出及时明智的决策。",
       ctaPrimary: "开始使用",
       ctaSecondary: "了解工作原理",
     },
@@ -209,28 +276,82 @@ export const homeMessages: Record<Locale, HomeMessages> = {
     },
     preview: {
       heading: "简报实际长什么样",
-      tag: "示例说明",
-      badge: "示例数据——非真实持仓",
-      distributionLabel: "资产类别分布",
-      distribution: [
-        { label: "美股", pct: 42 },
-        { label: "港股", pct: 18 },
-        { label: "A股", pct: 15 },
-        { label: "现金与外汇", pct: 13 },
-        { label: "黄金", pct: 7 },
-        { label: "债券基金", pct: 5 },
+      tag: "真实报告·已脱敏",
+      badge: "取自真实报告并脱敏——标的与数字为示例",
+      footnote: "具体内容依订阅版本不同而有所差别。",
+      snapshotTitle: "投资组合快照",
+      totalLine: "总价值：1,000,000 美元（外汇日期：2026-08-21）",
+      holdingsColumns: ["持仓", "货币", "价值", "持仓占比", "托管机构", "资产类别"],
+      holdingsRows: [
+        ["台积电 (TSM)", "美元", "209,000", "20.9%", "机构 A", "股票"],
+        ["微软 (MSFT)", "美元", "80,000", "8.0%", "机构 A", "股票"],
+        ["谷歌 (GOOGL)", "美元", "69,000", "6.9%", "机构 A", "股票"],
+        ["**机构 A 小计**", "美元", "**358,000**", "**35.8%**", "", ""],
+        ["纳指100ETF (QQQ)", "美元", "160,000", "16.0%", "机构 B", "美国科技股ETF"],
+        ["标普500ETF (VOO)", "美元", "131,000", "13.1%", "机构 B", "美国宽基ETF"],
+        ["BOXX (BOXX)", "美元", "48,000", "4.8%", "机构 B", "债券基金"],
+        ["现金", "美元", "2,000", "0.2%", "机构 B", "现金等价物"],
+        ["**机构 B 小计**", "美元", "**341,000**", "**34.1%**", "", ""],
+        ["腾讯控股 (0700.HK)", "港元", "546,000", "7.0%", "机构 C", "股票"],
+        ["比亚迪股份 (1211.HK)", "港元", "413,400", "5.3%", "机构 C", "股票"],
+        ["**机构 C 小计**（已换算为美元）", "美元", "**123,000**", "**12.3%**", "", ""],
+        ["黄金ETF (518880.SS)", "人民币", "14,300", "0.2%", "机构 D", "贵金属"],
+        ["沪深300ETF (510300.SS)", "人民币", "7,150", "0.1%", "机构 D", "中国股票"],
+        ["现金", "人民币", "42,900", "0.6%", "机构 D", "现金等价物"],
+        ["**机构 D 小计**（已换算为美元）", "美元", "**9,000**", "**0.9%**", "", ""],
+        ["美元现金与外汇", "美元", "169,000", "16.9%", "机构 E", "现金等价物"],
       ],
-      highlights: [
-        {
-          text: "英伟达（NVDA）单日 -6.2%，与财报后指引下修相关。",
-          tier: "established",
-        },
-        {
-          text: "美元兑人民币汇率向 7.30 靠拢，市场消化利差相关表态。",
-          tier: "probable",
-        },
+      distributionLines: [
+        "**按市场：** 美国 86.8%，香港 12.3%，A股与人民币 0.9%",
+        "**按货币：** 美元 86.8%，港元 12.3%，人民币 0.9%",
+        "**按资产类别：** 股票 48.1%，美国科技股ETF 16.0%，美国宽基ETF 13.1%，债券基金 4.8%，贵金属 0.2%，中国股票 0.1%，现金等价物 17.7%",
+        "**所用汇率：** 港元 7.80、人民币 7.15 兑美元",
       ],
-      calendarChip: "前瞻日历会提前标注 FOMC 议息决议这类宏观事件",
+      macroTitle: "宏观信号",
+      macroBody:
+        "最新 FOMC 会议纪要显示委员会内部分歧，市场随之重新定价政策路径。向本投资组合的传导经由权益久期渠道运行：长久期成长股（台积电、微软、谷歌）与宽基 ETF 的估值对收益率曲线中隐含利率预期的变化具有机械敏感性。本报告期内无价格异常触发以确认任何具体持仓发生了重新定价，因此该方向作为结构性敞口进行监测，而非已观察事件。[较可能]",
+      calendarTitle: "未来日历",
+      calendarNote: "未来数日美国预定事件及受影响的持仓。以下为日历事实，非预测。",
+      calendarColumns: ["日期", "事件", "受影响持仓", "关注要点"],
+      calendarRows: [
+        ["08-27", "初请失业金人数", "—", "劳动力市场动能；利率路径影响"],
+        ["08-29", "核心 PCE 物价指数", "台积电、微软、谷歌 等", "通胀数据与市场共识对比；利率路径影响"],
+        ["09-02", "ISM 制造业 PMI", "—", "制造业动能"],
+      ],
+      analysisTitle: "持仓分析",
+      analysisHeading: "台积电 — 占投资组合 20.9%，第一大单一持仓",
+      analysisBody:
+        "台积电在本报告期内并非因公司特定事件而凸显，而是因其不成比例的投资组合权重及其同时暴露于多重宏观主题。货币政策主题通过权益久期渠道影响它：作为纯晶圆代工厂，其远期估值倍数已包含先进制程多年资本支出驱动增长的预期，因此对利率预期变化具有机械敏感性。支撑该持仓的 AI 基础设施需求叙事并未改变；新出现的是一条更难预测的政策路径，为间歇性的估值波动引入了新来源。持有台积电与货币政策信号之间的因果联系经由上述已被充分验证的久期机制 [较可能]——尽管本窗口期内未观察到异常以确认市场确实就此交易。",
+      radarTitle: "风险雷达",
+      concentrationBody:
+        "前三大持仓合计占投资组合价值的 50.0%——恰好触及 50% 的警戒阈值。最大单一资产类别（股票）占比 48.1%，略低于阈值。个股集中度由台积电主导（20.9%）；两只宽基 ETF 在美股内部提供了分散化，同时放大了对美国货币政策走向的相关性风险。",
+      anomalyColumns: [
+        "持仓",
+        "净占比",
+        "最差单日（日期）",
+        "前收盘",
+        "开盘（缺口%）",
+        "日内区间",
+        "收盘",
+        "触发条件",
+      ],
+      anomalyRows: [
+        ["纳指100ETF (QQQ)", "+2.4%", "+1.8% (08-25)", "562.10", "564.20 (+0.4%)", "561.4–574.8", "573.90", "single_day"],
+        ["台积电 (TSM)", "+3.1%", "+2.2% (08-24)", "198.40", "197.90 (-0.3%)", "196.5–204.1", "203.85", "single_day"],
+      ],
+      anomalyBullets: [
+        "纳指100ETF — 窗口期回报率 +2.4%；+1.8% 的单日飙升在本期研究中未发现可立即识别的基金特定催化剂；归因尚不明确 [推测]。",
+        "台积电 — 窗口期回报率 +3.1%；恰逢活跃的 AI 半导体新闻周期，但研究中未确认有台积电特定驱动因素 [较可能]。",
+      ],
+      technicalColumns: ["持仓", "相对50日均线", "相对200日均线", "52周区间位置", "20日波动率（年化）"],
+      technicalRows: [
+        ["台积电 (TSM)", "-2.5%", "+16.0%", "75%", "+45.3%"],
+        ["微软 (MSFT)", "+20.9%", "+12.9%", "73%", "+61.1%"],
+        ["谷歌 (GOOGL)", "+1.4%", "+10.7%", "81%", "+50.9%"],
+        ["纳指100ETF (QQQ)", "+0.5%", "+11.2%", "86%", "+26.5%"],
+        ["标普500ETF (VOO)", "+3.3%", "+10.2%", "99%", "+14.4%"],
+      ],
+      technicalNote: "区间位置：0% = 处于52周低点，100% = 处于52周高点。数据描述价格所处位置，并非信号。",
     },
     boundary: {
       heading: "明确不做的事",
@@ -250,11 +371,11 @@ export const homeMessages: Record<Locale, HomeMessages> = {
       items: [
         {
           q: "这是投资建议吗？",
-          a: "不是。Portfonia 是情报服务——只告诉你发生了什么、为什么可能重要，从不告诉你该怎么做。见上方“明确不做的事”。",
+          a: "不是。Portfonia 是情报服务——告诉你发生了什么、为什么可能重要，帮助你作出及时明智的决策。见上方“明确不做的事”。",
         },
         {
           q: "我的持仓数据安全吗？",
-          a: "目前尚未静态加密存储——这是公开上线前会补上的一项。现状：LLM 调用默认禁止被用作训练数据，且每次只发送当次报告实际需要的范围——不会把完整持仓整体发给第三方。",
+          a: "安全——你的持仓数据已静态强加密存储（数据库字段级加密）。此外，AI 调用默认禁止数据被用作训练，且每次只发送当次报告实际需要的范围——不会把完整持仓整体发给第三方。",
         },
         {
           q: "支持哪些市场和持仓类型？",
@@ -262,12 +383,12 @@ export const homeMessages: Record<Locale, HomeMessages> = {
         },
         {
           q: "收费吗？",
-          a: "Portfonia 目前是单用户原型（Ring 0），还在验证这件事本身是否有价值——定价尚未确定。",
+          a: "Portfonia 目前处于多用户封闭测试阶段——正式方案公布时，内容与功能可能因订阅版本不同而有所差别。",
         },
       ],
     },
     status:
-      "Ring 0——单用户本地原型，目标是验证一个假设：AI 把市场信息对应到个人持仓上，能否带来经纪商 App、财经媒体或普通订阅通讯给不到的认知增量。AI 生成内容仅供参考，不构成投资建议。",
+      "MVP——多用户封闭测试。Portfonia 把市场信息对应到你的真实持仓，帮助你作出及时明智的决策。AI 生成内容仅供参考，不构成投资建议。",
     footer: {
       stack1: "Next.js · FastAPI · Celery · PostgreSQL",
       stack2: "通过 OpenRouter 接入可插拔的 LLM 提供方",
