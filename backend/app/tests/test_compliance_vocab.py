@@ -27,7 +27,8 @@ scan_regex_patterns:
   - '止损[位点价]'
 prompt_only_terms:
   - term: 目标价
-context_scan_term: 止损
+context_scan_terms:
+  - 止损
 """
 
 
@@ -42,7 +43,7 @@ def test_loads_valid_config(tmp_path: Path) -> None:
     assert vocab.scan_terms == ("强烈买入", "投资建议")
     assert vocab.scan_regex_patterns == ("止损[位点价]",)
     assert vocab.prompt_only_terms == ("目标价",)
-    assert vocab.context_scan_term == "止损"
+    assert vocab.context_scan_terms == ("止损",)
 
 
 def test_rejects_empty_scan_terms(tmp_path: Path) -> None:
@@ -88,6 +89,21 @@ def test_rejects_empty_prompt_only_terms(tmp_path: Path) -> None:
         _load_zh_vocab(_write(tmp_path, broken))
 
 
+def test_rejects_empty_context_scan_terms(tmp_path: Path) -> None:
+    broken = _VALID_YAML.replace("context_scan_terms:\n  - 止损\n", "context_scan_terms: []\n")
+    with pytest.raises(ValueError, match="context_scan_terms must be a non-empty list"):
+        _load_zh_vocab(_write(tmp_path, broken))
+
+
+def test_rejects_scalar_context_scan_terms(tmp_path: Path) -> None:
+    """A scalar string must not silently character-split into single-char
+    prompt terms via tuple() — same class of bug as scan_regex_patterns
+    (PR #91 re-review)."""
+    broken = _VALID_YAML.replace("context_scan_terms:\n  - 止损\n", "context_scan_terms: 止损\n")
+    with pytest.raises(ValueError, match="context_scan_terms must be a non-empty list"):
+        _load_zh_vocab(_write(tmp_path, broken))
+
+
 def test_rejects_malformed_regex(tmp_path: Path) -> None:
     broken = _VALID_YAML.replace("止损[位点价]", "止损[位点价")  # unbalanced bracket
     with pytest.raises(re.error):
@@ -102,15 +118,17 @@ def test_rejects_missing_file(tmp_path: Path) -> None:
 # Golden regression: the shipped config/compliance_vocab.yml's exact term set.
 # A single-character edit to the hard-won 止损 v3 regex (#74/#75) fails here,
 # not silently as a weaker/wrong compliance backstop in production.
-_GOLDEN_SCAN_TERMS = ("强烈买入", "投资建议", "清仓", "超买", "超卖")
+_GOLDEN_SCAN_TERMS = ("强烈买入", "投资建议", "超买", "超卖")
 _GOLDEN_SCAN_REGEX_PATTERNS = (
     r"(建议|应该|需要|请)(?:(?!关注|留意|注意|警惕)[^。,，、\n]){0,6}止损",  # noqa: RUF001
     r"止损[位点价]",
     r"(立即|立刻|马上|赶紧)[^。,，、\n]{0,2}止损(?!位|点|价|驱动|盘|单)",  # noqa: RUF001
     r"(跌破|涨破|触及|低于|高于)(?=[^。,，、\n]{0,10}\d)[^。,，、\n]{0,10}止损(?!位|点|价|线|驱动|盘|单)",  # noqa: RUF001
+    r"(建议|应该|需要|请)(?:(?!关注|留意|注意|警惕)[^。,，、\n]){0,6}清仓",  # noqa: RUF001
+    r"(立即|立刻|马上|赶紧)(?:(?!披露|宣布)[^。,，、\n]){0,2}清仓",  # noqa: RUF001
 )
 _GOLDEN_PROMPT_ONLY_TERMS = ("目标价", "增持", "减持", "入场")
-_GOLDEN_CONTEXT_SCAN_TERM = "止损"
+_GOLDEN_CONTEXT_SCAN_TERMS = ("止损", "清仓")
 
 _EN_REGEX_PATTERN_COUNT = 12  # forbidden_vocab._EN_REGEX_PATTERNS, unchanged by #90
 
@@ -120,7 +138,7 @@ def test_default_config_matches_golden_vocab() -> None:
     assert vocab.scan_terms == _GOLDEN_SCAN_TERMS
     assert vocab.scan_regex_patterns == _GOLDEN_SCAN_REGEX_PATTERNS
     assert vocab.prompt_only_terms == _GOLDEN_PROMPT_ONLY_TERMS
-    assert vocab.context_scan_term == _GOLDEN_CONTEXT_SCAN_TERM
+    assert vocab.context_scan_terms == _GOLDEN_CONTEXT_SCAN_TERMS
 
 
 def test_module_level_singletons_reflect_shipped_config() -> None:
@@ -130,5 +148,5 @@ def test_module_level_singletons_reflect_shipped_config() -> None:
         _EN_REGEX_PATTERN_COUNT + len(_GOLDEN_SCAN_TERMS) + len(_GOLDEN_SCAN_REGEX_PATTERNS)
     )
     assert len(FORBIDDEN_OUTPUT_PATTERNS) == expected_pattern_count
-    for term in _GOLDEN_SCAN_TERMS + _GOLDEN_PROMPT_ONLY_TERMS + (_GOLDEN_CONTEXT_SCAN_TERM,):
+    for term in _GOLDEN_SCAN_TERMS + _GOLDEN_PROMPT_ONLY_TERMS + _GOLDEN_CONTEXT_SCAN_TERMS:
         assert term in PROMPT_VOCAB_STRING

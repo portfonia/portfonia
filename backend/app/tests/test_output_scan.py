@@ -35,9 +35,9 @@ def test_scan_flags_advisory_action_language() -> None:
     # Unambiguously direct advisory/action terms must trip the scan backstop.
     # "target price" / "entry point" / "目标价" / "增持" / "减持" / "入场" are
     # prompt-only (high FP risk in factual news context) — not scanned (issue #65).
-    # "止损" is context-scanned (see test_scan_zh_stoploss_* below), not a bare
-    # literal, so it is excluded from this generic list.
-    for phrase in ("stop-loss", "strong buy", "强烈买入", "投资建议", "清仓"):
+    # "止损" / "清仓" are context-scanned (see test_scan_zh_stoploss_* and
+    # test_scan_zh_qingcang_* below), not bare literals.
+    for phrase in ("stop-loss", "strong buy", "强烈买入", "投资建议"):
         assert scan._scan_forbidden_output(f"set a {phrase} near 100") != [], (
             f"expected scan to flag: {phrase!r}"
         )
@@ -100,6 +100,61 @@ def test_scan_zh_stoploss_allows_market_mechanism_description() -> None:
         "价格触及止损",  # no price in the gap — generic market narration
         "立刻触发止损盘",
         "跌破支撑位后触发止损单",
+    ):
+        assert scan._scan_forbidden_output(phrase) == [], (
+            f"scan should not flag descriptive use: {phrase!r}"
+        )
+
+
+def test_scan_zh_qingcang_flags_advisory_directive() -> None:
+    # "liquidate the whole position" aimed at the reader is as unambiguous a
+    # Layer-4 instruction as this vocabulary gets, so 清仓 stays on the scan
+    # backstop (issue #205) — unlike 目标价/增持, which dropped to prompt-only.
+    # Same modal/temporal shape as 止损 (issue #74): the gap walk is the v3
+    # per-character form so a hedge verb after 清仓 cannot exclude a real
+    # directive ("建议清仓。注意风险").
+    for phrase in (
+        "建议清仓该持仓，锁定利润",  # noqa: RUF001
+        "应该立即清仓XX",
+        "建议清仓",
+        "应该清仓",
+        "立即清仓",
+        "马上清仓",
+        "建议投资者清仓",
+        "应该马上进行清仓",
+        "建议清仓。注意风险",
+        "建议清仓并注意流动性",
+        "立刻清仓",
+        "需要清仓",
+        "请清仓",
+    ):
+        assert scan._scan_forbidden_output(phrase) != [], f"expected scan to flag: {phrase!r}"
+
+
+def test_scan_zh_qingcang_allows_third_party_description() -> None:
+    # Layer-1/2 factual description of a named fund's own disclosed position
+    # change must not trip the scan. Reproduced in production on report
+    # 2aee4d47-4932-40c1-8519-812228740a49 (issue #205): both sentences
+    # below were held needs_review for the bare literal 清仓.
+    for phrase in (
+        "另一份备案文件报告指出，斯坦利·德鲁肯米勒旗下的 Duquesne Family Office "  # noqa: RUF001
+        "在最近一个季度完全清仓了英特尔头寸，同时减持了博通和美光，并轮动至其他 "  # noqa: RUF001
+        "AI 基础设施类股票。",
+        "INTC — 下跌 15.68%，受 Duquesne Family Office 披露清仓该持仓以及"  # noqa: RUF001
+        "英伟达财报前半导体板块轮动压力影响",
+        "斯坦利·德鲁肯米勒旗下的 Duquesne Family Office 在最近一个季度完全清仓了英特尔头寸",
+        "受 Duquesne Family Office 披露清仓该持仓影响",
+        "该机构清仓了英特尔头寸",
+        "基金披露清仓该持仓",
+        # Hedge verb in the 0-6 modal gap (v3 walk): Layer-3 "worth watching",
+        # not a directive. A 0-2 gap cut would also spare this, but would
+        # drop "建议投资者清仓"; the unbounded-`.` lookahead would spare
+        # "建议清仓。注意风险" (block list) by seeing 注意 past 清仓.
+        "建议关注该机构清仓动作",
+        "建议投资者关注清仓",
+        # Temporal adverb + disclosure verb: third-party filing, not "立即清仓".
+        "立即披露清仓该持仓",
+        "立刻宣布清仓",
     ):
         assert scan._scan_forbidden_output(phrase) == [], (
             f"scan should not flag descriptive use: {phrase!r}"
