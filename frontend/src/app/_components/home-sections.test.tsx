@@ -106,4 +106,22 @@ describe("HomeSections sample briefing", () => {
       expect(hkdFace / 7.8).toBeCloseTo(hkdUsd, 0);
     },
   );
+
+  it.each(["en", "zh"] as Locale[])(
+    "names only snapshot holdings in the %s risk-radar anomaly table",
+    (locale) => {
+      const preview = homeMessages[locale].preview;
+      const heldTickers = new Set(
+        preview.holdingsRows.flatMap((row) => {
+          const match = row[0].match(/\(([A-Za-z0-9.]+)\)/);
+          return match ? [match[1]] : [];
+        }),
+      );
+      for (const row of preview.anomalyRows) {
+        const match = row[0].match(/\(([A-Za-z0-9.]+)\)/);
+        expect(match, `anomaly ${row[0]} has no ticker`).not.toBeNull();
+        expect(heldTickers.has(match![1]), `${match![1]} missing from snapshot`).toBe(true);
+      }
+    },
+  );
 });

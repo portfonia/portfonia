@@ -4,6 +4,7 @@
 // the shadcn-for-React-19 setup) so feature code composes accessible menus
 // without repeating positioning/popup classes. Keyboard nav, Esc, outside-
 // click and focus management come from the primitive itself.
+import Link from "next/link";
 import { Menu } from "@base-ui/react/menu";
 
 import { cn } from "@/lib/utils";
@@ -52,6 +53,8 @@ export function MenuItemLink({
   return (
     <Menu.LinkItem
       href={href}
+      closeOnClick
+      render={<Link href={href} />}
       className="block rounded-md px-3 py-2 text-sm outline-none data-[highlighted]:bg-muted data-[highlighted]:text-foreground"
     >
       {children}

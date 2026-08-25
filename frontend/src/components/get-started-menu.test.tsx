@@ -10,6 +10,20 @@ const { usePathname, getUser, onAuthStateChange, logout } = vi.hoisted(() => ({
 }));
 
 vi.mock("next/navigation", () => ({ usePathname }));
+vi.mock("next/link", () => ({
+  default: ({
+    href,
+    children,
+    ...rest
+  }: {
+    href: string;
+    children?: unknown;
+  }) => (
+    <a href={href} data-next-link="true" {...rest}>
+      {children as never}
+    </a>
+  ),
+}));
 vi.mock("@/lib/supabase/browser", () => ({
   createClient: () => ({
     auth: {
@@ -109,6 +123,10 @@ describe("GetStartedMenu", () => {
       expect(screen.getByRole("menuitem", { name: "Log in" })).toHaveAttribute(
         "href",
         "/login",
+      );
+      expect(screen.getByRole("menuitem", { name: "Log in" })).toHaveAttribute(
+        "data-next-link",
+        "true",
       );
     });
   });

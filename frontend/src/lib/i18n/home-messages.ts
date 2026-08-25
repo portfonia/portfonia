@@ -172,12 +172,12 @@ export const homeMessages: Record<Locale, HomeMessages> = {
         "Trigger",
       ],
       anomalyRows: [
-        ["NVDA (NVDA)", "+8.4%", "+5.2% (08-25)", "181.90", "183.40 (+0.8%)", "182.1–191.6", "190.95", "single_day"],
-        ["ORCL (ORCL)", "+6.1%", "+4.7% (08-24)", "144.30", "143.9 (-0.3%)", "142.5–151.0", "150.85", "single_day"],
+        ["QQQ (QQQ)", "+2.4%", "+1.8% (08-25)", "562.10", "564.20 (+0.4%)", "561.4–574.8", "573.90", "single_day"],
+        ["TSMC (TSM)", "+3.1%", "+2.2% (08-24)", "198.40", "197.90 (-0.3%)", "196.5–204.1", "203.85", "single_day"],
       ],
       anomalyBullets: [
-        "NVDA — +8.4% over the window; the +5.2% single-day surge came with no immediately identifiable company-specific catalyst in this period's research; attribution remains open [Speculative].",
-        "ORCL — +6.1% over the window; coincided with an active AI-sector news cycle, but no Oracle-specific driver was confirmed in research [Probable].",
+        "QQQ — +2.4% over the window; the +1.8% single-day surge came with no immediately identifiable fund-specific catalyst in this period's research; attribution remains open [Speculative].",
+        "TSMC — +3.1% over the window; coincided with an active AI-semiconductor news cycle, but no TSMC-specific driver was confirmed in research [Probable].",
       ],
       technicalColumns: ["Holding", "vs 50-day avg", "vs 200-day avg", "52-wk range position", "20-day vol (ann.)"],
       technicalRows: [
@@ -336,12 +336,12 @@ export const homeMessages: Record<Locale, HomeMessages> = {
         "触发条件",
       ],
       anomalyRows: [
-        ["英伟达 (NVDA)", "+8.4%", "+5.2% (08-25)", "181.90", "183.40 (+0.8%)", "182.1–191.6", "190.95", "single_day"],
-        ["甲骨文 (ORCL)", "+6.1%", "+4.7% (08-24)", "144.30", "143.9 (-0.3%)", "142.5–151.0", "150.85", "single_day"],
+        ["纳指100ETF (QQQ)", "+2.4%", "+1.8% (08-25)", "562.10", "564.20 (+0.4%)", "561.4–574.8", "573.90", "single_day"],
+        ["台积电 (TSM)", "+3.1%", "+2.2% (08-24)", "198.40", "197.90 (-0.3%)", "196.5–204.1", "203.85", "single_day"],
       ],
       anomalyBullets: [
-        "英伟达 — 窗口期回报率 +8.4%；+5.2% 的单日飙升在本期研究中未发现可立即识别的公司特定催化剂；归因尚不明确 [推测]。",
-        "甲骨文 — 窗口期回报率 +6.1%；恰逢活跃的 AI 板块新闻周期，但研究中未确认有甲骨文特定驱动因素 [较可能]。",
+        "纳指100ETF — 窗口期回报率 +2.4%；+1.8% 的单日飙升在本期研究中未发现可立即识别的基金特定催化剂；归因尚不明确 [推测]。",
+        "台积电 — 窗口期回报率 +3.1%；恰逢活跃的 AI 半导体新闻周期，但研究中未确认有台积电特定驱动因素 [较可能]。",
       ],
       technicalColumns: ["持仓", "相对50日均线", "相对200日均线", "52周区间位置", "20日波动率（年化）"],
       technicalRows: [
