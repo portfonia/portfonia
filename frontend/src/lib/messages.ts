@@ -6,8 +6,16 @@
 export const messages = {
   common: {
     brandName: "Portfonia",
+  },
+  menu: {
+    // Top-bar Get Started menu (issue #207). English-only for now, like the
+    // rest of this map — the home route overrides labels via
+    // home-messages.nav until a zh map lands here.
+    trigger: "Get Started",
     login: "Log in",
     logout: "Log out",
+    holdings: "Holdings",
+    sessionExpired: "Your session ended after 15 minutes of inactivity.",
   },
   auth: {
     loginHeading: "Log in",
