@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
-from app.services.price_capture import _upsert, capture_prices
+from app.services.price_capture import _UPSERT_CHUNK_SIZE, _upsert, capture_prices
 
 _USER = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
@@ -167,6 +167,9 @@ def test_upsert_chunks_past_postgres_parameter_limit(db_session: Session) -> Non
         }
         for i in range(_PARAM_OVERFLOW_ROW_COUNT)
     ]
+    # Close-node rows bind one param per dict key. Lock the chunk math the
+    # source comment states, derived from this row shape not a frozen 10.
+    assert _UPSERT_CHUNK_SIZE * len(rows[0]) <= 65_535
 
     written = _upsert(db_session, rows)
 

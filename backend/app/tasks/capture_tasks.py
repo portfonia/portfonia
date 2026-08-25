@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Any
 
 from app.services.email_sender import send_ops_alert
-from app.services.github_issues import create_bug_report
+from app.services.github_issues import create_bug_report, truncate_text
 from app.tasks import celery_app
 
 logger = logging.getLogger(__name__)
@@ -23,15 +23,21 @@ logger = logging.getLogger(__name__)
 # (thousands of chars). Unbounded interpolation 422s GitHub's issue-body
 # limit; the full traceback stays in worker.log (issue #195).
 _MAX_EXC_CHARS = 4_000
+# Per-market slice so three failures still fit under _MAX_EXC_CHARS after
+# join + the "RuntimeError: " prefix _format_exc adds.
+_MAX_MARKET_EXC_CHARS = 1_200
 _EXC_TRUNCATION_MARK = "...(truncated)"
 
 
 def _format_exc(exc: BaseException) -> str:
-    text = f"{type(exc).__name__}: {exc}"
-    if len(text) <= _MAX_EXC_CHARS:
-        return text
-    keep = max(0, _MAX_EXC_CHARS - len(_EXC_TRUNCATION_MARK))
-    return text[:keep] + _EXC_TRUNCATION_MARK
+    return truncate_text(f"{type(exc).__name__}: {exc}", _MAX_EXC_CHARS, mark=_EXC_TRUNCATION_MARK)
+
+
+def _market_failure_entry(market: str, exc: BaseException) -> str:
+    detail = truncate_text(
+        f"{type(exc).__name__}: {exc}", _MAX_MARKET_EXC_CHARS, mark=_EXC_TRUNCATION_MARK
+    )
+    return f"{market}: {detail}"
 
 
 def _capture_failed(task_name: str, exc: BaseException, context: str = "") -> None:
@@ -141,6 +147,9 @@ def backfill_ohlcv_task(self: Any, tickers: list[str] | None = None) -> dict[str
     try:
         total = 0
         failures: list[tuple[str, BaseException]] = []
+        # Full-market retry is deliberate: upsert is idempotent, and tracking
+        # which markets succeeded across Celery retries needs task state we
+        # do not have. Failures should be rare after the chunked-upsert fix.
         for market in _MARKETS:
             try:
                 written = capture_prices(
@@ -157,7 +166,7 @@ def backfill_ohlcv_task(self: Any, tickers: list[str] | None = None) -> dict[str
                 failures.append((market, exc))
                 session.rollback()
         if failures:
-            summary = "; ".join(f"{m}: {type(e).__name__}: {e}" for m, e in failures)
+            summary = "; ".join(_market_failure_entry(m, e) for m, e in failures)
             combined = RuntimeError(summary)
             if self.request.retries >= self.max_retries:
                 _capture_failed("backfill_ohlcv_task", combined)

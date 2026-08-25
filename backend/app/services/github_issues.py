@@ -28,11 +28,17 @@ _GITHUB_ISSUE_BODY_MAX = 65_536
 _TRUNCATION_MARK = "\n...(truncated)"
 
 
-def _truncate(text: str, limit: int) -> str:
+def truncate_text(text: str, limit: int, mark: str = _TRUNCATION_MARK) -> str:
+    """Cap `text` at `limit` chars, appending `mark` when sliced.
+
+    Shared by create_bug_report (issue-body ceiling) and capture_tasks
+    (_format_exc / per-market failure summaries) so the slice-plus-marker
+    mechanic cannot drift. Limits and marks stay caller-specific.
+    """
     if len(text) <= limit:
         return text
-    keep = max(0, limit - len(_TRUNCATION_MARK))
-    return text[:keep] + _TRUNCATION_MARK
+    keep = max(0, limit - len(mark))
+    return text[:keep] + mark
 
 
 def create_bug_report(
@@ -57,7 +63,7 @@ def create_bug_report(
 
     payload: dict[str, object] = {
         "title": title,
-        "body": _truncate(body, _GITHUB_ISSUE_BODY_MAX),
+        "body": truncate_text(body, _GITHUB_ISSUE_BODY_MAX),
     }
     if labels:
         payload["labels"] = labels

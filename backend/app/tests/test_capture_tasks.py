@@ -139,12 +139,60 @@ def test_backfill_ohlcv_continues_after_one_market_fails(
 
     # .run() is called_directly, so Celery's retry re-raises the combined
     # RuntimeError rather than celery.exceptions.Retry.
-    with pytest.raises(RuntimeError, match="US exploded"):
+    with (
+        patch("app.tasks.capture_tasks._capture_failed") as mock_fail,
+        pytest.raises(RuntimeError, match="US exploded"),
+    ):
         backfill_ohlcv_task.run(["AAPL", "0700.HK", "000001.SS"])
 
     assert [c.args[1] for c in mock_cap.call_args_list] == ["US", "HK", "A-Share"]
+    mock_fail.assert_not_called()
     session.rollback.assert_called()
     session.close.assert_called_once()
+
+
+@patch("app.core.database.SessionLocal")
+@patch("app.services.price_capture.capture_prices")
+def test_backfill_combined_failure_keeps_later_markets_in_alert(
+    mock_cap: MagicMock, mock_session_cls: MagicMock
+) -> None:
+    """A huge first-market error must not crowd HK/A-Share out of the alert."""
+    from app.tasks.capture_tasks import backfill_ohlcv_task
+
+    session = MagicMock()
+    mock_session_cls.return_value = session
+
+    def _cap(
+        _session: object,
+        market: str,
+        _node: str,
+        lookback_days: int = 7,
+        **_kwargs: object,
+    ) -> int:
+        if market == "US":
+            raise RuntimeError("U" * 8000)
+        if market == "HK":
+            raise RuntimeError("HK_UNIQUE_TOKEN")
+        raise RuntimeError("CN_UNIQUE_TOKEN")
+
+    mock_cap.side_effect = _cap
+    backfill_ohlcv_task.push_request(retries=1)
+    try:
+        with (
+            patch("app.tasks.capture_tasks.send_ops_alert") as mock_alert,
+            patch("app.tasks.capture_tasks.create_bug_report") as mock_issue,
+            pytest.raises(RuntimeError),
+        ):
+            backfill_ohlcv_task.run(["AAPL"])
+    finally:
+        backfill_ohlcv_task.pop_request()
+
+    issue_body = mock_issue.call_args.kwargs["body"]
+    alert_body = mock_alert.call_args.kwargs["body"]
+    assert "HK_UNIQUE_TOKEN" in issue_body
+    assert "CN_UNIQUE_TOKEN" in issue_body
+    assert "HK_UNIQUE_TOKEN" in alert_body
+    assert "CN_UNIQUE_TOKEN" in alert_body
 
 
 def test_fx_capture_entry_runs_daily_weekdays() -> None:
