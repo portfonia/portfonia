@@ -33,7 +33,7 @@ scan_terms:
   - term: 超买 # overbought
   - term: 超卖 # oversold
 
-# --- scan_regex_patterns: context-aware 止损 (stop-loss) disambiguation ---
+# --- scan_regex_patterns: context-aware 止损 / 清仓 disambiguation ---
 # Unlike scan_terms (bare literal match), these only fire when 止损 appears as
 # an instruction to the user, not as a description of stop-loss orders
 # triggering in the market.
@@ -66,17 +66,25 @@ scan_terms:
 # directive ("跌破91.50止损") from generic market narration, so this is a
 # structural fix rather than another entry in the trailing-noun list.
 #
-# 清仓 (liquidate entire position), issue #205:
-# Same modal + temporal shape as 止损, without the level-breaking / 位点价
-# patterns (those are stop-loss-specific). Reuses the v3 per-character walk
-# so "建议清仓。注意风险" still blocks and "建议关注该机构清仓动作" still
-# allows. Temporal pattern excludes 披露/宣布 in the gap — those are the
-# verbs of a third-party filing ("立即披露清仓"), not "立即清仓" as a
-# directive to the reader. Analogous to 止损's trailing 盘/单 exclusion.
+# 清仓 (liquidate entire position), issue #205 / PR #206:
+# Modal + temporal reuse 止损's v3 per-character walk. Unlike 止损, there is
+# no 清仓位 construct, so the compensating nets are different: urgency
+# adverb 尽快, adjacent 全部/直接/完全 (completed-aspect 了 excluded so
+# "完全清仓了英特尔头寸" still allows), and a level-break+digit arm
+# mirroring 止损 ("跌破90就清仓"). Temporal lookbehind drops 被迫/强制
+# (forced-liquidation narration); gap verbs 披露/宣布/启动/公告 and
+# trailing 了/程序/计划/动作/流程 drop process/filing shapes.
+# Accepted residual (covering them is the #205 false-positive): bare
+# "清仓该持仓" / "分批清仓", and "责令其马上清仓" (force-verb is not
+# adjacent to the adverb, so a fixed-width lookbehind cannot see it).
 # Blocks: "建议清仓" / "应该立即清仓" / "立即清仓" / "建议投资者清仓" /
-#         "应该马上进行清仓" / "建议清仓。注意风险"
+#         "应该马上进行清仓" / "建议清仓。注意风险" / "尽快清仓" /
+#         "全部清仓，不要犹豫" / "直接清仓" / "跌破90就清仓" /
+#         "立即把手里的仓位清仓"
 # Allows: "完全清仓了英特尔头寸" / "披露清仓该持仓" / "该机构清仓了" /
-#         "建议关注该机构清仓动作" / "立即披露清仓该持仓"
+#         "建议关注该机构清仓动作" / "立即披露清仓该持仓" /
+#         "多头被迫立即清仓离场" / "该ETF立刻启动清仓程序" /
+#         "公司马上公告清仓计划"
 #
 # Single-quoted YAML scalars below: no backslash-escape processing, so the
 # regex source is byte-identical to what re.compile receives (matches the
@@ -87,7 +95,9 @@ scan_regex_patterns:
   - '(立即|立刻|马上|赶紧)[^。,，、\n]{0,2}止损(?!位|点|价|驱动|盘|单)'
   - '(跌破|涨破|触及|低于|高于)(?=[^。,，、\n]{0,10}\d)[^。,，、\n]{0,10}止损(?!位|点|价|线|驱动|盘|单)'
   - '(建议|应该|需要|请)(?:(?!关注|留意|注意|警惕)[^。,，、\n]){0,6}清仓'
-  - '(立即|立刻|马上|赶紧)(?:(?!披露|宣布)[^。,，、\n]){0,2}清仓'
+  - '(?<!被迫)(?<!强制)(立即|立刻|马上|赶紧|尽快)(?:(?!披露|宣布|启动|公告)[^。,，、\n]){0,6}清仓(?!了|程序|计划|动作|流程)'
+  - '(全部|直接|完全)清仓(?!了)'
+  - '(跌破|涨破|触及|低于|高于)(?=[^。,，、\n]{0,10}\d)[^。,，、\n]{0,10}清仓(?!了)'
 
 # --- prompt_only_terms: injected into the LLM system prompt, NOT scanned ---
 # The LLM is instructed to avoid these, but they are not scanned in output

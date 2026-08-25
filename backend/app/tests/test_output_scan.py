@@ -127,6 +127,15 @@ def test_scan_zh_qingcang_flags_advisory_directive() -> None:
         "立刻清仓",
         "需要清仓",
         "请清仓",
+        # Compensating nets (PR #206 review): 止损 kept 位点价 / level-break
+        # after leaving scan_terms; 清仓 needs the same class of coverage
+        # for non-modal directives. Not a bare 清仓 match — "清仓该持仓" and
+        # "分批清仓" stay unscanned because they are the #205 production shape.
+        "尽快清仓",
+        "全部清仓，不要犹豫",  # noqa: RUF001
+        "直接清仓",
+        "跌破90就清仓",
+        "立即把手里的仓位清仓",
     ):
         assert scan._scan_forbidden_output(phrase) != [], f"expected scan to flag: {phrase!r}"
 
@@ -155,6 +164,15 @@ def test_scan_zh_qingcang_allows_third_party_description() -> None:
         # Temporal adverb + disclosure verb: third-party filing, not "立即清仓".
         "立即披露清仓该持仓",
         "立刻宣布清仓",
+        # Forced / process liquidation (PR #206 review): temporal arm must
+        # not recreate the #205 hold on Layer-1/2 market narration.
+        "多头被迫立即清仓离场",
+        "杠杆资金被迫马上清仓",
+        "该ETF立刻启动清仓程序",
+        "公司马上公告清仓计划",
+        # Accepted residual vs a bare-literal backstop (same #205 shape):
+        "分批清仓",
+        "清仓该持仓",
     ):
         assert scan._scan_forbidden_output(phrase) == [], (
             f"scan should not flag descriptive use: {phrase!r}"
