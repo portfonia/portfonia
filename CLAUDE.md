@@ -531,6 +531,21 @@ layer** (per-user, incremental).
   `truncate_text` in `github_issues.py`; `_capture_failed` also caps
   `str(exc)` (per-market entries sliced before join so one huge SQL dump
   cannot crowd later markets out of the alert).
+- **Fund NAV confirm-time capture (issue #196)**: `fund_code` holdings
+  (no ticker) are not on the OHLCV path, so they used to wait until the
+  next `capture-fund-navs-daily` beat (20:00 CST Mon-Fri) — a new user's
+  first report could drop every fund as "missing price data". Same shape
+  as the ticker fix: storage and the daily task stay global;
+  `confirm_holdings` dispatches `backfill_fund_navs_task.delay(codes)`
+  fire-and-forget (confirm stays fast — do not fetch inline, issue #193)
+  for **this user's** auto funds with *zero* close snapshots. Threshold is
+  not the ticker `< 50 bars` rule: `compute_technical_positions` skips
+  no-ticker holdings, so valuation only needs any cached close (including
+  one another user already captured). Lookback is 30 days, matching the
+  scheduled task, not the ticker path's 420. `capture_fund_navs` takes an
+  optional `fund_codes` filter (`None` = full universe) and uniques by
+  fund_code before fetch — two holdings of the same fund must not propose
+  the same upsert key twice.
 - **Report window** = `[previous report.period_end, now]`; watermark =
   `max(period_end)` over the user's completed reports (deleting a report
   rolls it back; regenerate keeps the stored period). News/anomalies are read
@@ -1762,8 +1777,10 @@ Fund holdings (fund_code only, no ticker) participate in anomaly detection
 via Tiantian Fund historical NAV: `fund_nav_fetcher.fetch_nav_history()` (lsjz API)
 → `price_capture.capture_fund_navs()` upserts into `price_snapshots` keyed by
 fund_code. Beat task `capture_fund_navs_task` runs 20:00 CST Mon-Fri (NAV
-publishes same evening after A-share close). `detect_window_anomalies`
-identifier fallback chain: `h.ticker or h.fund_code`.
+publishes same evening after A-share close). Confirm-time
+`backfill_fund_navs_task` covers funds that have never been captured
+(issue #196) so a first report does not wait until that beat.
+`detect_window_anomalies` identifier fallback chain: `h.ticker or h.fund_code`.
 
 ### §1 / distribution / §4.1 now read `asset_class`, not sector (2026-06-19)
 

@@ -12,7 +12,12 @@ from sqlalchemy.orm import Session
 
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
-from app.services.price_capture import _UPSERT_CHUNK_SIZE, _upsert, capture_prices
+from app.services.price_capture import (
+    _UPSERT_CHUNK_SIZE,
+    _upsert,
+    capture_fund_navs,
+    capture_prices,
+)
 
 _USER = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
@@ -135,6 +140,135 @@ def test_capture_prices_empty_tickers_filter_fetches_nothing(db_session: Session
         n = capture_prices(db_session, market="US", session_node="close", tickers=[])
     assert n == 0
     fetch.assert_not_called()
+
+
+def _fund_holding(name: str, fund_code: str) -> Holding:
+    return Holding(
+        user_id=_USER,
+        name=name,
+        fund_code=fund_code,
+        pricing_mode="auto",
+        currency="CNY",
+        market="A-Share",
+        asset_class="EQUITY_US_BROAD",
+    )
+
+
+def test_capture_fund_navs_stores_close_under_fund_code(db_session: Session) -> None:
+    db_session.add(_fund_holding("Huaxia SSE 50 ETF", "513100"))
+    db_session.flush()
+    history = [(date(2026, 8, 22), Decimal("1.23"))]
+    with patch("app.services.fund_nav_fetcher.fetch_nav_history", return_value=history):
+        n = capture_fund_navs(db_session)
+
+    assert n == 1
+    row = db_session.execute(
+        select(PriceSnapshot).where(PriceSnapshot.ticker == "513100")
+    ).scalar_one()
+    assert row.close == Decimal("1.23")
+    assert row.session_node == "close"
+    assert row.market == "A-Share"
+    assert row.trade_date == date(2026, 8, 22)
+
+
+def test_capture_fund_navs_fund_codes_filter_restricts_fetch(db_session: Session) -> None:
+    """Confirm-time NAV capture must not rescan every fund in the system (#196)."""
+    db_session.add_all(
+        [
+            _fund_holding("Huaxia SSE 50 ETF", "513100"),
+            _fund_holding("Huatai CSI 300 ETF", "510300"),
+        ]
+    )
+    db_session.flush()
+    history = [(date(2026, 8, 22), Decimal("1.23"))]
+    with patch("app.services.fund_nav_fetcher.fetch_nav_history", return_value=history) as fetch:
+        n = capture_fund_navs(db_session, fund_codes=["513100"])
+
+    fetch.assert_called_once()
+    assert fetch.call_args.args[0] == "513100"
+    assert n == 1
+    assert (
+        db_session.execute(
+            select(func.count()).select_from(PriceSnapshot).where(PriceSnapshot.ticker == "510300")
+        ).scalar_one()
+        == 0
+    )
+
+
+def test_capture_fund_navs_empty_fund_codes_filter_fetches_nothing(
+    db_session: Session,
+) -> None:
+    db_session.add(_fund_holding("Huaxia SSE 50 ETF", "513100"))
+    db_session.flush()
+    with patch("app.services.fund_nav_fetcher.fetch_nav_history") as fetch:
+        n = capture_fund_navs(db_session, fund_codes=[])
+    assert n == 0
+    fetch.assert_not_called()
+
+
+def test_capture_fund_navs_dedupes_same_fund_code_across_holdings(
+    db_session: Session,
+) -> None:
+    """Two users (or lots) of the same fund must not double-fetch the NAV API."""
+    other = uuid.uuid4()
+    db_session.add_all(
+        [
+            _fund_holding("Huaxia SSE 50 ETF", "513100"),
+            Holding(
+                user_id=other,
+                name="Same fund, other user",
+                fund_code="513100",
+                pricing_mode="auto",
+                currency="CNY",
+                market="A-Share",
+                asset_class="EQUITY_US_BROAD",
+            ),
+        ]
+    )
+    db_session.flush()
+    history = [(date(2026, 8, 22), Decimal("1.23"))]
+    with patch("app.services.fund_nav_fetcher.fetch_nav_history", return_value=history) as fetch:
+        n = capture_fund_navs(db_session)
+    fetch.assert_called_once()
+    assert n == 1
+
+
+def test_capture_fund_navs_prefers_declared_market_over_null_default(
+    db_session: Session,
+) -> None:
+    """Same fund_code, mixed NULL vs declared market: declared wins, stably."""
+    other = uuid.uuid4()
+    db_session.add_all(
+        [
+            Holding(
+                user_id=_USER,
+                name="Null market lot",
+                fund_code="513100",
+                pricing_mode="auto",
+                currency="CNY",
+                market=None,
+                asset_class="EQUITY_US_BROAD",
+            ),
+            Holding(
+                user_id=other,
+                name="Declared HK lot",
+                fund_code="513100",
+                pricing_mode="auto",
+                currency="CNY",
+                market="HK",
+                asset_class="EQUITY_US_BROAD",
+            ),
+        ]
+    )
+    db_session.flush()
+    history = [(date(2026, 8, 22), Decimal("1.23"))]
+    with patch("app.services.fund_nav_fetcher.fetch_nav_history", return_value=history):
+        n = capture_fund_navs(db_session)
+    assert n == 1
+    row = db_session.execute(
+        select(PriceSnapshot).where(PriceSnapshot.ticker == "513100")
+    ).scalar_one()
+    assert row.market == "HK"
 
 
 # Close-node rows bind 10 parameters each. PostgreSQL/psycopg hard-cap a

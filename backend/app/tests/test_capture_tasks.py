@@ -217,3 +217,63 @@ def test_capture_fx_task(mock_update: MagicMock, mock_session_cls: MagicMock) ->
     mock_update.assert_called_once_with(session)
     session.commit.assert_called_once()
     session.close.assert_called_once()
+
+
+@patch("app.core.database.SessionLocal")
+@patch("app.services.price_capture.capture_fund_navs", return_value=8)
+def test_capture_fund_navs_task_is_full_universe(
+    mock_cap: MagicMock, mock_session_cls: MagicMock
+) -> None:
+    """Daily beat path stays unscoped — no fund_codes filter (#196)."""
+    from app.tasks.capture_tasks import capture_fund_navs_task
+
+    session = MagicMock()
+    mock_session_cls.return_value = session
+    result = capture_fund_navs_task.run()
+    assert result == {"written": 8}
+    mock_cap.assert_called_once_with(session)
+    session.close.assert_called_once()
+
+
+@patch("app.core.database.SessionLocal")
+@patch("app.services.price_capture.capture_fund_navs", return_value=8)
+def test_backfill_fund_navs_task_no_codes_is_noop(
+    mock_cap: MagicMock, mock_session_cls: MagicMock
+) -> None:
+    from app.tasks.capture_tasks import backfill_fund_navs_task
+
+    result = backfill_fund_navs_task.run()
+    assert result == {"written": 0}
+    mock_cap.assert_not_called()
+
+
+@patch("app.core.database.SessionLocal")
+@patch("app.services.price_capture.capture_fund_navs", return_value=8)
+def test_backfill_fund_navs_task_passes_codes_and_scheduled_lookback(
+    mock_cap: MagicMock, mock_session_cls: MagicMock
+) -> None:
+    """Confirm-time NAV pull is 30 days, not the ticker path's 420 (#196)."""
+    from app.tasks.capture_tasks import backfill_fund_navs_task
+
+    session = MagicMock()
+    mock_session_cls.return_value = session
+    result = backfill_fund_navs_task.run(["513100"])
+    assert result == {"written": 8}
+    mock_cap.assert_called_once_with(session, lookback_days=30, fund_codes=["513100"])
+    session.close.assert_called_once()
+
+
+@patch("app.core.database.SessionLocal")
+@patch("app.services.price_capture.capture_fund_navs", return_value=0)
+def test_backfill_fund_navs_task_zero_writes_is_retryable(
+    mock_cap: MagicMock, mock_session_cls: MagicMock
+) -> None:
+    """lsjz swallowing every error used to SUCCESS with written=0 and no alert."""
+    from app.tasks.capture_tasks import backfill_fund_navs_task
+
+    session = MagicMock()
+    mock_session_cls.return_value = session
+    with pytest.raises(RuntimeError, match="0 bars"):
+        backfill_fund_navs_task.run(["513100"])
+    mock_cap.assert_called_once()
+    session.close.assert_called_once()

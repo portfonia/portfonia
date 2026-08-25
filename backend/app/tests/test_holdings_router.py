@@ -56,6 +56,28 @@ _PARSED_CASH: dict[str, object] = {
     "confidence": 1.0,
 }
 
+# China A-share fund: fund_code only, no ticker — exercises the confirm-time
+# NAV cold-start dispatch (issue #196).
+_PARSED_FUND: dict[str, object] = {
+    "name": "Huaxia SSE 50 ETF",
+    "ticker": None,
+    "fund_code": "513100",
+    "currency": "CNY",
+    "shares": 1000.0,
+    "avg_cost": 1.2,
+    "current_value": None,
+    "pricing_mode": "auto",
+    "asset_type": "etf",
+    "asset_class": "EQUITY_US_BROAD",
+    "market": "A-Share",
+    "broker": "Huatai",
+    "account": None,
+    "portfolio": None,
+    "notes": None,
+    "issues": [],
+    "confidence": 1.0,
+}
+
 _MOCK_PREVIEW = {
     "valid_rows": [_PARSED_APPLE, _PARSED_CASH],
     "issue_rows": [{"raw": "bad row", "reason": "Cannot parse"}],
@@ -432,6 +454,141 @@ def test_confirm_skips_backfill_when_this_users_tickers_already_have_history(
         resp = app_client.post("/holdings/confirm", json=[_PARSED_APPLE])
     assert resp.status_code == 200
     mock_task.delay.assert_not_called()
+
+
+def test_confirm_dispatches_fund_nav_backfill_for_uncached_fund_codes(
+    app_client: TestClient,
+) -> None:
+    """A fund_code with no price_snapshots must fire an async NAV capture (#196)."""
+    with (
+        patch("app.tasks.capture_tasks.backfill_ohlcv_task") as mock_ohlcv,
+        patch("app.tasks.capture_tasks.backfill_fund_navs_task") as mock_nav,
+    ):
+        resp = app_client.post("/holdings/confirm", json=[_PARSED_FUND])
+    assert resp.status_code == 200
+    mock_nav.delay.assert_called_once_with(["513100"])
+    mock_ohlcv.delay.assert_not_called()
+
+
+def test_confirm_skips_fund_nav_backfill_when_close_already_cached(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """Any existing close under the fund_code key is enough — §4.4 does not
+    apply to funds, so this is not the ticker '< 50 bars' threshold (#196)."""
+    db_session.add(
+        PriceSnapshot(
+            ticker="513100",
+            market="A-Share",
+            session_node="close",
+            trade_date=date(2026, 8, 22),
+            close=Decimal("1.23"),
+        )
+    )
+    db_session.commit()
+
+    with patch("app.tasks.capture_tasks.backfill_fund_navs_task") as mock_nav:
+        resp = app_client.post("/holdings/confirm", json=[_PARSED_FUND])
+    assert resp.status_code == 200
+    mock_nav.delay.assert_not_called()
+
+
+def test_confirm_skips_fund_nav_backfill_for_manual_fund(
+    app_client: TestClient,
+) -> None:
+    """Manual funds are user-priced; they must not trigger a NAV capture."""
+    manual = {
+        **_PARSED_FUND,
+        "pricing_mode": "manual",
+        "current_value": 1200.0,
+        "shares": None,
+        "avg_cost": None,
+    }
+    with patch("app.tasks.capture_tasks.backfill_fund_navs_task") as mock_nav:
+        resp = app_client.post("/holdings/confirm", json=[manual])
+    assert resp.status_code == 200
+    mock_nav.delay.assert_not_called()
+
+
+def test_confirm_dispatches_fund_nav_when_only_non_close_snapshot_exists(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """An after_close last-only row is not a cached NAV close."""
+    db_session.add(
+        PriceSnapshot(
+            ticker="513100",
+            market="A-Share",
+            session_node="after_close",
+            trade_date=date(2026, 8, 22),
+            last=Decimal("1.23"),
+        )
+    )
+    db_session.commit()
+
+    with patch("app.tasks.capture_tasks.backfill_fund_navs_task") as mock_nav:
+        resp = app_client.post("/holdings/confirm", json=[_PARSED_FUND])
+    assert resp.status_code == 200
+    mock_nav.delay.assert_called_once_with(["513100"])
+
+
+def test_confirm_still_succeeds_when_fund_nav_enqueue_fails(
+    app_client: TestClient,
+) -> None:
+    """A broker blip after commit must not 500 a successful confirm."""
+    with patch("app.tasks.capture_tasks.backfill_fund_navs_task") as mock_nav:
+        mock_nav.delay.side_effect = RuntimeError("broker down")
+        resp = app_client.post("/holdings/confirm", json=[_PARSED_FUND])
+    assert resp.status_code == 200
+    assert resp.json()[0]["fund_code"] == "513100"
+
+
+def test_confirm_still_succeeds_when_ohlcv_enqueue_fails(
+    app_client: TestClient,
+) -> None:
+    with patch("app.tasks.capture_tasks.backfill_ohlcv_task") as mock_ohlcv:
+        mock_ohlcv.delay.side_effect = RuntimeError("broker down")
+        resp = app_client.post("/holdings/confirm", json=[_PARSED_APPLE])
+    assert resp.status_code == 200
+    assert resp.json()[0]["ticker"] == "AAPL"
+
+
+def test_confirm_fund_nav_backfill_passes_only_this_users_uncached_codes(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """Another user's never-captured fund must not ride along on this confirm."""
+    db_session.add(
+        Holding(
+            user_id=uuid.uuid4(),
+            name="Other User CSI 300 ETF",
+            fund_code="510300",
+            pricing_mode="auto",
+            currency="CNY",
+            asset_class="EQUITY_CN",
+            market="A-Share",
+        )
+    )
+    db_session.commit()
+
+    with patch("app.tasks.capture_tasks.backfill_fund_navs_task") as mock_nav:
+        resp = app_client.post("/holdings/confirm", json=[_PARSED_FUND])
+    assert resp.status_code == 200
+    mock_nav.delay.assert_called_once_with(["513100"])
+
+
+def test_confirm_fund_nav_log_omits_fund_code_list(
+    app_client: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Concept §8.8: log how many funds, not which, plus user_id."""
+    import logging as _logging
+
+    _logging.getLogger("app.routers.holdings").disabled = False
+    with caplog.at_level("INFO", logger="app.routers.holdings"):
+        resp = app_client.post("/holdings/confirm", json=[_PARSED_FUND])
+    assert resp.status_code == 200
+    nav_records = [r for r in caplog.records if "fund NAV" in r.getMessage()]
+    assert nav_records, "expected a fund-NAV cold-start log line"
+    for record in nav_records:
+        assert "513100" not in record.getMessage()
+        assert str(TEST_USER_ID) in record.getMessage()
 
 
 def test_confirm_full_replace_does_not_touch_other_users(

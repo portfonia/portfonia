@@ -2,6 +2,7 @@ import logging
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
@@ -102,6 +103,65 @@ def _tickers_with_sparse_history(session: Session, user_id: UUID) -> list[str]:
             _MIN_BARS_FOR_TECHNICAL,
         )
     return sparse
+
+
+def _fund_codes_without_close(session: Session, user_id: UUID) -> list[str]:
+    """Return this user's auto-priced fund_codes with no captured close.
+
+    price_snapshots is global; if any user (or a prior scheduled run) already
+    wrote a close under this fund_code, this confirm reuses it. §4.4 technical
+    position skips funds (no ticker), so one close is enough for valuation —
+    unlike tickers, which backfill when they have < 50 bars (issue #196).
+    """
+    holdings = session.scalars(
+        select(Holding).where(
+            Holding.user_id == user_id,
+            Holding.fund_code.is_not(None),
+            Holding.pricing_mode == "auto",
+        )
+    ).all()
+    codes = {h.fund_code for h in holdings if h.fund_code}
+    if not codes:
+        return []
+    cached = set(
+        session.scalars(
+            select(PriceSnapshot.ticker)
+            .where(
+                PriceSnapshot.ticker.in_(codes),
+                PriceSnapshot.session_node == "close",
+                PriceSnapshot.close.is_not(None),
+            )
+            .distinct()
+        ).all()
+    )
+    missing = sorted(c for c in codes if c not in cached)
+    if missing:
+        # Concept §8.8: count + user_id, never the fund_code list.
+        logger.info(
+            "confirm_holdings: user_id=%s triggered fund NAV capture for %d fund(s) with no close snapshot",
+            user_id,
+            len(missing),
+        )
+    return missing
+
+
+def _enqueue_confirm_capture(task: Any, args: list[str], label: str, user_id: UUID) -> None:
+    """Fire-and-forget after holdings are already committed.
+
+    A broker blip must not turn a successful confirm into a 500 — the write
+    is done; the daily capture beat covers a missed enqueue. Unlike
+    upload_holdings (PR #82), there is no pending job row that would be
+    stuck without the task.
+    """
+    try:
+        task.delay(args)
+    except Exception:
+        logger.exception(
+            "confirm_holdings: user_id=%s failed to enqueue %s for %d identifier(s)",
+            user_id,
+            label,
+            len(args),
+        )
 
 
 @router.post("/upload", response_model=UploadJobOut, status_code=status.HTTP_202_ACCEPTED)
@@ -233,7 +293,21 @@ def confirm_holdings(
     if tickers_needing_backfill:
         from app.tasks.capture_tasks import backfill_ohlcv_task
 
-        backfill_ohlcv_task.delay(tickers_needing_backfill)
+        _enqueue_confirm_capture(
+            backfill_ohlcv_task, tickers_needing_backfill, "ohlcv backfill", user_id
+        )
+    # Fund_code holdings are not on the OHLCV path. Without this dispatch
+    # they wait until the next capture-fund-navs-daily beat (up to ~24h,
+    # longer over a weekend) and the first report drops them as missing
+    # price data (issue #196). Fire-and-forget — confirm must stay fast
+    # (issue #193).
+    fund_codes_needing_nav = _fund_codes_without_close(session, user_id)
+    if fund_codes_needing_nav:
+        from app.tasks.capture_tasks import backfill_fund_navs_task
+
+        _enqueue_confirm_capture(
+            backfill_fund_navs_task, fund_codes_needing_nav, "fund NAV capture", user_id
+        )
     for h in holdings:
         session.refresh(h)
     return holdings
