@@ -14,9 +14,9 @@ const { session, logout } = vi.hoisted(() => ({
 vi.mock("@/hooks/use-session", () => ({ useSession: () => session.current }));
 vi.mock("@/lib/auth-actions", () => ({ logout }));
 
-import { useIdleLogout } from "./use-idle-logout";
+import { useIdleLogout, SESSION_IDLE_TIMEOUT_MS } from "./use-idle-logout";
 
-const IDLE_MS = 15 * 60 * 1000;
+const IDLE_MS = SESSION_IDLE_TIMEOUT_MS;
 
 function armAuthed() {
   session.current = { status: "authed", email: "a@b.com" };
@@ -33,7 +33,7 @@ describe("useIdleLogout", () => {
     vi.useRealTimers();
   });
 
-  it("calls the idle callback exactly once after the idle timeout elapses", async () => {
+  it("calls the idle callback exactly once with the expired reason after the timeout elapses", async () => {
     armAuthed();
     renderHook(() => useIdleLogout("authed", logout));
 
@@ -42,6 +42,7 @@ describe("useIdleLogout", () => {
     });
 
     expect(logout).toHaveBeenCalledTimes(1);
+    expect(logout).toHaveBeenCalledWith("expired");
   });
 
   it("resets the clock on user activity signals, so continuous activity never logs out", async () => {
@@ -100,6 +101,38 @@ describe("useIdleLogout", () => {
       await vi.advanceTimersByTimeAsync(IDLE_MS + 30_000);
     });
 
+    expect(logout).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not count hidden-tab time toward the idle timeout", async () => {
+    armAuthed();
+    // jsdom starts visible; park the tab before the idle stretch.
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      get: () => true,
+    });
+    renderHook(() => useIdleLogout("authed", logout));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(IDLE_MS * 3);
+    });
+
+    expect(logout).not.toHaveBeenCalled();
+
+    // Returning to visibility restarts the clock and counts time again.
+    await act(async () => {
+      Object.defineProperty(document, "hidden", {
+        configurable: true,
+        get: () => false,
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    });
+    expect(logout).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(IDLE_MS + 30_000);
+    });
     expect(logout).toHaveBeenCalledTimes(1);
   });
 

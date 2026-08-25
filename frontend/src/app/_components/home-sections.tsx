@@ -173,11 +173,9 @@ export function HomeSections() {
                     <tr key={`holding-${i}`}>
                       {row.map((cell, j) => (
                         <td key={`holding-${i}-${j}`} className={TD_CLS}>
-                          {j === 0 ? (
-                            <span className="text-xs leading-snug"><BoldText text={cell} /></span>
-                          ) : (
-                            cell
-                          )}
+                          <span className={j === 0 ? "text-xs leading-snug" : undefined}>
+                            <BoldText text={cell} />
+                          </span>
                         </td>
                       ))}
                     </tr>
@@ -286,8 +284,8 @@ export function HomeSections() {
                   </tbody>
                 </table>
               </div>
-              <div className="whitespace-pre-line text-xs text-foreground/50">
-                <BoldText text={t.preview.technicalNote.replace(/^> /, "")} />
+              <div className="text-xs text-foreground/50">
+                <BoldText text={t.preview.technicalNote} />
               </div>
             </div>
 

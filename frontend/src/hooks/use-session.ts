@@ -19,28 +19,44 @@ export function useSession(): SessionState {
   useEffect(() => {
     const supabase = createClient();
     let cancelled = false;
+    // Set the moment a SIGNED_OUT event is observed: any verify() still in
+    // flight must not flip state back to authed after it resolves (the
+    // header survives client-side redirects, so a stale authed menu would
+    // otherwise persist until the next revalidation).
+    let signedOutObserved = false;
+    let inFlight: Promise<void> | null = null;
+
+    const applyVerifiedUser = (user: { email?: string } | null | undefined) => {
+      if (cancelled || signedOutObserved) return;
+      setState(
+        user
+          ? { status: "authed", email: user.email ?? "" }
+          : { status: "guest" },
+      );
+    };
 
     const verify = () => {
-      supabase.auth
+      // One shared in-flight promise per hook instance: focus and
+      // visibilitychange fire together on tab return — two listeners, one
+      // network call.
+      if (inFlight) return;
+      inFlight = supabase.auth
         .getUser()
         .then(({ data }) => {
-          if (!cancelled) {
-            setState(
-              data.user
-                ? { status: "authed", email: data.user.email ?? "" }
-                : { status: "guest" },
-            );
-          }
+          applyVerifiedUser(data.user);
         })
         .catch(() => {
           // Fail closed: an unverifiable session must never leave a stale
           // identity on screen. Worst case degrades to showing Log in (D2).
-          if (!cancelled) {
+          if (!cancelled && !signedOutObserved) {
             setState({ status: "guest" });
             console.warn(
               "[i] useSession: getUser() failed; rendering logged-out state",
             );
           }
+        })
+        .finally(() => {
+          inFlight = null;
         });
     };
 
@@ -58,10 +74,12 @@ export function useSession(): SessionState {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_OUT") {
+        signedOutObserved = true;
         setState({ status: "guest" });
         return;
       }
       if (event === "USER_UPDATED" && session?.user) {
+        signedOutObserved = false;
         setState({ status: "authed", email: session.user.email ?? "" });
       }
       // INITIAL_SESSION / TOKEN_REFRESHED are deliberately ignored: they

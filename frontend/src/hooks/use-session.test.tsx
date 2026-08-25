@@ -132,7 +132,7 @@ describe("useSession", () => {
     );
   });
 
-  it("re-verifies when the tab becomes visible or focused again", async () => {
+  it("re-verifies when the tab becomes visible or focused again (one shared call for simultaneous triggers)", async () => {
     getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
     render(<Probe />);
     await screen.findByTestId("session-state");
@@ -147,7 +147,9 @@ describe("useSession", () => {
       window.dispatchEvent(new Event("focus"));
     });
 
-    await waitFor(() => expect(getUser).toHaveBeenCalledTimes(3));
+    // focus + visibilitychange fire together on tab return; the in-flight
+    // guard collapses them into ONE network call.
+    await waitFor(() => expect(getUser).toHaveBeenCalledTimes(2));
   });
 
   it("does not treat hidden-again events as revalidation triggers", async () => {
@@ -165,6 +167,50 @@ describe("useSession", () => {
     });
 
     await waitFor(() => expect(getUser).toHaveBeenCalledTimes(1));
+  });
+
+  it("does not let an in-flight verify() override a SIGNED_OUT event", async () => {
+    // getUser() hangs until we release it — after SIGNED_OUT has arrived.
+    let release!: (value: unknown) => void;
+    getUser.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    );
+    render(<Probe />);
+
+    act(() => {
+      lastAuthCallback()("SIGNED_OUT", null);
+    });
+    await screen.findByTestId("session-state");
+
+    act(() => {
+      release({ data: { user: { email: "stale@b.com" } } });
+    });
+
+    expect(screen.getByTestId("session-state")).toHaveTextContent("guest");
+  });
+
+  it("shares one in-flight verify across focus and visibility triggers", async () => {
+    const resolvers: Array<(v: unknown) => void> = [];
+    getUser.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    render(<Probe />);
+
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    expect(getUser).toHaveBeenCalledTimes(1);
+    expect(resolvers.length).toBe(1);
+    act(() => {
+      resolvers[0]({ data: { user: null } });
+    });
   });
 
   it("cleans up the subscription and listeners on unmount", async () => {

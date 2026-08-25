@@ -3,6 +3,10 @@
 // concept design doc section 10, frontend constraint 3) is a mechanical move.
 // English only for now; add a `zh` map with the same shape when needed.
 
+import { SESSION_IDLE_TIMEOUT_MS } from "./idle-timeout";
+
+const idleMinutes = Math.round(SESSION_IDLE_TIMEOUT_MS / 60_000);
+
 export const messages = {
   common: {
     brandName: "Portfonia",
@@ -15,7 +19,9 @@ export const messages = {
     login: "Log in",
     logout: "Log out",
     holdings: "Holdings",
-    sessionExpired: "Your session ended after 15 minutes of inactivity.",
+    // Composed from SESSION_IDLE_TIMEOUT_MS (lib/idle-timeout.ts) so the
+    // message cannot drift from enforcement.
+    sessionExpired: `Your session ended after ${idleMinutes} minutes of inactivity.`,
   },
   auth: {
     loginHeading: "Log in",

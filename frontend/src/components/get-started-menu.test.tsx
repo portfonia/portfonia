@@ -131,7 +131,7 @@ describe("GetStartedMenu", () => {
       expect(menu.textContent).not.toContain("Sign up");
     });
 
-    it("calls the logout Server Action from the Log out item", async () => {
+    it("calls the logout Server Action without a reason from the manual Log out item", async () => {
       getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
       const user = userEvent.setup();
       renderMenu();
@@ -140,6 +140,8 @@ describe("GetStartedMenu", () => {
       await user.click(screen.getByRole("menuitem", { name: "Log out" }));
 
       await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
+      // Manual logout passes NO reason (vs the idle hook's "expired").
+      expect(logout).toHaveBeenCalledWith();
     });
 
     it("omits reserved future entries whose routes have not shipped", async () => {

@@ -30,8 +30,9 @@ export function GetStartedMenu() {
   const isHome = pathname === "/";
   const t = useHomeMessages();
   const session = useSession();
-  // Idle auto-logout (R6): reuses the same Server Action as manual logout.
-  useIdleLogout(session.status, () => void logout());
+  // Idle auto-logout (R6): reuses the same Server Action as manual logout,
+  // tagged so /login can show the expired-session banner.
+  useIdleLogout(session.status, (reason) => void logout(reason));
 
   // Render nothing until the verified session check resolves — avoids a
   // login/logout flash on first paint.

@@ -37,4 +37,20 @@ describe("HomeSections sample briefing", () => {
     // The hero eyebrow renders the same MVP wording.
     expect(screen.getAllByText(/multi-user closed beta/i).length).toBeGreaterThanOrEqual(2);
   });
+
+  it("renders bold markers in snapshot table cells as emphasis, never literal asterisks", () => {
+    render(
+      <LocaleProvider>
+        <HomeSections />
+      </LocaleProvider>,
+    );
+
+    // Subtotal rows carry ** markers in label, value AND weight columns —
+    // all must render as styled text, none as raw "**459,450**".
+    for (const text of ["459,450", "35.7%", "438,200", "34.1%"]) {
+      const strongs = screen.getAllByText((_, element) => element?.tagName === "STRONG" && element.textContent === text);
+      expect(strongs.length).toBeGreaterThan(0);
+    }
+    expect(screen.queryByText(/\*\*/)).not.toBeInTheDocument();
+  });
 });

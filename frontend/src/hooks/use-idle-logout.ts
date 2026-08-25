@@ -2,12 +2,17 @@
 
 import { useEffect, useRef } from "react";
 
+import { SESSION_IDLE_TIMEOUT_MS } from "@/lib/idle-timeout";
+
 // Client-side idle auto-logout (issue #207 R6): after SESSION_IDLE_TIMEOUT_MS
-// with no user activity in the tab, invoke the callback (the shared logout
+// with no user activity IN THE TAB, invoke the callback (the shared logout
 // Server Action). Convenience/privacy measure on top of the cookie session —
 // it cannot revoke anything server-side; real lifetime enforcement belongs to
-// the Auth provider config.
-export const SESSION_IDLE_TIMEOUT_MS = 15 * 60_000;
+// the Auth provider config. Background time does NOT count: the interval
+// skips while the tab is hidden and the clock restarts when it becomes
+// visible again, so working in another window never triggers a surprise
+// logout.
+export { SESSION_IDLE_TIMEOUT_MS };
 
 const ACTIVITY_EVENTS = [
   "pointerdown",
@@ -21,7 +26,7 @@ const CHECK_INTERVAL_MS = 30_000;
 
 export function useIdleLogout(
   status: "checking" | "guest" | "authed",
-  onIdleExpired: () => void,
+  onIdleExpired: (reason?: string) => void,
 ): void {
   // Refs, not state: activity stamps and expiry must never re-render the bar.
   const lastActivity = useRef(0);
@@ -45,11 +50,20 @@ export function useIdleLogout(
       window.addEventListener(event, stampActivity, { passive: true });
     }
 
+    // Returning to the tab restarts the idle clock — hidden stretches are
+    // neither activity nor idleness.
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") stampActivity();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
     const interval = setInterval(() => {
-      if (expiredRef.current) return;
+      // Skip entirely while hidden: a parked tab must not accumulate
+      // idle time toward logout.
+      if (expiredRef.current || document.hidden) return;
       if (Date.now() - lastActivity.current >= SESSION_IDLE_TIMEOUT_MS) {
         expiredRef.current = true;
-        onIdleExpiredRef.current();
+        onIdleExpiredRef.current("expired");
       }
     }, CHECK_INTERVAL_MS);
 
@@ -58,6 +72,7 @@ export function useIdleLogout(
       for (const event of ACTIVITY_EVENTS) {
         window.removeEventListener(event, stampActivity);
       }
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [status]);
 }

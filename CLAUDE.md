@@ -46,10 +46,17 @@ for the full before/after and decision rationale.
   (`frontend/src/app/_components/app-shell.tsx`, renamed from the old
   home-only `HomeShell`) and `LocaleProvider` both wrap the whole app from
   root layout, not just the home page. Universal on every route:
-  brand/home link, Holdings entry link (`href="/holdings"`, label sourced
-  from `messages.holdings.pageTitle`). Home-only (`pathname === "/"`): the
-  four marketing anchor links, the locale switcher, and the brand link's
-  target changes to `#top` (in-page jump) instead of `/`.
+  brand/home link and the Get Started dropdown menu
+  (`components/get-started-menu.tsx` — auth-gated entry registry: guest
+  sees only Log in; authed sees Holdings + email + Log out; session
+  display trusts only a verified `getUser()`,
+  `hooks/use-session.ts`). Home-only (`pathname === "/"`): the locale
+  switcher, plus the brand link's target changes to `#top` (in-page jump)
+  instead of `/`. The four marketing anchor links were REMOVED from the
+  bar (issue #207) — the marketing sections remain on the home page
+  itself, reachable by scrolling, not via bar shortcuts. The old
+  `AuthStatus` component is deleted; the Holdings standalone button is
+  gone (Holdings lives inside the menu).
 - **`lang` attribute is route-scoped, not just component-scoped**:
   `AppShell` only follows the selected locale on `/`; every other route
   (still English-only via `lib/messages.ts`, no `zh` map yet) stays
@@ -64,8 +71,9 @@ for the full before/after and decision rationale.
   a `zh` map — separate, unscheduled work.
 - **Tests**: `frontend` had no test framework before this — vitest +
   React Testing Library were added specifically for this change
-  (`npm run test`). `site-header.test.tsx` / `app-shell.test.tsx` lock the
-  route-conditional rendering above; extend them, don't remove the
+  (`npm run test`). `site-header.test.tsx` / `get-started-menu.test.tsx`
+  / `app-shell.test.tsx` lock the route-conditional rendering and the
+  auth-gated menu above; extend them, don't remove the
   route-parametrized assertions, if this component changes again.
 - When adding a new route: it inherits the header for free by living
   under the root layout — do not wrap it in its own header/layout unless
