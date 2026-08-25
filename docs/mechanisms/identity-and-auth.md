@@ -1,0 +1,313 @@
+# Ring 1 stage B: analysis framework, identity seam, users/auth, frontend auth closure
+
+### System default analysis framework — B1 (Ring 1 stage B, issue #129, PR #172)
+
+The system-wide "house analytical stance" from `Portfonia Concept & Design.md`
+§4.3 ("System Default Investment Philosophy") had sat as unimplemented prose since 2026-05-14 — the
+real system prompt (`_COMPLIANCE_SYSTEM_PREFIX` + `_SHARED_BODY_RULES`) never
+carried any product-specific investment philosophy, only compliance
+constraints and structural writing rules. B1 closes that gap.
+
+- **`config/analysis_framework.yml`** (`app/services/analysis_framework.py`
+  loader) — English-only prose (reasoning layer, never surfaced to the
+  reader), **hot-reloaded on every call** (same contract as
+  `asset_class_config.load_asset_class_config`: an edit takes effect on the
+  next report, no process restart), fails loudly on a missing file or an
+  empty/missing `version`/`text` rather than silently degrading to a
+  neutral framework. `version` is written to
+  `report_inputs.analysis_framework_version` on every report (audit only —
+  the full text is deliberately never stored, to keep it out of any future
+  endpoint that reads `report_inputs`). Bilingual review record + the
+  product owner's sign-off: Obsidian `Hermes/Portfonia/Analysis Framework
+  Philosophy.md`.
+- **Injection order is compliance -> framework -> shared body rules**, each
+  layer explicitly subordinate to the one before it — `_build_pass2_system()`
+  / `_build_assembly_system()` (`report_prompts.py` / `report_assembly.py`)
+  compose this fresh on every call. These became **functions, not module
+  constants** — the pre-B1 `_PASS2_SYSTEM`/`_ASSEMBLY_SYSTEM` were frozen at
+  import time, which would never pick up a config edit in a long-lived
+  Celery worker process. Both call the same `load_analysis_framework()` —
+  one philosophy, not two hand-copied texts (this module has twice paid for
+  that class of drift: PR #117's two CSS strings, PR #157's two
+  `_FORWARD_WINDOW_DAYS`).
+- **The framework only reallocates attention, never produces a directional
+  claim** — it decides what earns space and how a time horizon frames
+  significance; a self-limiting clause makes it explicitly subordinate to
+  every evidence/directional-claim rule below it in the same prompt. Eight
+  numbered items (time horizon, structural-evidence depth, portfolio-shape
+  weighting, macro/geopolitical transmission, relevance-not-prevalence,
+  condition-change-without-forecast, valuation-as-documented-relationship,
+  trace-to-a-named-observable) plus that clause — full text and the
+  Concept §4.3 mapping: Obsidian doc above.
+- **`v1` -> `v2`** (2026-08-22, same PR cycle): after a real-report overlay
+  comparison the product owner tightened items 1/2/3/8 — explicit defaults
+  for session-scale price moves, a "trace to structural-position change"
+  requirement for item 2, an explicit weight/evidence rebalance self-check
+  for item 3, and named example phrases for item 8's "no generic closer"
+  rule ("worth watching" etc. banned only standing alone). **A code-level
+  automated version of the item-3 weight/evidence check (parse §3, score
+  evidence strength, reject-and-retry) was explicitly deferred** — no
+  evidence-strength scoring mechanism exists yet; tracked in issue #173.
+- **§2 Macro Signals rewrite** (same PR, product owner's explicit ask):
+  `_SECTION2_INSTRUCTIONS` (`report_prompts.py`) and the inline §2 block in
+  `report_assembly.py` changed from "cover every triggered macro theme
+  under a rigid bold 'Impact on this portfolio' sub-heading with forced
+  short/medium/long-term sub-bullets" to "select 2-4 themes with genuine
+  evidenced change this period, write each as one flowing paragraph, let
+  the analysis framework's own judgment decide space/time-horizon framing".
+  A theme with no direct, concrete mapping to a held identifier does not
+  earn its own §2 paragraph by default — at most an aside inside the
+  relevant holding's §3 analysis. **Cross-report repetition avoidance is
+  prompt-only today** ("don't restate at the same length report after
+  report") — there is no persisted memory of what a previous report
+  covered; a real fix needs a ledger analogous to `news_surfaced` (see
+  below), tracked in issue #171.
+- **`_PROMPT_VERSION` -> `f2-v7`** (`report_generator.py`) — the bump
+  comment also documents that `f2-v6` was itself under-documented (PR #168's
+  narrative-layer rewrite changed `_SHARED_BODY_RULES` without bumping this
+  constant, the same class of gap PR #167 round 3 caught on
+  `ASSEMBLY_PROMPT_VERSION`).
+- **Provenance**: two rounds of independent code review (blacktomb42) —
+  round 1 found 2 real bugs (`ASSEMBLY_PROMPT_VERSION` not bumped for a real
+  contract change; the widened tech-breakthrough theme's bare `breakthrough`
+  keyword and its Chinese-language counterpart firing on ordinary headlines),
+  round 2 (after fixes) found 0 bugs.
+  Merged squash `8287dd3`. Deployed to production 2026-08-22.
+
+
+### Identity seam: current_principal + explicit user_id — B3 (Ring 1 stage B, issue #129, PR #181)
+
+Before B3, "who is calling" was resolved three different ways, all
+ambient: a bare `get_current_user_id()` call inside `routers/reports.py`'s
+three read endpoints (invisible to FastAPI's `dependency_overrides`, since
+that only intercepts `Depends(...)`, not a direct function call); a
+`user_id: UUID | None = None` fallback inside `generate_report`/
+`regenerate_report` that silently resolved to the dev user if a caller
+forgot to pass one; and `email_sender.send_report_email` hardcoding every
+recipient to `settings.DEV_USER_EMAIL` regardless of whose report it was.
+B3 collapses this into two explicit channels so a later auth swap cannot
+silently miss a call site. B4 filled `current_principal` with JWKS
+verification (next section); the seam itself is unchanged.
+
+- **`Principal` + `current_principal(request)`** (`app/core/deps.py`) is the
+  one request-scoped identity entry point. Every identity-bearing route
+  across `/reports/*`, `/holdings/*`, and `/portfolio/*` depends on it via
+  `Depends(current_principal)` — B4 filled this function's body with JWKS
+  verification; no call site changes. Locked by a structural test
+  (`test_every_identity_bearing_route_depends_on_current_principal` in
+  `test_identity_seam.py`) that iterates `app.routes`, added in review round
+  1 after `holdings.py`/`portfolio.py`'s 6 endpoints were found still wired
+  to the lower-level `Depends(get_current_user_id)` — that would have been
+  a split-identity trap for B4: a JWT swap landing only in
+  `current_principal` would leave those 6 routes serving `DEV_USER_ID`
+  forever.
+- **`generate_report`/`regenerate_report` require `user_id`, no fallback.**
+  A structural test bans `get_current_user_id`/`DEV_USER_ID` from
+  `app/services/**` and `app/tasks/**` entirely. B3's one documented
+  exception was `app/services/user_directory.py`'s `recipient_email` shim
+  (`DEV_USER_ID` → `DEV_USER_EMAIL`); B4 replaced that body with a `users`
+  table lookup (same signature) and the `DEV_USER_ID` ban has no remaining
+  exception.
+- **`send_report_email` fails closed on an unresolved recipient**: no send,
+  an ops alert, `email_sent_at` stays null — never falls back to
+  `ADMIN_EMAIL` or any other default. A report belongs to a specific user;
+  routing it anywhere else is still a leak, and one that would read as
+  "delivered" in the logs, permanently masking the bug. Caller-side logging
+  in `report_generator.py` was reworded from "email sent but state
+  unconfirmed" to "email delivery not confirmed" (review round 1) — the old
+  wording was accurate only for the pre-existing commit-failure case and
+  became misleading once `False` also meant "recipient never resolved".
+- **Provenance**: one round of independent code review (blacktomb42) — 0
+  bugs, 3 suggestions (the `holdings.py`/`portfolio.py` split-identity gap
+  above; the misleading email-sent log; missing cross-user 404 coverage on
+  the `regenerate`/`send` write paths, closed with tests exercising the
+  real functions rather than mocks) + 1 nit (the sparse-history backfill
+  log line dropped the leaked ticker list but still had no `user_id`
+  attribution — fixed by threading it through
+  `_tickers_with_sparse_history`, which stays a global query; only the log
+  line is per-user). 0 bugs did not trigger a second review round per this
+  repo's standing convention. 957 tests passing. Merged squash `a06fc9c`.
+  **Superseded by issue #194 / PR #197 (2026-08-25):** the sparse *check* is
+  now this user's auto tickers; `price_snapshots` remains a global store.
+
+
+### Users, invites, and JWKS auth — B4 (Ring 1 stage B, issue #129, PR #183)
+
+B4 is the identity *source* behind the B3 seam. `current_principal` reads
+`Authorization: Bearer`, verifies it locally against
+`{SUPABASE_URL}/auth/v1/.well-known/jwks.json` (ES256/RS256 only;
+`aud=authenticated`, `role=authenticated`), then looks up
+`users.auth_subject` with `status == "active"`. **Settings has no
+`JWT_SECRET`.** New hosted-Auth projects default to asymmetric JWKS, not
+HS256; do not add a shared signing secret.
+
+Dashboard names (2026): Publishable key → `SUPABASE_ANON_KEY` (alias
+`SUPABASE_PUBLISHABLE_KEY`); Secret key → `SUPABASE_SERVICE_ROLE_KEY`
+(alias `SUPABASE_SECRET_KEY`). An opaque `sb_secret_…` key is not a JWT —
+admin HTTP calls send it on the `apikey` header only, never
+`Authorization: Bearer` (`Invalid JWT`). Do not store the JWT signing
+secret or the Supabase database password (business Postgres is self-hosted).
+
+- **No auto-insert.** A valid token whose `sub` has no `users` row is 401.
+  `get_current_user_id()` raises (`use Depends(current_principal)`). Until
+  B5, identity is Bearer-only — do not parse a session cookie here.
+- **`users` PK is ours**, not the Auth `sub`. Invite redeem is atomic
+  (`UPDATE … WHERE used_at IS NULL AND revoked_at IS NULL AND expires_at > now() RETURNING`).
+  `POST /auth/signup` is backend-mediated; after Auth create succeeds, any
+  later failure calls `delete_auth_user`.
+- **Seed bind** (ops token): `POST /admin/users/{id}/bind-subject`. Sets
+  `auth_subject` only when it is still NULL. 409 if this row is already
+  bound **or** another row already holds that `sub`; 422 for whitespace-only
+  input. The B4 migration leaves the production seed row's `auth_subject`
+  NULL on purpose.
+- **`recipient_email(session, user_id)`** reads `users` (`delivery_email`
+  else `email`); missing or non-`active` → `None`. Send stays fail-closed.
+- **`active_user_ids`** is sourced from `users.status == "active"` but
+  requires `EXISTS` a holding row — a fresh signup is not fanned out on the
+  next M/W/F batch.
+- **Public 422 must not echo `password`.** `SignupRequest.password` is
+  `SecretStr`; Pydantic still puts the raw string in `"input"`. `main.py`
+  redacts `password` fields on `RequestValidationError` after
+  `jsonable_encoder(exc.errors())` so `ctx` stays JSON-serializable.
+- **Caddy** reverse-proxies `auth.portfonia.com` to `SUPABASE_PROJECT_HOST`.
+  Compose interpolation is `${SUPABASE_PROJECT_HOST:?required}` (fail-closed
+  empty default).
+- **Do not deploy B4 without B5.** Unauthenticated calls to `/holdings`,
+  `/reports`, and `/portfolio` now 401. Before production: re-run
+  `SELECT DISTINCT user_id` on the four tables (Ring 1-B design.md §6.7);
+  put `SUPABASE_URL`, the two keys, and `SUPABASE_PROJECT_HOST` in the
+  server `.env` (fresh values, never copied from `.env.local`); point DNS
+  for `auth.portfonia.com`.
+- **Provenance**: three independent review rounds (blacktomb42). Round 1
+  Request changes (signup compensation too narrow, plus bind-subject /
+  empty-book fan-out / JWKS network→401 / Bearer-only / CHECK names).
+  Round 2 Request changes (bind-subject unique `IntegrityError` → 500;
+  empty Caddy host; 422 echoed password — `SecretStr` alone does not strip
+  `"input"`). Round 3 Approve on `63a9023`. Merged squash `38afc68`
+  (2026-08-24). Not deployed; waits on B5.
+
+
+### Frontend auth closure — B5 (Ring 1 stage B, issue #129)
+
+Closes the loop B4 opened: `current_principal` (B4) requires a Bearer JWT on
+every non-public backend route, but until this checkpoint nothing in the
+frontend could produce one — every route was unconditionally public. B5
+adds `/login` + `/signup?invite=<token>`, a cookie-based session via
+`@supabase/ssr`, and credential forwarding on the three paths the frontend
+uses to reach the backend (§2.6 of the design doc). **B4 must not deploy
+without B5 in the same release** — see the B4 section above.
+
+- **`src/proxy.ts`, not `src/middleware.ts`.** Next.js 16 (the version this
+  repo runs) renamed the `middleware.ts` file convention to `proxy.ts` —
+  same function, `export function proxy(request)` instead of `middleware`
+  (confirmed against `node_modules/next/dist/docs/.../file-conventions/
+  proxy.md`, not assumed from training data — see `frontend/AGENTS.md`'s
+  standing warning to check the vendored docs before writing Next.js code
+  in this repo). Do not "fix" this back to `middleware.ts`.
+- **Session shape: cookie, not `localStorage`** — `@supabase/ssr`'s
+  `createServerClient`/`createBrowserClient`, cookie-adapter pattern taken
+  verbatim from Supabase's own Next.js-16-specific AI-integration guide
+  (`getAll`/`setAll`, never the deprecated per-cookie `get`/`set`/`remove`
+  shape). Reason stays what the design doc gave: a Server Component reading
+  `listHoldingsServer()` has no access to `localStorage` at all. **CSRF**:
+  rests on the same-origin `/api` rewrite plus `@supabase/ssr`'s
+  library-default `SameSite=Lax` (also `httpOnly: false`, required so the
+  browser `AuthStatus` client can read the session) — FastAPI's CORS is not
+  on the user-browser path at all (§7.3(5) above), so it isn't part of this
+  story either way. Do not switch these cookies to `SameSite=None`.
+- **Backend stays Bearer-only** (`current_principal` was never touched this
+  checkpoint) — the frontend's job is turning "there is a valid session
+  cookie" into `Authorization: Bearer <access_token>` on every path that
+  reaches the backend. Three paths, three different mechanisms, each with
+  its own test (design doc §7.3(1) called this the easiest thing to miss):
+  - **Same-origin `/api/*` rewrite** (`lib/api.ts`, unchanged): a browser
+    `fetch("/api/...")` goes straight through `next.config.ts`'s
+    declarative rewrite with no Node code in between, so there is nowhere
+    else to attach a header — `proxy.ts` derives the token from the
+    (refreshed) session cookie and injects it via
+    `NextResponse.next({request:{headers}})` before the rewrite fires
+    (Proxy runs before rewrites in Next's execution order). Verified this
+    mechanism is real in this Next version via
+    `node_modules/next/dist/server/web/adapter.js`'s
+    `x-middleware-request-*` convention, not assumed.
+  - **`app/api/holdings/upload/route.ts`**: has its own filesystem route,
+    which wins over the declarative rewrite for this one path, so it never
+    sees proxy's injected header on its own outbound `fetch()` — it derives
+    the token itself via `lib/supabase/server.ts`'s `currentAccessToken()`.
+  - **`lib/server-api.ts`'s `listHoldingsServer()`** (SSR direct read): same
+    reasoning, same `currentAccessToken()` call — Server Components never
+    automatically inherit a browser's same-origin cookie forwarding.
+  - Deliberately NOT relying on proxy's header propagation for the latter
+    two, even though it might work — Next's own authentication guide is
+    explicit that Proxy must never be the only line of defense; each path
+    verifies its own credential independently.
+- **`lib/supabase/server.ts`'s `currentAccessToken()` reads `getSession()`,
+  not `getUser()`** — deliberate: `getUser()` makes a network round-trip to
+  re-verify against the Auth provider on every call, which is redundant
+  here since the backend's `current_principal` independently re-verifies
+  the JWT via JWKS anyway (B4). `proxy.ts` is the one place that DOES call
+  `getUser()` — that's what actually triggers a refresh of an expiring
+  token and rewrites the session cookie.
+- **`/auth/signup` (B4) does not itself issue a session** — its response
+  schema (`SignupResponse`) is just `{id, email}`. `app/signup/actions.ts`
+  calls the backend to redeem the invite and create the account, then
+  immediately calls `supabase.auth.signInWithPassword()` with the same
+  credentials so sign-up is one step, not two. This wasn't specified in the
+  design doc (which only fixed the registration mechanism, not the
+  post-signup UX) — noted here as an implementation decision, not a design
+  deviation.
+- **Route protection is optimistic only, matching Next's own guidance**:
+  `proxy.ts` redirects an unauthenticated request to a non-public page to
+  `/login`, but every `/api/*` path is exempted from the redirect (a
+  redirect would be nonsensical for a `fetch()`-consuming client — the
+  backend's own 401 is what `lib/api.ts`'s `ApiError` already handles). The
+  real, non-bypassable boundary stays `current_principal` on the backend.
+- **CORS left unchanged, not tightened further** — already scoped to
+  `allow_origins=[FRONTEND_URL]` (not a wildcard) before this checkpoint,
+  and since every browser-originated user-facing call already went through
+  the same-origin `/api/*` path (`lib/api.ts` never called `api.portfonia.com`
+  directly), there was nothing cross-origin left to tighten. The direct
+  face (`api.portfonia.com`) remains reserved for `/admin/*` (bearer-token
+  tooling, not browser+CORS — B2) and `/health`, per decision point 11.
+- **`NEXT_PUBLIC_SUPABASE_URL` (frontend build arg) is deliberately NOT the
+  same value as the backend's `SUPABASE_URL` Setting** — the backend talks
+  to the raw Supabase project host directly (JWKS verification happens on
+  our own server, no reachability concern, B4 §6.5 point 2); the browser
+  must go through the `auth.portfonia.com` Caddy reverse proxy (mainland-
+  reachability workaround, B4 §2.7/§6.10). Getting these swapped would
+  silently break login for exactly the users the proxy exists for. Wired
+  as new `frontend/Dockerfile` build args (mirroring the existing
+  `BACKEND_URL` pattern) and `docker-compose.yml`'s `frontend.build.args`
+  (`NEXT_PUBLIC_SUPABASE_ANON_KEY` reuses `SUPABASE_ANON_KEY` — same
+  publishable key, safe to expose to the browser by definition;
+  `NEXT_PUBLIC_SUPABASE_URL` defaults to `https://auth.portfonia.com`,
+  overridable via `SUPABASE_PUBLIC_AUTH_URL`).
+- **`messages.ts` still has no `zh` map** (pre-existing gap, issue tracked
+  separately) — `/login` and `/signup` render `lang="en"` like every other
+  non-home route (`AppShell`'s existing route-conditional `lang`, unchanged
+  by this checkpoint). `SiteHeader`'s new login/logout entry follows the
+  same split already established for the Holdings link: locale-aware
+  `home-messages.ts` strings on `/`, English-only `messages.ts` strings
+  everywhere else.
+- **Verified real `docker compose build frontend`** per the Quality Gates
+  addendum this checkpoint itself triggers (touches `frontend/Dockerfile`
+  and `docker-compose.yml`).
+- **Merged, not yet deployed.** PR #185 squash-merged `e57b5e1`
+  (2026-08-24) after three independent review rounds (blacktomb42) — round
+  1: 1 bug (dropped `@supabase/ssr` `setAll` cache-prevention headers) + 2
+  suggestions + 1 nit; round 2: 1 bug (the round-1 fix's blanket header
+  copy clobbered Next's own `x-middleware-override-headers` bookkeeping
+  header, silently dropping the Authorization override even though the
+  header *value* stayed present — the round-1 regression test was
+  false-green, checking only that the value existed) — both bugs verified
+  by reproducing them with a failing test before fixing, not accepted on
+  the reviewer's word; round 3: 0 bugs, 1 suggestion (derive the
+  cache-prevention header set live from `setAll`'s own argument instead of
+  a hardcoded copy — closes the exact drift class round 1's fix risked)
+  + 1 nit. Deployment is still B4+B5 together, per the B4 section
+  above — production is on the B2 commit (`b4f51c4`) as of this writing.
+  §6.7's four-table `SELECT DISTINCT user_id` re-check and the production
+  end-to-end UAT (design doc §10.3, script: Obsidian `Hermes/Portfonia/
+  Docs/Ring 1-B5 UAT script.md`) happen at that deploy.
+
+
