@@ -25,6 +25,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+import openai
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -261,15 +262,27 @@ def generate_report_for_user(user_id: UUID, session: Session = Depends(get_sessi
 
     Synchronous by design: /admin/* hits api.portfonia.com directly, never
     the frontend Next.js proxy that times out around 30s (issue #193). A
-    curl or agent caller waits for the full pipeline. This blocks the
-    (single) uvicorn worker for the duration — the same cost POST
-    /reports/generate already pays — acceptable because this is a rare ops
-    action, not a user-facing path.
+    curl or agent caller waits for the full pipeline. The handler is a
+    sync def, so Starlette runs it in the threadpool — it occupies a
+    threadpool worker and a pooled DB connection for the full duration,
+    the same cost POST /reports/generate already pays. Acceptable because
+    this is a rare ops action. Do not invoke concurrently for the same
+    user; a second POST while the first is still running can race the
+    report dedup key.
 
     session_node is always "manual", matching the self-service default, so
-    a same-day scheduled after_close run still gets its own row. The user
-    must exist, be status=active, and have at least one holding — the same
+    a same-day scheduled after_close run still gets its own row. Currency
+    and language are the system-wide defaults (generate_report's USD,
+    Settings.OUTPUT_LANG), not users.base_currency / users.locale — same
+    as the scheduled fan-out and the self-service endpoint. The user must
+    exist, be status=active, and have at least one holding — the same
     predicate active_user_ids() uses for the scheduled fan-out.
+
+    A successful run emails the report to the target user. needs_review
+    does not. Quiet-day heartbeats email unless the short-manual-window
+    suppression applies. A repeat same-day call on an already-complete
+    report is an idempotent no-op (still 201, matching POST
+    /reports/generate) and does not re-send.
     """
     user = session.get(User, user_id)
     if user is None:
@@ -289,6 +302,12 @@ def generate_report_for_user(user_id: UUID, session: Session = Depends(get_sessi
     except LLMEmptyResponseError as exc:
         raise HTTPException(
             status_code=502, detail=f"LLM returned an empty response: {exc}"
+        ) from exc
+    except openai.APIError as exc:
+        raise HTTPException(status_code=502, detail=f"{type(exc).__name__}: {exc}") from exc
+    except IntegrityError as exc:
+        raise HTTPException(
+            status_code=409, detail="report generation already in progress"
         ) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=f"Report generation failed: {exc}") from exc

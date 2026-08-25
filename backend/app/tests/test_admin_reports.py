@@ -162,3 +162,41 @@ def test_admin_generate_translates_runtime_error_to_502(
 
     assert resp.status_code == 502
     assert "truncated body" in resp.json()["detail"]
+
+
+def test_admin_generate_translates_openai_api_error_to_502(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """Provider/auth faults from _call_llm are openai.APIError, not RuntimeError
+    — without this mapping they surface as a bare FastAPI 500 (PR #203 review)."""
+    import httpx
+    import openai
+
+    _seed_reportable(db_session)
+    err = openai.APIError(
+        "invalid api key",
+        httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions"),
+        body=None,
+    )
+    with patch("app.routers.admin.generate_report", side_effect=err):
+        resp = app_client.post(_path(_UID), headers=_headers())
+
+    assert resp.status_code == 502
+    assert "APIError" in resp.json()["detail"]
+    assert "invalid api key" in resp.json()["detail"]
+
+
+def test_admin_generate_integrity_error_is_409(app_client: TestClient, db_session: Session) -> None:
+    """Concurrent same-key inserts race generate_report's idempotency SELECT
+    and hit uq_reports_user_date_type_session (PR #203 review)."""
+    from sqlalchemy.exc import IntegrityError
+
+    _seed_reportable(db_session)
+    with patch(
+        "app.routers.admin.generate_report",
+        side_effect=IntegrityError("INSERT", {}, Exception("uq_reports")),
+    ):
+        resp = app_client.post(_path(_UID), headers=_headers())
+
+    assert resp.status_code == 409
+    assert "already in progress" in resp.json()["detail"]
