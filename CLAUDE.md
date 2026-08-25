@@ -2022,10 +2022,24 @@ change) to the server without an accompanying code change is a separate,
 smaller procedure from the code-deploy flow above** — established
 2026-08-06, first used to roll out a rotated Resend key:
 
-1. `scp` the local `.env.production` to the server's `.env` (path from the
+1. **Before overwriting**, diff key *names* (never values) between the
+   server's current `.env` and local `.env.production` — `ssh ... "grep -oE
+   '^[A-Z_]+=' .env"` vs `grep -oE '^[A-Z_]+=' .env.production`, both piped
+   to `sort -u` and `comm`'d. A var that only ever exists on the server side
+   (generated directly during a prior deploy and never echoed back to local
+   — e.g. `ADMIN_API_TOKEN`, generated on-server 2026-08-23 for B2) will be
+   **silently dropped** by a blind `scp` overwrite, since `scp` replaces the
+   whole file rather than merging. If the diff finds one, recover the live
+   value from a still-running container's process env
+   (`docker compose exec -T <service> printenv <VAR>`) **before** the deploy
+   step recreates that container, and append it back to the server `.env`
+   before proceeding — don't rely on remembering to check afterward (caught
+   2026-08-24 during the B4+B5 deploy: `ADMIN_API_TOKEN` would have been
+   lost this way had the diff not been run first).
+2. `scp` the local `.env.production` to the server's `.env` (path from the
    Obsidian doc) — `git pull` is irrelevant here, `.env` never travels
    through Git.
-2. **`docker compose restart <service>` does NOT reload `env_file` values**
+3. **`docker compose restart <service>` does NOT reload `env_file` values**
    — Compose only re-reads `env_file` when a container is *recreated*, not
    on a plain restart of an existing one. Recreate explicitly:
    `docker compose up -d --force-recreate <services>` — target only the
@@ -2033,11 +2047,11 @@ smaller procedure from the code-deploy flow above** — established
    (currently `backend`, `celery-worker`, `celery-beat`; `frontend`/`caddy`
    don't and shouldn't be touched for an env-only change — minimal blast
    radius).
-3. If the code-deploy procedure above (`docker compose up -d --build`) is
+4. If the code-deploy procedure above (`docker compose up -d --build`) is
    running concurrently on the server, wait for it to finish before doing
    this — both operate on the same `docker compose` project and can race
    (`--force-recreate` on the same containers a build is replacing).
-4. Verify: `curl https://api.portfonia.com/health`, then a real functional
+5. Verify: `curl https://api.portfonia.com/health`, then a real functional
    check of whatever changed (e.g. for an email-provider key rotation, exec
    into the `backend` container and send a real test message through the
    actual send path — don't just trust a 0 exit code from a function that
