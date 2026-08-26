@@ -19,7 +19,6 @@ and test_report_context.py respectively.
 from __future__ import annotations
 
 import contextlib
-import json
 import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -1997,6 +1996,71 @@ def test_generate_report_assembles_from_shared_intel_when_enabled(
     assert "heaviest position" in report.report_md
 
 
+def test_generate_report_assembly_path_also_gets_investor_preferences(
+    db_session: Session,
+) -> None:
+    """PR #212 review bug finding: the original implementation only wired
+    investor-preference injection into the Pass 2 fallback branch, so an
+    assembled report (SHARED_COMPUTE_ENABLED=True, the intended A4 cost
+    architecture) silently ignored the user's questionnaire AND recorded no
+    audit snapshot in report_inputs, even though a row existed."""
+    from app.models.user import User
+    from app.models.user_investment_context import UserInvestmentContext
+
+    db_session.add(
+        User(
+            id=_USER,
+            auth_provider="supabase",
+            auth_subject=f"sub-{_USER}",
+            email=f"{_USER}@example.com",
+            status="active",
+            locale="zh",
+            base_currency="USD",
+            report_cadence="mwf",
+        )
+    )
+    db_session.add(
+        UserInvestmentContext(
+            user_id=_USER,
+            questionnaire={
+                "asset_scale": "500K_2M",
+                "markets": ["US"],
+                "style": "GROWTH",
+                "horizon": "LONG",
+                "risk_appetite": "AGGRESSIVE",
+                "sectors_of_interest": ["Technology"],
+                "objective": "GROWTH",
+                "intel_focus": "GEOPOLITICS",
+            },
+            questionnaire_version="v1",
+            free_text="Concentrated in AI infrastructure names on purpose.",
+        )
+    )
+    db_session.flush()
+
+    with contextlib.ExitStack() as stack:
+        for p in _assembly_ready_patches(
+            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
+        ):
+            stack.enter_context(p)  # type: ignore[arg-type]
+        mock_assembly = stack.enter_context(
+            patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
+        )
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+
+    assert report.report_inputs is not None
+    assert report.report_inputs["body_source"] == "assembly"
+    # The snapshot must be set regardless of body source.
+    snap = report.report_inputs["investor_questionnaire_snapshot"]
+    assert snap["intel_focus"] == "GEOPOLITICS"
+    # The assembly prompt itself must carry the INVESTOR PREFERENCES block —
+    # `prompt` is run_assembly_pass's 4th positional arg to _call_llm.
+    assembly_prompt = mock_assembly.call_args.args[3]
+    assert "INVESTOR PREFERENCES" in assembly_prompt
+    assert "geopolitical developments" in assembly_prompt
+    assert "Reader locale: zh" in assembly_prompt
+
+
 def test_generate_report_assembly_keeps_the_code_built_sections(
     db_session: Session,
 ) -> None:
@@ -2847,9 +2911,12 @@ def test_generate_report_pass2_prompt_carries_locale_and_intel_focus(
 
 def test_generate_report_snapshots_questionnaire_into_report_inputs(db_session: Session) -> None:
     """§8.4/§8.6: the closed-enum answers actually used for this report are
-    snapshotted for audit — but free_text is not (see
-    investment_context.py's InvestorPreferences docstring: report_inputs is
-    unencrypted JSONB, free_text is the one encrypted field on that table)."""
+    snapshotted for audit. free_text is NOT folded into that dedicated
+    snapshot dict (see investment_context.py's InvestorPreferences
+    docstring for the precise, narrower guarantee this is — free_text
+    inevitably still appears inside the stored pass2_prompt text itself,
+    same as holdings data already does; what this guards against is
+    free_text ALSO existing as its own plainly-labeled, bulk-queryable key)."""
     _seed_investment_context(db_session, _USER, locale="zh", intel_focus="GEOPOLITICS")
     with contextlib.ExitStack() as stack:
         for p in _normal_path_patches():
@@ -2861,7 +2928,7 @@ def test_generate_report_snapshots_questionnaire_into_report_inputs(db_session: 
     assert snap["intel_focus"] == "GEOPOLITICS"
     assert snap["risk_appetite"] == "AGGRESSIVE"
     assert report.report_inputs["investor_questionnaire_version"] == "v1"
-    assert "concentrated in ai infrastructure" not in json.dumps(report.report_inputs).lower()
+    assert "free_text" not in snap
 
 
 def test_generate_report_with_no_questionnaire_omits_intel_focus(db_session: Session) -> None:

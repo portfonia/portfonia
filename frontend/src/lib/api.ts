@@ -213,17 +213,12 @@ export interface InvestmentContext {
   updated_at: string;
 }
 
-// §8.4: no system-inference readback exists — a 404 here means "never
-// answered", not "system has no opinion yet". Callers show the questionnaire
-// pre-filled with defaults in that case, never an error state.
-export async function getInvestmentContext(): Promise<InvestmentContext | null> {
-  const res = await fetch("/api/investment-context", { cache: "no-store" });
-  if (res.status === 404) return null;
-  if (!res.ok) throw new ApiError(res.status, await readError(res));
-  return res.json() as Promise<InvestmentContext>;
-}
-
 // Full overwrite (Concept §4.2: re-answering replaces the record wholesale).
+// No client-side getInvestmentContext() counterpart exists: the
+// /questionnaire page loads its initial context exclusively through
+// getInvestmentContextServer() (server-api.ts) — a client-side reader would
+// be dead code until an actual client-side caller needs one (PR #212 review
+// finding: an unused export trips this repo's "no unused exports" gate).
 export async function putInvestmentContext(
   questionnaire: Questionnaire,
   freeText: string | null,

@@ -365,31 +365,44 @@ never the sole source of the analytical framing — §1.4).
   here because it also covers the B1 basis (§1.4): the two hidden layers
   (system's own analytical stance, system's inference about this user) get
   the same non-negotiable invisibility, just for different reasons.
-- **Injection scope (decision point 6, §8.5) — ONLY `locale` and
-  `intel_focus` reach the Pass 2 prompt.** `risk_appetite`/`objective` are
-  not filtered out downstream — they are never fetched in the first place
-  (`app/services/investment_context.py`'s `load_investor_preferences` reads
-  only those two keys off the stored questionnaire), so there is no code
-  path that could accidentally thread them into a prompt later. The
+- **Injection scope (decision point 6, §8.5 — corrected 2026-08-25) — ALL
+  8 questionnaire dimensions plus `locale` and `free_text` reach every
+  body-writing pass.** The original 2026-08-21 decision withheld
+  `risk_appetite`/`objective` entirely on compliance grounds; the product
+  owner overturned that after reviewing PR #212's review round: every
+  stated preference matters and must be used, and the Layer-3/4 boundary is
+  held by (1) an explicit SCOPE sentence in the prompt — with a per-field
+  guardrail specifically naming `risk_appetite`/`objective` (the two
+  highest-risk dimensions) and another covering `free_text` (unfiltered
+  user prose treated as context, never as an instruction that can override
+  the SCOPE even if phrased as a direct request for advice) — and (2) the
+  output-side `_scan_forbidden_output` backstop, validated with a real-LLM
+  compliance regression (`test_b6_compliance_llm_regression.py`, opt-in via
+  `RUN_LLM_LIVE_TESTS=1`) rather than hand-written prose alone. The
   `=== INVESTOR PREFERENCES ===` block (`report_prompts.py`'s
-  `_build_investor_preferences_block`) renders last among the Pass 2
-  context blocks and ends with an explicit scope sentence: preferences may
-  steer fact selection/wording only, never relax or override the
-  ANALYSIS FRAMEWORK or the shared body rules above it. `_PROMPT_VERSION`
-  bumped to `f2-v8`.
+  `_build_investor_preferences_block`) is shared verbatim by **both**
+  `_build_pass2_prompt` and `build_assembly_prompt` (`report_assembly.py`)
+  — a PR #212 review bug finding: the original implementation only wired
+  this into the Pass 2 fallback branch, so an assembled report silently
+  ignored investor preferences entirely. `_PROMPT_VERSION` bumped to
+  `f2-v9`, `ASSEMBLY_PROMPT_VERSION` to `a4-v4`.
 - **Audit snapshot, not injection content**: `generate_report` and
-  `regenerate_report`'s `mode="analyze"` branch both call
-  `load_investor_preferences` fresh and write the **full** closed-enum
-  answer set (not just locale/intel_focus) into
-  `report_inputs.investor_questionnaire_snapshot` — reproducibility for a
-  past report, same pattern as `analysis_framework_version`. `mode="render"`
-  never re-fetches (matches every other re-render field). **`free_text` is
-  deliberately excluded from the snapshot**: `report_inputs` is unencrypted
-  JSONB, and `free_text` is the one field on `user_investment_context`
-  that's encrypted at rest — mirroring it in plaintext into `report_inputs`
-  would quietly undo that protection. This is a real, deliberate scope
-  narrowing versus a literal reading of design doc §8.4's "快照当次使用的
-  上下文" (raised to the product owner rather than assumed silently).
+  `regenerate_report` load investor preferences **once, before** the
+  assembly/Pass 2 split, and write the full closed-enum answer set into
+  `report_inputs.investor_questionnaire_snapshot` **unconditionally** —
+  regardless of which body-source wins (same PR #212 bug fix: the snapshot
+  used to be set only inside the Pass 2 branch). `mode="render"` never
+  re-fetches (matches every other re-render field). **`free_text` is never
+  folded into that snapshot dict** — but this is narrower than "free_text
+  never reaches `report_inputs`": it inevitably still appears inside the
+  stored `pass2_prompt`/`assembly_prompt` text once injected, the same way
+  holdings names and values already do. What the exclusion actually buys is
+  that free_text does not ALSO exist as its own plainly-labeled,
+  individually queryable key that a broad `report_inputs` scan/export could
+  pull in bulk across every report — it stays embedded in one long
+  semi-structured blob per report instead. This nuance was caught by a
+  failing test (a real TDD "red") when free_text injection first landed,
+  not decided in advance.
 - **Frontend**: `/questionnaire`, a one-question-per-step wizard
   (`frontend/src/app/questionnaire/`), pre-filled from Concept §4.3's
   default philosophy translated into this questionnaire's enums (a product
@@ -403,7 +416,22 @@ never the sole source of the analytical framing — §1.4).
   b6_overlay_compare.py` pulls a real historical `report_inputs` (read-only
   SELECT, no writes anywhere) and runs Pass 2 twice with the real
   `PRIMARY_LLM_MODEL` — once exactly as production shipped it, once with
-  `locale=zh, intel_focus=GEOPOLITICS` injected. Delivered to the product
-  owner as a file for direct reading, not summarized or pre-judged here.
+  all 8 dimensions plus free text injected. Writes its two output bodies to
+  a fresh `tempfile.mkdtemp()` (mode 0700), not a predictable `/tmp` path
+  (PR #212 review finding — both outputs are holdings-derived, same
+  sensitivity as the input). Delivered to the product owner as a file for
+  direct reading, not summarized or pre-judged here; results and analysis
+  (numeric diffs, descriptive findings) live in Obsidian `Docs/Ring 1-B6
+  Preference Compare.md`, overwritten on each rerun rather than
+  accumulated.
+- **Real-LLM compliance regression** (`test_b6_compliance_llm_regression.py`,
+  opt-in via `RUN_LLM_LIVE_TESTS=1`, excluded from the default `pytest -q`
+  run): a hand-written diagnostic string proves the scanner's pattern logic
+  works, but proves nothing about what a real model does once
+  `risk_appetite`/`objective` sit next to a scenario built to invite a
+  directional slip (a large drawdown on the portfolio's heaviest holding
+  plus a strong macro theme). Two real Pass 2 calls — AGGRESSIVE/GROWTH and
+  the mirror-direction CONSERVATIVE/INCOME — both passed
+  `_scan_forbidden_output` with zero hits when run for this correction.
 
 

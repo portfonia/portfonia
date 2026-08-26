@@ -59,7 +59,7 @@ from app.services.email_sender import send_ops_alert, send_report_email
 from app.services.forward_events import FORWARD_WINDOW_DAYS, load_forward_events
 from app.services.github_issues import create_bug_report
 from app.services.holding_news import recall_holding_news
-from app.services.investment_context import load_investor_preferences
+from app.services.investment_context import InvestorPreferences, load_investor_preferences
 from app.services.macro_detector import detect_macro_signals
 from app.services.macro_event_intel import (
     build_l2_facts,
@@ -150,7 +150,7 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_PROMPT_VERSION = "f2-v8"  # f2-v8: INVESTOR PREFERENCES block added to the Pass 2 user-turn prompt (issue #129 checkpoint B6, decision point 6 — only locale/intel_focus, scope-guarded, see _build_investor_preferences_block in report_prompts.py); f2-v7: analysis framework basis injected into _PASS2_SYSTEM (issue #128 Ring 1 stage B, checkpoint B1 — config/analysis_framework.yml, reloaded fresh via _build_pass2_system, its own `version` recorded separately in report_inputs.analysis_framework_version); f2-v6 was itself under-documented — besides its own §4.2/HOLDING-RELEVANT NEWS change, PR #168's narrative-layer redesign rewrote NAMING IS NOT ANALYSIS and parameterized the LARGE HOLDINGS references without bumping this constant (design doc §2.8, PR #167 round 3 caught the same gap on ASSEMBLY_PROMPT_VERSION); f2-v5 = direction-requires-evidence + divergence-is-the-signal (no price-direction claims without window data); f2-v4 = §4.2 code table + driver-only, evidence confidence labels, §4.4 technical position
+_PROMPT_VERSION = "f2-v9"  # f2-v9: INVESTOR PREFERENCES block widened to all 8 questionnaire dimensions plus free_text (issue #129 checkpoint B6, decision point 6 corrected 2026-08-25 — the original locale/intel_focus-only scope was a misreading of the product owner's intent; risk_appetite/objective now carry a per-field SCOPE guardrail instead of being withheld, and the boundary is additionally held by the _scan_forbidden_output backstop); f2-v8: INVESTOR PREFERENCES block added to the Pass 2 user-turn prompt (issue #129 checkpoint B6, decision point 6 — only locale/intel_focus, scope-guarded, see _build_investor_preferences_block in report_prompts.py); f2-v7: analysis framework basis injected into _PASS2_SYSTEM (issue #128 Ring 1 stage B, checkpoint B1 — config/analysis_framework.yml, reloaded fresh via _build_pass2_system, its own `version` recorded separately in report_inputs.analysis_framework_version); f2-v6 was itself under-documented — besides its own §4.2/HOLDING-RELEVANT NEWS change, PR #168's narrative-layer redesign rewrote NAMING IS NOT ANALYSIS and parameterized the LARGE HOLDINGS references without bumping this constant (design doc §2.8, PR #167 round 3 caught the same gap on ASSEMBLY_PROMPT_VERSION); f2-v5 = direction-requires-evidence + divergence-is-the-signal (no price-direction claims without window data); f2-v4 = §4.2 code table + driver-only, evidence confidence labels, §4.4 technical position
 _DISCLAIMER_VERSION = "f3-bilingual-v2"
 
 # L1 leftover-budget top-up (issue #128 quality gate, design doc §6.7 item 3).
@@ -258,7 +258,7 @@ def _render_full_md(
 # ---------------------------------------------------------------------------
 
 
-def _assembly_prompt_from_ctx(ctx: ReportContext) -> str:
+def _assembly_prompt_from_ctx(ctx: ReportContext, investor_prefs: InvestorPreferences) -> str:
     """Build the assembly prompt from THIS report's context and nothing else.
 
     Every argument is a `ctx` field already scoped to one user — the shared
@@ -266,6 +266,12 @@ def _assembly_prompt_from_ctx(ctx: ReportContext) -> str:
     `l1_identifiers_for_user`/`l2_event_keys_for_user` narrowed to this user's
     own candidates. `build_assembly_prompt` takes no Session precisely so this
     stays the only way in (see report_assembly.py's docstring).
+
+    `investor_prefs` is passed separately, not read off `ctx` (PR #212
+    review finding, issue #129 checkpoint B6): `investor_prefs.free_text`
+    must never land on `ctx`, since `ctx.to_jsonb()` serializes every
+    dataclass field into `report_inputs` — an unencrypted column — and
+    free_text is the one encrypted field on user_investment_context.
     """
     return build_assembly_prompt(
         ctx.portfolio_summary,
@@ -278,11 +284,18 @@ def _assembly_prompt_from_ctx(ctx: ReportContext) -> str:
         ctx.window_trading_days,
         ctx.technical_positions,
         ctx.cross_name_intel,
+        investor_locale=investor_prefs.locale,
+        investor_questionnaire=investor_prefs.questionnaire,
+        investor_free_text=investor_prefs.free_text,
     )
 
 
 def _try_assembly(
-    client: Any, settings: Any, ctx: ReportContext, report_id: uuid.UUID
+    client: Any,
+    settings: Any,
+    ctx: ReportContext,
+    report_id: uuid.UUID,
+    investor_prefs: InvestorPreferences,
 ) -> str | None:
     """The assembled body, or None meaning "fall back to Pass 2".
 
@@ -302,7 +315,7 @@ def _try_assembly(
         return None
 
     model = str(settings.ASSEMBLY_LLM_MODEL).strip()
-    prompt = _assembly_prompt_from_ctx(ctx)
+    prompt = _assembly_prompt_from_ctx(ctx, investor_prefs)
     logger.info("report %s: assembly pass (%s)", report_id, model)
     try:
         body = run_assembly_pass(client, model, prompt, usage_sink=ctx.llm_calls)
@@ -327,7 +340,11 @@ def _try_assembly(
 
 
 def _run_shadow_assembly(
-    client: Any, settings: Any, ctx: ReportContext, report_id: uuid.UUID
+    client: Any,
+    settings: Any,
+    ctx: ReportContext,
+    report_id: uuid.UUID,
+    investor_prefs: InvestorPreferences,
 ) -> None:
     """Run the assembly pass once per shadow model, store, ship nothing.
 
@@ -346,7 +363,7 @@ def _run_shadow_assembly(
         logger.info("report %s: no shared intel this run — skipping shadow assembly", report_id)
         return
 
-    prompt = _assembly_prompt_from_ctx(ctx)
+    prompt = _assembly_prompt_from_ctx(ctx, investor_prefs)
     for model in models:
         entry: dict[str, Any] = {"prompt_version": ASSEMBLY_PROMPT_VERSION}
         if ctx.body_source == "assembly" and model == ctx.assembly_model:
@@ -1280,17 +1297,22 @@ def generate_report(
         # (switch off, model unchosen, cold cache, provider error, truncated
         # body), so the line below degrades to the exact pre-A4 path rather
         # than to a worse report.
-        raw_body = _try_assembly(client, settings, ctx, report.id)
+        # issue #129 checkpoint B6: loaded ONCE, before the assembly/Pass 2
+        # split, and the snapshot set unconditionally regardless of which
+        # body-source wins (PR #212 review finding — the original
+        # implementation only loaded this inside the Pass 2 fallback branch,
+        # so an assembled report both silently ignored investor preferences
+        # AND recorded no context snapshot, violating §8.4's "every report
+        # generation writes the context used" guarantee the moment
+        # SHARED_COMPUTE_ENABLED flips on).
+        investor_prefs = load_investor_preferences(session, user_id)
+        ctx.investor_questionnaire_snapshot = investor_prefs.questionnaire
+        ctx.investor_questionnaire_version = investor_prefs.questionnaire_version
+
+        raw_body = _try_assembly(client, settings, ctx, report.id, investor_prefs)
 
         if raw_body is None:
             primary_model = settings.PRIMARY_LLM_MODEL
-            # issue #129 checkpoint B6, decision point 6: only locale/
-            # intel_focus reach the prompt; the full answer set (minus
-            # free_text) is snapshotted into ctx for the report_inputs audit
-            # trail regardless of whether intel_focus was ever set.
-            investor_prefs = load_investor_preferences(session, user_id)
-            ctx.investor_questionnaire_snapshot = investor_prefs.questionnaire_snapshot
-            ctx.investor_questionnaire_version = investor_prefs.questionnaire_version
             pass2_user = _build_pass2_prompt(
                 ctx.portfolio_summary,
                 ctx.macro_signals,
@@ -1302,7 +1324,8 @@ def generate_report(
                 ctx.holding_news,
                 large_holding_moves=ctx.large_holding_moves,
                 investor_locale=investor_prefs.locale,
-                investor_intel_focus=investor_prefs.intel_focus,
+                investor_questionnaire=investor_prefs.questionnaire,
+                investor_free_text=investor_prefs.free_text,
             )
 
             ctx.pass2_model = primary_model
@@ -1343,7 +1366,7 @@ def generate_report(
         # #163) — exactly the "measurement breaks what it measures" failure
         # this harness exists to rule out.
         try:
-            _run_shadow_assembly(client, settings, ctx, report.id)
+            _run_shadow_assembly(client, settings, ctx, report.id, investor_prefs)
         except Exception:
             logger.exception(
                 "report %s: shadow assembly harness failed — shipped body unaffected", report.id
@@ -1501,6 +1524,16 @@ def regenerate_report(
         period_end_iso = report.period_end.isoformat() if report.period_end else ""
         trading_days = int(inputs.get("window_trading_days", 0))
 
+        # Re-fetched live, like fresh_technical below — a regenerate should
+        # reflect a questionnaire answered/changed since the original
+        # generation, not replay the stale answer set frozen in `inputs`
+        # (issue #129 checkpoint B6). Loaded ONCE, before the body-source
+        # branch, so the snapshot is set unconditionally regardless of which
+        # pass re-runs (PR #212 review finding — the original implementation
+        # only loaded this inside the Pass 2 branch, leaving an assembled
+        # regenerate's snapshot stale/absent).
+        investor_prefs = load_investor_preferences(session, user_id)
+
         # A4: re-run the pass that WROTE this body, not always Pass 2. Beyond
         # being the wrong pass for an assembled report, re-running Pass 2 here
         # would write `pass2_raw` while leaving the superseded `assembly_raw`
@@ -1569,6 +1602,9 @@ def regenerate_report(
                 trading_days,
                 inputs.get("technical_positions", []),
                 fresh_clusters,
+                investor_locale=investor_prefs.locale,
+                investor_questionnaire=investor_prefs.questionnaire,
+                investor_free_text=investor_prefs.free_text,
             )
             raw_body = run_assembly_pass(
                 _openrouter_client(), assembly_model, assembly_user, usage_sink=regen_calls
@@ -1594,13 +1630,10 @@ def regenerate_report(
                 # to the prompt, not the stale value from before whatever
                 # holdings edit triggered this regenerate.
                 "cross_name_intel": fresh_clusters,
+                "investor_questionnaire_snapshot": investor_prefs.questionnaire,
+                "investor_questionnaire_version": investor_prefs.questionnaire_version,
             }
         else:
-            # Re-fetched live, like fresh_technical below — a regenerate
-            # should reflect a questionnaire answered/changed since the
-            # original generation, not replay the stale answer set frozen
-            # in `inputs` (issue #129 checkpoint B6).
-            investor_prefs = load_investor_preferences(session, user_id)
             pass2_user = _build_pass2_prompt(
                 portfolio,
                 inputs.get("macro_signals", {}),
@@ -1612,7 +1645,8 @@ def regenerate_report(
                 inputs.get("holding_news", {}),
                 large_holding_moves=inputs.get("large_holding_moves", {}),
                 investor_locale=investor_prefs.locale,
-                investor_intel_focus=investor_prefs.intel_focus,
+                investor_questionnaire=investor_prefs.questionnaire,
+                investor_free_text=investor_prefs.free_text,
             )
             raw_body = _call_llm(
                 _openrouter_client(),
@@ -1631,7 +1665,7 @@ def regenerate_report(
                 "pass2_raw": raw_body,
                 "pass2_prompt": pass2_user,
                 "analysis_framework_version": load_analysis_framework().version,
-                "investor_questionnaire_snapshot": investor_prefs.questionnaire_snapshot,
+                "investor_questionnaire_snapshot": investor_prefs.questionnaire,
                 "investor_questionnaire_version": investor_prefs.questionnaire_version,
             }
 

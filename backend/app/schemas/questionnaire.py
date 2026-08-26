@@ -5,7 +5,6 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, ValidationInfo, field_validator
 
 from app.services.questionnaire_taxonomy import (
-    QUESTIONNAIRE_VERSION,
     VALID_ASSET_SCALES,
     VALID_HORIZONS,
     VALID_INTEL_FOCUSES,
@@ -100,6 +99,3 @@ class InvestmentContextOut(BaseModel):
     questionnaire_version: str
     free_text: str | None
     updated_at: datetime
-
-
-DEFAULT_QUESTIONNAIRE_VERSION = QUESTIONNAIRE_VERSION

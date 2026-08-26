@@ -4,6 +4,7 @@ checkpoint B6, Ring 1-B design.md §8.6)."""
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.models.user import User
@@ -114,11 +115,38 @@ def test_row_survives_free_text_round_trip_via_encryption(
     decrypts transparently (holdings.py's own encryption tests follow this
     same read-through-the-ORM pattern)."""
     _seed_user(db_session)
-    text = "特殊说明: 部分仓位是历史遗留。"
+    note = "特殊说明: 部分仓位是历史遗留。"
     app_client.put(
         "/investment-context",
-        json={"questionnaire": _VALID_QUESTIONNAIRE, "free_text": text},
+        json={"questionnaire": _VALID_QUESTIONNAIRE, "free_text": note},
     )
     row = db_session.get(UserInvestmentContext, TEST_USER_ID)
     assert row is not None
-    assert row.free_text == text
+    assert row.free_text == note
+
+
+def test_free_text_stored_ciphertext_differs_from_plaintext(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """PR #212 review finding: the ORM round-trip test above only proves
+    EncryptedString decrypts transparently — it would still pass even if a
+    regression silently dropped encryption and stored plaintext. Prove the
+    DB actually holds ciphertext, not just that the ORM round-trips
+    (mirrors test_encryption.py's
+    test_holding_stored_ciphertext_differs_from_plaintext_and_decrypts_via_orm)."""
+    _seed_user(db_session)
+    plaintext = "特殊说明: 部分仓位是历史遗留。"
+    app_client.put(
+        "/investment-context",
+        json={"questionnaire": _VALID_QUESTIONNAIRE, "free_text": plaintext},
+    )
+    raw = db_session.execute(
+        text("SELECT free_text FROM user_investment_context WHERE user_id = :id"),
+        {"id": TEST_USER_ID},
+    ).scalar_one()
+    assert raw != plaintext
+    assert plaintext not in raw
+    # ORM read-through still decrypts correctly.
+    row = db_session.get(UserInvestmentContext, TEST_USER_ID)
+    assert row is not None
+    assert row.free_text == plaintext

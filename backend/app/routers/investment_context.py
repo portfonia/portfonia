@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.core.database import get_session
@@ -42,22 +43,40 @@ def put_investment_context(
     principal: Principal = Depends(current_principal),
 ) -> UserInvestmentContext:
     """Full overwrite — re-answering the questionnaire replaces the prior
-    record wholesale (Concept §4.2), never merges partial fields."""
-    ctx = session.get(UserInvestmentContext, principal.user_id)
+    record wholesale (Concept §4.2), never merges partial fields.
+
+    Atomic upsert, not read-then-branch (PR #212 review finding): a
+    SELECT-then-INSERT-or-UPDATE has a race on two concurrent FIRST
+    submissions for the same user — both see no row, both attempt INSERT,
+    the loser hits the PK constraint as an unhandled IntegrityError (500)
+    instead of succeeding as an overwrite. `INSERT ... ON CONFLICT DO
+    UPDATE` is one atomic statement with no such window. `EncryptedString`
+    still applies here — it's attached to the column's type at the table
+    level, not to the ORM Session API used to reach it.
+    """
     questionnaire_dict = body.questionnaire.model_dump()
-    if ctx is None:
-        ctx = UserInvestmentContext(
+    now = datetime.now(tz=UTC)
+    stmt = (
+        pg_insert(UserInvestmentContext)
+        .values(
             user_id=principal.user_id,
             questionnaire=questionnaire_dict,
             questionnaire_version=QUESTIONNAIRE_VERSION,
             free_text=body.free_text,
+            updated_at=now,
         )
-        session.add(ctx)
-    else:
-        ctx.questionnaire = questionnaire_dict
-        ctx.questionnaire_version = QUESTIONNAIRE_VERSION
-        ctx.free_text = body.free_text
-        ctx.updated_at = datetime.now(tz=UTC)
+        .on_conflict_do_update(
+            index_elements=[UserInvestmentContext.user_id],
+            set_={
+                "questionnaire": questionnaire_dict,
+                "questionnaire_version": QUESTIONNAIRE_VERSION,
+                "free_text": body.free_text,
+                "updated_at": now,
+            },
+        )
+    )
+    session.execute(stmt)
     session.commit()
-    session.refresh(ctx)
+    ctx = session.get(UserInvestmentContext, principal.user_id)
+    assert ctx is not None  # just upserted, by definition present
     return ctx

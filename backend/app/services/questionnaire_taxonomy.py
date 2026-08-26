@@ -43,9 +43,59 @@ VALID_INTEL_FOCUSES: frozenset[str] = frozenset(
     {"MACRO", "FUNDAMENTALS", "GEOPOLITICS", "BALANCED"}
 )
 
-# English prose for each intel_focus value, used only when composing the
-# Pass 2 INVESTOR PREFERENCES block (report_prompts.py) — never shown to the
-# user (§8.4: no system-inference readback endpoint exists at all).
+# English prose for each questionnaire value, used only when composing the
+# INVESTOR PREFERENCES block (report_prompts.py) for Pass 2 AND assembly —
+# never shown to the user (§8.4: no system-inference readback endpoint
+# exists at all). All 8 dimensions are injected as of the 2026-08-25
+# correction to decision point 6 (Ring 1-B design.md §8.5): the original
+# 2026-08-21 decision to exclude risk_appetite/objective entirely was a
+# misreading of the product owner's actual intent — every stated preference
+# matters and should be used, with the Layer-3/4 boundary held by explicit
+# prompt scoping (below) and the output-side `_scan_forbidden_output`
+# backstop, not by discarding user input.
+ASSET_SCALE_PROMPT_TEXT: dict[str, str] = {
+    "UNDER_100K": "under $100K investable assets",
+    "100K_500K": "$100K-$500K investable assets",
+    "500K_2M": "$500K-$2M investable assets",
+    "OVER_2M": "over $2M investable assets",
+}
+
+MARKET_PROMPT_TEXT: dict[str, str] = {
+    "US": "US",
+    "HK": "Hong Kong",
+    "A-Share": "mainland China A-share",
+    "Other": "other markets",
+}
+
+STYLE_PROMPT_TEXT: dict[str, str] = {
+    "VALUE": "value investing",
+    "GROWTH": "growth investing",
+    "INDEX": "index investing",
+    "MIXED": "a mixed value/growth/index approach",
+}
+
+HORIZON_PROMPT_TEXT: dict[str, str] = {
+    "SHORT": "short-term (under 1 year)",
+    "MEDIUM": "medium-term (1-3 years)",
+    "LONG": "long-term (3+ years)",
+}
+
+# Deliberately worded as "how the investor already frames risk", not as a
+# label the model could restate as license for a sizing suggestion — see
+# the SCOPE guardrail in report_prompts.py's
+# _build_investor_preferences_block, which this text feeds into.
+RISK_APPETITE_PROMPT_TEXT: dict[str, str] = {
+    "CONSERVATIVE": "conservative — prioritizes capital stability over upside",
+    "BALANCED": "balanced — accepts moderate volatility for moderate growth",
+    "AGGRESSIVE": "aggressive — accepts high volatility for higher potential growth",
+}
+
+OBJECTIVE_PROMPT_TEXT: dict[str, str] = {
+    "PRESERVATION": "capital preservation",
+    "GROWTH": "capital growth",
+    "INCOME": "income (dividends/yield)",
+}
+
 INTEL_FOCUS_PROMPT_TEXT: dict[str, str] = {
     "MACRO": "macro signals over stock-specific fundamentals",
     "FUNDAMENTALS": "individual-holding fundamentals over macro/geopolitical signals",
@@ -54,8 +104,14 @@ INTEL_FOCUS_PROMPT_TEXT: dict[str, str] = {
 }
 
 __all__ = [
+    "ASSET_SCALE_PROMPT_TEXT",
+    "HORIZON_PROMPT_TEXT",
     "INTEL_FOCUS_PROMPT_TEXT",
+    "MARKET_PROMPT_TEXT",
+    "OBJECTIVE_PROMPT_TEXT",
     "QUESTIONNAIRE_VERSION",
+    "RISK_APPETITE_PROMPT_TEXT",
+    "STYLE_PROMPT_TEXT",
     "VALID_ASSET_SCALES",
     "VALID_HORIZONS",
     "VALID_INTEL_FOCUSES",

@@ -63,6 +63,7 @@ from app.services.report_prompts import (
     _RULE_CONFIDENCE_LABELS,
     _RULE_TIME_REFERENCES,
     _SHARED_BODY_RULES_NO_LARGE_HOLDINGS,
+    _build_investor_preferences_block,
     _stale_ticker_hint,
 )
 from app.services.transmission_taxonomy import transmissions_for_classes
@@ -76,13 +77,20 @@ logger = logging.getLogger(__name__)
 # TRANSMISSION labels, TRACKING POSITION display rules, and a TECHNICAL
 # POSITION block — a stale version string would make a pre- and
 # post-quality-gate assembled report indistinguishable in `report_inputs`.
+# a4-v3 -> a4-v4 (issue #129 checkpoint B6, PR #212 review finding): the
+# original implementation only wired investor-preference injection into the
+# Pass 2 fallback branch, so an assembled body silently ignored it and its
+# report_inputs snapshot stayed unset. build_assembly_prompt() now takes the
+# same investor_locale/investor_questionnaire/investor_free_text params as
+# _build_pass2_prompt and renders the same _build_investor_preferences_block.
+#
 # a4-v2 -> a4-v3 (issue #128 Ring 1 stage B / B1 PR, Grok review PR #172):
 # _build_assembly_system() now injects the analysis framework basis and the
 # §2 "no direct holding mapping -> no standalone paragraph" tightening — a
 # real system-prompt contract change caught by review for not bumping this
 # constant, the same class of gap _PROMPT_VERSION's own f2-v6 comment
 # documents on the Pass 2 side.
-ASSEMBLY_PROMPT_VERSION = "a4-v3"
+ASSEMBLY_PROMPT_VERSION = "a4-v4"
 
 
 def _build_assembly_system() -> str:
@@ -279,6 +287,9 @@ def build_assembly_prompt(
     trading_days: int = 0,
     technical_positions: list[dict[str, Any]] | None = None,
     cross_name_intel: list[dict[str, Any]] | None = None,
+    investor_locale: str | None = None,
+    investor_questionnaire: dict[str, Any] | None = None,
+    investor_free_text: str | None = None,
 ) -> str:
     """Assemble the user-turn prompt. Takes no `Session` by design — see the
     module docstring's type-boundary note; every value here arrives already
@@ -495,6 +506,18 @@ def build_assembly_prompt(
                 lines.append(f"  {ident}: " + "; ".join(bits))
     else:
         lines.append("(no technical-position facts supplied)")
+
+    # Investor preferences (issue #129 checkpoint B6, decision point 6,
+    # corrected 2026-08-25): same block and same SCOPE guardrail as Pass 2's
+    # _build_investor_preferences_block (report_prompts.py) — assembly must
+    # not silently skip this just because it is a different body-writing
+    # pass (PR #212 review finding: the original implementation only wired
+    # this into the Pass 2 fallback branch).
+    preferences_block = _build_investor_preferences_block(
+        investor_locale, investor_questionnaire, investor_free_text
+    )
+    if preferences_block:
+        lines.append(preferences_block)
 
     lines.append("")
     lines.append(

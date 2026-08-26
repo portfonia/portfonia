@@ -77,15 +77,19 @@ def test_is_admin_is_never_read_outside_the_model() -> None:
 
 
 def test_every_identity_bearing_route_depends_on_current_principal() -> None:
-    """Every route under /holdings, /portfolio, and /reports that needs a
-    caller identity must depend on current_principal, not the lower-level
-    get_current_user_id — mirrors test_admin_router.py's coverage-by-
-    iteration pattern rather than trusting per-endpoint review attention."""
-    scoped_prefixes = ("/holdings", "/portfolio", "/reports")
+    """Every route under /holdings, /portfolio, /reports, and
+    /investment-context that needs a caller identity must depend on
+    current_principal, not the lower-level get_current_user_id — mirrors
+    test_admin_router.py's coverage-by-iteration pattern rather than
+    trusting per-endpoint review attention (PR #212 review finding: a new
+    identity-scoped router must be added here, not just wired correctly)."""
+    scoped_prefixes = ("/holdings", "/portfolio", "/reports", "/investment-context")
     routes = [
         r for r in app.routes if isinstance(r, APIRoute) and r.path.startswith(scoped_prefixes)
     ]
-    assert routes, "expected at least one route under /holdings, /portfolio, /reports"
+    assert routes, (
+        "expected at least one route under /holdings, /portfolio, /reports, /investment-context"
+    )
     offenders = []
     for route in routes:
         dep_calls = {dep.call for dep in route.dependant.dependencies}
