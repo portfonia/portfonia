@@ -95,6 +95,50 @@ to the production server:
    check, don't treat a dropped check-connection as deploy failure) but
    treating an actual `exited (1/2/137/139)` container or a `failed`
    systemd unit as real failure.
+
+   **Use this exact polling script, run locally with `run_in_background`
+   (not `Monitor` — this needs exactly one completion notification, not a
+   per-line event stream; not a bare foreground `sleep` loop either, the
+   harness blocks chained `sleep`s outside `run_in_background`/`Monitor`).
+   Do not write a fresh one from scratch** — a hand-rolled version tried
+   once (2026-08-26, B6 questionnaire deploy) checked
+   `systemctl show -p SubState --value` against the literal string
+   `exited`, which a `systemd-run` transient unit never actually reaches on
+   success (it goes `running` → `dead`, not `exited` — that value applies
+   to oneshot units with `RemainAfterExit`, not this unit type) — the loop
+   would have spun forever if not caught and killed manually mid-task:
+
+   ```bash
+   while true; do
+     status=$(ssh -o ConnectTimeout=15 -i <key-from-obsidian-doc> \
+       <user>@<host> "systemctl is-active portfonia-deploy" 2>/dev/null)
+     ssh_exit=$?
+     if [ "$ssh_exit" -eq 255 ]; then
+       # SSH connection itself failed (the known VPN/TUN drop) — retry,
+       # this is not a signal about the unit's state either way.
+       sleep 15
+       continue
+     fi
+     if [ "$status" != "active" ] && [ "$status" != "activating" ]; then
+       # Unit left the running states — could be "inactive"/"dead" (done,
+       # check Result next) or "failed". Either way, stop polling.
+       break
+     fi
+     sleep 15
+   done
+   ssh -o ConnectTimeout=15 -i <key> <user>@<host> \
+     "systemctl show portfonia-deploy -p Result,ExecMainStatus --value"
+   # Result=success -> proceed to step 5. Anything else -> real failure,
+   # pull the journal (see the systemd-run/journalctl commands above).
+   ```
+
+   The `ssh_exit -eq 255` branch is the part that's easy to get wrong: a
+   plain `until ! ssh ... ; do sleep; done` treats a dropped SSH connection
+   (exit 255) the same as "the remote command ran and said no" — since `!`
+   inverts a non-zero exit to true either way, a transient network drop
+   would look identical to "the unit finished" and end the loop early on a
+   false positive. Distinguishing the two is why this script checks
+   `$ssh_exit` before looking at `$status` at all.
 5. `curl https://api.portfonia.com/health` — confirm `{"status":"ok",...}`.
 6. Report success (what changed) or failure (which step, what the logs
    showed) — don't declare done without step 5 passing.
