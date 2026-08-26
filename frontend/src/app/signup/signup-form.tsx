@@ -5,13 +5,23 @@ import { useActionState } from "react";
 import { messages } from "@/lib/messages";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { clearPendingLogin, markPendingLogin } from "@/hooks/use-session";
 import { signup, type SignupState } from "./actions";
 
 const m = messages.auth;
 
+async function signupAndDisarmOnError(
+  prev: SignupState | undefined,
+  formData: FormData,
+): Promise<SignupState | undefined> {
+  const result = await signup(prev, formData);
+  if (result?.error) clearPendingLogin();
+  return result;
+}
+
 export function SignupForm({ inviteToken }: { inviteToken: string }) {
   const [state, formAction, pending] = useActionState<SignupState | undefined, FormData>(
-    signup,
+    signupAndDisarmOnError,
     undefined,
   );
 
@@ -24,7 +34,11 @@ export function SignupForm({ inviteToken }: { inviteToken: string }) {
   }
 
   return (
-    <form action={formAction} className="mx-auto flex max-w-sm flex-col gap-4">
+    <form
+      action={formAction}
+      onSubmit={() => markPendingLogin()}
+      className="mx-auto flex max-w-sm flex-col gap-4"
+    >
       <input type="hidden" name="invite_token" value={inviteToken} />
       <div className="flex flex-col gap-1.5">
         <label htmlFor="email" className="text-sm text-foreground/80">

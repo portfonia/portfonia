@@ -22,7 +22,14 @@ vi.mock("@/lib/supabase/browser", () => ({
   }),
 }));
 
-import { useSession, markPendingLogin, markOptimisticLogout } from "./use-session";
+import {
+  useSession,
+  markPendingLogin,
+  markOptimisticLogout,
+  clearPendingLogin,
+  revalidateSession,
+  __resetSessionSignalsForTests,
+} from "./use-session";
 
 // Renders the hook state so each assertion can see exactly what a consumer
 // (the Get Started menu) would render for the current session truth.
@@ -50,6 +57,7 @@ function lastAuthCallback(): (...args: unknown[]) => void {
 
 describe("useSession", () => {
   beforeEach(() => {
+    __resetSessionSignalsForTests();
     vi.clearAllMocks();
     usePathname.mockReturnValue("/");
     vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -365,6 +373,15 @@ describe("useSession", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("does not show a login-pending state after clearPendingLogin() (failed login must not leak into the next navigation)", () => {
+    markPendingLogin();
+    clearPendingLogin();
+    getUser.mockReturnValue(new Promise(() => {}));
+    const { container } = render(<Probe />);
+
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it("optimistically flips to guest the instant markOptimisticLogout() is called, without waiting on getUser()", async () => {
     getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
     render(<Probe />);
@@ -403,6 +420,31 @@ describe("useSession", () => {
     });
 
     expect(screen.getByTestId("session-state")).toHaveTextContent("guest");
+  });
+
+  it("revalidateSession after an optimistic logout re-runs getUser and can restore authed", async () => {
+    getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+    render(<Probe />);
+    await waitFor(() =>
+      expect(screen.getByTestId("session-state")).toHaveTextContent(
+        "authed:a@b.com",
+      ),
+    );
+
+    act(() => {
+      markOptimisticLogout();
+    });
+    expect(screen.getByTestId("session-state")).toHaveTextContent("guest");
+
+    act(() => {
+      revalidateSession();
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("session-state")).toHaveTextContent(
+        "authed:a@b.com",
+      ),
+    );
   });
 
   it("cleans up the subscription and listeners on unmount", async () => {

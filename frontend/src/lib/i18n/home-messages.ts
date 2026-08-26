@@ -11,6 +11,8 @@ interface HomeMessages {
     language: string;
     login: string;
     logout: string;
+    loggingIn: string;
+    logoutFailed: string;
     holdings: string;
     home: string;
   };
@@ -72,6 +74,8 @@ export const homeMessages: Record<Locale, HomeMessages> = {
       language: "Language",
       login: "Log in",
       logout: "Log out",
+      loggingIn: "Logging in...",
+      logoutFailed: "Sign out failed. Try again.",
       holdings: "Holdings",
       home: "Home",
     },
@@ -239,6 +243,8 @@ export const homeMessages: Record<Locale, HomeMessages> = {
       language: "语言",
       login: "登录",
       logout: "退出登录",
+      loggingIn: "正在登录...",
+      logoutFailed: "退出失败，请重试。",
       holdings: "持仓",
       home: "首页",
     },

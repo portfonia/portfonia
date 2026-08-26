@@ -2,13 +2,14 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-const { login, markPendingLogin } = vi.hoisted(() => ({
+const { login, markPendingLogin, clearPendingLogin } = vi.hoisted(() => ({
   login: vi.fn(),
   markPendingLogin: vi.fn(),
+  clearPendingLogin: vi.fn(),
 }));
 
 vi.mock("./actions", () => ({ login }));
-vi.mock("@/hooks/use-session", () => ({ markPendingLogin }));
+vi.mock("@/hooks/use-session", () => ({ markPendingLogin, clearPendingLogin }));
 
 import { LoginForm } from "./login-form";
 
@@ -55,6 +56,19 @@ describe("LoginForm", () => {
     await user.click(screen.getByRole("button", { name: /log in/i }));
 
     expect(await screen.findByText("Invalid email or password.")).toBeInTheDocument();
+  });
+
+  it("clears the pending-login signal when the action returns an error", async () => {
+    login.mockResolvedValue({ error: "Invalid email or password." });
+    const user = userEvent.setup();
+    render(<LoginForm />);
+
+    await user.type(screen.getByLabelText(/email/i), "a@b.com");
+    await user.type(screen.getByLabelText(/password/i), "wrong");
+    await user.click(screen.getByRole("button", { name: /log in/i }));
+
+    await screen.findByText("Invalid email or password.");
+    expect(clearPendingLogin).toHaveBeenCalled();
   });
 
   it("tells an account-less visitor to ask for an invite, rather than linking to a token-less /signup", () => {

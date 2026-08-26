@@ -20,9 +20,9 @@ const GET_USER_TIMEOUT_MS = 8_000;
 
 // login()/logout() are Server Actions whose redirect() lands on a page
 // where SiteHeader never remounts (shared root layout) — see the mount-time
-// re-verification note below. Two module-level signals let the component
-// that triggered the action (gone by the time the next page mounts) tell
-// the next useSession instance what's going on, since there is no other
+// re-verification note below. Module-level signals let the component that
+// triggered the action (gone by the time the next page mounts) tell the
+// next useSession instance what's going on, since there is no other
 // channel between them:
 //
 // - markPendingLogin(): the login form's onSubmit calls this right before
@@ -37,21 +37,41 @@ const GET_USER_TIMEOUT_MS = 8_000;
 //   rendering nothing, since the reason IS known at this specific moment
 //   (a future business-logic hook for the post-login transition can key off
 //   the same signal).
-// - markOptimisticLogout(): the Log out button calls this instead of
-//   waiting for a verified round-trip to confirm what the user just told
-//   the app to do. Signing out is not something that fails from the UI's
-//   perspective — there is no scenario where the click should wait on
-//   network round-trip before reacting.
+// - markOptimisticLogout(): the Log out button calls this so the menu
+//   flips to guest immediately, without waiting on a verified getUser()
+//   round-trip over the auth.portfonia.com proxy. The Server Action can
+//   still fail (network error, signOut() rejection) — the click handler
+//   must catch that and call revalidateSession() to drop the optimistic
+//   guest state, otherwise the UI claims logged-out while the cookie
+//   session is intact (issue #217 review).
+// - clearPendingLogin(): login/signup forms call this when the Server
+//   Action returns an error instead of redirecting, so a later ordinary
+//   navigation does not consume a stale "Logging in..." signal.
+// - revalidateSession(): force every mounted useSession to run verify()
+//   now, discarding in-flight results the same way SIGNED_IN does.
 let pendingLoginSignal = false;
 
 export function markPendingLogin() {
   pendingLoginSignal = true;
 }
 
+export function clearPendingLogin() {
+  pendingLoginSignal = false;
+}
+
+export function __resetSessionSignalsForTests() {
+  pendingLoginSignal = false;
+}
+
 const optimisticLogoutListeners = new Set<() => void>();
+const revalidateListeners = new Set<() => void>();
 
 export function markOptimisticLogout() {
   optimisticLogoutListeners.forEach((fn) => fn());
+}
+
+export function revalidateSession() {
+  revalidateListeners.forEach((fn) => fn());
 }
 
 type GetUserResult = Awaited<ReturnType<ReturnType<typeof createClient>["auth"]["getUser"]>>;
@@ -194,6 +214,16 @@ export function useSession(): SessionState {
         });
     };
 
+    const onForcedRevalidate = () => {
+      // Drop the optimistic guest (or any other in-flight generation) and
+      // ask the server again. Used when logout() rejects after
+      // markOptimisticLogout() already flipped the menu.
+      generation += 1;
+      inFlight = null;
+      verify();
+    };
+    revalidateListeners.add(onForcedRevalidate);
+
     verify();
 
     // A parked tab performs no navigation, so nothing else re-checks a
@@ -233,6 +263,7 @@ export function useSession(): SessionState {
     return () => {
       cancelled = true;
       optimisticLogoutListeners.delete(onOptimisticLogout);
+      revalidateListeners.delete(onForcedRevalidate);
       subscription.unsubscribe();
       document.removeEventListener("visibilitychange", revalidate);
       window.removeEventListener("focus", revalidate);

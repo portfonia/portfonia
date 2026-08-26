@@ -20,6 +20,7 @@ export const messages = {
     home: "Home",
     login: "Log in",
     logout: "Log out",
+    logoutFailed: "Sign out failed. Try again.",
     holdings: "Holdings",
     questionnaire: "Investment style",
     // Composed from SESSION_IDLE_TIMEOUT_MS (lib/idle-timeout.ts) so the

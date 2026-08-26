@@ -52,10 +52,17 @@ for the full before/after and decision rationale.
   triggered them is already gone by the time it mounts): `markPendingLogin()`
   (login form's `onSubmit`) tags the next `checking` window with
   `pendingReason: "login"` so the menu shows a "Logging in..." placeholder
-  instead of nothing during the post-redirect verification; `markOptimisticLogout()`
-  (Log out button's `onClick`) flips the state to `guest` immediately,
-  never waiting on a round-trip — signing out is the user's own explicit
-  action, not something that can fail from the UI's perspective.
+  instead of nothing during the post-redirect verification. Signup uses
+  the same `markPendingLogin()` signal (post-signup also redirects to
+  `/holdings`). `clearPendingLogin()` disarms it if login/signup returns
+  an error instead of redirecting, so a later ordinary navigation does
+  not show a stale "Logging in..." placeholder. `markOptimisticLogout()`
+  (Log out button's `onClick`) flips the state to `guest` immediately so
+  the click is not gated on the round-trip. The Server Action can still
+  fail (`signOut()` / network); the click handler catches a non-redirect
+  rejection, calls `revalidateSession()` to drop the optimistic guest
+  state, and shows a visible error. `redirect()`'s `NEXT_REDIRECT` throw
+  is success, not failure.
   `getUser()` itself is bound by an 8s timeout + one retry (timeout only,
   not on an immediate network error) — `auth.portfonia.com` (the Caddy
   reverse-proxy routing around direct Supabase connectivity issues) has

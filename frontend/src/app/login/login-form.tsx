@@ -5,14 +5,23 @@ import { useActionState } from "react";
 import { messages } from "@/lib/messages";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { markPendingLogin } from "@/hooks/use-session";
+import { clearPendingLogin, markPendingLogin } from "@/hooks/use-session";
 import { login, type LoginState } from "./actions";
 
 const m = messages.auth;
 
+async function loginAndDisarmOnError(
+  prev: LoginState | undefined,
+  formData: FormData,
+): Promise<LoginState | undefined> {
+  const result = await login(prev, formData);
+  if (result?.error) clearPendingLogin();
+  return result;
+}
+
 export function LoginForm() {
   const [state, formAction, pending] = useActionState<LoginState | undefined, FormData>(
-    login,
+    loginAndDisarmOnError,
     undefined,
   );
 
