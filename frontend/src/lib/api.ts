@@ -190,3 +190,44 @@ export async function exportHoldings(): Promise<Blob> {
   if (!res.ok) throw new ApiError(res.status, await readError(res));
   return res.blob();
 }
+
+// Mirrors backend/app/schemas/questionnaire.py's QuestionnaireIn (issue #129
+// checkpoint B6). Every field is a closed enum the backend validates at the
+// API boundary (422 on an unrecognized value) — this client type exists so a
+// typo here is caught by tsc, not just by the backend at submit time.
+export interface Questionnaire {
+  asset_scale: "UNDER_100K" | "100K_500K" | "500K_2M" | "OVER_2M";
+  markets: ("US" | "HK" | "A-Share" | "Other")[];
+  style: "VALUE" | "GROWTH" | "INDEX" | "MIXED";
+  horizon: "SHORT" | "MEDIUM" | "LONG";
+  risk_appetite: "CONSERVATIVE" | "BALANCED" | "AGGRESSIVE";
+  sectors_of_interest: string[];
+  objective: "PRESERVATION" | "GROWTH" | "INCOME";
+  intel_focus: "MACRO" | "FUNDAMENTALS" | "GEOPOLITICS" | "BALANCED";
+}
+
+export interface InvestmentContext {
+  questionnaire: Questionnaire;
+  questionnaire_version: string;
+  free_text: string | null;
+  updated_at: string;
+}
+
+// Full overwrite (Concept §4.2: re-answering replaces the record wholesale).
+// No client-side getInvestmentContext() counterpart exists: the
+// /questionnaire page loads its initial context exclusively through
+// getInvestmentContextServer() (server-api.ts) — a client-side reader would
+// be dead code until an actual client-side caller needs one (PR #212 review
+// finding: an unused export trips this repo's "no unused exports" gate).
+export async function putInvestmentContext(
+  questionnaire: Questionnaire,
+  freeText: string | null,
+): Promise<InvestmentContext> {
+  const res = await fetch("/api/investment-context", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ questionnaire, free_text: freeText }),
+  });
+  if (!res.ok) throw new ApiError(res.status, await readError(res));
+  return res.json() as Promise<InvestmentContext>;
+}

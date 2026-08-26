@@ -322,3 +322,128 @@ without B5 in the same release** — see the B4 section above.
   entry corrects.
 
 
+### Investment-style questionnaire — B6 (Ring 1-B design.md §8, issue #129 checkpoint B6)
+
+Closes the "stated preference" half of Concept §4.2's signal model — the
+"displayed preference" half (holdings-structure inference) already existed
+from stage A. B6 depends on B4 (`users.id` as the FK target) and B1 (the
+questionnaire is a *bounded adjustment* on top of the invisible B1 basis,
+never the sole source of the analytical framing — §1.4).
+
+- **`user_investment_context`** (one row per user, no history table —
+  Concept §4.2: re-answering overwrites). `questionnaire` is a single JSONB
+  blob holding the 8 closed-enum answers (`app/services/
+  questionnaire_taxonomy.py` is the single source of truth); `free_text` is
+  `EncryptedString` (same field-level Fernet as `holdings.notes`);
+  `questionnaire_version` pins `QUESTIONNAIRE_VERSION` at write time.
+  `user_id` is this table's own PK and carries a real `ForeignKey
+  ("users.id")` — unlike `holdings`/`reports`/`upload_jobs`/`news_surfaced`,
+  which predate `users` and only get their FK in B7 (design doc §9.3), this
+  table postdates B4, so there is no legacy-data reason to defer it.
+- **Three-layer domain validation, same pattern as `VALID_ASSET_CLASSES`/
+  `VALID_CURRENCIES`**: Python constants (`questionnaire_taxonomy.py`) ->
+  a frozen-snapshot DB CHECK per JSONB key (migration `9c56ac348d7d`, never
+  a live import — same immutable-historical-snapshot rule as
+  `6cd7544f63cf`) -> Pydantic `field_validator`s on `QuestionnaireIn`
+  (`app/schemas/questionnaire.py`) so an unrecognized value 422s at the API
+  boundary instead of surfacing as a raw `IntegrityError`. The two
+  multi-select dimensions (`markets`, `sectors_of_interest`) use the `<@`
+  jsonb containment operator in their CHECK, not a `NOT EXISTS (SELECT ...
+  FROM jsonb_array_elements_text(...))` subquery — **Postgres CHECK
+  constraints cannot contain a subquery at all** (`cannot use subquery in
+  check constraint`, caught by actually running `alembic upgrade head`
+  against the CHECK during implementation, not assumed). `sectors_of_interest`
+  reads `sector_taxonomy.VALID_SECTORS` directly rather than starting a
+  second sector vocabulary (§8.3's explicit instruction).
+- **`GET`/`PUT /investment-context`** (`app/routers/investment_context.py`):
+  `GET` 404s when no row exists yet ("never answered" is a different state
+  from "answered with defaults", and only the frontend's own pre-filled
+  defaults stand in for the former — nothing is persisted until submit).
+  `PUT` is a full overwrite, never a partial-field merge. **No endpoint
+  reads back any system-inferred conclusion** — this is the same rule as
+  Concept §4.2's "system inference stays invisible", made **stricter**
+  here because it also covers the B1 basis (§1.4): the two hidden layers
+  (system's own analytical stance, system's inference about this user) get
+  the same non-negotiable invisibility, just for different reasons.
+- **Injection scope (decision point 6, §8.5 — corrected 2026-08-25) — ALL
+  8 questionnaire dimensions plus `locale` and `free_text` reach every
+  body-writing pass.** The original 2026-08-21 decision withheld
+  `risk_appetite`/`objective` entirely on compliance grounds; the product
+  owner overturned that after reviewing PR #212's review round: every
+  stated preference matters and must be used, and the Layer-3/4 boundary is
+  held by (1) an explicit SCOPE sentence in the prompt — with a per-field
+  guardrail specifically naming `risk_appetite`/`objective` (the two
+  highest-risk dimensions) and another covering `free_text` (unfiltered
+  user prose treated as context, never as an instruction that can override
+  the SCOPE even if phrased as a direct request for advice) — and (2) the
+  output-side `_scan_forbidden_output` backstop, validated with a real-LLM
+  compliance regression (`test_b6_compliance_llm_regression.py`, opt-in via
+  `RUN_LLM_LIVE_TESTS=1`) rather than hand-written prose alone. The
+  `=== INVESTOR PREFERENCES ===` block (`report_prompts.py`'s
+  `_build_investor_preferences_block`) is shared verbatim by **both**
+  `_build_pass2_prompt` and `build_assembly_prompt` (`report_assembly.py`)
+  — a PR #212 review bug finding: the original implementation only wired
+  this into the Pass 2 fallback branch, so an assembled report silently
+  ignored investor preferences entirely. `_PROMPT_VERSION` bumped to
+  `f2-v9`, `ASSEMBLY_PROMPT_VERSION` to `a4-v4`.
+- **Audit snapshot, not injection content**: `generate_report` and
+  `regenerate_report` load investor preferences **once, before** the
+  assembly/Pass 2 split, and write the full closed-enum answer set into
+  `report_inputs.investor_questionnaire_snapshot` **unconditionally** —
+  regardless of which body-source wins (same PR #212 bug fix: the snapshot
+  used to be set only inside the Pass 2 branch). `mode="render"` never
+  re-fetches (matches every other re-render field). **`free_text` is never
+  folded into that snapshot dict** — but this is narrower than "free_text
+  never reaches `report_inputs`": it inevitably still appears inside the
+  stored `pass2_prompt`/`assembly_prompt` text once injected, the same way
+  holdings names and values already do. What the exclusion actually buys is
+  that free_text does not ALSO exist as its own plainly-labeled,
+  individually queryable key that a broad `report_inputs` scan/export could
+  pull in bulk across every report — it stays embedded in one long
+  semi-structured blob per report instead. This nuance was caught by a
+  failing test (a real TDD "red") when free_text injection first landed,
+  not decided in advance.
+- **`forbidden_vocab.py` co-occurrence coverage (§8.5(2), checked PR #212
+  review round 2)**: preference-induced phrasing like "given your risk
+  appetite, you could..." was reviewed against the existing scan and
+  deliberately NOT added as a new pattern. The existing bare-action-verb
+  entries ("should sell"/"reduce exposure" EN, 建议/应该+止损/清仓 zh) already
+  catch the action half of any such sentence regardless of what precedes it;
+  a context co-occurrence regex ("given your ... appetite" near an action
+  verb) is exactly the false-positive-prone pattern class issue #65/#205
+  removed from the scan. The SCOPE guardrail sentence in
+  `_build_investor_preferences_block` (this file, above) is the intended
+  first line of defense for this specific risk; the output-side scan stays
+  the backstop it already was, not a targeted filter for this phrasing.
+- **Frontend**: `/questionnaire`, a one-question-per-step wizard
+  (`frontend/src/app/questionnaire/`), pre-filled from Concept §4.3's
+  default philosophy translated into this questionnaire's enums (a product
+  judgment call this implementation made explicitly, not a literal mapping
+  — §4.3 doesn't specify `asset_scale`/`markets`/`risk_appetite` at all, so
+  those default to the most neutral option). Reachable only from the
+  authed `GetStartedMenu` (`get-started-menu.tsx`'s own header comment
+  predicted this exact addition).
+- **Real-report overlay comparison (§8.5/§10.3's required regression,
+  same method as B1's v1-v7 overlays)**: `app/scripts/
+  b6_overlay_compare.py` pulls a real historical `report_inputs` (read-only
+  SELECT, no writes anywhere) and runs Pass 2 twice with the real
+  `PRIMARY_LLM_MODEL` — once exactly as production shipped it, once with
+  all 8 dimensions plus free text injected. Writes its two output bodies to
+  a fresh `tempfile.mkdtemp()` (mode 0700), not a predictable `/tmp` path
+  (PR #212 review finding — both outputs are holdings-derived, same
+  sensitivity as the input). Delivered to the product owner as a file for
+  direct reading, not summarized or pre-judged here; results and analysis
+  (numeric diffs, descriptive findings) live in Obsidian `Docs/Ring 1-B6
+  Preference Compare.md`, overwritten on each rerun rather than
+  accumulated.
+- **Real-LLM compliance regression** (`test_b6_compliance_llm_regression.py`,
+  opt-in via `RUN_LLM_LIVE_TESTS=1`, excluded from the default `pytest -q`
+  run): a hand-written diagnostic string proves the scanner's pattern logic
+  works, but proves nothing about what a real model does once
+  `risk_appetite`/`objective` sit next to a scenario built to invite a
+  directional slip (a large drawdown on the portfolio's heaviest holding
+  plus a strong macro theme). Two real Pass 2 calls — AGGRESSIVE/GROWTH and
+  the mirror-direction CONSERVATIVE/INCOME — both passed
+  `_scan_forbidden_output` with zero hits when run for this correction.
+
+

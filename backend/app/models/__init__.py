@@ -13,6 +13,7 @@ from app.models.search_cache import SearchCache
 from app.models.ticker_intel import TickerIntel
 from app.models.upload_job import UploadJob
 from app.models.user import User
+from app.models.user_investment_context import UserInvestmentContext
 
 __all__ = [
     "Base",
@@ -30,4 +31,5 @@ __all__ = [
     "TickerIntel",
     "UploadJob",
     "User",
+    "UserInvestmentContext",
 ]

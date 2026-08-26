@@ -80,6 +80,13 @@ class ReportInputsDict(TypedDict, total=False):
     assembly_prompt_version: str
     assembly_shadow: dict[str, dict[str, Any]]
     analysis_framework_version: str
+    # B6 audit snapshot (issue #129, Ring 1-B design.md §8.4) — the full
+    # closed-enum questionnaire answers actually used for THIS report, not
+    # just the two keys (locale/intel_focus) that reached the prompt. free_text
+    # is deliberately excluded (see investment_context.py's
+    # InvestorPreferences docstring) — report_inputs is unencrypted JSONB.
+    investor_questionnaire_snapshot: dict[str, Any] | None
+    investor_questionnaire_version: str | None
 
 
 @dataclass
@@ -193,6 +200,9 @@ class ReportContext:
     # regardless of body_source — both Pass 2 and assembly compose from the
     # same framework text (§3.3(3)).
     analysis_framework_version: str = ""
+    # See ReportInputsDict above for the field-by-field rationale.
+    investor_questionnaire_snapshot: dict[str, Any] | None = None
+    investor_questionnaire_version: str | None = None
 
     def to_jsonb(self) -> dict[str, Any]:
         """Return the write-side dict for the `report_inputs` JSONB column.

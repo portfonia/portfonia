@@ -19,6 +19,7 @@ export const messages = {
     login: "Log in",
     logout: "Log out",
     holdings: "Holdings",
+    questionnaire: "Investment style",
     // Composed from SESSION_IDLE_TIMEOUT_MS (lib/idle-timeout.ts) so the
     // message cannot drift from enforcement.
     sessionExpired: `Your session ended after ${idleMinutes} minutes of inactivity.`,
@@ -121,6 +122,98 @@ export const messages = {
     errorUploadFailed: "Upload failed",
     errorSaveFailed: "Save failed",
     errorLoadFailed: "Could not load holdings",
+  },
+  questionnaire: {
+    pageTitle: "Investment style",
+    pageSubtitle:
+      "Helps tailor which facts and angles your reports emphasize. Every " +
+      "question is pre-filled with a sensible default — skip straight to " +
+      "Save if you don't want to change anything, or come back and " +
+      "re-answer any time.",
+    stepOf: (current: number, total: number) => `Question ${current} of ${total}`,
+    back: "Back",
+    next: "Next",
+    skip: "Skip for now",
+    save: "Save",
+    saving: "Saving...",
+    saved: "Saved.",
+    errorSaveFailed: "Could not save your answers",
+    errorLoadFailed: "Could not load your saved answers",
+    freeTextHeading: "Anything else worth knowing?",
+    freeTextHint:
+      "Optional. No format required — write as much or as little as you like. " +
+      "Stored and shown back to you exactly as written.",
+    freeTextPlaceholder: "e.g. some positions are legacy holdings, not active choices...",
+
+    dims: {
+      asset_scale: {
+        question: "What's your current investable asset scale?",
+        options: {
+          UNDER_100K: "Under $100K",
+          "100K_500K": "$100K – $500K",
+          "500K_2M": "$500K – $2M",
+          OVER_2M: "Over $2M",
+        },
+      },
+      markets: {
+        question: "Which markets do you mainly invest in? (select all that apply)",
+        options: { US: "US", HK: "Hong Kong", "A-Share": "A-Share", Other: "Other" },
+      },
+      style: {
+        question: "How would you describe your investing style?",
+        options: { VALUE: "Value", GROWTH: "Growth", INDEX: "Index", MIXED: "Mixed" },
+      },
+      horizon: {
+        question: "What's your typical holding period?",
+        options: {
+          SHORT: "Short-term (under 1 year)",
+          MEDIUM: "Medium-term (1–3 years)",
+          LONG: "Long-term (3+ years)",
+        },
+      },
+      risk_appetite: {
+        question: "How would you describe your risk appetite?",
+        options: {
+          CONSERVATIVE: "Conservative",
+          BALANCED: "Balanced",
+          AGGRESSIVE: "Aggressive",
+        },
+      },
+      sectors_of_interest: {
+        question: "Any sectors you especially want covered? (select all that apply, or none)",
+        options: {
+          Technology: "Technology",
+          Communication: "Communication",
+          Financials: "Financials",
+          Healthcare: "Healthcare",
+          "Consumer Discretionary": "Consumer Discretionary",
+          "Consumer Staples": "Consumer Staples",
+          Energy: "Energy",
+          Materials: "Materials",
+          Industrials: "Industrials",
+          "Real Estate": "Real Estate",
+          Utilities: "Utilities",
+          Other: "Other",
+        },
+      },
+      objective: {
+        question: "What's your core objective?",
+        options: {
+          PRESERVATION: "Capital preservation",
+          GROWTH: "Growth",
+          INCOME: "Income",
+        },
+      },
+      intel_focus: {
+        question: "Where should reports focus their intelligence?",
+        options: {
+          MACRO: "Macro signals",
+          FUNDAMENTALS: "Individual-holding fundamentals",
+          GEOPOLITICS: "Geopolitical developments",
+          BALANCED: "Balanced across all of these",
+        },
+      },
+    },
   },
 } as const;
 
