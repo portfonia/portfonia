@@ -41,6 +41,7 @@ vi.mock("@/lib/supabase/browser", () => ({
 vi.mock("@/lib/auth-actions", () => ({ logout }));
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
+import { __resetReverifyThrottleForTests } from "@/hooks/use-session";
 
 import { GetStartedMenu } from "./get-started-menu";
 
@@ -68,6 +69,7 @@ describe("GetStartedMenu", () => {
   beforeEach(() => {
     getUser.mockReturnValue(new Promise(() => {})); // checking by default
     vi.clearAllMocks();
+    __resetReverifyThrottleForTests();
   });
 
   it("renders nothing while the verified session check is in flight", () => {
@@ -243,6 +245,33 @@ describe("GetStartedMenu", () => {
         expect(screen.getByRole("menuitem", { name: "持仓" })).toBeInTheDocument(),
       );
       expect(screen.queryByRole("menuitem", { name: "Holdings" })).not.toBeInTheDocument();
+    });
+
+    it("uses the zh Home label on the home route when logged in (not a mixed-language menu)", async () => {
+      const store = new Map<string, string>();
+      Object.defineProperty(window, "localStorage", {
+        value: {
+          getItem: (key: string) => store.get(key) ?? null,
+          setItem: (key: string, value: string) => void store.set(key, value),
+          removeItem: (key: string) => void store.delete(key),
+          clear: () => store.clear(),
+        },
+        configurable: true,
+      });
+      window.localStorage.setItem("portfonia:locale", "zh");
+
+      getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+      const user = userEvent.setup();
+      renderMenu("/");
+
+      await user.click(
+        await screen.findByRole("button", { name: "开始使用" }),
+      );
+
+      await waitFor(() =>
+        expect(screen.getByRole("menuitem", { name: "首页" })).toBeInTheDocument(),
+      );
+      expect(screen.queryByRole("menuitem", { name: "Home" })).not.toBeInTheDocument();
     });
 
     it("stays English on non-home routes even when zh is selected (messages.ts has no zh map yet)", async () => {

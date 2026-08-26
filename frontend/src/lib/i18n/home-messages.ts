@@ -12,6 +12,7 @@ interface HomeMessages {
     login: string;
     logout: string;
     holdings: string;
+    home: string;
   };
   hero: {
     eyebrow: string;
@@ -72,6 +73,7 @@ export const homeMessages: Record<Locale, HomeMessages> = {
       login: "Log in",
       logout: "Log out",
       holdings: "Holdings",
+      home: "Home",
     },
     hero: {
       eyebrow: "MVP · Multi-user closed beta",
@@ -238,6 +240,7 @@ export const homeMessages: Record<Locale, HomeMessages> = {
       login: "登录",
       logout: "退出登录",
       holdings: "持仓",
+      home: "首页",
     },
     hero: {
       eyebrow: "MVP · 多用户封闭测试",

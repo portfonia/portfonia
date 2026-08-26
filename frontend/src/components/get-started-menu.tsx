@@ -25,11 +25,18 @@ import {
 // deliberately absent: closed beta, no self-serve registration (OQ-3).
 // "Home" is first — an explicit way back to "/" from any inner page, on top
 // of the brand-link click target (issue #214 follow-up).
+//
+// `homeNavKey` names the matching HomeMessages.nav field for entries with a
+// zh translation on the home route (PR #215 review — the Home entry
+// originally fell back to the English-only messages.menu map even on the
+// home route, same gap as questionnaire already had, just more visible
+// since Home is now the first item).
 const AUTHED_ENTRIES = [
-  { id: "home", href: "/" },
-  { id: "holdings", href: "/holdings" },
+  { id: "home", href: "/", homeNavKey: "home" },
+  { id: "holdings", href: "/holdings", homeNavKey: "holdings" },
   // B6 (issue #129 checkpoint B6): the one new row this file's own header
-  // comment predicted.
+  // comment predicted. No zh translation yet (messages.ts is English-only
+  // outside the home route), so no homeNavKey.
   { id: "questionnaire", href: "/questionnaire" },
 ] as const;
 
@@ -49,7 +56,6 @@ export function GetStartedMenu() {
   const triggerLabel = isHome ? t.nav.menu : messages.menu.trigger;
   const loginLabel = isHome ? t.nav.login : messages.menu.login;
   const logoutLabel = isHome ? t.nav.logout : messages.menu.logout;
-  const holdingsLabel = isHome ? t.nav.holdings : messages.menu.holdings;
 
   return (
     <MenuDropdown
@@ -66,7 +72,9 @@ export function GetStartedMenu() {
         <>
           {AUTHED_ENTRIES.map((entry) => (
             <MenuItemLink key={entry.id} href={entry.href}>
-              {entry.id === "holdings" ? holdingsLabel : messages.menu[entry.id]}
+              {isHome && "homeNavKey" in entry
+                ? t.nav[entry.homeNavKey]
+                : messages.menu[entry.id]}
             </MenuItemLink>
           ))}
           <MenuSeparator />
