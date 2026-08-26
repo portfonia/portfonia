@@ -16,6 +16,7 @@ export const messages = {
     // rest of this map — the home route overrides labels via
     // home-messages.nav until a zh map lands here.
     trigger: "Get Started",
+    home: "Home",
     login: "Log in",
     logout: "Log out",
     holdings: "Holdings",

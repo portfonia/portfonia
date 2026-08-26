@@ -149,6 +149,20 @@ describe("GetStartedMenu", () => {
       expect(menu.textContent).not.toContain("Sign up");
     });
 
+    it("offers a Home entry linking to / as the first item", async () => {
+      getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+      const user = userEvent.setup();
+      renderMenu();
+      await openMenu(user);
+
+      expect(screen.getByRole("menuitem", { name: "Home" })).toHaveAttribute("href", "/");
+
+      const itemLabels = screen
+        .getAllByRole("menuitem")
+        .map((el) => el.textContent);
+      expect(itemLabels[0]).toBe("Home");
+    });
+
     it("calls the logout Server Action without a reason from the manual Log out item", async () => {
       getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
       const user = userEvent.setup();

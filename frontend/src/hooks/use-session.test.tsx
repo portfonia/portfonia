@@ -1,11 +1,14 @@
 import { render, screen, waitFor, act } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
-const { getUser, onAuthStateChange, unsubscribe } = vi.hoisted(() => ({
+const { usePathname, getUser, onAuthStateChange, unsubscribe } = vi.hoisted(() => ({
+  usePathname: vi.fn(() => "/"),
   getUser: vi.fn(),
   onAuthStateChange: vi.fn(),
   unsubscribe: vi.fn(),
 }));
+
+vi.mock("next/navigation", () => ({ usePathname }));
 
 vi.mock("@/lib/supabase/browser", () => ({
   createClient: () => ({
@@ -43,6 +46,7 @@ function lastAuthCallback(): (...args: unknown[]) => void {
 describe("useSession", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    usePathname.mockReturnValue("/");
     vi.spyOn(console, "warn").mockImplementation(() => {});
   });
 
@@ -242,6 +246,71 @@ describe("useSession", () => {
     act(() => {
       resolvers[0]({ data: { user: null } });
     });
+  });
+
+  it("re-verifies when pathname changes (Server Action redirect doesn't remount SiteHeader)", async () => {
+    getUser
+      .mockResolvedValueOnce({ data: { user: { email: "a@b.com" } } })
+      .mockResolvedValueOnce({ data: { user: null } });
+    const { rerender } = render(<Probe />);
+    await screen.findByTestId("session-state");
+    expect(screen.getByTestId("session-state")).toHaveTextContent("authed:a@b.com");
+    expect(getUser).toHaveBeenCalledTimes(1);
+
+    // Simulates logout()'s server-side redirect("/login") — SiteHeader lives
+    // in the shared root layout and never remounts, but usePathname() DOES
+    // change, which is the only signal available to re-verify.
+    usePathname.mockReturnValue("/login");
+    rerender(<Probe />);
+
+    await waitFor(() => expect(getUser).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.getByTestId("session-state")).toHaveTextContent("guest"),
+    );
+  });
+
+  it("does not re-verify on a rerender with the same pathname", async () => {
+    getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+    const { rerender } = render(<Probe />);
+    await screen.findByTestId("session-state");
+    expect(getUser).toHaveBeenCalledTimes(1);
+
+    rerender(<Probe />);
+
+    // No pathname change -> no new verify() -> no second network call.
+    expect(getUser).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to guest after a timeout + one retry when getUser() hangs (slow auth.portfonia.com proxy)", async () => {
+    vi.useFakeTimers();
+    getUser.mockReturnValue(new Promise(() => {})); // hangs forever
+    render(<Probe />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8_000); // first attempt times out
+    });
+    expect(getUser).toHaveBeenCalledTimes(2); // timeout triggers one retry
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8_000); // retry also times out
+    });
+
+    expect(screen.getByTestId("session-state")).toHaveTextContent("guest");
+    vi.useRealTimers();
+  });
+
+  it("does not time out a getUser() call that resolves before the deadline", async () => {
+    vi.useFakeTimers();
+    getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+    render(<Probe />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    expect(screen.getByTestId("session-state")).toHaveTextContent("authed:a@b.com");
+    expect(getUser).toHaveBeenCalledTimes(1); // no retry needed
+    vi.useRealTimers();
   });
 
   it("cleans up the subscription and listeners on unmount", async () => {

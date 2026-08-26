@@ -57,6 +57,28 @@ describe("QuestionnaireForm", () => {
     expect(freeText).toBeNull();
   });
 
+  it("returns to the first question after a successful save (issue #214)", async () => {
+    // Re-entering /questionnaire from the menu while already on that route
+    // is a same-path Link click (Next.js treats it as a no-op, no remount),
+    // so the wizard must reset itself rather than rely on being remounted.
+    putInvestmentContext.mockResolvedValue({
+      questionnaire: {},
+      questionnaire_version: "v1",
+      free_text: null,
+      updated_at: "2026-08-25T00:00:00Z",
+    });
+    const user = userEvent.setup();
+    render(<QuestionnaireForm initialContext={null} />);
+    for (let i = 0; i < 8; i++) {
+      await user.click(screen.getByRole("button", { name: /next/i }));
+    }
+    expect(screen.getByText(/question 9 of 9/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => expect(screen.getByText(/question 1 of 9/i)).toBeInTheDocument());
+  });
+
   it("toggling a multi-select option changes the answer without affecting others", async () => {
     const user = userEvent.setup();
     render(<QuestionnaireForm initialContext={null} />);

@@ -23,7 +23,10 @@ import {
 
 // Entries shown only to authenticated users, in display order. Signup is
 // deliberately absent: closed beta, no self-serve registration (OQ-3).
+// "Home" is first — an explicit way back to "/" from any inner page, on top
+// of the brand-link click target (issue #214 follow-up).
 const AUTHED_ENTRIES = [
+  { id: "home", href: "/" },
   { id: "holdings", href: "/holdings" },
   // B6 (issue #129 checkpoint B6): the one new row this file's own header
   // comment predicted.

@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { createClient } from "@/lib/supabase/browser";
@@ -8,6 +9,50 @@ export type SessionState =
   | { status: "checking" }
   | { status: "guest" }
   | { status: "authed"; email: string };
+
+// auth.portfonia.com (the Caddy reverse-proxy to the real Supabase host,
+// routing around direct-connectivity issues) normally answers in well under
+// a second, but has been observed spiking to ~2.7s under network jitter.
+// Bound getUser() so a bad round-trip degrades to a retry within a bounded
+// window instead of leaving the UI sitting in `checking` indefinitely
+// (issue #214 — read as "stuck," not "slow").
+const GET_USER_TIMEOUT_MS = 8_000;
+
+type GetUserResult = Awaited<ReturnType<ReturnType<typeof createClient>["auth"]["getUser"]>>;
+
+function getUserWithTimeout(
+  supabase: ReturnType<typeof createClient>,
+): Promise<GetUserResult> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("getUser() timed out")),
+      GET_USER_TIMEOUT_MS,
+    );
+    supabase.auth.getUser().then(
+      (result) => {
+        clearTimeout(timer);
+        resolve(result);
+      },
+      (err: unknown) => {
+        clearTimeout(timer);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      },
+    );
+  });
+}
+
+// One retry, no extra delay — a single slow/dropped round-trip over the
+// jittery proxy path shouldn't be treated the same as a genuinely
+// unreachable Auth service.
+async function verifiedGetUser(
+  supabase: ReturnType<typeof createClient>,
+): Promise<GetUserResult> {
+  try {
+    return await getUserWithTimeout(supabase);
+  } catch {
+    return await getUserWithTimeout(supabase);
+  }
+}
 
 // Display truth comes ONLY from a verified getUser() call. The
 // INITIAL_SESSION auth event carries the locally persisted session WITHOUT
@@ -23,6 +68,16 @@ export type SessionState =
 // hole as INITIAL_SESSION).
 export function useSession(): SessionState {
   const [state, setState] = useState<SessionState>({ status: "checking" });
+  // login()/logout() are Server Actions that redirect() — SiteHeader lives
+  // in the shared root layout and never remounts across that navigation, so
+  // its own useEffect(..., []) would never re-run and the menu would only
+  // ever catch up via the focus/visibility fallback (issue #214: read as
+  // "topbar refresh is slow" or "stuck," since that fallback has no bound on
+  // when the user will actually trigger it). usePathname() DOES change on
+  // every such redirect even though the component doesn't remount, so it's
+  // used here purely as a "something navigated, re-verify" signal — not
+  // because the session itself is scoped to a route.
+  const pathname = usePathname();
 
   useEffect(() => {
     const supabase = createClient();
@@ -38,8 +93,7 @@ export function useSession(): SessionState {
       // listeners, one network call.
       if (inFlight) return;
       const myGeneration = generation;
-      inFlight = supabase.auth
-        .getUser()
+      inFlight = verifiedGetUser(supabase)
         .then(({ data }) => {
           if (cancelled || myGeneration !== generation) return;
           setState(
@@ -104,7 +158,7 @@ export function useSession(): SessionState {
       document.removeEventListener("visibilitychange", revalidate);
       window.removeEventListener("focus", revalidate);
     };
-  }, []);
+  }, [pathname]);
 
   return state;
 }
