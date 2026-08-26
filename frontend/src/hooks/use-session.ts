@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/browser";
 
 export type SessionState =
-  | { status: "checking" }
+  | { status: "checking"; pendingReason: "login" | null }
   | { status: "guest" }
   | { status: "authed"; email: string };
 
@@ -18,21 +18,60 @@ export type SessionState =
 // (issue #214 — read as "stuck," not "slow").
 const GET_USER_TIMEOUT_MS = 8_000;
 
-// Re-verifying on every pathname change (see useSession below) means rapid
-// multi-hop navigation — several link clicks within a second, or clicking
-// through a redirect chain — would otherwise fire one verify() per hop
-// against the already-jittery proxy, each running its own effect instance
-// with no memory of the others (PR #215 review). A module-level timestamp,
-// shared across every useSession instance in the tab, collapses those into
-// one: a pathname change within the grace window of the last verify start
-// just keeps showing that verify's (in-flight or just-settled) result.
-const REVERIFY_GRACE_MS = 1_000;
-let lastVerifyStartedAt = 0;
+// login()/logout() are Server Actions whose redirect() lands on a page
+// where SiteHeader never remounts (shared root layout) — see the mount-time
+// re-verification note below. Module-level signals let the component that
+// triggered the action (gone by the time the next page mounts) tell the
+// next useSession instance what's going on, since there is no other
+// channel between them:
+//
+// - markPendingLogin(): the login form's onSubmit calls this right before
+//   the Server Action runs. A real 2026-08-26 user report caught the
+//   regression this replaces — a "rapid navigation" grace window (PR #215
+//   review) that collapsed the pathname change following a successful
+//   login into a no-op, so the menu kept showing the pre-login guest state
+//   until an unrelated focus/visibility event happened to fire. There is no
+//   grace window anymore: every pathname change re-verifies, unconditionally.
+//   This signal exists purely so the `checking` window that a real
+//   getUser() round-trip still takes can say "logging in..." instead of
+//   rendering nothing, since the reason IS known at this specific moment
+//   (a future business-logic hook for the post-login transition can key off
+//   the same signal).
+// - markOptimisticLogout(): the Log out button calls this so the menu
+//   flips to guest immediately, without waiting on a verified getUser()
+//   round-trip over the auth.portfonia.com proxy. The Server Action can
+//   still fail (network error, signOut() rejection) — the click handler
+//   must catch that and call revalidateSession() to drop the optimistic
+//   guest state, otherwise the UI claims logged-out while the cookie
+//   session is intact (issue #217 review).
+// - clearPendingLogin(): login/signup forms call this when the Server
+//   Action returns an error instead of redirecting, so a later ordinary
+//   navigation does not consume a stale "Logging in..." signal.
+// - revalidateSession(): force every mounted useSession to run verify()
+//   now, discarding in-flight results the same way SIGNED_IN does.
+let pendingLoginSignal = false;
 
-// Exported for tests only: this module is imported once per test file, so
-// the shared timestamp above would otherwise leak state between test cases.
-export function __resetReverifyThrottleForTests() {
-  lastVerifyStartedAt = 0;
+export function markPendingLogin() {
+  pendingLoginSignal = true;
+}
+
+export function clearPendingLogin() {
+  pendingLoginSignal = false;
+}
+
+export function __resetSessionSignalsForTests() {
+  pendingLoginSignal = false;
+}
+
+const optimisticLogoutListeners = new Set<() => void>();
+const revalidateListeners = new Set<() => void>();
+
+export function markOptimisticLogout() {
+  optimisticLogoutListeners.forEach((fn) => fn());
+}
+
+export function revalidateSession() {
+  revalidateListeners.forEach((fn) => fn());
 }
 
 type GetUserResult = Awaited<ReturnType<ReturnType<typeof createClient>["auth"]["getUser"]>>;
@@ -98,7 +137,10 @@ async function verifiedGetUser(
 // reload, and the SIGNED_IN payload itself is still not trusted (same D1
 // hole as INITIAL_SESSION).
 export function useSession(): SessionState {
-  const [state, setState] = useState<SessionState>({ status: "checking" });
+  const [state, setState] = useState<SessionState>({
+    status: "checking",
+    pendingReason: null,
+  });
   // login()/logout() are Server Actions that redirect() — SiteHeader lives
   // in the shared root layout and never remounts across that navigation, so
   // its own useEffect(..., []) would never re-run and the menu would only
@@ -115,6 +157,31 @@ export function useSession(): SessionState {
     let cancelled = false;
     let generation = 0;
     let inFlight: Promise<void> | null = null;
+
+    // Consumed once per mount, not per verify() call within it — a
+    // focus/visibility re-check later in this same mounted instance is not
+    // "logging in" again, only the very first verify() after a login
+    // redirect is. Synchronous setState here is intentional (same pattern
+    // as locale-provider.tsx): this effect exists specifically to
+    // synchronize with the pendingLoginSignal module state left behind by a
+    // component that's already gone by the time this one mounts (the login
+    // form, on the previous page) — there's no other lifecycle point to
+    // read and consume it from.
+    if (pendingLoginSignal) {
+      pendingLoginSignal = false;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setState({ status: "checking", pendingReason: "login" });
+    }
+
+    const onOptimisticLogout = () => {
+      // Discard whatever verify() is in flight the same way a real
+      // SIGNED_OUT event does — its eventual result (even "authed") must
+      // never override what the user just told the app to do.
+      generation += 1;
+      inFlight = null;
+      setState({ status: "guest" });
+    };
+    optimisticLogoutListeners.add(onOptimisticLogout);
 
     const verify = () => {
       // Each verify() captures the current generation; a resolution from a
@@ -147,15 +214,17 @@ export function useSession(): SessionState {
         });
     };
 
-    // Only the pathname-triggered call at mount is grace-windowed — a
-    // manual focus/visibility/auth-event trigger below always calls verify()
-    // directly, since those already carry their own explicit reason and
-    // don't fire in rapid multi-hop bursts the way navigation can.
-    const now = Date.now();
-    if (now - lastVerifyStartedAt >= REVERIFY_GRACE_MS) {
-      lastVerifyStartedAt = now;
+    const onForcedRevalidate = () => {
+      // Drop the optimistic guest (or any other in-flight generation) and
+      // ask the server again. Used when logout() rejects after
+      // markOptimisticLogout() already flipped the menu.
+      generation += 1;
+      inFlight = null;
       verify();
-    }
+    };
+    revalidateListeners.add(onForcedRevalidate);
+
+    verify();
 
     // A parked tab performs no navigation, so nothing else re-checks a
     // session that was revoked while the tab sat idle.
@@ -193,6 +262,8 @@ export function useSession(): SessionState {
 
     return () => {
       cancelled = true;
+      optimisticLogoutListeners.delete(onOptimisticLogout);
+      revalidateListeners.delete(onForcedRevalidate);
       subscription.unsubscribe();
       document.removeEventListener("visibilitychange", revalidate);
       window.removeEventListener("focus", revalidate);

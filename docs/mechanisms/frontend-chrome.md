@@ -35,12 +35,38 @@ for the full before/after and decision rationale.
   layout so it never remounts across that navigation; the browser-side SDK
   never sees the server-side sign-in/out either, so without the pathname
   signal the menu would only ever catch up via the focus/visibility
-  fallback, on no deterministic schedule. A rapid multi-hop navigation
-  (several link clicks within ~1s) collapses to one re-verify via a
-  module-level grace-window timestamp, not one per hop. `getUser()` itself
-  is bound by an 8s timeout + one retry (timeout only, not on an immediate
-  network error) — `auth.portfonia.com` (the Caddy reverse-proxy routing
-  around direct Supabase connectivity issues) has been observed spiking
+  fallback, on no deterministic schedule. **Every pathname change
+  re-verifies unconditionally — there is no throttling.** A grace window
+  that collapsed rapid-navigation bursts into one re-verify shipped
+  briefly (PR #215 review) and was reverted the same day (2026-08-26,
+  real user report): the same window that collapses several link clicks
+  into one call also swallowed the one pathname change that actually
+  mattered — the redirect right after a real login or logout — since a
+  login/logout round-trip routinely completes faster than the window. The
+  menu was left showing the pre-action state (guest right after logging
+  in, still-authed right after logging out) until an unrelated
+  focus/visibility event happened to fire. The at-most-a-few-extra-calls
+  cost of re-verifying on every hop is cheaper than that. Two
+  purpose-built signals cover the two actions that are otherwise
+  invisible to the next page's `useSession` instance (the component that
+  triggered them is already gone by the time it mounts): `markPendingLogin()`
+  (login form's `onSubmit`) tags the next `checking` window with
+  `pendingReason: "login"` so the menu shows a "Logging in..." placeholder
+  instead of nothing during the post-redirect verification. Signup uses
+  the same `markPendingLogin()` signal (post-signup also redirects to
+  `/holdings`). `clearPendingLogin()` disarms it if login/signup returns
+  an error instead of redirecting, so a later ordinary navigation does
+  not show a stale "Logging in..." placeholder. `markOptimisticLogout()`
+  (Log out button's `onClick`) flips the state to `guest` immediately so
+  the click is not gated on the round-trip. The Server Action can still
+  fail (`signOut()` / network); the click handler catches a non-redirect
+  rejection, calls `revalidateSession()` to drop the optimistic guest
+  state, and shows a visible error. `redirect()`'s `NEXT_REDIRECT` throw
+  is success, not failure.
+  `getUser()` itself is bound by an 8s timeout + one retry (timeout only,
+  not on an immediate network error) — `auth.portfonia.com` (the Caddy
+  reverse-proxy routing around direct Supabase connectivity issues) has
+  been observed spiking
   well past its normal sub-second response under network jitter.
 - **`lang` attribute is route-scoped, not just component-scoped**:
   `AppShell` only follows the selected locale on `/`; every other route

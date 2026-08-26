@@ -39,7 +39,7 @@ tradeoffs, review provenance) for one system, filed under `docs/mechanisms/`.
 This table is the pointer index — read the linked file before touching that
 area of the code, not just the one-line summary here.
 
-- [Frontend chrome (header/nav) convention](docs/mechanisms/frontend-chrome.md) — issue #146/#148: one shared `SiteHeader`, route-scoped `lang`, auth-gated Get Started menu; issue #214 (PR #215): pathname-triggered session re-verification, bounded `getUser()` timeout/retry, Home menu entry.
+- [Frontend chrome (header/nav) convention](docs/mechanisms/frontend-chrome.md) — issue #146/#148: one shared `SiteHeader`, route-scoped `lang`, auth-gated Get Started menu; issue #214 (PR #215): unconditional pathname-triggered session re-verification (no throttling — a grace window that shipped in PR #215 was reverted the same day), optimistic logout + login-pending placeholder, bounded `getUser()` timeout/retry, Home menu entry.
 - [Async holdings upload](docs/mechanisms/holdings-pipeline.md) — issue #77/#82/#85: `POST /holdings/upload` returns 202 + job id, Celery parses, 45s SLA, two-layer hard-kill resolution.
 - [Holdings encryption at rest](docs/mechanisms/holdings-pipeline.md) — issue #31: field-level Fernet via SQLAlchemy `TypeDecorator`, system-wide key, `ORDER BY` moved to Python.
 - [Holdings domain CHECK constraints](docs/mechanisms/holdings-pipeline.md) — issue #25: DB-level CHECKs on `pricing_mode`/`asset_type`/`currency`/`asset_class`, naming-convention gotcha.

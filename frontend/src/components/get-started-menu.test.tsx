@@ -40,10 +40,23 @@ vi.mock("@/lib/supabase/browser", () => ({
 // other suites do.
 vi.mock("@/lib/auth-actions", () => ({ logout }));
 
-import { LocaleProvider } from "@/app/_components/locale-provider";
-import { __resetReverifyThrottleForTests } from "@/hooks/use-session";
+import { LocaleProvider, useLocale } from "@/app/_components/locale-provider";
+import {
+  markPendingLogin,
+  clearPendingLogin,
+  __resetSessionSignalsForTests,
+} from "@/hooks/use-session";
 
 import { GetStartedMenu } from "./get-started-menu";
+
+function LocaleToggle() {
+  const { locale, setLocale } = useLocale();
+  return (
+    <button type="button" onClick={() => setLocale(locale === "zh" ? "en" : "zh")}>
+      toggle-locale
+    </button>
+  );
+}
 
 function renderMenu(route = "/holdings") {
   usePathname.mockReturnValue(route);
@@ -67,9 +80,9 @@ async function openMenu(user: ReturnType<typeof userEvent.setup>) {
 
 describe("GetStartedMenu", () => {
   beforeEach(() => {
+    __resetSessionSignalsForTests();
     getUser.mockReturnValue(new Promise(() => {})); // checking by default
     vi.clearAllMocks();
-    __resetReverifyThrottleForTests();
   });
 
   it("renders nothing while the verified session check is in flight", () => {
@@ -178,6 +191,96 @@ describe("GetStartedMenu", () => {
       expect(logout).toHaveBeenCalledWith();
     });
 
+    it("restores the authed menu and shows an error when logout() rejects", async () => {
+      getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+      logout.mockRejectedValue(new Error("auth.portfonia.com unreachable"));
+      const user = userEvent.setup();
+      renderMenu();
+      await openMenu(user);
+
+      await user.click(screen.getByRole("menuitem", { name: "Log out" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "Sign out failed. Try again.",
+      );
+      await openMenu(user);
+      expect(screen.getByRole("menuitem", { name: "Log out" })).toBeInTheDocument();
+      expect(screen.getByText("a@b.com")).toBeInTheDocument();
+    });
+
+    it("re-renders the logout-error alert in the current locale after a language switch", async () => {
+      const store = new Map<string, string>();
+      Object.defineProperty(window, "localStorage", {
+        value: {
+          getItem: (key: string) => store.get(key) ?? null,
+          setItem: (key: string, value: string) => void store.set(key, value),
+          removeItem: (key: string) => void store.delete(key),
+          clear: () => store.clear(),
+        },
+        configurable: true,
+      });
+      window.localStorage.setItem("portfonia:locale", "zh");
+
+      getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+      logout.mockRejectedValue(new Error("auth.portfonia.com unreachable"));
+      usePathname.mockReturnValue("/");
+      const user = userEvent.setup();
+      render(
+        <LocaleProvider>
+          <LocaleToggle />
+          <GetStartedMenu />
+        </LocaleProvider>,
+      );
+
+      await user.click(await screen.findByRole("button", { name: "开始使用" }));
+      await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument());
+      await user.click(screen.getByRole("menuitem", { name: "退出登录" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("退出失败，请重试。");
+
+      await user.click(screen.getByRole("button", { name: "toggle-locale" }));
+
+      expect(screen.getByRole("alert")).toHaveTextContent("Sign out failed. Try again.");
+      expect(screen.queryByText("退出失败，请重试。")).not.toBeInTheDocument();
+    });
+
+    it("does not treat a NEXT_REDIRECT rejection from logout() as a failure", async () => {
+      getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+      logout.mockRejectedValue({
+        digest: "NEXT_REDIRECT;replace;/login;307;",
+      });
+      const user = userEvent.setup();
+      renderMenu();
+      await openMenu(user);
+
+      await user.click(screen.getByRole("menuitem", { name: "Log out" }));
+
+      await openMenu(user);
+      expect(screen.getByRole("menuitem", { name: "Log in" })).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: "Log out" })).not.toBeInTheDocument();
+    });
+
+    it("switches to the logged-out menu the instant Log out is clicked, without waiting on getUser()", async () => {
+      getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+      const user = userEvent.setup();
+      renderMenu();
+      await openMenu(user);
+
+      // getUser() never resolves again after the click — the guest state
+      // must come from the click itself (optimistic), not a round-trip.
+      getUser.mockReturnValue(new Promise(() => {}));
+      await user.click(screen.getByRole("menuitem", { name: "Log out" }));
+      // Clicking a menuitem closes the dropdown (Base UI default) — reopen
+      // it to inspect what the now-guest session renders.
+      await openMenu(user);
+
+      await waitFor(() =>
+        expect(screen.getByRole("menuitem", { name: "Log in" })).toBeInTheDocument(),
+      );
+      expect(screen.queryByRole("menuitem", { name: "Holdings" })).not.toBeInTheDocument();
+    });
+
     it("omits reserved future entries whose routes have not shipped", async () => {
       getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
       const user = userEvent.setup();
@@ -188,6 +291,44 @@ describe("GetStartedMenu", () => {
       expect(menu.textContent).not.toContain("Settings");
       expect(menu.textContent).not.toContain("Vigil");
       expect(menu.textContent).not.toContain("Questionnaire");
+    });
+  });
+
+  describe("login-pending transition", () => {
+    it("shows a Logging in... placeholder instead of rendering nothing when markPendingLogin() preceded this mount", async () => {
+      markPendingLogin();
+      getUser.mockReturnValue(new Promise(() => {}));
+      renderMenu();
+
+      expect(await screen.findByText("Logging in...")).toBeInTheDocument();
+    });
+
+    it("renders nothing on an ordinary mount with no prior markPendingLogin()", () => {
+      getUser.mockReturnValue(new Promise(() => {}));
+      const { container } = renderMenu();
+
+      expect(container).toBeEmptyDOMElement();
+    });
+
+    it("does not render the pending placeholder after the signal was cleared (failed login must not leak into a later navigation)", () => {
+      markPendingLogin();
+      clearPendingLogin();
+      getUser.mockReturnValue(new Promise(() => {}));
+      const { container } = renderMenu();
+
+      expect(container).toBeEmptyDOMElement();
+      expect(screen.queryByText("Logging in...")).not.toBeInTheDocument();
+    });
+
+    it("replaces the placeholder with the real menu once verification resolves", async () => {
+      markPendingLogin();
+      getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+      renderMenu();
+
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: /get started/i })).toBeInTheDocument(),
+      );
+      expect(screen.queryByText("Logging in...")).not.toBeInTheDocument();
     });
   });
 
@@ -272,6 +413,27 @@ describe("GetStartedMenu", () => {
         expect(screen.getByRole("menuitem", { name: "首页" })).toBeInTheDocument(),
       );
       expect(screen.queryByRole("menuitem", { name: "Home" })).not.toBeInTheDocument();
+    });
+
+    it("uses the zh Logging in... label on the home route when zh is selected", async () => {
+      const store = new Map<string, string>();
+      Object.defineProperty(window, "localStorage", {
+        value: {
+          getItem: (key: string) => store.get(key) ?? null,
+          setItem: (key: string, value: string) => void store.set(key, value),
+          removeItem: (key: string) => void store.delete(key),
+          clear: () => store.clear(),
+        },
+        configurable: true,
+      });
+      window.localStorage.setItem("portfonia:locale", "zh");
+
+      markPendingLogin();
+      getUser.mockReturnValue(new Promise(() => {}));
+      renderMenu("/");
+
+      expect(await screen.findByText("正在登录...")).toBeInTheDocument();
+      expect(screen.queryByText("Logging in...")).not.toBeInTheDocument();
     });
 
     it("stays English on non-home routes even when zh is selected (messages.ts has no zh map yet)", async () => {

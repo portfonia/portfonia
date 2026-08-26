@@ -1,14 +1,23 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { signup } = vi.hoisted(() => ({ signup: vi.fn() }));
+const { signup, markPendingLogin, clearPendingLogin } = vi.hoisted(() => ({
+  signup: vi.fn(),
+  markPendingLogin: vi.fn(),
+  clearPendingLogin: vi.fn(),
+}));
 
 vi.mock("./actions", () => ({ signup }));
+vi.mock("@/hooks/use-session", () => ({ markPendingLogin, clearPendingLogin }));
 
 import { SignupForm } from "./signup-form";
 
 describe("SignupForm", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("shows a missing-invite message and no form when there is no invite token", () => {
     render(<SignupForm inviteToken="" />);
 
@@ -42,5 +51,42 @@ describe("SignupForm", () => {
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
     expect(await screen.findByText("This invite is no longer valid.")).toBeInTheDocument();
+  });
+
+  it("marks the session as pending on submit, same signal as login (post-signup redirect to /holdings)", async () => {
+    signup.mockResolvedValue({ error: null });
+    const user = userEvent.setup();
+    render(<SignupForm inviteToken="tok-abc" />);
+
+    await user.type(screen.getByLabelText(/email/i), "a@b.com");
+    await user.type(screen.getByLabelText(/password/i), "correcthorse");
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+
+    expect(markPendingLogin).toHaveBeenCalled();
+  });
+
+  it("clears the pending-login signal when the action returns an error", async () => {
+    signup.mockResolvedValue({ error: "This invite is no longer valid." });
+    const user = userEvent.setup();
+    render(<SignupForm inviteToken="tok-abc" />);
+
+    await user.type(screen.getByLabelText(/email/i), "a@b.com");
+    await user.type(screen.getByLabelText(/password/i), "correcthorse");
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+
+    await screen.findByText("This invite is no longer valid.");
+    expect(clearPendingLogin).toHaveBeenCalled();
+  });
+
+  it("clears the pending-login signal when the action throws, not only when it returns { error }", async () => {
+    signup.mockRejectedValue(new Error("backend unreachable"));
+    const user = userEvent.setup();
+    render(<SignupForm inviteToken="tok-abc" />);
+
+    await user.type(screen.getByLabelText(/email/i), "a@b.com");
+    await user.type(screen.getByLabelText(/password/i), "correcthorse");
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+
+    await waitFor(() => expect(clearPendingLogin).toHaveBeenCalled());
   });
 });

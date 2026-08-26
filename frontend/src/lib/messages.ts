@@ -16,9 +16,11 @@ export const messages = {
     // rest of this map — the home route overrides labels via
     // home-messages.nav until a zh map lands here.
     trigger: "Get Started",
+    loggingIn: "Logging in...",
     home: "Home",
     login: "Log in",
     logout: "Log out",
+    logoutFailed: "Sign out failed. Try again.",
     holdings: "Holdings",
     questionnaire: "Investment style",
     // Composed from SESSION_IDLE_TIMEOUT_MS (lib/idle-timeout.ts) so the
