@@ -16,6 +16,7 @@ from app.services.analysis_framework import load_analysis_framework
 from app.services.i18n_glossary import load_i18n_glossary
 from app.services.macro_detector import MacroSignals
 from app.services.news_fetcher import NewsItem
+from app.services.questionnaire_taxonomy import INTEL_FOCUS_PROMPT_TEXT
 
 # System prompt prefix injected into every LLM call for Layer 3/4 compliance.
 # This text is not user-tunable.
@@ -528,6 +529,41 @@ def _build_large_holding_price_block(large_holding_moves: dict[str, dict[str, An
     return "\n".join(lines)
 
 
+def _build_investor_preferences_block(locale: str | None, intel_focus: str | None) -> str:
+    """Render the INVESTOR PREFERENCES section (issue #129 checkpoint B6,
+    decision point 6 — Ring 1-B design.md §8.5): ONLY `locale` and
+    `intel_focus`, never `risk_appetite`/`objective` (those are not even
+    fetched — see app/services/investment_context.py).
+
+    The scope-limiting sentence is not decorative: this is the one place in
+    the Pass 2 prompt where content comes from something the user directly
+    chose, rather than from research/market data, so it is also the one
+    place a directive slip could most easily excuse itself as "the user
+    asked for this angle." §8.5 requires the prompt to say explicitly that a
+    preference may steer selection/wording only, and can never relax the
+    ANALYSIS FRAMEWORK or SHARED BODY RULES above it.
+
+    `locale` alone (no intel_focus on file) still renders — locale always
+    has a value (users.locale is NOT NULL); intel_focus is None only when
+    the user has never submitted a questionnaire.
+    """
+    if not locale and not intel_focus:
+        return ""
+    lines = ["", "=== INVESTOR PREFERENCES ==="]
+    if locale:
+        lines.append(f"Reader locale: {locale} (informational only).")
+    if intel_focus:
+        focus_text = INTEL_FOCUS_PROMPT_TEXT.get(intel_focus, intel_focus)
+        lines.append(f"Stated intel focus: {focus_text}.")
+    lines.append(
+        "SCOPE: the preferences above may influence only which supplied facts "
+        "you select and how you word them. They never create, imply, or "
+        "license any action-oriented recommendation, and they never relax or "
+        "override the ANALYSIS FRAMEWORK or the rules above."
+    )
+    return "\n".join(lines)
+
+
 def _build_pass2_prompt(
     portfolio: dict[str, Any],
     macro: dict[str, Any],
@@ -539,6 +575,8 @@ def _build_pass2_prompt(
     holding_news: dict[str, list[dict[str, Any]]] | None = None,
     enabled_sections: frozenset[str] = ALL_NARRATIVE_SECTIONS,
     large_holding_moves: dict[str, dict[str, Any]] | None = None,
+    investor_locale: str | None = None,
+    investor_intel_focus: str | None = None,
 ) -> str:
     lines: list[str] = []
 
@@ -654,6 +692,14 @@ def _build_pass2_prompt(
             lines.append(f"[S{r.get('index', '?')}] {r.get('title', '')} ({r.get('url', '')})")
             if r.get("content"):
                 lines.append(f"  {r['content'][:400]}")
+
+    # Investor preferences (issue #129 checkpoint B6, decision point 6) — a
+    # limited, scope-guarded adjustment on top of everything above, placed
+    # last among the context blocks so it reads as "given all of this, here
+    # is who's reading" rather than framing the facts that precede it.
+    preferences_block = _build_investor_preferences_block(investor_locale, investor_intel_focus)
+    if preferences_block:
+        lines.append(preferences_block)
 
     # Instructions
     ordered_sections = [s for s in ("§2", "§3", "§4") if s in enabled_sections]

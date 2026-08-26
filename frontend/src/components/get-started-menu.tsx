@@ -23,7 +23,12 @@ import {
 
 // Entries shown only to authenticated users, in display order. Signup is
 // deliberately absent: closed beta, no self-serve registration (OQ-3).
-const AUTHED_ENTRIES = [{ id: "holdings", href: "/holdings" }] as const;
+const AUTHED_ENTRIES = [
+  { id: "holdings", href: "/holdings" },
+  // B6 (issue #129 checkpoint B6): the one new row this file's own header
+  // comment predicted.
+  { id: "questionnaire", href: "/questionnaire" },
+] as const;
 
 export function GetStartedMenu() {
   const pathname = usePathname();

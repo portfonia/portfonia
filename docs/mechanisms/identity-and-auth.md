@@ -322,3 +322,88 @@ without B5 in the same release** — see the B4 section above.
   entry corrects.
 
 
+### Investment-style questionnaire — B6 (Ring 1-B design.md §8, issue #129 checkpoint B6)
+
+Closes the "stated preference" half of Concept §4.2's signal model — the
+"displayed preference" half (holdings-structure inference) already existed
+from stage A. B6 depends on B4 (`users.id` as the FK target) and B1 (the
+questionnaire is a *bounded adjustment* on top of the invisible B1 basis,
+never the sole source of the analytical framing — §1.4).
+
+- **`user_investment_context`** (one row per user, no history table —
+  Concept §4.2: re-answering overwrites). `questionnaire` is a single JSONB
+  blob holding the 8 closed-enum answers (`app/services/
+  questionnaire_taxonomy.py` is the single source of truth); `free_text` is
+  `EncryptedString` (same field-level Fernet as `holdings.notes`);
+  `questionnaire_version` pins `QUESTIONNAIRE_VERSION` at write time.
+  `user_id` is this table's own PK and carries a real `ForeignKey
+  ("users.id")` — unlike `holdings`/`reports`/`upload_jobs`/`news_surfaced`,
+  which predate `users` and only get their FK in B7 (design doc §9.3), this
+  table postdates B4, so there is no legacy-data reason to defer it.
+- **Three-layer domain validation, same pattern as `VALID_ASSET_CLASSES`/
+  `VALID_CURRENCIES`**: Python constants (`questionnaire_taxonomy.py`) ->
+  a frozen-snapshot DB CHECK per JSONB key (migration `9c56ac348d7d`, never
+  a live import — same immutable-historical-snapshot rule as
+  `6cd7544f63cf`) -> Pydantic `field_validator`s on `QuestionnaireIn`
+  (`app/schemas/questionnaire.py`) so an unrecognized value 422s at the API
+  boundary instead of surfacing as a raw `IntegrityError`. The two
+  multi-select dimensions (`markets`, `sectors_of_interest`) use the `<@`
+  jsonb containment operator in their CHECK, not a `NOT EXISTS (SELECT ...
+  FROM jsonb_array_elements_text(...))` subquery — **Postgres CHECK
+  constraints cannot contain a subquery at all** (`cannot use subquery in
+  check constraint`, caught by actually running `alembic upgrade head`
+  against the CHECK during implementation, not assumed). `sectors_of_interest`
+  reads `sector_taxonomy.VALID_SECTORS` directly rather than starting a
+  second sector vocabulary (§8.3's explicit instruction).
+- **`GET`/`PUT /investment-context`** (`app/routers/investment_context.py`):
+  `GET` 404s when no row exists yet ("never answered" is a different state
+  from "answered with defaults", and only the frontend's own pre-filled
+  defaults stand in for the former — nothing is persisted until submit).
+  `PUT` is a full overwrite, never a partial-field merge. **No endpoint
+  reads back any system-inferred conclusion** — this is the same rule as
+  Concept §4.2's "system inference stays invisible", made **stricter**
+  here because it also covers the B1 basis (§1.4): the two hidden layers
+  (system's own analytical stance, system's inference about this user) get
+  the same non-negotiable invisibility, just for different reasons.
+- **Injection scope (decision point 6, §8.5) — ONLY `locale` and
+  `intel_focus` reach the Pass 2 prompt.** `risk_appetite`/`objective` are
+  not filtered out downstream — they are never fetched in the first place
+  (`app/services/investment_context.py`'s `load_investor_preferences` reads
+  only those two keys off the stored questionnaire), so there is no code
+  path that could accidentally thread them into a prompt later. The
+  `=== INVESTOR PREFERENCES ===` block (`report_prompts.py`'s
+  `_build_investor_preferences_block`) renders last among the Pass 2
+  context blocks and ends with an explicit scope sentence: preferences may
+  steer fact selection/wording only, never relax or override the
+  ANALYSIS FRAMEWORK or the shared body rules above it. `_PROMPT_VERSION`
+  bumped to `f2-v8`.
+- **Audit snapshot, not injection content**: `generate_report` and
+  `regenerate_report`'s `mode="analyze"` branch both call
+  `load_investor_preferences` fresh and write the **full** closed-enum
+  answer set (not just locale/intel_focus) into
+  `report_inputs.investor_questionnaire_snapshot` — reproducibility for a
+  past report, same pattern as `analysis_framework_version`. `mode="render"`
+  never re-fetches (matches every other re-render field). **`free_text` is
+  deliberately excluded from the snapshot**: `report_inputs` is unencrypted
+  JSONB, and `free_text` is the one field on `user_investment_context`
+  that's encrypted at rest — mirroring it in plaintext into `report_inputs`
+  would quietly undo that protection. This is a real, deliberate scope
+  narrowing versus a literal reading of design doc §8.4's "快照当次使用的
+  上下文" (raised to the product owner rather than assumed silently).
+- **Frontend**: `/questionnaire`, a one-question-per-step wizard
+  (`frontend/src/app/questionnaire/`), pre-filled from Concept §4.3's
+  default philosophy translated into this questionnaire's enums (a product
+  judgment call this implementation made explicitly, not a literal mapping
+  — §4.3 doesn't specify `asset_scale`/`markets`/`risk_appetite` at all, so
+  those default to the most neutral option). Reachable only from the
+  authed `GetStartedMenu` (`get-started-menu.tsx`'s own header comment
+  predicted this exact addition).
+- **Real-report overlay comparison (§8.5/§10.3's required regression,
+  same method as B1's v1-v7 overlays)**: `app/scripts/
+  b6_overlay_compare.py` pulls a real historical `report_inputs` (read-only
+  SELECT, no writes anywhere) and runs Pass 2 twice with the real
+  `PRIMARY_LLM_MODEL` — once exactly as production shipped it, once with
+  `locale=zh, intel_focus=GEOPOLITICS` injected. Delivered to the product
+  owner as a file for direct reading, not summarized or pre-judged here.
+
+

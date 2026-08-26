@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
-from app.routers import admin, auth, holdings, portfolio, reports
+from app.routers import admin, auth, holdings, investment_context, portfolio, reports
 
 # Without this the root logger defaults to WARNING and every logger.info() in the
 # service layer (notably the _call_llm finish_reason / token-usage / cost
@@ -49,6 +49,9 @@ app.include_router(portfolio.router, prefix="/portfolio", tags=["portfolio"])
 app.include_router(reports.router, prefix="/reports", tags=["reports"])
 app.include_router(admin.router, prefix="/admin", tags=["admin"])
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
+app.include_router(
+    investment_context.router, prefix="/investment-context", tags=["investment-context"]
+)
 
 # Pydantic/FastAPI 422 bodies include `"input"`. SecretStr does not strip it
 # (validation runs on the raw string). Redact known secret fields so a public

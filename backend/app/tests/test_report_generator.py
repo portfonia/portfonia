@@ -19,6 +19,7 @@ and test_report_context.py respectively.
 from __future__ import annotations
 
 import contextlib
+import json
 import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -2765,3 +2766,211 @@ def test_regenerate_analyze_persists_the_renarrowed_cross_name_clusters(
         "actually sent to the prompt, not the stale 2-identifier value from "
         "before the holdings edit"
     )
+
+
+# ---------------------------------------------------------------------------
+# B6 investor preferences (issue #129 checkpoint B6, decision point 6)
+# ---------------------------------------------------------------------------
+
+
+def _seed_investment_context(
+    session: Session, user_id: uuid.UUID, *, locale: str = "zh", intel_focus: str = "GEOPOLITICS"
+) -> None:
+    from app.models.user import User
+    from app.models.user_investment_context import UserInvestmentContext
+
+    session.add(
+        User(
+            id=user_id,
+            auth_provider="supabase",
+            auth_subject=f"sub-{user_id}",
+            email=f"{user_id}@example.com",
+            status="active",
+            locale=locale,
+            base_currency="USD",
+            report_cadence="mwf",
+        )
+    )
+    session.add(
+        UserInvestmentContext(
+            user_id=user_id,
+            questionnaire={
+                "asset_scale": "500K_2M",
+                "markets": ["US"],
+                "style": "GROWTH",
+                "horizon": "LONG",
+                "risk_appetite": "AGGRESSIVE",
+                "sectors_of_interest": ["Technology"],
+                "objective": "GROWTH",
+                "intel_focus": intel_focus,
+            },
+            questionnaire_version="v1",
+            free_text="Concentrated in AI infrastructure names on purpose.",
+        )
+    )
+    session.flush()
+
+
+def test_generate_report_pass2_prompt_carries_locale_and_intel_focus(
+    db_session: Session,
+) -> None:
+    _seed_investment_context(db_session, _USER, locale="zh", intel_focus="GEOPOLITICS")
+    captured: dict[str, str] = {}
+
+    def _capture_pass2_llm(
+        client: object,
+        model: str,
+        system: str,
+        user: str,
+        *,
+        with_holdings: bool = False,
+        **kw: object,
+    ) -> str:
+        if with_holdings:
+            captured["pass2_user"] = user
+            return _FAKE_LLM_PASS2
+        return _FAKE_LLM_PASS1
+
+    with contextlib.ExitStack() as stack:
+        for p in _normal_path_patches():
+            stack.enter_context(p)  # type: ignore[arg-type]
+        stack.enter_context(
+            patch("app.services.report_generator._call_llm", side_effect=_capture_pass2_llm)
+        )
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+
+    assert report.status == "success"
+    assert "INVESTOR PREFERENCES" in captured["pass2_user"]
+    assert "Reader locale: zh" in captured["pass2_user"]
+    assert "geopolitical developments" in captured["pass2_user"]
+
+
+def test_generate_report_snapshots_questionnaire_into_report_inputs(db_session: Session) -> None:
+    """§8.4/§8.6: the closed-enum answers actually used for this report are
+    snapshotted for audit — but free_text is not (see
+    investment_context.py's InvestorPreferences docstring: report_inputs is
+    unencrypted JSONB, free_text is the one encrypted field on that table)."""
+    _seed_investment_context(db_session, _USER, locale="zh", intel_focus="GEOPOLITICS")
+    with contextlib.ExitStack() as stack:
+        for p in _normal_path_patches():
+            stack.enter_context(p)  # type: ignore[arg-type]
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+
+    assert report.report_inputs is not None
+    snap = report.report_inputs["investor_questionnaire_snapshot"]
+    assert snap["intel_focus"] == "GEOPOLITICS"
+    assert snap["risk_appetite"] == "AGGRESSIVE"
+    assert report.report_inputs["investor_questionnaire_version"] == "v1"
+    assert "concentrated in ai infrastructure" not in json.dumps(report.report_inputs).lower()
+
+
+def test_generate_report_with_no_questionnaire_omits_intel_focus(db_session: Session) -> None:
+    """§8.6 'can be skipped': no UserInvestmentContext row -> no intel_focus
+    in the prompt, but locale (from users.locale, NOT NULL) still renders
+    once a users row exists; with no users row either, locale falls back to
+    'en' inside load_investor_preferences and the block is fully omitted
+    only when both are absent — this exercises the no-row-at-all case."""
+    captured: dict[str, str] = {}
+
+    def _capture_pass2_llm(
+        client: object,
+        model: str,
+        system: str,
+        user: str,
+        *,
+        with_holdings: bool = False,
+        **kw: object,
+    ) -> str:
+        if with_holdings:
+            captured["pass2_user"] = user
+            return _FAKE_LLM_PASS2
+        return _FAKE_LLM_PASS1
+
+    with contextlib.ExitStack() as stack:
+        for p in _normal_path_patches():
+            stack.enter_context(p)  # type: ignore[arg-type]
+        stack.enter_context(
+            patch("app.services.report_generator._call_llm", side_effect=_capture_pass2_llm)
+        )
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+
+    assert report.status == "success"
+    assert "Stated intel focus" not in captured["pass2_user"]
+
+
+def test_regenerate_render_does_not_refetch_investor_preferences(db_session: Session) -> None:
+    _seed_investment_context(db_session, _USER, locale="zh", intel_focus="GEOPOLITICS")
+    with contextlib.ExitStack() as stack:
+        for p in _normal_path_patches():
+            stack.enter_context(p)  # type: ignore[arg-type]
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+    rid = report.id
+
+    with (
+        patch(
+            "app.services.report_generator.load_investor_preferences",
+            side_effect=AssertionError("render must not re-fetch investor preferences"),
+        ),
+        patch(
+            "app.services.report_generator.load_news_window",
+            side_effect=AssertionError("render must not re-fetch"),
+        ),
+        patch(
+            "app.services.report_generator._run_tavily_search",
+            side_effect=AssertionError("render must not re-fetch"),
+        ),
+    ):
+        out = rg.regenerate_report(db_session, rid, user_id=_USER, mode="render", output_lang="en")
+    assert out.report_md is not None
+
+
+def test_regenerate_analyze_refreshes_investor_preferences(db_session: Session) -> None:
+    """A user who changed their questionnaire answers between the original
+    generation and this regenerate should see the NEW answers reflected —
+    same "re-fetched live" treatment as fresh_technical/fresh_exposure."""
+    _seed_investment_context(db_session, _USER, locale="zh", intel_focus="MACRO")
+    with contextlib.ExitStack() as stack:
+        for p in _normal_path_patches():
+            stack.enter_context(p)  # type: ignore[arg-type]
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+    rid = report.id
+
+    # Re-answer with a different intel_focus.
+    from app.models.user_investment_context import UserInvestmentContext
+
+    ctx = db_session.get(UserInvestmentContext, _USER)
+    assert ctx is not None
+    ctx.questionnaire = {**ctx.questionnaire, "intel_focus": "FUNDAMENTALS"}
+    db_session.flush()
+
+    captured: dict[str, str] = {}
+
+    def _capture_pass2_llm(
+        client: object,
+        model: str,
+        system: str,
+        user: str,
+        *,
+        with_holdings: bool = False,
+        **kw: object,
+    ) -> str:
+        captured["pass2_user"] = user
+        return _FAKE_LLM_PASS2
+
+    with (
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_capture_pass2_llm),
+        patch(
+            "app.services.report_generator.load_news_window",
+            side_effect=AssertionError("analyze must not re-fetch news"),
+        ),
+        patch(
+            "app.services.report_generator._run_tavily_search",
+            side_effect=AssertionError("analyze must not re-run search"),
+        ),
+    ):
+        out = rg.regenerate_report(db_session, rid, user_id=_USER, mode="analyze", output_lang="en")
+
+    assert "individual-holding fundamentals" in captured["pass2_user"]
+    assert out.report_inputs is not None
+    assert out.report_inputs["investor_questionnaire_snapshot"]["intel_focus"] == "FUNDAMENTALS"

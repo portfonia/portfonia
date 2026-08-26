@@ -59,6 +59,7 @@ from app.services.email_sender import send_ops_alert, send_report_email
 from app.services.forward_events import FORWARD_WINDOW_DAYS, load_forward_events
 from app.services.github_issues import create_bug_report
 from app.services.holding_news import recall_holding_news
+from app.services.investment_context import load_investor_preferences
 from app.services.macro_detector import detect_macro_signals
 from app.services.macro_event_intel import (
     build_l2_facts,
@@ -149,7 +150,7 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_PROMPT_VERSION = "f2-v7"  # f2-v7: analysis framework basis injected into _PASS2_SYSTEM (issue #128 Ring 1 stage B, checkpoint B1 — config/analysis_framework.yml, reloaded fresh via _build_pass2_system, its own `version` recorded separately in report_inputs.analysis_framework_version); f2-v6 was itself under-documented — besides its own §4.2/HOLDING-RELEVANT NEWS change, PR #168's narrative-layer redesign rewrote NAMING IS NOT ANALYSIS and parameterized the LARGE HOLDINGS references without bumping this constant (design doc §2.8, PR #167 round 3 caught the same gap on ASSEMBLY_PROMPT_VERSION); f2-v5 = direction-requires-evidence + divergence-is-the-signal (no price-direction claims without window data); f2-v4 = §4.2 code table + driver-only, evidence confidence labels, §4.4 technical position
+_PROMPT_VERSION = "f2-v8"  # f2-v8: INVESTOR PREFERENCES block added to the Pass 2 user-turn prompt (issue #129 checkpoint B6, decision point 6 — only locale/intel_focus, scope-guarded, see _build_investor_preferences_block in report_prompts.py); f2-v7: analysis framework basis injected into _PASS2_SYSTEM (issue #128 Ring 1 stage B, checkpoint B1 — config/analysis_framework.yml, reloaded fresh via _build_pass2_system, its own `version` recorded separately in report_inputs.analysis_framework_version); f2-v6 was itself under-documented — besides its own §4.2/HOLDING-RELEVANT NEWS change, PR #168's narrative-layer redesign rewrote NAMING IS NOT ANALYSIS and parameterized the LARGE HOLDINGS references without bumping this constant (design doc §2.8, PR #167 round 3 caught the same gap on ASSEMBLY_PROMPT_VERSION); f2-v5 = direction-requires-evidence + divergence-is-the-signal (no price-direction claims without window data); f2-v4 = §4.2 code table + driver-only, evidence confidence labels, §4.4 technical position
 _DISCLAIMER_VERSION = "f3-bilingual-v2"
 
 # L1 leftover-budget top-up (issue #128 quality gate, design doc §6.7 item 3).
@@ -1283,6 +1284,13 @@ def generate_report(
 
         if raw_body is None:
             primary_model = settings.PRIMARY_LLM_MODEL
+            # issue #129 checkpoint B6, decision point 6: only locale/
+            # intel_focus reach the prompt; the full answer set (minus
+            # free_text) is snapshotted into ctx for the report_inputs audit
+            # trail regardless of whether intel_focus was ever set.
+            investor_prefs = load_investor_preferences(session, user_id)
+            ctx.investor_questionnaire_snapshot = investor_prefs.questionnaire_snapshot
+            ctx.investor_questionnaire_version = investor_prefs.questionnaire_version
             pass2_user = _build_pass2_prompt(
                 ctx.portfolio_summary,
                 ctx.macro_signals,
@@ -1293,6 +1301,8 @@ def generate_report(
                 ctx.window_trading_days,
                 ctx.holding_news,
                 large_holding_moves=ctx.large_holding_moves,
+                investor_locale=investor_prefs.locale,
+                investor_intel_focus=investor_prefs.intel_focus,
             )
 
             ctx.pass2_model = primary_model
@@ -1586,6 +1596,11 @@ def regenerate_report(
                 "cross_name_intel": fresh_clusters,
             }
         else:
+            # Re-fetched live, like fresh_technical below — a regenerate
+            # should reflect a questionnaire answered/changed since the
+            # original generation, not replay the stale answer set frozen
+            # in `inputs` (issue #129 checkpoint B6).
+            investor_prefs = load_investor_preferences(session, user_id)
             pass2_user = _build_pass2_prompt(
                 portfolio,
                 inputs.get("macro_signals", {}),
@@ -1596,6 +1611,8 @@ def regenerate_report(
                 trading_days,
                 inputs.get("holding_news", {}),
                 large_holding_moves=inputs.get("large_holding_moves", {}),
+                investor_locale=investor_prefs.locale,
+                investor_intel_focus=investor_prefs.intel_focus,
             )
             raw_body = _call_llm(
                 _openrouter_client(),
@@ -1614,6 +1631,8 @@ def regenerate_report(
                 "pass2_raw": raw_body,
                 "pass2_prompt": pass2_user,
                 "analysis_framework_version": load_analysis_framework().version,
+                "investor_questionnaire_snapshot": investor_prefs.questionnaire_snapshot,
+                "investor_questionnaire_version": investor_prefs.questionnaire_version,
             }
 
         # Recompute technical positions from the live DB so a backfill run

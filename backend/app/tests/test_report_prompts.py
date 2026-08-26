@@ -483,3 +483,101 @@ def test_directive_slip_still_caught_by_output_scan_under_the_framework() -> Non
         "buy the dip.\n"
     )
     assert _scan_forbidden_output(directive_body) != []
+
+
+# ---------------------------------------------------------------------------
+# INVESTOR PREFERENCES block (issue #129 checkpoint B6, decision point 6)
+# ---------------------------------------------------------------------------
+
+
+def test_investor_preferences_block_omitted_when_nothing_to_inject() -> None:
+    prompt = rp._build_pass2_prompt(rs._serialize_portfolio(_portfolio_snap()), {}, [], [])
+    assert "INVESTOR PREFERENCES" not in prompt
+
+
+def test_investor_preferences_block_renders_locale_alone() -> None:
+    """locale always has a value once threaded in; intel_focus is None when
+    the user has never submitted a questionnaire (§8.6 'can be skipped')."""
+    prompt = rp._build_pass2_prompt(
+        rs._serialize_portfolio(_portfolio_snap()), {}, [], [], investor_locale="zh"
+    )
+    assert "INVESTOR PREFERENCES" in prompt
+    assert "Reader locale: zh" in prompt
+    assert "Stated intel focus" not in prompt
+
+
+def test_investor_preferences_block_renders_both_fields() -> None:
+    prompt = rp._build_pass2_prompt(
+        rs._serialize_portfolio(_portfolio_snap()),
+        {},
+        [],
+        [],
+        investor_locale="zh",
+        investor_intel_focus="GEOPOLITICS",
+    )
+    assert "Reader locale: zh" in prompt
+    assert "geopolitical developments" in prompt
+
+
+def test_investor_preferences_block_never_carries_risk_appetite_or_objective() -> None:
+    """Decision point 6, §8.5: only locale/intel_focus reach the prompt.
+    _build_pass2_prompt has no parameter for risk_appetite/objective at
+    all — this is a structural guarantee, not a filtering one."""
+    import inspect
+
+    sig = inspect.signature(rp._build_pass2_prompt)
+    assert "risk_appetite" not in sig.parameters
+    assert "objective" not in sig.parameters
+
+
+def test_investor_preferences_block_states_scope_limit() -> None:
+    prompt = rp._build_pass2_prompt(
+        rs._serialize_portfolio(_portfolio_snap()),
+        {},
+        [],
+        [],
+        investor_locale="en",
+        investor_intel_focus="MACRO",
+    )
+    assert "never relax or override the ANALYSIS FRAMEWORK" in prompt
+
+
+def test_investor_preferences_block_itself_contains_no_forbidden_vocabulary() -> None:
+    from app.compliance.output_scan import _scan_forbidden_output
+
+    block = rp._build_investor_preferences_block("zh", "GEOPOLITICS")
+    assert _scan_forbidden_output(block) == []
+
+
+def test_compliant_body_survives_scan_with_investor_preferences_present() -> None:
+    """§8.5's required regression: a compliant body must still pass the
+    Layer-4 backstop when investor preferences were part of this report's
+    prompt (mirrors test_compliant_body_style_survives_output_scan_under_the_framework
+    above, but with a preferences-influenced angle: geopolitics-tilted
+    wording, still evidence-grounded and non-directive)."""
+    from app.compliance.output_scan import _scan_forbidden_output
+
+    compliant_body = (
+        "## §3 Holdings Intelligence\n"
+        "NVDA fell 8% this report period as broader AI-capex sentiment "
+        "reset amid new export-control measures affecting semiconductor "
+        "supply chains. The company disclosed continued capital commitment "
+        "from three hyperscaler customers through this period of price "
+        "pressure. A downstream customer's capex guidance, scheduled for "
+        "release in three weeks, is the next observable that would confirm "
+        "or contradict this structural read. [Probable]\n"
+    )
+    assert _scan_forbidden_output(compliant_body) == []
+
+
+def test_directive_slip_still_caught_with_investor_preferences_present() -> None:
+    """Mirror case: preferences change what earns space, never what the
+    Layer-4 backstop tolerates."""
+    from app.compliance.output_scan import _scan_forbidden_output
+
+    directive_body = (
+        "## §3 Holdings Intelligence\n"
+        "Given the geopolitical backdrop you're focused on, investors "
+        "should reduce exposure to NVDA now.\n"
+    )
+    assert _scan_forbidden_output(directive_body) != []

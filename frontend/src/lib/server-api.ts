@@ -7,22 +7,36 @@
 // 1-B design doc §7.3(1)) — it must derive its own Authorization header,
 // same reasoning as the upload Route Handler (see
 // app/api/holdings/upload/route.ts).
-import type { HoldingOut } from "@/lib/api";
+import type { HoldingOut, InvestmentContext } from "@/lib/api";
 import { currentAccessToken } from "@/lib/supabase/server";
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
-export async function listHoldingsServer(): Promise<HoldingOut[]> {
+async function authHeaders(): Promise<HeadersInit> {
   const token = await currentAccessToken();
-  const headers: HeadersInit = {};
-  if (token) headers.authorization = `Bearer ${token}`;
+  return token ? { authorization: `Bearer ${token}` } : {};
+}
 
+export async function listHoldingsServer(): Promise<HoldingOut[]> {
   const res = await fetch(`${BACKEND_URL}/holdings`, {
     cache: "no-store",
-    headers,
+    headers: await authHeaders(),
   });
   if (!res.ok) {
     throw new Error(`Backend returned ${res.status}`);
   }
   return res.json() as Promise<HoldingOut[]>;
+}
+
+// §8.4: 404 means "never answered" — not an error the caller should surface.
+export async function getInvestmentContextServer(): Promise<InvestmentContext | null> {
+  const res = await fetch(`${BACKEND_URL}/investment-context`, {
+    cache: "no-store",
+    headers: await authHeaders(),
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`Backend returned ${res.status}`);
+  }
+  return res.json() as Promise<InvestmentContext>;
 }
