@@ -17,7 +17,12 @@ capability existing.
   something an individual user should trigger). B4 added
   `POST/GET/DELETE /admin/invites` and `POST /admin/users/{id}/bind-subject`
   under the same ops-token router (plaintext invite token returned once on
-  create; bind-subject never overwrites a non-NULL `auth_subject`). Issue
+  create; bind-subject never overwrites a non-NULL `auth_subject`;
+  issue #188/PR #219: an email-bound `POST /admin/invites` → **409** when
+  `users.email` already holds the normalized address — no status filter,
+  same predicate as `POST /auth/signup` via the shared `signup_email_taken`
+  helper in `app/services/invites.py`; generic invites and the redeem-side
+  undistinguishable `InviteRejected` are unchanged). Issue
   #201 (PR #203) added `POST /admin/users/{id}/reports/generate`: ops-token,
   synchronous `generate_report` for one user (`session_node="manual"`),
   hitting `api.portfonia.com` directly so the Next.js proxy timeout on

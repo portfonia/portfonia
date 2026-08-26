@@ -8,14 +8,18 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, SecretStr
-from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_session
 from app.models.user import User
 from app.services.auth_provider import AuthProviderError, create_auth_user, delete_auth_user
-from app.services.invites import INVITE_REJECTED_MESSAGE, InviteRejected, redeem_invite
+from app.services.invites import (
+    INVITE_REJECTED_MESSAGE,
+    InviteRejected,
+    redeem_invite,
+    signup_email_taken,
+)
 from app.services.window_data import backfill_news_surfaced_before, cold_start_watermark
 
 logger = logging.getLogger(__name__)
@@ -43,8 +47,7 @@ def signup(req: SignupRequest, session: Session = Depends(get_session)) -> Signu
     new_id = uuid.uuid4()
     sub: str | None = None
     try:
-        existing = session.execute(select(User.id).where(User.email == email)).scalar_one_or_none()
-        if existing is not None:
+        if signup_email_taken(session, email):
             raise InviteRejected(INVITE_REJECTED_MESSAGE)
         redeem_invite(session, req.invite_token, used_by=new_id, email=email)
         sub = create_auth_user(email, req.password.get_secret_value())

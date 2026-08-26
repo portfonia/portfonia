@@ -29,6 +29,18 @@ class EmailAlreadyRegistered(Exception):
     keeps its undistinguishable InviteRejected contract."""
 
 
+def signup_email_taken(session: Session, email: str) -> bool:
+    """The ONE email-taken lookup for both signup and invite creation.
+
+    Callers pass the already-normalized address (strip + lowercase). Bare
+    `users.email` predicate, no status filter — signup rejects a suspended
+    user's mailbox exactly like an active one. PR #219 review: both call
+    sites must import this helper so the two checks cannot drift.
+    """
+    existing = session.execute(select(User.id).where(User.email == email)).scalar_one_or_none()
+    return existing is not None
+
+
 @dataclass(frozen=True)
 class IssuedInvite:
     id: uuid.UUID
@@ -58,14 +70,8 @@ def create_invite(
     expires_days: int = 14,
 ) -> IssuedInvite:
     email_n = _normalize_email(email)
-    if email_n is not None:
-        # Mirror the signup check (routers/auth.py) exactly: bare
-        # users.email lookup, no status filter, same normalization.
-        existing = session.execute(
-            select(User.id).where(User.email == email_n)
-        ).scalar_one_or_none()
-        if existing is not None:
-            raise EmailAlreadyRegistered(email_n)
+    if email_n is not None and signup_email_taken(session, email_n):
+        raise EmailAlreadyRegistered(email_n)
     token = secrets.token_urlsafe(24)
     created_at = datetime.now(tz=UTC)
     if expires_at is None:

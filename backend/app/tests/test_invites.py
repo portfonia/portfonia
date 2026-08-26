@@ -7,6 +7,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -22,6 +23,7 @@ from app.services.invites import (
     list_invites,
     redeem_invite,
     revoke_invite,
+    signup_email_taken,
 )
 
 _CREATOR = uuid.UUID("00000000-0000-0000-0000-0000000000aa")
@@ -129,11 +131,10 @@ def test_create_invite_rejects_email_before_persisting_row(db_session: Session) 
 
 
 def test_creation_overlap_check_mirrors_signup_check(db_session: Session) -> None:
-    """Mirror property (issue #188): for the same users table, creation is
-    rejected if and only if signup would reject the same email — the two
-    checks must never drift apart."""
-    from sqlalchemy import select as sa_select
-
+    """Mirror property (issue #188, PR #219 review): creation and signup must
+    consult the SAME email-taken lookup — `signup_email_taken`, the one
+    helper both call sites import — not two copies of the query that can
+    drift (e.g. if auth.py ever adds a status filter)."""
     emails = ["a@example.com", "B@Example.com", "  c@example.com", "d@EXAMPLE.com"]
     users = [_seed_user(uuid.uuid4(), email.strip().lower()) for email in emails[:2]]
     db_session.add_all(users)
@@ -147,16 +148,43 @@ def test_creation_overlap_check_mirrors_signup_check(db_session: Session) -> Non
             return True
 
     def signup_would_reject(email: str) -> bool:
-        # Replicates backend/app/routers/auth.py signup: strip().lower(),
-        # then a bare email lookup with no status filter.
+        # Replicates only routers/auth.py's normalization (strip().lower());
+        # the lookup itself is the shared helper signup calls.
         normalized = email.strip().lower()
-        existing = db_session.execute(
-            sa_select(User.id).where(User.email == normalized)
-        ).scalar_one_or_none()
-        return existing is not None
+        return signup_email_taken(db_session, normalized)
 
     for email in [*emails, "unregistered@example.com"]:
         assert creation_rejects(email) == signup_would_reject(email), email
+
+
+def test_signup_and_create_invite_share_one_lookup(
+    app_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Structural half of the mirror lock: the live signup path must call
+    the shared `signup_email_taken` helper, not its own forked query."""
+    import app.routers.auth as auth_module
+
+    calls: list[str] = []
+
+    def spy(session: Session, email: str) -> bool:
+        calls.append(email)
+        return True  # pretend taken -> signup must reject before anything else
+
+    monkeypatch.setattr(auth_module, "signup_email_taken", spy)
+
+    resp = app_client.post(
+        "/auth/signup",
+        json={
+            "invite_token": "any-token",
+            "email": "mirror@example.com",
+            "password": "a-long-enough-password",
+        },
+    )
+
+    # The helper ran on signup's normalized input and short-circuited the
+    # request into the generic rejection before any Auth-provider call.
+    assert calls == ["mirror@example.com"]
+    assert resp.status_code == 400
 
 
 def test_redeem_invite_succeeds_once(db_session: Session) -> None:
