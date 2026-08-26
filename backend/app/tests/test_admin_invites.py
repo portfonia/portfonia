@@ -48,6 +48,36 @@ def test_create_invite_optional_email(app_client: TestClient) -> None:
     assert resp.json()["email"] == "guest@example.com"
 
 
+def test_create_invite_conflicts_with_existing_user_email(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """Issue #188: overlap with an existing users.email is a 409 at creation,
+    not a silent token that fails generically at redemption."""
+    from app.tests.test_user_scope import _user
+
+    db_session.add(_user(uuid.UUID("00000000-0000-0000-0000-0000000000b9"), "taken@example.com"))
+    db_session.flush()
+
+    resp = app_client.post(
+        "/admin/invites", headers=_headers(), json={"email": "taken@example.com"}
+    )
+    assert resp.status_code == 409
+
+
+def test_create_invite_case_insensitive_overlap_conflicts(
+    app_client: TestClient, db_session: Session
+) -> None:
+    from app.tests.test_user_scope import _user
+
+    db_session.add(_user(uuid.UUID("00000000-0000-0000-0000-0000000000b9"), "taken@example.com"))
+    db_session.flush()
+
+    resp = app_client.post(
+        "/admin/invites", headers=_headers(), json={"email": "TAKEN@example.COM"}
+    )
+    assert resp.status_code == 409
+
+
 def test_revoke_invite(app_client: TestClient, db_session: Session) -> None:
     created = app_client.post("/admin/invites", headers=_headers(), json={})
     invite_id = created.json()["id"]

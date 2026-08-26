@@ -162,6 +162,14 @@ secret or the Supabase database password (business Postgres is self-hosted).
   NULL on purpose.
 - **`recipient_email(session, user_id)`** reads `users` (`delivery_email`
   else `email`); missing or non-`active` → `None`. Send stays fail-closed.
+- **Invite creation checks `users.email` overlap** (issue #188, PR #219):
+  email-bound `POST /admin/invites` → **409** when `users.email` already
+  holds the normalized address (strip + lowercase; **no status filter** —
+  the same predicate as `POST /auth/signup`). Both call sites share one
+  lookup, `signup_email_taken` in `app/services/invites.py`; do not fork
+  the query. Generic (`email` omitted) invites are unchanged. Redeem stays
+  undistinguishable `InviteRejected`. Accepted race: a concurrent signup
+  between check and commit still wins; `uq_users_email` is the backstop.
 - **`active_user_ids`** is sourced from `users.status == "active"` but
   requires `EXISTS` a holding row — a fresh signup is not fanned out on the
   next M/W/F batch.

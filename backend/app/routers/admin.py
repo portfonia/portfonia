@@ -43,7 +43,7 @@ from app.models.user import User
 from app.schemas.reports import ReportOut
 from app.services import fx_fetcher, price_fetcher
 from app.services.fund_nav_fetcher import update_fund_navs
-from app.services.invites import create_invite, list_invites, revoke_invite
+from app.services.invites import EmailAlreadyRegistered, create_invite, list_invites, revoke_invite
 from app.services.llm_errors import LLMEmptyResponseError
 from app.services.report_generator import generate_report
 from app.tasks.admin_tasks import send_admin_alert_task
@@ -180,12 +180,19 @@ class InviteOut(BaseModel):
 def create_invite_endpoint(
     body: CreateInviteBody, session: Session = Depends(get_session)
 ) -> InviteOut:
-    issued = create_invite(
-        session,
-        created_by=UUID(get_settings().DEV_USER_ID),
-        email=body.email,
-        expires_days=body.expires_days,
-    )
+    try:
+        issued = create_invite(
+            session,
+            created_by=UUID(get_settings().DEV_USER_ID),
+            email=body.email,
+            expires_days=body.expires_days,
+        )
+    except EmailAlreadyRegistered:
+        # Issue #188: fail at creation instead of a token that can only
+        # die generically at redemption.
+        raise HTTPException(
+            status_code=409, detail="email already belongs to an existing user"
+        ) from None
     session.commit()
     return InviteOut(
         id=issued.id,
