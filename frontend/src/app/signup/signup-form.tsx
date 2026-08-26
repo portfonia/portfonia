@@ -5,7 +5,8 @@ import { useActionState } from "react";
 import { messages } from "@/lib/messages";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { clearPendingLogin, markPendingLogin } from "@/hooks/use-session";
+import { markPendingLogin } from "@/hooks/use-session";
+import { settleAuthAction } from "@/lib/settle-auth-action";
 import { signup, type SignupState } from "./actions";
 
 const m = messages.auth;
@@ -14,9 +15,7 @@ async function signupAndDisarmOnError(
   prev: SignupState | undefined,
   formData: FormData,
 ): Promise<SignupState | undefined> {
-  const result = await signup(prev, formData);
-  if (result?.error) clearPendingLogin();
-  return result;
+  return settleAuthAction(() => signup(prev, formData), "Sign up failed.");
 }
 
 export function SignupForm({ inviteToken }: { inviteToken: string }) {

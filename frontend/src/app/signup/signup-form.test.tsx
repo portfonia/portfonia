@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { signup, markPendingLogin, clearPendingLogin } = vi.hoisted(() => ({
   signup: vi.fn(),
@@ -14,6 +14,10 @@ vi.mock("@/hooks/use-session", () => ({ markPendingLogin, clearPendingLogin }));
 import { SignupForm } from "./signup-form";
 
 describe("SignupForm", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("shows a missing-invite message and no form when there is no invite token", () => {
     render(<SignupForm inviteToken="" />);
 
@@ -72,5 +76,17 @@ describe("SignupForm", () => {
 
     await screen.findByText("This invite is no longer valid.");
     expect(clearPendingLogin).toHaveBeenCalled();
+  });
+
+  it("clears the pending-login signal when the action throws, not only when it returns { error }", async () => {
+    signup.mockRejectedValue(new Error("backend unreachable"));
+    const user = userEvent.setup();
+    render(<SignupForm inviteToken="tok-abc" />);
+
+    await user.type(screen.getByLabelText(/email/i), "a@b.com");
+    await user.type(screen.getByLabelText(/password/i), "correcthorse");
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+
+    await waitFor(() => expect(clearPendingLogin).toHaveBeenCalled());
   });
 });

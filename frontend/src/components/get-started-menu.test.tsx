@@ -40,7 +40,7 @@ vi.mock("@/lib/supabase/browser", () => ({
 // other suites do.
 vi.mock("@/lib/auth-actions", () => ({ logout }));
 
-import { LocaleProvider } from "@/app/_components/locale-provider";
+import { LocaleProvider, useLocale } from "@/app/_components/locale-provider";
 import {
   markPendingLogin,
   clearPendingLogin,
@@ -48,6 +48,15 @@ import {
 } from "@/hooks/use-session";
 
 import { GetStartedMenu } from "./get-started-menu";
+
+function LocaleToggle() {
+  const { locale, setLocale } = useLocale();
+  return (
+    <button type="button" onClick={() => setLocale(locale === "zh" ? "en" : "zh")}>
+      toggle-locale
+    </button>
+  );
+}
 
 function renderMenu(route = "/holdings") {
   usePathname.mockReturnValue(route);
@@ -197,6 +206,42 @@ describe("GetStartedMenu", () => {
       await openMenu(user);
       expect(screen.getByRole("menuitem", { name: "Log out" })).toBeInTheDocument();
       expect(screen.getByText("a@b.com")).toBeInTheDocument();
+    });
+
+    it("re-renders the logout-error alert in the current locale after a language switch", async () => {
+      const store = new Map<string, string>();
+      Object.defineProperty(window, "localStorage", {
+        value: {
+          getItem: (key: string) => store.get(key) ?? null,
+          setItem: (key: string, value: string) => void store.set(key, value),
+          removeItem: (key: string) => void store.delete(key),
+          clear: () => store.clear(),
+        },
+        configurable: true,
+      });
+      window.localStorage.setItem("portfonia:locale", "zh");
+
+      getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+      logout.mockRejectedValue(new Error("auth.portfonia.com unreachable"));
+      usePathname.mockReturnValue("/");
+      const user = userEvent.setup();
+      render(
+        <LocaleProvider>
+          <LocaleToggle />
+          <GetStartedMenu />
+        </LocaleProvider>,
+      );
+
+      await user.click(await screen.findByRole("button", { name: "开始使用" }));
+      await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument());
+      await user.click(screen.getByRole("menuitem", { name: "退出登录" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("退出失败，请重试。");
+
+      await user.click(screen.getByRole("button", { name: "toggle-locale" }));
+
+      expect(screen.getByRole("alert")).toHaveTextContent("Sign out failed. Try again.");
+      expect(screen.queryByText("退出失败，请重试。")).not.toBeInTheDocument();
     });
 
     it("does not treat a NEXT_REDIRECT rejection from logout() as a failure", async () => {

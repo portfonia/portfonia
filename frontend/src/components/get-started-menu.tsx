@@ -17,6 +17,7 @@ import {
 } from "@/hooks/use-session";
 import { useIdleLogout } from "@/hooks/use-idle-logout";
 import { messages } from "@/lib/messages";
+import { isNextRedirectError } from "@/lib/next-redirect-error";
 import { logout } from "@/lib/auth-actions";
 
 import {
@@ -45,26 +46,12 @@ const AUTHED_ENTRIES = [
   { id: "questionnaire", href: "/questionnaire" },
 ] as const;
 
-// logout() is a Server Action that calls redirect() on success. redirect()
-// throws a NEXT_REDIRECT error the client promise surfaces as a rejection
-// — that is success, not failure. A real signOut()/network failure has no
-// such digest.
-function isNextRedirectError(error: unknown): boolean {
-  if (typeof error !== "object" || error === null || !("digest" in error)) {
-    return false;
-  }
-  const digest = error.digest;
-  if (typeof digest !== "string") return false;
-  const [code, type] = digest.split(";");
-  return code === "NEXT_REDIRECT" && (type === "replace" || type === "push");
-}
-
 export function GetStartedMenu() {
   const pathname = usePathname();
   const isHome = pathname === "/";
   const t = useHomeMessages();
   const session = useSession();
-  const [logoutError, setLogoutError] = useState<string | null>(null);
+  const [logoutFailed, setLogoutFailed] = useState(false);
 
   const triggerLabel = isHome ? t.nav.menu : messages.menu.trigger;
   const loginLabel = isHome ? t.nav.login : messages.menu.login;
@@ -80,7 +67,7 @@ export function GetStartedMenu() {
     void Promise.resolve(result).catch((err: unknown) => {
       if (isNextRedirectError(err)) return;
       revalidateSession();
-      setLogoutError(logoutFailedLabel);
+      setLogoutFailed(true);
     });
   };
 
@@ -88,7 +75,7 @@ export function GetStartedMenu() {
   // tagged so /login can show the expired-session banner.
   useIdleLogout(session.status, runLogout);
 
-  const errorNotice = logoutError ? (
+  const errorNotice = logoutFailed ? (
     <span role="alert" className="text-xs text-destructive">
       {logoutFailedLabel}
     </span>
@@ -150,7 +137,7 @@ export function GetStartedMenu() {
                 // auth.portfonia.com round-trip (issue #214). If logout()
                 // then fails, runLogout revalidates and surfaces an error
                 // so the UI does not keep claiming the session is gone.
-                setLogoutError(null);
+                setLogoutFailed(false);
                 markOptimisticLogout();
                 runLogout();
               }}
