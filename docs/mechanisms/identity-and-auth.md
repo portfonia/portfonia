@@ -403,6 +403,18 @@ never the sole source of the analytical framing — §1.4).
   semi-structured blob per report instead. This nuance was caught by a
   failing test (a real TDD "red") when free_text injection first landed,
   not decided in advance.
+- **`forbidden_vocab.py` co-occurrence coverage (§8.5(2), checked PR #212
+  review round 2)**: preference-induced phrasing like "given your risk
+  appetite, you could..." was reviewed against the existing scan and
+  deliberately NOT added as a new pattern. The existing bare-action-verb
+  entries ("should sell"/"reduce exposure" EN, 建议/应该+止损/清仓 zh) already
+  catch the action half of any such sentence regardless of what precedes it;
+  a context co-occurrence regex ("given your ... appetite" near an action
+  verb) is exactly the false-positive-prone pattern class issue #65/#205
+  removed from the scan. The SCOPE guardrail sentence in
+  `_build_investor_preferences_block` (this file, above) is the intended
+  first line of defense for this specific risk; the output-side scan stays
+  the backstop it already was, not a targeted filter for this phrasing.
 - **Frontend**: `/questionnaire`, a one-question-per-step wizard
   (`frontend/src/app/questionnaire/`), pre-filled from Concept §4.3's
   default philosophy translated into this questionnaire's enums (a product

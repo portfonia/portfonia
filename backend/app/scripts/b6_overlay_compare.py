@@ -93,10 +93,10 @@ def main(inputs_path: str) -> None:
 
     print("=== BASELINE (no investor preferences — matches what shipped) ===", file=sys.stderr)
     baseline_body = _call_llm(client, model, system, baseline_prompt, with_holdings=True)
-    print(baseline_body)
-    print("\n\n=== WITH INVESTOR PREFERENCES (all 8 dimensions + free text) ===", file=sys.stderr)
+    print(f"[{len(baseline_body)} chars — see baseline.md, not printed here]", file=sys.stderr)
+    print("\n=== WITH INVESTOR PREFERENCES (all 8 dimensions + free text) ===", file=sys.stderr)
     injected_body = _call_llm(client, model, system, injected_prompt, with_holdings=True)
-    print(injected_body)
+    print(f"[{len(injected_body)} chars — see injected.md, not printed here]", file=sys.stderr)
 
     out_dir = Path(tempfile.mkdtemp(prefix="b6_overlay_"))
     out_dir.chmod(0o700)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, ValidationInfo, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from app.services.questionnaire_taxonomy import (
     VALID_ASSET_SCALES,
@@ -82,9 +82,13 @@ class InvestmentContextIn(BaseModel):
     together as one overwrite (Concept §4.2 — reanswering replaces the row)."""
 
     questionnaire: QuestionnaireIn
-    # Concept §4.2 — "系统给予最高尊重": no format requirement, no length cap
-    # beyond what the DB/encryption layer already tolerates, no filtering.
-    free_text: str | None = None
+    # Concept §4.2 — "系统给予最高尊重": no format requirement, no filtering.
+    # Length IS capped (PR #212 review round 2): since decision point 6's
+    # correction, this text is injected verbatim into every Pass 2 and
+    # assembly prompt (and their stored snapshots) on every generation — an
+    # unbounded submission becomes recurring token cost and prompt bloat per
+    # report, even though the DB/encryption layer itself could hold megabytes.
+    free_text: str | None = Field(default=None, max_length=4000)
 
 
 class InvestmentContextOut(BaseModel):

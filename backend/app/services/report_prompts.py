@@ -6,6 +6,7 @@ Split out of report_generator.py (#37).
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime
 from typing import Any
@@ -25,6 +26,26 @@ from app.services.questionnaire_taxonomy import (
     RISK_APPETITE_PROMPT_TEXT,
     STYLE_PROMPT_TEXT,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _prompt_text(mapping: dict[str, str], value: str, *, field: str) -> str:
+    """Render a closed-enum value's prose form, warning (not silently passing
+    the raw token through) if it drifted out of sync with the taxonomy — a
+    missing key here means an enum was added to the VALID set in
+    questionnaire_taxonomy.py without a matching prose entry (PR #212 review
+    round 2)."""
+    rendered = mapping.get(value)
+    if rendered is None:
+        logger.warning(
+            "questionnaire prompt-text mapping missing for %s=%r; injecting raw token",
+            field,
+            value,
+        )
+        return value
+    return rendered
+
 
 # System prompt prefix injected into every LLM call for Layer 3/4 compliance.
 # This text is not user-tunable.
@@ -571,25 +592,33 @@ def _build_investor_preferences_block(
         lines.append(f"Reader locale: {locale} (informational only).")
     q = questionnaire or {}
     if asset_scale := q.get("asset_scale"):
-        lines.append(f"Asset scale: {ASSET_SCALE_PROMPT_TEXT.get(asset_scale, asset_scale)}.")
+        lines.append(
+            f"Asset scale: {_prompt_text(ASSET_SCALE_PROMPT_TEXT, asset_scale, field='asset_scale')}."
+        )
     if markets := q.get("markets"):
-        rendered = ", ".join(MARKET_PROMPT_TEXT.get(m, m) for m in markets)
+        rendered = ", ".join(_prompt_text(MARKET_PROMPT_TEXT, m, field="markets") for m in markets)
         lines.append(f"Markets of interest: {rendered}.")
     if style := q.get("style"):
-        lines.append(f"Investing style: {STYLE_PROMPT_TEXT.get(style, style)}.")
+        lines.append(f"Investing style: {_prompt_text(STYLE_PROMPT_TEXT, style, field='style')}.")
     if horizon := q.get("horizon"):
-        lines.append(f"Holding horizon: {HORIZON_PROMPT_TEXT.get(horizon, horizon)}.")
+        lines.append(
+            f"Holding horizon: {_prompt_text(HORIZON_PROMPT_TEXT, horizon, field='horizon')}."
+        )
     if risk_appetite := q.get("risk_appetite"):
         lines.append(
-            f"Stated risk appetite: {RISK_APPETITE_PROMPT_TEXT.get(risk_appetite, risk_appetite)}."
+            "Stated risk appetite: "
+            f"{_prompt_text(RISK_APPETITE_PROMPT_TEXT, risk_appetite, field='risk_appetite')}."
         )
     if sectors := q.get("sectors_of_interest"):
         lines.append(f"Sectors of interest: {', '.join(sectors)}.")
     if objective := q.get("objective"):
-        lines.append(f"Core objective: {OBJECTIVE_PROMPT_TEXT.get(objective, objective)}.")
+        lines.append(
+            f"Core objective: {_prompt_text(OBJECTIVE_PROMPT_TEXT, objective, field='objective')}."
+        )
     if intel_focus := q.get("intel_focus"):
         lines.append(
-            f"Stated intel focus: {INTEL_FOCUS_PROMPT_TEXT.get(intel_focus, intel_focus)}."
+            "Stated intel focus: "
+            f"{_prompt_text(INTEL_FOCUS_PROMPT_TEXT, intel_focus, field='intel_focus')}."
         )
     if free_text:
         lines.append(f"Investor's own notes (verbatim, unfiltered): {free_text}")
