@@ -100,17 +100,25 @@ to the production server:
    (not `Monitor` — this needs exactly one completion notification, not a
    per-line event stream; not a bare foreground `sleep` loop either, the
    harness blocks chained `sleep`s outside `run_in_background`/`Monitor`).
-   Do not write a fresh one from scratch** — a hand-rolled version tried
-   once (2026-08-26, B6 questionnaire deploy) checked
-   `systemctl show -p SubState --value` against the literal string
-   `exited`, which a `systemd-run` transient unit never actually reaches on
-   success (it goes `running` → `dead`, not `exited` — that value applies
-   to oneshot units with `RemainAfterExit`, not this unit type) — the loop
-   would have spun forever if not caught and killed manually mid-task:
+   Do not write a fresh one from scratch** — two hand-rolled attempts have
+   already broken on this exact script (both on 2026-08-26, ~13 hours
+   apart): first, one that checked `systemctl show -p SubState --value`
+   against the literal string `exited`, which a `systemd-run` transient
+   unit never actually reaches on success (it goes `running` → `dead`, not
+   `exited` — that value applies to oneshot units with `RemainAfterExit`,
+   not this unit type) — the loop would have spun forever if not caught and
+   killed manually mid-task. Second, a corrected version that named its
+   loop variable `status` — the dev machine's default shell is zsh (per
+   this environment's own shell setting), where `status` is a builtin
+   read-only variable aliased to `$?`; the assignment fails at the
+   interpreter level (`read-only variable: status`) and the script exits
+   immediately with no useful signal about the deploy itself. Use
+   `unit_state`, not `status`, and don't reuse this pitfall on any future
+   variant of this script:
 
    ```bash
    while true; do
-     status=$(ssh -o ConnectTimeout=15 -i <key-from-obsidian-doc> \
+     unit_state=$(ssh -o ConnectTimeout=15 -i <key-from-obsidian-doc> \
        <user>@<host> "systemctl is-active portfonia-deploy" 2>/dev/null)
      ssh_exit=$?
      if [ "$ssh_exit" -eq 255 ]; then
@@ -119,7 +127,7 @@ to the production server:
        sleep 15
        continue
      fi
-     if [ "$status" != "active" ] && [ "$status" != "activating" ]; then
+     if [ "$unit_state" != "active" ] && [ "$unit_state" != "activating" ]; then
        # Unit left the running states — could be "inactive"/"dead" (done,
        # check Result next) or "failed". Either way, stop polling.
        break
@@ -138,7 +146,7 @@ to the production server:
    inverts a non-zero exit to true either way, a transient network drop
    would look identical to "the unit finished" and end the loop early on a
    false positive. Distinguishing the two is why this script checks
-   `$ssh_exit` before looking at `$status` at all.
+   `$ssh_exit` before looking at `$unit_state` at all.
 5. `curl https://api.portfonia.com/health` — confirm `{"status":"ok",...}`.
 6. Report success (what changed) or failure (which step, what the logs
    showed) — don't declare done without step 5 passing.
