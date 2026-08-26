@@ -12,6 +12,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.models.invite import Invite
+from app.models.user import User
 
 INVITE_REJECTED_MESSAGE = "invalid invite"
 _DEFAULT_TTL = timedelta(days=14)
@@ -20,6 +21,12 @@ _DEFAULT_TTL = timedelta(days=14)
 class InviteRejected(Exception):
     """Invite cannot be used. Message is always INVITE_REJECTED_MESSAGE —
     callers must not distinguish missing / used / expired / mismatched."""
+
+
+class EmailAlreadyRegistered(Exception):
+    """Issue #188: invite creation was asked to bind an email that already
+    belongs to a user account. Admin-surface only — the public redeem flow
+    keeps its undistinguishable InviteRejected contract."""
 
 
 @dataclass(frozen=True)
@@ -50,13 +57,22 @@ def create_invite(
     expires_at: datetime | None = None,
     expires_days: int = 14,
 ) -> IssuedInvite:
+    email_n = _normalize_email(email)
+    if email_n is not None:
+        # Mirror the signup check (routers/auth.py) exactly: bare
+        # users.email lookup, no status filter, same normalization.
+        existing = session.execute(
+            select(User.id).where(User.email == email_n)
+        ).scalar_one_or_none()
+        if existing is not None:
+            raise EmailAlreadyRegistered(email_n)
     token = secrets.token_urlsafe(24)
     created_at = datetime.now(tz=UTC)
     if expires_at is None:
         expires_at = created_at + timedelta(days=expires_days)
     row = Invite(
         token_hash=hash_invite_token(token),
-        email=_normalize_email(email),
+        email=email_n,
         created_by=created_by,
         expires_at=expires_at,
         created_at=created_at,
