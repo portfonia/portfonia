@@ -41,7 +41,7 @@ vi.mock("@/lib/supabase/browser", () => ({
 vi.mock("@/lib/auth-actions", () => ({ logout }));
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
-import { __resetReverifyThrottleForTests } from "@/hooks/use-session";
+import { markPendingLogin } from "@/hooks/use-session";
 
 import { GetStartedMenu } from "./get-started-menu";
 
@@ -69,7 +69,6 @@ describe("GetStartedMenu", () => {
   beforeEach(() => {
     getUser.mockReturnValue(new Promise(() => {})); // checking by default
     vi.clearAllMocks();
-    __resetReverifyThrottleForTests();
   });
 
   it("renders nothing while the verified session check is in flight", () => {
@@ -178,6 +177,26 @@ describe("GetStartedMenu", () => {
       expect(logout).toHaveBeenCalledWith();
     });
 
+    it("switches to the logged-out menu the instant Log out is clicked, without waiting on getUser()", async () => {
+      getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+      const user = userEvent.setup();
+      renderMenu();
+      await openMenu(user);
+
+      // getUser() never resolves again after the click — the guest state
+      // must come from the click itself (optimistic), not a round-trip.
+      getUser.mockReturnValue(new Promise(() => {}));
+      await user.click(screen.getByRole("menuitem", { name: "Log out" }));
+      // Clicking a menuitem closes the dropdown (Base UI default) — reopen
+      // it to inspect what the now-guest session renders.
+      await openMenu(user);
+
+      await waitFor(() =>
+        expect(screen.getByRole("menuitem", { name: "Log in" })).toBeInTheDocument(),
+      );
+      expect(screen.queryByRole("menuitem", { name: "Holdings" })).not.toBeInTheDocument();
+    });
+
     it("omits reserved future entries whose routes have not shipped", async () => {
       getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
       const user = userEvent.setup();
@@ -188,6 +207,34 @@ describe("GetStartedMenu", () => {
       expect(menu.textContent).not.toContain("Settings");
       expect(menu.textContent).not.toContain("Vigil");
       expect(menu.textContent).not.toContain("Questionnaire");
+    });
+  });
+
+  describe("login-pending transition", () => {
+    it("shows a Logging in... placeholder instead of rendering nothing when markPendingLogin() preceded this mount", async () => {
+      markPendingLogin();
+      getUser.mockReturnValue(new Promise(() => {}));
+      renderMenu();
+
+      expect(await screen.findByText("Logging in...")).toBeInTheDocument();
+    });
+
+    it("renders nothing on an ordinary mount with no prior markPendingLogin()", () => {
+      getUser.mockReturnValue(new Promise(() => {}));
+      const { container } = renderMenu();
+
+      expect(container).toBeEmptyDOMElement();
+    });
+
+    it("replaces the placeholder with the real menu once verification resolves", async () => {
+      markPendingLogin();
+      getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+      renderMenu();
+
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: /get started/i })).toBeInTheDocument(),
+      );
+      expect(screen.queryByText("Logging in...")).not.toBeInTheDocument();
     });
   });
 

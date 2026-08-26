@@ -9,7 +9,7 @@ import { usePathname } from "next/navigation";
 import { ChevronDown } from "lucide-react";
 
 import { useHomeMessages } from "@/app/_components/locale-provider";
-import { useSession } from "@/hooks/use-session";
+import { useSession, markOptimisticLogout } from "@/hooks/use-session";
 import { useIdleLogout } from "@/hooks/use-idle-logout";
 import { messages } from "@/lib/messages";
 import { logout } from "@/lib/auth-actions";
@@ -50,8 +50,19 @@ export function GetStartedMenu() {
   useIdleLogout(session.status, (reason) => void logout(reason));
 
   // Render nothing until the verified session check resolves — avoids a
-  // login/logout flash on first paint.
-  if (session.status === "checking") return null;
+  // login/logout flash on first paint. The one exception: right after a
+  // login redirect, markPendingLogin() tags this as a known-reason wait, so
+  // show something instead of a blank spot where the menu used to be
+  // (issue #214 follow-up — a real user report of "clicked, nothing
+  // happened" on the login path, not just logout).
+  if (session.status === "checking") {
+    if (session.pendingReason === "login") {
+      return (
+        <span className="text-sm text-foreground/60">{messages.menu.loggingIn}</span>
+      );
+    }
+    return null;
+  }
 
   const triggerLabel = isHome ? t.nav.menu : messages.menu.trigger;
   const loginLabel = isHome ? t.nav.login : messages.menu.login;
@@ -84,7 +95,19 @@ export function GetStartedMenu() {
           >
             {session.email}
           </div>
-          <MenuItemButton onClick={() => void logout()}>{logoutLabel}</MenuItemButton>
+          <MenuItemButton
+            onClick={() => {
+              // Signing out is the user's own explicit action, not something
+              // that can fail from the UI's perspective — flip immediately
+              // instead of waiting on a verified getUser() round-trip over
+              // the auth.portfonia.com proxy (issue #214: a real user report
+              // of "clicked Log out, nothing happened for a while").
+              markOptimisticLogout();
+              void logout();
+            }}
+          >
+            {logoutLabel}
+          </MenuItemButton>
         </>
       )}
     </MenuDropdown>

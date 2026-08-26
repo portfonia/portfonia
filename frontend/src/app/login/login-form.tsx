@@ -5,6 +5,7 @@ import { useActionState } from "react";
 import { messages } from "@/lib/messages";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { markPendingLogin } from "@/hooks/use-session";
 import { login, type LoginState } from "./actions";
 
 const m = messages.auth;
@@ -16,7 +17,11 @@ export function LoginForm() {
   );
 
   return (
-    <form action={formAction} className="mx-auto flex max-w-sm flex-col gap-4">
+    <form
+      action={formAction}
+      onSubmit={() => markPendingLogin()}
+      className="mx-auto flex max-w-sm flex-col gap-4"
+    >
       <div className="flex flex-col gap-1.5">
         <label htmlFor="email" className="text-sm text-foreground/80">
           {m.emailLabel}

@@ -22,13 +22,18 @@ vi.mock("@/lib/supabase/browser", () => ({
   }),
 }));
 
-import { useSession, __resetReverifyThrottleForTests } from "./use-session";
+import { useSession, markPendingLogin, markOptimisticLogout } from "./use-session";
 
 // Renders the hook state so each assertion can see exactly what a consumer
 // (the Get Started menu) would render for the current session truth.
 function Probe() {
   const session = useSession();
-  if (session.status === "checking") return null;
+  if (session.status === "checking") {
+    if (session.pendingReason === "login") {
+      return <div data-testid="session-state">checking:login</div>;
+    }
+    return null;
+  }
   return (
     <div data-testid="session-state">
       {session.status}
@@ -48,7 +53,6 @@ describe("useSession", () => {
     vi.clearAllMocks();
     usePathname.mockReturnValue("/");
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    __resetReverifyThrottleForTests();
   });
 
   afterEach(() => {
@@ -262,10 +266,6 @@ describe("useSession", () => {
     expect(screen.getByTestId("session-state")).toHaveTextContent("authed:a@b.com");
     expect(getUser).toHaveBeenCalledTimes(1);
 
-    // A real logout redirect takes real time — past the rapid-navigation
-    // grace window (that window exists to collapse several hops within the
-    // same second, not this).
-    __resetReverifyThrottleForTests();
     // Simulates logout()'s server-side redirect("/login") — SiteHeader lives
     // in the shared root layout and never remounts, but usePathname() DOES
     // change, which is the only signal available to re-verify.
@@ -276,44 +276,6 @@ describe("useSession", () => {
     await waitFor(() =>
       expect(screen.getByTestId("session-state")).toHaveTextContent("guest"),
     );
-  });
-
-  it("does not stack a duplicate verify when pathname changes again within a short grace window (rapid multi-hop navigation)", async () => {
-    getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
-    const { rerender } = render(<Probe />);
-    await screen.findByTestId("session-state");
-    expect(getUser).toHaveBeenCalledTimes(1);
-
-    usePathname.mockReturnValue("/holdings");
-    rerender(<Probe />);
-    usePathname.mockReturnValue("/questionnaire");
-    rerender(<Probe />);
-
-    // Two more pathname changes land within the grace window right after
-    // the first verify — collapses to one call, not one per hop against the
-    // already-flaky proxy.
-    expect(getUser).toHaveBeenCalledTimes(1);
-  });
-
-  it("re-verifies again once the grace window has passed", async () => {
-    vi.useFakeTimers();
-    getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
-    const { rerender } = render(<Probe />);
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(0);
-    });
-    expect(getUser).toHaveBeenCalledTimes(1);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1_500); // past the grace window
-    });
-    usePathname.mockReturnValue("/login");
-    rerender(<Probe />);
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(0);
-    });
-
-    expect(getUser).toHaveBeenCalledTimes(2);
   });
 
   it("does not re-verify on a rerender with the same pathname", async () => {
@@ -368,6 +330,79 @@ describe("useSession", () => {
     // A dead endpoint retried with zero backoff just fails again — retrying
     // only helps the timeout case (a genuinely slow, not dead, round-trip).
     expect(getUser).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders a login-pending state when markPendingLogin() was called before this mount", async () => {
+    // Simulates the LoginForm's onSubmit firing right before the Server
+    // Action's redirect() lands on the next page — the component that
+    // called markPendingLogin() is gone by the time this mounts, so the
+    // signal has to survive as module state across that navigation.
+    markPendingLogin();
+    getUser.mockReturnValue(new Promise(() => {})); // still verifying
+    render(<Probe />);
+
+    expect(await screen.findByTestId("session-state")).toHaveTextContent(
+      "checking:login",
+    );
+  });
+
+  it("clears the login-pending state once verification resolves", async () => {
+    markPendingLogin();
+    getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+    render(<Probe />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("session-state")).toHaveTextContent(
+        "authed:a@b.com",
+      ),
+    );
+  });
+
+  it("does not show a login-pending state on an ordinary mount (no prior markPendingLogin())", () => {
+    getUser.mockReturnValue(new Promise(() => {}));
+    const { container } = render(<Probe />);
+
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("optimistically flips to guest the instant markOptimisticLogout() is called, without waiting on getUser()", async () => {
+    getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+    render(<Probe />);
+    await waitFor(() =>
+      expect(screen.getByTestId("session-state")).toHaveTextContent(
+        "authed:a@b.com",
+      ),
+    );
+
+    // getUser() never resolves again after this — the guest state must come
+    // from the optimistic call itself, not from a network round-trip.
+    getUser.mockReturnValue(new Promise(() => {}));
+    act(() => {
+      markOptimisticLogout();
+    });
+
+    expect(screen.getByTestId("session-state")).toHaveTextContent("guest");
+  });
+
+  it("discards a stale in-flight verify that resolves after an optimistic logout", async () => {
+    let release!: (value: unknown) => void;
+    getUser.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    );
+    render(<Probe />);
+
+    act(() => {
+      markOptimisticLogout();
+    });
+    expect(await screen.findByTestId("session-state")).toHaveTextContent("guest");
+
+    act(() => {
+      release({ data: { user: { email: "stale@b.com" } } });
+    });
+
+    expect(screen.getByTestId("session-state")).toHaveTextContent("guest");
   });
 
   it("cleans up the subscription and listeners on unmount", async () => {
