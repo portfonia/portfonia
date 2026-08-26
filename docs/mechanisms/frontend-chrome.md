@@ -16,15 +16,32 @@ for the full before/after and decision rationale.
   root layout, not just the home page. Universal on every route:
   brand/home link and the Get Started dropdown menu
   (`components/get-started-menu.tsx` — auth-gated entry registry: guest
-  sees only Log in; authed sees Holdings + email + Log out; session
-  display trusts only a verified `getUser()`,
-  `hooks/use-session.ts`). Home-only (`pathname === "/"`): the locale
+  sees only Log in; authed sees Home + Holdings + Questionnaire + email +
+  Log out, in that order — issue #214 follow-up added Home as the first
+  entry, an explicit way back to `/` from any inner page, on top of the
+  brand-link click target). Home-only (`pathname === "/"`): the locale
   switcher, plus the brand link's target changes to `#top` (in-page jump)
   instead of `/`. The four marketing anchor links were REMOVED from the
   bar (issue #207) — the marketing sections remain on the home page
   itself, reachable by scrolling, not via bar shortcuts. The old
   `AuthStatus` component is deleted; the Holdings standalone button is
   gone (Holdings lives inside the menu).
+- **Session display trusts only a verified `getUser()`** (`hooks/use-
+  session.ts`) — never the locally-cached `INITIAL_SESSION`/`SIGNED_IN`
+  event payload. Re-verifies on: mount, focus/visibilitychange, an
+  `onAuthStateChange` event fired by the browser-side SDK itself, AND
+  (issue #214) every `pathname` change — `login()`/`logout()` are Server
+  Actions that `redirect()`, and `SiteHeader` lives in the shared root
+  layout so it never remounts across that navigation; the browser-side SDK
+  never sees the server-side sign-in/out either, so without the pathname
+  signal the menu would only ever catch up via the focus/visibility
+  fallback, on no deterministic schedule. A rapid multi-hop navigation
+  (several link clicks within ~1s) collapses to one re-verify via a
+  module-level grace-window timestamp, not one per hop. `getUser()` itself
+  is bound by an 8s timeout + one retry (timeout only, not on an immediate
+  network error) — `auth.portfonia.com` (the Caddy reverse-proxy routing
+  around direct Supabase connectivity issues) has been observed spiking
+  well past its normal sub-second response under network jitter.
 - **`lang` attribute is route-scoped, not just component-scoped**:
   `AppShell` only follows the selected locale on `/`; every other route
   (still English-only via `lib/messages.ts`, no `zh` map yet) stays

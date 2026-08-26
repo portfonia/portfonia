@@ -128,6 +128,11 @@ export function QuestionnaireForm({
     try {
       await putInvestmentContext(answers, freeText.trim() === "" ? null : freeText);
       setSaved(true);
+      // Re-entering /questionnaire from the menu while already on that route
+      // is a same-path Link click — Next.js treats it as a no-op (no
+      // remount), so nothing else would ever reset `step` back to the start
+      // (issue #214).
+      setStep(0);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : m.errorSaveFailed);
     } finally {

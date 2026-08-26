@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
+import { __resetReverifyThrottleForTests } from "@/hooks/use-session";
 import { SiteHeader } from "./site-header";
 
 const { usePathname, getUser } = vi.hoisted(() => ({
@@ -45,6 +46,7 @@ const ANCHOR_HREFS = ["#boundary", "#how", "#preview", "#faq"];
 describe("SiteHeader", () => {
   beforeEach(() => {
     getUser.mockReturnValue(new Promise(() => {}));
+    __resetReverifyThrottleForTests();
   });
 
   it.each(["/", "/holdings"])(

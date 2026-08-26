@@ -1,11 +1,14 @@
 import { render, screen, waitFor, act } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
-const { getUser, onAuthStateChange, unsubscribe } = vi.hoisted(() => ({
+const { usePathname, getUser, onAuthStateChange, unsubscribe } = vi.hoisted(() => ({
+  usePathname: vi.fn(() => "/"),
   getUser: vi.fn(),
   onAuthStateChange: vi.fn(),
   unsubscribe: vi.fn(),
 }));
+
+vi.mock("next/navigation", () => ({ usePathname }));
 
 vi.mock("@/lib/supabase/browser", () => ({
   createClient: () => ({
@@ -19,7 +22,7 @@ vi.mock("@/lib/supabase/browser", () => ({
   }),
 }));
 
-import { useSession } from "./use-session";
+import { useSession, __resetReverifyThrottleForTests } from "./use-session";
 
 // Renders the hook state so each assertion can see exactly what a consumer
 // (the Get Started menu) would render for the current session truth.
@@ -43,11 +46,17 @@ function lastAuthCallback(): (...args: unknown[]) => void {
 describe("useSession", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    usePathname.mockReturnValue("/");
     vi.spyOn(console, "warn").mockImplementation(() => {});
+    __resetReverifyThrottleForTests();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    // Unconditional, not just at the end of the fake-timer tests' happy
+    // path — an assertion failure there would otherwise leak fake timers
+    // into every later test in this file (PR #215 review nit).
+    vi.useRealTimers();
   });
 
   it("renders nothing while the verified check is in flight", () => {
@@ -242,6 +251,123 @@ describe("useSession", () => {
     act(() => {
       resolvers[0]({ data: { user: null } });
     });
+  });
+
+  it("re-verifies when pathname changes (Server Action redirect doesn't remount SiteHeader)", async () => {
+    getUser
+      .mockResolvedValueOnce({ data: { user: { email: "a@b.com" } } })
+      .mockResolvedValueOnce({ data: { user: null } });
+    const { rerender } = render(<Probe />);
+    await screen.findByTestId("session-state");
+    expect(screen.getByTestId("session-state")).toHaveTextContent("authed:a@b.com");
+    expect(getUser).toHaveBeenCalledTimes(1);
+
+    // A real logout redirect takes real time — past the rapid-navigation
+    // grace window (that window exists to collapse several hops within the
+    // same second, not this).
+    __resetReverifyThrottleForTests();
+    // Simulates logout()'s server-side redirect("/login") — SiteHeader lives
+    // in the shared root layout and never remounts, but usePathname() DOES
+    // change, which is the only signal available to re-verify.
+    usePathname.mockReturnValue("/login");
+    rerender(<Probe />);
+
+    await waitFor(() => expect(getUser).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.getByTestId("session-state")).toHaveTextContent("guest"),
+    );
+  });
+
+  it("does not stack a duplicate verify when pathname changes again within a short grace window (rapid multi-hop navigation)", async () => {
+    getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+    const { rerender } = render(<Probe />);
+    await screen.findByTestId("session-state");
+    expect(getUser).toHaveBeenCalledTimes(1);
+
+    usePathname.mockReturnValue("/holdings");
+    rerender(<Probe />);
+    usePathname.mockReturnValue("/questionnaire");
+    rerender(<Probe />);
+
+    // Two more pathname changes land within the grace window right after
+    // the first verify — collapses to one call, not one per hop against the
+    // already-flaky proxy.
+    expect(getUser).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-verifies again once the grace window has passed", async () => {
+    vi.useFakeTimers();
+    getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+    const { rerender } = render(<Probe />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(getUser).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_500); // past the grace window
+    });
+    usePathname.mockReturnValue("/login");
+    rerender(<Probe />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(getUser).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not re-verify on a rerender with the same pathname", async () => {
+    getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+    const { rerender } = render(<Probe />);
+    await screen.findByTestId("session-state");
+    expect(getUser).toHaveBeenCalledTimes(1);
+
+    rerender(<Probe />);
+
+    // No pathname change -> no new verify() -> no second network call.
+    expect(getUser).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to guest after a timeout + one retry when getUser() hangs (slow auth.portfonia.com proxy)", async () => {
+    vi.useFakeTimers();
+    getUser.mockReturnValue(new Promise(() => {})); // hangs forever
+    render(<Probe />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8_000); // first attempt times out
+    });
+    expect(getUser).toHaveBeenCalledTimes(2); // timeout triggers one retry
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8_000); // retry also times out
+    });
+
+    expect(screen.getByTestId("session-state")).toHaveTextContent("guest");
+  });
+
+  it("does not time out a getUser() call that resolves before the deadline", async () => {
+    vi.useFakeTimers();
+    getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+    render(<Probe />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    expect(screen.getByTestId("session-state")).toHaveTextContent("authed:a@b.com");
+    expect(getUser).toHaveBeenCalledTimes(1); // no retry needed
+  });
+
+  it("does not retry an immediate network error — only a timeout warrants a retry", async () => {
+    getUser.mockRejectedValue(new Error("ECONNRESET"));
+    render(<Probe />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("session-state")).toHaveTextContent("guest"),
+    );
+    // A dead endpoint retried with zero backoff just fails again — retrying
+    // only helps the timeout case (a genuinely slow, not dead, round-trip).
+    expect(getUser).toHaveBeenCalledTimes(1);
   });
 
   it("cleans up the subscription and listeners on unmount", async () => {
