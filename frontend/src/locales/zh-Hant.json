@@ -183,6 +183,9 @@
   },
   "profile": {
     "pageTitle": "個人資料",
+    "missingSetupHeading": "完成帳戶設定",
+    "missingSetupQuestionnaire": "設定投資風格",
+    "missingSetupHoldings": "錄入持倉",
     "accountHeading": "帳戶",
     "accountEmailLabel": "電子郵件",
     "passwordHeading": "修改密碼",
@@ -360,5 +363,12 @@
       "stack1": "Next.js · FastAPI · Celery · PostgreSQL",
       "stack2": "透過 OpenRouter 串接可替換的 LLM 服務"
     }
+  },
+  "welcome": {
+    "greeting": "歡迎，{email}。",
+    "withHoldings": "你的持倉已儲存。報告將發送至 {deliveryEmail}。",
+    "withoutHoldings": "報告將發送至 {deliveryEmail}。儲存持倉前，持倉相關區塊將保持為空。",
+    "cadence": "你的報告週期是每週一次。首份報告將按此週期發送。",
+    "errorLoadFailed": "無法載入你的帳戶資訊。"
   }
 }

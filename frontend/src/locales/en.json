@@ -183,6 +183,9 @@
   },
   "profile": {
     "pageTitle": "Profile",
+    "missingSetupHeading": "Finish setting up your account",
+    "missingSetupQuestionnaire": "Set your investment style",
+    "missingSetupHoldings": "Add your holdings",
     "accountHeading": "Account",
     "accountEmailLabel": "Email",
     "passwordHeading": "Change password",
@@ -360,5 +363,12 @@
       "stack1": "Next.js · FastAPI · Celery · PostgreSQL",
       "stack2": "Pluggable LLM providers via OpenRouter"
     }
+  },
+  "welcome": {
+    "greeting": "Welcome, {email}.",
+    "withHoldings": "Your holdings are saved. Reports will be sent to {deliveryEmail}.",
+    "withoutHoldings": "Reports will be sent to {deliveryEmail}. Holdings-related sections stay empty until you save holdings.",
+    "cadence": "Your cadence is weekly. The first report follows that schedule.",
+    "errorLoadFailed": "Could not load your account."
   }
 }

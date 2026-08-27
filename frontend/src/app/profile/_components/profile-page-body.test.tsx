@@ -87,20 +87,33 @@ describe("ProfilePageBody", () => {
     expect(screen.getByLabelText(/confirm new password/i)).toBeInTheDocument();
   });
 
-  it("never renders a gap card from `missing`, even with entries present — that UI is #221's, not this page's", () => {
+  it("renders a gap card with a button per missing item, neither carrying ?onboarding=1 (issue #221 §2.6)", () => {
     renderBody({ ...BASE_ME, missing: ["questionnaire", "holdings"] });
 
-    expect(screen.queryByText("questionnaire")).not.toBeInTheDocument();
-    expect(screen.queryByText("holdings")).not.toBeInTheDocument();
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    const questionnaireLink = screen.getByRole("link", { name: /set your investment style/i });
+    expect(questionnaireLink).toHaveAttribute("href", "/questionnaire");
+    const holdingsLink = screen.getByRole("link", { name: /add your holdings/i });
+    expect(holdingsLink).toHaveAttribute("href", "/holdings");
   });
 
-  it("renders identically whether `missing` is empty or full — this page never branches on it", () => {
-    renderBody({ ...BASE_ME, missing: [] });
+  it("shows only the button for the item still missing when one is already done", () => {
+    renderBody({ ...BASE_ME, has_questionnaire: true, missing: ["holdings"] });
 
-    // Same assertions as the "every placeholder section" case above: an
-    // empty `missing` must not, say, hide the placeholders or otherwise
-    // change what renders — this page doesn't read the field at all.
+    expect(
+      screen.queryByRole("link", { name: /set your investment style/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /add your holdings/i })).toBeInTheDocument();
+  });
+
+  it("renders no gap card at all when `missing` is empty", () => {
+    renderBody({ ...BASE_ME, has_questionnaire: true, has_holdings: true, missing: [] });
+
+    expect(
+      screen.queryByRole("link", { name: /set your investment style/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /add your holdings/i })).not.toBeInTheDocument();
+    // The rest of the page still renders — an empty `missing` doesn't hide
+    // anything else.
     expect(screen.getByText(/portfolio overview/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete account" })).toBeDisabled();
   });

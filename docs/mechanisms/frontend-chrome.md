@@ -53,8 +53,9 @@ for the full before/after and decision rationale.
   (login form's `onSubmit`) tags the next `checking` window with
   `pendingReason: "login"` so the menu shows a "Logging in..." placeholder
   instead of nothing during the post-redirect verification. Signup uses
-  the same `markPendingLogin()` signal (post-signup also redirects to
-  `/holdings`). `clearPendingLogin()` disarms it if login/signup returns
+  the same `markPendingLogin()` signal (post-signup redirects to
+  `/questionnaire?onboarding=1` as of issue #221 — see that section below,
+  not `/holdings` anymore). `clearPendingLogin()` disarms it if login/signup returns
   an error instead of redirecting, so a later ordinary navigation does
   not show a stale "Logging in..." placeholder. `markOptimisticLogout()`
   (Log out button's `onClick`) flips the state to `guest` immediately so
@@ -136,6 +137,75 @@ for the full before/after and decision rationale.
   #220's requirement that these stay visible placeholders, not silently
   absent or falsely interactive.
 
+### Post-signup onboarding: ToS gate, questionnaire → holdings → welcome, Profile gap card (issue #221, 2026-08-27)
+
+Canonical design: Obsidian `Hermes/Portfonia/Docs/Ring 1-Onboarding.md`.
+
+- **`signup/actions.ts` redirects to `/questionnaire?onboarding=1`**, not
+  `/holdings` — the single trigger point for `mode="onboarding"` anywhere
+  in the app. `SignupForm` gained a ToS checkbox with a client-side gate
+  (mirrors the existing password-mismatch `preventDefault` pattern); the
+  backend's `SignupRequest.tos_accepted: Literal[True]` is the independent
+  second layer, not a duplicate of the client check.
+- **One implementation per screen, `mode` prop, no `/onboarding/*` tree.**
+  `QuestionnaireForm`/`QuestionnairePageBody` take `mode: "onboarding" |
+  "edit"` (default `"edit"`); `HoldingsManager` takes `mode: "onboarding" |
+  "normal"` (default `"normal"`). Each page reads its own `searchParams.
+  onboarding === "1"` (async `searchParams: Promise<...>`, same pattern as
+  `signup/page.tsx`'s `invite` param) and passes the resolved mode down —
+  there is no shared "onboarding context," each route resolves it locally.
+- **Save always navigates away now, in both modes** — onboarding Save goes
+  to `/welcome` (questionnaire) or `/welcome` (holdings); edit-mode
+  questionnaire Save goes to `/profile`. This supersedes issue #214's
+  same-path-Link-no-remount fix (which reset the questionnaire wizard's
+  `step` back to 0 instead of navigating): once every successful save
+  leaves `/questionnaire`, that fix is unreachable and was removed.
+  Skip (a plain `Link`, never a submit — writes no row) follows the same
+  table: onboarding → `/holdings?onboarding=1`, edit → `/profile`. Holdings
+  onboarding mode additionally hides the Current holdings card (which is
+  also where Export lives, so hiding the card hides Export too) and the
+  Download-template button.
+- **`/welcome` is a new route**, not public (absent from `proxy.ts`'s
+  `PUBLIC_PATH_PREFIXES`, same as `/profile`/`/holdings` — no route-specific
+  auth code needed). Server Component `page.tsx` calls `getMeServer()`;
+  the Client Component `WelcomeBody` does a `sessionStorage.
+  portfonia.welcomed` dedupe check in a `useEffect` (same one-time
+  client-only-reveal pattern as `locale-provider.tsx`'s restore effect —
+  needs the same `eslint-disable-next-line react-hooks/set-state-in-effect`
+  for the same hydration-mismatch reason) and `router.replace("/")`s a
+  second same-session visit instead of re-rendering. No CTA button, no
+  dashboard link, and no Profile menu entry to it — reachable only from the
+  two Save flows. Copy never claims a holdings-confirmation email was sent
+  and never prints the current global MWF 17:00 schedule even though the
+  user's own cadence is already `weekly` — that number is filled in only
+  once a later cadence issue wires `weekly` into Beat.
+- **Profile's gap card reads `GET /me`'s `missing` field** (`#220` shipped
+  the full response shape already; this is the first UI consumer of
+  `missing`/`has_questionnaire`/`has_holdings`). Renders nothing when
+  `missing` is empty; one button per entry (`/questionnaire`, `/holdings`
+  — **never** `?onboarding=1`, since that query string's only legitimate
+  source is the post-signup redirect). This replaced two guard tests PR
+  #228 had written to lock "Profile never renders a gap card, that's
+  #221's job" — expected, since implementing #221 is what makes that
+  boundary move.
+- **Backend**: `report_cadence` now defaults to `"weekly"` at signup (was
+  `"mwf"`); `users.tos_accepted_at` (already added in #220's migration) is
+  now actually written, in the same transaction as the user insert. Admin
+  manual-generate (`POST /admin/users/{id}/reports/generate`) dropped its
+  no-holdings 422 — self-service `POST /reports/generate` never had it, so
+  this closed a gap rather than opening one. `active_user_ids()` (scheduled
+  fan-out) is untouched on purpose: it still requires a holding row, so a
+  brand-new empty-book signup does not enter the still-global-MWF scheduled
+  batch — that only changes once a cadence follow-up issue wires `weekly`
+  into Beat and filters fan-out by `users.report_cadence`.
+- **Fixed in passing**: adding `tos_accepted` as a required field exposed
+  a real leak in `main.py`'s password-redaction handler for 422 bodies —
+  pydantic v2's "missing field" validation error sets `input` to the
+  *whole request body*, not just that field, so a sibling `password` value
+  leaked in plaintext whenever a signup request failed on two fields at
+  once (e.g. a valid password alongside an omitted `tos_accepted`). The
+  handler now also scrubs known secret keys out of any dict-shaped `input`,
+  not just errors whose `loc` mentions them directly.
 
 ### Global message catalog — supersedes the home-only locale gating above (issue #209, 2026-08-27)
 

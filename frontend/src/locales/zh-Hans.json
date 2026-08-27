@@ -183,6 +183,9 @@
   },
   "profile": {
     "pageTitle": "个人资料",
+    "missingSetupHeading": "完成账户设置",
+    "missingSetupQuestionnaire": "设置投资风格",
+    "missingSetupHoldings": "录入持仓",
     "accountHeading": "账户",
     "accountEmailLabel": "邮箱",
     "passwordHeading": "修改密码",
@@ -360,5 +363,12 @@
       "stack1": "Next.js · FastAPI · Celery · PostgreSQL",
       "stack2": "通过 OpenRouter 接入可插拔的 LLM 提供方"
     }
+  },
+  "welcome": {
+    "greeting": "欢迎，{email}。",
+    "withHoldings": "你的持仓已保存。报告将发送至 {deliveryEmail}。",
+    "withoutHoldings": "报告将发送至 {deliveryEmail}。保存持仓前，持仓相关板块将保持为空。",
+    "cadence": "你的报告周期是每周一次。首份报告将按此周期发送。",
+    "errorLoadFailed": "无法加载你的账户信息。"
   }
 }

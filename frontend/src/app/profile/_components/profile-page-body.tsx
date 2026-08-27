@@ -30,11 +30,38 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
   // visible to the user instead of silent.
   const deliveryEmailDisplay = me.delivery_email ?? me.email;
 
+  // Gap card (issue #221 §2.6): guidance only, never forced — renders
+  // nothing when `missing` is empty. Buttons never carry ?onboarding=1
+  // (that query string has exactly one trigger, the post-signup redirect).
+  const missingLinks: Record<"questionnaire" | "holdings", { href: string; label: string }> = {
+    questionnaire: { href: "/questionnaire", label: t("missingSetupQuestionnaire") },
+    holdings: { href: "/holdings", label: t("missingSetupHoldings") },
+  };
+
   return (
     <div className="flex flex-col gap-6">
       <header>
         <h1 className="font-heading text-2xl font-semibold">{t("pageTitle")}</h1>
       </header>
+
+      {me.missing.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("missingSetupHeading")}</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2 px-4">
+            {me.missing.map((item) => {
+              const link = missingLinks[item as "questionnaire" | "holdings"];
+              if (!link) return null;
+              return (
+                <Button key={item} variant="outline" render={<Link href={link.href} />}>
+                  {link.label}
+                </Button>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
