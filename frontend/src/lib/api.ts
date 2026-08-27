@@ -231,3 +231,17 @@ export async function putInvestmentContext(
   if (!res.ok) throw new ApiError(res.status, await readError(res));
   return res.json() as Promise<InvestmentContext>;
 }
+
+// Mirrors backend/app/schemas/me.py's MeOut (issue #220, full #221 shape —
+// see docs/mechanisms/identity-and-auth.md's "GET /me" entry). `/profile`
+// (this PR) only reads `email`/`delivery_email`; the other four fields ride
+// along on the wire already but have no frontend reader until #221's gap
+// card.
+export interface Me {
+  email: string;
+  delivery_email: string | null;
+  tos_accepted_at: string | null;
+  has_questionnaire: boolean;
+  has_holdings: boolean;
+  missing: string[];
+}

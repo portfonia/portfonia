@@ -187,18 +187,21 @@ describe("GetStartedMenu", () => {
       expect(menu.textContent).not.toContain("Sign up");
     });
 
-    it("offers a Home entry linking to / as the first item", async () => {
+    it("offers a Profile entry linking to /profile as the first item (issue #220)", async () => {
       getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
       const user = userEvent.setup();
       renderMenu();
       await openMenu(user);
 
-      expect(screen.getByRole("menuitem", { name: "Home" })).toHaveAttribute("href", "/");
+      expect(screen.getByRole("menuitem", { name: "Profile" })).toHaveAttribute(
+        "href",
+        "/profile",
+      );
 
       const itemLabels = screen
         .getAllByRole("menuitem")
         .map((el) => el.textContent);
-      expect(itemLabels[0]).toBe("Home");
+      expect(itemLabels[0]).toBe("Profile");
     });
 
     it("calls the logout Server Action without a reason from the manual Log out item", async () => {
@@ -380,7 +383,7 @@ describe("GetStartedMenu", () => {
       expect(screen.queryByRole("menuitem", { name: "Holdings" })).not.toBeInTheDocument();
     });
 
-    it("uses the zh-Hans Home label on a non-home route when logged in (not a mixed-language menu)", async () => {
+    it("uses the zh-Hans Profile label on a non-home route when logged in (not a mixed-language menu)", async () => {
       withLocaleStorage("zh-Hans");
 
       getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
@@ -392,9 +395,9 @@ describe("GetStartedMenu", () => {
       );
 
       await waitFor(() =>
-        expect(screen.getByRole("menuitem", { name: "首页" })).toBeInTheDocument(),
+        expect(screen.getByRole("menuitem", { name: "个人资料" })).toBeInTheDocument(),
       );
-      expect(screen.queryByRole("menuitem", { name: "Home" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: "Profile" })).not.toBeInTheDocument();
     });
 
     // blacktomb42 review (PR #226): zh-Hant is pending native-speaker review

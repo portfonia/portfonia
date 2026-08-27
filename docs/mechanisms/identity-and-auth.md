@@ -331,6 +331,36 @@ without B5 in the same release** — see the B4 section above.
   entry corrects.
 
 
+### GET /me — issue #220 (Profile page), full #221 shape landed together
+
+`GET /me` (`app/routers/me.py`, `Depends(current_principal)`) returns
+`{email, delivery_email, tos_accepted_at, has_questionnaire, has_holdings,
+missing}` — the complete shape `Ring 1-Onboarding.md` (#221) specifies, not
+the narrower `{email, delivery_email}` issue #220 itself originally asked
+for. Decided when #220 was implemented (2026-08-27), per the Onboarding
+doc's own coupling note (§6): "if #220 lands first, build it in the final
+shape — don't ship a narrow schema and widen it later." `has_questionnaire`
+is `EXISTS` on `user_investment_context`; `has_holdings` is `EXISTS` on
+`holdings`; `missing` is computed from those two booleans only.
+
+- **`missing` never contains `"tos"`.** `tos_accepted_at` is audit-only —
+  existing users predate any ToS gate and get `NULL` with no re-accept flow
+  (Onboarding §2.6). The one new column this required,
+  `users.tos_accepted_at TIMESTAMPTZ` (nullable, migration
+  `b1c2d3e4f5a6`), has no writer yet — `POST /auth/signup` does not set it.
+  That write path, plus the ToS checkbox gate itself, is issue #221, not
+  this one.
+- **The #220 Profile page does not render `missing` as a gap card** — that
+  UI is explicitly #221's (Onboarding §2.6/§6). #220 only consumes
+  `email`/`delivery_email` from this response today; the other four fields
+  exist on the wire and are tested, but have no frontend reader until #221.
+- Structural coverage: `/me` was added to
+  `test_identity_seam.py`'s `scoped_prefixes` tuple alongside `/holdings`,
+  `/portfolio`, `/reports`, `/investment-context` — the same
+  coverage-by-iteration test that would have caught B3's original
+  split-identity gap now also guards this router.
+
+
 ### Investment-style questionnaire — B6 (Ring 1-B design.md §8, issue #129 checkpoint B6)
 
 Closes the "stated preference" half of Concept §4.2's signal model — the

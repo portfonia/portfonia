@@ -158,6 +158,12 @@ def test_users_migration_binds_existing_dev_user(alembic_cfg: Config) -> None:
         seed.commit()
 
     command.upgrade(alembic_cfg, "e8f9a0b1c2d3")
+    # The binding behavior under test is fully decided by this one
+    # migration; upgrading the rest of the way to head before the ORM read
+    # avoids this test breaking every time a later migration adds a nullable
+    # User column (e.g. issue #220's tos_accepted_at) that the ORM model —
+    # but not yet the DB at this exact revision — expects to select.
+    command.upgrade(alembic_cfg, "head")
     with Session(engine) as check:
         row = check.get(User, uid)
         assert row is not None

@@ -92,6 +92,51 @@ for the full before/after and decision rationale.
   treat that as worth a design-doc note, not a silent second
   implementation).
 
+### Profile page + menu icons (issue #220, 2026-08-27)
+
+- **`AUTHED_ENTRIES`'s first entry is `profile` → `/profile`, not `home` →
+  `/`.** The #214-follow-up placeholder "Home" entry is gone; the way back
+  to `/` is the brand-link click only (product confirmation, Obsidian `Ring
+  1-Profile Page.md` §三: "Home was always a placeholder"). `menu.home` was
+  renamed to `menu.profile` in all three locale catalogs — not added
+  alongside it — since nothing else read the old key.
+- **Every `GetStartedMenu` entry now carries a `lucide-react` icon**
+  (`User`/`Briefcase`/`ClipboardList` for the three authed entries,
+  `LogIn`/`LogOut` for guest login and manual logout), `aria-hidden="true"`
+  since the adjacent label already carries the accessible name.
+  `components/ui/menu.tsx`'s `MenuItemLink`/`MenuItemButton` switched from
+  `className="block ..."` to `flex items-center gap-2 ...` to lay the icon
+  and label out on one line — a shared-component change, not per-entry
+  markup, so a future entry gets the same layout for free.
+- **`/profile` inherits the shared header for free** (root-layout
+  convention above) and is protected by the existing `proxy.ts` gate — it
+  is not in `PUBLIC_PATH_PREFIXES`, so an unauthenticated request redirects
+  to `/login` with no route-specific code.
+- **New `profile` message namespace**, translated into all three locales
+  (`en`/`zh-Hans`/`zh-Hant`) from the start — issue #209's global catalog
+  already covers every route, so a new route landing English-only would
+  have reopened the exact per-route gap #209 closed, not stayed consistent
+  with it.
+- **`GET /me` full #221 shape, `/profile` UI reads only two of its six
+  fields** — see `docs/mechanisms/identity-and-auth.md`'s "GET /me" entry
+  for the endpoint; this page renders `email` and `delivery_email` (with an
+  explicit visible fallback-to-account-email note when unset — a product
+  decision made when implementing this issue, not specified in the
+  original issue text) and leaves `missing`/`has_questionnaire`/
+  `has_holdings`/`tos_accepted_at` unused until #221's gap card.
+- **Change-password Server Action** (`app/profile/actions.ts`) follows the
+  same `signInWithPassword`-then-`updateUser` pattern as
+  `Ring 1-Profile Page.md` §三 decision 2 — verifies against the caller's
+  own session email (`supabase.auth.getUser()`), never a client-submitted
+  `email` form field, so a forged field can't steer whose password gets
+  checked.
+- **Every non-implemented Profile section (portfolio overview, report
+  schedule, delivery-email change, invite generation, delete account) is
+  rendered with disabled controls**, never a submittable form — issue
+  #220's requirement that these stay visible placeholders, not silently
+  absent or falsely interactive.
+
+
 ### Global message catalog — supersedes the home-only locale gating above (issue #209, 2026-08-27)
 
 The three bullets above ("`lang` attribute is route-scoped", "the locale

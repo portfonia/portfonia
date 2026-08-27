@@ -10,7 +10,7 @@
     "loggingIn": "正在登录...",
     "logoutFailed": "退出失败，请重试。",
     "holdings": "持仓",
-    "home": "首页",
+    "profile": "个人资料",
     "questionnaire": "投资风格",
     "sessionExpired": "由于 {minutes} 分钟内无操作，登录已结束。"
   },
@@ -177,6 +177,46 @@
         }
       }
     }
+  },
+  "profile": {
+    "pageTitle": "个人资料",
+    "accountHeading": "账户",
+    "accountEmailLabel": "邮箱",
+    "passwordHeading": "修改密码",
+    "currentPasswordLabel": "当前密码",
+    "newPasswordLabel": "新密码",
+    "confirmNewPasswordLabel": "确认新密码",
+    "passwordMismatch": "两次输入的新密码不一致。",
+    "passwordTooShort": "新密码至少需要 8 个字符。",
+    "errorMissingFields": "请填写当前密码和新密码。",
+    "changePasswordButton": "修改密码",
+    "changingPassword": "正在修改密码...",
+    "passwordChangeSuccess": "密码已修改。",
+    "errorCurrentPasswordIncorrect": "当前密码不正确。",
+    "errorPasswordChangeFailed": "修改密码失败，请重试。",
+    "investmentStyleHeading": "投资风格",
+    "investmentStyleBody": "更新影响报告侧重内容和角度的偏好设置。",
+    "investmentStyleButton": "更新投资风格",
+    "portfolioOverviewHeading": "持仓总览",
+    "portfolioOverviewPlaceholder": "暂未实现——将显示以最新价计算的持仓总览。",
+    "reportScheduleHeading": "报告周期",
+    "reportSchedulePlaceholder": "暂未接入——此处选择目前不生效。",
+    "reportScheduleOptions": {
+      "weekly": "周报",
+      "everyOtherDay": "隔日报",
+      "morning": "晨报",
+      "evening": "晚报",
+      "morningAndEvening": "早晚报"
+    },
+    "deliveryEmailHeading": "报告接收邮箱",
+    "deliveryEmailFallbackNote": "未设置独立接收邮箱，当前使用账户邮箱。",
+    "inviteHeading": "生成邀请",
+    "inviteBody": "生成绑定指定邮箱的邀请链接。",
+    "invitePlaceholder": "暂未实现。",
+    "deleteAccountHeading": "删除账户",
+    "deleteAccountBody": "终止服务并永久清除你的账户数据。",
+    "deleteAccountPlaceholder": "暂未实现。",
+    "errorLoadFailed": "无法加载账户信息。"
   },
   "home": {
     "hero": {

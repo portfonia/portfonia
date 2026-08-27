@@ -10,7 +10,7 @@
     "loggingIn": "登入中...",
     "logoutFailed": "登出失敗，請重試。",
     "holdings": "持倉",
-    "home": "首頁",
+    "profile": "個人資料",
     "questionnaire": "投資風格",
     "sessionExpired": "由於 {minutes} 分鐘內無操作，登入已結束。"
   },
@@ -177,6 +177,46 @@
         }
       }
     }
+  },
+  "profile": {
+    "pageTitle": "個人資料",
+    "accountHeading": "帳戶",
+    "accountEmailLabel": "電子郵件",
+    "passwordHeading": "修改密碼",
+    "currentPasswordLabel": "目前密碼",
+    "newPasswordLabel": "新密碼",
+    "confirmNewPasswordLabel": "確認新密碼",
+    "passwordMismatch": "兩次輸入的新密碼不一致。",
+    "passwordTooShort": "新密碼至少需要 8 個字元。",
+    "errorMissingFields": "請填寫目前密碼與新密碼。",
+    "changePasswordButton": "修改密碼",
+    "changingPassword": "正在修改密碼...",
+    "passwordChangeSuccess": "密碼已修改。",
+    "errorCurrentPasswordIncorrect": "目前密碼不正確。",
+    "errorPasswordChangeFailed": "修改密碼失敗，請重試。",
+    "investmentStyleHeading": "投資風格",
+    "investmentStyleBody": "更新影響報告側重內容與角度的偏好設定。",
+    "investmentStyleButton": "更新投資風格",
+    "portfolioOverviewHeading": "持倉總覽",
+    "portfolioOverviewPlaceholder": "尚未實作——將顯示以最新價計算的持倉總覽。",
+    "reportScheduleHeading": "報告週期",
+    "reportSchedulePlaceholder": "尚未接上——此處選擇目前不生效。",
+    "reportScheduleOptions": {
+      "weekly": "週報",
+      "everyOtherDay": "隔日報",
+      "morning": "晨報",
+      "evening": "晚報",
+      "morningAndEvening": "早晚報"
+    },
+    "deliveryEmailHeading": "報告接收信箱",
+    "deliveryEmailFallbackNote": "尚未設定獨立接收信箱，目前使用帳戶電子郵件。",
+    "inviteHeading": "產生邀請",
+    "inviteBody": "產生綁定指定電子郵件的邀請連結。",
+    "invitePlaceholder": "尚未實作。",
+    "deleteAccountHeading": "刪除帳戶",
+    "deleteAccountBody": "終止服務並永久清除您的帳戶資料。",
+    "deleteAccountPlaceholder": "尚未實作。",
+    "errorLoadFailed": "無法載入帳戶資訊。"
   },
   "home": {
     "hero": {

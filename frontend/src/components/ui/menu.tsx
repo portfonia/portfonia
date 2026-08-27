@@ -55,7 +55,7 @@ export function MenuItemLink({
       href={href}
       closeOnClick
       render={<Link href={href} />}
-      className="block rounded-md px-3 py-2 text-sm outline-none data-[highlighted]:bg-muted data-[highlighted]:text-foreground"
+      className="flex items-center gap-2 rounded-md px-3 py-2 text-sm outline-none data-[highlighted]:bg-muted data-[highlighted]:text-foreground"
     >
       {children}
     </Menu.LinkItem>
@@ -72,7 +72,7 @@ export function MenuItemButton({
   return (
     <Menu.Item
       onClick={onClick}
-      className="block w-full cursor-pointer rounded-md px-3 py-2 text-left text-sm outline-none data-[highlighted]:bg-muted data-[highlighted]:text-foreground"
+      className="flex w-full cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-left text-sm outline-none data-[highlighted]:bg-muted data-[highlighted]:text-foreground"
     >
       {children}
     </Menu.Item>

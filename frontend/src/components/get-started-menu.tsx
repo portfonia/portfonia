@@ -14,7 +14,8 @@
 // exactly one `menu` namespace in the shared catalog, read the same way on
 // every route.
 import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { Briefcase, ChevronDown, ClipboardList, LogIn, LogOut, User } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import {
@@ -35,13 +36,14 @@ import {
 
 // Entries shown only to authenticated users, in display order. Signup is
 // deliberately absent: closed beta, no self-serve registration (OQ-3).
-// "Home" is first — an explicit way back to "/" from any inner page, on top
-// of the brand-link click target (issue #214 follow-up).
+// "Profile" is first (issue #220 — replaces the #214-follow-up placeholder
+// "Home" entry; the way back to "/" is the brand-link click only now, no
+// second entry for it).
 const AUTHED_ENTRIES = [
-  { id: "home", href: "/" },
-  { id: "holdings", href: "/holdings" },
-  { id: "questionnaire", href: "/questionnaire" },
-] as const;
+  { id: "profile", href: "/profile", Icon: User },
+  { id: "holdings", href: "/holdings", Icon: Briefcase },
+  { id: "questionnaire", href: "/questionnaire", Icon: ClipboardList },
+] as const satisfies { id: string; href: string; Icon: LucideIcon }[];
 
 export function GetStartedMenu() {
   const t = useTranslations("menu");
@@ -102,13 +104,19 @@ export function GetStartedMenu() {
           </>
         }
       >
-        {session.status === "guest" && <MenuItemLink href="/login">{t("login")}</MenuItemLink>}
+        {session.status === "guest" && (
+          <MenuItemLink href="/login">
+            <LogIn aria-hidden="true" className="size-4" />
+            {t("login")}
+          </MenuItemLink>
+        )}
 
         {session.status === "authed" && (
           <>
-            {AUTHED_ENTRIES.map((entry) => (
-              <MenuItemLink key={entry.id} href={entry.href}>
-                {t(entry.id)}
+            {AUTHED_ENTRIES.map(({ id, href, Icon }) => (
+              <MenuItemLink key={id} href={href}>
+                <Icon aria-hidden="true" className="size-4" />
+                {t(id)}
               </MenuItemLink>
             ))}
             <MenuSeparator />
@@ -129,6 +137,7 @@ export function GetStartedMenu() {
                 runLogout();
               }}
             >
+              <LogOut aria-hidden="true" className="size-4" />
               {t("logout")}
             </MenuItemButton>
           </>

@@ -49,6 +49,10 @@ class User(Base):
     base_currency: Mapped[str] = mapped_column(Text, nullable=False)
     report_cadence: Mapped[str] = mapped_column(Text, nullable=False)
     delivery_email: Mapped[str | None] = mapped_column(Text)
+    # Audit only (issue #220/#221). NULL means "registered before the ToS
+    # gate existed" — never surfaced as a fixable gap; #221's signup flow is
+    # the only writer, not implemented yet as of this column landing.
+    tos_accepted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     invited_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     last_login_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
