@@ -45,6 +45,10 @@ export async function signup(
   const inviteToken = String(formData.get("invite_token") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
+  // The checkbox's own "on"/absent value — SignupForm already blocks
+  // submission client-side when unchecked (Ring 1-Onboarding.md §2.5); the
+  // backend's Literal[True] is the independent second layer.
+  const tosAccepted = formData.get("tos_accepted") === "on";
   const auth = catalogs[resolveLocale(formData)].auth;
 
   if (!inviteToken) {
@@ -57,7 +61,12 @@ export async function signup(
   const res = await fetch(`${BACKEND_URL}/auth/signup`, {
     method: "POST",
     headers: await signupBackendHeaders(),
-    body: JSON.stringify({ invite_token: inviteToken, email, password }),
+    body: JSON.stringify({
+      invite_token: inviteToken,
+      email,
+      password,
+      tos_accepted: tosAccepted,
+    }),
   });
 
   if (!res.ok) {
@@ -81,5 +90,7 @@ export async function signup(
     redirect("/login");
   }
 
-  redirect("/holdings");
+  // Onboarding entry point (Ring 1-Onboarding.md §2.1): the ONLY place
+  // mode="onboarding" is ever triggered from.
+  redirect("/questionnaire?onboarding=1");
 }

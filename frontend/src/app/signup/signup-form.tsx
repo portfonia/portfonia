@@ -26,6 +26,7 @@ export function SignupForm({ inviteToken }: { inviteToken: string }) {
     undefined,
   );
   const [mismatch, setMismatch] = useState(false);
+  const [tosError, setTosError] = useState(false);
 
   if (!inviteToken) {
     return (
@@ -48,6 +49,16 @@ export function SignupForm({ inviteToken }: { inviteToken: string }) {
       return;
     }
     setMismatch(false);
+    // Client-side half of the two-layer ToS gate (Ring 1-Onboarding.md §2.5)
+    // — the backend's SignupRequest.tos_accepted (Literal[True]) is the
+    // other, independent layer. An unchecked checkbox is simply absent from
+    // FormData, not "off".
+    if (form.get("tos_accepted") !== "on") {
+      e.preventDefault();
+      setTosError(true);
+      return;
+    }
+    setTosError(false);
     markPendingLogin();
   }
 
@@ -93,9 +104,25 @@ export function SignupForm({ inviteToken }: { inviteToken: string }) {
           required
         />
       </div>
+      <div className="flex items-center gap-2">
+        <input
+          id="tos"
+          name="tos_accepted"
+          type="checkbox"
+          className="h-4 w-4 rounded border-input"
+        />
+        <label htmlFor="tos" className="text-sm text-foreground/80">
+          {t("tosLabel")}
+        </label>
+      </div>
+
       {mismatch ? (
         <p className="text-sm text-destructive" role="alert">
           {t("passwordMismatch")}
+        </p>
+      ) : tosError ? (
+        <p className="text-sm text-destructive" role="alert">
+          {t("tosRequired")}
         </p>
       ) : state?.error ? (
         <p className="text-sm text-destructive" role="alert">

@@ -26,10 +26,13 @@ const email = () => screen.getByLabelText(/^email$/i);
 const password = () => screen.getByLabelText(/^password$/i);
 const confirmPassword = () => screen.getByLabelText(/^confirm password$/i);
 
+const tosCheckbox = () => screen.getByRole("checkbox", { name: /terms of service/i });
+
 async function fillForm(user: ReturnType<typeof userEvent.setup>, pw: string) {
   await user.type(email(), "a@b.com");
   await user.type(password(), pw);
   await user.type(confirmPassword(), pw);
+  await user.click(tosCheckbox());
 }
 
 describe("SignupForm", () => {
@@ -44,7 +47,7 @@ describe("SignupForm", () => {
     expect(screen.queryByLabelText(/email/i)).not.toBeInTheDocument();
   });
 
-  it("submits the invite token, email, and password to the signup action", async () => {
+  it("submits the invite token, email, password, and tos_accepted to the signup action", async () => {
     signup.mockResolvedValue({ error: null });
     const user = userEvent.setup();
     renderForm("tok-abc");
@@ -57,6 +60,23 @@ describe("SignupForm", () => {
     expect(submittedForm.get("invite_token")).toBe("tok-abc");
     expect(submittedForm.get("email")).toBe("a@b.com");
     expect(submittedForm.get("password")).toBe("correcthorse");
+    expect(submittedForm.get("tos_accepted")).toBe("on");
+  });
+
+  it("blocks submit when the ToS checkbox is unchecked and shows the required message", async () => {
+    signup.mockResolvedValue({ error: null });
+    const user = userEvent.setup();
+    renderForm("tok-abc");
+
+    await user.type(email(), "a@b.com");
+    await user.type(password(), "correcthorse");
+    await user.type(confirmPassword(), "correcthorse");
+    // Deliberately not checking the ToS box.
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+
+    expect(await screen.findByText(/must agree to the Terms of Service/i)).toBeInTheDocument();
+    expect(signup).not.toHaveBeenCalled();
+    expect(markPendingLogin).not.toHaveBeenCalled();
   });
 
   it("blocks submit when the passwords do not match and shows the mismatch message", async () => {
@@ -84,6 +104,7 @@ describe("SignupForm", () => {
     await user.type(email(), "a@b.com");
     await user.type(password(), "correcthorse");
     await user.type(confirmPassword(), "wronghorse");
+    await user.click(tosCheckbox());
     await user.click(screen.getByRole("button", { name: /create account/i }));
     await screen.findByText("Passwords do not match.");
 
@@ -106,7 +127,7 @@ describe("SignupForm", () => {
     expect(await screen.findByText("This invite is no longer valid.")).toBeInTheDocument();
   });
 
-  it("marks the session as pending on submit, same signal as login (post-signup redirect to /holdings)", async () => {
+  it("marks the session as pending on submit, same signal as login (post-signup redirect to /questionnaire)", async () => {
     signup.mockResolvedValue({ error: null });
     const user = userEvent.setup();
     renderForm("tok-abc");
