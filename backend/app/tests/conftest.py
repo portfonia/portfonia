@@ -66,13 +66,18 @@ _EXTERNAL_NOTIFY_MODULES = (
 
 
 @pytest.fixture(autouse=True)
-def _rate_limit_memory() -> Generator[None, None, None]:
+def _rate_limit_memory(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     """Every test gets a fresh in-memory counter. A live Redis would leak
     buckets across tests and 503 if the daemon is down (issue #190).
+
+    Also stub `send_admin_alert_task.delay` so a 429 cannot enqueue real
+    Celery work against the local broker. Tests that assert call counts
+    re-patch `.delay` and shadow this mock.
     """
     from app.core.rate_limit import InMemoryBackend, set_backend
 
     set_backend(InMemoryBackend())
+    monkeypatch.setattr("app.core.rate_limit.send_admin_alert_task.delay", MagicMock())
     yield
     set_backend(None)
 
@@ -84,7 +89,7 @@ def _no_external_notifications(monkeypatch: pytest.MonkeyPatch) -> None:
     2026-06-19: `send_ops_alert` was unmocked, and `test_report_generator.py`
     uses a fixed historical `_TODAY = date(2026, 6, 4)` that always trips the
     FX-staleness check against the real current date. Three same-day pytest
-    runs sent 42 real "FX rates stale" emails to the admin inbox. Individual
+    runs sent 42 real \"FX rates stale\" emails to the admin inbox. Individual
     tests may still re-patch these within a `with` block to assert call args —
     that only shadows this default for the duration of the `with` block.
     """
@@ -214,12 +219,12 @@ def three_user_holdings(db_session: Session) -> dict[str, uuid.UUID]:
         the SAME identifier's SAME global move can clear one user's
         threshold and not the other's (design doc §3.3).
     U3: 513650.SS, 019547, SGOL — zero overlap with U1/U2, to prove
-        isolation doesn't degenerate into "nobody's report has anything".
+        isolation doesn't degenerate into \"nobody's report has anything\".
 
     QQQM/110011/0700.HK/513650.SS/019547 intentionally get no price_snapshot
     rows in this fixture alone — tests that need them anomalous add their
-    own snapshots; tests that don't just exercise the "holding present, no
-    usable baseline" path for free.
+    own snapshots; tests that don't just exercise the \"holding present, no
+    usable baseline\" path for free.
     """
 
     def _h(**kwargs: object) -> Holding:
