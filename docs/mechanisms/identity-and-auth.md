@@ -455,3 +455,40 @@ never the sole source of the analytical framing — §1.4).
   `_scan_forbidden_output` with zero hits when run for this correction.
 
 
+### Signup / invite anti-abuse — issue #190
+
+Public `POST /auth/signup` and ops `POST /admin/invites` had no bot/volume
+control (no Turnstile, no HTTP rate limit). Turnstile stays rejected:
+`challenges.cloudflare.com` is not reliable from Mainland China, a widget
+load failure deadlocks the form, and Supabase Auth’s built-in CAPTCHA is
+Turnstile/hCaptcha-only — enabling it would put `auth.portfonia.com` login
+on the same dependency. Login/password-reset limiting is hosted Auth, not
+this issue.
+
+Invite tokens are `secrets.token_urlsafe(24)` (~192-bit) and redeem is
+already single-use, so this is not a token-guessing control. Layers:
+
+- Per-IP fixed windows in Redis (`INCR` + `EXPIRE` only on first hit, Lua):
+  signup 5/60s and 20/3600s; invite mint 10/60s and 30/3600s. IPv6 is keyed
+  on `/64`. Over limit → 429 + `Retry-After`, public detail a string.
+- Known-invite attempt counter (10/3600s) **only if** `invites.token_hash`
+  already exists — random scanner tokens must not create Redis keys.
+- Global signup counter 200/UTC-day: ops alert only, never auto-block.
+- Global invite-mint counter 200/UTC-day: ops alert only, never auto-block
+  (leaked `ADMIN_API_TOKEN` sprayed across many IPs is otherwise silent).
+- Redis errors on a protecting check → 503 `temporarily unavailable`
+  (fail-closed) and `logger.exception` at ERROR. Alert enqueue uses
+  `send_admin_alert_task.delay` (not blocking `send_ops_alert`) and is
+  deduped with `SET NX` per scope/bucket/window.
+
+Client IP: uvicorn `--proxy-headers --forwarded-allow-ips=*` because the
+backend container publishes no host port (Caddy is the only *published*
+ingress). Product signup is Browser → Caddy → Next.js server action →
+backend; the Next.js action forwards Caddy's `X-Forwarded-For` /
+`X-Real-IP` so uvicorn rewrites `request.client`. The limiter keys on that
+peer only — no app-level XFF parse. Tests mount uvicorn
+`ProxyHeadersMiddleware` on the TestClient so XFF keying matches
+production. Do not keep `*` if port 8000 is ever published. Tests inject
+`InMemoryBackend` via autouse and stub `send_admin_alert_task.delay` so
+the suite never talks to live Redis or enqueues Celery alerts.
+

@@ -57,4 +57,9 @@ USER portfonia
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --proxy-headers: Caddy is the only published ingress (backend publishes
+# no host port). Compose-network callers (the Next.js signup server action)
+# are a second hop — they must forward X-Forwarded-For / X-Real-IP or every
+# UI user shares the frontend-container bucket (issue #190). * is acceptable
+# only while that port remains unpublished; pin to Caddy if it ever is.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]

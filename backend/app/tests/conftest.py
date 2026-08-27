@@ -28,6 +28,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from alembic import command
 from app.core.config import get_settings
@@ -63,6 +64,23 @@ _EXTERNAL_NOTIFY_MODULES = (
     "app.tasks.cache_tasks",
     "app.tasks.admin_tasks",
 )
+
+
+@pytest.fixture(autouse=True)
+def _rate_limit_memory(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+    """Every test gets a fresh in-memory counter. A live Redis would leak
+    buckets across tests and 503 if the daemon is down (issue #190).
+
+    Also stub `send_admin_alert_task.delay` so a 429 cannot enqueue real
+    Celery work against the local broker. Tests that assert call counts
+    re-patch `.delay` and shadow this mock.
+    """
+    from app.core.rate_limit import InMemoryBackend, set_backend
+
+    set_backend(InMemoryBackend())
+    monkeypatch.setattr("app.core.rate_limit.send_admin_alert_task.delay", MagicMock())
+    yield
+    set_backend(None)
 
 
 @pytest.fixture(autouse=True)
@@ -330,6 +348,8 @@ def app_client(db_session: Session) -> Generator[TestClient, None, None]:
     app.dependency_overrides[get_session] = _override_session
     app.dependency_overrides[current_principal] = _override_principal
     try:
-        yield TestClient(app)
+        # Match production uvicorn --proxy-headers so XFF rewrites
+        # request.client without an app-level parser (issue #190).
+        yield TestClient(ProxyHeadersMiddleware(app, trusted_hosts="*"))
     finally:
         app.dependency_overrides.clear()
