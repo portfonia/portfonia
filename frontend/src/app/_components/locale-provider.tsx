@@ -31,6 +31,11 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
       if (stored === LEGACY_ZH_VALUE) {
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setLocaleState("zh-Hans");
+        // blacktomb42 round-2 review (PR #226, non-blocking): rewrite the
+        // stored value too, not just the in-memory state — otherwise every
+        // future page load re-interprets the same stale "zh" instead of the
+        // migration actually completing once.
+        window.localStorage.setItem(STORAGE_KEY, "zh-Hans");
       } else if (stored && isLocale(stored)) {
         setLocaleState(stored);
       }

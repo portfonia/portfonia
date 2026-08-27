@@ -97,3 +97,22 @@ describe("LocaleProvider keeps document.documentElement.lang in sync", () => {
     await waitFor(() => expect(document.documentElement.lang).toBe("en"));
   });
 });
+
+// blacktomb42 round-2 review (PR #226, non-blocking): the legacy "zh" ->
+// "zh-Hans" migration only ever updated in-memory state, never rewrote
+// localStorage — every future page load re-interpreted the same stale "zh"
+// value instead of the migration actually completing once.
+describe("LocaleProvider migrates a legacy stored 'zh' value", () => {
+  it("rewrites localStorage to zh-Hans, not just the in-memory locale", async () => {
+    withLocaleStorage("zh");
+
+    render(
+      <LocaleProvider>
+        <p>content</p>
+      </LocaleProvider>,
+    );
+
+    await waitFor(() => expect(document.documentElement.lang).toBe("zh-Hans"));
+    expect(window.localStorage.getItem("portfonia:locale")).toBe("zh-Hans");
+  });
+});

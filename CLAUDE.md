@@ -76,9 +76,14 @@ area of the code, not just the one-line summary here.
 - **All repository content is English**: code, identifiers, comments, commit
   messages, PR descriptions, issue text, README, `docs/`, ADRs, tests.
 - **In-product strings are i18n-keyed** and shipped through the translation
-  layer, never hardcoded in any single language. Supported runtime UI
-  locales: English, Simplified Chinese, Traditional Chinese (issue #209,
-  extensible — see `frontend/src/locales/README.md` for adding a fourth).
+  layer, never hardcoded in any single language. Runtime UI locales actually
+  exposed to users: English, Simplified Chinese (issue #209 — see
+  `frontend/src/locales/README.md` for adding a fourth). Traditional Chinese
+  has a catalog (`zh-Hant.json`, structurally locked in sync with the other
+  two) but is explicitly gated out of the switcher and out of
+  `isLocale()`'s accepted values pending native-speaker review — it is not
+  yet a supported locale, just a prepared one (blacktomb42 review, PR #226
+  round 2: this line previously overclaimed it as supported while gated).
   Report output languages are separate and narrower: `OUTPUT_LANG` still
   only ships `en`/`zh-Hans` (see System conventions table below) — a UI
   locale is not a report language.
