@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -23,6 +24,7 @@ from app.core.rate_limit import (
     canonical_client_id,
     client_id_from_request,
     guard_known_invite_token,
+    rate_limit_create_invite,
     rate_limit_signup,
 )
 from app.services.invites import create_invite
@@ -36,6 +38,32 @@ def backend() -> InMemoryBackend:
     mem = InMemoryBackend()
     rate_limit.set_backend(mem)
     return mem
+
+
+def _request(
+    ip: str,
+    *,
+    forwarded_for: str | None = None,
+    real_ip: str | None = None,
+    path: str = "/",
+) -> Request:
+    header_list: list[tuple[bytes, bytes]] = []
+    if forwarded_for is not None:
+        header_list.append((b"x-forwarded-for", forwarded_for.encode()))
+    if real_ip is not None:
+        header_list.append((b"x-real-ip", real_ip.encode()))
+    return Request(
+        {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "method": "POST",
+            "path": path,
+            "headers": header_list,
+            "client": (ip, 443),
+            "scheme": "http",
+            "server": ("test", 80),
+        }
+    )
 
 
 def test_canonical_ipv6_uses_slash_64() -> None:
@@ -146,11 +174,10 @@ def test_eleventh_failure_on_known_invite_is_429(
 
 
 def test_create_invite_eleventh_in_one_minute_is_429(
-    app_client: TestClient, backend: InMemoryBackend, monkeypatch: pytest.MonkeyPatch
+    app_client: TestClient, backend: InMemoryBackend
 ) -> None:
     from app.tests.test_admin_router import _headers
 
-    monkeypatch.setattr("app.core.rate_limit.send_admin_alert_task.delay", MagicMock())
     for i in range(10):
         resp = app_client.post("/admin/invites", headers=_headers(), json={})
         assert resp.status_code == 201, i
@@ -161,28 +188,21 @@ def test_create_invite_eleventh_in_one_minute_is_429(
 
 
 def test_backend_error_is_503_not_429(
-    backend: InMemoryBackend, monkeypatch: pytest.MonkeyPatch
+    backend: InMemoryBackend, caplog: pytest.LogCaptureFixture
 ) -> None:
     class Boom(InMemoryBackend):
         def incr_with_ttl(self, key: str, ttl_seconds: int) -> int:
             raise rate_limit.RateLimitUnavailable
 
     rate_limit.set_backend(Boom())
-    scope = {
-        "type": "http",
-        "asgi": {"version": "3.0"},
-        "method": "POST",
-        "path": "/auth/signup",
-        "headers": [],
-        "client": ("203.0.113.9", 12345),
-        "scheme": "http",
-        "server": ("test", 80),
-    }
-    request = Request(scope)
-    with pytest.raises(HTTPException) as exc:
-        rate_limit_signup(request)
+    request = _request("203.0.113.9", path="/auth/signup")
+    logging.getLogger("app.core.rate_limit").disabled = False
+    with caplog.at_level(logging.ERROR, logger="app.core.rate_limit"):
+        with pytest.raises(HTTPException) as exc:
+            rate_limit_signup(request)
     assert exc.value.status_code == 503
     assert exc.value.detail == UNAVAILABLE_DETAIL
+    assert any("counter store unavailable" in r.getMessage() for r in caplog.records)
 
 
 def test_alert_enqueued_once_per_window(
@@ -190,17 +210,7 @@ def test_alert_enqueued_once_per_window(
 ) -> None:
     delay = MagicMock()
     monkeypatch.setattr("app.core.rate_limit.send_admin_alert_task.delay", delay)
-    scope = {
-        "type": "http",
-        "asgi": {"version": "3.0"},
-        "method": "POST",
-        "path": "/auth/signup",
-        "headers": [],
-        "client": ("198.51.100.7", 1),
-        "scheme": "http",
-        "server": ("test", 80),
-    }
-    request = Request(scope)
+    request = _request("198.51.100.7", path="/auth/signup")
     for _ in range(SIGNUP_IP_MINUTE_LIMIT):
         rate_limit_signup(request)
     with pytest.raises(HTTPException) as first:
@@ -213,17 +223,71 @@ def test_alert_enqueued_once_per_window(
 
 
 def test_client_id_from_request_uses_peer() -> None:
-    scope = {
-        "type": "http",
-        "asgi": {"version": "3.0"},
-        "method": "POST",
-        "path": "/",
-        "headers": [],
-        "client": ("2001:db8:1:2::abcd", 443),
-        "scheme": "http",
-        "server": ("test", 80),
+    assert client_id_from_request(_request("2001:db8:1:2::abcd")) == "2001:db8:1:2::"
+
+
+def test_client_id_from_request_prefers_xff_over_peer() -> None:
+    req = _request("10.0.0.9", forwarded_for="203.0.113.50, 10.0.0.2")
+    assert client_id_from_request(req) == "203.0.113.50"
+
+
+def test_client_id_from_request_xff_ipv6_uses_slash_64() -> None:
+    req = _request(
+        "10.0.0.9", forwarded_for="2001:db8:1:2:aaaa:bbbb:cccc:dddd"
+    )
+    assert client_id_from_request(req) == "2001:db8:1:2::"
+
+
+def test_client_id_from_request_falls_back_to_x_real_ip() -> None:
+    req = _request("10.0.0.9", real_ip="198.51.100.7")
+    assert client_id_from_request(req) == "198.51.100.7"
+
+
+def test_signup_xff_keys_limiter_not_peer(
+    app_client: TestClient, backend: InMemoryBackend
+) -> None:
+    """A signup carrying X-Forwarded-For is keyed on that client, not the peer."""
+    payload = {
+        "invite_token": "x",
+        "email": "xff@example.com",
+        "password": "a-long-enough-password",
     }
-    assert client_id_from_request(Request(scope)) == "2001:db8:1:2::"
+    xff = {"X-Forwarded-For": "203.0.113.50"}
+    for _ in range(SIGNUP_IP_MINUTE_LIMIT):
+        resp = app_client.post("/auth/signup", json=payload, headers=xff)
+        assert resp.status_code != 429
+    blocked = app_client.post("/auth/signup", json=payload, headers=xff)
+    assert blocked.status_code == 429
+    other = app_client.post(
+        "/auth/signup",
+        json={**payload, "email": "other@example.com"},
+        headers={"X-Forwarded-For": "198.51.100.7"},
+    )
+    assert other.status_code != 429
+    peer_only = app_client.post(
+        "/auth/signup", json={**payload, "email": "peer@example.com"}
+    )
+    assert peer_only.status_code != 429
+    keys = backend.stored_keys()
+    assert any("203.0.113.50" in k for k in keys)
+    assert any("198.51.100.7" in k for k in keys)
+    assert all("testclient" not in k for k in keys if "signup:ip:" in k)
+
+
+def test_global_invite_mint_alerts_without_blocking(
+    backend: InMemoryBackend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    delay = MagicMock()
+    monkeypatch.setattr("app.core.rate_limit.send_admin_alert_task.delay", delay)
+    monkeypatch.setattr(rate_limit, "INVITE_GLOBAL_ALERT_LIMIT", 2)
+    rate_limit_create_invite(_request("198.51.100.1", path="/admin/invites"))
+    rate_limit_create_invite(_request("198.51.100.2", path="/admin/invites"))
+    rate_limit_create_invite(_request("198.51.100.3", path="/admin/invites"))
+    delay.assert_called_once()
+    subject, body = delay.call_args.args
+    assert "invite mint volume" in subject.lower()
+    assert "Not auto-blocked" in body
+    assert any("invites:global:" in k for k in backend.stored_keys())
 
 
 def test_guard_skips_unknown_token(db_session: Session, backend: InMemoryBackend) -> None:
