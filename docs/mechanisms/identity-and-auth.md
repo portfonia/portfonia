@@ -64,7 +64,7 @@ constraints and structural writing rules. B1 closes that gap.
   below), tracked in issue #171.
 - **`_PROMPT_VERSION` -> `f2-v7`** (`report_generator.py`) — the bump
   comment also documents that `f2-v6` was itself under-documented (PR #168's
-  narrative-layer rewrite changed `_SHARED_BODY_RULES` without bumpping this
+  narrative-layer rewrite changed `_SHARED_BODY_RULES` without bumping this
   constant, the same class of gap PR #167 round 3 caught on
   `ASSEMBLY_PROMPT_VERSION`).
 - **Provenance**: two rounds of independent code review (blacktomb42) —
