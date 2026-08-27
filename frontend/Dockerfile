@@ -1,7 +1,15 @@
 FROM node:22-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+# --legacy-peer-deps: next-intl's nested @swc/core declares an OPTIONAL
+# peer dependency on @swc/helpers (peerDependenciesMeta.optional: true) that
+# the committed lockfile correctly never resolves -- `npm install` honors
+# "optional" and skips it with no error, but `npm ci`'s stricter npm 7+
+# peer-conflict validation flags the same absence as a hard failure. This
+# disables that specific over-strict check (npm 6 peer semantics: warn,
+# don't block) without touching package.json/package-lock.json version
+# consistency enforcement, which `ci` still fully performs. See issue #227.
+RUN npm ci --legacy-peer-deps
 
 
 FROM node:22-alpine AS builder
