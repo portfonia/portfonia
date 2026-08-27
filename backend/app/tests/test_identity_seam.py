@@ -83,7 +83,7 @@ def test_every_identity_bearing_route_depends_on_current_principal() -> None:
     test_admin_router.py's coverage-by-iteration pattern rather than
     trusting per-endpoint review attention (PR #212 review finding: a new
     identity-scoped router must be added here, not just wired correctly)."""
-    scoped_prefixes = ("/holdings", "/portfolio", "/reports", "/investment-context")
+    scoped_prefixes = ("/holdings", "/portfolio", "/reports", "/investment-context", "/me")
     routes = [
         r for r in app.routes if isinstance(r, APIRoute) and r.path.startswith(scoped_prefixes)
     ]
