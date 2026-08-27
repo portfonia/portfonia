@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && install -d /usr/share/postgresql-common/pgdg \
     && curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail \
         https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo $VERSION_CODENAME)-pgdg main" \
+    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(. /os-release && echo $VERSION_CODENAME)-pgdg main" \
         > /etc/apt/sources.list.d/pgdg.list \
     && apt-get update && apt-get install -y --no-install-recommends postgresql-client-16 \
     && python3 -m venv /opt/oci-cli \
@@ -57,8 +57,9 @@ USER portfonia
 
 EXPOSE 8000
 
-# --proxy-headers: Caddy is the only ingress (backend publishes no host
-# port). Without this, request.client.host is the Caddy container IP and
-# every user shares one rate-limit bucket (issue #190). * is acceptable
+# --proxy-headers: Caddy is the only published ingress (backend publishes
+# no host port). Compose-network callers (the Next.js signup server action)
+# are a second hop — they must forward X-Forwarded-For / X-Real-IP or every
+# UI user shares the frontend-container bucket (issue #190). * is acceptable
 # only while that port remains unpublished; pin to Caddy if it ever is.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
