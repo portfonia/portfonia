@@ -270,7 +270,7 @@ def test_signup_xff_ipv6_keys_slash_64(
     other = app_client.post(
         "/auth/signup",
         json={**payload, "email": "other6@example.com"},
-        headers={"X-Forwarded-For": "2001:db8:1:2:aaaa:bbbb:cccc:dddd"} if False else {"X-Forwarded-For": "2001:db8:1:3:aaaa:bbbb:cccc:dddd"},
+        headers={"X-Forwarded-For": "2001:db8:1:3:aaaa:bbbb:cccc:dddd"},
     )
     assert other.status_code != 429
     assert any("2001:db8:1:2::" in k for k in backend.stored_keys())
