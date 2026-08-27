@@ -34,6 +34,8 @@ export const messages = {
     signupSubtitle: "You'll need a valid invite link to sign up.",
     emailLabel: "Email",
     passwordLabel: "Password",
+    confirmPasswordLabel: "Confirm password",
+    passwordMismatch: "Passwords do not match.",
     loginButton: "Log in",
     loggingIn: "Logging in...",
     signupButton: "Create account",
