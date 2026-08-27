@@ -49,6 +49,37 @@ describe("signup action", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("shows a retryable message on 429 instead of the generic failure path", async () => {
+    global.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ detail: "too many attempts, try again later" }), {
+        status: 429,
+        headers: { "Retry-After": "60" },
+      }),
+    );
+
+    const state = await signup(
+      undefined,
+      formData({ invite_token: "tok", email: "a@b.com", password: "correcthorse" }),
+    );
+
+    expect(state?.error).toBe("too many attempts, try again later");
+    expect(signInWithPassword).not.toHaveBeenCalled();
+  });
+
+  it("shows a retryable message on 503 even if detail is not a string", async () => {
+    global.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ detail: { code: "down" } }), { status: 503 }),
+    );
+
+    const state = await signup(
+      undefined,
+      formData({ invite_token: "tok", email: "a@b.com", password: "correcthorse" }),
+    );
+
+    expect(state?.error).toBe("Temporarily unavailable. Try again later.");
+    expect(signInWithPassword).not.toHaveBeenCalled();
+  });
+
   it("surfaces the backend's rejection reason (expired/used/revoked invite) verbatim", async () => {
     global.fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ detail: "This invite is no longer valid." }), {

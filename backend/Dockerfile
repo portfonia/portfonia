@@ -57,4 +57,8 @@ USER portfonia
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --proxy-headers: Caddy is the only ingress (backend publishes no host
+# port). Without this, request.client.host is the Caddy container IP and
+# every user shares one rate-limit bucket (issue #190). * is acceptable
+# only while that port remains unpublished; pin to Caddy if it ever is.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]

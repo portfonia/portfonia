@@ -43,6 +43,8 @@ export const messages = {
     noAccountYet: "Need an invite? Ask the person who referred you.",
     alreadyHaveAccount: "Already have an account?",
     backToLogin: "Log in instead",
+    tooManyAttempts: "Too many attempts, try again later.",
+    temporarilyUnavailable: "Temporarily unavailable. Try again later.",
   },
   holdings: {
     pageTitle: "Holdings",

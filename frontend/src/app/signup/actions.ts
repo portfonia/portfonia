@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 
+import { messages } from "@/lib/messages";
 import { createClient } from "@/lib/supabase/server";
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
@@ -36,8 +37,15 @@ export async function signup(
   });
 
   if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { detail?: string } | null;
-    return { error: body?.detail ?? "Sign up failed." };
+    const body = (await res.json().catch(() => null)) as { detail?: unknown } | null;
+    const detail = typeof body?.detail === "string" ? body.detail : null;
+    if (res.status === 429) {
+      return { error: detail ?? messages.auth.tooManyAttempts };
+    }
+    if (res.status === 503) {
+      return { error: detail ?? messages.auth.temporarilyUnavailable };
+    }
+    return { error: detail ?? "Sign up failed." };
   }
 
   // The backend's SignupResponse carries no session token (it only proves

@@ -37,6 +37,7 @@ from app.core.config import get_settings
 from app.core.database import get_session
 from app.core.deps import require_ops_token
 from app.core.ops_log import log_ops_event
+from app.core.rate_limit import rate_limit_create_invite
 from app.models.holding import Holding
 from app.models.report import Report
 from app.models.user import User
@@ -178,7 +179,9 @@ class InviteOut(BaseModel):
 
 @router.post("/invites", response_model=InviteOut, status_code=201)
 def create_invite_endpoint(
-    body: CreateInviteBody, session: Session = Depends(get_session)
+    body: CreateInviteBody,
+    session: Session = Depends(get_session),
+    _: None = Depends(rate_limit_create_invite),
 ) -> InviteOut:
     try:
         issued = create_invite(

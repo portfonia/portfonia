@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_session
+from app.core.rate_limit import guard_known_invite_token, rate_limit_signup
 from app.models.user import User
 from app.services.auth_provider import AuthProviderError, create_auth_user, delete_auth_user
 from app.services.invites import (
@@ -39,7 +40,11 @@ class SignupResponse(BaseModel):
 
 
 @router.post("/signup", response_model=SignupResponse, status_code=status.HTTP_201_CREATED)
-def signup(req: SignupRequest, session: Session = Depends(get_session)) -> SignupResponse:
+def signup(
+    req: SignupRequest,
+    session: Session = Depends(get_session),
+    _: None = Depends(rate_limit_signup),
+) -> SignupResponse:
     """Invite-gated registration. Password is forwarded to the Auth provider
     in memory and is never logged or persisted.
     """
@@ -47,6 +52,7 @@ def signup(req: SignupRequest, session: Session = Depends(get_session)) -> Signu
     new_id = uuid.uuid4()
     sub: str | None = None
     try:
+        guard_known_invite_token(session, req.invite_token)
         if signup_email_taken(session, email):
             raise InviteRejected(INVITE_REJECTED_MESSAGE)
         redeem_invite(session, req.invite_token, used_by=new_id, email=email)

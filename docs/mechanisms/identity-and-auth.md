@@ -455,3 +455,33 @@ never the sole source of the analytical framing — §1.4).
   `_scan_forbidden_output` with zero hits when run for this correction.
 
 
+### Signup / invite anti-abuse — issue #190
+
+Public `POST /auth/signup` and ops `POST /admin/invites` had no bot/volume
+control (no Turnstile, no HTTP rate limit). Turnstile stays rejected:
+`challenges.cloudflare.com` is not reliable from Mainland China, a widget
+load failure deadlocks the form, and Supabase Auth’s built-in CAPTCHA is
+Turnstile/hCaptcha-only — enabling it would put `auth.portfonia.com` login
+on the same dependency. Login/password-reset limiting is hosted Auth, not
+this issue.
+
+Invite tokens are `secrets.token_urlsafe(24)` (~192-bit) and redeem is
+already single-use, so this is not a token-guessing control. Layers:
+
+- Per-IP fixed windows in Redis (`INCR` + `EXPIRE` only on first hit, Lua):
+  signup 5/60s and 20/3600s; invite mint 10/60s and 30/3600s. IPv6 is keyed
+  on `/64`. Over limit → 429 + `Retry-After`, public detail a string.
+- Known-invite attempt counter (10/3600s) **only if** `invites.token_hash`
+  already exists — random scanner tokens must not create Redis keys.
+- Global signup counter 200/UTC-day: ops alert only, never auto-block.
+- Redis errors on a protecting check → 503 `temporarily unavailable`
+  (fail-closed). Alert enqueue uses `send_admin_alert_task.delay` (not
+  blocking `send_ops_alert`) and is deduped with `SET NX` per
+  scope/bucket/window.
+
+Client IP: uvicorn `--proxy-headers --forwarded-allow-ips=*` because the
+backend container publishes no host port (Caddy is the only ingress). Do
+not keep `*` if that port is ever published. Tests inject
+`InMemoryBackend` via autouse so the suite never talks to live Redis.
+
+

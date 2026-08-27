@@ -66,6 +66,18 @@ _EXTERNAL_NOTIFY_MODULES = (
 
 
 @pytest.fixture(autouse=True)
+def _rate_limit_memory() -> Generator[None, None, None]:
+    """Every test gets a fresh in-memory counter. A live Redis would leak
+    buckets across tests and 503 if the daemon is down (issue #190).
+    """
+    from app.core.rate_limit import InMemoryBackend, set_backend
+
+    set_backend(InMemoryBackend())
+    yield
+    set_backend(None)
+
+
+@pytest.fixture(autouse=True)
 def _no_external_notifications(monkeypatch: pytest.MonkeyPatch) -> None:
     """Never let a test hit the real Resend/GitHub APIs.
 
