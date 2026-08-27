@@ -35,6 +35,7 @@ def test_signup_without_invite_rejected(
             "invite_token": "no-such-token",
             "email": "new@example.com",
             "password": "a-long-enough-password",
+            "tos_accepted": True,
         },
     )
     assert resp.status_code == 400
@@ -57,6 +58,7 @@ def test_signup_with_valid_invite_creates_user(
             "invite_token": issued.token,
             "email": "New@Example.com",
             "password": "a-long-enough-password",
+            "tos_accepted": True,
         },
     )
     assert resp.status_code == 201
@@ -69,6 +71,57 @@ def test_signup_with_valid_invite_creates_user(
     assert row.auth_provider == "supabase"
     assert row.status == "active"
     _fake_auth_provider.assert_called_once()
+
+
+def test_signup_persists_weekly_cadence_and_tos_accepted_at(
+    app_client: TestClient, db_session: Session, _fake_auth_provider: MagicMock
+) -> None:
+    """Ring 1-Onboarding.md §一.6: new users default to weekly, not mwf."""
+    issued = create_invite(db_session, created_by=_CREATOR)
+    db_session.flush()
+
+    resp = app_client.post(
+        "/auth/signup",
+        json={
+            "invite_token": issued.token,
+            "email": "weekly@example.com",
+            "password": "a-long-enough-password",
+            "tos_accepted": True,
+        },
+    )
+    assert resp.status_code == 201
+
+    row = db_session.execute(select(User).where(User.email == "weekly@example.com")).scalar_one()
+    assert row.report_cadence == "weekly"
+    assert row.tos_accepted_at is not None
+
+
+@pytest.mark.parametrize("payload_extra", [{}, {"tos_accepted": False}])
+def test_signup_rejects_omitted_or_false_tos_accepted(
+    app_client: TestClient,
+    db_session: Session,
+    _fake_auth_provider: MagicMock,
+    payload_extra: dict[str, bool],
+) -> None:
+    """Ring 1-Onboarding.md §2.5: tos_accepted must be required true, never
+    defaulted — omitting it or sending false must both be rejected, and no
+    user row may be created."""
+    issued = create_invite(db_session, created_by=_CREATOR)
+    db_session.flush()
+    before = db_session.execute(select(User)).scalars().all()
+
+    payload = {
+        "invite_token": issued.token,
+        "email": "no-tos@example.com",
+        "password": "a-long-enough-password",
+        **payload_extra,
+    }
+    resp = app_client.post("/auth/signup", json=payload)
+    assert resp.status_code == 422
+    db_session.expire_all()
+    after = db_session.execute(select(User)).scalars().all()
+    assert len(after) == len(before)
+    _fake_auth_provider.assert_not_called()
 
 
 def test_signup_deletes_auth_user_if_db_work_fails_after_create(
@@ -97,6 +150,7 @@ def test_signup_deletes_auth_user_if_db_work_fails_after_create(
                 "invite_token": issued.token,
                 "email": "orphan@example.com",
                 "password": "a-long-enough-password",
+                "tos_accepted": True,
             },
         )
     delete.assert_called_once_with("sub-to-compensate")
@@ -124,6 +178,26 @@ def test_signup_validation_error_does_not_echo_password(app_client: TestClient) 
     assert password not in resp.text
 
 
+def test_signup_validation_error_does_not_echo_password_alongside_missing_tos(
+    app_client: TestClient,
+) -> None:
+    """A pydantic v2 'missing field' error's `input` is the whole request body,
+    not just that field — so a second validation failure alongside a valid
+    password (e.g. omitted tos_accepted) must not leak it either."""
+    password = "a-long-enough-password"
+    resp = app_client.post(
+        "/auth/signup",
+        json={
+            "invite_token": "x",
+            "email": "a@example.com",
+            "password": password,
+            # tos_accepted omitted on purpose
+        },
+    )
+    assert resp.status_code == 422
+    assert password not in resp.text
+
+
 def test_signup_does_not_log_password(
     app_client: TestClient,
     db_session: Session,
@@ -140,6 +214,7 @@ def test_signup_does_not_log_password(
                 "invite_token": issued.token,
                 "email": "safe@example.com",
                 "password": password,
+                "tos_accepted": True,
             },
         )
     assert resp.status_code == 201

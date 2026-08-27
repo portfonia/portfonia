@@ -104,6 +104,7 @@ def test_signup_sixth_request_in_one_minute_is_429(
                 "invite_token": issued.token,
                 "email": f"{uuid.uuid4().hex}@example.com",
                 "password": "a-long-enough-password",
+                "tos_accepted": True,
             },
         ).status_code
 
@@ -114,6 +115,7 @@ def test_signup_sixth_request_in_one_minute_is_429(
             "invite_token": "x",
             "email": "blocked@example.com",
             "password": "a-long-enough-password",
+            "tos_accepted": True,
         },
     )
     assert codes == [201] * SIGNUP_IP_MINUTE_LIMIT
@@ -132,6 +134,7 @@ def test_unknown_token_does_not_create_per_token_key(
             "invite_token": "totally-unknown-token",
             "email": "n@example.com",
             "password": "a-long-enough-password",
+            "tos_accepted": True,
         },
     )
     assert all("signup:token:" not in k for k in backend.stored_keys())
@@ -150,6 +153,7 @@ def test_eleventh_failure_on_known_invite_is_429(
         "invite_token": issued.token,
         "email": "wrong@example.com",
         "password": "a-long-enough-password",
+        "tos_accepted": True,
     }
     for i in range(SIGNUP_TOKEN_FAIL_LIMIT):
         resp = app_client.post("/auth/signup", json=payload)
@@ -215,14 +219,13 @@ def test_client_id_from_request_uses_peer() -> None:
     assert client_id_from_request(_request("2001:db8:1:2::abcd")) == "2001:db8:1:2::"
 
 
-def test_signup_xff_keys_limiter_not_peer(
-    app_client: TestClient, backend: InMemoryBackend
-) -> None:
+def test_signup_xff_keys_limiter_not_peer(app_client: TestClient, backend: InMemoryBackend) -> None:
     """A signup carrying X-Forwarded-For is keyed on that client, not the peer."""
     payload = {
         "invite_token": "x",
         "email": "xff@example.com",
         "password": "a-long-enough-password",
+        "tos_accepted": True,
     }
     xff = {"X-Forwarded-For": "203.0.113.50"}
     for _ in range(SIGNUP_IP_MINUTE_LIMIT):
@@ -240,20 +243,17 @@ def test_signup_xff_keys_limiter_not_peer(
     assert any("203.0.113.50" in k for k in keys)
     assert any("198.51.100.7" in k for k in keys)
     assert all("testclient" not in k for k in keys if "signup:ip:" in k)
-    peer_only = app_client.post(
-        "/auth/signup", json={**payload, "email": "peer@example.com"}
-    )
+    peer_only = app_client.post("/auth/signup", json={**payload, "email": "peer@example.com"})
     assert peer_only.status_code != 429
 
 
-def test_signup_xff_ipv6_keys_slash_64(
-    app_client: TestClient, backend: InMemoryBackend
-) -> None:
+def test_signup_xff_ipv6_keys_slash_64(app_client: TestClient, backend: InMemoryBackend) -> None:
     """ProxyHeadersMiddleware rewrites the peer; limiter still keys /64."""
     payload = {
         "invite_token": "x",
         "email": "xff6@example.com",
         "password": "a-long-enough-password",
+        "tos_accepted": True,
     }
     xff_a = {"X-Forwarded-For": "2001:db8:1:2:aaaa:bbbb:cccc:dddd"}
     for _ in range(SIGNUP_IP_MINUTE_LIMIT):

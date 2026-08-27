@@ -69,6 +69,19 @@ def _redact_secret_validation_errors(errors: list[object]) -> list[object]:
         loc = err.get("loc", ())
         if isinstance(loc, list | tuple) and any(part in _SECRET_BODY_FIELDS for part in loc):
             redacted.append({**err, "input": "[redacted]"})
+            continue
+        # A pydantic v2 "missing field" error (e.g. a second required field
+        # omitted alongside the secret one) sets `input` to the *entire*
+        # request body dict rather than a per-field value — that echoes a
+        # sibling `password` field in plaintext even though this error's own
+        # `loc` never mentions it. Scrub known secret keys out of any dict
+        # `input` too, not just the loc-matched case above.
+        err_input = err.get("input")
+        if isinstance(err_input, dict) and any(k in err_input for k in _SECRET_BODY_FIELDS):
+            scrubbed = {
+                k: ("[redacted]" if k in _SECRET_BODY_FIELDS else v) for k, v in err_input.items()
+            }
+            redacted.append({**err, "input": scrubbed})
         else:
             redacted.append(err)
     return redacted

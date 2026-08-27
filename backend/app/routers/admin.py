@@ -38,7 +38,6 @@ from app.core.database import get_session
 from app.core.deps import require_ops_token
 from app.core.ops_log import log_ops_event
 from app.core.rate_limit import rate_limit_create_invite
-from app.models.holding import Holding
 from app.models.invite import Invite
 from app.models.report import Report
 from app.models.user import User
@@ -293,8 +292,11 @@ def generate_report_for_user(user_id: UUID, session: Session = Depends(get_sessi
     and language are the system-wide defaults (generate_report's USD,
     Settings.OUTPUT_LANG), not users.base_currency / users.locale — same
     as the scheduled fan-out and the self-service endpoint. The user must
-    exist, be status=active, and have at least one holding — the same
-    predicate active_user_ids() uses for the scheduled fan-out.
+    exist and be status=active. No holdings precondition (issue #221 §2.7):
+    an empty book renders §1/distribution/§4.1/§4.2/§4.4 as empty tables
+    rather than failing — self-service POST /reports/generate never had
+    this check either. active_user_ids() (the scheduled fan-out) still
+    requires a holding row; that predicate is intentionally untouched here.
 
     A successful run emails the report to the target user. needs_review
     does not. Quiet-day heartbeats email unless the short-manual-window
@@ -307,9 +309,6 @@ def generate_report_for_user(user_id: UUID, session: Session = Depends(get_sessi
         raise HTTPException(status_code=404, detail="user not found")
     if user.status != "active":
         raise HTTPException(status_code=422, detail="user is not active")
-    has_holdings = session.execute(select(exists().where(Holding.user_id == user_id))).scalar()
-    if not has_holdings:
-        raise HTTPException(status_code=422, detail="user has no holdings")
     try:
         return generate_report(
             session,

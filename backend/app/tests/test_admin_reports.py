@@ -2,8 +2,15 @@
 
 Ops-token path that fires generate_report for a specific user, bypassing
 the self-service POST /reports/generate (and the Next.js proxy timeout
-documented in issue #193). Preconditions mirror active_user_ids(): the
-target must exist, be status=active, and have at least one holding.
+documented in issue #193). Preconditions: the target must exist and be
+status=active. The no-holdings 422 was removed in issue #221 (Ring
+1-Onboarding.md §2.7) — self-service POST /reports/generate never had this
+check either, and empty-book users (default report_cadence=weekly) can now
+get a manually-triggered report before their first holdings upload.
+active_user_ids() is untouched: scheduled fan-out still requires a holding
+row, deliberately, so a brand-new signup doesn't enter the still-global-MWF
+scheduled batch (issue #221 explicitly defers that to the cadence
+follow-up).
 """
 
 from __future__ import annotations
@@ -85,16 +92,22 @@ def test_admin_generate_404_unknown_user(app_client: TestClient, db_session: Ses
     mock_gen.assert_not_called()
 
 
-def test_admin_generate_422_no_holdings(app_client: TestClient, db_session: Session) -> None:
+def test_admin_generate_no_holdings_no_longer_422(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """issue #221 §2.7: an empty-book active user can be manually generated
+    now — this used to be a 422, matching active_user_ids(); self-service
+    POST /reports/generate never had the check, so this closes that gap."""
     db_session.add(_user(_UID, "empty@example.com"))
     db_session.flush()
+    fake = _fake_report(db_session, _UID)
 
-    with patch("app.routers.admin.generate_report") as mock_gen:
+    with patch("app.routers.admin.generate_report", return_value=fake) as mock_gen:
         resp = app_client.post(_path(_UID), headers=_headers())
 
-    assert resp.status_code == 422
-    assert resp.json()["detail"] == "user has no holdings"
-    mock_gen.assert_not_called()
+    assert resp.status_code == 201
+    mock_gen.assert_called_once()
+    assert mock_gen.call_args.kwargs["user_id"] == _UID
 
 
 def test_admin_generate_422_inactive_user(app_client: TestClient, db_session: Session) -> None:

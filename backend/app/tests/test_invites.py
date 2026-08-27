@@ -178,6 +178,7 @@ def test_signup_and_create_invite_share_one_lookup(
             "invite_token": "any-token",
             "email": "mirror@example.com",
             "password": "a-long-enough-password",
+            "tos_accepted": True,
         },
     )
 

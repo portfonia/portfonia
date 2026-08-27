@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import UTC, datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, SecretStr
@@ -32,6 +33,10 @@ class SignupRequest(BaseModel):
     invite_token: str
     email: str
     password: SecretStr = Field(min_length=8)
+    # Required true, never defaulted (Ring 1-Onboarding.md §2.5) — Literal[True]
+    # rejects both an omitted field and an explicit `false` with one 422,
+    # instead of a `= True` default that would silently accept an omission.
+    tos_accepted: Literal[True]
 
 
 class SignupResponse(BaseModel):
@@ -65,7 +70,10 @@ def signup(
             status="active",
             locale="zh",
             base_currency="USD",
-            report_cadence="mwf",
+            # New users default to weekly, not mwf (Ring 1-Onboarding.md §一.6).
+            # Multi-cadence Beat/fan-out wiring is a follow-up issue.
+            report_cadence="weekly",
+            tos_accepted_at=datetime.now(UTC),
         )
         session.add(user)
         session.flush()

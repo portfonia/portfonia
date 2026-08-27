@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import contextlib
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -30,6 +30,7 @@ from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.models.forward_event import ForwardEvent
 from app.services import report_generator as rg
 from app.services.macro_detector import MacroSignals, ThemeHit
 from app.services.news_fetcher import NewsItem
@@ -336,6 +337,52 @@ def test_generate_report_normal_path(db_session: Session) -> None:
     # holding has no recalled window news, so a targeted search runs and the mock
     # returns its (single) result a second time.
     assert len(report.report_inputs["search_results"]) == 2
+
+
+def test_generate_report_empty_book_content_contract(db_session: Session) -> None:
+    """issue #221 §2.7 (Ring 1-Onboarding.md): a user with no
+    user_investment_context row and no holdings still gets a completed
+    report — this is a content contract on the existing empty-list code
+    path, not a new pipeline. §1 renders its headers over an empty table
+    (no crash on division by a zero total). §2.5 still lists a
+    holdings-independent scheduled event (FOMC/CPI-style, ticker="") with
+    Exposed holdings rendered as "—" rather than omitted or crashing.
+    No UserInvestmentContext row is seeded — Pass 2 falls back to the B1
+    system default framework, which is already the existing behavior."""
+    empty_portfolio = PortfolioSnapshot(base_currency="USD", fx_date=_TODAY)
+    db_session.add(
+        ForwardEvent(
+            event_type="macro",
+            name="FOMC Meeting",
+            ticker="",
+            scheduled_date=_TODAY + timedelta(days=1),
+            source="fomc",
+        )
+    )
+    db_session.flush()
+
+    with (
+        patch("app.services.report_generator.compute_portfolio", return_value=empty_portfolio),
+        patch(
+            "app.services.report_generator.load_news_window",
+            return_value=[_news_item("Fed raises rates")],
+        ),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 0)),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
+        patch("app.services.report_generator._run_tavily_search", return_value=[]),
+    ):
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+
+    assert report.status == "success"
+    assert report.report_md is not None
+    assert "§1 Portfolio Snapshot" in report.report_md
+    assert "USD 0" in report.report_md  # zero total, no ZeroDivisionError
+    assert "§2.5 Forward Calendar" in report.report_md
+    assert "FOMC Meeting" in report.report_md
+    # No holding to expose it to -> "—", not omitted or crashed.
+    assert "| FOMC Meeting | —" in report.report_md
 
 
 def test_targeted_search_budget_uses_real_api_calls_not_result_item_count(
