@@ -64,7 +64,7 @@ constraints and structural writing rules. B1 closes that gap.
   below), tracked in issue #171.
 - **`_PROMPT_VERSION` -> `f2-v7`** (`report_generator.py`) — the bump
   comment also documents that `f2-v6` was itself under-documented (PR #168's
-  narrative-layer rewrite changed `_SHARED_BODY_RULES` without bumping this
+  narrative-layer rewrite changed `_SHARED_BODY_RULES` without bumpping this
   constant, the same class of gap PR #167 round 3 caught on
   `ASSEMBLY_PROMPT_VERSION`).
 - **Provenance**: two rounds of independent code review (blacktomb42) —
@@ -162,7 +162,7 @@ secret or the Supabase database password (business Postgres is self-hosted).
   NULL on purpose.
 - **`recipient_email(session, user_id)`** reads `users` (`delivery_email`
   else `email`); missing or non-`active` → `None`. Send stays fail-closed.
-- **Invite creation checks `users.email` overlap** (issue #188, PR #219): 
+- **Invite creation checks `users.email` overlap** (issue #188, PR #219):
   email-bound `POST /admin/invites` → **409** when `users.email` already
   holds the normalized address (strip + lowercase; **no status filter** —
   the same predicate as `POST /auth/signup`). Both call sites share one
@@ -491,3 +491,4 @@ peer only — no app-level XFF parse. Tests mount uvicorn
 production. Do not keep `*` if port 8000 is ever published. Tests inject
 `InMemoryBackend` via autouse and stub `send_admin_alert_task.delay` so
 the suite never talks to live Redis or enqueues Celery alerts.
+
