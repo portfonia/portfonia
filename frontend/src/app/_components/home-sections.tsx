@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 
 import { useHomeMessages, useLocale } from "./locale-provider";
 
@@ -33,6 +34,7 @@ const TD_CLS = "border-b border-white/5 px-2 py-1.5 align-top text-foreground/70
 export function HomeSections() {
   const t = useHomeMessages();
   const { locale } = useLocale();
+  const tCommon = useTranslations("common");
 
   return (
     <>
@@ -344,7 +346,7 @@ export function HomeSections() {
 
       <footer className="border-t border-white/10 px-6 py-10">
         <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-5">
-          <span className="font-serif text-base text-foreground/70">Portfonia</span>
+          <span className="font-serif text-base text-foreground/70">{tCommon("brandName")}</span>
           <span className="text-right font-mono text-xs leading-relaxed text-foreground/45">
             {t.footer.stack1}
             <br />

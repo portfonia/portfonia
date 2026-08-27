@@ -11,7 +11,16 @@ const { login, markPendingLogin, clearPendingLogin } = vi.hoisted(() => ({
 vi.mock("./actions", () => ({ login }));
 vi.mock("@/hooks/use-session", () => ({ markPendingLogin, clearPendingLogin }));
 
+import { LocaleProvider } from "@/app/_components/locale-provider";
 import { LoginForm } from "./login-form";
+
+function renderForm() {
+  return render(
+    <LocaleProvider>
+      <LoginForm />
+    </LocaleProvider>,
+  );
+}
 
 describe("LoginForm", () => {
   beforeEach(() => {
@@ -21,7 +30,7 @@ describe("LoginForm", () => {
   it("submits the entered email and password to the login action", async () => {
     login.mockResolvedValue({ error: null });
     const user = userEvent.setup();
-    render(<LoginForm />);
+    renderForm();
 
     await user.type(screen.getByLabelText(/email/i), "a@b.com");
     await user.type(screen.getByLabelText(/password/i), "correcthorse");
@@ -41,7 +50,7 @@ describe("LoginForm", () => {
     // (issue #214 follow-up).
     login.mockResolvedValue({ error: null });
     const user = userEvent.setup();
-    render(<LoginForm />);
+    renderForm();
 
     await user.type(screen.getByLabelText(/email/i), "a@b.com");
     await user.type(screen.getByLabelText(/password/i), "correcthorse");
@@ -53,7 +62,7 @@ describe("LoginForm", () => {
   it("shows the error message returned by the action", async () => {
     login.mockResolvedValue({ error: "Invalid email or password." });
     const user = userEvent.setup();
-    render(<LoginForm />);
+    renderForm();
 
     await user.type(screen.getByLabelText(/email/i), "a@b.com");
     await user.type(screen.getByLabelText(/password/i), "wrong");
@@ -65,7 +74,7 @@ describe("LoginForm", () => {
   it("clears the pending-login signal when the action returns an error", async () => {
     login.mockResolvedValue({ error: "Invalid email or password." });
     const user = userEvent.setup();
-    render(<LoginForm />);
+    renderForm();
 
     await user.type(screen.getByLabelText(/email/i), "a@b.com");
     await user.type(screen.getByLabelText(/password/i), "wrong");
@@ -78,7 +87,7 @@ describe("LoginForm", () => {
   it("clears the pending-login signal when the action throws, not only when it returns { error }", async () => {
     login.mockRejectedValue(new Error("auth.portfonia.com unreachable"));
     const user = userEvent.setup();
-    render(<LoginForm />);
+    renderForm();
 
     await user.type(screen.getByLabelText(/email/i), "a@b.com");
     await user.type(screen.getByLabelText(/password/i), "wrong");
@@ -88,7 +97,7 @@ describe("LoginForm", () => {
   });
 
   it("tells an account-less visitor to ask for an invite, rather than linking to a token-less /signup", () => {
-    render(<LoginForm />);
+    renderForm();
 
     expect(screen.getByText(/need an invite/i)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /sign ?up/i })).not.toBeInTheDocument();

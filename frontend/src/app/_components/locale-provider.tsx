@@ -1,10 +1,16 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState } from "react";
+import { NextIntlClientProvider, useTranslations } from "next-intl";
 
-import { homeMessages, type Locale } from "@/lib/i18n/home-messages";
+import { catalogs, DEFAULT_LOCALE, isLocale, type Locale, type Messages } from "@/locales";
 
 const STORAGE_KEY = "portfonia:locale";
+// Pre-issue-#209 stored value (the old `home-messages.ts` Locale union was
+// "en" | "zh"). Migrate transparently so a browser that already stored "zh"
+// keeps resolving to Simplified Chinese instead of silently falling back to
+// English once "zh" stops being a valid Locale value.
+const LEGACY_ZH_VALUE = "zh";
 
 const LocaleContext = createContext<{
   locale: Locale;
@@ -12,21 +18,25 @@ const LocaleContext = createContext<{
 } | null>(null);
 
 export function LocaleProvider({ children }: { children: React.ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>("en");
+  const [locale, setLocaleState] = useState<Locale>(DEFAULT_LOCALE);
 
   useEffect(() => {
-    // One-time hydration-safe restore: render "en" on both server and first
-    // client paint (no mismatch), then swap to the stored preference right
-    // after mount. A lazy useState initializer would read localStorage
-    // during the client's first render too, which is exactly what causes a
-    // hydration text mismatch against the server-rendered "en" HTML.
+    // One-time hydration-safe restore: render the default locale on both
+    // server and first client paint (no mismatch), then swap to the stored
+    // preference right after mount. A lazy useState initializer would read
+    // localStorage during the client's first render too, which is exactly
+    // what causes a hydration text mismatch against the server-rendered HTML.
     try {
       const stored = window.localStorage.getItem(STORAGE_KEY);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      if (stored === "en" || stored === "zh") setLocaleState(stored);
+      if (stored === LEGACY_ZH_VALUE) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setLocaleState("zh-Hans");
+      } else if (stored && isLocale(stored)) {
+        setLocaleState(stored);
+      }
     } catch {
       // Storage inaccessible (private browsing, blocked, quota) — fall
-      // back to the "en" default already set; nothing to restore.
+      // back to the default already set; nothing to restore.
     }
   }, []);
 
@@ -42,7 +52,9 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <LocaleContext.Provider value={{ locale, setLocale }}>
-      {children}
+      <NextIntlClientProvider locale={locale} messages={catalogs[locale]}>
+        {children}
+      </NextIntlClientProvider>
     </LocaleContext.Provider>
   );
 }
@@ -53,7 +65,26 @@ export function useLocale() {
   return ctx;
 }
 
-export function useHomeMessages() {
-  const { locale } = useLocale();
-  return homeMessages[locale];
+// Convenience wrapper for home-sections.tsx (issue #209): the home catalog
+// namespace has no ICU interpolation needs (no plurals/placeholders — just
+// static strings, arrays, and objects for the marketing page), so t.raw()
+// per top-level key reproduces the plain-object shape the old
+// `home-messages.ts` export used to have. That keeps home-sections.tsx's
+// existing object-access code (`t.hero.eyebrow`, `t.preview.holdingsRows.
+// map(...)`) working unchanged against the new catalog.
+export function useHomeMessages(): Messages["home"] {
+  const t = useTranslations("home");
+  // t.raw() is typed `any` (next-intl bypasses ICU processing entirely for
+  // it), so without this return type annotation every array in the result
+  // would need its .map() callbacks explicitly typed in home-sections.tsx —
+  // the annotation restores real types from the catalog's own shape instead.
+  return {
+    hero: t.raw("hero"),
+    how: t.raw("how"),
+    preview: t.raw("preview"),
+    boundary: t.raw("boundary"),
+    faq: t.raw("faq"),
+    status: t.raw("status"),
+    footer: t.raw("footer"),
+  };
 }

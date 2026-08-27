@@ -3,20 +3,26 @@
 // Single account/navigation entry point in the top bar (issue #207). Content
 // comes from a small registry gated on session status: a logged-out visitor
 // sees ONLY Log in; authenticated users see the app entries, their own email,
-// and Log out. Future entries (B6 questionnaire, Settings, Vigil) are one new
-// row in MENU_ENTRIES once their routes ship.
-import { usePathname } from "next/navigation";
+// and Log out. Future entries (Settings, Vigil) are one new row in
+// AUTHED_ENTRIES once their routes ship.
+//
+// issue #209: labels used to branch on `isHome` between two parallel label
+// sets (home-messages.ts's `nav.*` vs this file's own English-only
+// `messages.menu.*`) — that split was the root cause of the mixed-language
+// menu bug (issue #207/PR #208: Get Started/Login/Logout came from
+// home-messages, Holdings came from the English-only map). Now there is
+// exactly one `menu` namespace in the shared catalog, read the same way on
+// every route.
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
+import { useTranslations } from "next-intl";
 
-import { useHomeMessages } from "@/app/_components/locale-provider";
 import {
   useSession,
   markOptimisticLogout,
   revalidateSession,
 } from "@/hooks/use-session";
 import { useIdleLogout } from "@/hooks/use-idle-logout";
-import { messages } from "@/lib/messages";
 import { isNextRedirectError } from "@/lib/next-redirect-error";
 import { logout } from "@/lib/auth-actions";
 
@@ -31,33 +37,16 @@ import {
 // deliberately absent: closed beta, no self-serve registration (OQ-3).
 // "Home" is first — an explicit way back to "/" from any inner page, on top
 // of the brand-link click target (issue #214 follow-up).
-//
-// `homeNavKey` names the matching HomeMessages.nav field for entries with a
-// zh translation on the home route (PR #215 review — the Home entry
-// originally fell back to the English-only messages.menu map even on the
-// home route, same gap as questionnaire already had, just more visible
-// since Home is now the first item).
 const AUTHED_ENTRIES = [
-  { id: "home", href: "/", homeNavKey: "home" },
-  { id: "holdings", href: "/holdings", homeNavKey: "holdings" },
-  // B6 (issue #129 checkpoint B6): the one new row this file's own header
-  // comment predicted. No zh translation yet (messages.ts is English-only
-  // outside the home route), so no homeNavKey.
+  { id: "home", href: "/" },
+  { id: "holdings", href: "/holdings" },
   { id: "questionnaire", href: "/questionnaire" },
 ] as const;
 
 export function GetStartedMenu() {
-  const pathname = usePathname();
-  const isHome = pathname === "/";
-  const t = useHomeMessages();
+  const t = useTranslations("menu");
   const session = useSession();
   const [logoutFailed, setLogoutFailed] = useState(false);
-
-  const triggerLabel = isHome ? t.nav.menu : messages.menu.trigger;
-  const loginLabel = isHome ? t.nav.login : messages.menu.login;
-  const logoutLabel = isHome ? t.nav.logout : messages.menu.logout;
-  const loggingInLabel = isHome ? t.nav.loggingIn : messages.menu.loggingIn;
-  const logoutFailedLabel = isHome ? t.nav.logoutFailed : messages.menu.logoutFailed;
 
   const runLogout = (reason?: string) => {
     // Manual Log out must call logout() with no args (the idle hook passes
@@ -77,7 +66,7 @@ export function GetStartedMenu() {
 
   const errorNotice = logoutFailed ? (
     <span role="alert" className="text-xs text-destructive">
-      {logoutFailedLabel}
+      {t("logoutFailed")}
     </span>
   ) : null;
 
@@ -92,7 +81,7 @@ export function GetStartedMenu() {
       return (
         <div className="flex items-center gap-2">
           {errorNotice}
-          <span className="text-sm text-foreground/60">{loggingInLabel}</span>
+          <span className="text-sm text-foreground/60">{t("loggingIn")}</span>
         </div>
       );
     }
@@ -108,20 +97,18 @@ export function GetStartedMenu() {
       <MenuDropdown
         trigger={
           <>
-            {triggerLabel}
+            {t("trigger")}
             <ChevronDown className="size-4 opacity-80" />
           </>
         }
       >
-        {session.status === "guest" && <MenuItemLink href="/login">{loginLabel}</MenuItemLink>}
+        {session.status === "guest" && <MenuItemLink href="/login">{t("login")}</MenuItemLink>}
 
         {session.status === "authed" && (
           <>
             {AUTHED_ENTRIES.map((entry) => (
               <MenuItemLink key={entry.id} href={entry.href}>
-                {isHome && "homeNavKey" in entry
-                  ? t.nav[entry.homeNavKey]
-                  : messages.menu[entry.id]}
+                {t(entry.id)}
               </MenuItemLink>
             ))}
             <MenuSeparator />
@@ -142,7 +129,7 @@ export function GetStartedMenu() {
                 runLogout();
               }}
             >
-              {logoutLabel}
+              {t("logout")}
             </MenuItemButton>
           </>
         )}

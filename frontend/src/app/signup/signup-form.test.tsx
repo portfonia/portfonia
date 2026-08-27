@@ -11,7 +11,16 @@ const { signup, markPendingLogin, clearPendingLogin } = vi.hoisted(() => ({
 vi.mock("./actions", () => ({ signup }));
 vi.mock("@/hooks/use-session", () => ({ markPendingLogin, clearPendingLogin }));
 
+import { LocaleProvider } from "@/app/_components/locale-provider";
 import { SignupForm } from "./signup-form";
+
+function renderForm(inviteToken: string) {
+  return render(
+    <LocaleProvider>
+      <SignupForm inviteToken={inviteToken} />
+    </LocaleProvider>,
+  );
+}
 
 const email = () => screen.getByLabelText(/^email$/i);
 const password = () => screen.getByLabelText(/^password$/i);
@@ -29,7 +38,7 @@ describe("SignupForm", () => {
   });
 
   it("shows a missing-invite message and no form when there is no invite token", () => {
-    render(<SignupForm inviteToken="" />);
+    renderForm("");
 
     expect(screen.getByText(/missing its invite token/i)).toBeInTheDocument();
     expect(screen.queryByLabelText(/email/i)).not.toBeInTheDocument();
@@ -38,7 +47,7 @@ describe("SignupForm", () => {
   it("submits the invite token, email, and password to the signup action", async () => {
     signup.mockResolvedValue({ error: null });
     const user = userEvent.setup();
-    render(<SignupForm inviteToken="tok-abc" />);
+    renderForm("tok-abc");
 
     await fillForm(user, "correcthorse");
     await user.click(screen.getByRole("button", { name: /create account/i }));
@@ -53,7 +62,7 @@ describe("SignupForm", () => {
   it("blocks submit when the passwords do not match and shows the mismatch message", async () => {
     signup.mockResolvedValue({ error: null });
     const user = userEvent.setup();
-    render(<SignupForm inviteToken="tok-abc" />);
+    renderForm("tok-abc");
 
     await user.type(email(), "a@b.com");
     await user.type(password(), "correcthorse");
@@ -70,7 +79,7 @@ describe("SignupForm", () => {
   it("clears the mismatch flag and submits once the values agree again", async () => {
     signup.mockResolvedValue({ error: null });
     const user = userEvent.setup();
-    render(<SignupForm inviteToken="tok-abc" />);
+    renderForm("tok-abc");
 
     await user.type(email(), "a@b.com");
     await user.type(password(), "correcthorse");
@@ -89,7 +98,7 @@ describe("SignupForm", () => {
   it("shows the error message returned by the action (e.g. an expired invite)", async () => {
     signup.mockResolvedValue({ error: "This invite is no longer valid." });
     const user = userEvent.setup();
-    render(<SignupForm inviteToken="tok-abc" />);
+    renderForm("tok-abc");
 
     await fillForm(user, "correcthorse");
     await user.click(screen.getByRole("button", { name: /create account/i }));
@@ -100,7 +109,7 @@ describe("SignupForm", () => {
   it("marks the session as pending on submit, same signal as login (post-signup redirect to /holdings)", async () => {
     signup.mockResolvedValue({ error: null });
     const user = userEvent.setup();
-    render(<SignupForm inviteToken="tok-abc" />);
+    renderForm("tok-abc");
 
     await fillForm(user, "correcthorse");
     await user.click(screen.getByRole("button", { name: /create account/i }));
@@ -111,7 +120,7 @@ describe("SignupForm", () => {
   it("clears the pending-login signal when the action returns an error", async () => {
     signup.mockResolvedValue({ error: "This invite is no longer valid." });
     const user = userEvent.setup();
-    render(<SignupForm inviteToken="tok-abc" />);
+    renderForm("tok-abc");
 
     await fillForm(user, "correcthorse");
     await user.click(screen.getByRole("button", { name: /create account/i }));
@@ -123,7 +132,7 @@ describe("SignupForm", () => {
   it("clears the pending-login signal when the action throws, not only when it returns { error }", async () => {
     signup.mockRejectedValue(new Error("backend unreachable"));
     const user = userEvent.setup();
-    render(<SignupForm inviteToken="tok-abc" />);
+    renderForm("tok-abc");
 
     await fillForm(user, "correcthorse");
     await user.click(screen.getByRole("button", { name: /create account/i }));

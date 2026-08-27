@@ -1,4 +1,5 @@
-import { messages } from "@/lib/messages";
+import { useTranslations } from "next-intl";
+
 import type { HoldingOut } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -10,28 +11,27 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-const m = messages.holdings;
-
 function cell(value: string | null): string {
   return value ?? "—";
 }
 
 export function HoldingsTable({ holdings }: { holdings: HoldingOut[] }) {
+  const t = useTranslations("holdings");
   if (holdings.length === 0) {
-    return <p className="text-sm text-muted-foreground">{m.emptyState}</p>;
+    return <p className="text-sm text-muted-foreground">{t("emptyState")}</p>;
   }
   return (
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>{m.colName}</TableHead>
-          <TableHead>{m.colTicker}</TableHead>
-          <TableHead>{m.colCurrency}</TableHead>
-          <TableHead className="text-right">{m.colShares}</TableHead>
-          <TableHead className="text-right">{m.colAvgCost}</TableHead>
-          <TableHead className="text-right">{m.colCurrentValue}</TableHead>
-          <TableHead>{m.colPricingMode}</TableHead>
-          <TableHead>{m.colBroker}</TableHead>
+          <TableHead>{t("colName")}</TableHead>
+          <TableHead>{t("colTicker")}</TableHead>
+          <TableHead>{t("colCurrency")}</TableHead>
+          <TableHead className="text-right">{t("colShares")}</TableHead>
+          <TableHead className="text-right">{t("colAvgCost")}</TableHead>
+          <TableHead className="text-right">{t("colCurrentValue")}</TableHead>
+          <TableHead>{t("colPricingMode")}</TableHead>
+          <TableHead>{t("colBroker")}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>

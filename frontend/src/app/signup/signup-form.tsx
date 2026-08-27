@@ -1,24 +1,26 @@
 "use client";
 
 import { useActionState, useState, type FormEvent } from "react";
+import { useTranslations } from "next-intl";
 
-import { messages } from "@/lib/messages";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useLocale } from "@/app/_components/locale-provider";
 import { markPendingLogin } from "@/hooks/use-session";
 import { settleAuthAction } from "@/lib/settle-auth-action";
 import { signup, type SignupState } from "./actions";
 
-const m = messages.auth;
-
-async function signupAndDisarmOnError(
-  prev: SignupState | undefined,
-  formData: FormData,
-): Promise<SignupState | undefined> {
-  return settleAuthAction(() => signup(prev, formData), "Sign up failed.");
-}
-
 export function SignupForm({ inviteToken }: { inviteToken: string }) {
+  const t = useTranslations("auth");
+  const { locale } = useLocale();
+
+  async function signupAndDisarmOnError(
+    prev: SignupState | undefined,
+    formData: FormData,
+  ): Promise<SignupState | undefined> {
+    return settleAuthAction(() => signup(prev, formData), t("signupThrownError"));
+  }
+
   const [state, formAction, pending] = useActionState<SignupState | undefined, FormData>(
     signupAndDisarmOnError,
     undefined,
@@ -28,7 +30,7 @@ export function SignupForm({ inviteToken }: { inviteToken: string }) {
   if (!inviteToken) {
     return (
       <p className="mx-auto max-w-sm text-center text-sm text-destructive" role="alert">
-        {m.missingInvite}
+        {t("missingInvite")}
       </p>
     );
   }
@@ -56,15 +58,18 @@ export function SignupForm({ inviteToken }: { inviteToken: string }) {
       className="mx-auto flex max-w-sm flex-col gap-4"
     >
       <input type="hidden" name="invite_token" value={inviteToken} />
+      {/* See login-form.tsx: the signup Server Action needs the visitor's
+          locale and has no other way to get it. */}
+      <input type="hidden" name="locale" value={locale} />
       <div className="flex flex-col gap-1.5">
         <label htmlFor="email" className="text-sm text-foreground/80">
-          {m.emailLabel}
+          {t("emailLabel")}
         </label>
         <Input id="email" name="email" type="email" autoComplete="email" required />
       </div>
       <div className="flex flex-col gap-1.5">
         <label htmlFor="password" className="text-sm text-foreground/80">
-          {m.passwordLabel}
+          {t("passwordLabel")}
         </label>
         <Input
           id="password"
@@ -77,7 +82,7 @@ export function SignupForm({ inviteToken }: { inviteToken: string }) {
       </div>
       <div className="flex flex-col gap-1.5">
         <label htmlFor="confirm-password" className="text-sm text-foreground/80">
-          {m.confirmPasswordLabel}
+          {t("confirmPasswordLabel")}
         </label>
         <Input
           id="confirm-password"
@@ -90,7 +95,7 @@ export function SignupForm({ inviteToken }: { inviteToken: string }) {
       </div>
       {mismatch ? (
         <p className="text-sm text-destructive" role="alert">
-          {m.passwordMismatch}
+          {t("passwordMismatch")}
         </p>
       ) : state?.error ? (
         <p className="text-sm text-destructive" role="alert">
@@ -98,7 +103,7 @@ export function SignupForm({ inviteToken }: { inviteToken: string }) {
         </p>
       ) : null}
       <Button type="submit" disabled={pending}>
-        {pending ? m.signingUp : m.signupButton}
+        {pending ? t("signingUp") : t("signupButton")}
       </Button>
     </form>
   );

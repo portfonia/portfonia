@@ -108,17 +108,13 @@ describe("SiteHeader", () => {
     );
   });
 
-  it("hides the locale switcher outside the home route", () => {
-    usePathname.mockReturnValue("/holdings");
-    renderHeader();
+  it.each(["/", "/holdings"])(
+    "shows the locale switcher on %s (issue #209: no longer home-only)",
+    (route) => {
+      usePathname.mockReturnValue(route);
+      renderHeader();
 
-    expect(screen.queryByRole("combobox", { name: /language/i })).not.toBeInTheDocument();
-  });
-
-  it("shows the locale switcher on the home route", () => {
-    usePathname.mockReturnValue("/");
-    renderHeader();
-
-    expect(screen.getByRole("combobox", { name: /language/i })).toBeInTheDocument();
-  });
+      expect(screen.getByRole("combobox", { name: /language/i })).toBeInTheDocument();
+    },
+  );
 });
