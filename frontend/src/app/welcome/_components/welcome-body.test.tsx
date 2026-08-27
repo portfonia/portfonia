@@ -70,6 +70,11 @@ describe("WelcomeBody", () => {
     expect(sessionStorage.getItem("portfonia.welcomed")).toBe("1");
   });
 
+  it("does not burn the one-shot flag when the load failed (blacktomb42 review, PR #230)", () => {
+    renderBody(null, true);
+    expect(sessionStorage.getItem("portfonia.welcomed")).toBeNull();
+  });
+
   it("redirects to / instead of rendering when already welcomed this session", () => {
     sessionStorage.setItem("portfonia.welcomed", "1");
     renderBody(_ME);

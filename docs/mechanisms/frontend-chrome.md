@@ -118,13 +118,14 @@ for the full before/after and decision rationale.
   already covers every route, so a new route landing English-only would
   have reopened the exact per-route gap #209 closed, not stayed consistent
   with it.
-- **`GET /me` full #221 shape, `/profile` UI reads only two of its six
-  fields** — see `docs/mechanisms/identity-and-auth.md`'s "GET /me" entry
-  for the endpoint; this page renders `email` and `delivery_email` (with an
-  explicit visible fallback-to-account-email note when unset — a product
-  decision made when implementing this issue, not specified in the
-  original issue text) and leaves `missing`/`has_questionnaire`/
-  `has_holdings`/`tos_accepted_at` unused until #221's gap card.
+- **`GET /me` full #221 shape** — see `docs/mechanisms/identity-and-auth.md`'s
+  "GET /me" entry for the endpoint; this page renders `email` and
+  `delivery_email` (with an explicit visible fallback-to-account-email note
+  when unset — a product decision made when implementing this issue, not
+  specified in the original issue text). At #220 time `missing`/
+  `has_questionnaire`/`has_holdings`/`tos_accepted_at` were unused — #221
+  (below) is what reads `missing` for the gap card; `has_questionnaire`/
+  `has_holdings`/`tos_accepted_at` still have no frontend reader.
 - **Change-password Server Action** (`app/profile/actions.ts`) follows the
   same `signInWithPassword`-then-`updateUser` pattern as
   `Ring 1-Profile Page.md` §三 decision 2 — verifies against the caller's

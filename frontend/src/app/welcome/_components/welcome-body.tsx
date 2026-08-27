@@ -27,18 +27,24 @@ export function WelcomeBody({ me, hadLoadError }: { me: Me | null; hadLoadError:
       router.replace("/");
       return;
     }
-    try {
-      sessionStorage.setItem(WELCOMED_KEY, "1");
-    } catch {
-      // Storage unavailable (private mode, blocked site data) — degrade to
-      // always showing the page rather than throwing.
+    // Only burn the one-shot on an actual successful load (blacktomb42
+    // review, PR #230) — marking it welcomed on a failed GET /me would
+    // bounce a legitimate retry straight to "/" once the fetch recovers,
+    // with no second chance to ever see this page.
+    if (!hadLoadError && me) {
+      try {
+        sessionStorage.setItem(WELCOMED_KEY, "1");
+      } catch {
+        // Storage unavailable (private mode, blocked site data) — degrade
+        // to always showing the page rather than throwing.
+      }
     }
     // One-time client-only reveal, same pattern (and same justification) as
     // locale-provider.tsx's restore effect: sessionStorage can't be read
     // during SSR/first paint without a hydration mismatch.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setReady(true);
-  }, [router]);
+  }, [router, hadLoadError, me]);
 
   if (!ready) return null;
 
