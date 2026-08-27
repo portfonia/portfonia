@@ -39,14 +39,22 @@ from app.core.deps import require_ops_token
 from app.core.ops_log import log_ops_event
 from app.core.rate_limit import rate_limit_create_invite
 from app.models.holding import Holding
+from app.models.invite import Invite
 from app.models.report import Report
 from app.models.user import User
 from app.schemas.reports import ReportOut
 from app.services import fx_fetcher, price_fetcher
 from app.services.fund_nav_fetcher import update_fund_navs
-from app.services.invites import EmailAlreadyRegistered, create_invite, list_invites, revoke_invite
+from app.services.invites import (
+    EmailAlreadyRegistered,
+    _normalize_email,
+    create_invite,
+    list_invites,
+    revoke_invite,
+)
 from app.services.llm_errors import LLMEmptyResponseError
 from app.services.report_generator import generate_report
+from app.services.user_purge import purge_user
 from app.tasks.admin_tasks import send_admin_alert_task
 
 logger = logging.getLogger(__name__)
@@ -321,3 +329,65 @@ def generate_report_for_user(user_id: UUID, session: Session = Depends(get_sessi
         ) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=f"Report generation failed: {exc}") from exc
+
+
+class PurgeDeletedCounts(BaseModel):
+    news_surfaced: int
+    reports: int
+    holdings: int
+    upload_jobs: int
+    user_investment_context: int
+    invites_used_by_cleared: int
+    users_invited_by_cleared: int
+    users: int
+
+
+class PurgeUserOut(BaseModel):
+    user_id: UUID
+    email: str
+    deleted: PurgeDeletedCounts
+
+
+@router.delete("/users/{user_id}", response_model=PurgeUserOut)
+def purge_user_endpoint(
+    user_id: UUID,
+    session: Session = Depends(get_session),
+    confirm: str | None = None,
+) -> PurgeUserOut:
+    """Hard-purge one user's own data (issue #199).
+
+    Auth row stays in Supabase; operator deletes Auth in Dashboard; this
+    endpoint does not sequence that.
+    """
+    user = session.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    if user.id == UUID(get_settings().DEV_USER_ID):
+        raise HTTPException(status_code=409, detail="refusing to delete the seed user")
+    created_invites = session.execute(select(exists().where(Invite.created_by == user.id))).scalar()
+    if created_invites:
+        raise HTTPException(
+            status_code=409, detail="user created invites; revoke or reassign first"
+        )
+    if confirm is None:
+        raise HTTPException(status_code=422, detail="confirm query param is required")
+    if _normalize_email(confirm) != _normalize_email(user.email):
+        raise HTTPException(status_code=409, detail="confirm does not match user email")
+
+    email = user.email
+    result = purge_user(session, user_id)
+    session.commit()
+    return PurgeUserOut(
+        user_id=user_id,
+        email=email,
+        deleted=PurgeDeletedCounts(
+            news_surfaced=result.news_surfaced,
+            reports=result.reports,
+            holdings=result.holdings,
+            upload_jobs=result.upload_jobs,
+            user_investment_context=result.user_investment_context,
+            invites_used_by_cleared=result.invites_used_by_cleared,
+            users_invited_by_cleared=result.users_invited_by_cleared,
+            users=result.users,
+        ),
+    )
