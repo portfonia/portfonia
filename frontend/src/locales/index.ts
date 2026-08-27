@@ -17,13 +17,36 @@ import zhHant from "./zh-Hant.json";
 // EN-term-to-locale rendering pairs).
 export type Locale = "en" | "zh-Hans" | "zh-Hant";
 
-export const LOCALES: { value: Locale; label: string }[] = [
+export const DEFAULT_LOCALE: Locale = "en";
+
+// Every catalog-backed locale, in switcher display order — used only where
+// "does a catalog exist for this locale" is the question (the structural
+// shape-lock test, Object.keys(catalogs) elsewhere). Not used for anything a
+// real user can reach; see LOCALES below.
+const ALL_LOCALE_META: { value: Locale; label: string }[] = [
   { value: "en", label: "English" },
   { value: "zh-Hans", label: "简体中文" },
   { value: "zh-Hant", label: "繁體中文" },
 ];
 
-export const DEFAULT_LOCALE: Locale = "en";
+// Locales pending native-speaker review (issue #209 requirement) — drafted
+// this session, not yet reviewed. Excluding a locale here does not remove
+// its catalog file or drop it from the structural shape-lock test; it only
+// blocks every path a real user could reach it through (the switcher below,
+// and isLocale() — which also gates restoring a stored value and resolving
+// a Server Action's locale form field). Move a locale out of this list once
+// it's signed off (see this directory's README's "zh-Hant review status").
+const UNREVIEWED_LOCALES: readonly Locale[] = ["zh-Hant"];
+
+// Reviewer finding (blacktomb42, PR #226): ALL_LOCALE_META used to be
+// exposed directly as the switcher's options, so an "unreviewed" locale was
+// still user-selectable in practice — the README's caveat was documentation,
+// not enforcement. LOCALES is the enforcement: every user-facing consumer
+// (the switcher in site-header.tsx, and isLocale() below) reads this
+// filtered list instead.
+export const LOCALES = ALL_LOCALE_META.filter(
+  (l) => !UNREVIEWED_LOCALES.includes(l.value),
+);
 
 export function isLocale(value: string): value is Locale {
   return LOCALES.some((l) => l.value === value);

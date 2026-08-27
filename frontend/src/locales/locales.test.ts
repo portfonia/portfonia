@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { catalogs, LOCALES } from "./index";
+import { catalogs, type Locale } from "./index";
 
 // Arrays hold raw sample/structured data (home.preview.holdingsRows etc.),
 // not per-key translated strings — comparing their contents across locales
@@ -17,7 +17,11 @@ function leafPaths(value: unknown, prefix = ""): string[] {
   return [prefix];
 }
 
-const LOCALE_VALUES = LOCALES.map((l) => l.value);
+// Every catalog-backed locale, not just LOCALES (the switcher-exposed
+// subset) — this test must keep covering a locale pending human review
+// (e.g. zh-Hant) so its shape can't silently drift while it's excluded from
+// the switcher (blacktomb42 review, PR #226).
+const LOCALE_VALUES = Object.keys(catalogs) as Locale[];
 
 describe("locale catalogs stay structurally in sync (issue #209)", () => {
   const shapes = Object.fromEntries(

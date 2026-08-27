@@ -40,6 +40,19 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  useEffect(() => {
+    // blacktomb42 review (PR #226): issue #209 requires html/lang to match
+    // the selected locale on every route. AppShell's `lang` on its wrapper
+    // div was never enough — screen readers and in-browser translate key
+    // off the real `<html>` element, which layout.tsx must render
+    // statically as "en" server-side (locale is client-only — see this
+    // directory's README's "No URL-based locale routing" section). This
+    // effect is the one place that keeps the real element in sync, since
+    // LocaleProvider is the only place `locale` state changes (both the
+    // storage restore above and setLocale below).
+    document.documentElement.lang = locale;
+  }, [locale]);
+
   function setLocale(next: Locale) {
     setLocaleState(next);
     try {

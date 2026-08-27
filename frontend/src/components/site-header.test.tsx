@@ -117,4 +117,16 @@ describe("SiteHeader", () => {
       expect(screen.getByRole("combobox", { name: /language/i })).toBeInTheDocument();
     },
   );
+
+  // blacktomb42 review (PR #226): zh-Hant's catalog is LLM-drafted, pending
+  // native-speaker review (issue #209 requirement) — the switcher must not
+  // offer it to real users until that review lands.
+  it("does not offer zh-Hant in the switcher (pending human review)", () => {
+    usePathname.mockReturnValue("/");
+    renderHeader();
+
+    expect(
+      screen.queryByRole("option", { name: "繁體中文" }),
+    ).not.toBeInTheDocument();
+  });
 });

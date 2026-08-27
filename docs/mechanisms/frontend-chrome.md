@@ -106,8 +106,18 @@ switcher itself is home-only", and the `npm run test` reference) describe the
   `useHomeMessages()` (a thin `t.raw()` wrapper kept for `home-sections.tsx`'s
   existing object-access code shape). `zh` is renamed `zh-Hans`; `zh-Hant` is
   new (LLM-drafted, pending native-speaker review — see the README).
-- **`AppShell`'s `lang` now always follows the selected locale, on every
-  route** — the `pathname === "/"` gate described above is gone.
+- **`lang` now always follows the selected locale, on every route, on the
+  real `<html>` element** — the `pathname === "/"` gate described above is
+  gone. `LocaleProvider` (not `AppShell`) owns this: it's the one place
+  `locale` state changes (the storage restore and `setLocale`), so a
+  `useEffect` there sets `document.documentElement.lang` directly. An
+  earlier version of this PR only set `lang` on `AppShell`'s wrapper `<div>`
+  — real, never on `<html>` itself, which `layout.tsx` still renders
+  statically as `lang="en"` server-side (locale is client-only, see below) —
+  caught by review (blacktomb42, PR #226) since screen readers and
+  in-browser translate key off the real element. `AppShell` still also sets
+  `lang` on its wrapper div (redundant with the fix, kept because
+  `app-shell.test.tsx` already covered it and removing it added no value).
   `GetStartedMenu` and `SiteHeader` no longer branch on `isHome` for text
   either: that branch (home read `nav.*`, everywhere else read the
   English-only `menu.*`) was the root cause of the mixed-language menu bug
@@ -115,7 +125,11 @@ switcher itself is home-only", and the `npm run test` reference) describe the
   Holdings came from `messages.ts`). One `menu` namespace, used identically
   everywhere, fixes it structurally rather than patching the specific label.
 - **The locale switcher is no longer home-only** — it shows on every route,
-  since every route now actually changes language when it's used.
+  since every route now actually changes language when it's used. It also
+  only ever offers reviewed locales: `zh-Hant` is excluded from `LOCALES`
+  (`frontend/src/locales/index.ts`) until a native speaker signs off — see
+  the locales README's "zh-Hant review status" (also fixed after the same
+  review round: the catalog existed but was still switcher-selectable).
 - **No URL-based locale routing.** Concept & Design's frontend engineering
   constraint 3 calls for `next-intl` with `/en`/`/zh-Hans`/`/zh-Hant` URL
   prefixes and SSR of the selected locale. Issue #209 explicitly required

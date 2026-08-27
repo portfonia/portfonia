@@ -110,12 +110,27 @@ sign-off — it needs human review (ideally Taiwan or HK usage) before this
 locale is exposed to real users. The PR description lists this file as the
 review item.
 
+**Enforced, not just documented (fixed after review, PR #226):** an earlier
+version of this PR had `zh-Hant` in `index.ts`'s exported `LOCALES` list,
+which is what the switcher (`site-header.tsx`) and `isLocale()` both read —
+so despite this section, the unreviewed locale was still user-selectable in
+practice. `index.ts` now keeps `zh-Hant.json`'s catalog and its coverage in
+`locales.test.ts`'s structural shape-lock (so it can't silently drift while
+waiting on review), but excludes it from `LOCALES` via an internal
+`UNREVIEWED_LOCALES` list. Since `isLocale()` reads `LOCALES`, this also
+blocks resolving a stored `zh-Hant` value from `localStorage` or a Server
+Action's locale form field — not just hiding the switcher option. Move a
+locale out of `UNREVIEWED_LOCALES` once it's signed off; nothing else
+changes.
+
 ## Adding a fourth locale
 
 1. Add `<locale>.json` here with the same key paths as `en.json` (copy `en`
    or `zh-Hant` as a starting shape, then translate — `locales.test.ts` will
    fail loudly on any missing/extra key).
-2. Add it to `LOCALES` and the `catalogs` map in `index.ts`.
+2. Add it to `ALL_LOCALE_META` and the `catalogs` map in `index.ts`. If it
+   needs the same not-yet-reviewed treatment as `zh-Hant` above, also add it
+   to `UNREVIEWED_LOCALES` — otherwise it's immediately user-selectable.
 
 No page or component changes — every route already reads through
 `useTranslations()` against whatever locale is selected.
