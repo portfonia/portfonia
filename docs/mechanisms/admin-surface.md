@@ -35,6 +35,7 @@ capability existing.
   iterates `app.routes` and asserts every `/admin`-prefixed route's
   dependant chain includes `require_ops_token`, so a future endpoint that
   forgets to opt in fails CI rather than shipping unauthenticated.
+- **User hard-purge** (issue #199): `DELETE /admin/users/{user_id}?confirm={email}` hard-deletes one user's own rows (`news_surfaced`, `reports`, `holdings`, `upload_jobs`, `user_investment_context`, then `users`) and clears invite pointers (`invites.used_by_user_id` nulled without touching `used_at`/`revoked_at`; other users' `invited_by` nulled). Refuses the seed `DEV_USER_ID`, any user who still has `invites.created_by` rows, a missing `confirm` query param, and a `confirm` that does not match the row's normalized email (strip + lowercase, same as signup). Does not delete the Supabase Auth account, does not touch global capture tables, and does not soft-delete via `users.status`. Spec: issue #199 comment dated 2026-08-27.
 - **Auth**: `ADMIN_API_TOKEN` (`Settings`, `SecretStr`, required — no unset
   state, same discipline as `HOLDINGS_ENCRYPTION_KEY`) + optional
   `ADMIN_API_TOKEN_PREV` for a no-downtime rotation window (identical
@@ -80,5 +81,4 @@ capability existing.
 
 Full design, including token rotation, constant-time comparison, router-level
 auth declaration, and audit logging: Obsidian `Hermes/Portfonia/Docs/Ring 1-B design.md` §4.
-
 
