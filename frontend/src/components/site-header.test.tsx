@@ -108,17 +108,25 @@ describe("SiteHeader", () => {
     );
   });
 
-  it("hides the locale switcher outside the home route", () => {
-    usePathname.mockReturnValue("/holdings");
-    renderHeader();
+  it.each(["/", "/holdings"])(
+    "shows the locale switcher on %s (issue #209: no longer home-only)",
+    (route) => {
+      usePathname.mockReturnValue(route);
+      renderHeader();
 
-    expect(screen.queryByRole("combobox", { name: /language/i })).not.toBeInTheDocument();
-  });
+      expect(screen.getByRole("combobox", { name: /language/i })).toBeInTheDocument();
+    },
+  );
 
-  it("shows the locale switcher on the home route", () => {
+  // blacktomb42 review (PR #226): zh-Hant's catalog is LLM-drafted, pending
+  // native-speaker review (issue #209 requirement) — the switcher must not
+  // offer it to real users until that review lands.
+  it("does not offer zh-Hant in the switcher (pending human review)", () => {
     usePathname.mockReturnValue("/");
     renderHeader();
 
-    expect(screen.getByRole("combobox", { name: /language/i })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: "繁體中文" }),
+    ).not.toBeInTheDocument();
   });
 });

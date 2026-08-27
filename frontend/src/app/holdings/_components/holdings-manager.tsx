@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 
-import { messages } from "@/lib/messages";
 import {
   ApiError,
   confirmHoldings,
@@ -34,29 +34,44 @@ import {
 import { HoldingsTable } from "./holdings-table";
 import { BrokerSummary, IssueList, PreviewTable } from "./preview";
 
-const m = messages.holdings;
-
 export function HoldingsManager({
   initialHoldings,
-  initialError = null,
+  initialLoadError = false,
 }: {
   initialHoldings: HoldingOut[];
-  initialError?: string | null;
+  initialLoadError?: boolean;
 }) {
+  const t = useTranslations("holdings");
   const [holdings, setHoldings] = useState<HoldingOut[]>(initialHoldings);
   const [preview, setPreview] = useState<UploadPreview | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadSeconds, setUploadSeconds] = useState(0);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(initialError);
+  // Errors set by upload/save handlers below (translated at the moment the
+  // handler runs). The page-load error path is kept separate as a plain
+  // boolean (see `displayError`) so it stays reactive to a later locale
+  // switch instead of freezing whatever language was active at mount.
+  const [error, setError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const displayError = error ?? (initialLoadError ? t("errorLoadFailed") : null);
 
   useEffect(() => {
     if (!uploading) return;
     const id = setInterval(() => setUploadSeconds((s) => s + 1), 1000);
     return () => clearInterval(id);
   }, [uploading]);
+
+  // The original threshold logic (which sentence shows at which elapsed
+  // time) is UI behavior, not translatable content, so it stays here — only
+  // the four resulting strings come from the catalog.
+  function uploadingProgressText(seconds: number): string {
+    if (seconds < 5) return t("uploadingProgress.reading");
+    if (seconds < 20) return t("uploadingProgress.parsing");
+    if (seconds < 45) return t("uploadingProgress.stillWorking", { seconds });
+    return t("uploadingProgress.slow", { seconds });
+  }
 
   async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -69,7 +84,7 @@ export function HoldingsManager({
       setPreview(await uploadHoldings(file));
     } catch (err) {
       setError(
-        `${m.errorUploadFailed}: ${err instanceof ApiError ? err.message : String(err)}`,
+        `${t("errorUploadFailed")}: ${err instanceof ApiError ? err.message : String(err)}`,
       );
     } finally {
       setUploading(false);
@@ -86,7 +101,7 @@ export function HoldingsManager({
       setPreview(null);
     } catch (err) {
       setError(
-        `${m.errorSaveFailed}: ${err instanceof ApiError ? err.message : String(err)}`,
+        `${t("errorSaveFailed")}: ${err instanceof ApiError ? err.message : String(err)}`,
       );
     } finally {
       setSaving(false);
@@ -118,17 +133,17 @@ export function HoldingsManager({
 
   return (
     <>
-      {error && (
+      {displayError && (
         <div className="mb-6 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          {error}
+          {displayError}
         </div>
       )}
 
       {/* Import */}
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle>{m.uploadHeading}</CardTitle>
-          <CardDescription>{m.uploadHint}</CardDescription>
+          <CardTitle>{t("uploadHeading")}</CardTitle>
+          <CardDescription>{t("uploadHint")}</CardDescription>
           <CardAction>
             <Button
               variant="outline"
@@ -137,7 +152,7 @@ export function HoldingsManager({
                 downloadFile(TEMPLATE_MARKDOWN, "holdings-template.md")
               }
             >
-              {m.downloadTemplate}
+              {t("downloadTemplate")}
             </Button>
           </CardAction>
         </CardHeader>
@@ -154,11 +169,11 @@ export function HoldingsManager({
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
             >
-              {uploading ? m.uploading : m.chooseFile}
+              {uploading ? t("uploading") : t("chooseFile")}
             </Button>
             {uploading && (
               <span className="text-sm text-muted-foreground">
-                {m.uploadingProgress(uploadSeconds)}
+                {uploadingProgressText(uploadSeconds)}
               </span>
             )}
           </div>
@@ -169,14 +184,14 @@ export function HoldingsManager({
       {preview && (
         <Card className="mb-6">
           <CardHeader>
-            <CardTitle>{m.previewHeading}</CardTitle>
+            <CardTitle>{t("previewHeading")}</CardTitle>
             <CardDescription>
-              {m.previewValidCount(preview.valid_rows.length)}
-              {hasInferred && ` · ${m.inferredNote}`}
+              {t("previewValidCount", { n: preview.valid_rows.length })}
+              {hasInferred && ` · ${t("inferredNote")}`}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <p className="text-xs text-muted-foreground">{m.replaceWarning}</p>
+            <p className="text-xs text-muted-foreground">{t("replaceWarning")}</p>
             {preview.broker_groups.length > 0 && (
               <BrokerSummary groups={preview.broker_groups} />
             )}
@@ -187,10 +202,10 @@ export function HoldingsManager({
             {preview.issue_rows.length > 0 && (
               <div className="space-y-2">
                 <h3 className="text-sm font-medium text-destructive">
-                  {m.issuesHeading}
+                  {t("issuesHeading")}
                 </h3>
                 <p className="text-xs text-muted-foreground">
-                  {m.issuesCount(preview.issue_rows.length)}
+                  {t("issuesCount", { n: preview.issue_rows.length })}
                 </p>
                 <IssueList rows={preview.issue_rows} />
               </div>
@@ -202,13 +217,13 @@ export function HoldingsManager({
                 onClick={() => setPreview(null)}
                 disabled={saving}
               >
-                {m.cancelButton}
+                {t("cancelButton")}
               </Button>
               <Button
                 onClick={onSaveClick}
                 disabled={saving || preview.valid_rows.length === 0}
               >
-                {saving ? m.saving : m.saveButton}
+                {saving ? t("saving") : t("saveButton")}
               </Button>
             </div>
           </CardContent>
@@ -218,11 +233,11 @@ export function HoldingsManager({
       {/* Current holdings */}
       <Card>
         <CardHeader>
-          <CardTitle>{m.currentHeading}</CardTitle>
+          <CardTitle>{t("currentHeading")}</CardTitle>
           {holdings.length > 0 && (
             <CardAction>
               <Button variant="outline" size="sm" onClick={onExport}>
-                {m.exportButton}
+                {t("exportButton")}
               </Button>
             </CardAction>
           )}
@@ -236,21 +251,21 @@ export function HoldingsManager({
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{m.confirmTitle}</AlertDialogTitle>
+            <AlertDialogTitle>{t("confirmTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {preview ? m.confirmBody(preview.issue_rows.length) : ""}
+              {preview ? t("confirmBody", { n: preview.issue_rows.length }) : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={saving}>
-              {m.confirmKeep}
+              {t("confirmKeep")}
             </AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               onClick={() => void doSave()}
               disabled={saving}
             >
-              {saving ? m.saving : m.confirmDiscard}
+              {saving ? t("saving") : t("confirmDiscard")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

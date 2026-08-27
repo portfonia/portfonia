@@ -9,8 +9,8 @@
 // without submitting at all, for a user who doesn't want to answer today.
 import Link from "next/link";
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 
-import { messages } from "@/lib/messages";
 import {
   ApiError,
   putInvestmentContext,
@@ -18,8 +18,6 @@ import {
   type Questionnaire,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-
-const m = messages.questionnaire;
 
 // Concept §4.3's five default-philosophy directions, translated into this
 // questionnaire's closed enums (a product judgment call, not a literal
@@ -92,6 +90,7 @@ export function QuestionnaireForm({
 }: {
   initialContext: InvestmentContext | null;
 }) {
+  const t = useTranslations("questionnaire");
   const [answers, setAnswers] = useState<Questionnaire>(
     initialContext?.questionnaire ?? DEFAULT_QUESTIONNAIRE,
   );
@@ -111,8 +110,8 @@ export function QuestionnaireForm({
   function toggleMulti(field: MultiDim, value: string) {
     setAnswers((prev) => {
       // `value` always comes from this field's own option keys
-      // (m.dims[field].options, rendered below) — the union member is
-      // validated by construction, not by this cast.
+      // (t.raw(`dims.${field}.options`), rendered below) — the union member
+      // is validated by construction, not by this cast.
       const current: string[] = prev[field];
       const next = current.includes(value)
         ? current.filter((v) => v !== value)
@@ -134,7 +133,7 @@ export function QuestionnaireForm({
       // (issue #214).
       setStep(0);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : m.errorSaveFailed);
+      setError(err instanceof ApiError ? err.message : t("errorSaveFailed"));
     } finally {
       setSaving(false);
     }
@@ -143,55 +142,59 @@ export function QuestionnaireForm({
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between text-sm text-muted-foreground">
-        <span>{m.stepOf(step + 1, TOTAL_STEPS)}</span>
+        <span>{t("stepOf", { current: step + 1, total: TOTAL_STEPS })}</span>
         <Link href="/" className="underline-offset-4 hover:underline">
-          {m.skip}
+          {t("skip")}
         </Link>
       </div>
 
       {dim && SINGLE_STEPS.includes(dim as SingleDim) && (
         <fieldset className="flex flex-col gap-3">
           <legend className="mb-1 text-base font-medium">
-            {m.dims[dim as SingleDim].question}
+            {t(`dims.${dim}.question`)}
           </legend>
-          {Object.entries(m.dims[dim as SingleDim].options).map(([value, label]) => (
-            <OptionButton
-              key={value}
-              label={label}
-              selected={answers[dim as SingleDim] === value}
-              onClick={() => selectSingle(dim as SingleDim, value)}
-            />
-          ))}
+          {Object.entries(t.raw(`dims.${dim}.options`) as Record<string, string>).map(
+            ([value, label]) => (
+              <OptionButton
+                key={value}
+                label={label}
+                selected={answers[dim as SingleDim] === value}
+                onClick={() => selectSingle(dim as SingleDim, value)}
+              />
+            ),
+          )}
         </fieldset>
       )}
 
       {dim && MULTI_STEPS.includes(dim as MultiDim) && (
         <fieldset className="flex flex-col gap-3">
           <legend className="mb-1 text-base font-medium">
-            {m.dims[dim as MultiDim].question}
+            {t(`dims.${dim}.question`)}
           </legend>
-          {Object.entries(m.dims[dim as MultiDim].options).map(([value, label]) => (
-            <OptionButton
-              key={value}
-              label={label}
-              selected={(answers[dim as MultiDim] as string[]).includes(value)}
-              onClick={() => toggleMulti(dim as MultiDim, value)}
-            />
-          ))}
+          {Object.entries(t.raw(`dims.${dim}.options`) as Record<string, string>).map(
+            ([value, label]) => (
+              <OptionButton
+                key={value}
+                label={label}
+                selected={(answers[dim as MultiDim] as string[]).includes(value)}
+                onClick={() => toggleMulti(dim as MultiDim, value)}
+              />
+            ),
+          )}
         </fieldset>
       )}
 
       {isFreeTextStep && (
         <div className="flex flex-col gap-2">
           <label htmlFor="free-text" className="text-base font-medium">
-            {m.freeTextHeading}
+            {t("freeTextHeading")}
           </label>
-          <p className="text-sm text-muted-foreground">{m.freeTextHint}</p>
+          <p className="text-sm text-muted-foreground">{t("freeTextHint")}</p>
           <textarea
             id="free-text"
             value={freeText}
             onChange={(e) => setFreeText(e.target.value)}
-            placeholder={m.freeTextPlaceholder}
+            placeholder={t("freeTextPlaceholder")}
             rows={6}
             className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
           />
@@ -203,7 +206,7 @@ export function QuestionnaireForm({
           {error}
         </p>
       )}
-      {saved && <p className="text-sm text-foreground/70">{m.saved}</p>}
+      {saved && <p className="text-sm text-foreground/70">{t("saved")}</p>}
 
       <div className="flex items-center justify-between">
         <Button
@@ -212,15 +215,15 @@ export function QuestionnaireForm({
           disabled={step === 0}
           onClick={() => setStep((s) => Math.max(0, s - 1))}
         >
-          {m.back}
+          {t("back")}
         </Button>
         {isFreeTextStep ? (
           <Button type="button" disabled={saving} onClick={() => void handleSave()}>
-            {saving ? m.saving : m.save}
+            {saving ? t("saving") : t("save")}
           </Button>
         ) : (
           <Button type="button" onClick={() => setStep((s) => Math.min(TOTAL_STEPS - 1, s + 1))}>
-            {m.next}
+            {t("next")}
           </Button>
         )}
       </div>

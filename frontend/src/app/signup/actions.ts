@@ -3,13 +3,19 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { messages } from "@/lib/messages";
 import { createClient } from "@/lib/supabase/server";
+import { catalogs, DEFAULT_LOCALE, isLocale } from "@/locales";
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
 export interface SignupState {
   error: string | null;
+}
+
+// See login/actions.ts's resolveLocale — same reasoning.
+function resolveLocale(formData: FormData) {
+  const raw = String(formData.get("locale") ?? "");
+  return isLocale(raw) ? raw : DEFAULT_LOCALE;
 }
 
 async function signupBackendHeaders(): Promise<Record<string, string>> {
@@ -39,12 +45,13 @@ export async function signup(
   const inviteToken = String(formData.get("invite_token") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
+  const auth = catalogs[resolveLocale(formData)].auth;
 
   if (!inviteToken) {
-    return { error: "This sign-up link is missing its invite token." };
+    return { error: auth.errorMissingInviteToken };
   }
   if (!email || password.length < 8) {
-    return { error: "Enter a valid email and a password of at least 8 characters." };
+    return { error: auth.errorInvalidSignupInput };
   }
 
   const res = await fetch(`${BACKEND_URL}/auth/signup`, {
@@ -57,12 +64,12 @@ export async function signup(
     const body = (await res.json().catch(() => null)) as { detail?: unknown } | null;
     const detail = typeof body?.detail === "string" ? body.detail : null;
     if (res.status === 429) {
-      return { error: detail ?? messages.auth.tooManyAttempts };
+      return { error: detail ?? auth.tooManyAttempts };
     }
     if (res.status === 503) {
-      return { error: detail ?? messages.auth.temporarilyUnavailable };
+      return { error: detail ?? auth.temporarilyUnavailable };
     }
-    return { error: detail ?? "Sign up failed." };
+    return { error: detail ?? auth.signupThrownError };
   }
 
   // The backend's SignupResponse carries no session token (it only proves

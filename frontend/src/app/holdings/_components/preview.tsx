@@ -1,6 +1,6 @@
 import { Fragment } from "react";
+import { useTranslations } from "next-intl";
 
-import { messages } from "@/lib/messages";
 import type { ParsedRow, IssueRow, BrokerGroup } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -12,8 +12,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-const m = messages.holdings;
-
 function num(value: number | null): string {
   return value === null ? "—" : String(value);
 }
@@ -23,18 +21,19 @@ function str(value: string | null): string {
 }
 
 export function PreviewTable({ rows }: { rows: ParsedRow[] }) {
+  const t = useTranslations("holdings");
   return (
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>{m.colName}</TableHead>
-          <TableHead>{m.colTicker}</TableHead>
-          <TableHead>{m.colCurrency}</TableHead>
-          <TableHead className="text-right">{m.colShares}</TableHead>
-          <TableHead className="text-right">{m.colAvgCost}</TableHead>
-          <TableHead className="text-right">{m.colCurrentValue}</TableHead>
-          <TableHead>{m.colPricingMode}</TableHead>
-          <TableHead>{m.colBroker}</TableHead>
+          <TableHead>{t("colName")}</TableHead>
+          <TableHead>{t("colTicker")}</TableHead>
+          <TableHead>{t("colCurrency")}</TableHead>
+          <TableHead className="text-right">{t("colShares")}</TableHead>
+          <TableHead className="text-right">{t("colAvgCost")}</TableHead>
+          <TableHead className="text-right">{t("colCurrentValue")}</TableHead>
+          <TableHead>{t("colPricingMode")}</TableHead>
+          <TableHead>{t("colBroker")}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -80,7 +79,7 @@ export function PreviewTable({ rows }: { rows: ParsedRow[] }) {
                     colSpan={8}
                     className="pt-0 text-xs text-amber-700 dark:text-amber-400"
                   >
-                    <p className="font-medium">{m.rowNotesLabel}</p>
+                    <p className="font-medium">{t("rowNotesLabel")}</p>
                     <ul className="ml-4 list-disc">
                       {r.issues.map((issue, j) => (
                         <li key={j}>{issue}</li>
@@ -105,18 +104,19 @@ function fmtCostBasis(value: number, currency: string): string {
 }
 
 export function BrokerSummary({ groups }: { groups: BrokerGroup[] }) {
+  const t = useTranslations("holdings");
   if (groups.length === 0) return null;
   return (
     <div className="space-y-2">
-      <h3 className="text-sm font-medium">{m.summaryHeading}</h3>
-      <p className="text-xs text-muted-foreground">{m.summaryHint}</p>
+      <h3 className="text-sm font-medium">{t("summaryHeading")}</h3>
+      <p className="text-xs text-muted-foreground">{t("summaryHint")}</p>
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>{m.summaryColBroker}</TableHead>
-            <TableHead className="text-right">{m.summaryColCount}</TableHead>
+            <TableHead>{t("summaryColBroker")}</TableHead>
+            <TableHead className="text-right">{t("summaryColCount")}</TableHead>
             <TableHead className="text-right">
-              {m.summaryColCostBasis}
+              {t("summaryColCostBasis")}
             </TableHead>
           </TableRow>
         </TableHeader>
@@ -145,12 +145,13 @@ export function BrokerSummary({ groups }: { groups: BrokerGroup[] }) {
 }
 
 export function IssueList({ rows }: { rows: IssueRow[] }) {
+  const t = useTranslations("holdings");
   return (
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>{m.colRaw}</TableHead>
-          <TableHead>{m.colReason}</TableHead>
+          <TableHead>{t("colRaw")}</TableHead>
+          <TableHead>{t("colReason")}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>

@@ -1,9 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { homeMessages, type Locale } from "@/lib/i18n/home-messages";
+import { catalogs, type Locale } from "@/locales";
 import { LocaleProvider } from "./locale-provider";
 import { HomeSections } from "./home-sections";
+
+const LOCALES: Locale[] = ["en", "zh-Hans", "zh-Hant"];
 
 function parseUsdAmount(cell: string): number {
   return Number(cell.replace(/\*\*/g, "").replace(/,/g, ""));
@@ -11,6 +13,45 @@ function parseUsdAmount(cell: string): number {
 
 function parsePercent(cell: string): number {
   return Number(cell.replace(/\*\*/g, "").replace("%", ""));
+}
+
+// Every locale's sample data names its institutions "<word> A".."<word> E"
+// in the institution column (index 4) — e.g. "Custodian A" / "机构 A" /
+// "機構 A". Deriving the localized word from holding A's own row (instead of
+// hardcoding all three locales' translations here) keeps this test locale-
+// agnostic.
+function institutionWord(holdingsRows: string[][]): string {
+  const [firstRow] = holdingsRows;
+  return firstRow[4].replace(/ A$/, "");
+}
+
+function institutionRow(holdingsRows: string[][], word: string, letter: string): string[] {
+  const label = `${word} ${letter}`;
+  const row = holdingsRows.find((r) => r[4] === label);
+  if (!row) throw new Error(`no holdingsRow with institution "${label}"`);
+  return row;
+}
+
+// Subtotal rows carry the institution word + letter as a substring of the
+// label column (index 0), e.g. "**Custodian D subtotal**" / "**机构 D 小计**".
+function subtotalRow(subtotalRows: string[][], word: string, letter: string): string[] {
+  const needle = `${word} ${letter}`;
+  const row = subtotalRows.find((r) => r[0].includes(needle));
+  if (!row) throw new Error(`no subtotal row containing "${needle}"`);
+  return row;
+}
+
+// USD/CNH/HKD columns render as a localized currency NAME, not the ISO code,
+// in the two Chinese locales (pre-existing behavior, not introduced by
+// issue #209) — one set of name variants per code, checked per locale.
+const CURRENCY_NAMES: Record<string, string[]> = {
+  USD: ["USD", "美元"],
+  CNH: ["CNH", "人民币", "人民幣"],
+  HKD: ["HKD", "港元", "港幣"],
+};
+
+function isCurrency(cell: string, code: keyof typeof CURRENCY_NAMES): boolean {
+  return CURRENCY_NAMES[code].includes(cell);
 }
 
 // The sample-briefing section must show EVERY report section (owner ask,
@@ -63,54 +104,50 @@ describe("HomeSections sample briefing", () => {
     expect(screen.queryByText(/\*\*/)).not.toBeInTheDocument();
   });
 
-  it.each(["en", "zh"] as Locale[])(
+  it.each(LOCALES)(
     "keeps %s sample snapshot internally consistent (USD subtotals = total, weights = 100)",
     (locale) => {
-      const preview = homeMessages[locale].preview;
+      const preview = catalogs[locale].home.preview;
       const totalMatch = preview.totalLine.match(/[\d,]+/);
       expect(totalMatch).not.toBeNull();
       const advertisedTotal = Number(totalMatch![0].replace(/,/g, ""));
 
+      const word = institutionWord(preview.holdingsRows);
       const usdSubtotals = preview.holdingsRows.filter(
-        (row) => row[0].includes("subtotal") || row[0].includes("小计"),
+        (row) => row[0].includes("subtotal") || row[0].includes("小计") || row[0].includes("小計"),
       );
       const subtotalSum = usdSubtotals.reduce(
         (sum, row) => sum + parseUsdAmount(row[2]),
         0,
       );
-      const eRow = preview.holdingsRows.find(
-        (row) => row[4] === "Custodian E" || row[4] === "机构 E",
-      );
-      expect(eRow).toBeDefined();
-      expect(subtotalSum + parseUsdAmount(eRow![2])).toBe(advertisedTotal);
+      const eRow = institutionRow(preview.holdingsRows, word, "E");
+      expect(subtotalSum + parseUsdAmount(eRow[2])).toBe(advertisedTotal);
 
       const weightSum =
         usdSubtotals.reduce((sum, row) => sum + parsePercent(row[3]), 0) +
-        parsePercent(eRow![3]);
+        parsePercent(eRow[3]);
       expect(weightSum).toBeCloseTo(100, 5);
 
-      const cnhUsd = parseUsdAmount(
-        usdSubtotals.find((row) => row[0].includes("Custodian D") || row[0].includes("机构 D"))![2],
-      );
+      const dSubtotalRow = subtotalRow(usdSubtotals, word, "D");
+      const cnhUsd = parseUsdAmount(dSubtotalRow[2]);
       const cnhFace = preview.holdingsRows
-        .filter((row) => row[1] === "CNH" || row[1] === "人民币")
+        .filter((row) => isCurrency(row[1], "CNH"))
         .reduce((sum, row) => sum + parseUsdAmount(row[2]), 0);
       expect(cnhFace / 7.15).toBeCloseTo(cnhUsd, 0);
 
-      const hkdUsd = parseUsdAmount(
-        usdSubtotals.find((row) => row[0].includes("Custodian C") || row[0].includes("机构 C"))![2],
-      );
+      const cSubtotalRow = subtotalRow(usdSubtotals, word, "C");
+      const hkdUsd = parseUsdAmount(cSubtotalRow[2]);
       const hkdFace = preview.holdingsRows
-        .filter((row) => row[1] === "HKD" || row[1] === "港元")
+        .filter((row) => isCurrency(row[1], "HKD"))
         .reduce((sum, row) => sum + parseUsdAmount(row[2]), 0);
       expect(hkdFace / 7.8).toBeCloseTo(hkdUsd, 0);
     },
   );
 
-  it.each(["en", "zh"] as Locale[])(
+  it.each(LOCALES)(
     "names only snapshot holdings in the %s risk-radar anomaly table",
     (locale) => {
-      const preview = homeMessages[locale].preview;
+      const preview = catalogs[locale].home.preview;
       const heldTickers = new Set(
         preview.holdingsRows.flatMap((row) => {
           const match = row[0].match(/\(([A-Za-z0-9.]+)\)/);

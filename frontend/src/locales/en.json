@@ -1,0 +1,321 @@
+{
+  "common": {
+    "brandName": "Portfonia"
+  },
+  "menu": {
+    "trigger": "Get Started",
+    "language": "Language",
+    "login": "Log in",
+    "logout": "Log out",
+    "loggingIn": "Logging in...",
+    "logoutFailed": "Sign out failed. Try again.",
+    "holdings": "Holdings",
+    "home": "Home",
+    "questionnaire": "Investment style",
+    "sessionExpired": "Your session ended after {minutes} minutes of inactivity."
+  },
+  "auth": {
+    "loginHeading": "Log in",
+    "loginSubtitle": "Welcome back.",
+    "signupHeading": "Create your account",
+    "signupSubtitle": "You'll need a valid invite link to sign up.",
+    "emailLabel": "Email",
+    "passwordLabel": "Password",
+    "confirmPasswordLabel": "Confirm password",
+    "passwordMismatch": "Passwords do not match.",
+    "loginButton": "Log in",
+    "loggingIn": "Logging in...",
+    "signupButton": "Create account",
+    "signingUp": "Creating account...",
+    "missingInvite": "This link is missing its invite token. Ask whoever invited you for a fresh link.",
+    "noAccountYet": "Need an invite? Ask the person who referred you.",
+    "alreadyHaveAccount": "Already have an account?",
+    "backToLogin": "Log in instead",
+    "tooManyAttempts": "Too many attempts, try again later.",
+    "temporarilyUnavailable": "Temporarily unavailable. Try again later.",
+    "signinThrownError": "Could not sign in. Try again.",
+    "signupThrownError": "Sign up failed.",
+    "errorMissingCredentials": "Enter your email and password.",
+    "errorInvalidCredentials": "Invalid email or password.",
+    "errorMissingInviteToken": "This sign-up link is missing its invite token.",
+    "errorInvalidSignupInput": "Enter a valid email and a password of at least 8 characters."
+  },
+  "holdings": {
+    "pageTitle": "Holdings",
+    "pageSubtitle": "Upload a file to import your holdings. Review, then save.",
+    "currentHeading": "Current holdings",
+    "emptyState": "No holdings yet. Upload a file to get started.",
+    "exportButton": "Export current holdings",
+    "downloadTemplate": "Download template",
+    "uploadHeading": "Import from file",
+    "uploadHint": "Accepted: .md, .txt, .csv, .xlsx, .xls. One sheet per Excel file. Add .HK for Hong Kong tickers, .SS / .SZ for A-shares; US tickers need no suffix. Chinese public funds: enter the 6-digit fund code.",
+    "chooseFile": "Choose file",
+    "uploading": "Parsing...",
+    "parseAgain": "Choose a different file",
+    "uploadingProgress": {
+      "reading": "Reading file...",
+      "parsing": "Parsing with AI...",
+      "stillWorking": "Still working ({seconds}s)...",
+      "slow": "Taking longer than usual ({seconds}s) — the LLM provider may be slow."
+    },
+    "previewHeading": "Parsed holdings",
+    "previewValidCount": "{n, plural, one {# row ready to save} other {# rows ready to save}}",
+    "inferredNote": "System inferred some fields — please review highlighted rows.",
+    "rowNotesLabel": "Potential issues / how they were handled:",
+    "summaryHeading": "Cross-check by institution",
+    "summaryHint": "Computed from your uploaded file only (shares x avg cost, or the value you supplied) — NO current market prices are fetched. This is a cost-basis cross-check to confirm every holding landed under the right institution, not a live valuation.",
+    "summaryColBroker": "Institution",
+    "summaryColCount": "Holdings",
+    "summaryColCostBasis": "Cost basis",
+    "issuesHeading": "Could not be parsed",
+    "issuesCount": "{n, plural, one {# row will NOT be saved unless you fix them} other {# rows will NOT be saved unless you fix them}}",
+    "saveButton": "Save holdings",
+    "saving": "Saving...",
+    "cancelButton": "Cancel",
+    "confirmTitle": "Discard unparsed rows?",
+    "confirmBody": "{n, plural, one {# row could not be parsed and will be permanently discarded. This is your last chance to recover them. To keep them, download the file, fix the rows, and re-upload instead.} other {# rows could not be parsed and will be permanently discarded. This is your last chance to recover them. To keep them, download the file, fix the rows, and re-upload instead.}}",
+    "confirmKeep": "Go back and fix",
+    "confirmDiscard": "Discard and save",
+    "replaceWarning": "Saving replaces ALL current holdings with the rows below.",
+    "colName": "Name",
+    "colTicker": "Ticker",
+    "colFundCode": "Fund code",
+    "colCurrency": "Currency",
+    "colShares": "Shares",
+    "colAvgCost": "Avg cost",
+    "colCurrentValue": "Current value",
+    "colPricingMode": "Pricing",
+    "colAssetType": "Type",
+    "colBroker": "Broker",
+    "colRaw": "Original text",
+    "colReason": "Reason",
+    "errorUploadFailed": "Upload failed",
+    "errorSaveFailed": "Save failed",
+    "errorLoadFailed": "Could not load holdings"
+  },
+  "questionnaire": {
+    "pageTitle": "Investment style",
+    "pageSubtitle": "Helps tailor which facts and angles your reports emphasize. Every question is pre-filled with a sensible default — skip straight to Save if you don't want to change anything, or come back and re-answer any time.",
+    "stepOf": "Question {current} of {total}",
+    "back": "Back",
+    "next": "Next",
+    "skip": "Skip for now",
+    "save": "Save",
+    "saving": "Saving...",
+    "saved": "Saved.",
+    "errorSaveFailed": "Could not save your answers",
+    "errorLoadFailed": "Could not load your saved answers",
+    "freeTextHeading": "Anything else worth knowing?",
+    "freeTextHint": "Optional. No format required — write as much or as little as you like. Stored and shown back to you exactly as written.",
+    "freeTextPlaceholder": "e.g. some positions are legacy holdings, not active choices...",
+    "dims": {
+      "asset_scale": {
+        "question": "What's your current investable asset scale?",
+        "options": {
+          "UNDER_100K": "Under $100K",
+          "100K_500K": "$100K – $500K",
+          "500K_2M": "$500K – $2M",
+          "OVER_2M": "Over $2M"
+        }
+      },
+      "markets": {
+        "question": "Which markets do you mainly invest in? (select all that apply)",
+        "options": { "US": "US", "HK": "Hong Kong", "A-Share": "A-Share", "Other": "Other" }
+      },
+      "style": {
+        "question": "How would you describe your investing style?",
+        "options": { "VALUE": "Value", "GROWTH": "Growth", "INDEX": "Index", "MIXED": "Mixed" }
+      },
+      "horizon": {
+        "question": "What's your typical holding period?",
+        "options": {
+          "SHORT": "Short-term (under 1 year)",
+          "MEDIUM": "Medium-term (1–3 years)",
+          "LONG": "Long-term (3+ years)"
+        }
+      },
+      "risk_appetite": {
+        "question": "How would you describe your risk appetite?",
+        "options": {
+          "CONSERVATIVE": "Conservative",
+          "BALANCED": "Balanced",
+          "AGGRESSIVE": "Aggressive"
+        }
+      },
+      "sectors_of_interest": {
+        "question": "Any sectors you especially want covered? (select all that apply, or none)",
+        "options": {
+          "Technology": "Technology",
+          "Communication": "Communication",
+          "Financials": "Financials",
+          "Healthcare": "Healthcare",
+          "Consumer Discretionary": "Consumer Discretionary",
+          "Consumer Staples": "Consumer Staples",
+          "Energy": "Energy",
+          "Materials": "Materials",
+          "Industrials": "Industrials",
+          "Real Estate": "Real Estate",
+          "Utilities": "Utilities",
+          "Other": "Other"
+        }
+      },
+      "objective": {
+        "question": "What's your core objective?",
+        "options": {
+          "PRESERVATION": "Capital preservation",
+          "GROWTH": "Growth",
+          "INCOME": "Income"
+        }
+      },
+      "intel_focus": {
+        "question": "Where should reports focus their intelligence?",
+        "options": {
+          "MACRO": "Macro signals",
+          "FUNDAMENTALS": "Individual-holding fundamentals",
+          "GEOPOLITICS": "Geopolitical developments",
+          "BALANCED": "Balanced across all of these"
+        }
+      }
+    }
+  },
+  "home": {
+    "hero": {
+      "eyebrow": "MVP · Multi-user closed beta",
+      "titleLine1": "What's worth noticing",
+      "titleAccent": "in your holdings.",
+      "sub": "Portfonia watches the market and maps it back to your actual positions — US equities, HK equities, A-shares, funds, cash, and FX. It tells you what changed and why it matters, helping you make timely, well-informed decisions.",
+      "ctaPrimary": "Get started",
+      "ctaSecondary": "See how it works"
+    },
+    "how": {
+      "heading": "How it works",
+      "tag": "Three moving parts",
+      "cards": [
+        {
+          "title": "Holdings ingestion",
+          "body": "Upload a CSV or spreadsheet describing your positions. An LLM normalizes it into structured records — no manual re-entry.",
+          "tags": ["CSV", "Markdown", "Excel"]
+        },
+        {
+          "title": "Market & macro tracking",
+          "body": "Daily price, FX, and curated macro-news scanning across reputable sources — English-language primary, Chinese-language where the instrument calls for it.",
+          "tags": ["Prices", "FX", "Macro news"]
+        },
+        {
+          "title": "Personalized briefings",
+          "body": "Mon / Wed / Fri, tied to your actual holdings — price anomalies, technical position, and a forward calendar of macro and earnings events.",
+          "tags": ["Email delivery"]
+        }
+      ],
+      "confidenceLead": "Every causal claim ships with a confidence label",
+      "confidenceBody": "Calibrated uncertainty, made legible instead of hidden.",
+      "tiers": { "established": "Established", "probable": "Probable", "speculative": "Speculative" }
+    },
+    "preview": {
+      "heading": "What a briefing actually looks like",
+      "tag": "Real report, anonymized",
+      "badge": "Anonymized from a real report — sample holdings & figures",
+      "footnote": "Actual content varies depending on your subscription tier.",
+      "snapshotTitle": "Portfolio snapshot",
+      "totalLine": "Total value: $1,000,000 (FX date: 2026-08-21)",
+      "holdingsColumns": ["Holding", "Currency", "Value", "Weight", "Custodian", "Asset class"],
+      "holdingsRows": [
+        ["TSMC (TSM)", "USD", "209,000", "20.9%", "Custodian A", "Stocks"],
+        ["Microsoft (MSFT)", "USD", "80,000", "8.0%", "Custodian A", "Stocks"],
+        ["Alphabet (GOOGL)", "USD", "69,000", "6.9%", "Custodian A", "Stocks"],
+        ["**Custodian A subtotal**", "USD", "**358,000**", "**35.8%**", "", ""],
+        ["QQQ (QQQ)", "USD", "160,000", "16.0%", "Custodian B", "US tech ETF"],
+        ["VOO (VOO)", "USD", "131,000", "13.1%", "Custodian B", "US broad ETF"],
+        ["BOXX (BOXX)", "USD", "48,000", "4.8%", "Custodian B", "Bond fund"],
+        ["Cash", "USD", "2,000", "0.2%", "Custodian B", "Cash equivalent"],
+        ["**Custodian B subtotal**", "USD", "**341,000**", "**34.1%**", "", ""],
+        ["Tencent (0700.HK)", "HKD", "546,000", "7.0%", "Custodian C", "Stocks"],
+        ["BYD (1211.HK)", "HKD", "413,400", "5.3%", "Custodian C", "Stocks"],
+        ["**Custodian C subtotal** (converted to USD)", "USD", "**123,000**", "**12.3%**", "", ""],
+        ["Gold ETF (518880.SS)", "CNH", "14,300", "0.2%", "Custodian D", "Precious metals"],
+        ["CSI 300 ETF (510300.SS)", "CNH", "7,150", "0.1%", "Custodian D", "China equities"],
+        ["Cash", "CNH", "42,900", "0.6%", "Custodian D", "Cash equivalent"],
+        ["**Custodian D subtotal** (converted to USD)", "USD", "**9,000**", "**0.9%**", "", ""],
+        ["USD cash & FX", "USD", "169,000", "16.9%", "Custodian E", "Cash equivalent"]
+      ],
+      "distributionLines": [
+        "**By market:** US 86.8%, HK 12.3%, A-shares & CNH 0.9%",
+        "**By currency:** USD 86.8%, HKD 12.3%, CNH 0.9%",
+        "**By asset class:** Stocks 48.1%, US tech ETF 16.0%, US broad ETF 13.1%, Bond funds 4.8%, Precious metals 0.2%, China equities 0.1%, Cash equivalents 17.7%",
+        "**FX rates used:** HKD 7.80, CNH 7.15 vs USD"
+      ],
+      "macroTitle": "Macro signals",
+      "macroBody": "Markets repriced the policy path after the latest FOMC minutes showed a split committee. The transmission into this portfolio runs through the equity-duration channel: long-duration growth names (TSMC, Microsoft, Alphabet) and the broad ETFs are mechanically sensitive to shifts in rate expectations embedded in the yield curve. No price anomaly was triggered in this window to confirm a repricing in any specific holding, so this direction stands as structural exposure to monitor rather than an observed event. [Probable]",
+      "calendarTitle": "Forward calendar",
+      "calendarNote": "Scheduled US events over the coming days and the holdings they bear on. Calendar facts only — not forecasts.",
+      "calendarColumns": ["Date", "Event", "Affected holdings", "What to watch"],
+      "calendarRows": [
+        ["08-27", "Jobless claims", "—", "Labor market momentum; rate-path implications"],
+        ["08-29", "Core PCE price index", "TSMC, MSFT, GOOGL +2", "Inflation vs consensus; rate-path implications"],
+        ["09-02", "ISM Manufacturing PMI", "—", "Factory-sector momentum"]
+      ],
+      "analysisTitle": "Holding analysis",
+      "analysisHeading": "TSMC — 20.9% of the portfolio, the single largest position",
+      "analysisBody": "TSMC stands out this period not for a company-specific event but for its disproportionate weight and its exposure to several macro themes at once. The monetary-policy theme reaches it through the equity-duration channel: as a pure-play foundry, its forward multiples already embed years of capex-driven growth from advanced nodes, so its valuation is mechanically sensitive to rate expectations. The AI-infrastructure demand narrative underpinning the position is unchanged; what is new is a less predictable policy path adding an intermittent source of valuation volatility. The causal link between holding TSMC and the monetary-policy signal runs through that well-documented duration mechanism [Probable] — though no anomaly was observed in this window to confirm the market actually traded on it.",
+      "radarTitle": "Risk radar",
+      "concentrationBody": "The top three holdings together account for 50.0% of portfolio value — at the 50% watch threshold. The largest single asset-class bucket (stocks) sits at 48.1%, just below it. Single-position concentration is dominated by TSMC at 20.9%; the two broad ETF positions diversify within US equities while raising correlation to US monetary-policy developments.",
+      "anomalyColumns": ["Holding", "Net move", "Worst day (date)", "Prev close", "Open (gap %)", "Intraday range", "Close", "Trigger"],
+      "anomalyRows": [
+        ["QQQ (QQQ)", "+2.4%", "+1.8% (08-25)", "562.10", "564.20 (+0.4%)", "561.4–574.8", "573.90", "single_day"],
+        ["TSMC (TSM)", "+3.1%", "+2.2% (08-24)", "198.40", "197.90 (-0.3%)", "196.5–204.1", "203.85", "single_day"]
+      ],
+      "anomalyBullets": [
+        "QQQ — +2.4% over the window; the +1.8% single-day surge came with no immediately identifiable fund-specific catalyst in this period's research; attribution remains open [Speculative].",
+        "TSMC — +3.1% over the window; coincided with an active AI-semiconductor news cycle, but no TSMC-specific driver was confirmed in research [Probable]."
+      ],
+      "technicalColumns": ["Holding", "vs 50-day avg", "vs 200-day avg", "52-wk range position", "20-day vol (ann.)"],
+      "technicalRows": [
+        ["TSMC (TSM)", "-2.5%", "+16.0%", "75%", "+45.3%"],
+        ["Microsoft (MSFT)", "+20.9%", "+12.9%", "73%", "+61.1%"],
+        ["Alphabet (GOOGL)", "+1.4%", "+10.7%", "81%", "+50.9%"],
+        ["QQQ (QQQ)", "+0.5%", "+11.2%", "86%", "+26.5%"],
+        ["VOO (VOO)", "+3.3%", "+10.2%", "99%", "+14.4%"]
+      ],
+      "technicalNote": "Range position: 0% = at the 52-week low, 100% = at the high. Describes where price sits — not a signal."
+    },
+    "boundary": {
+      "heading": "Deliberately out of scope",
+      "body": "Portfonia is an intelligence service, not an advisory one. The boundary is enforced at the template and prompt layer — not left to the model's judgment.",
+      "items": [
+        "No buy / sell / hold / reduce / increase / target-price language. Ever.",
+        "No trade execution, no broker integrations beyond ingest-only.",
+        "No tax or capital-gains computation, no P&L from trade history.",
+        "No options, futures, or derivatives.",
+        "No threshold price alerts — every broker app already does that.",
+        "No social or sharing features — holdings are sensitive data."
+      ]
+    },
+    "faq": {
+      "heading": "Frequently asked",
+      "tag": "Before you ask",
+      "items": [
+        {
+          "q": "Is this investment advice?",
+          "a": "No. Portfonia is an intelligence service — it tells you what happened and why it might matter, helping you make timely, well-informed decisions. See “Deliberately out of scope” above."
+        },
+        {
+          "q": "Is my holdings data safe?",
+          "a": "Yes — your holdings are strongly encrypted at rest (field-level encryption in our database). On top of that, AI calls run with training-data collection denied by default, and each call only sees the data a given report actually needs — never the whole portfolio wholesale."
+        },
+        {
+          "q": "Which markets and holdings does it support?",
+          "a": "US equities, HK equities, A-shares, Chinese public funds, cash, and FX today. More coverage is planned."
+        },
+        {
+          "q": "What does it cost?",
+          "a": "Portfonia is in a multi-user closed beta right now — content and features may differ by subscription tier when plans are announced."
+        }
+      ]
+    },
+    "status": "MVP — multi-user closed beta. Portfonia maps market context back to your real holdings so you can make timely, well-informed decisions. AI-generated content, for information only — not investment advice.",
+    "footer": {
+      "stack1": "Next.js · FastAPI · Celery · PostgreSQL",
+      "stack2": "Pluggable LLM providers via OpenRouter"
+    }
+  }
+}

@@ -39,7 +39,7 @@ tradeoffs, review provenance) for one system, filed under `docs/mechanisms/`.
 This table is the pointer index — read the linked file before touching that
 area of the code, not just the one-line summary here.
 
-- [Frontend chrome (header/nav) convention](docs/mechanisms/frontend-chrome.md) — issue #146/#148: one shared `SiteHeader`, route-scoped `lang`, auth-gated Get Started menu; issue #214 (PR #215): unconditional pathname-triggered session re-verification (no throttling — a grace window that shipped in PR #215 was reverted the same day), optimistic logout + login-pending placeholder, bounded `getUser()` timeout/retry, Home menu entry.
+- [Frontend chrome (header/nav) convention](docs/mechanisms/frontend-chrome.md) — issue #146/#148: one shared `SiteHeader`, auth-gated Get Started menu; issue #214 (PR #215): unconditional pathname-triggered session re-verification (no throttling — a grace window that shipped in PR #215 was reverted the same day), optimistic logout + login-pending placeholder, bounded `getUser()` timeout/retry, Home menu entry; issue #209: global next-intl message catalog (`frontend/src/locales/{en,zh-Hans,zh-Hant}.json`) replaces `home-messages.ts`/`messages.ts`, `lang` and the locale switcher are no longer home-only, no URL-based locale routing (product decision).
 - [Async holdings upload](docs/mechanisms/holdings-pipeline.md) — issue #77/#82/#85: `POST /holdings/upload` returns 202 + job id, Celery parses, 45s SLA, two-layer hard-kill resolution.
 - [Holdings encryption at rest](docs/mechanisms/holdings-pipeline.md) — issue #31: field-level Fernet via SQLAlchemy `TypeDecorator`, system-wide key, `ORDER BY` moved to Python.
 - [Holdings domain CHECK constraints](docs/mechanisms/holdings-pipeline.md) — issue #25: DB-level CHECKs on `pricing_mode`/`asset_type`/`currency`/`asset_class`, naming-convention gotcha.
@@ -76,10 +76,24 @@ area of the code, not just the one-line summary here.
 - **All repository content is English**: code, identifiers, comments, commit
   messages, PR descriptions, issue text, README, `docs/`, ADRs, tests.
 - **In-product strings are i18n-keyed** and shipped through the translation
-  layer, never hardcoded in any single language. Supported runtime UI and
-  report languages: English and Simplified Chinese (extensible).
-- Translation resources live under a dedicated locales directory and are the
-  only place where non-English text legitimately appears in the repo.
+  layer, never hardcoded in any single language. Runtime UI locales actually
+  exposed to users: English, Simplified Chinese (issue #209 — see
+  `frontend/src/locales/README.md` for adding a fourth). Traditional Chinese
+  has a catalog (`zh-Hant.json`, structurally locked in sync with the other
+  two) but is explicitly gated out of the switcher and out of
+  `isLocale()`'s accepted values pending native-speaker review — it is not
+  yet a supported locale, just a prepared one (blacktomb42 review, PR #226
+  round 2: this line previously overclaimed it as supported while gated).
+  Report output languages are separate and narrower: `OUTPUT_LANG` still
+  only ships `en`/`zh-Hans` (see System conventions table below) — a UI
+  locale is not a report language.
+- Translation resources live under a dedicated locales directory
+  (`frontend/src/locales/*.json` for UI chrome; `backend/config/
+  i18n_glossary.yml` for report output — two mechanisms, not one, see the
+  Mechanism deep-dives table) and are the only place where non-English text
+  legitimately appears in the repo. A lint rule
+  (`i18next/no-literal-string` in `frontend/eslint.config.mjs`) enforces
+  this for UI code.
 
 ## Product Boundary (NEVER VIOLATE)
 

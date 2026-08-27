@@ -2,14 +2,18 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { usePathname, getUser, onAuthStateChange, logout } = vi.hoisted(() => ({
-  usePathname: vi.fn(),
+const { getUser, onAuthStateChange, logout } = vi.hoisted(() => ({
   getUser: vi.fn(),
   onAuthStateChange: vi.fn(),
   logout: vi.fn(),
 }));
 
-vi.mock("next/navigation", () => ({ usePathname }));
+// GetStartedMenu itself no longer reads the route (issue #209 unified the
+// menu across routes), but its useSession() dependency still calls
+// usePathname() purely as a "something navigated, re-verify" effect
+// trigger — real Next.js usePathname() throws outside an App Router context,
+// so it still needs mocking here even though no test varies it by route.
+vi.mock("next/navigation", () => ({ usePathname: () => "/holdings" }));
 vi.mock("next/link", () => ({
   default: ({
     href,
@@ -52,21 +56,40 @@ import { GetStartedMenu } from "./get-started-menu";
 function LocaleToggle() {
   const { locale, setLocale } = useLocale();
   return (
-    <button type="button" onClick={() => setLocale(locale === "zh" ? "en" : "zh")}>
+    <button
+      type="button"
+      onClick={() => setLocale(locale === "zh-Hans" ? "en" : "zh-Hans")}
+    >
       toggle-locale
     </button>
   );
 }
 
-function renderMenu(route = "/holdings") {
-  usePathname.mockReturnValue(route);
-  // GetStartedMenu reads home-messages via useHomeMessages, which requires
-  // the provider — same wrapper the site-header suite uses.
+// issue #209: GetStartedMenu no longer branches on route (that split between
+// home-messages.ts's `nav.*` and this file's own English-only `menu.*` was
+// the root cause of the mixed-language menu bug, issue #207/PR #208) — every
+// test below renders on /holdings specifically to prove the fix: a non-home
+// route now honors the selected locale exactly like home used to.
+function renderMenu() {
   return render(
     <LocaleProvider>
       <GetStartedMenu />
     </LocaleProvider>,
   );
+}
+
+function withLocaleStorage(initial?: string) {
+  const store = new Map<string, string>();
+  if (initial) store.set("portfonia:locale", initial);
+  Object.defineProperty(window, "localStorage", {
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+      removeItem: (key: string) => void store.delete(key),
+      clear: () => store.clear(),
+    },
+    configurable: true,
+  });
 }
 
 // The trigger only exists once the async session check resolves out of
@@ -209,21 +232,10 @@ describe("GetStartedMenu", () => {
     });
 
     it("re-renders the logout-error alert in the current locale after a language switch", async () => {
-      const store = new Map<string, string>();
-      Object.defineProperty(window, "localStorage", {
-        value: {
-          getItem: (key: string) => store.get(key) ?? null,
-          setItem: (key: string, value: string) => void store.set(key, value),
-          removeItem: (key: string) => void store.delete(key),
-          clear: () => store.clear(),
-        },
-        configurable: true,
-      });
-      window.localStorage.setItem("portfonia:locale", "zh");
+      withLocaleStorage("zh-Hans");
 
       getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
       logout.mockRejectedValue(new Error("auth.portfonia.com unreachable"));
-      usePathname.mockReturnValue("/");
       const user = userEvent.setup();
       render(
         <LocaleProvider>
@@ -290,7 +302,6 @@ describe("GetStartedMenu", () => {
       const menu = screen.getByRole("menu");
       expect(menu.textContent).not.toContain("Settings");
       expect(menu.textContent).not.toContain("Vigil");
-      expect(menu.textContent).not.toContain("Questionnaire");
     });
   });
 
@@ -332,25 +343,16 @@ describe("GetStartedMenu", () => {
     });
   });
 
-  describe("labels", () => {
-    it("uses the zh nav labels on the home route when zh is selected", async () => {
-      // This test environment's jsdom localStorage is broken (`setItem is not
-      // a function`); stub a working in-memory Storage like the old suite.
-      const store = new Map<string, string>();
-      Object.defineProperty(window, "localStorage", {
-        value: {
-          getItem: (key: string) => store.get(key) ?? null,
-          setItem: (key: string, value: string) => void store.set(key, value),
-          removeItem: (key: string) => void store.delete(key),
-          clear: () => store.clear(),
-        },
-        configurable: true,
-      });
-      window.localStorage.setItem("portfonia:locale", "zh");
+  describe("labels (issue #209: one catalog, no more per-route split)", () => {
+    it("uses the zh-Hans nav labels on a non-home route when zh-Hans is selected", async () => {
+      // This test environment's jsdom localStorage is broken (`setItem is
+      // not a function`); stub a working in-memory Storage like the old
+      // suite.
+      withLocaleStorage("zh-Hans");
 
       getUser.mockResolvedValue({ data: { user: null } });
       const user = userEvent.setup();
-      renderMenu("/");
+      renderMenu();
 
       await user.click(
         await screen.findByRole("button", { name: "开始使用" }),
@@ -361,22 +363,12 @@ describe("GetStartedMenu", () => {
       );
     });
 
-    it("uses the zh Holdings label on the home route when logged in", async () => {
-      const store = new Map<string, string>();
-      Object.defineProperty(window, "localStorage", {
-        value: {
-          getItem: (key: string) => store.get(key) ?? null,
-          setItem: (key: string, value: string) => void store.set(key, value),
-          removeItem: (key: string) => void store.delete(key),
-          clear: () => store.clear(),
-        },
-        configurable: true,
-      });
-      window.localStorage.setItem("portfonia:locale", "zh");
+    it("uses the zh-Hans Holdings label on a non-home route when logged in — the exact bug this issue fixes (issue #207/PR #208)", async () => {
+      withLocaleStorage("zh-Hans");
 
       getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
       const user = userEvent.setup();
-      renderMenu("/");
+      renderMenu();
 
       await user.click(
         await screen.findByRole("button", { name: "开始使用" }),
@@ -388,22 +380,12 @@ describe("GetStartedMenu", () => {
       expect(screen.queryByRole("menuitem", { name: "Holdings" })).not.toBeInTheDocument();
     });
 
-    it("uses the zh Home label on the home route when logged in (not a mixed-language menu)", async () => {
-      const store = new Map<string, string>();
-      Object.defineProperty(window, "localStorage", {
-        value: {
-          getItem: (key: string) => store.get(key) ?? null,
-          setItem: (key: string, value: string) => void store.set(key, value),
-          removeItem: (key: string) => void store.delete(key),
-          clear: () => store.clear(),
-        },
-        configurable: true,
-      });
-      window.localStorage.setItem("portfonia:locale", "zh");
+    it("uses the zh-Hans Home label on a non-home route when logged in (not a mixed-language menu)", async () => {
+      withLocaleStorage("zh-Hans");
 
       getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
       const user = userEvent.setup();
-      renderMenu("/");
+      renderMenu();
 
       await user.click(
         await screen.findByRole("button", { name: "开始使用" }),
@@ -415,51 +397,35 @@ describe("GetStartedMenu", () => {
       expect(screen.queryByRole("menuitem", { name: "Home" })).not.toBeInTheDocument();
     });
 
-    it("uses the zh Logging in... label on the home route when zh is selected", async () => {
-      const store = new Map<string, string>();
-      Object.defineProperty(window, "localStorage", {
-        value: {
-          getItem: (key: string) => store.get(key) ?? null,
-          setItem: (key: string, value: string) => void store.set(key, value),
-          removeItem: (key: string) => void store.delete(key),
-          clear: () => store.clear(),
-        },
-        configurable: true,
-      });
-      window.localStorage.setItem("portfonia:locale", "zh");
+    // blacktomb42 review (PR #226): zh-Hant is pending native-speaker review
+    // (issue #209 requirement) and must not be reachable by a real user
+    // through any path — including a stored locale value from before it was
+    // gated, or manual tampering. isLocale() (src/locales/index.ts) rejects
+    // it, so restoring falls back to the default rather than rendering
+    // unreviewed copy.
+    it("falls back to English when a stored locale is zh-Hant (not yet human-reviewed)", async () => {
+      withLocaleStorage("zh-Hant");
+
+      getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+      const user = userEvent.setup();
+      renderMenu();
+
+      await user.click(await screen.findByRole("button", { name: "Get Started" }));
+
+      await waitFor(() =>
+        expect(screen.getByRole("menuitem", { name: "Holdings" })).toBeInTheDocument(),
+      );
+    });
+
+    it("uses the zh-Hans Logging in... label when zh-Hans is selected", async () => {
+      withLocaleStorage("zh-Hans");
 
       markPendingLogin();
       getUser.mockReturnValue(new Promise(() => {}));
-      renderMenu("/");
+      renderMenu();
 
       expect(await screen.findByText("正在登录...")).toBeInTheDocument();
       expect(screen.queryByText("Logging in...")).not.toBeInTheDocument();
-    });
-
-    it("stays English on non-home routes even when zh is selected (messages.ts has no zh map yet)", async () => {
-      const store = new Map<string, string>();
-      Object.defineProperty(window, "localStorage", {
-        value: {
-          getItem: (key: string) => store.get(key) ?? null,
-          setItem: (key: string, value: string) => void store.set(key, value),
-          removeItem: (key: string) => void store.delete(key),
-          clear: () => store.clear(),
-        },
-        configurable: true,
-      });
-      window.localStorage.setItem("portfonia:locale", "zh");
-
-      getUser.mockResolvedValue({ data: { user: null } });
-      const user = userEvent.setup();
-      renderMenu("/holdings");
-
-      await user.click(
-        await screen.findByRole("button", { name: "Get Started" }),
-      );
-
-      await waitFor(() =>
-        expect(screen.getByRole("menuitem", { name: "Log in" })).toBeInTheDocument(),
-      );
     });
   });
 });
