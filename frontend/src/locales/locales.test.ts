@@ -40,7 +40,15 @@ describe("locale catalogs stay structurally in sync (issue #209)", () => {
   );
 
   it("every locale carries exactly the expected top-level namespaces", () => {
-    const expected = ["auth", "common", "holdings", "home", "menu", "questionnaire"].sort();
+    const expected = [
+      "auth",
+      "common",
+      "holdings",
+      "home",
+      "menu",
+      "profile",
+      "questionnaire",
+    ].sort();
     for (const locale of LOCALE_VALUES) {
       expect(Object.keys(catalogs[locale]).sort()).toEqual(expected);
     }

@@ -7,7 +7,7 @@
 // 1-B design doc §7.3(1)) — it must derive its own Authorization header,
 // same reasoning as the upload Route Handler (see
 // app/api/holdings/upload/route.ts).
-import type { HoldingOut, InvestmentContext } from "@/lib/api";
+import type { HoldingOut, InvestmentContext, Me } from "@/lib/api";
 import { currentAccessToken } from "@/lib/supabase/server";
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
@@ -39,4 +39,15 @@ export async function getInvestmentContextServer(): Promise<InvestmentContext | 
     throw new Error(`Backend returned ${res.status}`);
   }
   return res.json() as Promise<InvestmentContext>;
+}
+
+export async function getMeServer(): Promise<Me> {
+  const res = await fetch(`${BACKEND_URL}/me`, {
+    cache: "no-store",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error(`Backend returned ${res.status}`);
+  }
+  return res.json() as Promise<Me>;
 }

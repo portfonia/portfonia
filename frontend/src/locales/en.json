@@ -10,7 +10,7 @@
     "loggingIn": "Logging in...",
     "logoutFailed": "Sign out failed. Try again.",
     "holdings": "Holdings",
-    "home": "Home",
+    "profile": "Profile",
     "questionnaire": "Investment style",
     "sessionExpired": "Your session ended after {minutes} minutes of inactivity."
   },
@@ -177,6 +177,46 @@
         }
       }
     }
+  },
+  "profile": {
+    "pageTitle": "Profile",
+    "accountHeading": "Account",
+    "accountEmailLabel": "Email",
+    "passwordHeading": "Change password",
+    "currentPasswordLabel": "Current password",
+    "newPasswordLabel": "New password",
+    "confirmNewPasswordLabel": "Confirm new password",
+    "passwordMismatch": "New passwords do not match.",
+    "passwordTooShort": "New password must be at least 8 characters.",
+    "errorMissingFields": "Enter your current password and a new password.",
+    "changePasswordButton": "Change password",
+    "changingPassword": "Changing password...",
+    "passwordChangeSuccess": "Password changed.",
+    "errorCurrentPasswordIncorrect": "Current password is incorrect.",
+    "errorPasswordChangeFailed": "Could not change your password. Try again.",
+    "investmentStyleHeading": "Investment style",
+    "investmentStyleBody": "Update the preferences that shape which facts and angles your reports emphasize.",
+    "investmentStyleButton": "Update investment style",
+    "portfolioOverviewHeading": "Portfolio overview",
+    "portfolioOverviewPlaceholder": "Not implemented yet — will show a latest-price valuation of your holdings.",
+    "reportScheduleHeading": "Report schedule",
+    "reportSchedulePlaceholder": "Not wired up yet — choosing an option here has no effect.",
+    "reportScheduleOptions": {
+      "weekly": "Weekly",
+      "everyOtherDay": "Every other day",
+      "morning": "Morning",
+      "evening": "Evening",
+      "morningAndEvening": "Morning and evening"
+    },
+    "deliveryEmailHeading": "Report delivery email",
+    "deliveryEmailFallbackNote": "No separate delivery address set — using your account email.",
+    "inviteHeading": "Invite someone",
+    "inviteBody": "Generate an invite link bound to a specific email.",
+    "invitePlaceholder": "Not implemented yet.",
+    "deleteAccountHeading": "Delete account",
+    "deleteAccountBody": "Terminate service and permanently clear your account data.",
+    "deleteAccountPlaceholder": "Not implemented yet.",
+    "errorLoadFailed": "Could not load your account."
   },
   "home": {
     "hero": {
