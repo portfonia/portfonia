@@ -1,5 +1,6 @@
 "use server";
 
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { messages } from "@/lib/messages";
@@ -9,6 +10,22 @@ const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
 export interface SignupState {
   error: string | null;
+}
+
+async function signupBackendHeaders(): Promise<Record<string, string>> {
+  // Product signup is Browser → Caddy → Next.js → backend. The ASGI peer is
+  // the frontend container unless we forward Caddy's client IP (issue #190).
+  const incoming = await headers();
+  const out: Record<string, string> = { "Content-Type": "application/json" };
+  const xff = incoming.get("x-forwarded-for");
+  const realIp = incoming.get("x-real-ip");
+  if (xff) {
+    out["X-Forwarded-For"] = xff;
+  }
+  if (realIp) {
+    out["X-Real-IP"] = realIp;
+  }
+  return out;
 }
 
 // Registration is backend-mediated (Ring 1-B design doc §6.5 decision 3a):
@@ -32,7 +49,7 @@ export async function signup(
 
   const res = await fetch(`${BACKEND_URL}/auth/signup`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: await signupBackendHeaders(),
     body: JSON.stringify({ invite_token: inviteToken, email, password }),
   });
 
