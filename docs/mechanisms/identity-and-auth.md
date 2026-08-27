@@ -160,6 +160,7 @@ secret or the Supabase database password (business Postgres is self-hosted).
   bound **or** another row already holds that `sub`; 422 for whitespace-only
   input. The B4 migration leaves the production seed row's `auth_subject`
   NULL on purpose.
+- **Ops hard-purge** (issue #199): `DELETE /admin/users/{id}?confirm={email}` removes the `users` row and that user's own data. The hosted Auth account is **not** deleted — the operator deletes it in the Supabase Dashboard. After a successful purge the Auth `sub` is an orphan; a later signup with the same email can insert a new `users` row (email unique is free once our row is gone) but Auth may still reject "user already registered". This endpoint does not sequence Auth deletion. Soft-delete via `users.status = "deleted"` is unused here.
 - **`recipient_email(session, user_id)`** reads `users` (`delivery_email`
   else `email`); missing or non-`active` → `None`. Send stays fail-closed.
 - **Invite creation checks `users.email` overlap** (issue #188, PR #219):
