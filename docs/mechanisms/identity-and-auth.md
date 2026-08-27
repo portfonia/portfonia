@@ -474,14 +474,21 @@ already single-use, so this is not a token-guessing control. Layers:
 - Known-invite attempt counter (10/3600s) **only if** `invites.token_hash`
   already exists — random scanner tokens must not create Redis keys.
 - Global signup counter 200/UTC-day: ops alert only, never auto-block.
+- Global invite-mint counter 200/UTC-day: ops alert only, never auto-block
+  (leaked `ADMIN_API_TOKEN` sprayed across many IPs is otherwise silent).
 - Redis errors on a protecting check → 503 `temporarily unavailable`
-  (fail-closed). Alert enqueue uses `send_admin_alert_task.delay` (not
-  blocking `send_ops_alert`) and is deduped with `SET NX` per
-  scope/bucket/window.
+  (fail-closed) and `logger.exception` at ERROR. Alert enqueue uses
+  `send_admin_alert_task.delay` (not blocking `send_ops_alert`) and is
+  deduped with `SET NX` per scope/bucket/window.
 
 Client IP: uvicorn `--proxy-headers --forwarded-allow-ips=*` because the
-backend container publishes no host port (Caddy is the only ingress). Do
-not keep `*` if that port is ever published. Tests inject
-`InMemoryBackend` via autouse so the suite never talks to live Redis.
-
+backend container publishes no host port (Caddy is the only *published*
+ingress). Product signup is Browser → Caddy → Next.js server action →
+backend; the ASGI peer is the frontend container unless the action
+forwards Caddy's `X-Forwarded-For` / `X-Real-IP`. The limiter reads those
+headers (leftmost XFF hop, else X-Real-IP, else peer) so TestClient and
+production agree. Do not keep `*` if port 8000 is ever published. Tests
+inject `InMemoryBackend` via autouse and stub
+`send_admin_alert_task.delay` so the suite never talks to live Redis or
+enqueues Celery alerts.
 
