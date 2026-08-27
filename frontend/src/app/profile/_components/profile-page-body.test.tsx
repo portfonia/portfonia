@@ -86,4 +86,22 @@ describe("ProfilePageBody", () => {
     expect(screen.getByLabelText(/^new password$/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/confirm new password/i)).toBeInTheDocument();
   });
+
+  it("never renders a gap card from `missing`, even with entries present — that UI is #221's, not this page's", () => {
+    renderBody({ ...BASE_ME, missing: ["questionnaire", "holdings"] });
+
+    expect(screen.queryByText("questionnaire")).not.toBeInTheDocument();
+    expect(screen.queryByText("holdings")).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("renders identically whether `missing` is empty or full — this page never branches on it", () => {
+    renderBody({ ...BASE_ME, missing: [] });
+
+    // Same assertions as the "every placeholder section" case above: an
+    // empty `missing` must not, say, hide the placeholders or otherwise
+    // change what renders — this page doesn't read the field at all.
+    expect(screen.getByText(/portfolio overview/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete account" })).toBeDisabled();
+  });
 });
