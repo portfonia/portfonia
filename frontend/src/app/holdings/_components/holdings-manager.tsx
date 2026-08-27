@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 
 import {
@@ -37,11 +38,14 @@ import { BrokerSummary, IssueList, PreviewTable } from "./preview";
 export function HoldingsManager({
   initialHoldings,
   initialLoadError = false,
+  mode = "normal",
 }: {
   initialHoldings: HoldingOut[];
   initialLoadError?: boolean;
+  mode?: "onboarding" | "normal";
 }) {
   const t = useTranslations("holdings");
+  const router = useRouter();
   const [holdings, setHoldings] = useState<HoldingOut[]>(initialHoldings);
   const [preview, setPreview] = useState<UploadPreview | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -97,7 +101,15 @@ export function HoldingsManager({
     setSaving(true);
     setError(null);
     try {
-      setHoldings(await confirmHoldings(preview.valid_rows));
+      const saved = await confirmHoldings(preview.valid_rows);
+      if (mode === "onboarding") {
+        // Ring 1-Onboarding.md §2.3 — the other Save destination, alongside
+        // the questionnaire's. Preview is memory-only by design, so nothing
+        // else needs clearing on the way out.
+        router.push("/welcome");
+        return;
+      }
+      setHoldings(saved);
       setPreview(null);
     } catch (err) {
       setError(
@@ -144,17 +156,19 @@ export function HoldingsManager({
         <CardHeader>
           <CardTitle>{t("uploadHeading")}</CardTitle>
           <CardDescription>{t("uploadHint")}</CardDescription>
-          <CardAction>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                downloadFile(TEMPLATE_MARKDOWN, "holdings-template.md")
-              }
-            >
-              {t("downloadTemplate")}
-            </Button>
-          </CardAction>
+          {mode !== "onboarding" && (
+            <CardAction>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  downloadFile(TEMPLATE_MARKDOWN, "holdings-template.md")
+                }
+              >
+                {t("downloadTemplate")}
+              </Button>
+            </CardAction>
+          )}
         </CardHeader>
         <CardContent>
           <input
@@ -230,22 +244,26 @@ export function HoldingsManager({
         </Card>
       )}
 
-      {/* Current holdings */}
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("currentHeading")}</CardTitle>
-          {holdings.length > 0 && (
-            <CardAction>
-              <Button variant="outline" size="sm" onClick={onExport}>
-                {t("exportButton")}
-              </Button>
-            </CardAction>
-          )}
-        </CardHeader>
-        <CardContent>
-          <HoldingsTable holdings={holdings} />
-        </CardContent>
-      </Card>
+      {/* Current holdings — hidden in onboarding mode (Ring 1-Onboarding.md
+          §2.3): nothing is committed yet on a brand-new signup, and Export
+          lives inside this card so hiding it takes Export with it. */}
+      {mode !== "onboarding" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("currentHeading")}</CardTitle>
+            {holdings.length > 0 && (
+              <CardAction>
+                <Button variant="outline" size="sm" onClick={onExport}>
+                  {t("exportButton")}
+                </Button>
+              </CardAction>
+            )}
+          </CardHeader>
+          <CardContent>
+            <HoldingsTable holdings={holdings} />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Last-chance discard confirmation */}
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>

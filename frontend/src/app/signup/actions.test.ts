@@ -66,7 +66,12 @@ describe("signup action", () => {
 
     const state = await signup(
       undefined,
-      formData({ invite_token: "tok", email: "a@b.com", password: "correcthorse" }),
+      formData({
+      invite_token: "tok",
+      email: "a@b.com",
+      password: "correcthorse",
+      tos_accepted: "on",
+    }),
     );
 
     expect(state?.error).toBe("too many attempts, try again later");
@@ -80,7 +85,12 @@ describe("signup action", () => {
 
     const state = await signup(
       undefined,
-      formData({ invite_token: "tok", email: "a@b.com", password: "correcthorse" }),
+      formData({
+      invite_token: "tok",
+      email: "a@b.com",
+      password: "correcthorse",
+      tos_accepted: "on",
+    }),
     );
 
     expect(state?.error).toBe("Temporarily unavailable. Try again later.");
@@ -98,7 +108,12 @@ describe("signup action", () => {
 
     await signup(
       undefined,
-      formData({ invite_token: "tok", email: "a@b.com", password: "correcthorse" }),
+      formData({
+      invite_token: "tok",
+      email: "a@b.com",
+      password: "correcthorse",
+      tos_accepted: "on",
+    }),
     );
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -116,7 +131,12 @@ describe("signup action", () => {
 
     await signup(
       undefined,
-      formData({ invite_token: "tok", email: "a@b.com", password: "correcthorse" }),
+      formData({
+      invite_token: "tok",
+      email: "a@b.com",
+      password: "correcthorse",
+      tos_accepted: "on",
+    }),
     );
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -134,14 +154,19 @@ describe("signup action", () => {
 
     const state = await signup(
       undefined,
-      formData({ invite_token: "tok", email: "a@b.com", password: "correcthorse" }),
+      formData({
+      invite_token: "tok",
+      email: "a@b.com",
+      password: "correcthorse",
+      tos_accepted: "on",
+    }),
     );
 
     expect(state?.error).toBe("This invite is no longer valid.");
     expect(signInWithPassword).not.toHaveBeenCalled();
   });
 
-  it("on backend success, signs in with the same credentials and redirects to /holdings (single-step signup)", async () => {
+  it("on backend success, signs in with the same credentials and redirects to /questionnaire?onboarding=1 (issue #221)", async () => {
     global.fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ id: "u1", email: "a@b.com" }), { status: 201 }),
     );
@@ -149,14 +174,41 @@ describe("signup action", () => {
 
     await signup(
       undefined,
-      formData({ invite_token: "tok", email: "a@b.com", password: "correcthorse" }),
+      formData({
+      invite_token: "tok",
+      email: "a@b.com",
+      password: "correcthorse",
+      tos_accepted: "on",
+    }),
     );
 
     expect(signInWithPassword).toHaveBeenCalledWith({
       email: "a@b.com",
       password: "correcthorse",
     });
-    expect(redirect).toHaveBeenCalledWith("/holdings");
+    expect(redirect).toHaveBeenCalledWith("/questionnaire?onboarding=1");
+  });
+
+  it("forwards tos_accepted to the backend as a JSON boolean, checked from the checkbox value", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ id: "u1", email: "a@b.com" }), { status: 201 }),
+    );
+    global.fetch = fetchMock;
+    signInWithPassword.mockResolvedValue({ error: null });
+
+    await signup(
+      undefined,
+      formData({
+        invite_token: "tok",
+        email: "a@b.com",
+        password: "correcthorse",
+        tos_accepted: "on",
+      }),
+    );
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body.tos_accepted).toBe(true);
   });
 
   it("if the account was created but auto-login fails, redirects to /login rather than erroring", async () => {
@@ -167,7 +219,12 @@ describe("signup action", () => {
 
     await signup(
       undefined,
-      formData({ invite_token: "tok", email: "a@b.com", password: "correcthorse" }),
+      formData({
+      invite_token: "tok",
+      email: "a@b.com",
+      password: "correcthorse",
+      tos_accepted: "on",
+    }),
     );
 
     expect(redirect).toHaveBeenCalledWith("/login");

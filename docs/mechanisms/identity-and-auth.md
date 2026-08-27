@@ -347,13 +347,19 @@ is `EXISTS` on `user_investment_context`; `has_holdings` is `EXISTS` on
   existing users predate any ToS gate and get `NULL` with no re-accept flow
   (Onboarding §2.6). The one new column this required,
   `users.tos_accepted_at TIMESTAMPTZ` (nullable, migration
-  `b1c2d3e4f5a6`), has no writer yet — `POST /auth/signup` does not set it.
-  That write path, plus the ToS checkbox gate itself, is issue #221, not
-  this one.
-- **The #220 Profile page does not render `missing` as a gap card** — that
-  UI is explicitly #221's (Onboarding §2.6/§6). #220 only consumes
-  `email`/`delivery_email` from this response today; the other four fields
-  exist on the wire and are tested, but have no frontend reader until #221.
+  `b1c2d3e4f5a6`), had no writer at #220 time — `POST /auth/signup` did not
+  set it. **Update (issue #221, PR #230, 2026-08-27): now written**, in the
+  same transaction as the user insert, alongside `SignupRequest.
+  tos_accepted: Literal[True]` (required, never defaulted) and
+  `report_cadence` defaulting to `"weekly"` instead of `"mwf"`.
+- **The #220 Profile page did not render `missing` as a gap card** at #220
+  time — that UI was explicitly deferred to #221 (Onboarding §2.6/§6).
+  **Update (issue #221, PR #230): now implemented.** `/profile` renders one
+  button per `missing` entry (`/questionnaire`, `/holdings` — never
+  `?onboarding=1`, which has exactly one legitimate source: the post-signup
+  redirect in `signup/actions.ts`). See `frontend-chrome.md`'s "Post-signup
+  onboarding" section for the full #221 mechanism (also covers the new
+  `/welcome` route and the `mode` prop on QuestionnaireForm/HoldingsManager).
 - Structural coverage: `/me` was added to
   `test_identity_seam.py`'s `scoped_prefixes` tuple alongside `/holdings`,
   `/portfolio`, `/reports`, `/investment-context` — the same

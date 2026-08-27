@@ -13,23 +13,29 @@ import { QuestionnaireForm } from "./questionnaire-form";
 export function QuestionnairePageBody({
   initialContext,
   hadLoadError,
+  mode = "edit",
 }: {
   initialContext: InvestmentContext | null;
   hadLoadError: boolean;
+  mode?: "onboarding" | "edit";
 }) {
   const t = useTranslations("questionnaire");
+  // Ring 1-Onboarding.md §2.2: onboarding gets its own heading/subtitle;
+  // edit keeps the original copy.
+  const heading = mode === "onboarding" ? t("onboardingPageTitle") : t("pageTitle");
+  const subtitle = mode === "onboarding" ? t("onboardingPageSubtitle") : t("pageSubtitle");
   return (
     <>
       <header className="mb-8">
-        <h1 className="font-heading text-2xl font-semibold">{t("pageTitle")}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{t("pageSubtitle")}</p>
+        <h1 className="font-heading text-2xl font-semibold">{heading}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
       </header>
       {hadLoadError ? (
         <p className="text-sm text-destructive" role="alert">
           {t("errorLoadFailed")}
         </p>
       ) : (
-        <QuestionnaireForm initialContext={initialContext} />
+        <QuestionnaireForm initialContext={initialContext} mode={mode} />
       )}
     </>
   );

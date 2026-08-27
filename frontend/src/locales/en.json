@@ -23,6 +23,8 @@
     "passwordLabel": "Password",
     "confirmPasswordLabel": "Confirm password",
     "passwordMismatch": "Passwords do not match.",
+    "tosLabel": "I agree to the Terms of Service.",
+    "tosRequired": "You must agree to the Terms of Service to continue.",
     "loginButton": "Log in",
     "loggingIn": "Logging in...",
     "signupButton": "Create account",
@@ -96,13 +98,14 @@
   "questionnaire": {
     "pageTitle": "Investment style",
     "pageSubtitle": "Helps tailor which facts and angles your reports emphasize. Every question is pre-filled with a sensible default — skip straight to Save if you don't want to change anything, or come back and re-answer any time.",
+    "onboardingPageTitle": "Let's personalize your reports",
+    "onboardingPageSubtitle": "Pre-filled defaults match the system framework. Save to use them, or skip and continue to holdings.",
     "stepOf": "Question {current} of {total}",
     "back": "Back",
     "next": "Next",
     "skip": "Skip for now",
     "save": "Save",
     "saving": "Saving...",
-    "saved": "Saved.",
     "errorSaveFailed": "Could not save your answers",
     "errorLoadFailed": "Could not load your saved answers",
     "freeTextHeading": "Anything else worth knowing?",
@@ -180,6 +183,9 @@
   },
   "profile": {
     "pageTitle": "Profile",
+    "missingSetupHeading": "Finish setting up your account",
+    "missingSetupQuestionnaire": "Set your investment style",
+    "missingSetupHoldings": "Add your holdings",
     "accountHeading": "Account",
     "accountEmailLabel": "Email",
     "passwordHeading": "Change password",
@@ -357,5 +363,12 @@
       "stack1": "Next.js · FastAPI · Celery · PostgreSQL",
       "stack2": "Pluggable LLM providers via OpenRouter"
     }
+  },
+  "welcome": {
+    "greeting": "Welcome, {email}.",
+    "withHoldings": "Your holdings are saved. Reports will be sent to {deliveryEmail}.",
+    "withoutHoldings": "Reports will be sent to {deliveryEmail}. Holdings-related sections stay empty until you save holdings.",
+    "cadence": "Your cadence is weekly. The first report follows that schedule.",
+    "errorLoadFailed": "Could not load your account."
   }
 }

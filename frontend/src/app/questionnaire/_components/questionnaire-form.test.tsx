@@ -1,29 +1,38 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { putInvestmentContext } = vi.hoisted(() => ({
+const { putInvestmentContext, push } = vi.hoisted(() => ({
   putInvestmentContext: vi.fn(),
+  push: vi.fn(),
 }));
 
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
   return { ...actual, putInvestmentContext };
 });
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
 import { QuestionnaireForm } from "./questionnaire-form";
 import type { InvestmentContext } from "@/lib/api";
 
-function renderForm(initialContext: InvestmentContext | null) {
+function renderForm(
+  initialContext: InvestmentContext | null,
+  mode?: "onboarding" | "edit",
+) {
   return render(
     <LocaleProvider>
-      <QuestionnaireForm initialContext={initialContext} />
+      <QuestionnaireForm initialContext={initialContext} mode={mode} />
     </LocaleProvider>,
   );
 }
 
 describe("QuestionnaireForm", () => {
+  beforeEach(() => {
+    push.mockClear();
+  });
+
   it("starts on the first question with all defaults pre-selected", () => {
     renderForm(null);
     expect(screen.getByText(/question 1 of 9/i)).toBeInTheDocument();
@@ -67,10 +76,7 @@ describe("QuestionnaireForm", () => {
     expect(freeText).toBeNull();
   });
 
-  it("returns to the first question after a successful save (issue #214)", async () => {
-    // Re-entering /questionnaire from the menu while already on that route
-    // is a same-path Link click (Next.js treats it as a no-op, no remount),
-    // so the wizard must reset itself rather than rely on being remounted.
+  it("edit mode (default): Save navigates to /profile (issue #221 §2.2)", async () => {
     putInvestmentContext.mockResolvedValue({
       questionnaire: {},
       questionnaire_version: "v1",
@@ -82,11 +88,35 @@ describe("QuestionnaireForm", () => {
     for (let i = 0; i < 8; i++) {
       await user.click(screen.getByRole("button", { name: /next/i }));
     }
-    expect(screen.getByText(/question 9 of 9/i)).toBeInTheDocument();
-
     await user.click(screen.getByRole("button", { name: /^save$/i }));
 
-    await waitFor(() => expect(screen.getByText(/question 1 of 9/i)).toBeInTheDocument());
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/profile"));
+  });
+
+  it("onboarding mode: Save navigates to /welcome, Skip links to /holdings?onboarding=1 (issue #221 §2.2)", async () => {
+    putInvestmentContext.mockResolvedValue({
+      questionnaire: {},
+      questionnaire_version: "v1",
+      free_text: null,
+      updated_at: "2026-08-25T00:00:00Z",
+    });
+    const user = userEvent.setup();
+    renderForm(null, "onboarding");
+    expect(screen.getByRole("link", { name: /skip/i })).toHaveAttribute(
+      "href",
+      "/holdings?onboarding=1",
+    );
+    for (let i = 0; i < 8; i++) {
+      await user.click(screen.getByRole("button", { name: /next/i }));
+    }
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/welcome"));
+  });
+
+  it("edit mode: Skip links to /profile", () => {
+    renderForm(null, "edit");
+    expect(screen.getByRole("link", { name: /skip/i })).toHaveAttribute("href", "/profile");
   });
 
   it("toggling a multi-select option changes the answer without affecting others", async () => {

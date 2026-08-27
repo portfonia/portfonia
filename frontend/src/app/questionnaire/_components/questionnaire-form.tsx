@@ -8,6 +8,7 @@
 // per-field defaults ARE the skip path. A separate "Skip for now" link leaves
 // without submitting at all, for a user who doesn't want to answer today.
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 
@@ -87,10 +88,13 @@ function OptionButton({
 
 export function QuestionnaireForm({
   initialContext,
+  mode = "edit",
 }: {
   initialContext: InvestmentContext | null;
+  mode?: "onboarding" | "edit";
 }) {
   const t = useTranslations("questionnaire");
+  const router = useRouter();
   const [answers, setAnswers] = useState<Questionnaire>(
     initialContext?.questionnaire ?? DEFAULT_QUESTIONNAIRE,
   );
@@ -98,7 +102,11 @@ export function QuestionnaireForm({
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+
+  // Destinations (Ring 1-Onboarding.md §2.2): onboarding Save -> /welcome,
+  // edit Save -> /profile. Skip never writes a row (a plain Link, no
+  // submit) and follows the same table.
+  const skipHref = mode === "onboarding" ? "/holdings?onboarding=1" : "/profile";
 
   const isFreeTextStep = step === STEP_ORDER.length;
   const dim = isFreeTextStep ? null : STEP_ORDER[step];
@@ -123,18 +131,15 @@ export function QuestionnaireForm({
   async function handleSave() {
     setSaving(true);
     setError(null);
-    setSaved(false);
     try {
       await putInvestmentContext(answers, freeText.trim() === "" ? null : freeText);
-      setSaved(true);
-      // Re-entering /questionnaire from the menu while already on that route
-      // is a same-path Link click — Next.js treats it as a no-op (no
-      // remount), so nothing else would ever reset `step` back to the start
-      // (issue #214).
-      setStep(0);
+      // Save always navigates away (Ring 1-Onboarding.md §2.2 table) — this
+      // supersedes issue #214's same-path-Link-no-remount fix (it reset
+      // `step` back to 0 instead), which no longer applies once a
+      // successful save leaves /questionnaire entirely.
+      router.push(mode === "onboarding" ? "/welcome" : "/profile");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : t("errorSaveFailed"));
-    } finally {
       setSaving(false);
     }
   }
@@ -143,7 +148,7 @@ export function QuestionnaireForm({
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <span>{t("stepOf", { current: step + 1, total: TOTAL_STEPS })}</span>
-        <Link href="/" className="underline-offset-4 hover:underline">
+        <Link href={skipHref} className="underline-offset-4 hover:underline">
           {t("skip")}
         </Link>
       </div>
@@ -206,7 +211,6 @@ export function QuestionnaireForm({
           {error}
         </p>
       )}
-      {saved && <p className="text-sm text-foreground/70">{t("saved")}</p>}
 
       <div className="flex items-center justify-between">
         <Button
