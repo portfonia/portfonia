@@ -110,7 +110,7 @@ def _activity_key(user_id: UUID) -> str:
     return f"session:active:{user_id}"
 
 
-def is_idle(user_id: UUID, *, now: float | None = None) -> bool:
+def is_idle(user_id: UUID, *, issued_at: float | None = None, now: float | None = None) -> bool:
     """True only if `user_id` has a recorded activity timestamp older than
     IDLE_TIMEOUT_SECONDS. No recorded timestamp reads as NOT idle: that
     covers both a fresh login (nothing to compare against yet) and a Redis
@@ -120,6 +120,19 @@ def is_idle(user_id: UUID, *, now: float | None = None) -> bool:
     outage for a control that adds security depth on top of JWT
     verification (which stays fail-closed), not the primary auth boundary
     itself.
+
+    `issued_at` is the presenting token's own `iat` claim. The activity
+    record is keyed by user_id, not by session — login happens entirely
+    client-side against Supabase (this backend has no login endpoint to
+    reset the record at), so a real re-login after an idle 401 presents a
+    *different* token for the *same* user_id, but would otherwise still
+    read the old stale timestamp and stay 401 until the GC TTL expires
+    (PR #240 review, blacktomb42). A token minted after the last recorded
+    activity — whether from a fresh login or a silent refresh — is proof
+    the idle record predates this session and cannot apply to it, so it's
+    treated as not idle regardless of how far in the past the record is.
+    The replayed *same* token from before the idle window (its `iat`
+    unchanged) still reads as idle exactly as before.
     """
     moment = time.time() if now is None else now
     try:
@@ -128,6 +141,8 @@ def is_idle(user_id: UUID, *, now: float | None = None) -> bool:
         logger.exception("idle_activity: store unavailable, failing open")
         return False
     if last_active is None:
+        return False
+    if issued_at is not None and issued_at > last_active:
         return False
     return (moment - last_active) > IDLE_TIMEOUT_SECONDS
 

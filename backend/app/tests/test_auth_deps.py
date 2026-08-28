@@ -201,6 +201,45 @@ def test_idle_session_beyond_window_is_401(
     assert second.status_code == 401
 
 
+def test_relogin_after_idle_401_succeeds_immediately(
+    raw_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PR #240 review (blacktomb42) ship-blocker: after an idle 401, a real
+    re-login must work right away, not stay 401 until the 24h GC TTL. The
+    old token is idle-rejected; a fresh token for the same user (newer
+    iat) succeeds and resets the window."""
+    from app.core import idle_activity
+
+    sub = "supabase-sub-relogin"
+    _add_user(db_session, user_id=TEST_USER_ID, email="relogin@example.com", auth_subject=sub)
+
+    old_token_iat = 1_000.0
+
+    def _old_token(_token: str) -> AccessTokenClaims:
+        return AccessTokenClaims(sub=sub, email="relogin@example.com", iat=int(old_token_iat))
+
+    monkeypatch.setattr("app.core.deps.verify_access_token", _old_token)
+    clock = {"now": old_token_iat}
+    monkeypatch.setattr("app.core.idle_activity.time.time", lambda: clock["now"])
+
+    first = raw_client.get("/holdings", headers={"Authorization": "Bearer old.token"})
+    assert first.status_code == 200
+
+    clock["now"] = old_token_iat + idle_activity.IDLE_TIMEOUT_SECONDS + 1
+    idle = raw_client.get("/holdings", headers={"Authorization": "Bearer old.token"})
+    assert idle.status_code == 401
+
+    new_token_iat = clock["now"] + 5
+
+    def _new_token(_token: str) -> AccessTokenClaims:
+        return AccessTokenClaims(sub=sub, email="relogin@example.com", iat=int(new_token_iat))
+
+    monkeypatch.setattr("app.core.deps.verify_access_token", _new_token)
+    clock["now"] = new_token_iat + 1
+    relogin = raw_client.get("/holdings", headers={"Authorization": "Bearer new.token"})
+    assert relogin.status_code == 200
+
+
 def test_u2_cannot_read_u1_report(
     raw_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

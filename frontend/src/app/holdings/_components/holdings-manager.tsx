@@ -12,6 +12,7 @@ import {
   type HoldingOut,
   type UploadPreview,
 } from "@/lib/api";
+import { isNextRedirectError } from "@/lib/next-redirect-error";
 import { TEMPLATE_MARKDOWN, downloadFile } from "@/lib/template";
 import { Button } from "@/components/ui/button";
 import {
@@ -87,6 +88,10 @@ export function HoldingsManager({
     try {
       setPreview(await uploadHoldings(file));
     } catch (err) {
+      // A 401 here can be the idle-logout Server Action's own redirect()
+      // throw (issue #235/#240) — that must propagate, not become an
+      // upload-failed error message.
+      if (isNextRedirectError(err)) throw err;
       setError(
         `${t("errorUploadFailed")}: ${err instanceof ApiError ? err.message : String(err)}`,
       );
@@ -112,6 +117,10 @@ export function HoldingsManager({
       setHoldings(saved);
       setPreview(null);
     } catch (err) {
+      // A 401 here can be the idle-logout Server Action's own redirect()
+      // throw (issue #235/#240) — that must propagate, not become a
+      // save-failed error message.
+      if (isNextRedirectError(err)) throw err;
       setError(
         `${t("errorSaveFailed")}: ${err instanceof ApiError ? err.message : String(err)}`,
       );
@@ -134,6 +143,10 @@ export function HoldingsManager({
     try {
       downloadFile(await exportHoldings(), "holdings.md");
     } catch (err) {
+      // A 401 here can be the idle-logout Server Action's own redirect()
+      // throw (issue #235/#240) — that must propagate, not become an
+      // export error message.
+      if (isNextRedirectError(err)) throw err;
       setError(err instanceof ApiError ? err.message : String(err));
     }
   }

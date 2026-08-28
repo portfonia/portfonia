@@ -51,6 +51,29 @@ def test_repeated_touch_extends_window(backend: InMemoryBackend) -> None:
     assert is_idle(_USER, now=1_000.0 + IDLE_TIMEOUT_SECONDS + 1) is False
 
 
+def test_token_issued_after_stale_record_is_not_idle(backend: InMemoryBackend) -> None:
+    """PR #240 review (blacktomb42): the activity record is keyed by
+    user_id, not by session, and this backend has no login endpoint to
+    reset it at — login is client-direct to Supabase. Without this
+    override, a real re-login after an idle 401 would present a new token
+    for the same user_id and still read the old stale timestamp, staying
+    401 until the 24h GC TTL. A token issued after the recorded activity
+    proves the record predates this session."""
+    touch_activity(_USER, now=1_000.0)
+    assert (
+        is_idle(_USER, issued_at=1_000.0 + IDLE_TIMEOUT_SECONDS + 5, now=1_000.0 + 100_000.0)
+        is False
+    )
+
+
+def test_replayed_same_token_past_window_is_still_idle(backend: InMemoryBackend) -> None:
+    """The naive fix reviewers warned against (clearing the key on 401)
+    would let the SAME still-idle token succeed on retry. Passing that
+    token's own (unchanged, pre-window) iat must not do the same."""
+    touch_activity(_USER, now=1_000.0)
+    assert is_idle(_USER, issued_at=999.0, now=1_000.0 + IDLE_TIMEOUT_SECONDS + 1) is True
+
+
 def test_distinct_users_do_not_share_activity(backend: InMemoryBackend) -> None:
     other = uuid.UUID("00000000-0000-0000-0000-0000000000f2")
     touch_activity(_USER, now=1_000.0)

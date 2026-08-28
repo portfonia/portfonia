@@ -27,6 +27,7 @@ _jwks_client: PyJWKClient | None = None
 class AccessTokenClaims:
     sub: str
     email: str | None = None
+    iat: int | None = None
 
 
 class InvalidAccessToken(Exception):
@@ -83,7 +84,12 @@ def verify_access_token(token: str) -> AccessTokenClaims:
     if not isinstance(sub, str) or not sub:
         raise InvalidAccessToken("invalid token")
     email = payload.get("email")
-    return AccessTokenClaims(sub=sub, email=email if isinstance(email, str) else None)
+    iat = payload.get("iat")
+    return AccessTokenClaims(
+        sub=sub,
+        email=email if isinstance(email, str) else None,
+        iat=iat if isinstance(iat, int) else None,
+    )
 
 
 def _admin_headers() -> dict[str, str]:

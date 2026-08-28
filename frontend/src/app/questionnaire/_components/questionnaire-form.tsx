@@ -18,6 +18,7 @@ import {
   type InvestmentContext,
   type Questionnaire,
 } from "@/lib/api";
+import { isNextRedirectError } from "@/lib/next-redirect-error";
 import { Button } from "@/components/ui/button";
 
 // Concept §4.3's five default-philosophy directions, translated into this
@@ -139,6 +140,10 @@ export function QuestionnaireForm({
       // successful save leaves /questionnaire entirely.
       router.push(mode === "onboarding" ? "/welcome" : "/profile");
     } catch (err) {
+      // A 401 here can be the idle-logout Server Action's own redirect()
+      // throw (issue #235/#240) — that must propagate, not become a
+      // save-failed error message.
+      if (isNextRedirectError(err)) throw err;
       setError(err instanceof ApiError ? err.message : t("errorSaveFailed"));
       setSaving(false);
     }

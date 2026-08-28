@@ -262,6 +262,66 @@ free — no per-router wiring needed.
   a Supabase-native setting. Tracked in a separate follow-up issue.
 - **Per-user configurable session length remains B6 scope**, per
   product-owner decision 2026-08-27 — not pulled forward into this fix.
+
+**PR #240 review round 1 (blacktomb42), 2 ship-blockers, both fixed**:
+
+1. **Stale idle lock survived a real re-login.** The activity record is
+   keyed by `user_id` only — this backend has no login endpoint to reset it
+   at (login is client-direct to Supabase), so a real re-login after an
+   idle 401 presented a *new* JWT for the *same* `user_id` and still read
+   the *old* stale timestamp, staying 401 until `_GC_TTL_SECONDS` (24h)
+   expired. The reviewer explicitly warned against the naive fix (clearing
+   the key on the 401 itself), since that would let the *same* still-idle
+   JWT succeed on retry. Fix: `AccessTokenClaims` now carries the token's
+   own `iat` claim (`app/services/auth_provider.py`); `is_idle` accepts it
+   as `issued_at` and treats a token minted *after* the recorded activity
+   as proof the record predates this session — not idle, regardless of how
+   stale the record is. The *same* replayed token (unchanged `iat`) still
+   reads as idle exactly as before. Covered by
+   `test_relogin_after_idle_401_succeeds_immediately` (real HTTP round-trip:
+   old token 200 → idle 401 → fresh token 200, no 24h wait) plus two
+   `idle_activity.py` unit tests.
+2. **The 401 never signed the browser out.** `proxy.ts`'s `getUser()`
+   silently refreshes the Supabase cookie independent of whether the
+   backend's idle check will reject the same request — so a reopened tab
+   kept showing "authed chrome" with every API call quietly 401ing,
+   instead of landing on `/login?reason=expired`. Fix: both
+   `frontend/src/lib/api.ts` and `frontend/src/lib/server-api.ts` now route
+   a 401 through the same `logout("expired")` Server Action
+   (`frontend/src/lib/auth-actions.ts`) the client idle timer already uses,
+   via a shared `throwOnHttpError` helper in each file. `logout()` calls
+   `redirect()`, which always throws (a `NEXT_REDIRECT` digest Next
+   intercepts) — every call site that wraps these functions in a `catch`
+   had to be checked for whether it would swallow that throw instead of
+   letting it propagate (it would: a bare `catch` or a `catch (err)` that
+   unconditionally calls `setError`/sets a load-error flag absorbs *any*
+   thrown value, redirect signal included). Eight call sites needed an
+   `isNextRedirectError(err)` guard added ahead of their existing error
+   handling — `frontend/src/lib/next-redirect-error.ts`'s existing utility,
+   already used the same way in `get-started-menu.tsx`'s manual-logout
+   path: `app/holdings/page.tsx`, `app/welcome/page.tsx`,
+   `app/profile/page.tsx`, `app/questionnaire/page.tsx` (all four Server
+   Component data-loaders), plus `holdings-manager.tsx`'s
+   `onFileChange`/`doSave`/`onExport` and `questionnaire-form.tsx`'s
+   `handleSave` (Client Component mutation handlers). This is a materially
+   larger blast radius than the two files the review comment named
+   directly — flagging it explicitly rather than letting it look like scope
+   crept in unannounced.
+   - **Test-environment side effect**: `lib/api.ts` importing `logout()`
+     from `auth-actions.ts` means any test that transitively imports
+     `lib/api.ts`'s real (non-mocked) exports now also pulls in
+     `auth-actions.ts` → the `server-only`-guarded Supabase server client —
+     Vitest doesn't apply Next's "use server"/"use client" bundler
+     transform the way a real build does, so this import chain executes
+     for real and `server-only` throws ("cannot be imported from a Client
+     Component module"). Three test files needed the same
+     `vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }))` that
+     `get-started-menu.test.tsx` already used for its own direct import:
+     `holdings-manager.test.tsx`, `questionnaire-form.test.tsx`,
+     `questionnaire-page-body.test.tsx`. New coverage:
+     `frontend/src/lib/api.test.ts` (new file) and two new
+     `server-api.test.ts` cases prove a 401 calls `logout("expired")`
+     rather than just throwing.
 - Tests: `app/tests/test_idle_activity.py` (unit — swappable
   `InMemoryBackend`, matching `rate_limit.py`'s test pattern) and two
   additions to `app/tests/test_auth_deps.py`

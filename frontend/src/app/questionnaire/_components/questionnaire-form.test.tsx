@@ -12,6 +12,11 @@ vi.mock("@/lib/api", async () => {
   return { ...actual, putInvestmentContext };
 });
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
+// lib/api.ts's real (importActual'd) exports now import logout() from
+// auth-actions.ts, which pulls in the server-only-guarded Supabase server
+// client — that throws when bundled into a Client Component test unless
+// mocked here (same pattern as get-started-menu.test.tsx).
+vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
 import { QuestionnaireForm } from "./questionnaire-form";
