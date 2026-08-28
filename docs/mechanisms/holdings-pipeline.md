@@ -323,9 +323,23 @@ nullable, `archived_at`) plus `holdings.account_id` (nullable FK
 §9.2/§12.1): **additive, not a migration off the text columns** — the
 original `broker`/`account`/`portfolio` columns on `Holding` are kept
 unchanged and are still what report §1's broker grouping (rendered
-`Custodian`) and `holding_parser.py`'s extraction both read. `account_id`
-exists to give stage C's inline entry form a stable id to reference;
-nothing else in this codebase reads it yet.
+`Custodian`) and `holding_parser.py`'s extraction both read — `account_id`
+is additional, never a substitute read path. It exists to give stage C's
+inline entry form a stable id to reference.
+
+**Write-path parity is required, not deferred to stage C** (review, PR
+#247 round 1 — a real bug in the initial cut): `POST /holdings/confirm`
+and `app/scripts/seed.py` are both full-replace writers (delete this
+user's holdings, reinsert from scratch) and are the *only* holdings-write
+path that exists before stage C's form. Without `account_id` support on
+that path, the migration's one-shot backfill goes stale on the very next
+confirm — every newly-inserted holding gets `account_id=NULL`, and the
+backfilled `accounts` rows become unreferenced ghosts. Both call sites now
+go through `app/services/accounts.py::resolve_accounts_for_holdings`,
+which reuses the migration's exact grouping rule (decrypted
+`(broker, account, portfolio)` tuple) to get-or-create each row's account,
+and **archives** (never deletes — `accounts.archived_at` exists for this)
+any of the user's accounts no longer referenced after the replace.
 
 **Currency deliberately stays on `Holding`, not promoted to `accounts`**
 (§2.4): the 2026-05 spec's "account = 本位币" assumption doesn't match
@@ -354,8 +368,23 @@ trip the FK it's declared with — this surfaced as ~180 test failures
 across the suite when the FKs below were added, all fixed by either this
 relationship fix or (where a fixture wrote under an arbitrary UUID with no
 matching `users` row at all, a routine pre-B4 pattern) seeding a real user
-row. These relationships are not for query-time navigation; nothing reads
-`Holding.user`/`.account_ref` etc.
+row. These relationships are not for query-time navigation — every one is
+declared `lazy="raise"` (review, PR #247: an accidental `.user`/
+`.account_ref` access now fails loudly instead of emitting a hidden SELECT
+— an N+1 risk on any list) and `passive_deletes=True` (a `session.delete()`
+must not have the ORM try to load/null relationships and fight the DB's
+own RESTRICT, which is the actual enforcement mechanism).
+
+**`holdings.account_id` is a composite FK, not single-column** (review, PR
+#247 — closes a real cross-user pointer hole): `(account_id, user_id)
+REFERENCES accounts (id, user_id)`, backed by a `UNIQUE (id, user_id)` on
+`accounts` (`id` alone is already unique via the PK; this exists purely so
+Postgres has a target for the pair). A single-column FK on `account_id`
+alone only guarantees the account exists — nothing stops a holding from
+pointing at *another user's* account once any writer other than the
+per-user migration backfill sets it. Postgres `MATCH SIMPLE` (the default)
+skips the composite check entirely when either column is NULL, so
+`account_id=NULL` still passes trivially.
 
 ### `holdings`/`reports`/`upload_jobs`/`news_surfaced` gain real `user_id` FKs (issue #129 checkpoint B7)
 

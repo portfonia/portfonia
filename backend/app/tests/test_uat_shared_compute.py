@@ -23,6 +23,7 @@ from app.models.holding import Holding
 from app.models.news import News
 from app.models.news_surfaced import NewsSurfaced
 from app.models.report import Report
+from app.models.user import User
 from app.scripts import uat_shared_compute as uat
 from app.services.window_data import BOOTSTRAP_WATERMARK, user_watermark
 from app.tests.conftest import TEST_USER_ID, U1_USER_ID, U2_USER_ID, U3_USER_ID, seed_user
@@ -322,6 +323,45 @@ def test_cleanup_refuses_when_a_row_is_not_a_synthetic_user(db_session: Session)
     else:
         raise AssertionError("cleanup must refuse a non-synthetic row")
     assert _holding_count(db_session, TEST_USER_ID) == 1
+
+
+def test_cleanup_deletes_accounts_and_users_when_present(db_session: Session) -> None:
+    """issue #129 B7 review: if a synthetic UAT user has accounts rows
+    (e.g. the migration backfill ran while UAT holdings existed) or a real
+    `users` row, cleanup must delete both — accounts.user_id and (via the
+    holdings/reports/news_surfaced FKs) users.id are all ON DELETE
+    RESTRICT, so a naive `session.delete(user)` without this step would
+    IntegrityError instead of cleanly cleaning up."""
+    from app.models.account import Account
+
+    uat.seed_synthetic_users(db_session)
+    account = Account(user_id=uat.U1_USER_ID, broker="Synthetic Broker")
+    db_session.add(account)
+    db_session.flush()
+    db_session.add(
+        Holding(
+            user_id=uat.U1_USER_ID,
+            name="NVIDIA",
+            ticker="NVDA",
+            pricing_mode="auto",
+            currency="USD",
+            asset_class="EQUITY_US_TECH",
+            account_id=account.id,
+        )
+    )
+    db_session.flush()
+
+    deleted = uat.cleanup_synthetic_rows(db_session)
+    db_session.flush()
+
+    assert deleted["accounts"] == 1
+    assert deleted["users"] == 3  # all three synthetic users, seeded above
+    assert db_session.get(Account, account.id) is None
+    for user_id in uat.UAT_USER_IDS:
+        assert db_session.get(User, user_id) is None
+    leftover = uat.leftover_counts(db_session)
+    assert leftover["accounts"] == 0
+    assert leftover["users"] == 0
 
 
 def test_run_batch_wires_fan_out_like_the_celery_task(db_session: Session) -> None:

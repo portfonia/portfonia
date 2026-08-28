@@ -53,4 +53,4 @@ class NewsSurfaced(Base):
     # Purely for unit-of-work flush ordering (issue #129 B7) — not for query
     # navigation. See Holding.user's docstring comment for why this is
     # necessary at all.
-    user: Mapped[User] = relationship()
+    user: Mapped[User] = relationship(lazy="raise", passive_deletes=True)

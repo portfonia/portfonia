@@ -39,6 +39,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.core.timezones import ET
+from app.models.account import Account
 from app.models.holding import Holding
 from app.models.macro_event_intel import MacroEventIntel
 from app.models.news import News
@@ -620,10 +621,22 @@ def cleanup_synthetic_rows(
     for holding_row in holdings:
         session.delete(holding_row)
     session.flush()
-    # Users are the last thing removed (issue #129 B7): holdings/reports/
-    # news_surfaced all FK to users.id ON DELETE RESTRICT, so this must run
-    # after they're gone. Idempotent — a prior cleanup call in the same
-    # process may have already removed them.
+    # Accounts next (issue #129 B7 review): holdings.account_id FKs to
+    # accounts.id ON DELETE RESTRICT, so this must run after holdings are
+    # gone. Not SELECT-by-override like the three above — `seed_holdings`
+    # only ever creates accounts for UAT_USER_IDS, so a plain user_id filter
+    # is already exact, no override callers need this narrowed.
+    accounts = list(
+        session.execute(select(Account).where(Account.user_id.in_(UAT_USER_IDS))).scalars()
+    )
+    _assert_synthetic(accounts, "accounts")
+    for account_row in accounts:
+        session.delete(account_row)
+    session.flush()
+    # Users are the last thing removed: holdings/reports/news_surfaced/
+    # accounts all FK to users.id ON DELETE RESTRICT, so this must run
+    # after all of them are gone. Idempotent — a prior cleanup call in the
+    # same process may have already removed them.
     users_deleted = 0
     for user_id in UAT_USER_IDS:
         row = session.get(User, user_id)
@@ -634,6 +647,7 @@ def cleanup_synthetic_rows(
         "holdings": len(holdings),
         "reports": len(reports),
         "news_surfaced": len(marks),
+        "accounts": len(accounts),
         "users": users_deleted,
     }
 
@@ -655,6 +669,15 @@ def leftover_counts(session: Session) -> dict[str, int]:
                 ).scalars()
             )
         ),
+        # issue #129 B7 review: cleanup's own proof of completeness was
+        # silently incomplete — accounts and users are cleanup's newest two
+        # steps and neither was ever included in this leftover check.
+        "accounts": len(
+            list(
+                session.execute(select(Account).where(Account.user_id.in_(UAT_USER_IDS))).scalars()
+            )
+        ),
+        "users": len([uid for uid in UAT_USER_IDS if session.get(User, uid) is not None]),
     }
 
 

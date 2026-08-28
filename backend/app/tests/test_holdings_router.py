@@ -361,6 +361,45 @@ def test_confirm_sets_last_manual_update_for_manual_rows(app_client: TestClient)
     assert row["last_manual_update"] is not None
 
 
+def test_confirm_sets_account_id_and_archives_stale_accounts(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """issue #129 B7 review: confirm is a full replace and the only
+    holdings-write path until stage C — account_id must not stay NULL after
+    it, and an account no longer referenced by any holding must be archived
+    (not silently orphaned)."""
+    from app.models.account import Account
+
+    resp = app_client.post("/holdings/confirm", json=[_PARSED_APPLE])
+    assert resp.status_code == 200
+    holding_id = uuid.UUID(resp.json()[0]["id"])
+    holding = db_session.get(Holding, holding_id)
+    assert holding is not None
+    assert holding.account_id is not None
+    account = db_session.get(Account, holding.account_id)
+    assert account is not None
+    assert account.broker == "IBKR"  # _PARSED_APPLE's broker
+    assert account.archived_at is None
+    first_account_id = holding.account_id
+
+    # Re-confirm with a holding under a different broker — IBKR is no
+    # longer referenced by anything.
+    resp2 = app_client.post("/holdings/confirm", json=[_PARSED_CASH])  # broker "Schwab"
+    assert resp2.status_code == 200
+    db_session.expire_all()
+    stale_account = db_session.get(Account, first_account_id)
+    assert stale_account is not None  # not deleted
+    assert stale_account.archived_at is not None
+
+    new_holding_id = uuid.UUID(resp2.json()[0]["id"])
+    new_holding = db_session.get(Holding, new_holding_id)
+    assert new_holding is not None
+    assert new_holding.account_id is not None
+    new_account = db_session.get(Account, new_holding.account_id)
+    assert new_account is not None
+    assert new_account.broker == "Schwab"
+
+
 def test_confirm_full_replace_on_second_call(app_client: TestClient) -> None:
     app_client.post("/holdings/confirm", json=[_PARSED_APPLE, _PARSED_CASH])
 

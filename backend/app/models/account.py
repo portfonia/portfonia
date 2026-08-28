@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, func, text
+from sqlalchemy import ForeignKey, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -30,6 +30,15 @@ class Account(Base):
     """
 
     __tablename__ = "accounts"
+    __table_args__ = (
+        # Lets `holdings.account_id` carry a composite FK to (accounts.id,
+        # accounts.user_id) — review finding, PR #247: a single-column FK on
+        # account_id alone only guarantees the account exists, not that it
+        # belongs to the same user as the holding. `id` alone is already
+        # unique (it's the PK); this constraint exists solely so Postgres
+        # has a unique target to reference for the pair.
+        UniqueConstraint("id", "user_id", name="uq_accounts_id_user_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -55,5 +64,9 @@ class Account(Base):
 
     # Purely for unit-of-work flush ordering (issue #129 B7) — not for query
     # navigation. See Holding.user's docstring comment for why this is
-    # necessary at all.
-    user: Mapped[User] = relationship()
+    # necessary at all. `lazy="raise"` (review, PR #247): forces any
+    # accidental `.user` access to fail loudly instead of emitting a hidden
+    # SELECT. `passive_deletes=True`: a `session.delete(account)` must not
+    # have the ORM try to load/null-out relationships and fight the DB's
+    # own RESTRICT — RESTRICT is the actual enforcement mechanism here.
+    user: Mapped[User] = relationship(lazy="raise", passive_deletes=True)

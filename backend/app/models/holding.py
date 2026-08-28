@@ -4,7 +4,15 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, ForeignKey, Integer, Text, func, text
+from sqlalchemy import (
+    CheckConstraint,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Integer,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -45,6 +53,18 @@ class Holding(Base):
         CheckConstraint(_in_list_sql("currency", tuple(VALID_CURRENCIES)), name="currency"),
         CheckConstraint(
             _in_list_sql("asset_class", tuple(VALID_ASSET_CLASSES)), name="asset_class"
+        ),
+        # Composite, not a single-column FK on account_id alone (review, PR
+        # #247): a single-column FK only guarantees the account exists, not
+        # that it belongs to the same user as this holding. Postgres MATCH
+        # SIMPLE (the default) skips the check entirely when either column
+        # is NULL, so account_id=NULL still passes trivially — matches the
+        # "no broker -> no account" rule.
+        ForeignKeyConstraint(
+            ["account_id", "user_id"],
+            ["accounts.id", "accounts.user_id"],
+            ondelete="RESTRICT",
+            name="fk_holdings_account_id_user_id_accounts",
         ),
     )
 
@@ -94,9 +114,10 @@ class Holding(Base):
     # broker-less holding has no account to point at; report §1 already
     # buckets those into "Other"). Nothing in this codebase reads this
     # column yet — it exists for stage C's inline entry form.
-    account_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("accounts.id", ondelete="RESTRICT")
-    )
+    # FK declared via the composite ForeignKeyConstraint in __table_args__
+    # above (account_id, user_id) -> (accounts.id, accounts.user_id), not
+    # inline here.
+    account_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     notes: Mapped[str | None] = mapped_column(EncryptedString)
     market_price: Mapped[Decimal | None] = mapped_column(EncryptedDecimal)
     price_as_of: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
@@ -112,14 +133,26 @@ class Holding(Base):
         nullable=False,
     )
 
-    # Not for query-time navigation — nothing in this codebase reads
-    # `.user`/`.account_ref`. Declared solely so SQLAlchemy's unit-of-work
-    # knows about the FK dependency: without a relationship(), the ORM
-    # flush process has no way to know `holdings` must be inserted after
-    # `users`/`accounts` (it does NOT infer this from a bare ForeignKey()
-    # column — verified empirically once the FKs below started rejecting
-    # existing test fixtures that add a User and its Holdings in one
-    # flush). `viewonly=False` (the default) is required — a viewonly
+    # Not for query-time navigation. Declared solely so SQLAlchemy's
+    # unit-of-work knows about the FK dependency: without a relationship(),
+    # the ORM flush process has no way to know `holdings` must be inserted
+    # after `users`/`accounts` (it does NOT infer this from a bare
+    # ForeignKey() column — verified empirically once the FKs below started
+    # rejecting existing test fixtures that add a User and its Holdings in
+    # one flush). `viewonly=False` (the default) is required — a viewonly
     # relationship is excluded from unit-of-work dependency processing.
-    user: Mapped[User] = relationship()
-    account_ref: Mapped[Account | None] = relationship()
+    # `lazy="raise"` (review, PR #247): forces an accidental `.user`/
+    # `.account_ref` access to fail loudly instead of emitting a hidden
+    # SELECT (an N+1 risk on any list of holdings). `passive_deletes=True`:
+    # a `session.delete(holding)` must not have the ORM try to load/null
+    # relationships and fight the DB's own RESTRICT.
+    user: Mapped[User] = relationship(lazy="raise", passive_deletes=True)
+    # `overlaps="user"`: the composite FK (account_id, user_id) makes
+    # SQLAlchemy think this relationship and `user` above might both try to
+    # write `holdings.user_id` — neither ever does (both are lazy="raise",
+    # never assigned to; user_id/account_id are always set directly as
+    # plain columns), so this silences a real but inapplicable warning
+    # rather than papering over an actual write conflict.
+    account_ref: Mapped[Account | None] = relationship(
+        lazy="raise", passive_deletes=True, overlaps="user"
+    )

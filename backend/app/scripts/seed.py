@@ -15,6 +15,7 @@ from sqlalchemy import delete
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.models import Holding
+from app.services.accounts import resolve_accounts_for_holdings
 
 
 def build_fixtures(user_id: uuid.UUID) -> list[Holding]:
@@ -81,7 +82,14 @@ def main() -> None:
 
     with SessionLocal() as session:
         session.execute(delete(Holding).where(Holding.user_id == user_id))
-        session.add_all(build_fixtures(user_id))
+        fixtures = build_fixtures(user_id)
+        # issue #129 B7 review: same full-replace shape as /holdings/confirm.
+        account_ids = resolve_accounts_for_holdings(
+            session, user_id, [(h.broker, h.account, h.portfolio) for h in fixtures]
+        )
+        for holding, account_id in zip(fixtures, account_ids, strict=True):
+            holding.account_id = account_id
+        session.add_all(fixtures)
         session.commit()
 
     print(f"[OK] seeded 5 sample holdings for dev user {user_id}")

@@ -44,6 +44,16 @@ data-normalization work with no user-visible behavior change:
    Supabase Auth side) — accounts are deleted there too, after holdings and
    before users, in the same commit.
 
+`holdings.account_id` carries a COMPOSITE FK `(account_id, user_id) ->
+accounts (id, user_id)`, not a single-column FK on `account_id` alone
+(review, PR #247): a single-column FK only guarantees the account exists,
+not that it belongs to the same user as the holding — once any writer
+other than this migration's own per-user backfill sets `account_id`
+(confirm, stage C, an admin script), a single-column FK would let a
+holding point at another user's account. `accounts` gets a
+`UNIQUE (id, user_id)` constraint so Postgres has something to reference
+for the pair (`id` alone is already unique via the PK).
+
 Pre-migration safety check (not re-run by this migration itself): production
 audited 2026-08-28 — 4 users, 0 orphan `user_id` rows across all four
 tables. Re-verify this still holds immediately before running against
@@ -135,6 +145,13 @@ def upgrade() -> None:
     op.create_foreign_key(
         "fk_accounts_user_id_users", "accounts", "users", ["user_id"], ["id"], ondelete="RESTRICT"
     )
+    # Lets holdings.account_id carry a composite FK below, so a holding
+    # cannot point at another user's account (review, PR #247) — a
+    # single-column FK on account_id alone only guarantees the account
+    # exists, not that it's this holding's own user's account. `id` alone
+    # is already unique (PK); this exists purely to give Postgres a unique
+    # target covering the pair.
+    op.create_unique_constraint("uq_accounts_id_user_id", "accounts", ["id", "user_id"])
 
     op.add_column("holdings", sa.Column("account_id", postgresql.UUID(as_uuid=True), nullable=True))
 
@@ -142,11 +159,11 @@ def upgrade() -> None:
     _backfill_accounts(conn)
 
     op.create_foreign_key(
-        "fk_holdings_account_id_accounts",
+        "fk_holdings_account_id_user_id_accounts",
         "holdings",
         "accounts",
-        ["account_id"],
-        ["id"],
+        ["account_id", "user_id"],
+        ["id", "user_id"],
         ondelete="RESTRICT",
     )
 
@@ -160,8 +177,9 @@ def downgrade() -> None:
     for table in ("holdings", "reports", "upload_jobs", "news_surfaced"):
         op.drop_constraint(f"fk_{table}_user_id_users", table, type_="foreignkey")
 
-    op.drop_constraint("fk_holdings_account_id_accounts", "holdings", type_="foreignkey")
+    op.drop_constraint("fk_holdings_account_id_user_id_accounts", "holdings", type_="foreignkey")
     op.drop_column("holdings", "account_id")
 
     op.drop_constraint("fk_accounts_user_id_users", "accounts", type_="foreignkey")
+    op.drop_constraint("uq_accounts_id_user_id", "accounts", type_="unique")
     op.drop_table("accounts")
