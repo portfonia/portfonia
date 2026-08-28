@@ -197,6 +197,81 @@ secret or the Supabase database password (business Postgres is self-hosted).
   (see the B5 entry below for the deploy/UAT record).
 
 
+### Idle-timeout server enforcement — issue #235 (2026-08-27)
+
+**Bug**: issue #207/PR #208 (2026-08-25) implemented the product spec's
+"15 minutes of inactivity auto-logout" entirely client-side
+(`frontend/src/hooks/use-idle-logout.ts`, `frontend/src/lib/idle-timeout.ts`)
+— the activity timestamp lived only in a React `useRef`. Closing the
+tab/browser destroys that timer along with it; nothing fires a logout and
+nothing persists to resume the count on reopen. The result: close the
+browser in the morning, reopen it that evening, still logged in. The
+implementing session's own code comment
+(`use-idle-logout.ts:7-14`) already named this limitation, and it made it
+into the design doc's §5 "honest limitations" section, but was never
+escalated to a standalone decision point (the OQ-1..OQ-5 pattern used
+elsewhere in that doc) for explicit product-owner sign-off — see the
+`feedback_scope_narrowing_needs_explicit_decision_point` memory for the
+general process note this incident produced.
+
+**Fix — server-side idle enforcement, folded into B4's choke point**:
+`app/core/idle_activity.py` stores a per-user last-active epoch timestamp
+in Redis (`session:active:{user_id}`), and `current_principal`
+(`app/core/deps.py`) checks it after JWT verification and the `users` row
+lookup, before returning a `Principal`: `is_idle(user.id)` → 401 if the
+stored timestamp is more than `IDLE_TIMEOUT_SECONDS` (900s, matching the
+frontend's `SESSION_IDLE_TIMEOUT_MS` — kept in sync by hand, no shared
+config crosses the Python/TypeScript boundary) old; otherwise
+`touch_activity(user.id)` resets the window. Because this lives inside
+`current_principal`, the existing structural test
+(`test_identity_seam.py::test_every_identity_bearing_route_depends_on_current_principal`)
+already guarantees every identity-bearing route gets idle enforcement for
+free — no per-router wiring needed.
+
+- **Timestamp comparison, not key expiry, is the enforcement mechanism.**
+  The Redis key's own TTL (`_GC_TTL_SECONDS`, 24h) is a garbage-collection
+  safety net only, deliberately far longer than the 15-minute policy.
+  Redis cannot distinguish "key never existed" from "key expired" —  both
+  read as absence — so if the 900s idle window were enforced by key
+  expiry, a fresh login (no key yet) and a genuinely-idle session (key
+  fell out) would be indistinguishable, and the fresh-login case has to
+  read as *not* idle. Storing the actual timestamp and comparing in
+  application code sidesteps this: "no timestamp" always means "never
+  active," which is always safe to treat as not-idle, regardless of why
+  the key is absent.
+- **Fail-open on Redis outage, not fail-closed** — a deliberate departure
+  from `app/core/rate_limit.py`'s fail-closed (503) convention for
+  security-relevant checks. The reason is blast radius: `current_principal`
+  is the single choke point for essentially every authenticated route in
+  the app, unlike the rate limiter (scoped to signup/invite paths only).
+  Idle-timeout is defense-in-depth layered on top of JWT verification,
+  which stays the primary, fail-closed auth boundary — a Redis blip taking
+  down the *entire app* for a control that, before this fix, provided zero
+  enforcement at all would be a worse regression than temporarily reverting
+  to that pre-fix (fail-open) state. Both `is_idle` and `touch_activity`
+  catch `ActivityStoreUnavailable`, log, and continue.
+- **Absolute session lifetime (hard cap regardless of activity) is
+  explicitly out of scope for this fix.** Confirmed 2026-08-27: Supabase
+  Dashboard → Authentication → Sessions shows "Time-box user sessions" and
+  "Inactivity timeout" both set to 0 (never) — and both are Pro-tier
+  settings. The Portfonia Supabase project is on the **Free plan**, so
+  neither is actually usable regardless of what value is entered; an
+  absolute-lifetime cap will need the same app-level treatment as this
+  fix (a session-start timestamp checked in `current_principal`,
+  independent of `idle_activity.py`'s rolling last-active timestamp), not
+  a Supabase-native setting. Tracked in a separate follow-up issue.
+- **Per-user configurable session length remains B6 scope**, per
+  product-owner decision 2026-08-27 — not pulled forward into this fix.
+- Tests: `app/tests/test_idle_activity.py` (unit — swappable
+  `InMemoryBackend`, matching `rate_limit.py`'s test pattern) and two
+  additions to `app/tests/test_auth_deps.py`
+  (`test_active_session_within_idle_window_stays_authenticated`,
+  `test_idle_session_beyond_window_is_401`) exercising the real HTTP path
+  through `current_principal` with `time.time()` monkeypatched. A new
+  autouse fixture, `_idle_activity_memory` in `conftest.py`, gives every
+  test a fresh in-memory store — mirrors `_rate_limit_memory`.
+
+
 ### Frontend auth closure — B5 (Ring 1 stage B, issue #129)
 
 Closes the loop B4 opened: `current_principal` (B4) requires a Bearer JWT on

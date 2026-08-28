@@ -146,6 +146,61 @@ def test_valid_token_with_users_row_returns_own_holdings(
     assert resp.status_code == 200
 
 
+def test_active_session_within_idle_window_stays_authenticated(
+    raw_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """issue #235: two requests inside the 15-minute idle window both succeed,
+    and the second extends the window rather than being measured against
+    the first request's timestamp."""
+    from app.core import idle_activity
+
+    sub = "supabase-sub-idle-active"
+    _add_user(db_session, user_id=TEST_USER_ID, email="idle-active@example.com", auth_subject=sub)
+
+    def _ok(_token: str) -> AccessTokenClaims:
+        return AccessTokenClaims(sub=sub, email="idle-active@example.com")
+
+    monkeypatch.setattr("app.core.deps.verify_access_token", _ok)
+
+    # A mutable "current time" rather than an iterator: unrelated library
+    # code (e.g. httpx's cookiejar) also calls time.time() during a
+    # request, so a call-counted iterator would exhaust on the wrong call.
+    clock = {"now": 1_000.0}
+    monkeypatch.setattr("app.core.idle_activity.time.time", lambda: clock["now"])
+
+    first = raw_client.get("/holdings", headers={"Authorization": "Bearer good.token"})
+    clock["now"] = 1_000.0 + idle_activity.IDLE_TIMEOUT_SECONDS - 1
+    second = raw_client.get("/holdings", headers={"Authorization": "Bearer good.token"})
+    assert first.status_code == 200
+    assert second.status_code == 200
+
+
+def test_idle_session_beyond_window_is_401(
+    raw_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """issue #235: a token that is still cryptographically valid is rejected
+    once 15+ minutes pass with no request — the actual server-side
+    enforcement the frontend timer alone could never provide."""
+    from app.core import idle_activity
+
+    sub = "supabase-sub-idle-expired"
+    _add_user(db_session, user_id=TEST_USER_ID, email="idle-expired@example.com", auth_subject=sub)
+
+    def _ok(_token: str) -> AccessTokenClaims:
+        return AccessTokenClaims(sub=sub, email="idle-expired@example.com")
+
+    monkeypatch.setattr("app.core.deps.verify_access_token", _ok)
+
+    clock = {"now": 1_000.0}
+    monkeypatch.setattr("app.core.idle_activity.time.time", lambda: clock["now"])
+
+    first = raw_client.get("/holdings", headers={"Authorization": "Bearer good.token"})
+    clock["now"] = 1_000.0 + idle_activity.IDLE_TIMEOUT_SECONDS + 1
+    second = raw_client.get("/holdings", headers={"Authorization": "Bearer good.token"})
+    assert first.status_code == 200
+    assert second.status_code == 401
+
+
 def test_u2_cannot_read_u1_report(
     raw_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

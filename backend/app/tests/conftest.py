@@ -84,6 +84,22 @@ def _rate_limit_memory(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None,
 
 
 @pytest.fixture(autouse=True)
+def _idle_activity_memory() -> Generator[None, None, None]:
+    """Every test gets a fresh in-memory idle-activity store (issue #235).
+
+    Without this, current_principal's idle check would hit a real Redis
+    (leaking timestamps across tests, and 503-adjacent failures if the
+    daemon is down locally) — same rationale as _rate_limit_memory above.
+    """
+    from app.core.idle_activity import InMemoryBackend as IdleInMemoryBackend
+    from app.core.idle_activity import set_backend as set_idle_backend
+
+    set_idle_backend(IdleInMemoryBackend())
+    yield
+    set_idle_backend(None)
+
+
+@pytest.fixture(autouse=True)
 def _no_external_notifications(monkeypatch: pytest.MonkeyPatch) -> None:
     """Never let a test hit the real Resend/GitHub APIs.
 
