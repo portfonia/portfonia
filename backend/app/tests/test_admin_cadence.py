@@ -9,15 +9,28 @@ against the same two-value set as the DB CheckConstraint.
 from __future__ import annotations
 
 import uuid
+from typing import get_args
 
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models.user import User
+from app.models.user import VALID_REPORT_CADENCES, User
+from app.routers.admin import UpdateCadenceBody
 from app.tests.test_admin_router import _headers
 from app.tests.test_user_scope import _user
 
 _UID = uuid.UUID("00000000-0000-0000-0000-0000000000c9")
+
+
+def test_update_cadence_literal_matches_valid_report_cadences() -> None:
+    """UpdateCadenceBody.report_cadence's Literal is a hand-kept second copy
+    of VALID_REPORT_CADENCES (documented in both places, PR #248 review) —
+    a Pydantic Literal can't be derived from a tuple at type-check time. This
+    doesn't remove the duplication, it makes drift between the two fail a
+    test instead of silently accepting/rejecting the wrong values at
+    runtime."""
+    literal_values = get_args(UpdateCadenceBody.model_fields["report_cadence"].annotation)
+    assert set(literal_values) == set(VALID_REPORT_CADENCES)
 
 
 def test_update_cadence_requires_ops_token(app_client: TestClient) -> None:

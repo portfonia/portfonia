@@ -27,8 +27,11 @@ capability existing.
   synchronous `generate_report` for one user (`session_node="manual"`),
   hitting `api.portfonia.com` directly so the Next.js proxy timeout on
   self-service `POST /reports/generate` (issue #193) is not in the path.
-  404 if the user is missing; 422 if not active or has no holdings (mirrors
-  `active_user_ids()`); `openai.APIError` → 502; concurrent unique-key race
+  404 if the user is missing; 422 if not active (the original no-holdings
+  422 was removed by issue #221; `active_user_ids()` itself gained a
+  per-cadence holdings gate in issue #191, still required for `mwf`, not
+  `weekly` — see the "Cadence change" bullet below); `openai.APIError` →
+  502; concurrent unique-key race
   → 409. Success emails the target user. Admin email-resend was scoped out
   (`POST /admin/reports/{id}/send` leftover). A structural test
   (`test_all_admin_routes_require_ops_token` in `test_admin_router.py`)

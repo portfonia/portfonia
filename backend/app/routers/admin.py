@@ -335,8 +335,11 @@ def generate_report_for_user(user_id: UUID, session: Session = Depends(get_sessi
     exist and be status=active. No holdings precondition (issue #221 §2.7):
     an empty book renders §1/distribution/§4.1/§4.2/§4.4 as empty tables
     rather than failing — self-service POST /reports/generate never had
-    this check either. active_user_ids() (the scheduled fan-out) still
-    requires a holding row; that predicate is intentionally untouched here.
+    this check either. active_user_ids() (the scheduled fan-out, issue #191)
+    still requires a holding row for the mwf cadence; weekly does not, so a
+    weekly user's manual-generate behavior here already matches what
+    scheduled fan-out will eventually do for them, not a relaxation unique
+    to this endpoint.
 
     A successful run emails the report to the target user. needs_review
     does not. Quiet-day heartbeats email unless the short-manual-window
