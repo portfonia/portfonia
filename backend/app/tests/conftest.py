@@ -350,6 +350,14 @@ def app_client(db_session: Session) -> Generator[TestClient, None, None]:
     try:
         # Match production uvicorn --proxy-headers so XFF rewrites
         # request.client without an app-level parser (issue #190).
-        yield TestClient(ProxyHeadersMiddleware(app, trusted_hosts="*"))
+        #
+        # The ignore below is a stub-granularity mismatch, not a real bug:
+        # uvicorn's ProxyHeadersMiddleware is typed against the strict
+        # TypedDict ASGI scope/event protocol (HTTPScope | WebSocketScope |
+        # LifespanScope, typed message unions), while Starlette's
+        # TestClient/FastAPI.__call__ are typed against the older loose ASGI
+        # convention (Callable[[MutableMapping[str, Any], ...], ...]). Both
+        # are valid ASGI3 callables at runtime.
+        yield TestClient(ProxyHeadersMiddleware(app, trusted_hosts="*"))  # type: ignore[arg-type]
     finally:
         app.dependency_overrides.clear()
