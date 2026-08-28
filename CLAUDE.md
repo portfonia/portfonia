@@ -168,6 +168,28 @@ in any other language.
   `main` through two more PRs, because production hadn't redeployed since;
   `npm run dev`/`next build` don't care about a missing `public/`, only the
   Docker multi-stage build does — see the Quality Gates gap noted below.)
+- **Two frontend lockfiles must be regenerated together — MANDATORY, no
+  exceptions, until issue #227 is actually fixed**: local dev/CI uses `bun`
+  (`bun install`/`bun run lint`/`bun run typecheck`/`bun run test`), but
+  `frontend/Dockerfile`'s `npm ci --legacy-peer-deps` reads
+  `package-lock.json` — a completely separate lockfile that nothing in the
+  local quality gate ever touches. Any change to `frontend/package.json`
+  (add/remove/bump a dependency) MUST regenerate **both** lockfiles in the
+  same commit — `bun install` for `bun.lock`, `npm install
+  --package-lock-only --legacy-peer-deps` for `package-lock.json` — and be
+  verified with a real `docker build ./frontend` before pushing (`bun run
+  test` never exercises `npm ci` at all). This has silently drifted and
+  broken a production deploy **three times** (self-caught before #227
+  existed; 2026-08-27's #221 deploy; 2026-08-28's #231 deploy, PR #237 →
+  fixed in #244) — "remember to sync two lock files" has now failed as a
+  process three times in a row, so this step is not optional discretion,
+  it is a required step on every PR that touches `frontend/package.json`.
+  This entire dual-lockfile burden is a workaround, not the fix: it stays
+  mandatory only **until the product owner resolves issue #227** (migrate
+  the Dockerfile to `bun install --frozen-lockfile` since that's the
+  lockfile actually kept current, or add a CI check that fails on lockfile
+  mismatch) — once #227 lands, delete this bullet along with the
+  now-unnecessary second lockfile.
 
 ## Architecture
 
