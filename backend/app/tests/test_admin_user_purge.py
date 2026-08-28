@@ -34,6 +34,11 @@ from app.tests.test_user_scope import _h, _user
 _A = uuid.UUID("00000000-0000-0000-0000-0000000000d1")
 _B = uuid.UUID("00000000-0000-0000-0000-0000000000d2")
 _UNKNOWN = uuid.UUID("00000000-0000-0000-0000-0000000000ff")
+# A distinct value from any `users.id` above, used as an `auth_subject` —
+# `_user()`'s default `f"sub-{user_id}"` embeds the row's own id, which
+# would make a PK lookup on that value a hit, not the miss the round-2
+# regression test needs.
+_AUTH_SUB = uuid.UUID("00000000-0000-0000-0000-0000000000aa")
 
 _VALID_QUESTIONNAIRE: dict[str, object] = {
     "asset_scale": "100K_500K",
@@ -469,3 +474,53 @@ def test_purge_orphan_auth_user_lookup_failure_502(
         _path(_UNKNOWN), headers=_headers(), params={"confirm": "orphan@example.com"}
     )
     assert resp.status_code == 502
+
+
+def test_purge_by_auth_subject_of_live_user_refused_409(
+    app_client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    _fake_get_auth_user: MagicMock,
+) -> None:
+    """PR #246 round 2 review: a PK miss on `users.id` is not proof there's
+    no local user — `user_id` could be a live user's `auth_subject` passed
+    by mistake (both are UUIDs, easy to confuse). Falling through to the
+    orphan path would Auth-delete a live account while its local row (a
+    different id) sits untouched. Must 409 before ever calling Auth."""
+    user = _user(_A, "a@example.com")
+    user.auth_subject = str(_AUTH_SUB)
+    db_session.add(user)
+    db_session.flush()
+
+    resp = app_client.delete(
+        _path(_AUTH_SUB), headers=_headers(), params={"confirm": "a@example.com"}
+    )
+    assert resp.status_code == 409
+    assert str(_A) in resp.json()["detail"]
+    _fake_get_auth_user.assert_not_called()
+    db_session.expire_all()
+    assert db_session.get(User, _A) is not None
+
+
+def test_purge_by_seed_users_auth_subject_refused_409(
+    app_client: TestClient,
+    db_session: Session,
+    _fake_get_auth_user: MagicMock,
+) -> None:
+    """Same guard, seed user specifically: the existing `refusing to delete
+    the seed user` 409 only fires when `{user_id}` is the seed's own PK.
+    Calling with the seed's `auth_subject` instead must not slip past it
+    into a live Auth deletion."""
+    seed_id = uuid.UUID(get_settings().DEV_USER_ID)
+    seed = _user(seed_id, "seed@example.com")
+    seed.auth_subject = str(_AUTH_SUB)
+    db_session.add(seed)
+    db_session.flush()
+
+    resp = app_client.delete(
+        _path(_AUTH_SUB), headers=_headers(), params={"confirm": "seed@example.com"}
+    )
+    assert resp.status_code == 409
+    _fake_get_auth_user.assert_not_called()
+    db_session.expire_all()
+    assert db_session.get(User, seed_id) is not None

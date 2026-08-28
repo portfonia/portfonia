@@ -403,7 +403,13 @@ def _get_auth_user_or_502(sub: str) -> AuthUserInfo | None:
 
 def _purge_orphan_auth_user(user_id: UUID, confirm: str | None) -> PurgeUserOut:
     """Requirement B: local `users` row already gone, Supabase Auth account
-    remains. Supabase Auth user ids are UUIDs, same shape as `user_id`."""
+    remains. Supabase Auth user ids are UUIDs, same shape as `user_id`.
+
+    The caller has already ruled out `user_id` being some live user's
+    `auth_subject` (round 2 review) — reaching here means neither a local
+    PK nor a local auth_subject match exists, so a hit on Auth genuinely is
+    an orphan.
+    """
     auth_user = _get_auth_user_or_502(str(user_id))
     if auth_user is None:
         raise HTTPException(status_code=404, detail="user not found")
@@ -439,6 +445,26 @@ def purge_user_endpoint(
     """
     user = session.get(User, user_id)
     if user is None:
+        # A PK miss on `users.id` is not proof there's no local user for
+        # this account: `user_id` could be someone's `auth_subject` passed
+        # by mistake (Auth ids and our own PK are both UUIDs, easy to mix
+        # up — B4 is explicit they're never the same value). Falling
+        # through to the orphan path in that case would Auth-delete a
+        # live account, including the seed user's, while its local row
+        # sits untouched — the reverse of the orphan this endpoint exists
+        # to clean up (review, PR #246 round 2). Check before any Auth
+        # call, not after.
+        live_owner_id = session.execute(
+            select(User.id).where(User.auth_subject == str(user_id))
+        ).scalar_one_or_none()
+        if live_owner_id is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"{user_id} is a Supabase Auth subject already bound to a local "
+                    f"user; use DELETE /admin/users/{live_owner_id} instead"
+                ),
+            )
         return _purge_orphan_auth_user(user_id, confirm)
 
     if user.id == UUID(get_settings().DEV_USER_ID):
