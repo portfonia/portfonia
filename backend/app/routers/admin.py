@@ -22,7 +22,7 @@ import logging
 import time
 from collections.abc import Callable, Coroutine
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 import openai
@@ -273,6 +273,40 @@ def bind_user_subject(
         session.rollback()
         raise HTTPException(status_code=409, detail="auth_subject already bound") from None
     return BindSubjectOut(id=user.id, auth_subject=user.auth_subject)
+
+
+class UpdateCadenceBody(BaseModel):
+    # Literal, not a bare str + DB CheckConstraint fallback: a bad value gets
+    # a clean 422 here rather than an IntegrityError bubbling into a 500 —
+    # matters more once this endpoint is reused for self-service cadence
+    # changes (issue #191), not just ops calls. Keep in sync with
+    # app.models.user.VALID_REPORT_CADENCES by hand; Pydantic Literal
+    # members must be compile-time, not derived from that tuple.
+    report_cadence: Literal["mwf", "weekly"]
+
+
+class UpdateCadenceOut(BaseModel):
+    id: UUID
+    email: str
+    report_cadence: str
+
+
+@router.post("/users/{user_id}/cadence", response_model=UpdateCadenceOut)
+def update_user_cadence(
+    user_id: UUID, body: UpdateCadenceBody, session: Session = Depends(get_session)
+) -> UpdateCadenceOut:
+    """Change a user's report_cadence (issue #191).
+
+    Intended to be reusable later for self-service cadence selection
+    (post-auth, post-billing) — that reuse is out of scope here, this ships
+    the endpoint's read/write/validation logic only.
+    """
+    user = session.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    user.report_cadence = body.report_cadence
+    session.commit()
+    return UpdateCadenceOut(id=user.id, email=user.email, report_cadence=user.report_cadence)
 
 
 @router.post(

@@ -58,30 +58,54 @@ def _node_cron(tz: Any, hour: int, minute: int) -> crontab:
     return crontab(hour=hour, minute=minute, nowfun=_NowIn(tz))
 
 
-# Report cadences: (beat entry name, report_type, session_node, crontab kwargs).
-# Ring 1 will extend this with monthly/weekly/daily_brief cadences (see the
-# Obsidian multi-cadence report redesign notes) — adding one is a table row, not
-# a new task function, since generate_incremental_report takes report_type/
-# session_node as arguments rather than hardcoding them.
-_REPORT_CADENCES: tuple[tuple[str, str, str, dict[str, Any]], ...] = (
+# Report cadences: (beat entry name, report_type, session_node, crontab
+# kwargs, cadence). `cadence` matches a users.report_cadence value and drives
+# app.services.user_scope.active_user_ids' fan-out query — adding a cadence
+# is a table row, not a new task function, since generate_incremental_report
+# takes report_type/session_node/cadence as arguments rather than hardcoding
+# them. Ring 1 may extend this with monthly/daily_brief; those aren't real
+# yet (no Beat row, no way to set them on a user) so they aren't
+# pre-enumerated here or in users.VALID_REPORT_CADENCES — see the Ring 1-B
+# Cadence design doc, decision point 3.
+#
+# `weekly` (issue #191) fires Saturday 19:00 ET rather than at a real market
+# close — no capture task runs on weekends at all (_MARKET_NODES and every
+# other daily capture entry below are Mon-Fri only), so any Saturday time
+# reads the same Friday-close snapshot; `session_node="weekend_snapshot"`
+# names that explicitly rather than reusing "after_close", which would imply
+# a close event that didn't happen. The macro/news layer (ticker_intel.py /
+# cross_name_intel.py) is a live, generation-time search keyed by trade_date,
+# not tied to these weekday capture nodes — so a Saturday report's holdings
+# data is a stable weekday-old snapshot, but its macro content can still
+# reflect the weekend.
+_REPORT_CADENCES: tuple[tuple[str, str, str, dict[str, Any], str], ...] = (
     (
         "report-incremental-mwf",
         "incremental",
         "after_close",
         {"hour": 17, "minute": 0, "day_of_week": "mon,wed,fri"},
+        "mwf",
+    ),
+    (
+        "report-incremental-weekly",
+        "incremental",
+        "weekend_snapshot",
+        {"hour": 19, "minute": 0, "day_of_week": "sat"},
+        "weekly",
     ),
 )
 
 
 def _build_report_schedule() -> dict[str, dict[str, Any]]:
     sched: dict[str, dict[str, Any]] = {}
-    for name, report_type, session_node, cron_kwargs in _REPORT_CADENCES:
+    for name, report_type, session_node, cron_kwargs, cadence in _REPORT_CADENCES:
         sched[name] = {
             "task": "app.tasks.report_tasks.generate_incremental_report",
             "schedule": crontab(**cron_kwargs),
             "kwargs": {
                 "report_type": report_type,
                 "session_node": session_node,
+                "cadence": cadence,
                 # Beat's PersistentScheduler fires a missed crontab tick as soon
                 # as it comes back up (e.g. after a machine reboot took the
                 # scheduler down for days) instead of skipping it — the task

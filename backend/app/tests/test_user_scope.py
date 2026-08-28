@@ -24,7 +24,7 @@ def _h(**kwargs: object) -> Holding:
 # --- active_user_ids ----------------------------------------------------------
 
 
-def _user(user_id: uuid.UUID, email: str) -> User:
+def _user(user_id: uuid.UUID, email: str, cadence: str = "mwf") -> User:
     return User(
         id=user_id,
         auth_provider="supabase",
@@ -33,12 +33,12 @@ def _user(user_id: uuid.UUID, email: str) -> User:
         status="active",
         locale="zh",
         base_currency="USD",
-        report_cadence="mwf",
+        report_cadence=cadence,
     )
 
 
 def test_active_user_ids_empty_when_no_users(db_session: Session) -> None:
-    assert active_user_ids(db_session) == []
+    assert active_user_ids(db_session, "mwf") == []
 
 
 def test_active_user_ids_returns_distinct_sorted_users(db_session: Session) -> None:
@@ -51,10 +51,10 @@ def test_active_user_ids_returns_distinct_sorted_users(db_session: Session) -> N
         ]
     )
     db_session.flush()
-    assert active_user_ids(db_session) == sorted([_U1, _U2])
+    assert active_user_ids(db_session, "mwf") == sorted([_U1, _U2])
 
 
-def test_active_user_ids_excludes_users_with_no_holdings(db_session: Session) -> None:
+def test_active_user_ids_excludes_mwf_users_with_no_holdings(db_session: Session) -> None:
     db_session.add_all(
         [
             _user(_U1, "u1@example.com"),
@@ -63,7 +63,39 @@ def test_active_user_ids_excludes_users_with_no_holdings(db_session: Session) ->
         ]
     )
     db_session.flush()
-    assert active_user_ids(db_session) == [_U1]
+    assert active_user_ids(db_session, "mwf") == [_U1]
+
+
+def test_active_user_ids_scoped_to_the_requested_cadence(db_session: Session) -> None:
+    """A weekly user must not show up in an mwf fan-out and vice versa —
+    the two cadences are mutually exclusive batches, not overlapping ones."""
+    db_session.add_all(
+        [
+            _user(_U1, "u1@example.com", cadence="mwf"),
+            _user(_U2, "u2@example.com", cadence="weekly"),
+            _h(user_id=_U1, name="NVIDIA", ticker="NVDA"),
+            _h(user_id=_U2, name="Apple", ticker="AAPL"),
+        ]
+    )
+    db_session.flush()
+    assert active_user_ids(db_session, "mwf") == [_U1]
+    assert active_user_ids(db_session, "weekly") == [_U2]
+
+
+def test_active_user_ids_weekly_includes_users_with_no_holdings(db_session: Session) -> None:
+    """Issue #221 §8 / #191: the holdings gate is loosened only for weekly —
+    an empty-book weekly user must still enter the fan-out so they get the
+    empty-table content contract instead of never being scheduled at all."""
+    db_session.add(_user(_U1, "u1@example.com", cadence="weekly"))
+    db_session.flush()
+    assert active_user_ids(db_session, "weekly") == [_U1]
+
+
+def test_active_user_ids_mwf_still_excludes_no_holdings_users(db_session: Session) -> None:
+    """The loosened gate must NOT leak into mwf — #191 decision point 2."""
+    db_session.add(_user(_U1, "u1@example.com", cadence="mwf"))
+    db_session.flush()
+    assert active_user_ids(db_session, "mwf") == []
 
 
 # --- user_holdings --------------------------------------------------------------
