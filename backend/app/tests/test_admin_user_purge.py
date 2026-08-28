@@ -633,3 +633,29 @@ def test_deleting_accounts_before_holdings_hits_fk(db_session: Session) -> None:
     with pytest.raises(IntegrityError):
         db_session.execute(delete(Account).where(Account.id == acct.id))
         db_session.flush()
+
+
+def test_holding_cannot_point_at_another_users_account(db_session: Session) -> None:
+    """Real composite FK: holdings (account_id, user_id) -> accounts (id,
+    user_id) (B7 review round 2) — a single-column FK on account_id alone
+    would only guarantee the account exists, not that it's this holding's
+    own user's account. A holding under user B pointing at user A's
+    account must fail at flush, not silently succeed."""
+    db_session.add_all([_user(_A, "a@example.com"), _user(_B, "b@example.com")])
+    acct_a = Account(user_id=_A, broker="Schwab")
+    db_session.add(acct_a)
+    db_session.flush()
+    db_session.add(_h(user_id=_B, name="NVIDIA", ticker="NVDA", account_id=acct_a.id))
+    with pytest.raises(IntegrityError):
+        db_session.flush()
+
+
+def test_holding_with_null_account_id_and_a_real_user_id_is_unaffected(
+    db_session: Session,
+) -> None:
+    """MATCH SIMPLE (Postgres default) skips the composite FK check
+    entirely when any column is NULL — a holding with no account must not
+    be rejected just because user_id is non-NULL."""
+    db_session.add(_user(_A, "a@example.com"))
+    db_session.add(_h(user_id=_A, name="NVIDIA", ticker="NVDA", account_id=None))
+    db_session.flush()  # must not raise

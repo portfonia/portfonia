@@ -285,6 +285,11 @@ def test_accounts_migration_backfill_groups_by_decrypted_plaintext_and_skips_nul
         _insert_holding(conn, uid=user_id, name="TSLA", broker="IBKR", account="Personal")
         # NULL broker -> no accounts row, account_id stays NULL.
         _insert_holding(conn, uid=user_id, name="Manual Cash", broker=None)
+        # Blank/whitespace-only broker (review, PR #247 round 2): same as
+        # NULL broker, not a real institution — no accounts row, and must
+        # not fan the real "IBKR" broker out into an extra account either.
+        _insert_holding(conn, uid=user_id, name="Blank Broker", broker="   ")
+        _insert_holding(conn, uid=user_id, name="Padded IBKR", broker=" IBKR ")
         # A different user with the identical plaintext broker "Schwab"
         # must get their OWN account, never share user_id's.
         _insert_holding(conn, uid=other_user_id, name="Other Schwab Position", broker="Schwab")
@@ -303,6 +308,8 @@ def test_accounts_migration_backfill_groups_by_decrypted_plaintext_and_skips_nul
 
         # NULL broker holding: no account.
         assert by_name["Manual Cash"].account_id is None
+        # Blank/whitespace-only broker: same as NULL, no account (review, PR #247 round 2).
+        assert by_name["Blank Broker"].account_id is None
 
         # Same-user same-plaintext-broker holdings share one account.
         assert by_name["Apple"].account_id is not None
@@ -311,14 +318,21 @@ def test_accounts_migration_backfill_groups_by_decrypted_plaintext_and_skips_nul
         # Distinct account field under the same broker -> distinct accounts.
         assert by_name["NVDA"].account_id != by_name["TSLA"].account_id
 
+        # Padded " IBKR " normalizes to the same broker as NVDA's plain
+        # "IBKR", but has no `account` value (unlike NVDA's "Family") so it
+        # is still its own distinct account, not silently merged.
+        assert by_name["Padded IBKR"].account_id is not None
+        assert by_name["Padded IBKR"].account_id != by_name["NVDA"].account_id
+        assert by_name["Padded IBKR"].account_id != by_name["TSLA"].account_id
+
         # Cross-user isolation: identical plaintext broker never shares an account.
         assert by_name["Apple"].account_id != by_name["Other Schwab Position"].account_id
 
         accounts = check.execute(
             text("SELECT id, user_id, broker, account, portfolio FROM accounts")
         ).fetchall()
-        # 4 distinct accounts: user_id's Schwab, IBKR/Family, IBKR/Personal;
+        # 5 distinct accounts: user_id's Schwab, IBKR/Family, IBKR/Personal, bare IBKR;
         # other_user_id's own Schwab.
-        assert len(accounts) == 4
+        assert len(accounts) == 5
 
     engine.dispose()

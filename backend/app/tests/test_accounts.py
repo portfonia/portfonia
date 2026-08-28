@@ -95,6 +95,38 @@ def test_archived_account_is_not_reused(db_session: Session) -> None:
     assert second_ids[0] != first_ids[0]
 
 
+def test_blank_broker_yields_none_account_id(db_session: Session) -> None:
+    """review, PR #247 round 2: report_sections.py/_summarize both already
+    treat "" and whitespace-only broker as equivalent to no broker — the
+    resolver must match, not silently create a real accounts row for it."""
+    seed_user(db_session, _USER)
+    ids = resolve_accounts_for_holdings(db_session, _USER, [("", None, None), ("   ", None, None)])
+    assert ids == [None, None]
+    assert db_session.execute(select(Account).where(Account.user_id == _USER)).first() is None
+
+
+def test_padded_broker_matches_the_unpadded_form(db_session: Session) -> None:
+    """ " IBKR " and "IBKR" must resolve to the SAME account — otherwise one
+    custodian silently fans out into several, the opposite of the
+    migration's grouping intent."""
+    seed_user(db_session, _USER)
+    ids = resolve_accounts_for_holdings(
+        db_session, _USER, [(" IBKR ", None, None), ("IBKR", None, None)]
+    )
+    assert ids[0] == ids[1]
+    account = db_session.get(Account, ids[0])
+    assert account is not None
+    assert account.broker == "IBKR"
+
+
+def test_blank_account_and_portfolio_are_treated_as_none(db_session: Session) -> None:
+    seed_user(db_session, _USER)
+    ids = resolve_accounts_for_holdings(
+        db_session, _USER, [("Schwab", "", "  "), ("Schwab", None, None)]
+    )
+    assert ids[0] == ids[1]
+
+
 def test_two_users_never_share_an_account_even_with_identical_broker(
     db_session: Session,
 ) -> None:

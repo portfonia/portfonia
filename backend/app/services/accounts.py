@@ -25,6 +25,23 @@ from sqlalchemy.orm import Session
 from app.models.account import Account
 
 
+def _normalize(value: str | None) -> str | None:
+    """Blank/whitespace-only collapses to None (review, PR #247 round 2):
+    `report_sections.py` (`h.get("broker") or "Other"`) and
+    `holding_parser._summarize` (`(row.broker or "").strip() or "Other"`)
+    both already treat an empty/whitespace broker as equivalent to no
+    broker. Without this, `broker=""` or `broker="  "` slipped past the
+    `is None` check, creating a real `accounts` row (`broker` is NOT NULL,
+    not "non-blank") while the holding still rendered under "Other" —
+    and `" IBKR "` vs `"IBKR"` would fan the same custodian out into two
+    accounts, the opposite of the migration's grouping intent.
+    """
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
 def resolve_accounts_for_holdings(
     session: Session,
     user_id: UUID,
@@ -33,9 +50,11 @@ def resolve_accounts_for_holdings(
     """For each `(broker, account, portfolio)` plaintext tuple in `rows`
     (same order as the caller's holdings), return the matching
     `accounts.id` — reusing an existing non-archived account for this user
-    when the tuple matches, creating one otherwise. `broker=None` in ->
-    `None` out (no institution to normalize a broker-less holding against,
-    matching the migration backfill's rule; `accounts.broker` is NOT NULL).
+    when the tuple matches, creating one otherwise. Each value is first
+    normalized via `_normalize` (blank/whitespace-only -> None, surrounding
+    whitespace stripped). A normalized `broker=None` -> `None` out (no
+    institution to normalize a broker-less holding against, matching the
+    migration backfill's rule; `accounts.broker` is NOT NULL).
 
     Also archives (never deletes — this is the user's own account history,
     and `accounts.archived_at` exists for exactly this) any of this user's
@@ -53,7 +72,10 @@ def resolve_accounts_for_holdings(
     }
     referenced: set[UUID] = set()
     result: list[UUID | None] = []
-    for broker, account, portfolio in rows:
+    for raw_broker, raw_account, raw_portfolio in rows:
+        broker = _normalize(raw_broker)
+        account = _normalize(raw_account)
+        portfolio = _normalize(raw_portfolio)
         if broker is None:
             result.append(None)
             continue

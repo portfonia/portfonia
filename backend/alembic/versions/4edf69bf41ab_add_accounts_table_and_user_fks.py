@@ -80,6 +80,19 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+def _normalize(value: str | None) -> str | None:
+    """Blank/whitespace-only collapses to None (review, PR #247 round 2) —
+    matches app/services/accounts.py's normalization, duplicated here
+    rather than imported: a migration must stay a frozen historical
+    snapshot, immune to that module changing later (same rationale as this
+    migration's own encrypt_value/decrypt_value imports, which are stable
+    crypto primitives, not business logic that could legitimately drift)."""
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
 def _backfill_accounts(conn: sa.engine.Connection) -> None:
     rows = conn.execute(
         sa.text(
@@ -91,9 +104,18 @@ def _backfill_accounts(conn: sa.engine.Connection) -> None:
     # (user_id, broker_plain, account_plain, portfolio_plain) -> accounts.id
     seen: dict[tuple[object, str, str | None, str | None], str] = {}
     for holding_id, user_id, broker_enc, account_enc, portfolio_enc in rows:
-        broker_plain = decrypt_value(broker_enc)
-        account_plain = decrypt_value(account_enc) if account_enc is not None else None
-        portfolio_plain = decrypt_value(portfolio_enc) if portfolio_enc is not None else None
+        broker_plain = _normalize(decrypt_value(broker_enc))
+        if broker_plain is None:
+            # Blank/whitespace-only broker — same as no broker at all
+            # (holding_parser._summarize / report_sections.py both already
+            # bucket it as "Other"). account_id stays NULL on this row.
+            continue
+        account_plain = (
+            _normalize(decrypt_value(account_enc)) if account_enc is not None else None
+        )
+        portfolio_plain = (
+            _normalize(decrypt_value(portfolio_enc)) if portfolio_enc is not None else None
+        )
         key = (user_id, broker_plain, account_plain, portfolio_plain)
         account_id = seen.get(key)
         if account_id is None:

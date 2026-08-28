@@ -317,9 +317,12 @@ notice's `stale_tickers` list was not a capture-layer miss, it was
 
 Normalizes `Holding.broker`/`.account`/`.portfolio` (free-text, encrypted,
 in use since Ring 0) into an `accounts` table (`id`, `user_id` FK
-`users.id` `ON DELETE RESTRICT`, `broker` NOT NULL, `account`/`portfolio`
-nullable, `archived_at`) plus `holdings.account_id` (nullable FK
-`accounts.id` `ON DELETE RESTRICT`). Decision point 5 (Ring 1-B design.md
+`users.id` `ON DELETE RESTRICT`, `UNIQUE (id, user_id)`, `broker` NOT
+NULL, `account`/`portfolio` nullable, `archived_at`) plus
+`holdings.account_id` (nullable, composite FK `(account_id, user_id) ->
+accounts (id, user_id)` `ON DELETE RESTRICT` — see the composite-FK
+paragraph below for why single-column wasn't enough). Decision point 5
+(Ring 1-B design.md
 §9.2/§12.1): **additive, not a migration off the text columns** — the
 original `broker`/`account`/`portfolio` columns on `Holding` are kept
 unchanged and are still what report §1's broker grouping (rendered
@@ -340,6 +343,13 @@ which reuses the migration's exact grouping rule (decrypted
 `(broker, account, portfolio)` tuple) to get-or-create each row's account,
 and **archives** (never deletes — `accounts.archived_at` exists for this)
 any of the user's accounts no longer referenced after the replace.
+Blank/whitespace-only `broker`/`account`/`portfolio` normalize to `None`
+before grouping (review, PR #247 round 2) — `report_sections.py` and
+`holding_parser._summarize` already treat an empty broker as "Other", and
+without this a `broker=""` or padded `" IBKR "` would create a real
+`accounts` row disconnected from that rendering. The migration's own
+backfill duplicates this normalization inline (a migration must stay a
+frozen snapshot, not import a service module that could later drift).
 
 **Currency deliberately stays on `Holding`, not promoted to `accounts`**
 (§2.4): the 2026-05 spec's "account = 本位币" assumption doesn't match
