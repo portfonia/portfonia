@@ -174,14 +174,56 @@ def request_password_reset(email: str, redirect_to: str) -> None:
         raise AuthProviderError("password reset trigger failed")
 
 
-def delete_auth_user(sub: str) -> None:
-    """Compensation for a signup that created the Auth user then failed to commit."""
+def delete_auth_user(sub: str) -> bool:
+    """Compensation for a signup that created the Auth user then failed to
+    commit; also the Auth-side half of the admin purge endpoint (issue #225).
+
+    Returns True if an Auth user was found and deleted, False if there was
+    nothing to delete (404 is idempotent success, not an error — the caller
+    may be retrying after a previous partial failure).
+    """
     url = f"{_issuer()}/admin/users/{sub}"
     try:
         with httpx.Client(timeout=15.0) as client:
             resp = client.delete(url, headers=_admin_headers())
     except httpx.HTTPError as exc:
         raise AuthProviderError("delete_user failed") from exc
-    if resp.status_code not in (200, 204, 404):
+    if resp.status_code == 404:
+        return False
+    if resp.status_code not in (200, 204):
         logger.error("auth provider delete_user failed status=%s", resp.status_code)
         raise AuthProviderError("delete_user failed")
+    return True
+
+
+@dataclass(frozen=True)
+class AuthUserInfo:
+    id: str
+    email: str
+
+
+def get_auth_user(sub: str) -> AuthUserInfo | None:
+    """Look up one Auth user by id (issue #225 orphan-purge path: a local
+    `users` row is already gone but the matching Supabase Auth account
+    remains). Returns None on 404 — no such Auth user, not an error."""
+    url = f"{_issuer()}/admin/users/{sub}"
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(url, headers=_admin_headers())
+    except httpx.HTTPError as exc:
+        raise AuthProviderError("get_user failed") from exc
+    if resp.status_code == 404:
+        return None
+    if resp.status_code != 200:
+        logger.error("auth provider get_user failed status=%s", resp.status_code)
+        raise AuthProviderError("get_user failed")
+    try:
+        data = resp.json()
+    except ValueError as exc:
+        raise AuthProviderError("get_user malformed response") from exc
+    if not isinstance(data, dict):
+        raise AuthProviderError("get_user malformed response")
+    email = data.get("email")
+    if not isinstance(email, str) or not email:
+        raise AuthProviderError("get_user missing email")
+    return AuthUserInfo(id=sub, email=email)

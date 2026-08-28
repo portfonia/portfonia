@@ -43,6 +43,12 @@ from app.models.report import Report
 from app.models.user import User
 from app.schemas.reports import ReportOut
 from app.services import fx_fetcher, price_fetcher
+from app.services.auth_provider import (
+    AuthProviderError,
+    AuthUserInfo,
+    delete_auth_user,
+    get_auth_user,
+)
 from app.services.fund_nav_fetcher import update_fund_navs
 from app.services.invites import (
     EmailAlreadyRegistered,
@@ -341,10 +347,83 @@ class PurgeDeletedCounts(BaseModel):
     users: int
 
 
+_NO_LOCAL_ROWS = PurgeDeletedCounts(
+    news_surfaced=0,
+    reports=0,
+    holdings=0,
+    upload_jobs=0,
+    user_investment_context=0,
+    invites_used_by_cleared=0,
+    users_invited_by_cleared=0,
+    users=0,
+)
+
+
 class PurgeUserOut(BaseModel):
     user_id: UUID
     email: str
+    # True only when an Auth user was actually found and removed from
+    # Supabase (issue #225). False both when the local row had no
+    # `auth_subject` to begin with, and when it did but Supabase already had
+    # nothing there (a prior partial cleanup) — either way there was no live
+    # Auth account for this call to remove.
+    auth_deleted: bool
     deleted: PurgeDeletedCounts
+
+
+def _auth_delete_or_502(sub: str) -> bool:
+    """Delete the Supabase Auth user, mapping a provider failure to 502.
+
+    Called before any local delete (issue #225 requirement A.2): nothing
+    local has been touched yet at this point, so a 502 here means the whole
+    request is a clean no-op — safe to retry, never a half purge.
+    """
+    try:
+        return delete_auth_user(sub)
+    except AuthProviderError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="failed to delete Supabase Auth user; local data not touched, retry",
+        ) from exc
+
+
+def _get_auth_user_or_502(sub: str) -> AuthUserInfo | None:
+    """Same 502 mapping as `_auth_delete_or_502` (review, PR #246 round 1:
+    this GET previously had no AuthProviderError mapping at all, so a
+    GoTrue 5xx/timeout/malformed body surfaced as an unhandled 500 instead
+    of the documented, retry-safe 502)."""
+    try:
+        return get_auth_user(sub)
+    except AuthProviderError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="failed to look up Supabase Auth user; local data not touched, retry",
+        ) from exc
+
+
+def _purge_orphan_auth_user(user_id: UUID, confirm: str | None) -> PurgeUserOut:
+    """Requirement B: local `users` row already gone, Supabase Auth account
+    remains. Supabase Auth user ids are UUIDs, same shape as `user_id`.
+
+    The caller has already ruled out `user_id` being some live user's
+    `auth_subject` (round 2 review) — reaching here means neither a local
+    PK nor a local auth_subject match exists, so a hit on Auth genuinely is
+    an orphan.
+    """
+    auth_user = _get_auth_user_or_502(str(user_id))
+    if auth_user is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    if confirm is None:
+        raise HTTPException(status_code=422, detail="confirm query param is required")
+    if _normalize_email(confirm) != _normalize_email(auth_user.email):
+        raise HTTPException(status_code=409, detail="confirm does not match user email")
+    _auth_delete_or_502(auth_user.id)
+    return PurgeUserOut(
+        user_id=user_id,
+        email=auth_user.email,
+        auth_deleted=True,
+        deleted=_NO_LOCAL_ROWS,
+    )
 
 
 @router.delete("/users/{user_id}", response_model=PurgeUserOut)
@@ -353,14 +432,41 @@ def purge_user_endpoint(
     session: Session = Depends(get_session),
     confirm: str | None = None,
 ) -> PurgeUserOut:
-    """Hard-purge one user's own data (issue #199).
+    """Hard-purge one user's own data (issue #199; Supabase Auth purge and
+    the orphan-only path added by issue #225).
 
-    Auth row stays in Supabase; operator deletes Auth in Dashboard; this
-    endpoint does not sequence that.
+    Auth deletion is sequenced strictly before any local delete: Postgres
+    and Supabase Auth are two separate systems with no shared transaction,
+    so a failure on either side must never leave the other newly orphaned.
+    If `delete_auth_user` fails for any reason other than 404 (already
+    gone), the request 502s with nothing local touched — retry is always
+    safe. Also handles the reverse gap this endpoint used to have no answer
+    for: a Supabase Auth account with no matching local row at all.
     """
     user = session.get(User, user_id)
     if user is None:
-        raise HTTPException(status_code=404, detail="user not found")
+        # A PK miss on `users.id` is not proof there's no local user for
+        # this account: `user_id` could be someone's `auth_subject` passed
+        # by mistake (Auth ids and our own PK are both UUIDs, easy to mix
+        # up — B4 is explicit they're never the same value). Falling
+        # through to the orphan path in that case would Auth-delete a
+        # live account, including the seed user's, while its local row
+        # sits untouched — the reverse of the orphan this endpoint exists
+        # to clean up (review, PR #246 round 2). Check before any Auth
+        # call, not after.
+        live_owner_id = session.execute(
+            select(User.id).where(User.auth_subject == str(user_id))
+        ).scalar_one_or_none()
+        if live_owner_id is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"{user_id} is a Supabase Auth subject already bound to a local "
+                    f"user; use DELETE /admin/users/{live_owner_id} instead"
+                ),
+            )
+        return _purge_orphan_auth_user(user_id, confirm)
+
     if user.id == UUID(get_settings().DEV_USER_ID):
         raise HTTPException(status_code=409, detail="refusing to delete the seed user")
     created_invites = session.execute(select(exists().where(Invite.created_by == user.id))).scalar()
@@ -373,12 +479,17 @@ def purge_user_endpoint(
     if _normalize_email(confirm) != _normalize_email(user.email):
         raise HTTPException(status_code=409, detail="confirm does not match user email")
 
+    auth_deleted = False
+    if user.auth_subject is not None:
+        auth_deleted = _auth_delete_or_502(user.auth_subject)
+
     email = user.email
     result = purge_user(session, user_id)
     session.commit()
     return PurgeUserOut(
         user_id=user_id,
         email=email,
+        auth_deleted=auth_deleted,
         deleted=PurgeDeletedCounts(
             news_surfaced=result.news_surfaced,
             reports=result.reports,

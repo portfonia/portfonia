@@ -56,6 +56,7 @@ U3_USER_ID = uuid.UUID("00000000-0000-0000-0000-0000000000a3")
 
 # Modules that import these by name (`from x import y`), each needing its own patch.
 _EXTERNAL_NOTIFY_MODULES = (
+    "app.routers.auth",
     "app.services.report_generator",
     "app.services.ticker_intel",
     "app.tasks.report_tasks",

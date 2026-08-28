@@ -154,13 +154,21 @@ secret or the Supabase database password (business Postgres is self-hosted).
 - **`users` PK is ours**, not the Auth `sub`. Invite redeem is atomic
   (`UPDATE … WHERE used_at IS NULL AND revoked_at IS NULL AND expires_at > now() RETURNING`).
   `POST /auth/signup` is backend-mediated; after Auth create succeeds, any
-  later failure calls `delete_auth_user`.
+  later failure calls `delete_auth_user`. If that compensation call itself
+  raises, `send_ops_alert` fires in addition to the log line (issue #225
+  bug 2 — a failed compensation previously left only a stray log entry as
+  the trace of the resulting orphan). The `except Exception` branch also
+  tags its log record with `signup_failure_reason`
+  (`invite_rejected`/`auth_provider_error`/`integrity_error`, issue #225
+  bug 1) so auth-provider/DB faults are distinguishable from ordinary
+  invite-rejection noise in monitoring — the client-facing message is
+  unchanged for all three.
 - **Seed bind** (ops token): `POST /admin/users/{id}/bind-subject`. Sets
   `auth_subject` only when it is still NULL. 409 if this row is already
   bound **or** another row already holds that `sub`; 422 for whitespace-only
   input. The B4 migration leaves the production seed row's `auth_subject`
   NULL on purpose.
-- **Ops hard-purge** (issue #199): `DELETE /admin/users/{id}?confirm={email}` removes the `users` row and that user's own data. The hosted Auth account is **not** deleted — the operator deletes it in the Supabase Dashboard. After a successful purge the Auth `sub` is an orphan; a later signup with the same email can insert a new `users` row (email unique is free once our row is gone) but Auth may still reject "user already registered". This endpoint does not sequence Auth deletion. Soft-delete via `users.status = "deleted"` is unused here.
+- **Ops hard-purge** (issue #199, extended by issue #225): `DELETE /admin/users/{id}?confirm={email}` removes the `users` row and that user's own data, **and now also the hosted Auth account** — the previous "operator deletes it in the Supabase Dashboard" manual step is gone, closing the exact gap that produced a real production orphan (a `users` row cleaned up during 2026-08-25 UAT before this endpoint existed, leaving a live Supabase Auth account nobody found for two days). Auth deletion is sequenced strictly before any local delete and before `session.commit()`: a 404 (already gone) is treated as idempotent success; any other `AuthProviderError` aborts with `502` and touches nothing local, so a failed call is always safely retryable — never a half purge. Response gains `auth_deleted: bool`. When the local row is already gone but a matching Auth user remains (the orphan case above), the endpoint no longer 404s immediately — it looks the Auth user up by id and, if found, purges it directly (`confirm` compared against the Auth user's email, seed-user/`created_invites` guards skipped since they're local-row-scoped); only when neither side has anything does it 404. Soft-delete via `users.status = "deleted"` is unused here. Full detail: `docs/mechanisms/admin-surface.md`.
 - **`recipient_email(session, user_id)`** reads `users` (`delivery_email`
   else `email`); missing or non-`active` → `None`. Send stays fail-closed.
 - **Invite creation checks `users.email` overlap** (issue #188, PR #219):
