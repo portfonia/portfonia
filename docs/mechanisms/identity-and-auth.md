@@ -377,6 +377,61 @@ explicit sign-out then sign-in) gets a new one.
   `test_relogin_after_idle_401_succeeds_immediately` was rewritten to use
   two distinct `session_id` values instead of two `iat` values.
 
+**PR #240 review round 3 (blacktomb42) @ d018e96 — round 2's `session_id`
+comparison sat on top of the wrong storage shape, and that broke it too**:
+
+Round 2's mechanism was right (compare `session_id`, not `iat`) but the
+storage wasn't: Redis was still one key per `user_id`, with `session_id`
+stuffed into the *value* alongside the timestamp, and `is_idle` treated
+any value/presented `session_id` **mismatch** as "not idle, allow." That
+mismatch branch is exactly how a real re-login gets past a stale idle
+lock (round-1 blocker 1, genuinely still fixed) — but it is *also* how the
+JWT from the session that just got superseded gets past it: `touch_activity`
+on the successful re-login overwrote the single `user_id` key with the
+new session's fresh timestamp, so replaying the *old*, now-superseded
+token afterward found that fresh record sitting under the same key,
+"mismatched" against it, and was waved through too — resurrecting a
+session that should have stayed dead until its own `jwt_exp` (3600s)
+elapsed. Structurally the same class of hole round 1's reviewer warned
+about ("do not clear the key on the idle 401 — the same JWT would then
+succeed on retry"), just surfacing one commit later via overwrite instead
+of deletion.
+
+**Real fix: key Redis by `(user_id, session_id)`, drop the mismatch
+branch entirely.** `_activity_key(user_id, session_id)` →
+`session:active:{user_id}:{session_id}`; `is_idle`/`touch_activity` both
+take `session_id` as a required parameter, not optional. Each session now
+has its own independent timeline — no cross-session comparison logic is
+needed at all: a brand-new session simply has no key yet (not idle,
+first-ever request — this is what still makes a real re-login work
+immediately), and a superseded session's own key is untouched by
+whatever any other session does, so it keeps aging out strictly on its
+own history.
+
+- **`session_id` is now a required JWT claim, not an optional one.**
+  Since it's load-bearing for forming the Redis key, a token that somehow
+  lacks it can't be safely handled — `verify_access_token`
+  (`app/services/auth_provider.py`) adds `"session_id"` to
+  `jwt.decode`'s `options={"require": [...]}` list (alongside the
+  pre-existing `exp`/`sub`/`iss`/`aud`) and separately validates it's a
+  non-empty string after decode (an empty string technically satisfies
+  PyJWT's `require` check — the key is present — so `require` alone
+  can't catch it). `AccessTokenClaims.session_id` is `str`, no longer
+  `str | None`. A real Supabase access token always carries this claim
+  (`RequiredClaims` in `@supabase/auth-js`'s installed type definitions,
+  confirmed by reading them, not assumed) — this only rejects a token
+  that is malformed or from an unrelated issuer.
+- New tests: `test_different_session_for_same_user_has_independent_state`
+  (`test_idle_activity.py`, replacing the round-2 mismatch-override
+  tests — proves a new session starts clean *and* an old session's own
+  record is untouched by it existing) and, in `test_auth_deps.py`, a
+  third assertion appended to `test_relogin_after_idle_401_succeeds_immediately`:
+  after the re-login's 200, replaying the *old* token one more time is
+  still 401 — the exact resurrection the round-3 review caught. Two new
+  `test_auth_provider.py` cases (`test_missing_session_id_claim_is_401`,
+  `test_empty_session_id_claim_is_401`) cover the new required-claim
+  rejection at the JWT-verification layer itself.
+
 
 ### Frontend auth closure — B5 (Ring 1 stage B, issue #129)
 

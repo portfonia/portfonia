@@ -30,10 +30,10 @@ IDLE_TIMEOUT_SECONDS = 15 * 60
 # Redis key TTL is a garbage-collection safety net only, deliberately much
 # longer than IDLE_TIMEOUT_SECONDS. The 15-minute policy is enforced by
 # comparing stored timestamps (see is_idle), never by key expiry: a key's
-# absence reads identically whether a user was never active or was active
-# so long ago the record fell out of Redis, and only the "never active"
-# reading is safe to treat as "not idle" — so the timestamp comparison,
-# not expiry, has to be the enforcement mechanism.
+# absence reads identically whether a session was never active or was
+# active so long ago the record fell out of Redis, and only the "never
+# active" reading is safe to treat as "not idle" — so the timestamp
+# comparison, not expiry, has to be the enforcement mechanism.
 _GC_TTL_SECONDS = 24 * 60 * 60
 
 
@@ -46,37 +46,22 @@ class ActivityStoreUnavailable(Exception):
     """
 
 
-# (timestamp, session_id-at-that-timestamp). session_id is Supabase's own
-# JWT claim (a required claim on every Supabase-issued access token —
-# `RequiredClaims` in @supabase/auth-js) identifying the login session: it
-# stays constant across a token refresh and only changes on an actual new
-# login. Recorded alongside the timestamp so is_idle can tell "the same
-# session, just refreshed in the background" apart from "a genuinely new
-# login" — see is_idle's docstring for why that distinction is the whole
-# point (PR #240 review round 2).
-_ActivityRecord = tuple[float, str | None]
-
-
 class ActivityBackend(Protocol):
-    def get_record(self, key: str) -> _ActivityRecord | None: ...
-    def set_record(
-        self, key: str, timestamp: float, session_id: str | None, ttl_seconds: int
-    ) -> None: ...
+    def get_timestamp(self, key: str) -> float | None: ...
+    def set_timestamp(self, key: str, value: float, ttl_seconds: int) -> None: ...
 
 
 class InMemoryBackend:
     """Swappable backend for tests — no live Redis required."""
 
     def __init__(self) -> None:
-        self._data: dict[str, _ActivityRecord] = {}
+        self._data: dict[str, float] = {}
 
-    def get_record(self, key: str) -> _ActivityRecord | None:
+    def get_timestamp(self, key: str) -> float | None:
         return self._data.get(key)
 
-    def set_record(
-        self, key: str, timestamp: float, session_id: str | None, ttl_seconds: int
-    ) -> None:
-        self._data[key] = (timestamp, session_id)
+    def set_timestamp(self, key: str, value: float, ttl_seconds: int) -> None:
+        self._data[key] = value
 
 
 class RedisBackend:
@@ -87,25 +72,18 @@ class RedisBackend:
     def from_settings(cls) -> RedisBackend:
         return cls(Redis.from_url(get_settings().redis_url, decode_responses=True))
 
-    def get_record(self, key: str) -> _ActivityRecord | None:
+    def get_timestamp(self, key: str) -> float | None:
         try:
             raw: object = self._client.get(key)
         except RedisError as exc:
             raise ActivityStoreUnavailable from exc
-        if not isinstance(raw, str):
+        if raw is None:
             return None
-        timestamp_str, _, session_id = raw.partition("|")
-        try:
-            timestamp = float(timestamp_str)
-        except ValueError:
-            return None
-        return timestamp, (session_id or None)
+        return float(raw)  # type: ignore[arg-type]
 
-    def set_record(
-        self, key: str, timestamp: float, session_id: str | None, ttl_seconds: int
-    ) -> None:
+    def set_timestamp(self, key: str, value: float, ttl_seconds: int) -> None:
         try:
-            self._client.set(key, f"{timestamp}|{session_id or ''}", ex=ttl_seconds)
+            self._client.set(key, repr(value), ex=ttl_seconds)
         except RedisError as exc:
             raise ActivityStoreUnavailable from exc
 
@@ -128,64 +106,59 @@ def get_backend() -> ActivityBackend:
     return _redis
 
 
-def _activity_key(user_id: UUID) -> str:
-    return f"session:active:{user_id}"
+def _activity_key(user_id: UUID, session_id: str) -> str:
+    """Keyed by (user_id, session_id), not user_id alone (PR #240 review
+    round 3, blacktomb42). A user-only key means a re-login's touch_activity
+    overwrites the single record with the new session — including whatever
+    the *old* session's key held — so replaying the old, superseded JWT
+    afterward finds the new session's fresh timestamp sitting under the
+    same key and is waved through as "not idle" until jwt_exp (3600s). Two
+    genuinely different sessions must never be able to keep each other
+    alive; each session gets its own key, aging out independently on its
+    own actual activity."""
+    return f"session:active:{user_id}:{session_id}"
 
 
-def is_idle(user_id: UUID, *, session_id: str | None = None, now: float | None = None) -> bool:
-    """True only if `user_id` has a recorded activity timestamp older than
-    IDLE_TIMEOUT_SECONDS *for the same login session*. No recorded record
-    reads as NOT idle: that covers both a fresh login (nothing to compare
-    against yet) and a Redis outage — fail open, since this check sits in
+def is_idle(user_id: UUID, session_id: str, *, now: float | None = None) -> bool:
+    """True only if this exact (user_id, session_id) has a recorded
+    activity timestamp older than IDLE_TIMEOUT_SECONDS. No recorded
+    timestamp reads as NOT idle: that covers both a session's first-ever
+    request (nothing to compare against yet — this is what makes a real
+    re-login work immediately, since a new session_id has no key at all)
+    and a Redis outage — fail open, since this check sits in
     `current_principal`, the single choke point for every authenticated
     route, and treating an outage as "everyone is idle" would turn a Redis
     blip into an app-wide outage for a control that adds security depth on
-    top of JWT verification (which stays fail-closed), not the primary auth
-    boundary itself.
+    top of JWT verification (which stays fail-closed), not the primary
+    auth boundary itself.
 
-    `session_id` is the presenting token's own `session_id` claim (a
-    required claim on every Supabase access token). PR #240 review round 1
-    fixed a real re-login staying 401'd by comparing the token's `iat`
-    against the stale record instead — but `iat` changes on every token
-    refresh too, and Supabase's client SDK auto-refreshes on a background
-    timer as long as a tab stays open, independent of any user interaction
-    or request to this backend. That made an unattended overnight tab
-    (never touched, but still open) look freshly active on the very next
-    request, which is exactly the scenario issue #235 was filed for —
-    review round 2 caught it. `session_id` does not have this problem: it
-    stays constant across a refresh and only changes on an actual new
-    login, so a mismatch is real evidence the record predates this
-    session, while a match means "same session, possibly refreshed" and
-    the ordinary timestamp comparison below still applies in full.
+    `session_id` is required, not optional: `verify_access_token` now
+    rejects any token missing it, since a session-scoped key cannot be
+    formed without one (round 3 review — round 2 kept session_id optional
+    and stuffed it into a still user-keyed record's *value*, which is what
+    let a re-login's write resurrect the old session in the first place).
+    There is no cross-session comparison here at all anymore: each session
+    is checked purely against its own history.
     """
     moment = time.time() if now is None else now
     try:
-        record = get_backend().get_record(_activity_key(user_id))
+        last_active = get_backend().get_timestamp(_activity_key(user_id, session_id))
     except ActivityStoreUnavailable:
         logger.exception("idle_activity: store unavailable, failing open")
         return False
-    if record is None:
-        return False
-    last_active, recorded_session_id = record
-    if (
-        session_id is not None
-        and recorded_session_id is not None
-        and session_id != recorded_session_id
-    ):
+    if last_active is None:
         return False
     return (moment - last_active) > IDLE_TIMEOUT_SECONDS
 
 
-def touch_activity(
-    user_id: UUID, *, session_id: str | None = None, now: float | None = None
-) -> None:
-    """Record activity for `user_id` under `session_id`, resetting the idle
-    window. Fails open: if Redis is down, this request's activity simply
-    isn't recorded rather than raising — matching is_idle's fail-open
-    stance above.
+def touch_activity(user_id: UUID, session_id: str, *, now: float | None = None) -> None:
+    """Record activity for this (user_id, session_id), resetting that
+    session's own idle window. Fails open: if Redis is down, this
+    request's activity simply isn't recorded rather than raising —
+    matching is_idle's fail-open stance above.
     """
     moment = time.time() if now is None else now
     try:
-        get_backend().set_record(_activity_key(user_id), moment, session_id, _GC_TTL_SECONDS)
+        get_backend().set_timestamp(_activity_key(user_id, session_id), moment, _GC_TTL_SECONDS)
     except ActivityStoreUnavailable:
         logger.exception("idle_activity: store unavailable, activity not recorded")

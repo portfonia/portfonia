@@ -26,8 +26,8 @@ _jwks_client: PyJWKClient | None = None
 @dataclass(frozen=True)
 class AccessTokenClaims:
     sub: str
+    session_id: str
     email: str | None = None
-    session_id: str | None = None
 
 
 class InvalidAccessToken(Exception):
@@ -64,6 +64,10 @@ def verify_access_token(token: str) -> AccessTokenClaims:
 
     Rejects HS256 (legacy shared secret) by allowing only ES256/RS256.
     Rejects `anon` / `service_role` tokens — those are not a user identity.
+    `session_id` is required (PR #240 review round 3, blacktomb42): it's a
+    load-bearing input to idle_activity.py's per-session Redis key, not
+    just informational, so a token that somehow lacks it must 401 here
+    rather than let a session-scoped idle check silently degrade.
     """
     try:
         signing_key = _jwks().get_signing_key_from_jwt(token)
@@ -74,7 +78,7 @@ def verify_access_token(token: str) -> AccessTokenClaims:
             audience="authenticated",
             issuer=_issuer(),
             leeway=30,
-            options={"require": ["exp", "sub", "iss", "aud"]},
+            options={"require": ["exp", "sub", "iss", "aud", "session_id"]},
         )
     except (jwt.PyJWTError, URLError, TimeoutError, OSError) as exc:
         raise InvalidAccessToken("invalid token") from exc
@@ -83,12 +87,14 @@ def verify_access_token(token: str) -> AccessTokenClaims:
     sub = payload.get("sub")
     if not isinstance(sub, str) or not sub:
         raise InvalidAccessToken("invalid token")
-    email = payload.get("email")
     session_id = payload.get("session_id")
+    if not isinstance(session_id, str) or not session_id:
+        raise InvalidAccessToken("invalid token")
+    email = payload.get("email")
     return AccessTokenClaims(
         sub=sub,
         email=email if isinstance(email, str) else None,
-        session_id=session_id if isinstance(session_id, str) and session_id else None,
+        session_id=session_id,
     )
 
 

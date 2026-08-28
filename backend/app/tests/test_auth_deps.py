@@ -115,7 +115,7 @@ def test_known_sub_without_users_row_is_401_and_does_not_insert(
     sub = str(uuid.uuid4())
 
     def _ok(_token: str) -> AccessTokenClaims:
-        return AccessTokenClaims(sub=sub, email="stranger@example.com")
+        return AccessTokenClaims(sub=sub, email="stranger@example.com", session_id="session-x")
 
     monkeypatch.setattr("app.core.deps.verify_access_token", _ok)
     before = db_session.execute(select(func.count()).select_from(User)).scalar_one()
@@ -139,7 +139,7 @@ def test_valid_token_with_users_row_returns_own_holdings(
     _add_user(db_session, user_id=TEST_USER_ID, email="u1@example.com", auth_subject=sub)
 
     def _ok(_token: str) -> AccessTokenClaims:
-        return AccessTokenClaims(sub=sub, email="u1@example.com")
+        return AccessTokenClaims(sub=sub, email="u1@example.com", session_id="session-u1")
 
     monkeypatch.setattr("app.core.deps.verify_access_token", _ok)
     resp = raw_client.get("/holdings", headers={"Authorization": "Bearer good.token"})
@@ -158,7 +158,9 @@ def test_active_session_within_idle_window_stays_authenticated(
     _add_user(db_session, user_id=TEST_USER_ID, email="idle-active@example.com", auth_subject=sub)
 
     def _ok(_token: str) -> AccessTokenClaims:
-        return AccessTokenClaims(sub=sub, email="idle-active@example.com")
+        return AccessTokenClaims(
+            sub=sub, email="idle-active@example.com", session_id="session-idle-active"
+        )
 
     monkeypatch.setattr("app.core.deps.verify_access_token", _ok)
 
@@ -187,7 +189,9 @@ def test_idle_session_beyond_window_is_401(
     _add_user(db_session, user_id=TEST_USER_ID, email="idle-expired@example.com", auth_subject=sub)
 
     def _ok(_token: str) -> AccessTokenClaims:
-        return AccessTokenClaims(sub=sub, email="idle-expired@example.com")
+        return AccessTokenClaims(
+            sub=sub, email="idle-expired@example.com", session_id="session-idle-expired"
+        )
 
     monkeypatch.setattr("app.core.deps.verify_access_token", _ok)
 
@@ -209,7 +213,18 @@ def test_relogin_after_idle_401_succeeds_immediately(
     GC TTL. The old token (session-old) is idle-rejected; a fresh token
     for the same user under a genuinely *different* session_id
     (session-new — what a real new login gets) succeeds and resets the
-    window."""
+    window.
+
+    Round 3 (blacktomb42) caught the sequel bug: with a single Redis key
+    per user_id (round 2's design), the re-login's touch_activity call
+    overwrote that one key with the new session's fresh timestamp — so
+    replaying the OLD token afterward found a fresh-looking record under
+    the same key and was waved through too, resurrecting a session that
+    should have stayed dead until its own JWT expired (jwt_exp=3600s).
+    Keying by (user_id, session_id) instead means the old session's own
+    key is untouched by the new login and still reads as idle on its own
+    terms — asserted below by replaying old.token one more time after the
+    re-login succeeds."""
     from app.core import idle_activity
 
     sub = "supabase-sub-relogin"
@@ -235,6 +250,12 @@ def test_relogin_after_idle_401_succeeds_immediately(
     monkeypatch.setattr("app.core.deps.verify_access_token", _new_token)
     relogin = raw_client.get("/holdings", headers={"Authorization": "Bearer new.token"})
     assert relogin.status_code == 200
+
+    monkeypatch.setattr("app.core.deps.verify_access_token", _old_token)
+    old_replayed_after_relogin = raw_client.get(
+        "/holdings", headers={"Authorization": "Bearer old.token"}
+    )
+    assert old_replayed_after_relogin.status_code == 401
 
 
 def test_silent_refresh_of_same_session_does_not_reset_idle_window(
@@ -295,7 +316,7 @@ def test_u2_cannot_read_u1_report(
     db_session.flush()
 
     def _as_u2(_token: str) -> AccessTokenClaims:
-        return AccessTokenClaims(sub="sub-u2", email="u2@example.com")
+        return AccessTokenClaims(sub="sub-u2", email="u2@example.com", session_id="session-u2")
 
     monkeypatch.setattr("app.core.deps.verify_access_token", _as_u2)
     other = raw_client.get(f"/reports/{report.id}", headers={"Authorization": "Bearer u2.token"})

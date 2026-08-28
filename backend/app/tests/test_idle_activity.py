@@ -16,6 +16,7 @@ from app.core.idle_activity import (
 )
 
 _USER = uuid.UUID("00000000-0000-0000-0000-0000000000f1")
+_SESSION = "session-a"
 
 
 @pytest.fixture
@@ -25,88 +26,83 @@ def backend() -> InMemoryBackend:
     return mem
 
 
-def test_never_touched_user_is_not_idle(backend: InMemoryBackend) -> None:
-    """No recorded activity (fresh login) must read as active, not idle —
-    absence of a key cannot be distinguished from "just logged in" vs
-    "idle so long the record fell out of Redis"; is_idle only ever
-    compares two real timestamps."""
-    assert is_idle(_USER, now=1_000.0) is False
+def test_never_touched_session_is_not_idle(backend: InMemoryBackend) -> None:
+    """No recorded activity (a session's first-ever request — including a
+    fresh login) must read as active, not idle — absence of a key cannot
+    be distinguished from "just logged in" vs "idle so long the record
+    fell out of Redis"; is_idle only ever compares two real timestamps."""
+    assert is_idle(_USER, _SESSION, now=1_000.0) is False
 
 
 def test_touch_then_check_within_window_is_not_idle(backend: InMemoryBackend) -> None:
-    touch_activity(_USER, now=1_000.0)
-    assert is_idle(_USER, now=1_000.0 + IDLE_TIMEOUT_SECONDS - 1) is False
+    touch_activity(_USER, _SESSION, now=1_000.0)
+    assert is_idle(_USER, _SESSION, now=1_000.0 + IDLE_TIMEOUT_SECONDS - 1) is False
 
 
 def test_touch_then_check_past_window_is_idle(backend: InMemoryBackend) -> None:
-    touch_activity(_USER, now=1_000.0)
-    assert is_idle(_USER, now=1_000.0 + IDLE_TIMEOUT_SECONDS + 1) is True
+    touch_activity(_USER, _SESSION, now=1_000.0)
+    assert is_idle(_USER, _SESSION, now=1_000.0 + IDLE_TIMEOUT_SECONDS + 1) is True
 
 
 def test_repeated_touch_extends_window(backend: InMemoryBackend) -> None:
-    touch_activity(_USER, now=1_000.0)
-    touch_activity(_USER, now=1_000.0 + IDLE_TIMEOUT_SECONDS - 1)
+    touch_activity(_USER, _SESSION, now=1_000.0)
+    touch_activity(_USER, _SESSION, now=1_000.0 + IDLE_TIMEOUT_SECONDS - 1)
     # Would have been idle relative to the first touch, but the second touch
     # reset the clock.
-    assert is_idle(_USER, now=1_000.0 + IDLE_TIMEOUT_SECONDS + 1) is False
+    assert is_idle(_USER, _SESSION, now=1_000.0 + IDLE_TIMEOUT_SECONDS + 1) is False
 
 
-def test_new_session_id_overrides_stale_record_is_not_idle(backend: InMemoryBackend) -> None:
-    """PR #240 review round 1 (blacktomb42): the activity record is keyed
-    by user_id, not by session, and this backend has no login endpoint to
-    reset it at — login is client-direct to Supabase. Without this
-    override, a real re-login after an idle 401 would present a new
-    session_id for the same user_id and still read the old stale
-    timestamp, staying 401 until the 24h GC TTL. A *different* session_id
-    proves this is a genuine new login, not just a refreshed token for the
-    same one — that's real evidence the record predates this session."""
-    touch_activity(_USER, session_id="session-old", now=1_000.0)
-    assert is_idle(_USER, session_id="session-new", now=1_000.0 + IDLE_TIMEOUT_SECONDS + 5) is False
+def test_different_session_for_same_user_has_independent_state(
+    backend: InMemoryBackend,
+) -> None:
+    """PR #240 review round 3 (blacktomb42) ship-blocker: round 2 keyed
+    Redis by user_id alone (session_id lived in the *value*), so a
+    re-login's touch_activity overwrote the single record — including
+    whatever the *old* session's key held. Replaying the old, superseded
+    JWT afterward then found a fresh-looking timestamp under that same
+    key and was waved through too, resurrecting a session that should
+    have stayed dead. Keying by (user_id, session_id) means a new
+    session_id starts with its own clean slate regardless of how stale
+    another session for the same user is — AND that other, old session's
+    own record is completely untouched by the new one."""
+    touch_activity(_USER, "session-old", now=1_000.0)
+    later = 1_000.0 + 100_000.0  # well past the idle window either way
 
+    # A different session for the same user has never been touched — not
+    # idle, exactly like a fresh login.
+    assert is_idle(_USER, "session-new", now=later) is False
 
-def test_same_session_id_past_window_is_still_idle(backend: InMemoryBackend) -> None:
-    """PR #240 review round 2 (blacktomb42): round 1 compared the token's
-    `iat` instead of session_id, which broke on a silent background token
-    refresh — Supabase's client SDK auto-refreshes on a timer as long as a
-    tab stays open, independent of any user interaction, minting a new
-    `iat` without a new session_id. The exact "left the tab open overnight"
-    case issue #235 was filed for: same session_id (no real new login
-    happened), well past the idle window, must still read as idle no
-    matter how recently a refresh minted a new access token."""
-    touch_activity(_USER, session_id="session-a", now=1_000.0)
-    assert is_idle(_USER, session_id="session-a", now=1_000.0 + IDLE_TIMEOUT_SECONDS + 1) is True
+    # The old session's own record is untouched by the new one existing —
+    # still idle on its own terms.
+    assert is_idle(_USER, "session-old", now=later) is True
 
 
 def test_distinct_users_do_not_share_activity(backend: InMemoryBackend) -> None:
     other = uuid.UUID("00000000-0000-0000-0000-0000000000f2")
-    touch_activity(_USER, now=1_000.0)
-    assert is_idle(other, now=1_000.0) is False
+    touch_activity(_USER, _SESSION, now=1_000.0)
+    assert is_idle(other, _SESSION, now=1_000.0) is False
 
 
 def test_is_idle_fails_open_when_store_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
     class _BrokenBackend:
-        def get_record(self, key: str) -> tuple[float, str | None] | None:
+        def get_timestamp(self, key: str) -> float | None:
             raise ActivityStoreUnavailable("redis down")
 
-        def set_record(
-            self, key: str, timestamp: float, session_id: str | None, ttl_seconds: int
-        ) -> None:
+        def set_timestamp(self, key: str, value: float, ttl_seconds: int) -> None:
             raise ActivityStoreUnavailable("redis down")
 
     idle_activity.set_backend(_BrokenBackend())
-    assert is_idle(_USER, now=1_000.0) is False
+    assert is_idle(_USER, _SESSION, now=1_000.0) is False
 
 
 def test_touch_activity_fails_open_when_store_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
     class _BrokenBackend:
-        def get_record(self, key: str) -> tuple[float, str | None] | None:
+        def get_timestamp(self, key: str) -> float | None:
             raise ActivityStoreUnavailable("redis down")
 
-        def set_record(
-            self, key: str, timestamp: float, session_id: str | None, ttl_seconds: int
-        ) -> None:
+        def set_timestamp(self, key: str, value: float, ttl_seconds: int) -> None:
             raise ActivityStoreUnavailable("redis down")
 
     idle_activity.set_backend(_BrokenBackend())
     # Must not raise.
-    touch_activity(_USER, now=1_000.0)
+    touch_activity(_USER, _SESSION, now=1_000.0)
