@@ -43,7 +43,12 @@ from app.models.report import Report
 from app.models.user import User
 from app.schemas.reports import ReportOut
 from app.services import fx_fetcher, price_fetcher
-from app.services.auth_provider import AuthProviderError, delete_auth_user, get_auth_user
+from app.services.auth_provider import (
+    AuthProviderError,
+    AuthUserInfo,
+    delete_auth_user,
+    get_auth_user,
+)
 from app.services.fund_nav_fetcher import update_fund_navs
 from app.services.invites import (
     EmailAlreadyRegistered,
@@ -382,10 +387,24 @@ def _auth_delete_or_502(sub: str) -> bool:
         ) from exc
 
 
+def _get_auth_user_or_502(sub: str) -> AuthUserInfo | None:
+    """Same 502 mapping as `_auth_delete_or_502` (review, PR #246 round 1:
+    this GET previously had no AuthProviderError mapping at all, so a
+    GoTrue 5xx/timeout/malformed body surfaced as an unhandled 500 instead
+    of the documented, retry-safe 502)."""
+    try:
+        return get_auth_user(sub)
+    except AuthProviderError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="failed to look up Supabase Auth user; local data not touched, retry",
+        ) from exc
+
+
 def _purge_orphan_auth_user(user_id: UUID, confirm: str | None) -> PurgeUserOut:
     """Requirement B: local `users` row already gone, Supabase Auth account
     remains. Supabase Auth user ids are UUIDs, same shape as `user_id`."""
-    auth_user = get_auth_user(str(user_id))
+    auth_user = _get_auth_user_or_502(str(user_id))
     if auth_user is None:
         raise HTTPException(status_code=404, detail="user not found")
     if confirm is None:

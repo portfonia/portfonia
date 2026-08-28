@@ -220,10 +220,13 @@ def test_signup_rejected_invite_tags_failure_reason(
             },
         )
     assert resp.status_code == 400
-    reasons = [
-        r.signup_failure_reason for r in caplog.records if hasattr(r, "signup_failure_reason")
-    ]
-    assert reasons == ["invite_rejected"]
+    # Asserting the formatted message, not a LogRecord attribute (PR #246
+    # round 1 review): app/main.py's logging.basicConfig format string never
+    # interpolates `extra=`, so a bug that put the tag only in `extra=`
+    # would pass a `hasattr(record, ...)` check while never actually
+    # reaching a production log line.
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("signup_failure_reason=invite_rejected" in m for m in messages)
 
 
 def test_signup_auth_provider_error_tags_failure_reason(
@@ -255,10 +258,8 @@ def test_signup_auth_provider_error_tags_failure_reason(
             },
         )
     assert resp.status_code == 400
-    reasons = [
-        r.signup_failure_reason for r in caplog.records if hasattr(r, "signup_failure_reason")
-    ]
-    assert reasons == ["auth_provider_error"]
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("signup_failure_reason=auth_provider_error" in m for m in messages)
 
 
 def test_signup_integrity_error_tags_failure_reason(
@@ -289,10 +290,8 @@ def test_signup_integrity_error_tags_failure_reason(
             },
         )
     assert resp.status_code == 400
-    reasons = [
-        r.signup_failure_reason for r in caplog.records if hasattr(r, "signup_failure_reason")
-    ]
-    assert reasons == ["integrity_error"]
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("signup_failure_reason=integrity_error" in m for m in messages)
 
 
 def test_signup_compensation_failure_sends_ops_alert(
@@ -330,7 +329,11 @@ def test_signup_compensation_failure_sends_ops_alert(
             },
         )
     alert.assert_called_once()
-    assert "sub-orphaned" in alert.call_args.kwargs["body"]
+    # A concrete, copy-pasteable command — not the literal "{id}" f-string
+    # escape this originally emitted (PR #246 round 1 review). There is no
+    # local users.id to recover after a failed compensation (rollback ran);
+    # `sub` is the only identifier the orphan-purge path can use.
+    assert "DELETE /admin/users/sub-orphaned?confirm=" in alert.call_args.kwargs["body"]
 
 
 def test_signup_does_not_log_password(

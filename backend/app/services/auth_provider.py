@@ -221,6 +221,8 @@ def get_auth_user(sub: str) -> AuthUserInfo | None:
         data = resp.json()
     except ValueError as exc:
         raise AuthProviderError("get_user malformed response") from exc
+    if not isinstance(data, dict):
+        raise AuthProviderError("get_user malformed response")
     email = data.get("email")
     if not isinstance(email, str) or not email:
         raise AuthProviderError("get_user missing email")

@@ -89,6 +89,19 @@ def _fake_delete_auth_user(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     return mock
 
 
+@pytest.fixture(autouse=True)
+def _fake_get_auth_user(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """Default the orphan-path lookup to "nothing there" (review, PR #246
+    round 1: without this, `test_purge_unknown_uuid_404` — unchanged by
+    issue #225 — falls into the new no-local-row branch and calls the real
+    `get_auth_user` against whatever Settings loads from .env.local, a live
+    admin API call the repo's test convention forbids). Tests that exercise
+    the orphan-found path override this with their own monkeypatch."""
+    mock = MagicMock(return_value=None)
+    monkeypatch.setattr("app.routers.admin.get_auth_user", mock)
+    return mock
+
+
 def test_purge_requires_ops_token(app_client: TestClient) -> None:
     resp = app_client.delete(_path(_A), params={"confirm": "a@example.com"})
     assert resp.status_code == 401
@@ -434,6 +447,22 @@ def test_purge_orphan_auth_user_delete_failure_502(
     )
     monkeypatch.setattr(
         "app.routers.admin.delete_auth_user",
+        MagicMock(side_effect=AuthProviderError("boom")),
+    )
+    resp = app_client.delete(
+        _path(_UNKNOWN), headers=_headers(), params={"confirm": "orphan@example.com"}
+    )
+    assert resp.status_code == 502
+
+
+def test_purge_orphan_auth_user_lookup_failure_502(
+    app_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PR #246 round 1 review: the GET half of the orphan path had no
+    AuthProviderError mapping at all, so a GoTrue 5xx/timeout surfaced as an
+    unhandled 500 instead of the documented, retry-safe 502."""
+    monkeypatch.setattr(
+        "app.routers.admin.get_auth_user",
         MagicMock(side_effect=AuthProviderError("boom")),
     )
     resp = app_client.delete(

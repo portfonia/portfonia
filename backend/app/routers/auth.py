@@ -101,7 +101,12 @@ def signup(
         # Expected background noise (especially post-#190 rate limiting) — a
         # distinct tag, not a full traceback, so it doesn't drown out the
         # auth_provider_error/integrity_error alerting below (issue #225).
-        logger.info("signup rejected", extra={"signup_failure_reason": "invite_rejected"})
+        # The tag lives in the message itself, not `extra=`: app/main.py's
+        # logging.basicConfig format string never interpolates extras (no
+        # JSON formatter here), so `extra=` would set a LogRecord attribute
+        # that never reaches the actual production log line (review, PR
+        # #246 round 1).
+        logger.info("signup rejected signup_failure_reason=invite_rejected")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=INVITE_REJECTED_MESSAGE
         ) from None
@@ -123,7 +128,12 @@ def signup(
                         f"a later step failed ({exc!r}), and the compensating "
                         f"delete_auth_user() call also failed. This account is likely "
                         f"orphaned in Supabase Auth with no matching local users row — "
-                        f"clean up via DELETE /admin/users/{{id}}?confirm={email} "
+                        # No local `users` row was ever committed (rollback ran above),
+                        # so `sub` — not a `users.id` that never existed — is the only
+                        # usable identifier for the orphan-purge path (review, PR #246
+                        # round 1: this previously emitted a literal "{id}" f-string
+                        # escape, an uncopyable URL).
+                        f"clean up via DELETE /admin/users/{sub}?confirm={email} "
                         f"(issue #225 orphan-purge path) or the Supabase Dashboard."
                     ),
                     idempotency_key=f"ops-signup-compensation-{sub}",
@@ -132,7 +142,7 @@ def signup(
             reason = (
                 "auth_provider_error" if isinstance(exc, AuthProviderError) else "integrity_error"
             )
-            logger.exception("signup failed", extra={"signup_failure_reason": reason})
+            logger.exception("signup failed signup_failure_reason=%s", reason)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail=INVITE_REJECTED_MESSAGE
             ) from None

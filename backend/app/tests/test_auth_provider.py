@@ -205,6 +205,19 @@ def test_get_auth_user_raises_on_missing_email(monkeypatch: pytest.MonkeyPatch) 
         ap.get_auth_user("sub-1")
 
 
+def test_get_auth_user_raises_on_non_dict_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    """PR #246 round 1 review: `data.get("email")` assumed a dict body — a
+    list response (malformed or an unexpected GoTrue shape) would otherwise
+    raise AttributeError instead of the intended AuthProviderError."""
+    from app.services import auth_provider as ap
+
+    monkeypatch.setattr(
+        "httpx.Client", lambda **kwargs: _FakeClient(_FakeResponse(200, ["not", "a", "dict"]))
+    )
+    with pytest.raises(ap.AuthProviderError):
+        ap.get_auth_user("sub-1")
+
+
 def test_get_auth_user_wraps_transport_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     import httpx
 
