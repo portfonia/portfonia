@@ -2,6 +2,12 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+// lib/api.ts (imported transitively via QuestionnaireForm) now imports
+// logout() from auth-actions.ts, which pulls in the server-only-guarded
+// Supabase server client — that throws when bundled into a Client
+// Component test unless mocked here (same pattern as
+// get-started-menu.test.tsx).
+vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
 import { QuestionnairePageBody } from "./questionnaire-page-body";

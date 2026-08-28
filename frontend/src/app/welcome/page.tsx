@@ -1,5 +1,6 @@
 import type { Me } from "@/lib/api";
 import { getMeServer } from "@/lib/server-api";
+import { isNextRedirectError } from "@/lib/next-redirect-error";
 import { WelcomeBody } from "./_components/welcome-body";
 
 // Not a public path (proxy.ts PUBLIC_PATH_PREFIXES) — an unauthenticated
@@ -10,7 +11,10 @@ export default async function WelcomePage() {
   let hadLoadError = false;
   try {
     me = await getMeServer();
-  } catch {
+  } catch (err) {
+    // A 401 here can be the idle-logout Server Action's own redirect()
+    // throw (issue #235/#240) — that must propagate, not be swallowed.
+    if (isNextRedirectError(err)) throw err;
     hadLoadError = true;
   }
 

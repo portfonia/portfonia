@@ -8,6 +8,7 @@
 // same reasoning as the upload Route Handler (see
 // app/api/holdings/upload/route.ts).
 import type { HoldingOut, InvestmentContext, Me } from "@/lib/api";
+import { logout } from "@/lib/auth-actions";
 import { currentAccessToken } from "@/lib/supabase/server";
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
@@ -17,13 +18,25 @@ async function authHeaders(): Promise<HeadersInit> {
   return token ? { authorization: `Bearer ${token}` } : {};
 }
 
+// Same rationale as lib/api.ts's throwOnHttpError: a 401 here can be the
+// server-side idle timeout (issue #235) firing on the very first request
+// of a reopened, previously-idle tab — before any client-side code has run
+// at all. Route it through the same logout() the client idle timer uses so
+// the reader lands on /login?reason=expired instead of a bare render error.
+async function throwOnHttpError(res: Response): Promise<never> {
+  if (res.status === 401) {
+    await logout("expired");
+  }
+  throw new Error(`Backend returned ${res.status}`);
+}
+
 export async function listHoldingsServer(): Promise<HoldingOut[]> {
   const res = await fetch(`${BACKEND_URL}/holdings`, {
     cache: "no-store",
     headers: await authHeaders(),
   });
   if (!res.ok) {
-    throw new Error(`Backend returned ${res.status}`);
+    await throwOnHttpError(res);
   }
   return res.json() as Promise<HoldingOut[]>;
 }
@@ -36,7 +49,7 @@ export async function getInvestmentContextServer(): Promise<InvestmentContext | 
   });
   if (res.status === 404) return null;
   if (!res.ok) {
-    throw new Error(`Backend returned ${res.status}`);
+    await throwOnHttpError(res);
   }
   return res.json() as Promise<InvestmentContext>;
 }
@@ -47,7 +60,7 @@ export async function getMeServer(): Promise<Me> {
     headers: await authHeaders(),
   });
   if (!res.ok) {
-    throw new Error(`Backend returned ${res.status}`);
+    await throwOnHttpError(res);
   }
   return res.json() as Promise<Me>;
 }

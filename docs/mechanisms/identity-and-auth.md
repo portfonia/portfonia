@@ -197,6 +197,249 @@ secret or the Supabase database password (business Postgres is self-hosted).
   (see the B5 entry below for the deploy/UAT record).
 
 
+### Idle-timeout server enforcement — issue #235 (2026-08-27)
+
+**Bug**: issue #207/PR #208 (2026-08-25) implemented the product spec's
+"15 minutes of inactivity auto-logout" entirely client-side
+(`frontend/src/hooks/use-idle-logout.ts`, `frontend/src/lib/idle-timeout.ts`)
+— the activity timestamp lived only in a React `useRef`. Closing the
+tab/browser destroys that timer along with it; nothing fires a logout and
+nothing persists to resume the count on reopen. The result: close the
+browser in the morning, reopen it that evening, still logged in. The
+implementing session's own code comment
+(`use-idle-logout.ts:7-14`) already named this limitation, and it made it
+into the design doc's §5 "honest limitations" section, but was never
+escalated to a standalone decision point (the OQ-1..OQ-5 pattern used
+elsewhere in that doc) for explicit product-owner sign-off — see the
+`feedback_scope_narrowing_needs_explicit_decision_point` memory for the
+general process note this incident produced.
+
+**Fix — server-side idle enforcement, folded into B4's choke point**
+(current shape as of round 3 below — the mechanism went through 3 review
+rounds, each catching a real flaw in the previous fix; this paragraph
+describes what actually ships, the round 1/2/3 subsections further down
+are the history of how it got here, kept for the record):
+`app/core/idle_activity.py` stores a last-active epoch timestamp in Redis
+per `(user_id, session_id)` (`session:active:{user_id}:{session_id}` —
+`session_id` is the JWT's own required claim, not `user_id` alone), and
+`current_principal` (`app/core/deps.py`) checks it after JWT verification
+and the `users` row lookup, before returning a `Principal`:
+`is_idle(user.id, claims.session_id)` → 401 if that session's stored
+timestamp is more than `IDLE_TIMEOUT_SECONDS` (900s, matching the
+frontend's `SESSION_IDLE_TIMEOUT_MS` — kept in sync by hand, no shared
+config crosses the Python/TypeScript boundary) old; otherwise
+`touch_activity(user.id, claims.session_id)` resets that session's own
+window. Because this lives inside `current_principal`, the existing
+structural test
+(`test_identity_seam.py::test_every_identity_bearing_route_depends_on_current_principal`)
+already guarantees every identity-bearing route gets idle enforcement for
+free — no per-router wiring needed.
+
+- **Timestamp comparison, not key expiry, is the enforcement mechanism.**
+  The Redis key's own TTL (`_GC_TTL_SECONDS`, 24h) is a garbage-collection
+  safety net only, deliberately far longer than the 15-minute policy.
+  Redis cannot distinguish "key never existed" from "key expired" —  both
+  read as absence — so if the 900s idle window were enforced by key
+  expiry, a fresh login (no key yet) and a genuinely-idle session (key
+  fell out) would be indistinguishable, and the fresh-login case has to
+  read as *not* idle. Storing the actual timestamp and comparing in
+  application code sidesteps this: "no timestamp" always means "never
+  active," which is always safe to treat as not-idle, regardless of why
+  the key is absent.
+- **Fail-open on Redis outage, not fail-closed** — a deliberate departure
+  from `app/core/rate_limit.py`'s fail-closed (503) convention for
+  security-relevant checks. The reason is blast radius: `current_principal`
+  is the single choke point for essentially every authenticated route in
+  the app, unlike the rate limiter (scoped to signup/invite paths only).
+  Idle-timeout is defense-in-depth layered on top of JWT verification,
+  which stays the primary, fail-closed auth boundary — a Redis blip taking
+  down the *entire app* for a control that, before this fix, provided zero
+  enforcement at all would be a worse regression than temporarily reverting
+  to that pre-fix (fail-open) state. Both `is_idle` and `touch_activity`
+  catch `ActivityStoreUnavailable`, log, and continue.
+- **Absolute session lifetime (hard cap regardless of activity) is
+  explicitly out of scope for this fix.** Confirmed 2026-08-27: Supabase
+  Dashboard → Authentication → Sessions shows "Time-box user sessions" and
+  "Inactivity timeout" both set to 0 (never) — and both are Pro-tier
+  settings. The Portfonia Supabase project is on the **Free plan**, so
+  neither is actually usable regardless of what value is entered; an
+  absolute-lifetime cap will need the same app-level treatment as this
+  fix (a session-start timestamp checked in `current_principal`,
+  independent of `idle_activity.py`'s rolling last-active timestamp), not
+  a Supabase-native setting. Tracked in a separate follow-up issue.
+- **Per-user configurable session length remains B6 scope**, per
+  product-owner decision 2026-08-27 — not pulled forward into this fix.
+
+**PR #240 review round 1 (blacktomb42), 2 ship-blockers, both fixed**:
+
+1. **Stale idle lock survived a real re-login.** The activity record is
+   keyed by `user_id` only — this backend has no login endpoint to reset it
+   at (login is client-direct to Supabase), so a real re-login after an
+   idle 401 presented a *new* JWT for the *same* `user_id` and still read
+   the *old* stale timestamp, staying 401 until `_GC_TTL_SECONDS` (24h)
+   expired. The reviewer explicitly warned against the naive fix (clearing
+   the key on the 401 itself), since that would let the *same* still-idle
+   JWT succeed on retry. **Round-1 fix (superseded by round 2 below,
+   history kept for the record): `AccessTokenClaims` carried the token's
+   own `iat` claim; `is_idle` treated a token minted *after* the recorded
+   activity as proof the record predates this session.** Round 2 found
+   this broken — see below — so the `iat` field no longer exists on
+   `AccessTokenClaims`; this paragraph describes what round 1 shipped, not
+   the current code.
+2. **The 401 never signed the browser out.** `proxy.ts`'s `getUser()`
+   silently refreshes the Supabase cookie independent of whether the
+   backend's idle check will reject the same request — so a reopened tab
+   kept showing "authed chrome" with every API call quietly 401ing,
+   instead of landing on `/login?reason=expired`. Fix: both
+   `frontend/src/lib/api.ts` and `frontend/src/lib/server-api.ts` now route
+   a 401 through the same `logout("expired")` Server Action
+   (`frontend/src/lib/auth-actions.ts`) the client idle timer already uses,
+   via a shared `throwOnHttpError` helper in each file. `logout()` calls
+   `redirect()`, which always throws (a `NEXT_REDIRECT` digest Next
+   intercepts) — every call site that wraps these functions in a `catch`
+   had to be checked for whether it would swallow that throw instead of
+   letting it propagate (it would: a bare `catch` or a `catch (err)` that
+   unconditionally calls `setError`/sets a load-error flag absorbs *any*
+   thrown value, redirect signal included). Eight call sites needed an
+   `isNextRedirectError(err)` guard added ahead of their existing error
+   handling — `frontend/src/lib/next-redirect-error.ts`'s existing utility,
+   already used the same way in `get-started-menu.tsx`'s manual-logout
+   path: `app/holdings/page.tsx`, `app/welcome/page.tsx`,
+   `app/profile/page.tsx`, `app/questionnaire/page.tsx` (all four Server
+   Component data-loaders), plus `holdings-manager.tsx`'s
+   `onFileChange`/`doSave`/`onExport` and `questionnaire-form.tsx`'s
+   `handleSave` (Client Component mutation handlers). This is a materially
+   larger blast radius than the two files the review comment named
+   directly — flagging it explicitly rather than letting it look like scope
+   crept in unannounced.
+   - **Test-environment side effect**: `lib/api.ts` importing `logout()`
+     from `auth-actions.ts` means any test that transitively imports
+     `lib/api.ts`'s real (non-mocked) exports now also pulls in
+     `auth-actions.ts` → the `server-only`-guarded Supabase server client —
+     Vitest doesn't apply Next's "use server"/"use client" bundler
+     transform the way a real build does, so this import chain executes
+     for real and `server-only` throws ("cannot be imported from a Client
+     Component module"). Three test files needed the same
+     `vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }))` that
+     `get-started-menu.test.tsx` already used for its own direct import:
+     `holdings-manager.test.tsx`, `questionnaire-form.test.tsx`,
+     `questionnaire-page-body.test.tsx`. New coverage:
+     `frontend/src/lib/api.test.ts` (new file) and two new
+     `server-api.test.ts` cases prove a 401 calls `logout("expired")`
+     rather than just throwing.
+- Tests: `app/tests/test_idle_activity.py` (unit — swappable
+  `InMemoryBackend`, matching `rate_limit.py`'s test pattern) and two
+  additions to `app/tests/test_auth_deps.py`
+  (`test_active_session_within_idle_window_stays_authenticated`,
+  `test_idle_session_beyond_window_is_401`) exercising the real HTTP path
+  through `current_principal` with `time.time()` monkeypatched. A new
+  autouse fixture, `_idle_activity_memory` in `conftest.py`, gives every
+  test a fresh in-memory store — mirrors `_rate_limit_memory`.
+
+**PR #240 review round 2 (blacktomb42) @ 98bfb32 — round 1's blocker-1 fix
+was itself wrong, now fixed properly**:
+
+Round 1 compared the presenting token's `iat` claim against the recorded
+last-active timestamp: newer `iat` than the record meant "not idle,"
+covering a real re-login. The reviewer caught the actual flaw: `iat`
+changes on every token refresh, not just a login, and Supabase's
+client-side SDK auto-refreshes on a background timer as long as a browser
+tab stays open — entirely independent of user interaction or any request
+reaching this backend. A laptop left open all night (tab never closed,
+never touched) would have its access token silently refreshed every
+`jwt_exp` (3600s) by that background timer, so the very next real request
+carried an `iat` newer than the stale idle record and read as "not idle" —
+exactly the "closed-overnight browser comes back still logged in" case
+issue #235 was filed for in the first place, just moved one layer down.
+
+**Real fix: key the override on the JWT's `session_id` claim, not
+`iat`.** `session_id` is a required claim on every Supabase-issued access
+token (`RequiredClaims` in `@supabase/auth-js`'s `lib/types.d.ts`,
+confirmed by reading the installed package's type definitions rather than
+assuming) that identifies the underlying login session: a token refresh
+reuses the same `session_id`, and only an actual new login (or an
+explicit sign-out then sign-in) gets a new one.
+
+- `AccessTokenClaims.iat` removed; replaced by
+  `AccessTokenClaims.session_id: str | None` (`app/services/auth_provider.py`,
+  extracted from the decoded JWT payload's `session_id` field).
+- `idle_activity.py`'s storage widened from a bare timestamp to
+  `(timestamp, session_id)` per user (`_ActivityRecord`, a plain tuple —
+  `ActivityBackend.get_record`/`set_record` replace
+  `get_timestamp`/`set_timestamp`; `RedisBackend` serializes as
+  `"{timestamp}|{session_id}"`, parsed back with `str.partition("|")`).
+  `is_idle`/`touch_activity` take `session_id` instead of `issued_at`.
+- **The comparison itself**: a *different* `session_id` than the one on
+  record is real evidence of a genuine new login (round-1 blocker 1, still
+  fixed) — not idle regardless of how stale the record is. The *same*
+  `session_id`, however recently refreshed, still gets the ordinary
+  timestamp comparison — a background refresh cannot manufacture activity
+  that didn't happen.
+- New/renamed tests: `test_new_session_id_overrides_stale_record_is_not_idle`
+  and `test_same_session_id_past_window_is_still_idle`
+  (`test_idle_activity.py`, replacing the `iat`-based pair) plus
+  `test_silent_refresh_of_same_session_does_not_reset_idle_window`
+  (`test_auth_deps.py`, the exact regression case the reviewer asked for:
+  stale record, refreshed token, same session, still 401). The existing
+  `test_relogin_after_idle_401_succeeds_immediately` was rewritten to use
+  two distinct `session_id` values instead of two `iat` values.
+
+**PR #240 review round 3 (blacktomb42) @ d018e96 — round 2's `session_id`
+comparison sat on top of the wrong storage shape, and that broke it too**:
+
+Round 2's mechanism was right (compare `session_id`, not `iat`) but the
+storage wasn't: Redis was still one key per `user_id`, with `session_id`
+stuffed into the *value* alongside the timestamp, and `is_idle` treated
+any value/presented `session_id` **mismatch** as "not idle, allow." That
+mismatch branch is exactly how a real re-login gets past a stale idle
+lock (round-1 blocker 1, genuinely still fixed) — but it is *also* how the
+JWT from the session that just got superseded gets past it: `touch_activity`
+on the successful re-login overwrote the single `user_id` key with the
+new session's fresh timestamp, so replaying the *old*, now-superseded
+token afterward found that fresh record sitting under the same key,
+"mismatched" against it, and was waved through too — resurrecting a
+session that should have stayed dead until its own `jwt_exp` (3600s)
+elapsed. Structurally the same class of hole round 1's reviewer warned
+about ("do not clear the key on the idle 401 — the same JWT would then
+succeed on retry"), just surfacing one commit later via overwrite instead
+of deletion.
+
+**Real fix: key Redis by `(user_id, session_id)`, drop the mismatch
+branch entirely.** `_activity_key(user_id, session_id)` →
+`session:active:{user_id}:{session_id}`; `is_idle`/`touch_activity` both
+take `session_id` as a required parameter, not optional. Each session now
+has its own independent timeline — no cross-session comparison logic is
+needed at all: a brand-new session simply has no key yet (not idle,
+first-ever request — this is what still makes a real re-login work
+immediately), and a superseded session's own key is untouched by
+whatever any other session does, so it keeps aging out strictly on its
+own history.
+
+- **`session_id` is now a required JWT claim, not an optional one.**
+  Since it's load-bearing for forming the Redis key, a token that somehow
+  lacks it can't be safely handled — `verify_access_token`
+  (`app/services/auth_provider.py`) adds `"session_id"` to
+  `jwt.decode`'s `options={"require": [...]}` list (alongside the
+  pre-existing `exp`/`sub`/`iss`/`aud`) and separately validates it's a
+  non-empty string after decode (an empty string technically satisfies
+  PyJWT's `require` check — the key is present — so `require` alone
+  can't catch it). `AccessTokenClaims.session_id` is `str`, no longer
+  `str | None`. A real Supabase access token always carries this claim
+  (`RequiredClaims` in `@supabase/auth-js`'s installed type definitions,
+  confirmed by reading them, not assumed) — this only rejects a token
+  that is malformed or from an unrelated issuer.
+- New tests: `test_different_session_for_same_user_has_independent_state`
+  (`test_idle_activity.py`, replacing the round-2 mismatch-override
+  tests — proves a new session starts clean *and* an old session's own
+  record is untouched by it existing) and, in `test_auth_deps.py`, a
+  third assertion appended to `test_relogin_after_idle_401_succeeds_immediately`:
+  after the re-login's 200, replaying the *old* token one more time is
+  still 401 — the exact resurrection the round-3 review caught. Two new
+  `test_auth_provider.py` cases (`test_missing_session_id_claim_is_401`,
+  `test_empty_session_id_claim_is_401`) cover the new required-claim
+  rejection at the JWT-verification layer itself.
+
+
 ### Frontend auth closure — B5 (Ring 1 stage B, issue #129)
 
 Closes the loop B4 opened: `current_principal` (B4) requires a Bearer JWT on

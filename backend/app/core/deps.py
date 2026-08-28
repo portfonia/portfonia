@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_session
+from app.core.idle_activity import is_idle, touch_activity
 from app.models.user import User
 from app.services.auth_provider import InvalidAccessToken, verify_access_token
 
@@ -39,6 +40,13 @@ def current_principal(request: Request, session: Session = Depends(get_session))
     Verifies the access token (`Authorization: Bearer`) against the Auth
     provider's JWKS, then looks up `users.auth_subject`. A valid token whose
     `sub` has no `users` row is 401 — never auto-inserted (Ring 1-B §6.5/§6.9).
+
+    Also enforces the 15-minute server-side idle timeout (issue #235):
+    a token that is otherwise valid but has had no request in over
+    IDLE_TIMEOUT_SECONDS is rejected the same as any other auth failure.
+    This is what makes the timeout real — the frontend's own idle timer
+    (use-idle-logout.ts) lives only in browser memory and does not survive
+    closing the tab, so it cannot revoke anything on its own.
     """
     token = _request_access_token(request)
     if token is None:
@@ -54,6 +62,9 @@ def current_principal(request: Request, session: Session = Depends(get_session))
     ).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized")
+    if is_idle(user.id, session_id=claims.session_id):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized")
+    touch_activity(user.id, session_id=claims.session_id)
     return Principal(
         user_id=user.id,
         email=user.email,

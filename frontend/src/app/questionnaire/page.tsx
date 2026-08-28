@@ -1,5 +1,6 @@
 import { getInvestmentContextServer } from "@/lib/server-api";
 import type { InvestmentContext } from "@/lib/api";
+import { isNextRedirectError } from "@/lib/next-redirect-error";
 import { QuestionnairePageBody } from "./_components/questionnaire-page-body";
 
 export default async function QuestionnairePage({
@@ -11,7 +12,10 @@ export default async function QuestionnairePage({
   let hadLoadError = false;
   try {
     initialContext = await getInvestmentContextServer();
-  } catch {
+  } catch (err) {
+    // A 401 here can be the idle-logout Server Action's own redirect()
+    // throw (issue #235/#240) — that must propagate, not be swallowed.
+    if (isNextRedirectError(err)) throw err;
     hadLoadError = true;
   }
   // mode="onboarding" has exactly one trigger point: the post-signup

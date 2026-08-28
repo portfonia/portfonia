@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import jwt
 import pytest
 from pydantic import SecretStr
 
@@ -57,6 +58,49 @@ def test_verify_access_token_maps_jwks_transport_errors(
             raise URLError("jwks unreachable")
 
     monkeypatch.setattr(ap, "_jwks", lambda: _Client())
+    with pytest.raises(ap.InvalidAccessToken):
+        ap.verify_access_token("aaa.bbb.ccc")
+
+
+class _FakeSigningKey:
+    key = "fake-key"
+
+
+class _FakeJwksClient:
+    def get_signing_key_from_jwt(self, token: str) -> object:
+        return _FakeSigningKey()
+
+
+def test_missing_session_id_claim_is_401(monkeypatch: pytest.MonkeyPatch) -> None:
+    """PR #240 review round 3 (blacktomb42): session_id is now a
+    load-bearing input to idle_activity.py's per-session Redis key, not
+    just informational — a token that somehow lacks it must be rejected
+    outright here, not let a session-scoped idle check silently degrade.
+    A real Supabase token always carries it (a required claim per
+    @supabase/auth-js's RequiredClaims), so this is PyJWT's own `require`
+    option doing its job on a token that doesn't."""
+    from app.services import auth_provider as ap
+
+    def _raise_missing_claim(*args: object, **kwargs: object) -> dict[str, object]:
+        raise jwt.MissingRequiredClaimError("session_id")
+
+    monkeypatch.setattr(ap, "_jwks", lambda: _FakeJwksClient())
+    monkeypatch.setattr(jwt, "decode", _raise_missing_claim)
+    with pytest.raises(ap.InvalidAccessToken):
+        ap.verify_access_token("aaa.bbb.ccc")
+
+
+def test_empty_session_id_claim_is_401(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An empty string satisfies PyJWT's `require` option (the key is
+    present) but is not a usable session identifier — this is the
+    application-level check catching what `require` structurally cannot."""
+    from app.services import auth_provider as ap
+
+    def _decode_with_empty_session_id(*args: object, **kwargs: object) -> dict[str, object]:
+        return {"sub": "user-1", "role": "authenticated", "session_id": ""}
+
+    monkeypatch.setattr(ap, "_jwks", lambda: _FakeJwksClient())
+    monkeypatch.setattr(jwt, "decode", _decode_with_empty_session_id)
     with pytest.raises(ap.InvalidAccessToken):
         ap.verify_access_token("aaa.bbb.ccc")
 

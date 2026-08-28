@@ -5,6 +5,8 @@
 // with types generated from the FastAPI OpenAPI schema (see concept design doc
 // section 10, frontend constraint 4). Keep these in sync until then.
 
+import { logout } from "@/lib/auth-actions";
+
 export type PricingMode = "auto" | "manual";
 
 export interface ParsedRow {
@@ -101,9 +103,24 @@ async function readError(res: Response): Promise<string> {
   }
 }
 
+// A 401 here can now mean the server-side idle timeout (issue #235), not
+// just "never logged in" — that can fire with no client-side idle timer
+// ever having run (e.g. the tab was closed and reopened). Route it through
+// the same logout() Server Action the client timer already uses so /login
+// shows the same expired-session banner, instead of leaving the page
+// looking authenticated while every fetch quietly 401s. logout() always
+// calls redirect(), which always throws — the ApiError below is an
+// unreachable fallback, kept only in case that ever stops being true.
+async function throwOnHttpError(res: Response): Promise<never> {
+  if (res.status === 401) {
+    await logout("expired");
+  }
+  throw new ApiError(res.status, await readError(res));
+}
+
 export async function listHoldings(): Promise<HoldingOut[]> {
   const res = await fetch("/api/holdings", { cache: "no-store" });
-  if (!res.ok) throw new ApiError(res.status, await readError(res));
+  if (!res.ok) await throwOnHttpError(res);
   return res.json() as Promise<HoldingOut[]>;
 }
 
@@ -132,13 +149,13 @@ async function startUploadJob(file: File): Promise<UploadJob> {
     method: "POST",
     body: form,
   });
-  if (!res.ok) throw new ApiError(res.status, await readError(res));
+  if (!res.ok) await throwOnHttpError(res);
   return res.json() as Promise<UploadJob>;
 }
 
 async function getUploadJob(jobId: string): Promise<UploadJob> {
   const res = await fetch(`/api/holdings/upload/${jobId}`, { cache: "no-store" });
-  if (!res.ok) throw new ApiError(res.status, await readError(res));
+  if (!res.ok) await throwOnHttpError(res);
   return res.json() as Promise<UploadJob>;
 }
 
@@ -179,7 +196,7 @@ export async function confirmHoldings(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(rows),
   });
-  if (!res.ok) throw new ApiError(res.status, await readError(res));
+  if (!res.ok) await throwOnHttpError(res);
   return res.json() as Promise<HoldingOut[]>;
 }
 
@@ -187,7 +204,7 @@ export async function confirmHoldings(
 // upload template) so the user can edit and re-upload. Returns a Blob.
 export async function exportHoldings(): Promise<Blob> {
   const res = await fetch("/api/holdings/export", { cache: "no-store" });
-  if (!res.ok) throw new ApiError(res.status, await readError(res));
+  if (!res.ok) await throwOnHttpError(res);
   return res.blob();
 }
 
@@ -228,7 +245,7 @@ export async function putInvestmentContext(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ questionnaire, free_text: freeText }),
   });
-  if (!res.ok) throw new ApiError(res.status, await readError(res));
+  if (!res.ok) await throwOnHttpError(res);
   return res.json() as Promise<InvestmentContext>;
 }
 

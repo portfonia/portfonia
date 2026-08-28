@@ -115,7 +115,7 @@ def test_known_sub_without_users_row_is_401_and_does_not_insert(
     sub = str(uuid.uuid4())
 
     def _ok(_token: str) -> AccessTokenClaims:
-        return AccessTokenClaims(sub=sub, email="stranger@example.com")
+        return AccessTokenClaims(sub=sub, email="stranger@example.com", session_id="session-x")
 
     monkeypatch.setattr("app.core.deps.verify_access_token", _ok)
     before = db_session.execute(select(func.count()).select_from(User)).scalar_one()
@@ -139,11 +139,161 @@ def test_valid_token_with_users_row_returns_own_holdings(
     _add_user(db_session, user_id=TEST_USER_ID, email="u1@example.com", auth_subject=sub)
 
     def _ok(_token: str) -> AccessTokenClaims:
-        return AccessTokenClaims(sub=sub, email="u1@example.com")
+        return AccessTokenClaims(sub=sub, email="u1@example.com", session_id="session-u1")
 
     monkeypatch.setattr("app.core.deps.verify_access_token", _ok)
     resp = raw_client.get("/holdings", headers={"Authorization": "Bearer good.token"})
     assert resp.status_code == 200
+
+
+def test_active_session_within_idle_window_stays_authenticated(
+    raw_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """issue #235: two requests inside the 15-minute idle window both succeed,
+    and the second extends the window rather than being measured against
+    the first request's timestamp."""
+    from app.core import idle_activity
+
+    sub = "supabase-sub-idle-active"
+    _add_user(db_session, user_id=TEST_USER_ID, email="idle-active@example.com", auth_subject=sub)
+
+    def _ok(_token: str) -> AccessTokenClaims:
+        return AccessTokenClaims(
+            sub=sub, email="idle-active@example.com", session_id="session-idle-active"
+        )
+
+    monkeypatch.setattr("app.core.deps.verify_access_token", _ok)
+
+    # A mutable "current time" rather than an iterator: unrelated library
+    # code (e.g. httpx's cookiejar) also calls time.time() during a
+    # request, so a call-counted iterator would exhaust on the wrong call.
+    clock = {"now": 1_000.0}
+    monkeypatch.setattr("app.core.idle_activity.time.time", lambda: clock["now"])
+
+    first = raw_client.get("/holdings", headers={"Authorization": "Bearer good.token"})
+    clock["now"] = 1_000.0 + idle_activity.IDLE_TIMEOUT_SECONDS - 1
+    second = raw_client.get("/holdings", headers={"Authorization": "Bearer good.token"})
+    assert first.status_code == 200
+    assert second.status_code == 200
+
+
+def test_idle_session_beyond_window_is_401(
+    raw_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """issue #235: a token that is still cryptographically valid is rejected
+    once 15+ minutes pass with no request — the actual server-side
+    enforcement the frontend timer alone could never provide."""
+    from app.core import idle_activity
+
+    sub = "supabase-sub-idle-expired"
+    _add_user(db_session, user_id=TEST_USER_ID, email="idle-expired@example.com", auth_subject=sub)
+
+    def _ok(_token: str) -> AccessTokenClaims:
+        return AccessTokenClaims(
+            sub=sub, email="idle-expired@example.com", session_id="session-idle-expired"
+        )
+
+    monkeypatch.setattr("app.core.deps.verify_access_token", _ok)
+
+    clock = {"now": 1_000.0}
+    monkeypatch.setattr("app.core.idle_activity.time.time", lambda: clock["now"])
+
+    first = raw_client.get("/holdings", headers={"Authorization": "Bearer good.token"})
+    clock["now"] = 1_000.0 + idle_activity.IDLE_TIMEOUT_SECONDS + 1
+    second = raw_client.get("/holdings", headers={"Authorization": "Bearer good.token"})
+    assert first.status_code == 200
+    assert second.status_code == 401
+
+
+def test_relogin_after_idle_401_succeeds_immediately(
+    raw_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PR #240 review round 1 (blacktomb42) ship-blocker: after an idle
+    401, a real re-login must work right away, not stay 401 until the 24h
+    GC TTL. The old token (session-old) is idle-rejected; a fresh token
+    for the same user under a genuinely *different* session_id
+    (session-new — what a real new login gets) succeeds and resets the
+    window.
+
+    Round 3 (blacktomb42) caught the sequel bug: with a single Redis key
+    per user_id (round 2's design), the re-login's touch_activity call
+    overwrote that one key with the new session's fresh timestamp — so
+    replaying the OLD token afterward found a fresh-looking record under
+    the same key and was waved through too, resurrecting a session that
+    should have stayed dead until its own JWT expired (jwt_exp=3600s).
+    Keying by (user_id, session_id) instead means the old session's own
+    key is untouched by the new login and still reads as idle on its own
+    terms — asserted below by replaying old.token one more time after the
+    re-login succeeds."""
+    from app.core import idle_activity
+
+    sub = "supabase-sub-relogin"
+    _add_user(db_session, user_id=TEST_USER_ID, email="relogin@example.com", auth_subject=sub)
+
+    def _old_token(_token: str) -> AccessTokenClaims:
+        return AccessTokenClaims(sub=sub, email="relogin@example.com", session_id="session-old")
+
+    monkeypatch.setattr("app.core.deps.verify_access_token", _old_token)
+    clock = {"now": 1_000.0}
+    monkeypatch.setattr("app.core.idle_activity.time.time", lambda: clock["now"])
+
+    first = raw_client.get("/holdings", headers={"Authorization": "Bearer old.token"})
+    assert first.status_code == 200
+
+    clock["now"] = 1_000.0 + idle_activity.IDLE_TIMEOUT_SECONDS + 1
+    idle = raw_client.get("/holdings", headers={"Authorization": "Bearer old.token"})
+    assert idle.status_code == 401
+
+    def _new_token(_token: str) -> AccessTokenClaims:
+        return AccessTokenClaims(sub=sub, email="relogin@example.com", session_id="session-new")
+
+    monkeypatch.setattr("app.core.deps.verify_access_token", _new_token)
+    relogin = raw_client.get("/holdings", headers={"Authorization": "Bearer new.token"})
+    assert relogin.status_code == 200
+
+    monkeypatch.setattr("app.core.deps.verify_access_token", _old_token)
+    old_replayed_after_relogin = raw_client.get(
+        "/holdings", headers={"Authorization": "Bearer old.token"}
+    )
+    assert old_replayed_after_relogin.status_code == 401
+
+
+def test_silent_refresh_of_same_session_does_not_reset_idle_window(
+    raw_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PR #240 review round 2 (blacktomb42) ship-blocker: round 1 fixed the
+    relogin case by comparing the token's `iat`, but Supabase's client SDK
+    silently refreshes the access token on a background timer as long as a
+    tab stays open — same session_id, new `iat` — independent of any user
+    interaction. That made an unattended overnight tab look freshly active
+    on the next request, exactly the case issue #235 was filed for. A
+    refreshed token presenting the SAME session_id after the idle window
+    has elapsed must still 401 — no free pass just because the token
+    itself is newer."""
+    sub = "supabase-sub-silent-refresh"
+    _add_user(
+        db_session, user_id=TEST_USER_ID, email="silent-refresh@example.com", auth_subject=sub
+    )
+
+    def _token(_token: str) -> AccessTokenClaims:
+        return AccessTokenClaims(
+            sub=sub, email="silent-refresh@example.com", session_id="session-same"
+        )
+
+    monkeypatch.setattr("app.core.deps.verify_access_token", _token)
+    clock = {"now": 1_000.0}
+    monkeypatch.setattr("app.core.idle_activity.time.time", lambda: clock["now"])
+
+    first = raw_client.get("/holdings", headers={"Authorization": "Bearer t.token"})
+    assert first.status_code == 200
+
+    # A silent background refresh happens well past the idle window — same
+    # session_id, but the user never actually touched the app again.
+    from app.core import idle_activity
+
+    clock["now"] = 1_000.0 + idle_activity.IDLE_TIMEOUT_SECONDS + 1
+    refreshed = raw_client.get("/holdings", headers={"Authorization": "Bearer t.refreshed"})
+    assert refreshed.status_code == 401
 
 
 def test_u2_cannot_read_u1_report(
@@ -166,7 +316,7 @@ def test_u2_cannot_read_u1_report(
     db_session.flush()
 
     def _as_u2(_token: str) -> AccessTokenClaims:
-        return AccessTokenClaims(sub="sub-u2", email="u2@example.com")
+        return AccessTokenClaims(sub="sub-u2", email="u2@example.com", session_id="session-u2")
 
     monkeypatch.setattr("app.core.deps.verify_access_token", _as_u2)
     other = raw_client.get(f"/reports/{report.id}", headers={"Authorization": "Bearer u2.token"})
