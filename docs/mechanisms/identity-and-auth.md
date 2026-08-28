@@ -571,7 +571,11 @@ design (documented, not treated as a gap: the PoW's job is raising
 automation cost, not issuing single-use tokens). The widget JS is vendored
 into `frontend/public/altcha.js` and loaded same-origin — no external CDN,
 per this project's China-reachability stance already established for
-Turnstile above.
+Turnstile above. `/altcha.js` is listed in `proxy.ts`'s
+`PUBLIC_PATH_PREFIXES` — the proxy's matcher only excludes image
+extensions, not `.js`, so without this entry an unauthenticated request
+for the widget itself 307s to `/login` before `public/` ever serves it
+(blacktomb42 review, PR #237 round 1).
 
 Known accepted residual risk: `resetPasswordForEmail()` only needs the
 public anon key (same as login), so an attacker can call Supabase's
