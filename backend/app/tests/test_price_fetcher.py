@@ -7,13 +7,20 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import patch
 
+import pytest
 from sqlalchemy.orm import Session
 
 from app.models.holding import Holding
 from app.services import price_fetcher
+from app.tests.conftest import seed_user
 
 _USER = uuid.UUID("00000000-0000-0000-0000-000000000001")
 _AS_OF = datetime(2026, 6, 4, 20, 0, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _seed_user(db_session: Session) -> None:
+    seed_user(db_session, _USER)
 
 
 def _auto(name: str, ticker: str, *, asset_type: str = "stock") -> Holding:

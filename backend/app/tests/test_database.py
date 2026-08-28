@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.holding import Holding
-from app.tests.conftest import TEST_USER_ID
+from app.tests.conftest import TEST_USER_ID, seed_user
 
 _ISOLATION_MARKER = "issue-26-isolation-marker"
 
@@ -93,6 +93,7 @@ def test_commit_is_not_visible_outside_the_savepoint(db_session: Session) -> Non
 
     from app.core.database import get_engine
 
+    seed_user(db_session, TEST_USER_ID)
     db_session.add(
         Holding(
             user_id=TEST_USER_ID,
@@ -115,6 +116,7 @@ def test_commit_is_not_visible_outside_the_savepoint(db_session: Session) -> Non
 def test_sessionlocal_shares_db_session_transaction(db_session: Session) -> None:
     from app.core.database import SessionLocal
 
+    seed_user(db_session, TEST_USER_ID)
     other = SessionLocal()
     try:
         other.add(

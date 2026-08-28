@@ -6,15 +6,24 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
+import pytest
 from sqlalchemy.orm import Session
 
 from app.models.fx_rate import FxRate
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
 from app.services.portfolio_calculator import _to_base, compute_portfolio
+from app.tests.conftest import seed_user
 
 _USER = uuid.UUID("00000000-0000-0000-0000-000000000001")
+_OTHER_USER = uuid.UUID("00000000-0000-0000-0000-000000000002")
 _FX_DATE = date(2026, 1, 2)
+
+
+@pytest.fixture(autouse=True)
+def _seed_users(db_session: Session) -> None:
+    seed_user(db_session, _USER)
+    seed_user(db_session, _OTHER_USER)
 
 
 def _seed_fx(session: Session) -> None:

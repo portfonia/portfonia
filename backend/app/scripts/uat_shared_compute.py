@@ -39,12 +39,14 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.core.timezones import ET
+from app.models.account import Account
 from app.models.holding import Holding
 from app.models.macro_event_intel import MacroEventIntel
 from app.models.news import News
 from app.models.news_surfaced import NewsSurfaced
 from app.models.report import Report
 from app.models.ticker_intel import TickerIntel
+from app.models.user import User
 from app.services.report_generator import generate_report, regenerate_report
 from app.services.window_data import MovesCache
 
@@ -121,8 +123,33 @@ class _NoOpEmail:
         return True
 
 
+def seed_synthetic_users(session: Session) -> None:
+    """Idempotent: `holdings.user_id` now FKs to `users.id` (issue #129 B7)
+    — the three synthetic UAT ids need a real row before `seed_holdings`
+    can write anything under them. Get-or-create since this script may run
+    more than once against a database that already has them (a prior run's
+    `cleanup_synthetic_rows` call, below, removes them again)."""
+    for user_id in UAT_USER_IDS:
+        if session.get(User, user_id) is not None:
+            continue
+        session.add(
+            User(
+                id=user_id,
+                auth_provider="supabase",
+                auth_subject=f"uat-{user_id}",
+                email=f"uat-{user_id}@portfonia.invalid",
+                status="active",
+                locale="zh",
+                base_currency="USD",
+                report_cadence="mwf",
+            )
+        )
+    session.flush()
+
+
 def seed_holdings(session: Session) -> None:
     """Insert the §7.1 three-user fixture via the ORM (Fernet encrypts writes)."""
+    seed_synthetic_users(session)
 
     def _h(**kwargs: object) -> Holding:
         defaults: dict[str, object] = {"pricing_mode": "auto", "currency": "USD"}
@@ -593,10 +620,35 @@ def cleanup_synthetic_rows(
         session.delete(report_row)
     for holding_row in holdings:
         session.delete(holding_row)
+    session.flush()
+    # Accounts next (issue #129 B7 review): holdings.account_id FKs to
+    # accounts.id ON DELETE RESTRICT, so this must run after holdings are
+    # gone. Not SELECT-by-override like the three above — `seed_holdings`
+    # only ever creates accounts for UAT_USER_IDS, so a plain user_id filter
+    # is already exact, no override callers need this narrowed.
+    accounts = list(
+        session.execute(select(Account).where(Account.user_id.in_(UAT_USER_IDS))).scalars()
+    )
+    _assert_synthetic(accounts, "accounts")
+    for account_row in accounts:
+        session.delete(account_row)
+    session.flush()
+    # Users are the last thing removed: holdings/reports/news_surfaced/
+    # accounts all FK to users.id ON DELETE RESTRICT, so this must run
+    # after all of them are gone. Idempotent — a prior cleanup call in the
+    # same process may have already removed them.
+    users_deleted = 0
+    for user_id in UAT_USER_IDS:
+        row = session.get(User, user_id)
+        if row is not None:
+            session.delete(row)
+            users_deleted += 1
     return {
         "holdings": len(holdings),
         "reports": len(reports),
         "news_surfaced": len(marks),
+        "accounts": len(accounts),
+        "users": users_deleted,
     }
 
 
@@ -617,6 +669,15 @@ def leftover_counts(session: Session) -> dict[str, int]:
                 ).scalars()
             )
         ),
+        # issue #129 B7 review: cleanup's own proof of completeness was
+        # silently incomplete — accounts and users are cleanup's newest two
+        # steps and neither was ever included in this leftover check.
+        "accounts": len(
+            list(
+                session.execute(select(Account).where(Account.user_id.in_(UAT_USER_IDS))).scalars()
+            )
+        ),
+        "users": len([uid for uid in UAT_USER_IDS if session.get(User, uid) is not None]),
     }
 
 

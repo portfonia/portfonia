@@ -17,6 +17,7 @@ from app.models.price_snapshot import PriceSnapshot
 from app.models.upload_job import UploadJob
 from app.schemas.holdings import HoldingOut, ParsedRow, UploadJobOut
 from app.services import holding_parser
+from app.services.accounts import resolve_accounts_for_holdings
 from app.services.price_fetcher import backfill_sectors
 from app.tasks.holdings_tasks import parse_holdings_upload
 
@@ -270,7 +271,7 @@ def confirm_holdings(
 ) -> list[Holding]:
     user_id = principal.user_id
     session.execute(delete(Holding).where(Holding.user_id == user_id))
-    holdings: list[Holding] = []
+    parsed: list[dict[str, Any]] = []
     now = datetime.now(tz=UTC)
     for idx, row in enumerate(rows):
         data = row.model_dump(exclude={"issues", "confidence"})
@@ -282,7 +283,18 @@ def confirm_holdings(
             data["last_manual_update"] = now
         # Preserve upload order so reports can mirror the user's file layout.
         data["position"] = idx
-        holdings.append(Holding(user_id=user_id, **data))
+        parsed.append(data)
+    # issue #129 B7 review: confirm is a full replace and the only
+    # holdings-write path until stage C — without this, account_id on every
+    # newly-inserted holding stays NULL and the migration's accounts rows go
+    # stale on the very next confirm.
+    account_ids = resolve_accounts_for_holdings(
+        session, user_id, [(d["broker"], d["account"], d["portfolio"]) for d in parsed]
+    )
+    holdings: list[Holding] = [
+        Holding(user_id=user_id, account_id=account_id, **data)
+        for data, account_id in zip(parsed, account_ids, strict=True)
+    ]
     session.add_all(holdings)
     session.commit()
     # Populate sector from yfinance for all auto-mode ticker holdings.

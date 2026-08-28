@@ -340,6 +340,7 @@ class PurgeDeletedCounts(BaseModel):
     news_surfaced: int
     reports: int
     holdings: int
+    accounts: int
     upload_jobs: int
     user_investment_context: int
     invites_used_by_cleared: int
@@ -351,6 +352,7 @@ _NO_LOCAL_ROWS = PurgeDeletedCounts(
     news_surfaced=0,
     reports=0,
     holdings=0,
+    accounts=0,
     upload_jobs=0,
     user_investment_context=0,
     invites_used_by_cleared=0,
@@ -494,6 +496,7 @@ def purge_user_endpoint(
             news_surfaced=result.news_surfaced,
             reports=result.reports,
             holdings=result.holdings,
+            accounts=result.accounts,
             upload_jobs=result.upload_jobs,
             user_investment_context=result.user_investment_context,
             invites_used_by_cleared=result.invites_used_by_cleared,

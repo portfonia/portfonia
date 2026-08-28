@@ -16,9 +16,19 @@ from sqlalchemy.orm import Session
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
 from app.models.upload_job import UploadJob
-from app.tests.conftest import TEST_USER_ID
+from app.tests.conftest import TEST_USER_ID, seed_user
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+@pytest.fixture(autouse=True)
+def _seed_test_user(db_session: Session) -> None:
+    """`app_client` overrides identity to TEST_USER_ID without a matching
+    `users` row (see conftest.seed_user's docstring) — issue #129 B7's new
+    FKs on holdings/upload_jobs.user_id need one to exist before any test
+    in this file writes a row under that id."""
+    seed_user(db_session, TEST_USER_ID)
+
 
 _PARSED_APPLE: dict[str, object] = {
     "name": "Apple",
@@ -279,8 +289,10 @@ def test_get_upload_job_returns_failure_result(app_client: TestClient, db_sessio
 def test_get_upload_job_404_for_other_user(app_client: TestClient, db_session: Session) -> None:
     """A job belonging to a different user must not be visible via poll —
     multi-tenant isolation."""
+    other_user = uuid.uuid4()
+    seed_user(db_session, other_user)
     job = UploadJob(
-        user_id=uuid.uuid4(),  # not TEST_USER_ID
+        user_id=other_user,  # not TEST_USER_ID
         filename="holdings.md",
         status="success",
         preview=_MOCK_PREVIEW,
@@ -349,6 +361,45 @@ def test_confirm_sets_last_manual_update_for_manual_rows(app_client: TestClient)
     assert row["last_manual_update"] is not None
 
 
+def test_confirm_sets_account_id_and_archives_stale_accounts(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """issue #129 B7 review: confirm is a full replace and the only
+    holdings-write path until stage C — account_id must not stay NULL after
+    it, and an account no longer referenced by any holding must be archived
+    (not silently orphaned)."""
+    from app.models.account import Account
+
+    resp = app_client.post("/holdings/confirm", json=[_PARSED_APPLE])
+    assert resp.status_code == 200
+    holding_id = uuid.UUID(resp.json()[0]["id"])
+    holding = db_session.get(Holding, holding_id)
+    assert holding is not None
+    assert holding.account_id is not None
+    account = db_session.get(Account, holding.account_id)
+    assert account is not None
+    assert account.broker == "IBKR"  # _PARSED_APPLE's broker
+    assert account.archived_at is None
+    first_account_id = holding.account_id
+
+    # Re-confirm with a holding under a different broker — IBKR is no
+    # longer referenced by anything.
+    resp2 = app_client.post("/holdings/confirm", json=[_PARSED_CASH])  # broker "Schwab"
+    assert resp2.status_code == 200
+    db_session.expire_all()
+    stale_account = db_session.get(Account, first_account_id)
+    assert stale_account is not None  # not deleted
+    assert stale_account.archived_at is not None
+
+    new_holding_id = uuid.UUID(resp2.json()[0]["id"])
+    new_holding = db_session.get(Holding, new_holding_id)
+    assert new_holding is not None
+    assert new_holding.account_id is not None
+    new_account = db_session.get(Account, new_holding.account_id)
+    assert new_account is not None
+    assert new_account.broker == "Schwab"
+
+
 def test_confirm_full_replace_on_second_call(app_client: TestClient) -> None:
     app_client.post("/holdings/confirm", json=[_PARSED_APPLE, _PARSED_CASH])
 
@@ -403,9 +454,11 @@ def test_confirm_backfill_passes_only_this_users_sparse_tickers(
     app_client: TestClient, db_session: Session
 ) -> None:
     """A second user's never-seen ticker must not ride along on this confirm (#194)."""
+    other_user = uuid.uuid4()
+    seed_user(db_session, other_user)
     db_session.add(
         Holding(
-            user_id=uuid.uuid4(),
+            user_id=other_user,
             name="Microsoft",
             ticker="MSFT",
             pricing_mode="auto",
@@ -425,9 +478,11 @@ def test_confirm_skips_backfill_when_this_users_tickers_already_have_history(
     app_client: TestClient, db_session: Session
 ) -> None:
     """Someone else's sparse name must not fire a 420-day job on this confirm."""
+    other_user = uuid.uuid4()
+    seed_user(db_session, other_user)
     db_session.add(
         Holding(
-            user_id=uuid.uuid4(),
+            user_id=other_user,
             name="Microsoft",
             ticker="MSFT",
             pricing_mode="auto",
@@ -555,9 +610,11 @@ def test_confirm_fund_nav_backfill_passes_only_this_users_uncached_codes(
     app_client: TestClient, db_session: Session
 ) -> None:
     """Another user's never-captured fund must not ride along on this confirm."""
+    other_user = uuid.uuid4()
+    seed_user(db_session, other_user)
     db_session.add(
         Holding(
-            user_id=uuid.uuid4(),
+            user_id=other_user,
             name="Other User CSI 300 ETF",
             fund_code="510300",
             pricing_mode="auto",
@@ -599,6 +656,7 @@ def test_confirm_full_replace_does_not_touch_other_users(
     user's holdings in one statement — it must stay scoped to the caller's
     own user_id no matter how identity resolution changes upstream."""
     other_user_id = uuid.uuid4()
+    seed_user(db_session, other_user_id)
     other_holding = Holding(
         user_id=other_user_id,
         name="Other User's Fund",

@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.models.account import Account
 from app.models.holding import Holding
 from app.models.invite import Invite
 from app.models.news import News
@@ -248,6 +249,7 @@ def test_purge_happy_path_two_users(app_client: TestClient, db_session: Session)
         "news_surfaced": 1,
         "reports": 1,
         "holdings": 2,
+        "accounts": 0,
         "upload_jobs": 1,
         "user_investment_context": 1,
         "invites_used_by_cleared": 1,
@@ -393,6 +395,7 @@ def test_purge_orphan_auth_user_found(
         "news_surfaced": 0,
         "reports": 0,
         "holdings": 0,
+        "accounts": 0,
         "upload_jobs": 0,
         "user_investment_context": 0,
         "invites_used_by_cleared": 0,
@@ -524,3 +527,135 @@ def test_purge_by_seed_users_auth_subject_refused_409(
     _fake_get_auth_user.assert_not_called()
     db_session.expire_all()
     assert db_session.get(User, seed_id) is not None
+
+
+# --- issue #129 checkpoint B7: accounts table + user_id FKs -------------
+
+
+def test_purge_deletes_accounts_and_clears_holdings_account_id(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """B7: `accounts` rows are this user's own data too — purge must clean
+    them up, and must do so without tripping holdings.account_id's FK
+    (accounts is deleted after holdings, never before)."""
+    db_session.add(_user(_A, "a@example.com"))
+    acct = Account(user_id=_A, broker="Schwab")
+    db_session.add(acct)
+    db_session.flush()
+    db_session.add(
+        _h(user_id=_A, name="NVIDIA", ticker="NVDA", broker="Schwab", account_id=acct.id)
+    )
+    db_session.flush()
+
+    resp = app_client.delete(_path(_A), headers=_headers(), params={"confirm": "a@example.com"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["deleted"]["accounts"] == 1
+    db_session.expire_all()
+    assert _count(db_session, Account.user_id, _A) == 0
+
+
+def test_purge_does_not_touch_another_users_accounts(
+    app_client: TestClient, db_session: Session
+) -> None:
+    db_session.add_all([_user(_A, "a@example.com"), _user(_B, "b@example.com")])
+    db_session.flush()
+    other_acct = Account(user_id=_B, broker="IBKR")
+    db_session.add(other_acct)
+    db_session.flush()
+    other_acct_id = other_acct.id
+
+    resp = app_client.delete(_path(_A), headers=_headers(), params={"confirm": "a@example.com"})
+    assert resp.status_code == 200
+    db_session.expire_all()
+    assert db_session.get(Account, other_acct_id) is not None
+
+
+def test_deleting_holdings_user_id_out_of_order_hits_fk(db_session: Session) -> None:
+    """Real FK: holdings.user_id -> users.id (B7). A bare DELETE FROM users
+    with a holding still pointing at it must fail — this is the acceptance
+    guard design §9.4 requires: forgetting a step in a hand-rolled delete
+    must surface as an explicit FK error, not silently orphaned data."""
+    db_session.add(_user(_A, "a@example.com"))
+    db_session.add(_h(user_id=_A, name="NVIDIA", ticker="NVDA"))
+    db_session.flush()
+    with pytest.raises(IntegrityError):
+        db_session.execute(delete(User).where(User.id == _A))
+        db_session.flush()
+
+
+def test_deleting_reports_user_id_out_of_order_hits_fk(db_session: Session) -> None:
+    db_session.add(_user(_A, "a@example.com"))
+    db_session.add(_report(_A))
+    db_session.flush()
+    with pytest.raises(IntegrityError):
+        db_session.execute(delete(User).where(User.id == _A))
+        db_session.flush()
+
+
+def test_deleting_upload_jobs_user_id_out_of_order_hits_fk(db_session: Session) -> None:
+    db_session.add(_user(_A, "a@example.com"))
+    db_session.add(_job(_A))
+    db_session.flush()
+    with pytest.raises(IntegrityError):
+        db_session.execute(delete(User).where(User.id == _A))
+        db_session.flush()
+
+
+def test_deleting_news_surfaced_user_id_out_of_order_hits_fk(db_session: Session) -> None:
+    news = News(
+        url_hash="b7-fk-news-hash",
+        title="Fed holds rates",
+        source="Reuters",
+        url="https://example.com/fed-b7",
+        published_at=datetime(2026, 8, 1, tzinfo=UTC),
+    )
+    user = _user(_A, "a@example.com")
+    report = _report(_A)
+    db_session.add_all([user, news, report])
+    db_session.flush()
+    db_session.add(NewsSurfaced(user_id=_A, news_id=news.id, report_id=report.id))
+    db_session.flush()
+    with pytest.raises(IntegrityError):
+        db_session.execute(delete(User).where(User.id == _A))
+        db_session.flush()
+
+
+def test_deleting_accounts_before_holdings_hits_fk(db_session: Session) -> None:
+    """Real FK: holdings.account_id -> accounts.id (B7). Confirms the
+    ordering purge_user() relies on (holdings before accounts) is load-
+    bearing, not just convention."""
+    db_session.add(_user(_A, "a@example.com"))
+    acct = Account(user_id=_A, broker="Schwab")
+    db_session.add(acct)
+    db_session.flush()
+    db_session.add(_h(user_id=_A, name="NVIDIA", ticker="NVDA", account_id=acct.id))
+    db_session.flush()
+    with pytest.raises(IntegrityError):
+        db_session.execute(delete(Account).where(Account.id == acct.id))
+        db_session.flush()
+
+
+def test_holding_cannot_point_at_another_users_account(db_session: Session) -> None:
+    """Real composite FK: holdings (account_id, user_id) -> accounts (id,
+    user_id) (B7 review round 2) — a single-column FK on account_id alone
+    would only guarantee the account exists, not that it's this holding's
+    own user's account. A holding under user B pointing at user A's
+    account must fail at flush, not silently succeed."""
+    db_session.add_all([_user(_A, "a@example.com"), _user(_B, "b@example.com")])
+    acct_a = Account(user_id=_A, broker="Schwab")
+    db_session.add(acct_a)
+    db_session.flush()
+    db_session.add(_h(user_id=_B, name="NVIDIA", ticker="NVDA", account_id=acct_a.id))
+    with pytest.raises(IntegrityError):
+        db_session.flush()
+
+
+def test_holding_with_null_account_id_and_a_real_user_id_is_unaffected(
+    db_session: Session,
+) -> None:
+    """MATCH SIMPLE (Postgres default) skips the composite FK check
+    entirely when any column is NULL — a holding with no account must not
+    be rejected just because user_id is non-NULL."""
+    db_session.add(_user(_A, "a@example.com"))
+    db_session.add(_h(user_id=_A, name="NVIDIA", ticker="NVDA", account_id=None))
+    db_session.flush()  # must not raise

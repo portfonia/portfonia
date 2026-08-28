@@ -11,12 +11,14 @@ from sqlalchemy.orm import Session
 
 from app.models.fx_rate import FxRate
 from app.models.holding import Holding
+from app.tests.conftest import seed_user
 
 _USER = uuid.UUID("00000000-0000-0000-0000-000000000001")
 _FX_DATE = date(2026, 1, 2)
 
 
 def _seed(db_session: Session) -> None:
+    seed_user(db_session, _USER)
     db_session.add_all(
         [
             FxRate(pair="USDCNY", rate=Decimal("7.0"), rate_date=_FX_DATE, source="test"),

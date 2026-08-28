@@ -37,9 +37,19 @@ from app.services.window_data import (
     unmark_news_surfaced,
     user_watermark,
 )
+from app.tests.conftest import seed_user
 
 _USER = uuid.UUID("00000000-0000-0000-0000-000000000001")
 _USER_B = uuid.UUID("00000000-0000-0000-0000-000000000002")
+
+
+@pytest.fixture(autouse=True)
+def _seed_users(db_session: Session) -> None:
+    """This file predates B4's `users` table (service-level tests only, no
+    app_client) — issue #129 B7's new FKs on holdings/reports/news_surfaced
+    need a real row for both fixture ids before any test writes under them."""
+    seed_user(db_session, _USER)
+    seed_user(db_session, _USER_B)
 
 
 def _news(url: str, when: datetime) -> News:

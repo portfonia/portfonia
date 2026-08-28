@@ -24,7 +24,8 @@ from app.core.database import get_session
 from app.core.deps import Principal, current_principal
 from app.main import app
 from app.models.report import Report
-from app.tests.conftest import TEST_USER_ID
+from app.models.user import User
+from app.tests.conftest import TEST_USER_ID, seed_user
 
 
 def _make_report(
@@ -34,6 +35,12 @@ def _make_report(
     report_date: _dt.date = _dt.date(2026, 6, 1),
     session_node: str = "manual",
 ) -> Report:
+    # issue #129 B7: reports.user_id now FKs to users.id — every fixture
+    # user_id here (TEST_USER_ID or an ad hoc uuid4() for a "someone else"
+    # case) needs a real row. get-or-create since some tests build multiple
+    # reports for the same user_id in one flush.
+    if session.get(User, user_id) is None:
+        seed_user(session, user_id)
     report = Report(
         user_id=user_id,
         report_date=report_date,

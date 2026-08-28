@@ -313,4 +313,111 @@ notice's `stale_tickers` list was not a capture-layer miss, it was
   tracked in issue #123 for a backfill or waiting on the user to
   re-confirm holdings.
 
+### Accounts table + `holdings.account_id` (issue #129 checkpoint B7)
+
+Normalizes `Holding.broker`/`.account`/`.portfolio` (free-text, encrypted,
+in use since Ring 0) into an `accounts` table (`id`, `user_id` FK
+`users.id` `ON DELETE RESTRICT`, `UNIQUE (id, user_id)`, `broker` NOT
+NULL, `account`/`portfolio` nullable, `archived_at`) plus
+`holdings.account_id` (nullable, composite FK `(account_id, user_id) ->
+accounts (id, user_id)` `ON DELETE RESTRICT` — see the composite-FK
+paragraph below for why single-column wasn't enough). Decision point 5
+(Ring 1-B design.md
+§9.2/§12.1): **additive, not a migration off the text columns** — the
+original `broker`/`account`/`portfolio` columns on `Holding` are kept
+unchanged and are still what report §1's broker grouping (rendered
+`Custodian`) and `holding_parser.py`'s extraction both read — `account_id`
+is additional, never a substitute read path. It exists to give stage C's
+inline entry form a stable id to reference.
+
+**Write-path parity is required, not deferred to stage C** (review, PR
+#247 round 1 — a real bug in the initial cut): `POST /holdings/confirm`
+and `app/scripts/seed.py` are both full-replace writers (delete this
+user's holdings, reinsert from scratch) and are the *only* holdings-write
+path that exists before stage C's form. Without `account_id` support on
+that path, the migration's one-shot backfill goes stale on the very next
+confirm — every newly-inserted holding gets `account_id=NULL`, and the
+backfilled `accounts` rows become unreferenced ghosts. Both call sites now
+go through `app/services/accounts.py::resolve_accounts_for_holdings`,
+which reuses the migration's exact grouping rule (decrypted
+`(broker, account, portfolio)` tuple) to get-or-create each row's account,
+and **archives** (never deletes — `accounts.archived_at` exists for this)
+any of the user's accounts no longer referenced after the replace.
+Blank/whitespace-only `broker`/`account`/`portfolio` normalize to `None`
+before grouping (review, PR #247 round 2) — `report_sections.py` and
+`holding_parser._summarize` already treat an empty broker as "Other", and
+without this a `broker=""` or padded `" IBKR "` would create a real
+`accounts` row disconnected from that rendering. The migration's own
+backfill duplicates this normalization inline (a migration must stay a
+frozen snapshot, not import a service module that could later drift).
+
+**Currency deliberately stays on `Holding`, not promoted to `accounts`**
+(§2.4): the 2026-05 spec's "account = 本位币" assumption doesn't match
+reality — a single broker/account routinely holds more than one currency
+(the upload preview's `BrokerGroup.subtotals: CurrencySubtotal[]` already
+assumes this, e.g. one IBKR account with both USD and HKD lots).
+
+**Migration backfill (`4edf69bf41ab`)**: groups each user's existing
+holdings by DECRYPTED `(broker, account, portfolio)` plaintext tuple, not
+by the ciphertext columns — Fernet's random IV means two encryptions of
+identical plaintext never match (verified against production: every
+holding row had a distinct `broker` ciphertext even where several repeated
+the same broker name). A holding with a NULL `broker` gets no `accounts`
+row and keeps `account_id` NULL — `accounts.broker` is NOT NULL, and
+report §1 already buckets broker-less holdings into "Other", so there is
+no real institution to normalize such a row against.
+
+**FK ordering note for SQLAlchemy unit-of-work, not just this migration**:
+`Holding`/`Report`/`UploadJob`/`NewsSurfaced`/`Account` each carry a
+`relationship()` to `User` (and `Holding` one to `Account`) whose sole
+purpose is flush-order correctness — SQLAlchemy's ORM only infers
+INSERT/UPDATE/DELETE ordering from `relationship()` declarations, not from
+bare `ForeignKey()` columns. Without it, `session.add()`-ing a `User` and
+a dependent row in the same flush can emit the child's INSERT first and
+trip the FK it's declared with — this surfaced as ~180 test failures
+across the suite when the FKs below were added, all fixed by either this
+relationship fix or (where a fixture wrote under an arbitrary UUID with no
+matching `users` row at all, a routine pre-B4 pattern) seeding a real user
+row. These relationships are not for query-time navigation — every one is
+declared `lazy="raise"` (review, PR #247: an accidental `.user`/
+`.account_ref` access now fails loudly instead of emitting a hidden SELECT
+— an N+1 risk on any list) and `passive_deletes=True` (a `session.delete()`
+must not have the ORM try to load/null relationships and fight the DB's
+own RESTRICT, which is the actual enforcement mechanism).
+
+**`holdings.account_id` is a composite FK, not single-column** (review, PR
+#247 — closes a real cross-user pointer hole): `(account_id, user_id)
+REFERENCES accounts (id, user_id)`, backed by a `UNIQUE (id, user_id)` on
+`accounts` (`id` alone is already unique via the PK; this exists purely so
+Postgres has a target for the pair). A single-column FK on `account_id`
+alone only guarantees the account exists — nothing stops a holding from
+pointing at *another user's* account once any writer other than the
+per-user migration backfill sets it. Postgres `MATCH SIMPLE` (the default)
+skips the composite check entirely when either column is NULL, so
+`account_id=NULL` still passes trivially.
+
+### `holdings`/`reports`/`upload_jobs`/`news_surfaced` gain real `user_id` FKs (issue #129 checkpoint B7)
+
+`FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT` added to
+all four tables in the same migration as the accounts table above — closing
+the gap Ring 1-B design.md §2.2's multi-user audit found: none of these
+four had a real FK before this (`user_investment_context` was the only
+user-scoped table with one, because it postdates B4 and never carried
+legacy pre-FK data). **RESTRICT, not CASCADE**, deliberate: a bare
+`DELETE FROM users` must never silently cascade into a user's holdings or
+report history. Deletion is `app/services/user_purge.py`'s explicit,
+ordered, audited `purge_user()` (issue #199, extended by #225 for Supabase
+Auth, extended again here for `accounts`) — see
+`docs/mechanisms/admin-surface.md` for the full delete order. Shared
+capture-layer tables (`ticker_intel`/`macro_event_intel`/`search_cache`/
+`cross_name_intel`) deliberately do NOT get a `user_id` FK here — they
+carry no `user_id` column at all by design (stage A's type-boundary
+discipline), and B7 does not "helpfully" add one.
+
+Pre-migration safety check (not enforced by the migration itself):
+production audited 2026-08-28 — 4 users, 0 orphan `user_id` rows across
+all four tables. Re-verify this still holds immediately before running
+this migration against production; it assumes the check, it does not
+perform it.
+
 

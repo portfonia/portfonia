@@ -1,4 +1,4 @@
-"""Hard-purge one user's own rows (issue #199)."""
+"""Hard-purge one user's own rows (issue #199, extended by #225 and B7)."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from sqlalchemy import delete, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
+from app.models.account import Account
 from app.models.holding import Holding
 from app.models.invite import Invite
 from app.models.news_surfaced import NewsSurfaced
@@ -24,6 +25,7 @@ class PurgeResult:
     news_surfaced: int
     reports: int
     holdings: int
+    accounts: int
     upload_jobs: int
     user_investment_context: int
     invites_used_by_cleared: int
@@ -48,6 +50,11 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
     )
     holdings = _rowcount(
         cast(CursorResult[Any], session.execute(delete(Holding).where(Holding.user_id == user_id)))
+    )
+    # Must follow DELETE holdings: holdings.account_id FKs to accounts.id
+    # (ON DELETE RESTRICT) — issue #129 checkpoint B7.
+    accounts = _rowcount(
+        cast(CursorResult[Any], session.execute(delete(Account).where(Account.user_id == user_id)))
     )
     upload_jobs = _rowcount(
         cast(
@@ -89,6 +96,7 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
         news_surfaced=news_surfaced,
         reports=reports,
         holdings=holdings,
+        accounts=accounts,
         upload_jobs=upload_jobs,
         user_investment_context=user_investment_context,
         invites_used_by_cleared=invites_used_by_cleared,

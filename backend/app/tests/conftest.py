@@ -54,6 +54,37 @@ U1_USER_ID = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
 U2_USER_ID = uuid.UUID("00000000-0000-0000-0000-0000000000a2")
 U3_USER_ID = uuid.UUID("00000000-0000-0000-0000-0000000000a3")
 
+
+def seed_user(session: Session, user_id: uuid.UUID, email: str | None = None) -> User:
+    """Minimal valid `users` row for a fixture id — issue #129 checkpoint B7.
+
+    Before B7, `holdings`/`reports`/`upload_jobs`/`news_surfaced` had no real
+    FK to `users`, so pre-B4 test files routinely wrote rows under an
+    arbitrary UUID with no matching `users` row at all. B7 adds
+    `ON DELETE RESTRICT` FKs on all four, which is exactly the gap those
+    tests were never written to close — this helper is the one-line fix
+    each such file's fixtures now need, not a new abstraction for its own
+    sake. Not autouse anywhere: several router test files (test_me_router.py
+    et al.) intentionally build their own richly-configured `User` row
+    (custom email/delivery_email/tos_accepted_at) under `TEST_USER_ID` after
+    `app_client` has already run — an autouse insert at the `app_client`
+    level would collide with that pattern's primary key.
+    """
+    row = User(
+        id=user_id,
+        auth_provider="supabase",
+        auth_subject=f"sub-{user_id}",
+        email=email or f"{user_id}@example.com",
+        status="active",
+        locale="zh",
+        base_currency="USD",
+        report_cadence="mwf",
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
 # Modules that import these by name (`from x import y`), each needing its own patch.
 _EXTERNAL_NOTIFY_MODULES = (
     "app.routers.auth",

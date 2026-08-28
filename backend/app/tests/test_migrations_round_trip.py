@@ -138,24 +138,31 @@ def test_news_surfaced_backfill_reconstructs_from_report_history(alembic_cfg: Co
 
 def test_users_migration_binds_existing_dev_user(alembic_cfg: Config) -> None:
     """A holdings row for DEV_USER_ID is bound into users; no other id present."""
+    from sqlalchemy import text
+
     from app.core.config import get_settings as _gs
-    from app.models.holding import Holding
+    from app.core.encryption import encrypt_value
     from app.models.user import User
 
     command.upgrade(alembic_cfg, "d6e7f8a9b0c1")
     engine = create_engine(get_settings().database_url)
     uid = uuid.UUID(_gs().DEV_USER_ID)
-    with Session(engine) as seed:
-        seed.add(
-            Holding(
-                user_id=uid,
-                name="Seed",
-                pricing_mode="auto",
-                currency="USD",
-                asset_class="STOCK",
-            )
+    # Raw SQL, not the Holding ORM model (issue #129 B7 review): the model
+    # always reflects HEAD's column set (e.g. `account_id`, added by a much
+    # later migration than d6e7f8a9b0c1), not whatever this checkpoint's
+    # actual DB schema looks like. `name` is Fernet-encrypted at rest as of
+    # migration 379fdb627ee8, already applied by this revision — insert
+    # ciphertext directly, matching what the ORM's EncryptedString
+    # TypeDecorator would have produced.
+    with engine.connect() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO holdings (id, user_id, name, pricing_mode, currency, asset_class) "
+                "VALUES (gen_random_uuid(), :user_id, :name, 'auto', 'USD', 'STOCK')"
+            ),
+            {"user_id": uid, "name": encrypt_value("Seed")},
         )
-        seed.commit()
+        conn.commit()
 
     command.upgrade(alembic_cfg, "e8f9a0b1c2d3")
     # The binding behavior under test is fully decided by this one
@@ -173,22 +180,159 @@ def test_users_migration_binds_existing_dev_user(alembic_cfg: Config) -> None:
 
 
 def test_users_migration_refuses_unexpected_user_ids(alembic_cfg: Config) -> None:
-    from app.models.holding import Holding
+    from sqlalchemy import text
+
+    from app.core.encryption import encrypt_value
 
     command.upgrade(alembic_cfg, "d6e7f8a9b0c1")
     engine = create_engine(get_settings().database_url)
-    with Session(engine) as seed:
-        seed.add(
-            Holding(
-                user_id=uuid.uuid4(),
-                name="Orphan",
-                pricing_mode="auto",
-                currency="USD",
-                asset_class="STOCK",
-            )
+    # Raw SQL, not the Holding ORM model — see the sibling test above for why.
+    with engine.connect() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO holdings (id, user_id, name, pricing_mode, currency, asset_class) "
+                "VALUES (gen_random_uuid(), :user_id, :name, 'auto', 'USD', 'STOCK')"
+            ),
+            {"user_id": uuid.uuid4(), "name": encrypt_value("Orphan")},
         )
-        seed.commit()
+        conn.commit()
 
     with pytest.raises(Exception, match="unexpected user_id"):
         command.upgrade(alembic_cfg, "e8f9a0b1c2d3")
+    engine.dispose()
+
+
+def test_accounts_migration_backfill_groups_by_decrypted_plaintext_and_skips_null_broker(
+    alembic_cfg: Config,
+) -> None:
+    """issue #129 B7 review: the non-obvious part of B7 — Fernet IV
+    uniqueness forces grouping on DECRYPTED plaintext, and a NULL-broker
+    holding must not get an accounts row — was never exercised by any test
+    that actually runs the migration's data-moving code. Seeds encrypted
+    holdings at the parent revision (raw SQL, matching the migration's own
+    technique) and asserts the real post-migration state, not just that the
+    DDL applies."""
+    from sqlalchemy import text
+
+    from app.core.encryption import decrypt_value, encrypt_value
+    from app.models.user import User
+
+    command.upgrade(alembic_cfg, "b1c2d3e4f5a6")
+    engine = create_engine(get_settings().database_url)
+    user_id = uuid.uuid4()
+    other_user_id = uuid.uuid4()
+
+    def _insert_holding(
+        conn: object,
+        *,
+        uid: uuid.UUID,
+        name: str,
+        broker: str | None,
+        account: str | None = None,
+        portfolio: str | None = None,
+    ) -> None:
+        conn.execute(  # type: ignore[attr-defined]
+            text(
+                "INSERT INTO holdings (id, user_id, name, pricing_mode, currency, "
+                "asset_class, broker, account, portfolio) "
+                "VALUES (gen_random_uuid(), :user_id, :name, 'auto', 'USD', 'STOCK', "
+                ":broker, :account, :portfolio)"
+            ),
+            {
+                "user_id": uid,
+                "name": encrypt_value(name),
+                "broker": encrypt_value(broker) if broker is not None else None,
+                "account": encrypt_value(account) if account is not None else None,
+                "portfolio": encrypt_value(portfolio) if portfolio is not None else None,
+            },
+        )
+
+    with Session(engine) as seed:
+        seed.add_all(
+            [
+                User(
+                    id=user_id,
+                    auth_provider="supabase",
+                    email="b7-migration-test@example.com",
+                    status="active",
+                    locale="zh",
+                    base_currency="USD",
+                    report_cadence="mwf",
+                ),
+                User(
+                    id=other_user_id,
+                    auth_provider="supabase",
+                    email="b7-migration-test-other@example.com",
+                    status="active",
+                    locale="zh",
+                    base_currency="USD",
+                    report_cadence="mwf",
+                ),
+            ]
+        )
+        seed.commit()
+
+    with engine.connect() as conn:
+        # Two holdings with identical plaintext broker "Schwab" must
+        # collapse to ONE accounts row — this is the whole point of
+        # decrypting before grouping (their ciphertexts are guaranteed
+        # different; Fernet's IV is random per call).
+        _insert_holding(conn, uid=user_id, name="Apple", broker="Schwab")
+        _insert_holding(conn, uid=user_id, name="Cash", broker="Schwab")
+        # Distinct (account, portfolio) under the same broker must stay
+        # distinct accounts.
+        _insert_holding(conn, uid=user_id, name="NVDA", broker="IBKR", account="Family")
+        _insert_holding(conn, uid=user_id, name="TSLA", broker="IBKR", account="Personal")
+        # NULL broker -> no accounts row, account_id stays NULL.
+        _insert_holding(conn, uid=user_id, name="Manual Cash", broker=None)
+        # Blank/whitespace-only broker (review, PR #247 round 2): same as
+        # NULL broker, not a real institution — no accounts row, and must
+        # not fan the real "IBKR" broker out into an extra account either.
+        _insert_holding(conn, uid=user_id, name="Blank Broker", broker="   ")
+        _insert_holding(conn, uid=user_id, name="Padded IBKR", broker=" IBKR ")
+        # A different user with the identical plaintext broker "Schwab"
+        # must get their OWN account, never share user_id's.
+        _insert_holding(conn, uid=other_user_id, name="Other Schwab Position", broker="Schwab")
+        conn.commit()
+
+    command.upgrade(alembic_cfg, "4edf69bf41ab")
+
+    with Session(engine) as check:
+        rows = check.execute(
+            text(
+                "SELECT id, user_id, name, broker, account, portfolio, account_id "
+                "FROM holdings ORDER BY name"
+            )
+        ).fetchall()
+        by_name = {decrypt_value(r.name): r for r in rows}
+
+        # NULL broker holding: no account.
+        assert by_name["Manual Cash"].account_id is None
+        # Blank/whitespace-only broker: same as NULL, no account (review, PR #247 round 2).
+        assert by_name["Blank Broker"].account_id is None
+
+        # Same-user same-plaintext-broker holdings share one account.
+        assert by_name["Apple"].account_id is not None
+        assert by_name["Apple"].account_id == by_name["Cash"].account_id
+
+        # Distinct account field under the same broker -> distinct accounts.
+        assert by_name["NVDA"].account_id != by_name["TSLA"].account_id
+
+        # Padded " IBKR " normalizes to the same broker as NVDA's plain
+        # "IBKR", but has no `account` value (unlike NVDA's "Family") so it
+        # is still its own distinct account, not silently merged.
+        assert by_name["Padded IBKR"].account_id is not None
+        assert by_name["Padded IBKR"].account_id != by_name["NVDA"].account_id
+        assert by_name["Padded IBKR"].account_id != by_name["TSLA"].account_id
+
+        # Cross-user isolation: identical plaintext broker never shares an account.
+        assert by_name["Apple"].account_id != by_name["Other Schwab Position"].account_id
+
+        accounts = check.execute(
+            text("SELECT id, user_id, broker, account, portfolio FROM accounts")
+        ).fetchall()
+        # 5 distinct accounts: user_id's Schwab, IBKR/Family, IBKR/Personal, bare IBKR;
+        # other_user_id's own Schwab.
+        assert len(accounts) == 5
+
     engine.dispose()
