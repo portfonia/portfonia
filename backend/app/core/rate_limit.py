@@ -275,10 +275,7 @@ def _note_global_volume(
             bucket=day,
             window=ttl,
             subject=subject,
-            body=(
-                f"{n} {noun} attempts today (UTC {day}); threshold {limit}. "
-                "Not auto-blocked."
-            ),
+            body=(f"{n} {noun} attempts today (UTC {day}); threshold {limit}. Not auto-blocked."),
         )
 
 
