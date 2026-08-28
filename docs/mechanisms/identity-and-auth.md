@@ -272,15 +272,13 @@ free — no per-router wiring needed.
    the *old* stale timestamp, staying 401 until `_GC_TTL_SECONDS` (24h)
    expired. The reviewer explicitly warned against the naive fix (clearing
    the key on the 401 itself), since that would let the *same* still-idle
-   JWT succeed on retry. Fix: `AccessTokenClaims` now carries the token's
-   own `iat` claim (`app/services/auth_provider.py`); `is_idle` accepts it
-   as `issued_at` and treats a token minted *after* the recorded activity
-   as proof the record predates this session — not idle, regardless of how
-   stale the record is. The *same* replayed token (unchanged `iat`) still
-   reads as idle exactly as before. Covered by
-   `test_relogin_after_idle_401_succeeds_immediately` (real HTTP round-trip:
-   old token 200 → idle 401 → fresh token 200, no 24h wait) plus two
-   `idle_activity.py` unit tests.
+   JWT succeed on retry. **Round-1 fix (superseded by round 2 below,
+   history kept for the record): `AccessTokenClaims` carried the token's
+   own `iat` claim; `is_idle` treated a token minted *after* the recorded
+   activity as proof the record predates this session.** Round 2 found
+   this broken — see below — so the `iat` field no longer exists on
+   `AccessTokenClaims`; this paragraph describes what round 1 shipped, not
+   the current code.
 2. **The 401 never signed the browser out.** `proxy.ts`'s `getUser()`
    silently refreshes the Supabase cookie independent of whether the
    backend's idle check will reject the same request — so a reopened tab
@@ -330,6 +328,54 @@ free — no per-router wiring needed.
   through `current_principal` with `time.time()` monkeypatched. A new
   autouse fixture, `_idle_activity_memory` in `conftest.py`, gives every
   test a fresh in-memory store — mirrors `_rate_limit_memory`.
+
+**PR #240 review round 2 (blacktomb42) @ 98bfb32 — round 1's blocker-1 fix
+was itself wrong, now fixed properly**:
+
+Round 1 compared the presenting token's `iat` claim against the recorded
+last-active timestamp: newer `iat` than the record meant "not idle,"
+covering a real re-login. The reviewer caught the actual flaw: `iat`
+changes on every token refresh, not just a login, and Supabase's
+client-side SDK auto-refreshes on a background timer as long as a browser
+tab stays open — entirely independent of user interaction or any request
+reaching this backend. A laptop left open all night (tab never closed,
+never touched) would have its access token silently refreshed every
+`jwt_exp` (3600s) by that background timer, so the very next real request
+carried an `iat` newer than the stale idle record and read as "not idle" —
+exactly the "closed-overnight browser comes back still logged in" case
+issue #235 was filed for in the first place, just moved one layer down.
+
+**Real fix: key the override on the JWT's `session_id` claim, not
+`iat`.** `session_id` is a required claim on every Supabase-issued access
+token (`RequiredClaims` in `@supabase/auth-js`'s `lib/types.d.ts`,
+confirmed by reading the installed package's type definitions rather than
+assuming) that identifies the underlying login session: a token refresh
+reuses the same `session_id`, and only an actual new login (or an
+explicit sign-out then sign-in) gets a new one.
+
+- `AccessTokenClaims.iat` removed; replaced by
+  `AccessTokenClaims.session_id: str | None` (`app/services/auth_provider.py`,
+  extracted from the decoded JWT payload's `session_id` field).
+- `idle_activity.py`'s storage widened from a bare timestamp to
+  `(timestamp, session_id)` per user (`_ActivityRecord`, a plain tuple —
+  `ActivityBackend.get_record`/`set_record` replace
+  `get_timestamp`/`set_timestamp`; `RedisBackend` serializes as
+  `"{timestamp}|{session_id}"`, parsed back with `str.partition("|")`).
+  `is_idle`/`touch_activity` take `session_id` instead of `issued_at`.
+- **The comparison itself**: a *different* `session_id` than the one on
+  record is real evidence of a genuine new login (round-1 blocker 1, still
+  fixed) — not idle regardless of how stale the record is. The *same*
+  `session_id`, however recently refreshed, still gets the ordinary
+  timestamp comparison — a background refresh cannot manufacture activity
+  that didn't happen.
+- New/renamed tests: `test_new_session_id_overrides_stale_record_is_not_idle`
+  and `test_same_session_id_past_window_is_still_idle`
+  (`test_idle_activity.py`, replacing the `iat`-based pair) plus
+  `test_silent_refresh_of_same_session_does_not_reset_idle_window`
+  (`test_auth_deps.py`, the exact regression case the reviewer asked for:
+  stale record, refreshed token, same session, still 401). The existing
+  `test_relogin_after_idle_401_succeeds_immediately` was rewritten to use
+  two distinct `session_id` values instead of two `iat` values.
 
 
 ### Frontend auth closure — B5 (Ring 1 stage B, issue #129)

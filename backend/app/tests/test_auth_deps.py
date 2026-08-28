@@ -204,40 +204,75 @@ def test_idle_session_beyond_window_is_401(
 def test_relogin_after_idle_401_succeeds_immediately(
     raw_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """PR #240 review (blacktomb42) ship-blocker: after an idle 401, a real
-    re-login must work right away, not stay 401 until the 24h GC TTL. The
-    old token is idle-rejected; a fresh token for the same user (newer
-    iat) succeeds and resets the window."""
+    """PR #240 review round 1 (blacktomb42) ship-blocker: after an idle
+    401, a real re-login must work right away, not stay 401 until the 24h
+    GC TTL. The old token (session-old) is idle-rejected; a fresh token
+    for the same user under a genuinely *different* session_id
+    (session-new — what a real new login gets) succeeds and resets the
+    window."""
     from app.core import idle_activity
 
     sub = "supabase-sub-relogin"
     _add_user(db_session, user_id=TEST_USER_ID, email="relogin@example.com", auth_subject=sub)
 
-    old_token_iat = 1_000.0
-
     def _old_token(_token: str) -> AccessTokenClaims:
-        return AccessTokenClaims(sub=sub, email="relogin@example.com", iat=int(old_token_iat))
+        return AccessTokenClaims(sub=sub, email="relogin@example.com", session_id="session-old")
 
     monkeypatch.setattr("app.core.deps.verify_access_token", _old_token)
-    clock = {"now": old_token_iat}
+    clock = {"now": 1_000.0}
     monkeypatch.setattr("app.core.idle_activity.time.time", lambda: clock["now"])
 
     first = raw_client.get("/holdings", headers={"Authorization": "Bearer old.token"})
     assert first.status_code == 200
 
-    clock["now"] = old_token_iat + idle_activity.IDLE_TIMEOUT_SECONDS + 1
+    clock["now"] = 1_000.0 + idle_activity.IDLE_TIMEOUT_SECONDS + 1
     idle = raw_client.get("/holdings", headers={"Authorization": "Bearer old.token"})
     assert idle.status_code == 401
 
-    new_token_iat = clock["now"] + 5
-
     def _new_token(_token: str) -> AccessTokenClaims:
-        return AccessTokenClaims(sub=sub, email="relogin@example.com", iat=int(new_token_iat))
+        return AccessTokenClaims(sub=sub, email="relogin@example.com", session_id="session-new")
 
     monkeypatch.setattr("app.core.deps.verify_access_token", _new_token)
-    clock["now"] = new_token_iat + 1
     relogin = raw_client.get("/holdings", headers={"Authorization": "Bearer new.token"})
     assert relogin.status_code == 200
+
+
+def test_silent_refresh_of_same_session_does_not_reset_idle_window(
+    raw_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PR #240 review round 2 (blacktomb42) ship-blocker: round 1 fixed the
+    relogin case by comparing the token's `iat`, but Supabase's client SDK
+    silently refreshes the access token on a background timer as long as a
+    tab stays open — same session_id, new `iat` — independent of any user
+    interaction. That made an unattended overnight tab look freshly active
+    on the next request, exactly the case issue #235 was filed for. A
+    refreshed token presenting the SAME session_id after the idle window
+    has elapsed must still 401 — no free pass just because the token
+    itself is newer."""
+    sub = "supabase-sub-silent-refresh"
+    _add_user(
+        db_session, user_id=TEST_USER_ID, email="silent-refresh@example.com", auth_subject=sub
+    )
+
+    def _token(_token: str) -> AccessTokenClaims:
+        return AccessTokenClaims(
+            sub=sub, email="silent-refresh@example.com", session_id="session-same"
+        )
+
+    monkeypatch.setattr("app.core.deps.verify_access_token", _token)
+    clock = {"now": 1_000.0}
+    monkeypatch.setattr("app.core.idle_activity.time.time", lambda: clock["now"])
+
+    first = raw_client.get("/holdings", headers={"Authorization": "Bearer t.token"})
+    assert first.status_code == 200
+
+    # A silent background refresh happens well past the idle window — same
+    # session_id, but the user never actually touched the app again.
+    from app.core import idle_activity
+
+    clock["now"] = 1_000.0 + idle_activity.IDLE_TIMEOUT_SECONDS + 1
+    refreshed = raw_client.get("/holdings", headers={"Authorization": "Bearer t.refreshed"})
+    assert refreshed.status_code == 401
 
 
 def test_u2_cannot_read_u1_report(

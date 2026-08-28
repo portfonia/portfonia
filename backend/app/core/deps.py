@@ -62,9 +62,9 @@ def current_principal(request: Request, session: Session = Depends(get_session))
     ).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized")
-    if is_idle(user.id, issued_at=claims.iat):
+    if is_idle(user.id, session_id=claims.session_id):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized")
-    touch_activity(user.id)
+    touch_activity(user.id, session_id=claims.session_id)
     return Principal(
         user_id=user.id,
         email=user.email,

@@ -51,27 +51,30 @@ def test_repeated_touch_extends_window(backend: InMemoryBackend) -> None:
     assert is_idle(_USER, now=1_000.0 + IDLE_TIMEOUT_SECONDS + 1) is False
 
 
-def test_token_issued_after_stale_record_is_not_idle(backend: InMemoryBackend) -> None:
-    """PR #240 review (blacktomb42): the activity record is keyed by
-    user_id, not by session, and this backend has no login endpoint to
+def test_new_session_id_overrides_stale_record_is_not_idle(backend: InMemoryBackend) -> None:
+    """PR #240 review round 1 (blacktomb42): the activity record is keyed
+    by user_id, not by session, and this backend has no login endpoint to
     reset it at — login is client-direct to Supabase. Without this
-    override, a real re-login after an idle 401 would present a new token
-    for the same user_id and still read the old stale timestamp, staying
-    401 until the 24h GC TTL. A token issued after the recorded activity
-    proves the record predates this session."""
-    touch_activity(_USER, now=1_000.0)
-    assert (
-        is_idle(_USER, issued_at=1_000.0 + IDLE_TIMEOUT_SECONDS + 5, now=1_000.0 + 100_000.0)
-        is False
-    )
+    override, a real re-login after an idle 401 would present a new
+    session_id for the same user_id and still read the old stale
+    timestamp, staying 401 until the 24h GC TTL. A *different* session_id
+    proves this is a genuine new login, not just a refreshed token for the
+    same one — that's real evidence the record predates this session."""
+    touch_activity(_USER, session_id="session-old", now=1_000.0)
+    assert is_idle(_USER, session_id="session-new", now=1_000.0 + IDLE_TIMEOUT_SECONDS + 5) is False
 
 
-def test_replayed_same_token_past_window_is_still_idle(backend: InMemoryBackend) -> None:
-    """The naive fix reviewers warned against (clearing the key on 401)
-    would let the SAME still-idle token succeed on retry. Passing that
-    token's own (unchanged, pre-window) iat must not do the same."""
-    touch_activity(_USER, now=1_000.0)
-    assert is_idle(_USER, issued_at=999.0, now=1_000.0 + IDLE_TIMEOUT_SECONDS + 1) is True
+def test_same_session_id_past_window_is_still_idle(backend: InMemoryBackend) -> None:
+    """PR #240 review round 2 (blacktomb42): round 1 compared the token's
+    `iat` instead of session_id, which broke on a silent background token
+    refresh — Supabase's client SDK auto-refreshes on a timer as long as a
+    tab stays open, independent of any user interaction, minting a new
+    `iat` without a new session_id. The exact "left the tab open overnight"
+    case issue #235 was filed for: same session_id (no real new login
+    happened), well past the idle window, must still read as idle no
+    matter how recently a refresh minted a new access token."""
+    touch_activity(_USER, session_id="session-a", now=1_000.0)
+    assert is_idle(_USER, session_id="session-a", now=1_000.0 + IDLE_TIMEOUT_SECONDS + 1) is True
 
 
 def test_distinct_users_do_not_share_activity(backend: InMemoryBackend) -> None:
@@ -82,10 +85,12 @@ def test_distinct_users_do_not_share_activity(backend: InMemoryBackend) -> None:
 
 def test_is_idle_fails_open_when_store_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
     class _BrokenBackend:
-        def get_timestamp(self, key: str) -> float | None:
+        def get_record(self, key: str) -> tuple[float, str | None] | None:
             raise ActivityStoreUnavailable("redis down")
 
-        def set_timestamp(self, key: str, value: float, ttl_seconds: int) -> None:
+        def set_record(
+            self, key: str, timestamp: float, session_id: str | None, ttl_seconds: int
+        ) -> None:
             raise ActivityStoreUnavailable("redis down")
 
     idle_activity.set_backend(_BrokenBackend())
@@ -94,10 +99,12 @@ def test_is_idle_fails_open_when_store_unavailable(monkeypatch: pytest.MonkeyPat
 
 def test_touch_activity_fails_open_when_store_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
     class _BrokenBackend:
-        def get_timestamp(self, key: str) -> float | None:
+        def get_record(self, key: str) -> tuple[float, str | None] | None:
             raise ActivityStoreUnavailable("redis down")
 
-        def set_timestamp(self, key: str, value: float, ttl_seconds: int) -> None:
+        def set_record(
+            self, key: str, timestamp: float, session_id: str | None, ttl_seconds: int
+        ) -> None:
             raise ActivityStoreUnavailable("redis down")
 
     idle_activity.set_backend(_BrokenBackend())

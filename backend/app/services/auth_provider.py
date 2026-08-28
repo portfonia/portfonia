@@ -27,7 +27,7 @@ _jwks_client: PyJWKClient | None = None
 class AccessTokenClaims:
     sub: str
     email: str | None = None
-    iat: int | None = None
+    session_id: str | None = None
 
 
 class InvalidAccessToken(Exception):
@@ -84,11 +84,11 @@ def verify_access_token(token: str) -> AccessTokenClaims:
     if not isinstance(sub, str) or not sub:
         raise InvalidAccessToken("invalid token")
     email = payload.get("email")
-    iat = payload.get("iat")
+    session_id = payload.get("session_id")
     return AccessTokenClaims(
         sub=sub,
         email=email if isinstance(email, str) else None,
-        iat=iat if isinstance(iat, int) else None,
+        session_id=session_id if isinstance(session_id, str) and session_id else None,
     )
 
 
