@@ -833,9 +833,18 @@ email itself and would need a parallel auth-email pipeline — evaluated and
 rejected as disproportionate for a nuisance-level risk.
 
 Two housekeeping items landed with this issue, not code: Supabase Dashboard
-recovery-link expiry (targeted 72h) is a project-level setting, not
-something this code can express — set it by hand, verify it maps to the
-targeted duration. Supabase's built-in "password changed" notification
-email (a detection signal for unauthorized resets) is a nice-to-have,
-non-blocking toggle in the same dashboard, not yet enabled.
+recovery-link expiry was originally targeted at 72h (product owner's
+requested duration), but Supabase's "Email OTP Expiration" control
+(Authentication > Sign In / Providers > Email — this single setting governs
+confirmation, recovery, email-change, and invite links together, not just
+password reset) hard-caps at 86400 seconds (24h); 72h is not an
+achievable value through this control. Configured to the platform maximum,
+24h, instead (2026-08-28) — the dashboard surfaced a warning at that value,
+expected for a long-lived link setting, not a blocker. If a longer window is
+ever required, it would need Supabase's Admin API to issue the link
+directly rather than this setting, which is a materially different
+mechanism than "adjust a dashboard field" and out of scope here. Supabase's
+built-in "password changed" notification email (a detection signal for
+unauthorized resets) is a nice-to-have, non-blocking toggle in the same
+dashboard, not yet enabled.
 

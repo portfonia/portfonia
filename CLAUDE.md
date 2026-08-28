@@ -59,7 +59,7 @@ area of the code, not just the one-line summary here.
 - [Idle-timeout server enforcement](docs/mechanisms/identity-and-auth.md) — issue #235: the 15-min auto-logout (issue #207) was client-only and silently defeated by closing the browser; `current_principal` now checks a Redis record keyed by `(user_id, session_id)` (`app/core/idle_activity.py` — `session_id` is a required JWT claim as of round 3, not just a value comparison), fail-open on Redis outage (deliberate departure from rate_limit's fail-closed convention — blast radius, see mechanism doc); absolute session lifetime (Supabase refresh-token expiry) and per-user configurable length are explicitly out of scope here. PR #240 went through 3 review rounds, each catching a real flaw in the previous fix (see mechanism doc for the full history): round 1 — stale idle lock survived re-login, and the 401 never signed the browser out (8 frontend call sites now route through `logout()`); round 2 — round 1's re-login fix compared `iat`, which silent background token refresh also changes; round 3 — round 2's `session_id` comparison was a value check against a still user_id-keyed record, so a re-login's write could resurrect the JWT it superseded; fixed by keying Redis itself on `(user_id, session_id)` with no cross-session comparison logic left at all.
 - [Ops user hard-purge](docs/mechanisms/identity-and-auth.md) — issue #199: `DELETE /admin/users/{id}?confirm={email}` hard-deletes one user's own rows; hosted Auth is not deleted.
 - [Signup / invite anti-abuse](docs/mechanisms/identity-and-auth.md) — issue #190: Redis fixed-window limits on `POST /auth/signup` and `POST /admin/invites`; no Turnstile; fail-closed on Redis; known-invite buckets only; Next.js hop forwards XFF; global invite-mint 200/day alert-only.
-- [Forgot-password trigger](docs/mechanisms/identity-and-auth.md) — issue #231: `POST /auth/forgot-password` backend-mediated Supabase reset trigger, self-hosted Altcha PoW (no Sentinel, no external CDN — vendored `frontend/public/altcha.js`), IP+email Redis rate limit reusing issue #190's machinery, local-`users`-table exists/not-exists response (deliberate OWASP-enumeration deviation), `/reset-password` client-direct to Supabase (no PoW); 72h link expiry and "password changed" email are Supabase Dashboard config, not code.
+- [Forgot-password trigger](docs/mechanisms/identity-and-auth.md) — issue #231: `POST /auth/forgot-password` backend-mediated Supabase reset trigger, self-hosted Altcha PoW (no Sentinel, no external CDN — vendored `frontend/public/altcha.js`), IP+email Redis rate limit reusing issue #190's machinery, local-`users`-table exists/not-exists response (deliberate OWASP-enumeration deviation), `/reset-password` client-direct to Supabase (no PoW); link expiry (72h targeted, 24h actual — Supabase's Email OTP Expiration caps at 86400s) and "password changed" email are Supabase Dashboard config, not code.
 - [Frontend auth closure — B5](docs/mechanisms/identity-and-auth.md) — Ring 1 stage B, issue #129: `/login`+`/signup`, `src/proxy.ts`, cookie session via `@supabase/ssr`.
 - [Investment-style questionnaire — B6](docs/mechanisms/identity-and-auth.md) — Ring 1 stage B, issue #129: `user_investment_context`, 3-layer enum validation, all 8 questionnaire dimensions + `free_text` reach Pass 2 AND assembly behind a SCOPE guardrail (decision point 6, corrected 2026-08-25), `/questionnaire` wizard.
 - [Macro keyword theme pool](docs/mechanisms/macro-keywords.md) — issue #129 B1 + issue #175: widened to 17 themes; bare single-word keywords false-fire, always qualify.
@@ -169,6 +169,28 @@ in any other language.
   `main` through two more PRs, because production hadn't redeployed since;
   `npm run dev`/`next build` don't care about a missing `public/`, only the
   Docker multi-stage build does — see the Quality Gates gap noted below.)
+- **Two frontend lockfiles must be regenerated together — MANDATORY, no
+  exceptions, until issue #227 is actually fixed**: local dev/CI uses `bun`
+  (`bun install`/`bun run lint`/`bun run typecheck`/`bun run test`), but
+  `frontend/Dockerfile`'s `npm ci --legacy-peer-deps` reads
+  `package-lock.json` — a completely separate lockfile that nothing in the
+  local quality gate ever touches. Any change to `frontend/package.json`
+  (add/remove/bump a dependency) MUST regenerate **both** lockfiles in the
+  same commit — `bun install` for `bun.lock`, `npm install
+  --package-lock-only --legacy-peer-deps` for `package-lock.json` — and be
+  verified with a real `docker build ./frontend` before pushing (`bun run
+  test` never exercises `npm ci` at all). This has silently drifted and
+  broken a production deploy **three times** (self-caught before #227
+  existed; 2026-08-27's #221 deploy; 2026-08-28's #231 deploy, PR #237 →
+  fixed in #244) — "remember to sync two lock files" has now failed as a
+  process three times in a row, so this step is not optional discretion,
+  it is a required step on every PR that touches `frontend/package.json`.
+  This entire dual-lockfile burden is a workaround, not the fix: it stays
+  mandatory only **until the product owner resolves issue #227** (migrate
+  the Dockerfile to `bun install --frozen-lockfile` since that's the
+  lockfile actually kept current, or add a CI check that fails on lockfile
+  mismatch) — once #227 lands, delete this bullet along with the
+  now-unnecessary second lockfile.
 
 ## Architecture
 
