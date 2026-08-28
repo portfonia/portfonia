@@ -79,7 +79,15 @@ class RedisBackend:
             raise ActivityStoreUnavailable from exc
         if raw is None:
             return None
-        return float(raw)  # type: ignore[arg-type]
+        try:
+            return float(raw)  # type: ignore[arg-type]
+        except (ValueError, TypeError) as exc:
+            # A key holding something that isn't a parseable timestamp
+            # (corruption, a future format change, manual tampering) is a
+            # store problem the same way a connection failure is — it must
+            # fail open the same way, not surface as an unhandled 500 on
+            # every authenticated route (PR #240 review round 4).
+            raise ActivityStoreUnavailable from exc
 
     def set_timestamp(self, key: str, value: float, ttl_seconds: int) -> None:
         try:

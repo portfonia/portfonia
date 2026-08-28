@@ -214,16 +214,23 @@ elsewhere in that doc) for explicit product-owner sign-off — see the
 `feedback_scope_narrowing_needs_explicit_decision_point` memory for the
 general process note this incident produced.
 
-**Fix — server-side idle enforcement, folded into B4's choke point**:
-`app/core/idle_activity.py` stores a per-user last-active epoch timestamp
-in Redis (`session:active:{user_id}`), and `current_principal`
-(`app/core/deps.py`) checks it after JWT verification and the `users` row
-lookup, before returning a `Principal`: `is_idle(user.id)` → 401 if the
-stored timestamp is more than `IDLE_TIMEOUT_SECONDS` (900s, matching the
+**Fix — server-side idle enforcement, folded into B4's choke point**
+(current shape as of round 3 below — the mechanism went through 3 review
+rounds, each catching a real flaw in the previous fix; this paragraph
+describes what actually ships, the round 1/2/3 subsections further down
+are the history of how it got here, kept for the record):
+`app/core/idle_activity.py` stores a last-active epoch timestamp in Redis
+per `(user_id, session_id)` (`session:active:{user_id}:{session_id}` —
+`session_id` is the JWT's own required claim, not `user_id` alone), and
+`current_principal` (`app/core/deps.py`) checks it after JWT verification
+and the `users` row lookup, before returning a `Principal`:
+`is_idle(user.id, claims.session_id)` → 401 if that session's stored
+timestamp is more than `IDLE_TIMEOUT_SECONDS` (900s, matching the
 frontend's `SESSION_IDLE_TIMEOUT_MS` — kept in sync by hand, no shared
 config crosses the Python/TypeScript boundary) old; otherwise
-`touch_activity(user.id)` resets the window. Because this lives inside
-`current_principal`, the existing structural test
+`touch_activity(user.id, claims.session_id)` resets that session's own
+window. Because this lives inside `current_principal`, the existing
+structural test
 (`test_identity_seam.py::test_every_identity_bearing_route_depends_on_current_principal`)
 already guarantees every identity-bearing route gets idle enforcement for
 free — no per-router wiring needed.

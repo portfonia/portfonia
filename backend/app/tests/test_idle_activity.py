@@ -11,6 +11,7 @@ from app.core.idle_activity import (
     IDLE_TIMEOUT_SECONDS,
     ActivityStoreUnavailable,
     InMemoryBackend,
+    RedisBackend,
     is_idle,
     touch_activity,
 )
@@ -93,6 +94,24 @@ def test_is_idle_fails_open_when_store_unavailable(monkeypatch: pytest.MonkeyPat
 
     idle_activity.set_backend(_BrokenBackend())
     assert is_idle(_USER, _SESSION, now=1_000.0) is False
+
+
+def test_redis_backend_unparseable_value_raises_store_unavailable() -> None:
+    """PR #240 review round 4 (blacktomb42) non-blocking finding: a Redis
+    key holding something that isn't a parseable float (corruption, a
+    future format change, manual tampering) previously let `float(raw)`
+    raise `ValueError` straight through `get_timestamp` — uncaught by the
+    `except RedisError` clause, surfacing as an unhandled 500 on every
+    authenticated route instead of failing open the same way a genuine
+    connection failure does."""
+
+    class _FakeClient:
+        def get(self, key: str) -> str:
+            return "not-a-float"
+
+    backend = RedisBackend(_FakeClient())  # type: ignore[arg-type]
+    with pytest.raises(ActivityStoreUnavailable):
+        backend.get_timestamp("some-key")
 
 
 def test_touch_activity_fails_open_when_store_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
