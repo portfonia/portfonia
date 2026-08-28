@@ -30,6 +30,7 @@ def generate_incremental_report(
     self: Any,
     report_type: str = "incremental",
     session_node: str = "after_close",
+    cadence: str = "mwf",
     trigger_hour: int | None = None,
     trigger_minute: int | None = None,
 ) -> dict[str, Any]:
@@ -58,9 +59,14 @@ def generate_incremental_report(
     silently generate + email a report. `None` (manual trigger / tests) skips
     the check entirely.
 
+    `cadence` (issue #191): which `users.report_cadence` batch this run
+    serves — passed through to `active_user_ids`, which also decides per
+    cadence whether the holdings gate applies (loosened for `weekly` only,
+    see `app.services.user_scope`).
+
     Multi-user fan-out (issue #128 A1): `active_user_ids` (active `users`
-    rows that have at least one holding) replaces the pre-A1 single
-    fixed-dev-user call. Each user's
+    rows on this cadence, gated by holdings per-cadence) replaces the pre-A1
+    single fixed-dev-user call. Each user's
     `generate_report` call is wrapped in its own try/except: one user's
     failure is logged, ops-alerted, and does NOT stop or retry the batch —
     the remaining users still get their reports (design doc §3.3/UAT-3).
@@ -118,7 +124,7 @@ def generate_incremental_report(
     )
     session = SessionLocal()
     try:
-        user_ids = active_user_ids(session)
+        user_ids = active_user_ids(session, cadence)
         if not user_ids:
             logger.info("generate_incremental_report: no active users, nothing to generate")
             return {"status": "no_active_users", "results": []}

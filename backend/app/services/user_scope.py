@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from typing import Any
 
 from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
@@ -21,24 +22,26 @@ from app.models.holding import Holding
 from app.models.user import User
 from app.services._yfinance import _normalize_hk_ticker
 
+# Cadences whose fan-out still requires at least one holding row (issue #191
+# decision point 2). Not in this set -> an empty book still enters the batch,
+# so a cadence's "needs holdings?" answer lives in one place instead of an
+# `if cadence == "mwf"` scattered wherever this gets checked.
+_HOLDINGS_GATED_CADENCES = frozenset({"mwf"})
 
-def active_user_ids(session: Session) -> list[uuid.UUID]:
-    """Active accounts that already have holdings, sorted for fan-out.
 
-    Identity comes from `users` (Stage B). Fan-out still requires at least
-    one holding so a brand-new signup does not get an empty Pass 2 / email
-    on the next scheduled batch.
+def active_user_ids(session: Session, cadence: str) -> list[uuid.UUID]:
+    """Active accounts on the given `report_cadence`, sorted for fan-out.
+
+    Identity comes from `users` (Stage B). `mwf` still requires at least one
+    holding so a brand-new signup does not get an empty Pass 2 / email on the
+    next scheduled batch; `weekly` does not (issue #221 §8 / #191) — an
+    empty-book weekly user gets the empty-table content contract instead of
+    never being scheduled at all.
     """
-    rows = (
-        session.execute(
-            select(User.id).where(
-                User.status == "active",
-                exists().where(Holding.user_id == User.id),
-            )
-        )
-        .scalars()
-        .all()
-    )
+    conditions: list[Any] = [User.status == "active", User.report_cadence == cadence]
+    if cadence in _HOLDINGS_GATED_CADENCES:
+        conditions.append(exists().where(Holding.user_id == User.id))
+    rows = session.execute(select(User.id).where(*conditions)).scalars().all()
     return sorted(rows)
 
 

@@ -27,14 +27,28 @@ capability existing.
   synchronous `generate_report` for one user (`session_node="manual"`),
   hitting `api.portfonia.com` directly so the Next.js proxy timeout on
   self-service `POST /reports/generate` (issue #193) is not in the path.
-  404 if the user is missing; 422 if not active or has no holdings (mirrors
-  `active_user_ids()`); `openai.APIError` → 502; concurrent unique-key race
+  404 if the user is missing; 422 if not active (the original no-holdings
+  422 was removed by issue #221; `active_user_ids()` itself gained a
+  per-cadence holdings gate in issue #191, still required for `mwf`, not
+  `weekly` — see the "Cadence change" bullet below); `openai.APIError` →
+  502; concurrent unique-key race
   → 409. Success emails the target user. Admin email-resend was scoped out
   (`POST /admin/reports/{id}/send` leftover). A structural test
   (`test_all_admin_routes_require_ops_token` in `test_admin_router.py`)
   iterates `app.routes` and asserts every `/admin`-prefixed route's
   dependant chain includes `require_ops_token`, so a future endpoint that
   forgets to opt in fails CI rather than shipping unauthenticated.
+- **Cadence change** (issue #191): `POST /admin/users/{user_id}/cadence`
+  sets `users.report_cadence`, same body/response/404 shape as
+  `bind-subject`. `report_cadence: Literal["mwf", "weekly"]` on the request
+  body gives a clean 422 on a bad value instead of an `IntegrityError`
+  bubbling up from the DB `CheckConstraint` — kept in sync with
+  `VALID_REPORT_CADENCES` (`app/models/user.py`) by hand, since a Pydantic
+  `Literal`'s members have to be compile-time. Intended to be reusable later
+  for self-service cadence selection (post-auth, post-billing) — that reuse
+  is explicitly out of scope for the PR that added this endpoint. See the
+  "Cadence" bullet in `docs/mechanisms/capture-and-reporting.md` for how
+  `report_cadence` actually drives scheduling.
 - **User hard-purge** (issue #199, extended by issue #225 and checkpoint B7): `DELETE /admin/users/{user_id}?confirm={email}` hard-deletes one user's own rows (`news_surfaced`, `reports`, `holdings`, `accounts`, `upload_jobs`, `user_investment_context`, then `users`) and clears invite pointers (`invites.used_by_user_id` nulled without touching `used_at`/`revoked_at`; other users' `invited_by` nulled). Refuses the seed `DEV_USER_ID`, any user who still has `invites.created_by` rows, a missing `confirm` query param, and a `confirm` that does not match the row's normalized email (strip + lowercase, same as signup). Does not touch global capture tables, and does not soft-delete via `users.status`. Spec: issue #199 comment dated 2026-08-27.
   - **`accounts` deletion (issue #129 B7) runs after `holdings`, before `upload_jobs`/`user_investment_context`/`users`** — `holdings.account_id` FKs to `accounts.id` `ON DELETE RESTRICT`, so an account row can't be deleted while a holding still points at it; holdings are always gone by the time this step runs. Response's `deleted` object gains an `accounts` count.
   - **Supabase Auth is now purged in the same call (issue #225), sequenced strictly before any local delete**: if the local row has `auth_subject` set, `delete_auth_user(sub)` runs first, outside any local transaction. A 404 (already gone) is idempotent success. Any other `AuthProviderError` aborts the request with `502` before `purge_user()` or `session.commit()` ever run — nothing local is touched, so the caller can always retry safely. This ordering exists specifically because Postgres and Supabase Auth have no shared transaction: whichever side deletes first is the one that must be safe to redo. Response gains `auth_deleted: bool` — `true` only when an Auth user was actually found and removed; `false` both when the row had no `auth_subject` and when it did but Supabase had nothing to delete (a prior partial cleanup).

@@ -12,6 +12,7 @@ from app.models.base import Base
 
 VALID_USER_STATUSES = ("active", "deleted", "suspended")
 VALID_AUTH_PROVIDERS = ("supabase",)
+VALID_REPORT_CADENCES = ("mwf", "weekly")
 
 
 def _in_list_sql(column: str, values: tuple[str, ...]) -> str:
@@ -32,6 +33,9 @@ class User(Base):
     __table_args__ = (
         CheckConstraint(_in_list_sql("status", VALID_USER_STATUSES), name="status"),
         CheckConstraint(_in_list_sql("auth_provider", VALID_AUTH_PROVIDERS), name="auth_provider"),
+        CheckConstraint(
+            _in_list_sql("report_cadence", VALID_REPORT_CADENCES), name="report_cadence"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

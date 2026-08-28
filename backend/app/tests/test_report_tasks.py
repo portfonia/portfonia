@@ -47,6 +47,7 @@ def test_beat_schedule_passes_report_type_and_session_node() -> None:
     assert entry["kwargs"] == {
         "report_type": "incremental",
         "session_node": "after_close",
+        "cadence": "mwf",
         "trigger_hour": 17,
         "trigger_minute": 0,
     }
@@ -66,6 +67,46 @@ def test_beat_schedule_crontab_mwf_1700() -> None:
 
 def test_celery_timezone_is_et() -> None:
     assert celery_app.conf.timezone == "America/New_York"
+
+
+# --- weekly cadence (issue #191) --------------------------------------------
+
+
+def test_beat_schedule_registered_weekly() -> None:
+    schedule = celery_app.conf.beat_schedule
+    assert "report-incremental-weekly" in schedule
+
+
+def test_beat_schedule_weekly_task_name() -> None:
+    entry = celery_app.conf.beat_schedule["report-incremental-weekly"]
+    assert entry["task"] == "app.tasks.report_tasks.generate_incremental_report"
+
+
+def test_beat_schedule_weekly_passes_report_type_session_node_and_cadence() -> None:
+    entry = celery_app.conf.beat_schedule["report-incremental-weekly"]
+    assert entry["kwargs"] == {
+        "report_type": "incremental",
+        "session_node": "weekend_snapshot",
+        "cadence": "weekly",
+        "trigger_hour": 19,
+        "trigger_minute": 0,
+    }
+
+
+def test_beat_schedule_crontab_weekly_saturday_1900() -> None:
+    """No `_node_cron`/nowfun wrapper needed — `celery_app.conf.timezone` is
+    already "America/New_York" (see test_celery_timezone_is_et), so a plain
+    crontab here is interpreted in ET the same way the mwf row already is,
+    DST included."""
+    from celery.schedules import crontab
+
+    entry = celery_app.conf.beat_schedule["report-incremental-weekly"]
+    sched = entry["schedule"]
+    assert isinstance(sched, crontab)
+    # Saturday = {6} in crontab internals.
+    assert {6} <= sched.day_of_week
+    assert 19 in sched.hour
+    assert 0 in sched.minute
 
 
 # ---------------------------------------------------------------------------
