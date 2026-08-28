@@ -114,3 +114,112 @@ def test_legacy_jwt_service_role_still_sent_as_bearer(monkeypatch: pytest.Monkey
     headers = _admin_headers()
     assert headers["apikey"] == jwt_key
     assert headers["Authorization"] == f"Bearer {jwt_key}"
+
+
+class _FakeResponse:
+    def __init__(self, status_code: int, body: object = None) -> None:
+        self.status_code = status_code
+        self._body = body
+
+    def json(self) -> object:
+        if self._body is None:
+            raise ValueError("no body")
+        return self._body
+
+
+class _FakeClient:
+    def __init__(self, response: _FakeResponse) -> None:
+        self._response = response
+
+    def __enter__(self) -> _FakeClient:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def get(self, *args: object, **kwargs: object) -> _FakeResponse:
+        return self._response
+
+    def delete(self, *args: object, **kwargs: object) -> _FakeResponse:
+        return self._response
+
+
+def test_delete_auth_user_returns_true_on_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import auth_provider as ap
+
+    monkeypatch.setattr("httpx.Client", lambda **kwargs: _FakeClient(_FakeResponse(200)))
+    assert ap.delete_auth_user("sub-1") is True
+
+
+def test_delete_auth_user_returns_false_on_404(monkeypatch: pytest.MonkeyPatch) -> None:
+    """404 (already gone) is idempotent success, not an error — issue #225
+    requirement A.2: the caller (admin purge endpoint) must be able to
+    retry safely after a previous partial failure."""
+    from app.services import auth_provider as ap
+
+    monkeypatch.setattr("httpx.Client", lambda **kwargs: _FakeClient(_FakeResponse(404)))
+    assert ap.delete_auth_user("sub-1") is False
+
+
+def test_delete_auth_user_raises_on_other_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import auth_provider as ap
+
+    monkeypatch.setattr("httpx.Client", lambda **kwargs: _FakeClient(_FakeResponse(500)))
+    with pytest.raises(ap.AuthProviderError):
+        ap.delete_auth_user("sub-1")
+
+
+def test_get_auth_user_returns_info_on_200(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import auth_provider as ap
+
+    monkeypatch.setattr(
+        "httpx.Client",
+        lambda **kwargs: _FakeClient(_FakeResponse(200, {"id": "sub-1", "email": "a@example.com"})),
+    )
+    info = ap.get_auth_user("sub-1")
+    assert info == ap.AuthUserInfo(id="sub-1", email="a@example.com")
+
+
+def test_get_auth_user_returns_none_on_404(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import auth_provider as ap
+
+    monkeypatch.setattr("httpx.Client", lambda **kwargs: _FakeClient(_FakeResponse(404)))
+    assert ap.get_auth_user("sub-1") is None
+
+
+def test_get_auth_user_raises_on_other_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import auth_provider as ap
+
+    monkeypatch.setattr("httpx.Client", lambda **kwargs: _FakeClient(_FakeResponse(500)))
+    with pytest.raises(ap.AuthProviderError):
+        ap.get_auth_user("sub-1")
+
+
+def test_get_auth_user_raises_on_missing_email(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import auth_provider as ap
+
+    monkeypatch.setattr(
+        "httpx.Client", lambda **kwargs: _FakeClient(_FakeResponse(200, {"id": "sub-1"}))
+    )
+    with pytest.raises(ap.AuthProviderError):
+        ap.get_auth_user("sub-1")
+
+
+def test_get_auth_user_wraps_transport_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+
+    from app.services import auth_provider as ap
+
+    class _Boom:
+        def __enter__(self) -> object:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def get(self, *args: object, **kwargs: object) -> object:
+            raise httpx.ConnectError("down")
+
+    monkeypatch.setattr("httpx.Client", lambda **kwargs: _Boom())
+    with pytest.raises(ap.AuthProviderError):
+        ap.get_auth_user("sub-1")

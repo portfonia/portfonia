@@ -32,6 +32,7 @@ from app.services.auth_provider import (
     delete_auth_user,
     request_password_reset,
 )
+from app.services.email_sender import send_ops_alert
 from app.services.invites import (
     INVITE_REJECTED_MESSAGE,
     InviteRejected,
@@ -97,6 +98,10 @@ def signup(
         session.commit()
     except InviteRejected:
         session.rollback()
+        # Expected background noise (especially post-#190 rate limiting) — a
+        # distinct tag, not a full traceback, so it doesn't drown out the
+        # auth_provider_error/integrity_error alerting below (issue #225).
+        logger.info("signup rejected", extra={"signup_failure_reason": "invite_rejected"})
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=INVITE_REJECTED_MESSAGE
         ) from None
@@ -106,9 +111,28 @@ def signup(
             try:
                 delete_auth_user(sub)
             except AuthProviderError:
+                # Compensation itself failed: the Auth user created above is
+                # now a real orphan (no matching `users` row will ever be
+                # committed for it) with only this log line as a trace unless
+                # someone finds it — issue #225's ops alert closes that gap.
                 logger.exception("signup compensation: failed to delete auth user")
+                send_ops_alert(
+                    subject="[Portfonia] signup compensation failed — orphaned Auth user",
+                    body=(
+                        f"Auth user sub={sub} email={email} was created during signup, "
+                        f"a later step failed ({exc!r}), and the compensating "
+                        f"delete_auth_user() call also failed. This account is likely "
+                        f"orphaned in Supabase Auth with no matching local users row — "
+                        f"clean up via DELETE /admin/users/{{id}}?confirm={email} "
+                        f"(issue #225 orphan-purge path) or the Supabase Dashboard."
+                    ),
+                    idempotency_key=f"ops-signup-compensation-{sub}",
+                )
         if isinstance(exc, AuthProviderError | IntegrityError):
-            logger.exception("signup failed")
+            reason = (
+                "auth_provider_error" if isinstance(exc, AuthProviderError) else "integrity_error"
+            )
+            logger.exception("signup failed", extra={"signup_failure_reason": reason})
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail=INVITE_REJECTED_MESSAGE
             ) from None

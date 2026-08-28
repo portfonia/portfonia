@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from unittest.mock import MagicMock
 
@@ -196,6 +197,140 @@ def test_signup_validation_error_does_not_echo_password_alongside_missing_tos(
     )
     assert resp.status_code == 422
     assert password not in resp.text
+
+
+def test_signup_rejected_invite_tags_failure_reason(
+    app_client: TestClient,
+    db_session: Session,
+    _fake_auth_provider: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """issue #225 bug 1: an invalid invite must be distinguishable in logs
+    from an auth-provider/integrity fault, even though both map to the same
+    client-facing INVITE_REJECTED_MESSAGE."""
+    logging.getLogger("app.routers.auth").disabled = False
+    with caplog.at_level("INFO"):
+        resp = app_client.post(
+            "/auth/signup",
+            json={
+                "invite_token": "no-such-token",
+                "email": "new@example.com",
+                "password": "a-long-enough-password",
+                "tos_accepted": True,
+            },
+        )
+    assert resp.status_code == 400
+    reasons = [
+        r.signup_failure_reason for r in caplog.records if hasattr(r, "signup_failure_reason")
+    ]
+    assert reasons == ["invite_rejected"]
+
+
+def test_signup_auth_provider_error_tags_failure_reason(
+    app_client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """issue #225 bug 1: an AuthProviderError must be tagged distinctly from
+    invite_rejected/integrity_error so ops can alert on it specifically —
+    unlike invite_rejected, this is not expected background noise."""
+    from app.services.auth_provider import AuthProviderError
+
+    issued = create_invite(db_session, created_by=_CREATOR)
+    db_session.flush()
+    monkeypatch.setattr(
+        "app.routers.auth.create_auth_user",
+        MagicMock(side_effect=AuthProviderError("boom")),
+    )
+    logging.getLogger("app.routers.auth").disabled = False
+    with caplog.at_level("INFO"):
+        resp = app_client.post(
+            "/auth/signup",
+            json={
+                "invite_token": issued.token,
+                "email": "auth-fail@example.com",
+                "password": "a-long-enough-password",
+                "tos_accepted": True,
+            },
+        )
+    assert resp.status_code == 400
+    reasons = [
+        r.signup_failure_reason for r in caplog.records if hasattr(r, "signup_failure_reason")
+    ]
+    assert reasons == ["auth_provider_error"]
+
+
+def test_signup_integrity_error_tags_failure_reason(
+    app_client: TestClient,
+    db_session: Session,
+    _fake_auth_provider: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """issue #225 bug 1: IntegrityError must be tagged distinctly too."""
+    from sqlalchemy.exc import IntegrityError
+
+    issued = create_invite(db_session, created_by=_CREATOR)
+    db_session.flush()
+    monkeypatch.setattr(
+        "app.routers.auth.backfill_news_surfaced_before",
+        MagicMock(side_effect=IntegrityError("stmt", {}, Exception("dupe"))),
+    )
+    logging.getLogger("app.routers.auth").disabled = False
+    with caplog.at_level("INFO"):
+        resp = app_client.post(
+            "/auth/signup",
+            json={
+                "invite_token": issued.token,
+                "email": "integrity-fail@example.com",
+                "password": "a-long-enough-password",
+                "tos_accepted": True,
+            },
+        )
+    assert resp.status_code == 400
+    reasons = [
+        r.signup_failure_reason for r in caplog.records if hasattr(r, "signup_failure_reason")
+    ]
+    assert reasons == ["integrity_error"]
+
+
+def test_signup_compensation_failure_sends_ops_alert(
+    app_client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """issue #225 bug 2: if the compensating delete_auth_user() call itself
+    fails, the only trace must not be a stray log line — send_ops_alert must
+    fire so a human actually finds the resulting orphan."""
+    from app.services.auth_provider import AuthProviderError
+
+    issued = create_invite(db_session, created_by=_CREATOR)
+    db_session.flush()
+    monkeypatch.setattr("app.routers.auth.create_auth_user", MagicMock(return_value="sub-orphaned"))
+    monkeypatch.setattr(
+        "app.routers.auth.delete_auth_user",
+        MagicMock(side_effect=AuthProviderError("compensation boom")),
+    )
+    monkeypatch.setattr(
+        "app.routers.auth.backfill_news_surfaced_before",
+        MagicMock(side_effect=RuntimeError("db work failed")),
+    )
+    alert = MagicMock()
+    monkeypatch.setattr("app.routers.auth.send_ops_alert", alert)
+
+    with pytest.raises(RuntimeError, match="db work failed"):
+        app_client.post(
+            "/auth/signup",
+            json={
+                "invite_token": issued.token,
+                "email": "orphan2@example.com",
+                "password": "a-long-enough-password",
+                "tos_accepted": True,
+            },
+        )
+    alert.assert_called_once()
+    assert "sub-orphaned" in alert.call_args.kwargs["body"]
 
 
 def test_signup_does_not_log_password(

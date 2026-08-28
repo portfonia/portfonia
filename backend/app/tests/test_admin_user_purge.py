@@ -1,4 +1,5 @@
-"""DELETE /admin/users/{user_id} hard purge (issue #199)."""
+"""DELETE /admin/users/{user_id} hard purge (issue #199; Supabase Auth
+purge + orphan-only path, issue #225)."""
 
 from __future__ import annotations
 
@@ -6,6 +7,7 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -23,6 +25,7 @@ from app.models.report import Report
 from app.models.upload_job import UploadJob
 from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
+from app.services.auth_provider import AuthProviderError, AuthUserInfo
 from app.services.invites import hash_invite_token
 from app.services.questionnaire_taxonomy import QUESTIONNAIRE_VERSION
 from app.tests.test_admin_router import _headers
@@ -73,6 +76,17 @@ def _report(user_id: uuid.UUID, *, session_node: str = "manual") -> Report:
 
 def _job(user_id: uuid.UUID) -> UploadJob:
     return UploadJob(user_id=user_id, filename="book.csv", status="success")
+
+
+@pytest.fixture(autouse=True)
+def _fake_delete_auth_user(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """Existing purge tests predate issue #225 and don't care about Auth
+    deletion — default it to a no-op success so `_user()`'s always-set
+    `auth_subject` doesn't make every one of them hit real Supabase.
+    Tests that care about this call override with their own monkeypatch."""
+    mock = MagicMock(return_value=True)
+    monkeypatch.setattr("app.routers.admin.delete_auth_user", mock)
+    return mock
 
 
 def test_purge_requires_ops_token(app_client: TestClient) -> None:
@@ -290,3 +304,139 @@ def test_purge_user_deletes_context_while_users_row_exists(db_session: Session) 
     db_session.expire_all()
     assert db_session.get(User, _A) is None
     assert db_session.get(UserInvestmentContext, _A) is None
+
+
+# --- issue #225: Auth deletion sequencing + orphan-only purge path -----
+
+
+def test_purge_with_auth_subject_deletes_supabase_user(
+    app_client: TestClient, db_session: Session, _fake_delete_auth_user: MagicMock
+) -> None:
+    db_session.add(_user(_A, "a@example.com"))
+    db_session.flush()
+    resp = app_client.delete(_path(_A), headers=_headers(), params={"confirm": "a@example.com"})
+    assert resp.status_code == 200
+    assert resp.json()["auth_deleted"] is True
+    _fake_delete_auth_user.assert_called_once_with(f"sub-{_A}")
+
+
+def test_purge_without_auth_subject_leaves_auth_deleted_false(
+    app_client: TestClient, db_session: Session, _fake_delete_auth_user: MagicMock
+) -> None:
+    user = _user(_A, "a@example.com")
+    user.auth_subject = None
+    db_session.add(user)
+    db_session.flush()
+    resp = app_client.delete(_path(_A), headers=_headers(), params={"confirm": "a@example.com"})
+    assert resp.status_code == 200
+    assert resp.json()["auth_deleted"] is False
+    _fake_delete_auth_user.assert_not_called()
+
+
+def test_purge_auth_provider_error_502_touches_no_local_rows(
+    app_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression guard (issue #225 acceptance criteria): a failure deleting
+    the Supabase Auth user must leave every local row untouched — the
+    request is a clean no-op, safely retryable, never a half purge."""
+    db_session.add(_user(_A, "a@example.com"))
+    db_session.add(_h(user_id=_A, name="NVIDIA", ticker="NVDA"))
+    db_session.flush()
+    monkeypatch.setattr(
+        "app.routers.admin.delete_auth_user",
+        MagicMock(side_effect=AuthProviderError("boom")),
+    )
+    resp = app_client.delete(_path(_A), headers=_headers(), params={"confirm": "a@example.com"})
+    assert resp.status_code == 502
+    db_session.expire_all()
+    assert db_session.get(User, _A) is not None
+    assert _count(db_session, Holding.user_id, _A) == 1
+
+
+def test_purge_orphan_auth_user_found(
+    app_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Requirement B: no local row, but a Supabase Auth account remains —
+    the exact gap issue #225 was opened to close."""
+    delete_mock = MagicMock(return_value=True)
+    monkeypatch.setattr(
+        "app.routers.admin.get_auth_user",
+        MagicMock(return_value=AuthUserInfo(id=str(_UNKNOWN), email="orphan@example.com")),
+    )
+    monkeypatch.setattr("app.routers.admin.delete_auth_user", delete_mock)
+    resp = app_client.delete(
+        _path(_UNKNOWN), headers=_headers(), params={"confirm": "orphan@example.com"}
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["auth_deleted"] is True
+    assert body["email"] == "orphan@example.com"
+    assert body["deleted"] == {
+        "news_surfaced": 0,
+        "reports": 0,
+        "holdings": 0,
+        "upload_jobs": 0,
+        "user_investment_context": 0,
+        "invites_used_by_cleared": 0,
+        "users_invited_by_cleared": 0,
+        "users": 0,
+    }
+    delete_mock.assert_called_once_with(str(_UNKNOWN))
+
+
+def test_purge_orphan_auth_user_not_found_404(
+    app_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Neither side has anything — the only case that still 404s."""
+    monkeypatch.setattr("app.routers.admin.get_auth_user", MagicMock(return_value=None))
+    resp = app_client.delete(
+        _path(_UNKNOWN), headers=_headers(), params={"confirm": "nobody@example.com"}
+    )
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "user not found"
+
+
+def test_purge_orphan_auth_user_missing_confirm_422(
+    app_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.admin.get_auth_user",
+        MagicMock(return_value=AuthUserInfo(id=str(_UNKNOWN), email="orphan@example.com")),
+    )
+    resp = app_client.delete(_path(_UNKNOWN), headers=_headers())
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "confirm query param is required"
+
+
+def test_purge_orphan_auth_user_confirm_mismatch_409(
+    app_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    delete_mock = MagicMock(return_value=True)
+    monkeypatch.setattr(
+        "app.routers.admin.get_auth_user",
+        MagicMock(return_value=AuthUserInfo(id=str(_UNKNOWN), email="orphan@example.com")),
+    )
+    monkeypatch.setattr("app.routers.admin.delete_auth_user", delete_mock)
+    resp = app_client.delete(
+        _path(_UNKNOWN), headers=_headers(), params={"confirm": "someone-else@example.com"}
+    )
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "confirm does not match user email"
+    delete_mock.assert_not_called()
+
+
+def test_purge_orphan_auth_user_delete_failure_502(
+    app_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.admin.get_auth_user",
+        MagicMock(return_value=AuthUserInfo(id=str(_UNKNOWN), email="orphan@example.com")),
+    )
+    monkeypatch.setattr(
+        "app.routers.admin.delete_auth_user",
+        MagicMock(side_effect=AuthProviderError("boom")),
+    )
+    resp = app_client.delete(
+        _path(_UNKNOWN), headers=_headers(), params={"confirm": "orphan@example.com"}
+    )
+    assert resp.status_code == 502
