@@ -128,6 +128,40 @@ def create_auth_user(email: str, password: str) -> str:
     return user_id
 
 
+def request_password_reset(email: str, redirect_to: str) -> None:
+    """Trigger Supabase's own password-recovery email (issue #231).
+
+    Equivalent to the client-side supabase-js `resetPasswordForEmail()`, but
+    called server-side so the trigger is gated by our own Altcha PoW +
+    Redis rate limit (see app/routers/auth.py's forgot_password endpoint) —
+    calling this directly from the browser would bypass both. Uses the anon
+    key, not the service-role key: this is the same privilege level as the
+    client SDK method it replaces, not an admin operation, and Supabase's
+    `/recover` endpoint deliberately returns an identical response whether
+    or not the account exists (its own anti-enumeration behavior) — the
+    exists/not-exists distinction this endpoint's caller needs comes from
+    the local `users` table lookup that happens before this is ever called,
+    not from this call's response.
+    """
+    url = f"{_issuer()}/recover"
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.post(
+                url,
+                params={"redirect_to": redirect_to},
+                headers={
+                    "apikey": get_settings().SUPABASE_ANON_KEY.get_secret_value(),
+                    "Content-Type": "application/json",
+                },
+                json={"email": email},
+            )
+    except httpx.HTTPError as exc:
+        raise AuthProviderError("password reset trigger failed") from exc
+    if resp.status_code not in (200, 204):
+        logger.error("auth provider password reset trigger failed status=%s", resp.status_code)
+        raise AuthProviderError("password reset trigger failed")
+
+
 def delete_auth_user(sub: str) -> None:
     """Compensation for a signup that created the Auth user then failed to commit."""
     url = f"{_issuer()}/admin/users/{sub}"

@@ -190,9 +190,11 @@ def test_backend_error_is_503_not_429(
     rate_limit.set_backend(Boom())
     request = _request("203.0.113.9", path="/auth/signup")
     logging.getLogger("app.core.rate_limit").disabled = False
-    with caplog.at_level(logging.ERROR, logger="app.core.rate_limit"):
-        with pytest.raises(HTTPException) as exc:
-            rate_limit_signup(request)
+    with (
+        caplog.at_level(logging.ERROR, logger="app.core.rate_limit"),
+        pytest.raises(HTTPException) as exc,
+    ):
+        rate_limit_signup(request)
     assert exc.value.status_code == 503
     assert exc.value.detail == UNAVAILABLE_DETAIL
     assert any("counter store unavailable" in r.getMessage() for r in caplog.records)

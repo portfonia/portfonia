@@ -27,7 +27,19 @@ import { supabasePublicEnv } from "@/lib/supabase/env";
 //    propagation here — see api/holdings/upload/route.ts and
 //    lib/server-api.ts.
 
-const PUBLIC_PATH_PREFIXES = ["/login", "/signup", "/api/"];
+const PUBLIC_PATH_PREFIXES = [
+  "/login",
+  "/signup",
+  "/forgot-password",
+  "/reset-password",
+  // The matcher below only excludes image extensions, not .js, so the
+  // vendored Altcha widget (frontend/public/altcha.js) still runs through
+  // this function — without this entry a logged-out visitor's GET for it
+  // 307s to /login before public/ ever serves the file, and the widget on
+  // /forgot-password silently never registers (blacktomb42 review, PR #237).
+  "/altcha.js",
+  "/api/",
+];
 
 function isPublicPath(pathname: string): boolean {
   if (pathname === "/") return true;
