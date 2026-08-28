@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import Link from "next/link";
 import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/button";
@@ -62,6 +63,9 @@ export function LoginForm() {
       <Button type="submit" disabled={pending}>
         {pending ? t("loggingIn") : t("loginButton")}
       </Button>
+      <Link href="/forgot-password" className="text-center text-xs text-foreground/60 underline">
+        {t("forgotPasswordLink")}
+      </Link>
       <p className="text-center text-xs text-foreground/60">{t("noAccountYet")}</p>
     </form>
   );

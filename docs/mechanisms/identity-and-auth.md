@@ -500,7 +500,15 @@ control (no Turnstile, no HTTP rate limit). Turnstile stays rejected:
 load failure deadlocks the form, and Supabase Auth’s built-in CAPTCHA is
 Turnstile/hCaptcha-only — enabling it would put `auth.portfonia.com` login
 on the same dependency. Login/password-reset limiting is hosted Auth, not
-this issue.
+this issue — **except for the one trigger endpoint carved out by issue
+#231** (`POST /auth/forgot-password`, see the "Forgot-password trigger"
+section below): the *act of triggering* Supabase's own recovery email now
+goes through this project's own Altcha PoW + Redis rate limit, because that
+trigger is the one place this project's code sits in front of Supabase at
+all. Password storage/verification and the actual reset-link redemption
+(`/reset-password`, client-direct to Supabase, same as login) remain
+entirely Supabase's — this project's `users` table gained no password
+field and no involvement in that path.
 
 Invite tokens are `secrets.token_urlsafe(24)` (~192-bit) and redeem is
 already single-use, so this is not a token-guessing control. Layers:
@@ -528,4 +536,63 @@ peer only — no app-level XFF parse. Tests mount uvicorn
 production. Do not keep `*` if port 8000 is ever published. Tests inject
 `InMemoryBackend` via autouse and stub `send_admin_alert_task.delay` so
 the suite never talks to live Redis or enqueues Celery alerts.
+
+### Forgot-password trigger — issue #231
+
+Architecture: `POST /auth/forgot-password` (backend-mediated) verifies an
+Altcha proof-of-work solution, applies IP + email fixed-window rate limits
+(`rate_limit_forgot_password` in `app/core/rate_limit.py`, reusing the same
+`_enforce_ip`/`_protecting_incr` machinery as issue #190's signup/invite
+limits — fail-closed on Redis down, same as everywhere else), looks up the
+email in the **local** `users` table, and — only on a match — calls
+Supabase's `resetPasswordForEmail()`-equivalent server-side
+(`request_password_reset` in `app/services/auth_provider.py`, a plain
+`POST {SUPABASE_URL}/auth/v1/recover` with the anon key). Consumption
+(`/reset-password`) is client-direct to Supabase, no PoW, no backend
+involvement — same trust model as login.
+
+Why the local-table lookup and not Supabase's own response: Supabase's
+`/recover` endpoint is deliberately anti-enumeration — it returns an
+identical response whether or not the account exists, and silently no-ops
+either way. The product owner explicitly decided (confirmed twice) that
+this endpoint's response should instead state plainly whether the account
+was found — a deliberate departure from OWASP ASVS enumeration-resistance
+guidance, not an oversight. That decision is only implementable by treating
+the local table as the source of truth and never touching Supabase's
+response for it.
+
+Altcha (self-hosted PoW, `altcha` on PyPI + npm, pinned to protocol v1 —
+`backend/app/services/altcha_challenge.py`, npm package pinned to major
+version 2 to avoid v3's incompatible KDF-based protocol) is stateless: the
+challenge signs its own expiry into an HMAC (keyed on `APP_SECRET_KEY`, no
+new secret), and verification recomputes the expected challenge rather than
+looking anything up in Redis/DB — so a challenge is not single-use by
+design (documented, not treated as a gap: the PoW's job is raising
+automation cost, not issuing single-use tokens). The widget JS is vendored
+into `frontend/public/altcha.js` and loaded same-origin — no external CDN,
+per this project's China-reachability stance already established for
+Turnstile above. `/altcha.js` is listed in `proxy.ts`'s
+`PUBLIC_PATH_PREFIXES` — the proxy's matcher only excludes image
+extensions, not `.js`, so without this entry an unauthenticated request
+for the widget itself 307s to `/login` before `public/` ever serves it
+(blacktomb42 review, PR #237 round 1).
+
+Known accepted residual risk: `resetPasswordForEmail()` only needs the
+public anon key (same as login), so an attacker can call Supabase's
+`/auth/v1/recover` directly, bypassing this endpoint entirely. This does
+NOT reopen enumeration (Supabase's own endpoint never reveals existence —
+see above), but it does mean mailbox-bombing a known account is not fully
+closeable from this side; mitigated by Supabase's own per-project auth-email
+cap (see issue #233, which raises that cap via custom SMTP for legitimate
+growth, independent of this issue). Closing the bypass completely would
+require the service-role `auth.admin.generateLink` API, which sends no
+email itself and would need a parallel auth-email pipeline — evaluated and
+rejected as disproportionate for a nuisance-level risk.
+
+Two housekeeping items landed with this issue, not code: Supabase Dashboard
+recovery-link expiry (targeted 72h) is a project-level setting, not
+something this code can express — set it by hand, verify it maps to the
+targeted duration. Supabase's built-in "password changed" notification
+email (a detection signal for unauthorized resets) is a nice-to-have,
+non-blocking toggle in the same dashboard, not yet enabled.
 
