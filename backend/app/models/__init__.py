@@ -1,3 +1,4 @@
+from app.models.account import Account
 from app.models.base import Base
 from app.models.cross_name_intel import CrossNameIntel
 from app.models.forward_event import ForwardEvent
@@ -16,6 +17,7 @@ from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
 
 __all__ = [
+    "Account",
     "Base",
     "CrossNameIntel",
     "ForwardEvent",

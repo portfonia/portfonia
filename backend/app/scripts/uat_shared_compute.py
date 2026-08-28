@@ -45,6 +45,7 @@ from app.models.news import News
 from app.models.news_surfaced import NewsSurfaced
 from app.models.report import Report
 from app.models.ticker_intel import TickerIntel
+from app.models.user import User
 from app.services.report_generator import generate_report, regenerate_report
 from app.services.window_data import MovesCache
 
@@ -121,8 +122,33 @@ class _NoOpEmail:
         return True
 
 
+def seed_synthetic_users(session: Session) -> None:
+    """Idempotent: `holdings.user_id` now FKs to `users.id` (issue #129 B7)
+    — the three synthetic UAT ids need a real row before `seed_holdings`
+    can write anything under them. Get-or-create since this script may run
+    more than once against a database that already has them (a prior run's
+    `cleanup_synthetic_rows` call, below, removes them again)."""
+    for user_id in UAT_USER_IDS:
+        if session.get(User, user_id) is not None:
+            continue
+        session.add(
+            User(
+                id=user_id,
+                auth_provider="supabase",
+                auth_subject=f"uat-{user_id}",
+                email=f"uat-{user_id}@portfonia.invalid",
+                status="active",
+                locale="zh",
+                base_currency="USD",
+                report_cadence="mwf",
+            )
+        )
+    session.flush()
+
+
 def seed_holdings(session: Session) -> None:
     """Insert the §7.1 three-user fixture via the ORM (Fernet encrypts writes)."""
+    seed_synthetic_users(session)
 
     def _h(**kwargs: object) -> Holding:
         defaults: dict[str, object] = {"pricing_mode": "auto", "currency": "USD"}
@@ -593,10 +619,22 @@ def cleanup_synthetic_rows(
         session.delete(report_row)
     for holding_row in holdings:
         session.delete(holding_row)
+    session.flush()
+    # Users are the last thing removed (issue #129 B7): holdings/reports/
+    # news_surfaced all FK to users.id ON DELETE RESTRICT, so this must run
+    # after they're gone. Idempotent — a prior cleanup call in the same
+    # process may have already removed them.
+    users_deleted = 0
+    for user_id in UAT_USER_IDS:
+        row = session.get(User, user_id)
+        if row is not None:
+            session.delete(row)
+            users_deleted += 1
     return {
         "holdings": len(holdings),
         "reports": len(reports),
         "news_surfaced": len(marks),
+        "users": users_deleted,
     }
 
 

@@ -18,7 +18,12 @@ from sqlalchemy.orm import Session
 from app.models.holding import Holding
 from app.schemas.holdings import VALID_CURRENCIES, ParsedRow
 from app.services.asset_class_config import VALID_ASSET_CLASSES
-from app.tests.conftest import TEST_USER_ID
+from app.tests.conftest import TEST_USER_ID, seed_user
+
+
+@pytest.fixture(autouse=True)
+def _seed_test_user(db_session: Session) -> None:
+    seed_user(db_session, TEST_USER_ID)
 
 
 def _base_holding(**overrides: object) -> Holding:

@@ -138,24 +138,31 @@ def test_news_surfaced_backfill_reconstructs_from_report_history(alembic_cfg: Co
 
 def test_users_migration_binds_existing_dev_user(alembic_cfg: Config) -> None:
     """A holdings row for DEV_USER_ID is bound into users; no other id present."""
+    from sqlalchemy import text
+
     from app.core.config import get_settings as _gs
-    from app.models.holding import Holding
+    from app.core.encryption import encrypt_value
     from app.models.user import User
 
     command.upgrade(alembic_cfg, "d6e7f8a9b0c1")
     engine = create_engine(get_settings().database_url)
     uid = uuid.UUID(_gs().DEV_USER_ID)
-    with Session(engine) as seed:
-        seed.add(
-            Holding(
-                user_id=uid,
-                name="Seed",
-                pricing_mode="auto",
-                currency="USD",
-                asset_class="STOCK",
-            )
+    # Raw SQL, not the Holding ORM model (issue #129 B7 review): the model
+    # always reflects HEAD's column set (e.g. `account_id`, added by a much
+    # later migration than d6e7f8a9b0c1), not whatever this checkpoint's
+    # actual DB schema looks like. `name` is Fernet-encrypted at rest as of
+    # migration 379fdb627ee8, already applied by this revision — insert
+    # ciphertext directly, matching what the ORM's EncryptedString
+    # TypeDecorator would have produced.
+    with engine.connect() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO holdings (id, user_id, name, pricing_mode, currency, asset_class) "
+                "VALUES (gen_random_uuid(), :user_id, :name, 'auto', 'USD', 'STOCK')"
+            ),
+            {"user_id": uid, "name": encrypt_value("Seed")},
         )
-        seed.commit()
+        conn.commit()
 
     command.upgrade(alembic_cfg, "e8f9a0b1c2d3")
     # The binding behavior under test is fully decided by this one
@@ -173,21 +180,22 @@ def test_users_migration_binds_existing_dev_user(alembic_cfg: Config) -> None:
 
 
 def test_users_migration_refuses_unexpected_user_ids(alembic_cfg: Config) -> None:
-    from app.models.holding import Holding
+    from sqlalchemy import text
+
+    from app.core.encryption import encrypt_value
 
     command.upgrade(alembic_cfg, "d6e7f8a9b0c1")
     engine = create_engine(get_settings().database_url)
-    with Session(engine) as seed:
-        seed.add(
-            Holding(
-                user_id=uuid.uuid4(),
-                name="Orphan",
-                pricing_mode="auto",
-                currency="USD",
-                asset_class="STOCK",
-            )
+    # Raw SQL, not the Holding ORM model — see the sibling test above for why.
+    with engine.connect() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO holdings (id, user_id, name, pricing_mode, currency, asset_class) "
+                "VALUES (gen_random_uuid(), :user_id, :name, 'auto', 'USD', 'STOCK')"
+            ),
+            {"user_id": uuid.uuid4(), "name": encrypt_value("Orphan")},
         )
-        seed.commit()
+        conn.commit()
 
     with pytest.raises(Exception, match="unexpected user_id"):
         command.upgrade(alembic_cfg, "e8f9a0b1c2d3")

@@ -4,12 +4,14 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, Integer, Text, func, text
+from sqlalchemy import CheckConstraint, ForeignKey, Integer, Text, func, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.encryption import EncryptedDecimal, EncryptedString
+from app.models.account import Account
 from app.models.base import Base
+from app.models.user import User
 from app.schemas.holdings import VALID_ASSET_TYPES, VALID_CURRENCIES, VALID_PRICING_MODES
 from app.services.asset_class_config import VALID_ASSET_CLASSES
 
@@ -51,7 +53,9 @@ class Holding(Base):
         primary_key=True,
         server_default=text("gen_random_uuid()"),
     )
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
     # Encrypted at rest (issue #31) — identity/amount fields that reveal what
     # the user holds and how much. See app/core/encryption.py for the key
     # scope decision (system-wide key, not per-user). NOT encrypted:
@@ -84,6 +88,15 @@ class Holding(Base):
     broker: Mapped[str | None] = mapped_column(EncryptedString)
     account: Mapped[str | None] = mapped_column(EncryptedString)
     portfolio: Mapped[str | None] = mapped_column(EncryptedString)
+    # Normalized pointer (issue #129 checkpoint B7, design §9.2) — additive,
+    # not a replacement for the three text columns above. NULL for any
+    # holding whose `broker` is NULL (accounts.broker is NOT NULL, so a
+    # broker-less holding has no account to point at; report §1 already
+    # buckets those into "Other"). Nothing in this codebase reads this
+    # column yet — it exists for stage C's inline entry form.
+    account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("accounts.id", ondelete="RESTRICT")
+    )
     notes: Mapped[str | None] = mapped_column(EncryptedString)
     market_price: Mapped[Decimal | None] = mapped_column(EncryptedDecimal)
     price_as_of: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
@@ -98,3 +111,15 @@ class Holding(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+    # Not for query-time navigation — nothing in this codebase reads
+    # `.user`/`.account_ref`. Declared solely so SQLAlchemy's unit-of-work
+    # knows about the FK dependency: without a relationship(), the ORM
+    # flush process has no way to know `holdings` must be inserted after
+    # `users`/`accounts` (it does NOT infer this from a bare ForeignKey()
+    # column — verified empirically once the FKs below started rejecting
+    # existing test fixtures that add a User and its Holdings in one
+    # flush). `viewonly=False` (the default) is required — a viewonly
+    # relationship is excluded from unit-of-work dependency processing.
+    user: Mapped[User] = relationship()
+    account_ref: Mapped[Account | None] = relationship()

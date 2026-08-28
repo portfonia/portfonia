@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
+import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -18,8 +19,14 @@ from app.services.price_capture import (
     capture_fund_navs,
     capture_prices,
 )
+from app.tests.conftest import seed_user
 
 _USER = uuid.UUID("00000000-0000-0000-0000-000000000001")
+
+
+@pytest.fixture(autouse=True)
+def _seed_user(db_session: Session) -> None:
+    seed_user(db_session, _USER)
 
 
 def _holding(name: str, ticker: str, market: str | None = None) -> Holding:
@@ -211,6 +218,7 @@ def test_capture_fund_navs_dedupes_same_fund_code_across_holdings(
 ) -> None:
     """Two users (or lots) of the same fund must not double-fetch the NAV API."""
     other = uuid.uuid4()
+    seed_user(db_session, other)
     db_session.add_all(
         [
             _fund_holding("Huaxia SSE 50 ETF", "513100"),
@@ -238,6 +246,7 @@ def test_capture_fund_navs_prefers_declared_market_over_null_default(
 ) -> None:
     """Same fund_code, mixed NULL vs declared market: declared wins, stably."""
     other = uuid.uuid4()
+    seed_user(db_session, other)
     db_session.add_all(
         [
             Holding(

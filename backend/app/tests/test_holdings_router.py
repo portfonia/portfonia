@@ -16,9 +16,19 @@ from sqlalchemy.orm import Session
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
 from app.models.upload_job import UploadJob
-from app.tests.conftest import TEST_USER_ID
+from app.tests.conftest import TEST_USER_ID, seed_user
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+@pytest.fixture(autouse=True)
+def _seed_test_user(db_session: Session) -> None:
+    """`app_client` overrides identity to TEST_USER_ID without a matching
+    `users` row (see conftest.seed_user's docstring) — issue #129 B7's new
+    FKs on holdings/upload_jobs.user_id need one to exist before any test
+    in this file writes a row under that id."""
+    seed_user(db_session, TEST_USER_ID)
+
 
 _PARSED_APPLE: dict[str, object] = {
     "name": "Apple",
@@ -279,8 +289,10 @@ def test_get_upload_job_returns_failure_result(app_client: TestClient, db_sessio
 def test_get_upload_job_404_for_other_user(app_client: TestClient, db_session: Session) -> None:
     """A job belonging to a different user must not be visible via poll —
     multi-tenant isolation."""
+    other_user = uuid.uuid4()
+    seed_user(db_session, other_user)
     job = UploadJob(
-        user_id=uuid.uuid4(),  # not TEST_USER_ID
+        user_id=other_user,  # not TEST_USER_ID
         filename="holdings.md",
         status="success",
         preview=_MOCK_PREVIEW,
@@ -403,9 +415,11 @@ def test_confirm_backfill_passes_only_this_users_sparse_tickers(
     app_client: TestClient, db_session: Session
 ) -> None:
     """A second user's never-seen ticker must not ride along on this confirm (#194)."""
+    other_user = uuid.uuid4()
+    seed_user(db_session, other_user)
     db_session.add(
         Holding(
-            user_id=uuid.uuid4(),
+            user_id=other_user,
             name="Microsoft",
             ticker="MSFT",
             pricing_mode="auto",
@@ -425,9 +439,11 @@ def test_confirm_skips_backfill_when_this_users_tickers_already_have_history(
     app_client: TestClient, db_session: Session
 ) -> None:
     """Someone else's sparse name must not fire a 420-day job on this confirm."""
+    other_user = uuid.uuid4()
+    seed_user(db_session, other_user)
     db_session.add(
         Holding(
-            user_id=uuid.uuid4(),
+            user_id=other_user,
             name="Microsoft",
             ticker="MSFT",
             pricing_mode="auto",
@@ -555,9 +571,11 @@ def test_confirm_fund_nav_backfill_passes_only_this_users_uncached_codes(
     app_client: TestClient, db_session: Session
 ) -> None:
     """Another user's never-captured fund must not ride along on this confirm."""
+    other_user = uuid.uuid4()
+    seed_user(db_session, other_user)
     db_session.add(
         Holding(
-            user_id=uuid.uuid4(),
+            user_id=other_user,
             name="Other User CSI 300 ETF",
             fund_code="510300",
             pricing_mode="auto",
@@ -599,6 +617,7 @@ def test_confirm_full_replace_does_not_touch_other_users(
     user's holdings in one statement — it must stay scoped to the caller's
     own user_id no matter how identity resolution changes upstream."""
     other_user_id = uuid.uuid4()
+    seed_user(db_session, other_user_id)
     other_holding = Holding(
         user_id=other_user_id,
         name="Other User's Fund",

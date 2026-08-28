@@ -72,6 +72,8 @@ def test_active_user_ids_excludes_users_with_no_holdings(db_session: Session) ->
 def test_user_holdings_scoped_to_one_user(db_session: Session) -> None:
     db_session.add_all(
         [
+            _user(_U1, "u1@example.com"),
+            _user(_U2, "u2@example.com"),
             _h(user_id=_U1, name="NVIDIA", ticker="NVDA"),
             _h(user_id=_U2, name="Apple", ticker="AAPL"),
         ]
@@ -82,6 +84,7 @@ def test_user_holdings_scoped_to_one_user(db_session: Session) -> None:
 
 
 def test_user_holdings_empty_for_unknown_user(db_session: Session) -> None:
+    db_session.add(_user(_U1, "u1@example.com"))
     db_session.add(_h(user_id=_U1, name="NVIDIA", ticker="NVDA"))
     db_session.flush()
     assert user_holdings(db_session, uuid.uuid4()) == []
@@ -98,6 +101,8 @@ def test_global_identifier_universe_groups_shared_identifier_across_users(
     once instead of once per holding row."""
     db_session.add_all(
         [
+            _user(_U1, "u1@example.com"),
+            _user(_U2, "u2@example.com"),
             _h(user_id=_U1, name="NVIDIA", ticker="NVDA"),
             _h(user_id=_U2, name="NVIDIA", ticker="NVDA"),
         ]
@@ -113,6 +118,7 @@ def test_global_identifier_universe_excludes_manual_pricing_mode(db_session: Ses
     over — matches the pre-A1 detect_window_anomalies filter."""
     db_session.add_all(
         [
+            _user(_U1, "u1@example.com"),
             _h(user_id=_U1, name="NVIDIA", ticker="NVDA"),
             _h(user_id=_U1, name="Cash-ish", ticker="MANUAL", pricing_mode="manual"),
         ]
@@ -124,6 +130,7 @@ def test_global_identifier_universe_excludes_manual_pricing_mode(db_session: Ses
 def test_global_identifier_universe_excludes_holdings_with_no_ticker_or_fund_code(
     db_session: Session,
 ) -> None:
+    db_session.add(_user(_U1, "u1@example.com"))
     db_session.add(_h(user_id=_U1, name="Cash", pricing_mode="manual"))
     db_session.flush()
     assert global_identifier_universe(db_session) == {}
@@ -135,6 +142,8 @@ def test_global_identifier_universe_normalizes_hk_tickers(db_session: Session) -
     would silently compute two separate move series for one real identifier."""
     db_session.add_all(
         [
+            _user(_U1, "u1@example.com"),
+            _user(_U2, "u2@example.com"),
             _h(user_id=_U1, name="Tencent", ticker="700.HK", currency="HKD"),
             _h(user_id=_U2, name="Tencent", ticker="0700.HK", currency="HKD"),
         ]
@@ -146,6 +155,7 @@ def test_global_identifier_universe_normalizes_hk_tickers(db_session: Session) -
 
 
 def test_global_identifier_universe_uses_fund_code_when_no_ticker(db_session: Session) -> None:
+    db_session.add(_user(_U1, "u1@example.com"))
     db_session.add(_h(user_id=_U1, name="Gold Fund", fund_code="019547", currency="CNY"))
     db_session.flush()
     assert set(global_identifier_universe(db_session).keys()) == {"019547"}

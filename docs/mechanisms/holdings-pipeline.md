@@ -313,4 +313,72 @@ notice's `stale_tickers` list was not a capture-layer miss, it was
   tracked in issue #123 for a backfill or waiting on the user to
   re-confirm holdings.
 
+### Accounts table + `holdings.account_id` (issue #129 checkpoint B7)
+
+Normalizes `Holding.broker`/`.account`/`.portfolio` (free-text, encrypted,
+in use since Ring 0) into an `accounts` table (`id`, `user_id` FK
+`users.id` `ON DELETE RESTRICT`, `broker` NOT NULL, `account`/`portfolio`
+nullable, `archived_at`) plus `holdings.account_id` (nullable FK
+`accounts.id` `ON DELETE RESTRICT`). Decision point 5 (Ring 1-B design.md
+§9.2/§12.1): **additive, not a migration off the text columns** — the
+original `broker`/`account`/`portfolio` columns on `Holding` are kept
+unchanged and are still what report §1's broker grouping (rendered
+`Custodian`) and `holding_parser.py`'s extraction both read. `account_id`
+exists to give stage C's inline entry form a stable id to reference;
+nothing else in this codebase reads it yet.
+
+**Currency deliberately stays on `Holding`, not promoted to `accounts`**
+(§2.4): the 2026-05 spec's "account = 本位币" assumption doesn't match
+reality — a single broker/account routinely holds more than one currency
+(the upload preview's `BrokerGroup.subtotals: CurrencySubtotal[]` already
+assumes this, e.g. one IBKR account with both USD and HKD lots).
+
+**Migration backfill (`4edf69bf41ab`)**: groups each user's existing
+holdings by DECRYPTED `(broker, account, portfolio)` plaintext tuple, not
+by the ciphertext columns — Fernet's random IV means two encryptions of
+identical plaintext never match (verified against production: every
+holding row had a distinct `broker` ciphertext even where several repeated
+the same broker name). A holding with a NULL `broker` gets no `accounts`
+row and keeps `account_id` NULL — `accounts.broker` is NOT NULL, and
+report §1 already buckets broker-less holdings into "Other", so there is
+no real institution to normalize such a row against.
+
+**FK ordering note for SQLAlchemy unit-of-work, not just this migration**:
+`Holding`/`Report`/`UploadJob`/`NewsSurfaced`/`Account` each carry a
+`relationship()` to `User` (and `Holding` one to `Account`) whose sole
+purpose is flush-order correctness — SQLAlchemy's ORM only infers
+INSERT/UPDATE/DELETE ordering from `relationship()` declarations, not from
+bare `ForeignKey()` columns. Without it, `session.add()`-ing a `User` and
+a dependent row in the same flush can emit the child's INSERT first and
+trip the FK it's declared with — this surfaced as ~180 test failures
+across the suite when the FKs below were added, all fixed by either this
+relationship fix or (where a fixture wrote under an arbitrary UUID with no
+matching `users` row at all, a routine pre-B4 pattern) seeding a real user
+row. These relationships are not for query-time navigation; nothing reads
+`Holding.user`/`.account_ref` etc.
+
+### `holdings`/`reports`/`upload_jobs`/`news_surfaced` gain real `user_id` FKs (issue #129 checkpoint B7)
+
+`FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT` added to
+all four tables in the same migration as the accounts table above — closing
+the gap Ring 1-B design.md §2.2's multi-user audit found: none of these
+four had a real FK before this (`user_investment_context` was the only
+user-scoped table with one, because it postdates B4 and never carried
+legacy pre-FK data). **RESTRICT, not CASCADE**, deliberate: a bare
+`DELETE FROM users` must never silently cascade into a user's holdings or
+report history. Deletion is `app/services/user_purge.py`'s explicit,
+ordered, audited `purge_user()` (issue #199, extended by #225 for Supabase
+Auth, extended again here for `accounts`) — see
+`docs/mechanisms/admin-surface.md` for the full delete order. Shared
+capture-layer tables (`ticker_intel`/`macro_event_intel`/`search_cache`/
+`cross_name_intel`) deliberately do NOT get a `user_id` FK here — they
+carry no `user_id` column at all by design (stage A's type-boundary
+discipline), and B7 does not "helpfully" add one.
+
+Pre-migration safety check (not enforced by the migration itself):
+production audited 2026-08-28 — 4 users, 0 orphan `user_id` rows across
+all four tables. Re-verify this still holds immediately before running
+this migration against production; it assumes the check, it does not
+perform it.
+
 

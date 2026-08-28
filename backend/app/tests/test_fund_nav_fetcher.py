@@ -14,8 +14,15 @@ from sqlalchemy.orm import Session
 from app.core.timezones import CST
 from app.models.holding import Holding
 from app.services import fund_nav_fetcher
+from app.tests.conftest import seed_user
 
 _USER = uuid.UUID("00000000-0000-0000-0000-000000000001")
+
+
+@pytest.fixture(autouse=True)
+def _seed_user(db_session: Session) -> None:
+    seed_user(db_session, _USER)
+
 
 _JSONP_OK = (
     'jsonpgz({"fundcode":"005827","name":"易方达蓝筹精选混合",'

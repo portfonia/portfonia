@@ -14,6 +14,7 @@ from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -24,7 +25,19 @@ from app.models.news_surfaced import NewsSurfaced
 from app.models.report import Report
 from app.scripts import uat_shared_compute as uat
 from app.services.window_data import BOOTSTRAP_WATERMARK, user_watermark
-from app.tests.conftest import TEST_USER_ID, U1_USER_ID, U2_USER_ID, U3_USER_ID
+from app.tests.conftest import TEST_USER_ID, U1_USER_ID, U2_USER_ID, U3_USER_ID, seed_user
+
+
+@pytest.fixture(autouse=True)
+def _seed_test_user(db_session: Session) -> None:
+    """TEST_USER_ID ("real user" stand-in) plus the script's own synthetic
+    b1/b2/b3 users — issue #129 B7's new FKs need a row for whichever of
+    these a given test writes under, and several tests build a Report
+    directly rather than going through `uat.seed_holdings` (which already
+    seeds b1/b2/b3 itself; `seed_synthetic_users` is idempotent, so calling
+    it again here is safe)."""
+    seed_user(db_session, TEST_USER_ID)
+    uat.seed_synthetic_users(db_session)
 
 
 def test_synthetic_ids_are_distinct_from_the_pytest_fixture() -> None:

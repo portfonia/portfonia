@@ -42,10 +42,23 @@ from app.services.portfolio_calculator import (
 from app.services.price_anomaly_detector import ConstituentMove, PriceAnomaly
 from app.services.report_llm import _BYOK_PROVIDER_ORDER
 from app.services.window_data import HoldingMove, MovesCache
+from app.tests.conftest import seed_user
 
 _USER = uuid.UUID("00000000-0000-0000-0000-000000000099")
 _NOW = datetime(2026, 6, 4, 20, 0, tzinfo=UTC)
 _TODAY = date(2026, 6, 4)
+
+
+@pytest.fixture(autouse=True)
+def _seed_test_user(db_session: Session) -> None:
+    """issue #129 B7's new FKs need a `users` row for _USER before most
+    tests here write a holding/report under it. A few tests
+    (test_generate_report_assembly_path_also_gets_investor_preferences,
+    `_seed_investment_context`) insert their own `User(id=_USER, ...)` row
+    afterward with specific fields (locale/intel_focus) — those sites now
+    check-first and skip their own insert if this fixture already created
+    one, rather than the two racing on the same primary key."""
+    seed_user(db_session, _USER)
 
 
 def _day_move(identifier: str, **overrides: object) -> HoldingMove:
@@ -1172,6 +1185,8 @@ def test_generate_report_l1_facts_are_independent_of_the_calling_users_watermark
 
     user_a = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
     user_b = uuid.UUID("00000000-0000-0000-0000-0000000000a2")
+    seed_user(db_session, user_a)
+    seed_user(db_session, user_b)
     watermark_a = datetime(2026, 5, 1, 12, 0, tzinfo=UTC)  # before ALL seeded closes
     watermark_b = datetime(2026, 6, 2, 12, 0, tzinfo=UTC)  # after 6/1's close, before 6/3's
 
@@ -1924,6 +1939,7 @@ def test_generate_report_uses_explicit_user_id(db_session: Session) -> None:
     """user_id (issue #129 B3: required, no ambient fallback) is used as-is
     for the report row — the multi-user fan-out (report_tasks.py) relies on
     this to generate each user's report under their own identity."""
+    seed_user(db_session, _OTHER_USER)
     with (
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch("app.services.report_generator.load_news_window", return_value=[]),
@@ -2051,21 +2067,10 @@ def test_generate_report_assembly_path_also_gets_investor_preferences(
     assembled report (SHARED_COMPUTE_ENABLED=True, the intended A4 cost
     architecture) silently ignored the user's questionnaire AND recorded no
     audit snapshot in report_inputs, even though a row existed."""
-    from app.models.user import User
+    # `_seed_test_user` (module-level autouse fixture) already created the
+    # `users` row for _USER.
     from app.models.user_investment_context import UserInvestmentContext
 
-    db_session.add(
-        User(
-            id=_USER,
-            auth_provider="supabase",
-            auth_subject=f"sub-{_USER}",
-            email=f"{_USER}@example.com",
-            status="active",
-            locale="zh",
-            base_currency="USD",
-            report_cadence="mwf",
-        )
-    )
     db_session.add(
         UserInvestmentContext(
             user_id=_USER,
@@ -2890,18 +2895,25 @@ def _seed_investment_context(
     from app.models.user import User
     from app.models.user_investment_context import UserInvestmentContext
 
-    session.add(
-        User(
-            id=user_id,
-            auth_provider="supabase",
-            auth_subject=f"sub-{user_id}",
-            email=f"{user_id}@example.com",
-            status="active",
-            locale=locale,
-            base_currency="USD",
-            report_cadence="mwf",
+    # The module-level `_seed_test_user` autouse fixture already creates a
+    # `users` row for _USER (issue #129 B7); update it in place rather than
+    # inserting a second row under the same primary key.
+    existing = session.get(User, user_id)
+    if existing is not None:
+        existing.locale = locale
+    else:
+        session.add(
+            User(
+                id=user_id,
+                auth_provider="supabase",
+                auth_subject=f"sub-{user_id}",
+                email=f"{user_id}@example.com",
+                status="active",
+                locale=locale,
+                base_currency="USD",
+                report_cadence="mwf",
+            )
         )
-    )
     session.add(
         UserInvestmentContext(
             user_id=user_id,
