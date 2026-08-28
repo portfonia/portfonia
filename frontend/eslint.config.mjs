@@ -61,6 +61,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored third-party widget bundle (issue #231) — self-hosted so
+    // /forgot-password never loads it from an external CDN, but it's
+    // minified upstream code we don't own and don't want lint findings
+    // against. See public/altcha.js's own header comment for provenance.
+    "public/altcha.js",
   ]),
 ]);
 

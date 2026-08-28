@@ -80,7 +80,7 @@ describe("proxy", () => {
     expect(res.headers.get("location")).toBeNull();
   });
 
-  it.each(["/", "/login", "/signup?invite=abc"])(
+  it.each(["/", "/login", "/signup?invite=abc", "/forgot-password", "/reset-password"])(
     "never redirects the public route %s even when unauthenticated",
     async (path) => {
       getUser.mockResolvedValue({ data: { user: null } });

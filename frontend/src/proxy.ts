@@ -27,7 +27,13 @@ import { supabasePublicEnv } from "@/lib/supabase/env";
 //    propagation here — see api/holdings/upload/route.ts and
 //    lib/server-api.ts.
 
-const PUBLIC_PATH_PREFIXES = ["/login", "/signup", "/api/"];
+const PUBLIC_PATH_PREFIXES = [
+  "/login",
+  "/signup",
+  "/forgot-password",
+  "/reset-password",
+  "/api/",
+];
 
 function isPublicPath(pathname: string): boolean {
   if (pathname === "/") return true;

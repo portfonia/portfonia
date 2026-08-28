@@ -1,7 +1,9 @@
-"""Fixed-window rate limits for signup and invite minting (issue #190)."""
+"""Fixed-window rate limits for signup, invite minting (issue #190), and
+forgot-password (issue #231)."""
 
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import logging
 from datetime import UTC, datetime
@@ -37,6 +39,18 @@ SIGNUP_GLOBAL_ALERT_LIMIT = 200
 SIGNUP_GLOBAL_TTL = 86400
 INVITE_GLOBAL_ALERT_LIMIT = 200
 INVITE_GLOBAL_TTL = 86400
+# Forgot-password (issue #231): same fixed-window shape as signup's IP
+# buckets, plus a per-email bucket (signup has no equivalent — an invite
+# token is already a scarce, per-attempt credential; an email address here
+# is not). Tighter than signup's IP limits because this endpoint also
+# guards the one place account existence can be enumerated (design decision
+# in the issue: the response deliberately distinguishes found/not-found).
+FORGOT_PASSWORD_IP_MINUTE_LIMIT = 5
+FORGOT_PASSWORD_IP_MINUTE_TTL = 60
+FORGOT_PASSWORD_IP_HOUR_LIMIT = 20
+FORGOT_PASSWORD_IP_HOUR_TTL = 3600
+FORGOT_PASSWORD_EMAIL_HOUR_LIMIT = 3
+FORGOT_PASSWORD_EMAIL_HOUR_TTL = 3600
 
 _INCR_EXPIRE = """
 local n = redis.call('INCR', KEYS[1])
@@ -275,10 +289,7 @@ def _note_global_volume(
             bucket=day,
             window=ttl,
             subject=subject,
-            body=(
-                f"{n} {noun} attempts today (UTC {day}); threshold {limit}. "
-                "Not auto-blocked."
-            ),
+            body=(f"{n} {noun} attempts today (UTC {day}); threshold {limit}. Not auto-blocked."),
         )
 
 
@@ -329,6 +340,35 @@ def rate_limit_create_invite(request: Request) -> None:
             (INVITE_IP_HOUR_LIMIT, INVITE_IP_HOUR_TTL),
         ),
         scope="invites",
+    )
+
+
+def rate_limit_forgot_password(request: Request, email: str) -> None:
+    """IP + email fixed-window limits for POST /auth/forgot-password (issue #231).
+
+    Reuses the same `_enforce_ip`/`_protecting_incr` machinery as
+    rate_limit_signup/rate_limit_create_invite (issue #190) rather than a
+    parallel implementation — fail-closed on Redis down is inherited from
+    `_protecting_incr` raising RateLimitUnavailable -> HTTPException(503).
+    The email bucket is keyed by a hash, not the raw address, so Redis never
+    stores a plaintext email as part of a key name.
+    """
+    client_id = client_id_from_request(request)
+    _enforce_ip(
+        "rl:forgot_password:ip",
+        client_id,
+        (
+            (FORGOT_PASSWORD_IP_MINUTE_LIMIT, FORGOT_PASSWORD_IP_MINUTE_TTL),
+            (FORGOT_PASSWORD_IP_HOUR_LIMIT, FORGOT_PASSWORD_IP_HOUR_TTL),
+        ),
+        scope="forgot-password-ip",
+    )
+    email_bucket = hashlib.sha256(email.encode()).hexdigest()
+    _enforce_ip(
+        "rl:forgot_password:email",
+        email_bucket,
+        ((FORGOT_PASSWORD_EMAIL_HOUR_LIMIT, FORGOT_PASSWORD_EMAIL_HOUR_TTL),),
+        scope="forgot-password-email",
     )
 
 

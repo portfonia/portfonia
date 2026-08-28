@@ -7,15 +7,31 @@ import uuid
 from datetime import UTC, datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, SecretStr
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.database import get_session
-from app.core.rate_limit import guard_known_invite_token, rate_limit_signup
+from app.core.rate_limit import (
+    UNAVAILABLE_DETAIL,
+    guard_known_invite_token,
+    rate_limit_forgot_password,
+    rate_limit_signup,
+)
 from app.models.user import User
-from app.services.auth_provider import AuthProviderError, create_auth_user, delete_auth_user
+from app.services.altcha_challenge import (
+    create_forgot_password_challenge,
+    verify_forgot_password_solution,
+)
+from app.services.auth_provider import (
+    AuthProviderError,
+    create_auth_user,
+    delete_auth_user,
+    request_password_reset,
+)
 from app.services.invites import (
     INVITE_REJECTED_MESSAGE,
     InviteRejected,
@@ -98,3 +114,67 @@ def signup(
             ) from None
         raise
     return SignupResponse(id=user.id, email=user.email)
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+    # Base64-encoded Altcha v1 solution payload, from the widget's own
+    # hidden form field (default field name "altcha").
+    altcha: str
+
+
+class ForgotPasswordResponse(BaseModel):
+    # Deliberate deviation from OWASP ASVS enumeration-resistance guidance,
+    # confirmed twice by the product owner (issue #231): unlike a stock
+    # Supabase resetPasswordForEmail() integration, this response states
+    # plainly whether the account exists rather than returning an identical
+    # response either way.
+    account_found: bool
+
+
+@router.get("/altcha-challenge")
+def altcha_challenge() -> dict[str, object]:
+    """Self-hosted Altcha PoW challenge for the /forgot-password widget.
+
+    Stateless: the challenge signs its own expiry, so nothing is written to
+    Redis/DB here — verification in forgot_password() below recomputes it
+    from the same HMAC key.
+    """
+    return create_forgot_password_challenge()
+
+
+@router.post("/forgot-password", response_model=ForgotPasswordResponse)
+def forgot_password(
+    req: ForgotPasswordRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> ForgotPasswordResponse:
+    """Backend-mediated trigger for Supabase's password-recovery email
+    (issue #231). Architecture: verify PoW -> rate limit (IP + email) ->
+    look up the LOCAL `users` table (Supabase's own /recover response
+    cannot be used for existence, it deliberately looks identical either
+    way) -> trigger Supabase's mailer only on a match -> respond with the
+    real exists/not-exists answer.
+
+    The consumption side (/reset-password) is client-direct to Supabase,
+    same as login — no backend involvement, no PoW. See
+    docs/mechanisms/identity-and-auth.md's issue #190 section for why this
+    trigger endpoint is the one exception to "login/password-reset limiting
+    is hosted Auth, not this issue".
+    """
+    email = req.email.strip().lower()
+    if not verify_forgot_password_solution(req.altcha):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid captcha")
+    rate_limit_forgot_password(request, email)
+    exists = session.execute(select(User.id).where(User.email == email)).first() is not None
+    if exists:
+        try:
+            request_password_reset(
+                email, redirect_to=f"{get_settings().FRONTEND_URL}/reset-password"
+            )
+        except AuthProviderError:
+            logger.exception("forgot-password: failed to trigger Supabase reset email")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=UNAVAILABLE_DETAIL
+            ) from None
+    return ForgotPasswordResponse(account_found=exists)

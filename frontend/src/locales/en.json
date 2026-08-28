@@ -40,7 +40,22 @@
     "errorMissingCredentials": "Enter your email and password.",
     "errorInvalidCredentials": "Invalid email or password.",
     "errorMissingInviteToken": "This sign-up link is missing its invite token.",
-    "errorInvalidSignupInput": "Enter a valid email and a password of at least 8 characters."
+    "errorInvalidSignupInput": "Enter a valid email and a password of at least 8 characters.",
+    "forgotPasswordLink": "Forgot password?",
+    "forgotPasswordHeading": "Reset your password",
+    "forgotPasswordSubtitle": "Enter your account email and we'll send a reset link if it matches an account.",
+    "forgotPasswordSubmit": "Send reset link",
+    "forgotPasswordSubmitting": "Sending...",
+    "forgotPasswordCaptchaRequired": "Please complete the verification widget before submitting.",
+    "forgotPasswordThrownError": "Could not send the reset link. Try again.",
+    "forgotPasswordEmailSent": "If that email matches an account, a password reset link has been sent.",
+    "forgotPasswordAccountNotFound": "No account was found for that email address.",
+    "resetPasswordHeading": "Choose a new password",
+    "resetPasswordSubtitle": "Enter and confirm your new password.",
+    "resetPasswordSubmit": "Update password",
+    "resetPasswordSubmitting": "Updating...",
+    "resetPasswordSuccess": "Your password has been updated. Redirecting to log in...",
+    "resetPasswordFailed": "Could not update your password. This link may have expired — request a new one."
   },
   "holdings": {
     "pageTitle": "Holdings",
