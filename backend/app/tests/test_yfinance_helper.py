@@ -16,7 +16,10 @@ from app.services._yfinance import (
     _chunk,
     _download_batch,
     _market_key_for_ticker,
+    _normalize_ticker,
+    _scale_price,
     fetch_last_close,
+    fetch_spot,
 )
 
 _AS_OF = datetime(2026, 6, 4, 20, 0, tzinfo=UTC)
@@ -81,8 +84,92 @@ def _make_hist(ticker: str, price: float) -> pd.DataFrame:
     return pd.concat({"Close": close}, axis=1)
 
 
+# ---------------------------------------------------------------------------
+# _normalize_ticker (issue #204: known bare-ticker collisions on yfinance)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "ticker,expected",
+    [
+        # PSH: bare ticker collides with an unrelated US-listed ETF on
+        # yfinance; the real Pershing Square Holdings trades on the LSE.
+        ("PSH", "PSH.L"),
+        ("psh", "PSH.L"),
+        # Non-overridden tickers pass through unchanged.
+        ("AAPL", "AAPL"),
+        # HK normalization still composes through this function.
+        ("02333.HK", "2333.HK"),
+    ],
+)
+def test_normalize_ticker(ticker: str, expected: str) -> None:
+    assert _normalize_ticker(ticker) == expected
+
+
 def test_fetch_last_close_empty_input() -> None:
     assert fetch_last_close([]) == {}
+
+
+def test_fetch_last_close_normalizes_known_collision_ticker() -> None:
+    """A bare 'PSH' request must be resolved as PSH.L, not the collision ticker."""
+    call_record: list[list[str]] = []
+
+    def fake_download(**kwargs: object) -> pd.DataFrame:
+        tickers_arg = str(kwargs["tickers"]).split()
+        call_record.append(tickers_arg)
+        return _make_hist(tickers_arg[0], 5900.0)
+
+    with (
+        patch("app.services._yfinance.yf.download", side_effect=fake_download),
+        patch("app.services._yfinance.time.sleep"),
+    ):
+        result = fetch_last_close(["PSH"])
+
+    assert call_record == [["PSH.L"]]
+    assert set(result.keys()) == {"PSH.L"}
+
+
+def test_scale_price_converts_gbx_tickers_to_gbp() -> None:
+    """issue #204: yfinance quotes PSH.L in GBX (pence), a subunit of GBP —
+    the holding's declared currency. A raw pence value must be divided by
+    100 before it can be used as a GBP price."""
+    assert _scale_price("PSH.L", 5894.0) == pytest.approx(58.94)
+    # Unrelated tickers pass through unchanged.
+    assert _scale_price("AAPL", 300.0) == 300.0
+
+
+def test_fetch_last_close_scales_psh_l_from_pence_to_pounds() -> None:
+    """A raw PSH.L close of 5894 (GBX) must come back as 58.94 (GBP)."""
+
+    def fake_download(**kwargs: object) -> pd.DataFrame:
+        return _make_hist("PSH.L", 5894.0)
+
+    with (
+        patch("app.services._yfinance.yf.download", side_effect=fake_download),
+        patch("app.services._yfinance.time.sleep"),
+    ):
+        result = fetch_last_close(["PSH"])
+
+    price, _ = result["PSH.L"]
+    assert price == pytest.approx(58.94)
+
+
+def test_fetch_spot_normalizes_and_scales_known_collision_ticker() -> None:
+    """fetch_spot previously queried yfinance with the raw, un-normalized
+    ticker — a bare 'PSH' would hit the wrong instrument here even after the
+    close-node path was fixed. Must normalize to PSH.L and scale GBX→GBP,
+    same as fetch_last_close/fetch_ohlcv_range."""
+
+    class _FakeTicker:
+        def __init__(self, symbol: str) -> None:
+            assert symbol == "PSH.L", f"fetch_spot queried un-normalized ticker {symbol!r}"
+            self.fast_info = {"lastPrice": 3930.0}
+
+    with patch("app.services._yfinance.yf.Ticker", side_effect=_FakeTicker):
+        result = fetch_spot(["PSH"])
+
+    assert set(result.keys()) == {"PSH.L"}
+    assert result["PSH.L"] == pytest.approx(39.30)
 
 
 def test_fetch_last_close_splits_into_market_batches() -> None:

@@ -27,7 +27,7 @@ from app.models.news_surfaced import NewsSurfaced
 from app.models.price_snapshot import PriceSnapshot
 from app.models.report import Report
 from app.models.ticker_theme import TickerTheme
-from app.services._yfinance import _normalize_hk_ticker
+from app.services._yfinance import _normalize_ticker
 from app.services.asset_class_config import load_asset_class_config
 from app.services.news_fetcher import NewsItem
 from app.services.price_anomaly_detector import ConstituentMove, PriceAnomaly
@@ -708,7 +708,7 @@ def select_user_anomalies(
         # normalization, so a mixed-case ticker's move gets computed
         # correctly under moves' uppercase key but would silently miss here
         # without the same normalization on this side of the lookup.
-        identifier = _normalize_hk_ticker(raw).upper() if raw else None
+        identifier = _normalize_ticker(raw).upper() if raw else None
         if not identifier:
             continue
         move = moves.get(identifier)

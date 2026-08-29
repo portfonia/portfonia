@@ -16,11 +16,25 @@ from app.services._yfinance import fetch_last_close
 
 logger = logging.getLogger(__name__)
 
-# Pairs to fetch: DB name → yfinance ticker
+# Pairs to fetch: DB name → yfinance ticker. Must cover every
+# VALID_CURRENCIES entry other than USD (issue #204: GBP and 10 other valid
+# currencies had no pair here, so fx_rates never had a rate for them and
+# portfolio_calculator's _to_base always returned None for those holdings).
 _PAIRS: dict[str, str] = {
     "USDCNY": "USDCNY=X",
     "USDHKD": "USDHKD=X",
     "USDCNH": "USDCNH=X",
+    "USDGBP": "USDGBP=X",
+    "USDEUR": "USDEUR=X",
+    "USDJPY": "USDJPY=X",
+    "USDSGD": "USDSGD=X",
+    "USDAUD": "USDAUD=X",
+    "USDCAD": "USDCAD=X",
+    "USDCHF": "USDCHF=X",
+    "USDKRW": "USDKRW=X",
+    "USDTWD": "USDTWD=X",
+    "USDMOP": "USDMOP=X",
+    "USDNZD": "USDNZD=X",
 }
 
 
