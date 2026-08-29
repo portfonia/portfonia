@@ -295,11 +295,16 @@ mypy .                   # 3. types
 pytest -q                # 4. tests
 
 # Frontend (Next.js)
-bun run format           # 1. prettier write
-bun run lint:fix         # 2. eslint --fix
-bun run typecheck        # 3. tsc --noEmit
-bun run test             # 4. tests
+bun run lint:fix         # 1. eslint --fix
+bun run typecheck        # 2. tsc --noEmit
+bun run test             # 3. tests
 ```
+
+There is no frontend formatter (`prettier` is not a dependency) — `bun run lint:fix`
+is the only auto-fixing step. A prior version of this table listed a
+`bun run format` step that never existed as a package.json script; fixed
+2026-08-28 rather than left to drift further (see issue #227's frontend
+Dockerfile fix for the sibling doc/reality gap this was found alongside).
 
 Final gates (CI also enforces):
 
