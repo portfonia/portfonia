@@ -531,6 +531,41 @@ def test_holdings_listing_prints_the_normalized_identifier_l1_is_keyed_under() -
     assert "(700.HK)" not in holdings_section
 
 
+_PSH_PORTFOLIO: dict[str, Any] = {
+    "base_currency": "GBP",
+    "total_base": 59000.0,
+    "fx_date": "2026-08-28",
+    "holdings": [
+        {
+            "name": "Pershing Square Holdings",
+            "ticker": "PSH",  # raw form, as stored on Holding
+            "currency": "GBP",
+            "market_value": 59000.0,
+            "market_value_base": 59000.0,
+            "asset_class": "STOCK",
+        }
+    ],
+    "by_asset_class": {"STOCK": 59000.0},
+    "by_currency": {"GBP": 59000.0},
+}
+
+
+def test_holdings_listing_normalizes_known_collision_ticker_to_l1_key() -> None:
+    """issue #204 PR #253 review: PSH must print under 'PSH.L' — the same
+    identifier compute_global_moves/select_user_anomalies and the L1 block
+    key it under — not the raw 'PSH' stored on the holding."""
+    prompt = ra.build_assembly_prompt(
+        portfolio=_PSH_PORTFOLIO,
+        price_anomalies=[],
+        ticker_intel={"PSH.L": "Pershing Square moved on NAV discount news. [Established]"},
+        macro_event_intel={},
+        macro_event_exposure={},
+    )
+    holdings_section = prompt.split("Holdings, largest first")[1].split("===")[0]
+    assert "(PSH.L)" in holdings_section
+    assert "(PSH)" not in holdings_section
+
+
 # ---------------------------------------------------------------------------
 # L3 cross-name clusters in the prompt (issue #128 quality gate, §6.7 item 1)
 # ---------------------------------------------------------------------------

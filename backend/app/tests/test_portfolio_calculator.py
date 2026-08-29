@@ -327,6 +327,18 @@ def test_currency_to_fx_pair_covers_every_valid_currency_except_usd() -> None:
     assert set(_CURRENCY_TO_FX_PAIR) == VALID_CURRENCIES - {"USD"}
 
 
+def test_currency_to_fx_pair_matches_fx_fetcher_pairs_exactly() -> None:
+    """Review finding, PR #253: both _CURRENCY_TO_FX_PAIR and fx_fetcher._PAIRS
+    independently pin to VALID_CURRENCIES, but neither pinned to the OTHER —
+    a pair name typo'd differently in the two tables (e.g. GBP -> GBPUSD here
+    vs USDGBP in fx_fetcher) would pass both existing drift guards while
+    still breaking every GBP conversion, since fx_rates would never contain
+    the key this module looks up."""
+    from app.services import fx_fetcher
+
+    assert set(_CURRENCY_TO_FX_PAIR.values()) == set(fx_fetcher._PAIRS)
+
+
 def test_gbp_holding_converts_to_base(db_session: Session) -> None:
     """issue #204: GBP was a VALID_CURRENCIES entry with no FX pair, so any
     GBP-denominated holding silently landed in stale_tickers regardless of

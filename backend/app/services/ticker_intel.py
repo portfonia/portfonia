@@ -79,7 +79,7 @@ from sqlalchemy.orm import Session
 
 from app.compliance.output_scan import _scan_forbidden_output, _strip_markers
 from app.models.ticker_intel import TickerIntel
-from app.services._yfinance import _normalize_hk_ticker
+from app.services._yfinance import _normalize_ticker
 from app.services.email_sender import send_ops_alert
 from app.services.llm_errors import is_retryable
 from app.services.report_llm import _call_llm, _openrouter_client
@@ -579,7 +579,7 @@ def _holding_identifier(holding: dict[str, Any]) -> str:
     raw = holding.get("ticker") or holding.get("fund_code") or ""
     if not raw:
         return ""
-    return _normalize_hk_ticker(str(raw)).upper()
+    return _normalize_ticker(str(raw)).upper()
 
 
 def _weighted_identifiers(
@@ -769,7 +769,7 @@ def build_l1_facts(
     casing before use as a lookup key: it comes straight from
     `HoldingValue.ticker` (`portfolio_calculator.py`), the RAW
     `Holding.ticker` value, whereas `identifiers` (and `day_moves`' keys)
-    are always `_normalize_hk_ticker(...).upper()`'d — `select_user_anomalies`
+    are always `_normalize_ticker(...).upper()`'d — `select_user_anomalies`
     and `compute_global_moves` apply that normalization before either one
     ever produces a key. A holding whose `ticker` reached the DB without
     going through `holding_parser._postprocess` (e.g. `POST
@@ -780,7 +780,7 @@ def build_l1_facts(
     holdings most likely to need the normalization in the first place.
     """
     technical_by_ticker = {
-        _normalize_hk_ticker(t["ticker"]).upper(): t for t in technical_positions if t.get("ticker")
+        _normalize_ticker(t["ticker"]).upper(): t for t in technical_positions if t.get("ticker")
     }
     facts: dict[str, L1Facts] = {}
 

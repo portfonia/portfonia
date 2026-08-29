@@ -841,6 +841,30 @@ def test_compute_global_moves_computes_shared_identifier_once(db_session: Sessio
     assert set(moves.keys()) == {"NVDA"}
 
 
+def test_compute_global_moves_normalizes_known_collision_ticker(db_session: Session) -> None:
+    """issue #204 PR #253 review: a holding declared ticker='PSH' must
+    produce a move keyed 'PSH.L' — the same normalized key price_capture
+    writes closes under and select_user_anomalies looks moves up by.
+    Before this fix, this function's identifier universe (via
+    global_identifier_universe) stayed keyed under the raw 'PSH', so it
+    queried price_snapshots for the wrong (stale/absent) row while §1
+    valuation and anomaly detection had already moved to 'PSH.L'."""
+    db_session.add(_hk_holding(_USER, "Pershing Square Holdings", "PSH", "STOCK"))
+    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    db_session.add_all(
+        [
+            _close_at("PSH.L", date(2026, 6, 2), 58.0, start),
+            _close("PSH.L", date(2026, 6, 3), 59.0),
+        ]
+    )
+    db_session.flush()
+    end = datetime(2026, 6, 3, 20, 30, tzinfo=UTC)
+
+    moves, _ = compute_global_moves(db_session, start, end)
+
+    assert set(moves.keys()) == {"PSH.L"}
+
+
 def test_resolve_global_moves_with_day_bounds_yields_single_trading_day_move(
     db_session: Session,
 ) -> None:
