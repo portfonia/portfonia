@@ -49,6 +49,15 @@ Portfonia is an intelligence service, not an advisory service. The following are
 
 Every report carries a single bilingual disclaimer in its footer (injected at the template layer, never written by the model). Compliance scaffolding — the Layer-3 boundary, a vocabulary blacklist, and a post-generation output scan that holds any offending report for review instead of sending it — is enforced at the template and prompt layer, not left to the model's judgment.
 
+## Security
+
+- **Field-level encryption at rest.** Holdings identity and amount fields — name, ticker, shares, cost basis, current value, broker, account, portfolio, notes — are encrypted per field, not just at the disk/volume level. A leaked backup or DB dump doesn't expose positions in plaintext.
+- **LLM context isolation, not just prompt hygiene.** Report generation runs two passes on different models. The first (search-query generation) sees only public market/macro context and never touches holdings. Anything holdings-derived — including price-anomaly data that would itself reveal a position — is scoped to the second, holdings-aware pass only. Every LLM call defaults to no-training-use data handling, so a provider can't retain the payload even if a future bug routed holdings into the wrong pass.
+- **Default-deny identity, server-enforced idle logout.** No request trusts an ambient "current user" — every call re-verifies a signed session token, and every service function takes an explicit user id rather than reading one from shared state. Idle sessions are force-logged-out **server-side** after 15 minutes, not just a client-side timer that closing the tab would defeat.
+- **Admin channel isolated from user auth.** Operational endpoints authenticate with a separate, rotatable token (constant-time comparison) — independent of the user login system, so one being down or compromised doesn't take out the other — and every admin call is audit-logged.
+- **Email sent over a TLS-only transactional API**, from a domain with SPF/DKIM/DMARC configured, not a self-hosted relay.
+- **Secrets never touch the repo or logs.** API keys and DB credentials load from untracked `.env` files only.
+
 ## Status
 
 Ring 1 — invite-only closed beta, multi-user. Ring 0 validated the core hypothesis: an LLM mapping market information onto an individual portfolio produces *cognitive lift* the user does not already get from their broker app, the financial press, or generic newsletters. Ring 1 built what running that for more than one person requires — real accounts, the shared intelligence layer above, and an admin channel to operate it. See the [v0.8.0 release](https://github.com/portfonia/portfonia/releases/tag/v0.8.0) for what shipped.
