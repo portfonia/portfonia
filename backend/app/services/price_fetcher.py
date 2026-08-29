@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.holding import Holding
-from app.services._yfinance import fetch_last_close
+from app.services._yfinance import _normalize_ticker, fetch_last_close
 from app.services.sector_taxonomy import map_yf_sector
 
 logger = logging.getLogger(__name__)
@@ -80,7 +80,10 @@ def update_holding_prices(session: Session) -> PriceFetchResult:
     # Partial-failure retry: any ticker absent from the first pass gets a
     # single-ticker retry with a short pause between calls.  Single-ticker
     # requests hit a different Yahoo endpoint path and are more reliable.
-    failed_first_pass = [t for t in unique_tickers if t not in points]
+    # `points` is keyed by fetch_last_close's normalized ticker (issue #204:
+    # e.g. "PSH.L" for the raw "PSH"), so membership must check the
+    # normalized form or every normalized ticker looks perpetually missing.
+    failed_first_pass = [t for t in unique_tickers if _normalize_ticker(t) not in points]
     if failed_first_pass:
         logger.warning(
             "yfinance partial failure (%d/%d tickers missing), retrying individually: %s",
@@ -102,11 +105,12 @@ def update_holding_prices(session: Session) -> PriceFetchResult:
     for row in rows:
         ticker = row.ticker
         assert ticker is not None  # filtered in query above
-        if ticker not in points:
+        normalized = _normalize_ticker(ticker)
+        if normalized not in points:
             result.failed.append(ticker)
             logger.warning("no price data for ticker %s", ticker)
             continue
-        price, as_of = points[ticker]
+        price, as_of = points[normalized]
         row.market_price = Decimal(str(price))
         row.price_as_of = as_of
         row.price_fetched_at = fetched_at

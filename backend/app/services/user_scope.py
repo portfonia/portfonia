@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.models.holding import Holding
 from app.models.user import User
-from app.services._yfinance import _normalize_hk_ticker
+from app.services._yfinance import _normalize_ticker
 
 # Cadences whose fan-out still requires at least one holding row (issue #191
 # decision point 2). Not in this set -> an empty book still enters the batch,
@@ -79,6 +79,6 @@ def global_identifier_universe(session: Session) -> dict[str, list[Holding]]:
         raw = h.ticker or h.fund_code
         if not raw:
             continue
-        identifier = _normalize_hk_ticker(raw).upper()
+        identifier = _normalize_ticker(raw).upper()
         universe.setdefault(identifier, []).append(h)
     return universe

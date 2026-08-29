@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.models.fx_rate import FxRate
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
-from app.services.portfolio_calculator import _to_base, compute_portfolio
+from app.services.portfolio_calculator import _CURRENCY_TO_FX_PAIR, _to_base, compute_portfolio
 from app.tests.conftest import seed_user
 
 _USER = uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -316,3 +316,67 @@ def test_to_base_cross_currency() -> None:
     assert _to_base(Decimal("42"), "USD", "USD", fx) == Decimal("42")
     # missing pair → None
     assert _to_base(Decimal("1"), "JPY", "USD", fx) is None
+
+
+def test_currency_to_fx_pair_covers_every_valid_currency_except_usd() -> None:
+    """issue #204: GBP (and 10 other VALID_CURRENCIES entries) had no FX pair
+    here, so _to_base always returned None for them. Pin the full set so a
+    future currency addition to VALID_CURRENCIES can't reintroduce the gap."""
+    from app.schemas.holdings import VALID_CURRENCIES
+
+    assert set(_CURRENCY_TO_FX_PAIR) == VALID_CURRENCIES - {"USD"}
+
+
+def test_currency_to_fx_pair_matches_fx_fetcher_pairs_exactly() -> None:
+    """Review finding, PR #253: both _CURRENCY_TO_FX_PAIR and fx_fetcher._PAIRS
+    independently pin to VALID_CURRENCIES, but neither pinned to the OTHER —
+    a pair name typo'd differently in the two tables (e.g. GBP -> GBPUSD here
+    vs USDGBP in fx_fetcher) would pass both existing drift guards while
+    still breaking every GBP conversion, since fx_rates would never contain
+    the key this module looks up."""
+    from app.services import fx_fetcher
+
+    assert set(_CURRENCY_TO_FX_PAIR.values()) == set(fx_fetcher._PAIRS)
+
+
+def test_gbp_holding_converts_to_base(db_session: Session) -> None:
+    """issue #204: GBP was a VALID_CURRENCIES entry with no FX pair, so any
+    GBP-denominated holding silently landed in stale_tickers regardless of
+    whether its price was correct."""
+    db_session.add(FxRate(pair="USDGBP", rate=Decimal("0.75"), rate_date=_FX_DATE, source="test"))
+    db_session.add(_stock("Pershing Square Holdings", "PSH", "GBP", "10", "60"))
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    assert snap.stale_tickers == []
+    # 600 GBP / 0.75 = 800 USD
+    assert snap.total_base == Decimal("800.00")
+
+
+def test_psh_ticker_resolves_captured_price_via_lse_normalization(db_session: Session) -> None:
+    """issue #204: bare 'PSH' collides with an unrelated US ETF on yfinance.
+    The capture layer stores the real Pershing Square Holdings close under
+    the normalized 'PSH.L' key; lookup must apply the same normalization to
+    the user's stored 'PSH' ticker to find it."""
+    db_session.add(FxRate(pair="USDGBP", rate=Decimal("0.75"), rate_date=_FX_DATE, source="test"))
+    holding = _stock("Pershing Square Holdings", "PSH", "GBP", "10", None)
+    db_session.add(holding)
+    db_session.flush()
+
+    db_session.add(
+        PriceSnapshot(
+            ticker="PSH.L",
+            market="US",
+            session_node="close",
+            trade_date=date.today(),
+            close=Decimal("59.00"),
+        )
+    )
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    assert snap.stale_tickers == []
+    # 590 GBP / 0.75 = 786.67 USD
+    assert snap.total_base == Decimal("786.67")

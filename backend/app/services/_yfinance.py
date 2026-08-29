@@ -41,6 +41,41 @@ def _normalize_hk_ticker(ticker: str) -> str:
     return f"{digits}.HK"
 
 
+# Bare tickers that silently collide with an unrelated US-listed security on
+# yfinance and need an explicit exchange suffix to resolve to the intended
+# instrument (issue #204: bare "PSH" resolved to an unrelated US ETF instead
+# of Pershing Square Holdings, which trades on the LSE as PSH.L).
+_TICKER_SYMBOL_OVERRIDE: dict[str, str] = {
+    "PSH": "PSH.L",
+}
+
+
+def _normalize_ticker(ticker: str) -> str:
+    """Canonicalize a ticker to its yfinance-resolvable form.
+
+    Composes the known-collision override table above with HK suffix
+    normalization (issue #64) — the two sets are disjoint today, so order
+    between them doesn't matter.
+    """
+    overridden = _TICKER_SYMBOL_OVERRIDE.get(ticker.upper(), ticker)
+    return _normalize_hk_ticker(overridden)
+
+
+# LSE-listed tickers yfinance quotes in GBX (pence, a subunit of GBP) rather
+# than GBP — the currency the holding itself declares (issue #204: PSH.L's
+# fast_info reports currency="GBp", lastPrice~3930 for a stock trading
+# ~GBP 39). Every value read for a ticker in this table is divided by 100 so
+# price_snapshots stays denominated in the holding's own declared currency,
+# same as every other captured ticker.
+_TICKER_PRICE_SCALE: dict[str, float] = {
+    "PSH.L": 0.01,
+}
+
+
+def _scale_price(ticker: str, value: float) -> float:
+    return value * _TICKER_PRICE_SCALE.get(ticker, 1.0)
+
+
 # Type alias used by fetch_last_close.
 ClosePoint = tuple[float, datetime]  # (price, exchange-timestamp)
 
@@ -132,7 +167,8 @@ def _download_batch(tickers: list[str]) -> dict[str, ClosePoint]:
             continue
         pts = _extract_close_points(close[ticker], 1)
         if pts:
-            out[ticker] = pts[0]
+            price, as_of = pts[0]
+            out[ticker] = (_scale_price(ticker, price), as_of)
     return out
 
 
@@ -152,7 +188,7 @@ def fetch_last_close(tickers: list[str]) -> dict[str, ClosePoint]:
     if not tickers:
         return {}
 
-    tickers = [_normalize_hk_ticker(t) for t in tickers]
+    tickers = [_normalize_ticker(t) for t in tickers]
 
     # Group by market, preserving insertion order within each group.
     by_market: dict[str, list[str]] = {"us": [], "hk": [], "cn": []}
@@ -186,10 +222,10 @@ def _ohlcv_rows_for_ticker(hist: pd.DataFrame, ticker: str) -> list[OhlcvPoint]:
             rows.append(
                 (
                     ts.date(),
-                    float(row["Open"]),
-                    float(row["High"]),
-                    float(row["Low"]),
-                    float(row["Close"]),
+                    _scale_price(ticker, float(row["Open"])),
+                    _scale_price(ticker, float(row["High"])),
+                    _scale_price(ticker, float(row["Low"])),
+                    _scale_price(ticker, float(row["Close"])),
                     None if vol is None or pd.isna(vol) else float(vol),
                 )
             )
@@ -208,7 +244,7 @@ def fetch_ohlcv_range(tickers: list[str], lookback_days: int = 7) -> dict[str, l
     """
     if not tickers:
         return {}
-    tickers = [_normalize_hk_ticker(t) for t in tickers]
+    tickers = [_normalize_ticker(t) for t in tickers]
     period = f"{max(lookback_days, 2)}d"
     by_market: dict[str, list[str]] = {"us": [], "hk": [], "cn": []}
     for t in tickers:
@@ -244,13 +280,20 @@ def fetch_spot(tickers: list[str]) -> dict[str, float]:
     Uses yfinance fast_info; tickers with no usable value are omitted (the
     caller stores null for them). Intraday/extended-hours data is flaky by
     nature — this is best-effort, the close node is the authoritative path.
+
+    Tickers are normalized the same way as fetch_last_close/fetch_ohlcv_range
+    (issue #204: this used to query yfinance with the raw, un-normalized
+    ticker, so a bare "PSH" would query the wrong instrument here even after
+    the close-node path was fixed to query "PSH.L") — the returned dict is
+    keyed by the normalized ticker so it lines up with the close-node keys.
     """
     out: dict[str, float] = {}
-    for t in tickers:
+    for raw in tickers:
+        t = _normalize_ticker(raw)
         try:
             last = yf.Ticker(t).fast_info.get("lastPrice")
             if last is not None and not pd.isna(last):
-                out[t] = float(last)
+                out[t] = _scale_price(t, float(last))
         except Exception:
             logger.exception("yfinance spot fetch failed for %s", t)
     return out

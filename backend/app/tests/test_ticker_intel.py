@@ -679,6 +679,26 @@ def test_build_l1_prompt_dates_lookback_and_headlines() -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_holding_identifier_normalizes_known_collision_ticker() -> None:
+    """issue #204 PR #253 review: _holding_identifier fed
+    large_weight_identifiers/_weighted_identifiers, which must key a PSH
+    holding under 'PSH.L' — the same identifier compute_global_moves and
+    select_user_anomalies use — or top-weight selection silently loses it."""
+    assert ti._holding_identifier({"ticker": "PSH"}) == "PSH.L"
+
+
+def test_build_l1_facts_normalizes_known_collision_ticker_before_matching_technical_positions() -> (
+    None
+):
+    """Same shape as the HK case above, for issue #204's PSH/PSH.L collision:
+    technical_positions[].ticker is the raw Holding.ticker ('PSH'), while
+    identifiers/day_moves keys are the normalized form ('PSH.L')."""
+    identifiers = ti.l1_identifiers_for_user([{"identifier": "PSH.L", "constituents": []}])
+    technical = [{"ticker": "PSH", "pct_vs_sma50": 0.04}]
+    facts = ti.build_l1_facts(identifiers, {"PSH.L": _move("PSH.L")}, {}, technical)
+    assert facts["PSH.L"].pct_vs_sma50 == 0.04
+
+
 def test_l1_identifiers_for_user_returns_plain_strings_only() -> None:
     """THE structural firewall (design doc §4.8 addendum). The per-user
     anomaly list may contribute exactly one thing to the shared L1 cache:

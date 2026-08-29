@@ -1,5 +1,95 @@
 # Capture layer, incremental reporting, and shared-compute stages (ADR-002, Ring 1 A1-A4)
 
+### FX currency coverage + ticker-normalization consistency (issue #204, PR #253)
+
+**Trigger**: PSH (Pershing Square Holdings) silently excluded from §1/totals
+across two separate report runs three days apart (#204, later #249 as a
+duplicate). Three independent bugs, not the "missing price_snapshots row"
+the issue title suggested — verified against real production data before
+any fix:
+
+1. **FX pair coverage.** `VALID_CURRENCIES` (`app/schemas/holdings.py`) has
+   always listed 14 currencies, but `fx_fetcher._PAIRS` and
+   `portfolio_calculator._CURRENCY_TO_FX_PAIR` only covered CNY/CNH/HKD —
+   the other 11 (GBP/EUR/JPY/SGD/AUD/CAD/CHF/KRW/TWD/MOP/NZD) had no FX
+   pair anywhere, so `_to_base()` always returned `None` for them regardless
+   of price correctness. All 11 added, mirroring the existing pattern. Two
+   drift-guard tests pin `_PAIRS`/`_CURRENCY_TO_FX_PAIR` each to
+   `VALID_CURRENCIES`, plus a third (review finding, round 1) pinning them
+   to each other directly — either one alone matching `VALID_CURRENCIES`
+   does not guarantee the two tables' pair *names* agree with each other.
+2. **Ticker collision.** Bare `PSH` resolves on yfinance to an unrelated
+   US-listed ETF (~$50, exchange "BTS"), not the real LSE-listed Pershing
+   Square Holdings (`PSH.L`). `price_snapshots` *did* have a row for
+   `PSH`/`US` — it was pricing the wrong security. `_yfinance.py` gained
+   `_TICKER_SYMBOL_OVERRIDE` (a hardcoded collision table, currently just
+   `{"PSH": "PSH.L"}`) composed into a new `_normalize_ticker()` alongside
+   the existing HK suffix normalizer (issue #64/#69) — same shape as #69's
+   fix, not a new mechanism.
+3. **GBX vs GBP.** yfinance quotes `PSH.L` in GBX (pence, a subunit of GBP),
+   not GBP itself (`fast_info.currency == "GBp"`). Found while fixing #2:
+   without correcting this, fix #1 alone would have valued the holding
+   100x too high. `_yfinance.py` gained `_TICKER_PRICE_SCALE` (per-ticker
+   multiplier, currently `{"PSH.L": 0.01}`), applied at every price
+   extraction point (`fetch_last_close`, `fetch_ohlcv_range`, `fetch_spot`).
+
+**The consistency invariant this surfaced** (review round 1/2, blacktomb42 —
+2 further rounds of `CHANGES_REQUESTED` after the first fix landed): capture
+writes `price_snapshots` rows keyed by `_normalize_ticker(raw)`, so **every**
+downstream consumer that re-derives a lookup/join key from a raw
+`Holding.ticker` must apply the exact same normalization, not just the
+call sites the original bug happened to touch. This turned out to be more
+call sites than #69's HK fix needed, because #204 landed after several new
+consumers of the identifier convention had been added since:
+
+- `price_capture.capture_prices` / `fetch_last_close` / `fetch_ohlcv_range`
+  / `fetch_spot` (write side — `fetch_spot` previously had **no**
+  normalization at all, a pre-existing gap independent of #204's PSH case)
+- `portfolio_calculator.compute_portfolio` (§1 valuation)
+- `window_data.select_user_anomalies` / `window_data.compute_global_moves`
+  (via `user_scope.global_identifier_universe`, the identifier-universe
+  producer — round 1 finding: this one was missed in the first PR revision,
+  splitting PSH across two identifiers, correct in §1 but silently absent
+  from anomaly detection and L1 facts)
+- `report_assembly._identifier` (holdings-listing print key, must match the
+  L1 block's key or the model can't connect prose to a listed holding)
+- `ticker_intel._holding_identifier` (feeds `large_weight_identifiers`) and
+  `ticker_intel.build_l1_facts`'s `technical_positions` join key
+- `technical_position.compute_technical_position` (round 2 finding: this one
+  queries `price_snapshots` directly with the raw ticker rather than joining
+  against an already-normalized dict, so it needed the fix at the *query*
+  itself, not just a join-key adjustment — otherwise §4.4 stays permanently
+  empty for any ticker needing normalization, independent of every other
+  fix in this list being correct)
+- `price_fetcher.update_holding_prices` (round 2 finding: `fetch_last_close`
+  returns normalized keys, but the write-back loop matched against the raw
+  `Holding.ticker` — so `market_price`/`price_as_of` were never refreshed
+  for PSH going forward, meaning `compute_portfolio`'s `h.market_price`
+  fallback stayed pinned to the pre-fix, wrong-security value indefinitely
+  whenever a fresh `price_snapshots` close wasn't available for some reason)
+- `routers/holdings._tickers_with_sparse_history` (round 2 finding: the
+  confirm-time check for "does this ticker already have enough close bars"
+  queried by the raw ticker too, so it never found the normalized rows and
+  re-enqueued a full 420-day `backfill_ohlcv_task` on every single confirm
+  for a ticker that already had a year of correctly-captured history)
+
+`holding_parser.py`'s own `_normalize_hk_ticker` (a *separate*, older
+function — parse-time DB-write canonicalization, e.g. `02333.HK` →
+`2333.HK`) is intentionally untouched: it operates at a different layer
+(what gets stored on `Holding.ticker`) than `_yfinance._normalize_ticker`
+(what gets used as a lookup/fetch key), and #204's bug was entirely in the
+latter.
+
+**Deferred, not part of this fix** (#252, product-owner scoping decision):
+the capture scheduler (`_MARKET_NODES` in `app/tasks/__init__.py`) only
+ever runs for `US`/`HK`/`A-Share` — `market="Other"`, the schema's own
+catch-all for a non-US/HK/CN listing, has zero scheduled capture at all.
+PSH only got priced (wrongly, pre-fix) because it happened to be declared
+`market="US"`. Building a general foreign-listing capture mechanism —
+timezone/session-node scheduling for an arbitrary exchange, a non-hardcoded
+ticker-suffix resolution scheme, per-exchange currency-subunit handling —
+is a design task, not a bug-fix extension of this one.
+
 ### Fund NAV realtime path: Sina Finance fallback (issue #20)
 
 `fund_nav_fetcher.py`'s realtime path (`_fetch_nav` → `update_fund_navs`, keeps

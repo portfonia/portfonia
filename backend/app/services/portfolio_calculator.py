@@ -14,7 +14,7 @@ from app.core.timezones import ET
 from app.models.fx_rate import FxRate
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
-from app.services._yfinance import _normalize_hk_ticker
+from app.services._yfinance import _normalize_ticker
 from app.services.asset_class_config import load_asset_class_config
 
 _ZERO = Decimal("0")
@@ -26,11 +26,25 @@ _RATIO = Decimal("0.0001")  # 4 dp for fractions (0..1)
 # a 5+ day gap indicates a capture pipeline failure, not normal market closure.
 _PRICE_STALE_DAYS = 4
 
-# All FX rates are stored as 1 USD = X foreign.
+# All FX rates are stored as 1 USD = X foreign. Every VALID_CURRENCIES entry
+# other than USD needs a pair here (issue #204: GBP was a valid, accepted
+# currency with no pair, so any GBP holding silently landed in stale_tickers
+# regardless of price correctness — same gap existed for 10 other currencies).
 _CURRENCY_TO_FX_PAIR: dict[str, str] = {
     "CNY": "USDCNY",
     "CNH": "USDCNH",
     "HKD": "USDHKD",
+    "GBP": "USDGBP",
+    "EUR": "USDEUR",
+    "JPY": "USDJPY",
+    "SGD": "USDSGD",
+    "AUD": "USDAUD",
+    "CAD": "USDCAD",
+    "CHF": "USDCHF",
+    "KRW": "USDKRW",
+    "TWD": "USDTWD",
+    "MOP": "USDMOP",
+    "NZD": "USDNZD",
 }
 
 # §6.5 snapshot concentration thresholds — admin-editable, see
@@ -291,7 +305,7 @@ def compute_portfolio(
             price_as_of = h.price_as_of
             # Fund NAVs are stored in price_snapshots under the fund_code key.
             raw_key = h.ticker or h.fund_code or ""
-            captured = captured_closes.get(_normalize_hk_ticker(raw_key))
+            captured = captured_closes.get(_normalize_ticker(raw_key))
             if captured is not None:
                 price, trade_date = captured
                 price_as_of = datetime.combine(trade_date, datetime.min.time(), tzinfo=ET)

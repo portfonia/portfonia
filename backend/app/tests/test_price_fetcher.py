@@ -52,6 +52,28 @@ def test_prices_written_to_db(db_session: Session) -> None:
     assert rows["AAPL"].price_fetched_at is not None
 
 
+def test_normalizes_known_collision_ticker_before_matching_result(db_session: Session) -> None:
+    """issue #204 PR #253 review: fetch_last_close normalizes and returns
+    results keyed by the normalized ticker (e.g. "PSH.L" for a holding
+    whose raw stored ticker is "PSH"). Matching the loop back against the
+    raw ticker always missed, so this holding's market_price/price_as_of
+    were never written — and it silently retried every run, since the
+    partial-failure check made the same raw-vs-normalized mismatch."""
+    db_session.add(_auto("Pershing Square Holdings", "PSH", asset_type="stock"))
+    db_session.flush()
+
+    points = {"PSH.L": (59.0, _AS_OF)}
+    with patch.object(price_fetcher, "fetch_last_close", return_value=points):
+        result = price_fetcher.update_holding_prices(db_session)
+
+    assert result.updated == 1
+    assert result.failed == []
+
+    rows = {h.ticker: h for h in db_session.query(Holding).all()}
+    assert rows["PSH"].market_price == Decimal("59.0")
+    assert rows["PSH"].price_as_of == _AS_OF
+
+
 def test_missing_ticker_marked_failed_not_fatal(db_session: Session) -> None:
     db_session.add_all([_auto("Apple", "AAPL"), _auto("Ghost", "GHOST")])
     db_session.flush()
