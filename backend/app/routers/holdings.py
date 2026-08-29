@@ -17,6 +17,7 @@ from app.models.price_snapshot import PriceSnapshot
 from app.models.upload_job import UploadJob
 from app.schemas.holdings import HoldingOut, ParsedRow, UploadJobOut
 from app.services import holding_parser
+from app.services._yfinance import _normalize_ticker
 from app.services.accounts import resolve_accounts_for_holdings
 from app.services.price_fetcher import backfill_sectors
 from app.tasks.holdings_tasks import parse_holdings_upload
@@ -81,19 +82,26 @@ def _tickers_with_sparse_history(session: Session, user_id: UUID) -> list[str]:
     tickers = {h.ticker for h in holdings if h.ticker}
     if not tickers:
         return []
+    # price_snapshots is keyed by the normalized ticker (issue #204: e.g.
+    # "PSH.L" for a holding whose raw ticker is "PSH") — querying by the raw
+    # ticker never matches, so every confirm re-enqueued a fresh 420-day
+    # backfill for a ticker that already had a full year of history.
+    normalized_to_raw: dict[str, str] = {_normalize_ticker(t): t for t in tickers}
     bar_counts: dict[str, int] = {
         row[0]: row[1]
         for row in session.execute(
             select(PriceSnapshot.ticker, func.count().label("bars"))
             .where(
-                PriceSnapshot.ticker.in_(tickers),
+                PriceSnapshot.ticker.in_(normalized_to_raw),
                 PriceSnapshot.session_node == "close",
                 PriceSnapshot.close.is_not(None),
             )
             .group_by(PriceSnapshot.ticker)
         ).all()
     }
-    sparse = sorted(t for t in tickers if bar_counts.get(t, 0) < _MIN_BARS_FOR_TECHNICAL)
+    sparse = sorted(
+        t for t in tickers if bar_counts.get(_normalize_ticker(t), 0) < _MIN_BARS_FOR_TECHNICAL
+    )
     if sparse:
         # Concept §8.8: application logs record user_id, never holdings
         # content — a ticker list is holdings-derived (issue #129 §2.2 D).

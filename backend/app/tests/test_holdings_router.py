@@ -48,6 +48,24 @@ _PARSED_APPLE: dict[str, object] = {
     "confidence": 1.0,
 }
 
+_PARSED_PSH: dict[str, object] = {
+    "name": "Pershing Square Holdings",
+    "ticker": "PSH",
+    "fund_code": None,
+    "currency": "GBP",
+    "shares": 10.0,
+    "avg_cost": 55.0,
+    "current_value": None,
+    "pricing_mode": "auto",
+    "asset_type": "stock",
+    "broker": "IBKR",
+    "account": None,
+    "portfolio": None,
+    "notes": None,
+    "issues": [],
+    "confidence": 1.0,
+}
+
 _PARSED_CASH: dict[str, object] = {
     "name": "USD Cash",
     "ticker": None,
@@ -507,6 +525,35 @@ def test_confirm_skips_backfill_when_this_users_tickers_already_have_history(
 
     with patch("app.tasks.capture_tasks.backfill_ohlcv_task") as mock_task:
         resp = app_client.post("/holdings/confirm", json=[_PARSED_APPLE])
+    assert resp.status_code == 200
+    mock_task.delay.assert_not_called()
+
+
+def test_confirm_skips_backfill_when_known_collision_ticker_history_exists(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """issue #204 PR #253 review: capture writes PSH's closes under the
+    normalized 'PSH.L' key. The sparse-history check queried price_snapshots
+    for the raw holding ticker 'PSH', which never matches, so every confirm
+    re-enqueued a fresh 420-day backfill for a ticker that already has a
+    full year of correctly-captured history."""
+    start = date(2026, 1, 1)
+    db_session.add_all(
+        [
+            PriceSnapshot(
+                ticker="PSH.L",
+                market="US",
+                session_node="close",
+                trade_date=start + timedelta(days=i),
+                close=Decimal("59"),
+            )
+            for i in range(50)
+        ]
+    )
+    db_session.commit()
+
+    with patch("app.tasks.capture_tasks.backfill_ohlcv_task") as mock_task:
+        resp = app_client.post("/holdings/confirm", json=[_PARSED_PSH])
     assert resp.status_code == 200
     mock_task.delay.assert_not_called()
 
