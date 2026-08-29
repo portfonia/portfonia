@@ -1,18 +1,10 @@
-FROM node:22-alpine AS deps
+FROM oven/bun:1.4.0-alpine AS deps
 WORKDIR /app
-COPY package.json package-lock.json ./
-# --legacy-peer-deps: next-intl's nested @swc/core declares an OPTIONAL
-# peer dependency on @swc/helpers (peerDependenciesMeta.optional: true) that
-# the committed lockfile correctly never resolves -- `npm install` honors
-# "optional" and skips it with no error, but `npm ci`'s stricter npm 7+
-# peer-conflict validation flags the same absence as a hard failure. This
-# disables that specific over-strict check (npm 6 peer semantics: warn,
-# don't block) without touching package.json/package-lock.json version
-# consistency enforcement, which `ci` still fully performs. See issue #227.
-RUN npm ci --legacy-peer-deps
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
 
 
-FROM node:22-alpine AS builder
+FROM oven/bun:1.4.0-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -47,7 +39,7 @@ ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
 RUN test -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY" || \
     (echo "NEXT_PUBLIC_SUPABASE_ANON_KEY build arg is required" >&2 && exit 1)
 
-RUN npm run build
+RUN bun run build
 
 
 FROM node:22-alpine AS runner
