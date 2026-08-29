@@ -169,7 +169,7 @@ in any other language.
   tracked file there (a `.gitkeep` is fine) even after removing every real
   asset. (issue #100/#101 — this landed with PR #93 and sat undetected on
   `main` through two more PRs, because production hadn't redeployed since;
-  `npm run dev`/`next build` don't care about a missing `public/`, only the
+  `bun run dev`/`next build` don't care about a missing `public/`, only the
   Docker multi-stage build does — see the Quality Gates gap noted below.)
 - **Frontend has one lockfile (`bun.lock`) — the two-lockfile drift that
   broke production deploys three times is fixed (issue #227, PR #255,
@@ -185,7 +185,7 @@ in any other language.
 
 | Layer | Choice |
 |-------|--------|
-| Frontend | Next.js + shadcn/ui |
+| Frontend | Next.js + shadcn/ui. **Package manager is `bun`, exclusively — never `npm`/`npx`/`yarn`/`pnpm`.** `bun.lock` is the only lockfile; there is no `package-lock.json` (deleted, issue #227/PR #255). This applies everywhere: local dev, CI-equivalent local gates, and `frontend/Dockerfile`'s image build. Reaching for `npm install`/`npm ci` out of habit — even "just this once," even inside a Dockerfile stage — is exactly the mistake that caused three separate production deploy failures (issues #226, #243, PR #230 incident) before #227 fixed it; don't reintroduce a second lockfile. |
 | Backend | Python FastAPI |
 | Database | PostgreSQL, self-hosted in Docker on the production VPS (not Supabase-managed — decided 2026-08-05 to cut hosting complexity). Supabase is used for **Auth only**. |
 | Task queue | Celery + Redis |
@@ -307,7 +307,7 @@ file in `frontend/public/` — see the regression note above) passes every
 gate here and still fails at deploy time, silently, until someone actually
 redeploys. When a change touches `frontend/public/`, either `Dockerfile`,
 or `docker-compose.yml`, run a real `docker build`/`docker compose build`
-before pushing — `npm run dev`/`next build` do not exercise the same path
+before pushing — `bun run dev`/`next build` do not exercise the same path
 and will not catch this class of bug.
 
 ## CI-First Protocol (MANDATORY)
