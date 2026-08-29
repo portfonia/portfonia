@@ -446,8 +446,17 @@ Examples:
 
 ## Releases
 
-Releases are automated. **Never** bump versions or create tags by hand.
-Let CI handle versioning, changelog, tag, and publish.
+Releases are automated (issue #250, `.github/workflows/release.yml`,
+`semantic-release` + `.releaserc.json`). **Never** bump versions or create
+tags by hand. On every push to `main`, the workflow derives the next
+version from commit types since the last tag (`feat`->minor, `fix`/
+`perf`->patch, `feat!`->major; everything else = no release) and publishes
+a git tag + GitHub Release. The Release notes ARE the changelog — there is
+no committed `CHANGELOG.md` and nothing pushes back to `main` (deliberately:
+see PR #254 review — a changelog-commit plugin would have been a direct
+write to `main`, contradicting the Branching rule below). This is
+release-only: it does not run lint/type/test first, so the local quality
+gate stays the pre-push responsibility documented in the CI-First Protocol.
 
 ## Code Standards
 
