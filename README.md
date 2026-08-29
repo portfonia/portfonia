@@ -12,7 +12,7 @@ Portfonia exists to close that gap with a narrow scope: take a user's real holdi
 
 - **Holdings ingestion.** Upload a CSV or Markdown sheet describing positions across US equities, Hong Kong equities, A-shares, public mutual funds, cash, and foreign currency. An LLM normalizes it into structured records.
 - **Market and macro tracking.** Daily price, FX, and curated macro keyword scanning across reputable news sources (English-language primary, with Chinese-language sources for region-specific instruments).
-- **Personalized incremental briefings.** A scheduled report (Mon/Wed/Fri) covers what changed since your last one — tying price moves and macro signals back to your actual holdings. Structured sections include a code-built price-anomaly table (§4.2), a descriptive technical-position table (§4.4 — distance to moving averages, 52-week range position, volatility), and a forward calendar (§2.5 — scheduled US macro releases, FOMC dates, and your holdings' earnings dates, mapped to the positions exposed to each). Causal attributions carry an evidence-confidence label (Established / Probable / Speculative) so calibrated uncertainty is legible rather than hidden.
+- **Personalized incremental briefings.** A scheduled report (per-user cadence — weekly by default, or Mon/Wed/Fri) covers what changed since your last one — tying price moves and macro signals back to your actual holdings. Structured sections include a code-built price-anomaly table (§4.2), a descriptive technical-position table (§4.4 — distance to moving averages, 52-week range position, volatility), and a forward calendar (§2.5 — scheduled US macro releases, FOMC dates, and your holdings' earnings dates, mapped to the positions exposed to each). Causal attributions carry an evidence-confidence label (Established / Probable / Speculative) so calibrated uncertainty is legible rather than hidden.
 - **Three-layer output discipline.** Every AI-generated report stops at Layer 3:
   - Layer 1 — what happened (fact)
   - Layer 2 — how it relates to your holdings (contextual mapping)
@@ -34,9 +34,9 @@ Every report carries a single bilingual disclaimer in its footer (injected at th
 
 ## Status
 
-Ring 0 — single-user local prototype. The goal of Ring 0 is to validate one hypothesis: that an LLM mapping market information onto an individual portfolio produces *cognitive lift* the user does not already get from their broker app, the financial press, or generic newsletters.
+Ring 1 — invite-only closed beta, multi-user. Ring 0 validated the core hypothesis: an LLM mapping market information onto an individual portfolio produces *cognitive lift* the user does not already get from their broker app, the financial press, or generic newsletters. Ring 1 built what running that for more than one person requires — real accounts, JWKS-verified auth, an invite flow, and per-user data isolation enforced at the identity layer rather than trusted to query filters. See the [v0.8.0 release](https://github.com/portfonia/portfonia/releases/tag/v0.8.0) for what shipped.
 
-Public MVP and multi-user rollout depend on that validation holding up over several weeks of real reports.
+Public sign-up depends on the beta holding up across real invited users.
 
 ## Tech Stack
 
