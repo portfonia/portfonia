@@ -519,29 +519,32 @@ def _make_upload_job_row(db_session: Session, created_at: datetime, status: str)
     return job
 
 
-def test_cleanup_expired_deletes_only_terminal_rows_older_than_30_days(
+def test_cleanup_expired_deletes_old_rows_keeps_recent_and_edge_pending(
     db_session: Session,
 ) -> None:
-    """Real-SQL test of the retention rule (issue #264): rows older than
-    the 30-day cutoff are deleted, but only terminal-state rows — a
-    stale-pending row is the sweeper's job, not this one's."""
+    """Real-SQL test of the retention rule (issue #264): terminal rows older
+    than the 30-day cutoff are deleted; pending rows get one extra day
+    (PR #268 review) — a 31-day-old pending row is a sweeper-outage zombie
+    and is deleted, but a pending row still inside the backstop window is
+    kept."""
     seed_user(db_session, TEST_USER_ID)
     now = datetime.now(tz=UTC)
     cutoff = now - timedelta(days=30)
     _make_upload_job_row(db_session, now - timedelta(days=31), "success")
     _make_upload_job_row(db_session, now - timedelta(days=31), "failed")
-    _make_upload_job_row(db_session, now - timedelta(days=31), "pending")
+    _make_upload_job_row(db_session, now - timedelta(days=32), "pending")
+    _make_upload_job_row(db_session, now - timedelta(days=30, hours=12), "pending")
+    _make_upload_job_row(db_session, now - timedelta(days=10), "pending")
     _make_upload_job_row(db_session, now - timedelta(days=10), "success")
-    _make_upload_job_row(db_session, now - timedelta(days=10), "failed")
     db_session.flush()
 
     from app.tasks.holdings_tasks import _cleanup_expired_upload_jobs
 
     deleted = _cleanup_expired_upload_jobs(db_session, cutoff)
 
-    assert deleted == 2
+    assert deleted == 3
     remaining = db_session.execute(select(UploadJob)).scalars().all()
-    assert sorted(row.status for row in remaining) == ["failed", "pending", "success"]
+    assert sorted(row.status for row in remaining) == ["pending", "pending", "success"]
 
 
 def test_cleanup_expired_noop_when_nothing_is_stale(db_session: Session) -> None:

@@ -9,7 +9,7 @@ from typing import Any, cast
 
 from celery.signals import task_revoked  # type: ignore[import-untyped]
 from celery.worker.request import Request as _CeleryRequest  # type: ignore[import-untyped]
-from sqlalchemy import delete
+from sqlalchemy import delete, or_
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
@@ -289,17 +289,26 @@ def sweep_stale_upload_jobs() -> dict[str, int]:
 # 30 days is generous relative to that window (confirm happens minutes
 # after upload).
 _UPLOAD_JOB_RETENTION_DAYS = 30
+# Pending rows get an extra day on top of the terminal cutoff (PR #268
+# review): sweep_stale_upload_jobs has no retry/ops-alert of its own, so a
+# silently failing sweeper would otherwise leave pending rows (still
+# holding raw_text) accumulating forever with no alert anywhere — the
+# backstop folds them into this task's alert-bearing path. Normal pending
+# rows are resolved by the sweeper within ~90s of the SLA, so a pending
+# row reaching 31 days is necessarily a zombie.
+_UPLOAD_JOB_PENDING_BACKSTOP_DAYS = 1
 
 
 def _cleanup_expired_upload_jobs(session: Session, cutoff: datetime) -> int:
-    """Delete every terminal UploadJob row with created_at < cutoff.
-    Commits and returns the delete count. Split out from the Celery task so
-    it's testable against a real db_session without mocking SessionLocal
+    """Delete UploadJob rows past their retention cutoff. Commits and
+    returns the delete count. Split out from the Celery task so it's
+    testable against a real db_session without mocking SessionLocal
     (issue #264) — same shape as cache_tasks._cleanup_expired.
 
-    Terminal states only: a stale-pending row is the sweeper's job
-    (sweep_stale_upload_jobs resolves it within ~90s of the SLA), so this
-    sweep must never race it."""
+    Terminal rows are deleted past `_UPLOAD_JOB_RETENTION_DAYS`; pending
+    rows get one extra day (PR #268 review), because the stale-pending
+    sweeper that normally resolves them has no alert of its own and this
+    task is the alert-bearing backstop for a sweeper outage."""
     from app.models.upload_job import UploadJob
 
     result = cast(
@@ -307,7 +316,11 @@ def _cleanup_expired_upload_jobs(session: Session, cutoff: datetime) -> int:
         session.execute(
             delete(UploadJob).where(
                 UploadJob.created_at < cutoff,
-                UploadJob.status != "pending",
+                or_(
+                    UploadJob.status != "pending",
+                    UploadJob.created_at
+                    < cutoff - timedelta(days=_UPLOAD_JOB_PENDING_BACKSTOP_DAYS),
+                ),
             )
         ),
     )
