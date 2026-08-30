@@ -302,3 +302,72 @@ def test_send_account_verification_task_reraises_send_failure(
 
     with pytest.raises(VerificationSendFailed):
         send_account_email_verification_task.run(str(_SIGNUP_UID))
+
+
+@patch("app.core.database.SessionLocal")
+@patch("app.services.email_verification.create_verification")
+def test_send_account_verification_task_schedules_celery_retry_on_failure(
+    mock_create: MagicMock, mock_session_cls: MagicMock
+) -> None:
+    """Regression (PR #263 review): max_retries=3 on the decorator does
+    nothing by itself — without an explicit self.retry() call, a transient
+    Resend failure fails the task once and is never retried, silently
+    losing the signup verification email. The retry wiring must be
+    asserted directly (patch self.retry), not inferred from .run()'s
+    exception propagation."""
+    from app.services.email_verification import VerificationSendFailed
+    from app.tasks.email_verification_tasks import send_account_email_verification_task
+
+    mock_session = MagicMock()
+    mock_session.get.return_value = MagicMock()
+    mock_session_cls.return_value = mock_session
+    mock_create.side_effect = VerificationSendFailed
+
+    class _StopRetry(Exception):
+        pass
+
+    with patch.object(
+        send_account_email_verification_task, "retry", side_effect=_StopRetry
+    ) as mock_retry:
+        try:
+            send_account_email_verification_task.run(str(_SIGNUP_UID))
+        except _StopRetry:
+            pass
+        else:
+            raise AssertionError("expected the task to call self.retry() on a send failure")
+    mock_retry.assert_called_once()
+    assert mock_retry.call_args.kwargs.get("exc") is not None
+
+
+@patch("app.core.database.SessionLocal")
+@patch("app.services.email_verification.create_verification")
+def test_send_account_verification_task_gives_up_after_max_retries(
+    mock_create: MagicMock, mock_session_cls: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    """At retries >= max_retries the task stops asking for another retry and
+    logs the real recovery path — the Ops API, since no Profile-page record
+    exists to resend from. .run() bypasses Celery's retry machinery, so
+    self.retry() re-raises the original exception rather than actually
+    scheduling a retry (same trick as test_report_tasks's exhaustion test)."""
+    import logging
+
+    from app.services.email_verification import VerificationSendFailed
+    from app.tasks.email_verification_tasks import send_account_email_verification_task
+
+    # The session-migrate fileConfig disables already-instantiated loggers
+    # (CLAUDE.md Tests note) — re-enable this one for the caplog assertion.
+    logging.getLogger("app.tasks.email_verification_tasks").disabled = False
+
+    mock_session = MagicMock()
+    mock_session.get.return_value = MagicMock()
+    mock_session_cls.return_value = mock_session
+    mock_create.side_effect = VerificationSendFailed
+
+    with (
+        caplog.at_level(logging.ERROR),
+        patch.object(send_account_email_verification_task, "max_retries", 0),
+        pytest.raises(VerificationSendFailed),
+    ):
+        send_account_email_verification_task.run(str(_SIGNUP_UID))
+
+    assert "POST /admin/email-verifications" in caplog.text
