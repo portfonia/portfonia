@@ -73,8 +73,12 @@ never-happened commit — but the UX read as "upload failed").
   product's mainland broker/fund exports are often CJK — a char-count
   check would accept a payload well over the real byte budget; locked by
   a CJK-content regression test, not just the ASCII off-by-one pair.
-- **Known accepted gap**: no retention/cleanup for successful `preview`
-  JSONB rows (Ring 0, small row count — revisit before Ring 1).
+- **Known accepted gap, now tracked (issue #264, 2026-08-30)**: no
+  retention/cleanup for successful `preview` JSONB rows. Originally noted
+  at Ring 0 as "small row count — revisit before Ring 1"; the project is
+  now well past that checkpoint and this was never actually revisited —
+  filed as a real debt issue instead of leaving an open-ended doc comment
+  with no owner.
 
 
 ### Holdings encryption at rest (issue #31)
