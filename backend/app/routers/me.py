@@ -6,10 +6,11 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_session
 from app.core.deps import Principal, current_principal
+from app.models.email_verification import EmailVerification
 from app.models.holding import Holding
 from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
-from app.schemas.me import MeOut
+from app.schemas.me import MeOut, PendingVerificationOut
 
 router = APIRouter()
 
@@ -42,6 +43,25 @@ def get_me(
     if not has_holdings:
         missing.append("holdings")
 
+    # issue #262 §8.2: actionable verification rows for the Profile page.
+    # "undeliverable" is listed alongside "pending" — a typo'd address that
+    # bounced would otherwise look like "nothing waiting" (Profile Page.md
+    # §8.2, 2026-08-30 production-testing gap). expired/superseded/verified
+    # are history, not actionable, and stay off the list.
+    pending_verifications = (
+        session.execute(
+            select(EmailVerification)
+            .where(
+                EmailVerification.user_id == principal.user_id,
+                EmailVerification.purpose.in_(["account_email", "delivery_email"]),
+                EmailVerification.status.in_(["pending", "undeliverable"]),
+            )
+            .order_by(EmailVerification.last_sent_at.desc())
+        )
+        .scalars()
+        .all()
+    )
+
     return MeOut(
         email=user.email,
         delivery_email=user.delivery_email,
@@ -49,4 +69,15 @@ def get_me(
         has_questionnaire=has_questionnaire,
         has_holdings=has_holdings,
         missing=missing,
+        pending_email_verifications=[
+            PendingVerificationOut(
+                id=str(record.id),
+                purpose=record.purpose,
+                email=record.email,
+                status=record.status,
+                expires_at=record.expires_at,
+                last_sent_at=record.last_sent_at,
+            )
+            for record in pending_verifications
+        ],
     )
