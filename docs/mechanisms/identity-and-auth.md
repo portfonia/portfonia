@@ -856,3 +856,17 @@ built-in "password changed" notification email (a detection signal for
 unauthorized resets) is a nice-to-have, non-blocking toggle in the same
 dashboard, not yet enabled.
 
+### Generic email verification reuses this Altcha infrastructure — issue #260, PR #261
+
+A separate, purpose-general email-verification mechanism (not auth-specific —
+account email, report delivery email, and future non-Portfonia reuse) reuses
+this section's Altcha setup: a second challenge/verify function pair in
+`altcha_challenge.py` (same HMAC key, same stateless design, a fresh
+purpose-named function rather than sharing the forgot-password-named one,
+matching this file's own one-pair-per-use-case convention), and the same
+GET-inert / POST-confirm split this section already established. Its own
+confirm page, `/verify-email`, is listed in `proxy.ts`'s
+`PUBLIC_PATH_PREFIXES` for the same reason `/forgot-password`/
+`/reset-password` are — the token itself is the credential, no session
+required. Full record: [docs/mechanisms/email-verification.md](email-verification.md).
+

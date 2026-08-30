@@ -10,10 +10,12 @@ that setting.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import httpx
+from sqlalchemy import update
+from sqlalchemy.engine import CursorResult
 
 from app.core.config import get_settings
 from app.tasks import celery_app
@@ -85,8 +87,33 @@ def poll_email_verification_delivery(self: Any, verification_id: str) -> str:
         resp.raise_for_status()
         last_event = resp.json().get("last_event")
         if last_event in _UNDELIVERABLE_EVENTS:
-            record.status = "undeliverable"
+            # Conditional UPDATE, not an assign-then-commit on the loaded
+            # `record` (review, PR #261): this task runs on its own
+            # SessionLocal(), a separate connection from whatever session a
+            # concurrent confirm click commits through. Under READ
+            # COMMITTED, the `record.status != "pending"` check above can
+            # read stale — a click that verifies (or expires/supersedes)
+            # the row in the ~10-minute gap between that read and this
+            # write would otherwise get silently overwritten back to
+            # undeliverable. The WHERE clause makes this row-level: it can
+            # only ever move a row that is STILL pending at write time, no
+            # matter what this task read earlier.
+            result = cast(
+                CursorResult[Any],
+                session.execute(
+                    update(EmailVerification)
+                    .where(EmailVerification.id == record.id, EmailVerification.status == "pending")
+                    .values(status="undeliverable")
+                ),
+            )
             session.commit()
+            if result.rowcount == 0:
+                logger.info(
+                    "email verification %s: bounce detected but the row moved on "
+                    "(no longer pending) before this write — not overwriting",
+                    verification_id,
+                )
+                return "skipped_no_longer_pending_at_write"
             logger.info(
                 "email verification %s marked undeliverable (last_event=%s)",
                 verification_id,

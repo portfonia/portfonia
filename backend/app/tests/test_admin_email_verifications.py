@@ -111,6 +111,89 @@ def test_get_returns_current_status(app_client: TestClient) -> None:
     assert resp.json()["status"] == "pending"
 
 
+def test_get_response_is_widened_for_diagnosis(app_client: TestClient) -> None:
+    """Review, PR #261: the point of GET is post-hoc "why didn't this user
+    get their email" diagnosis, which id/status/expires_at alone can't
+    answer — widened past that narrow POST shape."""
+    created = app_client.post(
+        "/admin/email-verifications",
+        headers=_headers(),
+        json={"email": "a@example.com"},
+    )
+    verification_id = created.json()["id"]
+
+    resp = app_client.get(f"/admin/email-verifications/{verification_id}", headers=_headers())
+
+    body = resp.json()
+    assert body["email"] == "a@example.com"
+    assert body["purpose"] == "ops_manual"
+    assert body["user_id"] is None
+    assert body["provider_message_id"] == "test-provider-id"  # autouse fixture's fake success
+    assert "last_sent_at" in body
+    assert body["verified_at"] is None
+
+
+def test_post_response_stays_narrow(app_client: TestClient) -> None:
+    """POST's response is deliberately NOT widened the same way GET is —
+    still just id/status/expires_at (and never the plaintext token)."""
+    resp = app_client.post(
+        "/admin/email-verifications",
+        headers=_headers(),
+        json={"email": "a@example.com"},
+    )
+
+    assert set(resp.json().keys()) == {"id", "status", "expires_at"}
+
+
+def test_create_rejects_bound_purpose_without_user_id(app_client: TestClient) -> None:
+    resp = app_client.post(
+        "/admin/email-verifications",
+        headers=_headers(),
+        json={"email": "a@example.com", "purpose": "delivery_email"},
+    )
+    assert resp.status_code == 422
+
+
+def test_create_rejects_ops_manual_with_user_id(
+    app_client: TestClient, db_session: Session
+) -> None:
+    db_session.add(_user(_UID, "seed@example.com"))
+    db_session.flush()
+
+    resp = app_client.post(
+        "/admin/email-verifications",
+        headers=_headers(),
+        json={"email": "a@example.com", "purpose": "ops_manual", "user_id": str(_UID)},
+    )
+    assert resp.status_code == 422
+
+
+def test_create_rejects_blank_email(app_client: TestClient) -> None:
+    resp = app_client.post(
+        "/admin/email-verifications",
+        headers=_headers(),
+        json={"email": "   "},
+    )
+    assert resp.status_code == 422
+
+
+def test_create_within_60s_of_a_prior_pending_probe_returns_429(app_client: TestClient) -> None:
+    first = app_client.post(
+        "/admin/email-verifications",
+        headers=_headers(),
+        json={"email": "a@example.com"},
+    )
+    assert first.status_code == 201
+
+    resp = app_client.post(
+        "/admin/email-verifications",
+        headers=_headers(),
+        json={"email": "a@example.com"},
+    )
+
+    assert resp.status_code == 429
+
+
 def test_get_404_for_unknown_id(app_client: TestClient) -> None:
     resp = app_client.get(f"/admin/email-verifications/{uuid.uuid4()}", headers=_headers())
     assert resp.status_code == 404

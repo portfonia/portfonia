@@ -22,6 +22,7 @@ celery_app = Celery(
         "app.tasks.backup_tasks",
         "app.tasks.cache_tasks",
         "app.tasks.admin_tasks",
+        "app.tasks.email_verification_tasks",
     ],
 )
 

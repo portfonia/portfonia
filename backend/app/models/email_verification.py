@@ -5,9 +5,10 @@ from datetime import datetime
 
 from sqlalchemy import CheckConstraint, ForeignKey, Integer, Text, func, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
+from app.models.user import User
 
 VALID_EMAIL_VERIFICATION_PURPOSES = ("account_email", "delivery_email", "ops_manual")
 VALID_EMAIL_VERIFICATION_STATUSES = (
@@ -69,3 +70,14 @@ class EmailVerification(Base):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
+
+    # Not for query-time navigation — declared solely so SQLAlchemy's
+    # unit-of-work knows about the FK dependency and inserts `users` before
+    # `email_verifications` within one flush (bare ForeignKey() columns
+    # alone do NOT give it this ordering — same empirically-verified gap
+    # documented on Holding.user/Account.user, hit again here via this
+    # table's own test fixtures). `lazy="raise"`: an accidental `.user`
+    # access fails loudly instead of a hidden SELECT. `passive_deletes=True`:
+    # a `session.delete(...)` must not have the ORM try to load/null this
+    # relationship and fight the DB's own RESTRICT.
+    user: Mapped[User | None] = relationship(lazy="raise", passive_deletes=True)

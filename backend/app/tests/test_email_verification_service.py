@@ -18,7 +18,9 @@ from app.models.email_verification import EmailVerification
 from app.models.user import User
 from app.services.altcha_challenge import create_email_verification_challenge
 from app.services.email_verification import (
+    RESEND_COOLDOWN,
     VERIFICATION_REJECTED_MESSAGE,
+    ResendTooSoon,
     VerificationRejected,
     confirm_verification,
     create_verification,
@@ -64,6 +66,16 @@ def _solved_altcha_payload() -> str:
     return payload.to_base64()
 
 
+def _age_past_cooldown(record: EmailVerification, db_session: Session) -> None:
+    """Push a record's last_sent_at back past RESEND_COOLDOWN so a
+    subsequent create_verification() call for the same scope supersedes it
+    instead of raising ResendTooSoon — isolates "does superseding work" from
+    "does the cooldown work" (the two failure modes create_verification
+    checks together, in that order)."""
+    record.last_sent_at = datetime.now(UTC) - RESEND_COOLDOWN - timedelta(seconds=1)
+    db_session.commit()
+
+
 def _create_and_capture_token(
     db_session: Session,
     monkeypatch: pytest.MonkeyPatch,
@@ -102,6 +114,7 @@ def test_create_verification_supersedes_prior_pending_same_user_and_purpose(
     first = create_verification(
         db_session, email="new1@example.com", purpose="delivery_email", user_id=_UID
     )
+    _age_past_cooldown(first, db_session)
     second = create_verification(
         db_session, email="new2@example.com", purpose="delivery_email", user_id=_UID
     )
@@ -111,6 +124,30 @@ def test_create_verification_supersedes_prior_pending_same_user_and_purpose(
     row2 = db_session.get(EmailVerification, second.id)
     assert row1 is not None and row1.status == "superseded"
     assert row2 is not None and row2.status == "pending"
+
+
+def test_create_verification_raises_resend_too_soon_within_cooldown(
+    db_session: Session,
+) -> None:
+    """§3.4 / issue #260 Notes: a caller (today, only the Ops API)
+    create-and-sending in a tight loop must not supersede-and-resend on
+    every call."""
+    create_verification(db_session, email="a@x.com", purpose="ops_manual", user_id=None)
+
+    with pytest.raises(ResendTooSoon):
+        create_verification(db_session, email="a@x.com", purpose="ops_manual", user_id=None)
+
+
+def test_create_verification_normalizes_email(db_session: Session) -> None:
+    record = create_verification(
+        db_session, email="  Mixed-Case@Example.com  ", purpose="ops_manual", user_id=None
+    )
+    assert record.email == "mixed-case@example.com"
+
+
+def test_create_verification_rejects_blank_email(db_session: Session) -> None:
+    with pytest.raises(ValueError, match="must not be blank"):
+        create_verification(db_session, email="   ", purpose="ops_manual", user_id=None)
 
 
 def test_create_verification_ops_manual_probes_of_different_emails_do_not_supersede(
@@ -135,6 +172,7 @@ def test_create_verification_ops_manual_reprobe_of_same_email_supersedes_prior(
     db_session: Session,
 ) -> None:
     first = create_verification(db_session, email="a@x.com", purpose="ops_manual", user_id=None)
+    _age_past_cooldown(first, db_session)
     second = create_verification(db_session, email="a@x.com", purpose="ops_manual", user_id=None)
 
     db_session.expire_all()
@@ -222,15 +260,20 @@ def test_confirm_verification_writes_back_delivery_email_and_verified_at(
     assert user.email_verified_at is None  # only the target field is touched
 
 
-def test_confirm_verification_writes_back_account_email(
+def test_confirm_verification_marks_account_email_verified_without_changing_it(
     db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    db_session.add(_user(_UID, "old@example.com"))
+    """Review, PR #261: account_email confirms reachability of the address
+    already on `users.email` — it must never overwrite it. `users.email`
+    is Supabase Auth's login identity; a flow that changes it locally
+    without also updating Auth would desync sign-in from the local row.
+    §4.1: "本节只新增验证账户邮箱是否可达这一件事,不涉及修改账户邮箱本身"."""
+    db_session.add(_user(_UID, "current@example.com"))
     db_session.flush()
     _record, token = _create_and_capture_token(
         db_session,
         monkeypatch,
-        email="new-account@example.com",
+        email="current@example.com",  # matches the account's real email
         purpose="account_email",
         user_id=_UID,
     )
@@ -240,8 +283,35 @@ def test_confirm_verification_writes_back_account_email(
     db_session.expire_all()
     user = db_session.get(User, _UID)
     assert user is not None
-    assert user.email == "new-account@example.com"
+    assert user.email == "current@example.com"  # untouched
     assert user.email_verified_at is not None
+
+
+def test_confirm_verification_rejects_account_email_mismatch(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A record whose candidate address no longer matches the account's
+    real email (stale record, or a caller error pairing the wrong user_id)
+    must be rejected, not silently accepted or written anywhere."""
+    db_session.add(_user(_UID, "current@example.com"))
+    db_session.flush()
+    _record, token = _create_and_capture_token(
+        db_session,
+        monkeypatch,
+        email="someone-elses-guess@example.com",
+        purpose="account_email",
+        user_id=_UID,
+    )
+
+    with pytest.raises(VerificationRejected) as exc_info:
+        confirm_verification(db_session, token=token, altcha_payload=_solved_altcha_payload())
+    assert str(exc_info.value) == VERIFICATION_REJECTED_MESSAGE
+
+    db_session.expire_all()
+    user = db_session.get(User, _UID)
+    assert user is not None
+    assert user.email == "current@example.com"
+    assert user.email_verified_at is None
 
 
 def test_confirm_verification_ops_manual_has_no_write_back_target(
@@ -311,9 +381,10 @@ def test_confirm_verification_rejects_superseded_token(
 ) -> None:
     db_session.add(_user(_UID, "seed@example.com"))
     db_session.flush()
-    _first, first_token = _create_and_capture_token(
+    first, first_token = _create_and_capture_token(
         db_session, monkeypatch, email="new1@example.com", purpose="delivery_email", user_id=_UID
     )
+    _age_past_cooldown(first, db_session)
     _second, _second_token = _create_and_capture_token(
         db_session, monkeypatch, email="new2@example.com", purpose="delivery_email", user_id=_UID
     )

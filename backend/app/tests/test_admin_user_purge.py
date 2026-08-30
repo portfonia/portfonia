@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.account import Account
+from app.models.email_verification import EmailVerification
 from app.models.holding import Holding
 from app.models.invite import Invite
 from app.models.news import News
@@ -252,6 +253,7 @@ def test_purge_happy_path_two_users(app_client: TestClient, db_session: Session)
         "accounts": 0,
         "upload_jobs": 1,
         "user_investment_context": 1,
+        "email_verifications": 0,
         "invites_used_by_cleared": 1,
         "users_invited_by_cleared": 1,
         "users": 1,
@@ -398,6 +400,7 @@ def test_purge_orphan_auth_user_found(
         "accounts": 0,
         "upload_jobs": 0,
         "user_investment_context": 0,
+        "email_verifications": 0,
         "invites_used_by_cleared": 0,
         "users_invited_by_cleared": 0,
         "users": 0,
@@ -659,3 +662,77 @@ def test_holding_with_null_account_id_and_a_real_user_id_is_unaffected(
     db_session.add(_user(_A, "a@example.com"))
     db_session.add(_h(user_id=_A, name="NVIDIA", ticker="NVDA", account_id=None))
     db_session.flush()  # must not raise
+
+
+# --- issue #260: email_verifications table + user_id FK ------------------
+
+
+def _verification(
+    user_id: uuid.UUID | None, *, token_hash: str, purpose: str = "delivery_email"
+) -> EmailVerification:
+    now = datetime.now(tz=UTC)
+    return EmailVerification(
+        user_id=user_id,
+        purpose=purpose,
+        email="candidate@example.com",
+        token_hash=token_hash,
+        status="pending",
+        expires_at=now + timedelta(hours=48),
+        last_sent_at=now,
+    )
+
+
+def test_purge_deletes_bound_email_verifications(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """Review, PR #261: email_verifications.user_id FKs to users.id ON
+    DELETE RESTRICT (issue #260) — before this fix, purging a user with a
+    bound (account_email/delivery_email) verification row raised
+    IntegrityError instead of purging, the same class of break B7 already
+    paid for on holdings/reports/upload_jobs/news_surfaced."""
+    db_session.add(_user(_A, "a@example.com"))
+    db_session.add(_verification(_A, token_hash="bound-token-a"))
+    db_session.flush()
+
+    resp = app_client.delete(_path(_A), headers=_headers(), params={"confirm": "a@example.com"})
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["deleted"]["email_verifications"] == 1
+    db_session.expire_all()
+    assert _count(db_session, EmailVerification.user_id, _A) == 0
+
+
+def test_purge_does_not_touch_another_users_email_verifications(
+    app_client: TestClient, db_session: Session
+) -> None:
+    db_session.add_all([_user(_A, "a@example.com"), _user(_B, "b@example.com")])
+    db_session.flush()
+    other = _verification(_B, token_hash="bound-token-b")
+    db_session.add(other)
+    db_session.flush()
+    other_id = other.id
+
+    resp = app_client.delete(_path(_A), headers=_headers(), params={"confirm": "a@example.com"})
+
+    assert resp.status_code == 200
+    db_session.expire_all()
+    assert db_session.get(EmailVerification, other_id) is not None
+
+
+def test_purge_does_not_touch_unbound_ops_manual_verifications(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """An ops_manual probe (user_id NULL) belongs to no account — purging a
+    real user must not touch it, and the FK (nullable) never blocks it."""
+    db_session.add(_user(_A, "a@example.com"))
+    unbound = _verification(None, token_hash="unbound-token", purpose="ops_manual")
+    db_session.add(unbound)
+    db_session.flush()
+    unbound_id = unbound.id
+
+    resp = app_client.delete(_path(_A), headers=_headers(), params={"confirm": "a@example.com"})
+
+    assert resp.status_code == 200
+    assert resp.json()["deleted"]["email_verifications"] == 0
+    db_session.expire_all()
+    assert db_session.get(EmailVerification, unbound_id) is not None
