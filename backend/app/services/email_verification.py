@@ -27,7 +27,7 @@ from app.services.invites import _normalize_email
 
 logger = logging.getLogger(__name__)
 
-# Design doc §六 suggested 24-72h; 48h is the midpoint default. Not
+# Design doc §6 suggested 24-72h; 48h is the midpoint default. Not
 # Vigil's PoW-challenge TTL (minutes) — this is an unattended email
 # round-trip, not a live browser session.
 TOKEN_TTL = timedelta(hours=48)
@@ -72,8 +72,9 @@ def _target_field(purpose: str) -> str | None:
     "which column gets overwritten" — see confirm_verification: only
     delivery_email is ever assigned a new value here. account_email (field
     "email") only ever confirms reachability of the address already on
-    file (design doc §4.1: "本节只新增验证账户邮箱是否可达这一件事,不涉及修改
-    账户邮箱本身") — `users.email` is unique and is Supabase Auth's login
+    file (design doc §4.1: this section adds only a check of whether the
+    account email is reachable, and does not touch the account email
+    itself) — `users.email` is unique and is Supabase Auth's login
     identity, which this flow does not (and must not) update (review, PR
     #261: the original version did `setattr(user, "email", record.email)`
     unconditionally, silently changing sign-in email out from under Auth,
@@ -178,7 +179,23 @@ def create_verification(
 
     # Only now — send confirmed successful — touch the DB.
     if prior is not None:
-        prior.status = "superseded"
+        # Conditional UPDATE + implicit no-op on rowcount==0, not a plain
+        # `prior.status = "superseded"` attribute assignment (round-4 review
+        # finding) — that flushes as an unconditional `UPDATE ... WHERE
+        # id=:id`, the same unguarded-write shape round 3 fixed on confirm's
+        # and the poll task's status transitions, just not generalized to
+        # this third site. Reachable race: `prior` read here as pending, then
+        # its own confirm click commits `verified` while this function's
+        # Resend call is still in flight, and an unconditional write here
+        # would clobber `verified` back to `superseded` — a diagnostic-only
+        # lost update (no `users` write-back depends on it), but real. If the
+        # row already moved on (rowcount 0), nothing to do: the new record
+        # below is created regardless.
+        session.execute(
+            update(EmailVerification)
+            .where(EmailVerification.id == prior.id, EmailVerification.status == "pending")
+            .values(status="superseded")
+        )
     sent_at = datetime.now(UTC)
     record = EmailVerification(
         user_id=user_id,

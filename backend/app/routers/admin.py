@@ -644,7 +644,13 @@ def create_email_verification_endpoint(
     except ResendTooSoon:
         raise HTTPException(
             status_code=429,
-            detail="a verification for this address was already sent less than 60s ago",
+            # Scope-accurate wording (round-4 review): for a bound call the
+            # cooldown scope is (user_id, purpose), not the request's address
+            # — a prior send to a DIFFERENT address for the same user+purpose
+            # also trips this. Only the unbound ops_manual probe case is
+            # scoped by address.
+            detail="a verification for this scope (user+purpose, or address for an "
+            "unbound probe) was already sent less than 60s ago",
         ) from None
     except VerificationSendFailed:
         # Nothing local was touched (create_verification sends before it
@@ -667,8 +673,9 @@ def get_email_verification_endpoint(
     afterward. Widened past just id/status/expires_at (review, PR #261):
     the point of this endpoint is diagnosing "why didn't this user get
     their email" without a database query. No list/filter endpoint yet —
-    no real management task has asked for one (Ops API Reference's "先有真实
-    管理任务,再开端点" principle)."""
+    no real management task has asked for one (Ops API Reference's
+    principle: a real management task must exist before the endpoint for
+    it does)."""
     record = session.get(EmailVerification, verification_id)
     if record is None:
         raise HTTPException(status_code=404, detail="verification not found")

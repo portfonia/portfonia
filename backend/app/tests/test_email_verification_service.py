@@ -344,7 +344,8 @@ def test_confirm_verification_marks_account_email_verified_without_changing_it(
     already on `users.email` — it must never overwrite it. `users.email`
     is Supabase Auth's login identity; a flow that changes it locally
     without also updating Auth would desync sign-in from the local row.
-    §4.1: "本节只新增验证账户邮箱是否可达这一件事,不涉及修改账户邮箱本身"."""
+    §4.1: this section adds only a reachability check of the account
+    email, and does not touch the account email itself."""
     db_session.add(_user(_UID, "current@example.com"))
     db_session.flush()
     _record, token = _create_and_capture_token(

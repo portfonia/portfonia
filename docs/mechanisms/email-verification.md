@@ -72,6 +72,25 @@ nothing reads them today except this mechanism's own confirm/creation code.
    limiter `rate_limit.py` uses elsewhere — the only caller today is the
    `ADMIN_API_TOKEN`-gated Ops API, so there's no untrusted-facing abuse
    surface yet that would need that heavier machinery.
+
+   **Accepted deviation, not fixed:** the cooldown check
+   (`_find_live_pending` + the `last_sent_at` comparison) and the supersede
+   step are two separate statements, not one atomic operation. Two
+   concurrent `create_verification` calls for the same scope can both read
+   the same prior row as outside the cooldown, both send, and both insert a
+   `pending` row — briefly two live pending records for one scope, which
+   violates design doc §3.2's "one live pending record per scope"
+   invariant (`_find_live_pending`'s `.limit(1)` with no `ORDER BY` would
+   then pick between them arbitrarily on the next call). Disclosed and
+   accepted by the product owner during PR #261's review (round 1 risk
+   analysis, reconfirmed round 3): the only caller today is the
+   `ADMIN_API_TOKEN`-gated Ops API, so the realistic trigger is an operator
+   double-firing a curl command, not an adversarial race — a proper fix
+   would need a DB-level uniqueness constraint or `SELECT ... FOR UPDATE`,
+   deferred until a real caller surface (signup/Profile) makes the
+   likelihood worth the complexity (round-4 review finding: this tradeoff
+   was accurate in the PR thread but undocumented here, which is exactly
+   the provenance this file exists to persist).
 4. `GET /email-verifications/status?token=` (`app/routers/
    email_verification.py`) is completely inert — no writes, including no
    persisted "expired" transition for a row whose `expires_at` has passed

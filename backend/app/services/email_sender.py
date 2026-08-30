@@ -410,8 +410,24 @@ def send_verification_email(email: str, token: str, *, locale: str = "en") -> st
             resp = client.post(_RESEND_SEND_URL, headers=headers, json=payload)
             resp.raise_for_status()
         resend_id = resp.json().get("id")
+        if not isinstance(resend_id, str):
+            # 2xx from Resend but no usable id — the email is almost
+            # certainly in flight (Resend accepted the request), yet the
+            # caller (create_verification) will treat this the same as a
+            # genuine send failure: 502, "no local data was touched, retry".
+            # A naive retry then sends a SECOND email. Log loudly so an
+            # investigating operator sees the same warning the sibling
+            # commit-failure path gives (round-4 review finding) — no
+            # status-code change, this is diagnostic only.
+            logger.error(
+                "verification email to %s: Resend returned 2xx with no usable id (%r) — "
+                "email likely sent, but the link cannot be tracked or a retry may double-send",
+                email,
+                resend_id,
+            )
+            return None
         logger.info("verification email sent to %s (resend_id=%s)", email, resend_id)
-        return resend_id if isinstance(resend_id, str) else None
+        return resend_id
     except Exception:
         logger.exception("verification email delivery failed for %s", email)
         return None
