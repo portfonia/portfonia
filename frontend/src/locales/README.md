@@ -34,6 +34,7 @@ One locale-keyed catalog for every in-product string, read via
 - `home` — marketing-page-only body content (hero, how-it-works, sample
   report preview, boundary, FAQ, footer). Nothing outside `/` reads this
   namespace.
+- `emailVerification` — `/verify-email` page (issue #260).
 
 ## No URL-based locale routing (explicit product decision, 2026-08-27)
 

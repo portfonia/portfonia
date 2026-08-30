@@ -385,5 +385,14 @@
     "withoutHoldings": "报告将发送至 {deliveryEmail}。保存持仓前，持仓相关板块将保持为空。",
     "cadence": "你的报告周期是每周一次。首份报告将按此周期发送。",
     "errorLoadFailed": "无法加载你的账户信息。"
+  },
+  "emailVerification": {
+    "heading": "验证你的邮箱",
+    "subtitle": "确认 {email} 可以接收 Portfonia 的邮件。",
+    "confirmButton": "确认",
+    "confirming": "确认中…",
+    "successMessage": "{email} 已通过验证。",
+    "invalidOrExpired": "这个验证链接无效或已过期。",
+    "genericError": "出了点问题，请重试。"
   }
 }

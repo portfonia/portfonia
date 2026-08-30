@@ -43,6 +43,7 @@ describe("locale catalogs stay structurally in sync (issue #209)", () => {
     const expected = [
       "auth",
       "common",
+      "emailVerification",
       "holdings",
       "home",
       "menu",
