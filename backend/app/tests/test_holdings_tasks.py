@@ -4,15 +4,23 @@ Strategy mirrors test_report_tasks.py: task logic is tested by mocking
 SessionLocal and calling the task's underlying function directly (`.run()`
 bypasses Celery routing) rather than spinning up a real worker. SessionLocal
 is lazy (issue #27) and refuses the dev DB under pytest; these tests still
-mock it because they exercise control flow, not SQL.
+mock it because they exercise control flow, not SQL. The retention sweep's
+DELETE (issue #264) is real SQL and is tested against db_session, like
+test_cache_tasks.py's _cleanup_expired.
 """
 
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models.upload_job import UploadJob
 from app.schemas.holdings import UploadPreview
+from app.tests.conftest import TEST_USER_ID, seed_user
 
 
 def _make_job(
@@ -493,3 +501,131 @@ def test_sweep_stale_after_seconds_has_queue_wait_headroom() -> None:
     from app.tasks.holdings_tasks import _SLA_SECONDS, _SWEEP_STALE_AFTER_SECONDS
 
     assert _SWEEP_STALE_AFTER_SECONDS == _SLA_SECONDS + 45
+
+
+# ---------------------------------------------------------------------------
+# Upload-job retention sweep (issue #264)
+# ---------------------------------------------------------------------------
+
+
+def _make_upload_job_row(db_session: Session, created_at: datetime, status: str) -> UploadJob:
+    job = UploadJob(
+        user_id=TEST_USER_ID,
+        filename="holdings.md",
+        status=status,
+        created_at=created_at,
+    )
+    db_session.add(job)
+    return job
+
+
+def test_cleanup_expired_deletes_only_terminal_rows_older_than_30_days(
+    db_session: Session,
+) -> None:
+    """Real-SQL test of the retention rule (issue #264): rows older than
+    the 30-day cutoff are deleted, but only terminal-state rows — a
+    stale-pending row is the sweeper's job, not this one's."""
+    seed_user(db_session, TEST_USER_ID)
+    now = datetime.now(tz=UTC)
+    cutoff = now - timedelta(days=30)
+    _make_upload_job_row(db_session, now - timedelta(days=31), "success")
+    _make_upload_job_row(db_session, now - timedelta(days=31), "failed")
+    _make_upload_job_row(db_session, now - timedelta(days=31), "pending")
+    _make_upload_job_row(db_session, now - timedelta(days=10), "success")
+    _make_upload_job_row(db_session, now - timedelta(days=10), "failed")
+    db_session.flush()
+
+    from app.tasks.holdings_tasks import _cleanup_expired_upload_jobs
+
+    deleted = _cleanup_expired_upload_jobs(db_session, cutoff)
+
+    assert deleted == 2
+    remaining = db_session.execute(select(UploadJob)).scalars().all()
+    assert sorted(row.status for row in remaining) == ["failed", "pending", "success"]
+
+
+def test_cleanup_expired_noop_when_nothing_is_stale(db_session: Session) -> None:
+    seed_user(db_session, TEST_USER_ID)
+    now = datetime.now(tz=UTC)
+    _make_upload_job_row(db_session, now - timedelta(days=10), "success")
+    db_session.flush()
+
+    from app.tasks.holdings_tasks import _cleanup_expired_upload_jobs
+
+    deleted = _cleanup_expired_upload_jobs(db_session, now - timedelta(days=30))
+
+    assert deleted == 0
+    assert db_session.execute(select(UploadJob)).scalars().all()
+
+
+@patch("app.core.database.SessionLocal")
+def test_cleanup_upload_jobs_computes_cutoff_and_closes_session(
+    mock_session_cls: MagicMock,
+) -> None:
+    mock_session = MagicMock()
+    mock_session.execute.return_value.rowcount = 0
+    mock_session_cls.return_value = mock_session
+
+    from app.tasks.holdings_tasks import cleanup_upload_jobs
+
+    result = cleanup_upload_jobs.run()
+
+    assert result == {"deleted": 0}
+    mock_session.commit.assert_called_once()
+    mock_session.close.assert_called_once()
+
+
+@patch("app.tasks.holdings_tasks.send_ops_alert")
+@patch("app.core.database.SessionLocal")
+def test_cleanup_upload_jobs_retries_and_alerts_on_exhaustion(
+    mock_session_cls: MagicMock, mock_alert: MagicMock
+) -> None:
+    """A silent sweep outage would be exactly the failure mode this task
+    exists to prevent — match the shared-intel-cache sweep's pattern:
+    catch, retry, ops-alert on exhaustion, still close the session."""
+    mock_session = MagicMock()
+    mock_session.execute.side_effect = RuntimeError("DB down")
+    mock_session_cls.return_value = mock_session
+
+    import pytest
+
+    from app.tasks.holdings_tasks import cleanup_upload_jobs
+
+    with (
+        patch.object(cleanup_upload_jobs, "max_retries", 0),
+        pytest.raises(RuntimeError),
+    ):
+        cleanup_upload_jobs.run()
+
+    mock_alert.assert_called_once()
+    assert "upload" in mock_alert.call_args.kwargs["subject"].lower()
+    mock_session.close.assert_called_once()
+
+
+def test_cleanup_upload_jobs_schedule_entry_exists() -> None:
+    from app.tasks import celery_app
+
+    sched = celery_app.conf.beat_schedule
+    assert "cleanup-upload-jobs-daily" in sched
+    entry = sched["cleanup-upload-jobs-daily"]
+    assert entry["task"] == "app.tasks.holdings_tasks.cleanup_upload_jobs"
+
+
+def test_cleanup_upload_jobs_schedule_is_picklable() -> None:
+    import pickle
+
+    from app.tasks import celery_app
+
+    entry = celery_app.conf.beat_schedule["cleanup-upload-jobs-daily"]
+    pickle.dumps(entry["schedule"])
+
+
+def test_cleanup_upload_jobs_schedule_fires_daily_at_0430_no_weekday_restriction() -> None:
+    """Daily at 04:30 ET — every day (not just trading days), staggered
+    from the 03:00 ET backup and the 04:00 ET shared-intel-cache sweep."""
+    from app.tasks import celery_app
+
+    schedule = celery_app.conf.beat_schedule["cleanup-upload-jobs-daily"]["schedule"]
+    assert schedule.hour == {4}
+    assert schedule.minute == {30}
+    assert schedule.day_of_week == set(range(7))
