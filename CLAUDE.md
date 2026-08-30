@@ -322,17 +322,26 @@ and will not catch this class of bug.
 
 ## CI-First Protocol (MANDATORY)
 
-> **Ring 0 reality:** there is no automated CI yet — the local quality gate
-> (see above), run before every push, stands in for it. There IS a branch +
-> PR for every change regardless of Ring (see Branching below); "CI green"
-> currently means "local gate green" on the PR's branch.
+> **Current reality (still true well into Ring 1, not a Ring-0-only state):**
+> there is no automated CI — no PR-triggered workflow exists; the only
+> GitHub Actions workflow is `release.yml`, which runs on push to `main`
+> only and does not run tests (see Releases below). The local quality gate
+> (see above), run before every push, stands in for CI. There IS a branch +
+> PR for every change (see Branching below); "CI green" currently means
+> "local gate green" on the PR's branch, and `gh pr checks` on an open PR
+> will report no checks at all — that is expected, not a signal something
+> is broken.
 
 A task is NOT complete until CI is green.
 
 After every `git push`:
 
 1. Immediately run `gh pr checks --watch` (or `gh run watch`) and block until
-   all checks finish.
+   all checks finish. Today this reports "no checks reported" instantly
+   (see the note above) — that is the expected, correct result on a PR
+   branch, not a failure to investigate. Keep running this step anyway: it
+   costs nothing, and it is what will actually surface a real check the
+   moment PR-level CI is ever added.
 2. **Green** → task may proceed.
 3. **Red** → pull failing logs with `gh run view --log-failed`, fix the root
    cause locally (never retry blindly), commit, push again, re-watch.
