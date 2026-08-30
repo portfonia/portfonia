@@ -151,10 +151,13 @@ def signup(
     # the account is fully created here, so an enqueue failure must NOT fall
     # into the compensation path (delete_auth_user would destroy it) or fail
     # the signup response (Ring 1-Profile Page.md §8.7). Best-effort: a lost
-    # enqueue means the automatic email never goes out, recoverable via the
-    # Profile page's resend (§8.3) or the Ops API; the task itself runs on
-    # Celery because create_verification makes a synchronous Resend HTTP call
-    # (15s timeout) that must never sit on the signup response.
+    # enqueue means no email_verifications row is ever created, so the
+    # Profile page has nothing to resend and the ONLY recovery path is the
+    # Ops API (POST /admin/email-verifications with user_id +
+    # purpose=account_email) — the task also alerts on retry exhaustion for
+    # the same reason. The task itself runs on Celery because
+    # create_verification makes a synchronous Resend HTTP call (15s timeout)
+    # that must never sit on the signup response.
     from app.tasks.email_verification_tasks import send_account_email_verification_task
 
     try:

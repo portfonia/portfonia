@@ -124,9 +124,13 @@ def resend_verification(
             session, email=record.email, purpose=record.purpose, user_id=principal.user_id
         )
     except ResendTooSoon:
+        # Scope-accurate wording (PR #263 review, mirroring the Ops router's
+        # round-4 fix): this endpoint's calls are always bound, so the
+        # cooldown scope is (user_id, purpose), not the address — a prior
+        # send to a DIFFERENT address for the same user+purpose also trips.
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="a verification for this address was already sent less than 60s ago",
+            detail="a verification for this user and purpose was already sent less than 60s ago",
         ) from None
     except VerificationSendFailed:
         # Nothing local was touched (send-first ordering) — safe to retry.
