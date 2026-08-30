@@ -211,3 +211,119 @@ catch-all `/api/:path*` rewrite already covers the new backend endpoints.
 reasoning as `/forgot-password`/`/reset-password`: the token itself is the
 credential, no session required). New `emailVerification` locale namespace
 in `frontend/src/locales/{en,zh-Hans,zh-Hant}.json`.
+
+## Profile page integration + signup hook — issue #262, PR #263
+
+Full design: Obsidian `Hermes/Portfonia/Docs/Ring 1-Profile Page.md` §八
+(2026-08-30, including §8.7's product-owner decision to bundle the signup
+hook into this issue). This entry records what actually landed, including
+the independent review round (blacktomb42, PR #263, CHANGES_REQUESTED)
+whose five findings were each verified against source before fixing.
+
+**What this issue ships** (the first application-scenario callers of
+`create_verification` — until now the Ops API was the only way to create a
+verification record at all):
+
+### §4.1 signup hook
+
+New Celery task
+`app.tasks.email_verification_tasks.send_account_email_verification_task`
+wraps the unchanged `create_verification(email=user.email,
+purpose="account_email", user_id=user.id)`. `signup` enqueues
+`.delay(str(new_id))` **after** its compensation `try/except`: at that
+point the account is fully created, so an enqueue failure must neither
+fall into the `delete_auth_user` compensation path (which would destroy
+the just-created Auth account) nor fail the signup response — it logs and
+continues (best-effort). The task never runs inline: `create_verification`
+makes a synchronous Resend HTTP call (15s timeout).
+
+**Retry wiring was the review round's confirmed bug (blacktomb42, PR
+#263)**: `max_retries=3` on the decorator retries nothing by itself —
+without an explicit `self.retry()` call a transient Resend failure failed
+the task once and the new user's verification email was silently lost,
+despite the decorator implying otherwise. The task's docstring had
+claimed exceptions "propagate for Celery's retry machinery", which is not
+how Celery works (`autoretry_for` unset, no `self.retry()` call). Fixed
+to the codebase's established shape (same as capture/backup/report/cache
+tasks): on `VerificationSendFailed`, check
+`self.request.retries >= self.max_retries` — at exhaustion log an ERROR
+naming the only real recovery path (a fresh `POST
+/admin/email-verifications`, since no Profile-page record exists to
+resend from), otherwise `raise self.retry(exc=exc) from exc`. The
+persist-failure path (email already sent) is deliberately NOT retried: a
+blind retry would send a second email rather than recover the first, and
+`create_verification` already logs that case loudly itself.
+
+**A lost enqueue is not recoverable from the Profile page** (review
+finding 2): no `email_verifications` row exists, so `GET /me`'s pending
+list is empty and `POST /email-verifications/{id}/resend` has no id to
+act on. Only the Ops API can create a fresh record. The signup-hook
+comment originally claimed Profile-page recoverability and was corrected.
+
+Two tests pin the wiring: one patches `self.retry` directly (asserting
+`celery_app.tasks` would have been satisfied by the test file's own
+import — same reason the `conf.include` regression test in PR #261
+exists), one forces the exhaustion branch (`max_retries=0`) and asserts
+the recovery-path log.
+
+### `GET /me` extension (Profile Page.md §8.2)
+
+New `pending_email_verifications: list[PendingVerificationOut]` (id,
+purpose, email, status, expires_at, last_sent_at): the calling user's own
+rows, `purpose IN (account_email, delivery_email)`, `status IN (pending,
+undeliverable)`, ordered `last_sent_at` desc. `undeliverable` is included
+deliberately (§8.2, from 2026-08-30 production testing): a typo'd address
+that bounced leaves nothing visibly "pending", so listing only `pending`
+would render "nothing waiting" for a user who needs to fix their
+address. `expired`/`superseded`/`verified` are history, not actionable.
+`ops_manual` rows are always `user_id=NULL` and can never match a user
+scope; a dedicated test pins this anyway. No token hash or
+provider_message_id leaves the backend.
+
+### `POST /email-verifications/{id}/resend` (Profile Page.md §8.3)
+
+Session-authenticated (`current_principal`, not `/admin/*`), wrapping the
+**unchanged** `create_verification`. The ownership+status gate collapses
+missing / foreign-owned / terminal-status / unbound-`ops_manual` rows
+into one `404` (never `403` — no existence leak). Router-layer Redis
+limiting via `rate_limit_enforce_resend_verification`: per-user 3/hour
+plus a **global** per-address 3/hour bucket (sha256-keyed, deliberately
+NOT scoped by user — several accounts aimed at one victim's address share
+one allowance, Email Validation.md §3.4's mail-bomb scenario),
+fail-closed `503` on Redis outage. `create_verification`'s own 60s
+data-driven cooldown keeps serving the Ops path unchanged — two call
+surfaces, two different abuse profiles, deliberately separate mechanisms.
+`ResendTooSoon` → 429 with scope-accurate wording ("this user and
+purpose", mirroring the Ops router's round-4 fix — the first draft said
+"this address", wrong for bound calls where a prior send to a different
+address for the same user+purpose also trips); `VerificationSendFailed`
+→ 502. Response is the narrow create-ack shape; the `id` is the NEW
+record's (resend supersedes the old row).
+
+### Profile page UI (Profile Page.md §8.4)
+
+Card directly under the delivery-email block: per record the email
+(unmasked, §8.2's decision — the user already knows this address),
+purpose label, status ("waiting for confirmation" / "delivery failed —
+check the address, then resend"), resend button. Success calls
+`router.refresh()` (re-fetches server data, preserves client state) —
+**the first draft used `window.location.reload()` while its own comment
+claimed `router.refresh()`** (review finding 4): a hard reload discards
+client state across the whole page and the comment described a lighter
+behavior than implemented. 429/503 map to user-readable wording per the
+forgot-password error-state pattern. All strings i18n-keyed across
+`frontend/src/locales/{en,zh-Hans,zh-Hant}.json` — note the catalogs
+contain single-line compact structures (`"tags": [...]`, `"options":
+{...}`) that a naive `json.dump(indent=2)` round-trip expands, which
+buried this PR's first pass in ~1100 lines of pure reformatting noise
+(review finding 5); the catalogs were restored to main's exact
+formatting with only the new keys spliced in textually (strict JSON: no
+trailing comma on the final inserted key).
+
+### Out of scope (unchanged, per the issue)
+
+§4.2 delivery-email write path, §3.6 report gating
+(`recipient_email()`/`active_user_ids()` untouched), §3.7 unsubscribe.
+Existing users get no automatic email — one-time backfill is a manual
+Ops-API loop at the product owner's discretion. Released in v0.10.0;
+not yet deployed at merge time.
