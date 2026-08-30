@@ -215,7 +215,6 @@ def test_accounts_migration_backfill_groups_by_decrypted_plaintext_and_skips_nul
     from sqlalchemy import text
 
     from app.core.encryption import decrypt_value, encrypt_value
-    from app.models.user import User
 
     command.upgrade(alembic_cfg, "b1c2d3e4f5a6")
     engine = create_engine(get_settings().database_url)
@@ -247,28 +246,28 @@ def test_accounts_migration_backfill_groups_by_decrypted_plaintext_and_skips_nul
             },
         )
 
-    with Session(engine) as seed:
-        seed.add_all(
-            [
-                User(
-                    id=user_id,
-                    auth_provider="supabase",
-                    email="b7-migration-test@example.com",
-                    status="active",
-                    locale="zh",
-                    base_currency="USD",
-                    report_cadence="mwf",
-                ),
-                User(
-                    id=other_user_id,
-                    auth_provider="supabase",
-                    email="b7-migration-test-other@example.com",
-                    status="active",
-                    locale="zh",
-                    base_currency="USD",
-                    report_cadence="mwf",
-                ),
-            ]
+    # Raw SQL, not the live User ORM class (review, issue #260): the ORM
+    # model reflects HEAD, which has gained columns since b1c2d3e4f5a6 (and
+    # will keep gaining them) — an INSERT built from it would reference
+    # columns this historical schema snapshot doesn't have yet. Matches
+    # _insert_holding's own raw-SQL technique just below, for the same
+    # reason.
+    with engine.connect() as seed:
+        seed.execute(
+            text(
+                "INSERT INTO users (id, auth_provider, email, status, locale, "
+                "base_currency, report_cadence) VALUES "
+                "(:id, 'supabase', :email, 'active', 'zh', 'USD', 'mwf')"
+            ),
+            {"id": user_id, "email": "b7-migration-test@example.com"},
+        )
+        seed.execute(
+            text(
+                "INSERT INTO users (id, auth_provider, email, status, locale, "
+                "base_currency, report_cadence) VALUES "
+                "(:id, 'supabase', :email, 'active', 'zh', 'USD', 'mwf')"
+            ),
+            {"id": other_user_id, "email": "b7-migration-test-other@example.com"},
         )
         seed.commit()
 

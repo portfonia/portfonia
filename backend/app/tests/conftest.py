@@ -148,6 +148,20 @@ def _no_external_notifications(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "app.services.report_generator.send_report_email", MagicMock(return_value=True)
     )
+    # issue #260: same rationale as send_report_email above — default to a
+    # fake success (a string provider id) so create_verification()'s happy
+    # path is exercisable without a real Resend call. The Celery poll task
+    # this schedules on success is separately stubbed so it can't enqueue
+    # against a real local broker (mirrors _rate_limit_memory's
+    # send_admin_alert_task.delay stub above).
+    monkeypatch.setattr(
+        "app.services.email_verification.send_verification_email",
+        MagicMock(return_value="test-provider-id"),
+    )
+    monkeypatch.setattr(
+        "app.tasks.email_verification_tasks.poll_email_verification_delivery.apply_async",
+        MagicMock(),
+    )
 
 
 def _admin_engine() -> Engine:

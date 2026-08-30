@@ -350,6 +350,42 @@ def send_report_email(report: Report, session: Session) -> bool:
     return True
 
 
+def send_verification_email(email: str, token: str) -> str | None:
+    """Send an email-verification link (issue #260). Returns Resend's
+    delivery id on success (stored as EmailVerification.provider_message_id,
+    the poll target for design doc §3.3 step 6), or None on failure — never
+    raises, matching send_ops_alert's contract, since the caller has already
+    durably persisted the pending record before calling this.
+    """
+    settings = get_settings()
+    verify_url = f"{settings.FRONTEND_URL}/verify-email?token={token}"
+    body = (
+        "Click the link below to verify this email address for Portfonia:\n\n"
+        f"{verify_url}\n\n"
+        "If you didn't request this, you can ignore this email."
+    )
+    payload: dict[str, object] = {
+        "from": settings.EMAIL_FROM,
+        "to": [email],
+        "subject": "Verify your email — Portfonia",
+        "text": body,
+    }
+    headers: dict[str, str] = {
+        "Authorization": f"Bearer {settings.RESEND_API_KEY.get_secret_value()}",
+        "Content-Type": "application/json",
+    }
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.post(_RESEND_SEND_URL, headers=headers, json=payload)
+            resp.raise_for_status()
+        resend_id = resp.json().get("id")
+        logger.info("verification email sent to %s (resend_id=%s)", email, resend_id)
+        return resend_id if isinstance(resend_id, str) else None
+    except Exception:
+        logger.exception("verification email delivery failed for %s", email)
+        return None
+
+
 def send_ops_alert(subject: str, body: str, idempotency_key: str | None = None) -> None:
     """Send a plain-text ops alert to the admin email via Resend.
 

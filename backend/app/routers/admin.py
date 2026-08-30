@@ -38,6 +38,7 @@ from app.core.database import get_session
 from app.core.deps import require_ops_token
 from app.core.ops_log import log_ops_event
 from app.core.rate_limit import rate_limit_create_invite
+from app.models.email_verification import EmailVerification
 from app.models.invite import Invite
 from app.models.report import Report
 from app.models.user import User
@@ -49,6 +50,7 @@ from app.services.auth_provider import (
     delete_auth_user,
     get_auth_user,
 )
+from app.services.email_verification import create_verification
 from app.services.fund_nav_fetcher import update_fund_navs
 from app.services.invites import (
     EmailAlreadyRegistered,
@@ -541,3 +543,58 @@ def purge_user_endpoint(
             users=result.users,
         ),
     )
+
+
+class CreateEmailVerificationBody(BaseModel):
+    email: str
+    purpose: Literal["account_email", "delivery_email", "ops_manual"] = "ops_manual"
+    user_id: UUID | None = None
+
+
+class EmailVerificationOut(BaseModel):
+    id: UUID
+    status: str
+    expires_at: datetime
+
+
+@router.post("/email-verifications", response_model=EmailVerificationOut, status_code=201)
+def create_email_verification_endpoint(
+    body: CreateEmailVerificationBody, session: Session = Depends(get_session)
+) -> EmailVerificationOut:
+    """Trigger a verification for any email address (issue #260, Ring
+    1-Email Validation design doc §3.5). Not tied to `users` existing:
+    `purpose=ops_manual` (default) with no `user_id` is a pure reachability
+    probe. Passing `user_id` + `account_email`/`delivery_email` behaves
+    exactly like the corresponding application-scenario trigger — on
+    confirm, the address is written back to that user's row — those
+    call sites don't exist yet (out of scope, see the issue), so this is
+    currently the only way to drive that path end-to-end.
+
+    Never returns the plaintext token (§3.2's hash-only discipline — this
+    endpoint is not a backdoor around it).
+    """
+    if body.user_id is not None:
+        user = session.get(User, body.user_id)
+        if user is None:
+            raise HTTPException(status_code=404, detail="user not found")
+    record = create_verification(
+        session,
+        email=body.email.strip().lower(),
+        purpose=body.purpose,
+        user_id=body.user_id,
+    )
+    return EmailVerificationOut(id=record.id, status=record.status, expires_at=record.expires_at)
+
+
+@router.get("/email-verifications/{verification_id}", response_model=EmailVerificationOut)
+def get_email_verification_endpoint(
+    verification_id: UUID, session: Session = Depends(get_session)
+) -> EmailVerificationOut:
+    """Status lookup (issue #260) — Ops API triggers don't wait synchronously
+    for a user to click, so this is the only way to check what happened
+    afterward. No list/filter endpoint yet — no real management task has
+    asked for one (Ops API Reference's "先有真实管理任务,再开端点" principle)."""
+    record = session.get(EmailVerification, verification_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="verification not found")
+    return EmailVerificationOut(id=record.id, status=record.status, expires_at=record.expires_at)

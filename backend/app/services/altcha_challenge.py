@@ -70,3 +70,31 @@ def verify_forgot_password_solution(payload_b64: str) -> bool:
     except Exception:
         return False
     return ok
+
+
+def create_email_verification_challenge() -> dict[str, object]:
+    """Return the JSON shape GET /email-verifications/altcha-challenge hands
+    to the widget (issue #260). Same HMAC key, TTL, and stateless design as
+    create_forgot_password_challenge above — a fresh function per call site
+    is this file's existing convention (see the module docstring), not a
+    shared name across unrelated flows.
+    """
+    options = altcha_v1.ChallengeOptions(
+        hmac_key=_hmac_key(),
+        expires=datetime.now(UTC) + CHALLENGE_TTL,
+    )
+    challenge: altcha_v1.Challenge = altcha_v1.create_challenge(options)
+    return cast(dict[str, object], challenge.to_dict())
+
+
+def verify_email_verification_solution(payload_b64: str) -> bool:
+    """Verify the widget's solved-challenge payload for the email-verification
+    confirm flow (issue #260). Same semantics as
+    verify_forgot_password_solution above — never raises."""
+    if not payload_b64:
+        return False
+    try:
+        ok, _err = altcha_v1.verify_solution(payload_b64, _hmac_key(), check_expires=True)
+    except Exception:
+        return False
+    return ok

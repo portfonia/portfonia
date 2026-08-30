@@ -176,6 +176,17 @@ class Settings(BaseSettings):
     RESEND_API_KEY: SecretStr
     EMAIL_FROM: str
     EMAIL_REPLY_TO: str
+    # Separate `full_access`-scoped Resend key (issue #260, Ring 1-Email
+    # Validation design doc §3.3 step 6 / §六): RESEND_API_KEY above is
+    # `sending_access`-only and cannot call Resend's GET /emails/{id}
+    # (confirmed against Resend's own docs — a sending_access key gets a
+    # permission error, not the email). Deliberately a separate key, not an
+    # upgrade of RESEND_API_KEY — the send path has no reason to hold a key
+    # that can read/write arbitrary Resend resources. Optional: when unset,
+    # the delivery-status poll task skips silently (no webhook/poll
+    # infrastructure required for the verification flow's core click-confirm
+    # path to work).
+    RESEND_ALL_ACCESS_API_KEY: SecretStr | None = None
     # Ops alert recipient — receives failure/needs_review notifications.
     ADMIN_EMAIL: str = "portfonia@gmail.com"
 

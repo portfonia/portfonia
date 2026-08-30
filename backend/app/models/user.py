@@ -53,6 +53,12 @@ class User(Base):
     base_currency: Mapped[str] = mapped_column(Text, nullable=False)
     report_cadence: Mapped[str] = mapped_column(Text, nullable=False)
     delivery_email: Mapped[str | None] = mapped_column(Text)
+    # Denormalized hot-path fields (issue #260, Ring 1-Email Validation design
+    # doc §3.2) — set when the corresponding EmailVerification transitions to
+    # `verified`, cleared on a value change or (future, #257) unsubscribe.
+    # Report-send gating is a separate, not-yet-landed consumer of these.
+    email_verified_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    delivery_email_verified_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     # Audit only (issue #220/#221). NULL means "registered before the ToS
     # gate existed" — never surfaced as a fixable gap; #221's signup flow is
     # the only writer, not implemented yet as of this column landing.
