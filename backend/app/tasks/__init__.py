@@ -143,11 +143,15 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "task": "app.tasks.capture_tasks.capture_forward_events_task",
         "schedule": crontab(hour=8, minute=0, day_of_week="mon-fri"),
     },
-    # FX rates (R-4): pull once per US trading day, just after the regular close,
-    # so report valuations don't drift on stale rates. Idempotent upsert.
+    # FX rates (R-4): pull once per US trading day. 17:15 ET, NOT 16:05 like the
+    # equities close nodes (issue #258) — FX has no NYSE-style hard close, so
+    # 16:05 consistently captured the *previous* day's daily bar (confirmed
+    # against 5 days of production fx_rates rows, all off by exactly one day).
+    # FX's own daily bar rolls over around 17:00 ET; 17:15 leaves a buffer past
+    # that. Idempotent upsert either way.
     "capture-fx-daily": {
         "task": "app.tasks.capture_tasks.capture_fx_task",
-        "schedule": crontab(hour=16, minute=5, day_of_week="mon-fri"),
+        "schedule": crontab(hour=17, minute=15, day_of_week="mon-fri"),
     },
     # Fund NAV (Tiantian Fund): settled NAV for fund_code holdings is published by
     # the fund manager after A-share close (usually same evening). 20:00 CST

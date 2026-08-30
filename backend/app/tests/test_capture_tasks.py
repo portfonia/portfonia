@@ -199,7 +199,12 @@ def test_fx_capture_entry_runs_daily_weekdays() -> None:
     entry = celery_app.conf.beat_schedule["capture-fx-daily"]
     assert entry["task"] == "app.tasks.capture_tasks.capture_fx_task"
     cron = entry["schedule"]
-    assert cron.hour == {16} and cron.minute == {5}
+    # 17:15 ET, not 16:05 (issue #258): FX has no NYSE-style hard close, so
+    # scheduling it 5 minutes after the 16:00 ET equities close captured
+    # yesterday's daily bar every single day — confirmed against 5 days of
+    # production fx_rates rows, all off by exactly one day. FX's own daily
+    # bar rolls over around 17:00 ET; 17:15 leaves a buffer past that.
+    assert cron.hour == {17} and cron.minute == {15}
     assert cron.day_of_week == {1, 2, 3, 4, 5}  # mon-fri
 
 
