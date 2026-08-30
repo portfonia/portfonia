@@ -141,7 +141,14 @@ for the full before/after and decision rationale.
   renders an unverified shown address gray italic with a note and an inline
   Resend button (bound to the matching pending/undeliverable record; the
   overlap with the top section's list is intentional per the issue). Resend
-  logic lives in the shared `useVerificationResend` hook.
+  logic lives in the shared `useVerificationResend` hook — the success path
+  clears the in-flight id in a `finally`, so a completed resend re-enables
+  every resend button (PR #270 review finding). The no-recipient copy is
+  deliberately true today — "verify an address to make sure reports can
+  reach you", never "reports will not be sent" — because the §3.6 send-time
+  gate is unimplemented and `recipient_email()` ignores verification state;
+  issue #269's own "mirrors `recipient_email()`" phrasing was inaccurate
+  (corrected in the issue thread).
 - **Change-password Server Action** (`app/profile/actions.ts`) follows the
   same `signInWithPassword`-then-`updateUser` pattern as
   `Ring 1-Profile Page.md` §三 decision 2 — verifies against the caller's

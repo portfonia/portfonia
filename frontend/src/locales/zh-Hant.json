@@ -241,7 +241,7 @@
     "errorLoadFailed": "無法載入帳戶資訊。",
     "emailVerificationHeading": "郵箱驗證",
     "emailVerificationBody": "以下郵箱地址正在等待您的確認。如顯示發送失敗，請核對地址後重新發送。",
-    "emailVerificationNoRecipient": "沒有已驗證的接收信箱。地址完成驗證前，報告將不會被發送。",
+    "emailVerificationNoRecipient": "沒有已驗證的接收信箱。請驗證一個地址，確保報告能夠送達。",
     "emailVerificationStatusPending": "等待您確認",
     "emailVerificationStatusUndeliverable": "發送失敗，請檢查地址是否正確後重新發送。",
     "emailVerificationPurposeAccount": "賬戶郵箱",

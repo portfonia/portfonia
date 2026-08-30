@@ -37,6 +37,13 @@ export function useVerificationResend() {
       } else {
         setError(t("emailVerificationResendFailed"));
       }
+    } finally {
+      // Success path too: a completed resend must re-enable every resend
+      // button on the page. Leaving the (superseded) record id set would
+      // disable all of them until a full remount — the inline delivery-email
+      // button then shows "Resend" yet stays disabled (PR #270 review
+      // finding). The server-side 60s cooldown plus the 429 copy already
+      // cover double-submit while the refresh is in flight.
       setPendingId(null);
     }
   }

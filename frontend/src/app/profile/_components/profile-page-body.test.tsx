@@ -1,5 +1,6 @@
-import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/profile", useRouter: () => ({ refresh: vi.fn() }) }));
 // Server Action import would drag in lib/supabase/server.ts's `server-only`
@@ -10,6 +11,14 @@ vi.mock("@/app/profile/actions", () => ({ changePassword: vi.fn() }));
 // (issue #262), whose module pulls logout() from the server-only-guarded
 // Supabase server client — mock it like holdings-manager.test.tsx does.
 vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
+// Partial mock of lib/api.ts so the resend success path can be exercised
+// (PR #270 review: no test covered a successful resend re-enabling the
+// buttons) — same importActual pattern as questionnaire-form.test.tsx.
+const { resendEmailVerification } = vi.hoisted(() => ({ resendEmailVerification: vi.fn() }));
+vi.mock("@/lib/api", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
+  return { ...actual, resendEmailVerification };
+});
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
 import type { Me, PendingEmailVerification } from "@/lib/api";
@@ -59,6 +68,10 @@ const BASE_ME: Me = {
 };
 
 describe("ProfilePageBody", () => {
+  beforeEach(() => {
+    resendEmailVerification.mockReset();
+  });
+
   it("shows a load error and nothing else when the fetch failed", () => {
     renderBody(null, true);
 
@@ -237,6 +250,17 @@ describe("Email Verification section render condition (issue #269 §1/§3)", () 
     expect(screen.getByRole("button", { name: /resend/i })).toBeEnabled();
   });
 
+  it("shows the no-valid-recipient warning in addition to the pending list when both apply (issue #269 §3)", () => {
+    renderBody({ ...BASE_ME, pending_email_verifications: [PENDING] });
+
+    // "in addition to (not instead of)" — the warning renders alongside the
+    // list rows, not instead of them (PR #270 review: no test pinned this).
+    expect(
+      screen.getByText(/no verified receiving email address/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText("new-user@example.com")).toBeInTheDocument();
+  });
+
   it("marks an undeliverable record with the delivery-failed wording", () => {
     renderBody({
       ...BASE_ME,
@@ -252,6 +276,57 @@ describe("Email Verification section render condition (issue #269 §1/§3)", () 
     });
 
     expect(screen.getByText(/delivery failed/i)).toBeInTheDocument();
+  });
+});
+
+describe("Resend success path (PR #270 review finding 1)", () => {
+  function renderWithInlineResend() {
+    renderBody({
+      ...BASE_ME,
+      delivery_email: "reports@example.com",
+      email_verified_at: "2026-08-30T00:00:00Z",
+      pending_email_verifications: [
+        {
+          ...PENDING,
+          id: "v-3",
+          purpose: "delivery_email",
+          email: "reports@example.com",
+        },
+      ],
+    });
+    return deliveryCard();
+  }
+
+  it("re-enables the inline resend button after a successful resend", async () => {
+    resendEmailVerification.mockResolvedValue(undefined);
+    const card = renderWithInlineResend();
+
+    const button = within(card).getByRole("button", { name: /resend/i });
+    expect(button).toBeEnabled();
+    await userEvent.click(button);
+    expect(resendEmailVerification).toHaveBeenCalledWith("v-3");
+
+    // During flight the label switches to "Sending..." (not matched by
+    // /resend/i); the button must come back enabled — the success path
+    // clears pendingId instead of leaving every button disabled until a
+    // full remount.
+    await waitFor(() => {
+      const after = within(card).getByRole("button", { name: /resend/i });
+      expect(after).toBeEnabled();
+    });
+  });
+
+  it("re-enables the list resend button after a successful resend", async () => {
+    resendEmailVerification.mockResolvedValue(undefined);
+    renderBody({ ...BASE_ME, pending_email_verifications: [PENDING] });
+
+    const button = screen.getByRole("button", { name: /resend/i });
+    await userEvent.click(button);
+
+    await waitFor(() => {
+      const after = screen.getByRole("button", { name: /resend/i });
+      expect(after).toBeEnabled();
+    });
   });
 });
 

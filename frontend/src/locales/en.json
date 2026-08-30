@@ -241,7 +241,7 @@
     "errorLoadFailed": "Could not load your account.",
     "emailVerificationHeading": "Email verification",
     "emailVerificationBody": "These email addresses are waiting for your confirmation. If a message failed to deliver, check the address and resend.",
-    "emailVerificationNoRecipient": "No verified receiving email address. Reports will not be sent until an address is verified.",
+    "emailVerificationNoRecipient": "No verified receiving email address. Verify an address to make sure reports can reach you.",
     "emailVerificationStatusPending": "Waiting for your confirmation",
     "emailVerificationStatusUndeliverable": "Delivery failed. Check the address, then resend.",
     "emailVerificationPurposeAccount": "Account email",
