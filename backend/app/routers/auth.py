@@ -147,6 +147,20 @@ def signup(
                 status_code=status.HTTP_400_BAD_REQUEST, detail=INVITE_REJECTED_MESSAGE
             ) from None
         raise
+    # §4.1 signup hook (issue #262): enqueue only after the try/except above —
+    # the account is fully created here, so an enqueue failure must NOT fall
+    # into the compensation path (delete_auth_user would destroy it) or fail
+    # the signup response (Ring 1-Profile Page.md §8.7). Best-effort: a lost
+    # enqueue means the automatic email never goes out, recoverable via the
+    # Profile page's resend (§8.3) or the Ops API; the task itself runs on
+    # Celery because create_verification makes a synchronous Resend HTTP call
+    # (15s timeout) that must never sit on the signup response.
+    from app.tasks.email_verification_tasks import send_account_email_verification_task
+
+    try:
+        send_account_email_verification_task.delay(str(new_id))
+    except Exception:
+        logger.exception("signup: failed to enqueue account-email verification for user %s", new_id)
     return SignupResponse(id=user.id, email=user.email)
 
 

@@ -35,6 +35,43 @@ _UNDELIVERABLE_EVENTS = frozenset({"bounced", "complained", "failed", "suppresse
 
 
 @celery_app.task(  # type: ignore[untyped-decorator]
+    name="app.tasks.email_verification_tasks.send_account_email_verification_task",
+    bind=True,
+    max_retries=3,
+    default_retry_delay=120,
+)
+def send_account_email_verification_task(self: Any, user_id: str) -> str:
+    """Create and send the account-email verification for a freshly signed-up
+    user (issue #262; Ring 1-Profile Page.md §8.7, Email Validation.md §4.1).
+
+    Runs on Celery, never inside the signup request: create_verification
+    makes a synchronous Resend HTTP call (15s timeout), which must not sit
+    on the signup response path. Its failure modes are already
+    self-contained — send-first ordering means VerificationSendFailed
+    leaves zero DB writes, and a persist failure logs loudly before
+    re-raising — so this task just lets exceptions propagate for Celery's
+    retry machinery (Profile Page.md §8.7: account creation itself must
+    never be dragged down by whether the verification email went out).
+    """
+    from app.core.database import SessionLocal
+    from app.models.user import User
+    from app.services.email_verification import create_verification
+
+    session = SessionLocal()
+    try:
+        user = session.get(User, UUID(user_id))
+        if user is None:
+            # The signup row was rolled back or the user purged between
+            # enqueue and execution — a steady state, not an error.
+            logger.warning("account-email verification task: user %s not found", user_id)
+            return "skipped_not_found"
+        create_verification(session, email=user.email, purpose="account_email", user_id=user.id)
+        return "sent"
+    finally:
+        session.close()
+
+
+@celery_app.task(  # type: ignore[untyped-decorator]
     name="app.tasks.email_verification_tasks.poll_email_verification_delivery",
     bind=True,
     max_retries=3,
