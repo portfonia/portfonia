@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 from altcha import v1 as altcha_v1
 from altcha.v1 import AlgoType
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.email_verification import EmailVerification
@@ -22,6 +23,7 @@ from app.services.email_verification import (
     VERIFICATION_REJECTED_MESSAGE,
     ResendTooSoon,
     VerificationRejected,
+    VerificationSendFailed,
     confirm_verification,
     create_verification,
     get_verification_status,
@@ -182,17 +184,91 @@ def test_create_verification_ops_manual_reprobe_of_same_email_supersedes_prior(
     assert row2 is not None and row2.status == "pending"
 
 
-def test_create_verification_failed_send_leaves_provider_message_id_null(
+def test_create_verification_raises_on_failed_send_and_touches_nothing(
     db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Regression (review, PR #261 round 2): an earlier version persisted
+    (superseded the prior row + stamped last_sent_at) BEFORE attempting the
+    send, so a failed send destroyed a still-working prior link and started
+    the resend cooldown on an email that was never sent. Now the send
+    happens first — on failure, no row is created at all."""
     monkeypatch.setattr(
         "app.services.email_verification.send_verification_email", MagicMock(return_value=None)
     )
-    record = create_verification(
-        db_session, email="a@example.com", purpose="ops_manual", user_id=None
+
+    with pytest.raises(VerificationSendFailed):
+        create_verification(db_session, email="a@example.com", purpose="ops_manual", user_id=None)
+
+    rows = (
+        db_session.execute(
+            select(EmailVerification).where(EmailVerification.email == "a@example.com")
+        )
+        .scalars()
+        .all()
     )
-    assert record.status == "pending"  # the row still exists — send failure isn't fatal
-    assert record.provider_message_id is None
+    assert rows == []
+
+
+def test_create_verification_failed_send_does_not_destroy_a_working_prior_link(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The specific bug this ordering fix closes: a prior pending record
+    (still within its TTL, a real working link) must survive a failed
+    resend attempt untouched — not get marked superseded before the send is
+    even known to have worked."""
+    first = create_verification(db_session, email="a@x.com", purpose="ops_manual", user_id=None)
+    _age_past_cooldown(first, db_session)
+
+    monkeypatch.setattr(
+        "app.services.email_verification.send_verification_email", MagicMock(return_value=None)
+    )
+    with pytest.raises(VerificationSendFailed):
+        create_verification(db_session, email="a@x.com", purpose="ops_manual", user_id=None)
+
+    db_session.expire_all()
+    row = db_session.get(EmailVerification, first.id)
+    assert row is not None and row.status == "pending"  # untouched by the failed retry
+
+
+def test_create_verification_failed_send_does_not_start_the_cooldown(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A send that never happened must not block an immediate real retry."""
+    sender = MagicMock(return_value=None)
+    monkeypatch.setattr("app.services.email_verification.send_verification_email", sender)
+    with pytest.raises(VerificationSendFailed):
+        create_verification(db_session, email="a@x.com", purpose="ops_manual", user_id=None)
+
+    # A real retry right after must succeed, not hit ResendTooSoon — there
+    # is nothing pending to collide with, since the failed attempt above
+    # created no row at all.
+    sender.return_value = "test-provider-id"
+    record = create_verification(db_session, email="a@x.com", purpose="ops_manual", user_id=None)
+    assert record.status == "pending"
+
+
+def test_create_verification_resolves_locale_from_bound_user(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_session.add(_user(_UID, "seed@example.com"))
+    db_session.flush()
+    sender = MagicMock(return_value="test-provider-id")
+    monkeypatch.setattr("app.services.email_verification.send_verification_email", sender)
+
+    create_verification(db_session, email="new@example.com", purpose="delivery_email", user_id=_UID)
+
+    assert sender.call_args.kwargs["locale"] == "zh"  # _user()'s fixture default
+
+
+def test_create_verification_defaults_locale_to_en_for_unbound_probe(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sender = MagicMock(return_value="test-provider-id")
+    monkeypatch.setattr("app.services.email_verification.send_verification_email", sender)
+
+    create_verification(db_session, email="a@example.com", purpose="ops_manual", user_id=None)
+
+    assert sender.call_args.kwargs["locale"] == "en"
 
 
 def test_get_verification_status_not_found(db_session: Session) -> None:

@@ -21,6 +21,7 @@ from app.services.email_sender import (
     _inline_body_styles,
     _render_html,
     send_report_email,
+    send_verification_email,
 )
 
 
@@ -276,6 +277,7 @@ def _mock_settings() -> MagicMock:
     s.DEV_USER_ID = _DEV_USER_ID_STR
     s.DEV_USER_EMAIL = "test@example.com"
     s.OUTPUT_LANG = "zh"  # matches Ring 0 default; subject resolves via this (issue #90 review)
+    s.FRONTEND_URL = "https://portfonia.com"
     return s
 
 
@@ -623,3 +625,83 @@ def test_idempotency_key_changes_with_content(
     assert key1 != key2
     assert key1.startswith(f"report-{report_v1.id}-")
     assert key2.startswith(f"report-{report_v1.id}-")
+
+
+# ---------------------------------------------------------------------------
+# send_verification_email (issue #260)
+# ---------------------------------------------------------------------------
+
+
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
+def test_send_verification_email_defaults_to_english(
+    mock_client_cls: MagicMock, mock_settings: MagicMock
+) -> None:
+    """Regression (review, PR #261 round 2): the original version hardcoded
+    English regardless of the caller — this repo's mandatory i18n policy
+    applies to this email too."""
+    mock_settings.return_value = _mock_settings()
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {"id": "resend-id-1"}
+    post_mock = mock_client_cls.return_value.__enter__.return_value.post
+    post_mock.return_value = mock_resp
+
+    result = send_verification_email("a@example.com", "tok-1")
+
+    assert result == "resend-id-1"
+    payload = post_mock.call_args.kwargs["json"]
+    assert payload["subject"] == "Verify your email — Portfonia"
+    assert "https://portfonia.com/verify-email?token=tok-1" in payload["text"]
+
+
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
+def test_send_verification_email_uses_zh_copy_for_zh_locale(
+    mock_client_cls: MagicMock, mock_settings: MagicMock
+) -> None:
+    mock_settings.return_value = _mock_settings()
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {"id": "resend-id-1"}
+    post_mock = mock_client_cls.return_value.__enter__.return_value.post
+    post_mock.return_value = mock_resp
+
+    send_verification_email("a@example.com", "tok-1", locale="zh")
+
+    payload = post_mock.call_args.kwargs["json"]
+    assert payload["subject"] == "验证你的邮箱 — Portfonia"
+    assert "https://portfonia.com/verify-email?token=tok-1" in payload["text"]
+
+
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
+def test_send_verification_email_falls_back_to_english_for_unknown_locale(
+    mock_client_cls: MagicMock, mock_settings: MagicMock
+) -> None:
+    """zh-Hant isn't in the dict yet (not exposed to users at the UI layer
+    either) — an unrecognized locale must not crash, it degrades to en."""
+    mock_settings.return_value = _mock_settings()
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {"id": "resend-id-1"}
+    post_mock = mock_client_cls.return_value.__enter__.return_value.post
+    post_mock.return_value = mock_resp
+
+    send_verification_email("a@example.com", "tok-1", locale="zh-Hant")
+
+    payload = post_mock.call_args.kwargs["json"]
+    assert payload["subject"] == "Verify your email — Portfonia"
+
+
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
+def test_send_verification_email_returns_none_on_failure(
+    mock_client_cls: MagicMock, mock_settings: MagicMock
+) -> None:
+    mock_settings.return_value = _mock_settings()
+    mock_client_cls.return_value.__enter__.return_value.post.side_effect = Exception("boom")
+
+    result = send_verification_email("a@example.com", "tok-1")
+
+    assert result is None

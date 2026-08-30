@@ -6,8 +6,11 @@ independently of any application-scenario caller (none of which exist yet).
 from __future__ import annotations
 
 import uuid
+from unittest.mock import MagicMock
 
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.email_verification import EmailVerification
@@ -197,3 +200,30 @@ def test_create_within_60s_of_a_prior_pending_probe_returns_429(app_client: Test
 def test_get_404_for_unknown_id(app_client: TestClient) -> None:
     resp = app_client.get(f"/admin/email-verifications/{uuid.uuid4()}", headers=_headers())
     assert resp.status_code == 404
+
+
+def test_create_returns_502_and_touches_nothing_when_send_fails(
+    app_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression (review, PR #261 round 2): create_verification() now sends
+    before it writes anything, so a failed send must surface as a clean 502
+    with zero rows created — not a 201 for a record nobody ever received."""
+    monkeypatch.setattr(
+        "app.services.email_verification.send_verification_email", MagicMock(return_value=None)
+    )
+
+    resp = app_client.post(
+        "/admin/email-verifications",
+        headers=_headers(),
+        json={"email": "a@example.com"},
+    )
+
+    assert resp.status_code == 502
+    rows = (
+        db_session.execute(
+            select(EmailVerification).where(EmailVerification.email == "a@example.com")
+        )
+        .scalars()
+        .all()
+    )
+    assert rows == []

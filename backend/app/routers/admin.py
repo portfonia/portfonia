@@ -50,7 +50,11 @@ from app.services.auth_provider import (
     delete_auth_user,
     get_auth_user,
 )
-from app.services.email_verification import ResendTooSoon, create_verification
+from app.services.email_verification import (
+    ResendTooSoon,
+    VerificationSendFailed,
+    create_verification,
+)
 from app.services.fund_nav_fetcher import update_fund_navs
 from app.services.invites import (
     EmailAlreadyRegistered,
@@ -641,6 +645,13 @@ def create_email_verification_endpoint(
         raise HTTPException(
             status_code=429,
             detail="a verification for this address was already sent less than 60s ago",
+        ) from None
+    except VerificationSendFailed:
+        # Nothing local was touched (create_verification sends before it
+        # writes anything — review, PR #261 round 2) — safe to retry.
+        raise HTTPException(
+            status_code=502,
+            detail="failed to send the verification email; no local data was touched, retry",
         ) from None
     return EmailVerificationCreateOut(
         id=record.id, status=record.status, expires_at=record.expires_at

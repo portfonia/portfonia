@@ -350,25 +350,56 @@ def send_report_email(report: Report, session: Session) -> bool:
     return True
 
 
-def send_verification_email(email: str, token: str) -> str | None:
+# Locale-keyed copy for the verification email (issue #260, review round 2
+# — the original version hardcoded English, violating this repo's mandatory
+# "in-product strings are i18n-keyed" policy). Deliberately NOT the frontend
+# next-intl catalog (browser-only, unreachable from this backend module) and
+# NOT i18n_glossary.yml (built for large LLM-generated report bodies, not a
+# two-line transactional email). Keys are bare locale codes matching
+# `users.locale`/`OUTPUT_LANG`'s existing convention (`en`/`zh`), not the
+# frontend UI catalog's BCP-47 `zh-Hans` tag. zh-Hant isn't covered — it
+# isn't exposed to users at the UI layer yet either (frontend/src/locales/
+# README.md's "zh-Hant review status"), so there's no reason to get ahead
+# of that here.
+_VERIFICATION_EMAIL_COPY: dict[str, dict[str, str]] = {
+    "en": {
+        "subject": "Verify your email — Portfonia",
+        "body": (
+            "Click the link below to verify this email address for Portfonia:\n\n"
+            "{url}\n\n"
+            "If you didn't request this, you can ignore this email."
+        ),
+    },
+    "zh": {
+        "subject": "验证你的邮箱 — Portfonia",
+        "body": (
+            "点击下面的链接,验证这个邮箱地址是否可以用于 Portfonia:\n\n"
+            "{url}\n\n"
+            "如果这不是你本人的操作,可以忽略这封邮件。"
+        ),
+    },
+}
+_DEFAULT_VERIFICATION_EMAIL_LOCALE = "en"
+
+
+def send_verification_email(email: str, token: str, *, locale: str = "en") -> str | None:
     """Send an email-verification link (issue #260). Returns Resend's
     delivery id on success (stored as EmailVerification.provider_message_id,
     the poll target for design doc §3.3 step 6), or None on failure — never
-    raises, matching send_ops_alert's contract, since the caller has already
-    durably persisted the pending record before calling this.
+    raises; the caller (create_verification) does not touch the DB until
+    this returns a real id (review, PR #261 round 2 — see that function's
+    docstring for why the ordering changed from an earlier version).
     """
     settings = get_settings()
     verify_url = f"{settings.FRONTEND_URL}/verify-email?token={token}"
-    body = (
-        "Click the link below to verify this email address for Portfonia:\n\n"
-        f"{verify_url}\n\n"
-        "If you didn't request this, you can ignore this email."
+    copy = _VERIFICATION_EMAIL_COPY.get(
+        locale, _VERIFICATION_EMAIL_COPY[_DEFAULT_VERIFICATION_EMAIL_LOCALE]
     )
     payload: dict[str, object] = {
         "from": settings.EMAIL_FROM,
         "to": [email],
-        "subject": "Verify your email — Portfonia",
-        "text": body,
+        "subject": copy["subject"],
+        "text": copy["body"].format(url=verify_url),
     }
     headers: dict[str, str] = {
         "Authorization": f"Bearer {settings.RESEND_API_KEY.get_secret_value()}",

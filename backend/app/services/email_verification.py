@@ -49,6 +49,14 @@ class ResendTooSoon(Exception):
     sent less than RESEND_COOLDOWN ago. Callers map this to 429."""
 
 
+class VerificationSendFailed(Exception):
+    """send_verification_email() failed. Raised BEFORE any DB write (review,
+    PR #261 round 2 — see create_verification's docstring for why ordering
+    matters here). Callers map this to 502, matching this codebase's own
+    "external call failed, nothing local touched, safe to retry" convention
+    (app/routers/admin.py's _auth_delete_or_502)."""
+
+
 def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
@@ -97,6 +105,21 @@ def _find_live_pending(
     ).scalar_one_or_none()
 
 
+def _resolve_locale(session: Session, user_id: uuid.UUID | None) -> str:
+    """Bare locale code (`en`/`zh`, same convention as `OUTPUT_LANG` — not
+    the frontend's BCP-47 `zh-Hans` tag) for the verification email's copy.
+    An unbound `ops_manual` probe has no account to read a preference from
+    and defaults to `en` (ops itself reads English, per this repo's own
+    language policy). `session.get(User, user_id)` here is a second lookup
+    when a caller (e.g. the Ops router) already fetched the row for its own
+    404 check — SQLAlchemy's identity map makes that a no-op re-query
+    within the same session, not a second round trip."""
+    if user_id is None:
+        return "en"
+    user = session.get(User, user_id)
+    return user.locale if user is not None else "en"
+
+
 def create_verification(
     session: Session,
     *,
@@ -104,13 +127,30 @@ def create_verification(
     purpose: str,
     user_id: uuid.UUID | None = None,
 ) -> EmailVerification:
-    """Create a pending verification record and send the verification email.
+    """Send the verification email, and only on success create the pending
+    record (superseding any live prior candidate for the same scope).
 
-    Raises ResendTooSoon (before touching the DB) if a live candidate for
-    this scope was sent within RESEND_COOLDOWN. The record is committed
-    BEFORE the send attempt (matching send_report_email's persist-first
-    discipline) — a Resend API hiccup must not lose the record of intent;
-    it only leaves provider_message_id unset.
+    Raises ResendTooSoon (before sending or touching the DB) if a live
+    candidate for this scope was sent within RESEND_COOLDOWN. Raises
+    VerificationSendFailed (before touching the DB) if the send itself
+    fails.
+
+    **Ordering matters and was wrong in an earlier version of this function
+    (review, PR #261 round 2)**: persisting first (superseding the prior
+    row + stamping `last_sent_at`) and only then attempting the send meant
+    a failed send would destroy a still-working prior link, create a new
+    record that was never actually delivered, and start the resend cooldown
+    on a send that never happened — a caller's immediate retry would then
+    hit `ResendTooSoon` even though nothing had actually been sent. The
+    original justification ("commit before send, matching send_report_
+    email's persist-first discipline, so a Resend hiccup can't lose the
+    record of intent") doesn't hold here: `send_report_email` has no
+    "supersede an existing record" step, so nothing else's validity depends
+    on its row existing before the send succeeds. Here it does. External
+    I/O that can fail goes first; local state only changes once it's known
+    to have worked — same discipline as this repo's `DELETE /admin/users/
+    {id}` (Auth deletion strictly before any local delete, 502 + zero local
+    changes on failure, safe to retry).
     """
     normalized_email = _normalize_email(email)
     if normalized_email is None:
@@ -124,38 +164,42 @@ def create_verification(
     prior = _find_live_pending(session, purpose=purpose, email=normalized_email, user_id=user_id)
     if prior is not None and now - prior.last_sent_at < RESEND_COOLDOWN:
         raise ResendTooSoon
-    if prior is not None:
-        prior.status = "superseded"
 
     token = secrets.token_urlsafe(_TOKEN_NBYTES)
+    locale = _resolve_locale(session, user_id)
+    provider_message_id = send_verification_email(normalized_email, token, locale=locale)
+    if provider_message_id is None:
+        raise VerificationSendFailed
+
+    # Only now — send confirmed successful — touch the DB.
+    if prior is not None:
+        prior.status = "superseded"
+    sent_at = datetime.now(UTC)
     record = EmailVerification(
         user_id=user_id,
         purpose=purpose,
         email=normalized_email,
         token_hash=_hash_token(token),
         status="pending",
-        expires_at=now + TOKEN_TTL,
-        last_sent_at=now,
+        expires_at=sent_at + TOKEN_TTL,
+        last_sent_at=sent_at,
         resend_count=0,
+        provider_message_id=provider_message_id,
     )
     session.add(record)
     session.commit()
 
-    provider_message_id = send_verification_email(normalized_email, token)
-    if provider_message_id is not None:
-        record.provider_message_id = provider_message_id
-        session.commit()
-        # Lazy import (matches report_tasks.py's own lazy `SessionLocal`
-        # import) — keeps this service module free of a module-level
-        # dependency on the Celery task graph.
-        from app.tasks.email_verification_tasks import (
-            POLL_DELAY_SECONDS,
-            poll_email_verification_delivery,
-        )
+    # Lazy import (matches report_tasks.py's own lazy `SessionLocal` import)
+    # — keeps this service module free of a module-level dependency on the
+    # Celery task graph.
+    from app.tasks.email_verification_tasks import (
+        POLL_DELAY_SECONDS,
+        poll_email_verification_delivery,
+    )
 
-        poll_email_verification_delivery.apply_async(
-            args=[str(record.id)], countdown=POLL_DELAY_SECONDS
-        )
+    poll_email_verification_delivery.apply_async(
+        args=[str(record.id)], countdown=POLL_DELAY_SECONDS
+    )
     return record
 
 
