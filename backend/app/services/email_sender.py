@@ -350,6 +350,89 @@ def send_report_email(report: Report, session: Session) -> bool:
     return True
 
 
+# Locale-keyed copy for the verification email (issue #260, review round 2
+# — the original version hardcoded English, violating this repo's mandatory
+# "in-product strings are i18n-keyed" policy). Deliberately NOT the frontend
+# next-intl catalog (browser-only, unreachable from this backend module) and
+# NOT i18n_glossary.yml (built for large LLM-generated report bodies, not a
+# two-line transactional email). Keys are bare locale codes matching
+# `users.locale`/`OUTPUT_LANG`'s existing convention (`en`/`zh`), not the
+# frontend UI catalog's BCP-47 `zh-Hans` tag. zh-Hant isn't covered — it
+# isn't exposed to users at the UI layer yet either (frontend/src/locales/
+# README.md's "zh-Hant review status"), so there's no reason to get ahead
+# of that here.
+_VERIFICATION_EMAIL_COPY: dict[str, dict[str, str]] = {
+    "en": {
+        "subject": "Verify your email — Portfonia",
+        "body": (
+            "Click the link below to verify this email address for Portfonia:\n\n"
+            "{url}\n\n"
+            "If you didn't request this, you can ignore this email."
+        ),
+    },
+    "zh": {
+        "subject": "验证你的邮箱 — Portfonia",
+        "body": (
+            "点击下面的链接,验证这个邮箱地址是否可以用于 Portfonia:\n\n"
+            "{url}\n\n"
+            "如果这不是你本人的操作,可以忽略这封邮件。"
+        ),
+    },
+}
+_DEFAULT_VERIFICATION_EMAIL_LOCALE = "en"
+
+
+def send_verification_email(email: str, token: str, *, locale: str = "en") -> str | None:
+    """Send an email-verification link (issue #260). Returns Resend's
+    delivery id on success (stored as EmailVerification.provider_message_id,
+    the poll target for design doc §3.3 step 6), or None on failure — never
+    raises; the caller (create_verification) does not touch the DB until
+    this returns a real id (review, PR #261 round 2 — see that function's
+    docstring for why the ordering changed from an earlier version).
+    """
+    settings = get_settings()
+    verify_url = f"{settings.FRONTEND_URL}/verify-email?token={token}"
+    copy = _VERIFICATION_EMAIL_COPY.get(
+        locale, _VERIFICATION_EMAIL_COPY[_DEFAULT_VERIFICATION_EMAIL_LOCALE]
+    )
+    payload: dict[str, object] = {
+        "from": settings.EMAIL_FROM,
+        "to": [email],
+        "subject": copy["subject"],
+        "text": copy["body"].format(url=verify_url),
+    }
+    headers: dict[str, str] = {
+        "Authorization": f"Bearer {settings.RESEND_API_KEY.get_secret_value()}",
+        "Content-Type": "application/json",
+    }
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.post(_RESEND_SEND_URL, headers=headers, json=payload)
+            resp.raise_for_status()
+        resend_id = resp.json().get("id")
+        if not isinstance(resend_id, str):
+            # 2xx from Resend but no usable id — the email is almost
+            # certainly in flight (Resend accepted the request), yet the
+            # caller (create_verification) will treat this the same as a
+            # genuine send failure: 502, "no local data was touched, retry".
+            # A naive retry then sends a SECOND email. Log loudly so an
+            # investigating operator sees the same warning the sibling
+            # commit-failure path gives (round-4 review finding) — no
+            # status-code change, this is diagnostic only.
+            logger.error(
+                "verification email to %s: Resend returned 2xx with no usable id (%r) — "
+                "email likely sent, but the link cannot be tracked or a retry may double-send",
+                email,
+                resend_id,
+            )
+            return None
+        logger.info("verification email sent to %s (resend_id=%s)", email, resend_id)
+        return resend_id
+    except Exception:
+        logger.exception("verification email delivery failed for %s", email)
+        return None
+
+
 def send_ops_alert(subject: str, body: str, idempotency_key: str | None = None) -> None:
     """Send a plain-text ops alert to the admin email via Resend.
 

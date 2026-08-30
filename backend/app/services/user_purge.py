@@ -11,6 +11,7 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.models.account import Account
+from app.models.email_verification import EmailVerification
 from app.models.holding import Holding
 from app.models.invite import Invite
 from app.models.news_surfaced import NewsSurfaced
@@ -28,6 +29,7 @@ class PurgeResult:
     accounts: int
     upload_jobs: int
     user_investment_context: int
+    email_verifications: int
     invites_used_by_cleared: int
     users_invited_by_cleared: int
     users: int
@@ -71,6 +73,16 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
             ),
         )
     )
+    # Must precede DELETE users: email_verifications.user_id FKs to users.id
+    # ON DELETE RESTRICT (issue #260) — same class of gap B7 already paid
+    # for on holdings/reports/upload_jobs/news_surfaced (review, PR #261).
+    # Unbound ops_manual probes (user_id NULL) are never touched here.
+    email_verifications = _rowcount(
+        cast(
+            CursorResult[Any],
+            session.execute(delete(EmailVerification).where(EmailVerification.user_id == user_id)),
+        )
+    )
     invites_used_by_cleared = _rowcount(
         cast(
             CursorResult[Any],
@@ -99,6 +111,7 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
         accounts=accounts,
         upload_jobs=upload_jobs,
         user_investment_context=user_investment_context,
+        email_verifications=email_verifications,
         invites_used_by_cleared=invites_used_by_cleared,
         users_invited_by_cleared=users_invited_by_cleared,
         users=users,

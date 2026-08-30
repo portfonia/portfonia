@@ -32,6 +32,7 @@ const PUBLIC_PATH_PREFIXES = [
   "/signup",
   "/forgot-password",
   "/reset-password",
+  "/verify-email",
   // The matcher below only excludes image extensions, not .js, so the
   // vendored Altcha widget (frontend/public/altcha.js) still runs through
   // this function — without this entry a logged-out visitor's GET for it

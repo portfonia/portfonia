@@ -385,5 +385,14 @@
     "withoutHoldings": "報告將發送至 {deliveryEmail}。儲存持倉前，持倉相關區塊將保持為空。",
     "cadence": "你的報告週期是每週一次。首份報告將按此週期發送。",
     "errorLoadFailed": "無法載入你的帳戶資訊。"
+  },
+  "emailVerification": {
+    "heading": "驗證你的信箱",
+    "subtitle": "確認 {email} 可以接收 Portfonia 的郵件。",
+    "confirmButton": "確認",
+    "confirming": "確認中…",
+    "successMessage": "{email} 已通過驗證。",
+    "invalidOrExpired": "這個驗證連結無效或已過期。",
+    "genericError": "出了點問題，請重試。"
   }
 }

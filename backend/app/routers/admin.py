@@ -28,7 +28,7 @@ from uuid import UUID
 import openai
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.routing import APIRoute
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import exists, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -38,6 +38,7 @@ from app.core.database import get_session
 from app.core.deps import require_ops_token
 from app.core.ops_log import log_ops_event
 from app.core.rate_limit import rate_limit_create_invite
+from app.models.email_verification import EmailVerification
 from app.models.invite import Invite
 from app.models.report import Report
 from app.models.user import User
@@ -48,6 +49,11 @@ from app.services.auth_provider import (
     AuthUserInfo,
     delete_auth_user,
     get_auth_user,
+)
+from app.services.email_verification import (
+    ResendTooSoon,
+    VerificationSendFailed,
+    create_verification,
 )
 from app.services.fund_nav_fetcher import update_fund_navs
 from app.services.invites import (
@@ -380,6 +386,7 @@ class PurgeDeletedCounts(BaseModel):
     accounts: int
     upload_jobs: int
     user_investment_context: int
+    email_verifications: int
     invites_used_by_cleared: int
     users_invited_by_cleared: int
     users: int
@@ -392,6 +399,7 @@ _NO_LOCAL_ROWS = PurgeDeletedCounts(
     accounts=0,
     upload_jobs=0,
     user_investment_context=0,
+    email_verifications=0,
     invites_used_by_cleared=0,
     users_invited_by_cleared=0,
     users=0,
@@ -536,8 +544,149 @@ def purge_user_endpoint(
             accounts=result.accounts,
             upload_jobs=result.upload_jobs,
             user_investment_context=result.user_investment_context,
+            email_verifications=result.email_verifications,
             invites_used_by_cleared=result.invites_used_by_cleared,
             users_invited_by_cleared=result.users_invited_by_cleared,
             users=result.users,
         ),
+    )
+
+
+class CreateEmailVerificationBody(BaseModel):
+    email: str
+    purpose: Literal["account_email", "delivery_email", "ops_manual"] = "ops_manual"
+    user_id: UUID | None = None
+
+    @field_validator("email")
+    @classmethod
+    def _email_not_blank(cls, v: str) -> str:
+        # Boundary validation (review, PR #261) — a blank/whitespace-only
+        # address previously persisted a pending row that could never be
+        # confirmed by anyone. Normalization (strip/lower) itself stays in
+        # create_verification via _normalize_email, the single place every
+        # caller (this endpoint, and any future one) goes through — this
+        # check only rejects the one input that has no valid normalized
+        # form at all.
+        if not v.strip():
+            raise ValueError("email must not be blank")
+        return v
+
+    @model_validator(mode="after")
+    def _purpose_user_id_pairing(self) -> CreateEmailVerificationBody:
+        """Design §3.5: an unbound probe is purpose=ops_manual with no
+        user_id; a bound call passes the user's real purpose. Any other
+        pairing (review, PR #261) silently no-ops on confirm instead of
+        failing loudly — ops_manual + user_id skips the write-back
+        (_target_field returns None for ops_manual regardless of user_id),
+        and account_email/delivery_email with no user_id has no row to load
+        a user from. Reject both at the boundary instead of persisting a
+        pending row that can never do anything useful."""
+        bound = self.purpose in ("account_email", "delivery_email")
+        if bound and self.user_id is None:
+            raise ValueError(f"purpose={self.purpose} requires user_id")
+        if not bound and self.user_id is not None:
+            raise ValueError("purpose=ops_manual must not be paired with user_id")
+        return self
+
+
+class EmailVerificationCreateOut(BaseModel):
+    id: UUID
+    status: str
+    expires_at: datetime
+
+
+class EmailVerificationDetailOut(BaseModel):
+    id: UUID
+    status: str
+    expires_at: datetime
+    # Diagnostic fields (review, PR #261) — the stated purpose of this
+    # endpoint is post-hoc "why didn't this user get their email" lookup,
+    # which `id`/`status`/`expires_at` alone can't answer. Deliberately NOT
+    # on EmailVerificationCreateOut above: POST's response stays the narrow
+    # create-ack shape (never the plaintext token either way).
+    email: str
+    purpose: str
+    user_id: UUID | None
+    provider_message_id: str | None
+    last_sent_at: datetime
+    verified_at: datetime | None
+
+
+@router.post("/email-verifications", response_model=EmailVerificationCreateOut, status_code=201)
+def create_email_verification_endpoint(
+    body: CreateEmailVerificationBody, session: Session = Depends(get_session)
+) -> EmailVerificationCreateOut:
+    """Trigger a verification for any email address (issue #260, Ring
+    1-Email Validation design doc §3.5). Not tied to `users` existing:
+    `purpose=ops_manual` (default) with no `user_id` is a pure reachability
+    probe. Passing `user_id` + `account_email`/`delivery_email` behaves
+    exactly like the corresponding application-scenario trigger — on
+    confirm, `delivery_email` is written back to that user's row (and
+    `account_email` marks the address already on the row as verified,
+    never overwriting it) — those call sites don't exist yet (out of
+    scope, see the issue), so this is currently the only way to drive that
+    path end-to-end.
+
+    Never returns the plaintext token (§3.2's hash-only discipline — this
+    endpoint is not a backdoor around it).
+    """
+    if body.user_id is not None:
+        user = session.get(User, body.user_id)
+        if user is None:
+            raise HTTPException(status_code=404, detail="user not found")
+    try:
+        record = create_verification(
+            session,
+            email=body.email,
+            purpose=body.purpose,
+            user_id=body.user_id,
+        )
+    except ResendTooSoon:
+        raise HTTPException(
+            status_code=429,
+            # Scope-accurate wording (round-4 review): for a bound call the
+            # cooldown scope is (user_id, purpose), not the request's address
+            # — a prior send to a DIFFERENT address for the same user+purpose
+            # also trips this. Only the unbound ops_manual probe case is
+            # scoped by address.
+            detail="a verification for this scope (user+purpose, or address for an "
+            "unbound probe) was already sent less than 60s ago",
+        ) from None
+    except VerificationSendFailed:
+        # Nothing local was touched (create_verification sends before it
+        # writes anything — review, PR #261 round 2) — safe to retry.
+        raise HTTPException(
+            status_code=502,
+            detail="failed to send the verification email; no local data was touched, retry",
+        ) from None
+    return EmailVerificationCreateOut(
+        id=record.id, status=record.status, expires_at=record.expires_at
+    )
+
+
+@router.get("/email-verifications/{verification_id}", response_model=EmailVerificationDetailOut)
+def get_email_verification_endpoint(
+    verification_id: UUID, session: Session = Depends(get_session)
+) -> EmailVerificationDetailOut:
+    """Status lookup (issue #260) — Ops API triggers don't wait synchronously
+    for a user to click, so this is the only way to check what happened
+    afterward. Widened past just id/status/expires_at (review, PR #261):
+    the point of this endpoint is diagnosing "why didn't this user get
+    their email" without a database query. No list/filter endpoint yet —
+    no real management task has asked for one (Ops API Reference's
+    principle: a real management task must exist before the endpoint for
+    it does)."""
+    record = session.get(EmailVerification, verification_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="verification not found")
+    return EmailVerificationDetailOut(
+        id=record.id,
+        status=record.status,
+        expires_at=record.expires_at,
+        email=record.email,
+        purpose=record.purpose,
+        user_id=record.user_id,
+        provider_message_id=record.provider_message_id,
+        last_sent_at=record.last_sent_at,
+        verified_at=record.verified_at,
     )

@@ -60,7 +60,8 @@ area of the code, not just the one-line summary here.
 - [Identity seam: current_principal + explicit user_id — B3](docs/mechanisms/identity-and-auth.md) — Ring 1 stage B, issue #129/PR #181.
 - [Users, invites, and JWKS auth — B4](docs/mechanisms/identity-and-auth.md) — Ring 1 stage B, issue #129/PR #183: JWKS verification, no `JWT_SECRET`, invite redeem.
 - [Idle-timeout server enforcement](docs/mechanisms/identity-and-auth.md) — issue #235: the 15-min auto-logout (issue #207) was client-only and silently defeated by closing the browser; `current_principal` now checks a Redis record keyed by `(user_id, session_id)` (`app/core/idle_activity.py` — `session_id` is a required JWT claim as of round 3, not just a value comparison), fail-open on Redis outage (deliberate departure from rate_limit's fail-closed convention — blast radius, see mechanism doc); absolute session lifetime (Supabase refresh-token expiry) and per-user configurable length are explicitly out of scope here. PR #240 went through 3 review rounds, each catching a real flaw in the previous fix (see mechanism doc for the full history): round 1 — stale idle lock survived re-login, and the 401 never signed the browser out (8 frontend call sites now route through `logout()`); round 2 — round 1's re-login fix compared `iat`, which silent background token refresh also changes; round 3 — round 2's `session_id` comparison was a value check against a still user_id-keyed record, so a re-login's write could resurrect the JWT it superseded; fixed by keying Redis itself on `(user_id, session_id)` with no cross-session comparison logic left at all.
-- [Ops user hard-purge](docs/mechanisms/identity-and-auth.md) — issue #199/#225/B7: `DELETE /admin/users/{id}?confirm={email}` hard-deletes one user's own rows (now including `accounts`) and the Supabase Auth account (sequenced before local deletes, 502+no-op on failure); also handles Auth-only orphans with no local row.
+- [Ops user hard-purge](docs/mechanisms/identity-and-auth.md) — issue #199/#225/B7: `DELETE /admin/users/{id}?confirm={email}` hard-deletes one user's own rows (now including `accounts`, `email_verifications`) and the Supabase Auth account (sequenced before local deletes, 502+no-op on failure); also handles Auth-only orphans with no local row.
+- [Generic email verification: core mechanism + Ops API](docs/mechanisms/email-verification.md) — issue #260/PR #261: `email_verifications` table + `users.email_verified_at`/`delivery_email_verified_at`, GET-inert status lookup + Altcha PoW + POST confirm (`account_email` never overwrites `users.email` — reachability-only), async Resend delivery-status poll via a separate `full_access` key, `POST`/`GET /admin/email-verifications` (narrow create response, widened diagnostic GET), public `/verify-email` frontend page. Signup/Profile/report-gating/unsubscribe integration explicitly deferred to follow-up issues.
 - [Signup / invite anti-abuse](docs/mechanisms/identity-and-auth.md) — issue #190: Redis fixed-window limits on `POST /auth/signup` and `POST /admin/invites`; no Turnstile; fail-closed on Redis; known-invite buckets only; Next.js hop forwards XFF; global invite-mint 200/day alert-only.
 - [Forgot-password trigger](docs/mechanisms/identity-and-auth.md) — issue #231: `POST /auth/forgot-password` backend-mediated Supabase reset trigger, self-hosted Altcha PoW (no Sentinel, no external CDN — vendored `frontend/public/altcha.js`), IP+email Redis rate limit reusing issue #190's machinery, local-`users`-table exists/not-exists response (deliberate OWASP-enumeration deviation), `/reset-password` client-direct to Supabase (no PoW); link expiry (72h targeted, 24h actual — Supabase's Email OTP Expiration caps at 86400s) and "password changed" email are Supabase Dashboard config, not code.
 - [Frontend auth closure — B5](docs/mechanisms/identity-and-auth.md) — Ring 1 stage B, issue #129: `/login`+`/signup`, `src/proxy.ts`, cookie session via `@supabase/ssr`.
@@ -96,11 +97,19 @@ area of the code, not just the one-line summary here.
   locale is not a report language.
 - Translation resources live under a dedicated locales directory
   (`frontend/src/locales/*.json` for UI chrome; `backend/config/
-  i18n_glossary.yml` for report output — two mechanisms, not one, see the
-  Mechanism deep-dives table) and are the only place where non-English text
-  legitimately appears in the repo. A lint rule
+  i18n_glossary.yml` for report output; `_VERIFICATION_EMAIL_COPY` in
+  `backend/app/services/email_sender.py` for the one transactional
+  verification email, issue #260/PR #261 — three mechanisms, not one/two,
+  see the Mechanism deep-dives table) and are the only places where
+  non-English text legitimately appears in the repo. A lint rule
   (`i18next/no-literal-string` in `frontend/eslint.config.mjs`) enforces
-  this for UI code.
+  this for UI code. `_VERIFICATION_EMAIL_COPY` is deliberately its own
+  small dict rather than folded into either existing mechanism: the
+  next-intl catalog is browser-only and unreachable from this backend
+  module, and `i18n_glossary.yml` is built for large LLM-generated report
+  bodies, not a two-line transactional email — bare locale codes (`en`/
+  `zh`), matching `users.locale`/`OUTPUT_LANG`'s convention, not the
+  frontend catalog's BCP-47 `zh-Hans` tag.
 
 ## Product Boundary (NEVER VIOLATE)
 

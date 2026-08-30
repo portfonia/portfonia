@@ -385,5 +385,14 @@
     "withoutHoldings": "Reports will be sent to {deliveryEmail}. Holdings-related sections stay empty until you save holdings.",
     "cadence": "Your cadence is weekly. The first report follows that schedule.",
     "errorLoadFailed": "Could not load your account."
+  },
+  "emailVerification": {
+    "heading": "Verify your email",
+    "subtitle": "Confirm that {email} should receive Portfonia emails.",
+    "confirmButton": "Confirm",
+    "confirming": "Confirming...",
+    "successMessage": "{email} is now verified.",
+    "invalidOrExpired": "This verification link is invalid or has expired.",
+    "genericError": "Something went wrong. Try again."
   }
 }
