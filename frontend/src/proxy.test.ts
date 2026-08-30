@@ -86,6 +86,8 @@ describe("proxy", () => {
     "/signup?invite=abc",
     "/forgot-password",
     "/reset-password",
+    "/terms",
+    "/privacy",
     "/altcha.js",
   ])(
     "never redirects the public route %s even when unauthenticated",

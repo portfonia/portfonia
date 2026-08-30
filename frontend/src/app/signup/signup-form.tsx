@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,9 @@ import { signup, type SignupState } from "./actions";
 export function SignupForm({ inviteToken }: { inviteToken: string }) {
   const t = useTranslations("auth");
   const { locale } = useLocale();
+  // Rendering /terms and /privacy in a new tab keeps the in-progress signup
+  // form (email/password already typed) alive instead of navigating away
+  // from it mid-fill.
 
   async function signupAndDisarmOnError(
     prev: SignupState | undefined,
@@ -112,7 +116,15 @@ export function SignupForm({ inviteToken }: { inviteToken: string }) {
           className="h-4 w-4 rounded border-input"
         />
         <label htmlFor="tos" className="text-sm text-foreground/80">
-          {t("tosLabel")}
+          {t("tosLabelPrefix")}
+          <Link href="/terms" target="_blank" rel="noopener noreferrer" className="underline">
+            {t("tosLabelTerms")}
+          </Link>
+          {t("tosLabelAnd")}
+          <Link href="/privacy" target="_blank" rel="noopener noreferrer" className="underline">
+            {t("tosLabelPrivacy")}
+          </Link>
+          {t("tosLabelSuffix")}
         </label>
       </div>
 

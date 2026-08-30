@@ -46,6 +46,7 @@ describe("locale catalogs stay structurally in sync (issue #209)", () => {
       "emailVerification",
       "holdings",
       "home",
+      "legal",
       "menu",
       "profile",
       "questionnaire",

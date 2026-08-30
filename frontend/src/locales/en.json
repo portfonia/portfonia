@@ -23,7 +23,11 @@
     "passwordLabel": "Password",
     "confirmPasswordLabel": "Confirm password",
     "passwordMismatch": "Passwords do not match.",
-    "tosLabel": "I agree to the Terms of Service.",
+    "tosLabelPrefix": "I agree to the ",
+    "tosLabelTerms": "Terms of Service",
+    "tosLabelAnd": " and ",
+    "tosLabelPrivacy": "Privacy Policy",
+    "tosLabelSuffix": ".",
     "tosRequired": "You must agree to the Terms of Service to continue.",
     "loginButton": "Log in",
     "loggingIn": "Logging in...",
@@ -138,11 +142,21 @@
       },
       "markets": {
         "question": "Which markets do you mainly invest in? (select all that apply)",
-        "options": { "US": "US", "HK": "Hong Kong", "A-Share": "A-Share", "Other": "Other" }
+        "options": {
+          "US": "US",
+          "HK": "Hong Kong",
+          "A-Share": "A-Share",
+          "Other": "Other"
+        }
       },
       "style": {
         "question": "How would you describe your investing style?",
-        "options": { "VALUE": "Value", "GROWTH": "Growth", "INDEX": "Index", "MIXED": "Mixed" }
+        "options": {
+          "VALUE": "Value",
+          "GROWTH": "Growth",
+          "INDEX": "Index",
+          "MIXED": "Mixed"
+        }
       },
       "horizon": {
         "question": "What's your typical holding period?",
@@ -269,22 +283,36 @@
         {
           "title": "Holdings ingestion",
           "body": "Upload a CSV or spreadsheet describing your positions. An LLM normalizes it into structured records — no manual re-entry.",
-          "tags": ["CSV", "Markdown", "Excel"]
+          "tags": [
+            "CSV",
+            "Markdown",
+            "Excel"
+          ]
         },
         {
           "title": "Market & macro tracking",
           "body": "Daily price, FX, and curated macro-news scanning across reputable sources — English-language primary, Chinese-language where the instrument calls for it.",
-          "tags": ["Prices", "FX", "Macro news"]
+          "tags": [
+            "Prices",
+            "FX",
+            "Macro news"
+          ]
         },
         {
           "title": "Personalized briefings",
           "body": "Mon / Wed / Fri, tied to your actual holdings — price anomalies, technical position, and a forward calendar of macro and earnings events.",
-          "tags": ["Email delivery"]
+          "tags": [
+            "Email delivery"
+          ]
         }
       ],
       "confidenceLead": "Every causal claim ships with a confidence label",
       "confidenceBody": "Calibrated uncertainty, made legible instead of hidden.",
-      "tiers": { "established": "Established", "probable": "Probable", "speculative": "Speculative" }
+      "tiers": {
+        "established": "Established",
+        "probable": "Probable",
+        "speculative": "Speculative"
+      }
     },
     "preview": {
       "heading": "What a briefing actually looks like",
@@ -293,25 +321,151 @@
       "footnote": "Actual content varies depending on your subscription tier.",
       "snapshotTitle": "Portfolio snapshot",
       "totalLine": "Total value: $1,000,000 (FX date: 2026-08-21)",
-      "holdingsColumns": ["Holding", "Currency", "Value", "Weight", "Custodian", "Asset class"],
+      "holdingsColumns": [
+        "Holding",
+        "Currency",
+        "Value",
+        "Weight",
+        "Custodian",
+        "Asset class"
+      ],
       "holdingsRows": [
-        ["TSMC (TSM)", "USD", "209,000", "20.9%", "Custodian A", "Stocks"],
-        ["Microsoft (MSFT)", "USD", "80,000", "8.0%", "Custodian A", "Stocks"],
-        ["Alphabet (GOOGL)", "USD", "69,000", "6.9%", "Custodian A", "Stocks"],
-        ["**Custodian A subtotal**", "USD", "**358,000**", "**35.8%**", "", ""],
-        ["QQQ (QQQ)", "USD", "160,000", "16.0%", "Custodian B", "US tech ETF"],
-        ["VOO (VOO)", "USD", "131,000", "13.1%", "Custodian B", "US broad ETF"],
-        ["BOXX (BOXX)", "USD", "48,000", "4.8%", "Custodian B", "Bond fund"],
-        ["Cash", "USD", "2,000", "0.2%", "Custodian B", "Cash equivalent"],
-        ["**Custodian B subtotal**", "USD", "**341,000**", "**34.1%**", "", ""],
-        ["Tencent (0700.HK)", "HKD", "546,000", "7.0%", "Custodian C", "Stocks"],
-        ["BYD (1211.HK)", "HKD", "413,400", "5.3%", "Custodian C", "Stocks"],
-        ["**Custodian C subtotal** (converted to USD)", "USD", "**123,000**", "**12.3%**", "", ""],
-        ["Gold ETF (518880.SS)", "CNH", "14,300", "0.2%", "Custodian D", "Precious metals"],
-        ["CSI 300 ETF (510300.SS)", "CNH", "7,150", "0.1%", "Custodian D", "China equities"],
-        ["Cash", "CNH", "42,900", "0.6%", "Custodian D", "Cash equivalent"],
-        ["**Custodian D subtotal** (converted to USD)", "USD", "**9,000**", "**0.9%**", "", ""],
-        ["USD cash & FX", "USD", "169,000", "16.9%", "Custodian E", "Cash equivalent"]
+        [
+          "TSMC (TSM)",
+          "USD",
+          "209,000",
+          "20.9%",
+          "Custodian A",
+          "Stocks"
+        ],
+        [
+          "Microsoft (MSFT)",
+          "USD",
+          "80,000",
+          "8.0%",
+          "Custodian A",
+          "Stocks"
+        ],
+        [
+          "Alphabet (GOOGL)",
+          "USD",
+          "69,000",
+          "6.9%",
+          "Custodian A",
+          "Stocks"
+        ],
+        [
+          "**Custodian A subtotal**",
+          "USD",
+          "**358,000**",
+          "**35.8%**",
+          "",
+          ""
+        ],
+        [
+          "QQQ (QQQ)",
+          "USD",
+          "160,000",
+          "16.0%",
+          "Custodian B",
+          "US tech ETF"
+        ],
+        [
+          "VOO (VOO)",
+          "USD",
+          "131,000",
+          "13.1%",
+          "Custodian B",
+          "US broad ETF"
+        ],
+        [
+          "BOXX (BOXX)",
+          "USD",
+          "48,000",
+          "4.8%",
+          "Custodian B",
+          "Bond fund"
+        ],
+        [
+          "Cash",
+          "USD",
+          "2,000",
+          "0.2%",
+          "Custodian B",
+          "Cash equivalent"
+        ],
+        [
+          "**Custodian B subtotal**",
+          "USD",
+          "**341,000**",
+          "**34.1%**",
+          "",
+          ""
+        ],
+        [
+          "Tencent (0700.HK)",
+          "HKD",
+          "546,000",
+          "7.0%",
+          "Custodian C",
+          "Stocks"
+        ],
+        [
+          "BYD (1211.HK)",
+          "HKD",
+          "413,400",
+          "5.3%",
+          "Custodian C",
+          "Stocks"
+        ],
+        [
+          "**Custodian C subtotal** (converted to USD)",
+          "USD",
+          "**123,000**",
+          "**12.3%**",
+          "",
+          ""
+        ],
+        [
+          "Gold ETF (518880.SS)",
+          "CNH",
+          "14,300",
+          "0.2%",
+          "Custodian D",
+          "Precious metals"
+        ],
+        [
+          "CSI 300 ETF (510300.SS)",
+          "CNH",
+          "7,150",
+          "0.1%",
+          "Custodian D",
+          "China equities"
+        ],
+        [
+          "Cash",
+          "CNH",
+          "42,900",
+          "0.6%",
+          "Custodian D",
+          "Cash equivalent"
+        ],
+        [
+          "**Custodian D subtotal** (converted to USD)",
+          "USD",
+          "**9,000**",
+          "**0.9%**",
+          "",
+          ""
+        ],
+        [
+          "USD cash & FX",
+          "USD",
+          "169,000",
+          "16.9%",
+          "Custodian E",
+          "Cash equivalent"
+        ]
       ],
       "distributionLines": [
         "**By market:** US 86.8%, HK 12.3%, A-shares & CNH 0.9%",
@@ -323,33 +477,116 @@
       "macroBody": "Markets repriced the policy path after the latest FOMC minutes showed a split committee. The transmission into this portfolio runs through the equity-duration channel: long-duration growth names (TSMC, Microsoft, Alphabet) and the broad ETFs are mechanically sensitive to shifts in rate expectations embedded in the yield curve. No price anomaly was triggered in this window to confirm a repricing in any specific holding, so this direction stands as structural exposure to monitor rather than an observed event. [Probable]",
       "calendarTitle": "Forward calendar",
       "calendarNote": "Scheduled US events over the coming days and the holdings they bear on. Calendar facts only — not forecasts.",
-      "calendarColumns": ["Date", "Event", "Affected holdings", "What to watch"],
+      "calendarColumns": [
+        "Date",
+        "Event",
+        "Affected holdings",
+        "What to watch"
+      ],
       "calendarRows": [
-        ["08-27", "Jobless claims", "—", "Labor market momentum; rate-path implications"],
-        ["08-29", "Core PCE price index", "TSMC, MSFT, GOOGL +2", "Inflation vs consensus; rate-path implications"],
-        ["09-02", "ISM Manufacturing PMI", "—", "Factory-sector momentum"]
+        [
+          "08-27",
+          "Jobless claims",
+          "—",
+          "Labor market momentum; rate-path implications"
+        ],
+        [
+          "08-29",
+          "Core PCE price index",
+          "TSMC, MSFT, GOOGL +2",
+          "Inflation vs consensus; rate-path implications"
+        ],
+        [
+          "09-02",
+          "ISM Manufacturing PMI",
+          "—",
+          "Factory-sector momentum"
+        ]
       ],
       "analysisTitle": "Holding analysis",
       "analysisHeading": "TSMC — 20.9% of the portfolio, the single largest position",
       "analysisBody": "TSMC stands out this period not for a company-specific event but for its disproportionate weight and its exposure to several macro themes at once. The monetary-policy theme reaches it through the equity-duration channel: as a pure-play foundry, its forward multiples already embed years of capex-driven growth from advanced nodes, so its valuation is mechanically sensitive to rate expectations. The AI-infrastructure demand narrative underpinning the position is unchanged; what is new is a less predictable policy path adding an intermittent source of valuation volatility. The causal link between holding TSMC and the monetary-policy signal runs through that well-documented duration mechanism [Probable] — though no anomaly was observed in this window to confirm the market actually traded on it.",
       "radarTitle": "Risk radar",
       "concentrationBody": "The top three holdings together account for 50.0% of portfolio value — at the 50% watch threshold. The largest single asset-class bucket (stocks) sits at 48.1%, just below it. Single-position concentration is dominated by TSMC at 20.9%; the two broad ETF positions diversify within US equities while raising correlation to US monetary-policy developments.",
-      "anomalyColumns": ["Holding", "Net move", "Worst day (date)", "Prev close", "Open (gap %)", "Intraday range", "Close", "Trigger"],
+      "anomalyColumns": [
+        "Holding",
+        "Net move",
+        "Worst day (date)",
+        "Prev close",
+        "Open (gap %)",
+        "Intraday range",
+        "Close",
+        "Trigger"
+      ],
       "anomalyRows": [
-        ["QQQ (QQQ)", "+2.4%", "+1.8% (08-25)", "562.10", "564.20 (+0.4%)", "561.4–574.8", "573.90", "single_day"],
-        ["TSMC (TSM)", "+3.1%", "+2.2% (08-24)", "198.40", "197.90 (-0.3%)", "196.5–204.1", "203.85", "single_day"]
+        [
+          "QQQ (QQQ)",
+          "+2.4%",
+          "+1.8% (08-25)",
+          "562.10",
+          "564.20 (+0.4%)",
+          "561.4–574.8",
+          "573.90",
+          "single_day"
+        ],
+        [
+          "TSMC (TSM)",
+          "+3.1%",
+          "+2.2% (08-24)",
+          "198.40",
+          "197.90 (-0.3%)",
+          "196.5–204.1",
+          "203.85",
+          "single_day"
+        ]
       ],
       "anomalyBullets": [
         "QQQ — +2.4% over the window; the +1.8% single-day surge came with no immediately identifiable fund-specific catalyst in this period's research; attribution remains open [Speculative].",
         "TSMC — +3.1% over the window; coincided with an active AI-semiconductor news cycle, but no TSMC-specific driver was confirmed in research [Probable]."
       ],
-      "technicalColumns": ["Holding", "vs 50-day avg", "vs 200-day avg", "52-wk range position", "20-day vol (ann.)"],
+      "technicalColumns": [
+        "Holding",
+        "vs 50-day avg",
+        "vs 200-day avg",
+        "52-wk range position",
+        "20-day vol (ann.)"
+      ],
       "technicalRows": [
-        ["TSMC (TSM)", "-2.5%", "+16.0%", "75%", "+45.3%"],
-        ["Microsoft (MSFT)", "+20.9%", "+12.9%", "73%", "+61.1%"],
-        ["Alphabet (GOOGL)", "+1.4%", "+10.7%", "81%", "+50.9%"],
-        ["QQQ (QQQ)", "+0.5%", "+11.2%", "86%", "+26.5%"],
-        ["VOO (VOO)", "+3.3%", "+10.2%", "99%", "+14.4%"]
+        [
+          "TSMC (TSM)",
+          "-2.5%",
+          "+16.0%",
+          "75%",
+          "+45.3%"
+        ],
+        [
+          "Microsoft (MSFT)",
+          "+20.9%",
+          "+12.9%",
+          "73%",
+          "+61.1%"
+        ],
+        [
+          "Alphabet (GOOGL)",
+          "+1.4%",
+          "+10.7%",
+          "81%",
+          "+50.9%"
+        ],
+        [
+          "QQQ (QQQ)",
+          "+0.5%",
+          "+11.2%",
+          "86%",
+          "+26.5%"
+        ],
+        [
+          "VOO (VOO)",
+          "+3.3%",
+          "+10.2%",
+          "99%",
+          "+14.4%"
+        ]
       ],
       "technicalNote": "Range position: 0% = at the 52-week low, 100% = at the high. Describes where price sits — not a signal."
     },
@@ -408,5 +645,172 @@
     "successMessage": "{email} is now verified.",
     "invalidOrExpired": "This verification link is invalid or has expired.",
     "genericError": "Something went wrong. Try again."
+  },
+  "legal": {
+    "nav": {
+      "terms": "Terms of Service",
+      "privacy": "Privacy Policy"
+    },
+    "terms": {
+      "title": "Terms of Service",
+      "lastUpdated": "Last updated: 2026-08-30",
+      "intro": "These Terms of Service govern your use of Portfonia. Please read them together with our Privacy Policy.",
+      "translationPending": "",
+      "sections": [
+        {
+          "heading": "1. Acceptance of Terms",
+          "body": [
+            "By creating an account or using Portfonia (\"the Service\"), you agree to these Terms of Service. If you do not agree, do not use the Service."
+          ]
+        },
+        {
+          "heading": "2. What Portfonia Is (and Is Not)",
+          "body": [
+            "Portfonia is a portfolio intelligence service. It surfaces what happened in markets, how that relates to the holdings you've told it about, and signals that may be worth your own further attention.",
+            "Portfonia is not an investment adviser, broker-dealer, or financial planner, and nothing in the Service is investment, legal, or tax advice. The Service does not tell you what to buy, sell, or hold, and does not generate trade recommendations, target prices, or ratings of any kind. Decisions about your money are yours alone; consult a licensed professional before acting on anything you read here."
+          ]
+        },
+        {
+          "heading": "3. Eligibility and Accounts",
+          "body": [
+            "You must be able to form a binding contract to use the Service. You are responsible for keeping your login credentials confidential and for all activity under your account.",
+            "The Service is currently invite-gated and offered on a closed-beta basis; access, features, and pricing may change without the notice period a generally available product would owe you."
+          ]
+        },
+        {
+          "heading": "4. Your Holdings Data",
+          "body": [
+            "You are responsible for the accuracy of the holdings, account, and investment-preference information you upload or enter. Portfonia processes what you provide; it does not independently verify your positions against any custodian or brokerage.",
+            "You retain ownership of your holdings data. You grant Portfonia a limited license to process it solely to generate reports and analysis for your account, as described in the Privacy Policy."
+          ]
+        },
+        {
+          "heading": "5. Acceptable Use",
+          "body": [
+            "You agree not to misuse the Service — including attempting to access another user's data, interfering with the Service's operation, or using the Service to build a competing product from its outputs."
+          ]
+        },
+        {
+          "heading": "6. Intellectual Property",
+          "body": [
+            "Portfonia and its original content, features, and functionality are owned by Portfonia LLC. Reports generated for your account are yours to use personally; they are not licensed for redistribution as a data feed or third-party product."
+          ]
+        },
+        {
+          "heading": "7. Disclaimers",
+          "body": [
+            "The Service is provided \"as is\" and \"as available,\" without warranties of any kind, express or implied, including accuracy, timeliness, or fitness for a particular purpose. Market data, news, and analysis may be delayed, incomplete, or wrong. Nothing generated by the Service should be your sole basis for a financial decision."
+          ]
+        },
+        {
+          "heading": "8. Limitation of Liability",
+          "body": [
+            "To the fullest extent permitted by law, Portfonia LLC is not liable for any indirect, incidental, or consequential damages, or for any financial loss arising from your use of, or reliance on, the Service."
+          ]
+        },
+        {
+          "heading": "9. Termination",
+          "body": [
+            "You may stop using the Service and request deletion of your account and data at any time. Portfonia may suspend or terminate accounts that violate these Terms."
+          ]
+        },
+        {
+          "heading": "10. Changes to These Terms",
+          "body": [
+            "Portfonia may update these Terms as the Service evolves. Material changes will be reflected on this page with an updated effective date; continued use after a change constitutes acceptance."
+          ]
+        },
+        {
+          "heading": "11. Governing Law",
+          "body": [
+            "These Terms are governed by the laws applicable in the jurisdiction where Portfonia LLC is organized, without regard to conflict-of-law principles. [Jurisdiction to be finalized pending legal review.]"
+          ]
+        },
+        {
+          "heading": "12. Contact",
+          "body": [
+            "Questions about these Terms can be sent to info@portfonia.com."
+          ]
+        }
+      ]
+    },
+    "privacy": {
+      "title": "Privacy Policy",
+      "lastUpdated": "Last updated: 2026-08-30",
+      "intro": "Your privacy matters to us. This policy explains what we collect, why, and how it's protected.",
+      "translationPending": "",
+      "sections": [
+        {
+          "heading": "1. Overview",
+          "body": [
+            "This Privacy Policy explains what information Portfonia collects, how it is used, and the choices you have. It covers the Portfonia web application and the reports it emails you."
+          ]
+        },
+        {
+          "heading": "2. Information We Collect",
+          "body": [
+            "Account information: your email address and authentication credentials, handled by our authentication provider.",
+            "Holdings and investment data: positions, brokers/custodians, and quantities you upload, plus any investment-style questionnaire responses you provide.",
+            "Usage information: basic session and activity data needed to operate the Service securely (for example, sign-in timestamps and idle-timeout enforcement)."
+          ]
+        },
+        {
+          "heading": "3. How We Use Your Information",
+          "body": [
+            "We use your data solely to generate and deliver your portfolio reports and to operate, secure, and improve the Service. We do not sell your data, and we do not use your holdings to build or improve any third-party product."
+          ]
+        },
+        {
+          "heading": "4. Data Storage and Security",
+          "body": [
+            "Holdings data is encrypted at rest. Access to production systems is restricted, and administrative actions are logged.",
+            "No system is perfectly secure, and we cannot guarantee absolute security, but protecting your data is treated as a first-class engineering requirement, not an afterthought."
+          ]
+        },
+        {
+          "heading": "5. Third-Party Processing (LLMs)",
+          "body": [
+            "Generating a report involves sending portions of your data to third-party large-language-model providers for analysis. By default, every such call is configured to opt out of the provider using your data for model training.",
+            "A narrow, explicitly scoped exception applies to two specific processing steps (public-market search-query generation and report translation), which route through a provider under a data-processing arrangement that does not permit training use either — this exception never applies to the steps that analyze your actual holdings."
+          ]
+        },
+        {
+          "heading": "6. Data Retention",
+          "body": [
+            "We retain your account and holdings data for as long as your account is active. Some operational records (for example, upload-job metadata) are automatically purged after a short retention window. You may request full deletion of your account and associated data at any time (see \"Your Rights\" below)."
+          ]
+        },
+        {
+          "heading": "7. Your Rights",
+          "body": [
+            "You can review and update your holdings and profile information directly in the Service. You can request permanent deletion of your account and all associated data by contacting us; deletion removes your local records and your authentication account."
+          ]
+        },
+        {
+          "heading": "8. Cookies and Sessions",
+          "body": [
+            "We use session cookies to keep you signed in and to enforce automatic sign-out after a period of inactivity. We do not use third-party advertising or tracking cookies."
+          ]
+        },
+        {
+          "heading": "9. Children's Privacy",
+          "body": [
+            "The Service is not directed to, and not knowingly used by, anyone under 18. We do not knowingly collect information from minors."
+          ]
+        },
+        {
+          "heading": "10. Changes to This Policy",
+          "body": [
+            "We may update this Privacy Policy as the Service evolves. Material changes will be reflected on this page with an updated effective date."
+          ]
+        },
+        {
+          "heading": "11. Contact",
+          "body": [
+            "Questions about this Privacy Policy, or requests regarding your data, can be sent to info@portfonia.com."
+          ]
+        }
+      ]
+    }
   }
 }

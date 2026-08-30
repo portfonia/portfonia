@@ -23,7 +23,11 @@
     "passwordLabel": "密碼",
     "confirmPasswordLabel": "確認密碼",
     "passwordMismatch": "兩次輸入的密碼不一致。",
-    "tosLabel": "我同意《服務條款》。",
+    "tosLabelPrefix": "我同意",
+    "tosLabelTerms": "《服務條款》",
+    "tosLabelAnd": "和",
+    "tosLabelPrivacy": "《隱私政策》",
+    "tosLabelSuffix": "。",
     "tosRequired": "必須同意《服務條款》才能繼續。",
     "loginButton": "登入",
     "loggingIn": "登入中...",
@@ -138,11 +142,21 @@
       },
       "markets": {
         "question": "你主要投資哪些市場？（可複選）",
-        "options": { "US": "美國", "HK": "香港", "A-Share": "A股", "Other": "其他" }
+        "options": {
+          "US": "美國",
+          "HK": "香港",
+          "A-Share": "A股",
+          "Other": "其他"
+        }
       },
       "style": {
         "question": "你會如何描述自己的投資風格？",
-        "options": { "VALUE": "價值型", "GROWTH": "成長型", "INDEX": "指數型", "MIXED": "混合型" }
+        "options": {
+          "VALUE": "價值型",
+          "GROWTH": "成長型",
+          "INDEX": "指數型",
+          "MIXED": "混合型"
+        }
       },
       "horizon": {
         "question": "你通常的持有期間是？",
@@ -269,22 +283,36 @@
         {
           "title": "持倉匯入",
           "body": "上傳 CSV 或試算表描述你的持倉，AI 會自動整理成結構化資料——不必手動逐筆輸入。",
-          "tags": ["CSV", "Markdown", "Excel"]
+          "tags": [
+            "CSV",
+            "Markdown",
+            "Excel"
+          ]
         },
         {
           "title": "市場與總經追蹤",
           "body": "每日追蹤價格、匯率，並在權威資訊來源中掃描相關總體經濟新聞——以英文來源為主，涉及區域性標的時補充中文來源。",
-          "tags": ["價格", "匯率", "總經新聞"]
+          "tags": [
+            "價格",
+            "匯率",
+            "總經新聞"
+          ]
         },
         {
           "title": "個人化簡報",
           "body": "每週一、三、五推送，緊扣你的實際持倉——包含價格異動、技術面位置，以及總經與財報的前瞻日曆。",
-          "tags": ["電子郵件推送"]
+          "tags": [
+            "電子郵件推送"
+          ]
         }
       ],
       "confidenceLead": "每一條因果推論都標有信心水準標籤",
       "confidenceBody": "把校準過的不確定性講清楚，而不是藏起來。",
-      "tiers": { "established": "確定", "probable": "較可能", "speculative": "推測" }
+      "tiers": {
+        "established": "確定",
+        "probable": "較可能",
+        "speculative": "推測"
+      }
     },
     "preview": {
       "heading": "簡報實際長什麼樣子",
@@ -293,25 +321,151 @@
       "footnote": "實際內容依訂閱方案不同而有所差異。",
       "snapshotTitle": "投資組合快照",
       "totalLine": "總價值：1,000,000 美元（外匯日期：2026-08-21）",
-      "holdingsColumns": ["持倉", "貨幣", "價值", "持倉占比", "持倉機構", "資產類別"],
+      "holdingsColumns": [
+        "持倉",
+        "貨幣",
+        "價值",
+        "持倉占比",
+        "持倉機構",
+        "資產類別"
+      ],
       "holdingsRows": [
-        ["台積電 (TSM)", "美元", "209,000", "20.9%", "機構 A", "股票"],
-        ["微軟 (MSFT)", "美元", "80,000", "8.0%", "機構 A", "股票"],
-        ["Google (GOOGL)", "美元", "69,000", "6.9%", "機構 A", "股票"],
-        ["**機構 A 小計**", "美元", "**358,000**", "**35.8%**", "", ""],
-        ["那斯達克100 ETF (QQQ)", "美元", "160,000", "16.0%", "機構 B", "美國科技股ETF"],
-        ["標普500 ETF (VOO)", "美元", "131,000", "13.1%", "機構 B", "美國大盤ETF"],
-        ["BOXX (BOXX)", "美元", "48,000", "4.8%", "機構 B", "債券基金"],
-        ["現金", "美元", "2,000", "0.2%", "機構 B", "現金等價物"],
-        ["**機構 B 小計**", "美元", "**341,000**", "**34.1%**", "", ""],
-        ["騰訊控股 (0700.HK)", "港幣", "546,000", "7.0%", "機構 C", "股票"],
-        ["比亞迪股份 (1211.HK)", "港幣", "413,400", "5.3%", "機構 C", "股票"],
-        ["**機構 C 小計**（已換算為美元）", "美元", "**123,000**", "**12.3%**", "", ""],
-        ["黃金ETF (518880.SS)", "人民幣", "14,300", "0.2%", "機構 D", "貴金屬"],
-        ["滬深300 ETF (510300.SS)", "人民幣", "7,150", "0.1%", "機構 D", "中國股票"],
-        ["現金", "人民幣", "42,900", "0.6%", "機構 D", "現金等價物"],
-        ["**機構 D 小計**（已換算為美元）", "美元", "**9,000**", "**0.9%**", "", ""],
-        ["美元現金與外匯", "美元", "169,000", "16.9%", "機構 E", "現金等價物"]
+        [
+          "台積電 (TSM)",
+          "美元",
+          "209,000",
+          "20.9%",
+          "機構 A",
+          "股票"
+        ],
+        [
+          "微軟 (MSFT)",
+          "美元",
+          "80,000",
+          "8.0%",
+          "機構 A",
+          "股票"
+        ],
+        [
+          "Google (GOOGL)",
+          "美元",
+          "69,000",
+          "6.9%",
+          "機構 A",
+          "股票"
+        ],
+        [
+          "**機構 A 小計**",
+          "美元",
+          "**358,000**",
+          "**35.8%**",
+          "",
+          ""
+        ],
+        [
+          "那斯達克100 ETF (QQQ)",
+          "美元",
+          "160,000",
+          "16.0%",
+          "機構 B",
+          "美國科技股ETF"
+        ],
+        [
+          "標普500 ETF (VOO)",
+          "美元",
+          "131,000",
+          "13.1%",
+          "機構 B",
+          "美國大盤ETF"
+        ],
+        [
+          "BOXX (BOXX)",
+          "美元",
+          "48,000",
+          "4.8%",
+          "機構 B",
+          "債券基金"
+        ],
+        [
+          "現金",
+          "美元",
+          "2,000",
+          "0.2%",
+          "機構 B",
+          "現金等價物"
+        ],
+        [
+          "**機構 B 小計**",
+          "美元",
+          "**341,000**",
+          "**34.1%**",
+          "",
+          ""
+        ],
+        [
+          "騰訊控股 (0700.HK)",
+          "港幣",
+          "546,000",
+          "7.0%",
+          "機構 C",
+          "股票"
+        ],
+        [
+          "比亞迪股份 (1211.HK)",
+          "港幣",
+          "413,400",
+          "5.3%",
+          "機構 C",
+          "股票"
+        ],
+        [
+          "**機構 C 小計**（已換算為美元）",
+          "美元",
+          "**123,000**",
+          "**12.3%**",
+          "",
+          ""
+        ],
+        [
+          "黃金ETF (518880.SS)",
+          "人民幣",
+          "14,300",
+          "0.2%",
+          "機構 D",
+          "貴金屬"
+        ],
+        [
+          "滬深300 ETF (510300.SS)",
+          "人民幣",
+          "7,150",
+          "0.1%",
+          "機構 D",
+          "中國股票"
+        ],
+        [
+          "現金",
+          "人民幣",
+          "42,900",
+          "0.6%",
+          "機構 D",
+          "現金等價物"
+        ],
+        [
+          "**機構 D 小計**（已換算為美元）",
+          "美元",
+          "**9,000**",
+          "**0.9%**",
+          "",
+          ""
+        ],
+        [
+          "美元現金與外匯",
+          "美元",
+          "169,000",
+          "16.9%",
+          "機構 E",
+          "現金等價物"
+        ]
       ],
       "distributionLines": [
         "**依市場：** 美國 86.8%，香港 12.3%，A股與人民幣 0.9%",
@@ -323,33 +477,116 @@
       "macroBody": "最新 FOMC 會議紀要顯示委員會內部出現分歧，市場隨之重新定價政策路徑。傳導至本投資組合的路徑經由股票存續期間渠道運作：長存續期成長股（台積電、微軟、Google）與大盤 ETF 的估值，對殖利率曲線中隱含利率預期的變化具有機械性敏感度。本報告期間內未觸發任何價格異常以確認特定持倉發生了重新定價，因此該方向作為結構性曝險進行觀察，而非已觀察到的事件。[較可能]",
       "calendarTitle": "前瞻日曆",
       "calendarNote": "未來數日美國預定發布的事件及受影響的持倉。以下僅為日曆事實，非預測。",
-      "calendarColumns": ["日期", "事件", "受影響持倉", "關注要點"],
+      "calendarColumns": [
+        "日期",
+        "事件",
+        "受影響持倉",
+        "關注要點"
+      ],
       "calendarRows": [
-        ["08-27", "初次申請失業救濟金人數", "—", "勞動市場動能；利率路徑影響"],
-        ["08-29", "核心 PCE 物價指數", "台積電、微軟、Google 等", "通膨數據與市場共識比較；利率路徑影響"],
-        ["09-02", "ISM 製造業 PMI", "—", "製造業動能"]
+        [
+          "08-27",
+          "初次申請失業救濟金人數",
+          "—",
+          "勞動市場動能；利率路徑影響"
+        ],
+        [
+          "08-29",
+          "核心 PCE 物價指數",
+          "台積電、微軟、Google 等",
+          "通膨數據與市場共識比較；利率路徑影響"
+        ],
+        [
+          "09-02",
+          "ISM 製造業 PMI",
+          "—",
+          "製造業動能"
+        ]
       ],
       "analysisTitle": "持倉分析",
       "analysisHeading": "台積電 — 占投資組合 20.9%，第一大單一持倉",
       "analysisBody": "台積電在本報告期間內並非因公司特定事件而受到關注，而是因其不成比例的投資組合權重，以及同時暴露於多項總體經濟主題。貨幣政策主題經由股票存續期間渠道影響它：作為純晶圓代工廠，其遠期估值倍數已反映先進製程多年資本支出驅動成長的預期，因此對利率預期變化具有機械性敏感度。支撐該持倉的 AI 基礎設施需求敘事並未改變；新出現的是一條較難預測的政策路徑，為估值波動增添了間歇性的來源。持有台積電與貨幣政策信號之間的因果關聯，經由上述已充分驗證的存續期間機制 [較可能]——儘管本觀察期間內未觀察到異常以確認市場確實就此進行交易。",
       "radarTitle": "風險雷達",
       "concentrationBody": "前三大持倉合計占投資組合價值的 50.0%——恰好觸及 50% 的警戒門檻。最大單一資產類別（股票）占比 48.1%，略低於門檻。個股集中度由台積電主導（20.9%）；兩檔大盤 ETF 部位在美股內部提供了分散效果，同時提高了對美國貨幣政策動向的相關性。",
-      "anomalyColumns": ["持倉", "淨漲跌", "最差單日（日期）", "前收盤", "開盤（缺口%）", "盤中區間", "收盤", "觸發條件"],
+      "anomalyColumns": [
+        "持倉",
+        "淨漲跌",
+        "最差單日（日期）",
+        "前收盤",
+        "開盤（缺口%）",
+        "盤中區間",
+        "收盤",
+        "觸發條件"
+      ],
       "anomalyRows": [
-        ["那斯達克100 ETF (QQQ)", "+2.4%", "+1.8% (08-25)", "562.10", "564.20 (+0.4%)", "561.4–574.8", "573.90", "single_day"],
-        ["台積電 (TSM)", "+3.1%", "+2.2% (08-24)", "198.40", "197.90 (-0.3%)", "196.5–204.1", "203.85", "single_day"]
+        [
+          "那斯達克100 ETF (QQQ)",
+          "+2.4%",
+          "+1.8% (08-25)",
+          "562.10",
+          "564.20 (+0.4%)",
+          "561.4–574.8",
+          "573.90",
+          "single_day"
+        ],
+        [
+          "台積電 (TSM)",
+          "+3.1%",
+          "+2.2% (08-24)",
+          "198.40",
+          "197.90 (-0.3%)",
+          "196.5–204.1",
+          "203.85",
+          "single_day"
+        ]
       ],
       "anomalyBullets": [
         "那斯達克100 ETF — 觀察期間報酬率 +2.4%；+1.8% 的單日急漲，在本期研究中未發現可立即辨識的基金特定觸發因素；歸因仍不明確 [推測]。",
         "台積電 — 觀察期間報酬率 +3.1%；恰逢活躍的 AI 半導體新聞週期，但研究中未確認有台積電特定驅動因素 [較可能]。"
       ],
-      "technicalColumns": ["持倉", "相對50日均線", "相對200日均線", "52週區間位置", "20日波動率（年化）"],
+      "technicalColumns": [
+        "持倉",
+        "相對50日均線",
+        "相對200日均線",
+        "52週區間位置",
+        "20日波動率（年化）"
+      ],
       "technicalRows": [
-        ["台積電 (TSM)", "-2.5%", "+16.0%", "75%", "+45.3%"],
-        ["微軟 (MSFT)", "+20.9%", "+12.9%", "73%", "+61.1%"],
-        ["Google (GOOGL)", "+1.4%", "+10.7%", "81%", "+50.9%"],
-        ["那斯達克100 ETF (QQQ)", "+0.5%", "+11.2%", "86%", "+26.5%"],
-        ["標普500 ETF (VOO)", "+3.3%", "+10.2%", "99%", "+14.4%"]
+        [
+          "台積電 (TSM)",
+          "-2.5%",
+          "+16.0%",
+          "75%",
+          "+45.3%"
+        ],
+        [
+          "微軟 (MSFT)",
+          "+20.9%",
+          "+12.9%",
+          "73%",
+          "+61.1%"
+        ],
+        [
+          "Google (GOOGL)",
+          "+1.4%",
+          "+10.7%",
+          "81%",
+          "+50.9%"
+        ],
+        [
+          "那斯達克100 ETF (QQQ)",
+          "+0.5%",
+          "+11.2%",
+          "86%",
+          "+26.5%"
+        ],
+        [
+          "標普500 ETF (VOO)",
+          "+3.3%",
+          "+10.2%",
+          "99%",
+          "+14.4%"
+        ]
       ],
       "technicalNote": "區間位置：0% = 位於52週低點，100% = 位於52週高點。僅描述價格所處位置，並非信號。"
     },
@@ -408,5 +645,172 @@
     "successMessage": "{email} 已通過驗證。",
     "invalidOrExpired": "這個驗證連結無效或已過期。",
     "genericError": "出了點問題，請重試。"
+  },
+  "legal": {
+    "nav": {
+      "terms": "服務條款",
+      "privacy": "隱私政策"
+    },
+    "terms": {
+      "title": "服務條款",
+      "lastUpdated": "Last updated: 2026-08-30",
+      "intro": "本服務條款規定了您使用 Portfonia 的條件，請與我們的隱私政策一併閱讀。",
+      "translationPending": "以下正文暫為英文原文，中文譯本正在準備中。",
+      "sections": [
+        {
+          "heading": "1. Acceptance of Terms",
+          "body": [
+            "By creating an account or using Portfonia (\"the Service\"), you agree to these Terms of Service. If you do not agree, do not use the Service."
+          ]
+        },
+        {
+          "heading": "2. What Portfonia Is (and Is Not)",
+          "body": [
+            "Portfonia is a portfolio intelligence service. It surfaces what happened in markets, how that relates to the holdings you've told it about, and signals that may be worth your own further attention.",
+            "Portfonia is not an investment adviser, broker-dealer, or financial planner, and nothing in the Service is investment, legal, or tax advice. The Service does not tell you what to buy, sell, or hold, and does not generate trade recommendations, target prices, or ratings of any kind. Decisions about your money are yours alone; consult a licensed professional before acting on anything you read here."
+          ]
+        },
+        {
+          "heading": "3. Eligibility and Accounts",
+          "body": [
+            "You must be able to form a binding contract to use the Service. You are responsible for keeping your login credentials confidential and for all activity under your account.",
+            "The Service is currently invite-gated and offered on a closed-beta basis; access, features, and pricing may change without the notice period a generally available product would owe you."
+          ]
+        },
+        {
+          "heading": "4. Your Holdings Data",
+          "body": [
+            "You are responsible for the accuracy of the holdings, account, and investment-preference information you upload or enter. Portfonia processes what you provide; it does not independently verify your positions against any custodian or brokerage.",
+            "You retain ownership of your holdings data. You grant Portfonia a limited license to process it solely to generate reports and analysis for your account, as described in the Privacy Policy."
+          ]
+        },
+        {
+          "heading": "5. Acceptable Use",
+          "body": [
+            "You agree not to misuse the Service — including attempting to access another user's data, interfering with the Service's operation, or using the Service to build a competing product from its outputs."
+          ]
+        },
+        {
+          "heading": "6. Intellectual Property",
+          "body": [
+            "Portfonia and its original content, features, and functionality are owned by Portfonia LLC. Reports generated for your account are yours to use personally; they are not licensed for redistribution as a data feed or third-party product."
+          ]
+        },
+        {
+          "heading": "7. Disclaimers",
+          "body": [
+            "The Service is provided \"as is\" and \"as available,\" without warranties of any kind, express or implied, including accuracy, timeliness, or fitness for a particular purpose. Market data, news, and analysis may be delayed, incomplete, or wrong. Nothing generated by the Service should be your sole basis for a financial decision."
+          ]
+        },
+        {
+          "heading": "8. Limitation of Liability",
+          "body": [
+            "To the fullest extent permitted by law, Portfonia LLC is not liable for any indirect, incidental, or consequential damages, or for any financial loss arising from your use of, or reliance on, the Service."
+          ]
+        },
+        {
+          "heading": "9. Termination",
+          "body": [
+            "You may stop using the Service and request deletion of your account and data at any time. Portfonia may suspend or terminate accounts that violate these Terms."
+          ]
+        },
+        {
+          "heading": "10. Changes to These Terms",
+          "body": [
+            "Portfonia may update these Terms as the Service evolves. Material changes will be reflected on this page with an updated effective date; continued use after a change constitutes acceptance."
+          ]
+        },
+        {
+          "heading": "11. Governing Law",
+          "body": [
+            "These Terms are governed by the laws applicable in the jurisdiction where Portfonia LLC is organized, without regard to conflict-of-law principles. [Jurisdiction to be finalized pending legal review.]"
+          ]
+        },
+        {
+          "heading": "12. Contact",
+          "body": [
+            "Questions about these Terms can be sent to info@portfonia.com."
+          ]
+        }
+      ]
+    },
+    "privacy": {
+      "title": "隱私政策",
+      "lastUpdated": "Last updated: 2026-08-30",
+      "intro": "我們重視您的隱私。本政策說明我們收集哪些資訊、為何收集，以及如何保護這些資訊。",
+      "translationPending": "以下正文暫為英文原文，中文譯本正在準備中。",
+      "sections": [
+        {
+          "heading": "1. Overview",
+          "body": [
+            "This Privacy Policy explains what information Portfonia collects, how it is used, and the choices you have. It covers the Portfonia web application and the reports it emails you."
+          ]
+        },
+        {
+          "heading": "2. Information We Collect",
+          "body": [
+            "Account information: your email address and authentication credentials, handled by our authentication provider.",
+            "Holdings and investment data: positions, brokers/custodians, and quantities you upload, plus any investment-style questionnaire responses you provide.",
+            "Usage information: basic session and activity data needed to operate the Service securely (for example, sign-in timestamps and idle-timeout enforcement)."
+          ]
+        },
+        {
+          "heading": "3. How We Use Your Information",
+          "body": [
+            "We use your data solely to generate and deliver your portfolio reports and to operate, secure, and improve the Service. We do not sell your data, and we do not use your holdings to build or improve any third-party product."
+          ]
+        },
+        {
+          "heading": "4. Data Storage and Security",
+          "body": [
+            "Holdings data is encrypted at rest. Access to production systems is restricted, and administrative actions are logged.",
+            "No system is perfectly secure, and we cannot guarantee absolute security, but protecting your data is treated as a first-class engineering requirement, not an afterthought."
+          ]
+        },
+        {
+          "heading": "5. Third-Party Processing (LLMs)",
+          "body": [
+            "Generating a report involves sending portions of your data to third-party large-language-model providers for analysis. By default, every such call is configured to opt out of the provider using your data for model training.",
+            "A narrow, explicitly scoped exception applies to two specific processing steps (public-market search-query generation and report translation), which route through a provider under a data-processing arrangement that does not permit training use either — this exception never applies to the steps that analyze your actual holdings."
+          ]
+        },
+        {
+          "heading": "6. Data Retention",
+          "body": [
+            "We retain your account and holdings data for as long as your account is active. Some operational records (for example, upload-job metadata) are automatically purged after a short retention window. You may request full deletion of your account and associated data at any time (see \"Your Rights\" below)."
+          ]
+        },
+        {
+          "heading": "7. Your Rights",
+          "body": [
+            "You can review and update your holdings and profile information directly in the Service. You can request permanent deletion of your account and all associated data by contacting us; deletion removes your local records and your authentication account."
+          ]
+        },
+        {
+          "heading": "8. Cookies and Sessions",
+          "body": [
+            "We use session cookies to keep you signed in and to enforce automatic sign-out after a period of inactivity. We do not use third-party advertising or tracking cookies."
+          ]
+        },
+        {
+          "heading": "9. Children's Privacy",
+          "body": [
+            "The Service is not directed to, and not knowingly used by, anyone under 18. We do not knowingly collect information from minors."
+          ]
+        },
+        {
+          "heading": "10. Changes to This Policy",
+          "body": [
+            "We may update this Privacy Policy as the Service evolves. Material changes will be reflected on this page with an updated effective date."
+          ]
+        },
+        {
+          "heading": "11. Contact",
+          "body": [
+            "Questions about this Privacy Policy, or requests regarding your data, can be sent to info@portfonia.com."
+          ]
+        }
+      ]
+    }
   }
 }
