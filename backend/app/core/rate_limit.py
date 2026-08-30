@@ -51,6 +51,19 @@ FORGOT_PASSWORD_IP_HOUR_LIMIT = 20
 FORGOT_PASSWORD_IP_HOUR_TTL = 3600
 FORGOT_PASSWORD_EMAIL_HOUR_LIMIT = 3
 FORGOT_PASSWORD_EMAIL_HOUR_TTL = 3600
+# Resend email-verification (issue #262, Profile Page.md §8.3): two buckets
+# in front of POST /email-verifications/{id}/resend — a per-user bucket
+# (same magnitude as forgot-password's email limit) and a per-address GLOBAL
+# bucket deliberately not scoped by user, so several accounts aimed at one
+# victim's address share a single allowance (Email Validation.md §3.4's
+# mail-bomb scenario). forgot-password's email bucket doesn't need this
+# split because its own email bucket already is the per-address one; here
+# the authenticated per-user dimension and the per-address dimension are
+# two different abuse surfaces.
+RESEND_VERIFICATION_USER_HOUR_LIMIT = 3
+RESEND_VERIFICATION_USER_HOUR_TTL = 3600
+RESEND_VERIFICATION_EMAIL_HOUR_LIMIT = 3
+RESEND_VERIFICATION_EMAIL_HOUR_TTL = 3600
 
 _INCR_EXPIRE = """
 local n = redis.call('INCR', KEYS[1])
@@ -387,3 +400,27 @@ def guard_known_invite_token(session: Session, token: str) -> None:
     n = _protecting_incr(key, SIGNUP_TOKEN_FAIL_TTL)
     if n > SIGNUP_TOKEN_FAIL_LIMIT:
         _trip(key, SIGNUP_TOKEN_FAIL_TTL, scope="signup-token", bucket=token_hash[:12])
+
+
+def rate_limit_enforce_resend_verification(*, user_id: str, email: str) -> None:
+    """Fixed-window limiter for POST /email-verifications/{id}/resend
+    (issue #262, Profile Page.md §8.3). Two buckets: per-user and a GLOBAL
+    per-address bucket keyed by sha256(email) — the raw address never
+    becomes part of a Redis key name. Called at the router layer only;
+    create_verification's own 60s data-driven cooldown (the Ops-API
+    simplification) is unchanged and orthogonal to this. RateLimitUnavailable
+    from _protecting_incr propagates as 503 — fail-closed, same as signup/
+    forgot-password."""
+    _enforce_ip(
+        "rl:resend_verification:user",
+        user_id,
+        ((RESEND_VERIFICATION_USER_HOUR_LIMIT, RESEND_VERIFICATION_USER_HOUR_TTL),),
+        scope="resend-verification-user",
+    )
+    email_bucket = hashlib.sha256(email.encode()).hexdigest()
+    _enforce_ip(
+        "rl:resend_verification:email",
+        email_bucket,
+        ((RESEND_VERIFICATION_EMAIL_HOUR_LIMIT, RESEND_VERIFICATION_EMAIL_HOUR_TTL),),
+        scope="resend-verification-email",
+    )
