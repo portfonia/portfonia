@@ -62,6 +62,14 @@ class EmailVerification(Base):
     expires_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
     verified_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     last_sent_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    # Reserved for the future §3.4 per-user/per-email rate limiter (Profile
+    # page resend button), not this issue's Ops-only scope — deliberately
+    # unwritten (review, PR #261 round 3): create_verification() always
+    # constructs a row with 0, nothing increments it, and a resend today
+    # supersedes into a brand-new row rather than updating this one anyway.
+    # Kept rather than dropped since a future resend feature will need some
+    # counter here in some shape; don't read this as populated in the
+    # meantime.
     resend_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     # Resend's own delivery id — same pattern as reports.provider_message_id
     # (issue #45) — used to poll GET /emails/{id} for a bounce/complaint

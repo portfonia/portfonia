@@ -45,11 +45,18 @@ nothing reads them today except this mechanism's own confirm/creation code.
 1. `create_verification(session, email, purpose, user_id=None)`
    (`app/services/email_verification.py`) normalizes the email
    (`app.services.invites._normalize_email` — the same helper signup uses,
-   not a second implementation), supersedes any live pending candidate for
-   the same scope, persists the new row, then sends the email and schedules
-   the delivery poll (below). The record is committed **before** the send
-   attempt (matches `send_report_email`'s persist-first discipline) — a
-   Resend hiccup must not lose the record of intent.
+   not a second implementation), checks the resend cooldown, then **sends
+   the email first** — the DB is only touched (supersede the prior live
+   candidate, insert the new row, stamp `last_sent_at`, commit) once the
+   send has confirmed success; only then is the delivery poll scheduled
+   (below). Send-then-persist, not persist-then-send: an earlier version
+   of this function committed first (round 1), on the reasoning that a
+   Resend hiccup shouldn't lose the record of intent — that reasoning does
+   not hold here, because unlike a plain insert, this step also supersedes
+   an existing live record, so a failed send after persisting would have
+   destroyed a still-working prior link while never actually sending
+   anything (round 2 fix, review PR #261). A failed send raises
+   `VerificationSendFailed` with zero DB writes — safe to retry.
 2. Supersede scope is `(user_id, purpose)` when `user_id` is bound, but
    `(purpose, email)` when it's an unbound `ops_manual` probe
    (`user_id=None`) — `purpose=ops_manual` always carries `user_id=None`
@@ -84,6 +91,23 @@ nothing reads them today except this mechanism's own confirm/creation code.
    already belonged to someone else (round-1 review finding). `purpose=
    delivery_email` keeps the original design: writes the new address into
    `users.delivery_email` and sets `delivery_email_verified_at`.
+
+   **Both status transitions here (`pending`→`expired`, `pending`→
+   `verified`) are conditional `UPDATE ... WHERE status='pending'` writes
+   with a `rowcount` check, not plain attribute assignment on the row
+   loaded earlier (round-3 review finding).** An earlier version did
+   `record.status = "verified"` directly, which flushes as an unconditional
+   `UPDATE ... WHERE id=:id` — no status guard. A confirm click that reads
+   `pending` and then races a concurrent supersede (an Ops resend that just
+   passed the cooldown) or a concurrent expiry could still commit
+   `verified` after the row had already moved on, resurrecting a dead
+   token and, for `delivery_email`, writing that now-superseded record's
+   (possibly stale) email into `users.delivery_email` after a newer resend
+   was supposed to have replaced it — the same race class
+   `poll_email_verification_delivery` was fixed to avoid in round 1, just
+   never applied to this function. The `users` write-back now only happens
+   after the conditional UPDATE's `rowcount` confirms this call actually
+   won the `pending`→`verified` transition.
 
 ### Delivery-status poll (design doc §3.3 step 6)
 

@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import cast
@@ -12,7 +13,7 @@ from unittest.mock import MagicMock
 import pytest
 from altcha import v1 as altcha_v1
 from altcha.v1 import AlgoType
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.models.email_verification import EmailVerification
@@ -467,3 +468,102 @@ def test_confirm_verification_rejects_superseded_token(
 
     with pytest.raises(VerificationRejected):
         confirm_verification(db_session, token=first_token, altcha_payload=_solved_altcha_payload())
+
+
+def test_confirm_verification_rejects_when_record_superseded_mid_flight(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression (review, PR #261 round 3): the final `pending`->`verified`
+    write is a conditional `UPDATE ... WHERE status='pending'`, not a plain
+    attribute assignment on the row read at the top of the function — this
+    proves the guard actually fires when the row moves off `pending`
+    between that initial read and the write, and critically, that the
+    `users.delivery_email` write-back never happens when it does.
+
+    A real concurrent request can't be driven from a single synchronous
+    test, so the "concurrent" supersede is injected via monkeypatching
+    `_target_field` — called by `confirm_verification` in exactly the
+    window between the initial SELECT and the final conditional UPDATE —
+    to perform the race as a side effect before returning its real value.
+    """
+    db_session.add(_user(_UID, "seed@example.com"))
+    db_session.flush()
+    record, token = _create_and_capture_token(
+        db_session, monkeypatch, email="new@example.com", purpose="delivery_email", user_id=_UID
+    )
+
+    import app.services.email_verification as ev_module
+
+    real_target_field = ev_module._target_field
+
+    def _target_field_with_concurrent_supersede(purpose: str) -> str | None:
+        db_session.execute(
+            update(EmailVerification)
+            .where(EmailVerification.id == record.id)
+            .values(status="superseded")
+        )
+        db_session.commit()
+        return real_target_field(purpose)
+
+    monkeypatch.setattr(ev_module, "_target_field", _target_field_with_concurrent_supersede)
+
+    with pytest.raises(VerificationRejected):
+        confirm_verification(db_session, token=token, altcha_payload=_solved_altcha_payload())
+
+    db_session.expire_all()
+    user = db_session.get(User, _UID)
+    assert user is not None
+    assert user.delivery_email is None  # never written — the race was caught
+    row = db_session.get(EmailVerification, record.id)
+    assert row is not None and row.status == "superseded"  # not resurrected to verified
+
+
+def test_create_verification_logs_when_persist_fails_after_send(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Regression (review, PR #261 round 3): a persist failure AFTER a
+    successful send must be logged loudly — the email is already out and
+    the link is dead, so a naive retry would send a SECOND email, not
+    resend this one. Uses a fully mocked session (not the db_session
+    fixture) to trigger the failure deterministically without leaving a
+    real Postgres transaction in an aborted state for fixture teardown to
+    trip over."""
+    # alembic/env.py's fileConfig() (run once per session by session_test_db,
+    # which has already run by the time this test executes) disables any
+    # logger instantiated before that call — this module's logger included,
+    # since other test files import it at collection time. Documented
+    # workaround (CLAUDE.md's Tests section): re-enable right before
+    # asserting on caplog.
+    logging.getLogger("app.services.email_verification").disabled = False
+    caplog.set_level(logging.ERROR, logger="app.services.email_verification")
+    monkeypatch.setattr(
+        "app.services.email_verification.send_verification_email",
+        MagicMock(return_value="test-provider-id"),
+    )
+    mock_session = MagicMock()
+    mock_session.execute.return_value.scalar_one_or_none.return_value = None  # no prior pending
+    mock_session.commit.side_effect = Exception("db down")
+
+    with pytest.raises(Exception, match="db down"):
+        create_verification(mock_session, email="a@example.com", purpose="ops_manual", user_id=None)
+
+    assert any("failed to persist" in r.message for r in caplog.records)
+
+
+def test_create_verification_swallows_poll_scheduling_failure(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression (review, PR #261 round 3): the delivery-status poll is
+    best-effort (design doc §3.3 step 6 is diagnostic, not load-bearing) —
+    a Celery/Redis outage when scheduling it must not turn an otherwise-
+    successful create+send+persist into an error."""
+    monkeypatch.setattr(
+        "app.tasks.email_verification_tasks.poll_email_verification_delivery.apply_async",
+        MagicMock(side_effect=Exception("broker down")),
+    )
+
+    record = create_verification(
+        db_session, email="a@example.com", purpose="ops_manual", user_id=None
+    )
+
+    assert record.status == "pending"

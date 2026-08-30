@@ -8,12 +8,15 @@ create_verification, not by this module.
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.models.email_verification import EmailVerification
@@ -21,6 +24,8 @@ from app.models.user import User
 from app.services.altcha_challenge import verify_email_verification_solution
 from app.services.email_sender import send_verification_email
 from app.services.invites import _normalize_email
+
+logger = logging.getLogger(__name__)
 
 # Design doc §六 suggested 24-72h; 48h is the midpoint default. Not
 # Vigil's PoW-challenge TTL (minutes) — this is an unattended email
@@ -187,7 +192,27 @@ def create_verification(
         provider_message_id=provider_message_id,
     )
     session.add(record)
-    session.commit()
+    try:
+        session.commit()
+    except Exception:
+        # The email is already sent at this point — a persist failure here
+        # (e.g. the target user gets hard-purged between the router's 404
+        # pre-check and this INSERT, tripping the user_id FK; a DB outage)
+        # leaves a live emailed link with no matching row, and the send-
+        # failure 502's "no local data was touched, retry" guarantee no
+        # longer applies (review, PR #261 round 3). Re-raised as-is (a bare
+        # 500 at the router) rather than invented a new status code for
+        # what should be a rare edge case — but logged loudly so whoever
+        # investigates knows a naive retry would send a SECOND email, not
+        # safely resend the first.
+        logger.error(
+            "email verification: sent to %s (provider_message_id=%s) but failed to "
+            "persist the record — this link is now dead; a retry will send a NEW "
+            "email, not resend this one",
+            normalized_email,
+            provider_message_id,
+        )
+        raise
 
     # Lazy import (matches report_tasks.py's own lazy `SessionLocal` import)
     # — keeps this service module free of a module-level dependency on the
@@ -197,9 +222,20 @@ def create_verification(
         poll_email_verification_delivery,
     )
 
-    poll_email_verification_delivery.apply_async(
-        args=[str(record.id)], countdown=POLL_DELAY_SECONDS
-    )
+    try:
+        poll_email_verification_delivery.apply_async(
+            args=[str(record.id)], countdown=POLL_DELAY_SECONDS
+        )
+    except Exception:
+        # Best-effort by design (§3.3 step 6 is a lightweight diagnostic
+        # poll, not load-bearing for the confirm flow) — a broker outage
+        # here must not turn an otherwise-successful create+send+persist
+        # into a misleading error (review, PR #261 round 3). The record is
+        # already committed and the email already sent; a missed poll just
+        # means an eventual bounce won't be auto-detected.
+        logger.exception(
+            "email verification %s: failed to schedule delivery-status poll", record.id
+        )
     return record
 
 
@@ -230,7 +266,25 @@ def get_verification_status(session: Session, *, token: str) -> VerificationStat
 def confirm_verification(session: Session, *, token: str, altcha_payload: str) -> EmailVerification:
     """Consume a confirm click (the only state-changing step — design doc
     §3.3 step 4). Raises VerificationRejected for any failure; never
-    distinguishes which check failed in the exception message."""
+    distinguishes which check failed in the exception message.
+
+    **Both status transitions below are conditional `UPDATE ... WHERE
+    status='pending'` writes, not plain attribute assignment on the `record`
+    loaded at the top (review, PR #261 round 3)**: an earlier version did
+    `record.status = "verified"` / `"expired"` directly, which flushes as an
+    unconditional `UPDATE ... WHERE id=:id` with no status guard. A click
+    that reads `pending` here, racing a concurrent supersede (e.g. an Ops
+    resend that just passed the cooldown) or a concurrent expiry, could
+    still commit `verified` after the row had already moved on — resurrecting
+    a dead token, and for `purpose=delivery_email`, writing that dead
+    record's (possibly stale) email into `users.delivery_email` after a
+    newer resend was supposed to have superseded it. This is the exact race
+    class `poll_email_verification_delivery` was fixed to avoid in round 1;
+    this function just never got the same guard. The `users` write-back
+    only happens after the conditional UPDATE confirms (via `rowcount`)
+    that this call is the one that actually performed the pending->verified
+    transition — never based on the `record` object read before that point.
+    """
     if not verify_email_verification_solution(altcha_payload):
         raise VerificationRejected(VERIFICATION_REJECTED_MESSAGE)
 
@@ -242,28 +296,53 @@ def confirm_verification(session: Session, *, token: str, altcha_payload: str) -
 
     now = datetime.now(UTC)
     if record.expires_at < now:
-        record.status = "expired"
+        # Conditional even though the outcome for this call is the same
+        # either way (reject) — this must never overwrite a row that a
+        # concurrent operation already moved to something else since the
+        # SELECT above.
+        session.execute(
+            update(EmailVerification)
+            .where(EmailVerification.id == record.id, EmailVerification.status == "pending")
+            .values(status="expired")
+        )
         session.commit()
         raise VerificationRejected(VERIFICATION_REJECTED_MESSAGE)
 
+    # Business-rule check on the as-read state — no DB write yet, so a
+    # rejection here never touches this record's status at all.
     field = _target_field(record.purpose)
     user = session.get(User, record.user_id) if record.user_id is not None else None
-
-    if field == "email":
+    if field == "email" and (user is None or user.email != record.email):
         # account_email confirms reachability of the address already on
         # file — never assign users.email (see _target_field's docstring).
         # A mismatch (the account's email changed since this record was
         # created, or a caller probed the wrong address for this user_id)
         # is rejected with the same generic error as every other failure
         # here, not a distinct message.
-        if user is None or user.email != record.email:
-            raise VerificationRejected(VERIFICATION_REJECTED_MESSAGE)
-        user.email_verified_at = now
+        raise VerificationRejected(VERIFICATION_REJECTED_MESSAGE)
+
+    # The one write that actually matters for the race: claim the
+    # pending->verified transition atomically. rowcount==0 means some
+    # concurrent operation (supersede, expiry, another confirm) already
+    # moved this row off `pending` between the SELECT above and here —
+    # reject, and critically, do NOT fall through to the `users` write.
+    result = cast(
+        CursorResult[Any],
+        session.execute(
+            update(EmailVerification)
+            .where(EmailVerification.id == record.id, EmailVerification.status == "pending")
+            .values(status="verified", verified_at=now)
+        ),
+    )
+    if result.rowcount == 0:
+        session.rollback()
+        raise VerificationRejected(VERIFICATION_REJECTED_MESSAGE)
+
+    if field == "email":
+        user.email_verified_at = now  # type: ignore[union-attr]  # non-None, checked above
     elif field == "delivery_email" and user is not None:
         user.delivery_email = record.email
         user.delivery_email_verified_at = now
 
-    record.status = "verified"
-    record.verified_at = now
     session.commit()
     return record
