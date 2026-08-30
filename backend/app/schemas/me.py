@@ -26,10 +26,17 @@ class MeOut(BaseModel):
     """GET /me response — issue #220, full #221 shape landed in one PR (see
     Ring 1-Onboarding.md §6: don't build a narrow schema now and widen it
     later). `missing` only ever contains "questionnaire"/"holdings" — never
-    "tos"; `tos_accepted_at` is audit-only (§2.6)."""
+    "tos"; `tos_accepted_at` is audit-only (§2.6).
+
+    Issue #269: the raw verification timestamps (mirroring the `users`
+    columns) ride along so the Profile page can derive verification state
+    without a new endpoint — both NULL means "no verified receiving
+    address" (the frontend's no-valid-recipient condition)."""
 
     email: str
     delivery_email: str | None
+    email_verified_at: datetime | None
+    delivery_email_verified_at: datetime | None
     tos_accepted_at: datetime | None
     has_questionnaire: bool
     has_holdings: bool

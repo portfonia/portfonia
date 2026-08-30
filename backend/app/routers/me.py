@@ -65,6 +65,8 @@ def get_me(
     return MeOut(
         email=user.email,
         delivery_email=user.delivery_email,
+        email_verified_at=user.email_verified_at,
+        delivery_email_verified_at=user.delivery_email_verified_at,
         tos_accepted_at=user.tos_accepted_at,
         has_questionnaire=has_questionnaire,
         has_holdings=has_holdings,

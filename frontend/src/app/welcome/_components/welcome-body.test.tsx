@@ -11,6 +11,8 @@ import { WelcomeBody } from "./welcome-body";
 const _ME: Me = {
   email: "a@b.com",
   delivery_email: null,
+  email_verified_at: null,
+  delivery_email_verified_at: null,
   tos_accepted_at: "2026-08-27T00:00:00Z",
   has_questionnaire: true,
   has_holdings: false,

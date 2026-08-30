@@ -126,6 +126,22 @@ for the full before/after and decision rationale.
   `has_questionnaire`/`has_holdings`/`tos_accepted_at` were unused — #221
   (below) is what reads `missing` for the gap card; `has_questionnaire`/
   `has_holdings`/`tos_accepted_at` still have no frontend reader.
+- **Profile redesign (issue #269, 2026-08-30):** section order is now gap
+  card → Email Verification → Account → Investment style → Delivery email →
+  placeholders → Change password → Delete account. Email Verification is
+  the second section (right after the gap card slot, whether or not that
+  slot renders) and its render condition widened to "actionable
+  pending/undeliverable records exist" OR "no verified receiving address at
+  all" (both `email_verified_at` and `delivery_email_verified_at` null from
+  `GET /me`). Three visual languages, deliberately distinct: neutral
+  `Card`, `variant="urgent"` (soft pink fill — "complete this soon",
+  gap card + Email Verification; theme-aware `--urgent` token in
+  `globals.css`), and `variant="danger"` (thin red ring only, no fill —
+  Delete account's GitHub-style danger zone). The delivery-email section
+  renders an unverified shown address gray italic with a note and an inline
+  Resend button (bound to the matching pending/undeliverable record; the
+  overlap with the top section's list is intentional per the issue). Resend
+  logic lives in the shared `useVerificationResend` hook.
 - **Change-password Server Action** (`app/profile/actions.ts`) follows the
   same `signInWithPassword`-then-`updateUser` pattern as
   `Ring 1-Profile Page.md` §三 decision 2 — verifies against the caller's

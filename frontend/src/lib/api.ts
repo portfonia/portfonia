@@ -250,13 +250,17 @@ export async function putInvestmentContext(
 }
 
 // Mirrors backend/app/schemas/me.py's MeOut (issue #220, full #221 shape —
-// see docs/mechanisms/identity-and-auth.md's "GET /me" entry). `/profile`
-// (this PR) only reads `email`/`delivery_email`; the other four fields ride
-// along on the wire already but have no frontend reader until #221's gap
-// card.
+// see docs/mechanisms/identity-and-auth.md's "GET /me" entry). The Profile
+// page reads email/delivery_email, the verification timestamps (issue
+// #269), `missing` (gap card), and `pending_email_verifications`.
 export interface Me {
   email: string;
   delivery_email: string | null;
+  // Issue #269: raw verification timestamps mirroring the `users` columns,
+  // so the Profile page derives verification state without a new endpoint.
+  // Both null = no verified receiving address.
+  email_verified_at: string | null;
+  delivery_email_verified_at: string | null;
   tos_accepted_at: string | null;
   has_questionnaire: boolean;
   has_holdings: boolean;

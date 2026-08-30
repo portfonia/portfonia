@@ -34,6 +34,7 @@
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
+  --color-urgent: var(--urgent);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -80,6 +81,10 @@
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
+  /* Urgency fill for incomplete-setup states (issue #269): soft pink in
+     light mode, muted rose in dark — distinct from the red `danger` card
+     border (destructive action), see profile-page-body.tsx. */
+  --urgent: oklch(0.965 0.022 356);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -126,6 +131,7 @@
   --accent: #142a32;
   --accent-foreground: #eef3f1;
   --destructive: #e5484d;
+  --urgent: oklch(0.26 0.028 356);
   --border: rgba(238, 243, 241, 0.1);
   --input: rgba(238, 243, 241, 0.14);
   --ring: #dcaa4a;

@@ -616,6 +616,12 @@ is `EXISTS` on `user_investment_context`; `has_holdings` is `EXISTS` on
   `/portfolio`, `/reports`, `/investment-context` — the same
   coverage-by-iteration test that would have caught B3's original
   split-identity gap now also guards this router.
+- **Issue #269 (2026-08-30): verification state rides on `/me`.** `MeOut`
+  gained `email_verified_at`/`delivery_email_verified_at` (raw
+  `datetime | None`, mirroring the `users` columns) so the Profile page
+  derives verification state without a new endpoint — both NULL is the
+  frontend's "no verified receiving address" condition (the redesign
+  itself is UI-only, recorded in `frontend-chrome.md`).
 
 
 ### Investment-style questionnaire — B6 (Ring 1-B design.md §8, issue #129 checkpoint B6)
