@@ -23,9 +23,10 @@ class UploadJob(Base):
     Celery task against this row; the client polls GET
     /holdings/upload/{job_id} instead of holding one request open.
 
-    `preview` currently has no automatic retention/cleanup — accepted for
-    Ring 0 (single dev user, small row count); revisit before Ring 1 if
-    `upload_jobs` grows unbounded (PR #82 review).
+    `preview` rows (and the terminal job rows carrying them) are retained
+    30 days, then deleted by the daily `cleanup_upload_jobs` Celery beat
+    task (issue #264). Pending rows are excluded from that sweep — the
+    stale-pending sweeper owns them.
 
     A row stuck at `status="pending"` forever with `raw_text` still
     populated (worker hard-killed by Celery's `time_limit` before `finally`

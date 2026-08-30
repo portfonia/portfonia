@@ -3,10 +3,10 @@ design doc §4.4/§5.4, Hermes/Portfonia/Docs/Ring 1-A design.md).
 
 `ticker_intel`/`search_cache`/`macro_event_intel` grow one row per
 (identifier|query|event_key, trade_date) per day now that every active
-user's fan-out shares them — unlike the Ring 0 `upload_job` "known accepted
-gap: no retention" (harmless at 1 user), an unbounded multi-user +
-full-identifier-universe write pattern would grow these tables without
-bound. 90 days is generous relative to the tables' actual value: once a
+user's fan-out shares them — unlike `upload_job`, which has its own 30-day
+retention sweep (`cleanup_upload_jobs`, issue #264), an unbounded
+multi-user + full-identifier-universe write pattern would grow these tables
+without bound. 90 days is generous relative to the tables' actual value: once a
 fresher trade_date's row exists for the same identifier/query/event, an old
 row carries no independent use (it is never read back — every lookup is
 keyed on the CURRENT trade_date).
@@ -83,7 +83,7 @@ def _cleanup_expired(session: Session, cutoff: date) -> dict[str, int]:
 def sweep_stale_shared_intel_cache(self: Any) -> dict[str, int]:
     """Daily backstop: delete ticker_intel/search_cache rows older than
     `_RETENTION_DAYS`. See module docstring for why this table needs a
-    retention sweep where upload_job's "no cleanup" gap does not.
+    retention sweep (upload_job has its own, issue #264).
 
     Retry + ops-alert on exhaustion (round 2 review finding): unlike the
     other beat tasks in this codebase (backup, capture), this previously

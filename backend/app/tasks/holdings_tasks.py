@@ -5,11 +5,15 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from celery.signals import task_revoked  # type: ignore[import-untyped]
 from celery.worker.request import Request as _CeleryRequest  # type: ignore[import-untyped]
+from sqlalchemy import delete, or_
+from sqlalchemy.engine import CursorResult
+from sqlalchemy.orm import Session
 
+from app.services.email_sender import send_ops_alert
 from app.tasks import celery_app
 
 logger = logging.getLogger(__name__)
@@ -276,3 +280,93 @@ def sweep_stale_upload_jobs() -> dict[str, int]:
         for row in stale_ids
     )
     return {"swept": swept}
+
+
+# Issue #264: retention policy for upload_jobs rows. A successful upload's
+# preview JSONB is the only sensitive payload that outlives the parse
+# (raw_text is cleared by the task itself), and it has no value once the
+# user has confirmed the holdings — but rows were previously kept forever.
+# 30 days is generous relative to that window (confirm happens minutes
+# after upload).
+_UPLOAD_JOB_RETENTION_DAYS = 30
+# Pending rows get an extra day on top of the terminal cutoff (PR #268
+# review): sweep_stale_upload_jobs has no retry/ops-alert of its own, so a
+# silently failing sweeper would otherwise leave pending rows (still
+# holding raw_text) accumulating forever with no alert anywhere — the
+# backstop folds them into this task's alert-bearing path. Normal pending
+# rows are resolved by the sweeper within ~90s of the SLA, so a pending
+# row reaching 31 days is necessarily a zombie.
+_UPLOAD_JOB_PENDING_BACKSTOP_DAYS = 1
+
+
+def _cleanup_expired_upload_jobs(session: Session, cutoff: datetime) -> int:
+    """Delete UploadJob rows past their retention cutoff. Commits and
+    returns the delete count. Split out from the Celery task so it's
+    testable against a real db_session without mocking SessionLocal
+    (issue #264) — same shape as cache_tasks._cleanup_expired.
+
+    Terminal rows are deleted past `_UPLOAD_JOB_RETENTION_DAYS`; pending
+    rows get one extra day (PR #268 review), because the stale-pending
+    sweeper that normally resolves them has no alert of its own and this
+    task is the alert-bearing backstop for a sweeper outage."""
+    from app.models.upload_job import UploadJob
+
+    result = cast(
+        CursorResult[Any],
+        session.execute(
+            delete(UploadJob).where(
+                UploadJob.created_at < cutoff,
+                or_(
+                    UploadJob.status != "pending",
+                    UploadJob.created_at
+                    < cutoff - timedelta(days=_UPLOAD_JOB_PENDING_BACKSTOP_DAYS),
+                ),
+            )
+        ),
+    )
+    session.commit()
+    return result.rowcount or 0
+
+
+@celery_app.task(  # type: ignore[untyped-decorator]
+    name="app.tasks.holdings_tasks.cleanup_upload_jobs",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=300,
+)
+def cleanup_upload_jobs(self: Any) -> dict[str, int]:
+    """Daily retention sweep (issue #264): delete UploadJob rows older than
+    `_UPLOAD_JOB_RETENTION_DAYS`.
+
+    Retry + ops-alert on exhaustion, matching cache_tasks's shared-intel
+    sweep — a silent outage would be exactly the unbounded growth this
+    task exists to prevent."""
+    from app.core.database import SessionLocal
+
+    cutoff = datetime.now(UTC) - timedelta(days=_UPLOAD_JOB_RETENTION_DAYS)
+    session = SessionLocal()
+    try:
+        deleted = _cleanup_expired_upload_jobs(session, cutoff)
+        logger.info(
+            "cleanup_upload_jobs: deleted %d upload_jobs row(s) older than %s",
+            deleted,
+            cutoff,
+        )
+        return {"deleted": deleted}
+    except Exception as exc:
+        logger.exception("cleanup_upload_jobs: failed, scheduling retry")
+        if self.request.retries >= self.max_retries:
+            send_ops_alert(
+                subject="[Portfonia] upload_jobs retention sweep FAILED — retries exhausted",
+                body=(
+                    f"cleanup_upload_jobs failed after {self.max_retries} retries.\n\n"
+                    f"error: {type(exc).__name__}: {exc}\n\n"
+                    f"Impact: upload_jobs rows (including holdings preview JSONB) older than "
+                    f"{_UPLOAD_JOB_RETENTION_DAYS} days are not being cleaned up — the table "
+                    f"keeps growing until this is fixed. Not a correctness issue, but check "
+                    f"disk usage if this persists. Check worker.log for the full traceback."
+                ),
+            )
+        raise self.retry(exc=exc) from exc
+    finally:
+        session.close()

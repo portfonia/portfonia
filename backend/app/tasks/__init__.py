@@ -170,6 +170,14 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "task": "app.tasks.holdings_tasks.sweep_stale_upload_jobs",
         "schedule": 30.0,
     },
+    # Upload-job retention sweep (issue #264): daily cleanup of upload_jobs
+    # rows (holdings preview JSONB + terminal shell rows) older than 30
+    # days. 04:30 ET — every day, staggered from the 03:00 ET backup and
+    # the 04:00 ET shared-intel-cache sweep.
+    "cleanup-upload-jobs-daily": {
+        "task": "app.tasks.holdings_tasks.cleanup_upload_jobs",
+        "schedule": crontab(hour=4, minute=30),
+    },
     # Daily Postgres -> OCI Object Storage backup (issue #106). Runs at
     # 03:00 ET, off-peak relative to every other daily cadence (forward
     # events 08:00 ET, FX 16:05 ET, fund NAV 20:00 CST). Every day, not just
