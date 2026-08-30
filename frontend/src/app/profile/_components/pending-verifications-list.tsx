@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 
@@ -8,9 +9,10 @@ import { resendEmailVerification, ApiError } from "@/lib/api";
 import type { PendingEmailVerification } from "@/lib/api";
 
 // Issue #262, Ring 1-Profile Page.md §8.4. A resend supersedes the old
-// record server-side, so no local state is patched — success just refetches
-// GET /me (via router.refresh()) and the list re-renders from the new
-// record ids. 429/503 carry user-readable wording (never raw status text),
+// record server-side, so no local state is patched — success calls
+// router.refresh() to re-render the page's server data (a fresh GET /me),
+// which preserves client state the way a hard window.location.reload()
+// would not. 429/503 carry user-readable wording (never raw status text),
 // per the forgot-password error-state pattern.
 export function PendingVerificationsList({
   verifications,
@@ -18,6 +20,7 @@ export function PendingVerificationsList({
   verifications: PendingEmailVerification[];
 }) {
   const t = useTranslations("profile");
+  const router = useRouter();
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,7 +29,7 @@ export function PendingVerificationsList({
     setError(null);
     try {
       await resendEmailVerification(id);
-      window.location.reload();
+      router.refresh();
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.status === 429) {

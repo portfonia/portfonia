@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/profile" }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/profile", useRouter: () => ({ refresh: vi.fn() }) }));
 // Server Action import would drag in lib/supabase/server.ts's `server-only`
 // guard under vitest (no Next compiler pass to stub it) — mock like the
 // other suites do (see get-started-menu.test.tsx's identical comment).
