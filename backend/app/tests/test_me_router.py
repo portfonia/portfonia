@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -20,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_session
 from app.core.deps import current_principal
 from app.main import app
+from app.models.email_verification import EmailVerification
 from app.models.holding import Holding
 from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
@@ -213,3 +215,98 @@ def test_me_missing_empty_when_both_present(app_client: TestClient, db_session: 
     resp = app_client.get("/me")
 
     assert resp.json()["missing"] == []
+
+
+# --- pending_email_verifications (issue #262, Profile Page.md §8.2) ---
+
+
+def _seed_verification(
+    db_session: Session,
+    *,
+    user_id: uuid.UUID | None,
+    purpose: str,
+    status: str,
+    email: str = "pending@example.com",
+) -> EmailVerification:
+    row = EmailVerification(
+        user_id=user_id,
+        purpose=purpose,
+        email=email,
+        token_hash=f"hash-{uuid.uuid4()}",
+        status=status,
+        expires_at=datetime.now(UTC) + timedelta(hours=24),
+        last_sent_at=datetime.now(UTC),
+        resend_count=0,
+    )
+    db_session.add(row)
+    db_session.flush()
+    return row
+
+
+def test_me_lists_pending_and_undeliverable_for_own_user(
+    app_client: TestClient, db_session: Session
+) -> None:
+    _seed_user(db_session)
+    pending = _seed_verification(
+        db_session, user_id=TEST_USER_ID, purpose="account_email", status="pending"
+    )
+    undeliverable = _seed_verification(
+        db_session,
+        user_id=TEST_USER_ID,
+        purpose="delivery_email",
+        status="undeliverable",
+        email="typo@example.com",
+    )
+
+    body = app_client.get("/me").json()
+    listed = {item["id"]: item for item in body["pending_email_verifications"]}
+
+    assert set(listed) == {str(pending.id), str(undeliverable.id)}
+    assert listed[str(pending.id)]["purpose"] == "account_email"
+    assert listed[str(pending.id)]["status"] == "pending"
+    assert listed[str(pending.id)]["email"] == "pending@example.com"
+    assert listed[str(undeliverable.id)]["status"] == "undeliverable"
+    assert listed[str(undeliverable.id)]["email"] == "typo@example.com"
+    assert "expires_at" in listed[str(pending.id)]
+    assert "last_sent_at" in listed[str(pending.id)]
+
+
+def test_me_excludes_terminal_and_other_user_statuses(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """expired/superseded/verified/revoked are history, not actionable
+    (Profile Page.md §8.2) — and another user's live pending rows are not
+    ours to see."""
+    _seed_user(db_session)
+    _seed_verification(db_session, user_id=TEST_USER_ID, purpose="account_email", status="expired")
+    _seed_verification(
+        db_session, user_id=TEST_USER_ID, purpose="account_email", status="superseded"
+    )
+    _seed_verification(db_session, user_id=TEST_USER_ID, purpose="account_email", status="verified")
+    other_user_id = uuid.UUID("00000000-0000-0000-0000-0000000000aa")
+    _seed_user(db_session, user_id=other_user_id, email="other@example.com")
+    _seed_verification(
+        db_session,
+        user_id=other_user_id,
+        purpose="delivery_email",
+        status="pending",
+    )
+
+    assert app_client.get("/me").json()["pending_email_verifications"] == []
+
+
+def test_me_never_lists_ops_manual_rows(app_client: TestClient, db_session: Session) -> None:
+    """ops_manual is always user_id=NULL (§3.5) so it cannot belong to any
+    user — belt-and-braces against a row ever carrying a user_id."""
+    _seed_user(db_session)
+    _seed_verification(db_session, user_id=None, purpose="ops_manual", status="pending")
+
+    assert app_client.get("/me").json()["pending_email_verifications"] == []
+
+
+def test_me_pending_list_empty_when_no_verifications(
+    app_client: TestClient, db_session: Session
+) -> None:
+    _seed_user(db_session)
+
+    assert app_client.get("/me").json()["pending_email_verifications"] == []

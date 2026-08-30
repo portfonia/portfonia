@@ -237,7 +237,19 @@
     "deleteAccountHeading": "删除账户",
     "deleteAccountBody": "终止服务并永久清除你的账户数据。",
     "deleteAccountPlaceholder": "暂未实现。",
-    "errorLoadFailed": "无法加载账户信息。"
+    "errorLoadFailed": "无法加载账户信息。",
+    "emailVerificationHeading": "邮箱验证",
+    "emailVerificationBody": "以下邮箱地址正在等待您的确认。如显示发送失败，请核对地址后重新发送。",
+    "emailVerificationStatusPending": "等待您确认",
+    "emailVerificationStatusUndeliverable": "发送失败，请检查地址是否正确后重新发送。",
+    "emailVerificationPurposeAccount": "账户邮箱",
+    "emailVerificationPurposeDelivery": "报告接收邮箱",
+    "emailVerificationPurpose": "用途：{purpose}",
+    "emailVerificationResendButton": "重新发送",
+    "emailVerificationResending": "发送中...",
+    "emailVerificationResendTooSoon": "操作过于频繁，请稍后再试。",
+    "emailVerificationResendUnavailable": "服务暂时不可用，请稍后再试。",
+    "emailVerificationResendFailed": "验证邮件发送失败，请重试。"
   },
   "home": {
     "hero": {

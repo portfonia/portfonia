@@ -16,6 +16,8 @@ from starlette.requests import Request
 from app.core import rate_limit
 from app.core.rate_limit import (
     RATE_LIMIT_DETAIL,
+    RESEND_VERIFICATION_EMAIL_HOUR_LIMIT,
+    RESEND_VERIFICATION_USER_HOUR_LIMIT,
     SIGNUP_IP_MINUTE_LIMIT,
     SIGNUP_IP_MINUTE_TTL,
     SIGNUP_TOKEN_FAIL_LIMIT,
@@ -25,6 +27,7 @@ from app.core.rate_limit import (
     client_id_from_request,
     guard_known_invite_token,
     rate_limit_create_invite,
+    rate_limit_enforce_resend_verification,
     rate_limit_signup,
 )
 from app.services.invites import create_invite
@@ -305,3 +308,59 @@ def test_dockerfile_uvicorn_trusts_caddy_proxy_headers() -> None:
     assert "--forwarded-allow-ips" in text
     # Backend publishes no host port; * is the compose-network allow-list.
     assert '"*"' in text or ', "*"' in text or '--forwarded-allow-ips", "*"' in text
+
+
+# --- resend email-verification limiter (issue #262, Profile Page.md §8.3) ---
+
+
+def test_resend_limiter_per_user_bucket(backend: InMemoryBackend) -> None:
+    for _ in range(RESEND_VERIFICATION_USER_HOUR_LIMIT):
+        rate_limit_enforce_resend_verification(user_id="u1", email="a@example.com")
+    with pytest.raises(HTTPException) as exc:
+        rate_limit_enforce_resend_verification(user_id="u1", email="a@example.com")
+    assert exc.value.status_code == 429
+    # A different user is a different bucket; use a different address too so
+    # the shared email bucket (asserted separately below) isn't what trips.
+    rate_limit_enforce_resend_verification(user_id="u2", email="other@example.com")
+
+
+def test_resend_limiter_per_email_bucket_shared_across_users(
+    backend: InMemoryBackend,
+) -> None:
+    """The email bucket is deliberately NOT scoped by user: three different
+    accounts pointing at the same address must exhaust one shared bucket,
+    not three (Email Validation.md §3.4 mail-bomb reasoning)."""
+    for _ in range(RESEND_VERIFICATION_EMAIL_HOUR_LIMIT):
+        rate_limit_enforce_resend_verification(
+            user_id=f"u{uuid.uuid4()}", email="victim@example.com"
+        )
+    with pytest.raises(HTTPException) as exc:
+        rate_limit_enforce_resend_verification(user_id="u-other", email="victim@example.com")
+    assert exc.value.status_code == 429
+
+
+def test_resend_limiter_email_bucket_keyed_by_hash(backend: InMemoryBackend) -> None:
+    import hashlib
+
+    rate_limit_enforce_resend_verification(user_id="u1", email="hashed@example.com")
+    stored = backend.stored_keys()
+    assert any(
+        "rl:resend_verification:email:" in key
+        and hashlib.sha256(b"hashed@example.com").hexdigest() in key
+        for key in stored
+    )
+    assert not any("hashed@example.com" in key for key in stored)  # never the raw address
+
+
+def test_resend_limiter_fail_closed_on_redis_outage() -> None:
+    class _Down:
+        def incr_with_ttl(self, key: str, ttl_seconds: int) -> int:
+            raise rate_limit.RateLimitUnavailable
+
+    rate_limit.set_backend(_Down())  # type: ignore[arg-type]
+    try:
+        with pytest.raises(HTTPException) as exc:
+            rate_limit_enforce_resend_verification(user_id="u1", email="a@example.com")
+        assert exc.value.status_code == 503
+    finally:
+        rate_limit.set_backend(InMemoryBackend())

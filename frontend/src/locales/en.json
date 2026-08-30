@@ -237,7 +237,19 @@
     "deleteAccountHeading": "Delete account",
     "deleteAccountBody": "Terminate service and permanently clear your account data.",
     "deleteAccountPlaceholder": "Not implemented yet.",
-    "errorLoadFailed": "Could not load your account."
+    "errorLoadFailed": "Could not load your account.",
+    "emailVerificationHeading": "Email verification",
+    "emailVerificationBody": "These email addresses are waiting for your confirmation. If a message failed to deliver, check the address and resend.",
+    "emailVerificationStatusPending": "Waiting for your confirmation",
+    "emailVerificationStatusUndeliverable": "Delivery failed. Check the address, then resend.",
+    "emailVerificationPurposeAccount": "Account email",
+    "emailVerificationPurposeDelivery": "Report delivery email",
+    "emailVerificationPurpose": "Used for: {purpose}",
+    "emailVerificationResendButton": "Resend",
+    "emailVerificationResending": "Sending...",
+    "emailVerificationResendTooSoon": "Too many resends. Please wait a while and try again.",
+    "emailVerificationResendUnavailable": "The service is temporarily unavailable. Please try again later.",
+    "emailVerificationResendFailed": "Could not resend the verification email. Please try again."
   },
   "home": {
     "hero": {

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Me } from "@/lib/api";
 import { ChangePasswordForm } from "./change-password-form";
+import { PendingVerificationsList } from "./pending-verifications-list";
 
 // Split out from page.tsx (issue #220), same reasoning as
 // questionnaire-page-body.tsx: whether the page renders at all depends on
@@ -107,6 +108,22 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
           )}
         </CardContent>
       </Card>
+
+      {/* Issue #262 §8.2/§8.4: actionable email verifications. Renders
+          nothing when the list is empty (verified/expired history is
+          deliberately not surfaced). Sits directly under the delivery-email
+          block — same topic, per Profile Page.md §8.4. */}
+      {me.pending_email_verifications.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("emailVerificationHeading")}</CardTitle>
+            <CardDescription>{t("emailVerificationBody")}</CardDescription>
+          </CardHeader>
+          <CardContent className="px-4">
+            <PendingVerificationsList verifications={me.pending_email_verifications} />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Placeholders below (issue #220 §2 requirements 4/5/7/8): visible and
           labeled not-yet-implemented, never a form a click could actually

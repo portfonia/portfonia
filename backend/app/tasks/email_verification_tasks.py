@@ -35,6 +35,78 @@ _UNDELIVERABLE_EVENTS = frozenset({"bounced", "complained", "failed", "suppresse
 
 
 @celery_app.task(  # type: ignore[untyped-decorator]
+    name="app.tasks.email_verification_tasks.send_account_email_verification_task",
+    bind=True,
+    max_retries=3,
+    default_retry_delay=120,
+)
+def send_account_email_verification_task(self: Any, user_id: str) -> str:
+    """Create and send the account-email verification for a freshly signed-up
+    user (issue #262; Ring 1-Profile Page.md §8.7, Email Validation.md §4.1).
+
+    Runs on Celery, never inside the signup request: create_verification
+    makes a synchronous Resend HTTP call (15s timeout), which must not sit
+    on the signup response path. Send-first ordering means
+    VerificationSendFailed leaves zero DB writes, so a retry is safe; a
+    persist failure (post-send) is NOT retried — see the except clause
+    below for why. When retries are exhausted, log loudly: the only
+    recovery path is the Ops API (a fresh POST /admin/email-verifications),
+    because no Profile-page record exists to resend from.
+
+    Account creation itself must never be dragged down by whether the
+    verification email went out (Profile Page.md §8.7).
+    """
+    from app.core.database import SessionLocal
+    from app.models.user import User
+    from app.services.email_verification import (
+        VerificationSendFailed,
+        create_verification,
+    )
+
+    session = SessionLocal()
+    try:
+        user = session.get(User, UUID(user_id))
+        if user is None:
+            # The signup row was rolled back or the user purged between
+            # enqueue and execution — a steady state, not an error.
+            logger.warning("account-email verification task: user %s not found", user_id)
+            return "skipped_not_found"
+        try:
+            create_verification(session, email=user.email, purpose="account_email", user_id=user.id)
+            return "sent"
+        except VerificationSendFailed as exc:
+            # A transient Resend failure: nothing was persisted, so a retry
+            # is safe and clean. max_retries on the decorator does nothing
+            # by itself — retry requests must be explicit (PR #263 review;
+            # same shape as every sibling task in this codebase).
+            if self.request.retries >= self.max_retries:
+                logger.error(
+                    "account-email verification for user %s: send failed after %d attempts "
+                    "(%s) — no email_verifications row exists, so the Profile page has "
+                    "nothing to resend; recover via POST /admin/email-verifications with "
+                    "user_id + purpose=account_email",
+                    user_id,
+                    self.request.retries + 1,
+                    exc,
+                )
+                raise
+            logger.warning(
+                "account-email verification task: send failed (attempt %d/%d), retrying",
+                self.request.retries + 1,
+                self.max_retries + 1,
+            )
+            raise self.retry(exc=exc) from exc
+        # A failure after the send succeeded (the persist-commit path inside
+        # create_verification) is deliberately NOT caught here: the emailed
+        # link is already live, a blind retry would send a SECOND email
+        # rather than recover the first (the service logs this loudly
+        # itself), and it is a 500-class edge case, not a transient send
+        # hiccup. Let it propagate for Celery to record the failure.
+    finally:
+        session.close()
+
+
+@celery_app.task(  # type: ignore[untyped-decorator]
     name="app.tasks.email_verification_tasks.poll_email_verification_delivery",
     bind=True,
     max_retries=3,

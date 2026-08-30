@@ -357,3 +357,100 @@ def test_signup_does_not_log_password(
         )
     assert resp.status_code == 201
     assert password not in caplog.text
+
+
+# --- §4.1 signup hook (issue #262) ---
+
+
+def test_signup_enqueues_account_email_verification(
+    app_client: TestClient,
+    db_session: Session,
+    _fake_auth_provider: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Successful signup must enqueue the account-email verification task
+    after commit, with the new user's id — never synchronously in the
+    request path (create_verification does a blocking Resend HTTP call,
+    Ring 1-Profile Page.md §8.7)."""
+    from app.tasks.email_verification_tasks import send_account_email_verification_task
+
+    issued = create_invite(db_session, created_by=_CREATOR)
+    db_session.flush()
+    delay = MagicMock()
+    monkeypatch.setattr(send_account_email_verification_task, "delay", delay)
+
+    resp = app_client.post(
+        "/auth/signup",
+        json={
+            "invite_token": issued.token,
+            "email": "hook@example.com",
+            "password": "a-long-enough-password",
+            "tos_accepted": True,
+        },
+    )
+
+    assert resp.status_code == 201
+    row = db_session.execute(select(User).where(User.email == "hook@example.com")).scalar_one()
+    delay.assert_called_once_with(str(row.id))
+
+
+def test_signup_failure_does_not_enqueue_account_email_verification(
+    app_client: TestClient,
+    db_session: Session,
+    _fake_auth_provider: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.tasks.email_verification_tasks import send_account_email_verification_task
+
+    delay = MagicMock()
+    monkeypatch.setattr(send_account_email_verification_task, "delay", delay)
+
+    resp = app_client.post(
+        "/auth/signup",
+        json={
+            "invite_token": "no-such-token",
+            "email": "hook-fail@example.com",
+            "password": "a-long-enough-password",
+            "tos_accepted": True,
+        },
+    )
+
+    assert resp.status_code == 400
+    delay.assert_not_called()
+
+
+def test_signup_returns_201_even_if_enqueue_raises(
+    app_client: TestClient,
+    db_session: Session,
+    _fake_auth_provider: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A broker outage at enqueue time must not fail the signup response or
+    trip the Auth-user compensation (PR #263 review): the account is fully
+    created by the time the hook runs. The user just won't get an automatic
+    verification email — recoverable only via the Ops API, since no
+    email_verifications row exists for the Profile page to act on."""
+    from app.tasks.email_verification_tasks import send_account_email_verification_task
+
+    issued = create_invite(db_session, created_by=_CREATOR)
+    db_session.flush()
+    delay = MagicMock(side_effect=RuntimeError("broker down"))
+    monkeypatch.setattr(send_account_email_verification_task, "delay", delay)
+
+    resp = app_client.post(
+        "/auth/signup",
+        json={
+            "invite_token": issued.token,
+            "email": "enqueue-fail@example.com",
+            "password": "a-long-enough-password",
+            "tos_accepted": True,
+        },
+    )
+
+    assert resp.status_code == 201
+    row = db_session.execute(
+        select(User).where(User.email == "enqueue-fail@example.com")
+    ).scalar_one()
+    assert row is not None
+    _fake_auth_provider.assert_called_once()  # no compensation delete ran
+    delay.assert_called_once()

@@ -12,15 +12,24 @@ against (the token is 128 bits regardless).
 
 from __future__ import annotations
 
+import uuid
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.database import get_session
+from app.core.deps import Principal, current_principal
+from app.core.rate_limit import rate_limit_enforce_resend_verification
+from app.models.email_verification import EmailVerification
 from app.services.altcha_challenge import create_email_verification_challenge
 from app.services.email_verification import (
+    ResendTooSoon,
     VerificationRejected,
+    VerificationSendFailed,
     confirm_verification,
+    create_verification,
     get_verification_status,
 )
 
@@ -69,3 +78,66 @@ def confirm(req: ConfirmRequest, session: Session = Depends(get_session)) -> Con
     except VerificationRejected as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
     return ConfirmResponse(email=record.email)
+
+
+class ResendResponse(BaseModel):
+    """Narrow create-ack shape, same as the Ops POST — never the plaintext
+    token. The id is the NEW record's: resend supersedes the old row, so
+    the requested id is no longer the live one (Profile Page.md §8.4 — the
+    frontend re-fetches GET /me rather than patching the old id)."""
+
+    id: uuid.UUID
+    status: str
+    expires_at: datetime
+
+
+@router.post("/{verification_id}/resend", response_model=ResendResponse)
+def resend_verification(
+    verification_id: uuid.UUID,
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+) -> ResendResponse:
+    """Resend the caller's own pending/undeliverable verification email
+    (issue #262, Ring 1-Profile Page.md §8.3). Ownership and status are
+    checked first; anything else — missing, someone else's, terminal
+    status, unbound ops_manual — is the same 404, never 403: the response
+    must not reveal that an id exists but belongs to someone else.
+
+    Rate limiting lives HERE, not in create_verification: the Redis
+    per-user + per-address buckets guard this untrusted-facing session
+    endpoint, while the shared service's own 60s data-driven cooldown
+    keeps serving the ADMIN_API_TOKEN-gated Ops path unchanged — two
+    call surfaces, two different abuse profiles, deliberately separate
+    mechanisms (Profile Page.md §8.3)."""
+    record = session.get(EmailVerification, verification_id)
+    if (
+        record is None
+        or record.user_id != principal.user_id
+        or record.status not in ("pending", "undeliverable")
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="verification not found")
+
+    rate_limit_enforce_resend_verification(user_id=str(principal.user_id), email=record.email)
+
+    try:
+        new_record = create_verification(
+            session, email=record.email, purpose=record.purpose, user_id=principal.user_id
+        )
+    except ResendTooSoon:
+        # Scope-accurate wording (PR #263 review, mirroring the Ops router's
+        # round-4 fix): this endpoint's calls are always bound, so the
+        # cooldown scope is (user_id, purpose), not the address — a prior
+        # send to a DIFFERENT address for the same user+purpose also trips.
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="a verification for this user and purpose was already sent less than 60s ago",
+        ) from None
+    except VerificationSendFailed:
+        # Nothing local was touched (send-first ordering) — safe to retry.
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="failed to send the verification email; no local data was touched, retry",
+        ) from None
+    return ResendResponse(
+        id=new_record.id, status=new_record.status, expires_at=new_record.expires_at
+    )

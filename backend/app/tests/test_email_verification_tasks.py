@@ -13,6 +13,7 @@ import uuid
 from unittest.mock import MagicMock, patch
 
 import httpx
+import pytest
 
 from app.tasks import celery_app
 from app.tasks.email_verification_tasks import poll_email_verification_delivery
@@ -243,3 +244,130 @@ def test_poll_retries_on_http_error(
             pass
         else:
             raise AssertionError("expected the task to call self.retry() on an HTTP error")
+
+
+# --- signup hook (issue #262, Ring 1-Profile Page.md §8.7 / Email
+# Validation.md §4.1) ---
+
+_SIGNUP_UID = uuid.uuid4()
+
+
+def test_send_account_verification_task_module_is_in_the_celery_app_include_list() -> None:
+    """Regression guard for the same failure mode PR #261 round 1 caught on
+    the poll task: the task module gets imported directly by this test file
+    (and by the signup router), so `celery_app.tasks` would register it via
+    normal import side effects and hide a missing `include` entry — only
+    `conf.include` is what a real worker process consults at startup."""
+    assert "app.tasks.email_verification_tasks" in celery_app.conf.include
+
+
+@patch("app.core.database.SessionLocal")
+@patch("app.services.email_verification.create_verification")
+def test_send_account_verification_task_creates_account_email_verification(
+    mock_create: MagicMock, mock_session_cls: MagicMock
+) -> None:
+    from app.tasks.email_verification_tasks import send_account_email_verification_task
+
+    mock_session = MagicMock()
+    mock_user = MagicMock()
+    mock_user.email = "new-user@example.com"
+    mock_user.id = _SIGNUP_UID
+    mock_session.get.return_value = mock_user
+    mock_session_cls.return_value = mock_session
+
+    send_account_email_verification_task.run(str(_SIGNUP_UID))
+
+    mock_create.assert_called_once_with(
+        mock_session, email="new-user@example.com", purpose="account_email", user_id=_SIGNUP_UID
+    )
+    mock_session.close.assert_called_once()
+
+
+@patch("app.core.database.SessionLocal")
+@patch("app.services.email_verification.create_verification")
+def test_send_account_verification_task_reraises_send_failure(
+    mock_create: MagicMock, mock_session_cls: MagicMock
+) -> None:
+    """create_verification's failure modes are handled upstream (send-first
+    means VerificationSendFailed leaves zero DB writes; commit failures log
+    loudly); the task must not swallow them — they propagate for Celery's
+    retry machinery (Profile Page.md §8.7)."""
+    from app.services.email_verification import VerificationSendFailed
+    from app.tasks.email_verification_tasks import send_account_email_verification_task
+
+    mock_session = MagicMock()
+    mock_session.get.return_value = MagicMock()  # user exists; fail inside create_verification
+    mock_session_cls.return_value = mock_session
+    mock_create.side_effect = VerificationSendFailed
+
+    with pytest.raises(VerificationSendFailed):
+        send_account_email_verification_task.run(str(_SIGNUP_UID))
+
+
+@patch("app.core.database.SessionLocal")
+@patch("app.services.email_verification.create_verification")
+def test_send_account_verification_task_schedules_celery_retry_on_failure(
+    mock_create: MagicMock, mock_session_cls: MagicMock
+) -> None:
+    """Regression (PR #263 review): max_retries=3 on the decorator does
+    nothing by itself — without an explicit self.retry() call, a transient
+    Resend failure fails the task once and is never retried, silently
+    losing the signup verification email. The retry wiring must be
+    asserted directly (patch self.retry), not inferred from .run()'s
+    exception propagation."""
+    from app.services.email_verification import VerificationSendFailed
+    from app.tasks.email_verification_tasks import send_account_email_verification_task
+
+    mock_session = MagicMock()
+    mock_session.get.return_value = MagicMock()
+    mock_session_cls.return_value = mock_session
+    mock_create.side_effect = VerificationSendFailed
+
+    class _StopRetry(Exception):
+        pass
+
+    with patch.object(
+        send_account_email_verification_task, "retry", side_effect=_StopRetry
+    ) as mock_retry:
+        try:
+            send_account_email_verification_task.run(str(_SIGNUP_UID))
+        except _StopRetry:
+            pass
+        else:
+            raise AssertionError("expected the task to call self.retry() on a send failure")
+    mock_retry.assert_called_once()
+    assert mock_retry.call_args.kwargs.get("exc") is not None
+
+
+@patch("app.core.database.SessionLocal")
+@patch("app.services.email_verification.create_verification")
+def test_send_account_verification_task_gives_up_after_max_retries(
+    mock_create: MagicMock, mock_session_cls: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    """At retries >= max_retries the task stops asking for another retry and
+    logs the real recovery path — the Ops API, since no Profile-page record
+    exists to resend from. .run() bypasses Celery's retry machinery, so
+    self.retry() re-raises the original exception rather than actually
+    scheduling a retry (same trick as test_report_tasks's exhaustion test)."""
+    import logging
+
+    from app.services.email_verification import VerificationSendFailed
+    from app.tasks.email_verification_tasks import send_account_email_verification_task
+
+    # The session-migrate fileConfig disables already-instantiated loggers
+    # (CLAUDE.md Tests note) — re-enable this one for the caplog assertion.
+    logging.getLogger("app.tasks.email_verification_tasks").disabled = False
+
+    mock_session = MagicMock()
+    mock_session.get.return_value = MagicMock()
+    mock_session_cls.return_value = mock_session
+    mock_create.side_effect = VerificationSendFailed
+
+    with (
+        caplog.at_level(logging.ERROR),
+        patch.object(send_account_email_verification_task, "max_retries", 0),
+        pytest.raises(VerificationSendFailed),
+    ):
+        send_account_email_verification_task.run(str(_SIGNUP_UID))
+
+    assert "POST /admin/email-verifications" in caplog.text

@@ -237,7 +237,19 @@
     "deleteAccountHeading": "刪除帳戶",
     "deleteAccountBody": "終止服務並永久清除您的帳戶資料。",
     "deleteAccountPlaceholder": "尚未實作。",
-    "errorLoadFailed": "無法載入帳戶資訊。"
+    "errorLoadFailed": "無法載入帳戶資訊。",
+    "emailVerificationHeading": "郵箱驗證",
+    "emailVerificationBody": "以下郵箱地址正在等待您的確認。如顯示發送失敗，請核對地址後重新發送。",
+    "emailVerificationStatusPending": "等待您確認",
+    "emailVerificationStatusUndeliverable": "發送失敗，請檢查地址是否正確後重新發送。",
+    "emailVerificationPurposeAccount": "賬戶郵箱",
+    "emailVerificationPurposeDelivery": "報告接收郵箱",
+    "emailVerificationPurpose": "用途：{purpose}",
+    "emailVerificationResendButton": "重新發送",
+    "emailVerificationResending": "發送中...",
+    "emailVerificationResendTooSoon": "操作過於頻繁，請稍後再試。",
+    "emailVerificationResendUnavailable": "服務暫時不可用，請稍後再試。",
+    "emailVerificationResendFailed": "驗證郵件發送失敗，請重試。"
   },
   "home": {
     "hero": {
