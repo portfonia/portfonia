@@ -261,4 +261,28 @@ export interface Me {
   has_questionnaire: boolean;
   has_holdings: boolean;
   missing: string[];
+  // Mirrors backend PendingVerificationOut (issue #262, Profile Page.md
+  // §8.2): the caller's own actionable verification rows — "pending" or
+  // "undeliverable" only.
+  pending_email_verifications: PendingEmailVerification[];
+}
+
+export interface PendingEmailVerification {
+  id: string;
+  purpose: string;
+  email: string;
+  status: string;
+  expires_at: string;
+  last_sent_at: string;
+}
+
+// Resend the verification email for one of the caller's own pending/
+// undeliverable records (issue #262, Profile Page.md §8.3). The response
+// id is the NEW record's — resend supersedes the old row — so the caller
+// re-fetches GET /me instead of patching the old id locally (§8.4).
+export async function resendEmailVerification(id: string): Promise<void> {
+  const res = await fetch(`/api/email-verifications/${id}/resend`, {
+    method: "POST",
+  });
+  if (!res.ok) await throwOnHttpError(res);
 }

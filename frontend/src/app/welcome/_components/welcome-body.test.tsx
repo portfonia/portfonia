@@ -15,6 +15,7 @@ const _ME: Me = {
   has_questionnaire: true,
   has_holdings: false,
   missing: ["holdings"],
+  pending_email_verifications: [],
 };
 
 function renderBody(me: Me | null, hadLoadError = false) {

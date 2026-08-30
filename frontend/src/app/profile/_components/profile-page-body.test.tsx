@@ -6,6 +6,10 @@ vi.mock("next/navigation", () => ({ usePathname: () => "/profile" }));
 // guard under vitest (no Next compiler pass to stub it) — mock like the
 // other suites do (see get-started-menu.test.tsx's identical comment).
 vi.mock("@/app/profile/actions", () => ({ changePassword: vi.fn() }));
+// ProfilePageBody now (indirectly) imports lib/api.ts's resendEmailVerification
+// (issue #262), whose module pulls logout() from the server-only-guarded
+// Supabase server client — mock it like holdings-manager.test.tsx does.
+vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
 import type { Me } from "@/lib/api";
@@ -26,6 +30,7 @@ const BASE_ME: Me = {
   has_questionnaire: false,
   has_holdings: false,
   missing: ["questionnaire", "holdings"],
+  pending_email_verifications: [],
 };
 
 describe("ProfilePageBody", () => {
@@ -116,5 +121,54 @@ describe("ProfilePageBody", () => {
     // anything else.
     expect(screen.getByText(/portfolio overview/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete account" })).toBeDisabled();
+  });
+});
+
+describe("PendingVerificationsList section (issue #262)", () => {
+  it("renders no verification card when pending_email_verifications is empty", () => {
+    renderBody(BASE_ME);
+
+    expect(screen.queryByText(/email verification/i)).not.toBeInTheDocument();
+  });
+
+  it("lists each pending record with email, purpose and status", () => {
+    renderBody({
+      ...BASE_ME,
+      pending_email_verifications: [
+        {
+          id: "v-1",
+          purpose: "account_email",
+          email: "new-user@example.com",
+          status: "pending",
+          expires_at: "2026-09-01T00:00:00Z",
+          last_sent_at: "2026-08-30T00:00:00Z",
+        },
+      ],
+    });
+
+    expect(screen.getByText("new-user@example.com")).toBeInTheDocument();
+    expect(
+      screen.getByText(/^waiting for your confirmation$/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/^used for: account email$/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /resend/i })).toBeEnabled();
+  });
+
+  it("marks an undeliverable record with the delivery-failed wording", () => {
+    renderBody({
+      ...BASE_ME,
+      pending_email_verifications: [
+        {
+          id: "v-2",
+          purpose: "delivery_email",
+          email: "typo@example.com",
+          status: "undeliverable",
+          expires_at: "2026-09-01T00:00:00Z",
+          last_sent_at: "2026-08-30T00:00:00Z",
+        },
+      ],
+    });
+
+    expect(screen.getByText(/delivery failed/i)).toBeInTheDocument();
   });
 });
