@@ -7,8 +7,9 @@ import { useTranslations } from "next-intl";
 import type { Me } from "@/lib/api";
 
 // sessionStorage-only dedupe (Ring 1-Onboarding.md §2.4) — not an entry
-// condition. Reachable from questionnaire onboarding Save or holdings
-// onboarding save; a later direct visit this session bounces to "/".
+// condition. Reachable from holdings onboarding save or its skip
+// (questionnaire onboarding save now routes to /holdings?onboarding=1,
+// issue #280 §9.1); a later direct visit this session bounces to "/".
 const WELCOMED_KEY = "portfonia.welcomed";
 
 export function WelcomeBody({ me, hadLoadError }: { me: Me | null; hadLoadError: boolean }) {
@@ -57,6 +58,12 @@ export function WelcomeBody({ me, hadLoadError }: { me: Me | null; hadLoadError:
   }
 
   const deliveryEmail = me.delivery_email ?? me.email;
+  // Issue #280 §9.2: unverified is derived per scope, same rule as the
+  // Profile page (issue #269 §6) — a set delivery_email is checked against
+  // its own timestamp; the account-email fallback against the account one.
+  const receivingEmailUnverified =
+    (me.delivery_email != null && me.delivery_email_verified_at == null) ||
+    (me.delivery_email == null && me.email_verified_at == null);
 
   return (
     <div className="flex flex-col gap-4">
@@ -68,6 +75,11 @@ export function WelcomeBody({ me, hadLoadError }: { me: Me | null; hadLoadError:
           ? t("withHoldings", { deliveryEmail })
           : t("withoutHoldings", { deliveryEmail })}
       </p>
+      {receivingEmailUnverified && (
+        <p className="text-sm text-foreground/80">
+          {t("emailUnverified", { deliveryEmail })}
+        </p>
+      )}
       <p className="text-sm text-foreground/80">{t("cadence")}</p>
     </div>
   );

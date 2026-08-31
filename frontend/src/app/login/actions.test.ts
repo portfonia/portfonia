@@ -1,15 +1,17 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { signInWithPassword, redirect } = vi.hoisted(() => ({
+const { signInWithPassword, redirect, getMeServer } = vi.hoisted(() => ({
   signInWithPassword: vi.fn(),
   redirect: vi.fn(),
+  getMeServer: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({ redirect }));
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({ auth: { signInWithPassword } }),
 }));
+vi.mock("@/lib/server-api", () => ({ getMeServer }));
 
 import { login } from "./actions";
 
@@ -42,11 +44,12 @@ describe("login action", () => {
     expect(redirect).not.toHaveBeenCalled();
   });
 
-  it("redirects to /holdings on success", async () => {
+  it("redirects to /profile on success without a /me round-trip (issue #280 item 3)", async () => {
     signInWithPassword.mockResolvedValue({ error: null });
 
     await login(undefined, formData({ email: "a@b.com", password: "correcthorse" }));
 
-    expect(redirect).toHaveBeenCalledWith("/holdings");
+    expect(redirect).toHaveBeenCalledWith("/profile");
+    expect(getMeServer).not.toHaveBeenCalled();
   });
 });

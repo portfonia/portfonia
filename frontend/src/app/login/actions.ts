@@ -38,5 +38,11 @@ export async function login(
     return { error: auth.errorInvalidCredentials };
   }
 
-  redirect("/holdings");
+  // Issue #280 item 3: /login only ever serves returning users — signup
+  // redirects straight to /questionnaire?onboarding=1 and never passes
+  // through this action — so the landing is unconditionally /profile, no
+  // new-vs-returning or onboarding-gap branch. Interrupted onboarding is
+  // resumed from Profile's gap cards in edit mode, not from a login
+  // landing.
+  redirect("/profile");
 }

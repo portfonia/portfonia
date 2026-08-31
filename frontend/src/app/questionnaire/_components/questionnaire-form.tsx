@@ -104,8 +104,10 @@ export function QuestionnaireForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Destinations (Ring 1-Onboarding.md §2.2): onboarding Save -> /welcome,
-  // edit Save -> /profile. Skip never writes a row (a plain Link, no
+  // Destinations (Ring 1-Onboarding.md §9.1, supersedes §2.2's onboarding
+  // row): onboarding Save/Skip both -> /holdings?onboarding=1 — holdings is
+  // the next linear step, and only its own save/skip reaches /welcome.
+  // edit Save/Skip -> /profile. Skip never writes a row (a plain Link, no
   // submit) and follows the same table.
   const skipHref = mode === "onboarding" ? "/holdings?onboarding=1" : "/profile";
 
@@ -134,11 +136,11 @@ export function QuestionnaireForm({
     setError(null);
     try {
       await putInvestmentContext(answers, freeText.trim() === "" ? null : freeText);
-      // Save always navigates away (Ring 1-Onboarding.md §2.2 table) — this
+      // Save always navigates away (Ring 1-Onboarding.md §9.1) — this
       // supersedes issue #214's same-path-Link-no-remount fix (it reset
       // `step` back to 0 instead), which no longer applies once a
       // successful save leaves /questionnaire entirely.
-      router.push(mode === "onboarding" ? "/welcome" : "/profile");
+      router.push(mode === "onboarding" ? "/holdings?onboarding=1" : "/profile");
     } catch (err) {
       // A 401 here can be the idle-logout Server Action's own redirect()
       // throw (issue #235/#240) — that must propagate, not become a

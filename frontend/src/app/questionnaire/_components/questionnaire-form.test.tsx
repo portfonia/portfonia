@@ -98,7 +98,7 @@ describe("QuestionnaireForm", () => {
     await waitFor(() => expect(push).toHaveBeenCalledWith("/profile"));
   });
 
-  it("onboarding mode: Save navigates to /welcome, Skip links to /holdings?onboarding=1 (issue #221 §2.2)", async () => {
+  it("onboarding mode: Save and Skip both route to /holdings?onboarding=1 (issue #280 §9.1)", async () => {
     putInvestmentContext.mockResolvedValue({
       questionnaire: {},
       questionnaire_version: "v1",
@@ -116,7 +116,8 @@ describe("QuestionnaireForm", () => {
     }
     await user.click(screen.getByRole("button", { name: /^save$/i }));
 
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/welcome"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/holdings?onboarding=1"));
+    expect(push).not.toHaveBeenCalledWith("/welcome");
   });
 
   it("edit mode: Skip links to /profile", () => {

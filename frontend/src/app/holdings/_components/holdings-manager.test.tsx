@@ -68,6 +68,8 @@ async function uploadAndSave(user: ReturnType<typeof userEvent.setup>) {
 describe("HoldingsManager", () => {
   beforeEach(() => {
     push.mockClear();
+    uploadHoldings.mockClear();
+    confirmHoldings.mockClear();
     uploadHoldings.mockResolvedValue(_PREVIEW);
     confirmHoldings.mockResolvedValue(_CONFIRMED);
   });
@@ -90,6 +92,18 @@ describe("HoldingsManager", () => {
     expect(
       screen.queryByRole("button", { name: /download template/i }),
     ).not.toBeInTheDocument();
+  });
+
+  it("onboarding mode: Skip for now links to /welcome without saving (issue #280 §9.1)", () => {
+    renderManager("onboarding");
+    const skip = screen.getByRole("link", { name: /skip for now/i });
+    expect(skip).toHaveAttribute("href", "/welcome");
+    expect(confirmHoldings).not.toHaveBeenCalled();
+  });
+
+  it("normal mode: no onboarding skip link", () => {
+    renderManager();
+    expect(screen.queryByRole("link", { name: /skip for now/i })).not.toBeInTheDocument();
   });
 
   it("onboarding mode: Save navigates to /welcome (issue #221 §2.3)", async () => {

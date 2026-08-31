@@ -57,6 +57,34 @@ describe("WelcomeBody", () => {
     ).toBeInTheDocument();
   });
 
+  it("warns to verify the fallback account email when no delivery email is set (issue #280 §9.2)", () => {
+    renderBody(_ME);
+    expect(
+      screen.getByText("Verify a@b.com so reports can reach you."),
+    ).toBeInTheDocument();
+  });
+
+  it("warns naming the delivery email when it is set but unverified", () => {
+    renderBody({ ..._ME, delivery_email: "reports@b.com" });
+    expect(
+      screen.getByText("Verify reports@b.com so reports can reach you."),
+    ).toBeInTheDocument();
+  });
+
+  it("shows no verification warning once the fallback account email is verified", () => {
+    renderBody({ ..._ME, email_verified_at: "2026-08-27T00:00:00Z" });
+    expect(screen.queryByText(/Verify .* so reports can reach you/i)).not.toBeInTheDocument();
+  });
+
+  it("shows no verification warning once the delivery email itself is verified", () => {
+    renderBody({
+      ..._ME,
+      delivery_email: "reports@b.com",
+      delivery_email_verified_at: "2026-08-27T00:00:00Z",
+    });
+    expect(screen.queryByText(/Verify .* so reports can reach you/i)).not.toBeInTheDocument();
+  });
+
   it("has no dashboard button and no CTA", () => {
     renderBody(_ME);
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
