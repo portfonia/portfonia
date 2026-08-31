@@ -17,6 +17,11 @@ import { useVerificationResend } from "./use-verification-resend";
 // heading-only.
 export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadError: boolean }) {
   const t = useTranslations("profile");
+  // Issue #107 review (blacktomb42, PR #271): the landing-page footer is the
+  // only other place these link from, so a signed-in user — the population
+  // actually governed by them — had no in-app path to either document after
+  // the moment they ticked the signup checkbox.
+  const tLegalNav = useTranslations("legal.nav");
   // Shared with PendingVerificationsList (issue #269 §6: the delivery-email
   // section's inline resend runs the same flow).
   const resend = useVerificationResend();
@@ -252,6 +257,15 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
           <p className="mt-2 text-sm text-muted-foreground">{t("deleteAccountPlaceholder")}</p>
         </CardContent>
       </Card>
+
+      <div className="flex items-center gap-4 text-xs text-foreground/45">
+        <Link href="/terms" className="underline underline-offset-2 hover:text-foreground/70">
+          {tLegalNav("terms")}
+        </Link>
+        <Link href="/privacy" className="underline underline-offset-2 hover:text-foreground/70">
+          {tLegalNav("privacy")}
+        </Link>
+      </div>
     </div>
   );
 }

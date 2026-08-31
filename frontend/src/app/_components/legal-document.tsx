@@ -17,11 +17,6 @@ export function LegalDocument({ doc }: { doc: LegalDocKey }) {
       <h1 className="font-serif text-3xl">{content.title}</h1>
       <p className="mt-2 text-sm text-foreground/45">{content.lastUpdated}</p>
       <p className="mt-6 text-sm leading-relaxed text-foreground/80">{content.intro}</p>
-      {content.translationPending ? (
-        <p className="mt-4 rounded-md border border-white/10 bg-white/5 px-4 py-3 text-sm text-foreground/60">
-          {content.translationPending}
-        </p>
-      ) : null}
 
       <div className="mt-10 flex flex-col gap-8">
         {content.sections.map((section) => (
