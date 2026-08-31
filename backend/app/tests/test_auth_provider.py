@@ -260,10 +260,12 @@ def test_get_auth_user_by_email_returns_info_on_200(monkeypatch: pytest.MonkeyPa
     assert info == ap.AuthUserInfo(id="sub-1", email="a@example.com")
 
 
-def test_get_auth_user_by_email_passes_email_filter(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The email must reach GoTrue as the admin list endpoint's filter, not
-    be applied client-side over every user (issue #274 — this is the whole
-    point of the by-email resolution path)."""
+def test_get_auth_user_by_email_passes_filter_param(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The address must reach GoTrue as the list endpoint's real `filter`
+    (substring search) param, not an `email` param it ignores — an
+    unfiltered first page is exactly the failure the issue #274 review
+    caught. page/per_page accompany it so the caller can page through
+    substring hits instead of trusting one page."""
     from app.services import auth_provider as ap
 
     seen: dict[str, object] = {}
@@ -275,7 +277,87 @@ def test_get_auth_user_by_email_passes_email_filter(monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setattr("httpx.Client", lambda **kwargs: _CapturingClient(_FakeResponse(200)))
     assert ap.get_auth_user_by_email("a@example.com") is None
-    assert seen["params"] == {"email": "a@example.com"}
+    assert seen["params"] == {"filter": "a@example.com", "page": 1, "per_page": 200}
+
+
+def test_get_auth_user_by_email_skips_nonmatching_first_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The returned user must be an exact (normalized) email match, never
+    blindly `users[0]` — the substring filter can match unrelated rows,
+    and GoTrue's default sort is created_at desc, so the newest user is
+    first whether or not it matches."""
+    from app.services import auth_provider as ap
+
+    monkeypatch.setattr(
+        "httpx.Client",
+        lambda **kwargs: _FakeClient(
+            _FakeResponse(
+                200,
+                {
+                    "users": [
+                        {"id": "newest-sub", "email": "someone-else@example.com"},
+                        {"id": "sub-1", "email": "a@example.com"},
+                    ]
+                },
+            )
+        ),
+    )
+    info = ap.get_auth_user_by_email("a@example.com")
+    assert info == ap.AuthUserInfo(id="sub-1", email="a@example.com")
+
+
+def test_get_auth_user_by_email_returns_none_when_filter_hits_do_not_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Substring hits that are not the exact address must not be returned —
+    `filter` matches `email LIKE %query%`, so a longer address containing
+    the query would otherwise be deleted as if it were the target."""
+    from app.services import auth_provider as ap
+
+    monkeypatch.setattr(
+        "httpx.Client",
+        lambda **kwargs: _FakeClient(
+            _FakeResponse(
+                200,
+                {
+                    "users": [
+                        {"id": "sub-1", "email": "a@example.com.evil.net"},
+                        {"id": "sub-2", "email": "other@example.com"},
+                    ]
+                },
+            )
+        ),
+    )
+    assert ap.get_auth_user_by_email("a@example.com") is None
+
+
+def test_get_auth_user_by_email_pages_until_exact_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """More than one page of substring hits: keep paging until the exact
+    normalized match is found or the hits are exhausted."""
+    from app.services import auth_provider as ap
+
+    seen_pages: list[int] = []
+
+    class _PagedClient(_FakeClient):
+        def get(self, *args: object, **kwargs: object) -> _FakeResponse:
+            params = kwargs.get("params", {})
+            assert isinstance(params, dict)
+            page = int(params.get("page", 1))
+            seen_pages.append(page)
+            if page == 1:
+                # A full page of non-matching hits — forces the next page.
+                users = [{"id": f"sub-{i}", "email": f"noise{i}@example.com"} for i in range(200)]
+            else:
+                users = [{"id": "sub-1", "email": "a@example.com"}]
+            return _FakeResponse(200, {"users": users})
+
+    monkeypatch.setattr("httpx.Client", lambda **kwargs: _PagedClient(_FakeResponse(200)))
+    info = ap.get_auth_user_by_email("a@example.com")
+    assert info == ap.AuthUserInfo(id="sub-1", email="a@example.com")
+    assert seen_pages == [1, 2]
 
 
 def test_get_auth_user_by_email_returns_none_on_empty_users_list(

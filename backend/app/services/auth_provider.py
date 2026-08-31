@@ -233,39 +233,56 @@ def get_auth_user_by_email(email: str) -> AuthUserInfo | None:
     """Look up one Auth user by email (issue #274: the by-email purge
     route's orphan path — the local `users` row is already gone but the
     matching Supabase Auth account remains, and the caller only has the
-    email). GoTrue's admin users-list endpoint filters by email
-    server-side; the caller passes the normalized (strip+lowercase)
-    address, the same form signup stores. Returns None when no Auth user
-    has this email — not an error."""
+    email).
+
+    GoTrue's admin users-list endpoint does NOT filter by email: it ignores
+    an `email` query param and returns the audience paginated by
+    `page`/`per_page` (default sort created_at desc). The only narrowing
+    it supports is the `filter` substring param (`email LIKE %filter%` or
+    full_name ILIKE). So this helper passes the caller's normalized
+    address as `filter`, pages through every match, and returns only a
+    user whose stored email normalizes (strip+lowercase) to exactly the
+    query address — never the first row of an unfiltered page. Returns
+    None when no Auth user has this email — not an error."""
     url = f"{_issuer()}/admin/users"
-    try:
-        with httpx.Client(timeout=15.0) as client:
-            resp = client.get(url, headers=_admin_headers(), params={"email": email})
-    except httpx.HTTPError as exc:
-        raise AuthProviderError("get_user_by_email failed") from exc
-    if resp.status_code == 404:
-        return None
-    if resp.status_code != 200:
-        logger.error("auth provider get_user_by_email failed status=%s", resp.status_code)
-        raise AuthProviderError("get_user_by_email failed")
-    try:
-        data = resp.json()
-    except ValueError as exc:
-        raise AuthProviderError("get_user_by_email malformed response") from exc
-    if not isinstance(data, dict):
-        raise AuthProviderError("get_user_by_email malformed response")
-    users = data.get("users")
-    if not isinstance(users, list):
-        raise AuthProviderError("get_user_by_email malformed response")
-    if not users:
-        return None
-    first = users[0]
-    if not isinstance(first, dict):
-        raise AuthProviderError("get_user_by_email malformed response")
-    user_id = first.get("id")
-    found_email = first.get("email")
-    if not isinstance(user_id, str) or not user_id:
-        raise AuthProviderError("get_user_by_email malformed response")
-    if not isinstance(found_email, str) or not found_email:
-        raise AuthProviderError("get_user_by_email missing email")
-    return AuthUserInfo(id=user_id, email=found_email)
+    normalized = email.strip().lower()
+    page = 1
+    per_page = 200
+    while True:
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                resp = client.get(
+                    url,
+                    headers=_admin_headers(),
+                    params={"filter": email, "page": page, "per_page": per_page},
+                )
+        except httpx.HTTPError as exc:
+            raise AuthProviderError("get_user_by_email failed") from exc
+        if resp.status_code == 404:
+            return None
+        if resp.status_code != 200:
+            logger.error("auth provider get_user_by_email failed status=%s", resp.status_code)
+            raise AuthProviderError("get_user_by_email failed")
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            raise AuthProviderError("get_user_by_email malformed response") from exc
+        if not isinstance(data, dict):
+            raise AuthProviderError("get_user_by_email malformed response")
+        users = data.get("users")
+        if not isinstance(users, list):
+            raise AuthProviderError("get_user_by_email malformed response")
+        for user in users:
+            if not isinstance(user, dict):
+                raise AuthProviderError("get_user_by_email malformed response")
+            user_id = user.get("id")
+            found_email = user.get("email")
+            if not isinstance(user_id, str) or not user_id:
+                raise AuthProviderError("get_user_by_email malformed response")
+            if not isinstance(found_email, str) or not found_email:
+                raise AuthProviderError("get_user_by_email missing email")
+            if found_email.strip().lower() == normalized:
+                return AuthUserInfo(id=user_id, email=found_email)
+        if len(users) < per_page:
+            return None
+        page += 1

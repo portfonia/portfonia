@@ -1072,3 +1072,37 @@ def test_purge_by_email_orphan_delete_failure_502(
         params={"email": "orphan@example.com", "confirm": "orphan@example.com"},
     )
     assert resp.status_code == 502
+
+
+def test_purge_by_email_orphan_auth_subject_bound_to_live_user_409(
+    app_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Email drift reverse-orphan (review, PR #275): a live local row's
+    `auth_subject` points at the Auth account the orphan lookup resolved
+    under a different local email (Dashboard email change, or a row bound
+    to an Auth user that later got this address). Deleting here would
+    Auth-delete a live account while its local row stands — the same
+    class of guard the by-id path 409s on (PR #246 round 2). Must 409
+    before any Auth call."""
+    user = _user(_A, "a@example.com")
+    user.auth_subject = str(_AUTH_SUB)
+    db_session.add(user)
+    db_session.flush()
+    delete_mock = MagicMock(return_value=True)
+    monkeypatch.setattr(
+        "app.routers.admin.get_auth_user_by_email",
+        MagicMock(return_value=AuthUserInfo(id=str(_AUTH_SUB), email="drifted@example.com")),
+    )
+    monkeypatch.setattr("app.routers.admin.delete_auth_user", delete_mock)
+    resp = app_client.delete(
+        _by_email_path(),
+        headers=_headers(),
+        params={"email": "drifted@example.com", "confirm": "drifted@example.com"},
+    )
+    assert resp.status_code == 409
+    body = resp.json()["detail"]
+    assert str(_A) in body
+    assert "a@example.com" in body
+    delete_mock.assert_not_called()
+    db_session.expire_all()
+    assert db_session.get(User, _A) is not None

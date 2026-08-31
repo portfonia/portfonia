@@ -570,6 +570,27 @@ def purge_user_by_email_endpoint(
     auth_user = _get_auth_user_by_email_or_502(normalized_email)
     if auth_user is None:
         raise HTTPException(status_code=404, detail="user not found")
+    # Email drift can orphan in the reverse direction: a live local row
+    # whose `auth_subject` points at this Auth account under a different
+    # local email (Dashboard email change, or a row bound to an Auth user
+    # that later got this address). Local lookup by query email misses,
+    # Auth lookup hits, and deleting here would Auth-delete a live
+    # account while its local row stands — the same class of reverse
+    # orphan the by-id path 409s on (PR #246 round 2). Occupancy of
+    # `auth_subject` is not a local-row-scoped guard in the seed/
+    # created_invites sense; it means "this Auth account still belongs to
+    # a live local user". Check before any Auth call, not after.
+    live_owner = session.execute(
+        select(User).where(User.auth_subject == auth_user.id)
+    ).scalar_one_or_none()
+    if live_owner is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{auth_user.id} is a Supabase Auth subject already bound to a local "
+                f"user ({live_owner.email}); use DELETE /admin/users/{live_owner.id} instead"
+            ),
+        )
     if _normalize_email(auth_user.email) != normalized_email:
         raise HTTPException(status_code=409, detail="confirm does not match user email")
     _auth_delete_or_502(auth_user.id)
