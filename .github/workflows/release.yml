@@ -6,9 +6,17 @@ name: Release
 # CLAUDE.md stays the pre-push responsibility. Gating this job behind a
 # CI test run is deliberately out of scope here; see issue #250's
 # discussion for why.
+#
+# Trigger changed from `push: [main]` to manual (issue #283): every merged
+# PR was pushing to main and firing its own release, producing one tag per
+# PR regardless of how those changes actually reach production (deploy is a
+# separate, manual, batched step — see docs/deployment.md). Manual dispatch
+# lets the product owner run this once per deploy batch; semantic-release
+# still walks every commit since the last tag on `main` (per
+# .releaserc.json's `branches: ["main"]`), so nothing between releases is
+# dropped from the changelog regardless of how long the gap is.
 on:
-  push:
-    branches: [main]
+  workflow_dispatch: {}
 
 permissions:
   contents: write
