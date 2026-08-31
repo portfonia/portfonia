@@ -37,8 +37,13 @@ flush.
 
 `users` gains two denormalized timestamps: `email_verified_at`,
 `delivery_email_verified_at`. These are the intended hot-path read for a
-future report-send gating consumer (design doc §3.6) — not built yet, so
-nothing reads them today except this mechanism's own confirm/creation code.
+future report-send gating consumer (design doc §3.6) — the gate itself is
+not built yet, but `GET /me` already exposes both timestamps for the
+Profile page's verification-state display (issue #269). `recipient_email()`
+still ignores verification state entirely: reports are sent to unverified
+addresses today (which is why the Profile page's no-recipient copy is
+deliberately "make sure reports can reach you", never "reports will not be
+sent" — see `frontend-chrome.md`'s Profile redesign entry).
 
 ### Confirm flow
 

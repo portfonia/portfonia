@@ -36,6 +36,8 @@ def _seed_user(
     email: str = "me-test@example.com",
     delivery_email: str | None = None,
     tos_accepted_at: object = None,
+    email_verified_at: object = None,
+    delivery_email_verified_at: object = None,
 ) -> User:
     row = User(
         id=user_id,
@@ -48,6 +50,8 @@ def _seed_user(
         report_cadence="mwf",
         delivery_email=delivery_email,
         tos_accepted_at=tos_accepted_at,
+        email_verified_at=email_verified_at,
+        delivery_email_verified_at=delivery_email_verified_at,
     )
     db_session.add(row)
     db_session.flush()
@@ -310,3 +314,35 @@ def test_me_pending_list_empty_when_no_verifications(
     _seed_user(db_session)
 
     assert app_client.get("/me").json()["pending_email_verifications"] == []
+
+
+# --- email_verified_at / delivery_email_verified_at (issue #269) ---
+
+
+def _parse_iso(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def test_me_exposes_email_verification_timestamps(
+    app_client: TestClient, db_session: Session
+) -> None:
+    verified_at = datetime(2026, 8, 30, 12, 0, tzinfo=UTC)
+    _seed_user(
+        db_session,
+        email_verified_at=verified_at,
+        delivery_email_verified_at=verified_at,
+    )
+
+    body = app_client.get("/me").json()
+    assert _parse_iso(body["email_verified_at"]) == verified_at
+    assert _parse_iso(body["delivery_email_verified_at"]) == verified_at
+
+
+def test_me_verification_timestamps_null_when_unset(
+    app_client: TestClient, db_session: Session
+) -> None:
+    _seed_user(db_session)
+
+    body = app_client.get("/me").json()
+    assert body["email_verified_at"] is None
+    assert body["delivery_email_verified_at"] is None

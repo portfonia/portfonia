@@ -1,5 +1,6 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/profile", useRouter: () => ({ refresh: vi.fn() }) }));
 // Server Action import would drag in lib/supabase/server.ts's `server-only`
@@ -10,9 +11,17 @@ vi.mock("@/app/profile/actions", () => ({ changePassword: vi.fn() }));
 // (issue #262), whose module pulls logout() from the server-only-guarded
 // Supabase server client — mock it like holdings-manager.test.tsx does.
 vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
+// Partial mock of lib/api.ts so the resend success path can be exercised
+// (PR #270 review: no test covered a successful resend re-enabling the
+// buttons) — same importActual pattern as questionnaire-form.test.tsx.
+const { resendEmailVerification } = vi.hoisted(() => ({ resendEmailVerification: vi.fn() }));
+vi.mock("@/lib/api", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
+  return { ...actual, resendEmailVerification };
+});
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
-import type { Me } from "@/lib/api";
+import type { Me, PendingEmailVerification } from "@/lib/api";
 import { ProfilePageBody } from "./profile-page-body";
 
 function renderBody(me: Me | null, hadLoadError = false) {
@@ -23,9 +32,34 @@ function renderBody(me: Me | null, hadLoadError = false) {
   );
 }
 
+// Section titles render as divs (CardTitle), so order is asserted on
+// `data-slot="card-title"` nodes rather than heading roles.
+function sectionTitles(): string[] {
+  return Array.from(document.querySelectorAll('[data-slot="card-title"]')).map(
+    (el) => el.textContent ?? "",
+  );
+}
+
+function deliveryCard(): HTMLElement {
+  const card = screen.getByText("Report delivery email").closest('[data-slot="card"]');
+  if (!(card instanceof HTMLElement)) throw new Error("delivery-email card not found");
+  return card;
+}
+
+const PENDING: PendingEmailVerification = {
+  id: "v-1",
+  purpose: "account_email",
+  email: "new-user@example.com",
+  status: "pending",
+  expires_at: "2026-09-01T00:00:00Z",
+  last_sent_at: "2026-08-30T00:00:00Z",
+};
+
 const BASE_ME: Me = {
   email: "user@example.com",
   delivery_email: null,
+  email_verified_at: null,
+  delivery_email_verified_at: null,
   tos_accepted_at: null,
   has_questionnaire: false,
   has_holdings: false,
@@ -34,6 +68,10 @@ const BASE_ME: Me = {
 };
 
 describe("ProfilePageBody", () => {
+  beforeEach(() => {
+    resendEmailVerification.mockReset();
+  });
+
   it("shows a load error and nothing else when the fetch failed", () => {
     renderBody(null, true);
 
@@ -124,27 +162,85 @@ describe("ProfilePageBody", () => {
   });
 });
 
-describe("PendingVerificationsList section (issue #262)", () => {
-  it("renders no verification card when pending_email_verifications is empty", () => {
+describe("Section order (issue #269 §1/§4)", () => {
+  it("orders Email Verification right after the gap card, and Change password before Delete account", () => {
+    renderBody({ ...BASE_ME, pending_email_verifications: [PENDING] });
+
+    const titles = sectionTitles();
+    expect(titles).toEqual([
+      "Finish setting up your account",
+      "Email verification",
+      "Account",
+      "Investment style",
+      "Report delivery email",
+      "Portfolio overview",
+      "Report schedule",
+      "Invite someone",
+      "Change password",
+      "Delete account",
+    ]);
+  });
+
+  it("keeps Email Verification as the first section when the gap card does not render", () => {
+    renderBody({
+      ...BASE_ME,
+      has_questionnaire: true,
+      has_holdings: true,
+      missing: [],
+      pending_email_verifications: [PENDING],
+    });
+
+    const titles = sectionTitles();
+    expect(titles[0]).toBe("Email verification");
+    expect(titles[1]).toBe("Account");
+  });
+});
+
+describe("Urgency + danger zone styling (issue #269 §2/§5)", () => {
+  it("gives the gap card the urgent (pink) variant", () => {
     renderBody(BASE_ME);
 
+    const link = screen.getByRole("link", { name: /set your investment style/i });
+    expect(link.closest('[data-variant="urgent"]')).not.toBeNull();
+  });
+
+  it("gives the Email Verification section the urgent (pink) variant", () => {
+    renderBody({ ...BASE_ME, pending_email_verifications: [PENDING] });
+
+    const title = screen.getByText("Email verification");
+    expect(title.closest('[data-variant="urgent"]')).not.toBeNull();
+  });
+
+  it("wraps Delete account in the danger (red border) variant, not the urgent fill", () => {
+    renderBody(BASE_ME);
+
+    const deleteButton = screen.getByRole("button", { name: "Delete account" });
+    const dangerCard = deleteButton.closest('[data-variant="danger"]');
+    expect(dangerCard).not.toBeNull();
+    // The danger zone is a border-only treatment — no pink fill.
+    expect(deleteButton.closest('[data-variant="urgent"]')).toBeNull();
+  });
+});
+
+describe("Email Verification section render condition (issue #269 §1/§3)", () => {
+  it("shows the no-valid-recipient warning when nothing is verified, even with an empty list", () => {
+    renderBody(BASE_ME);
+
+    expect(
+      screen.getByText(/no verified receiving email address/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /resend/i })).not.toBeInTheDocument();
+  });
+
+  it("renders nothing when nothing is pending and at least one address is verified", () => {
+    renderBody({ ...BASE_ME, email_verified_at: "2026-08-30T00:00:00Z" });
+
     expect(screen.queryByText(/email verification/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no verified receiving email address/i)).not.toBeInTheDocument();
   });
 
   it("lists each pending record with email, purpose and status", () => {
-    renderBody({
-      ...BASE_ME,
-      pending_email_verifications: [
-        {
-          id: "v-1",
-          purpose: "account_email",
-          email: "new-user@example.com",
-          status: "pending",
-          expires_at: "2026-09-01T00:00:00Z",
-          last_sent_at: "2026-08-30T00:00:00Z",
-        },
-      ],
-    });
+    renderBody({ ...BASE_ME, pending_email_verifications: [PENDING] });
 
     expect(screen.getByText("new-user@example.com")).toBeInTheDocument();
     expect(
@@ -154,21 +250,138 @@ describe("PendingVerificationsList section (issue #262)", () => {
     expect(screen.getByRole("button", { name: /resend/i })).toBeEnabled();
   });
 
+  it("shows the no-valid-recipient warning in addition to the pending list when both apply (issue #269 §3)", () => {
+    renderBody({ ...BASE_ME, pending_email_verifications: [PENDING] });
+
+    // "in addition to (not instead of)" — the warning renders alongside the
+    // list rows, not instead of them (PR #270 review: no test pinned this).
+    expect(
+      screen.getByText(/no verified receiving email address/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText("new-user@example.com")).toBeInTheDocument();
+  });
+
   it("marks an undeliverable record with the delivery-failed wording", () => {
     renderBody({
       ...BASE_ME,
       pending_email_verifications: [
         {
+          ...PENDING,
           id: "v-2",
           purpose: "delivery_email",
           email: "typo@example.com",
           status: "undeliverable",
-          expires_at: "2026-09-01T00:00:00Z",
-          last_sent_at: "2026-08-30T00:00:00Z",
         },
       ],
     });
 
     expect(screen.getByText(/delivery failed/i)).toBeInTheDocument();
+  });
+});
+
+describe("Resend success path (PR #270 review finding 1)", () => {
+  function renderWithInlineResend() {
+    renderBody({
+      ...BASE_ME,
+      delivery_email: "reports@example.com",
+      email_verified_at: "2026-08-30T00:00:00Z",
+      pending_email_verifications: [
+        {
+          ...PENDING,
+          id: "v-3",
+          purpose: "delivery_email",
+          email: "reports@example.com",
+        },
+      ],
+    });
+    return deliveryCard();
+  }
+
+  it("re-enables the inline resend button after a successful resend", async () => {
+    resendEmailVerification.mockResolvedValue(undefined);
+    const card = renderWithInlineResend();
+
+    const button = within(card).getByRole("button", { name: /resend/i });
+    expect(button).toBeEnabled();
+    await userEvent.click(button);
+    expect(resendEmailVerification).toHaveBeenCalledWith("v-3");
+
+    // During flight the label switches to "Sending..." (not matched by
+    // /resend/i); the button must come back enabled — the success path
+    // clears pendingId instead of leaving every button disabled until a
+    // full remount.
+    await waitFor(() => {
+      const after = within(card).getByRole("button", { name: /resend/i });
+      expect(after).toBeEnabled();
+    });
+  });
+
+  it("re-enables the list resend button after a successful resend", async () => {
+    resendEmailVerification.mockResolvedValue(undefined);
+    renderBody({ ...BASE_ME, pending_email_verifications: [PENDING] });
+
+    const button = screen.getByRole("button", { name: /resend/i });
+    await userEvent.click(button);
+
+    await waitFor(() => {
+      const after = screen.getByRole("button", { name: /resend/i });
+      expect(after).toBeEnabled();
+    });
+  });
+});
+
+describe("Delivery email inline unverified treatment (issue #269 §6)", () => {
+  it("renders the shown address gray italic with a note and an inline Resend button when unverified with a matching record", () => {
+    renderBody({
+      ...BASE_ME,
+      delivery_email: "reports@example.com",
+      email_verified_at: "2026-08-30T00:00:00Z",
+      pending_email_verifications: [
+        {
+          ...PENDING,
+          id: "v-3",
+          purpose: "delivery_email",
+          email: "reports@example.com",
+        },
+      ],
+    });
+
+    const card = deliveryCard();
+    expect(within(card).getByText("reports@example.com")).toHaveClass("italic");
+    expect(within(card).getByText("This address is not verified.")).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: /resend/i })).toBeEnabled();
+    // Accepted overlap (issue #269 §6): the top section shows the same
+    // record's resend affordance as well.
+    expect(screen.getAllByRole("button", { name: /resend/i })).toHaveLength(2);
+  });
+
+  it("shows the unverified note without a Resend button when no resendable record exists", () => {
+    renderBody({ ...BASE_ME, delivery_email: "reports@example.com" });
+
+    const card = deliveryCard();
+    expect(within(card).getByText("This address is not verified.")).toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: /resend/i })).not.toBeInTheDocument();
+  });
+
+  it("marks the account-email fallback unverified when the account email is unverified", () => {
+    renderBody(BASE_ME);
+
+    const card = deliveryCard();
+    expect(within(card).getByText("user@example.com")).toHaveClass("italic");
+    expect(within(card).getByText("This address is not verified.")).toBeInTheDocument();
+  });
+
+  it("renders the address normally with no note or button when the shown address is verified", () => {
+    renderBody({
+      ...BASE_ME,
+      delivery_email: "reports@example.com",
+      email_verified_at: "2026-08-30T00:00:00Z",
+      delivery_email_verified_at: "2026-08-30T00:00:00Z",
+    });
+
+    const card = deliveryCard();
+    expect(within(card).getByText("reports@example.com")).not.toHaveClass("italic");
+    expect(within(card).queryByText("This address is not verified.")).not.toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: /resend/i })).not.toBeInTheDocument();
   });
 });

@@ -1,50 +1,24 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState } from "react";
 import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/button";
-import { resendEmailVerification, ApiError } from "@/lib/api";
 import type { PendingEmailVerification } from "@/lib/api";
+import { useVerificationResend } from "./use-verification-resend";
 
 // Issue #262, Ring 1-Profile Page.md §8.4. A resend supersedes the old
 // record server-side, so no local state is patched — success calls
 // router.refresh() to re-render the page's server data (a fresh GET /me),
 // which preserves client state the way a hard window.location.reload()
-// would not. 429/503 carry user-readable wording (never raw status text),
-// per the forgot-password error-state pattern.
+// would not (see use-verification-resend.ts, shared with the delivery-email
+// section's inline resend, issue #269 §6).
 export function PendingVerificationsList({
   verifications,
 }: {
   verifications: PendingEmailVerification[];
 }) {
   const t = useTranslations("profile");
-  const router = useRouter();
-  const [pendingId, setPendingId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleResend(id: string) {
-    setPendingId(id);
-    setError(null);
-    try {
-      await resendEmailVerification(id);
-      router.refresh();
-    } catch (err) {
-      if (err instanceof ApiError) {
-        if (err.status === 429) {
-          setError(t("emailVerificationResendTooSoon"));
-        } else if (err.status === 503) {
-          setError(t("emailVerificationResendUnavailable"));
-        } else {
-          setError(t("emailVerificationResendFailed"));
-        }
-      } else {
-        setError(t("emailVerificationResendFailed"));
-      }
-      setPendingId(null);
-    }
-  }
+  const { pendingId, error, handleResend } = useVerificationResend();
 
   if (verifications.length === 0) return null;
 
