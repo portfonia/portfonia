@@ -1,7 +1,23 @@
 # Portfonia — Agent Guidelines
 
 AI-facing guidance for agent tooling working in this repository.
-Last updated: 2026-08-25
+Last updated: 2026-08-30 (trimmed for size — see `docs/playbooks/`; mechanism
+deep-dives referenced from the table below live in `docs/mechanisms/`).
+
+**Playbook files** (situational detail moved out of this file to keep it a
+rulebook, not a diary — read the linked file when its topic comes up, not
+proactively):
+- `docs/playbooks/llm-and-data-handling.md` — full LLM model-routing
+  reasoning, the two-pass isolation / BYOK exception provenance.
+- `docs/playbooks/regression-notes.md` — full incident history for every
+  "known-fixed bug" one-liner.
+- `docs/playbooks/git-and-review-incidents.md` — stacked-branch recovery
+  steps, the two-GitHub-identity boundary's full history **including a
+  2026-08-28/2026-08-30 correction that changes the current rule** (read
+  this one before assuming the inline summary alone is complete), the
+  production-infra-leak incident.
+- `docs/playbooks/testing-notes.md` — test DB isolation/PID-suffix
+  reasoning, the `caplog`-after-migrate mechanism.
 
 ## Where to find current state
 
@@ -19,7 +35,7 @@ This file holds **conventions and mechanisms**, not a project status board.
 
 | Item | Value |
 |------|-------|
-| LLM model | OpenRouter, split by call shape (issue #78, 2026-08-06). **Structured/JSON** (holdings parsing, `holding_parser.py`, the only call site requiring schema-compliant output) = `STRUCTURED_LLM_MODEL` (`openai/gpt-5.6-luna` — moved off `google/gemma-4-31b-it` in issue #84, 2026-08-06: the gemma pin to OpenInference's bf16 endpoint was itself the latency bottleneck, 371s worst case on a 30-row holdings file; `gpt-5.6-luna` measured 10.9-13.8s on the same file with 30/30 rows correct on manual audit — one manual run, not yet a systematic eval), `reasoning_effort=none` (`_STRUCTURED_REASONING_EFFORT` in `holding_parser.py` — this model defaults reasoning to "medium", wasted cost/latency for mechanical extraction), open/unpinned provider selection for both of 2 identical attempts (`app/core/llm.py:structured_provider` — no precision-pin concern for this model, unlike gemma's third-party quantized resellers); `data_collection=deny` applies throughout. **Unstructured/free-text** (Pass 1 search-query gen, `report_prompts.py`/`report_generator.py` + translation render, `report_translation.py` — split from a single `report_generator.py` in issue #37) = `LOW_COST_LLM_MODEL` (`~deepseek/deepseek-v4-flash-latest` — leading `~` is OpenRouter's "-latest" alias convention), routed via OpenRouter BYOK straight to DeepSeek's own backend (`order=["DeepSeek"]`, module constant `_BYOK_PROVIDER_ORDER` in `report_llm.py`) with `enforce_data_collection=False` — a scoped compliance exception for these two calls only — **and `allow_fallbacks=False` (hard pin, no marketplace fallback)**: since `deny` is off for these calls, an open fallback on DeepSeek unavailability could silently reroute the (holdings-bearing, for translation) payload to a training-permitting provider `deny` would normally have excluded; the call must fail rather than degrade that guarantee (PR #79 review finding). Reasoning/thinking tokens are explicitly disabled (`disable_reasoning=True`) since this alias defaults reasoning on unlike the non-aliased model. **PRIMARY (Pass 2 analysis + regenerate) = `deepseek/deepseek-v4-pro`**, unchanged — provider=DigitalOcean,Venice, `data_collection=deny`, no BYOK. Sonnet/Anthropic models are NOT used here — too expensive (~$0.2/call); if `PRIMARY_LLM_MODEL` ever shows an `anthropic/*` value it is config drift, revert it. |
+| LLM model | OpenRouter, split by call shape (issue #78). Structured/JSON (holdings parsing) = `STRUCTURED_LLM_MODEL` (`openai/gpt-5.6-luna`, `reasoning_effort=none`, `data_collection=deny`). Unstructured/free-text (Pass 1 search-query gen + translation render) = `LOW_COST_LLM_MODEL` (`~deepseek/deepseek-v4-flash-latest`, OpenRouter BYOK to DeepSeek direct, `enforce_data_collection=False` + `allow_fallbacks=False` — scoped compliance exception, these two call sites only). PRIMARY (Pass 2 + regenerate) = `deepseek/deepseek-v4-pro`, `data_collection=deny`, no BYOK — never `anthropic/*` here (too expensive; config drift if seen). *Full reasoning (why gemma was dropped, why the BYOK exception, the `allow_fallbacks` pairing) in playbook `docs/playbooks/llm-and-data-handling.md`.* |
 | Infrastructure | Homebrew PostgreSQL@16 + Redis (native, not Docker); `make infra-up` not needed |
 | **App runtime retired locally (2026-08-10)** | No local uvicorn/celery worker/celery beat/Next.js dev server anymore — running the app for manual verification happens only via production deploy (see Three-layer deployment flow below). Homebrew Postgres/Redis stay running locally, but only as backing services for `pytest` (real-Postgres integration tests per the Tests section) — never as targets for a locally-running app process. Do **not** start `uvicorn`/`celery worker`/`celery beat`/`next dev` on this machine; if a task needs to be seen working, that means deploying to production, not spinning up a local server. The old "kill and restart uvicorn/celery after any model/migration/router change" drill no longer applies — there is no long-lived local process to go stale. |
 | Output language | reason in EN, render in `OUTPUT_LANG` (Ring 0 default `zh`) via a translation pass with a fixed-term glossary — locale-keyed, single source of truth in `backend/config/i18n_glossary.yml` (`report_glossary`/`forbidden_renderings`; only `zh-Hans` populated today, schema reserves `zh-Hant`/`fr`/`es` for later); `en` = no-op |
@@ -39,8 +55,8 @@ tradeoffs, review provenance) for one system, filed under `docs/mechanisms/`.
 This table is the pointer index — read the linked file before touching that
 area of the code, not just the one-line summary here.
 
-- [Frontend chrome (header/nav) convention](docs/mechanisms/frontend-chrome.md) — issue #146/#148: one shared `SiteHeader`, auth-gated Get Started menu; issue #214 (PR #215): unconditional pathname-triggered session re-verification (no throttling — a grace window that shipped in PR #215 was reverted the same day), optimistic logout + login-pending placeholder, bounded `getUser()` timeout/retry, Home menu entry; issue #209: global next-intl message catalog (`frontend/src/locales/{en,zh-Hans,zh-Hant}.json`) replaces `home-messages.ts`/`messages.ts`, `lang` and the locale switcher are no longer home-only, no URL-based locale routing (product decision); issue #220 (PR #228): Home menu entry replaced by Profile (`/profile`), lucide-react icons on every menu entry, new `profile` locale namespace.
-- [Profile page: GET /me account summary](docs/mechanisms/identity-and-auth.md) — issue #220/PR #228: `/profile` account email + change-password (Server Action verifies via the session's own email, never a client-submitted one) + investment-style link + delivery-email display + non-interactive placeholders; `GET /me` ships the full #221 response shape in this PR (`missing` never contains `"tos"`; the page did not render a gap card from it at #220 time — that landed with #221, see the next bullet). Issue #269/PR #270 redesigned the page: section order is now gap card → Email Verification → Account → Investment style → Delivery email → placeholders → Change password → Delete account; a new theme-aware `Card` `variant="urgent"` (soft pink/muted rose) marks the gap card and Email Verification section, distinct from `variant="danger"` (thin red border, no fill) wrapping Delete account — two different visual meanings, not interchangeable. `GET /me` (`MeOut`) now also exposes raw `email_verified_at`/`delivery_email_verified_at`; the Email Verification section renders a "reports will not be sent" warning when both are null (in addition to, not instead of, any pending/undeliverable list), and the Delivery-email block shows an unverified address in gray italic with its own inline resend button (shared `useVerificationResend` hook) — deliberately overlapping with the top section's list for the same record, not a dedup bug.
+- [Frontend chrome (header/nav) convention](docs/mechanisms/frontend-chrome.md) — issue #146/#148: one shared `SiteHeader`, auth-gated Get Started menu; issue #214 (PR #215): unconditional pathname-triggered session re-verification (no throttling — a grace window that shipped in PR #215 was reverted the same day), optimistic logout + login-pending placeholder, bounded `getUser()` timeout/retry, Home menu entry; issue #209: global next-intl message catalog (`frontend/src/locales/{en,zh-Hans,zh-Hant}.json`) replaces `home-messages.ts`/`messages.ts`, `lang` and the locale switcher are no longer home-only, no URL-based locale routing (product decision); issue #220 (PR #228): Home menu entry replaced by Profile (`/profile`), lucide-react icons on every menu entry, new `profile` locale namespace; issue #269 (PR #270): Profile page section reorder (gap card → Email Verification → Account → ... → Change password → Delete account) plus two new `Card` variants — `variant="urgent"` (soft pink) for the gap card/Email Verification, `variant="danger"` (red border only, no fill) for Delete account, not interchangeable.
+- [Profile page: GET /me account summary](docs/mechanisms/identity-and-auth.md) — issue #220/PR #228: `/profile` account email + change-password + investment-style link + delivery-email display + non-interactive placeholders; `GET /me` ships the full #221 response shape (`missing` never contains `"tos"`). Issue #269/PR #270 added `email_verified_at`/`delivery_email_verified_at` to `GET /me` — see the Frontend chrome entry above for the page-layout half of that PR.
 - [Post-signup onboarding](docs/mechanisms/frontend-chrome.md) — issue #221: ToS gate (client checkbox + backend `Literal[True]`, both required), `signup` redirects to `/questionnaire?onboarding=1` (the only `mode="onboarding"` trigger), `mode` prop on `QuestionnaireForm`/`HoldingsManager` (no `/onboarding/*` route tree), new `/welcome` route with sessionStorage dedupe, Profile gap card reading `GET /me`'s `missing`, `report_cadence` defaults to `weekly`, admin manual-generate's no-holdings 422 removed (`active_user_ids()`/Beat untouched at the time — cadence follow-up landed separately as issue #191, see the entry below), and a real password-leak fix in the 422 secret-redaction handler that adding the required field exposed.
 - [Async holdings upload](docs/mechanisms/holdings-pipeline.md) — issue #77/#82/#85: `POST /holdings/upload` returns 202 + job id, Celery parses, 45s SLA, two-layer hard-kill resolution.
 - [Holdings encryption at rest](docs/mechanisms/holdings-pipeline.md) — issue #31: field-level Fernet via SQLAlchemy `TypeDecorator`, system-wide key, `ORDER BY` moved to Python.
@@ -59,9 +75,9 @@ area of the code, not just the one-line summary here.
 - [System default analysis framework — B1](docs/mechanisms/identity-and-auth.md) — Ring 1 stage B, issue #129/PR #172: `config/analysis_framework.yml`, injection order, v1->v2, §2 rewrite.
 - [Identity seam: current_principal + explicit user_id — B3](docs/mechanisms/identity-and-auth.md) — Ring 1 stage B, issue #129/PR #181.
 - [Users, invites, and JWKS auth — B4](docs/mechanisms/identity-and-auth.md) — Ring 1 stage B, issue #129/PR #183: JWKS verification, no `JWT_SECRET`, invite redeem.
-- [Idle-timeout server enforcement](docs/mechanisms/identity-and-auth.md) — issue #235: the 15-min auto-logout (issue #207) was client-only and silently defeated by closing the browser; `current_principal` now checks a Redis record keyed by `(user_id, session_id)` (`app/core/idle_activity.py` — `session_id` is a required JWT claim as of round 3, not just a value comparison), fail-open on Redis outage (deliberate departure from rate_limit's fail-closed convention — blast radius, see mechanism doc); absolute session lifetime (Supabase refresh-token expiry) and per-user configurable length are explicitly out of scope here. PR #240 went through 3 review rounds, each catching a real flaw in the previous fix (see mechanism doc for the full history): round 1 — stale idle lock survived re-login, and the 401 never signed the browser out (8 frontend call sites now route through `logout()`); round 2 — round 1's re-login fix compared `iat`, which silent background token refresh also changes; round 3 — round 2's `session_id` comparison was a value check against a still user_id-keyed record, so a re-login's write could resurrect the JWT it superseded; fixed by keying Redis itself on `(user_id, session_id)` with no cross-session comparison logic left at all.
+- [Idle-timeout server enforcement](docs/mechanisms/identity-and-auth.md) — issue #235: the 15-min auto-logout (issue #207) was client-only and silently defeated by closing the browser; `current_principal` now checks a Redis record keyed by `(user_id, session_id)` (`app/core/idle_activity.py`), fail-open on Redis outage (deliberate departure from rate_limit's fail-closed convention). PR #240 took 3 review rounds, each catching a real flaw in the previous fix (stale lock surviving re-login → an `iat` comparison broken by silent token refresh → a value-comparison still keyed too coarsely) — full round-by-round history in the linked mechanism doc, worth reading before touching this code given how easy each of those three flaws was to miss.
 - [Ops user hard-purge](docs/mechanisms/identity-and-auth.md) — issue #199/#225/B7: `DELETE /admin/users/{id}?confirm={email}` hard-deletes one user's own rows (now including `accounts`, `email_verifications`) and the Supabase Auth account (sequenced before local deletes, 502+no-op on failure); also handles Auth-only orphans with no local row.
-- [Generic email verification: core mechanism + Ops API](docs/mechanisms/email-verification.md) — issue #260/PR #261: `email_verifications` table + `users.email_verified_at`/`delivery_email_verified_at`, GET-inert status lookup + Altcha PoW + POST confirm (`account_email` never overwrites `users.email` — reachability-only), async Resend delivery-status poll via a separate `full_access` key, `POST`/`GET /admin/email-verifications` (narrow create response, widened diagnostic GET), public `/verify-email` frontend page. Signup/Profile/report-gating/unsubscribe integration explicitly deferred to follow-up issues. Issue #262/PR #263 landed the signup half of that deferral: a Celery task (`send_account_email_verification_task`, registered in `app/tasks/__init__.py`'s `include`) fires a `purpose=account_email` verification asynchronously after signup — never inline in the request path, since `create_verification` makes a blocking Resend call; it retries only on `VerificationSendFailed` (pre-persist, safe), never on a post-send persist failure (would double-send). Also added: `GET /me`'s `pending_email_verifications` list (`status IN (pending, undeliverable)`, scoped to the caller) and a session-authenticated `POST /email-verifications/{id}/resend` (router-layer Redis rate limit, separate from `create_verification`'s own Ops-only 60s cooldown). Existing users are not backfilled automatically — a one-off Ops-triggered script per user, run at the product owner's discretion, not a persisted bulk endpoint. Resending only supersedes a still-`pending` prior record; it never touches an already-`verified` one (confirmed behavior, not a gap).
+- [Generic email verification: core mechanism + Ops API](docs/mechanisms/email-verification.md) — issue #260/PR #261: `email_verifications` table, GET-inert status lookup + Altcha PoW + POST confirm, async Resend delivery-status poll, `POST`/`GET /admin/email-verifications`, public `/verify-email` page. Issue #262/PR #263 added the signup hook (async Celery task, never inline — `create_verification` blocks on Resend), `GET /me`'s pending-verification list, and session-authed `POST /email-verifications/{id}/resend`. Existing users need a one-off Ops-triggered backfill script, not a bulk endpoint. Full detail (retry semantics, rate-limit split, why resend never touches an already-`verified` record) in the linked mechanism doc.
 - [Signup / invite anti-abuse](docs/mechanisms/identity-and-auth.md) — issue #190: Redis fixed-window limits on `POST /auth/signup` and `POST /admin/invites`; no Turnstile; fail-closed on Redis; known-invite buckets only; Next.js hop forwards XFF; global invite-mint 200/day alert-only.
 - [Forgot-password trigger](docs/mechanisms/identity-and-auth.md) — issue #231: `POST /auth/forgot-password` backend-mediated Supabase reset trigger, self-hosted Altcha PoW (no Sentinel, no external CDN — vendored `frontend/public/altcha.js`), IP+email Redis rate limit reusing issue #190's machinery, local-`users`-table exists/not-exists response (deliberate OWASP-enumeration deviation), `/reset-password` client-direct to Supabase (no PoW); link expiry (72h targeted, 24h actual — Supabase's Email OTP Expiration caps at 86400s) and "password changed" email are Supabase Dashboard config, not code.
 - [Frontend auth closure — B5](docs/mechanisms/identity-and-auth.md) — Ring 1 stage B, issue #129: `/login`+`/signup`, `src/proxy.ts`, cookie session via `@supabase/ssr`.
@@ -159,6 +175,8 @@ in any other language.
 
 ### Known-fixed bugs worth remembering (regression notes)
 
+*Full incident history for every item below: playbook `docs/playbooks/regression-notes.md`.*
+
 - **Fund NAV lookup**: `compute_portfolio` must look up price data with
   `captured_closes.get(h.ticker or h.fund_code or "")` — fund code-only
   holdings have no `ticker`, and `capture_fund_navs` stores NAV in
@@ -172,30 +190,20 @@ in any other language.
 - **Next.js Turbopack + multipart**: Turbopack's `rewrites()` fails on
   `multipart/form-data` POST (ECONNRESET at proxy). Upload routes need a real
   Next.js API Route (`route.ts`) that manually forwards to the backend.
-- **`frontend/public/` must stay non-empty**: git doesn't track empty
-  directories; `frontend/Dockerfile`'s runner stage does
-  `COPY --from=builder /app/public ./public`, which fails hard if the
-  directory doesn't exist in the build context at all. Keep at least one
-  tracked file there (a `.gitkeep` is fine) even after removing every real
-  asset. (issue #100/#101 — this landed with PR #93 and sat undetected on
-  `main` through two more PRs, because production hadn't redeployed since;
-  `bun run dev`/`next build` don't care about a missing `public/`, only the
-  Docker multi-stage build does — see the Quality Gates gap noted below.)
-- **Frontend has one lockfile (`bun.lock`) — the two-lockfile drift that
-  broke production deploys three times is fixed (issue #227, PR #255,
-  2026-08-28)**: `frontend/Dockerfile` now runs `bun install
-  --frozen-lockfile` on `oven/bun:1.4.0-alpine` for the `deps`/`builder`
-  stages (`package-lock.json` deleted, `packageManager` pinned in
-  `package.json`). The runner stage is unchanged — still `node:22-alpine`,
-  `CMD ["node", "server.js"]` — this was a package-manager change only, not
-  a runtime migration. No separate lockfile-sync step is needed on
-  `frontend/package.json` changes anymore.
+- **`frontend/public/` must stay non-empty** (issue #100/#101): git doesn't
+  track empty directories, and `frontend/Dockerfile`'s runner stage copies
+  it verbatim — a missing directory fails the Docker build (not `next
+  build`/`bun run dev`, which don't care). Keep at least one tracked file
+  there (`.gitkeep` is fine) even after removing every real asset.
+- **Frontend has exactly one lockfile (`bun.lock`)** (issue #227/PR #255) —
+  never reintroduce `package-lock.json`; `frontend/Dockerfile` runs `bun
+  install --frozen-lockfile`, no separate lockfile-sync step needed.
 
 ## Architecture
 
 | Layer | Choice |
 |-------|--------|
-| Frontend | Next.js + shadcn/ui. **Package manager is `bun`, exclusively — never `npm`/`npx`/`yarn`/`pnpm`.** `bun.lock` is the only lockfile; there is no `package-lock.json` (deleted, issue #227/PR #255). This applies everywhere: local dev, CI-equivalent local gates, and `frontend/Dockerfile`'s image build. Reaching for `npm install`/`npm ci` out of habit — even "just this once," even inside a Dockerfile stage — is exactly the mistake that caused three separate production deploy failures (issues #226, #243, PR #230 incident) before #227 fixed it; don't reintroduce a second lockfile. |
+| Frontend | Next.js + shadcn/ui. **Package manager is `bun`, exclusively — never `npm`/`npx`/`yarn`/`pnpm`, anywhere** (local dev, CI-equivalent gates, Dockerfile build) — reaching for `npm install`/`npm ci` even once caused three separate production deploy failures before issue #227 fixed it (full history: playbook `docs/playbooks/regression-notes.md`). |
 | Backend | Python FastAPI |
 | Database | PostgreSQL, self-hosted in Docker on the production VPS (not Supabase-managed — decided 2026-08-05 to cut hosting complexity). Supabase is used for **Auth only**. |
 | Task queue | Celery + Redis |
@@ -235,13 +243,9 @@ legitimate local state is `.env` (uploaded via `scp`).
   is currently public or private (visibility can change, forks/clones
   persist regardless). This applies to `CLAUDE.md` and any other tracked
   file, not just code. The actual specs live only in the private Obsidian
-  ops doc referenced from the deployment section below. (Incident:
-  2026-08-06 — the production server's real IP, SSH user, remote path, cloud
-  provider, and region sat in `CLAUDE.md` across 3 commits on this public
-  repo for ~30 hours before being caught; history was rewritten and
-  force-pushed to remove it, but that can't guarantee removal from caches,
-  forks, or clones made in that window — treat anything like this as burned,
-  not just hidden, once it's been pushed.)
+  ops doc referenced from the deployment section below. *Full incident this
+  rule comes from (2026-08-06 leak, ~30h exposure): playbook
+  `docs/playbooks/git-and-review-incidents.md`.*
 
 ## Data Handling
 
@@ -251,30 +255,18 @@ legitimate local state is `.env` (uploaded via `scp`).
   current report needs. Do not attach the full portfolio history "just in case".
 - **Two-pass isolation (enforced):** Pass 1 (search-query generation, low-cost
   model) must carry only public data — macro themes + news headlines.
-  Holdings-derived data, including **price anomalies** (their name/ticker
-  reveals a position), belongs only in Pass 2. Regression locked by
-  `test_pass1_prompt_excludes_holdings_derived_anomalies` and
-  `test_generate_report_pass1_call_has_no_holdings`. Do not reintroduce
-  holdings into `_build_pass1_prompt`.
-- **`data_collection=deny` is applied to every LLM call by default** (not just
-  holdings-bearing ones) as defense in depth: even if holdings leak into Pass 1
-  in the future, the call still cannot route to training providers.
-  **Exception (issue #78, 2026-08-06):** Pass 1 search-query generation and
-  translation render — both on `LOW_COST_LLM_MODEL` — pass
-  `enforce_data_collection=False` because they're routed via OpenRouter BYOK
-  straight to DeepSeek's own first-party backend (`order=["DeepSeek"]`,
-  `_BYOK_PROVIDER_ORDER` in `report_llm.py`), the exact provider `deny`
-  exists to exclude. Translation carries holdings-derived report text
-  (`with_holdings=True`); this was an explicit, scoped compliance tradeoff the
-  product owner accepted for these two call sites only — Pass 2, regenerate,
-  and holdings parsing (structured extraction) all keep `deny` enforced
-  unchanged. Both call sites also pass `allow_fallbacks=False` (a hard pin,
-  not a preference) alongside the `order` pin — since `deny` is off, an open
-  fallback on DeepSeek unavailability could otherwise silently reroute the
-  payload to an arbitrary marketplace provider that `deny` would normally have
-  excluded; the call fails outright instead (PR #79 review finding). Do not
-  extend the exception to any other call site without the same explicit
-  sign-off, and never drop the `allow_fallbacks=False` pairing if you do.
+  Holdings-derived data, including **price anomalies**, belongs only in
+  Pass 2. Regression locked by `test_pass1_prompt_excludes_holdings_derived_
+  anomalies` and `test_generate_report_pass1_call_has_no_holdings`. Do not
+  reintroduce holdings into `_build_pass1_prompt`.
+- **`data_collection=deny` on every LLM call by default**, as defense in
+  depth. **Exception (issue #78)**: Pass 1 search-query gen + translation
+  render — both `LOW_COST_LLM_MODEL` — pass `enforce_data_collection=False`
+  + `allow_fallbacks=False` (routed via OpenRouter BYOK straight to
+  DeepSeek's first-party backend; a scoped, sign-off compliance tradeoff for
+  these two call sites only). Never extend to another call site without the
+  same sign-off, never drop the `allow_fallbacks=False` pairing. *Full
+  reasoning: playbook `docs/playbooks/llm-and-data-handling.md`.*
 - Market data: cache same-day, same-symbol queries. yfinance is the default
   source; treat rate limits as a real constraint when adding new query paths.
 - FX rates: pull once per day into the FX table; all valuation reads from that
@@ -378,21 +370,12 @@ main (production) ← dev (integration, Ring 1+ target — not yet in use) ← f
   will not trigger a release).
 - Delete branches after merge.
 - **Stacked branches (branch B built on not-yet-merged branch A) + squash-merge
-  is a known trap** (hit 2026-08-07, PR #93/#95/#96): squash-merging A with
-  `--delete-branch` deletes A's branch, and GitHub **auto-closes any open PR
-  whose base is that branch** — `gh pr reopen` / `gh pr edit --base` both fail
-  once the base ref is gone (no recovery). If A merges before B is done, get
-  B's commits onto `main` via `git merge main` (not `git rebase main` —
-  replaying B's pre-squash commits against a squash-merged `main` produces
-  spurious `add/add` conflicts, and `git rebase --skip` is a history-rewrite
-  the auto-mode permission classifier blocks) and open a **fresh PR against
-  `main`**, noting in its body which closed PR it supersedes. Also watch for
-  a specific `git merge` footgun this surfaces: if B's branch added-then-
-  removed something (e.g. moved a component out of a shared layout) before
-  merging in A, the 3-way merge can silently **reinstate the removed code**,
-  because B's net diff against the merge-base shows no change on those
-  lines while A's does — re-check anything B deliberately deleted after
-  merging.
+  is a known trap**: squash-merging A with `--delete-branch` auto-closes any
+  open PR whose base is A's branch, with no recovery. If A merges before B
+  is done, get B's commits onto `main` via `git merge main` (not `git rebase
+  main` — see playbook for why) and open a fresh PR noting which closed PR
+  it supersedes. *Full recovery steps + a `git merge` footgun this surfaces:
+  playbook `docs/playbooks/git-and-review-incidents.md`.*
 
 ## Admin surface: API endpoint first, UI later (MANDATORY)
 
@@ -434,16 +417,12 @@ table is for cross-session technical-debt reminders only, not a substitute.
 in `.env.local`, never committed — this file intentionally does not name
 them): `GITHUB_TOKEN` is the primary write identity — repo owner, used for
 commits/pushes, issue/PR creation, and merges. `GITHUB_REVIEWER_TOKEN`
-(added 2026-08-06) is read + PR-review-only, and belongs to a **separate LLM
-reviewer** in this project's multi-agent workflow — **this agent (whichever
-LLM is doing the dev work) never uses `GITHUB_REVIEWER_TOKEN` itself, for
-anything.** Any review or comment authored under that identity is that other
-reviewer's independent output: read it, act on its findings, but its
-approval is not a substitute for the product owner's own merge
-authorization, and does not come from self-review. (Incident: 2026-08-06,
-issue #78/PR #79 — this agent used `GITHUB_REVIEWER_TOKEN` to review its own
-PR, then treated that as grounds to merge without the product owner's
-sign-off. Reverted; see PR #79 for history.)
+(blacktomb42) is read + PR-review-only. Using it is never a substitute for
+the product owner's own merge authorization, and its approval never comes
+from self-review. *Full identity-boundary history, including a later
+correction to who owns the blacktomb42 account and when it's appropriate
+to use it: playbook `docs/playbooks/git-and-review-incidents.md` — read
+that before assuming this paragraph alone is the current, complete rule.*
 
 ## Conventional Commits (MANDATORY)
 
@@ -495,46 +474,22 @@ gate stays the pre-push responsibility documented in the CI-First Protocol.
 - Integration tests hit a real Postgres (Homebrew Postgres 16 locally, not a
   mock). The whole point is to catch schema/migration drift.
 - **Test DB isolation (issues #26/#27, PR #137)**: `session_test_db` creates
-  `TEST_DATABASE_NAME` and migrates to head **once per pytest session**.
-  `db_session` opens an outer transaction + SAVEPOINT
-  (`join_transaction_mode="create_savepoint"`, `autoflush=False` to match
-  production). `alembic_cfg` uses a **separate** database
-  (`MIGRATION_DB_NAME`) so the revision walk cannot drop the session DB.
-  `SessionLocal` is lazy (`get_engine` / `reset_engine`); under pytest it
-  raises if `DB_NAME` is not `TEST_DATABASE_NAME` — a forgotten mock must
-  fail the test, not write `portfonia_dev`. Celery task tests still mock
-  `SessionLocal` (control flow, not SQL).
-- **Test DB names are PID-suffixed, not fixed strings (issue #152)**:
-  `TEST_DATABASE_NAME` (`app/core/database.py`) and `MIGRATION_DB_NAME`
-  (`app/tests/conftest.py`) are `f"portfonia_test_{roundtrip,alembic}_{os.
-  getpid()}"`, computed once at import time — not the literal
-  `portfonia_test_roundtrip`/`portfonia_test_alembic` PR #137 originally
-  used. Development now happens in isolated git worktrees (one per
-  task/PR), so two `pytest` invocations against the same local Postgres can
-  run concurrently; a fixed name meant one process's session-scoped
-  teardown (`DROP DATABASE`) could drop the database out from under the
-  other's still-running suite. Two live processes never share a PID, so
-  this is collision-free for the only window that matters (concurrent
-  runs); a DB orphaned by a hard-killed run just sits under its now-dead
-  PID as harmless clutter — no automatic sweep, clean up manually if it
-  ever actually accumulates.
+  `TEST_DATABASE_NAME` and migrates to head once per pytest session;
+  `db_session` opens an outer transaction + SAVEPOINT; `alembic_cfg` uses a
+  separate `MIGRATION_DB_NAME` so the revision walk can't drop the session
+  DB; `SessionLocal` raises under pytest if `DB_NAME` isn't
+  `TEST_DATABASE_NAME`. Both DB names are PID-suffixed (issue #152), not
+  fixed strings — concurrent worktree test runs against the same local
+  Postgres would otherwise drop each other's database mid-run. *Full
+  reasoning: playbook `docs/playbooks/testing-notes.md`.*
 - LLM prompt regressions: keep a small fixture of "input portfolio + expected
   shape of output" so prompt edits don't silently violate the layer-3 rule.
 - Never let tests touch the developer's real home directory.
-- **`caplog` assertions on an already-imported module's logger silently see
-  nothing after the session migrate** (first hit 2026-08-13,
-  `test_fund_nav_fetcher.py`; still true after #137 — upgrade now runs once
-  per session via `session_test_db`, not per test, but that first
-  `command.upgrade` is enough): `alembic/env.py` calls
-  `fileConfig(config.config_file_name)` with no `disable_existing_loggers=
-  False`, so it disables any logger that was already instantiated (e.g. any
-  module-level `logger = logging.getLogger(__name__)` from a test's own
-  imports) — `caplog.records` ends up empty with no error, which reads as
-  "nothing got logged" rather than "the logger got disabled out from under
-  the test". Workaround, scoped to the test file (not `alembic.ini`, which
-  would be a wider blast radius than this needs):
-  `logging.getLogger("your.module").disabled = False` right before the
-  `caplog.at_level(...)` block.
+- **`caplog` sees nothing after the session migrate**: `alembic/env.py`'s
+  `fileConfig()` disables any logger already instantiated before that
+  point. Fix: `logging.getLogger("your.module").disabled = False` right
+  before `caplog.at_level(...)`, scoped to the test file. *Full mechanism:
+  playbook `docs/playbooks/testing-notes.md`.*
 
 ## Documentation
 
