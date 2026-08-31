@@ -60,7 +60,9 @@ class User(Base):
     # this PR writes `NULL` back into either column, so a future address
     # change via a non-verification path could leave a stale verified
     # timestamp next to a new, unverified value). Report-send gating is a
-    # separate, not-yet-landed consumer of these; nothing reads them today.
+    # separate, not-yet-landed consumer of these; the only current reader is
+    # GET /me (issue #269), which exposes both for the Profile page's
+    # verification-state display.
     email_verified_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     delivery_email_verified_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     # Audit only (issue #220/#221). NULL means "registered before the ToS
