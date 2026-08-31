@@ -7,8 +7,9 @@ import { useTranslations } from "next-intl";
 import type { Me } from "@/lib/api";
 
 // sessionStorage-only dedupe (Ring 1-Onboarding.md §2.4) — not an entry
-// condition. Reachable from questionnaire onboarding Save or holdings
-// onboarding save; a later direct visit this session bounces to "/".
+// condition. Reachable from holdings onboarding save or its skip
+// (questionnaire onboarding save now routes to /holdings?onboarding=1,
+// issue #280 §9.1); a later direct visit this session bounces to "/".
 const WELCOMED_KEY = "portfonia.welcomed";
 
 export function WelcomeBody({ me, hadLoadError }: { me: Me | null; hadLoadError: boolean }) {

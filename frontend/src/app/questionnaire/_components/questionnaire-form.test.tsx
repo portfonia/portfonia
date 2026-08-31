@@ -98,7 +98,7 @@ describe("QuestionnaireForm", () => {
     await waitFor(() => expect(push).toHaveBeenCalledWith("/profile"));
   });
 
-  it("onboarding mode: Save and Skip both route to /holdings?onboarding=1, holdings Save is the only path to /welcome (issue #280 §9.1)", async () => {
+  it("onboarding mode: Save and Skip both route to /holdings?onboarding=1 (issue #280 §9.1)", async () => {
     putInvestmentContext.mockResolvedValue({
       questionnaire: {},
       questionnaire_version: "v1",
