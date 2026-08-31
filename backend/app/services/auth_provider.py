@@ -227,3 +227,45 @@ def get_auth_user(sub: str) -> AuthUserInfo | None:
     if not isinstance(email, str) or not email:
         raise AuthProviderError("get_user missing email")
     return AuthUserInfo(id=sub, email=email)
+
+
+def get_auth_user_by_email(email: str) -> AuthUserInfo | None:
+    """Look up one Auth user by email (issue #274: the by-email purge
+    route's orphan path — the local `users` row is already gone but the
+    matching Supabase Auth account remains, and the caller only has the
+    email). GoTrue's admin users-list endpoint filters by email
+    server-side; the caller passes the normalized (strip+lowercase)
+    address, the same form signup stores. Returns None when no Auth user
+    has this email — not an error."""
+    url = f"{_issuer()}/admin/users"
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(url, headers=_admin_headers(), params={"email": email})
+    except httpx.HTTPError as exc:
+        raise AuthProviderError("get_user_by_email failed") from exc
+    if resp.status_code == 404:
+        return None
+    if resp.status_code != 200:
+        logger.error("auth provider get_user_by_email failed status=%s", resp.status_code)
+        raise AuthProviderError("get_user_by_email failed")
+    try:
+        data = resp.json()
+    except ValueError as exc:
+        raise AuthProviderError("get_user_by_email malformed response") from exc
+    if not isinstance(data, dict):
+        raise AuthProviderError("get_user_by_email malformed response")
+    users = data.get("users")
+    if not isinstance(users, list):
+        raise AuthProviderError("get_user_by_email malformed response")
+    if not users:
+        return None
+    first = users[0]
+    if not isinstance(first, dict):
+        raise AuthProviderError("get_user_by_email malformed response")
+    user_id = first.get("id")
+    found_email = first.get("email")
+    if not isinstance(user_id, str) or not user_id:
+        raise AuthProviderError("get_user_by_email malformed response")
+    if not isinstance(found_email, str) or not found_email:
+        raise AuthProviderError("get_user_by_email missing email")
+    return AuthUserInfo(id=user_id, email=found_email)

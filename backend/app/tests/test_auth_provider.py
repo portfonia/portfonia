@@ -236,3 +236,126 @@ def test_get_auth_user_wraps_transport_errors(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr("httpx.Client", lambda **kwargs: _Boom())
     with pytest.raises(ap.AuthProviderError):
         ap.get_auth_user("sub-1")
+
+
+# --- get_auth_user_by_email (issue #274) ------------------------------------
+
+
+def test_get_auth_user_by_email_returns_info_on_200(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import auth_provider as ap
+
+    monkeypatch.setattr(
+        "httpx.Client",
+        lambda **kwargs: _FakeClient(
+            _FakeResponse(
+                200,
+                {
+                    "aud": "authenticated",
+                    "users": [{"id": "sub-1", "email": "a@example.com"}],
+                },
+            )
+        ),
+    )
+    info = ap.get_auth_user_by_email("a@example.com")
+    assert info == ap.AuthUserInfo(id="sub-1", email="a@example.com")
+
+
+def test_get_auth_user_by_email_passes_email_filter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The email must reach GoTrue as the admin list endpoint's filter, not
+    be applied client-side over every user (issue #274 — this is the whole
+    point of the by-email resolution path)."""
+    from app.services import auth_provider as ap
+
+    seen: dict[str, object] = {}
+
+    class _CapturingClient(_FakeClient):
+        def get(self, *args: object, **kwargs: object) -> _FakeResponse:
+            seen["params"] = kwargs.get("params")
+            return _FakeResponse(200, {"users": []})
+
+    monkeypatch.setattr("httpx.Client", lambda **kwargs: _CapturingClient(_FakeResponse(200)))
+    assert ap.get_auth_user_by_email("a@example.com") is None
+    assert seen["params"] == {"email": "a@example.com"}
+
+
+def test_get_auth_user_by_email_returns_none_on_empty_users_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import auth_provider as ap
+
+    monkeypatch.setattr(
+        "httpx.Client",
+        lambda **kwargs: _FakeClient(_FakeResponse(200, {"users": []})),
+    )
+    assert ap.get_auth_user_by_email("nobody@example.com") is None
+
+
+def test_get_auth_user_by_email_returns_none_on_404(monkeypatch: pytest.MonkeyPatch) -> None:
+    """404 (no such Auth user) is not an error — mirrors get_auth_user."""
+    from app.services import auth_provider as ap
+
+    monkeypatch.setattr("httpx.Client", lambda **kwargs: _FakeClient(_FakeResponse(404)))
+    assert ap.get_auth_user_by_email("nobody@example.com") is None
+
+
+def test_get_auth_user_by_email_raises_on_other_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import auth_provider as ap
+
+    monkeypatch.setattr("httpx.Client", lambda **kwargs: _FakeClient(_FakeResponse(500)))
+    with pytest.raises(ap.AuthProviderError):
+        ap.get_auth_user_by_email("a@example.com")
+
+
+def test_get_auth_user_by_email_raises_on_non_dict_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import auth_provider as ap
+
+    monkeypatch.setattr(
+        "httpx.Client", lambda **kwargs: _FakeClient(_FakeResponse(200, ["not", "a", "dict"]))
+    )
+    with pytest.raises(ap.AuthProviderError):
+        ap.get_auth_user_by_email("a@example.com")
+
+
+def test_get_auth_user_by_email_raises_on_non_list_users(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import auth_provider as ap
+
+    monkeypatch.setattr(
+        "httpx.Client", lambda **kwargs: _FakeClient(_FakeResponse(200, {"users": "nope"}))
+    )
+    with pytest.raises(ap.AuthProviderError):
+        ap.get_auth_user_by_email("a@example.com")
+
+
+def test_get_auth_user_by_email_raises_on_missing_user_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A user object without id/email must not silently produce a broken
+    AuthUserInfo — same malformed-response discipline as get_auth_user."""
+    from app.services import auth_provider as ap
+
+    monkeypatch.setattr(
+        "httpx.Client",
+        lambda **kwargs: _FakeClient(_FakeResponse(200, {"users": [{"id": "sub-1"}]})),
+    )
+    with pytest.raises(ap.AuthProviderError):
+        ap.get_auth_user_by_email("a@example.com")
+
+
+def test_get_auth_user_by_email_wraps_transport_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+
+    from app.services import auth_provider as ap
+
+    class _Boom:
+        def __enter__(self) -> object:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def get(self, *args: object, **kwargs: object) -> object:
+            raise httpx.ConnectError("down")
+
+    monkeypatch.setattr("httpx.Client", lambda **kwargs: _Boom())
+    with pytest.raises(ap.AuthProviderError):
+        ap.get_auth_user_by_email("a@example.com")

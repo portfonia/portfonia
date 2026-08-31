@@ -49,6 +49,7 @@ from app.services.auth_provider import (
     AuthUserInfo,
     delete_auth_user,
     get_auth_user,
+    get_auth_user_by_email,
 )
 from app.services.email_verification import (
     ResendTooSoon,
@@ -473,6 +474,113 @@ def _purge_orphan_auth_user(user_id: UUID, confirm: str | None) -> PurgeUserOut:
     )
 
 
+def _purge_local_user(session: Session, user: User, confirm: str | None) -> PurgeUserOut:
+    """Guards + Auth delete + ordered local purge for an already-resolved
+    local `users` row. Shared by the by-id and by-email purge routes
+    (issue #274) so the refusal order, confirm contract and 10-step delete
+    sequence live in exactly one place — the by-id route's original
+    behavior is preserved verbatim; the by-email route passes its (already
+    boundary-validated) confirm through the same checks."""
+    if user.id == UUID(get_settings().DEV_USER_ID):
+        raise HTTPException(status_code=409, detail="refusing to delete the seed user")
+    created_invites = session.execute(select(exists().where(Invite.created_by == user.id))).scalar()
+    if created_invites:
+        raise HTTPException(
+            status_code=409, detail="user created invites; revoke or reassign first"
+        )
+    if confirm is None:
+        raise HTTPException(status_code=422, detail="confirm query param is required")
+    if _normalize_email(confirm) != _normalize_email(user.email):
+        raise HTTPException(status_code=409, detail="confirm does not match user email")
+
+    auth_deleted = False
+    if user.auth_subject is not None:
+        auth_deleted = _auth_delete_or_502(user.auth_subject)
+
+    email = user.email
+    result = purge_user(session, user.id)
+    session.commit()
+    return PurgeUserOut(
+        user_id=user.id,
+        email=email,
+        auth_deleted=auth_deleted,
+        deleted=PurgeDeletedCounts(
+            news_surfaced=result.news_surfaced,
+            reports=result.reports,
+            holdings=result.holdings,
+            accounts=result.accounts,
+            upload_jobs=result.upload_jobs,
+            user_investment_context=result.user_investment_context,
+            email_verifications=result.email_verifications,
+            invites_used_by_cleared=result.invites_used_by_cleared,
+            users_invited_by_cleared=result.users_invited_by_cleared,
+            users=result.users,
+        ),
+    )
+
+
+def _get_auth_user_by_email_or_502(email: str) -> AuthUserInfo | None:
+    """502 mapping for the by-email orphan lookup — same shape as
+    `_get_auth_user_or_502`, so the by-email route inherits the by-id
+    route's retry-safe error contract (issue #274)."""
+    try:
+        return get_auth_user_by_email(email)
+    except AuthProviderError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="failed to look up Supabase Auth user; local data not touched, retry",
+        ) from exc
+
+
+@router.delete("/users/by-email", response_model=PurgeUserOut)
+def purge_user_by_email_endpoint(
+    session: Session = Depends(get_session),
+    email: str | None = None,
+    confirm: str | None = None,
+) -> PurgeUserOut:
+    """Hard-purge by email (issue #274): collapse "delete the account for
+    someone@example.com" into a single documented admin call — no SSH +
+    psql lookup step to turn the email into a user_id first. Sibling route
+    to DELETE /users/{user_id}, which is unchanged; callers who already
+    hold a user_id keep using the by-id route.
+
+    `email` and `confirm` are both required query params carrying the same
+    value, each normalized via `_normalize_email` (strip+lowercase) before
+    comparison. This is a self-consistency repeat check, deliberately
+    weaker than the by-id route's id/email cross-check — the email itself
+    is the single fact the caller must get right, and an agent fills both
+    params from one string it was given once (no second human keystroke).
+
+    Resolution: local `users` row by normalized email, else the Supabase
+    Auth orphan path (get_auth_user_by_email), else 404. The response's
+    user_id reports which row was actually resolved and deleted."""
+    if email is None or confirm is None:
+        raise HTTPException(status_code=422, detail="email and confirm query params are required")
+    normalized_email = _normalize_email(email)
+    normalized_confirm = _normalize_email(confirm)
+    if normalized_email is None or normalized_confirm is None:
+        raise HTTPException(status_code=422, detail="email and confirm query params are required")
+    if normalized_email != normalized_confirm:
+        raise HTTPException(status_code=422, detail="email and confirm must match")
+
+    user = session.execute(select(User).where(User.email == normalized_email)).scalar_one_or_none()
+    if user is not None:
+        return _purge_local_user(session, user, confirm)
+
+    auth_user = _get_auth_user_by_email_or_502(normalized_email)
+    if auth_user is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    if _normalize_email(auth_user.email) != normalized_email:
+        raise HTTPException(status_code=409, detail="confirm does not match user email")
+    _auth_delete_or_502(auth_user.id)
+    return PurgeUserOut(
+        user_id=UUID(auth_user.id),
+        email=auth_user.email,
+        auth_deleted=True,
+        deleted=_NO_LOCAL_ROWS,
+    )
+
+
 @router.delete("/users/{user_id}", response_model=PurgeUserOut)
 def purge_user_endpoint(
     user_id: UUID,
@@ -514,42 +622,7 @@ def purge_user_endpoint(
             )
         return _purge_orphan_auth_user(user_id, confirm)
 
-    if user.id == UUID(get_settings().DEV_USER_ID):
-        raise HTTPException(status_code=409, detail="refusing to delete the seed user")
-    created_invites = session.execute(select(exists().where(Invite.created_by == user.id))).scalar()
-    if created_invites:
-        raise HTTPException(
-            status_code=409, detail="user created invites; revoke or reassign first"
-        )
-    if confirm is None:
-        raise HTTPException(status_code=422, detail="confirm query param is required")
-    if _normalize_email(confirm) != _normalize_email(user.email):
-        raise HTTPException(status_code=409, detail="confirm does not match user email")
-
-    auth_deleted = False
-    if user.auth_subject is not None:
-        auth_deleted = _auth_delete_or_502(user.auth_subject)
-
-    email = user.email
-    result = purge_user(session, user_id)
-    session.commit()
-    return PurgeUserOut(
-        user_id=user_id,
-        email=email,
-        auth_deleted=auth_deleted,
-        deleted=PurgeDeletedCounts(
-            news_surfaced=result.news_surfaced,
-            reports=result.reports,
-            holdings=result.holdings,
-            accounts=result.accounts,
-            upload_jobs=result.upload_jobs,
-            user_investment_context=result.user_investment_context,
-            email_verifications=result.email_verifications,
-            invites_used_by_cleared=result.invites_used_by_cleared,
-            users_invited_by_cleared=result.users_invited_by_cleared,
-            users=result.users,
-        ),
-    )
+    return _purge_local_user(session, user, confirm)
 
 
 class CreateEmailVerificationBody(BaseModel):
