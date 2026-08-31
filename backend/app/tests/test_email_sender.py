@@ -10,7 +10,7 @@ Strategy:
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 from bs4 import BeautifulSoup, Tag
@@ -23,6 +23,7 @@ from app.services.email_sender import (
     send_report_email,
     send_verification_email,
 )
+from app.services.unsubscribe_token import verify_token
 
 
 def _td(row: Tag) -> Tag:
@@ -286,7 +287,10 @@ def _mock_settings() -> MagicMock:
 # ---------------------------------------------------------------------------
 
 
-@patch("app.services.email_sender.recipient_email", return_value="test@example.com")
+@patch(
+    "app.services.email_sender.recipient_email_with_purpose",
+    return_value=("test@example.com", "account_email"),
+)
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
 def test_send_success(
@@ -310,7 +314,10 @@ def test_send_success(
     assert report.email_sent_at is not None
 
 
-@patch("app.services.email_sender.recipient_email", return_value="test@example.com")
+@patch(
+    "app.services.email_sender.recipient_email_with_purpose",
+    return_value=("test@example.com", "account_email"),
+)
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
 def test_send_persists_provider_message_id(
@@ -337,7 +344,10 @@ def test_send_persists_provider_message_id(
     assert report.provider_message_id == "resend-abc123"
 
 
-@patch("app.services.email_sender.recipient_email", return_value="test@example.com")
+@patch(
+    "app.services.email_sender.recipient_email_with_purpose",
+    return_value=("test@example.com", "account_email"),
+)
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
 def test_send_missing_resend_id_persists_none(
@@ -365,7 +375,10 @@ def test_send_missing_resend_id_persists_none(
     assert report.provider_message_id is None
 
 
-@patch("app.services.email_sender.recipient_email", return_value="test@example.com")
+@patch(
+    "app.services.email_sender.recipient_email_with_purpose",
+    return_value=("test@example.com", "account_email"),
+)
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
 def test_send_concurrent_dedup(
@@ -419,7 +432,7 @@ def test_send_empty_md_returns_false(mock_client_cls: MagicMock, mock_settings: 
 
 
 @patch("app.services.email_sender.send_ops_alert")
-@patch("app.services.email_sender.recipient_email", return_value=None)
+@patch("app.services.email_sender.recipient_email_with_purpose", return_value=None)
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
 def test_send_unknown_recipient_fails_closed(
@@ -444,7 +457,10 @@ def test_send_unknown_recipient_fails_closed(
     mock_alert.assert_called_once()
 
 
-@patch("app.services.email_sender.recipient_email", return_value="test@example.com")
+@patch(
+    "app.services.email_sender.recipient_email_with_purpose",
+    return_value=("test@example.com", "account_email"),
+)
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
 def test_send_http_error_returns_false(
@@ -470,7 +486,10 @@ def test_send_http_error_returns_false(
     session.commit.assert_not_called()
 
 
-@patch("app.services.email_sender.recipient_email", return_value="test@example.com")
+@patch(
+    "app.services.email_sender.recipient_email_with_purpose",
+    return_value=("test@example.com", "account_email"),
+)
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
 def test_send_network_exception_returns_false(
@@ -493,7 +512,10 @@ def test_send_network_exception_returns_false(
     session.commit.assert_not_called()
 
 
-@patch("app.services.email_sender.recipient_email", return_value="test@example.com")
+@patch(
+    "app.services.email_sender.recipient_email_with_purpose",
+    return_value=("test@example.com", "account_email"),
+)
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
 def test_send_commit_failure_returns_false_and_alerts(
@@ -527,7 +549,10 @@ def test_send_commit_failure_returns_false_and_alerts(
     assert "provider_message_id" in body
 
 
-@patch("app.services.email_sender.recipient_email", return_value="test@example.com")
+@patch(
+    "app.services.email_sender.recipient_email_with_purpose",
+    return_value=("test@example.com", "account_email"),
+)
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
 def test_send_subject_format(
@@ -550,7 +575,10 @@ def test_send_subject_format(
     assert payload["to"] == ["test@example.com"]
 
 
-@patch("app.services.email_sender.recipient_email", return_value="test@example.com")
+@patch(
+    "app.services.email_sender.recipient_email_with_purpose",
+    return_value=("test@example.com", "account_email"),
+)
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
 def test_send_subject_resolves_via_output_lang(
@@ -575,7 +603,10 @@ def test_send_subject_resolves_via_output_lang(
     assert payload["subject"] == "Portfonia Financial Analysis Report — 2026-06-06"
 
 
-@patch("app.services.email_sender.recipient_email", return_value="test@example.com")
+@patch(
+    "app.services.email_sender.recipient_email_with_purpose",
+    return_value=("test@example.com", "account_email"),
+)
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
 def test_send_sets_idempotency_key(
@@ -598,7 +629,10 @@ def test_send_sets_idempotency_key(
     assert len(key) == len(f"report-{report.id}-") + 16
 
 
-@patch("app.services.email_sender.recipient_email", return_value="test@example.com")
+@patch(
+    "app.services.email_sender.recipient_email_with_purpose",
+    return_value=("test@example.com", "account_email"),
+)
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
 def test_idempotency_key_changes_with_content(
@@ -625,6 +659,121 @@ def test_idempotency_key_changes_with_content(
     assert key1 != key2
     assert key1.startswith(f"report-{report_v1.id}-")
     assert key2.startswith(f"report-{report_v1.id}-")
+
+
+@patch(
+    "app.services.email_sender.recipient_email_with_purpose",
+    return_value=("test@example.com", "account_email"),
+)
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
+def test_send_includes_text_alternative_and_unsubscribe_headers(
+    mock_client_cls: MagicMock, mock_settings: MagicMock, _recipient: MagicMock
+) -> None:
+    """issue #257: multipart text body + List-Unsubscribe headers (Resend
+    `text` + `headers` fields, confirmed against
+    https://resend.com/docs/api-reference/emails/send-email)."""
+    mock_settings.return_value = _mock_settings()
+
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    post_mock = mock_client_cls.return_value.__enter__.return_value.post
+    post_mock.return_value = mock_resp
+
+    md = (
+        "# Report\n\nBody\n\n"
+        "**Disclaimer** This does not constitute investment advice. "
+        "Consult a qualified financial advisor."
+    )
+    report = _make_report(md=md)
+    send_report_email(report, MagicMock())
+
+    payload = post_mock.call_args.kwargs["json"]
+    assert "html" in payload
+    assert isinstance(payload["text"], str)
+    assert "Body" in payload["text"]
+    assert "does not constitute investment advice" in payload["text"]
+
+    headers = payload["headers"]
+    assert headers["List-Unsubscribe-Post"] == "List-Unsubscribe=One-Click"
+    unsub = headers["List-Unsubscribe"]
+    prefix = "<https://portfonia.com/unsubscribe?token="
+    assert unsub.startswith(prefix) and unsub.endswith(">")
+    token = unsub[len(prefix) : -1]
+    claims = verify_token(token)
+    assert claims is not None
+    assert claims.email == "test@example.com"
+    assert claims.purpose == "account_email"
+    assert claims.user_id == report.user_id
+    assert token in payload["text"]
+    assert "unsubscribe?token=" in payload["html"]
+
+
+@patch(
+    "app.services.email_sender.recipient_email_with_purpose",
+    return_value=("delivery@example.com", "delivery_email"),
+)
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
+def test_send_unsubscribe_token_uses_delivery_purpose(
+    mock_client_cls: MagicMock, mock_settings: MagicMock, _recipient: MagicMock
+) -> None:
+    mock_settings.return_value = _mock_settings()
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    post_mock = mock_client_cls.return_value.__enter__.return_value.post
+    post_mock.return_value = mock_resp
+
+    report = _make_report()
+    send_report_email(report, MagicMock())
+
+    payload = post_mock.call_args.kwargs["json"]
+    unsub = payload["headers"]["List-Unsubscribe"]
+    token = unsub.removeprefix("<https://portfonia.com/unsubscribe?token=").removesuffix(">")
+    claims = verify_token(token)
+    assert claims is not None
+    assert claims.purpose == "delivery_email"
+    assert claims.email == "delivery@example.com"
+
+
+@patch(
+    "app.services.email_sender.recipient_email_with_purpose",
+    return_value=("test@example.com", "account_email"),
+)
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
+def test_idempotency_key_and_token_stable_one_second_apart(
+    mock_client_cls: MagicMock, mock_settings: MagicMock, _recipient: MagicMock
+) -> None:
+    """PR #279 review: html_body (hashed into Idempotency-Key) must not
+    change when `now` ticks one second inside Resend's 24h window."""
+    mock_settings.return_value = _mock_settings()
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    post_mock = mock_client_cls.return_value.__enter__.return_value.post
+    post_mock.return_value = mock_resp
+
+    report = _make_report(md="# Report\n\nSame content")
+    clock = {"t": datetime(2026, 8, 31, 12, 0, 0, tzinfo=UTC)}
+
+    def _frozen_now() -> datetime:
+        return clock["t"]
+
+    prefix = "<https://portfonia.com/unsubscribe?token="
+    with patch("app.services.email_sender._now_utc", _frozen_now):
+        send_report_email(report, MagicMock())
+        key1 = post_mock.call_args.kwargs["headers"]["Idempotency-Key"]
+        token1 = post_mock.call_args.kwargs["json"]["headers"]["List-Unsubscribe"]
+        token1 = token1[len(prefix) : -1]
+        report.email_sent_at = None
+        clock["t"] = clock["t"] + timedelta(seconds=1)
+        send_report_email(report, MagicMock())
+        key2 = post_mock.call_args.kwargs["headers"]["Idempotency-Key"]
+        token2 = post_mock.call_args.kwargs["json"]["headers"]["List-Unsubscribe"]
+        token2 = token2[len(prefix) : -1]
+
+    assert key1 == key2
+    assert token1 == token2
 
 
 # ---------------------------------------------------------------------------

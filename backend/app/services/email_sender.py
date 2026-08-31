@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 from bs4 import BeautifulSoup, Tag
@@ -22,11 +22,35 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.models.report import Report
 from app.services.i18n_glossary import load_i18n_glossary, locale_for_output_lang
-from app.services.user_directory import recipient_email
+from app.services.unsubscribe_token import create_token as create_unsubscribe_token
+from app.services.user_directory import recipient_email_with_purpose
 
 logger = logging.getLogger(__name__)
 
 _RESEND_SEND_URL = "https://api.resend.com/emails"
+# Resend Idempotency-Key TTL is 24 hours. The unsubscribe token is embedded
+# in html_body, which is hashed into that key, so `now` used to mint the
+# token must be constant inside this window (PR #279 review).
+_RESEND_IDEMPOTENCY_WINDOW = timedelta(hours=24)
+
+
+def _now_utc() -> datetime:
+    return datetime.now(tz=UTC)
+
+
+def _stable_unsubscribe_now(now: datetime) -> datetime:
+    """End of the current 24h UTC bucket.
+
+    `create_token` adds TOKEN_TTL (7 days) to this instant, so remaining
+    life is always in [7d, 8d) from the real send time, and the token
+    (hence html_body / Idempotency-Key) is identical for any two sends
+    in the same bucket.
+    """
+    window = int(_RESEND_IDEMPOTENCY_WINDOW.total_seconds())
+    epoch = int(now.timestamp())
+    bucket_start = epoch - (epoch % window)
+    return datetime.fromtimestamp(bucket_start + window, tz=UTC)
+
 
 # Render report Markdown to HTML.
 # - html=False escapes any raw HTML in the LLM output (defense against
@@ -189,8 +213,8 @@ def send_report_email(report: Report, session: Session) -> bool:
         return False
 
     settings = get_settings()
-    recipient = recipient_email(session, report.user_id)
-    if recipient is None:
+    resolved = recipient_email_with_purpose(session, report.user_id)
+    if resolved is None:
         # Fail closed, never fall back to ADMIN_EMAIL or any other default:
         # a report we can't resolve a recipient for still belongs to a real
         # user, and sending it anywhere else — even to an address we trust —
@@ -206,13 +230,14 @@ def send_report_email(report: Report, session: Session) -> bool:
             subject="Portfonia: report recipient could not be resolved",
             body=(
                 f"report_id={report.id} user_id={report.user_id} — "
-                "recipient_email() returned None. Report was NOT sent. "
+                "recipient_email_with_purpose() returned None. Report was NOT sent. "
                 "email_sent_at left null; can be resent manually once the "
                 "user's identity resolves."
             ),
         )
         return False
 
+    recipient, purpose = resolved
     api_key = settings.RESEND_API_KEY.get_secret_value()
 
     report_date_str = (
@@ -237,7 +262,20 @@ def send_report_email(report: Report, session: Session) -> bool:
         else report_title_key
     )
     subject = f"{report_title} — {report_date_str}"
-    html_body = _render_html(report.report_md)
+    unsub_token = create_unsubscribe_token(
+        user_id=report.user_id,
+        purpose=purpose,
+        email=recipient,
+        now=_stable_unsubscribe_now(_now_utc()),
+    )
+    unsub_url = f"{settings.FRONTEND_URL}/unsubscribe?token={unsub_token}"
+    footer_copy = _UNSUBSCRIBE_FOOTER_COPY.get(
+        settings.OUTPUT_LANG, _UNSUBSCRIBE_FOOTER_COPY[_DEFAULT_UNSUBSCRIBE_FOOTER_LOCALE]
+    )
+    html_body = _render_html(
+        report.report_md + "\n\n" + footer_copy["html_md"].format(url=unsub_url)
+    )
+    text_body = report.report_md + "\n\n" + footer_copy["text"].format(url=unsub_url)
 
     payload: dict[str, object] = {
         "from": settings.EMAIL_FROM,
@@ -245,6 +283,11 @@ def send_report_email(report: Report, session: Session) -> bool:
         "reply_to": settings.EMAIL_REPLY_TO,
         "subject": subject,
         "html": html_body,
+        "text": text_body,
+        "headers": {
+            "List-Unsubscribe": f"<{unsub_url}>",
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        },
     }
 
     # Content-addressed idempotency key: a redelivered Celery task or a
@@ -350,7 +393,27 @@ def send_report_email(report: Report, session: Session) -> bool:
     return True
 
 
-# Locale-keyed copy for the verification email (issue #260, review round 2
+# Locale-keyed footer for the report-email unsubscribe link (issue #257).
+# Same bare `en`/`zh` keys as `_VERIFICATION_EMAIL_COPY` below — OUTPUT_LANG,
+# not the frontend BCP-47 tags. The HTML variant is markdown so `_render_html`
+# turns it into a real <a href> in the footer; the text variant is the same
+# URL as a plain line. Disclaimer/glossary copy already lives in
+# `report.report_md` (assembled by report_sections._build_footer) and is
+# therefore present in the text alternative without a second injection.
+_UNSUBSCRIBE_FOOTER_COPY: dict[str, dict[str, str]] = {
+    "en": {
+        "html_md": "[Revoke verification for this address]({url})",
+        "text": "To revoke verification for this address, visit:\n{url}",
+    },
+    "zh": {
+        "html_md": "[撤销此邮箱的验证]({url})",
+        "text": "如需撤销此邮箱的验证,请访问:\n{url}",
+    },
+}
+_DEFAULT_UNSUBSCRIBE_FOOTER_LOCALE = "en"
+
+
+# Locale-keyed copy for the verification email (issue #260, review round 2)
 # — the original version hardcoded English, violating this repo's mandatory
 # "in-product strings are i18n-keyed" policy). Deliberately NOT the frontend
 # next-intl catalog (browser-only, unreachable from this backend module) and

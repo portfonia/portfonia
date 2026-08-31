@@ -33,6 +33,7 @@ const PUBLIC_PATH_PREFIXES = [
   "/forgot-password",
   "/reset-password",
   "/verify-email",
+  "/unsubscribe",
   "/terms",
   "/privacy",
   // The matcher below only excludes image extensions, not .js, so the

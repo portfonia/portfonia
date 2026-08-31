@@ -55,14 +55,10 @@ class User(Base):
     delivery_email: Mapped[str | None] = mapped_column(Text)
     # Denormalized hot-path fields (issue #260, Ring 1-Email Validation design
     # doc §3.2) — set when the corresponding EmailVerification transitions to
-    # `verified`. Intended to be cleared on a value change or (future, #257)
-    # unsubscribe (round-4 review: no clearing path exists yet — nothing in
-    # this PR writes `NULL` back into either column, so a future address
-    # change via a non-verification path could leave a stale verified
-    # timestamp next to a new, unverified value). Report-send gating is a
-    # separate, not-yet-landed consumer of these; the only current reader is
-    # GET /me (issue #269), which exposes both for the Profile page's
-    # verification-state display.
+    # `verified`, cleared on unsubscribe (issue #257 / design doc §3.7) for
+    # the matching address only. Report-send gating is a separate consumer
+    # (issue #276); the current readers are GET /me (issue #269) and the
+    # unsubscribe confirm path.
     email_verified_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     delivery_email_verified_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     # Audit only (issue #220/#221). NULL means "registered before the ToS

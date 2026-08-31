@@ -38,6 +38,18 @@ re-render-safe); the LLM writes only prose/attribution. Current shape:
   `after_close` quiet windows still email it.
 
 
+### Report email payload (issue #257)
+
+`send_report_email` posts both `html` and `text` to Resend (the `text`
+field is a first-class body parameter on `POST /emails`, confirmed
+against Resend's send-email API docs) plus a `headers` object carrying
+`List-Unsubscribe` and `List-Unsubscribe-Post`. The plain-text part is
+`report.report_md` (already includes the bilingual disclaimer footer)
+plus a short unsubscribe URL line. The HTML footer is the same URL,
+rendered as a markdown link through `_render_html`. See
+`docs/mechanisms/email-verification.md` (issue #257 section) for the
+token/confirm-page mechanism those headers point at.
+
 ### Report email HTML rendering (issue #24/#117, #118/#119 deferred)
 
 `email_sender.py`'s `_render_html`/`_inline_body_styles` produce the actual

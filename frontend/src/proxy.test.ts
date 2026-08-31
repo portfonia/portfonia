@@ -86,6 +86,8 @@ describe("proxy", () => {
     "/signup?invite=abc",
     "/forgot-password",
     "/reset-password",
+    "/verify-email",
+    "/unsubscribe",
     "/terms",
     "/privacy",
     "/altcha.js",

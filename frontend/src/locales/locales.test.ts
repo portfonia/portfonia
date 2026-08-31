@@ -50,6 +50,7 @@ describe("locale catalogs stay structurally in sync (issue #209)", () => {
       "menu",
       "profile",
       "questionnaire",
+      "unsubscribe",
       "welcome",
     ].sort();
     for (const locale of LOCALE_VALUES) {

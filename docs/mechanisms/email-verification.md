@@ -332,3 +332,50 @@ trailing comma on the final inserted key).
 Existing users get no automatic email — one-time backfill is a manual
 Ops-API loop at the product owner's discretion. Released in v0.10.0;
 not yet deployed at merge time.
+
+## Report-email unsubscribe — issue #257
+
+Design: Obsidian `Hermes/Portfonia/Docs/Ring 1-Email Validation.md` §3.7.
+This is the deferred `revoked` status + confirm-page flow `86b7be7f1fe5`
+called out as not-yet-implemented.
+
+**Token**: stateless HMAC over
+`email-unsubscribe-v1:{user_id}:{purpose}:{email}:{expires_unix}`, keyed
+with `APP_SECRET_KEY` (same key as Altcha, no new secret), 7-day expiry
+embedded in the signature. `create_token` / `verify_token` live in
+`app/services/unsubscribe_token.py`; verify returns claims or `None`,
+never raises.
+
+**Send path**: `recipient_email_with_purpose()` tells `send_report_email`
+which field it resolved so the token's `purpose` matches. Every report
+email now sends Resend `text` (the markdown body plus a locale-keyed
+unsubscribe footer) alongside `html`, and custom headers
+`List-Unsubscribe: <https://…/unsubscribe?token=…>` plus
+`List-Unsubscribe-Post: List-Unsubscribe=One-Click`. The confirm-page
+flow is **not** RFC 8058 one-click compliant (it requires a page visit +
+button click); emitting `List-Unsubscribe-Post` anyway is an accepted
+deliverability simplification, not a hidden gap. A true one-click POST
+path is still out of scope (design doc §七).
+
+**Confirm**: `GET /unsubscribe/status` decodes the token only (no DB,
+no writes). `POST /unsubscribe/confirm` (token only, no Altcha) clears
+`users.*_verified_at` on every column whose *current* value equals the
+token's email (so the same mailbox on both account and delivery fields
+is fully revoked), and **appends** a single `status=revoked`
+`email_verifications` row for the token's purpose — the historical
+`verified` row is left untouched. Frontend `/unsubscribe` mirrors
+`/verify-email` (Server Component GET + Server Action POST) and is in
+`PUBLIC_PATH_PREFIXES`. Confirm-page copy talks about revoking
+verification, not about delivery already having stopped: `send_report_email`
+still sends to `recipient_email_with_purpose()` with no `*_verified_at`
+check until issue #276.
+
+**Idempotency**: the unsubscribe token's `now` is the end of the current
+24h UTC bucket (Resend Idempotency-Key TTL), so a retry one second later
+reuses the same html_body hash. `verify_token` swallows all exceptions
+(including Python 3.12 `hmac.compare_digest` TypeError on a non-ASCII
+digest) and returns `None`, matching Altcha.
+
+**Still out of scope**: report-generation gating on verified status
+(issue #276) — this PR's user-facing copy must not claim delivery has
+already stopped; re-subscribe is "verify again via Profile".

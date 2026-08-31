@@ -413,6 +413,16 @@
     "invalidOrExpired": "This verification link is invalid or has expired.",
     "genericError": "Something went wrong. Try again."
   },
+  "unsubscribe": {
+    "heading": "Unsubscribe from report emails",
+    "subtitle": "Revoke verification for {email}?",
+    "confirmButton": "Confirm unsubscribe",
+    "confirming": "Unsubscribing...",
+    "successBody": "Verification for {email} has been revoked. Other verified addresses on this account are unaffected.",
+    "setAddressLink": "To set another recipient address, click here.",
+    "invalidOrExpired": "This unsubscribe link is invalid or has expired.",
+    "genericError": "Something went wrong. Try again."
+  },
   "legal": {
     "nav": {
       "terms": "Terms of Service",
