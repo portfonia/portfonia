@@ -183,9 +183,16 @@ Canonical design: Obsidian `Hermes/Portfonia/Docs/Ring 1-Onboarding.md`.
   onboarding === "1"` (async `searchParams: Promise<...>`, same pattern as
   `signup/page.tsx`'s `invite` param) and passes the resolved mode down —
   there is no shared "onboarding context," each route resolves it locally.
-- **Save always navigates away now, in both modes** — onboarding Save goes
-  to `/welcome` (questionnaire) or `/welcome` (holdings); edit-mode
-  questionnaire Save goes to `/profile`. This supersedes issue #214's
+- **Save always navigates away now, in both modes** — questionnaire
+  onboarding Save goes to `/holdings?onboarding=1` and holdings onboarding
+  Save goes to `/welcome`; edit-mode questionnaire Save goes to `/profile`.
+  **Update (issue #280, 2026-08-31)**: the §2.2 table's `onboarding` row was
+  wrong — questionnaire onboarding Save used to jump straight to `/welcome`,
+  skipping the holdings step entirely, so only a user who *skipped* the
+  questionnaire ever saw the holdings page. Save now joins Skip at
+  `/holdings?onboarding=1` (design correction recorded in Ring
+  1-Onboarding.md §9.1); holdings' own save is the only route into
+  `/welcome`. This supersedes issue #214's
   same-path-Link-no-remount fix (which reset the questionnaire wizard's
   `step` back to 0 instead of navigating): once every successful save
   leaves `/questionnaire`, that fix is unreachable and was removed.
@@ -204,10 +211,19 @@ Canonical design: Obsidian `Hermes/Portfonia/Docs/Ring 1-Onboarding.md`.
   for the same hydration-mismatch reason) and `router.replace("/")`s a
   second same-session visit instead of re-rendering. No CTA button, no
   dashboard link, and no Profile menu entry to it — reachable only from the
-  two Save flows. Copy never claims a holdings-confirmation email was sent
-  and never prints the current global MWF 17:00 schedule even though the
+  holdings onboarding Save flow (issue #280 moved the questionnaire's
+  onboarding Save to `/holdings?onboarding=1`, so it is no longer a direct
+  entry). Copy never claims a holdings-confirmation email was sent and
+  never prints the current global MWF 17:00 schedule even though the
   user's own cadence is already `weekly` — that number is filled in only
-  once a later cadence issue wires `weekly` into Beat.
+  once a later cadence issue wires `weekly` into Beat. **Update (issue
+  #280, 2026-08-31)**: when the receiving address (`delivery_email ??
+  email`, the same fallback the holdings line uses) has no verified
+  timestamp, a `welcome.emailUnverified` warning renders — reports won't
+  be sent until the address is verified — derived per scope exactly like
+  the Profile page's issue #269 §6 rule (a set delivery_email is checked
+  against `delivery_email_verified_at`, the account-email fallback against
+  `email_verified_at`). Key added to all three catalogs.
 - **Profile's gap card reads `GET /me`'s `missing` field** (`#220` shipped
   the full response shape already; this is the first UI consumer of
   `missing`/`has_questionnaire`/`has_holdings`). Renders nothing when

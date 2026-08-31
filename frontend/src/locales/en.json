@@ -402,6 +402,7 @@
     "withHoldings": "Your holdings are saved. Reports will be sent to {deliveryEmail}.",
     "withoutHoldings": "Reports will be sent to {deliveryEmail}. Holdings-related sections stay empty until you save holdings.",
     "cadence": "Your cadence is weekly. The first report follows that schedule.",
+    "emailUnverified": "Reports won't be sent until {deliveryEmail} is verified.",
     "errorLoadFailed": "Could not load your account."
   },
   "emailVerification": {

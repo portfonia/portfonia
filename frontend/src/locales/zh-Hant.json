@@ -402,6 +402,7 @@
     "withHoldings": "你的持倉已儲存。報告將發送至 {deliveryEmail}。",
     "withoutHoldings": "報告將發送至 {deliveryEmail}。儲存持倉前，持倉相關區塊將保持為空。",
     "cadence": "你的報告週期是每週一次。首份報告將按此週期發送。",
+    "emailUnverified": "報告要等 {deliveryEmail} 驗證通過後才會發送。",
     "errorLoadFailed": "無法載入你的帳戶資訊。"
   },
   "emailVerification": {
