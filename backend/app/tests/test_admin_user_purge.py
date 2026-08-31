@@ -736,3 +736,373 @@ def test_purge_does_not_touch_unbound_ops_manual_verifications(
     assert resp.json()["deleted"]["email_verifications"] == 0
     db_session.expire_all()
     assert db_session.get(EmailVerification, unbound_id) is not None
+
+
+# --- issue #274: DELETE /admin/users/by-email --------------------------------
+
+
+def _by_email_path() -> str:
+    return "/admin/users/by-email"
+
+
+@pytest.fixture(autouse=True)
+def _fake_get_auth_user_by_email(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """Same default as _fake_get_auth_user above: a local miss on the
+    by-email route must not fall through to a real Supabase admin call.
+    Tests exercising the orphan-found path override with their own mock.
+    raising=False so the patch is a no-op if the symbol isn't there yet
+    (matches the conftest _no_external_notifications convention)."""
+    mock = MagicMock(return_value=None)
+    monkeypatch.setattr("app.routers.admin.get_auth_user_by_email", mock, raising=False)
+    return mock
+
+
+def test_purge_by_email_requires_ops_token(app_client: TestClient) -> None:
+    """Also pins route ordering: if /users/by-email were captured by
+    /users/{user_id}, the segment would fail UUID parsing and 422 before
+    any auth check — a 401 proves the by-email route is matched first."""
+    resp = app_client.delete(
+        _by_email_path(),
+        params={"email": "a@example.com", "confirm": "a@example.com"},
+    )
+    assert resp.status_code == 401
+
+
+def test_purge_by_email_missing_params_422(
+    app_client: TestClient, db_session: Session, _fake_get_auth_user_by_email: MagicMock
+) -> None:
+    db_session.add(_user(_A, "a@example.com"))
+    db_session.flush()
+    resp = app_client.delete(_by_email_path(), headers=_headers())
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "email and confirm query params are required"
+    resp = app_client.delete(
+        _by_email_path(), headers=_headers(), params={"email": "a@example.com"}
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "email and confirm query params are required"
+    _fake_get_auth_user_by_email.assert_not_called()
+    assert db_session.get(User, _A) is not None
+
+
+def test_purge_by_email_confirm_mismatch_422(
+    app_client: TestClient,
+    db_session: Session,
+    _fake_delete_auth_user: MagicMock,
+    _fake_get_auth_user_by_email: MagicMock,
+) -> None:
+    """Boundary guard: the two values must be the same email — this is a
+    repeat check, weaker than the by-id id/email cross-check by design
+    (issue #274), and it fires before any lookup or delete."""
+    db_session.add(_user(_A, "a@example.com"))
+    db_session.flush()
+    resp = app_client.delete(
+        _by_email_path(),
+        headers=_headers(),
+        params={"email": "a@example.com", "confirm": "other@example.com"},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "email and confirm must match"
+    _fake_delete_auth_user.assert_not_called()
+    _fake_get_auth_user_by_email.assert_not_called()
+    assert db_session.get(User, _A) is not None
+
+
+def test_purge_by_email_blank_params_422(
+    app_client: TestClient, db_session: Session, _fake_get_auth_user_by_email: MagicMock
+) -> None:
+    db_session.add(_user(_A, "a@example.com"))
+    db_session.flush()
+    resp = app_client.delete(
+        _by_email_path(), headers=_headers(), params={"email": "  ", "confirm": "  "}
+    )
+    assert resp.status_code == 422
+    _fake_get_auth_user_by_email.assert_not_called()
+    assert db_session.get(User, _A) is not None
+
+
+def test_purge_by_email_case_and_whitespace_succeeds(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """Both params normalize (strip+lowercase) before comparison and before
+    the local lookup — same _normalize_email discipline as signup."""
+    db_session.add(_user(_A, "foo@bar.com"))
+    db_session.flush()
+    resp = app_client.delete(
+        _by_email_path(),
+        headers=_headers(),
+        params={"email": " Foo@Bar.com ", "confirm": "foo@bar.com"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["user_id"] == str(_A)
+    assert body["email"] == "foo@bar.com"
+    assert body["deleted"]["users"] == 1
+    assert db_session.get(User, _A) is None
+
+
+def test_purge_by_email_local_hit_full_purge(
+    app_client: TestClient, db_session: Session, _fake_delete_auth_user: MagicMock
+) -> None:
+    """Same 10-step ordered purge as the by-id route: holdings/reports/
+    context/accounts/email_verifications plus the invite-pointer cleanup
+    all run, the Supabase Auth account is deleted, and an unrelated user
+    is untouched. Second call on the same email 404s."""
+    db_session.add_all([_user(_A, "a@example.com"), _user(_B, "b@example.com")])
+    db_session.add(_context(_A))
+    db_session.add(_report(_A))
+    db_session.add(_job(_A))
+    acct = Account(user_id=_A, broker="Schwab")
+    db_session.add(acct)
+    db_session.flush()
+    db_session.add(_h(user_id=_A, name="NVIDIA", ticker="NVDA", account_id=acct.id))
+    db_session.add(_verification(_A, token_hash="by-email-token"))
+    db_session.flush()
+    redeemed = Invite(
+        token_hash=hash_invite_token("redeemed-by-a"),
+        created_by=_B,
+        expires_at=datetime.now(tz=UTC) + timedelta(days=14),
+        used_at=datetime.now(tz=UTC),
+        used_by_user_id=_A,
+    )
+    db_session.add(redeemed)
+    db_session.flush()
+    invite_id = redeemed.id
+
+    resp = app_client.delete(
+        _by_email_path(),
+        headers=_headers(),
+        params={"email": "a@example.com", "confirm": "a@example.com"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["user_id"] == str(_A)
+    assert body["email"] == "a@example.com"
+    assert body["auth_deleted"] is True
+    assert body["deleted"] == {
+        "news_surfaced": 0,
+        "reports": 1,
+        "holdings": 1,
+        "accounts": 1,
+        "upload_jobs": 1,
+        "user_investment_context": 1,
+        "email_verifications": 1,
+        "invites_used_by_cleared": 1,
+        "users_invited_by_cleared": 0,
+        "users": 1,
+    }
+    _fake_delete_auth_user.assert_called_once_with(f"sub-{_A}")
+
+    db_session.expire_all()
+    assert db_session.get(User, _A) is None
+    assert db_session.get(User, _B) is not None
+    invite = db_session.get(Invite, invite_id)
+    assert invite is not None
+    assert invite.used_by_user_id is None
+
+    second = app_client.delete(
+        _by_email_path(),
+        headers=_headers(),
+        params={"email": "a@example.com", "confirm": "a@example.com"},
+    )
+    assert second.status_code == 404
+    assert second.json()["detail"] == "user not found"
+
+
+def test_purge_by_email_seed_user_409(app_client: TestClient, db_session: Session) -> None:
+    seed_id = uuid.UUID(get_settings().DEV_USER_ID)
+    db_session.add(_user(seed_id, "seed@example.com"))
+    db_session.flush()
+    resp = app_client.delete(
+        _by_email_path(),
+        headers=_headers(),
+        params={"email": "seed@example.com", "confirm": "seed@example.com"},
+    )
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "refusing to delete the seed user"
+    assert db_session.get(User, seed_id) is not None
+
+
+def test_purge_by_email_created_invites_409(app_client: TestClient, db_session: Session) -> None:
+    db_session.add(_user(_A, "a@example.com"))
+    db_session.add(
+        Invite(
+            token_hash=hash_invite_token("created-by-a"),
+            created_by=_A,
+            expires_at=datetime.now(tz=UTC) + timedelta(days=14),
+        )
+    )
+    db_session.flush()
+    resp = app_client.delete(
+        _by_email_path(),
+        headers=_headers(),
+        params={"email": "a@example.com", "confirm": "a@example.com"},
+    )
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "user created invites; revoke or reassign first"
+    assert db_session.get(User, _A) is not None
+
+
+def test_purge_by_email_auth_delete_failure_502_touches_no_local_rows(
+    app_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same guarantee as the by-id route (issue #225): an Auth-delete
+    failure leaves every local row untouched — clean no-op, safe retry."""
+    db_session.add(_user(_A, "a@example.com"))
+    db_session.add(_h(user_id=_A, name="NVIDIA", ticker="NVDA"))
+    db_session.flush()
+    monkeypatch.setattr(
+        "app.routers.admin.delete_auth_user",
+        MagicMock(side_effect=AuthProviderError("boom")),
+    )
+    resp = app_client.delete(
+        _by_email_path(),
+        headers=_headers(),
+        params={"email": "a@example.com", "confirm": "a@example.com"},
+    )
+    assert resp.status_code == 502
+    db_session.expire_all()
+    assert db_session.get(User, _A) is not None
+    assert _count(db_session, Holding.user_id, _A) == 1
+
+
+def test_purge_by_email_orphan_auth_user_found(
+    app_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Local row gone, Supabase Auth account remains — the by-email
+    equivalent of the by-id orphan path (issue #225 semantics). The
+    response's user_id reports the resolved Auth account."""
+    delete_mock = MagicMock(return_value=True)
+    monkeypatch.setattr(
+        "app.routers.admin.get_auth_user_by_email",
+        MagicMock(return_value=AuthUserInfo(id=str(_UNKNOWN), email="orphan@example.com")),
+    )
+    monkeypatch.setattr("app.routers.admin.delete_auth_user", delete_mock)
+    resp = app_client.delete(
+        _by_email_path(),
+        headers=_headers(),
+        params={"email": "orphan@example.com", "confirm": "orphan@example.com"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["auth_deleted"] is True
+    assert body["email"] == "orphan@example.com"
+    assert body["user_id"] == str(_UNKNOWN)
+    assert body["deleted"] == {
+        "news_surfaced": 0,
+        "reports": 0,
+        "holdings": 0,
+        "accounts": 0,
+        "upload_jobs": 0,
+        "user_investment_context": 0,
+        "email_verifications": 0,
+        "invites_used_by_cleared": 0,
+        "users_invited_by_cleared": 0,
+        "users": 0,
+    }
+    delete_mock.assert_called_once_with(str(_UNKNOWN))
+
+
+def test_purge_by_email_orphan_auth_user_not_found_404(
+    app_client: TestClient, _fake_get_auth_user_by_email: MagicMock
+) -> None:
+    """Neither the local users table nor Supabase Auth has this email —
+    the only case that still 404s."""
+    resp = app_client.delete(
+        _by_email_path(),
+        headers=_headers(),
+        params={"email": "nobody@example.com", "confirm": "nobody@example.com"},
+    )
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "user not found"
+
+
+def test_purge_by_email_orphan_confirm_mismatch_409(
+    app_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Defensive: the boundary already requires email == confirm, but the
+    Supabase user's stored email is the second fact being checked (same
+    contract as the by-id orphan path) — a lookup that somehow resolves to
+    a different address must 409 before deleting anything."""
+    delete_mock = MagicMock(return_value=True)
+    monkeypatch.setattr(
+        "app.routers.admin.get_auth_user_by_email",
+        MagicMock(return_value=AuthUserInfo(id=str(_UNKNOWN), email="other@example.com")),
+    )
+    monkeypatch.setattr("app.routers.admin.delete_auth_user", delete_mock)
+    resp = app_client.delete(
+        _by_email_path(),
+        headers=_headers(),
+        params={"email": "a@example.com", "confirm": "a@example.com"},
+    )
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "confirm does not match user email"
+    delete_mock.assert_not_called()
+
+
+def test_purge_by_email_orphan_lookup_failure_502(
+    app_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.admin.get_auth_user_by_email",
+        MagicMock(side_effect=AuthProviderError("boom")),
+    )
+    resp = app_client.delete(
+        _by_email_path(),
+        headers=_headers(),
+        params={"email": "orphan@example.com", "confirm": "orphan@example.com"},
+    )
+    assert resp.status_code == 502
+
+
+def test_purge_by_email_orphan_delete_failure_502(
+    app_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.admin.get_auth_user_by_email",
+        MagicMock(return_value=AuthUserInfo(id=str(_UNKNOWN), email="orphan@example.com")),
+    )
+    monkeypatch.setattr(
+        "app.routers.admin.delete_auth_user",
+        MagicMock(side_effect=AuthProviderError("boom")),
+    )
+    resp = app_client.delete(
+        _by_email_path(),
+        headers=_headers(),
+        params={"email": "orphan@example.com", "confirm": "orphan@example.com"},
+    )
+    assert resp.status_code == 502
+
+
+def test_purge_by_email_orphan_auth_subject_bound_to_live_user_409(
+    app_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Email drift reverse-orphan (review, PR #275): a live local row's
+    `auth_subject` points at the Auth account the orphan lookup resolved
+    under a different local email (Dashboard email change, or a row bound
+    to an Auth user that later got this address). Deleting here would
+    Auth-delete a live account while its local row stands — the same
+    class of guard the by-id path 409s on (PR #246 round 2). Must 409
+    before any Auth call."""
+    user = _user(_A, "a@example.com")
+    user.auth_subject = str(_AUTH_SUB)
+    db_session.add(user)
+    db_session.flush()
+    delete_mock = MagicMock(return_value=True)
+    monkeypatch.setattr(
+        "app.routers.admin.get_auth_user_by_email",
+        MagicMock(return_value=AuthUserInfo(id=str(_AUTH_SUB), email="drifted@example.com")),
+    )
+    monkeypatch.setattr("app.routers.admin.delete_auth_user", delete_mock)
+    resp = app_client.delete(
+        _by_email_path(),
+        headers=_headers(),
+        params={"email": "drifted@example.com", "confirm": "drifted@example.com"},
+    )
+    assert resp.status_code == 409
+    body = resp.json()["detail"]
+    assert str(_A) in body
+    assert "a@example.com" in body
+    delete_mock.assert_not_called()
+    db_session.expire_all()
+    assert db_session.get(User, _A) is not None
