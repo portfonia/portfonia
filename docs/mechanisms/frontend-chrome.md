@@ -170,7 +170,12 @@ Canonical design: Obsidian `Hermes/Portfonia/Docs/Ring 1-Onboarding.md`.
   in the app. `SignupForm` gained a ToS checkbox with a client-side gate
   (mirrors the existing password-mismatch `preventDefault` pattern); the
   backend's `SignupRequest.tos_accepted: Literal[True]` is the independent
-  second layer, not a duplicate of the client check.
+  second layer, not a duplicate of the client check. **Update (issue #107,
+  PR #271, 2026-08-31)**: the checkbox label now links to `/terms` and
+  `/privacy` (both `target="_blank"`, so an in-progress signup form isn't
+  lost) — issue #221 shipped the checkbox with no links and no `/tos` body
+  page; #107 filled that gap with two separate public pages instead of a
+  single `/tos` route. `tosRequired` now names both documents.
 - **One implementation per screen, `mode` prop, no `/onboarding/*` tree.**
   `QuestionnaireForm`/`QuestionnairePageBody` take `mode: "onboarding" |
   "edit"` (default `"edit"`); `HoldingsManager` takes `mode: "onboarding" |

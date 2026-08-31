@@ -35,6 +35,7 @@ export function HomeSections() {
   const t = useHomeMessages();
   const { locale } = useLocale();
   const tCommon = useTranslations("common");
+  const tLegalNav = useTranslations("legal.nav");
 
   return (
     <>
@@ -352,6 +353,14 @@ export function HomeSections() {
             <br />
             {t.footer.stack2}
           </span>
+        </div>
+        <div className="mx-auto mt-5 flex max-w-4xl items-center gap-4 text-xs text-foreground/45">
+          <Link href="/terms" className="underline underline-offset-2 hover:text-foreground/70">
+            {tLegalNav("terms")}
+          </Link>
+          <Link href="/privacy" className="underline underline-offset-2 hover:text-foreground/70">
+            {tLegalNav("privacy")}
+          </Link>
         </div>
       </footer>
     </>

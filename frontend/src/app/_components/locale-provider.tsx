@@ -106,3 +106,15 @@ export function useHomeMessages(): Messages["home"] {
     footer: t.raw("footer"),
   };
 }
+
+// Same rationale as useHomeMessages above: legal.terms/legal.privacy are
+// static section arrays with no ICU interpolation, so t.raw() per top-level
+// key restores real types instead of next-intl's untyped t.raw() return.
+export function useLegalMessages(): Messages["legal"] {
+  const t = useTranslations("legal");
+  return {
+    nav: t.raw("nav"),
+    terms: t.raw("terms"),
+    privacy: t.raw("privacy"),
+  };
+}

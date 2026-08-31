@@ -23,8 +23,12 @@
     "passwordLabel": "Password",
     "confirmPasswordLabel": "Confirm password",
     "passwordMismatch": "Passwords do not match.",
-    "tosLabel": "I agree to the Terms of Service.",
-    "tosRequired": "You must agree to the Terms of Service to continue.",
+    "tosLabelPrefix": "I agree to the ",
+    "tosLabelTerms": "Terms of Service",
+    "tosLabelAnd": " and ",
+    "tosLabelPrivacy": "Privacy Policy",
+    "tosLabelSuffix": ".",
+    "tosRequired": "You must agree to the Terms of Service and Privacy Policy to continue.",
     "loginButton": "Log in",
     "loggingIn": "Logging in...",
     "signupButton": "Create account",
@@ -408,5 +412,183 @@
     "successMessage": "{email} is now verified.",
     "invalidOrExpired": "This verification link is invalid or has expired.",
     "genericError": "Something went wrong. Try again."
+  },
+  "legal": {
+    "nav": {
+      "terms": "Terms of Service",
+      "privacy": "Privacy Policy"
+    },
+    "terms": {
+      "title": "Terms of Service",
+      "lastUpdated": "Last updated: 2026-08-30",
+      "intro": "These Terms of Service govern your use of Portfonia. Please read them together with our Privacy Policy.",
+      "sections": [
+        {
+          "heading": "1. Acceptance of Terms",
+          "body": [
+            "By creating an account or using Portfonia (\"the Service\"), you agree to these Terms of Service. If you do not agree, do not use the Service."
+          ]
+        },
+        {
+          "heading": "2. What Portfonia Is (and Is Not)",
+          "body": [
+            "Portfonia is a portfolio intelligence service. It surfaces what happened in markets, how that relates to the holdings you've told it about, and signals that may be worth your own further attention.",
+            "Portfonia is not an investment adviser, broker-dealer, or financial planner, and nothing in the Service is investment, legal, or tax advice. The Service does not tell you what to buy, sell, or hold, and does not generate trade recommendations, target prices, or ratings of any kind. Decisions about your money are yours alone; consult a licensed professional before acting on anything you read here."
+          ]
+        },
+        {
+          "heading": "3. Eligibility and Accounts",
+          "body": [
+            "You must be able to form a binding contract to use the Service. You are responsible for keeping your login credentials confidential and for all activity under your account.",
+            "The Service is currently invite-gated and offered on a closed-beta basis; access, features, and pricing may change without the notice period a generally available product would owe you."
+          ]
+        },
+        {
+          "heading": "4. Regional Restriction",
+          "body": [
+            "This service is not available to U.S. tax residents. U.S. tax residents include U.S. citizens, U.S. permanent residents (green card holders), and any individual classified as a tax resident under U.S. tax law, regardless of their country of physical residence.",
+            "By registering for this service, you represent and warrant that you are not a U.S. tax resident. If you access this service by misrepresenting, concealing, or providing false information regarding your tax residency status, Portfonia AI bears no liability for any legal consequences arising therefrom. Upon discovery of any such violation, Portfonia AI reserves the right to immediately terminate your account and permanently deny service, with no refund of any fees paid."
+          ]
+        },
+        {
+          "heading": "5. Your Holdings Data",
+          "body": [
+            "You are responsible for the accuracy of the holdings, account, and investment-preference information you upload or enter. Portfonia processes what you provide; it does not independently verify your positions against any custodian or brokerage.",
+            "You retain ownership of your holdings data. You grant Portfonia a limited license to process it solely to generate reports and analysis for your account, as described in the Privacy Policy."
+          ]
+        },
+        {
+          "heading": "6. Acceptable Use",
+          "body": [
+            "You agree not to misuse the Service — including attempting to access another user's data, interfering with the Service's operation, or using the Service to build a competing product from its outputs."
+          ]
+        },
+        {
+          "heading": "7. Intellectual Property",
+          "body": [
+            "Portfonia and its original content, features, and functionality are owned by Portfonia LLC. Reports generated for your account are yours to use personally; they are not licensed for redistribution as a data feed or third-party product."
+          ]
+        },
+        {
+          "heading": "8. Disclaimers",
+          "body": [
+            "The Service is provided \"as is\" and \"as available,\" without warranties of any kind, express or implied, including accuracy, timeliness, or fitness for a particular purpose. Market data, news, and analysis may be delayed, incomplete, or wrong. Nothing generated by the Service should be your sole basis for a financial decision."
+          ]
+        },
+        {
+          "heading": "9. Limitation of Liability",
+          "body": [
+            "To the fullest extent permitted by law, Portfonia LLC is not liable for any indirect, incidental, or consequential damages, or for any financial loss arising from your use of, or reliance on, the Service."
+          ]
+        },
+        {
+          "heading": "10. Termination",
+          "body": [
+            "You may stop using the Service and request deletion of your account and data at any time. Portfonia may suspend or terminate accounts that violate these Terms."
+          ]
+        },
+        {
+          "heading": "11. Changes to These Terms",
+          "body": [
+            "Portfonia may update these Terms as the Service evolves. Material changes will be reflected on this page with an updated effective date; continued use after a change constitutes acceptance."
+          ]
+        },
+        {
+          "heading": "12. Governing Law",
+          "body": [
+            "These Terms are governed by the laws applicable in the jurisdiction where Portfonia LLC is organized, without regard to conflict-of-law principles. [Jurisdiction to be finalized pending legal review.]"
+          ]
+        },
+        {
+          "heading": "13. Contact",
+          "body": [
+            "Questions about these Terms can be sent to info@portfonia.com."
+          ]
+        }
+      ]
+    },
+    "privacy": {
+      "title": "Privacy Policy",
+      "lastUpdated": "Last updated: 2026-08-30",
+      "intro": "Your privacy matters to us. This policy explains what we collect, why, and how it's protected.",
+      "sections": [
+        {
+          "heading": "1. Overview",
+          "body": [
+            "This Privacy Policy explains what information Portfonia collects, how it is used, and the choices you have. It covers the Portfonia web application and the reports it emails you."
+          ]
+        },
+        {
+          "heading": "2. Information We Collect",
+          "body": [
+            "Account information: your email address and authentication credentials, handled by our authentication provider.",
+            "Holdings and investment data: positions, brokers/custodians, and quantities you upload, plus any investment-style questionnaire responses you provide.",
+            "Usage information: basic session and activity data needed to operate the Service securely (for example, sign-in timestamps and idle-timeout enforcement)."
+          ]
+        },
+        {
+          "heading": "3. How We Use Your Information",
+          "body": [
+            "We use your data solely to generate and deliver your portfolio reports and to operate, secure, and improve the Service. We do not sell your data, and we do not use your holdings to build or improve any third-party product."
+          ]
+        },
+        {
+          "heading": "4. Data Storage and Security",
+          "body": [
+            "Holdings data is encrypted at rest. Access to production systems is restricted, and administrative actions are logged.",
+            "No system is perfectly secure, and we cannot guarantee absolute security, but protecting your data is treated as a first-class engineering requirement, not an afterthought."
+          ]
+        },
+        {
+          "heading": "5. Third-Party Processing (LLMs)",
+          "body": [
+            "Generating a report involves sending portions of your data to third-party large-language-model providers for analysis. By default, every such call is configured to opt out of the provider using your data for model training.",
+            "A narrow, owner-approved exception applies to two specific, non-analytical processing steps: public-market search-query generation, and translating a finished report into your display language. These two steps are routed directly to a single named provider's own first-party API instead of through the training opt-out described above, because that is the only way to reach that specific low-cost model. That provider's standard API terms permit using submitted data to improve its models, so this exception accepts that risk for those two steps only — it is not backed by a no-training data agreement. To limit the exception's reach, the routing is hard-pinned with no automatic fallback to a different provider if it becomes unavailable. The translation step does process report text derived from your holdings, since it translates the finished report itself; the search-query step does not, since it only uses public market/macro themes."
+          ]
+        },
+        {
+          "heading": "6. Data Retention",
+          "body": [
+            "We retain your account and holdings data for as long as your account is active. Some operational records (for example, upload-job metadata) are automatically purged after a short retention window. You may request full deletion of your account and associated data at any time (see \"Your Rights\" below)."
+          ]
+        },
+        {
+          "heading": "7. Your Rights",
+          "body": [
+            "You can review and update your holdings and profile information directly in the Service. You can request permanent deletion of your account and all associated data by contacting us; deletion removes your local records and your authentication account."
+          ]
+        },
+        {
+          "heading": "8. Cookies and Sessions",
+          "body": [
+            "We use session cookies to keep you signed in and to enforce automatic sign-out after a period of inactivity. We do not use third-party advertising or tracking cookies."
+          ]
+        },
+        {
+          "heading": "9. Children's Privacy",
+          "body": [
+            "The Service is not directed to, and not knowingly used by, anyone under 18. We do not knowingly collect information from minors."
+          ]
+        },
+        {
+          "heading": "10. Applicable Law and Target Regions",
+          "body": [
+            "This service currently targets users in mainland China, Hong Kong, and Singapore, in addition to the regional eligibility restriction described in our Terms of Service. The applicable data-protection law for each of those target regions is still under legal review; this section will be completed once that review is finished."
+          ]
+        },
+        {
+          "heading": "11. Changes to This Policy",
+          "body": [
+            "We may update this Privacy Policy as the Service evolves. Material changes will be reflected on this page with an updated effective date."
+          ]
+        },
+        {
+          "heading": "12. Contact",
+          "body": [
+            "Questions about this Privacy Policy, or requests regarding your data, can be sent to info@portfonia.com."
+          ]
+        }
+      ]
+    }
   }
 }
