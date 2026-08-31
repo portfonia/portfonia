@@ -22,14 +22,14 @@ import logging
 import time
 from collections.abc import Callable, Coroutine
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 import openai
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import exists, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -39,9 +39,11 @@ from app.core.deps import require_ops_token
 from app.core.ops_log import log_ops_event
 from app.core.rate_limit import rate_limit_create_invite
 from app.models.email_verification import EmailVerification
+from app.models.holding import Holding
 from app.models.invite import Invite
 from app.models.report import Report
 from app.models.user import User
+from app.models.user_investment_context import UserInvestmentContext
 from app.schemas.reports import ReportOut
 from app.services import fx_fetcher, price_fetcher
 from app.services.auth_provider import (
@@ -314,6 +316,100 @@ def update_user_cadence(
     user.report_cadence = body.report_cadence
     session.commit()
     return UpdateCadenceOut(id=user.id, email=user.email, report_cadence=user.report_cadence)
+
+
+# Literal members must be compile-time, so these are hand-kept copies of
+# app.models.user.VALID_USER_STATUSES / VALID_REPORT_CADENCES — same
+# discipline as UpdateCadenceBody (PR #248); a drift test over both copies
+# lives in test_admin_users.py.
+UserStatusFilter = Literal["active", "deleted", "suspended"]
+ReportCadenceFilter = Literal["mwf", "weekly"]
+
+
+class UserSummaryOut(BaseModel):
+    """One account's basic facts — deliberately NOT the full PurgeUserOut
+    shape (this is read-only; there is no `deleted{}` block)."""
+
+    id: UUID
+    email: str
+    status: str
+    created_at: datetime
+    report_cadence: str
+    auth_subject_bound: bool
+    has_investment_context: bool
+    holdings_count: int
+
+
+@router.get("/users", response_model=list[UserSummaryOut])
+def list_users_endpoint(
+    email: str | None = None,
+    status: Annotated[UserStatusFilter | None, Query()] = None,
+    report_cadence: Annotated[ReportCadenceFilter | None, Query()] = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    session: Session = Depends(get_session),
+) -> list[UserSummaryOut]:
+    """Read-only ops user directory (issue #278).
+
+    Why this exists: after issue #274/PR #275, the delete-by-email
+    pre-delete confirmation policy must report an account's facts
+    (`created_at`, whether it has questionnaire/investment-context data,
+    holdings count) and get a human re-confirmation before deleting — and
+    before this endpoint, satisfying that policy still required SSH+psql,
+    the exact step #274 was built to remove. This is that policy's read
+    path: resolve an email to a user_id with enough context to know the
+    right account was found. Not a generic "list users for troubleshooting"
+    surface, and GET-only by design — no write path here.
+
+    All query params are optional. `email` is exact-match only after
+    `_normalize_email` (strip + lowercase, same as signup); whitespace-only
+    input normalizes to None and behaves like the param being absent.
+    `status`/`report_cadence` reject values outside their legal sets with
+    the same 422 shape as the cadence endpoint's Literal. `limit`/`offset`
+    page the unfiltered/broad-filter case (default 50, capped 200).
+    """
+    normalized_email = _normalize_email(email)
+    holdings_count = (
+        select(func.count())
+        .select_from(Holding)
+        .where(Holding.user_id == User.id)
+        .correlate(User)
+        .scalar_subquery()
+    )
+    has_context = (
+        select(func.count())
+        .select_from(UserInvestmentContext)
+        .where(UserInvestmentContext.user_id == User.id)
+        .correlate(User)
+        .scalar_subquery()
+    )
+    stmt = select(
+        User,
+        holdings_count.label("holdings_count"),
+        has_context.label("has_investment_context"),
+    )
+    if normalized_email is not None:
+        stmt = stmt.where(User.email == normalized_email)
+    if status is not None:
+        stmt = stmt.where(User.status == status)
+    if report_cadence is not None:
+        stmt = stmt.where(User.report_cadence == report_cadence)
+    stmt = stmt.order_by(User.created_at, User.id).limit(limit).offset(offset)
+
+    rows = session.execute(stmt).all()
+    return [
+        UserSummaryOut(
+            id=user.id,
+            email=user.email,
+            status=user.status,
+            created_at=user.created_at,
+            report_cadence=user.report_cadence,
+            auth_subject_bound=user.auth_subject is not None,
+            has_investment_context=has_context_count > 0,
+            holdings_count=holdings_count_value,
+        )
+        for user, holdings_count_value, has_context_count in rows
+    ]
 
 
 @router.post(
