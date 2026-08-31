@@ -223,7 +223,14 @@ Canonical design: Obsidian `Hermes/Portfonia/Docs/Ring 1-Onboarding.md`.
   be sent until the address is verified — derived per scope exactly like
   the Profile page's issue #269 §6 rule (a set delivery_email is checked
   against `delivery_email_verified_at`, the account-email fallback against
-  `email_verified_at`). Key added to all three catalogs.
+  `email_verified_at`). Key added to all three catalogs. **Update (issue
+  #280 item 3, 2026-08-31)**: successful login now lands on `/profile` for
+  a returning user whose onboarding is complete (`GET /me`'s `missing` is
+  empty); anyone still missing questionnaire/holdings keeps the old
+  `/holdings` landing so the onboarding flow's next step stays reachable.
+  `login/actions.ts` reads `missing` via `getMeServer()` after
+  `signInWithPassword`, degrading to `/holdings` if `/me` is unreachable
+  (the 401 path's own logout redirect still propagates).
 - **Profile's gap card reads `GET /me`'s `missing` field** (`#220` shipped
   the full response shape already; this is the first UI consumer of
   `missing`/`has_questionnaire`/`has_holdings`). Renders nothing when
