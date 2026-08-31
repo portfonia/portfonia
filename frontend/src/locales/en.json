@@ -415,10 +415,10 @@
   },
   "unsubscribe": {
     "heading": "Unsubscribe from report emails",
-    "subtitle": "Stop sending reports to {email}?",
+    "subtitle": "Revoke verification for {email}?",
     "confirmButton": "Confirm unsubscribe",
     "confirming": "Unsubscribing...",
-    "successBody": "You have unsubscribed {email} from report delivery. Other verified addresses on this account are unaffected.",
+    "successBody": "Verification for {email} has been revoked. Other verified addresses on this account are unaffected.",
     "setAddressLink": "To set another recipient address, click here.",
     "invalidOrExpired": "This unsubscribe link is invalid or has expired.",
     "genericError": "Something went wrong. Try again."

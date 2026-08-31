@@ -5,6 +5,7 @@ Stateless: create/verify round-trip against APP_SECRET_KEY, no DB.
 
 from __future__ import annotations
 
+import base64
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -61,3 +62,14 @@ def test_garbage_and_empty_tokens_return_none() -> None:
     assert verify_token("", now=_NOW) is None
     assert verify_token("not-a-token", now=_NOW) is None
     assert verify_token("%%%", now=_NOW) is None
+
+
+def _non_ascii_digest_token() -> str:
+    """urlsafe-b64 of a payload whose HMAC half is non-ASCII — Python 3.12
+    `hmac.compare_digest` raises TypeError on that, which must not escape."""
+    raw = "email-unsubscribe-v1:x.café"
+    return base64.urlsafe_b64encode(raw.encode()).decode("ascii").rstrip("=")
+
+
+def test_non_ascii_digest_returns_none_without_raising() -> None:
+    assert verify_token(_non_ascii_digest_token(), now=_NOW) is None

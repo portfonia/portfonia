@@ -52,13 +52,16 @@ def confirm_unsubscribe(session: Session, *, token: str) -> UnsubscribeClaims:
     if user is None:
         raise UnsubscribeRejected(UNSUBSCRIBE_REJECTED_MESSAGE)
 
-    # Scope is the address in the token, not the account. A later change of
-    # `users.delivery_email` (or a future account-email change) must not
-    # have its verification timestamp cleared by a token issued for the
-    # previous address.
-    if claims.purpose == "account_email" and user.email == claims.email:
+    # Scope is the address in the token, not the purpose and not the
+    # account. If both `users.email` and `users.delivery_email` currently
+    # hold that mailbox, both timestamps clear — otherwise a
+    # delivery-purpose click would leave account-email verified and
+    # #276's future gate would keep mailing the same inbox (PR #279
+    # review). A replaced address (column no longer equals claims.email)
+    # is left untouched.
+    if user.email == claims.email:
         user.email_verified_at = None
-    elif claims.purpose == "delivery_email" and user.delivery_email == claims.email:
+    if user.delivery_email == claims.email:
         user.delivery_email_verified_at = None
 
     now = datetime.now(UTC)

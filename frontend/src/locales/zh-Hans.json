@@ -415,10 +415,10 @@
   },
   "unsubscribe": {
     "heading": "退订报告邮件",
-    "subtitle": "确定要退订 {email} 的报告接收吗？",
+    "subtitle": "确定要撤销 {email} 的验证吗？",
     "confirmButton": "确认退订",
     "confirming": "退订中...",
-    "successBody": "您已退订 {email} 的报告接收，本账户下其它有效邮箱的接收不受影响。",
+    "successBody": "已撤销 {email} 的验证。本账户下其它已验证邮箱不受影响。",
     "setAddressLink": "如果您需要设置其它接收邮箱，请点击此处设置。",
     "invalidOrExpired": "这个退订链接无效或已过期。",
     "genericError": "出了点问题，请重试。"

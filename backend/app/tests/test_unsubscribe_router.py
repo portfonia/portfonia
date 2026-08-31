@@ -7,6 +7,7 @@ gate.
 
 from __future__ import annotations
 
+import base64
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -164,6 +165,39 @@ def test_confirm_bad_token_returns_generic_400(app_client: TestClient) -> None:
     resp = app_client.post("/unsubscribe/confirm", json={"token": "nope"})
     assert resp.status_code == 400
     assert resp.json()["detail"] == "invalid or expired unsubscribe link"
+
+
+def test_confirm_same_mailbox_on_both_fields_clears_both_timestamps(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """Design §3.7 is per-address, not per-purpose: if account email and
+    delivery email are the same mailbox, a delivery-purpose click must not
+    leave email_verified_at set (PR #279 review)."""
+    db_session.add(_user(email="same@example.com", delivery_email="same@example.com"))
+    db_session.commit()
+    token = create_token(user_id=_UID, purpose="delivery_email", email="same@example.com")
+
+    resp = app_client.post("/unsubscribe/confirm", json={"token": token})
+
+    assert resp.status_code == 200
+    db_session.expire_all()
+    user = db_session.get(User, _UID)
+    assert user is not None
+    assert user.email_verified_at is None
+    assert user.delivery_email_verified_at is None
+    revoked = db_session.execute(
+        select(EmailVerification).where(EmailVerification.status == "revoked")
+    ).scalar_one()
+    assert revoked.purpose == "delivery_email"
+    assert revoked.email == "same@example.com"
+
+
+def test_status_non_ascii_digest_is_found_false_not_500(app_client: TestClient) -> None:
+    raw = "email-unsubscribe-v1:x.café"
+    token = base64.urlsafe_b64encode(raw.encode()).decode("ascii").rstrip("=")
+    resp = app_client.get("/unsubscribe/status", params={"token": token})
+    assert resp.status_code == 200
+    assert resp.json() == {"found": False, "email": None}
 
 
 def test_confirm_body_is_token_only_no_altcha(app_client: TestClient, db_session: Session) -> None:

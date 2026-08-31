@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 from bs4 import BeautifulSoup, Tag
@@ -28,6 +28,29 @@ from app.services.user_directory import recipient_email_with_purpose
 logger = logging.getLogger(__name__)
 
 _RESEND_SEND_URL = "https://api.resend.com/emails"
+# Resend Idempotency-Key TTL is 24 hours. The unsubscribe token is embedded
+# in html_body, which is hashed into that key, so `now` used to mint the
+# token must be constant inside this window (PR #279 review).
+_RESEND_IDEMPOTENCY_WINDOW = timedelta(hours=24)
+
+
+def _now_utc() -> datetime:
+    return datetime.now(tz=UTC)
+
+
+def _stable_unsubscribe_now(now: datetime) -> datetime:
+    """End of the current 24h UTC bucket.
+
+    `create_token` adds TOKEN_TTL (7 days) to this instant, so remaining
+    life is always in [7d, 8d) from the real send time, and the token
+    (hence html_body / Idempotency-Key) is identical for any two sends
+    in the same bucket.
+    """
+    window = int(_RESEND_IDEMPOTENCY_WINDOW.total_seconds())
+    epoch = int(now.timestamp())
+    bucket_start = epoch - (epoch % window)
+    return datetime.fromtimestamp(bucket_start + window, tz=UTC)
+
 
 # Render report Markdown to HTML.
 # - html=False escapes any raw HTML in the LLM output (defense against
@@ -239,7 +262,12 @@ def send_report_email(report: Report, session: Session) -> bool:
         else report_title_key
     )
     subject = f"{report_title} — {report_date_str}"
-    unsub_token = create_unsubscribe_token(user_id=report.user_id, purpose=purpose, email=recipient)
+    unsub_token = create_unsubscribe_token(
+        user_id=report.user_id,
+        purpose=purpose,
+        email=recipient,
+        now=_stable_unsubscribe_now(_now_utc()),
+    )
     unsub_url = f"{settings.FRONTEND_URL}/unsubscribe?token={unsub_token}"
     footer_copy = _UNSUBSCRIBE_FOOTER_COPY.get(
         settings.OUTPUT_LANG, _UNSUBSCRIBE_FOOTER_COPY[_DEFAULT_UNSUBSCRIBE_FOOTER_LOCALE]
@@ -374,12 +402,12 @@ def send_report_email(report: Report, session: Session) -> bool:
 # therefore present in the text alternative without a second injection.
 _UNSUBSCRIBE_FOOTER_COPY: dict[str, dict[str, str]] = {
     "en": {
-        "html_md": "[Unsubscribe from report delivery]({url})",
-        "text": "To unsubscribe this address from report delivery, visit:\n{url}",
+        "html_md": "[Revoke verification for this address]({url})",
+        "text": "To revoke verification for this address, visit:\n{url}",
     },
     "zh": {
-        "html_md": "[退订报告邮件]({url})",
-        "text": "如需退订此邮箱的报告接收,请访问:\n{url}",
+        "html_md": "[撤销此邮箱的验证]({url})",
+        "text": "如需撤销此邮箱的验证,请访问:\n{url}",
     },
 }
 _DEFAULT_UNSUBSCRIBE_FOOTER_LOCALE = "en"

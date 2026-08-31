@@ -10,7 +10,7 @@ Strategy:
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 from bs4 import BeautifulSoup, Tag
@@ -734,6 +734,46 @@ def test_send_unsubscribe_token_uses_delivery_purpose(
     assert claims is not None
     assert claims.purpose == "delivery_email"
     assert claims.email == "delivery@example.com"
+
+
+@patch(
+    "app.services.email_sender.recipient_email_with_purpose",
+    return_value=("test@example.com", "account_email"),
+)
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
+def test_idempotency_key_and_token_stable_one_second_apart(
+    mock_client_cls: MagicMock, mock_settings: MagicMock, _recipient: MagicMock
+) -> None:
+    """PR #279 review: html_body (hashed into Idempotency-Key) must not
+    change when `now` ticks one second inside Resend's 24h window."""
+    mock_settings.return_value = _mock_settings()
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    post_mock = mock_client_cls.return_value.__enter__.return_value.post
+    post_mock.return_value = mock_resp
+
+    report = _make_report(md="# Report\n\nSame content")
+    clock = {"t": datetime(2026, 8, 31, 12, 0, 0, tzinfo=UTC)}
+
+    def _frozen_now() -> datetime:
+        return clock["t"]
+
+    prefix = "<https://portfonia.com/unsubscribe?token="
+    with patch("app.services.email_sender._now_utc", _frozen_now):
+        send_report_email(report, MagicMock())
+        key1 = post_mock.call_args.kwargs["headers"]["Idempotency-Key"]
+        token1 = post_mock.call_args.kwargs["json"]["headers"]["List-Unsubscribe"]
+        token1 = token1[len(prefix) : -1]
+        report.email_sent_at = None
+        clock["t"] = clock["t"] + timedelta(seconds=1)
+        send_report_email(report, MagicMock())
+        key2 = post_mock.call_args.kwargs["headers"]["Idempotency-Key"]
+        token2 = post_mock.call_args.kwargs["json"]["headers"]["List-Unsubscribe"]
+        token2 = token2[len(prefix) : -1]
+
+    assert key1 == key2
+    assert token1 == token2
 
 
 # ---------------------------------------------------------------------------

@@ -77,7 +77,20 @@ def create_token(
 
 def verify_token(token: str, *, now: datetime | None = None) -> UnsubscribeClaims | None:
     """Return the decoded claims, or None for anything malformed, tampered,
-    or expired — never raises, matching ``verify_forgot_password_solution``."""
+    or expired — never raises, matching ``verify_forgot_password_solution``.
+
+    The outer ``except Exception`` is load-bearing: Python 3.12's
+    ``hmac.compare_digest`` raises ``TypeError`` when a decoded digest
+    half is non-ASCII, and GET/POST /unsubscribe are unauthenticated
+    (PR #279 review). HMAC is still compared before any claims parse.
+    """
+    try:
+        return _verify_token(token, now=now)
+    except Exception:
+        return None
+
+
+def _verify_token(token: str, *, now: datetime | None) -> UnsubscribeClaims | None:
     decoded = _decode(token)
     if decoded is None:
         return None

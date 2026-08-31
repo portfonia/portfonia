@@ -359,11 +359,23 @@ path is still out of scope (design doc §七).
 
 **Confirm**: `GET /unsubscribe/status` decodes the token only (no DB,
 no writes). `POST /unsubscribe/confirm` (token only, no Altcha) clears
-the matching `users.*_verified_at` when the current field value still
-equals the token's email, and **appends** a `status=revoked`
-`email_verifications` row — the historical `verified` row is left
-untouched. Frontend `/unsubscribe` mirrors `/verify-email` (Server
-Component GET + Server Action POST) and is in `PUBLIC_PATH_PREFIXES`.
+`users.*_verified_at` on every column whose *current* value equals the
+token's email (so the same mailbox on both account and delivery fields
+is fully revoked), and **appends** a single `status=revoked`
+`email_verifications` row for the token's purpose — the historical
+`verified` row is left untouched. Frontend `/unsubscribe` mirrors
+`/verify-email` (Server Component GET + Server Action POST) and is in
+`PUBLIC_PATH_PREFIXES`. Confirm-page copy talks about revoking
+verification, not about delivery already having stopped: `send_report_email`
+still sends to `recipient_email_with_purpose()` with no `*_verified_at`
+check until issue #276.
+
+**Idempotency**: the unsubscribe token's `now` is the end of the current
+24h UTC bucket (Resend Idempotency-Key TTL), so a retry one second later
+reuses the same html_body hash. `verify_token` swallows all exceptions
+(including Python 3.12 `hmac.compare_digest` TypeError on a non-ASCII
+digest) and returns `None`, matching Altcha.
 
 **Still out of scope**: report-generation gating on verified status
-(issue #276); re-subscribe is "verify again via Profile".
+(issue #276) — this PR's user-facing copy must not claim delivery has
+already stopped; re-subscribe is "verify again via Profile".
