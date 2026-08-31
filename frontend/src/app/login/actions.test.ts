@@ -13,27 +13,12 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 vi.mock("@/lib/server-api", () => ({ getMeServer }));
 
-import type { Me } from "@/lib/api";
 import { login } from "./actions";
 
 function formData(fields: Record<string, string>) {
   const fd = new FormData();
   for (const [k, v] of Object.entries(fields)) fd.set(k, v);
   return fd;
-}
-
-function me(missing: string[]): Me {
-  return {
-    email: "a@b.com",
-    delivery_email: null,
-    email_verified_at: null,
-    delivery_email_verified_at: null,
-    tos_accepted_at: "2026-08-27T00:00:00Z",
-    has_questionnaire: !missing.includes("questionnaire"),
-    has_holdings: !missing.includes("holdings"),
-    missing,
-    pending_email_verifications: [],
-  };
 }
 
 describe("login action", () => {
@@ -59,30 +44,12 @@ describe("login action", () => {
     expect(redirect).not.toHaveBeenCalled();
   });
 
-  it("redirects to /holdings for a new user with onboarding gaps (issue #280 item 3)", async () => {
+  it("redirects to /profile on success without a /me round-trip (issue #280 item 3)", async () => {
     signInWithPassword.mockResolvedValue({ error: null });
-    getMeServer.mockResolvedValue(me(["holdings"]));
-
-    await login(undefined, formData({ email: "a@b.com", password: "correcthorse" }));
-
-    expect(redirect).toHaveBeenCalledWith("/holdings");
-  });
-
-  it("redirects to /profile for a returning user with onboarding complete (issue #280 item 3)", async () => {
-    signInWithPassword.mockResolvedValue({ error: null });
-    getMeServer.mockResolvedValue(me([]));
 
     await login(undefined, formData({ email: "a@b.com", password: "correcthorse" }));
 
     expect(redirect).toHaveBeenCalledWith("/profile");
-  });
-
-  it("degrades to /holdings when /me cannot be reached after a successful sign-in", async () => {
-    signInWithPassword.mockResolvedValue({ error: null });
-    getMeServer.mockRejectedValue(new Error("Backend returned 500"));
-
-    await login(undefined, formData({ email: "a@b.com", password: "correcthorse" }));
-
-    expect(redirect).toHaveBeenCalledWith("/holdings");
+    expect(getMeServer).not.toHaveBeenCalled();
   });
 });

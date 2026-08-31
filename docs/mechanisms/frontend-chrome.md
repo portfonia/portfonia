@@ -191,16 +191,16 @@ Canonical design: Obsidian `Hermes/Portfonia/Docs/Ring 1-Onboarding.md`.
   skipping the holdings step entirely, so only a user who *skipped* the
   questionnaire ever saw the holdings page. Save now joins Skip at
   `/holdings?onboarding=1` (design correction recorded in Ring
-  1-Onboarding.md §9.1); holdings' own save is the only route into
-  `/welcome`. This supersedes issue #214's
+  1-Onboarding.md §9.1). This supersedes issue #214's
   same-path-Link-no-remount fix (which reset the questionnaire wizard's
   `step` back to 0 instead of navigating): once every successful save
   leaves `/questionnaire`, that fix is unreachable and was removed.
   Skip (a plain `Link`, never a submit — writes no row) follows the same
   table: onboarding → `/holdings?onboarding=1`, edit → `/profile`. Holdings
-  onboarding mode additionally hides the Current holdings card (which is
-  also where Export lives, so hiding the card hides Export too) and the
-  Download-template button.
+  onboarding mode additionally gains a "Skip for now" link to `/welcome`
+  (§9.1's "持仓页保存/跳过" — a plain `Link`, no rows written), hides the
+  Current holdings card (which is also where Export lives, so hiding the
+  card hides Export too) and the Download-template button.
 - **`/welcome` is a new route**, not public (absent from `proxy.ts`'s
   `PUBLIC_PATH_PREFIXES`, same as `/profile`/`/holdings` — no route-specific
   auth code needed). Server Component `page.tsx` calls `getMeServer()`;
@@ -211,26 +211,31 @@ Canonical design: Obsidian `Hermes/Portfonia/Docs/Ring 1-Onboarding.md`.
   for the same hydration-mismatch reason) and `router.replace("/")`s a
   second same-session visit instead of re-rendering. No CTA button, no
   dashboard link, and no Profile menu entry to it — reachable only from the
-  holdings onboarding Save flow (issue #280 moved the questionnaire's
-  onboarding Save to `/holdings?onboarding=1`, so it is no longer a direct
-  entry). Copy never claims a holdings-confirmation email was sent and
-  never prints the current global MWF 17:00 schedule even though the
-  user's own cadence is already `weekly` — that number is filled in only
-  once a later cadence issue wires `weekly` into Beat. **Update (issue
-  #280, 2026-08-31)**: when the receiving address (`delivery_email ??
-  email`, the same fallback the holdings line uses) has no verified
-  timestamp, a `welcome.emailUnverified` warning renders — reports won't
-  be sent until the address is verified — derived per scope exactly like
-  the Profile page's issue #269 §6 rule (a set delivery_email is checked
-  against `delivery_email_verified_at`, the account-email fallback against
-  `email_verified_at`). Key added to all three catalogs. **Update (issue
-  #280 item 3, 2026-08-31)**: successful login now lands on `/profile` for
-  a returning user whose onboarding is complete (`GET /me`'s `missing` is
-  empty); anyone still missing questionnaire/holdings keeps the old
-  `/holdings` landing so the onboarding flow's next step stays reachable.
-  `login/actions.ts` reads `missing` via `getMeServer()` after
-  `signInWithPassword`, degrading to `/holdings` if `/me` is unreachable
-  (the 401 path's own logout redirect still propagates).
+  holdings onboarding Save and Skip flows (issue #280 moved the
+  questionnaire's onboarding Save to `/holdings?onboarding=1`, so it is no
+  longer a direct entry). Copy never claims a holdings-confirmation email
+  was sent and never prints the current global MWF 17:00 schedule even
+  though the user's own cadence is already `weekly` — that number is filled
+  in only once a later cadence issue wires `weekly` into Beat. **Update
+  (issue #280, 2026-08-31)**: when the receiving address (`delivery_email
+  ?? email`, the same fallback the holdings line uses) has no verified
+  timestamp, a `welcome.emailUnverified` prompt renders, naming that
+  address — "Verify {deliveryEmail} so reports can reach you" — derived
+  per scope exactly like the Profile page's issue #269 §6 rule (a set
+  delivery_email is checked against `delivery_email_verified_at`, the
+  account-email fallback against `email_verified_at`). Key added to all
+  three catalogs. The copy deliberately stays in the same register as the
+  Profile page's `emailVerificationNoRecipient` ("so reports can reach
+  you"): the send-time gate that actually stops delivery is issue #276,
+  still open, so the page must not claim "reports won't be sent". **Update
+  (issue #280 item 3, 2026-08-31)**: successful login redirects
+  unconditionally to `/profile` (was `/holdings`). `/login` only ever
+  serves returning users — signup redirects straight to
+  `/questionnaire?onboarding=1` and never passes through this action — so
+  there is no new-vs-returning or onboarding-gap branch; interrupted
+  onboarding is resumed from Profile's gap cards in edit mode. The
+  pre-existing `/me` round-trip in `login/actions.ts` was removed with the
+  branch.
 - **Profile's gap card reads `GET /me`'s `missing` field** (`#220` shipped
   the full response shape already; this is the first UI consumer of
   `missing`/`has_questionnaire`/`has_holdings`). Renders nothing when

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 
@@ -161,6 +162,17 @@ export function HoldingsManager({
       {displayError && (
         <div className="mb-6 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
           {displayError}
+        </div>
+      )}
+
+      {/* Onboarding skip (Ring 1-Onboarding.md §9.1 — "持仓页保存/跳过"): a
+          plain Link, never a submit — no rows are written. Save is the
+          other route into /welcome. */}
+      {mode === "onboarding" && (
+        <div className="mb-6 flex justify-end">
+          <Link href="/welcome" className="text-sm underline-offset-4 hover:underline">
+            {t("skipOnboarding")}
+          </Link>
         </div>
       )}
 

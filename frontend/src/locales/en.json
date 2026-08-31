@@ -92,6 +92,7 @@
     "issuesCount": "{n, plural, one {# row will NOT be saved unless you fix them} other {# rows will NOT be saved unless you fix them}}",
     "saveButton": "Save holdings",
     "saving": "Saving...",
+    "skipOnboarding": "Skip for now",
     "cancelButton": "Cancel",
     "confirmTitle": "Discard unparsed rows?",
     "confirmBody": "{n, plural, one {# row could not be parsed and will be permanently discarded. This is your last chance to recover them. To keep them, download the file, fix the rows, and re-upload instead.} other {# rows could not be parsed and will be permanently discarded. This is your last chance to recover them. To keep them, download the file, fix the rows, and re-upload instead.}}",
@@ -402,7 +403,7 @@
     "withHoldings": "Your holdings are saved. Reports will be sent to {deliveryEmail}.",
     "withoutHoldings": "Reports will be sent to {deliveryEmail}. Holdings-related sections stay empty until you save holdings.",
     "cadence": "Your cadence is weekly. The first report follows that schedule.",
-    "emailUnverified": "Reports won't be sent until {deliveryEmail} is verified.",
+    "emailUnverified": "Verify {deliveryEmail} so reports can reach you.",
     "errorLoadFailed": "Could not load your account."
   },
   "emailVerification": {

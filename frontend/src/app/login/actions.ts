@@ -2,8 +2,6 @@
 
 import { redirect } from "next/navigation";
 
-import { isNextRedirectError } from "@/lib/next-redirect-error";
-import { getMeServer } from "@/lib/server-api";
 import { createClient } from "@/lib/supabase/server";
 import { catalogs, DEFAULT_LOCALE, isLocale } from "@/locales";
 
@@ -40,18 +38,11 @@ export async function login(
     return { error: auth.errorInvalidCredentials };
   }
 
-  // Issue #280 item 3 (product decision): a returning user whose onboarding
-  // is complete (no questionnaire/holdings gaps) lands on /profile — the
-  // nav's Home-entry replacement; anyone still mid-onboarding keeps the
-  // /holdings landing so the flow's next step stays reachable. getMeServer's
-  // 401 path logout()s (its own redirect throw) and must propagate; any
-  // other failure after a successful sign-in degrades to the old landing.
-  let destination = "/holdings";
-  try {
-    const me = await getMeServer();
-    destination = me.missing.length === 0 ? "/profile" : "/holdings";
-  } catch (err) {
-    if (isNextRedirectError(err)) throw err;
-  }
-  redirect(destination);
+  // Issue #280 item 3: /login only ever serves returning users — signup
+  // redirects straight to /questionnaire?onboarding=1 and never passes
+  // through this action — so the landing is unconditionally /profile, no
+  // new-vs-returning or onboarding-gap branch. Interrupted onboarding is
+  // resumed from Profile's gap cards in edit mode, not from a login
+  // landing.
+  redirect("/profile");
 }

@@ -57,23 +57,23 @@ describe("WelcomeBody", () => {
     ).toBeInTheDocument();
   });
 
-  it("warns that reports wait on verification, naming the fallback account email when no delivery email is set (issue #280 §9.2)", () => {
+  it("warns to verify the fallback account email when no delivery email is set (issue #280 §9.2)", () => {
     renderBody(_ME);
     expect(
-      screen.getByText("Reports won't be sent until a@b.com is verified."),
+      screen.getByText("Verify a@b.com so reports can reach you."),
     ).toBeInTheDocument();
   });
 
   it("warns naming the delivery email when it is set but unverified", () => {
     renderBody({ ..._ME, delivery_email: "reports@b.com" });
     expect(
-      screen.getByText("Reports won't be sent until reports@b.com is verified."),
+      screen.getByText("Verify reports@b.com so reports can reach you."),
     ).toBeInTheDocument();
   });
 
   it("shows no verification warning once the fallback account email is verified", () => {
     renderBody({ ..._ME, email_verified_at: "2026-08-27T00:00:00Z" });
-    expect(screen.queryByText(/won't be sent until/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Verify .* so reports can reach you/i)).not.toBeInTheDocument();
   });
 
   it("shows no verification warning once the delivery email itself is verified", () => {
@@ -82,7 +82,7 @@ describe("WelcomeBody", () => {
       delivery_email: "reports@b.com",
       delivery_email_verified_at: "2026-08-27T00:00:00Z",
     });
-    expect(screen.queryByText(/won't be sent until/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Verify .* so reports can reach you/i)).not.toBeInTheDocument();
   });
 
   it("has no dashboard button and no CTA", () => {

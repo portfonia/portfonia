@@ -92,6 +92,7 @@
     "issuesCount": "{n} 行未能解析，若不修正将不会被保存",
     "saveButton": "保存持仓",
     "saving": "保存中...",
+    "skipOnboarding": "暂时跳过",
     "cancelButton": "取消",
     "confirmTitle": "放弃未解析的行？",
     "confirmBody": "{n} 行未能解析，将被永久放弃。这是恢复它们的最后机会。若要保留，请下载文件、修正后重新上传。",
@@ -402,7 +403,7 @@
     "withHoldings": "你的持仓已保存。报告将发送至 {deliveryEmail}。",
     "withoutHoldings": "报告将发送至 {deliveryEmail}。保存持仓前，持仓相关板块将保持为空。",
     "cadence": "你的报告周期是每周一次。首份报告将按此周期发送。",
-    "emailUnverified": "报告要等 {deliveryEmail} 验证通过后才会发送。",
+    "emailUnverified": "请验证 {deliveryEmail}，确保报告能够送达。",
     "errorLoadFailed": "无法加载你的账户信息。"
   },
   "emailVerification": {
