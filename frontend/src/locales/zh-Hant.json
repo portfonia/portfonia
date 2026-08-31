@@ -413,6 +413,16 @@
     "invalidOrExpired": "這個驗證連結無效或已過期。",
     "genericError": "出了點問題，請重試。"
   },
+  "unsubscribe": {
+    "heading": "退訂報告郵件",
+    "subtitle": "確定要退訂 {email} 的報告接收嗎？",
+    "confirmButton": "確認退訂",
+    "confirming": "退訂中...",
+    "successBody": "您已退訂 {email} 的報告接收，本帳戶下其它有效信箱的接收不受影響。",
+    "setAddressLink": "如果您需要設定其它接收信箱，請點擊此處設定。",
+    "invalidOrExpired": "這個退訂連結無效或已過期。",
+    "genericError": "出了點問題，請重試。"
+  },
   "legal": {
     "nav": {
       "terms": "服務條款",

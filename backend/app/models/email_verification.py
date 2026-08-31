@@ -17,6 +17,7 @@ VALID_EMAIL_VERIFICATION_STATUSES = (
     "expired",
     "superseded",
     "undeliverable",
+    "revoked",
 )
 
 

@@ -332,3 +332,38 @@ trailing comma on the final inserted key).
 Existing users get no automatic email — one-time backfill is a manual
 Ops-API loop at the product owner's discretion. Released in v0.10.0;
 not yet deployed at merge time.
+
+## Report-email unsubscribe — issue #257
+
+Design: Obsidian `Hermes/Portfonia/Docs/Ring 1-Email Validation.md` §3.7.
+This is the deferred `revoked` status + confirm-page flow `86b7be7f1fe5`
+called out as not-yet-implemented.
+
+**Token**: stateless HMAC over
+`email-unsubscribe-v1:{user_id}:{purpose}:{email}:{expires_unix}`, keyed
+with `APP_SECRET_KEY` (same key as Altcha, no new secret), 7-day expiry
+embedded in the signature. `create_token` / `verify_token` live in
+`app/services/unsubscribe_token.py`; verify returns claims or `None`,
+never raises.
+
+**Send path**: `recipient_email_with_purpose()` tells `send_report_email`
+which field it resolved so the token's `purpose` matches. Every report
+email now sends Resend `text` (the markdown body plus a locale-keyed
+unsubscribe footer) alongside `html`, and custom headers
+`List-Unsubscribe: <https://…/unsubscribe?token=…>` plus
+`List-Unsubscribe-Post: List-Unsubscribe=One-Click`. The confirm-page
+flow is **not** RFC 8058 one-click compliant (it requires a page visit +
+button click); emitting `List-Unsubscribe-Post` anyway is an accepted
+deliverability simplification, not a hidden gap. A true one-click POST
+path is still out of scope (design doc §七).
+
+**Confirm**: `GET /unsubscribe/status` decodes the token only (no DB,
+no writes). `POST /unsubscribe/confirm` (token only, no Altcha) clears
+the matching `users.*_verified_at` when the current field value still
+equals the token's email, and **appends** a `status=revoked`
+`email_verifications` row — the historical `verified` row is left
+untouched. Frontend `/unsubscribe` mirrors `/verify-email` (Server
+Component GET + Server Action POST) and is in `PUBLIC_PATH_PREFIXES`.
+
+**Still out of scope**: report-generation gating on verified status
+(issue #276); re-subscribe is "verify again via Profile".

@@ -35,6 +35,7 @@ One locale-keyed catalog for every in-product string, read via
   report preview, boundary, FAQ, footer). Nothing outside `/` reads this
   namespace.
 - `emailVerification` — `/verify-email` page (issue #260).
+- `unsubscribe` — `/unsubscribe` page (issue #257).
 
 ## No URL-based locale routing (explicit product decision, 2026-08-27)
 
