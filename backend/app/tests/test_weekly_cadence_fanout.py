@@ -14,7 +14,7 @@ test seeds into.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 from sqlalchemy import select
@@ -46,7 +46,16 @@ def test_weekly_zero_holdings_user_gets_empty_table_contract_via_beat_path(
     Pass 1/2 content instead of a generic §2-§4-only filler string.
     """
     get_settings().OUTPUT_LANG = "en"
-    db_session.add(_user(_U1, "empty-book@example.com", cadence="weekly"))
+    # Issue #276: the fan-out now requires a verified address; this user is
+    # an existing book stand-in, so their account email is verified.
+    db_session.add(
+        _user(
+            _U1,
+            "empty-book@example.com",
+            cadence="weekly",
+            email_verified_at=datetime(2026, 8, 31, 12, 0),
+        )
+    )
     db_session.add(
         ForwardEvent(
             event_type="macro",

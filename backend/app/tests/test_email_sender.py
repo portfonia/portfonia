@@ -14,7 +14,9 @@ from datetime import UTC, date, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 from bs4 import BeautifulSoup, Tag
+from sqlalchemy.orm import Session
 
+from app.models.user import User
 from app.services.email_sender import (
     _TAG_STYLES,
     _WRAPPER_TD_STYLE,
@@ -455,6 +457,87 @@ def test_send_unknown_recipient_fails_closed(
     session.commit.assert_not_called()
     assert report.email_sent_at is None
     mock_alert.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# send_report_email — resolved-is-None split (issue #276): the failure path
+# re-checks the user row to tell "row missing/inactive" (original subject,
+# a real bug signal) from "active user, no verified address" (new subject,
+# expected once the verification gate ships). These tests run the REAL
+# recipient_email_with_purpose against a real User row via session.get —
+# mocking the resolver (as every test above does) cannot reach this branch.
+# ---------------------------------------------------------------------------
+
+
+def _real_user_row(user_id: uuid.UUID, **overrides: object) -> User:
+    return User(
+        id=user_id,
+        auth_provider="supabase",
+        auth_subject=f"sub-{user_id}",
+        email="acct@example.com",
+        status="active",
+        locale="zh",
+        base_currency="USD",
+        report_cadence="mwf",
+        **overrides,
+    )
+
+
+@patch("app.services.email_sender.send_ops_alert")
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
+def test_send_inactive_user_alerts_unresolved_subject(
+    mock_client_cls: MagicMock,
+    mock_settings: MagicMock,
+    mock_alert: MagicMock,
+    db_session: Session,
+) -> None:
+    """Missing/inactive user row keeps the ORIGINAL subject unchanged —
+    that case is still a real bug signal, not the routine no-verification
+    case."""
+    mock_settings.return_value = _mock_settings()
+    user_id = uuid.uuid4()
+    report = _make_report(user_id=user_id)
+
+    result = send_report_email(report, db_session)
+
+    assert result is False
+    mock_client_cls.assert_not_called()
+    assert report.email_sent_at is None
+    mock_alert.assert_called_once()
+    assert (
+        mock_alert.call_args.kwargs["subject"]
+        == "Portfonia: report recipient could not be resolved"
+    )
+
+
+@patch("app.services.email_sender.send_ops_alert")
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
+def test_send_active_unverified_user_alerts_no_verified_recipient(
+    mock_client_cls: MagicMock,
+    mock_settings: MagicMock,
+    mock_alert: MagicMock,
+    db_session: Session,
+) -> None:
+    """Active user whose every address is unverified now resolves to None
+    (issue #276 Layer 2) and must fire the NEW distinct subject — not the
+    row-missing subject, which is a bug signal, and not silence."""
+    mock_settings.return_value = _mock_settings()
+    user_id = uuid.uuid4()
+    db_session.add(_real_user_row(user_id))
+    db_session.flush()
+    report = _make_report(user_id=user_id)
+
+    result = send_report_email(report, db_session)
+
+    assert result is False
+    mock_client_cls.assert_not_called()
+    assert report.email_sent_at is None
+    mock_alert.assert_called_once()
+    assert (
+        mock_alert.call_args.kwargs["subject"] == "Portfonia ops: report has no verified recipient"
+    )
 
 
 @patch(
