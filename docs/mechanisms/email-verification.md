@@ -572,11 +572,16 @@ docstring only, no third gate layer, no behavior change to
 2. **Welcome / Profile copy lift** (frontend locale catalogs
    `en`/`zh-Hans`/`zh-Hant`): the #280 "must not claim send-stop until
    #276" constraint is lifted. Welcome splits holdings status from the
-   delivery claim — holdings lines never mention send; delivery is XOR on
-   the existing unverified predicate: verified `Reports will be sent to
-   {deliveryEmail}.` / unverified `Reports will not be sent until
-   {deliveryEmail} is verified.` (`welcome.deliveryVerified` /
-   `welcome.deliveryUnverified`; `welcome.emailUnverified` removed).
+   delivery claim — holdings lines never mention send; delivery is XORed
+   on the both-timestamps-null condition (the same send-stop predicate
+   Profile's `noVerifiedRecipient` gap card uses): verified `Reports
+   will be sent to {deliveryEmail}.` / unverified `Reports will not be
+   sent until {deliveryEmail} is verified.` (`welcome.deliveryVerified`
+   / `welcome.deliveryUnverified`; `welcome.emailUnverified` removed).
+   PR #294 review: the claim mirrors Layer 2's send decision, not the
+   #269 per-shown-address predicate — an unverified `delivery_email` with
+   a verified account email still sends to the account address and never
+   renders the send-stop sentence (mixed-state regression added).
    Profile `emailVerificationNoRecipient` now states the send-stop too.
    Locale edits were text-level splices, never `json.dump(indent=2)`.
 3. **Admin generate docstring** (`app/routers/admin.py`): the handler

@@ -227,12 +227,17 @@ Canonical design: Obsidian `Hermes/Portfonia/Docs/Ring 1-Onboarding.md`.
   #290, 2026-09-01)**: the #280 constraint ("must not claim reports won't
   be sent while #276 is open") is lifted — the welcome copy split into
   holdings status (never mentions send: `withHoldings` /
-  `withoutHoldings`) and a delivery claim XORed on the unverified
-  predicate (`deliveryVerified`: "Reports will be sent to
-  {deliveryEmail}." / `deliveryUnverified`: "Reports will not be sent
-  until {deliveryEmail} is verified."). `welcome.emailUnverified` was
+  `withoutHoldings`) and a delivery claim (`deliveryVerified`: "Reports
+  will be sent to {deliveryEmail}." / `deliveryUnverified`: "Reports
+  will not be sent until {deliveryEmail} is verified."). `welcome.emailUnverified` was
   removed; all three catalogs updated in lockstep (zh-Hant still gated
-  out of the switcher). **Update
+  out of the switcher). **Update (PR #294 review, 2026-09-01)**: the
+  delivery claim mirrors Layer 2's send decision, not the #269 per-shown-
+  address predicate — send-stop renders only when BOTH timestamps are
+  null (the same condition as Profile's `noVerifiedRecipient` gap card);
+  an unverified `delivery_email` does not block a verified account email,
+  so that mixed state claims delivery to the account address instead.
+  **Update
   (issue #280 item 3, 2026-08-31)**: successful login redirects
   unconditionally to `/profile` (was `/holdings`). `/login` only ever
   serves returning users — signup redirects straight to

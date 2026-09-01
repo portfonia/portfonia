@@ -50,7 +50,7 @@ describe("WelcomeBody", () => {
     expect(screen.queryByText(/17:00/)).not.toBeInTheDocument();
   });
 
-  it("shows the with-holdings copy and the actual delivery email when set", () => {
+  it("shows the with-holdings copy when holdings are saved", () => {
     renderBody({ ..._ME, has_holdings: true, delivery_email: "reports@b.com" });
     expect(screen.getByText("Your holdings are saved.")).toBeInTheDocument();
   });
@@ -64,12 +64,25 @@ describe("WelcomeBody", () => {
     expect(screen.queryByText(/Reports will be sent/)).not.toBeInTheDocument();
   });
 
-  it("claims no delivery until the delivery email itself is verified", () => {
+  it("claims no delivery when the delivery email is set but unverified and the account email is unverified", () => {
     renderBody({ ..._ME, delivery_email: "reports@b.com" });
     expect(
       screen.getByText("Reports will not be sent until reports@b.com is verified."),
     ).toBeInTheDocument();
     expect(screen.queryByText(/Reports will be sent/)).not.toBeInTheDocument();
+  });
+
+  it("does not claim a send-stop when the delivery email is unverified but the account email is verified (PR #294 review)", () => {
+    // Layer 2 (recipient_email_with_purpose) prefers a verified delivery
+    // address, else a verified account email; an unverified delivery_email
+    // is skipped, so this mixed state still sends to the account address.
+    renderBody({
+      ..._ME,
+      delivery_email: "reports@b.com",
+      email_verified_at: "2026-08-27T00:00:00Z",
+    });
+    expect(screen.getByText("Reports will be sent to a@b.com.")).toBeInTheDocument();
+    expect(screen.queryByText(/will not be sent/)).not.toBeInTheDocument();
   });
 
   it("says reports will be sent once the fallback account email is verified", () => {

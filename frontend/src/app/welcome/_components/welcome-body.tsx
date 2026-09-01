@@ -58,12 +58,17 @@ export function WelcomeBody({ me, hadLoadError }: { me: Me | null; hadLoadError:
   }
 
   const deliveryEmail = me.delivery_email ?? me.email;
-  // Issue #280 §9.2 / #290: unverified is derived per scope, same rule as
-  // the Profile page (issue #269 §6) — a set delivery_email is checked against
-  // its own timestamp; the account-email fallback against the account one.
-  const receivingEmailUnverified =
-    (me.delivery_email != null && me.delivery_email_verified_at == null) ||
-    (me.delivery_email == null && me.email_verified_at == null);
+  // Issue #290 / PR #294 review: the delivery claim mirrors Layer 2's send
+  // decision (recipient_email_with_purpose) — send-stop only when BOTH
+  // timestamps are null (the same condition as Profile's noVerifiedRecipient
+  // gap card). An unverified delivery_email does not block a verified
+  // account email (mixed state still sends to the account address), so the
+  // positive claim names the address Layer 2 would actually use. The
+  // send-stop line keeps naming the shown delivery_email — verifying it is
+  // what unblocks delivery.
+  const noVerifiedRecipient =
+    me.delivery_email_verified_at == null && me.email_verified_at == null;
+  const deliveryAddress = me.delivery_email_verified_at != null ? deliveryEmail : me.email;
 
   return (
     <div className="flex flex-col gap-4">
@@ -74,9 +79,9 @@ export function WelcomeBody({ me, hadLoadError }: { me: Me | null; hadLoadError:
         {me.has_holdings ? t("withHoldings") : t("withoutHoldings")}
       </p>
       <p className="text-sm text-foreground/80">
-        {receivingEmailUnverified
+        {noVerifiedRecipient
           ? t("deliveryUnverified", { deliveryEmail })
-          : t("deliveryVerified", { deliveryEmail })}
+          : t("deliveryVerified", { deliveryEmail: deliveryAddress })}
       </p>
       <p className="text-sm text-foreground/80">{t("cadence")}</p>
     </div>
