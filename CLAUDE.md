@@ -182,7 +182,9 @@ in any other language.
   `captured_closes.get(h.ticker or h.fund_code or "")` — fund code-only
   holdings have no `ticker`, and `capture_fund_navs` stores NAV in
   `price_snapshots` keyed by `fund_code`. A ticker-only lookup silently drops
-  every fund holding into `stale_tickers` and out of the portfolio. (issue #1)
+  every fund holding into `stale_tickers` — since #295 the row stays visible
+  in §1 as `[price unavailable]` but is excluded from every aggregate (issue
+  #1)
 - **Sector backfill on re-upload**: `confirm_holdings` must call
   `backfill_sectors()` after commit — re-uploading holdings clears all rows,
   and `sector` is otherwise only populated by `POST /admin/portfolio/refresh`
