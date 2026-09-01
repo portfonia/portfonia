@@ -66,4 +66,25 @@ describe("UnsubscribeForm", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/invalid or has expired/i);
     expect(screen.getByRole("button", { name: /confirm unsubscribe/i })).toBeInTheDocument();
   });
+
+  it("uses one consistent unsubscribe register across the whole page (issue #289 item 2)", async () => {
+    // The heading/button chrome and the body copy must not mix "unsubscribe"
+    // with "revoke verification" — plain unsubscribe language everywhere,
+    // generic to the platform (not Portfonia-report-specific, so Vigil's
+    // future reuse of the same page shape needs no rewrite).
+    confirmUnsubscribe.mockResolvedValue({ error: null, email: "a@b.com" });
+    const user = userEvent.setup();
+    renderForm({ found: true, email: "a@b.com" });
+
+    expect(screen.getByRole("heading", { name: /^unsubscribe$/i })).toBeInTheDocument();
+    expect(
+      screen.getByText(/this address will stop receiving reports and verification emails from this platform/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/revoke verification/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /confirm unsubscribe/i }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/you have unsubscribed a@b\.com/i);
+    expect(screen.queryByText(/revoke verification/i)).not.toBeInTheDocument();
+  });
 });
