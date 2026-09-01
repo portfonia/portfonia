@@ -678,12 +678,16 @@ def _build_pass2_prompt(
     lines.append("")
     lines.append("Holdings:")
     for h in portfolio.get("holdings", []):
-        mv_base = h.get("market_value_base", 0)
+        mv_base = h.get("market_value_base") or 0
+        mv = h.get("market_value")
         ratio = mv_base / total if total > 0 else 0
+        value_part = (
+            f" — {h.get('currency', '')} {mv:,.0f}" if mv is not None else " — no price captured"
+        )
         lines.append(
             f"  {h['name']}"
             + (f" ({h['ticker']})" if h.get("ticker") else "")
-            + f" — {h.get('currency', '')} {h.get('market_value', 0):,.0f}"
+            + value_part
             + f" ({ratio:.1%} of portfolio)"
             + (f" | asset_class: {h['asset_class']}" if h.get("asset_class") else "")
         )

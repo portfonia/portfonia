@@ -72,6 +72,11 @@ report_glossary:
     zh-Hans: 债券基金
   "CASH_EQUIV":
     zh-Hans: 现金等价物
+  # §1 placeholder for a holding with no captured price (issue #295) — the
+  # code-built table emits "N/A" (report_sections._PRICE_UNAVAILABLE); the
+  # translation pass renders it to this term in the output language.
+  "N/A":
+    zh-Hans: 暂无价格
 
 forbidden_renderings:
   # Terms the translation pass must never use, regardless of target locale.

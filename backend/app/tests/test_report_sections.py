@@ -483,3 +483,77 @@ def test_build_footer_starts_with_separator() -> None:
     portfolio = {"base_currency": "USD", "fx_date": "2026-06-04", "holdings": []}
     footer = sec._build_footer(portfolio)
     assert "---" in footer
+
+
+# ---------------------------------------------------------------------------
+# Tests: §1 unpriced-holding placeholder (issue #295)
+# ---------------------------------------------------------------------------
+
+
+def test_build_section1_renders_unpriced_holding_placeholder() -> None:
+    """A holding serialized with market_value/market_value_base None (no price
+    captured — issue #295) renders a placeholder in the value and weight cells
+    instead of a fabricated 0 / 0.0%, and its value is excluded from the
+    custodian subtotal."""
+    portfolio = {
+        "base_currency": "USD",
+        "fx_date": "2026-06-06",
+        "total_base": 100.0,
+        "by_market": {"US": 100.0},
+        "by_currency": {},
+        "by_asset_type": {},
+        "holdings": [
+            {
+                "name": "Priced",
+                "broker": "IBKR",
+                "currency": "USD",
+                "market_value": 100,
+                "market_value_base": 100.0,
+                "position": 0,
+                "asset_class": "STOCK",
+            },
+            {
+                "name": "Unpriced",
+                "broker": "IBKR",
+                "currency": "GBP",
+                "market_value": None,
+                "market_value_base": None,
+                "position": 1,
+                "asset_class": "STOCK",
+            },
+        ],
+    }
+    md = sec._build_section1(portfolio)
+    assert "Unpriced" in md  # row is shown, not erased
+    unpriced_row = next(line for line in md.splitlines() if line.startswith("| Unpriced"))
+    assert "| N/A | N/A |" in unpriced_row  # placeholder, not a fabricated number
+    assert "0.0%" not in unpriced_row
+    assert "**IBKR subtotal** | USD | **100**" in md  # subtotal = priced only
+
+
+def test_serialize_portfolio_unpriced_holding_survives_with_none_values() -> None:
+    hv = HoldingValue(
+        holding_id=uuid.uuid4(),
+        name="PSH",
+        ticker="PSH.L",
+        fund_code=None,
+        currency="GBP",
+        asset_type="stock",
+        asset_class="STOCK",
+        sector=None,
+        market="Other",
+        market_value=None,
+        market_value_base=None,
+        price_as_of=None,
+    )
+    snap = PortfolioSnapshot(
+        base_currency="USD",
+        fx_date=_TODAY,
+        holdings=[hv],
+        total_base=Decimal("0"),
+        stale_tickers=["PSH.L"],
+    )
+    out = rs._serialize_portfolio(snap)
+    (row,) = out["holdings"]
+    assert row["market_value"] is None
+    assert row["market_value_base"] is None
