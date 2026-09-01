@@ -268,6 +268,11 @@ class Settings(BaseSettings):
     # Empty string = use the default path: backend/config/holding_parser_vocab.yml
     HOLDING_PARSER_VOCAB_PATH: str = ""
 
+    # ticker/fund_code → asset_class mapping (issue #296). Hot-reloadable so an
+    # admin can add a real production instrument without a code deploy.
+    # Empty string = use the default path: backend/config/ticker_asset_class.yml
+    TICKER_ASSET_CLASS_CONFIG_PATH: str = ""
+
     # Ops API token channel (issue #129 Ring 1 stage B, checkpoint B2) —
     # bearer secret guarding /admin/* routes, deliberately independent of the
     # user auth system (must still work if that system itself is what's

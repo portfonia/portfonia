@@ -15,6 +15,7 @@ from app.core.config import get_settings
 from app.schemas.holdings import UploadPreview
 from app.services import holding_parser as holding_parser_module
 from app.services.holding_parser import (
+    _classify_asset_class,
     _extract_text,
     _postprocess,
     _strip_code_fence,
@@ -1132,3 +1133,94 @@ def test_openrouter_provider_order_and_data_collection() -> None:
             "order": ["DigitalOcean", "Venice"],
             "data_collection": "deny",
         }
+
+
+# ---------------------------------------------------------------------------
+# _classify_asset_class — sibling fund_code consistency (issue #296)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("fund_code", "expected"),
+    [
+        ("513100", "EQUITY_US_TECH"),
+        ("513300", "EQUITY_US_TECH"),
+        ("513500", "EQUITY_US_BROAD"),
+        ("513650", "EQUITY_US_BROAD"),
+        ("518660", "PRECIOUS_METALS"),
+        ("518800", "PRECIOUS_METALS"),
+        ("518850", "PRECIOUS_METALS"),
+        ("518880", "PRECIOUS_METALS"),
+    ],
+)
+def test_asset_class_fund_codes_share_sibling_bucket(fund_code: str, expected: str) -> None:
+    """Every A-share ETF tracking the same index/commodity must land in the same
+    economic-exposure bucket as its sibling products (issue #296 — 513500/518850
+    etc. fell through to the generic fund catch-all)."""
+    assert (
+        holding_parser_module._classify_asset_class(
+            {"ticker": None, "fund_code": fund_code, "asset_type": "fund"}
+        )
+        == expected
+    )
+
+
+# ---------------------------------------------------------------------------
+# _classify_asset_class — hot-reloadable YAML mapping (issue #296)
+# ---------------------------------------------------------------------------
+
+
+def test_ticker_asset_class_mapping_reloads_without_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The mapping must be editable without a code deploy — an admin adding a
+    new fund_code to the YAML takes effect on the next parse with no process
+    restart (issue #296 structural decision, the #35 live-reload property).
+    The loader re-reads the file on every call, so overwriting the same path
+    (no cache to clear) is what the test exercises."""
+    mapping = tmp_path / "ticker_asset_class.yml"
+    mapping.write_text(
+        "ticker_asset_class:\n  QQQ: EQUITY_US_TECH\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(holding_parser_module, "_get_ticker_asset_class_path", lambda: mapping)
+
+    # Version 1: 999999 is unmapped → generic fund catch-all.
+    assert _classify_asset_class({"ticker": "999999", "asset_type": "etf"}) == "EQUITY_BROAD"
+
+    # Admin adds the fund_code in place; the same process picks it up with
+    # no cache clear and no restart.
+    mapping.write_text(
+        "ticker_asset_class:\n  QQQ: EQUITY_US_TECH\n  999999: EQUITY_DM\n",
+        encoding="utf-8",
+    )
+    assert _classify_asset_class({"ticker": "999999", "asset_type": "etf"}) == "EQUITY_DM"
+
+
+def test_ticker_asset_class_rejects_unknown_taxonomy_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A typo'd asset_class VALUE must fail loudly at load time, not silently
+    classify every matching instrument into an unknown bucket and only die
+    later in ParsedRow validation (issue #296 — same closed-taxonomy
+    discipline as asset_class_thresholds.yml)."""
+    mapping = tmp_path / "ticker_asset_class.yml"
+    mapping.write_text(
+        "ticker_asset_class:\n  QQQ: EQUITY_US_TEHC\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(holding_parser_module, "_get_ticker_asset_class_path", lambda: mapping)
+    with pytest.raises(ValueError, match="EQUITY_US_TEHC"):
+        _classify_asset_class({"ticker": "QQQ", "asset_type": "etf"})
+
+
+def test_ticker_asset_class_rejects_missing_top_level_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A config missing the top-level `ticker_asset_class` map must raise
+    rather than silently classifying every instrument via the catch-all."""
+    mapping = tmp_path / "ticker_asset_class.yml"
+    mapping.write_text("other_section: {}\n", encoding="utf-8")
+    monkeypatch.setattr(holding_parser_module, "_get_ticker_asset_class_path", lambda: mapping)
+    with pytest.raises(ValueError, match="ticker_asset_class"):
+        _classify_asset_class({"ticker": "QQQ", "asset_type": "etf"})

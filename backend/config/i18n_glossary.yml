@@ -42,6 +42,36 @@ report_glossary:
     zh-Hans: "[较可能]"
   "[Speculative]":
     zh-Hans: "[推测]"
+  # asset_class taxonomy labels (issue #297) — every VALID_ASSET_CLASSES key
+  # must appear here; the drift guard lives in test_i18n_glossary.py. The two
+  # US-equity labels were product-owner-supplied; the remaining eleven are
+  # drafts pending product-owner sign-off.
+  "STOCK":
+    zh-Hans: 个股
+  "EQUITY_US_BROAD":
+    zh-Hans: 美国宽基权益
+  "EQUITY_US_TECH":
+    zh-Hans: 美国科技权益
+  "EQUITY_DM":
+    zh-Hans: 发达市场权益
+  "EQUITY_CN":
+    zh-Hans: 中国权益
+  "EQUITY_EM":
+    zh-Hans: 新兴市场权益
+  "EQUITY_BROAD":
+    zh-Hans: 全球宽基权益
+  "REIT":
+    zh-Hans: 房地产投资信托
+  "PRECIOUS_METALS":
+    zh-Hans: 贵金属
+  "ENERGY":
+    zh-Hans: 能源
+  "COMMODITY":
+    zh-Hans: 大宗商品
+  "BOND_FUND":
+    zh-Hans: 债券基金
+  "CASH_EQUIV":
+    zh-Hans: 现金等价物
 
 forbidden_renderings:
   # Terms the translation pass must never use, regardless of target locale.

@@ -32,7 +32,8 @@ re-render-safe); the LLM writes only prose/attribution. Current shape:
   so this runs AFTER Pass 1 / feeds ONLY Pass 2 (isolation preserved).
 - **Data window wording** — footer states the real price cutoff (session-close
   snapshots only, no intraday) and flags `[!] FX rate is stale` when FX trails
-  the window by >1 day.
+  the window by >4 calendar days (issue #299 — a weekend/holiday gap of up
+  to 4 days is normal; mirrors `portfolio_calculator._PRICE_STALE_DAYS`).
 - **Quiet-day suppression** — a short manual re-run (`session_node="manual"`,
   <2h span, 0 news, 0 anomalies) suppresses the heartbeat email; scheduled
   `after_close` quiet windows still email it.

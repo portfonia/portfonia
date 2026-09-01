@@ -26,6 +26,7 @@ from app.schemas.holdings import (
     ParsedRow,
     UploadPreview,
 )
+from app.services.asset_class_config import VALID_ASSET_CLASSES
 from app.services.llm_errors import (
     LLMCallError,
     LLMEmptyResponseError,
@@ -310,45 +311,51 @@ def _strip_code_fence(content: str) -> str:
     return match.group(1) if match else content.strip()
 
 
-# Ticker → canonical asset_class (economic exposure, not product form).
-# Covers known holdings; new tickers default via asset_type fallback below.
-_TICKER_ASSET_CLASS: dict[str, str] = {
-    # US broad market (S&P 500 / total market) — classified by underlying exposure,
-    # not listing location (513650.SS is an A-share ETF tracking S&P 500).
-    "VOO": "EQUITY_US_BROAD",
-    "VTI": "EQUITY_US_BROAD",
-    "SPY": "EQUITY_US_BROAD",
-    "IVV": "EQUITY_US_BROAD",
-    "513650": "EQUITY_US_BROAD",
-    "513650.SS": "EQUITY_US_BROAD",
-    # US tech / Nasdaq 100
-    "QQQM": "EQUITY_US_TECH",
-    "QQQ": "EQUITY_US_TECH",
-    "019547": "EQUITY_US_TECH",  # China Merchants Nasdaq 100 Index Fund
-    # Developed markets ex-US
-    "EWJ": "EQUITY_DM",
-    # China equity (A-share / HK Chinese / China-focused QDII)
-    "FXI": "EQUITY_CN",
-    "KWEB": "EQUITY_CN",
-    "110011": "EQUITY_CN",  # E Fund Premium Select mixed fund (QDII) — China concept
-    # Precious metals (gold) — split from the generic COMMODITY catch-all
-    # 2026-06-20: gold's volatility/concentration profile is distinct from
-    # energy and other commodities, see config/asset_class_thresholds.yml.
-    "SGOL": "PRECIOUS_METALS",
-    "GLD": "PRECIOUS_METALS",
-    "IAU": "PRECIOUS_METALS",
-    "518660": "PRECIOUS_METALS",
-    "518660.SS": "PRECIOUS_METALS",
-    "518800": "PRECIOUS_METALS",
-    "518800.SS": "PRECIOUS_METALS",
-    "008142": "PRECIOUS_METALS",  # ICBC Gold ETF feeder fund
-    # Bond / T-bill funds
-    "BOXX": "BOND_FUND",
-    "BIL": "BOND_FUND",
-    "SHY": "BOND_FUND",
-    "AGG": "BOND_FUND",
-    "TLT": "BOND_FUND",
-}
+# backend/ = two levels above this file (services/holding_parser.py → app/ → backend/)
+_DEFAULT_TICKER_ASSET_CLASS_FILE = _BACKEND_DIR / "config" / "ticker_asset_class.yml"
+
+
+# The ticker/fund_code → asset_class mapping moved out of this module into
+# config/ticker_asset_class.yml (issue #296): an admin can add a real
+# production fund_code without a code deploy. Re-read on every classification
+# (no cache — mirroring asset_class_config.load_asset_class_config and
+# i18n_glossary.load_i18n_glossary), so a newly added entry is live on the
+# next parse with no process restart (the #35 live-reload property).
+def _get_ticker_asset_class_path() -> Path:
+    override = get_settings().TICKER_ASSET_CLASS_CONFIG_PATH
+    return Path(override) if override else _DEFAULT_TICKER_ASSET_CLASS_FILE
+
+
+def _load_ticker_asset_class() -> dict[str, str]:
+    """Return the ticker/fund_code → asset_class mapping from YAML.
+
+    No cache: re-opens the file on every call so an in-place admin edit takes
+    effect on the next parse (issue #296 — the #35 live-reload property;
+    sibling loaders behave the same). Fails loudly on drift, matching
+    asset_class_thresholds.yml's closed-taxonomy discipline: an unknown
+    asset_class VALUE is a config typo, not a silent catch-all.
+    """
+    target = _get_ticker_asset_class_path()
+    with target.open(encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    raw = data.get("ticker_asset_class")
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"ticker_asset_class config at {target} is missing the "
+            f"'ticker_asset_class' top-level map"
+        )
+    # yaml.safe_load parses bare numeric keys like 513100 as int; canonicalize
+    # every key to str so the lookups (which use str ticker/fund_code) hit.
+    mapping = {str(k): str(v) for k, v in raw.items()}
+    unknown = set(mapping.values()) - VALID_ASSET_CLASSES
+    if unknown:
+        raise ValueError(
+            f"ticker_asset_class config at {target} maps to unknown "
+            f"asset_class value(s): {sorted(unknown)} — the taxonomy is "
+            f"closed (VALID_ASSET_CLASSES)"
+        )
+    return mapping
+
 
 _ASSET_TYPE_CLASS: dict[str, str] = {
     "stock": "STOCK",
@@ -361,12 +368,13 @@ _ASSET_TYPE_CLASS: dict[str, str] = {
 
 
 def _classify_asset_class(row: dict[str, Any]) -> str:
+    mapping = _load_ticker_asset_class()
     ticker = (row.get("ticker") or "").upper()
-    if ticker and ticker in _TICKER_ASSET_CLASS:
-        return _TICKER_ASSET_CLASS[ticker]
+    if ticker and ticker in mapping:
+        return mapping[ticker]
     fund_code = row.get("fund_code") or ""
-    if fund_code and fund_code in _TICKER_ASSET_CLASS:
-        return _TICKER_ASSET_CLASS[fund_code]
+    if fund_code and fund_code in mapping:
+        return mapping[fund_code]
     return _ASSET_TYPE_CLASS.get(row.get("asset_type") or "", "STOCK")
 
 

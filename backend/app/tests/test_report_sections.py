@@ -370,7 +370,7 @@ def test_data_window_states_price_cutoff_and_no_intraday() -> None:
 
 
 def test_data_window_flags_stale_fx() -> None:
-    # FX dated 2026-06-04 against a 2026-06-10 cutoff → >1 day → flagged.
+    # FX dated 2026-06-04 against a 2026-06-10 cutoff → 6 days → flagged.
     w = sec._build_data_window(
         [],
         {"fx_date": "2026-06-04"},
@@ -390,6 +390,33 @@ def test_data_window_no_stale_flag_when_fx_current() -> None:
         1,
     )
     assert "FX rate is stale" not in w
+
+
+def test_data_window_no_stale_flag_when_fx_gap_is_normal_weekend() -> None:
+    # Fri 2026-06-05 rate read on a Tue 2026-06-09 cutoff = 4 calendar days —
+    # the normal weekend cadence (issue #299). A >1-day threshold used to
+    # false-positive on essentially every Monday/holiday-adjacent report.
+    w = sec._build_data_window(
+        [],
+        {"fx_date": "2026-06-05"},
+        "2026-06-08T12:00:00+00:00",
+        "2026-06-09T20:30:00+00:00",
+        1,
+    )
+    assert "FX rate is stale" not in w
+
+
+def test_data_window_flags_stale_fx_gap_of_five_days() -> None:
+    # 5+ calendar days means the capture pipeline itself is suspect, not the
+    # calendar (issue #299) — the R-4 "rates frozen 6 days" case still alerts.
+    w = sec._build_data_window(
+        [],
+        {"fx_date": "2026-06-04"},
+        "2026-06-08T12:00:00+00:00",
+        "2026-06-09T20:30:00+00:00",
+        1,
+    )
+    assert "FX rate is stale" in w
 
 
 # ---------------------------------------------------------------------------

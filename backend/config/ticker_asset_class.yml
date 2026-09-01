@@ -1,0 +1,68 @@
+# Ticker/fund_code → canonical asset_class mapping (economic exposure).
+#
+# Single source of truth for `holding_parser._classify_asset_class`. Every
+# entry is a real instrument the product owner has seen in a holdings file;
+# new real-world tickers/fund_codes can be added here WITHOUT a code deploy —
+# the loader re-reads this file on every parse (no cache), same live-reload
+# discipline as asset_class_thresholds.yml (#35) and i18n_glossary.yml (#90).
+# Issue #296: the previous in-code dict (holding_parser._TICKER_ASSET_CLASS)
+# had missed 5 production fund_codes, silently falling back to the generic
+# fund catch-all — the third occurrence of that closed-table bug class
+# (#204 FX pairs, #204 PSH ticker collision). Hot-reload makes a coverage
+# gap patchable without shipping a Python change.
+#
+# Lookup order in code: normalized bare ticker → bare fund_code. Both bare
+# codes and exchange-suffixed forms (.SS for A-share) are listed where the
+# parser may emit either. Unlisted tickers fall back to the asset_type
+# catch-all table in holding_parser.py (stock→STOCK, etf/fund→EQUITY_BROAD,
+# cash/wmf→CASH_EQUIV). The set of VALUES here is the same closed taxonomy
+# as config/asset_class_thresholds.yml; a new asset_class key is a Ring 1
+# decision, not a config edit.
+
+ticker_asset_class:
+  # US broad market (S&P 500 / total market) — classified by underlying
+  # exposure, not listing location (513650.SS is an A-share ETF tracking
+  # S&P 500).
+  "VOO": EQUITY_US_BROAD
+  "VTI": EQUITY_US_BROAD
+  "SPY": EQUITY_US_BROAD
+  "IVV": EQUITY_US_BROAD
+  "513650": EQUITY_US_BROAD
+  "513650.SS": EQUITY_US_BROAD
+  "513500": EQUITY_US_BROAD  # S&P 500 ETF (A-share, QDII)
+  "513500.SS": EQUITY_US_BROAD
+  # US tech / Nasdaq 100
+  "QQQM": EQUITY_US_TECH
+  "QQQ": EQUITY_US_TECH
+  "019547": EQUITY_US_TECH  # China Merchants Nasdaq 100 Index Fund
+  "513100": EQUITY_US_TECH  # Nasdaq 100 ETF (A-share, QDII)
+  "513100.SS": EQUITY_US_TECH
+  "513300": EQUITY_US_TECH  # Nasdaq 100 ETF (A-share, QDII)
+  "513300.SS": EQUITY_US_TECH
+  # Developed markets ex-US
+  "EWJ": EQUITY_DM
+  # China equity (A-share / HK Chinese / China-focused QDII)
+  "FXI": EQUITY_CN
+  "KWEB": EQUITY_CN
+  "110011": EQUITY_CN  # E Fund Premium Select mixed fund (QDII) — China concept
+  # Precious metals (gold) — split from the generic COMMODITY catch-all
+  # 2026-06-20: gold's volatility/concentration profile is distinct from
+  # energy and other commodities, see config/asset_class_thresholds.yml.
+  "SGOL": PRECIOUS_METALS
+  "GLD": PRECIOUS_METALS
+  "IAU": PRECIOUS_METALS
+  "518660": PRECIOUS_METALS
+  "518660.SS": PRECIOUS_METALS
+  "518800": PRECIOUS_METALS
+  "518800.SS": PRECIOUS_METALS
+  "518850": PRECIOUS_METALS  # gold ETF (A-share)
+  "518850.SS": PRECIOUS_METALS
+  "518880": PRECIOUS_METALS  # gold ETF (A-share)
+  "518880.SS": PRECIOUS_METALS
+  "008142": PRECIOUS_METALS  # ICBC Gold ETF feeder fund
+  # Bond / T-bill funds
+  "BOXX": BOND_FUND
+  "BIL": BOND_FUND
+  "SHY": BOND_FUND
+  "AGG": BOND_FUND
+  "TLT": BOND_FUND
