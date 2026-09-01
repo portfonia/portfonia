@@ -379,3 +379,95 @@ digest) and returns `None`, matching Altcha.
 **Still out of scope**: report-generation gating on verified status
 (issue #276) — this PR's user-facing copy must not claim delivery has
 already stopped; re-subscribe is "verify again via Profile".
+
+## Report-generation / send gating on verified addresses — issue #276
+
+Design: Obsidian `Hermes/Portfonia/Docs/Ring 1-Email Validation.md` §3.6,
+implemented 2026-08-31 from the pre-implementation design comment on the
+issue (comment 5487141241) — no design decisions were made during
+implementation. This closes the gating gap every earlier entry in this
+file records as deferred: `recipient_email()` "still ignores verification
+state entirely" (#260 entry above) is no longer true.
+
+**Two layers, both required** (a generated-but-unsendable report is pure
+LLM spend; a sent-but-unverified delivery is the leak):
+
+1. **Generation-time gate** — `active_user_ids()`
+   (`app/services/user_scope.py`) now requires, for EVERY cadence,
+   `email_verified_at IS NOT NULL OR delivery_email_verified_at IS NOT
+   NULL`, AND'ed into the same `conditions` list as the existing
+   `status`/`report_cadence` filters. Deliberately NOT scoped to
+   `_HOLDINGS_GATED_CADENCES`: the holdings gate is a per-cadence content
+   tradeoff (an empty weekly book still gets the empty-table contract),
+   while "nowhere to deliver" is undeliverable regardless of cadence —
+   hence unconditional. Test coverage: unverified user excluded on both
+   mwf and weekly; either single timestamp satisfies the gate; the mwf
+   holdings gate keeps AND'ing on top (verified but empty-book mwf user
+   still excluded by the other condition).
+2. **Send-time gate** — `recipient_email_with_purpose()`
+   (`app/services/user_directory.py`): an address only counts when its
+   OWN `*_verified_at` is set. Verified `delivery_email` > verified
+   `email` (same preference order as before); an unverified
+   `delivery_email` no longer rides on a verified account email or vice
+   versa, and both-unverified means `None` (fail closed).
+   `recipient_email()` is unchanged — thin wrapper. Tests: the two
+   pre-existing resolution tests now pass explicit verified timestamps
+   (expected change under the new rule, not a regression); new tests pin
+   the no-cross-fallback rule (delivery_email set + unverified, email
+   verified → resolves to `account_email`) and the both-unverified →
+   `None` case.
+
+**`None` split into two ops alerts** (`send_report_email`,
+`app/services/email_sender.py`): the `resolved is None` branch re-checks
+the user row (`session.get`) on this exceptional path only — missing or
+non-active row keeps the original
+`"Portfonia: report recipient could not be resolved"` subject (bug
+signal, unchanged); active-but-no-verified-address fires the new
+`"Portfonia ops: report has no verified recipient"` subject. Both stay
+as email alerts per the design doc — observe real trigger frequency
+while the user base is small; downgrading the second to a log line is a
+recorded future step, explicitly not built here.
+
+That second alert's body was corrected in PR #288's review round
+(blacktomb42, CHANGES_REQUESTED): the first draft said "no report was
+generated for send", which is false on every path that can reach the
+branch — `send_report_email` only ever runs AFTER a `Report` row exists
+and delivery was refused. The realistic triggers are (1) admin /
+self-service generate of an unverified user (the exemption Layer 2
+exists to cover) and (2) the fan-out-time-verified /
+send-time-unverified race from design doc §3.6; a scheduled
+never-verified user is excluded by Layer 1 and never reaches this
+function at all. The body now states "generated report was NOT emailed
+(email_sent_at left null)" with those two expected causes. The review
+also noted the ERROR log above the split still conflates both `None`
+causes, the Welcome/Profile copy, and the Ops API's "successful
+generate emails the user" reference — accepted as follow-up, out of
+this PR's stated scope but now factually stale. Test coverage: two new
+tests run the REAL resolver against a real `User` row through
+`db_session` (the pre-existing tests mock `recipient_email_with_purpose`
+at module boundary, which cannot reach this branch by construction) and
+assert the subject per case; after the review round the
+no-verified-recipient test also asserts the body says "generated, not
+emailed" and never "no report was generated" — subject-only assertions
+were what let the wrong body ship green in the first place.
+
+**Admin manual-generate needs no exemption code**
+(`POST /admin/users/{user_id}/reports/generate`): it resolves the user
+via `session.get(User, user_id)` and never calls `active_user_ids()`, so
+ops can still force a generation run for an unverified user to diagnose
+"why no reports" — the #221 §2.7 exemption precedent on this endpoint
+extends to the new gate for free (verified by reading the router, not by
+adding code). Send-time Layer 2 still applies downstream, so the forced
+report persists but is not emailed and the new no-verified-recipient
+alert fires — matching the issue's intent.
+
+**Fixture/footprint note (the one thing the design comment did not
+predict)**: the new generation gate turned every unverified fixture user
+invisible to the fan-out — 19 pre-existing integration tests
+(`test_shared_compute_a1`–`a4` via conftest's `three_user_holdings`, plus
+`test_weekly_cadence_fanout`) flipped to `no_active_users`/empty
+fan-outs. Their users are stand-ins for EXISTING books (the fixture
+docstring says so), so the fix was stamping those fixtures'
+`email_verified_at`, mirroring the same expected-change treatment the
+user_directory tests got — not a weakening of the new rule, whose own
+tests use unverified-by-default helpers.

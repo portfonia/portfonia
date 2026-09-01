@@ -18,7 +18,7 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import Generator
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock
 
@@ -298,6 +298,9 @@ def three_user_holdings(db_session: Session) -> dict[str, uuid.UUID]:
         return Holding(**{**defaults, **kwargs})
 
     def _u(user_id: uuid.UUID, email: str) -> User:
+        # Issue #276: the fan-out requires a verified address, and these
+        # three are stand-ins for existing books — stamp the account email
+        # verified so they still enter active_user_ids().
         return User(
             id=user_id,
             auth_provider="supabase",
@@ -307,6 +310,7 @@ def three_user_holdings(db_session: Session) -> dict[str, uuid.UUID]:
             locale="zh",
             base_currency="USD",
             report_cadence="mwf",
+            email_verified_at=datetime(2026, 8, 31, 12, 0),
         )
 
     db_session.add_all(

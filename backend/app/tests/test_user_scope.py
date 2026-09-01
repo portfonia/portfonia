@@ -5,6 +5,7 @@ universe helpers `active_user_ids`, `user_holdings`, `global_identifier_universe
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from sqlalchemy.orm import Session
 
@@ -24,7 +25,12 @@ def _h(**kwargs: object) -> Holding:
 # --- active_user_ids ----------------------------------------------------------
 
 
-def _user(user_id: uuid.UUID, email: str, cadence: str = "mwf") -> User:
+def _user(
+    user_id: uuid.UUID,
+    email: str,
+    cadence: str = "mwf",
+    email_verified_at: datetime | None = None,
+) -> User:
     return User(
         id=user_id,
         auth_provider="supabase",
@@ -34,6 +40,7 @@ def _user(user_id: uuid.UUID, email: str, cadence: str = "mwf") -> User:
         locale="zh",
         base_currency="USD",
         report_cadence=cadence,
+        email_verified_at=email_verified_at,
     )
 
 
@@ -44,8 +51,8 @@ def test_active_user_ids_empty_when_no_users(db_session: Session) -> None:
 def test_active_user_ids_returns_distinct_sorted_users(db_session: Session) -> None:
     db_session.add_all(
         [
-            _user(_U2, "u2@example.com"),
-            _user(_U1, "u1@example.com"),
+            _user(_U2, "u2@example.com", email_verified_at=datetime(2026, 8, 31, 12, 0)),
+            _user(_U1, "u1@example.com", email_verified_at=datetime(2026, 8, 31, 12, 0)),
             _h(user_id=_U1, name="NVIDIA", ticker="NVDA"),
             _h(user_id=_U2, name="Apple", ticker="AAPL"),
         ]
@@ -57,8 +64,8 @@ def test_active_user_ids_returns_distinct_sorted_users(db_session: Session) -> N
 def test_active_user_ids_excludes_mwf_users_with_no_holdings(db_session: Session) -> None:
     db_session.add_all(
         [
-            _user(_U1, "u1@example.com"),
-            _user(_U2, "u2@example.com"),
+            _user(_U1, "u1@example.com", email_verified_at=datetime(2026, 8, 31, 12, 0)),
+            _user(_U2, "u2@example.com", email_verified_at=datetime(2026, 8, 31, 12, 0)),
             _h(user_id=_U1, name="NVIDIA", ticker="NVDA"),
         ]
     )
@@ -71,8 +78,18 @@ def test_active_user_ids_scoped_to_the_requested_cadence(db_session: Session) ->
     the two cadences are mutually exclusive batches, not overlapping ones."""
     db_session.add_all(
         [
-            _user(_U1, "u1@example.com", cadence="mwf"),
-            _user(_U2, "u2@example.com", cadence="weekly"),
+            _user(
+                _U1,
+                "u1@example.com",
+                cadence="mwf",
+                email_verified_at=datetime(2026, 8, 31, 12, 0),
+            ),
+            _user(
+                _U2,
+                "u2@example.com",
+                cadence="weekly",
+                email_verified_at=datetime(2026, 8, 31, 12, 0),
+            ),
             _h(user_id=_U1, name="NVIDIA", ticker="NVDA"),
             _h(user_id=_U2, name="Apple", ticker="AAPL"),
         ]
@@ -86,16 +103,71 @@ def test_active_user_ids_weekly_includes_users_with_no_holdings(db_session: Sess
     """Issue #221 §8 / #191: the holdings gate is loosened only for weekly —
     an empty-book weekly user must still enter the fan-out so they get the
     empty-table content contract instead of never being scheduled at all."""
-    db_session.add(_user(_U1, "u1@example.com", cadence="weekly"))
+    db_session.add(
+        _user(
+            _U1, "u1@example.com", cadence="weekly", email_verified_at=datetime(2026, 8, 31, 12, 0)
+        )
+    )
     db_session.flush()
     assert active_user_ids(db_session, "weekly") == [_U1]
 
 
 def test_active_user_ids_mwf_still_excludes_no_holdings_users(db_session: Session) -> None:
     """The loosened gate must NOT leak into mwf — #191 decision point 2."""
-    db_session.add(_user(_U1, "u1@example.com", cadence="mwf"))
+    db_session.add(
+        _user(_U1, "u1@example.com", cadence="mwf", email_verified_at=datetime(2026, 8, 31, 12, 0))
+    )
     db_session.flush()
     assert active_user_ids(db_session, "mwf") == []
+
+
+def test_active_user_ids_excludes_unverified_users_on_every_cadence(
+    db_session: Session,
+) -> None:
+    """Issue #276 Layer 1: a user with neither `email_verified_at` nor
+    `delivery_email_verified_at` set has nowhere a report can be delivered,
+    so the fan-out must skip them on EVERY cadence — unlike the mwf-only
+    holdings gate, this condition is not scoped to `_HOLDINGS_GATED_CADENCES`.
+    (Their holding rows stay — see the mwf case — the user is the unit that
+    is excluded.)"""
+    db_session.add_all(
+        [
+            _user(_U1, "u1@example.com", cadence="mwf"),
+            _user(_U2, "u2@example.com", cadence="weekly"),
+            _h(user_id=_U1, name="NVIDIA", ticker="NVDA"),
+        ]
+    )
+    db_session.flush()
+    assert active_user_ids(db_session, "mwf") == []
+    assert active_user_ids(db_session, "weekly") == []
+
+
+def test_active_user_ids_includes_user_verified_via_either_field(
+    db_session: Session,
+) -> None:
+    """Issue #276 Layer 1: one verified address is enough — account email
+    OR delivery email, either timestamp satisfies the fan-out gate. The
+    mwf holdings gate is an independent AND'ed condition and must keep
+    excluding the unverified-by-both user (no accidental OR widening)."""
+    db_session.add_all(
+        [
+            _user(_U1, "u1@example.com", cadence="mwf"),
+            _user(_U2, "u2@example.com", cadence="weekly"),
+            _h(user_id=_U1, name="NVIDIA", ticker="NVDA"),
+        ]
+    )
+    db_session.flush()
+
+    rows = db_session.query(User).filter(User.id.in_([_U1, _U2])).all()
+    for row in rows:
+        if row.id == _U1:
+            row.email_verified_at = datetime(2026, 8, 31, 12, 0, tzinfo=None)
+        else:
+            row.delivery_email_verified_at = datetime(2026, 8, 31, 12, 0, tzinfo=None)
+    db_session.flush()
+
+    assert active_user_ids(db_session, "mwf") == [_U1]
+    assert active_user_ids(db_session, "weekly") == [_U2]
 
 
 # --- user_holdings --------------------------------------------------------------

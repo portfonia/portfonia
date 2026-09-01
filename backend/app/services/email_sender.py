@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.report import Report
+from app.models.user import User
 from app.services.i18n_glossary import load_i18n_glossary, locale_for_output_lang
 from app.services.unsubscribe_token import create_token as create_unsubscribe_token
 from app.services.user_directory import recipient_email_with_purpose
@@ -226,15 +227,41 @@ def send_report_email(report: Report, session: Session) -> bool:
             report.id,
             report.user_id,
         )
-        send_ops_alert(
-            subject="Portfonia: report recipient could not be resolved",
-            body=(
-                f"report_id={report.id} user_id={report.user_id} — "
-                "recipient_email_with_purpose() returned None. Report was NOT sent. "
-                "email_sent_at left null; can be resent manually once the "
-                "user's identity resolves."
-            ),
-        )
+        # Issue #276: since the verification gate, `None` has two distinct
+        # meanings. A missing/inactive user row is a bug signal and keeps
+        # the original alert; an active user with no verified address is
+        # the routine post-gate state and gets its own subject so the bug
+        # signal is not diluted. Both stay as email alerts for now (design
+        # doc §3.6 — observe real frequency while the user base is small;
+        # the second alert downgrading to a log line is a recorded future
+        # step, not built yet). The row re-check runs on this exceptional
+        # path only, not the hot path.
+        user = session.get(User, report.user_id)
+        if user is None or user.status != "active":
+            send_ops_alert(
+                subject="Portfonia: report recipient could not be resolved",
+                body=(
+                    f"report_id={report.id} user_id={report.user_id} — "
+                    "recipient_email_with_purpose() returned None. Report was NOT sent. "
+                    "email_sent_at left null; can be resent manually once the "
+                    "user's identity resolves."
+                ),
+            )
+        else:
+            send_ops_alert(
+                subject="Portfonia ops: report has no verified recipient",
+                body=(
+                    f"report_id={report.id} user_id={report.user_id} — user row is "
+                    "active but neither email_verified_at nor delivery_email_verified_at "
+                    "is set (issue #276 gate), so the generated report was NOT emailed "
+                    "(email_sent_at left null; it can be sent from POST /reports/"
+                    "{id}/send once an address is verified). This branch only runs "
+                    "after a Report row exists: expected for admin/self-service "
+                    "generate of an unverified user, or a verified-at-fan-out / "
+                    "unverified-at-send race — escalate only if the user's Profile "
+                    "page shows a verified address."
+                ),
+            )
         return False
 
     recipient, purpose = resolved

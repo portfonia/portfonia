@@ -15,7 +15,7 @@ import uuid
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import exists, select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.holding import Holding
@@ -37,8 +37,21 @@ def active_user_ids(session: Session, cadence: str) -> list[uuid.UUID]:
     next scheduled batch; `weekly` does not (issue #221 §8 / #191) — an
     empty-book weekly user gets the empty-table content contract instead of
     never being scheduled at all.
+
+    Independent of the cadence-scoped holdings gate (issue #276 Layer 1):
+    a user with no verified address — neither `email_verified_at` nor
+    `delivery_email_verified_at` — has nowhere a generated report can be
+    delivered, so they are excluded from EVERY cadence's fan-out rather
+    than paying for generation that can never send. Not scoped to
+    `_HOLDINGS_GATED_CADENCES`: unlike the empty-holdings case this is not
+    a per-cadence content tradeoff, it is undeliverable regardless of
+    cadence.
     """
-    conditions: list[Any] = [User.status == "active", User.report_cadence == cadence]
+    conditions: list[Any] = [
+        User.status == "active",
+        User.report_cadence == cadence,
+        or_(User.email_verified_at.isnot(None), User.delivery_email_verified_at.isnot(None)),
+    ]
     if cadence in _HOLDINGS_GATED_CADENCES:
         conditions.append(exists().where(Holding.user_id == User.id))
     rows = session.execute(select(User.id).where(*conditions)).scalars().all()
