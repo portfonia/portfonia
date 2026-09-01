@@ -427,14 +427,35 @@ def send_report_email(report: Report, session: Session) -> bool:
 # URL as a plain line. Disclaimer/glossary copy already lives in
 # `report.report_md` (assembled by report_sections._build_footer) and is
 # therefore present in the text alternative without a second injection.
+# issue #289: expanded from "revoke verification" one-liners to explain what
+# the report is, that it was delivered per the user's own configured
+# settings, and what the link does to future delivery. Register is plain
+# "unsubscribe", kept consistent with the /unsubscribe page (issue #289 item
+# 2); the page-side copy stays generic ("this platform") because Vigil may
+# reuse the same page shape, while this footer may name Portfonia — it is a
+# Portfonia report email (Ring 1-Email Validation.md, 2026-08-31 section).
 _UNSUBSCRIBE_FOOTER_COPY: dict[str, dict[str, str]] = {
     "en": {
-        "html_md": "[Revoke verification for this address]({url})",
-        "text": "To revoke verification for this address, visit:\n{url}",
+        "html_md": (
+            "This report was delivered by Portfonia to the address you configured, "
+            "based on the information you provided. You can "
+            "[unsubscribe this address]({url}) to stop receiving reports here."
+        ),
+        "text": (
+            "This report was delivered by Portfonia to the address you configured, "
+            "based on the information you provided. You can unsubscribe this address "
+            "to stop receiving reports here:\n{url}"
+        ),
     },
     "zh": {
-        "html_md": "[撤销此邮箱的验证]({url})",
-        "text": "如需撤销此邮箱的验证,请访问:\n{url}",
+        "html_md": (
+            "本报告由 Portfonia 根据您提供的信息,递送到您配置的邮箱。"
+            "您可以[退订此邮箱]({url}),停止在此接收报告。"
+        ),
+        "text": (
+            "本报告由 Portfonia 根据您提供的信息,递送到您配置的邮箱。"
+            "您可以退订此邮箱,停止在此接收报告:\n{url}"
+        ),
     },
 }
 _DEFAULT_UNSUBSCRIBE_FOOTER_LOCALE = "en"
