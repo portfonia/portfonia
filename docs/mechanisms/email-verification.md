@@ -423,15 +423,33 @@ the user row (`session.get`) on this exceptional path only — missing or
 non-active row keeps the original
 `"Portfonia: report recipient could not be resolved"` subject (bug
 signal, unchanged); active-but-no-verified-address fires the new
-`"Portfonia ops: report has no verified recipient"` subject (expected
-post-gate state, separate so it cannot dilute the bug signal). Both stay
+`"Portfonia ops: report has no verified recipient"` subject. Both stay
 as email alerts per the design doc — observe real trigger frequency
 while the user base is small; downgrading the second to a log line is a
-recorded future step, explicitly not built here. Test coverage: two new
+recorded future step, explicitly not built here.
+
+That second alert's body was corrected in PR #288's review round
+(blacktomb42, CHANGES_REQUESTED): the first draft said "no report was
+generated for send", which is false on every path that can reach the
+branch — `send_report_email` only ever runs AFTER a `Report` row exists
+and delivery was refused. The realistic triggers are (1) admin /
+self-service generate of an unverified user (the exemption Layer 2
+exists to cover) and (2) the fan-out-time-verified /
+send-time-unverified race from design doc §3.6; a scheduled
+never-verified user is excluded by Layer 1 and never reaches this
+function at all. The body now states "generated report was NOT emailed
+(email_sent_at left null)" with those two expected causes. The review
+also noted the ERROR log above the split still conflates both `None`
+causes, the Welcome/Profile copy, and the Ops API's "successful
+generate emails the user" reference — accepted as follow-up, out of
+this PR's stated scope but now factually stale. Test coverage: two new
 tests run the REAL resolver against a real `User` row through
 `db_session` (the pre-existing tests mock `recipient_email_with_purpose`
 at module boundary, which cannot reach this branch by construction) and
-assert the subject per case.
+assert the subject per case; after the review round the
+no-verified-recipient test also asserts the body says "generated, not
+emailed" and never "no report was generated" — subject-only assertions
+were what let the wrong body ship green in the first place.
 
 **Admin manual-generate needs no exemption code**
 (`POST /admin/users/{user_id}/reports/generate`): it resolves the user

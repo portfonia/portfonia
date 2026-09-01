@@ -538,6 +538,14 @@ def test_send_active_unverified_user_alerts_no_verified_recipient(
     assert (
         mock_alert.call_args.kwargs["subject"] == "Portfonia ops: report has no verified recipient"
     )
+    # PR #288 review: this branch only runs AFTER a Report row exists and
+    # delivery was refused (admin/self-service generate of an unverified
+    # user, or the fan-out-verified/send-unverified race) — the body must
+    # say "generated, not emailed", never claim generation was skipped.
+    body = mock_alert.call_args.kwargs["body"]
+    assert "generated" in body
+    assert "NOT emailed" in body
+    assert "no report was generated" not in body
 
 
 @patch(

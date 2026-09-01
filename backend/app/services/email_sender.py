@@ -253,9 +253,13 @@ def send_report_email(report: Report, session: Session) -> bool:
                 body=(
                     f"report_id={report.id} user_id={report.user_id} — user row is "
                     "active but neither email_verified_at nor delivery_email_verified_at "
-                    "is set (issue #276 gate), so no report was generated for send. "
-                    "Expected whenever a user has not completed email verification; "
-                    "escalate only if their Profile page shows a verified address."
+                    "is set (issue #276 gate), so the generated report was NOT emailed "
+                    "(email_sent_at left null; it can be sent from POST /reports/"
+                    "{id}/send once an address is verified). This branch only runs "
+                    "after a Report row exists: expected for admin/self-service "
+                    "generate of an unverified user, or a verified-at-fan-out / "
+                    "unverified-at-send race — escalate only if the user's Profile "
+                    "page shows a verified address."
                 ),
             )
         return False
