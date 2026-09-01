@@ -636,3 +636,42 @@ def test_directive_slip_still_caught_with_investor_preferences_present() -> None
         "should reduce exposure to NVDA now.\n"
     )
     assert _scan_forbidden_output(directive_body) != []
+
+
+def test_pass2_prompt_unpriced_holding_is_unvalued_not_zero_weight() -> None:
+    """Review finding: an unpriced holding must not be rendered as a 0.0%
+    position in the Pass 2 holdings list — (unvalued) + 'no price captured',
+    never a fabricated percentage (issue #295)."""
+    portfolio = {
+        "base_currency": "USD",
+        "fx_date": "2026-08-17",
+        "total_base": 100.0,
+        "by_market": {"US": 100.0},
+        "by_currency": {},
+        "by_asset_type": {},
+        "holdings": [
+            {
+                "name": "Priced",
+                "ticker": "AAPL",
+                "currency": "USD",
+                "market_value": 100.0,
+                "market_value_base": 100.0,
+                "asset_class": "STOCK",
+            },
+            {
+                "name": "Unpriced",
+                "ticker": "PSH.L",
+                "currency": "GBP",
+                "market_value": None,
+                "market_value_base": None,
+                "asset_class": "STOCK",
+            },
+        ],
+    }
+    prompt = rp._build_pass2_prompt(portfolio, {}, [], [])
+    unpriced_line = next(
+        line for line in prompt.splitlines() if line.strip().startswith("Unpriced")
+    )
+    assert "no price captured" in unpriced_line
+    assert "(unvalued)" in unpriced_line
+    assert "0.0% of portfolio" not in unpriced_line

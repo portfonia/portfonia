@@ -18,11 +18,19 @@ from app.services.i18n_glossary import load_i18n_glossary
 # §1 Portfolio Snapshot
 # ---------------------------------------------------------------------------
 
+# §1 value-cell placeholder for a holding with no captured price (issue #295).
+# A unique token (matching the "[price stale]" convention) so the translation
+# pass can map it exactly; "N/A" is deliberately NOT used — it is too generic
+# a string to hand the glossary (the FX-date fallback already needed "n/a" to
+# avoid being translated). Rendered to the output language via
+# i18n_glossary.yml's report_glossary["[price unavailable]"].
+_PRICE_UNAVAILABLE = "[price unavailable]"
+
 
 def _build_section1(portfolio: dict[str, Any]) -> str:
     """Build §1 Portfolio Snapshot entirely from data — no LLM."""
     base_ccy = portfolio.get("base_currency", "USD")
-    fx_date = portfolio.get("fx_date", "N/A")
+    fx_date = portfolio.get("fx_date", "n/a")
     total = portfolio.get("total_base", 0)
 
     lines: list[str] = [
@@ -52,17 +60,33 @@ def _build_section1(portfolio: dict[str, Any]) -> str:
             group_order.append(broker)
         groups[broker].append(h)
 
+    stale_priced_set = set(portfolio.get("stale_priced_tickers", []))
     for broker in group_order:
         members = groups[broker]
-        subtotal_base = sum(m.get("market_value_base", 0) for m in members)
+        subtotal_base = sum(m.get("market_value_base") or 0 for m in members)
         for h in members:
-            mv = h.get("market_value", 0)
-            mv_base = h.get("market_value_base", 0)
-            ratio = mv_base / total if total > 0 else 0
+            mv = h.get("market_value")
+            mv_base = h.get("market_value_base")
+            identifiers = {h.get("ticker"), h.get("fund_code"), h["name"]}
+            stale_marker = " **[price stale]**" if identifiers & stale_priced_set else ""
             name_col = h["name"] + (f" ({h['ticker']})" if h.get("ticker") else "")
+            if mv is None or mv_base is None:
+                # Unpriced holding (issue #295): keep the row, but never render
+                # a fabricated 0 / 0.0% — the placeholder is translated to the
+                # output language via report_glossary["[price unavailable]"].
+                val_cell = _PRICE_UNAVAILABLE
+                ratio_cell = _PRICE_UNAVAILABLE
+            else:
+                # A priced row always formats a number, even when total is 0
+                # (a 0.0-value row against a zero total → 0.0% — matches the
+                # pre-#295 `else 0` behavior; None here would crash §1).
+                ratio = mv_base / total if total > 0 else 0
+                val_cell = f"{mv:,.0f}"
+                ratio_cell = f"{ratio:.1%}"
             lines.append(
-                f"| {name_col} | {h.get('currency', '')} | {mv:,.0f} | {ratio:.1%} "
-                f"| {h.get('broker', '') or '—'} | {h.get('asset_class', '—') or '—'} |"
+                f"| {name_col}{stale_marker} | {h.get('currency', '')} | {val_cell} "
+                f"| {ratio_cell} | {h.get('broker', '') or '—'} | "
+                f"{h.get('asset_class', '—') or '—'} |"
             )
         sub_ratio = subtotal_base / total if total > 0 else 0
         lines.append(

@@ -72,6 +72,17 @@ report_glossary:
     zh-Hans: 债券基金
   "CASH_EQUIV":
     zh-Hans: 现金等价物
+  # §1 placeholder for a holding with no captured price (issue #295) — the
+  # code-built table emits "[price unavailable]"
+  # (report_sections._PRICE_UNAVAILABLE); the translation pass renders it to
+  # this term in the output language.
+  "[price unavailable]":
+    zh-Hans: 暂无价格
+  # §1 row-level marker for a holding whose captured close is multi-day stale
+  # (issue #295 — stale but priced, value still included in totals; distinct
+  # from the never-captured "[price unavailable]" above).
+  "[price stale]":
+    zh-Hans: "[价格过期]"
 
 forbidden_renderings:
   # Terms the translation pass must never use, regardless of target locale.

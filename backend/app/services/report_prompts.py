@@ -678,13 +678,24 @@ def _build_pass2_prompt(
     lines.append("")
     lines.append("Holdings:")
     for h in portfolio.get("holdings", []):
-        mv_base = h.get("market_value_base", 0)
-        ratio = mv_base / total if total > 0 else 0
+        mv_base = h.get("market_value_base")
+        mv = h.get("market_value")
+        if mv_base is None:
+            # Unpriced holding (issue #295): never show a fabricated 0.0%
+            # weight — the model must not read an unvalued holding as a
+            # zero-weight position.
+            weight_part = " (unvalued)"
+        else:
+            ratio = mv_base / total if total > 0 else 0
+            weight_part = f" ({ratio:.1%} of portfolio)"
+        value_part = (
+            f" — {h.get('currency', '')} {mv:,.0f}" if mv is not None else " — no price captured"
+        )
         lines.append(
             f"  {h['name']}"
             + (f" ({h['ticker']})" if h.get("ticker") else "")
-            + f" — {h.get('currency', '')} {h.get('market_value', 0):,.0f}"
-            + f" ({ratio:.1%} of portfolio)"
+            + value_part
+            + weight_part
             + (f" | asset_class: {h['asset_class']}" if h.get("asset_class") else "")
         )
     lines.append("")

@@ -17,8 +17,8 @@ class HoldingValueOut(BaseModel):
     asset_class: str | None
     sector: str | None
     market: str
-    market_value: Decimal
-    market_value_base: Decimal
+    market_value: Decimal | None
+    market_value_base: Decimal | None
     price_as_of: datetime | None
 
     model_config = {"from_attributes": True}

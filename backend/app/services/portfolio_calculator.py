@@ -95,8 +95,8 @@ class HoldingValue:
     asset_class: str | None
     sector: str | None
     market: str
-    market_value: Decimal  # in holding's own currency
-    market_value_base: Decimal  # in base_currency
+    market_value: Decimal | None  # in holding's own currency; None = no price available
+    market_value_base: Decimal | None  # in base_currency; None = no price / no FX rate
     price_as_of: datetime | None
     broker: str | None = None  # custodian / holding institution, for §1 grouping
     position: int | None = None  # upload order, for report layout
@@ -237,11 +237,12 @@ def _compute_concentration(snapshot: PortfolioSnapshot) -> Concentration:
         return c
 
     config = load_asset_class_config()
-    ranked = sorted(snapshot.holdings, key=lambda h: h.market_value_base, reverse=True)
+    priced = [h for h in snapshot.holdings if h.market_value_base is not None]
+    ranked = sorted(priced, key=lambda h: h.market_value_base or _ZERO, reverse=True)
 
     top = ranked[0]
     c.top_holding_name = top.name
-    c.top_holding_ratio = _ratio(top.market_value_base, total)
+    c.top_holding_ratio = _ratio(top.market_value_base or _ZERO, total)
     c.top_holding_asset_class = top.asset_class
     top_thresholds = config.by_class.get(top.asset_class or "")
     watch, high = (
@@ -252,7 +253,7 @@ def _compute_concentration(snapshot: PortfolioSnapshot) -> Concentration:
     c.single_holding_watch = c.top_holding_ratio > watch
     c.single_holding_high = c.top_holding_ratio > high
 
-    top3_sum = sum((h.market_value_base for h in ranked[:3]), _ZERO)
+    top3_sum = sum((h.market_value_base or _ZERO for h in ranked[:3]), _ZERO)
     c.top3_ratio = _ratio(top3_sum, total)
     c.top3_watch = c.top3_ratio > config.global_concentration.top3_watch
 
@@ -281,7 +282,9 @@ def compute_portfolio(
 
     FX rates are loaded once and held constant across every conversion
     (design §6.2: one as_of_date per report). Holdings missing a price or an
-    FX rate are recorded in `stale_tickers` and excluded from all totals.
+    FX rate are recorded in `stale_tickers`, kept in `holdings` with
+    `market_value`/`market_value_base` = None (issue #295 — the §1 row shows
+    a placeholder instead of vanishing), and excluded from all totals.
     Holdings whose captured close is older than _PRICE_STALE_DAYS relative to
     `as_of` are recorded in `stale_priced_tickers` (included in totals but
     flagged for ops alerting).
@@ -297,6 +300,8 @@ def compute_portfolio(
 
     for h in holdings:
         # --- market value in the holding's own currency ---
+        market_value: Decimal | None
+        price_as_of: datetime | None = None
         if h.pricing_mode == "auto":
             # Prefer the capture-layer close so valuation and the anomaly baseline
             # share one price series; fall back to the /refresh market_price (e.g.
@@ -313,20 +318,27 @@ def compute_portfolio(
                     snapshot.stale_priced_tickers.append(h.ticker or h.fund_code or h.name)
             if price is None or h.shares is None:
                 snapshot.stale_tickers.append(h.ticker or h.fund_code or h.name)
-                continue
-            market_value = (price * h.shares).quantize(_CENT, rounding=ROUND_HALF_UP)
+                market_value = None
+            else:
+                market_value = (price * h.shares).quantize(_CENT, rounding=ROUND_HALF_UP)
         else:
             if h.current_value is None:
                 snapshot.stale_tickers.append(h.name)
-                continue
-            market_value = h.current_value
+                market_value = None
+            else:
+                market_value = h.current_value
 
         # --- convert to base currency ---
-        converted = _to_base(market_value, h.currency, base_currency, fx)
-        if converted is None:
-            snapshot.stale_tickers.append(h.ticker or h.fund_code or h.name)
-            continue
-        market_value_base = converted.quantize(_CENT, rounding=ROUND_HALF_UP)
+        market_value_base: Decimal | None
+        if market_value is None:
+            market_value_base = None
+        else:
+            converted = _to_base(market_value, h.currency, base_currency, fx)
+            if converted is None:
+                snapshot.stale_tickers.append(h.ticker or h.fund_code or h.name)
+                market_value_base = None
+            else:
+                market_value_base = converted.quantize(_CENT, rounding=ROUND_HALF_UP)
 
         # Prefer the user-declared market; derive from ticker only when absent.
         market = h.market or _infer_holding_market(h)
@@ -348,6 +360,12 @@ def compute_portfolio(
                 position=h.position,
             )
         )
+
+        if market_value_base is None:
+            # Row kept for §1 display with a placeholder value; excluded from
+            # every aggregate (the stale_tickers entry above drives the
+            # ops-alert / compliance narrative) — issue #295.
+            continue
 
         # --- aggregates ---
         snapshot.total_base += market_value_base

@@ -483,3 +483,164 @@ def test_build_footer_starts_with_separator() -> None:
     portfolio = {"base_currency": "USD", "fx_date": "2026-06-04", "holdings": []}
     footer = sec._build_footer(portfolio)
     assert "---" in footer
+
+
+# ---------------------------------------------------------------------------
+# Tests: §1 unpriced-holding placeholder (issue #295)
+# ---------------------------------------------------------------------------
+
+
+def test_build_section1_renders_unpriced_holding_placeholder() -> None:
+    """A holding serialized with market_value/market_value_base None (no price
+    captured — issue #295) renders a placeholder in the value and weight cells
+    instead of a fabricated 0 / 0.0%, and its value is excluded from the
+    custodian subtotal."""
+    portfolio = {
+        "base_currency": "USD",
+        "fx_date": "2026-06-06",
+        "total_base": 100.0,
+        "by_market": {"US": 100.0},
+        "by_currency": {},
+        "by_asset_type": {},
+        "holdings": [
+            {
+                "name": "Priced",
+                "broker": "IBKR",
+                "currency": "USD",
+                "market_value": 100,
+                "market_value_base": 100.0,
+                "position": 0,
+                "asset_class": "STOCK",
+            },
+            {
+                "name": "Unpriced",
+                "broker": "IBKR",
+                "currency": "GBP",
+                "market_value": None,
+                "market_value_base": None,
+                "position": 1,
+                "asset_class": "STOCK",
+            },
+        ],
+    }
+    md = sec._build_section1(portfolio)
+    assert "Unpriced" in md  # row is shown, not erased
+    unpriced_row = next(line for line in md.splitlines() if line.startswith("| Unpriced"))
+    assert "| [price unavailable] | [price unavailable] |" in unpriced_row
+    assert "0.0%" not in unpriced_row
+    assert "**IBKR subtotal** | USD | **100**" in md  # subtotal = priced only
+
+
+def test_build_section1_priced_at_zero_with_zero_total_does_not_crash() -> None:
+    """Review finding: a priced row with market_value_base 0.0 against a
+    zero total used to format a None ratio (TypeError killed the report).
+    A zero-value holding must render 0.0% like the pre-#295 code did."""
+    portfolio = {
+        "base_currency": "USD",
+        "fx_date": "2026-06-06",
+        "total_base": 0,
+        "by_market": {},
+        "by_currency": {},
+        "by_asset_type": {},
+        "holdings": [
+            {
+                "name": "ZeroCash",
+                "broker": "IBKR",
+                "currency": "USD",
+                "market_value": 0,
+                "market_value_base": 0.0,
+                "position": 0,
+                "asset_class": "CASH_EQUIV",
+            },
+            {
+                "name": "Unpriced",
+                "broker": "IBKR",
+                "currency": "GBP",
+                "market_value": None,
+                "market_value_base": None,
+                "position": 1,
+                "asset_class": "STOCK",
+            },
+        ],
+    }
+    md = sec._build_section1(portfolio)
+    zero_row = next(line for line in md.splitlines() if line.startswith("| ZeroCash"))
+    assert "0.0%" in zero_row  # priced-at-zero formats a number, no TypeError
+    unpriced_row = next(line for line in md.splitlines() if line.startswith("| Unpriced"))
+    assert "[price unavailable]" in unpriced_row
+
+
+def test_serialize_portfolio_unpriced_holding_survives_with_none_values() -> None:
+    hv = HoldingValue(
+        holding_id=uuid.uuid4(),
+        name="PSH",
+        ticker="PSH.L",
+        fund_code=None,
+        currency="GBP",
+        asset_type="stock",
+        asset_class="STOCK",
+        sector=None,
+        market="Other",
+        market_value=None,
+        market_value_base=None,
+        price_as_of=None,
+    )
+    snap = PortfolioSnapshot(
+        base_currency="USD",
+        fx_date=_TODAY,
+        holdings=[hv],
+        total_base=Decimal("0"),
+        stale_tickers=["PSH.L"],
+    )
+    out = rs._serialize_portfolio(snap)
+    (row,) = out["holdings"]
+    assert row["market_value"] is None
+    assert row["market_value_base"] is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: §1 stale-price inline marker (issue #295)
+# ---------------------------------------------------------------------------
+
+
+def test_build_section1_marks_stale_priced_rows_inline() -> None:
+    """A holding whose captured close is multi-day stale (present in
+    stale_priced_tickers, value included in totals) shows a row-level inline
+    marker, distinct from the never-captured placeholder (issue #295)."""
+    portfolio = {
+        "base_currency": "USD",
+        "fx_date": "2026-06-06",
+        "total_base": 100.0,
+        "by_market": {"US": 100.0},
+        "by_currency": {},
+        "by_asset_type": {},
+        "stale_priced_tickers": ["PSH.L"],
+        "holdings": [
+            {
+                "name": "PSH",
+                "ticker": "PSH.L",
+                "broker": "IBKR",
+                "currency": "GBP",
+                "market_value": 100.0,
+                "market_value_base": 100.0,
+                "position": 0,
+                "asset_class": "STOCK",
+            },
+            {
+                "name": "Fresh",
+                "ticker": "AAPL",
+                "broker": "IBKR",
+                "currency": "USD",
+                "market_value": 200.0,
+                "market_value_base": 200.0,
+                "position": 1,
+                "asset_class": "STOCK",
+            },
+        ],
+    }
+    md = sec._build_section1(portfolio)
+    psh_row = next(line for line in md.splitlines() if line.startswith("| PSH "))
+    fresh_row = next(line for line in md.splitlines() if line.startswith("| Fresh "))
+    assert "[price stale]" in psh_row  # stale but priced → inline marker
+    assert "[price stale]" not in fresh_row  # fresh row unmasked
+    assert "100" in psh_row  # value still shown (included in totals)

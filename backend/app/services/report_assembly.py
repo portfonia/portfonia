@@ -341,10 +341,17 @@ def build_assembly_prompt(
         # connect this line to its L1 entry either (round 2 nit, PR #163 —
         # the same join failure, one spelling short of round 1's fix).
         ident = _identifier(h) or None
+        if h.get("market_value_base") is None:
+            # Unpriced holding (issue #295): keep the line, never show a
+            # fabricated 0.0% weight — the stale list below already names it
+            # as excluded from valuations.
+            weight_part = " (unvalued)"
+        else:
+            weight_part = f" — {_weight(h, total):.1%} of portfolio"
         lines.append(
             f"  {h.get('name', '')}"
             + (f" ({ident})" if ident else "")
-            + f" — {_weight(h, total):.1%} of portfolio"
+            + weight_part
             + (f" | asset_class: {h['asset_class']}" if h.get("asset_class") else "")
             + (" | TRACKING POSITION" if ident and ident in tracking else "")
         )

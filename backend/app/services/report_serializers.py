@@ -121,8 +121,10 @@ def _serialize_portfolio(snap: PortfolioSnapshot) -> dict[str, Any]:
             "sector": hv.sector,
             "market": hv.market,
             "broker": hv.broker,
-            "market_value": float(hv.market_value),
-            "market_value_base": float(hv.market_value_base),
+            "market_value": float(hv.market_value) if hv.market_value is not None else None,
+            "market_value_base": (
+                float(hv.market_value_base) if hv.market_value_base is not None else None
+            ),
             "price_as_of": hv.price_as_of.isoformat() if hv.price_as_of else None,
             "position": hv.position if hv.position is not None else 1_000_000,
         }

@@ -380,3 +380,37 @@ def test_psh_ticker_resolves_captured_price_via_lse_normalization(db_session: Se
     assert snap.stale_tickers == []
     # 590 GBP / 0.75 = 786.67 USD
     assert snap.total_base == Decimal("786.67")
+
+
+def test_unpriced_holding_kept_in_list_but_excluded_from_aggregates(
+    db_session: Session,
+) -> None:
+    """Issue #295: a holding with no captured price must keep its row in the
+    snapshot (market_value / market_value_base None — the §1 row renders a
+    placeholder instead of vanishing, which reads as data loss) while staying
+    out of every aggregate and out of concentration math."""
+    _seed_fx(db_session)
+    db_session.add_all(
+        [
+            _stock("Apple", "AAPL", "USD", "10", "300", sector="Technology"),
+            _stock("PSH", "PSH.L", "GBP", None, None),  # no price captured
+        ]
+    )
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    by_name = {hv.name: hv for hv in snap.holdings}
+    assert "PSH" in by_name  # row is kept, not dropped
+    psh = by_name["PSH"]
+    assert psh.market_value is None
+    assert psh.market_value_base is None
+    assert "PSH.L" in snap.stale_tickers
+    # aggregates reflect Apple only
+    assert snap.total_base == Decimal("3000.00")
+    assert snap.by_currency == {"USD": Decimal("3000.00")}
+    assert snap.by_asset_type == {"stock": Decimal("3000.00")}
+    assert snap.by_market == {"US": Decimal("3000.00")}
+    assert snap.by_asset_class == {"STOCK": Decimal("3000.00")}
+    assert snap.concentration.top_holding_name == "Apple"
+    assert snap.concentration.top3_ratio == Decimal("1.0000")

@@ -615,33 +615,36 @@ def generate_report(
         if portfolio_snap.stale_tickers:
             stale_list = ", ".join(portfolio_snap.stale_tickers)
             logger.warning(
-                "report %s: %d holding(s) missing price, excluded from report: %s",
+                "report %s: %d holding(s) missing price, shown as unpriced in §1 "
+                "and excluded from totals: %s",
                 report.id,
                 len(portfolio_snap.stale_tickers),
                 stale_list,
             )
             alert_body = (
-                f"Report {report.id} ({report.report_date}) excluded the following "
-                f"holdings due to missing price data:\n\n"
+                f"Report {report.id} ({report.report_date}) could not price the "
+                f"following holdings — they appear in §1 with a price-unavailable "
+                f"placeholder and are excluded from all totals:\n\n"
                 + "\n".join(f"  - {t}" for t in portfolio_snap.stale_tickers)
                 + "\n\nCheck price_snapshots and capture logs."
             )
             send_ops_alert(
-                subject=f"[Portfonia] price missing — {len(portfolio_snap.stale_tickers)} holding(s) excluded",
+                subject=f"[Portfonia] price missing — {len(portfolio_snap.stale_tickers)} holding(s) unpriced",
                 body=alert_body,
                 idempotency_key=f"ops-price-missing-{report.id}",
             )
             create_bug_report(
-                title=f"holdings excluded: price missing for {stale_list}",
+                title=f"holdings unpriced: price missing for {stale_list}",
                 body=(
-                    f"## Holdings excluded from report due to missing price\n\n"
+                    f"## Holdings without a price in report\n\n"
                     f"**Report:** {report.id} ({report.report_date})\n\n"
-                    f"**Excluded holdings:** {stale_list}\n\n"
-                    f"These holdings were absent from §1 portfolio composition and all "
-                    f"aggregation totals. Likely causes: capture task failure, new holding "
-                    f"with no price_snapshots row, or ticker/fund_code lookup mismatch.\n\n"
-                    f"**Fix:** verify `price_snapshots` has recent rows for each identifier "
-                    f"and that `compute_portfolio` looks them up correctly."
+                    f"**Unpriced holdings:** {stale_list}\n\n"
+                    f"These holdings appear in §1 with a price-unavailable placeholder "
+                    f"and are excluded from all aggregation totals. Likely causes: "
+                    f"capture task failure, new holding with no price_snapshots row, "
+                    f"or ticker/fund_code lookup mismatch.\n\n"
+                    f"**Fix:** verify `price_snapshots` has recent rows for each "
+                    f"identifier and that `compute_portfolio` looks them up correctly."
                 ),
                 labels=["bug", "ops", "data-quality"],
             )

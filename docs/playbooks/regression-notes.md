@@ -11,7 +11,9 @@ symptom.
 ticker or h.fund_code or "")` — fund code-only holdings have no `ticker`,
 and `capture_fund_navs` stores NAV in `price_snapshots` keyed by
 `fund_code`. A ticker-only lookup silently drops every fund holding into
-`stale_tickers` and out of the portfolio.
+`stale_tickers` — since #295 the row stays visible in §1 as
+`[price unavailable]` but is excluded from every aggregate (before #295 it
+vanished from the report entirely).
 
 ## Sector backfill on re-upload
 
