@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from app.services import report_translation as rt
+from app.services.asset_class_config import VALID_ASSET_CLASSES
 from app.services.i18n_glossary import load_i18n_glossary, locale_for_output_lang
 
 _VALID_YAML = """
@@ -118,6 +119,15 @@ def test_rejects_malformed_body_disclaimer_regex(tmp_path: Path) -> None:
     broken = _VALID_YAML.replace("投资建议", "投资建议(")  # unbalanced paren
     with pytest.raises(re.error):
         load_i18n_glossary(_write(tmp_path, broken))
+
+
+def test_report_glossary_covers_every_valid_asset_class() -> None:
+    """Every closed-taxonomy asset_class key must ship a zh-Hans report label
+    (issue #297) — a 14th asset_class must not silently render as raw English
+    in the translated report again."""
+    glossary = load_i18n_glossary()
+    missing = VALID_ASSET_CLASSES - set(glossary.report_glossary)
+    assert not missing, f"asset_class keys missing a zh-Hans label: {sorted(missing)}"
 
 
 def test_locale_for_output_lang_maps_zh() -> None:
