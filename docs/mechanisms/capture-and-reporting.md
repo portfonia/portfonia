@@ -613,3 +613,34 @@ unaffected either way; full design rationale and iteration history: Obsidian
   does not touch the assembly path or authorize turning it on.
 
 
+
+### §1 unpriced-holding placeholder (issue #295, PR #301)
+
+**Trigger**: a foreign-listed holding can legitimately have no fresh close
+across a multi-day window (weekend + local market holiday); before this
+change `compute_portfolio`'s price-missing `continue` both excluded the
+holding from totals AND erased its §1 row, so the user's own report read as
+data loss ("price pending" vs. "gone"). Confirmed against production
+(2026-08-31 report: no PSH row in §1).
+
+**Behavior now** (user-visible §1 change):
+- Never captured (no price_snapshots row ever): row is kept with
+  `[price unavailable]` placeholders in the value/weight cells, excluded
+  from all totals. Placeholder renders as 暂无价格 in zh-Hans via
+  `report_glossary["[price unavailable]"]` — a unique token on purpose, not
+  `"N/A"`, so the glossary can't mis-translate unrelated "n/a" text.
+- Multi-day stale (captured close >4 days old, `stale_priced_tickers`):
+  value stays in totals and shows, with an inline `[price stale]` marker
+  (价格过期).
+- `stale_tickers` still drives the ops alert + bug report + §1 footnote
+  (wording updated: "shown as unpriced in §1", no longer "excluded from
+  report" — the row is visible now).
+- Pass 2 holdings list shows `(unvalued)` instead of a fabricated `0.0%`
+  for unpriced rows.
+
+**Implementation notes**: `HoldingValue.market_value(_base)` are
+`Decimal | None`; aggregates gate on `market_value_base is not None`;
+`_compute_concentration` ranks only priced holdings. §1 custodian subtotals
+use `or 0` (deliberate exclusion of unpriced rows from subtotal math).
+
+**Status**: PR #301 open, awaiting review/merge.

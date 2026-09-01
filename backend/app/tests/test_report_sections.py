@@ -526,9 +526,48 @@ def test_build_section1_renders_unpriced_holding_placeholder() -> None:
     md = sec._build_section1(portfolio)
     assert "Unpriced" in md  # row is shown, not erased
     unpriced_row = next(line for line in md.splitlines() if line.startswith("| Unpriced"))
-    assert "| N/A | N/A |" in unpriced_row  # placeholder, not a fabricated number
+    assert "| [price unavailable] | [price unavailable] |" in unpriced_row
     assert "0.0%" not in unpriced_row
     assert "**IBKR subtotal** | USD | **100**" in md  # subtotal = priced only
+
+
+def test_build_section1_priced_at_zero_with_zero_total_does_not_crash() -> None:
+    """Review finding: a priced row with market_value_base 0.0 against a
+    zero total used to format a None ratio (TypeError killed the report).
+    A zero-value holding must render 0.0% like the pre-#295 code did."""
+    portfolio = {
+        "base_currency": "USD",
+        "fx_date": "2026-06-06",
+        "total_base": 0,
+        "by_market": {},
+        "by_currency": {},
+        "by_asset_type": {},
+        "holdings": [
+            {
+                "name": "ZeroCash",
+                "broker": "IBKR",
+                "currency": "USD",
+                "market_value": 0,
+                "market_value_base": 0.0,
+                "position": 0,
+                "asset_class": "CASH_EQUIV",
+            },
+            {
+                "name": "Unpriced",
+                "broker": "IBKR",
+                "currency": "GBP",
+                "market_value": None,
+                "market_value_base": None,
+                "position": 1,
+                "asset_class": "STOCK",
+            },
+        ],
+    }
+    md = sec._build_section1(portfolio)
+    zero_row = next(line for line in md.splitlines() if line.startswith("| ZeroCash"))
+    assert "0.0%" in zero_row  # priced-at-zero formats a number, no TypeError
+    unpriced_row = next(line for line in md.splitlines() if line.startswith("| Unpriced"))
+    assert "[price unavailable]" in unpriced_row
 
 
 def test_serialize_portfolio_unpriced_holding_survives_with_none_values() -> None:
