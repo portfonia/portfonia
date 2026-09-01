@@ -10,7 +10,7 @@ than duplicate. FX is NOT captured here — it stays in `fx_rates`.
 from __future__ import annotations
 
 import logging
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import httpx
@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
+from app.core.alert_dedup import already_alerted, mark_alerted
 from app.core.timezones import CST, MARKET_TZ
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
@@ -174,45 +175,107 @@ def _cst_today() -> date:
     return datetime.now(tz=CST).date()
 
 
-# Issue #298: a healthy fund publishes same-evening NAV, so a latest NAV more
-# than 2 calendar days behind today (CST) means the fund has not progressed.
-_FUND_NAV_STALE_DAYS = 2
+def _session_lag(nav_date: date, today: date) -> int:
+    """A-share trading sessions in (nav_date, today], approximated as weekdays.
+
+    No China holiday table exists in the codebase, so weekdays stand in for
+    the XSHG session calendar: weekends are handled correctly, long holiday
+    weeks are not (they can over-count — swap in a real market calendar if
+    logs ever show false positives).
+    """
+    lag = 0
+    cursor = nav_date + timedelta(days=1)
+    while cursor <= today:
+        if cursor.weekday() < 5:
+            lag += 1
+        cursor += timedelta(days=1)
+    return lag
+
+
+# Issue #298: a healthy fund publishes same-evening NAV, so the freshest NAV
+# should be at most one A-share trading session behind today (CST). Friday
+# NAV on a Monday before the Monday-evening publish is that expected 1-session
+# lag, not a 3-calendar-day gap.
+_FUND_NAV_MAX_SESSION_LAG = 1
+# Dedup keys embed the NAV date (or CST date for the empty case), so this TTL
+# is a garbage-collection safety net only — a changed state makes a new key.
+_ALERT_DEDUP_TTL_SECONDS = 90 * 24 * 60 * 60
+
+
+def _send_nav_alert(subject: str, body: str, dedup_key: str) -> None:
+    """Send a fund-NAV ops alert unless this dedup_key was already alerted.
+
+    The durable Redis dedup is the real anti-daily-spam mechanism; the Resend
+    Idempotency-Key (`idempotency_key=dedup_key`) only collapses same-task
+    retries within its 24h window, which is not enough for a 24h-apart
+    weekday beat (issue #298 review).
+    """
+    if already_alerted(dedup_key):
+        return
+    send_ops_alert(subject=subject, body=body, idempotency_key=dedup_key)
+    mark_alerted(dedup_key, _ALERT_DEDUP_TTL_SECONDS)
+
+
+def _warn_if_nav_missing(fund_code: str) -> None:
+    """WARNING + durable-deduped ops alert when a fund returns no NAV history.
+
+    fetch_nav_history swallows HTTP/parse errors as [] (issue #196), and a
+    per-fund miss is invisible in the aggregate `written=N` INFO log when a
+    mixed run writes rows for other funds and [] for one code. Keyed per
+    (fund_code, CST date) so a persistent miss re-surfaces daily.
+    """
+    today = _cst_today()
+    logger.warning(
+        "capture_fund_navs: fund %s returned no NAV history (fetch miss) on %s",
+        fund_code,
+        today.isoformat(),
+    )
+    _send_nav_alert(
+        subject=f"[Portfonia] fund NAV missing — {fund_code}",
+        body=(
+            f"capture_fund_navs_task got no NAV history for fund {fund_code} on "
+            f"{today.isoformat()} (CST): fetch_nav_history returned [] (HTTP/parse "
+            f"error, or no rows in the lookback window).\n\n"
+            f"Other funds in the same run may still have written rows, so the aggregate "
+            f"INFO log alone cannot surface this miss. Check worker.log for fetch "
+            f"errors mentioning this code."
+        ),
+        dedup_key=f"ops-fund-nav-empty-{fund_code}-{today.isoformat()}",
+    )
 
 
 def _warn_if_nav_stale(fund_code: str, nav_history: list[tuple[date, Decimal]]) -> None:
-    """Log a per-fund WARNING and ops-alert when the latest NAV is stale.
+    """WARNING + durable-deduped ops alert when the latest NAV is stale.
 
     Observability only (issue #298): does not alter capture behavior. Expects
     `nav_history` sorted ascending (fetch_nav_history's contract), so the last
-    entry is the freshest. The alert is idempotent per fund_code + NAV date so
-    a persisting gap does not re-alert on every daily run within the dedup
-    window.
+    entry is the freshest. Stale means more than `_FUND_NAV_MAX_SESSION_LAG`
+    trading sessions behind today — Thursday NAV on Monday (513500's shape)
+    alerts, Friday NAV on Monday does not. Keyed per (fund_code, NAV date) so
+    a stuck date emails once until the date changes.
     """
-    if not nav_history:
-        return
     latest_nav_date = nav_history[-1][0]
-    lag_days = (_cst_today() - latest_nav_date).days
-    if lag_days <= _FUND_NAV_STALE_DAYS:
+    lag = _session_lag(latest_nav_date, _cst_today())
+    if lag <= _FUND_NAV_MAX_SESSION_LAG:
         return
     logger.warning(
-        "capture_fund_navs: fund %s latest NAV %s lags today (CST) by %d calendar days",
+        "capture_fund_navs: fund %s latest NAV %s is %d trading session(s) behind today (CST)",
         fund_code,
         latest_nav_date.isoformat(),
-        lag_days,
+        lag,
     )
-    send_ops_alert(
+    _send_nav_alert(
         subject=f"[Portfonia] fund NAV stale — {fund_code}",
         body=(
             f"capture_fund_navs_task found fund {fund_code} with latest NAV dated "
-            f"{latest_nav_date.isoformat()}, which is {lag_days} calendar days behind "
-            f"today (CST).\n\n"
-            f"Healthy funds in the same run capture a same-day or 1-day-old NAV; this "
-            f"fund has not progressed. The gap may be a late evening NAV publish or a "
-            f"capture-task under-delivery (issue #135).\n\n"
+            f"{latest_nav_date.isoformat()}, {lag} trading session(s) behind today (CST).\n\n"
+            f"Healthy funds in the same run capture a same-day or 1-session-late NAV; "
+            f"this fund has not progressed. The gap may be a late evening NAV publish "
+            f"or a capture-task under-delivery (issue #135).\n\n"
             f"Check price_snapshots and worker.log for capture_fund_navs_task runs "
             f"mentioning this code."
         ),
-        idempotency_key=f"ops-fund-nav-stale-{fund_code}-{latest_nav_date.isoformat()}",
+        dedup_key=f"ops-fund-nav-stale-{fund_code}-{latest_nav_date.isoformat()}",
     )
 
 
@@ -248,7 +311,10 @@ def capture_fund_navs(
     with httpx.Client() as client:
         for fund_code, market in selected.items():
             nav_history = fetch_nav_history(fund_code, client, lookback_days=lookback_days)
-            _warn_if_nav_stale(fund_code, nav_history)
+            if nav_history:
+                _warn_if_nav_stale(fund_code, nav_history)
+            else:
+                _warn_if_nav_missing(fund_code)
             for nav_date, nav in nav_history:
                 rows.append(
                     {

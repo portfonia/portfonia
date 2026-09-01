@@ -135,6 +135,42 @@ numbers against Tencent's `qt.gtimg.cn/q=jj{code}` as a second source.
   #135 for the outcome rather than assuming either way.
 
 
+### Fund NAV staleness observability (issue #298, PR #303)
+
+`capture_fund_navs` now emits per-fund signals the aggregate `written=N` INFO
+log cannot express — the exact gap that blocked root-causing #135 twice (a
+mixed run writes rows for every fund but different funds land at different
+stale trade_dates, and the logs that would explain why keep getting wiped by
+unrelated deploys):
+
+- **Stale latest NAV**: freshest returned `nav_date` more than one A-share
+  trading session behind today (CST) → per-fund WARNING + ops alert
+  `ops-fund-nav-stale-{fund_code}-{nav_date}`. Sessions are approximated as
+  weekdays (no China holiday table in the codebase — weekends handled
+  correctly, long holiday weeks can over-count; swap in a real XSHG calendar
+  if logs ever show false positives). Friday NAV on Monday before the
+  Monday-evening publish is the expected 1-session lag and stays silent;
+  Thursday NAV on Monday (the 513500 shape) alerts.
+- **Missing NAV history**: `fetch_nav_history` returning `[]` for a fund
+  (HTTP/parse miss, or no rows in the lookback window) → per-fund WARNING +
+  ops alert `ops-fund-nav-empty-{fund_code}-{cst_date}`, re-surfacing daily
+  while the miss persists.
+- **Durable dedup** (`app/core/alert_dedup.py`, same swappable-backend shape
+  as `idle_activity.py`): Resend's 24h Idempotency-Key only collapses
+  same-task retries, which is not enough for a 24h-apart weekday beat — the
+  Redis record (90-day TTL as a GC safety net; keys embed the state so a
+  changed NAV date makes a fresh key) is what stops a stuck NAV date from
+  re-alerting daily. Fail-open on Redis outage (deliberately opposite
+  `rate_limit.py`'s fail-closed convention): losing the dedup is better than
+  losing the alert.
+
+Observability only: capture behavior and the `capture-fund-navs-daily` beat
+(20:00 CST Mon-Fri) are untouched. The check lives inside
+`capture_fund_navs`, so the confirm-time `backfill_fund_navs_task` path gets
+the same signals. Cross-ref: issue #135 (same symptom, root cause still
+unconfirmed — this is the instrumentation for it, not a fix).
+
+
 ### Capture layer + incremental reporting (ADR-002)
 
 Full spec in Obsidian: `Hermes/Portfonia/Docs/Incremental Report & Capture Layer Design.md`.

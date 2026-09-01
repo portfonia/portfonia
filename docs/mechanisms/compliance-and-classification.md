@@ -23,6 +23,13 @@
   absent.
 - All capture tasks (news/prices/fx/fund_navs/forward_events) send ops alert
   + GitHub issue on final-retry exhaustion.
+- Fund-NAV staleness/missing alerting (issue #298): `capture_fund_navs`
+  ops-alerts per fund_code when the freshest returned NAV is more than one
+  A-share trading session behind today (CST), or when the fetch returns no
+  history at all. Durable dedup in `app/core/alert_dedup.py` (Redis, TTL as
+  GC safety net, fail-open on outage) stops a stuck NAV date re-alerting
+  daily — Resend's Idempotency-Key window alone cannot. See
+  `capture-and-reporting.md` "Fund NAV staleness observability".
 
 
 ### Asset classification + fund NAV capture
