@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Generator
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import patch
@@ -13,7 +12,6 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core import alert_dedup
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
 from app.services.price_capture import (
@@ -30,16 +28,6 @@ _USER = uuid.UUID("00000000-0000-0000-0000-000000000001")
 @pytest.fixture(autouse=True)
 def _seed_user(db_session: Session) -> None:
     seed_user(db_session, _USER)
-
-
-@pytest.fixture(autouse=True)
-def _alert_dedup_memory() -> Generator[None, None, None]:
-    """Fresh in-memory dedup store per test — no live Redis, and a shared
-    backend would leak dedup keys across tests."""
-    backend = alert_dedup.InMemoryBackend()
-    alert_dedup.set_backend(backend)
-    yield
-    alert_dedup.set_backend(None)
 
 
 def _holding(name: str, ticker: str, market: str | None = None) -> Holding:
@@ -463,6 +451,108 @@ def test_capture_fund_navs_empty_history_dedupes_same_day(db_session: Session) -
         capture_fund_navs(db_session)
 
     alert.assert_called_once()
+
+
+def test_capture_fund_navs_does_not_dedup_failed_delivery(db_session: Session) -> None:
+    """send_ops_alert returning False (delivery failed; it never raises) must
+    not suppress the next beat for the same NAV date — a failed send leaves
+    the state un-deduped (round-2 review)."""
+    db_session.add(_fund_holding("CSI 500 ETF", "513500"))
+    db_session.flush()
+    with (
+        patch("app.services.price_capture._cst_today", return_value=date(2026, 8, 31)),
+        patch(
+            "app.services.fund_nav_fetcher.fetch_nav_history",
+            return_value=[(date(2026, 8, 27), Decimal("2.4652"))],
+        ),
+        patch("app.services.price_capture.send_ops_alert", return_value=False) as alert,
+    ):
+        capture_fund_navs(db_session)
+        capture_fund_navs(db_session)
+
+    assert alert.call_count == 2
+
+
+@pytest.mark.parametrize(
+    "latest_nav_date, should_alert",
+    [
+        (date(2026, 8, 28), False),  # Friday NAV on Saturday: last session, OK
+        (date(2026, 8, 27), True),  # Thursday NAV on Saturday: Friday session missed
+    ],
+)
+def test_capture_fund_navs_weekend_backfill_measures_against_last_session(
+    db_session: Session,
+    latest_nav_date: date,
+    should_alert: bool,
+) -> None:
+    """Confirm-time backfill on a weekend gets no same-evening slack: the
+    reference is the last completed session (round-2 review)."""
+    db_session.add(_fund_holding("CSI 500 ETF", "513500"))
+    db_session.flush()
+    with (
+        patch("app.services.price_capture._cst_today", return_value=date(2026, 8, 29)),
+        patch(
+            "app.services.fund_nav_fetcher.fetch_nav_history",
+            return_value=[(latest_nav_date, Decimal("2.4652"))],
+        ),
+        patch("app.services.price_capture.send_ops_alert") as alert,
+    ):
+        capture_fund_navs(db_session)
+
+    if should_alert:
+        alert.assert_called_once()
+    else:
+        alert.assert_not_called()
+
+
+def test_capture_fund_navs_reattempts_alert_when_nav_date_changes(
+    db_session: Session,
+) -> None:
+    """Dedup is per (fund_code, NAV date): a new stale date emails again."""
+    db_session.add(_fund_holding("CSI 500 ETF", "513500"))
+    db_session.flush()
+    histories = [
+        [(date(2026, 8, 27), Decimal("2.4652"))],  # Thu NAV, Tue: 3 sessions -> alert
+        [(date(2026, 8, 28), Decimal("2.4652"))],  # Fri NAV, Tue: 2 sessions -> alert
+    ]
+    with (
+        patch("app.services.price_capture._cst_today", return_value=date(2026, 9, 1)),
+        patch("app.services.fund_nav_fetcher.fetch_nav_history", side_effect=histories),
+        patch("app.services.price_capture.send_ops_alert") as alert,
+    ):
+        capture_fund_navs(db_session)
+        capture_fund_navs(db_session)
+
+    assert alert.call_count == 2
+    assert [c.kwargs["idempotency_key"] for c in alert.call_args_list] == [
+        "ops-fund-nav-stale-513500-2026-08-27",
+        "ops-fund-nav-stale-513500-2026-08-28",
+    ]
+
+
+def test_capture_fund_navs_empty_history_reattempts_alert_next_day(
+    db_session: Session,
+) -> None:
+    """Empty-history dedup is per CST date: the next day is a new unresolved
+    state and emails again."""
+    db_session.add(_fund_holding("CSI 500 ETF", "513500"))
+    db_session.flush()
+    with (
+        patch(
+            "app.services.price_capture._cst_today",
+            side_effect=[date(2026, 9, 1), date(2026, 9, 2)],
+        ),
+        patch("app.services.fund_nav_fetcher.fetch_nav_history", return_value=[]),
+        patch("app.services.price_capture.send_ops_alert") as alert,
+    ):
+        capture_fund_navs(db_session)
+        capture_fund_navs(db_session)
+
+    assert alert.call_count == 2
+    assert [c.kwargs["idempotency_key"] for c in alert.call_args_list] == [
+        "ops-fund-nav-empty-513500-2026-09-01",
+        "ops-fund-nav-empty-513500-2026-09-02",
+    ]
 
 
 # Close-node rows bind 10 parameters each. PostgreSQL/psycopg hard-cap a

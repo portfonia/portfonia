@@ -192,11 +192,12 @@ def _session_lag(nav_date: date, today: date) -> int:
     return lag
 
 
-# Issue #298: a healthy fund publishes same-evening NAV, so the freshest NAV
-# should be at most one A-share trading session behind today (CST). Friday
-# NAV on a Monday before the Monday-evening publish is that expected 1-session
-# lag, not a 3-calendar-day gap.
-_FUND_NAV_MAX_SESSION_LAG = 1
+# Issue #298: a healthy fund publishes same-evening NAV, so on a trading day
+# the freshest NAV may be up to one session behind (tonight's NAV not out
+# yet). On a weekend `today` (confirm-time backfill only — the Mon-Fri beat
+# never runs then) there is no same-evening publish pending: the reference is
+# the last completed session and any gap is a missed session.
+_FUND_NAV_WEEKDAY_SLACK_SESSIONS = 1
 # Dedup keys embed the NAV date (or CST date for the empty case), so this TTL
 # is a garbage-collection safety net only — a changed state makes a new key.
 _ALERT_DEDUP_TTL_SECONDS = 90 * 24 * 60 * 60
@@ -208,12 +209,15 @@ def _send_nav_alert(subject: str, body: str, dedup_key: str) -> None:
     The durable Redis dedup is the real anti-daily-spam mechanism; the Resend
     Idempotency-Key (`idempotency_key=dedup_key`) only collapses same-task
     retries within its 24h window, which is not enough for a 24h-apart
-    weekday beat (issue #298 review).
+    weekday beat (issue #298 review). The dedup key is recorded only when
+    delivery actually succeeded — send_ops_alert never raises, so its bool
+    return is the only delivery signal; a failed send must leave the state
+    un-deduped so the next beat retries it (round-2 review).
     """
     if already_alerted(dedup_key):
         return
-    send_ops_alert(subject=subject, body=body, idempotency_key=dedup_key)
-    mark_alerted(dedup_key, _ALERT_DEDUP_TTL_SECONDS)
+    if send_ops_alert(subject=subject, body=body, idempotency_key=dedup_key):
+        mark_alerted(dedup_key, _ALERT_DEDUP_TTL_SECONDS)
 
 
 def _warn_if_nav_missing(fund_code: str) -> None:
@@ -249,14 +253,24 @@ def _warn_if_nav_stale(fund_code: str, nav_history: list[tuple[date, Decimal]]) 
 
     Observability only (issue #298): does not alter capture behavior. Expects
     `nav_history` sorted ascending (fetch_nav_history's contract), so the last
-    entry is the freshest. Stale means more than `_FUND_NAV_MAX_SESSION_LAG`
-    trading sessions behind today — Thursday NAV on Monday (513500's shape)
-    alerts, Friday NAV on Monday does not. Keyed per (fund_code, NAV date) so
-    a stuck date emails once until the date changes.
+    entry is the freshest. Stale means more than the same-evening slack behind
+    the freshest completed session: +1 session on a trading day (tonight's
+    NAV may not be published yet), +0 when `today` is a weekend (confirm-time
+    backfill — the reference is the last completed session, so Thursday NAV
+    on Saturday alerts while Friday NAV does not; on Monday, Friday NAV is
+    the expected 1-session lag and Thursday NAV alerts). Keyed per
+    (fund_code, NAV date) so a stuck date emails once until the date changes.
     """
     latest_nav_date = nav_history[-1][0]
-    lag = _session_lag(latest_nav_date, _cst_today())
-    if lag <= _FUND_NAV_MAX_SESSION_LAG:
+    today = _cst_today()
+    if today.weekday() >= 5:
+        reference = today - timedelta(days=today.weekday() - 4)
+        max_lag = 0
+    else:
+        reference = today
+        max_lag = _FUND_NAV_WEEKDAY_SLACK_SESSIONS
+    lag = _session_lag(latest_nav_date, reference)
+    if lag <= max_lag:
         return
     logger.warning(
         "capture_fund_navs: fund %s latest NAV %s is %d trading session(s) behind today (CST)",

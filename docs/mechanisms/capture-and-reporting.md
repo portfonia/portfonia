@@ -144,13 +144,17 @@ stale trade_dates, and the logs that would explain why keep getting wiped by
 unrelated deploys):
 
 - **Stale latest NAV**: freshest returned `nav_date` more than one A-share
-  trading session behind today (CST) → per-fund WARNING + ops alert
-  `ops-fund-nav-stale-{fund_code}-{nav_date}`. Sessions are approximated as
-  weekdays (no China holiday table in the codebase — weekends handled
-  correctly, long holiday weeks can over-count; swap in a real XSHG calendar
-  if logs ever show false positives). Friday NAV on Monday before the
-  Monday-evening publish is the expected 1-session lag and stays silent;
-  Thursday NAV on Monday (the 513500 shape) alerts.
+  trading session behind the freshest completed session → per-fund WARNING +
+  ops alert `ops-fund-nav-stale-{fund_code}-{nav_date}`. Sessions are
+  approximated as weekdays (no China holiday table in the codebase — weekends
+  handled correctly, long holiday weeks can over-count; swap in a real XSHG
+  calendar if logs ever show false positives). The same-evening slack (+1
+  session) applies only when `today` itself is a trading day: Friday NAV on
+  Monday before the Monday-evening publish is the expected 1-session lag and
+  stays silent, Thursday NAV on Monday (the 513500 shape) alerts; a weekend
+  `today` (confirm-time backfill) has no pending same-evening publish, so the
+  reference is the last completed session — Friday NAV on Saturday is fine,
+  Thursday NAV on Saturday means the Friday session was missed and alerts.
 - **Missing NAV history**: `fetch_nav_history` returning `[]` for a fund
   (HTTP/parse miss, or no rows in the lookback window) → per-fund WARNING +
   ops alert `ops-fund-nav-empty-{fund_code}-{cst_date}`, re-surfacing daily
@@ -160,9 +164,11 @@ unrelated deploys):
   same-task retries, which is not enough for a 24h-apart weekday beat — the
   Redis record (90-day TTL as a GC safety net; keys embed the state so a
   changed NAV date makes a fresh key) is what stops a stuck NAV date from
-  re-alerting daily. Fail-open on Redis outage (deliberately opposite
-  `rate_limit.py`'s fail-closed convention): losing the dedup is better than
-  losing the alert.
+  re-alerting daily. The key is recorded only on confirmed delivery
+  (`send_ops_alert` returns `bool` — a failed send leaves the state
+  un-deduped so the next beat retries it). Fail-open on Redis outage
+  (deliberately opposite `rate_limit.py`'s fail-closed convention): losing
+  the dedup is better than losing the alert.
 
 Observability only: capture behavior and the `capture-fund-navs-daily` beat
 (20:00 CST Mon-Fri) are untouched. The check lives inside

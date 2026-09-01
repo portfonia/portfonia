@@ -136,6 +136,22 @@ def _idle_activity_memory() -> Generator[None, None, None]:
 
 
 @pytest.fixture(autouse=True)
+def _alert_dedup_memory() -> Generator[None, None, None]:
+    """Every test gets a fresh in-memory alert-dedup store (issue #298).
+
+    Without this, _send_nav_alert's already_alerted/mark_alerted would hit a
+    real Redis from any test that triggers a fund-NAV alert — same rationale
+    as _rate_limit_memory/_idle_activity_memory above.
+    """
+    from app.core.alert_dedup import InMemoryBackend as AlertDedupInMemoryBackend
+    from app.core.alert_dedup import set_backend as set_alert_dedup_backend
+
+    set_alert_dedup_backend(AlertDedupInMemoryBackend())
+    yield
+    set_alert_dedup_backend(None)
+
+
+@pytest.fixture(autouse=True)
 def _no_external_notifications(monkeypatch: pytest.MonkeyPatch) -> None:
     """Never let a test hit the real Resend/GitHub APIs.
 
