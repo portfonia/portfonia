@@ -482,4 +482,35 @@ describe("No-verified-recipient self-service recovery (issue #289 item 3)", () =
     await user.click(button());
     expect(await screen.findByRole("alert")).toHaveTextContent(/could not send the verification email/i);
   });
+
+  it("hides Send verification for a purpose that already has an actionable row (PR #292 review)", () => {
+    // Post-signup state: account email unverified, its pending row already
+    // live (email matches me.email) — Send would supersede the token in
+    // the inbox; Resend in the list below stays the only action.
+    renderBody({
+      ...BASE_ME,
+      pending_email_verifications: [{ ...PENDING, id: "v-4", email: "user@example.com" }],
+    });
+
+    expect(screen.queryByRole("button", { name: /send verification/i })).not.toBeInTheDocument();
+    // Resend stays the only action: the pending-list row AND the
+    // delivery-card inline resend both target the same live record (the
+    // §9.7/list overlap is documented as intended).
+    expect(screen.getAllByRole("button", { name: /resend/i }).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("keeps Send verification for a purpose without an actionable row when the other purpose has one", () => {
+    renderBody({
+      ...BASE_ME,
+      delivery_email: "reports@example.com",
+      pending_email_verifications: [{ ...PENDING, id: "v-5", email: "user@example.com" }],
+    });
+
+    // Account row hidden (its pending row exists); delivery row keeps Send.
+    const sendButtons = screen.getAllByRole("button", { name: /send verification/i });
+    expect(sendButtons).toHaveLength(1);
+    // Delivery address appears in the gap card row and the delivery card.
+    expect(screen.getAllByText("reports@example.com").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByRole("button", { name: /resend/i }).length).toBeGreaterThanOrEqual(1);
+  });
 });

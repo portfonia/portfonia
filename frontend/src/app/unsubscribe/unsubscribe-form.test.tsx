@@ -78,7 +78,7 @@ describe("UnsubscribeForm", () => {
 
     expect(screen.getByRole("heading", { name: /^unsubscribe$/i })).toBeInTheDocument();
     expect(
-      screen.getByText(/this address will stop receiving reports and verification emails from this platform/i),
+      screen.getByText(/this address will stop receiving reports from this platform until it is verified again/i),
     ).toBeInTheDocument();
     expect(screen.queryByText(/revoke verification/i)).not.toBeInTheDocument();
 

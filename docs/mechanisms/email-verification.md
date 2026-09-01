@@ -494,10 +494,13 @@ endpoint plus Profile UI.
    `unsubscribe` keys in all three locale catalogs): heading/button
    already said "Unsubscribe" while the body said "Revoke verification"
    — unified to unsubscribe language end to end. Page copy is generic
-   ("reports and verification emails from this platform"), not
-   Portfonia-report-specific. Locale files were edited text-level, never
-   `json.dump(indent=2)`-reformatted (PR #263's ~1100-line noise-diff
-   trap).
+   ("this address will stop receiving reports from this platform until
+   it is verified again"), not Portfonia-report-specific. Deliberately
+   does NOT claim verification emails will stop — unsubscribe is not a
+   suppression list; the recovery path re-emails verification to the
+   same address (PR #292 review finding). Locale files were edited
+   text-level, never `json.dump(indent=2)`-reformatted (PR #263's
+   ~1100-line noise-diff trap).
 3. **`POST /email-verifications`** (`app/routers/email_verification.py`):
    session-authenticated (`Depends(current_principal)`) creation of a
    fresh verification for one of the caller's OWN known fields —
@@ -523,7 +526,11 @@ endpoint plus Profile UI.
    state now lists every address on record — `email` plus `delivery_email`
    when set (today at most two; Vigil's own emails stay off this surface)
    — each with a "Send verification" button calling the new endpoint.
-   Success uses `router.refresh()` (a fresh `GET /me`), never
+   The row is omitted for a purpose that already has an actionable
+   (pending/undeliverable) row: Send would supersede the live token
+   already in the inbox (post-signup state — the pending list below with
+   Resend is the only action there; PR #292 review finding). Success
+   uses `router.refresh()` (a fresh `GET /me`), never
    `window.location.reload()` — the same mistake PR #263's review caught
    once already. New i18n keys in all three catalogs; 503 reuses the
    resend flow's fail-closed wording.

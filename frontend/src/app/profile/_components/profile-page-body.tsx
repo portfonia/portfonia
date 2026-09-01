@@ -76,6 +76,16 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
       v.purpose === (me.delivery_email != null ? "delivery_email" : "account_email"),
   );
 
+  // Issue #289 (PR #292 review): a purpose that already has an actionable
+  // (pending/undeliverable) row must not also offer "Send verification" —
+  // POST /email-verifications would create_verification-supersede the live
+  // token already in the inbox, and the email the user just received would
+  // then fail confirm as "invalid or expired". The list below (Resend) is
+  // the only action for that purpose; the gap-card Send is the recovery
+  // path for purposes with NO actionable row (e.g. verified → revoked).
+  const hasActionableRow = (purpose: string, email: string) =>
+    me.pending_email_verifications.some((v) => v.purpose === purpose && v.email === email);
+
   return (
     <div className="flex flex-col gap-6">
       <header>
@@ -116,47 +126,53 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
                 <p className="text-sm">{t("emailVerificationNoRecipient")}</p>
                 {/* Issue #289 §10: list every address the account actually
                     holds (email + delivery_email when set) — each with a
-                    Send verification action. Never accepts a new address;
-                    the server resolves the target from the account's own
-                    fields. delivery_email == email renders two rows
-                    deliberately: the two fields verify independently. */}
+                    Send verification action, UNLESS an actionable row
+                    already exists for it (see hasActionableRow — Send
+                    would supersede the live token; Resend is the only
+                    action there). Never accepts a new address; the server
+                    resolves the target from the account's own fields.
+                    delivery_email == email renders two rows deliberately:
+                    the two fields verify independently. */}
                 <div className="flex flex-col gap-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex flex-col">
-                      <span className="text-xs text-muted-foreground">
-                        {t("emailVerificationPurposeAccount")}
-                      </span>
-                      <span className="text-sm">{me.email}</span>
-                    </div>
-                    <Button
-                      variant="outline"
-                      disabled={send.pendingPurpose !== null}
-                      onClick={() => void send.handleSend("account_email")}
-                    >
-                      {send.pendingPurpose === "account_email"
-                        ? t("emailVerificationResending")
-                        : t("emailVerificationSendButton")}
-                    </Button>
-                  </div>
-                  {me.delivery_email != null && (
+                  {!hasActionableRow("account_email", me.email) && (
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex flex-col">
                         <span className="text-xs text-muted-foreground">
-                          {t("emailVerificationPurposeDelivery")}
+                          {t("emailVerificationPurposeAccount")}
                         </span>
-                        <span className="text-sm">{me.delivery_email}</span>
+                        <span className="text-sm">{me.email}</span>
                       </div>
                       <Button
                         variant="outline"
                         disabled={send.pendingPurpose !== null}
-                        onClick={() => void send.handleSend("delivery_email")}
+                        onClick={() => void send.handleSend("account_email")}
                       >
-                        {send.pendingPurpose === "delivery_email"
+                        {send.pendingPurpose === "account_email"
                           ? t("emailVerificationResending")
                           : t("emailVerificationSendButton")}
                       </Button>
                     </div>
                   )}
+                  {me.delivery_email != null &&
+                    !hasActionableRow("delivery_email", me.delivery_email) && (
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex flex-col">
+                          <span className="text-xs text-muted-foreground">
+                            {t("emailVerificationPurposeDelivery")}
+                          </span>
+                          <span className="text-sm">{me.delivery_email}</span>
+                        </div>
+                        <Button
+                          variant="outline"
+                          disabled={send.pendingPurpose !== null}
+                          onClick={() => void send.handleSend("delivery_email")}
+                        >
+                          {send.pendingPurpose === "delivery_email"
+                            ? t("emailVerificationResending")
+                            : t("emailVerificationSendButton")}
+                        </Button>
+                      </div>
+                    )}
                 </div>
                 {send.error && (
                   <p className="text-sm text-destructive" role="alert">

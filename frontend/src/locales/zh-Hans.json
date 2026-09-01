@@ -420,7 +420,7 @@
   },
   "unsubscribe": {
     "heading": "退订",
-    "subtitle": "确定要退订 {email} 吗？退订后，该地址将不再接收本平台的报告和验证邮件。",
+    "subtitle": "确定要退订 {email} 吗？退订后，该地址将不再接收本平台的报告，重新验证后可恢复。",
     "confirmButton": "确认退订",
     "confirming": "退订中...",
     "successBody": "已退订 {email}。本账户下其它已验证邮箱不受影响。",

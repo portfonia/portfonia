@@ -420,7 +420,7 @@
   },
   "unsubscribe": {
     "heading": "Unsubscribe",
-    "subtitle": "Unsubscribe {email}? This address will stop receiving reports and verification emails from this platform.",
+    "subtitle": "Unsubscribe {email}? This address will stop receiving reports from this platform until it is verified again.",
     "confirmButton": "Confirm unsubscribe",
     "confirming": "Unsubscribing...",
     "successBody": "You have unsubscribed {email}. Other verified addresses on this account are unaffected.",
