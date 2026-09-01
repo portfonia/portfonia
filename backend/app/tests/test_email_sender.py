@@ -758,6 +758,63 @@ def test_idempotency_key_changes_with_content(
 )
 @patch("app.services.email_sender.get_settings")
 @patch("app.services.email_sender.httpx.Client")
+def test_send_footer_copy_unsubscribe_register_en(
+    mock_client_cls: MagicMock, mock_settings: MagicMock, _recipient: MagicMock
+) -> None:
+    """issue #289 item 1 (en): the footer must explain what the report is,
+    that it was delivered per the user's own configuration, and what the
+    link does to future delivery — not just 'revoke verification'. The
+    register is plain 'unsubscribe', consistent with the /unsubscribe page."""
+    settings = _mock_settings()
+    settings.OUTPUT_LANG = "en"
+    mock_settings.return_value = settings
+
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    post_mock = mock_client_cls.return_value.__enter__.return_value.post
+    post_mock.return_value = mock_resp
+
+    send_report_email(_make_report(), MagicMock())
+
+    payload = post_mock.call_args.kwargs["json"]
+    assert "This report was delivered by Portfonia to the address you configured" in payload["html"]
+    assert "You can unsubscribe this address to stop receiving reports here" in payload["text"]
+    assert "unsubscribe?token=" in payload["html"]
+
+
+@patch(
+    "app.services.email_sender.recipient_email_with_purpose",
+    return_value=("test@example.com", "account_email"),
+)
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
+def test_send_footer_copy_unsubscribe_register_zh(
+    mock_client_cls: MagicMock, mock_settings: MagicMock, _recipient: MagicMock
+) -> None:
+    """issue #289 item 1 (zh-Hans branch): same register as the en footer —
+    explains delivery and the unsubscribe action, no 'revoke verification'
+    phrasing forced in."""
+    mock_settings.return_value = _mock_settings()  # OUTPUT_LANG=zh
+
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    post_mock = mock_client_cls.return_value.__enter__.return_value.post
+    post_mock.return_value = mock_resp
+
+    send_report_email(_make_report(), MagicMock())
+
+    payload = post_mock.call_args.kwargs["json"]
+    assert "本报告由 Portfonia 根据您提供的信息" in payload["html"]
+    assert "您可以退订此邮箱" in payload["text"]
+    assert "unsubscribe?token=" in payload["html"]
+
+
+@patch(
+    "app.services.email_sender.recipient_email_with_purpose",
+    return_value=("test@example.com", "account_email"),
+)
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
 def test_send_includes_text_alternative_and_unsubscribe_headers(
     mock_client_cls: MagicMock, mock_settings: MagicMock, _recipient: MagicMock
 ) -> None:

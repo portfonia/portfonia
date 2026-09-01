@@ -256,7 +256,10 @@
     "emailVerificationResending": "發送中...",
     "emailVerificationResendTooSoon": "操作過於頻繁，請稍後再試。",
     "emailVerificationResendUnavailable": "服務暫時不可用，請稍後再試。",
-    "emailVerificationResendFailed": "驗證郵件發送失敗，請重試。"
+    "emailVerificationResendFailed": "驗證郵件發送失敗，請重試。",
+    "emailVerificationSendButton": "發送驗證",
+    "emailVerificationSendTooSoon": "操作過於頻繁，請稍後再試。",
+    "emailVerificationSendFailed": "驗證郵件發送失敗，請重試。"
   },
   "home": {
     "hero": {
@@ -416,11 +419,11 @@
     "genericError": "出了點問題，請重試。"
   },
   "unsubscribe": {
-    "heading": "退訂報告郵件",
-    "subtitle": "確定要撤銷 {email} 的驗證嗎？",
+    "heading": "退訂",
+    "subtitle": "確定要退訂 {email} 嗎？退訂後，該地址將不再接收本平台的報告，重新驗證後可恢復。",
     "confirmButton": "確認退訂",
     "confirming": "退訂中...",
-    "successBody": "已撤銷 {email} 的驗證。本帳戶下其它已驗證信箱不受影響。",
+    "successBody": "已退訂 {email}。本帳戶下其它已驗證信箱不受影響。",
     "setAddressLink": "如果您需要設定其它接收信箱，請點擊此處設定。",
     "invalidOrExpired": "這個退訂連結無效或已過期。",
     "genericError": "出了點問題，請重試。"
