@@ -256,7 +256,10 @@
     "emailVerificationResending": "Sending...",
     "emailVerificationResendTooSoon": "Too many resends. Please wait a while and try again.",
     "emailVerificationResendUnavailable": "The service is temporarily unavailable. Please try again later.",
-    "emailVerificationResendFailed": "Could not resend the verification email. Please try again."
+    "emailVerificationResendFailed": "Could not resend the verification email. Please try again.",
+    "emailVerificationSendButton": "Send verification",
+    "emailVerificationSendTooSoon": "Too many verification requests. Please wait a while and try again.",
+    "emailVerificationSendFailed": "Could not send the verification email. Please try again."
   },
   "home": {
     "hero": {

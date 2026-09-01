@@ -2,7 +2,11 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/profile", useRouter: () => ({ refresh: vi.fn() }) }));
+const { routerRefresh } = vi.hoisted(() => ({ routerRefresh: vi.fn() }));
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/profile",
+  useRouter: () => ({ refresh: routerRefresh }),
+}));
 // Server Action import would drag in lib/supabase/server.ts's `server-only`
 // guard under vitest (no Next compiler pass to stub it) — mock like the
 // other suites do (see get-started-menu.test.tsx's identical comment).
@@ -14,14 +18,20 @@ vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
 // Partial mock of lib/api.ts so the resend success path can be exercised
 // (PR #270 review: no test covered a successful resend re-enabling the
 // buttons) — same importActual pattern as questionnaire-form.test.tsx.
-const { resendEmailVerification } = vi.hoisted(() => ({ resendEmailVerification: vi.fn() }));
+// createEmailVerification is the issue #289 sibling flow (fresh verification
+// for an account's own known address, no existing record required).
+const { resendEmailVerification, createEmailVerification } = vi.hoisted(() => ({
+  resendEmailVerification: vi.fn(),
+  createEmailVerification: vi.fn(),
+}));
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
-  return { ...actual, resendEmailVerification };
+  return { ...actual, resendEmailVerification, createEmailVerification };
 });
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
 import type { Me, PendingEmailVerification } from "@/lib/api";
+import { ApiError } from "@/lib/api";
 import { ProfilePageBody } from "./profile-page-body";
 
 function renderBody(me: Me | null, hadLoadError = false) {
@@ -41,7 +51,15 @@ function sectionTitles(): string[] {
 }
 
 function deliveryCard(): HTMLElement {
-  const card = screen.getByText("Report delivery email").closest('[data-slot="card"]');
+  // Issue #289: the noVerifiedRecipient gap card now also renders a
+  // "Report delivery email" purpose label (a span), so the title text is
+  // no longer unique on the page — pick the element inside a card-title
+  // slot, which only the CardTitle has.
+  const title = screen
+    .getAllByText("Report delivery email")
+    .find((el) => el.closest('[data-slot="card-title"]') !== null);
+  if (!title) throw new Error("delivery-email card title not found");
+  const card = title.closest('[data-slot="card"]');
   if (!(card instanceof HTMLElement)) throw new Error("delivery-email card not found");
   return card;
 }
@@ -70,6 +88,8 @@ const BASE_ME: Me = {
 describe("ProfilePageBody", () => {
   beforeEach(() => {
     resendEmailVerification.mockReset();
+    createEmailVerification.mockReset();
+    routerRefresh.mockReset();
   });
 
   it("shows a load error and nothing else when the fetch failed", () => {
@@ -100,7 +120,9 @@ describe("ProfilePageBody", () => {
   it("shows the real delivery email with no fallback note when it is set", () => {
     renderBody({ ...BASE_ME, delivery_email: "reports@example.com" });
 
-    expect(screen.getByText("reports@example.com")).toBeInTheDocument();
+    // The address legitimately appears in the delivery card AND (nothing
+    // verified) the gap card's recovery row — scope to the delivery card.
+    expect(within(deliveryCard()).getByText("reports@example.com")).toBeInTheDocument();
     expect(screen.queryByText(/no separate delivery address set/i)).not.toBeInTheDocument();
   });
 
@@ -383,5 +405,81 @@ describe("Delivery email inline unverified treatment (issue #269 §6)", () => {
     expect(within(card).getByText("reports@example.com")).not.toHaveClass("italic");
     expect(within(card).queryByText("This address is not verified.")).not.toBeInTheDocument();
     expect(within(card).queryByRole("button", { name: /resend/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("No-verified-recipient self-service recovery (issue #289 item 3)", () => {
+  beforeEach(() => {
+    createEmailVerification.mockReset();
+    routerRefresh.mockReset();
+  });
+
+  it("shows a Send verification button for the account email when nothing is verified", () => {
+    renderBody(BASE_ME);
+
+    // The account email appears in the gap card row, the Account card and
+    // the delivery-email fallback row when nothing is verified.
+    expect(screen.getAllByText("user@example.com").length).toBeGreaterThanOrEqual(1);
+    const accountButton = screen.getByRole("button", { name: /send verification/i });
+    expect(accountButton).toBeEnabled();
+    // No delivery email set — only the account row gets a button.
+    expect(screen.getAllByRole("button", { name: /send verification/i })).toHaveLength(1);
+  });
+
+  it("also lists the delivery email with its own Send verification button when set", () => {
+    renderBody({ ...BASE_ME, delivery_email: "reports@example.com" });
+
+    // Delivery address appears in the gap card row and the delivery card.
+    expect(screen.getAllByText("reports@example.com").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByRole("button", { name: /send verification/i })).toHaveLength(2);
+  });
+
+  it("calls createEmailVerification with account_email for the account row", async () => {
+    createEmailVerification.mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    renderBody(BASE_ME);
+
+    await user.click(screen.getByRole("button", { name: /send verification/i }));
+
+    expect(createEmailVerification).toHaveBeenCalledWith("account_email");
+  });
+
+  it("calls createEmailVerification with delivery_email for the delivery row", async () => {
+    createEmailVerification.mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    renderBody({ ...BASE_ME, delivery_email: "reports@example.com" });
+
+    const buttons = screen.getAllByRole("button", { name: /send verification/i });
+    await user.click(buttons[1]);
+
+    expect(createEmailVerification).toHaveBeenCalledWith("delivery_email");
+  });
+
+  it("refreshes the page data after a successful send (router.refresh, never a hard reload)", async () => {
+    createEmailVerification.mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    renderBody(BASE_ME);
+
+    await user.click(screen.getByRole("button", { name: /send verification/i }));
+
+    await waitFor(() => expect(routerRefresh).toHaveBeenCalled());
+  });
+
+  it("shows translated error copy on 429/503/other failures", async () => {
+    const user = userEvent.setup();
+    renderBody(BASE_ME);
+    const button = () => screen.getByRole("button", { name: /send verification/i });
+
+    createEmailVerification.mockRejectedValue(new ApiError(429, "too many"));
+    await user.click(button());
+    expect(await screen.findByRole("alert")).toHaveTextContent(/too many verification requests/i);
+
+    createEmailVerification.mockRejectedValue(new ApiError(503, "unavailable"));
+    await user.click(button());
+    expect(await screen.findByRole("alert")).toHaveTextContent(/temporarily unavailable/i);
+
+    createEmailVerification.mockRejectedValue(new ApiError(500, "boom"));
+    await user.click(button());
+    expect(await screen.findByRole("alert")).toHaveTextContent(/could not send the verification email/i);
   });
 });

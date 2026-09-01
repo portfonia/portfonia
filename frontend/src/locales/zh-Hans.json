@@ -256,7 +256,10 @@
     "emailVerificationResending": "发送中...",
     "emailVerificationResendTooSoon": "操作过于频繁，请稍后再试。",
     "emailVerificationResendUnavailable": "服务暂时不可用，请稍后再试。",
-    "emailVerificationResendFailed": "验证邮件发送失败，请重试。"
+    "emailVerificationResendFailed": "验证邮件发送失败，请重试。",
+    "emailVerificationSendButton": "发送验证",
+    "emailVerificationSendTooSoon": "操作过于频繁，请稍后再试。",
+    "emailVerificationSendFailed": "验证邮件发送失败，请重试。"
   },
   "home": {
     "hero": {

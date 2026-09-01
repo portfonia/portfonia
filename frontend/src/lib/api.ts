@@ -290,3 +290,21 @@ export async function resendEmailVerification(id: string): Promise<void> {
   });
   if (!res.ok) await throwOnHttpError(res);
 }
+
+// Start a NEW verification for one of the caller's own known email fields
+// (issue #289, Profile Page.md §10): purpose=account_email resolves
+// users.email, purpose=delivery_email resolves users.delivery_email — the
+// server never accepts an arbitrary address from the client. Unlike resend,
+// this requires no existing pending/undeliverable record: it is the
+// self-service recovery path after the only verified address was revoked.
+// The caller re-fetches GET /me via router.refresh() on success.
+export async function createEmailVerification(
+  purpose: "account_email" | "delivery_email",
+): Promise<void> {
+  const res = await fetch("/api/email-verifications", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ purpose }),
+  });
+  if (!res.ok) await throwOnHttpError(res);
+}
