@@ -222,22 +222,25 @@ def send_report_email(report: Report, session: Session) -> bool:
         # is still a leak, and one that would read as "delivered" in the
         # logs, permanently masking the identity-resolution bug (Ring 1-B
         # design doc §5.3).
-        logger.error(
-            "report %s: could not resolve a recipient for user_id=%s — refusing to send",
-            report.id,
-            report.user_id,
-        )
         # Issue #276: since the verification gate, `None` has two distinct
         # meanings. A missing/inactive user row is a bug signal and keeps
         # the original alert; an active user with no verified address is
         # the routine post-gate state and gets its own subject so the bug
-        # signal is not diluted. Both stay as email alerts for now (design
-        # doc §3.6 — observe real frequency while the user base is small;
-        # the second alert downgrading to a log line is a recorded future
-        # step, not built yet). The row re-check runs on this exceptional
-        # path only, not the hot path.
+        # signal is not diluted. Issue #290: the log matches the alert
+        # split — ERROR + the original wording for the bug signal, WARNING
+        # with email_skip_reason=no_verified_recipient for the routine
+        # case (Ring 1-Email Validation.md §3.6 scheme B). Both stay as
+        # email alerts for now (design doc §3.6 — observe real frequency
+        # while the user base is small; the second alert downgrading to a
+        # log line is a recorded future step, not built yet). The row
+        # re-check runs on this exceptional path only, not the hot path.
         user = session.get(User, report.user_id)
         if user is None or user.status != "active":
+            logger.error(
+                "report %s: could not resolve a recipient for user_id=%s — refusing to send",
+                report.id,
+                report.user_id,
+            )
             send_ops_alert(
                 subject="Portfonia: report recipient could not be resolved",
                 body=(
@@ -248,6 +251,12 @@ def send_report_email(report: Report, session: Session) -> bool:
                 ),
             )
         else:
+            logger.warning(
+                "report %s: user_id=%s is active but has no verified address — "
+                "email_skip_reason=no_verified_recipient, refusing to send",
+                report.id,
+                report.user_id,
+            )
             send_ops_alert(
                 subject="Portfonia ops: report has no verified recipient",
                 body=(

@@ -9,10 +9,12 @@ Strategy:
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
+import pytest
 from bs4 import BeautifulSoup, Tag
 from sqlalchemy.orm import Session
 
@@ -491,15 +493,21 @@ def test_send_inactive_user_alerts_unresolved_subject(
     mock_settings: MagicMock,
     mock_alert: MagicMock,
     db_session: Session,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Missing/inactive user row keeps the ORIGINAL subject unchanged —
     that case is still a real bug signal, not the routine no-verification
-    case."""
+    case. Issue #290: the log split matches the alert split — ERROR with
+    the original wording, and no no-verified-recipient WARNING."""
     mock_settings.return_value = _mock_settings()
     user_id = uuid.uuid4()
     report = _make_report(user_id=user_id)
 
-    result = send_report_email(report, db_session)
+    # docs/playbooks/testing-notes.md: alembic's session migrate disables
+    # already-imported module loggers, so caplog would see nothing.
+    logging.getLogger("app.services.email_sender").disabled = False
+    with caplog.at_level(logging.WARNING, logger="app.services.email_sender"):
+        result = send_report_email(report, db_session)
 
     assert result is False
     mock_client_cls.assert_not_called()
@@ -508,6 +516,14 @@ def test_send_inactive_user_alerts_unresolved_subject(
     assert (
         mock_alert.call_args.kwargs["subject"]
         == "Portfonia: report recipient could not be resolved"
+    )
+    sender_records = [r for r in caplog.records if r.name == "app.services.email_sender"]
+    assert any(
+        r.levelno == logging.ERROR and "could not resolve a recipient" in r.getMessage()
+        for r in sender_records
+    )
+    assert not any(
+        "email_skip_reason=no_verified_recipient" in r.getMessage() for r in sender_records
     )
 
 
@@ -519,17 +535,24 @@ def test_send_active_unverified_user_alerts_no_verified_recipient(
     mock_settings: MagicMock,
     mock_alert: MagicMock,
     db_session: Session,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Active user whose every address is unverified now resolves to None
     (issue #276 Layer 2) and must fire the NEW distinct subject — not the
-    row-missing subject, which is a bug signal, and not silence."""
+    row-missing subject, which is a bug signal, and not silence. Issue
+    #290: log WARNING with email_skip_reason=no_verified_recipient, never
+    the ERROR reserved for the missing/inactive row."""
     mock_settings.return_value = _mock_settings()
     user_id = uuid.uuid4()
     db_session.add(_real_user_row(user_id))
     db_session.flush()
     report = _make_report(user_id=user_id)
 
-    result = send_report_email(report, db_session)
+    # docs/playbooks/testing-notes.md: alembic's session migrate disables
+    # already-imported module loggers, so caplog would see nothing.
+    logging.getLogger("app.services.email_sender").disabled = False
+    with caplog.at_level(logging.WARNING, logger="app.services.email_sender"):
+        result = send_report_email(report, db_session)
 
     assert result is False
     mock_client_cls.assert_not_called()
@@ -546,6 +569,15 @@ def test_send_active_unverified_user_alerts_no_verified_recipient(
     assert "generated" in body
     assert "NOT emailed" in body
     assert "no report was generated" not in body
+    sender_records = [r for r in caplog.records if r.name == "app.services.email_sender"]
+    assert any(
+        r.levelno == logging.WARNING and "email_skip_reason=no_verified_recipient" in r.getMessage()
+        for r in sender_records
+    )
+    assert not any(
+        r.levelno == logging.ERROR and "could not resolve a recipient" in r.getMessage()
+        for r in sender_records
+    )
 
 
 @patch(

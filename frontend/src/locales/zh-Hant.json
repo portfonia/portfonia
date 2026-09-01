@@ -246,7 +246,7 @@
     "errorLoadFailed": "無法載入帳戶資訊。",
     "emailVerificationHeading": "郵箱驗證",
     "emailVerificationBody": "以下郵箱地址正在等待您的確認。如顯示發送失敗，請核對地址後重新發送。",
-    "emailVerificationNoRecipient": "沒有已驗證的接收信箱。請驗證一個地址，確保報告能夠送達。",
+    "emailVerificationNoRecipient": "沒有已驗證的接收信箱。完成驗證前，報告不會發送。",
     "emailVerificationStatusPending": "等待您確認",
     "emailVerificationStatusUndeliverable": "發送失敗，請檢查地址是否正確後重新發送。",
     "emailVerificationPurposeAccount": "賬戶郵箱",
@@ -403,10 +403,11 @@
   },
   "welcome": {
     "greeting": "歡迎，{email}。",
-    "withHoldings": "你的持倉已儲存。報告將發送至 {deliveryEmail}。",
-    "withoutHoldings": "報告將發送至 {deliveryEmail}。儲存持倉前，持倉相關區塊將保持為空。",
+    "withHoldings": "你的持倉已儲存。",
+    "withoutHoldings": "儲存持倉前，持倉相關區塊將保持為空。",
+    "deliveryVerified": "報告將發送至 {deliveryEmail}。",
+    "deliveryUnverified": "在 {deliveryEmail} 完成驗證之前，報告不會發送。",
     "cadence": "你的報告週期是每週一次。首份報告將按此週期發送。",
-    "emailUnverified": "請驗證 {deliveryEmail}，確保報告能夠送達。",
     "errorLoadFailed": "無法載入你的帳戶資訊。"
   },
   "emailVerification": {

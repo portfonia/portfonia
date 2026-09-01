@@ -246,7 +246,7 @@
     "errorLoadFailed": "Could not load your account.",
     "emailVerificationHeading": "Email verification",
     "emailVerificationBody": "These email addresses are waiting for your confirmation. If a message failed to deliver, check the address and resend.",
-    "emailVerificationNoRecipient": "No verified receiving email address. Verify an address to make sure reports can reach you.",
+    "emailVerificationNoRecipient": "No verified receiving email address. Reports will not be sent until an address is verified.",
     "emailVerificationStatusPending": "Waiting for your confirmation",
     "emailVerificationStatusUndeliverable": "Delivery failed. Check the address, then resend.",
     "emailVerificationPurposeAccount": "Account email",
@@ -403,10 +403,11 @@
   },
   "welcome": {
     "greeting": "Welcome, {email}.",
-    "withHoldings": "Your holdings are saved. Reports will be sent to {deliveryEmail}.",
-    "withoutHoldings": "Reports will be sent to {deliveryEmail}. Holdings-related sections stay empty until you save holdings.",
+    "withHoldings": "Your holdings are saved.",
+    "withoutHoldings": "Holdings-related sections stay empty until you save holdings.",
+    "deliveryVerified": "Reports will be sent to {deliveryEmail}.",
+    "deliveryUnverified": "Reports will not be sent until {deliveryEmail} is verified.",
     "cadence": "Your cadence is weekly. The first report follows that schedule.",
-    "emailUnverified": "Verify {deliveryEmail} so reports can reach you.",
     "errorLoadFailed": "Could not load your account."
   },
   "emailVerification": {

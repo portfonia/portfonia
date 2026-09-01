@@ -248,8 +248,11 @@ describe("Email Verification section render condition (issue #269 §1/§3)", () 
   it("shows the no-valid-recipient warning when nothing is verified, even with an empty list", () => {
     renderBody(BASE_ME);
 
+    // Issue #290: the full new string — first sentence plus the send-stop.
     expect(
-      screen.getByText(/no verified receiving email address/i),
+      screen.getByText(
+        /no verified receiving email address\. reports will not be sent until an address is verified\./i,
+      ),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /resend/i })).not.toBeInTheDocument();
   });
