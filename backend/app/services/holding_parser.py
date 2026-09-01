@@ -321,10 +321,16 @@ _TICKER_ASSET_CLASS: dict[str, str] = {
     "IVV": "EQUITY_US_BROAD",
     "513650": "EQUITY_US_BROAD",
     "513650.SS": "EQUITY_US_BROAD",
+    "513500": "EQUITY_US_BROAD",  # S&P 500 ETF (A-share, QDII)
+    "513500.SS": "EQUITY_US_BROAD",
     # US tech / Nasdaq 100
     "QQQM": "EQUITY_US_TECH",
     "QQQ": "EQUITY_US_TECH",
     "019547": "EQUITY_US_TECH",  # China Merchants Nasdaq 100 Index Fund
+    "513100": "EQUITY_US_TECH",  # Nasdaq 100 ETF (A-share, QDII)
+    "513100.SS": "EQUITY_US_TECH",
+    "513300": "EQUITY_US_TECH",  # Nasdaq 100 ETF (A-share, QDII)
+    "513300.SS": "EQUITY_US_TECH",
     # Developed markets ex-US
     "EWJ": "EQUITY_DM",
     # China equity (A-share / HK Chinese / China-focused QDII)
@@ -341,6 +347,10 @@ _TICKER_ASSET_CLASS: dict[str, str] = {
     "518660.SS": "PRECIOUS_METALS",
     "518800": "PRECIOUS_METALS",
     "518800.SS": "PRECIOUS_METALS",
+    "518850": "PRECIOUS_METALS",  # gold ETF (A-share)
+    "518850.SS": "PRECIOUS_METALS",
+    "518880": "PRECIOUS_METALS",  # gold ETF (A-share)
+    "518880.SS": "PRECIOUS_METALS",
     "008142": "PRECIOUS_METALS",  # ICBC Gold ETF feeder fund
     # Bond / T-bill funds
     "BOXX": "BOND_FUND",

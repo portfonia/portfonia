@@ -1132,3 +1132,33 @@ def test_openrouter_provider_order_and_data_collection() -> None:
             "order": ["DigitalOcean", "Venice"],
             "data_collection": "deny",
         }
+
+
+# ---------------------------------------------------------------------------
+# _classify_asset_class — sibling fund_code consistency (issue #296)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("fund_code", "expected"),
+    [
+        ("513100", "EQUITY_US_TECH"),
+        ("513300", "EQUITY_US_TECH"),
+        ("513500", "EQUITY_US_BROAD"),
+        ("513650", "EQUITY_US_BROAD"),
+        ("518660", "PRECIOUS_METALS"),
+        ("518800", "PRECIOUS_METALS"),
+        ("518850", "PRECIOUS_METALS"),
+        ("518880", "PRECIOUS_METALS"),
+    ],
+)
+def test_asset_class_fund_codes_share_sibling_bucket(fund_code: str, expected: str) -> None:
+    """Every A-share ETF tracking the same index/commodity must land in the same
+    economic-exposure bucket as its sibling products (issue #296 — 513500/518850
+    etc. fell through to the generic fund catch-all)."""
+    assert (
+        holding_parser_module._classify_asset_class(
+            {"ticker": None, "fund_code": fund_code, "asset_type": "fund"}
+        )
+        == expected
+    )
