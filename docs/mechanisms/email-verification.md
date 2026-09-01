@@ -546,3 +546,42 @@ purpose passed per row, refresh-on-success and translated 429/503/other
 errors; the `deliveryCard()` helper now disambiguates the delivery card
 title from the gap card's purpose label (both render "Report delivery
 email" when nothing is verified — intended duplication).
+
+## Stale post-gate copy, log taxonomy, admin-generate docs — issue #290
+
+Follow-up to #276/#288 (design comment 5488457870): copy + log split +
+docstring only, no third gate layer, no behavior change to
+`active_user_ids()` / `recipient_email_with_purpose()`.
+
+1. **ERROR-log split** (`app/services/email_sender.py`,
+   `send_report_email`): the single pre-fork `logger.error("could not
+   resolve a recipient...")` moved INTO the existing `session.get(User,
+   ...)` fork, matching the two ops-alert subjects (no third row fetch).
+   Missing/inactive row keeps ERROR + the original wording; active user
+   with no verified address logs WARNING with the literal token
+   `email_skip_reason=no_verified_recipient` (design doc §3.6 scheme B).
+   WARNING, not INFO: INFO is the already-sent happy skip; WARNING
+   matches the empty-`report_md` skip. The no-verified-recipient **email**
+   alert is NOT downgraded — that stays the recorded future step from
+   §3.6 (observe frequency first). Tests: the two real-resolver tests in
+   `test_email_sender.py` now assert caplog — ERROR + old wording and no
+   WARNING token on the missing-row branch; WARNING + token and no ERROR
+   on the active-unverified branch (with the
+   `logging.getLogger("app.services.email_sender").disabled = False`
+   workaround per `docs/playbooks/testing-notes.md`).
+2. **Welcome / Profile copy lift** (frontend locale catalogs
+   `en`/`zh-Hans`/`zh-Hant`): the #280 "must not claim send-stop until
+   #276" constraint is lifted. Welcome splits holdings status from the
+   delivery claim — holdings lines never mention send; delivery is XOR on
+   the existing unverified predicate: verified `Reports will be sent to
+   {deliveryEmail}.` / unverified `Reports will not be sent until
+   {deliveryEmail} is verified.` (`welcome.deliveryVerified` /
+   `welcome.deliveryUnverified`; `welcome.emailUnverified` removed).
+   Profile `emailVerificationNoRecipient` now states the send-stop too.
+   Locale edits were text-level splices, never `json.dump(indent=2)`.
+3. **Admin generate docstring** (`app/routers/admin.py`): the handler
+   doc no longer claims a successful run always emails — generation still
+   runs for an active unverified user (Layer 1 exemption, no
+   `active_user_ids()` call) while Layer 2 skips the send (`email_sent_at`
+   null + no-verified-recipient ops alert). Handler behavior unchanged;
+   no cadence catch-up/backfill.

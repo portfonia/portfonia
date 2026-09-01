@@ -444,8 +444,13 @@ def generate_report_for_user(user_id: UUID, session: Session = Depends(get_sessi
     scheduled fan-out will eventually do for them, not a relaxation unique
     to this endpoint.
 
-    A successful run emails the report to the target user. needs_review
-    does not. Quiet-day heartbeats email unless the short-manual-window
+    A successful run generates the report but does not always email it:
+    this handler is exempt from the Layer 1 generation gate (issue #276 —
+    it resolves the user directly, never `active_user_ids()`), so an
+    active but unverified user still gets a Report row, while the Layer 2
+    send-time gate then skips delivery — `email_sent_at` stays null and
+    the no-verified-recipient ops alert fires. needs_review does not
+    email. Quiet-day heartbeats email unless the short-manual-window
     suppression applies. A repeat same-day call on an already-complete
     report is an idempotent no-op (still 201, matching POST
     /reports/generate) and does not re-send.

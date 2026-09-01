@@ -246,7 +246,7 @@
     "errorLoadFailed": "无法加载账户信息。",
     "emailVerificationHeading": "邮箱验证",
     "emailVerificationBody": "以下邮箱地址正在等待您的确认。如显示发送失败，请核对地址后重新发送。",
-    "emailVerificationNoRecipient": "没有已验证的接收邮箱。请验证一个地址，确保报告能够送达。",
+    "emailVerificationNoRecipient": "没有已验证的接收邮箱。完成验证前，报告不会发送。",
     "emailVerificationStatusPending": "等待您确认",
     "emailVerificationStatusUndeliverable": "发送失败，请检查地址是否正确后重新发送。",
     "emailVerificationPurposeAccount": "账户邮箱",
@@ -403,10 +403,11 @@
   },
   "welcome": {
     "greeting": "欢迎，{email}。",
-    "withHoldings": "你的持仓已保存。报告将发送至 {deliveryEmail}。",
-    "withoutHoldings": "报告将发送至 {deliveryEmail}。保存持仓前，持仓相关板块将保持为空。",
+    "withHoldings": "你的持仓已保存。",
+    "withoutHoldings": "保存持仓前，持仓相关板块将保持为空。",
+    "deliveryVerified": "报告将发送至 {deliveryEmail}。",
+    "deliveryUnverified": "在 {deliveryEmail} 完成验证之前，报告不会发送。",
     "cadence": "你的报告周期是每周一次。首份报告将按此周期发送。",
-    "emailUnverified": "请验证 {deliveryEmail}，确保报告能够送达。",
     "errorLoadFailed": "无法加载你的账户信息。"
   },
   "emailVerification": {

@@ -143,12 +143,13 @@ for the full before/after and decision rationale.
   overlap with the top section's list is intentional per the issue). Resend
   logic lives in the shared `useVerificationResend` hook — the success path
   clears the in-flight id in a `finally`, so a completed resend re-enables
-  every resend button (PR #270 review finding). The no-recipient copy is
-  deliberately true today — "verify an address to make sure reports can
-  reach you", never "reports will not be sent" — because the §3.6 send-time
-  gate is unimplemented and `recipient_email()` ignores verification state;
-  issue #269's own "mirrors `recipient_email()`" phrasing was inaccurate
-  (corrected in the issue thread).
+  every resend button (PR #270 review finding). The no-recipient copy now
+  states the send-stop — "Reports will not be sent until an address is
+  verified" — since the §3.6 send-time gate is live (issue #276); issue
+  #290 lifted the #280-era constraint that kept it in the weaker "so
+  reports can reach you" register (issue #269's own "mirrors
+  `recipient_email()`" phrasing was inaccurate — corrected in the issue
+  thread).
 - **Change-password Server Action** (`app/profile/actions.ts`) follows the
   same `signInWithPassword`-then-`updateUser` pattern as
   `Ring 1-Profile Page.md` §三 decision 2 — verifies against the caller's
@@ -219,15 +220,19 @@ Canonical design: Obsidian `Hermes/Portfonia/Docs/Ring 1-Onboarding.md`.
   in only once a later cadence issue wires `weekly` into Beat. **Update
   (issue #280, 2026-08-31)**: when the receiving address (`delivery_email
   ?? email`, the same fallback the holdings line uses) has no verified
-  timestamp, a `welcome.emailUnverified` prompt renders, naming that
-  address — "Verify {deliveryEmail} so reports can reach you" — derived
+  timestamp, the delivery line claims send-stop instead of send — derived
   per scope exactly like the Profile page's issue #269 §6 rule (a set
   delivery_email is checked against `delivery_email_verified_at`, the
-  account-email fallback against `email_verified_at`). Key added to all
-  three catalogs. The copy deliberately stays in the same register as the
-  Profile page's `emailVerificationNoRecipient` ("so reports can reach
-  you"): the send-time gate that actually stops delivery is issue #276,
-  still open, so the page must not claim "reports won't be sent". **Update
+  account-email fallback against `email_verified_at`). **Update (issue
+  #290, 2026-09-01)**: the #280 constraint ("must not claim reports won't
+  be sent while #276 is open") is lifted — the welcome copy split into
+  holdings status (never mentions send: `withHoldings` /
+  `withoutHoldings`) and a delivery claim XORed on the unverified
+  predicate (`deliveryVerified`: "Reports will be sent to
+  {deliveryEmail}." / `deliveryUnverified`: "Reports will not be sent
+  until {deliveryEmail} is verified."). `welcome.emailUnverified` was
+  removed; all three catalogs updated in lockstep (zh-Hant still gated
+  out of the switcher). **Update
   (issue #280 item 3, 2026-08-31)**: successful login redirects
   unconditionally to `/profile` (was `/holdings`). `/login` only ever
   serves returning users — signup redirects straight to

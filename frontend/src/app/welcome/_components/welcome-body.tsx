@@ -58,8 +58,8 @@ export function WelcomeBody({ me, hadLoadError }: { me: Me | null; hadLoadError:
   }
 
   const deliveryEmail = me.delivery_email ?? me.email;
-  // Issue #280 §9.2: unverified is derived per scope, same rule as the
-  // Profile page (issue #269 §6) — a set delivery_email is checked against
+  // Issue #280 §9.2 / #290: unverified is derived per scope, same rule as
+  // the Profile page (issue #269 §6) — a set delivery_email is checked against
   // its own timestamp; the account-email fallback against the account one.
   const receivingEmailUnverified =
     (me.delivery_email != null && me.delivery_email_verified_at == null) ||
@@ -71,15 +71,13 @@ export function WelcomeBody({ me, hadLoadError }: { me: Me | null; hadLoadError:
         {t("greeting", { email: me.email })}
       </h1>
       <p className="text-sm text-foreground/80">
-        {me.has_holdings
-          ? t("withHoldings", { deliveryEmail })
-          : t("withoutHoldings", { deliveryEmail })}
+        {me.has_holdings ? t("withHoldings") : t("withoutHoldings")}
       </p>
-      {receivingEmailUnverified && (
-        <p className="text-sm text-foreground/80">
-          {t("emailUnverified", { deliveryEmail })}
-        </p>
-      )}
+      <p className="text-sm text-foreground/80">
+        {receivingEmailUnverified
+          ? t("deliveryUnverified", { deliveryEmail })
+          : t("deliveryVerified", { deliveryEmail })}
+      </p>
       <p className="text-sm text-foreground/80">{t("cadence")}</p>
     </div>
   );

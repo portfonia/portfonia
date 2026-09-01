@@ -41,7 +41,7 @@ describe("WelcomeBody", () => {
     renderBody(_ME);
     expect(screen.getByText("Welcome, a@b.com.")).toBeInTheDocument();
     expect(
-      screen.getByText(/Reports will be sent to a@b\.com\..*stay empty until you save holdings/),
+      screen.getByText("Holdings-related sections stay empty until you save holdings."),
     ).toBeInTheDocument();
     expect(screen.getByText(/Your cadence is weekly/)).toBeInTheDocument();
     // Must never claim a holdings-confirmation email was sent (Ring
@@ -52,37 +52,41 @@ describe("WelcomeBody", () => {
 
   it("shows the with-holdings copy and the actual delivery email when set", () => {
     renderBody({ ..._ME, has_holdings: true, delivery_email: "reports@b.com" });
-    expect(
-      screen.getByText("Your holdings are saved. Reports will be sent to reports@b.com."),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Your holdings are saved.")).toBeInTheDocument();
   });
 
-  it("warns to verify the fallback account email when no delivery email is set (issue #280 §9.2)", () => {
+  it("claims no delivery until the fallback account email is verified (issue #290)", () => {
     renderBody(_ME);
     expect(
-      screen.getByText("Verify a@b.com so reports can reach you."),
+      screen.getByText("Reports will not be sent until a@b.com is verified."),
     ).toBeInTheDocument();
+    // The unverified path must never claim a report is being sent.
+    expect(screen.queryByText(/Reports will be sent/)).not.toBeInTheDocument();
   });
 
-  it("warns naming the delivery email when it is set but unverified", () => {
+  it("claims no delivery until the delivery email itself is verified", () => {
     renderBody({ ..._ME, delivery_email: "reports@b.com" });
     expect(
-      screen.getByText("Verify reports@b.com so reports can reach you."),
+      screen.getByText("Reports will not be sent until reports@b.com is verified."),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/Reports will be sent/)).not.toBeInTheDocument();
   });
 
-  it("shows no verification warning once the fallback account email is verified", () => {
+  it("says reports will be sent once the fallback account email is verified", () => {
     renderBody({ ..._ME, email_verified_at: "2026-08-27T00:00:00Z" });
-    expect(screen.queryByText(/Verify .* so reports can reach you/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Reports will be sent to a@b.com.")).toBeInTheDocument();
+    // The verified path must not claim send is blocked.
+    expect(screen.queryByText(/will not be sent/)).not.toBeInTheDocument();
   });
 
-  it("shows no verification warning once the delivery email itself is verified", () => {
+  it("says reports will be sent once the delivery email itself is verified", () => {
     renderBody({
       ..._ME,
       delivery_email: "reports@b.com",
       delivery_email_verified_at: "2026-08-27T00:00:00Z",
     });
-    expect(screen.queryByText(/Verify .* so reports can reach you/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Reports will be sent to reports@b.com.")).toBeInTheDocument();
+    expect(screen.queryByText(/will not be sent/)).not.toBeInTheDocument();
   });
 
   it("has no dashboard button and no CTA", () => {
