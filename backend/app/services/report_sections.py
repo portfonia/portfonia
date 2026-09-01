@@ -57,6 +57,7 @@ def _build_section1(portfolio: dict[str, Any]) -> str:
             group_order.append(broker)
         groups[broker].append(h)
 
+    stale_priced_set = set(portfolio.get("stale_priced_tickers", []))
     for broker in group_order:
         members = groups[broker]
         subtotal_base = sum(m.get("market_value_base") or 0 for m in members)
@@ -64,6 +65,8 @@ def _build_section1(portfolio: dict[str, Any]) -> str:
             mv = h.get("market_value")
             mv_base = h.get("market_value_base")
             ratio = mv_base / total if (total > 0 and mv_base is not None) else None
+            identifiers = {h.get("ticker"), h.get("fund_code"), h["name"]}
+            stale_marker = " **[price stale]**" if identifiers & stale_priced_set else ""
             name_col = h["name"] + (f" ({h['ticker']})" if h.get("ticker") else "")
             if mv is None or mv_base is None:
                 # Unpriced holding (issue #295): keep the row, but never render
@@ -75,8 +78,9 @@ def _build_section1(portfolio: dict[str, Any]) -> str:
                 val_cell = f"{mv:,.0f}"
                 ratio_cell = f"{ratio:.1%}"
             lines.append(
-                f"| {name_col} | {h.get('currency', '')} | {val_cell} | {ratio_cell} "
-                f"| {h.get('broker', '') or '—'} | {h.get('asset_class', '—') or '—'} |"
+                f"| {name_col}{stale_marker} | {h.get('currency', '')} | {val_cell} "
+                f"| {ratio_cell} | {h.get('broker', '') or '—'} | "
+                f"{h.get('asset_class', '—') or '—'} |"
             )
         sub_ratio = subtotal_base / total if total > 0 else 0
         lines.append(

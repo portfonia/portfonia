@@ -557,3 +557,51 @@ def test_serialize_portfolio_unpriced_holding_survives_with_none_values() -> Non
     (row,) = out["holdings"]
     assert row["market_value"] is None
     assert row["market_value_base"] is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: §1 stale-price inline marker (issue #295)
+# ---------------------------------------------------------------------------
+
+
+def test_build_section1_marks_stale_priced_rows_inline() -> None:
+    """A holding whose captured close is multi-day stale (present in
+    stale_priced_tickers, value included in totals) shows a row-level inline
+    marker, distinct from the never-captured placeholder (issue #295)."""
+    portfolio = {
+        "base_currency": "USD",
+        "fx_date": "2026-06-06",
+        "total_base": 100.0,
+        "by_market": {"US": 100.0},
+        "by_currency": {},
+        "by_asset_type": {},
+        "stale_priced_tickers": ["PSH.L"],
+        "holdings": [
+            {
+                "name": "PSH",
+                "ticker": "PSH.L",
+                "broker": "IBKR",
+                "currency": "GBP",
+                "market_value": 100.0,
+                "market_value_base": 100.0,
+                "position": 0,
+                "asset_class": "STOCK",
+            },
+            {
+                "name": "Fresh",
+                "ticker": "AAPL",
+                "broker": "IBKR",
+                "currency": "USD",
+                "market_value": 200.0,
+                "market_value_base": 200.0,
+                "position": 1,
+                "asset_class": "STOCK",
+            },
+        ],
+    }
+    md = sec._build_section1(portfolio)
+    psh_row = next(line for line in md.splitlines() if line.startswith("| PSH "))
+    fresh_row = next(line for line in md.splitlines() if line.startswith("| Fresh "))
+    assert "[price stale]" in psh_row  # stale but priced → inline marker
+    assert "[price stale]" not in fresh_row  # fresh row unmasked
+    assert "100" in psh_row  # value still shown (included in totals)

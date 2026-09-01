@@ -77,6 +77,11 @@ report_glossary:
   # translation pass renders it to this term in the output language.
   "N/A":
     zh-Hans: 暂无价格
+  # §1 row-level marker for a holding whose captured close is multi-day stale
+  # (issue #295 — stale but priced, value still included in totals; distinct
+  # from the never-captured "N/A" above).
+  "[price stale]":
+    zh-Hans: "[价格过期]"
 
 forbidden_renderings:
   # Terms the translation pass must never use, regardless of target locale.
