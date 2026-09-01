@@ -471,3 +471,71 @@ docstring says so), so the fix was stamping those fixtures'
 `email_verified_at`, mirroring the same expected-change treatment the
 user_directory tests got — not a weakening of the new rule, whose own
 tests use unverified-by-default helpers.
+
+## Wording unification + no-verified-recipient self-service recovery — issue #289
+
+Design: Obsidian `Hermes/Portfonia/Docs/Ring 1-Email Validation.md`
+(2026-08-31 section) + `Ring 1-Profile Page.md` §10, implemented from
+the issue's design comment (5487631850) and the two design docs. Three
+independent items; the first two are copy-only, the third adds one
+endpoint plus Profile UI.
+
+1. **Report email footer copy** (`app/services/email_sender.py`
+   `_UNSUBSCRIBE_FOOTER_COPY`, `en`/`zh`): expanded from the
+   "Revoke verification for this address" one-liners to explain what the
+   report is, that it was delivered per the user's own configured
+   settings, and what the link does to future delivery. Register is plain
+   "unsubscribe" — kept consistent with the /unsubscribe page. The
+   footer may name Portfonia (it is a Portfonia report email); the
+   page-side copy stays generic ("this platform") so Vigil's future reuse
+   of the same page shape needs no rewrite — wording constraint only, no
+   multi-tenant plumbing built.
+2. **/unsubscribe page register** (`unsubscribe-form.tsx` + the
+   `unsubscribe` keys in all three locale catalogs): heading/button
+   already said "Unsubscribe" while the body said "Revoke verification"
+   — unified to unsubscribe language end to end. Page copy is generic
+   ("reports and verification emails from this platform"), not
+   Portfonia-report-specific. Locale files were edited text-level, never
+   `json.dump(indent=2)`-reformatted (PR #263's ~1100-line noise-diff
+   trap).
+3. **`POST /email-verifications`** (`app/routers/email_verification.py`):
+   session-authenticated (`Depends(current_principal)`) creation of a
+   fresh verification for one of the caller's OWN known fields —
+   purpose=account_email resolves `users.email`, purpose=delivery_email
+   resolves `users.delivery_email` (422 when unset). The request has no
+   `email` field; an extra client-supplied address is ignored, never
+   used. Allowed when the target is already verified — create_verification
+   supersedes only live `pending` records, so `*_verified_at` is
+   untouched (mirrors the Ops API's "resend doesn't unverify" behavior,
+   Profile Page.md §9.8). No new service logic: calls the shared
+   `create_verification` used by resend/signup-hook/Ops. Rate limiting
+   reuses `rate_limit_enforce_resend_verification` verbatim (same
+   per-user 3/h + global per-address 3/h Redis buckets, sha256-bucketed,
+   fail-closed 503) — deliberately not a separate allowance, per the
+   issue's design comment. Response is the narrow `{id, status,
+   expires_at}`, never the plaintext token. This is the self-service
+   recovery path for the dead-account gap: after `verified → revoked`
+   (email unsubscribe) no pending record remains to resend (§8.3), and
+   the only prior remedy was an ops-token-gated `POST
+   /admin/email-verifications`.
+4. **Profile gap card** (`profile-page-body.tsx` +
+   `use-verification-send.ts` + `lib/api.ts`): the `noVerifiedRecipient`
+   state now lists every address on record — `email` plus `delivery_email`
+   when set (today at most two; Vigil's own emails stay off this surface)
+   — each with a "Send verification" button calling the new endpoint.
+   Success uses `router.refresh()` (a fresh `GET /me`), never
+   `window.location.reload()` — the same mistake PR #263's review caught
+   once already. New i18n keys in all three catalogs; 503 reuses the
+   resend flow's fail-closed wording.
+
+**Test coverage**: new `test_email_verification_create.py` (auth 401;
+both purposes resolve the server-side address; delivery unset → 422;
+invalid purpose (incl. ops_manual) → 422; client-supplied email ignored;
+already-verified untouched; supersede of prior pending; 429/502 mapping;
+shared 3/h limiter trips on the 4th call). `test_email_sender.py` pins
+the new en/zh footer copy. `unsubscribe-form.test.tsx` pins the unified
+register. `profile-page-body.test.tsx` pins the gap-card buttons, the
+purpose passed per row, refresh-on-success and translated 429/503/other
+errors; the `deliveryCard()` helper now disambiguates the delivery card
+title from the gap card's purpose label (both render "Report delivery
+email" when nothing is verified — intended duplication).
