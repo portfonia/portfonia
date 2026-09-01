@@ -310,55 +310,43 @@ def _strip_code_fence(content: str) -> str:
     return match.group(1) if match else content.strip()
 
 
-# Ticker → canonical asset_class (economic exposure, not product form).
-# Covers known holdings; new tickers default via asset_type fallback below.
-_TICKER_ASSET_CLASS: dict[str, str] = {
-    # US broad market (S&P 500 / total market) — classified by underlying exposure,
-    # not listing location (513650.SS is an A-share ETF tracking S&P 500).
-    "VOO": "EQUITY_US_BROAD",
-    "VTI": "EQUITY_US_BROAD",
-    "SPY": "EQUITY_US_BROAD",
-    "IVV": "EQUITY_US_BROAD",
-    "513650": "EQUITY_US_BROAD",
-    "513650.SS": "EQUITY_US_BROAD",
-    "513500": "EQUITY_US_BROAD",  # S&P 500 ETF (A-share, QDII)
-    "513500.SS": "EQUITY_US_BROAD",
-    # US tech / Nasdaq 100
-    "QQQM": "EQUITY_US_TECH",
-    "QQQ": "EQUITY_US_TECH",
-    "019547": "EQUITY_US_TECH",  # China Merchants Nasdaq 100 Index Fund
-    "513100": "EQUITY_US_TECH",  # Nasdaq 100 ETF (A-share, QDII)
-    "513100.SS": "EQUITY_US_TECH",
-    "513300": "EQUITY_US_TECH",  # Nasdaq 100 ETF (A-share, QDII)
-    "513300.SS": "EQUITY_US_TECH",
-    # Developed markets ex-US
-    "EWJ": "EQUITY_DM",
-    # China equity (A-share / HK Chinese / China-focused QDII)
-    "FXI": "EQUITY_CN",
-    "KWEB": "EQUITY_CN",
-    "110011": "EQUITY_CN",  # E Fund Premium Select mixed fund (QDII) — China concept
-    # Precious metals (gold) — split from the generic COMMODITY catch-all
-    # 2026-06-20: gold's volatility/concentration profile is distinct from
-    # energy and other commodities, see config/asset_class_thresholds.yml.
-    "SGOL": "PRECIOUS_METALS",
-    "GLD": "PRECIOUS_METALS",
-    "IAU": "PRECIOUS_METALS",
-    "518660": "PRECIOUS_METALS",
-    "518660.SS": "PRECIOUS_METALS",
-    "518800": "PRECIOUS_METALS",
-    "518800.SS": "PRECIOUS_METALS",
-    "518850": "PRECIOUS_METALS",  # gold ETF (A-share)
-    "518850.SS": "PRECIOUS_METALS",
-    "518880": "PRECIOUS_METALS",  # gold ETF (A-share)
-    "518880.SS": "PRECIOUS_METALS",
-    "008142": "PRECIOUS_METALS",  # ICBC Gold ETF feeder fund
-    # Bond / T-bill funds
-    "BOXX": "BOND_FUND",
-    "BIL": "BOND_FUND",
-    "SHY": "BOND_FUND",
-    "AGG": "BOND_FUND",
-    "TLT": "BOND_FUND",
-}
+# backend/ = two levels above this file (services/holding_parser.py → app/ → backend/)
+_DEFAULT_TICKER_ASSET_CLASS_FILE = _BACKEND_DIR / "config" / "ticker_asset_class.yml"
+
+# The ticker/fund_code → asset_class mapping moved out of this module into
+# config/ticker_asset_class.yml (issue #296): an admin can add a real
+# production fund_code without a code deploy. Loaded fresh on every
+# classification via `_load_ticker_asset_class()` — a newly added entry is
+# live on the next parse, same live-reload discipline as
+# asset_class_thresholds.yml (#35) and i18n_glossary.yml (#90).
+_TICKER_ASSET_CLASS_CACHE: dict[str, str] | None = None
+_TICKER_ASSET_CLASS_CACHE_KEY: str | None = None
+
+
+def _get_ticker_asset_class_path() -> Path:
+    override = get_settings().TICKER_ASSET_CLASS_CONFIG_PATH
+    return Path(override) if override else _DEFAULT_TICKER_ASSET_CLASS_FILE
+
+
+def _load_ticker_asset_class() -> dict[str, str]:
+    """Return the ticker/fund_code → asset_class mapping, keyed by the config
+    path, cached per path. A different path (test env override) reloads."""
+    global _TICKER_ASSET_CLASS_CACHE, _TICKER_ASSET_CLASS_CACHE_KEY
+
+    target = _get_ticker_asset_class_path()
+    key = str(target)
+    if _TICKER_ASSET_CLASS_CACHE is not None and key == _TICKER_ASSET_CLASS_CACHE_KEY:
+        return _TICKER_ASSET_CLASS_CACHE
+
+    with target.open(encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    # yaml.safe_load parses bare numeric keys like 513100 as int; canonicalize
+    # every key to str so the lookups (which use str ticker/fund_code) hit.
+    mapping = {str(k): str(v) for k, v in (data.get("ticker_asset_class") or {}).items()}
+    _TICKER_ASSET_CLASS_CACHE = mapping
+    _TICKER_ASSET_CLASS_CACHE_KEY = key
+    return mapping
+
 
 _ASSET_TYPE_CLASS: dict[str, str] = {
     "stock": "STOCK",
@@ -371,12 +359,13 @@ _ASSET_TYPE_CLASS: dict[str, str] = {
 
 
 def _classify_asset_class(row: dict[str, Any]) -> str:
+    mapping = _load_ticker_asset_class()
     ticker = (row.get("ticker") or "").upper()
-    if ticker and ticker in _TICKER_ASSET_CLASS:
-        return _TICKER_ASSET_CLASS[ticker]
+    if ticker and ticker in mapping:
+        return mapping[ticker]
     fund_code = row.get("fund_code") or ""
-    if fund_code and fund_code in _TICKER_ASSET_CLASS:
-        return _TICKER_ASSET_CLASS[fund_code]
+    if fund_code and fund_code in mapping:
+        return mapping[fund_code]
     return _ASSET_TYPE_CLASS.get(row.get("asset_type") or "", "STOCK")
 
 

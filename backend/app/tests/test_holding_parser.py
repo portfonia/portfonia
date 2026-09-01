@@ -15,6 +15,7 @@ from app.core.config import get_settings
 from app.schemas.holdings import UploadPreview
 from app.services import holding_parser as holding_parser_module
 from app.services.holding_parser import (
+    _classify_asset_class,
     _extract_text,
     _postprocess,
     _strip_code_fence,
@@ -1162,3 +1163,37 @@ def test_asset_class_fund_codes_share_sibling_bucket(fund_code: str, expected: s
         )
         == expected
     )
+
+
+# ---------------------------------------------------------------------------
+# _classify_asset_class — hot-reloadable YAML mapping (issue #296)
+# ---------------------------------------------------------------------------
+
+
+def test_ticker_asset_class_mapping_reloads_without_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The mapping must be editable without a code deploy — an admin adding a
+    new fund_code to the YAML takes effect on the next parse (issue #296
+    structural concern: closed in-code tables miss real production entries).
+    Same live-reload discipline as asset_class_thresholds.yml (#35)."""
+    mapping = tmp_path / "ticker_asset_class.yml"
+    mapping.write_text(
+        "ticker_asset_class:\n"
+        "  QQQ: EQUITY_US_TECH\n"
+        "  518880: PRECIOUS_METALS\n"
+        "  999999: EQUITY_DM\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(holding_parser_module, "_get_ticker_asset_class_path", lambda: mapping)
+    holding_parser_module._TICKER_ASSET_CLASS_CACHE = None
+    holding_parser_module._TICKER_ASSET_CLASS_CACHE_KEY = None
+
+    try:
+        assert _classify_asset_class({"ticker": "QQQ", "asset_type": "etf"}) == "EQUITY_US_TECH"
+        # Newly-added entry is live without restart.
+        assert _classify_asset_class({"ticker": "999999", "asset_type": "etf"}) == "EQUITY_DM"
+    finally:
+        monkeypatch.undo()
+        holding_parser_module._TICKER_ASSET_CLASS_CACHE = None
+        holding_parser_module._TICKER_ASSET_CLASS_CACHE_KEY = None
