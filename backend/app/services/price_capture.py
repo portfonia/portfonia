@@ -11,16 +11,18 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, date, datetime
+from decimal import Decimal
 
 import httpx
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from app.core.timezones import MARKET_TZ
+from app.core.timezones import CST, MARKET_TZ
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
 from app.services._yfinance import _market_key_for_ticker, fetch_ohlcv_range, fetch_spot
+from app.services.email_sender import send_ops_alert
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +169,53 @@ def _auto_fund_codes(session: Session) -> dict[str, str]:
     return {code: (min(markets) if markets else "A-Share") for code, markets in declared.items()}
 
 
+def _cst_today() -> date:
+    """Today's date in China Standard Time — the fund NAV task's own clock."""
+    return datetime.now(tz=CST).date()
+
+
+# Issue #298: a healthy fund publishes same-evening NAV, so a latest NAV more
+# than 2 calendar days behind today (CST) means the fund has not progressed.
+_FUND_NAV_STALE_DAYS = 2
+
+
+def _warn_if_nav_stale(fund_code: str, nav_history: list[tuple[date, Decimal]]) -> None:
+    """Log a per-fund WARNING and ops-alert when the latest NAV is stale.
+
+    Observability only (issue #298): does not alter capture behavior. Expects
+    `nav_history` sorted ascending (fetch_nav_history's contract), so the last
+    entry is the freshest. The alert is idempotent per fund_code + NAV date so
+    a persisting gap does not re-alert on every daily run within the dedup
+    window.
+    """
+    if not nav_history:
+        return
+    latest_nav_date = nav_history[-1][0]
+    lag_days = (_cst_today() - latest_nav_date).days
+    if lag_days <= _FUND_NAV_STALE_DAYS:
+        return
+    logger.warning(
+        "capture_fund_navs: fund %s latest NAV %s lags today (CST) by %d calendar days",
+        fund_code,
+        latest_nav_date.isoformat(),
+        lag_days,
+    )
+    send_ops_alert(
+        subject=f"[Portfonia] fund NAV stale — {fund_code}",
+        body=(
+            f"capture_fund_navs_task found fund {fund_code} with latest NAV dated "
+            f"{latest_nav_date.isoformat()}, which is {lag_days} calendar days behind "
+            f"today (CST).\n\n"
+            f"Healthy funds in the same run capture a same-day or 1-day-old NAV; this "
+            f"fund has not progressed. The gap may be a late evening NAV publish or a "
+            f"capture-task under-delivery (issue #135).\n\n"
+            f"Check price_snapshots and worker.log for capture_fund_navs_task runs "
+            f"mentioning this code."
+        ),
+        idempotency_key=f"ops-fund-nav-stale-{fund_code}-{latest_nav_date.isoformat()}",
+    )
+
+
 def capture_fund_navs(
     session: Session,
     lookback_days: int = 30,
@@ -176,7 +225,9 @@ def capture_fund_navs(
 
     Upserts into price_snapshots using fund_code as ticker key, market from the
     holding (defaulting to A-Share), session_node='close'. The upsert is
-    idempotent so re-runs and catch-up are safe.
+    idempotent so re-runs and catch-up are safe. Per-fund staleness of the
+    freshest returned NAV is logged/alarmed (issue #298) but never changes
+    what gets written.
 
     `fund_codes` restricts the fetch to that subset (confirm-time cold start).
     ``None`` keeps the daily path's full auto-priced fund universe.
@@ -197,6 +248,7 @@ def capture_fund_navs(
     with httpx.Client() as client:
         for fund_code, market in selected.items():
             nav_history = fetch_nav_history(fund_code, client, lookback_days=lookback_days)
+            _warn_if_nav_stale(fund_code, nav_history)
             for nav_date, nav in nav_history:
                 rows.append(
                     {

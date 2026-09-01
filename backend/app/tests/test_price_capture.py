@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -278,6 +279,115 @@ def test_capture_fund_navs_prefers_declared_market_over_null_default(
         select(PriceSnapshot).where(PriceSnapshot.ticker == "513100")
     ).scalar_one()
     assert row.market == "HK"
+
+
+def test_capture_fund_navs_warns_and_alerts_when_nav_stale(
+    db_session: Session, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A fund whose latest NAV lags >2 calendar days (CST) logs a per-fund
+    WARNING and fires an ops alert idempotent per fund_code + NAV date (#298)."""
+    db_session.add(_fund_holding("CSI 500 ETF", "513500"))
+    db_session.flush()
+
+    # db_session (above) runs `alembic upgrade` via Config().fileConfig(), which
+    # defaults disable_existing_loggers=True and silently disables this
+    # already-imported module's logger — re-enable so caplog can see it.
+    logging.getLogger("app.services.price_capture").disabled = False
+    with (
+        caplog.at_level(logging.WARNING, logger="app.services.price_capture"),
+        patch("app.services.price_capture._cst_today", return_value=date(2026, 9, 1)),
+        patch(
+            "app.services.fund_nav_fetcher.fetch_nav_history",
+            return_value=[(date(2026, 8, 27), Decimal("2.4652"))],
+        ),
+        patch("app.services.price_capture.send_ops_alert") as alert,
+    ):
+        n = capture_fund_navs(db_session)
+
+    assert n == 1
+    alert.assert_called_once()
+    assert alert.call_args.kwargs["idempotency_key"] == "ops-fund-nav-stale-513500-2026-08-27"
+    assert "513500" in alert.call_args.kwargs["subject"]
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(warnings) == 1
+    message = warnings[0].getMessage()
+    assert "513500" in message
+    assert "2026-08-27" in message
+
+
+@pytest.mark.parametrize("latest_nav_date", [date(2026, 8, 30), date(2026, 8, 31)])
+def test_capture_fund_navs_no_warning_within_two_day_lag(
+    db_session: Session,
+    caplog: pytest.LogCaptureFixture,
+    latest_nav_date: date,
+) -> None:
+    """A same-day or 2-day-old NAV is the healthy same-evening publish shape."""
+    db_session.add(_fund_holding("CSI 500 ETF", "513500"))
+    db_session.flush()
+
+    logging.getLogger("app.services.price_capture").disabled = False
+    with (
+        caplog.at_level(logging.WARNING, logger="app.services.price_capture"),
+        patch("app.services.price_capture._cst_today", return_value=date(2026, 9, 1)),
+        patch(
+            "app.services.fund_nav_fetcher.fetch_nav_history",
+            return_value=[(latest_nav_date, Decimal("2.4652"))],
+        ),
+        patch("app.services.price_capture.send_ops_alert") as alert,
+    ):
+        n = capture_fund_navs(db_session)
+
+    assert n == 1
+    alert.assert_not_called()
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+def test_capture_fund_navs_alerts_stale_fund_only(db_session: Session) -> None:
+    """Two funds in one run: only the lagging one alerts, keyed to its own code."""
+    db_session.add_all(
+        [
+            _fund_holding("CSI 500 ETF", "513500"),
+            _fund_holding("Huaxia SSE 50 ETF", "513100"),
+        ]
+    )
+    db_session.flush()
+    histories = {
+        "513500": [(date(2026, 8, 27), Decimal("2.4652"))],  # 5-day lag -> stale
+        "513100": [(date(2026, 8, 31), Decimal("1.23"))],  # 1-day lag -> fresh
+    }
+    with (
+        patch("app.services.price_capture._cst_today", return_value=date(2026, 9, 1)),
+        patch(
+            "app.services.fund_nav_fetcher.fetch_nav_history",
+            side_effect=lambda code, client, lookback_days=30: histories[code],
+        ),
+        patch("app.services.price_capture.send_ops_alert") as alert,
+    ):
+        n = capture_fund_navs(db_session)
+
+    assert n == 2
+    alert.assert_called_once()
+    assert alert.call_args.kwargs["idempotency_key"] == "ops-fund-nav-stale-513500-2026-08-27"
+
+
+def test_capture_fund_navs_empty_history_no_stale_check(
+    db_session: Session, caplog: pytest.LogCaptureFixture
+) -> None:
+    """No nav_history (fetch failure) means no staleness comparison — the fetch
+    layer already logs its own errors."""
+    db_session.add(_fund_holding("CSI 500 ETF", "513500"))
+    db_session.flush()
+
+    with (
+        caplog.at_level(logging.WARNING, logger="app.services.price_capture"),
+        patch("app.services.price_capture._cst_today", return_value=date(2026, 9, 1)),
+        patch("app.services.fund_nav_fetcher.fetch_nav_history", return_value=[]),
+        patch("app.services.price_capture.send_ops_alert") as alert,
+    ):
+        n = capture_fund_navs(db_session)
+
+    assert n == 0
+    alert.assert_not_called()
 
 
 # Close-node rows bind 10 parameters each. PostgreSQL/psycopg hard-cap a
