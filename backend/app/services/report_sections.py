@@ -492,19 +492,31 @@ def _build_footer(portfolio: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _fx_is_stale(fx_date: str, period_end: str) -> bool:
-    """True when the FX rate date trails the window cutoff by more than a day.
+# Calendar days beyond which a captured FX rate is considered stale. Mirrors
+# portfolio_calculator._PRICE_STALE_DAYS: a Friday rate read on a
+# Tuesday-after-a-Monday-holiday report is a 4-day gap and is normal; 5+ days
+# indicates a capture failure, not the calendar (issue #299).
+_FX_STALE_DAYS = 4
 
-    Both are dates we control (fx_rates.rate_date / period_end); a >1-day gap
-    means valuations used a materially old rate — worth flagging in a volatile
-    week (R-4 surfaced rates frozen 6 days). Any parse failure → not flagged.
+
+def _fx_is_stale(fx_date: str, period_end: str) -> bool:
+    """True when the FX rate date trails the window cutoff by more than 4 days.
+
+    Both are dates we control (fx_rates.rate_date / period_end); fx_rates is
+    populated once per day, so the most recent available rate is naturally
+    1-4 calendar days old across a weekend or a single adjacent holiday —
+    normal, not an incident. A >4-day gap means valuations used a materially
+    old rate, worth flagging in a volatile week (R-4 surfaced rates frozen
+    6 days). Deliberately mirrors portfolio_calculator._PRICE_STALE_DAYS so
+    "how stale is too stale" is one mental model across the report
+    (issue #299). Any parse failure → not flagged.
     """
     try:
         fx = date.fromisoformat(fx_date[:10])
         end = datetime.fromisoformat(period_end).astimezone(ET).date()
     except (ValueError, TypeError):
         return False
-    return (end - fx).days > 1
+    return (end - fx).days > _FX_STALE_DAYS
 
 
 def _build_data_window(
