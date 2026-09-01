@@ -1174,26 +1174,53 @@ def test_ticker_asset_class_mapping_reloads_without_restart(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The mapping must be editable without a code deploy — an admin adding a
-    new fund_code to the YAML takes effect on the next parse (issue #296
-    structural concern: closed in-code tables miss real production entries).
-    Same live-reload discipline as asset_class_thresholds.yml (#35)."""
+    new fund_code to the YAML takes effect on the next parse with no process
+    restart (issue #296 structural decision, the #35 live-reload property).
+    The loader re-reads the file on every call, so overwriting the same path
+    (no cache to clear) is what the test exercises."""
     mapping = tmp_path / "ticker_asset_class.yml"
     mapping.write_text(
-        "ticker_asset_class:\n"
-        "  QQQ: EQUITY_US_TECH\n"
-        "  518880: PRECIOUS_METALS\n"
-        "  999999: EQUITY_DM\n",
+        "ticker_asset_class:\n  QQQ: EQUITY_US_TECH\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(holding_parser_module, "_get_ticker_asset_class_path", lambda: mapping)
-    holding_parser_module._TICKER_ASSET_CLASS_CACHE = None
-    holding_parser_module._TICKER_ASSET_CLASS_CACHE_KEY = None
 
-    try:
-        assert _classify_asset_class({"ticker": "QQQ", "asset_type": "etf"}) == "EQUITY_US_TECH"
-        # Newly-added entry is live without restart.
-        assert _classify_asset_class({"ticker": "999999", "asset_type": "etf"}) == "EQUITY_DM"
-    finally:
-        monkeypatch.undo()
-        holding_parser_module._TICKER_ASSET_CLASS_CACHE = None
-        holding_parser_module._TICKER_ASSET_CLASS_CACHE_KEY = None
+    # Version 1: 999999 is unmapped → generic fund catch-all.
+    assert _classify_asset_class({"ticker": "999999", "asset_type": "etf"}) == "EQUITY_BROAD"
+
+    # Admin adds the fund_code in place; the same process picks it up with
+    # no cache clear and no restart.
+    mapping.write_text(
+        "ticker_asset_class:\n  QQQ: EQUITY_US_TECH\n  999999: EQUITY_DM\n",
+        encoding="utf-8",
+    )
+    assert _classify_asset_class({"ticker": "999999", "asset_type": "etf"}) == "EQUITY_DM"
+
+
+def test_ticker_asset_class_rejects_unknown_taxonomy_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A typo'd asset_class VALUE must fail loudly at load time, not silently
+    classify every matching instrument into an unknown bucket and only die
+    later in ParsedRow validation (issue #296 — same closed-taxonomy
+    discipline as asset_class_thresholds.yml)."""
+    mapping = tmp_path / "ticker_asset_class.yml"
+    mapping.write_text(
+        "ticker_asset_class:\n  QQQ: EQUITY_US_TEHC\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(holding_parser_module, "_get_ticker_asset_class_path", lambda: mapping)
+    with pytest.raises(ValueError, match="EQUITY_US_TEHC"):
+        _classify_asset_class({"ticker": "QQQ", "asset_type": "etf"})
+
+
+def test_ticker_asset_class_rejects_missing_top_level_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A config missing the top-level `ticker_asset_class` map must raise
+    rather than silently classifying every instrument via the catch-all."""
+    mapping = tmp_path / "ticker_asset_class.yml"
+    mapping.write_text("other_section: {}\n", encoding="utf-8")
+    monkeypatch.setattr(holding_parser_module, "_get_ticker_asset_class_path", lambda: mapping)
+    with pytest.raises(ValueError, match="ticker_asset_class"):
+        _classify_asset_class({"ticker": "QQQ", "asset_type": "etf"})

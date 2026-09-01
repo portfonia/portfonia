@@ -26,6 +26,7 @@ from app.schemas.holdings import (
     ParsedRow,
     UploadPreview,
 )
+from app.services.asset_class_config import VALID_ASSET_CLASSES
 from app.services.llm_errors import (
     LLMCallError,
     LLMEmptyResponseError,
@@ -313,38 +314,46 @@ def _strip_code_fence(content: str) -> str:
 # backend/ = two levels above this file (services/holding_parser.py → app/ → backend/)
 _DEFAULT_TICKER_ASSET_CLASS_FILE = _BACKEND_DIR / "config" / "ticker_asset_class.yml"
 
+
 # The ticker/fund_code → asset_class mapping moved out of this module into
 # config/ticker_asset_class.yml (issue #296): an admin can add a real
-# production fund_code without a code deploy. Loaded fresh on every
-# classification via `_load_ticker_asset_class()` — a newly added entry is
-# live on the next parse, same live-reload discipline as
-# asset_class_thresholds.yml (#35) and i18n_glossary.yml (#90).
-_TICKER_ASSET_CLASS_CACHE: dict[str, str] | None = None
-_TICKER_ASSET_CLASS_CACHE_KEY: str | None = None
-
-
+# production fund_code without a code deploy. Re-read on every classification
+# (no cache — mirroring asset_class_config.load_asset_class_config and
+# i18n_glossary.load_i18n_glossary), so a newly added entry is live on the
+# next parse with no process restart (the #35 live-reload property).
 def _get_ticker_asset_class_path() -> Path:
     override = get_settings().TICKER_ASSET_CLASS_CONFIG_PATH
     return Path(override) if override else _DEFAULT_TICKER_ASSET_CLASS_FILE
 
 
 def _load_ticker_asset_class() -> dict[str, str]:
-    """Return the ticker/fund_code → asset_class mapping, keyed by the config
-    path, cached per path. A different path (test env override) reloads."""
-    global _TICKER_ASSET_CLASS_CACHE, _TICKER_ASSET_CLASS_CACHE_KEY
+    """Return the ticker/fund_code → asset_class mapping from YAML.
 
+    No cache: re-opens the file on every call so an in-place admin edit takes
+    effect on the next parse (issue #296 — the #35 live-reload property;
+    sibling loaders behave the same). Fails loudly on drift, matching
+    asset_class_thresholds.yml's closed-taxonomy discipline: an unknown
+    asset_class VALUE is a config typo, not a silent catch-all.
+    """
     target = _get_ticker_asset_class_path()
-    key = str(target)
-    if _TICKER_ASSET_CLASS_CACHE is not None and key == _TICKER_ASSET_CLASS_CACHE_KEY:
-        return _TICKER_ASSET_CLASS_CACHE
-
     with target.open(encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
+    raw = data.get("ticker_asset_class")
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"ticker_asset_class config at {target} is missing the "
+            f"'ticker_asset_class' top-level map"
+        )
     # yaml.safe_load parses bare numeric keys like 513100 as int; canonicalize
     # every key to str so the lookups (which use str ticker/fund_code) hit.
-    mapping = {str(k): str(v) for k, v in (data.get("ticker_asset_class") or {}).items()}
-    _TICKER_ASSET_CLASS_CACHE = mapping
-    _TICKER_ASSET_CLASS_CACHE_KEY = key
+    mapping = {str(k): str(v) for k, v in raw.items()}
+    unknown = set(mapping.values()) - VALID_ASSET_CLASSES
+    if unknown:
+        raise ValueError(
+            f"ticker_asset_class config at {target} maps to unknown "
+            f"asset_class value(s): {sorted(unknown)} — the taxonomy is "
+            f"closed (VALID_ASSET_CLASSES)"
+        )
     return mapping
 
 
