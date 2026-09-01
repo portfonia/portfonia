@@ -370,7 +370,7 @@ def test_data_window_states_price_cutoff_and_no_intraday() -> None:
 
 
 def test_data_window_flags_stale_fx() -> None:
-    # FX dated 2026-06-04 against a 2026-06-10 cutoff → >1 day → flagged.
+    # FX dated 2026-06-04 against a 2026-06-10 cutoff → 6 days → flagged.
     w = sec._build_data_window(
         [],
         {"fx_date": "2026-06-04"},
