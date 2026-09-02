@@ -67,6 +67,7 @@ describe("rowNeedsAmber", () => {
 describe("formatIssueNote / known issue codes", () => {
   it("recognizes deterministic postprocess codes and rejects unknown LLM codes", () => {
     expect(isKnownIssueCode("ticker_no_suffix")).toBe(true);
+    expect(isKnownIssueCode("ticker_suffix_ambiguous")).toBe(true);
     expect(isKnownIssueCode("parser_note")).toBe(false);
     expect(isKnownIssueCode("made_up_llm_code")).toBe(false);
   });

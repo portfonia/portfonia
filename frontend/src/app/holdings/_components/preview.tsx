@@ -35,6 +35,7 @@ export const ISSUE_NOTE_CODES = [
   "cash_amount_moved",
   "cleared_residual_shares",
   "ticker_no_suffix",
+  "ticker_suffix_ambiguous",
 ] as const;
 
 type IssueNoteCode = (typeof ISSUE_NOTE_CODES)[number];

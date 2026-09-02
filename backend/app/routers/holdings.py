@@ -269,6 +269,13 @@ def _apply_write_defaults(data: dict[str, Any]) -> dict[str, Any]:
         pricing_mode=data.get("pricing_mode") or "auto",
     )
     data["market"] = resolved_market
+    # Mirrors _postprocess: a row apply_confirmed_exchange_suffix left
+    # ambiguously-suffixed is still bare as far as resolve_holding_market's
+    # ticker-based inference is concerned, so its "no suffix = US" default
+    # would otherwise win regardless of the real (persisted) market — never
+    # capture-ready without a real suffix (PR #310 round 6 review).
+    if data.pop("_suffix_ambiguous", False):
+        capture_ok = False
     data["capture_supported"] = capture_ok
     data["asset_class"] = _classify_asset_class(data)
     return data

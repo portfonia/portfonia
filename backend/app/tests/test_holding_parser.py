@@ -1414,15 +1414,74 @@ def test_postprocess_corrects_new_market_suffix_currencies() -> None:
         assert rows[0].currency == expected, ticker
 
 
-def test_ticker_no_suffix_warns_for_europe_and_korea_currencies() -> None:
-    """PR #310 round 5: the hint tuple predates #312's UK/Europe/Japan/Korea
-    widening. EUR and KRW resolve to a real (post-#312) capture market but an
-    ambiguous suffix (Europe/Korea each have multiple listing suffixes, so no
-    suffix is guessed) — the hint must still fire for them, not just the
-    original GBP/HKD/CNY set."""
-    for currency in ("EUR", "KRW"):
+def test_ticker_suffix_ambiguous_warns_for_europe_and_korea_currencies() -> None:
+    """PR #310 round 5 widened the hint currency set to include EUR/KRW; round
+    6 split the single ticker_no_suffix code into two: a truly-undetermined
+    market keeps ticker_no_suffix, while a determined-but-ambiguous market
+    (Europe/Korea each have multiple listing suffixes, so none is guessed)
+    now gets its own ticker_suffix_ambiguous code — EUR/KRW always resolve to
+    a real market via _confirmed_market's currency fallback, so they always
+    land in the ambiguous branch, never the undetermined one."""
+    for currency, market in (("EUR", "Europe"), ("KRW", "Korea")):
         rows = _postprocess([_raw_row(name="Unknown listing", ticker="XYZ123", currency=currency)])
-        assert "ticker_no_suffix" in _issue_codes(rows[0]), currency
+        assert "ticker_suffix_ambiguous" in _issue_codes(rows[0]), currency
+        assert "ticker_no_suffix" not in _issue_codes(rows[0]), currency
+        assert rows[0].market == market, currency
+
+
+def test_ambiguous_suffix_market_does_not_default_to_us_capture() -> None:
+    """PR #310 round 6 review: apply_confirmed_exchange_suffix's suffix-None
+    branch (market determined, suffix ambiguous/unplaceable) used to return
+    without persisting row["market"] — resolve_holding_market then saw a
+    still-bare ticker, and market_from_ticker's "no suffix = US" default
+    silently stamped it market=US, capture_supported=True. A bare EUR/KRW
+    ticker, and an unplaceable A-share code, must land on their real
+    (non-US) market with capture_supported=False — never speculatively
+    fetched as the wrong security (the PSH-class failure)."""
+    eur = _postprocess([_raw_row(name="Unknown EU listing", ticker="XYZ123", currency="EUR")])
+    assert eur[0].market == "Europe"
+    assert eur[0].capture_supported is False
+    assert eur[0].ticker == "XYZ123"
+
+    krw = _postprocess([_raw_row(name="Unknown KR listing", ticker="ABC456", currency="KRW")])
+    assert krw[0].market == "Korea"
+    assert krw[0].capture_supported is False
+
+    a_share = _postprocess([_raw_row(name="Unplaceable A-share", ticker="400001", currency="CNY")])
+    assert a_share[0].market == "A-Share"
+    assert a_share[0].capture_supported is False
+
+
+def test_ticker_suffix_ambiguous_note_names_the_market_and_legal_suffixes() -> None:
+    """The note must say what the current handling is AND give a usable
+    suggestion (#92 requirement) — naming the actual candidate suffixes for
+    the determined market, not a generic "set Market" that doesn't apply
+    once Market is already known (PR #310 round 6 review, item 2)."""
+    rows = _postprocess([_raw_row(name="Unknown EU listing", ticker="XYZ123", currency="EUR")])
+    note = next(i for i in rows[0].issues if i.code == "ticker_suffix_ambiguous")
+    assert note.params["market"] == "Europe"
+    assert note.params["suffixes"] == ".AS / .PA / .DE"
+    assert note.params["ticker"] == "XYZ123"
+    assert note.params["currency"] == "EUR"
+
+    korea = _postprocess([_raw_row(name="Unknown KR listing", ticker="ABC456", currency="KRW")])
+    korea_note = next(i for i in korea[0].issues if i.code == "ticker_suffix_ambiguous")
+    assert korea_note.params["suffixes"] == ".KS / .KQ"
+
+    a_share = _postprocess([_raw_row(name="Unplaceable A-share", ticker="400001", currency="CNY")])
+    a_share_note = next(i for i in a_share[0].issues if i.code == "ticker_suffix_ambiguous")
+    assert a_share_note.params["suffixes"] == ".SS / .SZ"
+
+
+def test_ambiguous_suffix_explicit_market_still_forces_capture_supported_false() -> None:
+    """The ASML case from the round-6 review: an explicit market=Europe tag
+    with no ticker suffix must not be trusted as capture-ready — that would
+    fetch the bare ticker's US/Nasdaq listing (a real, different security)
+    under the Europe-listed holding's identity, silently."""
+    rows = _postprocess([_raw_row(name="ASML", ticker="ASML", currency="EUR", market="Europe")])
+    assert rows[0].ticker == "ASML"
+    assert rows[0].market == "Europe"
+    assert rows[0].capture_supported is False
 
 
 def test_apply_confirmed_exchange_suffix_skips_manual_pricing_mode() -> None:

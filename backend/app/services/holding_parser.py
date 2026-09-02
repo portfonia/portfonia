@@ -665,6 +665,17 @@ _CAPTURE_MARKETS = SUPPORTED_CAPTURE_MARKETS
 # and KRW silently got no hint after that widening).
 _SUFFIX_HINT_CURRENCIES = frozenset({"GBP", "HKD", "CNY", "EUR", "JPY", "KRW"})
 
+# Legal suffixes for a market whose exchange cannot be guessed from the
+# ticker alone (Europe/Korea have several venues; an A-share code outside
+# the recognized digit ranges can't be placed on Shanghai vs Shenzhen).
+# Surfaced in the ticker_suffix_ambiguous note so the user knows what to
+# type, not just that something was skipped (PR #310 round 6 review).
+_AMBIGUOUS_SUFFIX_OPTIONS: dict[str, str] = {
+    "Europe": ".AS / .PA / .DE",
+    "Korea": ".KS / .KQ",
+    "A-Share": ".SS / .SZ",
+}
+
 
 def _known_exchange_suffix(ticker: str) -> str | None:
     upper = ticker.upper()
@@ -750,16 +761,27 @@ def apply_confirmed_exchange_suffix(row: dict[str, Any], *, emit_note: bool = Tr
     """Force exchange suffix once market is determined.
 
     Gate: user-set or confidently derived market in a live capture slice
-    (the 7 scheduled buckets). When market cannot be determined, do not guess;
-    `ticker_no_suffix` still fires on preview. Applying `.L` persists UK
-    (PSH.L is a London listing; UK captures). Bare-PSH lookup still uses
-    `_TICKER_SYMBOL_OVERRIDE` PSH -> PSH.L. Cash/wmf have no ticker. Dotted
-    share-class tickers (BRK.B) are left unsuffixed. Idempotent if the suffix
-    is already present. A manual-priced row's "ticker" is a free-text label,
-    not a market symbol — capture never reads pricing_mode:manual rows
-    (`_market_tickers` only selects "auto"), so forcing a suffix serves no
-    purpose there and risks corrupting a label that only looks like a real
-    ticker (e.g. HOME -> HOME.HK) (PR #310 round 5 review).
+    (the 7 scheduled buckets). When market cannot be determined at all, do
+    not guess; `ticker_no_suffix` fires on preview. When market IS determined
+    but the specific suffix is ambiguous (Europe/Korea have several venues)
+    or unplaceable (an A-share code outside the recognized digit ranges),
+    the market is still persisted onto the row and `row["_suffix_ambiguous"]`
+    is set so the caller (`_postprocess` / `_apply_write_defaults`) forces
+    `capture_supported=False` after `resolve_holding_market` runs — a
+    still-bare ticker would otherwise fall through `market_from_ticker`'s
+    "no suffix = US" default and get speculatively fetched as an unrelated
+    US security under the real holding's identity (the PSH-class silent
+    wrong-security failure; reproduced with a bare EUR/KRW ticker and an
+    unplaceable A-share code — PR #310 round 6 review). Applying `.L`
+    persists UK (PSH.L is a London listing; UK captures). Bare-PSH lookup
+    still uses `_TICKER_SYMBOL_OVERRIDE` PSH -> PSH.L. Cash/wmf have no
+    ticker. Dotted share-class tickers (BRK.B) are left unsuffixed.
+    Idempotent if the suffix is already present. A manual-priced row's
+    "ticker" is a free-text label, not a market symbol — capture never reads
+    pricing_mode:manual rows (`_market_tickers` only selects "auto"), so
+    forcing a suffix serves no purpose there and risks corrupting a label
+    that only looks like a real ticker (e.g. HOME -> HOME.HK) (PR #310
+    round 5 review).
     """
     if row.get("asset_type") in ("cash", "wmf") or row.get("pricing_mode") == "manual":
         return
@@ -789,11 +811,25 @@ def apply_confirmed_exchange_suffix(row: dict[str, Any], *, emit_note: bool = Tr
 
     suffix = _exchange_suffix_to_apply(market, ticker, currency_s or None)
     if suffix is None:
+        if not row.get("market"):
+            row["market"] = market
+        if market not in _AMBIGUOUS_SUFFIX_OPTIONS:
+            # US (the only capture market with no suffix at all) legitimately
+            # falls through here on every plain US ticker — a bare AAPL is
+            # already its correct stored form, not an unresolved one, so it
+            # must not be flagged ambiguous or forced capture_supported=False.
+            return
+        row["_suffix_ambiguous"] = True
         if emit_note and currency_s in _SUFFIX_HINT_CURRENCIES:
             _append_issue(
                 row,
-                "ticker_no_suffix",
-                {"ticker": ticker, "currency": currency_s},
+                "ticker_suffix_ambiguous",
+                {
+                    "ticker": ticker,
+                    "currency": currency_s,
+                    "market": market,
+                    "suffixes": _AMBIGUOUS_SUFFIX_OPTIONS.get(market, ""),
+                },
                 severity="warning",
             )
         return
@@ -1081,6 +1117,14 @@ def _postprocess(
             pricing_mode=row.get("pricing_mode") or "auto",
         )
         row["market"] = resolved_market
+        # A row apply_confirmed_exchange_suffix left ambiguously-suffixed is
+        # still a bare ticker as far as resolve_holding_market's own
+        # ticker-based inference is concerned, so its "no suffix = US"
+        # default would otherwise win here regardless of the real
+        # (persisted) market — never capture-ready without a real suffix
+        # (PR #310 round 6 review).
+        if row.pop("_suffix_ambiguous", False):
+            capture_ok = False
         row["capture_supported"] = capture_ok
         normalize_ticker_and_currency(row)
 

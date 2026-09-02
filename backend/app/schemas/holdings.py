@@ -74,6 +74,7 @@ KNOWN_ISSUE_CODES: frozenset[str] = frozenset(
         "cash_amount_moved",
         "cleared_residual_shares",
         "ticker_no_suffix",
+        "ticker_suffix_ambiguous",
     }
 )
 

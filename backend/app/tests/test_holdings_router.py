@@ -1535,6 +1535,25 @@ def test_patch_holding_normalizes_hk_ticker_after_force_suffix(app_client: TestC
     assert resp.json()["ticker"] == "0700.HK"
 
 
+def test_create_holding_ambiguous_suffix_market_does_not_default_to_us_capture(
+    app_client: TestClient,
+) -> None:
+    """PR #310 round 6 review: the router's _apply_write_defaults calls
+    apply_confirmed_exchange_suffix + resolve_holding_market exactly like
+    _postprocess does, so it shares the same bug — a bare EUR/KRW ticker (or
+    an unplaceable A-share code) with no suffix must not default to
+    market=US / capture_supported=True via market_from_ticker's bare-ticker
+    fallback. Verifies the fix reaches the API write path, not just the
+    file-import path."""
+    row = {**_PARSED_APPLE, "ticker": "XYZ123", "currency": "EUR", "market": None}
+    resp = app_client.post("/holdings", json=row)
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["ticker"] == "XYZ123"
+    assert body["market"] == "Europe"
+    assert body["capture_supported"] is False
+
+
 def test_patch_notes_only_still_clears_stale_price_when_write_defaults_rewrites_ticker(
     app_client: TestClient, db_session: Session
 ) -> None:
