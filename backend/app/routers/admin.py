@@ -703,6 +703,60 @@ def purge_user_by_email_endpoint(
     )
 
 
+class UpdateReportLanguageByEmailBody(BaseModel):
+    # Same Literal values as backend/app/routers/me.py's
+    # UpdateReportLanguageBody — reusing the same whitelist and Literal per
+    # the engineering contract ("do not define a second, separately
+    # drifting whitelist for the ops path"). Keep in sync with
+    # app.models.user.VALID_REPORT_LANGUAGES by hand; Pydantic Literal
+    # members must be compile-time, not derived from that tuple.
+    report_language: Literal["en", "zh"]
+
+
+class UpdateReportLanguageByEmailOut(BaseModel):
+    user_id: UUID
+    email: str
+    report_language: str
+
+
+@router.post("/users/by-email/report-language", response_model=UpdateReportLanguageByEmailOut)
+def update_report_language_by_email(
+    body: UpdateReportLanguageByEmailBody,
+    email: str | None = None,
+    session: Session = Depends(get_session),
+) -> UpdateReportLanguageByEmailOut:
+    """Set one user's report language by email (issue #308).
+
+    Grouped with DELETE /users/by-email (issue #274/PR #275) rather than
+    next to the by-id POST /users/{user_id}/cadence — group by URL shape
+    (by-email vs. by-id), not by "both are user-setting mutations".
+
+    Unlike the by-email purge route, this carries NO re-typed-email
+    confirmation ceremony: that pattern exists specifically for an
+    irreversible destructive action. Setting a report language is a
+    single-field, reversible write with no data-loss risk, so this follows
+    the lighter-weight shape of POST /users/{user_id}/cadence instead —
+    ops token auth, no confirm param.
+
+    `email` is exact-match only (normalized via `_normalize_email`,
+    strip+lowercase, same as the other by-email admin routes) — no partial/
+    fuzzy match, since this is a plain local `users` table query, not a
+    third-party lookup with its own semantics to second-guess (issue #275's
+    vendor-API lesson doesn't apply here).
+    """
+    normalized_email = _normalize_email(email)
+    if normalized_email is None:
+        raise HTTPException(status_code=422, detail="email query param is required")
+    user = session.execute(select(User).where(User.email == normalized_email)).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    user.locale = body.report_language
+    session.commit()
+    return UpdateReportLanguageByEmailOut(
+        user_id=user.id, email=user.email, report_language=user.locale
+    )
+
+
 @router.delete("/users/{user_id}", response_model=PurgeUserOut)
 def purge_user_endpoint(
     user_id: UUID,

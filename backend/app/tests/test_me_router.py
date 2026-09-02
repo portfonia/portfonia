@@ -38,6 +38,7 @@ def _seed_user(
     tos_accepted_at: object = None,
     email_verified_at: object = None,
     delivery_email_verified_at: object = None,
+    locale: str = "zh",
 ) -> User:
     row = User(
         id=user_id,
@@ -45,7 +46,7 @@ def _seed_user(
         auth_subject=f"sub-{user_id}",
         email=email,
         status="active",
-        locale="zh",
+        locale=locale,
         base_currency="USD",
         report_cadence="mwf",
         delivery_email=delivery_email,
@@ -346,3 +347,15 @@ def test_me_verification_timestamps_null_when_unset(
     body = app_client.get("/me").json()
     assert body["email_verified_at"] is None
     assert body["delivery_email_verified_at"] is None
+
+
+# --- report_language (issue #308) ---
+
+
+def test_me_exposes_report_language_from_locale(
+    app_client: TestClient, db_session: Session
+) -> None:
+    _seed_user(db_session, locale="en")
+
+    body = app_client.get("/me").json()
+    assert body["report_language"] == "en"

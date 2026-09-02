@@ -25,6 +25,7 @@ from app.models.user import User
 from app.services.i18n_glossary import load_i18n_glossary, locale_for_output_lang
 from app.services.unsubscribe_token import create_token as create_unsubscribe_token
 from app.services.user_directory import recipient_email_with_purpose
+from app.services.user_scope import report_language_for
 
 logger = logging.getLogger(__name__)
 
@@ -281,17 +282,24 @@ def send_report_email(report: Report, session: Session) -> bool:
         if report.report_date
         else datetime.now(tz=UTC).strftime("%Y-%m-%d")
     )
-    # Resolved via OUTPUT_LANG, matching the locale report_generator._translate_md
-    # renders the body in (PR #91 review — was hardcoded to zh-Hans regardless of
-    # OUTPUT_LANG, which happened to match Ring 0's only supported value but would
-    # have been the first place stuck on zh-Hans once a second locale ships).
-    # `Report` has no stored per-row output_lang, so this reads the *current*
-    # Settings value rather than whatever the report was actually rendered with —
-    # acceptable at Ring 0 (OUTPUT_LANG does not change between generation and send
-    # in practice), revisit if that stops holding.
+    # Resolved via the RECIPIENT's own report language (issue #308), matching
+    # the locale report_generator._translate_md actually rendered `report.
+    # report_md` in — NOT the global Settings.OUTPUT_LANG default. This used
+    # to read OUTPUT_LANG directly (PR #91 review — was hardcoded to
+    # zh-Hans before that, regardless of OUTPUT_LANG), on the reasoning that
+    # `Report` has no stored per-row output_lang, so OUTPUT_LANG was "close
+    # enough" since it never changed between generation and send. Issue
+    # #308 broke that premise: the body is now rendered per-user, so a user
+    # who picked English would otherwise get an English body with a
+    # Chinese subject and unsubscribe footer if the global default were
+    # still "zh" (production's real value) — three languages disagreeing
+    # in one email. `report_language_for` (app/services/user_scope.py) is
+    # the same helper `routers/reports.py`'s generate/regenerate use, so
+    # this and those two stay in sync by construction, not by hand.
+    recipient_locale = report_language_for(session, report.user_id, settings.OUTPUT_LANG)
     report_title_key = "Portfonia Financial Analysis Report"
     glossary = load_i18n_glossary()
-    locale = locale_for_output_lang(settings.OUTPUT_LANG)
+    locale = locale_for_output_lang(recipient_locale)
     report_title = (
         glossary.report_glossary[report_title_key][locale]
         if locale in glossary.supported_locales
@@ -306,7 +314,7 @@ def send_report_email(report: Report, session: Session) -> bool:
     )
     unsub_url = f"{settings.FRONTEND_URL}/unsubscribe?token={unsub_token}"
     footer_copy = _UNSUBSCRIBE_FOOTER_COPY.get(
-        settings.OUTPUT_LANG, _UNSUBSCRIBE_FOOTER_COPY[_DEFAULT_UNSUBSCRIBE_FOOTER_LOCALE]
+        recipient_locale, _UNSUBSCRIBE_FOOTER_COPY[_DEFAULT_UNSUBSCRIBE_FOOTER_LOCALE]
     )
     html_body = _render_html(
         report.report_md + "\n\n" + footer_copy["html_md"].format(url=unsub_url)

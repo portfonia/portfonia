@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NamedTuple
 
 from app.core.timezones import ET
 from app.services.email_sender import send_ops_alert
@@ -12,6 +13,28 @@ from app.services.github_issues import create_bug_report
 from app.tasks import celery_app
 
 logger = logging.getLogger(__name__)
+
+
+class _Recipient(NamedTuple):
+    """Snapshot of the two `User` fields the fan-out loop needs (issue
+    #308, blacktomb42 PR #309 round-1 review) — taken ONCE, immediately
+    after `active_users()` returns, before any `generate_report` call in
+    this loop can `session.commit()`.
+
+    `expire_on_commit` defaults to True on every `Session` in this
+    codebase (including the real one `db_session` builds for tests), so a
+    live ORM `User` object's attribute read on a LATER loop iteration,
+    after an EARLIER iteration's commit already expired every object on
+    this session, would trigger an implicit refresh SELECT on the same
+    session mid-batch — the same class of interleaved-query hang already
+    diagnosed and fixed once for `active_users` itself (see its
+    docstring). A plain NamedTuple can never expire, so the loop body
+    below reads only this snapshot, never a live `User` attribute.
+    """
+
+    user_id: uuid.UUID
+    locale: str
+
 
 # How late (minutes) a scheduled run may fire after its intended crontab time
 # before it's treated as a Beat-downtime catch-up rather than an on-time run.
@@ -60,17 +83,17 @@ def generate_incremental_report(
     the check entirely.
 
     `cadence` (issue #191): which `users.report_cadence` batch this run
-    serves — passed through to `active_user_ids`, which also decides per
+    serves — passed through to `active_users`, which also decides per
     cadence whether the holdings gate applies (loosened for `weekly` only,
     see `app.services.user_scope`).
 
-    Multi-user fan-out (issue #128 A1): `active_user_ids` (active `users`
+    Multi-user fan-out (issue #128 A1): `active_users` (active `users`
     rows on this cadence, gated by holdings per-cadence) replaces the pre-A1
     single fixed-dev-user call. Each user's
     `generate_report` call is wrapped in its own try/except: one user's
     failure is logged, ops-alerted, and does NOT stop or retry the batch —
     the remaining users still get their reports (design doc §3.3/UAT-3).
-    Only a failure OUTSIDE the per-user loop (e.g. `active_user_ids` itself
+    Only a failure OUTSIDE the per-user loop (e.g. `active_users` itself
     can't reach the DB) is a batch-level failure that retries via
     `self.retry`, matching the pre-A1 behavior for that class of error.
     `moves_cache`, shared across every user in this batch, is what makes
@@ -80,10 +103,9 @@ def generate_incremental_report(
     """
     # Imports are deferred so the module loads fast and avoids circular deps
     # when Celery first imports the task registry.
-    from app.core.config import get_settings
     from app.core.database import SessionLocal
     from app.services.report_generator import generate_report
-    from app.services.user_scope import active_user_ids
+    from app.services.user_scope import active_users
     from app.services.window_data import MovesCache
 
     if trigger_hour is not None and trigger_minute is not None:
@@ -124,10 +146,15 @@ def generate_incremental_report(
     )
     session = SessionLocal()
     try:
-        user_ids = active_user_ids(session, cadence)
-        if not user_ids:
+        # Issue #308: full User rows, not just ids — each recipient's own
+        # locale (report language) rides along. Snapshotted into `_Recipient`
+        # NamedTuples immediately (see its docstring) — the loop below never
+        # touches a live `User` attribute, only this snapshot.
+        users = active_users(session, cadence)
+        if not users:
             logger.info("generate_incremental_report: no active users, nothing to generate")
             return {"status": "no_active_users", "results": []}
+        recipients = [_Recipient(user_id=u.id, locale=u.locale) for u in users]
 
         moves_cache: MovesCache = {}
         # Stamped ONCE for the whole batch (PR #151 review): moves_cache is keyed
@@ -139,12 +166,19 @@ def generate_incremental_report(
         # the same moves_cache dict object alone does not make the cache hit.
         batch_now = datetime.now(tz=UTC)
         results: list[dict[str, str]] = []
-        for index, user_id in enumerate(user_ids):
+        for index, recipient in enumerate(recipients):
+            user_id = recipient.user_id
             try:
                 report = generate_report(
                     session,
                     report_type=report_type,
-                    output_lang=get_settings().OUTPUT_LANG,
+                    # Issue #308: this recipient's own report language, not
+                    # a shared Settings.OUTPUT_LANG default for the whole
+                    # batch — that would defeat the entire point of a
+                    # per-user setting for scheduled (not just self-service)
+                    # reports. Read off the snapshot, not a live `User`
+                    # attribute (see `_Recipient`'s docstring).
+                    output_lang=recipient.locale,
                     session_node=session_node,
                     user_id=user_id,
                     moves_cache=moves_cache,
@@ -156,7 +190,7 @@ def generate_incremental_report(
                     # from how many succeeded: a failed user still consumed
                     # its turn, and the countdown must stay monotonic so
                     # later users neither over- nor under-claim.
-                    users_remaining=len(user_ids) - index,
+                    users_remaining=len(recipients) - index,
                 )
                 logger.info(
                     "generate_incremental_report: complete for user %s — report_id=%s status=%s",

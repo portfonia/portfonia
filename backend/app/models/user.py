@@ -13,6 +13,12 @@ from app.models.base import Base
 VALID_USER_STATUSES = ("active", "deleted", "suspended")
 VALID_AUTH_PROVIDERS = ("supabase",)
 VALID_REPORT_CADENCES = ("mwf", "weekly")
+# Issue #308: the two report output languages users.locale may drive today —
+# see docs/mechanisms/capture-and-reporting.md's "Per-user report language"
+# entry. Not a UI-locale whitelist (frontend/src/locales/index.ts's LOCALES
+# is separate and wider); this is narrower on purpose (fr/es/zh-Hant have no
+# i18n_glossary.yml coverage).
+VALID_REPORT_LANGUAGES = ("en", "zh")
 
 
 def _in_list_sql(column: str, values: tuple[str, ...]) -> str:
@@ -36,6 +42,7 @@ class User(Base):
         CheckConstraint(
             _in_list_sql("report_cadence", VALID_REPORT_CADENCES), name="report_cadence"
         ),
+        CheckConstraint(_in_list_sql("locale", VALID_REPORT_LANGUAGES), name="locale"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

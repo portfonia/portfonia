@@ -8,17 +8,27 @@ Strategy:
 
 Multi-user fan-out (issue #128 A1): generate_incremental_report used to call
 generate_report() exactly once, under the fixed DEV_USER_ID. It now fans out
-over app.services.user_scope.active_user_ids, generating one report per user
+over app.services.user_scope.active_users, generating one report per user
 with per-user failure isolation — see the "fan-out" section below. SessionLocal
 is mocked wholesale in every test in this file (no real DB); the real-DB,
 real-anomaly-detection end-to-end fan-out behavior (no cross-user leakage,
 shared moves_cache) is covered separately in test_shared_compute_a1.py.
+
+Issue #308: the fan-out reads `active_users` (full `User` rows, not
+`active_user_ids`'s bare ids) so each recipient's own `locale` (report
+language) rides along without a second per-user lookup on the same
+session — see user_scope.py's `active_users` docstring for why an
+interleaved second read on that session hung indefinitely under a
+real-session test pattern this file's own mocking doesn't use. Mocked
+recipients here are `SimpleNamespace(id=..., locale=...)` stand-ins (see
+`_active_user` below), not bare UUIDs.
 """
 
 from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -127,7 +137,14 @@ def _make_report(user_id: uuid.UUID, report_id: uuid.UUID | None = None) -> Magi
     return r
 
 
-@patch("app.services.user_scope.active_user_ids")
+def _active_user(user_id: uuid.UUID, locale: str = "zh") -> SimpleNamespace:
+    """Stand-in for the `User` ORM rows `active_users` now returns (issue
+    #308) — `report_tasks.py` reads `.id` and `.locale` straight off each
+    object, no bare-UUID list and no second per-user lookup."""
+    return SimpleNamespace(id=user_id, locale=locale)
+
+
+@patch("app.services.user_scope.active_users")
 @patch("app.tasks.report_tasks.send_ops_alert")
 @patch("app.core.database.SessionLocal")
 @patch("app.services.report_generator.generate_report")
@@ -149,7 +166,7 @@ def test_task_no_active_users(
     mock_alert.assert_not_called()
 
 
-@patch("app.services.user_scope.active_user_ids")
+@patch("app.services.user_scope.active_users")
 @patch("app.tasks.report_tasks.send_ops_alert")
 @patch("app.core.database.SessionLocal")
 @patch("app.services.report_generator.generate_report")
@@ -159,7 +176,7 @@ def test_task_fans_out_over_every_active_user(
     mock_alert: MagicMock,
     mock_active_users: MagicMock,
 ) -> None:
-    mock_active_users.return_value = [_U1, _U2, _U3]
+    mock_active_users.return_value = [_active_user(_U1), _active_user(_U2), _active_user(_U3)]
     mock_session_cls.return_value = MagicMock()
     mock_gen.side_effect = lambda session, **kw: _make_report(kw["user_id"])
 
@@ -176,7 +193,38 @@ def test_task_fans_out_over_every_active_user(
     mock_alert.assert_not_called()
 
 
-@patch("app.services.user_scope.active_user_ids")
+@patch("app.services.user_scope.active_users")
+@patch("app.tasks.report_tasks.send_ops_alert")
+@patch("app.core.database.SessionLocal")
+@patch("app.services.report_generator.generate_report")
+def test_task_reads_each_recipients_own_report_language(
+    mock_gen: MagicMock,
+    mock_session_cls: MagicMock,
+    mock_alert: MagicMock,
+    mock_active_users: MagicMock,
+) -> None:
+    """Issue #308: the whole reason this issue exists for scheduled (not
+    just self-service) reports — each recipient's OWN users.locale must
+    drive their output_lang, not one shared Settings.OUTPUT_LANG default
+    for the entire batch. Read straight off the `active_users` row, not a
+    second per-user session lookup (see module docstring)."""
+    mock_active_users.return_value = [
+        _active_user(_U1, locale="en"),
+        _active_user(_U2, locale="zh"),
+    ]
+    mock_session_cls.return_value = MagicMock()
+    mock_gen.side_effect = lambda session, **kw: _make_report(kw["user_id"])
+
+    from app.tasks.report_tasks import generate_incremental_report
+
+    generate_incremental_report.run()
+
+    output_langs = {c.kwargs["user_id"]: c.kwargs["output_lang"] for c in mock_gen.call_args_list}
+    assert output_langs[_U1] == "en"
+    assert output_langs[_U2] == "zh"
+
+
+@patch("app.services.user_scope.active_users")
 @patch("app.tasks.report_tasks.send_ops_alert")
 @patch("app.core.database.SessionLocal")
 @patch("app.services.report_generator.generate_report")
@@ -189,7 +237,7 @@ def test_task_shares_one_moves_cache_across_the_whole_batch(
     """The same moves_cache dict object must be passed to every user's
     generate_report call — this is the plumbing UAT-2 (design doc §7.2)
     depends on for compute_global_moves() to run once per window."""
-    mock_active_users.return_value = [_U1, _U2]
+    mock_active_users.return_value = [_active_user(_U1), _active_user(_U2)]
     mock_session_cls.return_value = MagicMock()
     mock_gen.side_effect = lambda session, **kw: _make_report(kw["user_id"])
 
@@ -201,7 +249,7 @@ def test_task_shares_one_moves_cache_across_the_whole_batch(
     assert caches[0] is caches[1]
 
 
-@patch("app.services.user_scope.active_user_ids")
+@patch("app.services.user_scope.active_users")
 @patch("app.tasks.report_tasks.send_ops_alert")
 @patch("app.core.database.SessionLocal")
 @patch("app.services.report_generator.generate_report")
@@ -213,14 +261,14 @@ def test_task_tells_each_user_how_many_remain_in_the_batch(
 ) -> None:
     """Issue #128 A4: the shared daily caps (L1 analyses, L2 inferences) are
     sliced by how many users still have to be served, so the first user in
-    the fixed `active_user_ids` order cannot spend the whole day's budget and
+    the fixed `active_users` order cannot spend the whole day's budget and
     starve the SAME later users every day — see shared_budget.py for why this
     pattern kept recurring across A1/A2/A3.
 
     Counts the current user too: 3, 2, 1 for a three-user batch, so the last
     one may spend everything still left rather than stranding it.
     """
-    mock_active_users.return_value = [_U1, _U2, _U3]
+    mock_active_users.return_value = [_active_user(_U1), _active_user(_U2), _active_user(_U3)]
     mock_session_cls.return_value = MagicMock()
     mock_gen.side_effect = lambda session, **kw: _make_report(kw["user_id"])
 
@@ -231,7 +279,7 @@ def test_task_tells_each_user_how_many_remain_in_the_batch(
     assert [c.kwargs["users_remaining"] for c in mock_gen.call_args_list] == [3, 2, 1]
 
 
-@patch("app.services.user_scope.active_user_ids")
+@patch("app.services.user_scope.active_users")
 @patch("app.tasks.report_tasks.send_ops_alert")
 @patch("app.core.database.SessionLocal")
 @patch("app.services.report_generator.generate_report")
@@ -244,7 +292,7 @@ def test_task_countdown_is_unaffected_by_a_failing_user(
     """A user whose report raises still consumed its turn — the countdown is
     a position in the batch, not a success counter, so a failure must not
     make the remaining users over- or under-claim their share."""
-    mock_active_users.return_value = [_U1, _U2, _U3]
+    mock_active_users.return_value = [_active_user(_U1), _active_user(_U2), _active_user(_U3)]
     mock_session_cls.return_value = MagicMock()
 
     def _side_effect(session: object, **kw: Any) -> object:
@@ -261,7 +309,7 @@ def test_task_countdown_is_unaffected_by_a_failing_user(
     assert [c.kwargs["users_remaining"] for c in mock_gen.call_args_list] == [3, 2, 1]
 
 
-@patch("app.services.user_scope.active_user_ids")
+@patch("app.services.user_scope.active_users")
 @patch("app.tasks.report_tasks.send_ops_alert")
 @patch("app.core.database.SessionLocal")
 @patch("app.services.report_generator.generate_report")
@@ -279,7 +327,7 @@ def test_task_stamps_one_now_shared_across_the_whole_batch(
     `datetime.now()` would land microseconds apart and the cache key would
     never collide in production. Same dict-object identity check as the
     moves_cache test above, applied to `now`."""
-    mock_active_users.return_value = [_U1, _U2]
+    mock_active_users.return_value = [_active_user(_U1), _active_user(_U2)]
     mock_session_cls.return_value = MagicMock()
     mock_gen.side_effect = lambda session, **kw: _make_report(kw["user_id"])
 
@@ -291,7 +339,7 @@ def test_task_stamps_one_now_shared_across_the_whole_batch(
     assert nows[0] is nows[1]
 
 
-@patch("app.services.user_scope.active_user_ids")
+@patch("app.services.user_scope.active_users")
 @patch("app.tasks.report_tasks.send_ops_alert")
 @patch("app.core.database.SessionLocal")
 @patch("app.services.report_generator.generate_report")
@@ -304,7 +352,7 @@ def test_task_single_user_failure_isolated_from_batch(
     """UAT-3 (design doc §7.2): one user's generation failure must not stop
     or retry the rest of the batch — the other users still get reports, and
     exactly one ops alert fires for the failed user."""
-    mock_active_users.return_value = [_U1, _U2, _U3]
+    mock_active_users.return_value = [_active_user(_U1), _active_user(_U2), _active_user(_U3)]
     mock_session = MagicMock()
     mock_session_cls.return_value = mock_session
 
@@ -330,7 +378,7 @@ def test_task_single_user_failure_isolated_from_batch(
     mock_session.rollback.assert_called_once()
 
 
-@patch("app.services.user_scope.active_user_ids")
+@patch("app.services.user_scope.active_users")
 @patch("app.tasks.report_tasks.send_ops_alert")
 @patch("app.core.database.SessionLocal")
 @patch("app.services.report_generator.generate_report")
@@ -347,7 +395,7 @@ def test_task_retries_the_whole_batch_when_every_user_fails(
     the pre-A1 single-user failure path, which used to retry. `.run()`
     bypasses Celery routing, so `self.retry()` re-raises the original
     exception rather than scheduling a real retry."""
-    mock_active_users.return_value = [_U1]
+    mock_active_users.return_value = [_active_user(_U1)]
     mock_session_cls.return_value = MagicMock()
     mock_gen.side_effect = RuntimeError("LLM down")
 
@@ -371,7 +419,7 @@ def test_task_retries_the_whole_batch_when_every_user_fails(
     assert any("batch FAILED" in s for s in subjects)
 
 
-@patch("app.services.user_scope.active_user_ids")
+@patch("app.services.user_scope.active_users")
 @patch("app.tasks.report_tasks.send_ops_alert")
 @patch("app.core.database.SessionLocal")
 @patch("app.services.report_generator.generate_report")
@@ -381,7 +429,7 @@ def test_task_needs_review_sends_ops_alert_per_user(
     mock_alert: MagicMock,
     mock_active_users: MagicMock,
 ) -> None:
-    mock_active_users.return_value = [_U1]
+    mock_active_users.return_value = [_active_user(_U1)]
     mock_session_cls.return_value = MagicMock()
     report = _make_report(_U1)
     report.status = "needs_review"
@@ -397,7 +445,7 @@ def test_task_needs_review_sends_ops_alert_per_user(
     assert "BLOCKED" in subject or "needs_review" in subject or "compliance" in subject.lower()
 
 
-@patch("app.services.user_scope.active_user_ids")
+@patch("app.services.user_scope.active_users")
 @patch("app.tasks.report_tasks.send_ops_alert")
 @patch("app.core.database.SessionLocal")
 @patch("app.services.report_generator.generate_report")
@@ -409,7 +457,7 @@ def test_task_uses_report_type_and_session_node_from_beat_kwargs(
 ) -> None:
     """A future cadence (e.g. Ring 1 weekly) passes its own report_type/session_node
     via beat kwargs rather than the task hardcoding "incremental"/"after_close"."""
-    mock_active_users.return_value = [_U1]
+    mock_active_users.return_value = [_active_user(_U1)]
     mock_session_cls.return_value = MagicMock()
     mock_gen.return_value = _make_report(_U1)
 
@@ -421,7 +469,7 @@ def test_task_uses_report_type_and_session_node_from_beat_kwargs(
     assert mock_gen.call_args.kwargs["session_node"] == "weekly_close"
 
 
-@patch("app.services.user_scope.active_user_ids")
+@patch("app.services.user_scope.active_users")
 @patch("app.tasks.report_tasks.send_ops_alert")
 @patch("app.core.database.SessionLocal")
 @patch("app.services.report_generator.generate_report")
@@ -431,7 +479,7 @@ def test_task_closes_session_on_success(
     mock_alert: MagicMock,
     mock_active_users: MagicMock,
 ) -> None:
-    mock_active_users.return_value = [_U1]
+    mock_active_users.return_value = [_active_user(_U1)]
     mock_gen.return_value = _make_report(_U1)
     mock_session = MagicMock()
     mock_session_cls.return_value = mock_session
@@ -443,7 +491,7 @@ def test_task_closes_session_on_success(
     mock_session.close.assert_called_once()
 
 
-@patch("app.services.user_scope.active_user_ids")
+@patch("app.services.user_scope.active_users")
 @patch("app.tasks.report_tasks.send_ops_alert")
 @patch("app.core.database.SessionLocal")
 @patch("app.services.report_generator.generate_report")
@@ -453,7 +501,7 @@ def test_task_closes_session_after_a_batch_level_failure(
     mock_alert: MagicMock,
     mock_active_users: MagicMock,
 ) -> None:
-    """A failure OUTSIDE the per-user loop (active_user_ids itself) is a
+    """A failure OUTSIDE the per-user loop (active_users itself) is a
     batch-level failure — still closes the session and still retries via
     self.retry, matching the pre-A1 single-user behavior for this class of
     error."""
@@ -470,7 +518,7 @@ def test_task_closes_session_after_a_batch_level_failure(
     mock_session.close.assert_called_once()
 
 
-@patch("app.services.user_scope.active_user_ids")
+@patch("app.services.user_scope.active_users")
 @patch("app.tasks.report_tasks.create_bug_report")
 @patch("app.tasks.report_tasks.send_ops_alert")
 @patch("app.core.database.SessionLocal")
@@ -499,7 +547,7 @@ def test_task_batch_failure_retries_and_alerts_on_exhaustion(
 
 # ---------------------------------------------------------------------------
 # Stale Beat catch-up guard (issue #71) — unaffected by the fan-out change,
-# it returns before SessionLocal/active_user_ids are ever touched.
+# it returns before SessionLocal/active_users are ever touched.
 # ---------------------------------------------------------------------------
 
 
@@ -528,7 +576,7 @@ def test_task_skips_stale_beat_catchup(
     assert "SKIPPED" in mock_alert.call_args.kwargs["subject"]
 
 
-@patch("app.services.user_scope.active_user_ids")
+@patch("app.services.user_scope.active_users")
 @patch("app.tasks.report_tasks.datetime")
 @patch("app.tasks.report_tasks.send_ops_alert")
 @patch("app.core.database.SessionLocal")
@@ -542,7 +590,7 @@ def test_task_runs_when_close_to_trigger_time(
 ) -> None:
     """A few minutes of normal jitter around the intended fire time is not
     a stale Beat catch-up and must still generate/email as usual."""
-    mock_active_users.return_value = [_U1]
+    mock_active_users.return_value = [_active_user(_U1)]
     mock_gen.return_value = _make_report(_U1)
     mock_session_cls.return_value = MagicMock()
     mock_datetime.now.return_value = datetime(2026, 6, 30, 17, 4, tzinfo=ET)

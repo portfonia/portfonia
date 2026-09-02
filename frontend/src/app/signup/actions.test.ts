@@ -211,6 +211,64 @@ describe("signup action", () => {
     expect(body.tos_accepted).toBe(true);
   });
 
+  // zh-Hant is deliberately excluded here: resolveLocale's isLocale() gate
+  // (UNREVIEWED_LOCALES) already falls it back to DEFAULT_LOCALE before the
+  // backend-code mapping ever sees it, so it cannot reach this mapping
+  // through a real form submission yet. Its row in the mapping table is
+  // defensive-only (issue #308 engineering contract) — TypeScript's
+  // Record<Locale, "en" | "zh"> exhaustiveness check is what actually
+  // guarantees it stays populated, not a runtime test of an unreachable path.
+  it.each([
+    ["en", "en"],
+    ["zh-Hans", "zh"],
+  ])(
+    "maps the UI locale %s to the bare backend code %s and forwards it as `locale` (issue #308)",
+    async (uiLocale, backendCode) => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ id: "u1", email: "a@b.com" }), { status: 201 }),
+      );
+      global.fetch = fetchMock;
+      signInWithPassword.mockResolvedValue({ error: null });
+
+      await signup(
+        undefined,
+        formData({
+          invite_token: "tok",
+          email: "a@b.com",
+          password: "correcthorse",
+          tos_accepted: "on",
+          locale: uiLocale,
+        }),
+      );
+
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string) as Record<string, unknown>;
+      expect(body.locale).toBe(backendCode);
+    },
+  );
+
+  it("falls back to the default UI locale's backend code when no `locale` form field is present", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ id: "u1", email: "a@b.com" }), { status: 201 }),
+    );
+    global.fetch = fetchMock;
+    signInWithPassword.mockResolvedValue({ error: null });
+
+    await signup(
+      undefined,
+      formData({
+        invite_token: "tok",
+        email: "a@b.com",
+        password: "correcthorse",
+        tos_accepted: "on",
+      }),
+    );
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body.locale).toBe("en");
+  });
+
   it("if the account was created but auto-login fails, redirects to /login rather than erroring", async () => {
     global.fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ id: "u1", email: "a@b.com" }), { status: 201 }),

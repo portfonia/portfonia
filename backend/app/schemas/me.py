@@ -45,3 +45,10 @@ class MeOut(BaseModel):
     # ops_manual rows are always user_id=NULL (§3.5) so they can never
     # appear here; the router filters by the principal's own user_id.
     pending_email_verifications: list[PendingVerificationOut]
+    # Issue #308: sourced from users.locale, deliberately named differently
+    # from the frontend's own Locale/LOCALES UI-chrome type (issue #209) —
+    # "report language" and "UI locale" are different concepts that happen
+    # to share one DB column today; naming them apart at the API boundary
+    # keeps that from becoming another overlapping-term drift (the Custodian
+    # label precedent, glossary-consistency.test.ts).
+    report_language: str

@@ -14,6 +14,7 @@ from app.schemas.reports import GenerateReportRequest, ReportListItem, ReportOut
 from app.services.email_sender import send_report_email
 from app.services.llm_errors import LLMEmptyResponseError
 from app.services.report_generator import generate_report, regenerate_report
+from app.services.user_scope import report_language_for
 
 router = APIRouter()
 
@@ -38,7 +39,9 @@ def trigger_report_generation(
             report_date=req.report_date,
             report_type=req.report_type,
             base_currency=req.base_currency,
-            output_lang=get_settings().OUTPUT_LANG,
+            # Issue #308: the requesting user's own report language, not the
+            # global Settings.OUTPUT_LANG default.
+            output_lang=report_language_for(session, principal.user_id, get_settings().OUTPUT_LANG),
             session_node=req.session_node,
         )
     except LLMEmptyResponseError as exc:
@@ -63,11 +66,19 @@ def regenerate(
     mode=render re-renders from the stored Pass 2 body (token-free except
     translation); mode=analyze re-runs Pass 2 from the stored intel.
     resend=true sends the email after a successful regeneration (status=success).
-    Defaults output language to OUTPUT_LANG.
+
+    Defaults output language to the report's owning user's own report
+    language (issue #308) — regenerate is scoped to the caller's own
+    reports (see regenerate_report's user_id filter), so that owning user
+    is always the calling principal. The explicit ?output_lang= query
+    param stays an untouched ops/debug escape hatch that overrides this
+    default, unrelated to this issue.
     """
     if mode not in ("render", "analyze"):
         raise HTTPException(status_code=422, detail="mode must be 'render' or 'analyze'")
-    lang = output_lang or get_settings().OUTPUT_LANG
+    lang = output_lang or report_language_for(
+        session, principal.user_id, get_settings().OUTPUT_LANG
+    )
     try:
         report = regenerate_report(
             session, report_id, user_id=principal.user_id, mode=mode, output_lang=lang

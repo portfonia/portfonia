@@ -18,6 +18,7 @@ const _ME: Me = {
   has_holdings: false,
   missing: ["holdings"],
   pending_email_verifications: [],
+  report_language: "en",
 };
 
 function renderBody(me: Me | null, hadLoadError = false) {

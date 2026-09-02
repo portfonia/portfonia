@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import UTC, date, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -724,6 +725,49 @@ def test_send_subject_resolves_via_output_lang(
     call_kwargs = post_mock.call_args
     payload = call_kwargs.kwargs["json"] if "json" in call_kwargs.kwargs else call_kwargs[1]["json"]
     assert payload["subject"] == "Portfonia Financial Analysis Report — 2026-06-06"
+
+
+@patch(
+    "app.services.email_sender.recipient_email_with_purpose",
+    return_value=("test@example.com", "account_email"),
+)
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
+def test_send_subject_and_footer_follow_recipients_own_locale_not_global_output_lang(
+    mock_client_cls: MagicMock, mock_settings: MagicMock, mock_user_dir_settings: MagicMock
+) -> None:
+    """Real bug found in PR #309 review (not one of blacktomb42's 4 findings —
+    flagged separately by the product owner reading the diff): production's
+    global OUTPUT_LANG defaults to "zh", but issue #308 means the report
+    BODY is now rendered in the recipient's own `users.locale`. Before this
+    fix, the subject (report_title_key lookup) and the unsubscribe footer
+    copy still read `settings.OUTPUT_LANG` directly — a user who picked
+    English gets an English body, a Chinese subject, and a Chinese footer,
+    three languages disagreeing in one email. Must resolve both via the
+    same `report_language_for(session, user_id)` helper reports.py's
+    generate/regenerate already use (falls back to OUTPUT_LANG only when
+    the row can't be found — the global default stays a real code path,
+    not dead code)."""
+    settings = _mock_settings()
+    settings.OUTPUT_LANG = "zh"  # global default stays zh in this test
+    mock_settings.return_value = settings
+
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    post_mock = mock_client_cls.return_value.__enter__.return_value.post
+    post_mock.return_value = mock_resp
+
+    report = _make_report()
+    session = MagicMock()
+    # The recipient's own row: report language is English, unlike the
+    # global default above.
+    session.get.return_value = SimpleNamespace(locale="en")
+
+    send_report_email(report, session)
+
+    payload = post_mock.call_args.kwargs["json"]
+    assert payload["subject"] == "Portfonia Financial Analysis Report — 2026-06-06"
+    assert "This report was delivered by Portfonia to the address you configured" in payload["html"]
 
 
 @patch(

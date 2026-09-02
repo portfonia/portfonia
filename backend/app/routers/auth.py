@@ -54,6 +54,14 @@ class SignupRequest(BaseModel):
     # rejects both an omitted field and an explicit `false` with one 422,
     # instead of a `= True` default that would silently accept an omission.
     tos_accepted: Literal[True]
+    # Issue #308: the frontend's selected UI locale, mapped to a bare backend
+    # code (en/zh) before it reaches here. Optional + defense-in-depth only
+    # — when present and valid, drives users.locale in place of the
+    # hardcoded "zh" fallback below; the frontend change means an absent
+    # value should not normally happen. Keep in sync with
+    # app.models.user.VALID_REPORT_LANGUAGES by hand (Pydantic Literal
+    # members must be compile-time).
+    locale: Literal["en", "zh"] | None = None
 
 
 class SignupResponse(BaseModel):
@@ -85,7 +93,7 @@ def signup(
             auth_subject=sub,
             email=email,
             status="active",
-            locale="zh",
+            locale=req.locale or "zh",
             base_currency="USD",
             # New users default to weekly, not mwf (Ring 1-Onboarding.md §一.6).
             # Multi-cadence Beat/fan-out wiring is a follow-up issue.

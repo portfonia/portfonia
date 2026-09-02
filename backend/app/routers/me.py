@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
@@ -82,4 +85,37 @@ def get_me(
             )
             for record in pending_verifications
         ],
+        report_language=user.locale,
     )
+
+
+class UpdateReportLanguageBody(BaseModel):
+    # Literal, not a bare str + DB CheckConstraint fallback: a bad value gets
+    # a clean 422 here rather than an IntegrityError bubbling into a 500 —
+    # same discipline as admin.py's UpdateCadenceBody. Keep in sync with
+    # app.models.user.VALID_REPORT_LANGUAGES by hand; Pydantic Literal
+    # members must be compile-time, not derived from that tuple.
+    report_language: Literal["en", "zh"]
+
+
+class UpdateReportLanguageOut(BaseModel):
+    report_language: str
+
+
+@router.patch("/report-language", response_model=UpdateReportLanguageOut)
+def update_report_language(
+    body: UpdateReportLanguageBody,
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+) -> UpdateReportLanguageOut:
+    """Self-service write of the caller's own report language (issue #308).
+
+    Writes users.locale for the caller's own row only — no rate limiting
+    (a plain authenticated write with no external side effect and no abuse
+    surface, unlike the email-verification endpoints).
+    """
+    user = session.get(User, principal.user_id)
+    assert user is not None  # current_principal already required this row
+    user.locale = body.report_language
+    session.commit()
+    return UpdateReportLanguageOut(report_language=user.locale)

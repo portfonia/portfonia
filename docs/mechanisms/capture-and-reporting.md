@@ -249,6 +249,60 @@ layer** (per-user, incremental).
   (`VALID_REPORT_CADENCES`, `app/models/user.py`) — the two are kept in
   sync by hand, not derived from one source, since Pydantic's `Literal`
   needs compile-time members.
+- **Per-user report language (issue #308)**: `users.locale` (`NOT NULL`,
+  free `Text` before this issue — read only for an informational Pass 2
+  prompt hint and email-verification copy, never driving report
+  translation) gains a `CheckConstraint` (`VALID_REPORT_LANGUAGES =
+  ("en", "zh")`, `app/models/user.py`, migration `a2b3c4d5e6f7`) and
+  becomes the actual per-user `output_lang` driver, same shape as the
+  cadence entry above: self-service `PATCH /me/report-language`
+  (`app/routers/me.py`, `Depends(current_principal)`, no rate limiting —
+  a plain authenticated write with no external side effect) and an Ops
+  sibling `POST /admin/users/by-email/report-language`
+  (`app/routers/admin.py`, grouped by URL shape next to `DELETE
+  /admin/users/by-email` rather than by-id's `.../cadence`, no re-typed-
+  email confirmation — that ceremony is reserved for the irreversible
+  purge route). Four call sites read it: `reports.py`'s self-service
+  generate and regenerate (regenerate's owning user IS the calling
+  principal, since regenerate is scoped to the caller's own reports) now
+  read the requesting/report-owning user's own value instead of the
+  global `Settings.OUTPUT_LANG` default; `report_tasks.py`'s scheduled
+  fan-out reads each recipient's own `users.locale` (the whole point of
+  this issue for scheduled, not just self-service, reports) off a NEW
+  `user_scope.active_users(session, cadence)` — full `User` ORM rows, not
+  `active_user_ids`'s bare ids — fetched ONCE up front rather than a
+  second per-user `session.get(User, ...)`/`select(...)` call inside the
+  loop. That distinction is load-bearing, not stylistic: an interleaved
+  second read on the SAME session hung indefinitely, reproducibly, under
+  test_weekly_cadence_fanout.py's real-session pattern (`SessionLocal`
+  rebound to the test's own `db_session` fixture) — bisected down to the
+  actual root cause, which turned out to be unrelated to the extra query
+  itself: that test forces the global `Settings.OUTPUT_LANG = "en"`
+  specifically to avoid triggering a real (unmocked) translation-pass LLM
+  call, while its seeded user's `locale` defaulted to `"zh"` via the
+  shared `_user()` test helper — reading the user's own locale (as #308
+  correctly does) reintroduced exactly the real network call that
+  docstring warned about, which then hangs rather than fails fast. Fixed
+  by seeding that test's user with `locale="en"` (matching what the test
+  actually wants) instead of relying on the global override, and by
+  changing the fan-out to fetch every active user ONCE (`active_users`)
+  regardless — good hygiene (avoids an N+1 in the real Celery path too)
+  even though it wasn't the actual bug. `admin.py`'s manual-generate endpoint (`POST
+  /admin/users/{user_id}/reports/generate`) deliberately keeps reading
+  the global default unchanged (decision point 2: its `user_id` param is
+  for entitlement/fan-out testing, not "send this user their real
+  report", and this repo does not silently change documented ops
+  behavior). Signup (`auth.py`) accepts an optional `locale` field,
+  forwarded by the frontend's `POST /auth/signup` from the UI locale
+  selected at signup time (mapped `en`→`en`, `zh-Hans`/`zh-Hant`→`zh`);
+  absent falls back to the pre-existing hardcoded `"zh"` default
+  (defense-in-depth only). Frontend: Profile page's new Report Language
+  `<select>` (`frontend/src/locales/index.ts`'s `REPORT_LANGUAGES`, a
+  whitelist deliberately separate from the UI-locale `LOCALES` — the two
+  answer different questions and must be free to diverge, e.g. `zh-Hant`
+  has zero `i18n_glossary.yml` coverage regardless of UI-switcher status)
+  saves immediately on change (no Save button) and calls
+  `router.refresh()`, never a hard reload.
 - **Multi-user fan-out (Ring 1 stage A1, issue #128, PR #151; cadence-scoped
   since issue #191)**: `generate_incremental_report` iterates
   `app.services.user_scope.active_user_ids(session, cadence)` — active

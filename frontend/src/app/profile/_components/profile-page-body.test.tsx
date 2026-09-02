@@ -20,13 +20,16 @@ vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
 // buttons) — same importActual pattern as questionnaire-form.test.tsx.
 // createEmailVerification is the issue #289 sibling flow (fresh verification
 // for an account's own known address, no existing record required).
-const { resendEmailVerification, createEmailVerification } = vi.hoisted(() => ({
-  resendEmailVerification: vi.fn(),
-  createEmailVerification: vi.fn(),
-}));
+const { resendEmailVerification, createEmailVerification, updateReportLanguage } = vi.hoisted(
+  () => ({
+    resendEmailVerification: vi.fn(),
+    createEmailVerification: vi.fn(),
+    updateReportLanguage: vi.fn(),
+  }),
+);
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
-  return { ...actual, resendEmailVerification, createEmailVerification };
+  return { ...actual, resendEmailVerification, createEmailVerification, updateReportLanguage };
 });
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
@@ -83,12 +86,14 @@ const BASE_ME: Me = {
   has_holdings: false,
   missing: ["questionnaire", "holdings"],
   pending_email_verifications: [],
+  report_language: "en",
 };
 
 describe("ProfilePageBody", () => {
   beforeEach(() => {
     resendEmailVerification.mockReset();
     createEmailVerification.mockReset();
+    updateReportLanguage.mockReset();
     routerRefresh.mockReset();
   });
 
@@ -184,8 +189,8 @@ describe("ProfilePageBody", () => {
   });
 });
 
-describe("Section order (issue #269 §1/§4)", () => {
-  it("orders Email Verification right after the gap card, and Change password before Delete account", () => {
+describe("Section order (issue #269 §1/§4, issue #308)", () => {
+  it("orders Portfolio overview before Report delivery email, Report language before Report schedule, and Change password before Delete account", () => {
     renderBody({ ...BASE_ME, pending_email_verifications: [PENDING] });
 
     const titles = sectionTitles();
@@ -194,8 +199,9 @@ describe("Section order (issue #269 §1/§4)", () => {
       "Email verification",
       "Account",
       "Investment style",
-      "Report delivery email",
       "Portfolio overview",
+      "Report delivery email",
+      "Report language",
       "Report schedule",
       "Invite someone",
       "Change password",
@@ -486,6 +492,56 @@ describe("No-verified-recipient self-service recovery (issue #289 item 3)", () =
     expect(await screen.findByRole("alert")).toHaveTextContent(/could not send the verification email/i);
   });
 
+});
+
+describe("Report language (issue #308)", () => {
+  it("renders a real, non-disabled selector defaulted to the account's current value", () => {
+    renderBody({ ...BASE_ME, report_language: "zh" });
+
+    const select = screen.getByRole("combobox", { name: /report language/i });
+    expect(select).toBeEnabled();
+    expect(select).toHaveValue("zh");
+  });
+
+  it("offers exactly English and Simplified Chinese, in their own native script", () => {
+    renderBody(BASE_ME);
+
+    const select = screen.getByRole("combobox", { name: /report language/i });
+    const options = within(select)
+      .getAllByRole("option")
+      .map((o) => o.textContent);
+    expect(options).toEqual(["English", "简体中文"]);
+  });
+
+  it("calls updateReportLanguage immediately on change, then router.refresh (no Save button, no hard reload)", async () => {
+    updateReportLanguage.mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    renderBody({ ...BASE_ME, report_language: "en" });
+
+    const select = screen.getByRole("combobox", { name: /report language/i });
+    await user.selectOptions(select, "zh");
+
+    expect(updateReportLanguage).toHaveBeenCalledWith("zh");
+    await waitFor(() => expect(routerRefresh).toHaveBeenCalled());
+    expect(
+      screen.queryByRole("button", { name: /save/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows an error and leaves the control enabled when the update fails", async () => {
+    updateReportLanguage.mockRejectedValue(new ApiError(500, "boom"));
+    const user = userEvent.setup();
+    renderBody({ ...BASE_ME, report_language: "en" });
+
+    const select = screen.getByRole("combobox", { name: /report language/i });
+    await user.selectOptions(select, "zh");
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(select).toBeEnabled();
+  });
+});
+
+describe("Send verification button hiding", () => {
   it("hides Send verification for a purpose that already has an actionable row (PR #292 review)", () => {
     // Post-signup state: account email unverified, its pending row already
     // live (email matches me.email) — Send would supersede the token in
