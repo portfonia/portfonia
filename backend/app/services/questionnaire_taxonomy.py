@@ -27,8 +27,12 @@ QUESTIONNAIRE_VERSION = "v1"
 
 VALID_ASSET_SCALES: frozenset[str] = frozenset({"UNDER_100K", "100K_500K", "500K_2M", "OVER_2M"})
 
-# Matches the wording already used for `Holding.market` (app/schemas/holdings.py)
-# so the same four labels mean the same thing everywhere in the product.
+# Matches the four ORIGINAL `Holding.market` labels (app/schemas/holdings.py)
+# for wording consistency where they overlap. Holdings capture itself has
+# since widened to 7 buckets + Other (issue #311); this stays the coarser,
+# original 4-value set by design — a questionnaire market *preference* is a
+# different, deliberately coarser taxonomy than a capture bucket, not the
+# same vocabulary re-used (issue #313 item 6).
 VALID_MARKETS: frozenset[str] = frozenset({"US", "HK", "A-Share", "Other"})
 
 VALID_STYLES: frozenset[str] = frozenset({"VALUE", "GROWTH", "INDEX", "MIXED"})

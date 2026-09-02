@@ -115,6 +115,26 @@ flag server-side so a client cannot enable speculative yfinance. Capture
 and `update_holding_prices` / `backfill_sectors` skip
 `capture_supported=False` — no speculative yfinance lookup.
 
+**Existing `market="Other"` rows stay `capture_supported=True` until
+re-resolved** (issue #313 item 4): migration `c7d8e9f0a1b2` defaults every
+pre-existing row — including ones already stored as Other, e.g. a UK
+holding uploaded before this issue's UK node existed — to
+`capture_supported=True`, because the migration runs raw SQL against
+Fernet-encrypted ciphertext and cannot decrypt `ticker` to re-resolve it
+(documented in the migration's own docstring). This is not silently
+rewritten as part of the migration. Two paths pick it up: (1) any
+individual re-upload/re-confirm already reaches the correct value via the
+same `resolve_holding_market` call `confirm_holdings` always runs; (2) the
+one-off idempotent script `app/scripts/backfill_capture_supported.py`
+(dry-run by default, `--apply` to commit) re-resolves every existing
+`market="Other"` row the same way — reclassifying now-resolvable tickers
+(e.g. into UK/Europe/Japan/Korea) and flipping `capture_supported=False`
+for tickers that still don't resolve, so section 1 renders "[market not
+supported]" instead of sitting in Other limbo indefinitely. Mirrors the
+one-off-script (not a migration, not a new bulk `/admin/*` endpoint)
+precedent already established for the email-verification backfill (issue
+#260).
+
 Section 1 shows `[market not supported]` (i18n_glossary.yml) for those
 rows, distinct from `[price unavailable]` (issue #295). Same aggregate
 exclusion: `market_value_base` is None, not added to totals, not recorded
@@ -126,6 +146,44 @@ Subunit handling is generic: yfinance marks LSE ordinary shares with
 present, regardless of ticker. EUR / JPY / KRW have no equivalent subunit
 convention and must not be scaled. The old per-ticker `_TICKER_PRICE_SCALE`
 table is gone; `_TICKER_SYMBOL_OVERRIDE` (PSH collision) remains.
+
+**Fail-closed LSE omit on unknown currency** (`_safe_scaled_price` /
+`_yfinance.py`): `_scale_price(value, None)` is identity, so an LSE bar that
+got OHLCV but lost `fast_info.currency` would otherwise store pence as
+pounds — the exact 100x bug class #204/#311 exist to kill. Unknown currency
+on an LSE ticker (`_is_lse_ticker`) omits the bar entirely rather than
+storing it unscaled; EUR/JPY/KRW/US stay unscaled when currency is missing
+since they have no subunit marker. Checked as falsy, not just `currency is
+None` (issue #313 item 2) — `_fetched_currency`'s `str | None` return type
+does not rule out yfinance itself handing back an empty string, and an
+empty string is not `_GBPENCE` so it would otherwise fall through to the
+unscaled `return value` path.
+
+**`capture_supported=False` also excluded from the L0/L1 shared-compute
+universe** (`global_identifier_universe`, `user_scope.py`, issue #313 item
+1): capture itself already skips these holdings (see above), but the
+Stage-A1 identifier universe that L1 anomaly detection and the SHARED
+TICKER INTEL assembly block read from was filtered only on
+`pricing_mode == "auto"` — an unresolvable ticker had no price series
+captured for it, yet could still surface there. Now filtered through the
+same `is_capture_supported()` helper capture/`price_fetcher`/
+`portfolio_calculator` already gate on. The report-assembly holdings list
+and Pass 2 prompt (`report_sections.py`/`report_prompts.py`) already omitted
+these names on the per-report side; this closes the shared-compute-layer
+sibling gap.
+
+**Bare ticker with no exchange suffix still classifies as US** (issue #313
+item 5, deferred, not fixed here): `VOD`/`PSH` uploaded without `.L` resolve
+to US via `market_from_ticker`'s bare-ticker rule, not UK — a user who
+uploads `VOD` (rather than `VOD.L`) never joins the UK node.
+`_TICKER_SYMBOL_OVERRIDE` in `_yfinance.py` remains a single hardcoded entry
+(`PSH`); general suffix-forcing once a market is known/confirmed is
+Ring-1-C / issue #204 territory, not a #311 gap. As of #313, PR #310
+(issue #92, branch `feat/holdings-crud-92`) is the active work on exactly
+this — `apply_confirmed_exchange_suffix()` /
+`normalize_ticker_and_currency()` in `holding_parser.py` — and was still
+open/unmerged when #313 landed; do not duplicate suffix-forcing logic here
+without checking that PR's state first.
 
 Out of scope: commodity exchanges; any market beyond the seven scheduled
 buckets; FX (GBP/EUR/JPY/KRW pairs already covered by #204).
