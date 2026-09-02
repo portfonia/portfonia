@@ -553,10 +553,13 @@ def send_verification_email(email: str, token: str, *, locale: str = "en") -> st
         return None
 
 
-def send_ops_alert(subject: str, body: str, idempotency_key: str | None = None) -> None:
+def send_ops_alert(subject: str, body: str, idempotency_key: str | None = None) -> bool:
     """Send a plain-text ops alert to the admin email via Resend.
 
-    Used for failure/needs_review notifications. Never raises — logs on error.
+    Used for failure/needs_review notifications. Never raises — returns True
+    on delivery success, False on any error, so callers can gate durable
+    dedup state on confirmed delivery (issue #298 review: a failed send must
+    not suppress a later retry for the same condition).
 
     Pass idempotency_key to suppress duplicate alerts across Celery retries of
     the same task. Resend will accept the first delivery and discard subsequent
@@ -585,5 +588,7 @@ def send_ops_alert(subject: str, body: str, idempotency_key: str | None = None) 
             )
             resp.raise_for_status()
         logger.info("ops alert sent to %s: %s", settings.ADMIN_EMAIL, subject)
+        return True
     except Exception:
         logger.exception("ops alert delivery failed: %s", subject)
+        return False
