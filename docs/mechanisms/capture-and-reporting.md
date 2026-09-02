@@ -172,18 +172,21 @@ and Pass 2 prompt (`report_sections.py`/`report_prompts.py`) already omitted
 these names on the per-report side; this closes the shared-compute-layer
 sibling gap.
 
-**Bare ticker with no exchange suffix still classifies as US** (issue #313
-item 5, deferred, not fixed here): `VOD`/`PSH` uploaded without `.L` resolve
-to US via `market_from_ticker`'s bare-ticker rule, not UK — a user who
-uploads `VOD` (rather than `VOD.L`) never joins the UK node.
-`_TICKER_SYMBOL_OVERRIDE` in `_yfinance.py` remains a single hardcoded entry
-(`PSH`); general suffix-forcing once a market is known/confirmed is
-Ring-1-C / issue #204 territory, not a #311 gap. As of #313, PR #310
-(issue #92, branch `feat/holdings-crud-92`) is the active work on exactly
-this — `apply_confirmed_exchange_suffix()` /
-`normalize_ticker_and_currency()` in `holding_parser.py` — and was still
-open/unmerged when #313 landed; do not duplicate suffix-forcing logic here
-without checking that PR's state first.
+**Bare ticker with no exchange suffix, resolved for the declared-market
+case by PR #310** (issue #313 item 5): a bare `VOD`/`PSH` uploaded without
+`.L` used to resolve to US via `market_from_ticker`'s bare-ticker rule, not
+UK. PR #310 (issue #92, merged) added `apply_confirmed_exchange_suffix()` /
+`normalize_ticker_and_currency()` in `holding_parser.py`, which force the
+right exchange suffix at parse/confirm time once `_confirmed_market`
+determines a market — from a user-declared `market`, or a confident
+derivation (ticker suffix already present, `fund_code`, the
+`_TICKER_SYMBOL_OVERRIDE` table, or currency: GBP->UK, HKD->HK, EUR->Europe,
+JPY->Japan, KRW->Korea, CNY 6-digit->A-Share, USD->US). A bare ticker with
+**neither** a declared market **nor** a currency hint is still left
+unresolved by design ("do not guess a suffix") and falls through to US —
+that residual gap, not the whole item, is what's deferred to Ring-1-C /
+issue #204; `_TICKER_SYMBOL_OVERRIDE` in `_yfinance.py` remains a single
+hardcoded entry (`PSH`) for the bare-ticker-with-no-hint-at-all case.
 
 Out of scope: commodity exchanges; any market beyond the seven scheduled
 buckets; FX (GBP/EUR/JPY/KRW pairs already covered by #204).

@@ -51,10 +51,14 @@ def _normalize_hk_ticker(ticker: str) -> str:
 #
 # General bare-ticker suffix-forcing (any bare ticker + a known/confirmed
 # market -> the right exchange suffix, not just this one hardcoded entry) is
-# deliberately out of scope here — issue #313 item 5 confirmed it's still
-# unhandled (a bare "VOD" still classifies as US, not UK) and explicitly
-# deferred it to Ring-1-C / issue #204, tracked in parallel by PR #310
-# (issue #92, `holding_parser.apply_confirmed_exchange_suffix`).
+# out of scope here — PR #310 (issue #92, merged) added
+# `holding_parser.apply_confirmed_exchange_suffix`, which forces the suffix
+# at parse/confirm time once a market is user-declared or confidently
+# derived (e.g. currency == "GBP" -> UK), closing issue #313 item 5's "VOD"
+# case for any holding with a declared market or currency hint. A bare
+# ticker with NEITHER (no declared market, no currency hint) is still left
+# unresolved by design ("do not guess a suffix") — Ring-1-C / issue #204
+# territory, not handled at this yfinance-fetch layer either way.
 _TICKER_SYMBOL_OVERRIDE: dict[str, str] = {
     "PSH": "PSH.L",
 }
