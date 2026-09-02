@@ -894,8 +894,17 @@ def test_template_covers_asset_types_and_markets_without_wmf_jargon(
     assert "#####" in body
     assert "wealth-management product" in body
     assert "wmf" not in body.lower()
-    for token in ("AAPL", "SPY", "0700.HK", "600519.SS", "110011", "USD Cash", "PSH.L"):
+    for token in (
+        "AAPL",
+        "SPY",
+        "0700.HK",
+        "600519.SS",
+        "110011",
+        "USD Cash",
+        "Pershing Square PSH GBP",
+    ):
         assert token in body
+    assert "PSH.L" not in body
 
 
 def test_template_zh_uses_wealth_management_wording(
@@ -1221,7 +1230,7 @@ def test_create_holding_enqueues_sector_backfill_not_sync_yfinance(
         resp = app_client.post("/holdings", json=_PARSED_APPLE)
     assert resp.status_code == 201
     mock_sync.assert_not_called()
-    mock_sector.delay.assert_called_once_with([resp.json()["id"]])
+    mock_sector.delay.assert_called_once_with([resp.json()["id"]], str(TEST_USER_ID))
 
 
 def test_confirm_replace_enqueues_sector_backfill_for_inserted_rows(
@@ -1237,6 +1246,7 @@ def test_confirm_replace_enqueues_sector_backfill_for_inserted_rows(
     mock_sector.delay.assert_called_once()
     enqueued = mock_sector.delay.call_args[0][0]
     assert set(enqueued) == set(ids)
+    assert mock_sector.delay.call_args[0][1] == str(TEST_USER_ID)
 
 
 def test_patch_ticker_clears_stale_price_and_sector(
@@ -1261,7 +1271,7 @@ def test_patch_ticker_clears_stale_price_and_sector(
     assert holding.market_price is None
     assert holding.price_as_of is None
     assert holding.price_fetched_at is None
-    mock_sector.delay.assert_called_once_with([created["id"]])
+    mock_sector.delay.assert_called_once_with([created["id"]], str(TEST_USER_ID))
 
 
 def test_patch_notes_preserves_untouched_encrypted_decimal_shares(
@@ -1302,3 +1312,54 @@ def test_create_holding_locks_before_assigning_position(app_client: TestClient) 
     assert second.status_code == 201
     assert first.json()["position"] == 0
     assert second.json()["position"] == 1
+
+
+def test_export_manual_non_cash_round_trips_current_value_without_llm(
+    app_client: TestClient,
+) -> None:
+    """Manual stock/other must export current_value and re-parse without the LLM."""
+    row: dict[str, object] = {
+        "name": "Family house",
+        "ticker": "HOME",
+        "fund_code": None,
+        "currency": "USD",
+        "shares": None,
+        "avg_cost": None,
+        "current_value": 250000.0,
+        "pricing_mode": "manual",
+        "asset_type": "other",
+        "broker": "IBKR",
+        "account": None,
+        "portfolio": None,
+        "notes": None,
+        "issues": [],
+        "confidence": 1.0,
+    }
+    resp = app_client.post("/holdings", json=row)
+    assert resp.status_code == 201
+    body = app_client.get("/holdings/export").text
+    data_lines = [ln for ln in body.splitlines() if ln and not ln.lstrip().startswith("#")]
+    assert len(data_lines) == 1
+    assert "250000" in data_lines[0]
+    assert "pricing_mode:manual" in data_lines[0]
+    from app.services.holding_parser import parse
+
+    with patch("app.services.holding_parser._parse_attempt") as mock_attempt:
+        preview = parse(body)
+    mock_attempt.assert_not_called()
+    assert len(preview.valid_rows) == 1
+    assert preview.valid_rows[0].current_value == 250000.0
+    assert preview.valid_rows[0].pricing_mode == "manual"
+    assert preview.valid_rows[0].ticker == "HOME"
+    assert preview.issue_rows == []
+
+
+def test_reorder_locks_before_assigning_position(app_client: TestClient) -> None:
+    a = app_client.post("/holdings", json=_PARSED_APPLE).json()
+    b = app_client.post("/holdings", json=_PARSED_CASH).json()
+    with patch("app.routers.holdings._lock_user_holdings") as mock_lock:
+        resp = app_client.patch("/holdings/reorder", json={"ids": [b["id"], a["id"]]})
+    assert resp.status_code == 200
+    mock_lock.assert_called()
+    assert [row["id"] for row in resp.json()] == [b["id"], a["id"]]
+    assert [row["position"] for row in resp.json()] == [0, 1]

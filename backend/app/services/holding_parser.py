@@ -323,6 +323,42 @@ def _parse_listed_tokens(tokens: list[str]) -> dict[str, Any] | None:
     return None
 
 
+def _parse_manual_listed_tokens(tokens: list[str]) -> dict[str, Any] | None:
+    """One numeric token after currency is current_value (manual stock/other)."""
+    for i, tok in enumerate(tokens):
+        if tok.upper() not in VALID_CURRENCIES:
+            continue
+        if i < 1 or i + 1 >= len(tokens):
+            continue
+        if not _is_num(tokens[i + 1]):
+            continue
+        # Two numbers after currency is the auto listed shape, not this one.
+        if i + 2 < len(tokens) and _is_num(tokens[i + 2]):
+            continue
+        ident = tokens[i - 1]
+        name = " ".join(tokens[: i - 1]).strip()
+        if not name:
+            continue
+        broker = " ".join(tokens[i + 2 :]).strip() or None
+        row: dict[str, Any] = {
+            "name": name,
+            "currency": tok.upper(),
+            "shares": None,
+            "avg_cost": None,
+            "current_value": float(tokens[i + 1].replace(",", "")),
+            "broker": broker,
+            "pricing_mode": "manual",
+        }
+        if ident.isdigit() and len(ident) == 6:
+            row["fund_code"] = ident
+            row["ticker"] = None
+        else:
+            row["ticker"] = ident
+            row["fund_code"] = None
+        return row
+    return None
+
+
 def _parse_cash_tokens(tokens: list[str]) -> dict[str, Any] | None:
     for i in range(len(tokens) - 1, 0, -1):
         if tokens[i].upper() not in VALID_CURRENCIES:
@@ -364,6 +400,8 @@ def parse_dialect_line(line: str) -> dict[str, Any] | None:
         parsed = _parse_cash_tokens(tokens)
     else:
         parsed = _parse_listed_tokens(tokens)
+        if parsed is None and tags.get("pricing_mode") == "manual":
+            parsed = _parse_manual_listed_tokens(tokens)
         if parsed is None and asset_type is None:
             parsed = _parse_cash_tokens(tokens)
     if parsed is None:
@@ -384,22 +422,22 @@ def try_parse_dialect(text: str) -> list[dict[str, Any]] | None:
 
     Untagged free-form uploads still go through the model. An export from
     GET /holdings/export always includes tags, so re-import is deterministic.
+    A mixed file (only some lines tagged) must not divert the whole upload
+    onto positional parsing (PR #310 round 2).
     """
     lines = [ln.strip() for ln in _strip_comments(text).splitlines() if ln.strip()]
     if not lines:
         return None
     rows: list[dict[str, Any]] = []
-    saw_tag = False
     for ln in lines:
         _rest, tags = split_tagged_fields(ln)
-        if tags:
-            saw_tag = True
+        if not tags:
+            return None
         parsed = parse_dialect_line(ln)
         if parsed is None:
             return None
+        parsed["_source_line"] = ln
         rows.append(parsed)
-    if not saw_tag:
-        return None
     return rows
 
 
@@ -626,6 +664,8 @@ def _append_issue(
 def _postprocess(
     raw_rows: list[dict[str, Any]],
     on_invalid_row: Callable[[dict[str, Any], str], None] | None = None,
+    *,
+    dedup: bool = True,
 ) -> list[ParsedRow]:
     """Apply deterministic post-processing on top of LLM output.
 
@@ -636,10 +676,14 @@ def _postprocess(
     whole upload (issue #25/PR #114 review: currency validation used to
     propagate a bare ValidationError out of parse(), killing every other
     valid row in the same file).
+
+    Dedup only collapses byte-identical rows (an LLM emitting the same holding
+    twice). Skip it for dialect-parsed rows: the exporter does not duplicate,
+    and #92 treats identical lots as a second lot, never a silent merge
+    (PR #310 round 2).
     """
     result: list[ParsedRow] = []
-    # Dedup only collapses byte-identical rows (an LLM emitting the same holding
-    # twice). The key includes broker/account/quantity so two genuinely distinct
+    # The key includes broker/account/quantity so two genuinely distinct
     # lots — e.g. the same ETF at two brokers — are both preserved. (issue #50)
     seen: set[tuple[str | None, ...]] = set()
 
@@ -788,7 +832,6 @@ def _postprocess(
                 {
                     "ticker": ticker,
                     "currency": "GBP",
-                    "suggestion": f"{ticker}.L",
                 },
                 severity="warning",
             )
@@ -803,19 +846,20 @@ def _postprocess(
         row["asset_class"] = _classify_asset_class(row)
 
         # Deduplicate: collapse only fully-identical rows (see comment above).
-        key = (
-            row.get("ticker"),
-            row.get("fund_code"),
-            str(row.get("name", "")),
-            str(row.get("broker") or ""),
-            str(row.get("account") or ""),
-            str(row.get("shares")),
-            str(row.get("avg_cost")),
-            str(row.get("current_value")),
-        )
-        if key in seen:
-            continue
-        seen.add(key)
+        if dedup:
+            key = (
+                row.get("ticker"),
+                row.get("fund_code"),
+                str(row.get("name", "")),
+                str(row.get("broker") or ""),
+                str(row.get("account") or ""),
+                str(row.get("shares")),
+                str(row.get("avg_cost")),
+                str(row.get("current_value")),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
 
         try:
             parsed = ParsedRow.model_validate(row)
@@ -970,10 +1014,20 @@ def parse(text: str) -> UploadPreview:
     """
     dialect_rows = try_parse_dialect(text)
     if dialect_rows is not None:
-        valid_rows = _postprocess(dialect_rows)
+        dialect_rejected: list[IssueRow] = []
+        valid_rows = _postprocess(
+            dialect_rows,
+            on_invalid_row=lambda row, reason: dialect_rejected.append(
+                IssueRow(
+                    raw=str(row.get("_source_line") or json.dumps(row, default=str)),
+                    reason=f"Rejected during validation: {reason}",
+                )
+            ),
+            dedup=False,
+        )
         return UploadPreview(
             valid_rows=valid_rows,
-            issue_rows=[],
+            issue_rows=dialect_rejected,
             broker_groups=_summarize(valid_rows),
         )
 

@@ -376,12 +376,17 @@ def capture_forward_events_task(self: Any) -> dict[str, int]:
     max_retries=1,
     default_retry_delay=60,
 )
-def backfill_sectors_task(self: Any, holding_ids: list[str] | None = None) -> dict[str, int]:
+def backfill_sectors_task(
+    self: Any,
+    holding_ids: list[str] | None = None,
+    user_id: str | None = None,
+) -> dict[str, int]:
     """Populate sector for the given holding rows (issue #92 / PR #310).
 
     Dispatched after POST/PATCH/confirm so the HTTP request does not wait
     on yfinance. Commits here — a request-scoped flush after the router's
-    commit is rolled back when get_session() closes.
+    commit is rolled back when get_session() closes. Scoped to user_id so
+    a bare id list cannot touch another principal's rows (PR #310 r2).
     """
     from uuid import UUID
 
@@ -391,14 +396,18 @@ def backfill_sectors_task(self: Any, holding_ids: list[str] | None = None) -> di
     from app.models.holding import Holding
     from app.services.price_fetcher import backfill_sectors
 
-    if not holding_ids:
-        logger.info("backfill_sectors_task: no holding ids requested")
+    if not holding_ids or not user_id:
+        logger.info("backfill_sectors_task: no holding ids or user_id requested")
         return {"updated": 0}
 
     session = SessionLocal()
     try:
         ids = [UUID(h) for h in holding_ids]
-        holdings = list(session.scalars(select(Holding).where(Holding.id.in_(ids))).all())
+        holdings = list(
+            session.scalars(
+                select(Holding).where(Holding.id.in_(ids), Holding.user_id == UUID(user_id))
+            ).all()
+        )
         updated = backfill_sectors(session, holdings)
         session.commit()
         logger.info("backfill_sectors_task: updated %d row(s)", updated)

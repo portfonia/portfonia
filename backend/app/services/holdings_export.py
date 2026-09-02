@@ -40,8 +40,8 @@ _RULES_EN = """\
 ##### pricing_mode is auto or manual. market is listing venue (US / HK / A-Share / Other).
 #####
 ##### Ticker suffixes: .HK (Hong Kong), .SS / .SZ (A-shares), US tickers need none.
-##### London listings typically use .L (e.g. PSH.L). A bare ticker plus GBP is
-##### kept as written; add the suffix yourself if this is a London listing.
+##### London names such as Pershing Square stay a bare ticker (PSH) with market:US
+##### so auto pricing still runs. Do not write a .L suffix here.
 ##### Chinese public funds: enter the 6-digit fund code (e.g. 110011).
 ##### Cash and wealth-management products with no ticker are Other — not inferred
 ##### from the bank.
@@ -60,8 +60,8 @@ _RULES_ZH = """\
 ##### pricing_mode 为 auto 或 manual。market 是上市地（US / HK / A-Share / Other）。
 #####
 ##### 代码后缀：.HK（港股）、.SS / .SZ（A股），美股无需后缀。
-##### 伦敦上市一般用 .L（例如 PSH.L）。无后缀代码加英镑会按原样保留；
-##### 若确为伦敦上市，请自行补后缀。
+##### 伦敦标的（如 Pershing Square）请写无后缀代码 PSH，并标 market:US，
+##### 以便自动定价；请勿写成 PSH.L。
 ##### 中国公募基金请填写 6 位基金代码（例如 110011）。
 ##### 无代码的现金和理财为 Other，不根据银行券商推断为 A 股。
 ##### 以 ##### 开头的行是注释，解析时会被忽略。
@@ -76,7 +76,7 @@ _EXAMPLES_EN = """\
 ##### E Fund Blue Chip 110011 CNY 40000 3.99 Alipay asset_type:fund market:A-Share pricing_mode:auto
 ##### USD Cash 50000 USD Schwab asset_type:cash market:Other pricing_mode:manual
 ##### Bank wealth-management product 100000 CNY CMB asset_type:wealth-management market:Other pricing_mode:manual
-##### Pershing Square PSH.L GBP 50 55 IBKR asset_type:stock market:Other pricing_mode:auto
+##### Pershing Square PSH GBP 50 55 IBKR asset_type:stock market:US pricing_mode:auto
 """
 
 _EXAMPLES_ZH = """\
@@ -88,7 +88,7 @@ _EXAMPLES_ZH = """\
 ##### 易方达蓝筹精选 110011 CNY 40000 3.99 支付宝 asset_type:fund market:A-Share pricing_mode:auto
 ##### 美元现金 50000 USD Schwab asset_type:cash market:Other pricing_mode:manual
 ##### 银行理财产品 100000 CNY 招商银行 asset_type:wealth-management market:Other pricing_mode:manual
-##### Pershing Square PSH.L GBP 50 55 IBKR asset_type:stock market:Other pricing_mode:auto
+##### Pershing Square PSH GBP 50 55 IBKR asset_type:stock market:US pricing_mode:auto
 """
 
 
@@ -136,6 +136,18 @@ def render_holding_line(holding: Holding) -> str:
     broker = _flatten(holding.broker)
     if holding.asset_type in ("cash", "wmf"):
         parts = [name, _fmt_num(holding.current_value), holding.currency or "", broker]
+    elif holding.pricing_mode == "manual":
+        # Manual-priced stock/other (private holdings, property) is valued from
+        # current_value. Emitting shares+avg_cost only dropped the value and
+        # left a line the positional parser could not tokenize (PR #310 r2).
+        ident = _flatten(holding.ticker or holding.fund_code)
+        parts = [
+            name,
+            ident,
+            holding.currency or "",
+            _fmt_num(holding.current_value),
+            broker,
+        ]
     else:
         ident = _flatten(holding.ticker or holding.fund_code)
         parts = [

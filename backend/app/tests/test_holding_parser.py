@@ -1307,7 +1307,7 @@ def test_postprocess_bare_gbp_ticker_warns_without_auto_suffix() -> None:
     notes = [i for i in rows[0].issues if i.code == "ticker_no_suffix"]
     assert len(notes) == 1
     assert notes[0].severity == "warning"
-    assert notes[0].params["suggestion"] == "PSH.L"
+    assert "suggestion" not in notes[0].params
     assert notes[0].params["ticker"] == "PSH"
     assert notes[0].params["currency"] == "GBP"
 
@@ -1375,7 +1375,7 @@ def test_coerce_issue_list_drops_llm_free_text_and_unknown_codes() -> None:
         {"code": "made_up_llm_code", "params": {"message": "hello"}, "severity": "warning"},
         {
             "code": "ticker_no_suffix",
-            "params": {"ticker": "PSH", "currency": "GBP", "suggestion": "PSH.L"},
+            "params": {"ticker": "PSH", "currency": "GBP"},
             "severity": "warning",
         },
         {"code": "parser_note", "params": {"message": "English leftover"}, "severity": "info"},
@@ -1437,6 +1437,59 @@ def test_try_parse_dialect_requires_tags_else_none() -> None:
     rows = try_parse_dialect(tagged)
     assert rows is not None
     assert rows[0]["ticker"] == "AAPL"
+
+
+def test_try_parse_dialect_mixed_tags_does_not_divert_whole_file() -> None:
+    """One tagged line must not pull an untagged sibling onto positional parse."""
+    mixed = "Apple AAPL USD 100 228 IBKR notes:reviewed\nMicrosoft MSFT USD 20 400 IBKR\n"
+    assert try_parse_dialect(mixed) is None
+
+
+def test_parse_dialect_invalid_row_surfaces_as_issue_row_without_llm() -> None:
+    """Tokenized-but-invalid dialect rows stay on the fast path as issue_rows."""
+    good = "Apple AAPL USD 10 180 IBKR asset_type:stock market:US pricing_mode:auto"
+    bad_shares = "Apple AAPL USD -5 228 IBKR asset_type:stock market:US pricing_mode:auto"
+    bad_cash = "USD Cash -100 USD Schwab asset_type:cash market:Other pricing_mode:manual"
+    text = f"{good}\n{bad_shares}\n{bad_cash}\n"
+    with patch("app.services.holding_parser._parse_attempt") as mock_attempt:
+        preview = parse(text)
+    mock_attempt.assert_not_called()
+    assert len(preview.valid_rows) == 1
+    assert preview.valid_rows[0].ticker == "AAPL"
+    assert preview.valid_rows[0].shares == 10.0
+    assert len(preview.issue_rows) == 2
+    raws = [r.raw for r in preview.issue_rows]
+    assert bad_shares in raws
+    assert bad_cash in raws
+
+
+def test_parse_dialect_keeps_identical_lots() -> None:
+    """#92: duplicate lots on dialect re-import are a second lot, never merged."""
+    line = "Apple AAPL USD 10 180 IBKR asset_type:stock market:US pricing_mode:auto"
+    with patch("app.services.holding_parser._parse_attempt") as mock_attempt:
+        preview = parse(f"{line}\n{line}\n")
+    mock_attempt.assert_not_called()
+    assert len(preview.valid_rows) == 2
+    assert preview.valid_rows[0].ticker == preview.valid_rows[1].ticker == "AAPL"
+
+
+def test_parse_manual_listed_one_numeric_token_as_current_value() -> None:
+    """pricing_mode:manual listed row with one number is current_value, not LLM."""
+    line = "Family house HOME USD 250000 IBKR asset_type:other market:Other pricing_mode:manual"
+    parsed = parse_dialect_line(line)
+    assert parsed is not None
+    assert parsed["ticker"] == "HOME"
+    assert parsed["current_value"] == 250000.0
+    assert parsed["shares"] is None
+    assert parsed["avg_cost"] is None
+    assert parsed["pricing_mode"] == "manual"
+    with patch("app.services.holding_parser._parse_attempt") as mock_attempt:
+        preview = parse(line)
+    mock_attempt.assert_not_called()
+    assert len(preview.valid_rows) == 1
+    assert preview.valid_rows[0].current_value == 250000.0
+    assert preview.valid_rows[0].pricing_mode == "manual"
+    assert preview.issue_rows == []
 
 
 def test_parse_export_dialect_skips_llm() -> None:

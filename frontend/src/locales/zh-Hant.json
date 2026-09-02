@@ -189,7 +189,7 @@
       "dropped_spurious_id": "已從現金/理財列去掉識別 {identifier}（此類產品沒有公開代碼）。目前處理：識別已刪除，金額記在目前價值。",
       "cash_amount_moved": "已將金額從股數挪到目前價值（現金/理財）。目前處理：按目前價值計價。",
       "cleared_residual_shares": "已清除現金/理財列殘留的股數/平均成本。目前處理：以目前價值為準。",
-      "ticker_no_suffix": "無後綴代碼 {ticker}（貨幣 {currency}）已按原樣保留，未自動加後綴。若為倫敦上市，請使用 {suggestion}。"
+      "ticker_no_suffix": "無後綴代碼 {ticker}（貨幣 {currency}）已按原樣保留，未自動加後綴。目前處理：仍按 {ticker} 儲存，自動定價繼續生效。請勿補交易所後綴。"
     }
   },
   "questionnaire": {

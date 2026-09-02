@@ -186,9 +186,30 @@ def test_backfill_sectors_task_commits_sector_across_new_session(db_session: Ses
     with patch.object(price_fetcher, "_fetch_yf_sector", return_value="Technology"):
         from app.tasks.capture_tasks import backfill_sectors_task
 
-        result = backfill_sectors_task.run([str(holding_id)])
+        result = backfill_sectors_task.run([str(holding_id)], str(_USER))
     assert result == {"updated": 1}
     db_session.expire_all()
     reloaded = db_session.get(Holding, holding_id)
     assert reloaded is not None
     assert reloaded.sector == "Technology"
+
+
+def test_backfill_sectors_task_ignores_holdings_of_other_users(db_session: Session) -> None:
+    """Task must not write sector on a row that is not owned by user_id."""
+    other = uuid.UUID("00000000-0000-0000-0000-000000000099")
+    seed_user(db_session, other)
+    holding = _auto("Apple", "AAPL")
+    holding.user_id = other
+    db_session.add(holding)
+    db_session.commit()
+    holding_id = holding.id
+    with patch.object(price_fetcher, "_fetch_yf_sector", return_value="Technology") as mock_fetch:
+        from app.tasks.capture_tasks import backfill_sectors_task
+
+        result = backfill_sectors_task.run([str(holding_id)], str(_USER))
+    assert result == {"updated": 0}
+    mock_fetch.assert_not_called()
+    db_session.expire_all()
+    reloaded = db_session.get(Holding, holding_id)
+    assert reloaded is not None
+    assert reloaded.sector is None

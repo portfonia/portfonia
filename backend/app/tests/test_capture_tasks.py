@@ -307,3 +307,12 @@ def test_backfill_sectors_task_no_ids_is_noop() -> None:
         result = backfill_sectors_task.run()
     assert result == {"updated": 0}
     mock_session_cls.assert_not_called()
+
+
+def test_backfill_sectors_task_ids_without_user_id_is_noop() -> None:
+    from app.tasks.capture_tasks import backfill_sectors_task
+
+    with patch("app.core.database.SessionLocal") as mock_session_cls:
+        result = backfill_sectors_task.run(["00000000-0000-0000-0000-000000000001"])
+    assert result == {"updated": 0}
+    mock_session_cls.assert_not_called()

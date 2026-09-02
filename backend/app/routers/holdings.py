@@ -319,7 +319,15 @@ def _enqueue_sector_backfill(user_id: UUID, holdings: Sequence[Holding]) -> None
         return
     from app.tasks.capture_tasks import backfill_sectors_task
 
-    _enqueue_confirm_capture(backfill_sectors_task, ids, "sector backfill", user_id)
+    try:
+        backfill_sectors_task.delay(ids, str(user_id))
+    except Exception:
+        logger.exception(
+            "confirm_holdings: user_id=%s failed to enqueue %s for %d identifier(s)",
+            user_id,
+            "sector backfill",
+            len(ids),
+        )
 
 
 _MONEY_FIELDS = ("shares", "avg_cost", "current_value")
@@ -537,6 +545,7 @@ def reorder_holdings(
     principal: Principal = Depends(current_principal),
 ) -> list[Holding]:
     user_id = principal.user_id
+    _lock_user_holdings(session, user_id)
     existing = list(session.scalars(select(Holding).where(Holding.user_id == user_id)).all())
     existing_ids = {h.id for h in existing}
     incoming = body.ids
