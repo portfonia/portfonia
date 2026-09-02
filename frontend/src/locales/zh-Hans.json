@@ -189,7 +189,7 @@
       "dropped_spurious_id": "已从现金/理财行去掉标识 {identifier}（此类产品没有公开代码）。当前处理：标识已删除，金额记在当前价值。",
       "cash_amount_moved": "已将金额从份额挪到当前价值（现金/理财）。当前处理：按当前价值计价。",
       "cleared_residual_shares": "已清除现金/理财行残留的份额/平均成本。当前处理：以当前价值为准。",
-      "ticker_no_suffix": "无后缀代码 {ticker}（货币 {currency}）已按原样保留，未自动加后缀。当前处理：仍按 {ticker} 存储，自动定价继续生效。请勿补交易所后缀。"
+      "ticker_no_suffix": "无法为 {ticker}（货币 {currency}）补交易所后缀，因为尚未确定上市地。当前处理：仍按无后缀的 {ticker} 存储。建议：若已知上市地请设置 Market（US / HK / A-Share）。"
     }
   },
   "questionnaire": {

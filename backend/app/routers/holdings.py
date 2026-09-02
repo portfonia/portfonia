@@ -25,7 +25,7 @@ from app.schemas.holdings import (
 from app.services import holding_parser
 from app.services._yfinance import _normalize_ticker
 from app.services.accounts import resolve_accounts_for_holdings
-from app.services.holding_parser import _classify_asset_class
+from app.services.holding_parser import _classify_asset_class, apply_confirmed_exchange_suffix
 from app.services.holdings_export import holdings_export_filename, render_export, render_template
 from app.services.markets import is_capture_supported, resolve_holding_market
 from app.tasks.holdings_tasks import parse_holdings_upload
@@ -171,22 +171,32 @@ def _fund_codes_without_close(
     return missing
 
 
-def _enqueue_confirm_capture(task: Any, args: list[str], label: str, user_id: UUID) -> None:
+def _enqueue_confirm_capture(
+    task: Any,
+    *args: object,
+    label: str,
+    user_id: UUID,
+    log_prefix: str,
+) -> None:
     """Fire-and-forget after holdings are already committed.
 
     A broker blip must not turn a successful confirm into a 500 — the write
     is done; the daily capture beat covers a missed enqueue. Unlike
     upload_holdings (PR #82), there is no pending job row that would be
-    stuck without the task.
+    stuck without the task. `log_prefix` is the caller label (confirm /
+    create / update) so PATCH/POST do not log as confirm_holdings.
     """
     try:
-        task.delay(args)
+        task.delay(*args)
     except Exception:
+        first = args[0] if args else []
+        count = len(first) if isinstance(first, list) else 1
         logger.exception(
-            "confirm_holdings: user_id=%s failed to enqueue %s for %d identifier(s)",
+            "%s: user_id=%s failed to enqueue %s for %d identifier(s)",
+            log_prefix,
             user_id,
             label,
-            len(args),
+            count,
         )
 
 
@@ -233,8 +243,10 @@ def _apply_write_defaults(data: dict[str, Any]) -> dict[str, Any]:
         and not data.get("fund_code")
     ):
         data["market"] = "Other"
+    apply_confirmed_exchange_suffix(data, emit_note=False)
     # Recompute capture support server-side so a client cannot enable
     # speculative yfinance by forging capture_supported=True (issue #311).
+    # Suffix first so PSH -> PSH.L resolves as UK, not as a bare-US ticker.
     resolved_market, capture_ok = resolve_holding_market(
         ticker=data.get("ticker"),
         declared_market=data.get("market"),
@@ -290,6 +302,8 @@ def _enqueue_sparse_for(
     session: Session,
     user_id: UUID,
     holdings: Sequence[Holding],
+    *,
+    log_prefix: str,
 ) -> None:
     tickers = {h.ticker for h in holdings if h.ticker and h.pricing_mode == "auto"}
     if tickers:
@@ -297,17 +311,31 @@ def _enqueue_sparse_for(
         if sparse:
             from app.tasks.capture_tasks import backfill_ohlcv_task
 
-            _enqueue_confirm_capture(backfill_ohlcv_task, sparse, "ohlcv backfill", user_id)
+            _enqueue_confirm_capture(
+                backfill_ohlcv_task,
+                sparse,
+                label="ohlcv backfill",
+                user_id=user_id,
+                log_prefix=log_prefix,
+            )
     codes = {h.fund_code for h in holdings if h.fund_code and h.pricing_mode == "auto"}
     if codes:
         missing = _fund_codes_without_close(session, user_id, only=codes)
         if missing:
             from app.tasks.capture_tasks import backfill_fund_navs_task
 
-            _enqueue_confirm_capture(backfill_fund_navs_task, missing, "fund NAV capture", user_id)
+            _enqueue_confirm_capture(
+                backfill_fund_navs_task,
+                missing,
+                label="fund NAV capture",
+                user_id=user_id,
+                log_prefix=log_prefix,
+            )
 
 
-def _enqueue_sector_backfill(user_id: UUID, holdings: Sequence[Holding]) -> None:
+def _enqueue_sector_backfill(
+    user_id: UUID, holdings: Sequence[Holding], *, log_prefix: str
+) -> None:
     """Fire-and-forget sector fill so POST/PATCH/confirm do not wait on yfinance.
 
     The task opens its own session and commits — a request-scoped
@@ -319,15 +347,14 @@ def _enqueue_sector_backfill(user_id: UUID, holdings: Sequence[Holding]) -> None
         return
     from app.tasks.capture_tasks import backfill_sectors_task
 
-    try:
-        backfill_sectors_task.delay(ids, str(user_id))
-    except Exception:
-        logger.exception(
-            "confirm_holdings: user_id=%s failed to enqueue %s for %d identifier(s)",
-            user_id,
-            "sector backfill",
-            len(ids),
-        )
+    _enqueue_confirm_capture(
+        backfill_sectors_task,
+        ids,
+        str(user_id),
+        label="sector backfill",
+        user_id=user_id,
+        log_prefix=log_prefix,
+    )
 
 
 _MONEY_FIELDS = ("shares", "avg_cost", "current_value")
@@ -480,24 +507,32 @@ def confirm_holdings(
         archive_unreferenced=archive,
     )
     session.commit()
-    _enqueue_sector_backfill(user_id, inserted)
+    _enqueue_sector_backfill(user_id, inserted, log_prefix="confirm_holdings")
     if mode == "replace":
         tickers_needing_backfill = _tickers_with_sparse_history(session, user_id)
         if tickers_needing_backfill:
             from app.tasks.capture_tasks import backfill_ohlcv_task
 
             _enqueue_confirm_capture(
-                backfill_ohlcv_task, tickers_needing_backfill, "ohlcv backfill", user_id
+                backfill_ohlcv_task,
+                tickers_needing_backfill,
+                label="ohlcv backfill",
+                user_id=user_id,
+                log_prefix="confirm_holdings",
             )
         fund_codes_needing_nav = _fund_codes_without_close(session, user_id)
         if fund_codes_needing_nav:
             from app.tasks.capture_tasks import backfill_fund_navs_task
 
             _enqueue_confirm_capture(
-                backfill_fund_navs_task, fund_codes_needing_nav, "fund NAV capture", user_id
+                backfill_fund_navs_task,
+                fund_codes_needing_nav,
+                label="fund NAV capture",
+                user_id=user_id,
+                log_prefix="confirm_holdings",
             )
     else:
-        _enqueue_sparse_for(session, user_id, inserted)
+        _enqueue_sparse_for(session, user_id, inserted, log_prefix="confirm_holdings")
     return _sorted_holdings(
         session.scalars(select(Holding).where(Holding.user_id == user_id)).all()
     )
@@ -531,8 +566,8 @@ def create_holding(
         archive_unreferenced=False,
     )
     session.commit()
-    _enqueue_sector_backfill(user_id, inserted)
-    _enqueue_sparse_for(session, user_id, inserted)
+    _enqueue_sector_backfill(user_id, inserted, log_prefix="create_holding")
+    _enqueue_sparse_for(session, user_id, inserted, log_prefix="create_holding")
     holding = inserted[0]
     session.refresh(holding)
     return holding
@@ -638,8 +673,8 @@ def update_holding(
         holding.account_id = account_ids[0]
     session.commit()
     if ticker_changed or fund_changed:
-        _enqueue_sector_backfill(principal.user_id, [holding])
-        _enqueue_sparse_for(session, principal.user_id, [holding])
+        _enqueue_sector_backfill(principal.user_id, [holding], log_prefix="update_holding")
+        _enqueue_sparse_for(session, principal.user_id, [holding], log_prefix="update_holding")
     session.refresh(holding)
     return holding
 

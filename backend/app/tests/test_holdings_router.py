@@ -901,10 +901,11 @@ def test_template_covers_asset_types_and_markets_without_wmf_jargon(
         "600519.SS",
         "110011",
         "USD Cash",
-        "Pershing Square PSH GBP",
+        "Pershing Square PSH.L GBP",
     ):
         assert token in body
-    assert "PSH.L" not in body
+    assert "Do not write a .L suffix" not in body
+    assert "Do not add an exchange suffix" not in body
 
 
 def test_template_zh_uses_wealth_management_wording(
@@ -1314,10 +1315,52 @@ def test_create_holding_locks_before_assigning_position(app_client: TestClient) 
     assert second.json()["position"] == 1
 
 
-def test_export_manual_non_cash_round_trips_current_value_without_llm(
+def test_export_manual_non_cash_round_trips_shares_avg_cost_and_current_value_without_llm(
     app_client: TestClient,
 ) -> None:
-    """Manual stock/other must export current_value and re-parse without the LLM."""
+    """Manual non-cash must export shares+avg_cost+current_value so cost basis survives."""
+    row: dict[str, object] = {
+        "name": "Family house",
+        "ticker": "HOME",
+        "fund_code": None,
+        "currency": "USD",
+        "shares": 1.0,
+        "avg_cost": 240000.0,
+        "current_value": 250000.0,
+        "pricing_mode": "manual",
+        "asset_type": "other",
+        "broker": "IBKR",
+        "account": None,
+        "portfolio": None,
+        "notes": None,
+        "issues": [],
+        "confidence": 1.0,
+    }
+    resp = app_client.post("/holdings", json=row)
+    assert resp.status_code == 201
+    body = app_client.get("/holdings/export").text
+    data_lines = [ln for ln in body.splitlines() if ln and not ln.lstrip().startswith("#")]
+    assert len(data_lines) == 1
+    assert "pricing_mode:manual" in data_lines[0]
+    from app.services.holding_parser import parse
+
+    with patch("app.services.holding_parser._parse_attempt") as mock_attempt:
+        preview = parse(body)
+    mock_attempt.assert_not_called()
+    assert len(preview.valid_rows) == 1
+    parsed = preview.valid_rows[0]
+    assert parsed.shares == 1.0
+    assert parsed.avg_cost == 240000.0
+    assert parsed.current_value == 250000.0
+    assert parsed.pricing_mode == "manual"
+    assert parsed.ticker == "HOME"
+    assert preview.issue_rows == []
+
+
+def test_export_manual_non_cash_value_only_still_round_trips_without_llm(
+    app_client: TestClient,
+) -> None:
+    """A manual listed row with only current_value still parses without the LLM."""
     row: dict[str, object] = {
         "name": "Family house",
         "ticker": "HOME",
@@ -1338,20 +1381,65 @@ def test_export_manual_non_cash_round_trips_current_value_without_llm(
     resp = app_client.post("/holdings", json=row)
     assert resp.status_code == 201
     body = app_client.get("/holdings/export").text
-    data_lines = [ln for ln in body.splitlines() if ln and not ln.lstrip().startswith("#")]
-    assert len(data_lines) == 1
-    assert "250000" in data_lines[0]
-    assert "pricing_mode:manual" in data_lines[0]
     from app.services.holding_parser import parse
 
     with patch("app.services.holding_parser._parse_attempt") as mock_attempt:
         preview = parse(body)
     mock_attempt.assert_not_called()
-    assert len(preview.valid_rows) == 1
     assert preview.valid_rows[0].current_value == 250000.0
-    assert preview.valid_rows[0].pricing_mode == "manual"
-    assert preview.valid_rows[0].ticker == "HOME"
-    assert preview.issue_rows == []
+    assert preview.valid_rows[0].shares is None
+    assert preview.valid_rows[0].avg_cost is None
+
+
+def test_export_cash_emits_current_value_only(app_client: TestClient) -> None:
+    """Cash/wmf have no cost basis today — export is value-only, not shares/avg_cost."""
+    resp = app_client.post("/holdings", json=_PARSED_CASH)
+    assert resp.status_code == 201
+    body = app_client.get("/holdings/export").text
+    data_lines = [ln for ln in body.splitlines() if ln and not ln.lstrip().startswith("#")]
+    assert len(data_lines) == 1
+    line = data_lines[0]
+    assert "15000" in line
+    assert "USD Cash" in line
+    assert "pricing_mode:manual" in line
+    from app.services.holding_parser import parse
+
+    with patch("app.services.holding_parser._parse_attempt") as mock_attempt:
+        preview = parse(body)
+    mock_attempt.assert_not_called()
+    assert preview.valid_rows[0].current_value == 15000.0
+    assert preview.valid_rows[0].shares is None
+    assert preview.valid_rows[0].avg_cost is None
+    assert preview.valid_rows[0].asset_type == "cash"
+
+
+def test_create_holding_force_suffixes_psh_and_persists_market_uk(
+    app_client: TestClient, db_session: Session
+) -> None:
+    resp = app_client.post("/holdings", json=_PARSED_PSH)
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["ticker"] == "PSH.L"
+    assert body["market"] == "UK"
+    assert body["capture_supported"] is True
+    holding = db_session.get(Holding, uuid.UUID(body["id"]))
+    assert holding is not None
+    assert holding.ticker == "PSH.L"
+    assert holding.market == "UK"
+    assert holding.capture_supported is True
+
+
+def test_patch_holding_force_suffixes_bare_hk_ticker(
+    app_client: TestClient, db_session: Session
+) -> None:
+    created = app_client.post("/holdings", json=_PARSED_APPLE).json()
+    resp = app_client.patch(
+        f"/holdings/{created['id']}",
+        json={"ticker": "0700", "currency": "HKD", "market": "HK"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["ticker"] == "0700.HK"
+    assert resp.json()["market"] == "HK"
 
 
 def test_reorder_locks_before_assigning_position(app_client: TestClient) -> None:

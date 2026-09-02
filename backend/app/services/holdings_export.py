@@ -7,8 +7,17 @@
 
 Trailing tagged fields (`account:`, `portfolio:`, `notes:`, `asset_type:`,
 `market:`, `pricing_mode:`) carry the columns the positional dialect used
-to drop, so an export + replace-all re-import is full-fidelity. Values with
-spaces are double-quoted.
+to drop. Values with spaces are double-quoted.
+
+Cost basis is load-bearing: future return/yield depends on average holding
+cost, and `price_snapshots` is market data, not what the user paid. Export
+must therefore emit shares and avg_cost for non-cash rows whenever they
+are present — dropping them on export then replace-all is unrecoverable.
+Cash and wealth-management products have no cost basis today and still
+emit `current_value` only. Manual-priced listed rows emit shares,
+avg_cost, AND current_value whenever each is present (`pricing_mode:manual`
+means those three numerics after currency parse as shares / avg_cost /
+current_value).
 """
 
 from __future__ import annotations
@@ -32,16 +41,19 @@ _RULES_EN = """\
 ##### Holdings template
 #####
 ##### One holding per line. Order is flexible — the parser reads free-form text.
-##### Listed assets: name  ticker-or-fund-code  currency  shares  avg-cost  broker
+##### Listed assets (auto): name  ticker-or-fund-code  currency  shares  avg-cost  broker
+##### Listed assets (pricing_mode:manual): same, plus current-value after avg-cost
 ##### Cash or wealth-management products (no public code): name  total-value  currency  broker
 ##### Optional trailing tags (quote a value if it contains spaces):
 #####   account:"IRA" portfolio:Growth notes:"long-term" asset_type:stock market:US pricing_mode:auto
 ##### asset_type is stock / etf / fund / cash / wealth-management (cash-like) / other.
-##### pricing_mode is auto or manual. market is listing venue (US / HK / A-Share / Other).
+##### pricing_mode is auto or manual. market is listing venue (US / HK / A-Share / UK / Europe / Japan / Korea / Other).
 #####
-##### Ticker suffixes: .HK (Hong Kong), .SS / .SZ (A-shares), US tickers need none.
-##### London names such as Pershing Square stay a bare ticker (PSH) with market:US
-##### so auto pricing still runs. Do not write a .L suffix here.
+##### Ticker suffixes: .HK (Hong Kong), .SS / .SZ (A-shares), .L (London),
+##### .AS / .PA / .DE (Europe), .T (Japan), .KS / .KQ (Korea). US listings need none.
+##### Once Market is set or confidently derived, the matching suffix is stored.
+##### Pershing Square is entered as PSH.L with market:UK. If Market cannot be
+##### determined, no suffix is guessed — set Market if known.
 ##### Chinese public funds: enter the 6-digit fund code (e.g. 110011).
 ##### Cash and wealth-management products with no ticker are Other — not inferred
 ##### from the bank.
@@ -52,16 +64,19 @@ _RULES_ZH = """\
 ##### 持仓模板
 #####
 ##### 一行一条。顺序不限，解析器按自由文本读取。
-##### 上市标的：名称  代码或基金代码  货币  份额  平均成本  券商
+##### 上市标的（自动定价）：名称  代码或基金代码  货币  份额  平均成本  券商
+##### 上市标的（pricing_mode:manual）：同上，平均成本后再加当前市值
 ##### 现金或银行理财产品（无公开代码）：名称  总金额  货币  券商
 ##### 行尾可选标签（含空格的值请加双引号）：
 #####   account:"IRA" portfolio:Growth notes:"长期" asset_type:stock market:US pricing_mode:auto
 ##### asset_type 为 stock / etf / fund / cash / 理财类 / other。
-##### pricing_mode 为 auto 或 manual。market 是上市地（US / HK / A-Share / Other）。
+##### pricing_mode 为 auto 或 manual。market 是上市地（US / HK / A-Share / UK / Europe / Japan / Korea / Other）。
 #####
-##### 代码后缀：.HK（港股）、.SS / .SZ（A股），美股无需后缀。
-##### 伦敦标的（如 Pershing Square）请写无后缀代码 PSH，并标 market:US，
-##### 以便自动定价；请勿写成 PSH.L。
+##### 代码后缀：.HK（港股）、.SS / .SZ（A股）、.L（伦敦）、.AS / .PA / .DE（欧洲）、
+##### .T（日本）、.KS / .KQ（韩国）。美股无需后缀。
+##### 一旦确定上市地（用户填写或有把握推导），即写入对应后缀。
+##### Pershing Square 请写 PSH.L 并标 market:UK。
+##### 无法确定上市地时不猜后缀 — 若已知请设置 Market。
 ##### 中国公募基金请填写 6 位基金代码（例如 110011）。
 ##### 无代码的现金和理财为 Other，不根据银行券商推断为 A 股。
 ##### 以 ##### 开头的行是注释，解析时会被忽略。
@@ -76,7 +91,7 @@ _EXAMPLES_EN = """\
 ##### E Fund Blue Chip 110011 CNY 40000 3.99 Alipay asset_type:fund market:A-Share pricing_mode:auto
 ##### USD Cash 50000 USD Schwab asset_type:cash market:Other pricing_mode:manual
 ##### Bank wealth-management product 100000 CNY CMB asset_type:wealth-management market:Other pricing_mode:manual
-##### Pershing Square PSH GBP 50 55 IBKR asset_type:stock market:US pricing_mode:auto
+##### Pershing Square PSH.L GBP 50 55 IBKR asset_type:stock market:UK pricing_mode:auto
 """
 
 _EXAMPLES_ZH = """\
@@ -88,7 +103,7 @@ _EXAMPLES_ZH = """\
 ##### 易方达蓝筹精选 110011 CNY 40000 3.99 支付宝 asset_type:fund market:A-Share pricing_mode:auto
 ##### 美元现金 50000 USD Schwab asset_type:cash market:Other pricing_mode:manual
 ##### 银行理财产品 100000 CNY 招商银行 asset_type:wealth-management market:Other pricing_mode:manual
-##### Pershing Square PSH GBP 50 55 IBKR asset_type:stock market:US pricing_mode:auto
+##### Pershing Square PSH.L GBP 50 55 IBKR asset_type:stock market:UK pricing_mode:auto
 """
 
 
@@ -137,17 +152,19 @@ def render_holding_line(holding: Holding) -> str:
     if holding.asset_type in ("cash", "wmf"):
         parts = [name, _fmt_num(holding.current_value), holding.currency or "", broker]
     elif holding.pricing_mode == "manual":
-        # Manual-priced stock/other (private holdings, property) is valued from
-        # current_value. Emitting shares+avg_cost only dropped the value and
-        # left a line the positional parser could not tokenize (PR #310 r2).
+        # pricing_mode:manual listed: emit shares, avg_cost, AND current_value
+        # whenever each is present. Parse reads those three numerics after
+        # currency by tag, not by counting. Cost basis is unrecoverable if
+        # dropped (price_snapshots is market data, not what the user paid).
         ident = _flatten(holding.ticker or holding.fund_code)
-        parts = [
-            name,
-            ident,
-            holding.currency or "",
-            _fmt_num(holding.current_value),
-            broker,
-        ]
+        parts = [name, ident, holding.currency or ""]
+        if holding.shares is not None:
+            parts.append(_fmt_num(holding.shares))
+        if holding.avg_cost is not None:
+            parts.append(_fmt_num(holding.avg_cost))
+        if holding.current_value is not None:
+            parts.append(_fmt_num(holding.current_value))
+        parts.append(broker)
     else:
         ident = _flatten(holding.ticker or holding.fund_code)
         parts = [

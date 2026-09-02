@@ -477,28 +477,40 @@ model-supplied free-text strings and unknown LLM codes are dropped (not
 wrapped as `parser_note` `{message}` — zh users would still see English).
 Amber highlight is **only** `severity=warning` or `confidence<0.7`.
 Deterministic successful transforms (cash amount shares→current_value, drop
-spurious ticker on cash, HK/currency normalize) are `info`. Bare ticker +
-GBP stays unsuffixed with a warning suggesting `{ticker}.L` (do not
-auto-suffix; PSH stays on the #204 US + `PSH.L` override path). cash/wmf
-with no ticker → `market=Other`, including when the model inferred A-Share
-from a mainland bank broker. Listed auto tickers are **not** reclassified
-into Other. #252 Other capture remains out of scope.
+spurious ticker on cash, HK/currency normalize) are `info`. Exchange suffix
+(`.L` / `.HK` / `.SS` / `.SZ` / `.T`) is **force-applied** once market is
+determined (user-set or confidently derived) on file-import confirm,
+`POST /holdings`, and `PATCH /holdings/{id}`. When market cannot be
+determined the `ticker_no_suffix` warning still fires and no suffix is
+guessed. Applying `.L` persists **UK** (PSH is filed as `market=UK` with
+ticker `PSH.L`) — UK is a scheduled capture market after #312. Bare-PSH
+price lookup still uses the #204 `_TICKER_SYMBOL_OVERRIDE` `PSH → PSH.L`
+collision table. Unresolvable listed names persist `market=Other` and
+`capture_supported=False`; capture never speculative-yfinances them.
+Dialect validation rejects surface as `issue_rows`; the dialect path
+skips dedup so identical lots survive re-import. cash/wmf with no ticker →
+`market=Other`, including when the model inferred A-Share from a mainland
+bank broker. Listed auto tickers are **not** reclassified into Other.
 
 **Export / template dialect:** `GET /holdings/export` and
 `GET /holdings/template` emit the `#####` comment-rules dialect (one
 holding per line, export ordered by `position`). Locale is `users.locale`
 (report language `zh`/`en`), **not** the UI chrome locale. The positional
-prefix is still name / identifier / currency / shares / avg_cost / broker
-(or name / value / currency / broker for cash). Trailing tagged fields
-(`account:`, `portfolio:`, `notes:`, `asset_type:`, `market:`,
-`pricing_mode:`; quote a value that contains spaces) round-trip the
-columns the first dialect dropped, so export is a full-fidelity undo
-before replace-all. `asset_type:wmf` is written as `wealth-management` so
-user-facing copy still does not use the letters w-m-f as jargon. A file
-whose every data line carries at least one of those tags is parsed
-deterministically (`try_parse_dialect`) and never calls the LLM. Export
-`Content-Disposition` filename is `holdings-YYYYMMDD-HHMMSSZ.md` (UTC);
-the frontend reads that header rather than hardcoding `holdings.md`.
+prefix is name / identifier / currency / shares / avg_cost / broker for
+auto-priced listed rows; name / identifier / currency / shares / avg_cost /
+current_value / broker when `pricing_mode:manual` (each numeric emitted when
+present); name / current_value / currency / broker for cash/wmf (no cost
+basis today). Trailing tagged fields (`account:`, `portfolio:`, `notes:`,
+`asset_type:`, `market:`, `pricing_mode:`; quote a value that contains
+spaces) round-trip shares/avg_cost/current_value + tags for non-cash, and
+current_value-only for cash/wmf. `price_snapshots` is market data, not what
+the user paid, so avg_cost on export is load-bearing. `asset_type:wmf` is
+written as `wealth-management` so user-facing copy still does not use the
+letters w-m-f as jargon. A file whose every data line carries at least one
+of those tags is parsed deterministically (`try_parse_dialect`) and never
+calls the LLM. Export `Content-Disposition` filename is
+`holdings-YYYYMMDD-HHMMSSZ.md` (UTC); the frontend reads that header rather
+than hardcoding `holdings.md`.
 
 **Frontend split:** `/holdings` is upload + parse preview + read-only
 current list (not clickable, no drag, no add, no delete). Append is

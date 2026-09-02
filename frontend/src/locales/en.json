@@ -189,7 +189,7 @@
       "dropped_spurious_id": "Removed identifier {identifier} from a cash / wealth-management row (those products have no public ticker). Current handling: identifier dropped; amount is in current value.",
       "cash_amount_moved": "Moved the amount from shares into current value for this cash / wealth-management row. Current handling: valued from current value.",
       "cleared_residual_shares": "Cleared leftover shares/average cost on a cash / wealth-management row. Current handling: current value is authoritative.",
-      "ticker_no_suffix": "Bare ticker {ticker} with currency {currency} was kept as written (no suffix added). Current handling: stored as {ticker} so auto pricing still works. Do not add an exchange suffix."
+      "ticker_no_suffix": "Could not apply an exchange suffix to {ticker} (currency {currency}) because Market is not determined. Current handling: stored as {ticker} without a suffix. Suggestion: set Market if known (US / HK / A-Share)."
     }
   },
   "questionnaire": {
