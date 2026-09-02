@@ -10,27 +10,13 @@ from app.core.config import get_settings
 from app.core.database import get_session
 from app.core.deps import Principal, current_principal
 from app.models.report import Report
-from app.models.user import User
 from app.schemas.reports import GenerateReportRequest, ReportListItem, ReportOut
 from app.services.email_sender import send_report_email
 from app.services.llm_errors import LLMEmptyResponseError
 from app.services.report_generator import generate_report, regenerate_report
+from app.services.user_scope import report_language_for
 
 router = APIRouter()
-
-
-def _report_language_for(session: Session, user_id: uuid.UUID) -> str:
-    """The given user's own report language (issue #308), falling back to
-    the global Settings.OUTPUT_LANG default if their row can't be found.
-
-    In production `current_principal` already guarantees a live `users` row
-    for the calling principal, so the fallback branch is unreachable there —
-    it only matters for test fixtures that override `current_principal`
-    without seeding a matching row (e.g. a cross-user-isolation test that
-    never needs the caller's own row to exist).
-    """
-    user = session.get(User, user_id)
-    return user.locale if user is not None else get_settings().OUTPUT_LANG
 
 
 @router.post("/generate", response_model=ReportOut, status_code=201)
@@ -55,7 +41,7 @@ def trigger_report_generation(
             base_currency=req.base_currency,
             # Issue #308: the requesting user's own report language, not the
             # global Settings.OUTPUT_LANG default.
-            output_lang=_report_language_for(session, principal.user_id),
+            output_lang=report_language_for(session, principal.user_id, get_settings().OUTPUT_LANG),
             session_node=req.session_node,
         )
     except LLMEmptyResponseError as exc:
@@ -90,7 +76,9 @@ def regenerate(
     """
     if mode not in ("render", "analyze"):
         raise HTTPException(status_code=422, detail="mode must be 'render' or 'analyze'")
-    lang = output_lang or _report_language_for(session, principal.user_id)
+    lang = output_lang or report_language_for(
+        session, principal.user_id, get_settings().OUTPUT_LANG
+    )
     try:
         report = regenerate_report(
             session, report_id, user_id=principal.user_id, mode=mode, output_lang=lang

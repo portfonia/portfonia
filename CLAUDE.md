@@ -111,9 +111,15 @@ area of the code, not just the one-line summary here.
   `isLocale()`'s accepted values pending native-speaker review — it is not
   yet a supported locale, just a prepared one (blacktomb42 review, PR #226
   round 2: this line previously overclaimed it as supported while gated).
-  Report output languages are separate and narrower: `OUTPUT_LANG` still
-  only ships `en`/`zh-Hans` (see System conventions table below) — a UI
-  locale is not a report language.
+  Report output languages are separate and narrower: report translation
+  only covers the bare codes `en`/`zh` — not `zh-Hans`, the frontend
+  catalog's BCP-47 tag; `i18n_glossary.yml`'s locale keys are the one place
+  `zh-Hans` legitimately appears on this side of the boundary (see the
+  bare-code/BCP-47 distinction two paragraphs below). Driven per-user by
+  `users.locale` since issue #308 (`VALID_REPORT_LANGUAGES = ("en", "zh")`)
+  — `Settings.OUTPUT_LANG` is now only the fallback default, not the
+  source of truth (see System conventions table below). A UI locale is not
+  a report language.
 - Translation resources live under a dedicated locales directory
   (`frontend/src/locales/*.json` for UI chrome; `backend/config/
   i18n_glossary.yml` for report output; `_VERIFICATION_EMAIL_COPY` in

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NamedTuple
 
 from app.core.timezones import ET
 from app.services.email_sender import send_ops_alert
@@ -12,6 +13,28 @@ from app.services.github_issues import create_bug_report
 from app.tasks import celery_app
 
 logger = logging.getLogger(__name__)
+
+
+class _Recipient(NamedTuple):
+    """Snapshot of the two `User` fields the fan-out loop needs (issue
+    #308, blacktomb42 PR #309 round-1 review) — taken ONCE, immediately
+    after `active_users()` returns, before any `generate_report` call in
+    this loop can `session.commit()`.
+
+    `expire_on_commit` defaults to True on every `Session` in this
+    codebase (including the real one `db_session` builds for tests), so a
+    live ORM `User` object's attribute read on a LATER loop iteration,
+    after an EARLIER iteration's commit already expired every object on
+    this session, would trigger an implicit refresh SELECT on the same
+    session mid-batch — the same class of interleaved-query hang already
+    diagnosed and fixed once for `active_users` itself (see its
+    docstring). A plain NamedTuple can never expire, so the loop body
+    below reads only this snapshot, never a live `User` attribute.
+    """
+
+    user_id: uuid.UUID
+    locale: str
+
 
 # How late (minutes) a scheduled run may fire after its intended crontab time
 # before it's treated as a Beat-downtime catch-up rather than an on-time run.
@@ -124,13 +147,14 @@ def generate_incremental_report(
     session = SessionLocal()
     try:
         # Issue #308: full User rows, not just ids — each recipient's own
-        # locale (report language) rides along, read directly off the
-        # object below rather than a second per-user lookup on this same
-        # session (see active_users' docstring for why that hung).
+        # locale (report language) rides along. Snapshotted into `_Recipient`
+        # NamedTuples immediately (see its docstring) — the loop below never
+        # touches a live `User` attribute, only this snapshot.
         users = active_users(session, cadence)
         if not users:
             logger.info("generate_incremental_report: no active users, nothing to generate")
             return {"status": "no_active_users", "results": []}
+        recipients = [_Recipient(user_id=u.id, locale=u.locale) for u in users]
 
         moves_cache: MovesCache = {}
         # Stamped ONCE for the whole batch (PR #151 review): moves_cache is keyed
@@ -142,8 +166,8 @@ def generate_incremental_report(
         # the same moves_cache dict object alone does not make the cache hit.
         batch_now = datetime.now(tz=UTC)
         results: list[dict[str, str]] = []
-        for index, user in enumerate(users):
-            user_id = user.id
+        for index, recipient in enumerate(recipients):
+            user_id = recipient.user_id
             try:
                 report = generate_report(
                     session,
@@ -152,8 +176,9 @@ def generate_incremental_report(
                     # a shared Settings.OUTPUT_LANG default for the whole
                     # batch — that would defeat the entire point of a
                     # per-user setting for scheduled (not just self-service)
-                    # reports.
-                    output_lang=user.locale,
+                    # reports. Read off the snapshot, not a live `User`
+                    # attribute (see `_Recipient`'s docstring).
+                    output_lang=recipient.locale,
                     session_node=session_node,
                     user_id=user_id,
                     moves_cache=moves_cache,
@@ -165,7 +190,7 @@ def generate_incremental_report(
                     # from how many succeeded: a failed user still consumed
                     # its turn, and the countdown must stay monotonic so
                     # later users neither over- nor under-claim.
-                    users_remaining=len(users) - index,
+                    users_remaining=len(recipients) - index,
                 )
                 logger.info(
                     "generate_incremental_report: complete for user %s — report_id=%s status=%s",

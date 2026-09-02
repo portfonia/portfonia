@@ -84,6 +84,51 @@ def active_users(session: Session, cadence: str) -> list[User]:
     return sorted(rows, key=lambda u: u.id)
 
 
+def report_language_for(session: Session, user_id: uuid.UUID, default: str) -> str:
+    """One user's own report language (issue #308), falling back to
+    `default` if their row can't be found.
+
+    Single shared implementation for every call site that needs ONE user's
+    locale (as opposed to `active_users`' whole-batch fetch, which is a
+    deliberately different pattern for the fan-out — see its docstring):
+    `routers/reports.py`'s self-service generate/regenerate, and
+    `email_sender.send_report_email`'s subject/unsubscribe-footer language
+    (added after the product owner caught, reading the #308 diff, that
+    those two still read the global default directly while the report BODY
+    had already switched to the per-user value — a user who picked English
+    could get an English body with a Chinese subject and footer).
+    `email_sender.py` is a service module and must not import from
+    `routers/`, which is why this lives here rather than staying a private
+    helper in `reports.py`.
+
+    `default` is an explicit parameter, not `get_settings().OUTPUT_LANG`
+    resolved internally: each caller already has its own `settings` in
+    scope (fetched via ITS OWN module-local `get_settings` import), and a
+    hidden second `get_settings()` call from this module would silently
+    stop responding to a caller's `@patch("app.services.<caller>.
+    get_settings")` — that exact gap broke several `email_sender.py` tests
+    the first time this was written with an internal `get_settings()`
+    call. Pass `settings.OUTPUT_LANG` (whatever `settings` the caller
+    already resolved) in explicitly instead.
+
+    In production, every caller of this function already resolved a real,
+    active `users` row before reaching here (`current_principal` for the
+    two `reports.py` call sites; `recipient_email_with_purpose` for
+    `send_report_email`), so the fallback branch is unreachable there — it
+    only matters for test fixtures that exercise a missing/unmocked row.
+    The `isinstance` check (not just `user is not None`) additionally
+    guards against a mock session whose `.get()` returns a stand-in object
+    with a non-string `.locale` — real rows can never fail this given
+    `users.locale`'s `NOT NULL` + `CheckConstraint`, so this changes no
+    production behavior, only which fallback a loosely-configured test
+    double exercises.
+    """
+    user = session.get(User, user_id)
+    if user is not None and isinstance(user.locale, str):
+        return user.locale
+    return default
+
+
 def user_holdings(session: Session, user_id: uuid.UUID) -> list[Holding]:
     """All holding rows belonging to one user."""
     return list(session.execute(select(Holding).where(Holding.user_id == user_id)).scalars().all())
