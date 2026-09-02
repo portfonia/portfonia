@@ -59,6 +59,14 @@ class IssueRow(BaseModel):
     reason: str
 
 
+class IssueNote(BaseModel):
+    """Structured parse note. Preview JSON only — not persisted on confirm."""
+
+    code: str
+    params: dict[str, str] = Field(default_factory=dict)
+    severity: Literal["info", "warning"] = "info"
+
+
 class ParsedRow(BaseModel):
     name: str
     ticker: str | None = None
@@ -95,8 +103,32 @@ class ParsedRow(BaseModel):
     account: str | None = None
     portfolio: str | None = None
     notes: str | None = None
-    issues: list[str] = Field(default_factory=list)
+    issues: list[IssueNote] = Field(default_factory=list)
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+
+    @field_validator("issues", mode="before")
+    @classmethod
+    def _coerce_legacy_issue_strings(cls, v: object) -> object:
+        # UploadJob.preview JSONB and LLM output may still carry free-text
+        # notes. Coerce those to parser_note so a 30-day-old job still
+        # deserializes after the IssueNote change (issue #92).
+        if not v:
+            return []
+        if not isinstance(v, list):
+            return v
+        coerced: list[object] = []
+        for item in v:
+            if isinstance(item, str):
+                coerced.append(
+                    {
+                        "code": "parser_note",
+                        "params": {"message": item},
+                        "severity": "info",
+                    }
+                )
+            else:
+                coerced.append(item)
+        return coerced
 
     @field_validator("currency")
     @classmethod
@@ -218,3 +250,42 @@ class HoldingOut(BaseModel):
     last_manual_update: datetime | None
     created_at: datetime
     updated_at: datetime
+    position: int | None = None
+
+
+class HoldingPatch(BaseModel):
+    """Partial update for PATCH /holdings/{id}. Unset fields are left unchanged."""
+
+    name: str | None = None
+    ticker: str | None = None
+    fund_code: str | None = None
+    currency: str | None = None
+    shares: float | None = Field(default=None, ge=0)
+    avg_cost: float | None = Field(default=None, ge=0)
+    current_value: float | None = Field(default=None, ge=0)
+    pricing_mode: PricingMode | None = None
+    asset_type: AssetTypeValue | None = None
+    asset_class: str | None = None
+    market: Literal["US", "HK", "A-Share", "UK", "Europe", "Japan", "Korea", "Other"] | None = None
+    broker: str | None = None
+    account: str | None = None
+    portfolio: str | None = None
+    notes: str | None = None
+
+    @field_validator("currency")
+    @classmethod
+    def _currency_must_be_known(cls, v: str | None) -> str | None:
+        if v is not None and v not in VALID_CURRENCIES:
+            raise ValueError(f"unrecognized currency {v!r} — not in VALID_CURRENCIES")
+        return v
+
+    @field_validator("asset_class")
+    @classmethod
+    def _asset_class_must_be_known(cls, v: str | None) -> str | None:
+        if v is not None and v not in VALID_ASSET_CLASSES:
+            raise ValueError(f"unrecognized asset_class {v!r} — not in VALID_ASSET_CLASSES")
+        return v
+
+
+class ReorderIn(BaseModel):
+    ids: list[UUID]

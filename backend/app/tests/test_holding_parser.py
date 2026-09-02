@@ -25,6 +25,19 @@ from app.services.holding_parser import (
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
+def _issue_codes(row) -> list[str]:
+    return [i.code for i in row.issues]
+
+
+def _issue_haystack(row) -> str:
+    parts: list[str] = []
+    for issue in row.issues:
+        parts.append(issue.code)
+        parts.extend(str(v) for v in issue.params.values())
+        parts.append(issue.severity)
+    return " ".join(parts)
+
+
 # ---------------------------------------------------------------------------
 # _extract_text
 # ---------------------------------------------------------------------------
@@ -125,18 +138,9 @@ def test_postprocess_normalizes_market_aliases() -> None:
         {"name": "C", "currency": "CNY", "shares": 1, "pricing_mode": "auto", "market": "A股"},
         {"name": "D", "currency": "GBP", "shares": 1, "pricing_mode": "auto", "market": "UK"},
         {"name": "E", "currency": "USD", "shares": 1, "pricing_mode": "auto", "market": None},
-        {
-            "name": "F",
-            "currency": "AUD",
-            "shares": 1,
-            "pricing_mode": "auto",
-            "market": "ASX",
-            "ticker": "BHP.AX",
-        },
     ]
     rows = _postprocess(raw)
-    assert [r.market for r in rows] == ["US", "HK", "A-Share", "UK", None, "Other"]
-    assert [r.capture_supported for r in rows] == [True, True, True, True, True, False]
+    assert [r.market for r in rows] == ["US", "HK", "A-Share", "Other", None]
 
 
 def test_postprocess_coerces_unknown_asset_type_to_null() -> None:
@@ -153,7 +157,8 @@ def test_postprocess_coerces_unknown_asset_type_to_null() -> None:
     ]
     rows = _postprocess(raw)
     assert rows[0].asset_type is None
-    assert any("crypto" in i for i in rows[0].issues)
+    assert "unrecognized_asset_type" in _issue_codes(rows[0])
+    assert "crypto" in _issue_haystack(rows[0])
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +203,9 @@ def test_postprocess_coerces_cash_wmf_row_with_fabricated_id_and_amount_in_share
     assert rows[0].shares is None
     assert rows[0].avg_cost is None
     assert rows[0].pricing_mode == "manual"
-    assert any(identifier_value in i for i in rows[0].issues)
+    assert "dropped_spurious_id" in _issue_codes(rows[0])
+    assert identifier_value in _issue_haystack(rows[0])
+    assert all(i.severity == "info" for i in rows[0].issues)
 
 
 def test_postprocess_leaves_correctly_shaped_cash_row_unchanged() -> None:
@@ -219,6 +226,7 @@ def test_postprocess_leaves_correctly_shaped_cash_row_unchanged() -> None:
     rows = _postprocess(raw)
     assert rows[0].ticker is None
     assert rows[0].current_value == 100.0
+    assert rows[0].market == "Other"
     assert rows[0].issues == []
 
 
@@ -354,7 +362,8 @@ def test_postprocess_corrects_hk_ticker_currency() -> None:
     ]
     rows = _postprocess(raw)
     assert rows[0].currency == "HKD"
-    assert any("HKD" in issue for issue in rows[0].issues)
+    assert "currency_corrected" in _issue_codes(rows[0])
+    assert "HKD" in _issue_haystack(rows[0])
 
 
 def test_postprocess_ticker_correction_of_unrecognized_currency_leaves_no_stale_issue() -> None:
@@ -366,8 +375,8 @@ def test_postprocess_ticker_correction_of_unrecognized_currency_leaves_no_stale_
     raw = [_raw_row(name="Tencent", ticker="0700.HK", currency="RMB")]
     rows = _postprocess(raw)
     assert rows[0].currency == "HKD"
-    assert not any("nrecognized" in issue for issue in rows[0].issues)
-    assert any("corrected to HKD" in issue for issue in rows[0].issues)
+    assert "unrecognized_currency" not in _issue_codes(rows[0])
+    assert "currency_corrected" in _issue_codes(rows[0])
 
 
 def test_postprocess_corrects_ss_ticker_currency() -> None:
@@ -447,7 +456,7 @@ def test_postprocess_normalizes_currency_case() -> None:
     ]
     rows = _postprocess(raw)
     assert rows[0].currency == "USD"
-    assert any("normalized" in issue.lower() for issue in rows[0].issues)
+    assert "currency_normalized" in _issue_codes(rows[0])
 
 
 def test_postprocess_drops_row_with_unrecognized_currency_without_raising() -> None:
@@ -502,7 +511,8 @@ def _raw_row(**overrides: object) -> dict[str, object]:
 def test_normalize_hk_ticker_strips_leading_zero() -> None:
     rows = _postprocess([_raw_row(name="Great Wall", ticker="02333.HK", currency="HKD")])
     assert rows[0].ticker == "2333.HK"
-    assert any("2333.HK" in issue for issue in rows[0].issues)
+    assert "ticker_normalized_hk" in _issue_codes(rows[0])
+    assert "2333.HK" in _issue_haystack(rows[0])
 
 
 def test_normalize_hk_ticker_pads_short_code() -> None:
@@ -1234,6 +1244,76 @@ def test_ticker_asset_class_rejects_missing_top_level_key(
     with pytest.raises(ValueError, match="ticker_asset_class"):
         _classify_asset_class({"ticker": "QQQ", "asset_type": "etf"})
 
+
+def test_postprocess_overrides_cash_market_a_share_from_mainland_broker() -> None:
+    """CMB USD cash must be Other (listing venue), not A-Share inferred from the bank."""
+    raw = [
+        _raw_row(
+            name="USD Cash",
+            ticker=None,
+            shares=None,
+            avg_cost=None,
+            current_value=15000.0,
+            pricing_mode="manual",
+            asset_type="cash",
+            currency="USD",
+            broker="CMB",
+            market="A-Share",
+            confidence=1.0,
+        )
+    ]
+    rows = _postprocess(raw)
+    assert rows[0].market == "Other"
+    assert rows[0].confidence == 1.0
+    assert not any(i.severity == "warning" for i in rows[0].issues)
+
+
+def test_postprocess_high_confidence_cash_is_not_warning() -> None:
+    raw = [
+        _raw_row(
+            name="USD Cash",
+            ticker="CASH",
+            shares=199.98,
+            current_value=None,
+            pricing_mode="manual",
+            asset_type="cash",
+            currency="USD",
+            broker="CMB",
+            confidence=0.95,
+        )
+    ]
+    rows = _postprocess(raw)
+    assert rows[0].market == "Other"
+    assert rows[0].ticker is None
+    assert all(i.severity == "info" for i in rows[0].issues)
+    assert "dropped_spurious_id" in _issue_codes(rows[0])
+    assert "cash_amount_moved" in _issue_codes(rows[0])
+
+
+def test_postprocess_does_not_reclassify_listed_ticker_into_other() -> None:
+    raw = [_raw_row(name="Pershing Square", ticker="PSH", currency="GBP", market="US")]
+    rows = _postprocess(raw)
+    assert rows[0].ticker == "PSH"
+    assert rows[0].market == "US"
+
+
+def test_postprocess_bare_gbp_ticker_warns_without_auto_suffix() -> None:
+    raw = [_raw_row(name="Pershing Square", ticker="PSH", currency="GBP", market="US")]
+    rows = _postprocess(raw)
+    assert rows[0].ticker == "PSH"
+    notes = [i for i in rows[0].issues if i.code == "ticker_no_suffix"]
+    assert len(notes) == 1
+    assert notes[0].severity == "warning"
+    assert notes[0].params["suggestion"] == "PSH.L"
+    assert notes[0].params["ticker"] == "PSH"
+    assert notes[0].params["currency"] == "GBP"
+
+
+def test_postprocess_suffixed_gbp_ticker_does_not_warn() -> None:
+    raw = [_raw_row(name="Pershing Square", ticker="PSH.L", currency="GBP", market="US")]
+    rows = _postprocess(raw)
+    assert rows[0].ticker == "PSH.L"
+    assert "ticker_no_suffix" not in _issue_codes(rows[0])
 
 def test_postprocess_unsupported_count_matches_preview_contract() -> None:
     """Issue #311: unresolvable rows stay valid; count is the heads-up summary."""

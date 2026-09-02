@@ -46,6 +46,8 @@ def resolve_accounts_for_holdings(
     session: Session,
     user_id: UUID,
     rows: list[tuple[str | None, str | None, str | None]],
+    *,
+    archive_unreferenced: bool = True,
 ) -> list[UUID | None]:
     """For each `(broker, account, portfolio)` plaintext tuple in `rows`
     (same order as the caller's holdings), return the matching
@@ -56,11 +58,12 @@ def resolve_accounts_for_holdings(
     institution to normalize a broker-less holding against, matching the
     migration backfill's rule; `accounts.broker` is NOT NULL).
 
-    Also archives (never deletes — this is the user's own account history,
-    and `accounts.archived_at` exists for exactly this) any of this user's
-    non-archived accounts that end up referenced by none of `rows` — the
-    caller is always replacing the user's full holdings set, so an account
-    with no match in the new set genuinely has nothing pointing at it.
+    When `archive_unreferenced` is True (the default, for a full-replace
+    confirm), also archives (never deletes — this is the user's own
+    account history, and `accounts.archived_at` exists for exactly this)
+    any of this user's non-archived accounts that end up referenced by
+    none of `rows`. Single-row POST/PATCH and confirm-append pass
+    False so other lots' accounts are not archived.
     """
     existing = list(
         session.execute(
@@ -89,8 +92,9 @@ def resolve_accounts_for_holdings(
         result.append(row.id)
         referenced.add(row.id)
 
-    now = datetime.now(tz=UTC)
-    for acc in existing:
-        if acc.id not in referenced:
-            acc.archived_at = now
+    if archive_unreferenced:
+        now = datetime.now(tz=UTC)
+        for acc in existing:
+            if acc.id not in referenced:
+                acc.archived_at = now
     return result

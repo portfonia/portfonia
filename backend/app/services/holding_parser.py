@@ -124,7 +124,7 @@ Output a JSON object with exactly two keys:
   "account":       string | null,
   "portfolio":     string | null,
   "notes":         string | null,
-  "issues":        [string]  (list of inference notes or low-confidence warnings),
+  "issues":        [string]  (optional inference notes; omit when not needed),
   "confidence":    number  (0.0-1.0; < 0.7 means the field values are uncertain)
 }
 
@@ -179,9 +179,9 @@ note the ambiguity in issues.
 3. ticker ends in .SS or .SZ, OR a 6-digit fund_code, OR a 6-digit A-share code → A-Share
 4. ticker ends in .L → UK; .AS / .PA / .DE → Europe; .T → Japan; .KS / .KQ → Korea
 5. plain US-listed ticker (no suffix, or a one-letter share class like BRK.B) → US
-6. cash / WMP / deposit: follow the ACCOUNT's market via broker context —
-   IBKR / Schwab / Fidelity / TD / Futu-USD → US; $stock_connect / Futu-HKD → HK;
-   mainland bank / $common_cn_platforms → A-Share.
+6. cash / WMP / deposit with no ticker: market is listing venue, not custodian.
+   There is no listed instrument → Other. Do NOT infer A-Share from a mainland
+   bank broker (a USD deposit at CMB / China Merchants Bank is Other, not A-Share).
 7. cannot determine → Other. Do not drop the row.
 
 --- quality bar for valid_rows ---
@@ -419,6 +419,44 @@ _MARKET_ALIASES: dict[str, str] = {
 }
 
 
+def _coerce_issue_list(raw: object) -> list[dict[str, Any]]:
+    """Normalize LLM/legacy string notes into IssueNote-shaped dicts."""
+    if not raw:
+        return []
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in raw:
+        if isinstance(item, str):
+            message = item.strip()
+            if message:
+                out.append(
+                    {"code": "parser_note", "params": {"message": message}, "severity": "info"}
+                )
+        elif isinstance(item, dict) and item.get("code"):
+            params = item.get("params") or {}
+            if not isinstance(params, dict):
+                params = {"message": str(params)}
+            str_params = {str(k): str(v) for k, v in params.items()}
+            severity = item.get("severity") or "info"
+            if severity not in ("info", "warning"):
+                severity = "info"
+            out.append({"code": str(item["code"]), "params": str_params, "severity": severity})
+    return out
+
+
+def _append_issue(
+    row: dict[str, Any],
+    code: str,
+    params: dict[str, str] | None = None,
+    *,
+    severity: str = "info",
+) -> None:
+    issues = _coerce_issue_list(row.get("issues"))
+    issues.append({"code": code, "params": params or {}, "severity": severity})
+    row["issues"] = issues
+
+
 def _postprocess(
     raw_rows: list[dict[str, Any]],
     on_invalid_row: Callable[[dict[str, Any], str], None] | None = None,
@@ -440,13 +478,19 @@ def _postprocess(
     seen: set[tuple[str | None, ...]] = set()
 
     for row in raw_rows:
+        row["issues"] = _coerce_issue_list(row.get("issues"))
+
         # Normalize asset_type to the known set BEFORE validation so an off-list
         # value from the model is coerced to null (with a note) rather than
         # either crashing a strict Literal or silently persisting garbage.
         at = row.get("asset_type")
         if at is not None and at not in VALID_ASSET_TYPES:
-            row["issues"] = list(row.get("issues") or [])
-            row["issues"].append(f"Unrecognized asset_type {at!r} dropped to null")
+            _append_issue(
+                row,
+                "unrecognized_asset_type",
+                {"asset_type": str(at)},
+                severity="warning",
+            )
             row["asset_type"] = None
 
         # Normalize market to the closed set; an unmappable non-null value
@@ -480,8 +524,7 @@ def _postprocess(
         if isinstance(cur, str):
             normalized_cur = cur.strip().upper()
             if normalized_cur != cur:
-                row["issues"] = list(row.get("issues") or [])
-                row["issues"].append(f"Currency normalized to {normalized_cur!r}")
+                _append_issue(row, "currency_normalized", {"currency": normalized_cur})
                 row["currency"] = normalized_cur
 
         # Canonicalize HK tickers to yfinance's 4-digit form (02333.HK -> 2333.HK)
@@ -490,8 +533,7 @@ def _postprocess(
         if ticker:
             normalized = _normalize_hk_ticker(ticker)
             if normalized != ticker:
-                row["issues"] = list(row.get("issues") or [])
-                row["issues"].append(f"Ticker normalized to {normalized} for price lookup")
+                _append_issue(row, "ticker_normalized_hk", {"ticker": normalized})
                 row["ticker"] = ticker = normalized
 
         # Currency correction from ticker suffix.
@@ -499,9 +541,10 @@ def _postprocess(
             for suffix, currency in _TICKER_CURRENCY_MAP.items():
                 if ticker.lower().endswith(suffix):
                     if row.get("currency") != currency:
-                        row["issues"] = list(row.get("issues") or [])
-                        row["issues"].append(
-                            f"Currency corrected to {currency} based on ticker suffix {suffix.upper()}"
+                        _append_issue(
+                            row,
+                            "currency_corrected",
+                            {"currency": currency, "suffix": suffix.upper()},
                         )
                         row["currency"] = currency
                     break
@@ -510,8 +553,12 @@ def _postprocess(
         # had a chance to fix the value) so the note reflects the row's
         # final currency, not an intermediate one.
         if row.get("currency") not in VALID_CURRENCIES:
-            row["issues"] = list(row.get("issues") or [])
-            row["issues"].append(f"Unrecognized currency {row.get('currency')!r}")
+            _append_issue(
+                row,
+                "unrecognized_currency",
+                {"currency": str(row.get("currency"))},
+                severity="warning",
+            )
 
         # Cash/wmf rows carry no real instrument identifier (issue #120): the
         # model has been observed both fabricating a ticker like "CASH" that
@@ -525,11 +572,7 @@ def _postprocess(
         if row.get("asset_type") in ("cash", "wmf"):
             bogus_id = row.get("ticker") or row.get("fund_code")
             if bogus_id:
-                row["issues"] = list(row.get("issues") or [])
-                row["issues"].append(
-                    f"Dropped spurious ticker/fund_code {bogus_id!r} on cash/wmf row "
-                    "(cash/wmf products carry no real instrument identifier)"
-                )
+                _append_issue(row, "dropped_spurious_id", {"identifier": str(bogus_id)})
                 row["ticker"] = None
                 row["fund_code"] = None
             # Only moves the amount from shares when current_value is still
@@ -538,8 +581,7 @@ def _postprocess(
             # keeps current_value as originally given rather than guessing
             # which of two conflicting numbers is real.
             if row.get("current_value") is None and row.get("shares") is not None:
-                row["issues"] = list(row.get("issues") or [])
-                row["issues"].append("Cash/wmf amount moved from shares to current_value")
+                _append_issue(row, "cash_amount_moved")
                 row["current_value"] = row["shares"]
                 row["shares"] = None
                 row["avg_cost"] = None
@@ -554,14 +596,36 @@ def _postprocess(
             elif row.get("current_value") is not None and (
                 row.get("shares") is not None or row.get("avg_cost") is not None
             ):
-                row["issues"] = list(row.get("issues") or [])
-                row["issues"].append(
-                    "Cleared residual shares/avg_cost on cash/wmf row "
-                    "(current_value is authoritative)"
-                )
+                _append_issue(row, "cleared_residual_shares")
                 row["shares"] = None
                 row["avg_cost"] = None
             row["pricing_mode"] = "manual"
+            # Listing venue, not custodian (issue #92). Override a model that
+            # inferred A-Share from a mainland bank broker (CMB USD cash is
+            # Other). Do not reclassify listed auto tickers into Other.
+            if not row.get("ticker") and not row.get("fund_code"):
+                row["market"] = "Other"
+
+        # Bare ticker + GBP: warn with current handling + suggestion, do not
+        # auto-suffix (issue #92). Listed auto names stay on the #204 override
+        # path (PSH remains PSH, priced via PSH.L) rather than being rewritten.
+        ticker = row.get("ticker")
+        if (
+            isinstance(ticker, str)
+            and "." not in ticker
+            and row.get("currency") == "GBP"
+            and row.get("asset_type") not in ("cash", "wmf")
+        ):
+            _append_issue(
+                row,
+                "ticker_no_suffix",
+                {
+                    "ticker": ticker,
+                    "currency": "GBP",
+                    "suggestion": f"{ticker}.L",
+                },
+                severity="warning",
+            )
 
         # Coerce optional string fields: LLM occasionally emits [] instead of null.
         for str_field in ("notes", "account", "portfolio", "broker"):

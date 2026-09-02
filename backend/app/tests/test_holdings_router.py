@@ -364,7 +364,7 @@ def test_upload_xlsx_multi_sheet_returns_422(app_client: TestClient, tmp_path: P
 
 
 def test_confirm_writes_to_db(app_client: TestClient) -> None:
-    resp = app_client.post("/holdings/confirm", json=[_PARSED_APPLE, _PARSED_CASH])
+    resp = app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_APPLE, _PARSED_CASH])
     assert resp.status_code == 200
     rows = resp.json()
     assert len(rows) == 2
@@ -405,7 +405,7 @@ def test_confirm_lse_ticker_is_uk_and_capture_supported(app_client: TestClient) 
 
 
 def test_confirm_sets_last_manual_update_for_manual_rows(app_client: TestClient) -> None:
-    resp = app_client.post("/holdings/confirm", json=[_PARSED_CASH])
+    resp = app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_CASH])
     assert resp.status_code == 200
     row = resp.json()[0]
     assert row["last_manual_update"] is not None
@@ -420,7 +420,7 @@ def test_confirm_sets_account_id_and_archives_stale_accounts(
     (not silently orphaned)."""
     from app.models.account import Account
 
-    resp = app_client.post("/holdings/confirm", json=[_PARSED_APPLE])
+    resp = app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_APPLE])
     assert resp.status_code == 200
     holding_id = uuid.UUID(resp.json()[0]["id"])
     holding = db_session.get(Holding, holding_id)
@@ -434,7 +434,9 @@ def test_confirm_sets_account_id_and_archives_stale_accounts(
 
     # Re-confirm with a holding under a different broker — IBKR is no
     # longer referenced by anything.
-    resp2 = app_client.post("/holdings/confirm", json=[_PARSED_CASH])  # broker "Schwab"
+    resp2 = app_client.post(
+        "/holdings/confirm?mode=replace", json=[_PARSED_CASH]
+    )  # broker "Schwab"
     assert resp2.status_code == 200
     db_session.expire_all()
     stale_account = db_session.get(Account, first_account_id)
@@ -451,7 +453,7 @@ def test_confirm_sets_account_id_and_archives_stale_accounts(
 
 
 def test_confirm_full_replace_on_second_call(app_client: TestClient) -> None:
-    app_client.post("/holdings/confirm", json=[_PARSED_APPLE, _PARSED_CASH])
+    app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_APPLE, _PARSED_CASH])
 
     tencent: dict[str, object] = {
         "name": "Tencent",
@@ -470,7 +472,7 @@ def test_confirm_full_replace_on_second_call(app_client: TestClient) -> None:
         "issues": [],
         "confidence": 1.0,
     }
-    resp = app_client.post("/holdings/confirm", json=[tencent])
+    resp = app_client.post("/holdings/confirm?mode=replace", json=[tencent])
     assert resp.status_code == 200
 
     list_resp = app_client.get("/holdings")
@@ -489,7 +491,7 @@ def test_confirm_sparse_history_log_omits_ticker_list(
 
     _logging.getLogger("app.routers.holdings").disabled = False
     with caplog.at_level("INFO", logger="app.routers.holdings"):
-        resp = app_client.post("/holdings/confirm", json=[_PARSED_APPLE])
+        resp = app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_APPLE])
     assert resp.status_code == 200
     backfill_records = [r for r in caplog.records if "close bars" in r.getMessage()]
     assert backfill_records, "expected a sparse-history log line"
@@ -519,7 +521,7 @@ def test_confirm_backfill_passes_only_this_users_sparse_tickers(
     db_session.commit()
 
     with patch("app.tasks.capture_tasks.backfill_ohlcv_task") as mock_task:
-        resp = app_client.post("/holdings/confirm", json=[_PARSED_APPLE])
+        resp = app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_APPLE])
     assert resp.status_code == 200
     mock_task.delay.assert_called_once_with(["AAPL"])
 
@@ -556,7 +558,7 @@ def test_confirm_skips_backfill_when_this_users_tickers_already_have_history(
     db_session.commit()
 
     with patch("app.tasks.capture_tasks.backfill_ohlcv_task") as mock_task:
-        resp = app_client.post("/holdings/confirm", json=[_PARSED_APPLE])
+        resp = app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_APPLE])
     assert resp.status_code == 200
     mock_task.delay.assert_not_called()
 
@@ -585,7 +587,7 @@ def test_confirm_skips_backfill_when_known_collision_ticker_history_exists(
     db_session.commit()
 
     with patch("app.tasks.capture_tasks.backfill_ohlcv_task") as mock_task:
-        resp = app_client.post("/holdings/confirm", json=[_PARSED_PSH])
+        resp = app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_PSH])
     assert resp.status_code == 200
     mock_task.delay.assert_not_called()
 
@@ -598,7 +600,7 @@ def test_confirm_dispatches_fund_nav_backfill_for_uncached_fund_codes(
         patch("app.tasks.capture_tasks.backfill_ohlcv_task") as mock_ohlcv,
         patch("app.tasks.capture_tasks.backfill_fund_navs_task") as mock_nav,
     ):
-        resp = app_client.post("/holdings/confirm", json=[_PARSED_FUND])
+        resp = app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_FUND])
     assert resp.status_code == 200
     mock_nav.delay.assert_called_once_with(["513100"])
     mock_ohlcv.delay.assert_not_called()
@@ -621,7 +623,7 @@ def test_confirm_skips_fund_nav_backfill_when_close_already_cached(
     db_session.commit()
 
     with patch("app.tasks.capture_tasks.backfill_fund_navs_task") as mock_nav:
-        resp = app_client.post("/holdings/confirm", json=[_PARSED_FUND])
+        resp = app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_FUND])
     assert resp.status_code == 200
     mock_nav.delay.assert_not_called()
 
@@ -638,7 +640,7 @@ def test_confirm_skips_fund_nav_backfill_for_manual_fund(
         "avg_cost": None,
     }
     with patch("app.tasks.capture_tasks.backfill_fund_navs_task") as mock_nav:
-        resp = app_client.post("/holdings/confirm", json=[manual])
+        resp = app_client.post("/holdings/confirm?mode=replace", json=[manual])
     assert resp.status_code == 200
     mock_nav.delay.assert_not_called()
 
@@ -659,7 +661,7 @@ def test_confirm_dispatches_fund_nav_when_only_non_close_snapshot_exists(
     db_session.commit()
 
     with patch("app.tasks.capture_tasks.backfill_fund_navs_task") as mock_nav:
-        resp = app_client.post("/holdings/confirm", json=[_PARSED_FUND])
+        resp = app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_FUND])
     assert resp.status_code == 200
     mock_nav.delay.assert_called_once_with(["513100"])
 
@@ -670,7 +672,7 @@ def test_confirm_still_succeeds_when_fund_nav_enqueue_fails(
     """A broker blip after commit must not 500 a successful confirm."""
     with patch("app.tasks.capture_tasks.backfill_fund_navs_task") as mock_nav:
         mock_nav.delay.side_effect = RuntimeError("broker down")
-        resp = app_client.post("/holdings/confirm", json=[_PARSED_FUND])
+        resp = app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_FUND])
     assert resp.status_code == 200
     assert resp.json()[0]["fund_code"] == "513100"
 
@@ -680,7 +682,7 @@ def test_confirm_still_succeeds_when_ohlcv_enqueue_fails(
 ) -> None:
     with patch("app.tasks.capture_tasks.backfill_ohlcv_task") as mock_ohlcv:
         mock_ohlcv.delay.side_effect = RuntimeError("broker down")
-        resp = app_client.post("/holdings/confirm", json=[_PARSED_APPLE])
+        resp = app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_APPLE])
     assert resp.status_code == 200
     assert resp.json()[0]["ticker"] == "AAPL"
 
@@ -705,7 +707,7 @@ def test_confirm_fund_nav_backfill_passes_only_this_users_uncached_codes(
     db_session.commit()
 
     with patch("app.tasks.capture_tasks.backfill_fund_navs_task") as mock_nav:
-        resp = app_client.post("/holdings/confirm", json=[_PARSED_FUND])
+        resp = app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_FUND])
     assert resp.status_code == 200
     mock_nav.delay.assert_called_once_with(["513100"])
 
@@ -718,7 +720,7 @@ def test_confirm_fund_nav_log_omits_fund_code_list(
 
     _logging.getLogger("app.routers.holdings").disabled = False
     with caplog.at_level("INFO", logger="app.routers.holdings"):
-        resp = app_client.post("/holdings/confirm", json=[_PARSED_FUND])
+        resp = app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_FUND])
     assert resp.status_code == 200
     nav_records = [r for r in caplog.records if "fund NAV" in r.getMessage()]
     assert nav_records, "expected a fund-NAV cold-start log line"
@@ -747,7 +749,7 @@ def test_confirm_full_replace_does_not_touch_other_users(
     db_session.add(other_holding)
     db_session.commit()
 
-    resp = app_client.post("/holdings/confirm", json=[_PARSED_APPLE, _PARSED_CASH])
+    resp = app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_APPLE, _PARSED_CASH])
     assert resp.status_code == 200
 
     remaining = db_session.query(Holding).filter(Holding.user_id == other_user_id).all()
@@ -756,8 +758,8 @@ def test_confirm_full_replace_does_not_touch_other_users(
 
 
 def test_confirm_empty_list_clears_holdings(app_client: TestClient) -> None:
-    app_client.post("/holdings/confirm", json=[_PARSED_APPLE])
-    resp = app_client.post("/holdings/confirm", json=[])
+    app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_APPLE])
+    resp = app_client.post("/holdings/confirm?mode=replace", json=[])
     assert resp.status_code == 200
     list_resp = app_client.get("/holdings")
     assert list_resp.json() == []
@@ -775,14 +777,14 @@ def test_list_holdings_empty_initially(app_client: TestClient) -> None:
 
 
 def test_list_holdings_after_confirm(app_client: TestClient) -> None:
-    app_client.post("/holdings/confirm", json=[_PARSED_APPLE, _PARSED_CASH])
+    app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_APPLE, _PARSED_CASH])
     resp = app_client.get("/holdings")
     assert resp.status_code == 200
     assert len(resp.json()) == 2
 
 
 def test_list_holdings_includes_expected_fields(app_client: TestClient) -> None:
-    app_client.post("/holdings/confirm", json=[_PARSED_APPLE])
+    app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_APPLE])
     row = app_client.get("/holdings").json()[0]
     for field in (
         "id",
@@ -804,7 +806,7 @@ def test_list_holdings_includes_expected_fields(app_client: TestClient) -> None:
 
 
 def test_export_returns_markdown_file(app_client: TestClient) -> None:
-    app_client.post("/holdings/confirm", json=[_PARSED_APPLE, _PARSED_CASH])
+    app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_APPLE, _PARSED_CASH])
     resp = app_client.get("/holdings/export")
     assert resp.status_code == 200
     assert "text/markdown" in resp.headers["content-type"]
@@ -819,19 +821,324 @@ def test_export_returns_markdown_file(app_client: TestClient) -> None:
 def test_export_empty_holdings(app_client: TestClient) -> None:
     resp = app_client.get("/holdings/export")
     assert resp.status_code == 200
-    assert "# Holdings" in resp.text
+    body = resp.text
+    assert "#####" in body
+    data_lines = [ln for ln in body.splitlines() if ln and not ln.lstrip().startswith("#")]
+    assert data_lines == []
 
 
-def test_export_escapes_pipes_and_newlines_in_free_text(app_client: TestClient) -> None:
-    """A pipe or newline in name/notes must not break the Markdown table."""
-    row = {**_PARSED_APPLE, "name": "Acme | Corp", "notes": "line1\nline2"}
-    app_client.post("/holdings/confirm", json=[row])
+def test_export_flattens_newlines_and_is_not_a_pipe_table(
+    app_client: TestClient,
+) -> None:
+    row = {**_PARSED_APPLE, "name": "Acme Corp", "notes": "line1\nline2"}
+    app_client.post("/holdings/confirm?mode=replace", json=[row])
     body = app_client.get("/holdings/export").text
-
-    # One holding → exactly 3 table lines (header + divider + 1 row). A raw
-    # newline would have spilled the row; an unescaped pipe would have added a
-    # column. Both must be neutralized.
     table_lines = [ln for ln in body.splitlines() if ln.startswith("|")]
-    assert len(table_lines) == 3
-    assert "Acme \\| Corp" in body
-    assert "line1 line2" in body  # newline flattened, not split across rows
+    assert table_lines == []
+    data_lines = [ln for ln in body.splitlines() if ln and not ln.lstrip().startswith("#")]
+    assert len(data_lines) == 1
+    assert "Apple" not in data_lines[0]  # renamed
+    assert "Acme Corp" in data_lines[0]
+    assert "AAPL" in data_lines[0]
+
+
+def test_export_uses_report_locale_not_ui_locale(
+    app_client: TestClient, db_session: Session
+) -> None:
+    from app.models.user import User
+
+    user = db_session.get(User, TEST_USER_ID)
+    assert user is not None
+    user.locale = "en"
+    db_session.commit()
+    resp = app_client.get("/holdings/export")
+    assert "One holding per line" in resp.text
+
+    user.locale = "zh"
+    db_session.commit()
+    resp = app_client.get("/holdings/export")
+    assert "一行一条" in resp.text
+
+
+def test_export_round_trips_through_comment_strip(app_client: TestClient) -> None:
+    app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_APPLE, _PARSED_CASH])
+    body = app_client.get("/holdings/export").text
+    from app.services.holding_parser import _extract_text
+
+    stripped = _extract_text(body.encode("utf-8"), "holdings.md")
+    assert "#####" not in stripped
+    assert "AAPL" in stripped
+    assert "USD Cash" in stripped
+
+
+# ---------------------------------------------------------------------------
+# GET /holdings/template
+# ---------------------------------------------------------------------------
+
+
+def test_template_covers_asset_types_and_markets_without_wmf_jargon(
+    app_client: TestClient, db_session: Session
+) -> None:
+    from app.models.user import User
+
+    user = db_session.get(User, TEST_USER_ID)
+    assert user is not None
+    user.locale = "en"
+    db_session.commit()
+    resp = app_client.get("/holdings/template")
+    assert resp.status_code == 200
+    assert "holdings-template.md" in resp.headers["content-disposition"]
+    body = resp.text
+    assert "#####" in body
+    assert "wealth-management product" in body
+    assert "wmf" not in body.lower()
+    for token in ("AAPL", "SPY", "0700.HK", "600519.SS", "110011", "USD Cash", "PSH.L"):
+        assert token in body
+
+
+def test_template_zh_uses_wealth_management_wording(
+    app_client: TestClient, db_session: Session
+) -> None:
+    from app.models.user import User
+
+    user = db_session.get(User, TEST_USER_ID)
+    assert user is not None
+    user.locale = "zh"
+    db_session.commit()
+    body = app_client.get("/holdings/template").text
+    assert "理财产品" in body
+    assert "wmf" not in body.lower()
+
+
+# ---------------------------------------------------------------------------
+# POST /holdings (single-row create)
+# ---------------------------------------------------------------------------
+
+
+def test_create_holding_returns_201_and_skips_llm(app_client: TestClient) -> None:
+    with patch("app.services.holding_parser.parse") as mock_parse:
+        resp = app_client.post("/holdings", json=_PARSED_APPLE)
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["name"] == "Apple"
+    assert body["ticker"] == "AAPL"
+    assert body["position"] == 0
+    mock_parse.assert_not_called()
+
+
+def test_create_holding_appends_at_max_position_plus_one(app_client: TestClient) -> None:
+    app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_APPLE, _PARSED_CASH])
+    resp = app_client.post("/holdings", json=_PARSED_FUND)
+    assert resp.status_code == 201
+    assert resp.json()["position"] == 2
+    listed = app_client.get("/holdings").json()
+    assert len(listed) == 3
+
+
+def test_create_duplicate_ticker_broker_is_second_lot(app_client: TestClient) -> None:
+    first = app_client.post("/holdings", json=_PARSED_APPLE)
+    second = app_client.post("/holdings", json=_PARSED_APPLE)
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.json()["id"] != second.json()["id"]
+    assert len(app_client.get("/holdings").json()) == 2
+
+
+def test_create_cash_without_ticker_sets_market_other(app_client: TestClient) -> None:
+    row = {**_PARSED_CASH, "broker": "CMB", "market": "A-Share"}
+    resp = app_client.post("/holdings", json=row)
+    assert resp.status_code == 201
+    assert resp.json()["market"] == "Other"
+
+
+def test_create_enqueues_sparse_backfill_only_for_new_ticker(
+    app_client: TestClient, db_session: Session
+) -> None:
+    app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_APPLE])
+    with (
+        patch("app.tasks.capture_tasks.backfill_ohlcv_task") as mock_ohlcv,
+        patch("app.tasks.capture_tasks.backfill_fund_navs_task") as mock_nav,
+    ):
+        resp = app_client.post("/holdings", json=_PARSED_FUND)
+    assert resp.status_code == 201
+    mock_nav.delay.assert_called_once_with(["513100"])
+    mock_ohlcv.delay.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# PATCH /holdings/{id}
+# ---------------------------------------------------------------------------
+
+
+def test_patch_holding_updates_fields(app_client: TestClient) -> None:
+    created = app_client.post("/holdings", json=_PARSED_APPLE).json()
+    resp = app_client.patch(f"/holdings/{created['id']}", json={"name": "Apple Inc."})
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "Apple Inc."
+    assert resp.json()["ticker"] == "AAPL"
+
+
+def test_patch_holding_reresolves_accounts_on_broker_change(
+    app_client: TestClient, db_session: Session
+) -> None:
+    from app.models.account import Account
+
+    created = app_client.post("/holdings", json=_PARSED_APPLE).json()
+    holding = db_session.get(Holding, uuid.UUID(created["id"]))
+    assert holding is not None
+    old_account_id = holding.account_id
+    resp = app_client.patch(f"/holdings/{created['id']}", json={"broker": "Schwab"})
+    assert resp.status_code == 200
+    db_session.expire_all()
+    holding = db_session.get(Holding, uuid.UUID(created["id"]))
+    assert holding is not None
+    assert holding.account_id is not None
+    assert holding.account_id != old_account_id
+    new_account = db_session.get(Account, holding.account_id)
+    assert new_account is not None
+    assert new_account.broker == "Schwab"
+    # Other lots still reference IBKR — it must not be archived on a single-row patch.
+    if old_account_id is not None:
+        stale = db_session.get(Account, old_account_id)
+        assert stale is not None
+        assert stale.archived_at is None
+
+
+def test_patch_holding_404_for_other_user(app_client: TestClient, db_session: Session) -> None:
+    other_user = uuid.uuid4()
+    seed_user(db_session, other_user)
+    other = Holding(
+        user_id=other_user,
+        name="Microsoft",
+        ticker="MSFT",
+        pricing_mode="auto",
+        currency="USD",
+        asset_class="STOCK",
+    )
+    db_session.add(other)
+    db_session.commit()
+    resp = app_client.patch(f"/holdings/{other.id}", json={"name": "Nope"})
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# DELETE /holdings/{id}
+# ---------------------------------------------------------------------------
+
+
+def test_delete_holding_returns_204(app_client: TestClient) -> None:
+    created = app_client.post("/holdings", json=_PARSED_APPLE).json()
+    resp = app_client.delete(f"/holdings/{created['id']}")
+    assert resp.status_code == 204
+    assert app_client.get("/holdings").json() == []
+
+
+def test_delete_holding_404_for_other_user(app_client: TestClient, db_session: Session) -> None:
+    other_user = uuid.uuid4()
+    seed_user(db_session, other_user)
+    other = Holding(
+        user_id=other_user,
+        name="Microsoft",
+        ticker="MSFT",
+        pricing_mode="auto",
+        currency="USD",
+        asset_class="STOCK",
+    )
+    db_session.add(other)
+    db_session.commit()
+    resp = app_client.delete(f"/holdings/{other.id}")
+    assert resp.status_code == 404
+    remaining = db_session.get(Holding, other.id)
+    assert remaining is not None
+
+
+def test_delete_unknown_id_404(app_client: TestClient) -> None:
+    resp = app_client.delete(f"/holdings/{uuid.uuid4()}")
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# PATCH /holdings/reorder
+# ---------------------------------------------------------------------------
+
+
+def test_reorder_writes_position_in_payload_order(app_client: TestClient) -> None:
+    a = app_client.post("/holdings", json=_PARSED_APPLE).json()
+    b = app_client.post("/holdings", json=_PARSED_CASH).json()
+    c = app_client.post("/holdings", json=_PARSED_FUND).json()
+    ids = [c["id"], a["id"], b["id"]]
+    resp = app_client.patch("/holdings/reorder", json={"ids": ids})
+    assert resp.status_code == 200
+    listed = app_client.get("/holdings").json()
+    assert [row["id"] for row in listed] == ids
+    assert [row["position"] for row in listed] == [0, 1, 2]
+
+
+def test_reorder_rejects_partial_id_list(app_client: TestClient) -> None:
+    a = app_client.post("/holdings", json=_PARSED_APPLE).json()
+    app_client.post("/holdings", json=_PARSED_CASH)
+    resp = app_client.patch("/holdings/reorder", json={"ids": [a["id"]]})
+    assert resp.status_code == 422
+
+
+def test_reorder_rejects_unknown_id(app_client: TestClient) -> None:
+    a = app_client.post("/holdings", json=_PARSED_APPLE).json()
+    resp = app_client.patch("/holdings/reorder", json={"ids": [a["id"], str(uuid.uuid4())]})
+    assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# POST /holdings/confirm modes
+# ---------------------------------------------------------------------------
+
+
+def test_confirm_default_mode_is_append(app_client: TestClient) -> None:
+    app_client.post("/holdings", json=_PARSED_APPLE)
+    resp = app_client.post("/holdings/confirm", json=[_PARSED_CASH])
+    assert resp.status_code == 200
+    names = {r["name"] for r in resp.json()}
+    assert names == {"Apple", "USD Cash"}
+
+
+def test_confirm_append_does_not_update_existing_rows(app_client: TestClient) -> None:
+    created = app_client.post("/holdings", json=_PARSED_APPLE).json()
+    mutated = {**_PARSED_APPLE, "name": "Apple Inc.", "shares": 99.0}
+    resp = app_client.post("/holdings/confirm?mode=append", json=[mutated])
+    assert resp.status_code == 200
+    listed = app_client.get("/holdings").json()
+    assert len(listed) == 2
+    original = next(r for r in listed if r["id"] == created["id"])
+    assert original["name"] == "Apple"
+    assert original["shares"] in ("10", "10.0", "10.00")
+
+
+def test_confirm_append_duplicate_ticker_broker_is_second_lot(app_client: TestClient) -> None:
+    app_client.post("/holdings", json=_PARSED_APPLE)
+    resp = app_client.post("/holdings/confirm?mode=append", json=[_PARSED_APPLE])
+    assert resp.status_code == 200
+    assert len(resp.json()) == 2
+
+
+def test_confirm_replace_still_wipes_book(app_client: TestClient) -> None:
+    app_client.post("/holdings", json=_PARSED_APPLE)
+    resp = app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_CASH])
+    assert resp.status_code == 200
+    listed = resp.json()
+    assert len(listed) == 1
+    assert listed[0]["name"] == "USD Cash"
+
+
+def test_confirm_append_does_not_archive_existing_accounts(
+    app_client: TestClient, db_session: Session
+) -> None:
+    from app.models.account import Account
+
+    created = app_client.post("/holdings", json=_PARSED_APPLE).json()
+    holding = db_session.get(Holding, uuid.UUID(created["id"]))
+    assert holding is not None
+    ibkr_id = holding.account_id
+    app_client.post("/holdings/confirm?mode=append", json=[_PARSED_CASH])
+    db_session.expire_all()
+    ibkr = db_session.get(Account, ibkr_id)
+    assert ibkr is not None
+    assert ibkr.archived_at is None
