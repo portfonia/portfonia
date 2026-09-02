@@ -448,6 +448,13 @@ import stays on `/holdings`; row add/edit/delete/reorder lives on
   portfolio change (`archive_unreferenced=False`). On ticker/fund_code
   change: clears `sector`, `market_price`, `price_as_of`, `price_fetched_at`
   in the same commit, then enqueues sector backfill + sparse capture.
+  "Changed" compares what `_apply_write_defaults` actually wrote against
+  the pre-patch `holding.ticker`/`fund_code`, not whether the client's
+  request body mentioned the field (round 5 fix) — `_apply_write_defaults`
+  force-suffixes a ticker server-side even on a PATCH that never touches
+  it, e.g. a notes-only edit on a legacy unsuffixed row, so checking the
+  request body missed that case entirely and left stale price/sector in
+  place with no backfill enqueued.
 - `DELETE /holdings/{id}` — that `Holding` row only. Does **not** touch
   `ticker_themes` or anomaly watermarks. 204.
 - `PATCH /holdings/reorder` — `{ "ids": [uuid, ...] }` must be a permutation
@@ -487,6 +494,33 @@ ticker `PSH.L`) — UK is a scheduled capture market after #312. Bare-PSH
 price lookup still uses the #204 `_TICKER_SYMBOL_OVERRIDE` `PSH → PSH.L`
 collision table. Unresolvable listed names persist `market=Other` and
 `capture_supported=False`; capture never speculative-yfinances them.
+`normalize_ticker_and_currency()` (HK 4-digit canonicalization + suffix-
+currency correction) is a single function shared by `_postprocess`'s two
+call sites and the router's `_apply_write_defaults`, so file-import and
+`POST`/`PATCH /holdings` always store the same canonical ticker for the
+same input — before round 5 the router never ran this step, so an API
+write of `"700"`+HKD stored `700.HK` while the same input via file-import
+stored `0700.HK`, silently missing `ticker_themes`/config-YAML lookups
+keyed on the canonical form.
+
+**Market determined but the suffix is ambiguous or unplaceable** (Europe/
+Korea have several listing suffixes; an A-share code outside the
+recognized digit ranges) is a **separate** issue code,
+`ticker_suffix_ambiguous`, from `ticker_no_suffix` (market genuinely
+undetermined) — the single old code's copy told users to "set Market"
+even when Market was already set. `apply_confirmed_exchange_suffix`
+persists the derived market on this branch and marks the row so both
+write paths force `capture_supported=False` after `resolve_holding_market`
+runs; without that, `resolve_holding_market`'s bare-ticker fallback
+(`market_from_ticker` treats any unsuffixed ticker as US) would otherwise
+silently stamp a bare EUR/KRW ticker — or an explicit `market=Europe`
+holding whose ticker collides with an unrelated US symbol, e.g. `ASML`
+(Nasdaq ADR) vs. the intended Euronext listing — as `market=US,
+capture_supported=True` and fetch the wrong security. `market="US"` itself
+never takes a suffix and must not be swept into this ambiguous
+classification (a round-6 fix regression, caught by the full test suite
+before it shipped: the first pass would have turned off capture for every
+plain US ticker).
 Dialect validation rejects surface as `issue_rows`; the dialect path
 skips dedup so identical lots survive re-import. cash/wmf with no ticker →
 `market=Other`, including when the model inferred A-Share from a mainland
@@ -498,8 +532,15 @@ holding per line, export ordered by `position`). Locale is `users.locale`
 (report language `zh`/`en`), **not** the UI chrome locale. The positional
 prefix is name / identifier / currency / shares / avg_cost / broker for
 auto-priced listed rows; name / identifier / currency / shares / avg_cost /
-current_value / broker when `pricing_mode:manual` (each numeric emitted when
-present); name / current_value / currency / broker for cash/wmf (no cost
+current_value / broker when `pricing_mode:manual` — **always all three
+numeric slots**, using the placeholder `-` for one that is unset (round 5
+fix: emitting a slot only when present let the parser conflate "shares +
+current_value, no avg_cost" with "shares + avg_cost, no current_value" —
+both are two numeric tokens — and in the worst case fabricate a cost
+basis on re-import; `_manual_match_explicit` in `holding_parser.py` reads
+this placeholder-marked shape unambiguously, falling back to the older
+count-based heuristic only for hand-typed input without the placeholder);
+name / current_value / currency / broker for cash/wmf (no cost
 basis today). Trailing tagged fields (`account:`, `portfolio:`, `notes:`,
 `asset_type:`, `market:`, `pricing_mode:`; quote a value that contains
 spaces) round-trip shares/avg_cost/current_value + tags for non-cash, and

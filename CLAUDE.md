@@ -64,8 +64,9 @@ area of the code, not just the one-line summary here.
 - [Postgres backup to OCI Object Storage](docs/mechanisms/backup-and-ops.md) — issue #106/#76: daily `pg_dump` -> OCI, instance-principal auth, two real restore drills.
 - [Cash/wmf holdings exclusion fix](docs/mechanisms/holdings-pipeline.md) — issue #120/PR #121: structured-extraction model put cash amounts in the wrong field; two-layer fix.
 - [Accounts table + user_id FKs](docs/mechanisms/holdings-pipeline.md) — issue #129 checkpoint B7: `accounts` table + `holdings.account_id` (additive, text columns unchanged), `holdings`/`reports`/`upload_jobs`/`news_surfaced` gain real `user_id` FKs (`ON DELETE RESTRICT`), SQLAlchemy `relationship()` needed purely for flush-order correctness.
-- [Holdings single-row CRUD + confirm modes](docs/mechanisms/holdings-pipeline.md) — issue #92 / #130 C1: `POST`/`PATCH`/`DELETE /holdings/{id}`, `PATCH /holdings/reorder`, `POST /holdings/confirm?mode=append|replace` (default append), `#####` export/template dialect keyed off `users.locale`. Dashboard remaining on #130.
-- [FX currency coverage + ticker-normalization consistency](docs/mechanisms/capture-and-reporting.md) — issue #204/PR #253: `_CURRENCY_TO_FX_PAIR`/`fx_fetcher._PAIRS` widened from 3 to all 14 `VALID_CURRENCIES`; `_yfinance._normalize_ticker` composes a ticker-collision override table (`_TICKER_SYMBOL_OVERRIDE`) and a per-ticker price-scale table (`_TICKER_PRICE_SCALE`, GBX→GBP) with the existing HK normalizer; every consumer that derives a lookup/join key from a raw `Holding.ticker` must call it — full list of call sites and the 3 rounds of review findings that surfaced them in the mechanism doc. Deferred to #252: no scheduled capture at all for `market="Other"`.
+- [Holdings single-row CRUD + confirm modes](docs/mechanisms/holdings-pipeline.md) — issue #92 / #130 C1, PR #310 (6 review rounds, merged `433703a`): `POST`/`PATCH`/`DELETE /holdings/{id}`, `PATCH /holdings/reorder`, `POST /holdings/confirm?mode=append|replace` (default append), `#####` export/template dialect keyed off `users.locale`. Manual-listed export always emits all three numeric slots (shares/avg_cost/current_value) with a `-` placeholder for an unset one — round-4 emitted only present ones, which could round-trip into a fabricated cost basis. `normalize_ticker_and_currency()` shared by file-import and `POST`/`PATCH` so both paths store the same canonical ticker. `ticker_no_suffix` (market undetermined) vs. `ticker_suffix_ambiguous` (market known, suffix ambiguous — Europe/Korea/unplaceable A-share) are separate codes; the latter forces `capture_supported=False` so a bare ticker never defaults to speculative US capture. Dashboard remaining on #130 (C2).
+- [FX currency coverage + ticker-normalization consistency](docs/mechanisms/capture-and-reporting.md) — issue #204/PR #253: `_CURRENCY_TO_FX_PAIR`/`fx_fetcher._PAIRS` widened from 3 to all 14 `VALID_CURRENCIES`; `_yfinance._normalize_ticker` composes a ticker-collision override table (`_TICKER_SYMBOL_OVERRIDE`) with the existing HK normalizer; every consumer that derives a lookup/join key from a raw `Holding.ticker` must call it — full list of call sites and the 3 rounds of review findings that surfaced them in the mechanism doc. The GBX subunit correction that originally lived here as a per-ticker `_TICKER_PRICE_SCALE` table was superseded by #311/PR #312's generic `currency == "GBp"` detection (see the next entry) — `_TICKER_SYMBOL_OVERRIDE` (ticker-collision) is a separate, still-current mechanism. #252 (no scheduled capture for `market="Other"`) closed via #311/PR #312.
+- [Multi-market capture: UK/Europe/Japan/Korea + capture_supported](docs/mechanisms/capture-and-reporting.md) — issue #311/PR #312 (merged `5512a14`, resolves #252): `app/services/markets.py`'s `CAPTURE_MARKET_ORDER` widens from 3 markets (US/HK/A-Share) to 7 (adds UK/Europe/Japan/Korea); new `Holding.capture_supported` boolean — unresolvable tickers persist `market="Other"` + `capture_supported=False` rather than being silently mis-bucketed or dropped, never inferred from `market=="Other"` alone; `resolve_holding_market()` recomputes server-side on every write so a client cannot forge `capture_supported=True`. GBX (pence vs. pounds) correction generalized from a one-entry ticker allowlist to reading yfinance's actual fetched `currency == "GBp"` for any `.L` ticker. Issue #313 (6 non-blocking items named in PR #312's approving review 5087667823 — `global_identifier_universe` capture_supported filter, empty-string-currency LSE fail-closed check, alembic-heads verification, legacy-Other-row re-confirm path, bare-ticker-US deferral to Ring 1-C, doc drift) is being closed by PR #314 (open, not yet merged as of this entry).
 - [Fund NAV realtime path: Sina Finance fallback](docs/mechanisms/capture-and-reporting.md) — issue #20: Tiantian Fund's realtime endpoint blocked in production, Sina fallback added.
 - [Fund NAV staleness observability](docs/mechanisms/capture-and-reporting.md) — issue #298/PR #303: per-fund stale/missing NAV WARNING + ops alert inside `capture_fund_navs` (session-lag threshold, weekend reference, empty-history miss); durable Redis dedup `app/core/alert_dedup.py` (fail-open, key recorded only on confirmed delivery); observability only — beat schedule untouched, #135 root cause still open.
 - [Capture layer + incremental reporting](docs/mechanisms/capture-and-reporting.md) — ADR-002: capture nodes, report window, multi-user fan-out (Ring 1 A1).
@@ -461,17 +462,26 @@ Examples:
 
 ## Releases
 
-Releases are automated (issue #250, `.github/workflows/release.yml`,
+Releases are semantic-versioned but **manually triggered** (issue #250 built
+it, issue #283 changed the trigger — `.github/workflows/release.yml`,
 `semantic-release` + `.releaserc.json`). **Never** bump versions or create
-tags by hand. On every push to `main`, the workflow derives the next
-version from commit types since the last tag (`feat`->minor, `fix`/
-`perf`->patch, `feat!`->major; everything else = no release) and publishes
-a git tag + GitHub Release. The Release notes ARE the changelog — there is
-no committed `CHANGELOG.md` and nothing pushes back to `main` (deliberately:
-see PR #254 review — a changelog-commit plugin would have been a direct
-write to `main`, contradicting the Branching rule below). This is
-release-only: it does not run lint/type/test first, so the local quality
-gate stays the pre-push responsibility documented in the CI-First Protocol.
+tags by hand. The workflow runs on `workflow_dispatch` only, not on every
+push to `main` — issue #283: every merged PR pushing to `main` was firing
+its own release, producing one tag per PR regardless of how those changes
+actually reach production (deploy is a separate, manual, batched step — see
+`docs/deployment.md`). The product owner runs it once per deploy batch
+(Actions tab or `gh workflow run release.yml`); `semantic-release` still
+walks every commit since the last tag on `main` (`.releaserc.json`'s
+`branches: ["main"]`), so nothing is dropped from the changelog regardless
+of the gap between runs. When it runs, it derives the next version from
+commit types since the last tag (`feat`->minor, `fix`/`perf`->patch,
+`feat!`->major; everything else = no release) and publishes a git tag +
+GitHub Release. The Release notes ARE the changelog — there is no committed
+`CHANGELOG.md` and nothing pushes back to `main` (deliberately: see PR #254
+review — a changelog-commit plugin would have been a direct write to
+`main`, contradicting the Branching rule below). This is release-only: it
+does not run lint/type/test first, so the local quality gate stays the
+pre-push responsibility documented in the CI-First Protocol.
 
 ## Code Standards
 
