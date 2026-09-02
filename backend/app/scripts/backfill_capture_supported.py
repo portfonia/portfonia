@@ -48,6 +48,7 @@ from __future__ import annotations
 import sys
 from typing import Any
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
@@ -71,12 +72,11 @@ def _resolve(h: Holding) -> tuple[str | None, str | None, bool]:
     every row here already has `market="Other"` stored, passing it straight
     through would silently no-op the whole suffix-forcing step. Re-resolving
     an existing Other row means treating "Other" as *undetermined*, not as
-    an already-confirmed value — `h.market` is still passed to the final
-    `resolve_holding_market(declared_market=...)` call below (using
-    `data["market"]`, the value AFTER suffix-forcing has run — matching
-    `_apply_write_defaults` exactly, NOT the original `h.market`), whose own
-    "declared Other does not win over a resolvable ticker" rule already
-    handles that case correctly.
+    an already-confirmed value — the final `resolve_holding_market(
+    declared_market=...)` call below is passed `data["market"]`, the value
+    AFTER suffix-forcing has run (matching `_apply_write_defaults` exactly,
+    NOT the original `h.market`), whose own "declared Other does not win
+    over a resolvable ticker" rule already handles that case correctly.
     """
     data: dict[str, Any] = {
         "ticker": h.ticker,
@@ -113,7 +113,20 @@ def backfill_capture_supported(session: Session, *, apply_changes: bool) -> int:
     run only prints what would change, matching `apply_changes=False`'s
     contract of leaving `session` untouched.
     """
-    rows = session.query(Holding).filter(Holding.market == "Other").all()
+    # Cash/WMP rows are never in scope for this rewrite (issue #313 item 4 is
+    # about listed-Other tickers) and skipping them here is a safety net, not
+    # just an optimization: `resolve_holding_market` already treats a normal
+    # no-ticker cash/wmf row as a no-op, but a row that predates issue #120
+    # can still carry a spurious ticker string (e.g. "CASH") — that would hit
+    # `market_from_ticker`'s bare-ticker branch and get promoted to
+    # market="US" before ever reaching resolve_holding_market's asset_type
+    # check (PR #314 review round 2).
+    rows = (
+        session.query(Holding)
+        .filter(Holding.market == "Other")
+        .filter(or_(Holding.asset_type.is_(None), Holding.asset_type.notin_(("cash", "wmf"))))
+        .all()
+    )
     changed = 0
     for h in rows:
         resolved_market, resolved_ticker, capture_ok = _resolve(h)
