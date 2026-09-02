@@ -218,6 +218,31 @@ def test_fetch_last_close_scales_lse_via_generic_gbpence(
     assert price == pytest.approx(scaled)
 
 
+def test_fetch_last_close_omits_lse_bar_when_currency_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #312 B1: unknown GBp currency must not store pence as pounds."""
+
+    def fake_download(**kwargs: object) -> pd.DataFrame:
+        return _make_hist("VOD.L", 7050.0)
+
+    monkeypatch.setattr(
+        "app.services._yfinance.yf.Ticker",
+        lambda symbol: _FakeTicker(symbol, currency=""),
+    )
+    monkeypatch.setattr(
+        "app.services._yfinance._fetched_currency",
+        lambda ticker: None,
+    )
+    with (
+        patch("app.services._yfinance.yf.download", side_effect=fake_download),
+        patch("app.services._yfinance.time.sleep"),
+    ):
+        result = fetch_last_close(["VOD.L"])
+    assert "VOD.L" not in result
+    assert result == {}
+
+
 @pytest.mark.parametrize(
     "ticker,raw,currency",
     [

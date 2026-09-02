@@ -93,6 +93,32 @@ def _scale_price(value: float, currency: str | None) -> float:
     return value
 
 
+def _is_lse_ticker(ticker: str) -> bool:
+    """True when this symbol is batched as UK/LSE (suffix .L after normalize)."""
+    return _market_key_for_ticker(ticker) == "uk"
+
+
+def _safe_scaled_price(ticker: str, value: float, currency: str | None) -> float | None:
+    """Scale GBp to pounds, or omit an LSE bar whose currency lookup failed.
+
+    Issue #312 B1 / #311 req 6: `_scale_price(value, None)` is identity, so a
+    UK close that got OHLCV but lost `fast_info.currency` would store pence as
+    pounds (the 100x class #204/#311 exist to kill). Fail closed for LSE:
+    unknown currency → None (caller omits the ticker). EUR/JPY/KRW (and US)
+    stay unscaled when currency is present or missing — they have no subunit
+    marker.
+    """
+    if currency == _GBPENCE:
+        return value * 0.01
+    if currency is None and _is_lse_ticker(ticker):
+        logger.warning(
+            "omitting %s: LSE bar with unknown currency; refusing unscaled pence",
+            ticker,
+        )
+        return None
+    return value
+
+
 # Type alias used by fetch_last_close.
 ClosePoint = tuple[float, datetime]  # (price, exchange-timestamp)
 
@@ -178,7 +204,10 @@ def _download_batch(tickers: list[str]) -> dict[str, ClosePoint]:
         pts = _extract_close_points(close[ticker], 1)
         if pts:
             price, as_of = pts[0]
-            out[ticker] = (_scale_price(price, _fetched_currency(ticker)), as_of)
+            scaled = _safe_scaled_price(ticker, price, _fetched_currency(ticker))
+            if scaled is None:
+                continue
+            out[ticker] = (scaled, as_of)
     return out
 
 
@@ -229,18 +258,32 @@ def _ohlcv_rows_for_ticker(
         # MultiIndex columns for multi-ticker downloads; flat for a single ticker.
         sub = hist.xs(ticker, axis=1, level=1) if isinstance(hist.columns, pd.MultiIndex) else hist
         clean = sub.dropna(subset=["Close"])
-        if currency is None:
-            currency = _fetched_currency(ticker)
+        # Do not make a second fast_info round-trip here: the caller already
+        # looked up currency (or failed). Unknown LSE currency → omit bars.
+        if currency is None and _is_lse_ticker(ticker):
+            logger.warning(
+                "omitting %s: LSE OHLCV with unknown currency; refusing unscaled pence",
+                ticker,
+            )
+            return []
         rows: list[OhlcvPoint] = []
         for ts, row in clean.iterrows():
             vol = row.get("Volume")
+            close = _safe_scaled_price(ticker, float(row["Close"]), currency)
+            if close is None:
+                return []
+            open_ = _safe_scaled_price(ticker, float(row["Open"]), currency)
+            high = _safe_scaled_price(ticker, float(row["High"]), currency)
+            low = _safe_scaled_price(ticker, float(row["Low"]), currency)
+            if open_ is None or high is None or low is None:
+                return []
             rows.append(
                 (
                     ts.date(),
-                    _scale_price(float(row["Open"]), currency),
-                    _scale_price(float(row["High"]), currency),
-                    _scale_price(float(row["Low"]), currency),
-                    _scale_price(float(row["Close"]), currency),
+                    open_,
+                    high,
+                    low,
+                    close,
                     None if vol is None or pd.isna(vol) else float(vol),
                 )
             )
@@ -309,8 +352,12 @@ def fetch_spot(tickers: list[str]) -> dict[str, float]:
             info = yf.Ticker(t).fast_info
             last = info.get("lastPrice")
             if last is not None and not pd.isna(last):
-                currency = info.get("currency")
-                out[t] = _scale_price(float(last), None if currency is None else str(currency))
+                raw_cur = info.get("currency")
+                currency = None if raw_cur is None else str(raw_cur)
+                scaled = _safe_scaled_price(t, float(last), currency)
+                if scaled is None:
+                    continue
+                out[t] = scaled
         except Exception:
             logger.exception("yfinance spot fetch failed for %s", t)
     return out
