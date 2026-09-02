@@ -155,16 +155,12 @@ def test_email_filter_normalizes_and_exact_matches(
     )
     db_session.flush()
 
-    resp = app_client.get(
-        "/admin/users", headers=_headers(), params={"email": "  U1@Example.COM "}
-    )
+    resp = app_client.get("/admin/users", headers=_headers(), params={"email": "  U1@Example.COM "})
     assert resp.status_code == 200
     assert [u["email"] for u in resp.json()] == ["u1@example.com"]
 
 
-def test_email_filter_no_match_is_empty_array(
-    app_client: TestClient, db_session: Session
-) -> None:
+def test_email_filter_no_match_is_empty_array(app_client: TestClient, db_session: Session) -> None:
     db_session.add(_user(_U1, "u1@example.com"))
     db_session.flush()
 
@@ -175,22 +171,16 @@ def test_email_filter_no_match_is_empty_array(
     assert resp.json() == []
 
 
-def test_email_filter_is_exact_not_substring(
-    app_client: TestClient, db_session: Session
-) -> None:
+def test_email_filter_is_exact_not_substring(app_client: TestClient, db_session: Session) -> None:
     db_session.add(_user(_U1, "u1@example.com"))
     db_session.flush()
 
-    resp = app_client.get(
-        "/admin/users", headers=_headers(), params={"email": "u1@example"}
-    )
+    resp = app_client.get("/admin/users", headers=_headers(), params={"email": "u1@example"})
     assert resp.status_code == 200
     assert resp.json() == []
 
 
-def test_blank_email_param_is_no_filter(
-    app_client: TestClient, db_session: Session
-) -> None:
+def test_blank_email_param_is_no_filter(app_client: TestClient, db_session: Session) -> None:
     """_normalize_email returns None for whitespace-only input; the endpoint
     treats that the same as the param being absent (the filter is optional)."""
     db_session.add_all([_user(_U1, "u1@example.com"), _user(_U2, "u2@example.com")])
@@ -225,9 +215,7 @@ def test_cadence_filter(app_client: TestClient, db_session: Session) -> None:
     )
     db_session.flush()
 
-    resp = app_client.get(
-        "/admin/users", headers=_headers(), params={"report_cadence": "weekly"}
-    )
+    resp = app_client.get("/admin/users", headers=_headers(), params={"report_cadence": "weekly"})
     assert resp.status_code == 200
     assert [u["email"] for u in resp.json()] == ["weekly@example.com"]
 
@@ -334,22 +322,17 @@ def test_default_limit_returns_all_and_bounds_enforced(
     assert len(resp.json()) == 3
 
     assert (
-        app_client.get("/admin/users", headers=_headers(), params={"limit": 201}).status_code
-        == 422
+        app_client.get("/admin/users", headers=_headers(), params={"limit": 201}).status_code == 422
     )
     assert (
-        app_client.get("/admin/users", headers=_headers(), params={"limit": 0}).status_code
-        == 422
+        app_client.get("/admin/users", headers=_headers(), params={"limit": 0}).status_code == 422
     )
     assert (
-        app_client.get("/admin/users", headers=_headers(), params={"offset": -1}).status_code
-        == 422
+        app_client.get("/admin/users", headers=_headers(), params={"offset": -1}).status_code == 422
     )
 
 
-def test_invalid_status_and_cadence_values_422(
-    app_client: TestClient, db_session: Session
-) -> None:
+def test_invalid_status_and_cadence_values_422(app_client: TestClient, db_session: Session) -> None:
     db_session.add(_user(_U1, "u1@example.com"))
     db_session.flush()
 
