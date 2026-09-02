@@ -16,10 +16,13 @@ from app.schemas.holdings import ParsedRow, UploadPreview
 from app.services import holding_parser as holding_parser_module
 from app.services.holding_parser import (
     _classify_asset_class,
+    _coerce_issue_list,
     _extract_text,
     _postprocess,
     _strip_code_fence,
     parse,
+    parse_dialect_line,
+    try_parse_dialect,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -1360,3 +1363,89 @@ def test_postprocess_corrects_new_market_suffix_currencies() -> None:
     for ticker, expected in cases:
         rows = _postprocess([_raw_row(name=ticker, ticker=ticker, currency="USD")])
         assert rows[0].currency == expected, ticker
+
+# ---------------------------------------------------------------------------
+# PR #310: drop LLM free-text notes; dialect round-trip
+# ---------------------------------------------------------------------------
+
+
+def test_coerce_issue_list_drops_llm_free_text_and_unknown_codes() -> None:
+    raw = [
+        "Inferred currency from broker context",
+        {"code": "made_up_llm_code", "params": {"message": "hello"}, "severity": "warning"},
+        {
+            "code": "ticker_no_suffix",
+            "params": {"ticker": "PSH", "currency": "GBP", "suggestion": "PSH.L"},
+            "severity": "warning",
+        },
+        {"code": "parser_note", "params": {"message": "English leftover"}, "severity": "info"},
+    ]
+    out = _coerce_issue_list(raw)
+    assert [i["code"] for i in out] == ["ticker_no_suffix"]
+
+
+def test_postprocess_drops_model_supplied_parser_notes() -> None:
+    raw = [
+        {
+            "name": "Apple",
+            "ticker": "AAPL",
+            "currency": "USD",
+            "shares": 10,
+            "avg_cost": 180,
+            "pricing_mode": "auto",
+            "asset_type": "stock",
+            "issues": ["guessed this was a US listing"],
+            "confidence": 0.6,
+        }
+    ]
+    rows = _postprocess(raw)
+    assert rows[0].issues == []
+    assert rows[0].confidence == 0.6
+
+
+def test_parse_dialect_line_listed_and_cash_with_tags() -> None:
+    listed = parse_dialect_line(
+        'Apple AAPL USD 100 228 IBKR account:IRA portfolio:"Growth Sleeve" '
+        'notes:"core holding" asset_type:stock market:US pricing_mode:auto'
+    )
+    assert listed is not None
+    assert listed["name"] == "Apple"
+    assert listed["ticker"] == "AAPL"
+    assert listed["account"] == "IRA"
+    assert listed["portfolio"] == "Growth Sleeve"
+    assert listed["notes"] == "core holding"
+    assert listed["asset_type"] == "stock"
+    assert listed["market"] == "US"
+    cash = parse_dialect_line(
+        "USD Cash 50000 USD Schwab asset_type:cash market:Other pricing_mode:manual"
+    )
+    assert cash is not None
+    assert cash["name"] == "USD Cash"
+    assert cash["current_value"] == 50000.0
+    assert cash["asset_type"] == "cash"
+    wmf = parse_dialect_line(
+        "Bank product 100000 CNY CMB asset_type:wealth-management market:Other pricing_mode:manual"
+    )
+    assert wmf is not None
+    assert wmf["asset_type"] == "wmf"
+
+
+def test_try_parse_dialect_requires_tags_else_none() -> None:
+    untagged = "Apple AAPL USD 100 228 IBKR"
+    assert try_parse_dialect(untagged) is None
+    tagged = "Apple AAPL USD 100 228 IBKR asset_type:stock market:US pricing_mode:auto"
+    rows = try_parse_dialect(tagged)
+    assert rows is not None
+    assert rows[0]["ticker"] == "AAPL"
+
+
+def test_parse_export_dialect_skips_llm() -> None:
+    text = (
+        "##### comment\n"
+        "Apple AAPL USD 10 180 IBKR account:IRA asset_type:stock market:US pricing_mode:auto\n"
+    )
+    with patch("app.services.holding_parser._parse_attempt") as mock_attempt:
+        preview = parse(text)
+    mock_attempt.assert_not_called()
+    assert len(preview.valid_rows) == 1
+    assert preview.valid_rows[0].account == "IRA"

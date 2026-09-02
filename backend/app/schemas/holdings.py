@@ -59,6 +59,25 @@ class IssueRow(BaseModel):
     reason: str
 
 
+# Deterministic postprocess codes only (issue #92 / PR #310). Model-supplied
+# free-text notes are dropped — they are English and would leak through
+# parser_note {message} for zh-locale users. Keep in sync with
+# frontend/src/app/holdings/_components/preview.tsx ISSUE_NOTE_CODES.
+KNOWN_ISSUE_CODES: frozenset[str] = frozenset(
+    {
+        "unrecognized_asset_type",
+        "currency_normalized",
+        "ticker_normalized_hk",
+        "currency_corrected",
+        "unrecognized_currency",
+        "dropped_spurious_id",
+        "cash_amount_moved",
+        "cleared_residual_shares",
+        "ticker_no_suffix",
+    }
+)
+
+
 class IssueNote(BaseModel):
     """Structured parse note. Preview JSON only — not persisted on confirm."""
 
@@ -108,10 +127,10 @@ class ParsedRow(BaseModel):
 
     @field_validator("issues", mode="before")
     @classmethod
-    def _coerce_legacy_issue_strings(cls, v: object) -> object:
-        # UploadJob.preview JSONB and LLM output may still carry free-text
-        # notes. Coerce those to parser_note so a 30-day-old job still
-        # deserializes after the IssueNote change (issue #92).
+    def _drop_unknown_and_legacy_issue_strings(cls, v: object) -> object:
+        # UploadJob.preview JSONB may still carry free-text notes or unknown
+        # LLM codes from before PR #310. Drop them rather than wrapping as
+        # parser_note {message} (zh users would still see English).
         if not v:
             return []
         if not isinstance(v, list):
@@ -119,14 +138,8 @@ class ParsedRow(BaseModel):
         coerced: list[object] = []
         for item in v:
             if isinstance(item, str):
-                coerced.append(
-                    {
-                        "code": "parser_note",
-                        "params": {"message": item},
-                        "severity": "info",
-                    }
-                )
-            else:
+                continue
+            if isinstance(item, dict) and item.get("code") in KNOWN_ISSUE_CODES:
                 coerced.append(item)
         return coerced
 
@@ -265,7 +278,6 @@ class HoldingPatch(BaseModel):
     current_value: float | None = Field(default=None, ge=0)
     pricing_mode: PricingMode | None = None
     asset_type: AssetTypeValue | None = None
-    asset_class: str | None = None
     market: Literal["US", "HK", "A-Share", "UK", "Europe", "Japan", "Korea", "Other"] | None = None
     broker: str | None = None
     account: str | None = None
@@ -277,13 +289,6 @@ class HoldingPatch(BaseModel):
     def _currency_must_be_known(cls, v: str | None) -> str | None:
         if v is not None and v not in VALID_CURRENCIES:
             raise ValueError(f"unrecognized currency {v!r} — not in VALID_CURRENCIES")
-        return v
-
-    @field_validator("asset_class")
-    @classmethod
-    def _asset_class_must_be_known(cls, v: str | None) -> str | None:
-        if v is not None and v not in VALID_ASSET_CLASSES:
-            raise ValueError(f"unrecognized asset_class {v!r} — not in VALID_ASSET_CLASSES")
         return v
 
 

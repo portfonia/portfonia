@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -811,7 +811,9 @@ def test_export_returns_markdown_file(app_client: TestClient) -> None:
     assert resp.status_code == 200
     assert "text/markdown" in resp.headers["content-type"]
     assert "attachment" in resp.headers["content-disposition"]
-    assert "holdings.md" in resp.headers["content-disposition"]
+    import re as _re
+
+    assert _re.search(r'filename="holdings-\d{8}-\d{6}Z\.md"', resp.headers["content-disposition"])
     body = resp.text
     assert "Apple" in body
     assert "AAPL" in body
@@ -1142,3 +1144,161 @@ def test_confirm_append_does_not_archive_existing_accounts(
     ibkr = db_session.get(Account, ibkr_id)
     assert ibkr is not None
     assert ibkr.archived_at is None
+
+
+# ---------------------------------------------------------------------------
+# PR #310 review fixes
+# ---------------------------------------------------------------------------
+
+
+def test_export_filename_is_utc_timestamp(
+    app_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.holdings.holdings_export_filename",
+        lambda now=None: "holdings-20260902-051530Z.md",
+    )
+    resp = app_client.get("/holdings/export")
+    assert resp.status_code == 200
+    assert 'filename="holdings-20260902-051530Z.md"' in resp.headers["content-disposition"]
+
+
+def test_export_includes_tagged_optional_fields(app_client: TestClient) -> None:
+    row = {
+        **_PARSED_APPLE,
+        "account": "IRA",
+        "portfolio": "Growth Sleeve",
+        "notes": "core holding",
+        "asset_type": "stock",
+        "market": "US",
+        "pricing_mode": "auto",
+    }
+    app_client.post("/holdings/confirm?mode=replace", json=[row])
+    body = app_client.get("/holdings/export").text
+    data_lines = [ln for ln in body.splitlines() if ln and not ln.lstrip().startswith("#")]
+    assert len(data_lines) == 1
+    line = data_lines[0]
+    assert "account:IRA" in line
+    assert 'portfolio:"Growth Sleeve"' in line
+    assert 'notes:"core holding"' in line
+    assert "asset_type:stock" in line
+    assert "market:US" in line
+    assert "pricing_mode:auto" in line
+
+
+def test_export_dialect_round_trips_tagged_fields_without_llm(app_client: TestClient) -> None:
+    row = {
+        **_PARSED_APPLE,
+        "account": "IRA",
+        "portfolio": "Taxable",
+        "notes": "keep me",
+        "market": "US",
+    }
+    app_client.post("/holdings/confirm?mode=replace", json=[row])
+    body = app_client.get("/holdings/export").text
+    from app.services.holding_parser import parse
+
+    preview = parse(body)
+    assert len(preview.valid_rows) == 1
+    parsed = preview.valid_rows[0]
+    assert parsed.account == "IRA"
+    assert parsed.portfolio == "Taxable"
+    assert parsed.notes == "keep me"
+    assert parsed.asset_type == "stock"
+    assert parsed.market == "US"
+    assert parsed.pricing_mode == "auto"
+    assert parsed.ticker == "AAPL"
+
+
+def test_create_holding_enqueues_sector_backfill_not_sync_yfinance(
+    app_client: TestClient,
+) -> None:
+    with (
+        patch("app.tasks.capture_tasks.backfill_sectors_task") as mock_sector,
+        patch("app.services.price_fetcher.backfill_sectors") as mock_sync,
+        patch("app.tasks.capture_tasks.backfill_ohlcv_task"),
+    ):
+        resp = app_client.post("/holdings", json=_PARSED_APPLE)
+    assert resp.status_code == 201
+    mock_sync.assert_not_called()
+    mock_sector.delay.assert_called_once_with([resp.json()["id"]])
+
+
+def test_confirm_replace_enqueues_sector_backfill_for_inserted_rows(
+    app_client: TestClient,
+) -> None:
+    with (
+        patch("app.tasks.capture_tasks.backfill_sectors_task") as mock_sector,
+        patch("app.tasks.capture_tasks.backfill_ohlcv_task"),
+    ):
+        resp = app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_APPLE, _PARSED_CASH])
+    assert resp.status_code == 200
+    ids = [r["id"] for r in resp.json()]
+    mock_sector.delay.assert_called_once()
+    enqueued = mock_sector.delay.call_args[0][0]
+    assert set(enqueued) == set(ids)
+
+
+def test_patch_ticker_clears_stale_price_and_sector(
+    app_client: TestClient, db_session: Session
+) -> None:
+    created = app_client.post("/holdings", json=_PARSED_APPLE).json()
+    holding = db_session.get(Holding, uuid.UUID(created["id"]))
+    assert holding is not None
+    holding.sector = "Technology"
+    holding.market_price = Decimal("180")
+    holding.price_as_of = datetime(2026, 1, 2, tzinfo=UTC)
+    holding.price_fetched_at = holding.price_as_of
+    db_session.commit()
+    with patch("app.tasks.capture_tasks.backfill_sectors_task") as mock_sector:
+        resp = app_client.patch(f"/holdings/{created['id']}", json={"ticker": "MSFT"})
+    assert resp.status_code == 200
+    db_session.expire_all()
+    holding = db_session.get(Holding, uuid.UUID(created["id"]))
+    assert holding is not None
+    assert holding.ticker == "MSFT"
+    assert holding.sector is None
+    assert holding.market_price is None
+    assert holding.price_as_of is None
+    assert holding.price_fetched_at is None
+    mock_sector.delay.assert_called_once_with([created["id"]])
+
+
+def test_patch_notes_preserves_untouched_encrypted_decimal_shares(
+    app_client: TestClient, db_session: Session
+) -> None:
+    created = app_client.post("/holdings", json=_PARSED_APPLE).json()
+    holding = db_session.get(Holding, uuid.UUID(created["id"]))
+    assert holding is not None
+    precise = Decimal("1.234567890123456789")
+    holding.shares = precise
+    db_session.commit()
+    resp = app_client.patch(f"/holdings/{created['id']}", json={"notes": "untouched shares"})
+    assert resp.status_code == 200
+    db_session.expire_all()
+    holding = db_session.get(Holding, uuid.UUID(created["id"]))
+    assert holding is not None
+    assert holding.shares == precise
+    assert holding.notes == "untouched shares"
+
+
+def test_patch_rejects_asset_class_write_as_unknown_field(app_client: TestClient) -> None:
+    """asset_class is always recomputed; HoldingPatch must not advertise it."""
+    created = app_client.post("/holdings", json=_PARSED_APPLE).json()
+    resp = app_client.patch(
+        f"/holdings/{created['id']}", json={"asset_class": "EQUITY_US_TECH", "notes": "x"}
+    )
+    # Extra fields are ignored (Pydantic default); notes still apply; stored
+    # asset_class stays the ticker-driven value, not the client-supplied one.
+    assert resp.status_code == 200
+    assert resp.json()["notes"] == "x"
+    assert resp.json()["asset_class"] == "STOCK"
+
+
+def test_create_holding_locks_before_assigning_position(app_client: TestClient) -> None:
+    first = app_client.post("/holdings", json=_PARSED_APPLE)
+    second = app_client.post("/holdings", json=_PARSED_CASH)
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.json()["position"] == 0
+    assert second.json()["position"] == 1

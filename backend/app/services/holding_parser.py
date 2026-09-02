@@ -18,6 +18,7 @@ from pydantic import ValidationError
 from app.core.config import OR_ATTRIBUTION_HEADERS, get_settings
 from app.core.llm import structured_provider
 from app.schemas.holdings import (
+    KNOWN_ISSUE_CODES,
     VALID_ASSET_TYPES,
     VALID_CURRENCIES,
     BrokerGroup,
@@ -27,6 +28,7 @@ from app.schemas.holdings import (
     UploadPreview,
 )
 from app.services.asset_class_config import VALID_ASSET_CLASSES
+from app.services.holdings_export import DIALECT_TAG_KEYS
 from app.services.llm_errors import (
     LLMCallError,
     LLMEmptyResponseError,
@@ -124,9 +126,14 @@ Output a JSON object with exactly two keys:
   "account":       string | null,
   "portfolio":     string | null,
   "notes":         string | null,
-  "issues":        [string]  (optional inference notes; omit when not needed),
   "confidence":    number  (0.0-1.0; < 0.7 means the field values are uncertain)
 }
+
+Do not emit an "issues" array. The server attaches structured notes after
+extraction. When a field is uncertain, lower confidence instead of writing
+a free-text note. Trailing tags on a line (account: / portfolio: / notes: /
+asset_type: / market: / pricing_mode:) are structured fields — copy them
+onto the matching keys, unquoting values.
 
 --- issue_rows item schema ---
 {
@@ -142,7 +149,7 @@ Set "manual" when:
   - No ticker and no fund_code (e.g. cash, bank WMP, Alipay products), OR
   - Only a total current_value is given with no per-unit cost.
 When a row has both a ticker and a current_value but no shares: prefer "auto" and
-note the ambiguity in issues.
+lower confidence if the split is ambiguous.
 
 --- currency inference (apply in priority order) ---
 1. User explicitly states a currency code (USD, HKD, CNY, GBP, …) → use it.
@@ -160,8 +167,8 @@ note the ambiguity in issues.
    if broker is foreign (IBKR, Schwab, Fidelity, TD, Futu USD account) → USD;
    if broker is mainland Chinese → CNY;
    if broker is Hong Kong platform ($futu/Futu HKD, $stock_connect) → HKD;
-   if cannot determine → add note to issues, set confidence < 0.7.
-12. Otherwise: make best guess and add explanation to issues.
+   if cannot determine → set confidence < 0.7.
+12. Otherwise: make best guess and lower confidence if uncertain.
 
 --- asset_type inference ---
 - Has ticker with exchange suffix (.HK, .SS, .SZ) or well-known US ticker → "stock"
@@ -191,7 +198,7 @@ are missing, OR the format is completely unintelligible.
 
 Do not hallucinate tickers or fund codes — if uncertain, treat the field as
 unknown (see output compactness below for how an unknown field is rendered)
-and note it in issues rather than guessing.
+and lower confidence rather than guessing.
 
 --- output compactness (issue #84) ---
 "name", "currency", and "pricing_mode" are always required and always
@@ -233,6 +240,167 @@ def _strip_comments(text: str) -> str:
     """
     lines = [ln for ln in text.splitlines() if not ln.lstrip().startswith("#")]
     return "\n".join(lines)
+
+
+_TAG_TOKEN_RE = re.compile(
+    r"\s+(" + "|".join(DIALECT_TAG_KEYS) + r'):(?:"(?P<quoted>(?:\\.|[^"\\])*)"|(?P<bare>\S+))\s*$'
+)
+
+_ASSET_TYPE_ALIASES: dict[str, str] = {
+    "wealth-management": "wmf",
+    "wealth_management": "wmf",
+    "wmp": "wmf",
+    "wmf": "wmf",
+}
+
+
+def _unescape_tag(value: str) -> str:
+    out: list[str] = []
+    i = 0
+    while i < len(value):
+        if value[i] == "\\" and i + 1 < len(value):
+            out.append(value[i + 1])
+            i += 2
+        else:
+            out.append(value[i])
+            i += 1
+    return "".join(out)
+
+
+def split_tagged_fields(line: str) -> tuple[str, dict[str, str]]:
+    """Peel trailing key:value tags off a dialect line, right to left."""
+    tags: dict[str, str] = {}
+    rest = line.rstrip()
+    while True:
+        match = _TAG_TOKEN_RE.search(rest)
+        if not match:
+            break
+        key = match.group(1)
+        if match.group("quoted") is not None:
+            tags[key] = _unescape_tag(match.group("quoted"))
+        else:
+            tags[key] = match.group("bare") or ""
+        rest = rest[: match.start()]
+    return rest, tags
+
+
+def _is_num(token: str) -> bool:
+    try:
+        float(token.replace(",", ""))
+        return True
+    except ValueError:
+        return False
+
+
+def _parse_listed_tokens(tokens: list[str]) -> dict[str, Any] | None:
+    for i, tok in enumerate(tokens):
+        if tok.upper() not in VALID_CURRENCIES:
+            continue
+        if i < 1 or i + 2 >= len(tokens):
+            continue
+        if not (_is_num(tokens[i + 1]) and _is_num(tokens[i + 2])):
+            continue
+        ident = tokens[i - 1]
+        name = " ".join(tokens[: i - 1]).strip()
+        if not name:
+            continue
+        broker = " ".join(tokens[i + 3 :]).strip() or None
+        row: dict[str, Any] = {
+            "name": name,
+            "currency": tok.upper(),
+            "shares": float(tokens[i + 1].replace(",", "")),
+            "avg_cost": float(tokens[i + 2].replace(",", "")),
+            "broker": broker,
+            "pricing_mode": "auto",
+        }
+        if ident.isdigit() and len(ident) == 6:
+            row["fund_code"] = ident
+            row["ticker"] = None
+        else:
+            row["ticker"] = ident
+            row["fund_code"] = None
+        return row
+    return None
+
+
+def _parse_cash_tokens(tokens: list[str]) -> dict[str, Any] | None:
+    for i in range(len(tokens) - 1, 0, -1):
+        if tokens[i].upper() not in VALID_CURRENCIES:
+            continue
+        if not _is_num(tokens[i - 1]):
+            continue
+        name = " ".join(tokens[: i - 1]).strip()
+        if not name:
+            continue
+        broker = " ".join(tokens[i + 1 :]).strip() or None
+        return {
+            "name": name,
+            "ticker": None,
+            "fund_code": None,
+            "currency": tokens[i].upper(),
+            "shares": None,
+            "avg_cost": None,
+            "current_value": float(tokens[i - 1].replace(",", "")),
+            "broker": broker,
+            "pricing_mode": "manual",
+        }
+    return None
+
+
+def parse_dialect_line(line: str) -> dict[str, Any] | None:
+    """Parse one export-dialect line. Returns None if the line is not ours."""
+    stripped = line.strip()
+    if not stripped or stripped.lstrip().startswith("#"):
+        return None
+    rest, tags = split_tagged_fields(stripped)
+    tokens = rest.split()
+    if len(tokens) < 3:
+        return None
+    asset_type = tags.get("asset_type")
+    if asset_type is not None:
+        asset_type = _ASSET_TYPE_ALIASES.get(asset_type, asset_type)
+        tags["asset_type"] = asset_type
+    if asset_type in ("cash", "wmf"):
+        parsed = _parse_cash_tokens(tokens)
+    else:
+        parsed = _parse_listed_tokens(tokens)
+        if parsed is None and asset_type is None:
+            parsed = _parse_cash_tokens(tokens)
+    if parsed is None:
+        return None
+    for key, value in tags.items():
+        if value == "":
+            continue
+        parsed[key] = value
+    if "pricing_mode" not in parsed:
+        parsed["pricing_mode"] = "manual" if parsed.get("asset_type") in ("cash", "wmf") else "auto"
+    parsed.setdefault("issues", [])
+    parsed.setdefault("confidence", 1.0)
+    return parsed
+
+
+def try_parse_dialect(text: str) -> list[dict[str, Any]] | None:
+    """If every data line carries at least one trailing tag and parses, skip the LLM.
+
+    Untagged free-form uploads still go through the model. An export from
+    GET /holdings/export always includes tags, so re-import is deterministic.
+    """
+    lines = [ln.strip() for ln in _strip_comments(text).splitlines() if ln.strip()]
+    if not lines:
+        return None
+    rows: list[dict[str, Any]] = []
+    saw_tag = False
+    for ln in lines:
+        _rest, tags = split_tagged_fields(ln)
+        if tags:
+            saw_tag = True
+        parsed = parse_dialect_line(ln)
+        if parsed is None:
+            return None
+        rows.append(parsed)
+    if not saw_tag:
+        return None
+    return rows
 
 
 def _extract_text(file_bytes: bytes, filename: str) -> str:
@@ -420,28 +588,26 @@ _MARKET_ALIASES: dict[str, str] = {
 
 
 def _coerce_issue_list(raw: object) -> list[dict[str, Any]]:
-    """Normalize LLM/legacy string notes into IssueNote-shaped dicts."""
+    """Keep only deterministic postprocess codes; drop LLM free-text notes."""
     if not raw:
         return []
     if not isinstance(raw, list):
         return []
     out: list[dict[str, Any]] = []
     for item in raw:
-        if isinstance(item, str):
-            message = item.strip()
-            if message:
-                out.append(
-                    {"code": "parser_note", "params": {"message": message}, "severity": "info"}
-                )
-        elif isinstance(item, dict) and item.get("code"):
-            params = item.get("params") or {}
-            if not isinstance(params, dict):
-                params = {"message": str(params)}
-            str_params = {str(k): str(v) for k, v in params.items()}
-            severity = item.get("severity") or "info"
-            if severity not in ("info", "warning"):
-                severity = "info"
-            out.append({"code": str(item["code"]), "params": str_params, "severity": severity})
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("code") or "")
+        if code not in KNOWN_ISSUE_CODES:
+            continue
+        params = item.get("params") or {}
+        if not isinstance(params, dict):
+            params = {}
+        str_params = {str(k): str(v) for k, v in params.items()}
+        severity = item.get("severity") or "info"
+        if severity not in ("info", "warning"):
+            severity = "info"
+        out.append({"code": code, "params": str_params, "severity": severity})
     return out
 
 
@@ -797,7 +963,20 @@ def parse(text: str) -> UploadPreview:
     the first attempt). Each attempt is bounded to
     _PARSE_ATTEMPT_TIMEOUT_SECONDS and timed (issue #77) so a slow/hung
     provider is visible in logs and can't stall the whole call for minutes.
+
+    A file that is already in the export dialect (tagged trailing fields on
+    every data line) is parsed deterministically and never calls the LLM,
+    so export → replace-all re-import is full-fidelity (PR #310).
     """
+    dialect_rows = try_parse_dialect(text)
+    if dialect_rows is not None:
+        valid_rows = _postprocess(dialect_rows)
+        return UploadPreview(
+            valid_rows=valid_rows,
+            issue_rows=[],
+            broker_groups=_summarize(valid_rows),
+        )
+
     settings = get_settings()
     client = openai.OpenAI(
         api_key=settings.OPENROUTER_API_KEY.get_secret_value(),

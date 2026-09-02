@@ -125,17 +125,23 @@ area of the code, not just the one-line summary here.
   (`frontend/src/locales/*.json` for UI chrome; `backend/config/
   i18n_glossary.yml` for report output; `_VERIFICATION_EMAIL_COPY` in
   `backend/app/services/email_sender.py` for the one transactional
-  verification email, issue #260/PR #261 — three mechanisms, not one/two,
-  see the Mechanism deep-dives table) and are the only places where
-  non-English text legitimately appears in the repo. A lint rule
-  (`i18next/no-literal-string` in `frontend/eslint.config.mjs`) enforces
-  this for UI code. `_VERIFICATION_EMAIL_COPY` is deliberately its own
-  small dict rather than folded into either existing mechanism: the
-  next-intl catalog is browser-only and unreachable from this backend
-  module, and `i18n_glossary.yml` is built for large LLM-generated report
-  bodies, not a two-line transactional email — bare locale codes (`en`/
-  `zh`), matching `users.locale`/`OUTPUT_LANG`'s convention, not the
-  frontend catalog's BCP-47 `zh-Hans` tag.
+  verification email, issue #260/PR #261; `_RULES_ZH` / `_EXAMPLES_ZH` in
+  `backend/app/services/holdings_export.py` for the holdings
+  export/template dialect keyed off `users.locale`, issue #92/PR #310 —
+  four mechanisms, not one/two/three, see the Mechanism deep-dives table)
+  and are the only places where non-English text legitimately appears in
+  the repo. A lint rule (`i18next/no-literal-string` in
+  `frontend/eslint.config.mjs`) enforces this for UI code.
+  `_VERIFICATION_EMAIL_COPY` is deliberately its own small dict rather
+  than folded into either existing mechanism: the next-intl catalog is
+  browser-only and unreachable from this backend module, and
+  `i18n_glossary.yml` is built for large LLM-generated report bodies, not
+  a two-line transactional email — bare locale codes (`en`/`zh`), matching
+  `users.locale`/`OUTPUT_LANG`'s convention, not the frontend catalog's
+  BCP-47 `zh-Hans` tag. The holdings export/template strings stay in
+  `holdings_export.py` for the same reason: they are a downloaded file
+  dialect keyed off report language, not UI chrome, and are not report
+  glossary terms.
 
 ## Product Boundary (NEVER VIOLATE)
 

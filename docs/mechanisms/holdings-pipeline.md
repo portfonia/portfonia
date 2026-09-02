@@ -435,13 +435,19 @@ import stays on `/holdings`; row add/edit/delete/reorder lives on
 **Write paths (all owner-scoped; another user's id is 404, not 403):**
 
 - `POST /holdings` — one `ParsedRow` body, **no LLM / `holding_parser.parse()`**.
-  `position = max(position)+1`. Classifies `asset_class` the same way confirm
-  does. `backfill_sectors` + sparse OHLCV/NAV enqueue **only for the new
-  ticker/fund_code**. 201 `HoldingOut`.
-- `PATCH /holdings/{id}` — partial `HoldingPatch`. Re-validates the merged
-  row as `ParsedRow` (cash/wmf boundary, currency, asset_class). Re-resolves
-  `account_id` if broker/account/portfolio change (`archive_unreferenced=False`).
-  Clears `sector` and enqueues sparse capture if ticker/fund_code change.
+  Locks this user's holding rows (`FOR UPDATE`, plus the user row so an
+  empty book still serializes) then `position = max(position)+1`. Classifies
+  `asset_class` the same way confirm does. Sector fill is a Celery task
+  (`backfill_sectors_task`, commit in the worker) + sparse OHLCV/NAV enqueue
+  **only for the new ticker/fund_code** — the request does not wait on
+  yfinance. 201 `HoldingOut`.
+- `PATCH /holdings/{id}` — partial `HoldingPatch` (no `asset_class`; always
+  recomputed). Re-validates the merged row as `ParsedRow` (cash/wmf
+  boundary, currency). Untouched EncryptedDecimal money fields are not
+  rewritten through float. Re-resolves `account_id` if broker/account/
+  portfolio change (`archive_unreferenced=False`). On ticker/fund_code
+  change: clears `sector`, `market_price`, `price_as_of`, `price_fetched_at`
+  in the same commit, then enqueues sector backfill + sparse capture.
 - `DELETE /holdings/{id}` — that `Holding` row only. Does **not** touch
   `ticker_themes` or anomaly watermarks. 204.
 - `PATCH /holdings/reorder` — `{ "ids": [uuid, ...] }` must be a permutation
@@ -453,39 +459,46 @@ import stays on `/holdings`; row add/edit/delete/reorder lives on
 `mode` is omitted (safer than a silent full replace). Frontend always sends
 the query param explicitly.
 
-- `append` — insert only, positions from `max+1` in payload order. Never
-  updates existing rows; duplicate ticker+broker is a second lot. Does not
-  archive unreferenced accounts. Sparse enqueue only for the new rows.
-  Response is the **full book** (so the list UI is not wiped down to the
-  payload).
-- `replace` — today's full delete+reinsert + whole-book sector backfill and
-  sparse capture, and `archive_unreferenced=True`.
+- `append` — insert only, positions from `max+1` in payload order (same
+  `FOR UPDATE` lock as POST). Never updates existing rows; duplicate
+  ticker+broker is a second lot. Does not archive unreferenced accounts.
+  Sector + sparse enqueue only for the new rows. Response is the **full
+  book** (so the list UI is not wiped down to the payload).
+- `replace` — full delete+reinsert + enqueue whole-book sector backfill
+  and sparse capture (not inline yfinance), and `archive_unreferenced=True`.
 
 `Field(ge=0)` on `ParsedRow` still guards shares/avg_cost/current_value for
 these new writers too (encryption still prevents a DB CHECK — issue #113).
 
 **Parser preview notes:** `ParsedRow.issues` is `list[IssueNote]`
 (`{code, params, severity}`). Preview JSON only — not persisted on confirm.
-Legacy free-text notes in stored `UploadJob.preview` coerce to
-`parser_note`. Amber highlight is **only** `severity=warning` or
-`confidence<0.7`. Deterministic successful transforms (cash amount
-shares→current_value, drop spurious ticker on cash, HK/currency normalize)
-are `info`. Bare ticker + GBP stays unsuffixed with a warning suggesting
-`{ticker}.L` (do not auto-suffix; PSH stays on the #204 US + `PSH.L`
-override path). cash/wmf with no ticker → `market=Other`, including when
-the model inferred A-Share from a mainland bank broker. Listed auto tickers
-are **not** reclassified into Other. #252 Other capture remains out of
-scope.
+Only the deterministic postprocess whitelist (`KNOWN_ISSUE_CODES`) is kept;
+model-supplied free-text strings and unknown LLM codes are dropped (not
+wrapped as `parser_note` `{message}` — zh users would still see English).
+Amber highlight is **only** `severity=warning` or `confidence<0.7`.
+Deterministic successful transforms (cash amount shares→current_value, drop
+spurious ticker on cash, HK/currency normalize) are `info`. Bare ticker +
+GBP stays unsuffixed with a warning suggesting `{ticker}.L` (do not
+auto-suffix; PSH stays on the #204 US + `PSH.L` override path). cash/wmf
+with no ticker → `market=Other`, including when the model inferred A-Share
+from a mainland bank broker. Listed auto tickers are **not** reclassified
+into Other. #252 Other capture remains out of scope.
 
 **Export / template dialect:** `GET /holdings/export` and
 `GET /holdings/template` emit the `#####` comment-rules dialect (one
-holding per line, export ordered by `position`), round-tripable through the
-parser (`#####` lines already stripped). Locale is `users.locale` (report
-language `zh`/`en`), **not** the UI chrome locale. The template covers
-asset_type stock/etf/fund/cash/wmf and markets US/HK/A-Share/Other.
-User-facing copy must not say the letters w-m-f as jargon — English uses
-"wealth-management product"; the zh template uses the equivalent product
-name only inside the downloaded file.
+holding per line, export ordered by `position`). Locale is `users.locale`
+(report language `zh`/`en`), **not** the UI chrome locale. The positional
+prefix is still name / identifier / currency / shares / avg_cost / broker
+(or name / value / currency / broker for cash). Trailing tagged fields
+(`account:`, `portfolio:`, `notes:`, `asset_type:`, `market:`,
+`pricing_mode:`; quote a value that contains spaces) round-trip the
+columns the first dialect dropped, so export is a full-fidelity undo
+before replace-all. `asset_type:wmf` is written as `wealth-management` so
+user-facing copy still does not use the letters w-m-f as jargon. A file
+whose every data line carries at least one of those tags is parsed
+deterministically (`try_parse_dialect`) and never calls the LLM. Export
+`Content-Disposition` filename is `holdings-YYYYMMDD-HHMMSSZ.md` (UTC);
+the frontend reads that header rather than hardcoding `holdings.md`.
 
 **Frontend split:** `/holdings` is upload + parse preview + read-only
 current list (not clickable, no drag, no add, no delete). Append is

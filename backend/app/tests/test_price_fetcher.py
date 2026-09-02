@@ -175,3 +175,20 @@ def test_backfill_unknown_sector_becomes_other(db_session: Session) -> None:
 
     rows = {h.ticker: h for h in db_session.query(Holding).all()}
     assert rows["0700.HK"].sector == "Other"
+
+
+def test_backfill_sectors_task_commits_sector_across_new_session(db_session: Session) -> None:
+    """The Celery task owns the commit so sector survives session close (PR #310)."""
+    holding = _auto("Apple", "AAPL")
+    db_session.add(holding)
+    db_session.commit()
+    holding_id = holding.id
+    with patch.object(price_fetcher, "_fetch_yf_sector", return_value="Technology"):
+        from app.tasks.capture_tasks import backfill_sectors_task
+
+        result = backfill_sectors_task.run([str(holding_id)])
+    assert result == {"updated": 1}
+    db_session.expire_all()
+    reloaded = db_session.get(Holding, holding_id)
+    assert reloaded is not None
+    assert reloaded.sector == "Technology"

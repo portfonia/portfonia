@@ -368,3 +368,46 @@ def capture_forward_events_task(self: Any) -> dict[str, int]:
         raise self.retry(exc=exc) from exc
     finally:
         session.close()
+
+
+@celery_app.task(  # type: ignore[untyped-decorator]
+    name="app.tasks.capture_tasks.backfill_sectors_task",
+    bind=True,
+    max_retries=1,
+    default_retry_delay=60,
+)
+def backfill_sectors_task(self: Any, holding_ids: list[str] | None = None) -> dict[str, int]:
+    """Populate sector for the given holding rows (issue #92 / PR #310).
+
+    Dispatched after POST/PATCH/confirm so the HTTP request does not wait
+    on yfinance. Commits here — a request-scoped flush after the router's
+    commit is rolled back when get_session() closes.
+    """
+    from uuid import UUID
+
+    from sqlalchemy import select
+
+    from app.core.database import SessionLocal
+    from app.models.holding import Holding
+    from app.services.price_fetcher import backfill_sectors
+
+    if not holding_ids:
+        logger.info("backfill_sectors_task: no holding ids requested")
+        return {"updated": 0}
+
+    session = SessionLocal()
+    try:
+        ids = [UUID(h) for h in holding_ids]
+        holdings = list(session.scalars(select(Holding).where(Holding.id.in_(ids))).all())
+        updated = backfill_sectors(session, holdings)
+        session.commit()
+        logger.info("backfill_sectors_task: updated %d row(s)", updated)
+        return {"updated": updated}
+    except Exception as exc:
+        session.rollback()
+        logger.exception("backfill_sectors_task: failed, scheduling retry")
+        if self.request.retries >= self.max_retries:
+            _capture_failed("backfill_sectors_task", exc)
+        raise self.retry(exc=exc) from exc
+    finally:
+        session.close()

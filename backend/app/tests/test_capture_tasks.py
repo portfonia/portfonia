@@ -298,3 +298,12 @@ def test_backfill_fund_navs_task_zero_writes_is_retryable(
         backfill_fund_navs_task.run(["513100"])
     mock_cap.assert_called_once()
     session.close.assert_called_once()
+
+
+def test_backfill_sectors_task_no_ids_is_noop() -> None:
+    from app.tasks.capture_tasks import backfill_sectors_task
+
+    with patch("app.core.database.SessionLocal") as mock_session_cls:
+        result = backfill_sectors_task.run()
+    assert result == {"updated": 0}
+    mock_session_cls.assert_not_called()

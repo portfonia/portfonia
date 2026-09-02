@@ -26,9 +26,8 @@ from app.services import holding_parser
 from app.services._yfinance import _normalize_ticker
 from app.services.accounts import resolve_accounts_for_holdings
 from app.services.holding_parser import _classify_asset_class
-from app.services.holdings_export import render_export, render_template
+from app.services.holdings_export import holdings_export_filename, render_export, render_template
 from app.services.markets import is_capture_supported, resolve_holding_market
-from app.services.price_fetcher import backfill_sectors
 from app.tasks.holdings_tasks import parse_holdings_upload
 
 logger = logging.getLogger(__name__)
@@ -191,6 +190,19 @@ def _enqueue_confirm_capture(task: Any, args: list[str], label: str, user_id: UU
         )
 
 
+def _lock_user_holdings(session: Session, user_id: UUID) -> None:
+    """Serialize concurrent inserts so max(position) cannot collide.
+
+    Locks this user's holding rows (`FOR UPDATE`). An empty book has nothing
+    to lock, so also lock the user row — two first-inserts must not both
+    read max=None and land on position 0.
+    """
+    from app.models.user import User
+
+    session.execute(select(User).where(User.id == user_id).with_for_update())
+    session.scalars(select(Holding).where(Holding.user_id == user_id).with_for_update()).all()
+
+
 def _next_position(session: Session, user_id: UUID) -> int:
     current = session.scalar(select(func.max(Holding.position)).where(Holding.user_id == user_id))
     if current is None:
@@ -293,6 +305,24 @@ def _enqueue_sparse_for(
             from app.tasks.capture_tasks import backfill_fund_navs_task
 
             _enqueue_confirm_capture(backfill_fund_navs_task, missing, "fund NAV capture", user_id)
+
+
+def _enqueue_sector_backfill(user_id: UUID, holdings: Sequence[Holding]) -> None:
+    """Fire-and-forget sector fill so POST/PATCH/confirm do not wait on yfinance.
+
+    The task opens its own session and commits — a request-scoped
+    sector flush after session.commit() is rolled back when
+    get_session() closes (PR #310).
+    """
+    ids = [str(h.id) for h in holdings]
+    if not ids:
+        return
+    from app.tasks.capture_tasks import backfill_sectors_task
+
+    _enqueue_confirm_capture(backfill_sectors_task, ids, "sector backfill", user_id)
+
+
+_MONEY_FIELDS = ("shares", "avg_cost", "current_value")
 
 
 def _holding_as_row_dict(holding: Holding) -> dict[str, Any]:
@@ -431,6 +461,7 @@ def confirm_holdings(
         start = 0
         archive = True
     else:
+        _lock_user_holdings(session, user_id)
         start = _next_position(session, user_id)
         archive = False
     inserted = _insert_from_rows(
@@ -441,8 +472,8 @@ def confirm_holdings(
         archive_unreferenced=archive,
     )
     session.commit()
+    _enqueue_sector_backfill(user_id, inserted)
     if mode == "replace":
-        backfill_sectors(session)
         tickers_needing_backfill = _tickers_with_sparse_history(session, user_id)
         if tickers_needing_backfill:
             from app.tasks.capture_tasks import backfill_ohlcv_task
@@ -458,7 +489,6 @@ def confirm_holdings(
                 backfill_fund_navs_task, fund_codes_needing_nav, "fund NAV capture", user_id
             )
     else:
-        backfill_sectors(session, inserted)
         _enqueue_sparse_for(session, user_id, inserted)
     return _sorted_holdings(
         session.scalars(select(Holding).where(Holding.user_id == user_id)).all()
@@ -484,6 +514,7 @@ def create_holding(
 ) -> Holding:
     """Create one holding from a structured body. Does not call the LLM."""
     user_id = principal.user_id
+    _lock_user_holdings(session, user_id)
     inserted = _insert_from_rows(
         session,
         user_id,
@@ -492,7 +523,7 @@ def create_holding(
         archive_unreferenced=False,
     )
     session.commit()
-    backfill_sectors(session, inserted)
+    _enqueue_sector_backfill(user_id, inserted)
     _enqueue_sparse_for(session, user_id, inserted)
     holding = inserted[0]
     session.refresh(holding)
@@ -530,10 +561,11 @@ def export_holdings(
         session.scalars(select(Holding).where(Holding.user_id == principal.user_id)).all()
     )
     md = render_export(list(rows), _report_locale(session, principal.user_id))
+    filename = holdings_export_filename()
     return Response(
         content=md,
         media_type="text/markdown",
-        headers={"Content-Disposition": "attachment; filename=holdings.md"},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -571,13 +603,22 @@ def update_holding(
     ticker_changed = "ticker" in updates and updates["ticker"] != holding.ticker
     fund_changed = "fund_code" in updates and updates["fund_code"] != holding.fund_code
     for field, value in data.items():
-        if field in ("shares", "avg_cost", "current_value") and value is not None:
-            value = Decimal(str(value))
+        if field in _MONEY_FIELDS:
+            # Untouched EncryptedDecimal columns must not round-trip through
+            # float (PR #310). Only rewrite money fields actually present
+            # in HoldingPatch.
+            if field not in updates:
+                continue
+            if value is not None:
+                value = Decimal(str(value))
         setattr(holding, field, value)
     if data["pricing_mode"] == "manual":
         holding.last_manual_update = datetime.now(tz=UTC)
-    if ticker_changed:
+    if ticker_changed or fund_changed:
         holding.sector = None
+        holding.market_price = None
+        holding.price_as_of = None
+        holding.price_fetched_at = None
     if account_fields_changed:
         account_ids = resolve_accounts_for_holdings(
             session,
@@ -588,7 +629,7 @@ def update_holding(
         holding.account_id = account_ids[0]
     session.commit()
     if ticker_changed or fund_changed:
-        backfill_sectors(session, [holding])
+        _enqueue_sector_backfill(principal.user_id, [holding])
         _enqueue_sparse_for(session, principal.user_id, [holding])
     session.refresh(holding)
     return holding
