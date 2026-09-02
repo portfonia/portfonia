@@ -93,7 +93,6 @@
     "summaryColCostBasis": "Cost basis",
     "issuesHeading": "Could not be parsed",
     "issuesCount": "{n, plural, one {# row will NOT be saved unless you fix them} other {# rows will NOT be saved unless you fix them}}",
-    "saveButton": "Save holdings",
     "saving": "Saving...",
     "skipOnboarding": "Skip for now",
     "cancelButton": "Cancel",
@@ -101,7 +100,6 @@
     "confirmBody": "{n, plural, one {# row could not be parsed and will be permanently discarded. This is your last chance to recover them. To keep them, download the file, fix the rows, and re-upload instead.} other {# rows could not be parsed and will be permanently discarded. This is your last chance to recover them. To keep them, download the file, fix the rows, and re-upload instead.}}",
     "confirmKeep": "Go back and fix",
     "confirmDiscard": "Discard and save",
-    "replaceWarning": "Replace all wipes your entire book. There is no snapshot yet — export first if you may need these rows back.",
     "colName": "Name",
     "colTicker": "Ticker",
     "colFundCode": "Fund code",
@@ -129,7 +127,7 @@
     "replaceAllButton": "Replace all holdings",
     "appendHint": "Append adds these rows after your current holdings. Duplicate ticker + broker becomes a second lot.",
     "replaceConfirmTitle": "Replace all holdings?",
-    "replaceConfirmBody": "This deletes every holding you currently have and inserts only the rows below. There is no snapshot or undo yet. Export your current holdings first if you might need them. Unparsed rows will also be discarded.",
+    "replaceConfirmBody": "This deletes every holding you currently have and inserts only the rows below. There is no snapshot or undo yet. Export your current holdings first if you might need them.{n, plural, =0 {} one { # unparsed row will also be discarded.} other { # unparsed rows will also be discarded.}}",
     "replaceConfirmAction": "Replace all",
     "onboardingBanner": "Setup is not finished. Return to the holdings upload step to save or skip.",
     "onboardingBannerLink": "Go to holdings upload",
@@ -179,6 +177,7 @@
     "marketEurope": "Europe",
     "marketJapan": "Japan",
     "marketKorea": "Korea",
+    "marketAuto": "Auto-detect from ticker",
     "marketOther": "Other",
     "emptyEditState": "No holdings yet. Add one, or import a file from the Holdings page.",
     "issueNotes": {
@@ -190,8 +189,7 @@
       "dropped_spurious_id": "Removed identifier {identifier} from a cash / wealth-management row (those products have no public ticker). Current handling: identifier dropped; amount is in current value.",
       "cash_amount_moved": "Moved the amount from shares into current value for this cash / wealth-management row. Current handling: valued from current value.",
       "cleared_residual_shares": "Cleared leftover shares/average cost on a cash / wealth-management row. Current handling: current value is authoritative.",
-      "ticker_no_suffix": "Bare ticker {ticker} with currency {currency} was kept as written (no suffix added). If this is a London listing, use {suggestion}.",
-      "parser_note": "{message}"
+      "ticker_no_suffix": "Bare ticker {ticker} with currency {currency} was kept as written (no suffix added). If this is a London listing, use {suggestion}."
     }
   },
   "questionnaire": {

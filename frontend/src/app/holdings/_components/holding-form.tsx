@@ -305,7 +305,7 @@ export function HoldingForm({
               value={form.market}
               onChange={(e) => set("market", e.target.value)}
             >
-              <option value="">{t("marketOther")}</option>
+              <option value="">{t("marketAuto")}</option>
               {MARKETS.map((m) => (
                 <option key={m} value={m}>
                   {m === "US"

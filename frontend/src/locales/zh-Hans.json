@@ -93,7 +93,6 @@
     "summaryColCostBasis": "成本基础",
     "issuesHeading": "无法解析",
     "issuesCount": "{n} 行未能解析，若不修正将不会被保存",
-    "saveButton": "保存持仓",
     "saving": "保存中...",
     "skipOnboarding": "暂时跳过",
     "cancelButton": "取消",
@@ -101,7 +100,6 @@
     "confirmBody": "{n} 行未能解析，将被永久放弃。这是恢复它们的最后机会。若要保留，请下载文件、修正后重新上传。",
     "confirmKeep": "返回修正",
     "confirmDiscard": "放弃并保存",
-    "replaceWarning": "替换全部会清空你现有的全部持仓。目前没有快照，如需留底请先导出。",
     "colName": "名称",
     "colTicker": "代码",
     "colFundCode": "基金代码",
@@ -129,7 +127,7 @@
     "replaceAllButton": "替换全部持仓",
     "appendHint": "追加会把这些行加到现有持仓后面。相同代码 + 券商会作为第二笔仓，不会合并。",
     "replaceConfirmTitle": "替换全部持仓？",
-    "replaceConfirmBody": "这将删除你目前的全部持仓，只保留下方解析出的行。目前没有快照或撤销。若可能还需要现有持仓，请先导出。未能解析的行也会被丢弃。",
+    "replaceConfirmBody": "这将删除你目前的全部持仓，只保留下方解析出的行。目前没有快照或撤销。若可能还需要现有持仓，请先导出。{n, plural, =0 {} other {另有 # 行未能解析，也会被丢弃。}}",
     "replaceConfirmAction": "替换全部",
     "onboardingBanner": "引导尚未完成。请回到持仓上传步骤保存或跳过。",
     "onboardingBannerLink": "前往持仓上传",
@@ -179,6 +177,7 @@
     "marketEurope": "欧洲",
     "marketJapan": "日本",
     "marketKorea": "韩国",
+    "marketAuto": "根据代码自动识别",
     "marketOther": "其他",
     "emptyEditState": "暂无持仓。在此新增，或到持仓页导入文件。",
     "issueNotes": {
@@ -190,8 +189,7 @@
       "dropped_spurious_id": "已从现金/理财行去掉标识 {identifier}（此类产品没有公开代码）。当前处理：标识已删除，金额记在当前价值。",
       "cash_amount_moved": "已将金额从份额挪到当前价值（现金/理财）。当前处理：按当前价值计价。",
       "cleared_residual_shares": "已清除现金/理财行残留的份额/平均成本。当前处理：以当前价值为准。",
-      "ticker_no_suffix": "无后缀代码 {ticker}（货币 {currency}）已按原样保留，未自动加后缀。若为伦敦上市，请使用 {suggestion}。",
-      "parser_note": "{message}"
+      "ticker_no_suffix": "无后缀代码 {ticker}（货币 {currency}）已按原样保留，未自动加后缀。若为伦敦上市，请使用 {suggestion}。"
     }
   },
   "questionnaire": {

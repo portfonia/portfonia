@@ -177,4 +177,39 @@ describe("HoldingsManager", () => {
       "/holdings/edit",
     );
   });
+
+  it("issues dialog save uses append even after opening replace", async () => {
+    const user = userEvent.setup();
+    const withIssues = {
+      ..._PREVIEW,
+      issue_rows: [{ raw: "bad", reason: "nope" }],
+    };
+    uploadHoldings.mockResolvedValue(withIssues);
+    renderManager();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["content"], "holdings.md", { type: "text/markdown" });
+    await user.upload(input, file);
+    await screen.findByText(/parsed holdings/i);
+    await user.click(screen.getByRole("button", { name: /append to holdings/i }));
+    await user.click(screen.getByRole("button", { name: /discard and save/i }));
+    await waitFor(() =>
+      expect(confirmHoldings).toHaveBeenCalledWith(withIssues.valid_rows, "append"),
+    );
+  });
+
+  it("replace dialog mentions the unparsed row count", async () => {
+    const user = userEvent.setup();
+    const withIssues = {
+      ..._PREVIEW,
+      issue_rows: [{ raw: "bad", reason: "nope" }],
+    };
+    uploadHoldings.mockResolvedValue(withIssues);
+    renderManager();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["content"], "holdings.md", { type: "text/markdown" });
+    await user.upload(input, file);
+    await screen.findByText(/parsed holdings/i);
+    await user.click(screen.getByRole("button", { name: /replace all holdings/i }));
+    expect(screen.getByText(/1 unparsed row will also be discarded/i)).toBeInTheDocument();
+  });
 });

@@ -6,7 +6,7 @@ const { logout } = vi.hoisted(() => ({
 
 vi.mock("@/lib/auth-actions", () => ({ logout }));
 
-import { ApiError, listHoldings } from "./api";
+import { ApiError, exportHoldings, listHoldings } from "./api";
 
 const originalFetch = global.fetch;
 
@@ -45,3 +45,26 @@ describe("listHoldings", () => {
     expect(logout).toHaveBeenCalledWith("expired");
   });
 });
+
+describe("exportHoldings", () => {
+  afterEach(() => {
+    global.fetch = originalFetch;
+    vi.resetAllMocks();
+  });
+
+  it("uses the Content-Disposition filename from GET /holdings/export", async () => {
+    global.fetch = vi.fn().mockResolvedValue(
+      new Response("##### export\n", {
+        status: 200,
+        headers: {
+          "Content-Type": "text/markdown",
+          "Content-Disposition": 'attachment; filename="holdings-20260902-051530Z.md"',
+        },
+      }),
+    );
+    const result = await exportHoldings();
+    expect(result.filename).toBe("holdings-20260902-051530Z.md");
+    expect(await result.blob.text()).toContain("##### export");
+  });
+});
+

@@ -58,7 +58,6 @@ export function HoldingsManager({
   const [error, setError] = useState<string | null>(null);
   const [issuesConfirmOpen, setIssuesConfirmOpen] = useState(false);
   const [replaceConfirmOpen, setReplaceConfirmOpen] = useState(false);
-  const pendingMode = useRef<ConfirmMode>("append");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const displayError = error ?? (initialLoadError ? t("errorLoadFailed") : null);
@@ -122,7 +121,6 @@ export function HoldingsManager({
 
   function onAppendClick() {
     if (!preview) return;
-    pendingMode.current = "append";
     if (preview.issue_rows.length > 0) {
       setIssuesConfirmOpen(true);
     } else {
@@ -132,13 +130,13 @@ export function HoldingsManager({
 
   function onReplaceClick() {
     if (!preview) return;
-    pendingMode.current = "replace";
     setReplaceConfirmOpen(true);
   }
 
   async function onExport() {
     try {
-      downloadFile(await exportHoldings(), "holdings.md");
+      const exported = await exportHoldings();
+      downloadFile(exported.blob, exported.filename);
     } catch (err) {
       if (isNextRedirectError(err)) throw err;
       setError(err instanceof ApiError ? err.message : String(err));
@@ -313,7 +311,7 @@ export function HoldingsManager({
             </AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
-              onClick={() => void doSave(pendingMode.current)}
+              onClick={() => void doSave("append")}
               disabled={saving}
             >
               {saving ? t("saving") : t("confirmDiscard")}
@@ -327,7 +325,7 @@ export function HoldingsManager({
           <AlertDialogHeader>
             <AlertDialogTitle>{t("replaceConfirmTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("replaceConfirmBody")}
+              {t("replaceConfirmBody", { n: preview?.issue_rows.length ?? 0 })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -24,16 +24,35 @@ export function rowNeedsAmber(row: ParsedRow): boolean {
   return row.confidence < 0.7 || row.issues.some((i) => i.severity === "warning");
 }
 
+// Keep in sync with backend KNOWN_ISSUE_CODES (app/schemas/holdings.py).
+export const ISSUE_NOTE_CODES = [
+  "unrecognized_asset_type",
+  "currency_normalized",
+  "ticker_normalized_hk",
+  "currency_corrected",
+  "unrecognized_currency",
+  "dropped_spurious_id",
+  "cash_amount_moved",
+  "cleared_residual_shares",
+  "ticker_no_suffix",
+] as const;
+
+type IssueNoteCode = (typeof ISSUE_NOTE_CODES)[number];
+
+const ISSUE_NOTE_CODE_SET = new Set<string>(ISSUE_NOTE_CODES);
+
+export function isKnownIssueCode(code: string): code is IssueNoteCode {
+  return ISSUE_NOTE_CODE_SET.has(code);
+}
+
 export function formatIssueNote(
   t: ReturnType<typeof useTranslations<"holdings">>,
   issue: IssueNote,
-): string {
-  const key = `issueNotes.${issue.code}` as "issueNotes.parser_note";
-  try {
-    return t(key, issue.params);
-  } catch {
-    return issue.params.message ?? issue.code;
+): string | null {
+  if (!isKnownIssueCode(issue.code)) {
+    return null;
   }
+  return t(`issueNotes.${issue.code}`, issue.params);
 }
 
 export function PreviewTable({ rows }: { rows: ParsedRow[] }) {
@@ -108,9 +127,10 @@ export function PreviewTable({ rows }: { rows: ParsedRow[] }) {
                   >
                     <p className="font-medium">{t("rowNotesLabel")}</p>
                     <ul className="ml-4 list-disc">
-                      {r.issues.map((issue, j) => (
-                        <li key={j}>{formatIssueNote(t, issue)}</li>
-                      ))}
+                      {r.issues.map((issue, j) => {
+                        const note = formatIssueNote(t, issue);
+                        return note ? <li key={j}>{note}</li> : null;
+                      })}
                     </ul>
                   </TableCell>
                 </TableRow>

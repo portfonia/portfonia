@@ -93,7 +93,6 @@
     "summaryColCostBasis": "成本基礎",
     "issuesHeading": "無法解析",
     "issuesCount": "{n} 筆未能解析，若不修正將不會被儲存",
-    "saveButton": "儲存持倉",
     "saving": "儲存中...",
     "skipOnboarding": "暫時跳過",
     "cancelButton": "取消",
@@ -101,7 +100,6 @@
     "confirmBody": "{n} 筆未能解析，將被永久放棄。這是復原它們的最後機會。若要保留，請下載檔案、修正後重新上傳。",
     "confirmKeep": "返回修正",
     "confirmDiscard": "放棄並儲存",
-    "replaceWarning": "取代全部會清空你現有的全部持倉。目前沒有快照，如需留底請先匯出。",
     "colName": "名稱",
     "colTicker": "代碼",
     "colFundCode": "基金代碼",
@@ -129,7 +127,7 @@
     "replaceAllButton": "取代全部持倉",
     "appendHint": "追加會把這些列加到現有持倉後面。相同代碼 + 券商會作為第二筆倉，不會合併。",
     "replaceConfirmTitle": "取代全部持倉？",
-    "replaceConfirmBody": "這將刪除你目前的全部持倉，只保留下方解析出的列。目前沒有快照或復原。若可能還需要現有持倉，請先匯出。未能解析的列也會被丟棄。",
+    "replaceConfirmBody": "這將刪除你目前的全部持倉，只保留下方解析出的列。目前沒有快照或復原。若可能還需要現有持倉，請先匯出。{n, plural, =0 {} other {另有 # 列未能解析，也會被丟棄。}}",
     "replaceConfirmAction": "取代全部",
     "onboardingBanner": "引導尚未完成。請回到持倉上傳步驟儲存或跳過。",
     "onboardingBannerLink": "前往持倉上傳",
@@ -179,6 +177,7 @@
     "marketEurope": "歐洲",
     "marketJapan": "日本",
     "marketKorea": "韓國",
+    "marketAuto": "根據代碼自動識別",
     "marketOther": "其他",
     "emptyEditState": "尚無持倉。在此新增，或到持倉頁匯入檔案。",
     "issueNotes": {
@@ -190,8 +189,7 @@
       "dropped_spurious_id": "已從現金/理財列去掉識別 {identifier}（此類產品沒有公開代碼）。目前處理：識別已刪除，金額記在目前價值。",
       "cash_amount_moved": "已將金額從股數挪到目前價值（現金/理財）。目前處理：按目前價值計價。",
       "cleared_residual_shares": "已清除現金/理財列殘留的股數/平均成本。目前處理：以目前價值為準。",
-      "ticker_no_suffix": "無後綴代碼 {ticker}（貨幣 {currency}）已按原樣保留，未自動加後綴。若為倫敦上市，請使用 {suggestion}。",
-      "parser_note": "{message}"
+      "ticker_no_suffix": "無後綴代碼 {ticker}（貨幣 {currency}）已按原樣保留，未自動加後綴。若為倫敦上市，請使用 {suggestion}。"
     }
   },
   "questionnaire": {

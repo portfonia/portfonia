@@ -6,6 +6,7 @@
 // section 10, frontend constraint 4). Keep these in sync until then.
 
 import { logout } from "@/lib/auth-actions";
+import { filenameFromContentDisposition } from "@/lib/template";
 
 export type PricingMode = "auto" | "manual";
 export type AssetType = "stock" | "etf" | "fund" | "cash" | "wmf" | "other";
@@ -282,10 +283,14 @@ export async function downloadHoldingsTemplate(): Promise<Blob> {
 
 // Export current holdings as a downloadable markdown file (same format as the
 // upload template) so the user can edit and re-upload. Returns a Blob.
-export async function exportHoldings(): Promise<Blob> {
+export async function exportHoldings(): Promise<{ blob: Blob; filename: string }> {
   const res = await fetch("/api/holdings/export", { cache: "no-store" });
   if (!res.ok) await throwOnHttpError(res);
-  return res.blob();
+  const filename = filenameFromContentDisposition(
+    res.headers.get("Content-Disposition"),
+    "holdings.md",
+  );
+  return { blob: await res.blob(), filename };
 }
 
 // Mirrors backend/app/schemas/questionnaire.py's QuestionnaireIn (issue #129

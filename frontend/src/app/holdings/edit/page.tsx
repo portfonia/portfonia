@@ -15,7 +15,7 @@ export default async function HoldingsEditPage() {
   }
   try {
     const me = await getMeServer();
-    onboardingIncomplete = me.missing.length > 0;
+    onboardingIncomplete = me.missing.includes("holdings");
   } catch (err) {
     if (isNextRedirectError(err)) throw err;
   }

@@ -98,4 +98,18 @@ describe("HoldingForm", () => {
     await waitFor(() => expect(updateHolding).toHaveBeenCalledWith(EXISTING.id, expect.any(Object)));
     expect(createHolding).not.toHaveBeenCalled();
   });
+
+  it("labels the empty market option auto-detect, distinct from Other", () => {
+    renderForm();
+    const select = screen.getByLabelText(/^market/i);
+    const options = [...select.querySelectorAll("option")].map((o) => ({
+      value: (o as HTMLOptionElement).value,
+      label: o.textContent,
+    }));
+    const empty = options.find((o) => o.value === "");
+    const other = options.find((o) => o.value === "Other");
+    expect(empty?.label).toMatch(/auto-detect from ticker/i);
+    expect(other?.label).toMatch(/^other$/i);
+    expect(empty?.label).not.toEqual(other?.label);
+  });
 });

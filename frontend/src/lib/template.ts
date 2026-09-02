@@ -1,5 +1,25 @@
 // Trigger a browser download of a Blob or string.
 
+export function filenameFromContentDisposition(
+  header: string | null,
+  fallback: string,
+): string {
+  if (!header) return fallback;
+  const star = /filename\*=(?:UTF-8''|utf-8'')([^;]+)/i.exec(header);
+  if (star?.[1]) {
+    try {
+      return decodeURIComponent(star[1].replace(/["']/g, "").trim());
+    } catch {
+      return star[1].trim();
+    }
+  }
+  const quoted = /filename="([^"]+)"/i.exec(header);
+  if (quoted?.[1]) return quoted[1];
+  const plain = /filename=([^;]+)/i.exec(header);
+  if (plain?.[1]) return plain[1].trim().replace(/^["']|["']$/g, "");
+  return fallback;
+}
+
 export function downloadFile(
   content: Blob | string,
   filename: string,

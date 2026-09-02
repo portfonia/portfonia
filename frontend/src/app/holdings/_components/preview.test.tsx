@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ParsedRow } from "@/lib/api";
-import { rowNeedsAmber } from "./preview";
+import { formatIssueNote, isKnownIssueCode, rowNeedsAmber } from "./preview";
 
 function row(partial: Partial<ParsedRow> = {}): ParsedRow {
   return {
@@ -62,3 +62,26 @@ describe("rowNeedsAmber", () => {
     expect(rowNeedsAmber(row({ confidence: 0.69, issues: [] }))).toBe(true);
   });
 });
+
+describe("formatIssueNote / known issue codes", () => {
+  it("recognizes deterministic postprocess codes and rejects unknown LLM codes", () => {
+    expect(isKnownIssueCode("ticker_no_suffix")).toBe(true);
+    expect(isKnownIssueCode("parser_note")).toBe(false);
+    expect(isKnownIssueCode("made_up_llm_code")).toBe(false);
+  });
+
+  it("returns null for unknown codes so the UI does not render a raw key path", () => {
+    const t = ((key: string) => key) as unknown as Parameters<typeof formatIssueNote>[0];
+    expect(
+      formatIssueNote(t, { code: "made_up_llm_code", params: { message: "en" }, severity: "info" }),
+    ).toBeNull();
+    expect(
+      formatIssueNote(t, {
+        code: "ticker_no_suffix",
+        params: { ticker: "PSH", currency: "GBP", suggestion: "PSH.L" },
+        severity: "warning",
+      }),
+    ).toBe("issueNotes.ticker_no_suffix");
+  });
+});
+
