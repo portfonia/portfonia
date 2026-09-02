@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
 from app.models.upload_job import UploadJob
+from app.services.holdings_export import MANUAL_LISTED_PLACEHOLDER
 from app.tests.conftest import TEST_USER_ID, seed_user
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -844,9 +845,12 @@ def test_export_flattens_newlines_and_is_not_a_pipe_table(
     assert "AAPL" in data_lines[0]
 
 
-def test_export_uses_report_locale_not_ui_locale(
+def test_export_uses_report_locale_when_no_locale_param_given(
     app_client: TestClient, db_session: Session
 ) -> None:
+    """issue #319 item 9: `_report_locale` (users.locale) is the fallback
+    when the caller omits the `locale` query param — unchanged from before
+    this batch."""
     from app.models.user import User
 
     user = db_session.get(User, TEST_USER_ID)
@@ -860,6 +864,40 @@ def test_export_uses_report_locale_not_ui_locale(
     db_session.commit()
     resp = app_client.get("/holdings/export")
     assert "一行一条" in resp.text
+
+
+def test_export_locale_param_takes_precedence_over_report_locale(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """issue #319 item 9: an explicit `locale` query param (the frontend's
+    UI locale) overrides users.locale (report language) — the two are
+    independently controllable."""
+    from app.models.user import User
+
+    user = db_session.get(User, TEST_USER_ID)
+    assert user is not None
+    user.locale = "zh"
+    db_session.commit()
+
+    resp = app_client.get("/holdings/export?locale=en")
+    assert "One holding per line" in resp.text
+    assert "一行一条" not in resp.text
+
+    user.locale = "en"
+    db_session.commit()
+    resp = app_client.get("/holdings/export?locale=zh")
+    assert "一行一条" in resp.text
+
+
+def test_export_locale_param_unrecognized_value_falls_back_to_english(
+    app_client: TestClient,
+) -> None:
+    """A locale render_rules does not recognize (e.g. zh-Hant, still gated
+    out of the frontend switcher) falls back to English rather than 404ing
+    or erroring — this endpoint does not itself validate the value."""
+    resp = app_client.get("/holdings/export?locale=zh-Hant")
+    assert resp.status_code == 200
+    assert "One holding per line" in resp.text
 
 
 def test_export_round_trips_through_comment_strip(app_client: TestClient) -> None:
@@ -920,6 +958,21 @@ def test_template_zh_uses_wealth_management_wording(
     body = app_client.get("/holdings/template").text
     assert "理财产品" in body
     assert "wmf" not in body.lower()
+
+
+def test_template_locale_param_takes_precedence_over_report_locale(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """issue #319 item 9, template's sibling of the export test above."""
+    from app.models.user import User
+
+    user = db_session.get(User, TEST_USER_ID)
+    assert user is not None
+    user.locale = "en"
+    db_session.commit()
+
+    resp = app_client.get("/holdings/template?locale=zh")
+    assert "理财产品" in resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -1173,7 +1226,13 @@ def test_export_filename_is_utc_timestamp(
     assert 'filename="holdings-20260902-051530Z.md"' in resp.headers["content-disposition"]
 
 
-def test_export_includes_tagged_optional_fields(app_client: TestClient) -> None:
+def test_export_omits_trailing_dialect_tags(app_client: TestClient) -> None:
+    """issue #319 item 8: the product owner had the trailing
+    `account:`/`portfolio:`/`notes:`/`asset_type:`/`market:`/`pricing_mode:`
+    tag segment removed from export output, on record as accepting that
+    this retires the deterministic re-upload fast path (see the sibling
+    test below) — those fields simply do not survive an export/re-import
+    round trip any more."""
     row = {
         **_PARSED_APPLE,
         "account": "IRA",
@@ -1188,36 +1247,24 @@ def test_export_includes_tagged_optional_fields(app_client: TestClient) -> None:
     data_lines = [ln for ln in body.splitlines() if ln and not ln.lstrip().startswith("#")]
     assert len(data_lines) == 1
     line = data_lines[0]
-    assert "account:IRA" in line
-    assert 'portfolio:"Growth Sleeve"' in line
-    assert 'notes:"core holding"' in line
-    assert "asset_type:stock" in line
-    assert "market:US" in line
-    assert "pricing_mode:auto" in line
+    assert "Apple" in line
+    assert "AAPL" in line
+    for tag in ("account:", "portfolio:", "notes:", "asset_type:", "market:", "pricing_mode:"):
+        assert tag not in line
 
 
-def test_export_dialect_round_trips_tagged_fields_without_llm(app_client: TestClient) -> None:
-    row = {
-        **_PARSED_APPLE,
-        "account": "IRA",
-        "portfolio": "Taxable",
-        "notes": "keep me",
-        "market": "US",
-    }
+def test_export_no_longer_triggers_the_dialect_fast_path(app_client: TestClient) -> None:
+    """The explicit tradeoff behind item 8: `try_parse_dialect` requires
+    every line to carry at least one trailing tag, so an export with no
+    tags never matches it any more — re-uploading now always falls through
+    to the LLM path. Asserted directly against `try_parse_dialect` (not a
+    full `parse()` round trip) so this test needs no LLM mock."""
+    row = {**_PARSED_APPLE, "account": "IRA", "portfolio": "Taxable", "notes": "keep me"}
     app_client.post("/holdings/confirm?mode=replace", json=[row])
     body = app_client.get("/holdings/export").text
-    from app.services.holding_parser import parse
+    from app.services.holding_parser import try_parse_dialect
 
-    preview = parse(body)
-    assert len(preview.valid_rows) == 1
-    parsed = preview.valid_rows[0]
-    assert parsed.account == "IRA"
-    assert parsed.portfolio == "Taxable"
-    assert parsed.notes == "keep me"
-    assert parsed.asset_type == "stock"
-    assert parsed.market == "US"
-    assert parsed.pricing_mode == "auto"
-    assert parsed.ticker == "AAPL"
+    assert try_parse_dialect(body) is None
 
 
 def test_create_holding_enqueues_sector_backfill_not_sync_yfinance(
@@ -1315,10 +1362,15 @@ def test_create_holding_locks_before_assigning_position(app_client: TestClient) 
     assert second.json()["position"] == 1
 
 
-def test_export_manual_non_cash_round_trips_shares_avg_cost_and_current_value_without_llm(
+def test_export_manual_non_cash_emits_shares_avg_cost_and_current_value(
     app_client: TestClient,
 ) -> None:
-    """Manual non-cash must export shares+avg_cost+current_value so cost basis survives."""
+    """Manual non-cash must export shares+avg_cost+current_value so cost
+    basis survives — unaffected by item 8 (that removed the trailing tag
+    segment, not this manual-listed positional emission). No round trip
+    through `parse()` here any more: without a tag, `try_parse_dialect`
+    never fires (see test_export_no_longer_triggers_the_dialect_fast_path
+    above), so this is a pure export-format assertion."""
     row: dict[str, object] = {
         "name": "Family house",
         "ticker": "HOME",
@@ -1341,64 +1393,21 @@ def test_export_manual_non_cash_round_trips_shares_avg_cost_and_current_value_wi
     body = app_client.get("/holdings/export").text
     data_lines = [ln for ln in body.splitlines() if ln and not ln.lstrip().startswith("#")]
     assert len(data_lines) == 1
-    assert "pricing_mode:manual" in data_lines[0]
-    from app.services.holding_parser import parse
-
-    with patch("app.services.holding_parser._parse_attempt") as mock_attempt:
-        preview = parse(body)
-    mock_attempt.assert_not_called()
-    assert len(preview.valid_rows) == 1
-    parsed = preview.valid_rows[0]
-    assert parsed.shares == 1.0
-    assert parsed.avg_cost == 240000.0
-    assert parsed.current_value == 250000.0
-    assert parsed.pricing_mode == "manual"
-    assert parsed.ticker == "HOME"
-    assert preview.issue_rows == []
+    line = data_lines[0]
+    assert "HOME" in line
+    assert "1" in line
+    assert "240000" in line
+    assert "250000" in line
+    assert "pricing_mode:" not in line
 
 
-def test_export_manual_non_cash_value_only_still_round_trips_without_llm(
-    app_client: TestClient,
-) -> None:
-    """A manual listed row with only current_value still parses without the LLM."""
-    row: dict[str, object] = {
-        "name": "Family house",
-        "ticker": "HOME",
-        "fund_code": None,
-        "currency": "USD",
-        "shares": None,
-        "avg_cost": None,
-        "current_value": 250000.0,
-        "pricing_mode": "manual",
-        "asset_type": "other",
-        "broker": "IBKR",
-        "account": None,
-        "portfolio": None,
-        "notes": None,
-        "issues": [],
-        "confidence": 1.0,
-    }
-    resp = app_client.post("/holdings", json=row)
-    assert resp.status_code == 201
-    body = app_client.get("/holdings/export").text
-    from app.services.holding_parser import parse
-
-    with patch("app.services.holding_parser._parse_attempt") as mock_attempt:
-        preview = parse(body)
-    mock_attempt.assert_not_called()
-    assert preview.valid_rows[0].current_value == 250000.0
-    assert preview.valid_rows[0].shares is None
-    assert preview.valid_rows[0].avg_cost is None
-
-
-def test_export_manual_non_cash_missing_avg_cost_round_trips_without_fabricating_cost_basis(
+def test_export_manual_non_cash_missing_avg_cost_uses_placeholder_not_fabricated(
     app_client: TestClient,
 ) -> None:
     """PR #310 round 5: shares + current_value known, avg_cost unknown must
-    not turn current_value into a fabricated avg_cost on re-import — the
-    round-4 bug (present-only positional export) cannot distinguish this
-    from 'shares + avg_cost, no current_value', and a fabricated cost basis
-    is worse than a missing one since nothing downstream can tell it's wrong."""
+    still be placeholder-marked (`-`), not omitted — an omitted slot is
+    unrecoverable to a reader/parser trying to tell it apart from 'shares +
+    avg_cost, no current_value' by position count alone."""
     row: dict[str, object] = {
         "name": "Family house",
         "ticker": "HOME",
@@ -1419,20 +1428,13 @@ def test_export_manual_non_cash_missing_avg_cost_round_trips_without_fabricating
     resp = app_client.post("/holdings", json=row)
     assert resp.status_code == 201
     body = app_client.get("/holdings/export").text
-    from app.services.holding_parser import parse
-
-    with patch("app.services.holding_parser._parse_attempt") as mock_attempt:
-        preview = parse(body)
-    mock_attempt.assert_not_called()
-    assert len(preview.valid_rows) == 1
-    parsed = preview.valid_rows[0]
-    assert parsed.shares == 1.0
-    assert parsed.avg_cost is None
-    assert parsed.current_value == 250000.0
-    assert preview.issue_rows == []
+    data_lines = [ln for ln in body.splitlines() if ln and not ln.lstrip().startswith("#")]
+    assert len(data_lines) == 1
+    tokens = data_lines[0].split()
+    assert MANUAL_LISTED_PLACEHOLDER in tokens
 
 
-def test_export_manual_non_cash_missing_shares_round_trips_without_corrupting_fields(
+def test_export_manual_non_cash_missing_shares_uses_placeholder_not_fabricated(
     app_client: TestClient,
 ) -> None:
     """The inverse gap: avg_cost + current_value known, shares unknown."""
@@ -1456,20 +1458,15 @@ def test_export_manual_non_cash_missing_shares_round_trips_without_corrupting_fi
     resp = app_client.post("/holdings", json=row)
     assert resp.status_code == 201
     body = app_client.get("/holdings/export").text
-    from app.services.holding_parser import parse
-
-    with patch("app.services.holding_parser._parse_attempt") as mock_attempt:
-        preview = parse(body)
-    mock_attempt.assert_not_called()
-    parsed = preview.valid_rows[0]
-    assert parsed.shares is None
-    assert parsed.avg_cost == 25000.0
-    assert parsed.current_value == 280000.0
-    assert preview.issue_rows == []
+    data_lines = [ln for ln in body.splitlines() if ln and not ln.lstrip().startswith("#")]
+    assert len(data_lines) == 1
+    tokens = data_lines[0].split()
+    assert MANUAL_LISTED_PLACEHOLDER in tokens
 
 
 def test_export_cash_emits_current_value_only(app_client: TestClient) -> None:
-    """Cash/wmf have no cost basis today — export is value-only, not shares/avg_cost."""
+    """Cash/wmf have no cost basis today — export is value-only, not
+    shares/avg_cost, and (item 8) carries no trailing pricing_mode tag."""
     resp = app_client.post("/holdings", json=_PARSED_CASH)
     assert resp.status_code == 201
     body = app_client.get("/holdings/export").text
@@ -1478,16 +1475,7 @@ def test_export_cash_emits_current_value_only(app_client: TestClient) -> None:
     line = data_lines[0]
     assert "15000" in line
     assert "USD Cash" in line
-    assert "pricing_mode:manual" in line
-    from app.services.holding_parser import parse
-
-    with patch("app.services.holding_parser._parse_attempt") as mock_attempt:
-        preview = parse(body)
-    mock_attempt.assert_not_called()
-    assert preview.valid_rows[0].current_value == 15000.0
-    assert preview.valid_rows[0].shares is None
-    assert preview.valid_rows[0].avg_cost is None
-    assert preview.valid_rows[0].asset_type == "cash"
+    assert "pricing_mode:" not in line
 
 
 def test_create_holding_force_suffixes_psh_and_persists_market_uk(

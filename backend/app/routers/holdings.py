@@ -619,13 +619,20 @@ def reorder_holdings(
 
 @router.get("/export")
 def export_holdings(
+    locale: str | None = Query(None),
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
 ) -> Response:
+    """`locale`, when given, is the frontend's current UI locale (issue #319
+    item 9) and takes precedence over the report-language fallback below.
+    Any locale `render_rules` does not recognize falls back to English
+    there — this endpoint does not itself validate the value.
+    """
     rows = _sorted_holdings(
         session.scalars(select(Holding).where(Holding.user_id == principal.user_id)).all()
     )
-    md = render_export(list(rows), _report_locale(session, principal.user_id))
+    effective_locale = locale if locale is not None else _report_locale(session, principal.user_id)
+    md = render_export(list(rows), effective_locale)
     filename = holdings_export_filename()
     return Response(
         content=md,
@@ -636,10 +643,13 @@ def export_holdings(
 
 @router.get("/template")
 def holdings_template(
+    locale: str | None = Query(None),
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
 ) -> Response:
-    md = render_template(_report_locale(session, principal.user_id))
+    """Same `locale` precedence as GET /holdings/export above."""
+    effective_locale = locale if locale is not None else _report_locale(session, principal.user_id)
+    md = render_template(effective_locale)
     return Response(
         content=md,
         media_type="text/markdown",

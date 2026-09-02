@@ -1,13 +1,25 @@
 # ruff: noqa: RUF001
-"""Holdings export / template dialect (issue #92).
+"""Holdings export / template dialect (issue #92; #319 follow-up).
 
-`#####` comment rules + one holding per line, locale from `users.locale`
-(report language zh/en), not the UI locale. Round-tripable through
-`holding_parser._strip_comments` / `_extract_text` / `try_parse_dialect`.
+`#####` comment rules + one holding per line. Locale is caller-supplied
+(issue #319 item 9): `GET /holdings/export`/`GET /holdings/template` pass
+the frontend's current UI locale, not `users.locale` (report language) —
+see the router.
 
 Trailing tagged fields (`account:`, `portfolio:`, `notes:`, `asset_type:`,
-`market:`, `pricing_mode:`) carry the columns the positional dialect used
-to drop. Values with spaces are double-quoted.
+`market:`, `pricing_mode:`) used to carry the columns the positional
+dialect drops, and doubled as a marker `holding_parser.try_parse_dialect`
+detected to skip the LLM entirely on a re-uploaded export (PR #310).
+Issue #319 item 8 removes the tag segment from export/template output on
+product-owner request, **explicitly accepting** that a re-uploaded
+exported file no longer hits that fast path — it now parses like any
+other free-form file, via the LLM, same result but no longer free/fast.
+`DIALECT_TAG_KEYS` and `holding_parser.try_parse_dialect`/
+`split_tagged_fields`/`parse_dialect_line` stay in place, unmodified and
+still reachable by a hand-written tagged file — they just have no export
+producing that input anymore, so `_render_tags` below is now unused by
+`render_holding_line` and kept only for a user who wants to write the
+tagged form by hand (see issue #319 investigation comment).
 
 Cost basis is load-bearing: future return/yield depends on average holding
 cost, and `price_snapshots` is market data, not what the user paid. Export
@@ -185,16 +197,21 @@ def render_holding_line(holding: Holding) -> str:
             _fmt_num(holding.avg_cost),
             broker,
         ]
-    head = " ".join(p for p in parts if p)
-    tags = _render_tags(holding)
-    return f"{head} {tags}".strip() if tags else head
+    return " ".join(p for p in parts if p)
+
+
+# Locale-keyed dispatch (issue #319 item 9) replacing the old `locale == "zh"`
+# ternary — a locale not present here (including a future zh-Hant) falls back
+# to "en", same as the ternary's implicit else did.
+_RULES_BY_LOCALE: dict[str, str] = {"en": _RULES_EN, "zh": _RULES_ZH}
+_EXAMPLES_BY_LOCALE: dict[str, str] = {"en": _EXAMPLES_EN, "zh": _EXAMPLES_ZH}
 
 
 def render_rules(locale: str, *, include_examples: bool) -> str:
-    rules = _RULES_ZH if locale == "zh" else _RULES_EN
+    rules = _RULES_BY_LOCALE.get(locale, _RULES_BY_LOCALE["en"])
     if not include_examples:
         return rules
-    examples = _EXAMPLES_ZH if locale == "zh" else _EXAMPLES_EN
+    examples = _EXAMPLES_BY_LOCALE.get(locale, _EXAMPLES_BY_LOCALE["en"])
     return rules + examples
 
 
