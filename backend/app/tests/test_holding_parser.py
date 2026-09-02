@@ -12,7 +12,7 @@ import pytest
 
 from app.core import llm
 from app.core.config import get_settings
-from app.schemas.holdings import UploadPreview
+from app.schemas.holdings import ParsedRow, UploadPreview
 from app.services import holding_parser as holding_parser_module
 from app.services.holding_parser import (
     _classify_asset_class,
@@ -25,11 +25,11 @@ from app.services.holding_parser import (
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
-def _issue_codes(row) -> list[str]:
+def _issue_codes(row: ParsedRow) -> list[str]:
     return [i.code for i in row.issues]
 
 
-def _issue_haystack(row) -> str:
+def _issue_haystack(row: ParsedRow) -> str:
     parts: list[str] = []
     for issue in row.issues:
         parts.append(issue.code)
