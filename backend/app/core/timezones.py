@@ -17,5 +17,25 @@ CST = ZoneInfo("Asia/Shanghai")
 # Hong Kong — HKEX clock (no DST; constant UTC+8).
 HKT = ZoneInfo("Asia/Hong_Kong")
 
+# LSE — DST-aware Europe/London (issue #311).
+LONDON = ZoneInfo("Europe/London")
+
+# Euronext / Xetra — DST-aware Europe/Berlin (issue #311).
+BERLIN = ZoneInfo("Europe/Berlin")
+
+# TSE — no DST.
+JST = ZoneInfo("Asia/Tokyo")
+
+# KRX — no DST.
+KST = ZoneInfo("Asia/Seoul")
+
 # Market bucket → local clock, for stamping intraday capture trade_date.
-MARKET_TZ = {"US": ET, "HK": HKT, "A-Share": CST}
+MARKET_TZ = {
+    "US": ET,
+    "HK": HKT,
+    "A-Share": CST,
+    "UK": LONDON,
+    "Europe": BERLIN,
+    "Japan": JST,
+    "Korea": KST,
+}

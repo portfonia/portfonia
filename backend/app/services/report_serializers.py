@@ -127,6 +127,7 @@ def _serialize_portfolio(snap: PortfolioSnapshot) -> dict[str, Any]:
             ),
             "price_as_of": hv.price_as_of.isoformat() if hv.price_as_of else None,
             "position": hv.position if hv.position is not None else 1_000_000,
+            "capture_supported": hv.capture_supported,
         }
         for hv in snap.holdings
     ]

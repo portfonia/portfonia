@@ -22,12 +22,11 @@ from app.core.alert_dedup import already_alerted, mark_alerted
 from app.core.timezones import CST, MARKET_TZ
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
-from app.services._yfinance import _market_key_for_ticker, fetch_ohlcv_range, fetch_spot
+from app.services._yfinance import fetch_ohlcv_range, fetch_spot
 from app.services.email_sender import send_ops_alert
+from app.services.markets import is_capture_supported, market_from_ticker
 
 logger = logging.getLogger(__name__)
-
-_MARKET_KEY = {"us": "US", "hk": "HK", "cn": "A-Share"}
 
 # PostgreSQL/psycopg hard-cap a single query at 65535 bound parameters.
 # Close-node rows bind 10 params each, so 6553 rows is the theoretical
@@ -36,18 +35,37 @@ _UPSERT_CHUNK_SIZE = 2000
 
 
 def _effective_market(h: Holding) -> str:
-    """User-declared market wins; otherwise derive from the ticker."""
+    """User-declared market wins; otherwise derive from the ticker.
+
+    Unknown suffixes resolve to Other. Capture still keys off
+    ``is_capture_supported`` and never fetches Other.
+    """
     if h.market:
         return h.market
-    return _MARKET_KEY.get(_market_key_for_ticker(h.ticker or ""), "Other")
+    inferred = market_from_ticker(h.ticker)
+    if inferred:
+        return inferred
+    if h.fund_code:
+        return "A-Share"
+    return "Other"
 
 
 def _market_tickers(session: Session, market: str) -> list[str]:
-    """Auto-priced holdings tickers whose effective market is `market`."""
+    """Auto-priced holdings tickers whose effective market is `market`.
+
+    Holdings with capture_supported=False are never included, so capture
+    never attempts a speculative yfinance lookup for unsupported markets.
+    """
     holdings = session.execute(
         select(Holding).where(Holding.ticker.is_not(None), Holding.pricing_mode == "auto")
     ).scalars()
-    return sorted({h.ticker for h in holdings if h.ticker and _effective_market(h) == market})
+    return sorted(
+        {
+            h.ticker
+            for h in holdings
+            if h.ticker and is_capture_supported(h) and _effective_market(h) == market
+        }
+    )
 
 
 def _upsert(session: Session, rows: list[dict[str, object]]) -> int:

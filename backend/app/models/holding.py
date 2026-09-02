@@ -5,6 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     ForeignKey,
     ForeignKeyConstraint,
@@ -22,6 +23,7 @@ from app.models.base import Base
 from app.models.user import User
 from app.schemas.holdings import VALID_ASSET_TYPES, VALID_CURRENCIES, VALID_PRICING_MODES
 from app.services.asset_class_config import VALID_ASSET_CLASSES
+from app.services.markets import VALID_HOLDING_MARKETS
 
 
 def _in_list_sql(column: str, values: tuple[str, ...]) -> str:
@@ -53,6 +55,13 @@ class Holding(Base):
         CheckConstraint(_in_list_sql("currency", tuple(VALID_CURRENCIES)), name="currency"),
         CheckConstraint(
             _in_list_sql("asset_class", tuple(VALID_ASSET_CLASSES)), name="asset_class"
+        ),
+        # Issue #311: closed set including Other as a legitimate fallback.
+        # NULL still means "not declared" (derive at compute time). Bare
+        # token "market" renders ck_holdings_market via naming_convention.
+        CheckConstraint(
+            "(market IS NULL) OR " + _in_list_sql("market", tuple(VALID_HOLDING_MARKETS)),
+            name="market",
         ),
         # Composite, not a single-column FK on account_id alone (review, PR
         # #247): a single-column FK only guarantees the account exists, not
@@ -100,9 +109,15 @@ class Holding(Base):
     # sector below is retained only for forward-event holding-relevance mapping.
     asset_class: Mapped[str] = mapped_column(Text, nullable=False, server_default="STOCK")
     sector: Mapped[str | None] = mapped_column(Text)  # GICS-style; forward-event mapping only
-    # User-declared market bucket (US / HK / A-Share / Other), preserved from the
-    # upload. NULL = not declared → derived from ticker at compute time.
+    # User-declared market bucket (closed set — see VALID_HOLDING_MARKETS).
+    # NULL = not declared → derived from ticker at compute time.
     market: Mapped[str | None] = mapped_column(Text)
+    # Explicit not-processed flag (issue #311). False when the ticker does
+    # not resolve into a scheduled capture bucket. Never infer this from
+    # market == "Other" — Other is a legitimate stored value.
+    capture_supported: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true"), default=True
+    )
     # Row order in the uploaded file, so reports can mirror the user's layout.
     position: Mapped[int | None] = mapped_column(Integer)
     broker: Mapped[str | None] = mapped_column(EncryptedString)

@@ -82,6 +82,8 @@
     "previewHeading": "已解析持倉",
     "previewValidCount": "{n} 筆可儲存",
     "inferredNote": "系統自動推斷了部分欄位——請檢查標示的資料列。",
+    "unsupportedCaptureBanner": "{n} 筆持倉所在市場暫不自動定價。仍會儲存，但報告會標記為未處理，不會編造價格。",
+    "unsupportedCaptureBadge": "市場暫不支援",
     "rowNotesLabel": "潛在問題及處理方式：",
     "summaryHeading": "按機構交叉核對",
     "summaryHint": "僅根據你上傳檔案中的資料計算（股數 x 平均成本，或你提供的價值）——不會擷取目前市場價格。這是成本基礎的交叉核對，用於確認每筆持倉歸入了正確的機構，而非即時估值。",

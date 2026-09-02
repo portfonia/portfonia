@@ -82,6 +82,8 @@
     "previewHeading": "已解析持仓",
     "previewValidCount": "{n} 行可保存",
     "inferredNote": "系统自动推断了部分字段——请检查高亮行。",
+    "unsupportedCaptureBanner": "{n} 笔持仓所在市场暂不自动定价。仍会保存，但报告会标记为未处理，不会编造价格。",
+    "unsupportedCaptureBadge": "市场暂不支持",
     "rowNotesLabel": "潜在问题及处理方式：",
     "summaryHeading": "按机构交叉核对",
     "summaryHint": "仅基于你上传文件中的数据计算（份额 x 平均成本，或你提供的价值）——不会拉取当前市场价格。这是成本基础的交叉核对，用于确认每笔持仓归入了正确的机构，而非实时估值。",

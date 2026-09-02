@@ -16,11 +16,12 @@ duplicates. Run once after seeding holdings:
 from __future__ import annotations
 
 from app.core.database import SessionLocal
+from app.services.markets import CAPTURE_MARKET_ORDER
 from app.services.price_capture import capture_prices
 
 # One trading year is ~252 sessions; 420 calendar days comfortably covers it.
 _LOOKBACK_DAYS = 420
-_MARKETS = ("US", "HK", "A-Share")
+_MARKETS = CAPTURE_MARKET_ORDER
 
 
 def main() -> None:

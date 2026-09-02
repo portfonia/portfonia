@@ -25,6 +25,7 @@ export interface ParsedRow {
   notes: string | null;
   issues: string[];
   confidence: number;
+  capture_supported: boolean;
 }
 
 export interface IssueRow {
@@ -48,6 +49,7 @@ export interface UploadPreview {
   valid_rows: ParsedRow[];
   issue_rows: IssueRow[];
   broker_groups: BrokerGroup[];
+  unsupported_capture_count: number;
 }
 
 export type UploadJobStatus = "pending" | "success" | "failed";
@@ -74,6 +76,7 @@ export interface HoldingOut {
   current_value: string | null;
   pricing_mode: string;
   asset_type: string | null;
+  capture_supported: boolean;
   broker: string | null;
   account: string | null;
   portfolio: string | null;

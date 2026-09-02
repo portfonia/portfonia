@@ -69,7 +69,7 @@
     "exportButton": "Export current holdings",
     "downloadTemplate": "Download template",
     "uploadHeading": "Import from file",
-    "uploadHint": "Accepted: .md, .txt, .csv, .xlsx, .xls. One sheet per Excel file. Add .HK for Hong Kong tickers, .SS / .SZ for A-shares; US tickers need no suffix. Chinese public funds: enter the 6-digit fund code.",
+    "uploadHint": "Accepted: .md, .txt, .csv, .xlsx, .xls. One sheet per Excel file. Add .HK for Hong Kong tickers, .SS / .SZ for A-shares, .L for UK, .AS / .PA / .DE for Europe, .T for Japan, .KS / .KQ for Korea; US tickers need no suffix. Chinese public funds: enter the 6-digit fund code.",
     "chooseFile": "Choose file",
     "uploading": "Parsing...",
     "parseAgain": "Choose a different file",
@@ -82,6 +82,8 @@
     "previewHeading": "Parsed holdings",
     "previewValidCount": "{n, plural, one {# row ready to save} other {# rows ready to save}}",
     "inferredNote": "System inferred some fields — please review highlighted rows.",
+    "unsupportedCaptureBanner": "{n, plural, one {# holding is in a market that is not auto-priced yet. It will be saved, but reports will mark it as not processed rather than inventing a price.} other {# holdings are in markets that are not auto-priced yet. They will be saved, but reports will mark them as not processed rather than inventing a price.}}",
+    "unsupportedCaptureBadge": "Market not supported",
     "rowNotesLabel": "Potential issues / how they were handled:",
     "summaryHeading": "Cross-check by institution",
     "summaryHint": "Computed from your uploaded file only (shares x avg cost, or the value you supplied) — NO current market prices are fetched. This is a cost-basis cross-check to confirm every holding landed under the right institution, not a live valuation.",
@@ -143,11 +145,25 @@
       },
       "markets": {
         "question": "Which markets do you mainly invest in? (select all that apply)",
-        "options": { "US": "US", "HK": "Hong Kong", "A-Share": "A-Share", "Other": "Other" }
+        "options": {
+          "US": "US",
+          "HK": "Hong Kong",
+          "A-Share": "A-Share",
+          "UK": "UK",
+          "Europe": "Europe",
+          "Japan": "Japan",
+          "Korea": "Korea",
+          "Other": "Other"
+        }
       },
       "style": {
         "question": "How would you describe your investing style?",
-        "options": { "VALUE": "Value", "GROWTH": "Growth", "INDEX": "Index", "MIXED": "Mixed" }
+        "options": {
+          "VALUE": "Value",
+          "GROWTH": "Growth",
+          "INDEX": "Index",
+          "MIXED": "Mixed"
+        }
       },
       "horizon": {
         "question": "What's your typical holding period?",
@@ -280,22 +296,36 @@
         {
           "title": "Holdings ingestion",
           "body": "Upload a CSV or spreadsheet describing your positions. An LLM normalizes it into structured records — no manual re-entry.",
-          "tags": ["CSV", "Markdown", "Excel"]
+          "tags": [
+            "CSV",
+            "Markdown",
+            "Excel"
+          ]
         },
         {
           "title": "Market & macro tracking",
           "body": "Daily price, FX, and curated macro-news scanning across reputable sources — English-language primary, Chinese-language where the instrument calls for it.",
-          "tags": ["Prices", "FX", "Macro news"]
+          "tags": [
+            "Prices",
+            "FX",
+            "Macro news"
+          ]
         },
         {
           "title": "Personalized briefings",
           "body": "Mon / Wed / Fri, tied to your actual holdings — price anomalies, technical position, and a forward calendar of macro and earnings events.",
-          "tags": ["Email delivery"]
+          "tags": [
+            "Email delivery"
+          ]
         }
       ],
       "confidenceLead": "Every causal claim ships with a confidence label",
       "confidenceBody": "Calibrated uncertainty, made legible instead of hidden.",
-      "tiers": { "established": "Established", "probable": "Probable", "speculative": "Speculative" }
+      "tiers": {
+        "established": "Established",
+        "probable": "Probable",
+        "speculative": "Speculative"
+      }
     },
     "preview": {
       "heading": "What a briefing actually looks like",
@@ -304,25 +334,151 @@
       "footnote": "Actual content varies depending on your subscription tier.",
       "snapshotTitle": "Portfolio snapshot",
       "totalLine": "Total value: $1,000,000 (FX date: 2026-08-21)",
-      "holdingsColumns": ["Holding", "Currency", "Value", "Weight", "Custodian", "Asset class"],
+      "holdingsColumns": [
+        "Holding",
+        "Currency",
+        "Value",
+        "Weight",
+        "Custodian",
+        "Asset class"
+      ],
       "holdingsRows": [
-        ["TSMC (TSM)", "USD", "209,000", "20.9%", "Custodian A", "Stocks"],
-        ["Microsoft (MSFT)", "USD", "80,000", "8.0%", "Custodian A", "Stocks"],
-        ["Alphabet (GOOGL)", "USD", "69,000", "6.9%", "Custodian A", "Stocks"],
-        ["**Custodian A subtotal**", "USD", "**358,000**", "**35.8%**", "", ""],
-        ["QQQ (QQQ)", "USD", "160,000", "16.0%", "Custodian B", "US tech ETF"],
-        ["VOO (VOO)", "USD", "131,000", "13.1%", "Custodian B", "US broad ETF"],
-        ["BOXX (BOXX)", "USD", "48,000", "4.8%", "Custodian B", "Bond fund"],
-        ["Cash", "USD", "2,000", "0.2%", "Custodian B", "Cash equivalent"],
-        ["**Custodian B subtotal**", "USD", "**341,000**", "**34.1%**", "", ""],
-        ["Tencent (0700.HK)", "HKD", "546,000", "7.0%", "Custodian C", "Stocks"],
-        ["BYD (1211.HK)", "HKD", "413,400", "5.3%", "Custodian C", "Stocks"],
-        ["**Custodian C subtotal** (converted to USD)", "USD", "**123,000**", "**12.3%**", "", ""],
-        ["Gold ETF (518880.SS)", "CNH", "14,300", "0.2%", "Custodian D", "Precious metals"],
-        ["CSI 300 ETF (510300.SS)", "CNH", "7,150", "0.1%", "Custodian D", "China equities"],
-        ["Cash", "CNH", "42,900", "0.6%", "Custodian D", "Cash equivalent"],
-        ["**Custodian D subtotal** (converted to USD)", "USD", "**9,000**", "**0.9%**", "", ""],
-        ["USD cash & FX", "USD", "169,000", "16.9%", "Custodian E", "Cash equivalent"]
+        [
+          "TSMC (TSM)",
+          "USD",
+          "209,000",
+          "20.9%",
+          "Custodian A",
+          "Stocks"
+        ],
+        [
+          "Microsoft (MSFT)",
+          "USD",
+          "80,000",
+          "8.0%",
+          "Custodian A",
+          "Stocks"
+        ],
+        [
+          "Alphabet (GOOGL)",
+          "USD",
+          "69,000",
+          "6.9%",
+          "Custodian A",
+          "Stocks"
+        ],
+        [
+          "**Custodian A subtotal**",
+          "USD",
+          "**358,000**",
+          "**35.8%**",
+          "",
+          ""
+        ],
+        [
+          "QQQ (QQQ)",
+          "USD",
+          "160,000",
+          "16.0%",
+          "Custodian B",
+          "US tech ETF"
+        ],
+        [
+          "VOO (VOO)",
+          "USD",
+          "131,000",
+          "13.1%",
+          "Custodian B",
+          "US broad ETF"
+        ],
+        [
+          "BOXX (BOXX)",
+          "USD",
+          "48,000",
+          "4.8%",
+          "Custodian B",
+          "Bond fund"
+        ],
+        [
+          "Cash",
+          "USD",
+          "2,000",
+          "0.2%",
+          "Custodian B",
+          "Cash equivalent"
+        ],
+        [
+          "**Custodian B subtotal**",
+          "USD",
+          "**341,000**",
+          "**34.1%**",
+          "",
+          ""
+        ],
+        [
+          "Tencent (0700.HK)",
+          "HKD",
+          "546,000",
+          "7.0%",
+          "Custodian C",
+          "Stocks"
+        ],
+        [
+          "BYD (1211.HK)",
+          "HKD",
+          "413,400",
+          "5.3%",
+          "Custodian C",
+          "Stocks"
+        ],
+        [
+          "**Custodian C subtotal** (converted to USD)",
+          "USD",
+          "**123,000**",
+          "**12.3%**",
+          "",
+          ""
+        ],
+        [
+          "Gold ETF (518880.SS)",
+          "CNH",
+          "14,300",
+          "0.2%",
+          "Custodian D",
+          "Precious metals"
+        ],
+        [
+          "CSI 300 ETF (510300.SS)",
+          "CNH",
+          "7,150",
+          "0.1%",
+          "Custodian D",
+          "China equities"
+        ],
+        [
+          "Cash",
+          "CNH",
+          "42,900",
+          "0.6%",
+          "Custodian D",
+          "Cash equivalent"
+        ],
+        [
+          "**Custodian D subtotal** (converted to USD)",
+          "USD",
+          "**9,000**",
+          "**0.9%**",
+          "",
+          ""
+        ],
+        [
+          "USD cash & FX",
+          "USD",
+          "169,000",
+          "16.9%",
+          "Custodian E",
+          "Cash equivalent"
+        ]
       ],
       "distributionLines": [
         "**By market:** US 86.8%, HK 12.3%, A-shares & CNH 0.9%",
@@ -334,33 +490,116 @@
       "macroBody": "Markets repriced the policy path after the latest FOMC minutes showed a split committee. The transmission into this portfolio runs through the equity-duration channel: long-duration growth names (TSMC, Microsoft, Alphabet) and the broad ETFs are mechanically sensitive to shifts in rate expectations embedded in the yield curve. No price anomaly was triggered in this window to confirm a repricing in any specific holding, so this direction stands as structural exposure to monitor rather than an observed event. [Probable]",
       "calendarTitle": "Forward calendar",
       "calendarNote": "Scheduled US events over the coming days and the holdings they bear on. Calendar facts only — not forecasts.",
-      "calendarColumns": ["Date", "Event", "Affected holdings", "What to watch"],
+      "calendarColumns": [
+        "Date",
+        "Event",
+        "Affected holdings",
+        "What to watch"
+      ],
       "calendarRows": [
-        ["08-27", "Jobless claims", "—", "Labor market momentum; rate-path implications"],
-        ["08-29", "Core PCE price index", "TSMC, MSFT, GOOGL +2", "Inflation vs consensus; rate-path implications"],
-        ["09-02", "ISM Manufacturing PMI", "—", "Factory-sector momentum"]
+        [
+          "08-27",
+          "Jobless claims",
+          "—",
+          "Labor market momentum; rate-path implications"
+        ],
+        [
+          "08-29",
+          "Core PCE price index",
+          "TSMC, MSFT, GOOGL +2",
+          "Inflation vs consensus; rate-path implications"
+        ],
+        [
+          "09-02",
+          "ISM Manufacturing PMI",
+          "—",
+          "Factory-sector momentum"
+        ]
       ],
       "analysisTitle": "Holding analysis",
       "analysisHeading": "TSMC — 20.9% of the portfolio, the single largest position",
       "analysisBody": "TSMC stands out this period not for a company-specific event but for its disproportionate weight and its exposure to several macro themes at once. The monetary-policy theme reaches it through the equity-duration channel: as a pure-play foundry, its forward multiples already embed years of capex-driven growth from advanced nodes, so its valuation is mechanically sensitive to rate expectations. The AI-infrastructure demand narrative underpinning the position is unchanged; what is new is a less predictable policy path adding an intermittent source of valuation volatility. The causal link between holding TSMC and the monetary-policy signal runs through that well-documented duration mechanism [Probable] — though no anomaly was observed in this window to confirm the market actually traded on it.",
       "radarTitle": "Risk radar",
       "concentrationBody": "The top three holdings together account for 50.0% of portfolio value — at the 50% watch threshold. The largest single asset-class bucket (stocks) sits at 48.1%, just below it. Single-position concentration is dominated by TSMC at 20.9%; the two broad ETF positions diversify within US equities while raising correlation to US monetary-policy developments.",
-      "anomalyColumns": ["Holding", "Net move", "Worst day (date)", "Prev close", "Open (gap %)", "Intraday range", "Close", "Trigger"],
+      "anomalyColumns": [
+        "Holding",
+        "Net move",
+        "Worst day (date)",
+        "Prev close",
+        "Open (gap %)",
+        "Intraday range",
+        "Close",
+        "Trigger"
+      ],
       "anomalyRows": [
-        ["QQQ (QQQ)", "+2.4%", "+1.8% (08-25)", "562.10", "564.20 (+0.4%)", "561.4–574.8", "573.90", "single_day"],
-        ["TSMC (TSM)", "+3.1%", "+2.2% (08-24)", "198.40", "197.90 (-0.3%)", "196.5–204.1", "203.85", "single_day"]
+        [
+          "QQQ (QQQ)",
+          "+2.4%",
+          "+1.8% (08-25)",
+          "562.10",
+          "564.20 (+0.4%)",
+          "561.4–574.8",
+          "573.90",
+          "single_day"
+        ],
+        [
+          "TSMC (TSM)",
+          "+3.1%",
+          "+2.2% (08-24)",
+          "198.40",
+          "197.90 (-0.3%)",
+          "196.5–204.1",
+          "203.85",
+          "single_day"
+        ]
       ],
       "anomalyBullets": [
         "QQQ — +2.4% over the window; the +1.8% single-day surge came with no immediately identifiable fund-specific catalyst in this period's research; attribution remains open [Speculative].",
         "TSMC — +3.1% over the window; coincided with an active AI-semiconductor news cycle, but no TSMC-specific driver was confirmed in research [Probable]."
       ],
-      "technicalColumns": ["Holding", "vs 50-day avg", "vs 200-day avg", "52-wk range position", "20-day vol (ann.)"],
+      "technicalColumns": [
+        "Holding",
+        "vs 50-day avg",
+        "vs 200-day avg",
+        "52-wk range position",
+        "20-day vol (ann.)"
+      ],
       "technicalRows": [
-        ["TSMC (TSM)", "-2.5%", "+16.0%", "75%", "+45.3%"],
-        ["Microsoft (MSFT)", "+20.9%", "+12.9%", "73%", "+61.1%"],
-        ["Alphabet (GOOGL)", "+1.4%", "+10.7%", "81%", "+50.9%"],
-        ["QQQ (QQQ)", "+0.5%", "+11.2%", "86%", "+26.5%"],
-        ["VOO (VOO)", "+3.3%", "+10.2%", "99%", "+14.4%"]
+        [
+          "TSMC (TSM)",
+          "-2.5%",
+          "+16.0%",
+          "75%",
+          "+45.3%"
+        ],
+        [
+          "Microsoft (MSFT)",
+          "+20.9%",
+          "+12.9%",
+          "73%",
+          "+61.1%"
+        ],
+        [
+          "Alphabet (GOOGL)",
+          "+1.4%",
+          "+10.7%",
+          "81%",
+          "+50.9%"
+        ],
+        [
+          "QQQ (QQQ)",
+          "+0.5%",
+          "+11.2%",
+          "86%",
+          "+26.5%"
+        ],
+        [
+          "VOO (VOO)",
+          "+3.3%",
+          "+10.2%",
+          "99%",
+          "+14.4%"
+        ]
       ],
       "technicalNote": "Range position: 0% = at the 52-week low, 100% = at the high. Describes where price sits — not a signal."
     },

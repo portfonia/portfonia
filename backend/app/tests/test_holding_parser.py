@@ -125,9 +125,18 @@ def test_postprocess_normalizes_market_aliases() -> None:
         {"name": "C", "currency": "CNY", "shares": 1, "pricing_mode": "auto", "market": "A股"},
         {"name": "D", "currency": "GBP", "shares": 1, "pricing_mode": "auto", "market": "UK"},
         {"name": "E", "currency": "USD", "shares": 1, "pricing_mode": "auto", "market": None},
+        {
+            "name": "F",
+            "currency": "AUD",
+            "shares": 1,
+            "pricing_mode": "auto",
+            "market": "ASX",
+            "ticker": "BHP.AX",
+        },
     ]
     rows = _postprocess(raw)
-    assert [r.market for r in rows] == ["US", "HK", "A-Share", "Other", None]
+    assert [r.market for r in rows] == ["US", "HK", "A-Share", "UK", None, "Other"]
+    assert [r.capture_supported for r in rows] == [True, True, True, True, True, False]
 
 
 def test_postprocess_coerces_unknown_asset_type_to_null() -> None:

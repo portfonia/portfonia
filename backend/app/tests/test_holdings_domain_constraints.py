@@ -186,3 +186,24 @@ def test_db_rejects_unknown_asset_class(db_session: Session) -> None:
     db_session.add(_base_holding(asset_class="BOGUS_CLASS"))
     with pytest.raises(IntegrityError, match="ck_holdings_asset_class"):
         db_session.commit()
+
+
+def test_db_rejects_unknown_market(db_session: Session) -> None:
+    db_session.add(_base_holding(market="ASX"))
+    with pytest.raises(IntegrityError, match="ck_holdings_market"):
+        db_session.commit()
+
+
+def test_db_allows_null_market(db_session: Session) -> None:
+    holding = _base_holding(market=None)
+    db_session.add(holding)
+    db_session.commit()
+    assert holding.market is None
+
+
+@pytest.mark.parametrize("market", ["UK", "Europe", "Japan", "Korea", "Other"])
+def test_db_allows_new_closed_markets(db_session: Session, market: str) -> None:
+    holding = _base_holding(market=market)
+    db_session.add(holding)
+    db_session.commit()
+    assert holding.market == market

@@ -7,7 +7,8 @@ from celery import Celery  # type: ignore[import-untyped]
 from celery.schedules import crontab  # type: ignore[import-untyped]
 
 from app.core.config import get_settings
-from app.core.timezones import CST, ET, HKT
+from app.core.timezones import BERLIN, CST, ET, HKT, JST, KST, LONDON
+from app.services.markets import CAPTURE_MARKET_ORDER
 
 _settings = get_settings()
 
@@ -28,11 +29,19 @@ celery_app = Celery(
 
 # Market session nodes (ADR-002). Each (market, tz, [(node, hour, minute)]).
 # No call-auction, no after-hours for HK/CN.
+# Close anchors (issue #311): UK 16:30 London, Europe 17:30 Berlin,
+# Japan 15:00 Tokyo, Korea 15:30 Seoul. Open+close only — same shape as
+# HK/CN (no after-hours). Order matches CAPTURE_MARKET_ORDER.
 _MARKET_NODES: tuple[tuple[str, Any, tuple[tuple[str, int, int], ...]], ...] = (
     ("US", ET, (("pre_open", 9, 0), ("open", 9, 30), ("close", 16, 0), ("after_close", 20, 0))),
     ("HK", HKT, (("open", 9, 30), ("close", 16, 0))),
     ("A-Share", CST, (("open", 9, 30), ("close", 15, 0))),
+    ("UK", LONDON, (("open", 8, 0), ("close", 16, 30))),
+    ("Europe", BERLIN, (("open", 9, 0), ("close", 17, 30))),
+    ("Japan", JST, (("open", 9, 0), ("close", 15, 0))),
+    ("Korea", KST, (("open", 9, 0), ("close", 15, 30))),
 )
+assert tuple(m for m, _, _ in _MARKET_NODES) == CAPTURE_MARKET_ORDER
 
 
 class _NowIn:

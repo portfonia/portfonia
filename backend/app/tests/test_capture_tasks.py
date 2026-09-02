@@ -105,8 +105,16 @@ def test_backfill_ohlcv_task_passes_tickers_to_each_market(
     session = MagicMock()
     mock_session_cls.return_value = session
     result = backfill_ohlcv_task.run(["AAPL"])
-    assert result == {"written": 21}
-    assert [c.args[1] for c in mock_cap.call_args_list] == ["US", "HK", "A-Share"]
+    assert result == {"written": 49}
+    assert [c.args[1] for c in mock_cap.call_args_list] == [
+        "US",
+        "HK",
+        "A-Share",
+        "UK",
+        "Europe",
+        "Japan",
+        "Korea",
+    ]
     for call in mock_cap.call_args_list:
         assert call.kwargs["lookback_days"] == 420
         assert call.kwargs["tickers"] == ["AAPL"]
@@ -145,7 +153,15 @@ def test_backfill_ohlcv_continues_after_one_market_fails(
     ):
         backfill_ohlcv_task.run(["AAPL", "0700.HK", "000001.SS"])
 
-    assert [c.args[1] for c in mock_cap.call_args_list] == ["US", "HK", "A-Share"]
+    assert [c.args[1] for c in mock_cap.call_args_list] == [
+        "US",
+        "HK",
+        "A-Share",
+        "UK",
+        "Europe",
+        "Japan",
+        "Korea",
+    ]
     mock_fail.assert_not_called()
     session.rollback.assert_called()
     session.close.assert_called_once()

@@ -16,6 +16,7 @@ from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
 from app.services._yfinance import _normalize_ticker
 from app.services.asset_class_config import load_asset_class_config
+from app.services.markets import is_capture_supported, market_from_ticker
 
 _ZERO = Decimal("0")
 _CENT = Decimal("0.01")
@@ -65,22 +66,17 @@ _SECTOR_ASSET_TYPES = {"stock", "etf"}
 def _infer_holding_market(holding: Holding) -> str:
     """Infer the exchange/market for a holding from ticker suffix or fund_code.
 
-    Used for report display. Not the same thing as _yfinance.py's
-    `_market_key_for_ticker` (issue #41) — that one classifies a bare ticker
-    string for batch-fetch grouping and returns a different value set
-    (`hk`/`cn`/`us`, no fund_code/cash/wmf handling).
+    Used for report display. Delegates suffix recognition to
+    `markets.market_from_ticker` so it cannot drift from capture resolution
+    (issue #311). Unknown suffixes stay Other rather than silently becoming US.
     """
-    ticker = holding.ticker or ""
-    if ticker.endswith(".HK"):
-        return "HK"
-    if ticker.endswith(".SS") or ticker.endswith(".SZ"):
-        return "A-Share"
+    inferred = market_from_ticker(holding.ticker)
+    if inferred is not None:
+        return inferred
     if holding.fund_code:
         return "A-Share"
     if holding.asset_type in ("cash", "wmf"):
         return "Other"
-    if ticker:
-        return "US"
     return "Other"
 
 
@@ -100,6 +96,7 @@ class HoldingValue:
     price_as_of: datetime | None
     broker: str | None = None  # custodian / holding institution, for §1 grouping
     position: int | None = None  # upload order, for report layout
+    capture_supported: bool = True  # issue #311; False -> [market not supported]
 
 
 @dataclass
@@ -302,7 +299,13 @@ def compute_portfolio(
         # --- market value in the holding's own currency ---
         market_value: Decimal | None
         price_as_of: datetime | None = None
-        if h.pricing_mode == "auto":
+        not_processed = h.pricing_mode == "auto" and not is_capture_supported(h)
+        if not_processed:
+            # Issue #311: never use a stray captured price and never treat
+            # this as a stale/missing capture (#295). The §1 row uses a
+            # distinct marker; excluded from every aggregate.
+            market_value = None
+        elif h.pricing_mode == "auto":
             # Prefer the capture-layer close so valuation and the anomaly baseline
             # share one price series; fall back to the /refresh market_price (e.g.
             # funds, which are not captured by ticker).
@@ -358,6 +361,7 @@ def compute_portfolio(
                 price_as_of=price_as_of if h.pricing_mode == "auto" else h.price_as_of,
                 broker=h.broker,
                 position=h.position,
+                capture_supported=is_capture_supported(h),
             )
         )
 

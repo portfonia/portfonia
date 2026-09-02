@@ -41,10 +41,12 @@ const _PREVIEW: UploadPreview = {
       notes: null,
       issues: [],
       confidence: 1,
+      capture_supported: true,
     },
   ],
   issue_rows: [],
   broker_groups: [],
+  unsupported_capture_count: 0,
 };
 
 const _CONFIRMED: HoldingOut[] = [];

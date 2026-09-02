@@ -157,7 +157,9 @@ def backfill_ohlcv_task(self: Any, tickers: list[str] | None = None) -> dict[str
         return {"written": 0}
 
     _LOOKBACK_DAYS = 420
-    _MARKETS = ("US", "HK", "A-Share")
+    from app.services.markets import CAPTURE_MARKET_ORDER
+
+    _MARKETS = CAPTURE_MARKET_ORDER
     session = SessionLocal()
     try:
         total = 0
