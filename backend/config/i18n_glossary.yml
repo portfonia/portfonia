@@ -78,6 +78,10 @@ report_glossary:
   # this term in the output language.
   "[price unavailable]":
     zh-Hans: 暂无价格
+  # §1 placeholder for a holding whose market is never captured (issue #311).
+  # Distinct from [price unavailable] ("supported market, no price this run").
+  "[market not supported]":
+    zh-Hans: 市场暂不支持
   # §1 row-level marker for a holding whose captured close is multi-day stale
   # (issue #295 — stale but priced, value still included in totals; distinct
   # from the never-captured "[price unavailable]" above).
@@ -139,8 +143,8 @@ templates:
     en: "Disclaimer:"
     zh-Hans: "免责声明："
   data_sources_note:
-    en: "Equity/ETF prices — yfinance (end-of-day session closes, US/HK/CN exchanges). Fund NAV — Tiantian Fund. News — RSS feeds (Reuters, CNBC, Google News Business). Exchange rates — yfinance daily closes as of $fx_date; all portfolio valuations converted to $base_ccy. Intraday and premarket data are not used."
-    zh-Hans: "股票/ETF价格 — yfinance（美/港/A股交易所收盘价）。基金净值 — 天天基金。新闻 — RSS订阅（路透社、CNBC、Google财经新闻）。汇率 — yfinance每日收盘价，数据截至 $fx_date；所有持仓估值已换算为 $base_ccy。不使用盘前或盘中数据。"
+    en: "Equity/ETF prices — yfinance (end-of-day session closes, US/HK/CN/UK/Europe/Japan/Korea exchanges). Fund NAV — Tiantian Fund. News — RSS feeds (Reuters, CNBC, Google News Business). Exchange rates — yfinance daily closes as of $fx_date; all portfolio valuations converted to $base_ccy. Intraday and premarket data are not used."
+    zh-Hans: "股票/ETF价格 — yfinance（美/港/A股/英/欧/日/韩交易所收盘价）。基金净值 — 天天基金。新闻 — RSS订阅（路透社、CNBC、Google财经新闻）。汇率 — yfinance每日收盘价，数据截至 $fx_date；所有持仓估值已换算为 $base_ccy。不使用盘前或盘中数据。"
   disclaimer:
     en: "This report is generated automatically by an AI large language model (LLM) system. AI-generated content may contain imprecise, incomplete, or inaccurate language and does not represent the views or opinions of the sender. This report is provided for informational purposes only. It does not constitute investment advice, a recommendation to buy or sell any security, or a solicitation of any investment. Past performance is not indicative of future results. The sender accepts no responsibility for any decisions made based on this content. Always consult a qualified financial advisor before making investment decisions."
     zh-Hans: "本报告由AI大型语言模型（LLM）系统自动生成。AI生成内容可能包含不精确、不完整或不准确的措辞，不代表发送方的观点或意见。本报告仅供参考，不构成投资建议、证券买卖推荐或投资招揽。历史业绩不代表未来表现。对于基于本内容所作出的任何决策，发送方不承担任何责任。在做出任何投资决策前，请咨询持牌财务顾问。"

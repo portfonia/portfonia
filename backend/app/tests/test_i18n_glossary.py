@@ -151,3 +151,10 @@ def test_build_glossary_instruction_zh_contains_full_fixed_term_set() -> None:
     instruction = rt._build_glossary_instruction("zh")
     assert '"Portfonia Financial Analysis Report" -> "Portfonia 财经分析报告"' in instruction
     assert 'Never render any word as "智能"' in instruction
+
+
+def test_report_glossary_covers_market_not_supported_marker() -> None:
+    """Issue #311: section 1 [market not supported] must be glossary-backed like #295."""
+    glossary = load_i18n_glossary()
+    assert "[market not supported]" in glossary.report_glossary
+    assert glossary.report_glossary["[market not supported]"]["zh-Hans"]

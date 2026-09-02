@@ -46,7 +46,14 @@ export function PreviewTable({ rows }: { rows: ParsedRow[] }) {
                   inferred ? "bg-amber-50 dark:bg-amber-950/30" : undefined
                 }
               >
-                <TableCell className="font-medium">{r.name}</TableCell>
+                <TableCell className="font-medium">
+                  <span>{r.name}</span>
+                  {r.capture_supported === false && (
+                    <Badge variant="outline" className="ml-2">
+                      {t("unsupportedCaptureBadge")}
+                    </Badge>
+                  )}
+                </TableCell>
                 <TableCell>{str(r.ticker ?? r.fund_code)}</TableCell>
                 <TableCell>{r.currency}</TableCell>
                 <TableCell className="text-right tabular-nums">

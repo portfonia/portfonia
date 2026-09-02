@@ -19,6 +19,7 @@ from app.schemas.holdings import HoldingOut, ParsedRow, UploadJobOut
 from app.services import holding_parser
 from app.services._yfinance import _normalize_ticker
 from app.services.accounts import resolve_accounts_for_holdings
+from app.services.markets import is_capture_supported, resolve_holding_market
 from app.services.price_fetcher import backfill_sectors
 from app.tasks.holdings_tasks import parse_holdings_upload
 
@@ -79,7 +80,7 @@ def _tickers_with_sparse_history(session: Session, user_id: UUID) -> list[str]:
             Holding.pricing_mode == "auto",
         )
     ).all()
-    tickers = {h.ticker for h in holdings if h.ticker}
+    tickers = {h.ticker for h in holdings if h.ticker and is_capture_supported(h)}
     if not tickers:
         return []
     # price_snapshots is keyed by the normalized ticker (issue #204: e.g.
@@ -289,6 +290,17 @@ def confirm_holdings(
                 data[field] = Decimal(str(data[field]))
         if data["pricing_mode"] == "manual":
             data["last_manual_update"] = now
+        # Recompute capture support server-side so a client cannot enable
+        # speculative yfinance by forging capture_supported=True (issue #311).
+        resolved_market, capture_ok = resolve_holding_market(
+            ticker=data.get("ticker"),
+            declared_market=data.get("market"),
+            fund_code=data.get("fund_code"),
+            asset_type=data.get("asset_type"),
+            pricing_mode=data["pricing_mode"],
+        )
+        data["market"] = resolved_market
+        data["capture_supported"] = capture_ok
         # Preserve upload order so reports can mirror the user's file layout.
         data["position"] = idx
         parsed.append(data)

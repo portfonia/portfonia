@@ -125,9 +125,18 @@ def test_postprocess_normalizes_market_aliases() -> None:
         {"name": "C", "currency": "CNY", "shares": 1, "pricing_mode": "auto", "market": "A股"},
         {"name": "D", "currency": "GBP", "shares": 1, "pricing_mode": "auto", "market": "UK"},
         {"name": "E", "currency": "USD", "shares": 1, "pricing_mode": "auto", "market": None},
+        {
+            "name": "F",
+            "currency": "AUD",
+            "shares": 1,
+            "pricing_mode": "auto",
+            "market": "ASX",
+            "ticker": "BHP.AX",
+        },
     ]
     rows = _postprocess(raw)
-    assert [r.market for r in rows] == ["US", "HK", "A-Share", "Other", None]
+    assert [r.market for r in rows] == ["US", "HK", "A-Share", "UK", None, "Other"]
+    assert [r.capture_supported for r in rows] == [True, True, True, True, True, False]
 
 
 def test_postprocess_coerces_unknown_asset_type_to_null() -> None:
@@ -1224,3 +1233,50 @@ def test_ticker_asset_class_rejects_missing_top_level_key(
     monkeypatch.setattr(holding_parser_module, "_get_ticker_asset_class_path", lambda: mapping)
     with pytest.raises(ValueError, match="ticker_asset_class"):
         _classify_asset_class({"ticker": "QQQ", "asset_type": "etf"})
+
+
+def test_postprocess_unsupported_count_matches_preview_contract() -> None:
+    """Issue #311: unresolvable rows stay valid; count is the heads-up summary."""
+    rows = _postprocess(
+        [
+            {
+                "name": "Vodafone",
+                "ticker": "VOD.L",
+                "currency": "GBP",
+                "shares": 10,
+                "pricing_mode": "auto",
+            },
+            {
+                "name": "BHP Group",
+                "ticker": "BHP.AX",
+                "currency": "AUD",
+                "shares": 10,
+                "pricing_mode": "auto",
+            },
+            {
+                "name": "Shopify",
+                "ticker": "SHOP.TO",
+                "currency": "CAD",
+                "shares": 5,
+                "pricing_mode": "auto",
+            },
+        ]
+    )
+    assert [r.capture_supported for r in rows] == [True, False, False]
+    assert sum(1 for r in rows if not r.capture_supported) == 2
+
+
+def test_postprocess_corrects_new_market_suffix_currencies() -> None:
+    """Issue #311 / PR #312 B3: EUR/JPY/KRW suffix map, .L stays GBP."""
+    cases = [
+        ("ASML.AS", "EUR"),
+        ("MC.PA", "EUR"),
+        ("SAP.DE", "EUR"),
+        ("7203.T", "JPY"),
+        ("005930.KS", "KRW"),
+        ("035420.KQ", "KRW"),
+        ("VOD.L", "GBP"),
+    ]
+    for ticker, expected in cases:
+        rows = _postprocess([_raw_row(name=ticker, ticker=ticker, currency="USD")])
+        assert rows[0].currency == expected, ticker

@@ -85,8 +85,12 @@ class ParsedRow(BaseModel):
     # argument as the currency validator above).
     asset_class: str = "STOCK"
     # User-declared market bucket; normalized in _postprocess. None = let the
-    # calculator derive it from the ticker.
-    market: Literal["US", "HK", "A-Share", "Other"] | None = None
+    # calculator derive it from the ticker. Closed set is VALID_HOLDING_MARKETS
+    # (issue #311) — Other is a legitimate value, not a rejection flag.
+    market: Literal["US", "HK", "A-Share", "UK", "Europe", "Japan", "Korea", "Other"] | None = None
+    # Explicit not-processed marker. False when ticker/market does not resolve
+    # into a scheduled capture bucket. Distinct from market == "Other".
+    capture_supported: bool = True
     broker: str | None = None
     account: str | None = None
     portfolio: str | None = None
@@ -171,6 +175,9 @@ class UploadPreview(BaseModel):
     valid_rows: list[ParsedRow]
     issue_rows: list[IssueRow]
     broker_groups: list[BrokerGroup] = Field(default_factory=list)
+    # Non-blocking heads-up (issue #311): count of rows that will be stored
+    # but never auto-priced. Not a parse error — rows stay in valid_rows.
+    unsupported_capture_count: int = 0
 
 
 class UploadJobOut(BaseModel):
@@ -203,6 +210,7 @@ class HoldingOut(BaseModel):
     asset_type: str | None
     asset_class: str
     market: str | None
+    capture_supported: bool = True
     broker: str | None
     account: str | None
     portfolio: str | None

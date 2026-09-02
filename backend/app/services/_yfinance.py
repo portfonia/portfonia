@@ -5,7 +5,8 @@ extraction.  Kept in one place so the pandas Series/DataFrame normalisation and
 timestamp handling do not drift between callers.
 
 Throttle mitigation strategy (D6):
-  1. Tickers are grouped by market (US / HK / A-share) before downloading.
+  1. Tickers are grouped by market (US / HK / A-share / UK / Europe / Japan /
+     Korea) before downloading.
   2. Each market group is further chunked to at most _MAX_BATCH_SIZE tickers per
      yf.download() call.  Yahoo Finance silently drops tickers from large batches;
      smaller homogeneous batches avoid the silent rejection.
@@ -21,6 +22,8 @@ from datetime import UTC, date, datetime
 
 import pandas as pd
 import yfinance as yf
+
+from app.services.markets import yf_batch_key
 
 logger = logging.getLogger(__name__)
 
@@ -61,19 +64,59 @@ def _normalize_ticker(ticker: str) -> str:
     return _normalize_hk_ticker(overridden)
 
 
-# LSE-listed tickers yfinance quotes in GBX (pence, a subunit of GBP) rather
-# than GBP — the currency the holding itself declares (issue #204: PSH.L's
-# fast_info reports currency="GBp", lastPrice~3930 for a stock trading
-# ~GBP 39). Every value read for a ticker in this table is divided by 100 so
-# price_snapshots stays denominated in the holding's own declared currency,
-# same as every other captured ticker.
-_TICKER_PRICE_SCALE: dict[str, float] = {
-    "PSH.L": 0.01,
-}
+# yfinance marks LSE ordinary shares in pence with currency="GBp" (lowercase
+# p, distinct from "GBP"). This is an LSE-wide convention, not a per-ticker
+# quirk (issue #311, verified on VOD.L/BARC.L/TSCO.L/HSBA.L/ULVR.L plus the
+# original PSH.L). Scale by 1/100 whenever the *fetched* currency is GBp —
+# never a per-ticker table. Europe (EUR) / Japan (JPY) / Korea (KRW) have no
+# equivalent subunit marker.
+_GBPENCE = "GBp"
 
 
-def _scale_price(ticker: str, value: float) -> float:
-    return value * _TICKER_PRICE_SCALE.get(ticker, 1.0)
+def _fetched_currency(ticker: str) -> str | None:
+    """Best-effort yfinance currency for `ticker`. None on any failure."""
+    try:
+        info = yf.Ticker(ticker).fast_info
+        cur = info.get("currency") if info is not None else None
+    except Exception:
+        logger.exception("yfinance currency lookup failed for %s", ticker)
+        return None
+    if cur is None:
+        return None
+    return str(cur)
+
+
+def _scale_price(value: float, currency: str | None) -> float:
+    """Scale a raw yfinance price into the holding's major-unit currency."""
+    if currency == _GBPENCE:
+        return value * 0.01
+    return value
+
+
+def _is_lse_ticker(ticker: str) -> bool:
+    """True when this symbol is batched as UK/LSE (suffix .L after normalize)."""
+    return _market_key_for_ticker(ticker) == "uk"
+
+
+def _safe_scaled_price(ticker: str, value: float, currency: str | None) -> float | None:
+    """Scale GBp to pounds, or omit an LSE bar whose currency lookup failed.
+
+    Issue #312 B1 / #311 req 6: `_scale_price(value, None)` is identity, so a
+    UK close that got OHLCV but lost `fast_info.currency` would store pence as
+    pounds (the 100x class #204/#311 exist to kill). Fail closed for LSE:
+    unknown currency → None (caller omits the ticker). EUR/JPY/KRW (and US)
+    stay unscaled when currency is present or missing — they have no subunit
+    marker.
+    """
+    if currency == _GBPENCE:
+        return value * 0.01
+    if currency is None and _is_lse_ticker(ticker):
+        logger.warning(
+            "omitting %s: LSE bar with unknown currency; refusing unscaled pence",
+            ticker,
+        )
+        return None
+    return value
 
 
 # Type alias used by fetch_last_close.
@@ -91,20 +134,13 @@ _INTER_BATCH_DELAY = 0.5  # seconds
 
 
 def _market_key_for_ticker(ticker: str) -> str:
-    """Return market key for a ticker: 'hk', 'cn', or 'us'.
+    """Return yfinance batch-grouping key for a ticker.
 
-    Used for batch-fetch grouping. Not the same thing as
-    portfolio_calculator.py's `_infer_holding_market` (issue #41) — that one
-    classifies a `Holding` row for report display and returns different
-    values (`HK`/`A-Share`/`US`/`Other`, with fund_code/cash/wmf handling
-    this function has no notion of).
+    Delegates to `markets.yf_batch_key` so suffix classification cannot
+    drift from capture-market resolution (issue #311). Unknown exchange
+    suffixes group as 'other' rather than silently joining the US batch.
     """
-    upper = ticker.upper()
-    if upper.endswith(".HK"):
-        return "hk"
-    if upper.endswith(".SS") or upper.endswith(".SZ"):
-        return "cn"
-    return "us"
+    return yf_batch_key(ticker)
 
 
 def _chunk(items: list[str], size: int) -> list[list[str]]:
@@ -168,7 +204,10 @@ def _download_batch(tickers: list[str]) -> dict[str, ClosePoint]:
         pts = _extract_close_points(close[ticker], 1)
         if pts:
             price, as_of = pts[0]
-            out[ticker] = (_scale_price(ticker, price), as_of)
+            scaled = _safe_scaled_price(ticker, price, _fetched_currency(ticker))
+            if scaled is None:
+                continue
+            out[ticker] = (scaled, as_of)
     return out
 
 
@@ -176,9 +215,10 @@ def fetch_last_close(tickers: list[str]) -> dict[str, ClosePoint]:
     """
     Batch-download tickers and return {ticker: (close, as_of)}.
 
-    Tickers are split by market (US / HK / A-share) then each market group is
-    chunked to at most _MAX_BATCH_SIZE per yf.download() call.  A short
-    inter-batch delay further reduces Yahoo Finance throttling risk.
+    Tickers are split by market (US / HK / A-share / UK / Europe / Japan /
+    Korea) then each market group is chunked to at most _MAX_BATCH_SIZE per
+    yf.download() call.  A short inter-batch delay further reduces Yahoo
+    Finance throttling risk.
 
     `period='5d'` gives each market at least one trading day regardless of
     non-overlapping calendars (A-share 15:00 CST / HK 16:00 HKT / US 16:00 ET).
@@ -191,9 +231,9 @@ def fetch_last_close(tickers: list[str]) -> dict[str, ClosePoint]:
     tickers = [_normalize_ticker(t) for t in tickers]
 
     # Group by market, preserving insertion order within each group.
-    by_market: dict[str, list[str]] = {"us": [], "hk": [], "cn": []}
+    by_market: dict[str, list[str]] = {}
     for t in tickers:
-        by_market[_market_key_for_ticker(t)].append(t)
+        by_market.setdefault(_market_key_for_ticker(t), []).append(t)
 
     # Build ordered list of sub-batches, each <= _MAX_BATCH_SIZE tickers.
     batches: list[list[str]] = []
@@ -210,22 +250,40 @@ def fetch_last_close(tickers: list[str]) -> dict[str, ClosePoint]:
     return out
 
 
-def _ohlcv_rows_for_ticker(hist: pd.DataFrame, ticker: str) -> list[OhlcvPoint]:
+def _ohlcv_rows_for_ticker(
+    hist: pd.DataFrame, ticker: str, currency: str | None = None
+) -> list[OhlcvPoint]:
     """Extract all available OHLCV bars (oldest→newest) for one ticker."""
     try:
         # MultiIndex columns for multi-ticker downloads; flat for a single ticker.
         sub = hist.xs(ticker, axis=1, level=1) if isinstance(hist.columns, pd.MultiIndex) else hist
         clean = sub.dropna(subset=["Close"])
+        # Do not make a second fast_info round-trip here: the caller already
+        # looked up currency (or failed). Unknown LSE currency → omit bars.
+        if currency is None and _is_lse_ticker(ticker):
+            logger.warning(
+                "omitting %s: LSE OHLCV with unknown currency; refusing unscaled pence",
+                ticker,
+            )
+            return []
         rows: list[OhlcvPoint] = []
         for ts, row in clean.iterrows():
             vol = row.get("Volume")
+            close = _safe_scaled_price(ticker, float(row["Close"]), currency)
+            if close is None:
+                return []
+            open_ = _safe_scaled_price(ticker, float(row["Open"]), currency)
+            high = _safe_scaled_price(ticker, float(row["High"]), currency)
+            low = _safe_scaled_price(ticker, float(row["Low"]), currency)
+            if open_ is None or high is None or low is None:
+                return []
             rows.append(
                 (
                     ts.date(),
-                    _scale_price(ticker, float(row["Open"])),
-                    _scale_price(ticker, float(row["High"])),
-                    _scale_price(ticker, float(row["Low"])),
-                    _scale_price(ticker, float(row["Close"])),
+                    open_,
+                    high,
+                    low,
+                    close,
                     None if vol is None or pd.isna(vol) else float(vol),
                 )
             )
@@ -246,9 +304,9 @@ def fetch_ohlcv_range(tickers: list[str], lookback_days: int = 7) -> dict[str, l
         return {}
     tickers = [_normalize_ticker(t) for t in tickers]
     period = f"{max(lookback_days, 2)}d"
-    by_market: dict[str, list[str]] = {"us": [], "hk": [], "cn": []}
+    by_market: dict[str, list[str]] = {}
     for t in tickers:
-        by_market[_market_key_for_ticker(t)].append(t)
+        by_market.setdefault(_market_key_for_ticker(t), []).append(t)
     batches: list[list[str]] = []
     for market_tickers in by_market.values():
         if market_tickers:
@@ -268,7 +326,7 @@ def fetch_ohlcv_range(tickers: list[str], lookback_days: int = 7) -> dict[str, l
         if hist.empty:
             continue
         for t in batch:
-            rows = _ohlcv_rows_for_ticker(hist, t)
+            rows = _ohlcv_rows_for_ticker(hist, t, currency=_fetched_currency(t))
             if rows:
                 out[t] = rows
     return out
@@ -291,9 +349,15 @@ def fetch_spot(tickers: list[str]) -> dict[str, float]:
     for raw in tickers:
         t = _normalize_ticker(raw)
         try:
-            last = yf.Ticker(t).fast_info.get("lastPrice")
+            info = yf.Ticker(t).fast_info
+            last = info.get("lastPrice")
             if last is not None and not pd.isna(last):
-                out[t] = _scale_price(t, float(last))
+                raw_cur = info.get("currency")
+                currency = None if raw_cur is None else str(raw_cur)
+                scaled = _safe_scaled_price(t, float(last), currency)
+                if scaled is None:
+                    continue
+                out[t] = scaled
         except Exception:
             logger.exception("yfinance spot fetch failed for %s", t)
     return out

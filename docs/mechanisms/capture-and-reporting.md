@@ -29,9 +29,11 @@ any fix:
 3. **GBX vs GBP.** yfinance quotes `PSH.L` in GBX (pence, a subunit of GBP),
    not GBP itself (`fast_info.currency == "GBp"`). Found while fixing #2:
    without correcting this, fix #1 alone would have valued the holding
-   100x too high. `_yfinance.py` gained `_TICKER_PRICE_SCALE` (per-ticker
-   multiplier, currently `{"PSH.L": 0.01}`), applied at every price
-   extraction point (`fetch_last_close`, `fetch_ohlcv_range`, `fetch_spot`).
+   100x too high. Issue #311 replaced the per-ticker `_TICKER_PRICE_SCALE`
+   table with a generic check: scale by 1/100 whenever the *fetched*
+   currency is `GBp` (lowercase p), at every extraction point
+   (`fetch_last_close`, `fetch_ohlcv_range`, `fetch_spot`). `_TICKER_SYMBOL_OVERRIDE`
+   (PSH ticker-collision) is unchanged — that is a different mechanism.
 
 **The consistency invariant this surfaced** (review round 1/2, blacktomb42 —
 2 further rounds of `CHANGES_REQUESTED` after the first fix landed): capture
@@ -80,15 +82,53 @@ function — parse-time DB-write canonicalization, e.g. `02333.HK` →
 (what gets used as a lookup/fetch key), and #204's bug was entirely in the
 latter.
 
-**Deferred, not part of this fix** (#252, product-owner scoping decision):
-the capture scheduler (`_MARKET_NODES` in `app/tasks/__init__.py`) only
-ever runs for `US`/`HK`/`A-Share` — `market="Other"`, the schema's own
-catch-all for a non-US/HK/CN listing, has zero scheduled capture at all.
-PSH only got priced (wrongly, pre-fix) because it happened to be declared
-`market="US"`. Building a general foreign-listing capture mechanism —
-timezone/session-node scheduling for an arbitrary exchange, a non-hardcoded
-ticker-suffix resolution scheme, per-exchange currency-subunit handling —
-is a design task, not a bug-fix extension of this one.
+**Superseded by issue #311**: the capture scheduler now has independent
+nodes for UK / Europe / Japan / Korea in addition to US / HK / A-Share.
+Unresolvable listings still store `market="Other"` but are marked
+`capture_supported=False` rather than being silently treated as US or
+dropped. See the issue #311 section below.
+
+### Independent UK / Europe / Japan / Korea capture (issue #311)
+
+UK (LSE `.L`), Europe (Euronext `.AS`/`.PA`, Xetra `.DE`), Japan (TSE `.T`),
+and Korea (KRX `.KS`/`.KQ`) are independently scheduled capture markets, not
+a shared catch-all. `_MARKET_NODES` (beat) and `backfill_ohlcv_task._MARKETS`
+walk the same closed order from `CAPTURE_MARKET_ORDER` in
+`app/services/markets.py`: US, HK, A-Share, UK, Europe, Japan, Korea.
+
+Close anchors (market-local clocks, same node schema as HK/CN — open+close,
+no after-hours): UK `Europe/London` 16:30; Europe `Europe/Berlin` 17:30;
+Japan `Asia/Tokyo` 15:00; Korea `Asia/Seoul` 15:30.
+
+`Holding.market` is a closed set of those seven buckets plus `Other` as an
+explicit fallback (DB CHECK `ck_holdings_market`). Other is a legitimate
+stored value, never a rejection flag. Capture, section 1, and Pass 2 key
+off `Holding.capture_supported` (boolean, default true) via
+`is_capture_supported()`, never off `market == "Other"`. Cash / WMP /
+manual rows stored as Other stay `capture_supported=True`.
+
+Two-way resolution (`resolve_holding_market`): (1) ticker suffix or a
+declared supported market → scheduled capture; (2) otherwise persist
+`market="Other"` + `capture_supported=False`. Upload parse never deletes a
+row solely because the market cannot be resolved. Confirm recomputes the
+flag server-side so a client cannot enable speculative yfinance. Capture
+and `update_holding_prices` / `backfill_sectors` skip
+`capture_supported=False` — no speculative yfinance lookup.
+
+Section 1 shows `[market not supported]` (i18n_glossary.yml) for those
+rows, distinct from `[price unavailable]` (issue #295). Same aggregate
+exclusion: `market_value_base` is None, not added to totals, not recorded
+as a stale ticker. Pass 2 omits them entirely so the LLM never narrates a
+holding with no real price basis.
+
+Subunit handling is generic: yfinance marks LSE ordinary shares with
+`currency == "GBp"` (lowercase p). Scale by 1/100 whenever that marker is
+present, regardless of ticker. EUR / JPY / KRW have no equivalent subunit
+convention and must not be scaled. The old per-ticker `_TICKER_PRICE_SCALE`
+table is gone; `_TICKER_SYMBOL_OVERRIDE` (PSH collision) remains.
+
+Out of scope: commodity exchanges; any market beyond the seven scheduled
+buckets; FX (GBP/EUR/JPY/KRW pairs already covered by #204).
 
 ### Fund NAV realtime path: Sina Finance fallback (issue #20)
 
@@ -185,10 +225,15 @@ A **capture layer** (global, credit-free — RSS + yfinance; persists `news` +
 `price_snapshots`, 1yr) runs at market-session nodes and feeds a **report
 layer** (per-user, incremental).
 
-- **Capture nodes** via crontab `nowfun` per market: US in ET (DST-aware),
-  HK/CN fixed-offset. Nodes: US pre_open/open/close/after_close; HK/CN
-  open/close. News captured at every node; catch-up logic lives in the task
-  (range fetch + idempotent upsert), no watermark table.
+- **Capture nodes** via crontab `nowfun` per market (issue #311): US in ET
+  (DST-aware); HK/CN/Japan/Korea fixed-offset; UK `Europe/London` and Europe
+  `Europe/Berlin` DST-aware. Nodes: US pre_open/open/close/after_close; every
+  other scheduled market open/close only (UK 16:30 London, Europe 17:30
+  Berlin, Japan 15:00 Tokyo, Korea 15:30 Seoul, HK 16:00, A-Share 15:00).
+  News captured at every node; catch-up logic lives in the task (range fetch
+  + idempotent upsert), no watermark table. Walk order is
+  `CAPTURE_MARKET_ORDER`. Unresolvable listings are `capture_supported=False`
+  and are never fetched.
 - **OHLCV upsert + confirm-time backfill (issue #194/#195, PR #197)**:
   `price_snapshots` is global (no `user_id`) — two users holding NVDA share
   one close series. `_upsert` writes in 2000-row chunks (close-node rows

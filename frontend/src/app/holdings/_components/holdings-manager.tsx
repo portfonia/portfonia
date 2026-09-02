@@ -231,6 +231,13 @@ export function HoldingsManager({
           </CardHeader>
           <CardContent className="space-y-6">
             <p className="text-xs text-muted-foreground">{t("replaceWarning")}</p>
+            {preview.unsupported_capture_count > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {t("unsupportedCaptureBanner", {
+                  n: preview.unsupported_capture_count,
+                })}
+              </p>
+            )}
             {preview.broker_groups.length > 0 && (
               <BrokerSummary groups={preview.broker_groups} />
             )}

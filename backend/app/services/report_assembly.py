@@ -90,7 +90,7 @@ logger = logging.getLogger(__name__)
 # real system-prompt contract change caught by review for not bumping this
 # constant, the same class of gap _PROMPT_VERSION's own f2-v6 comment
 # documents on the Pass 2 side.
-ASSEMBLY_PROMPT_VERSION = "a4-v4"
+ASSEMBLY_PROMPT_VERSION = "a4-v5"
 
 
 def _build_assembly_system() -> str:
@@ -341,6 +341,12 @@ def build_assembly_prompt(
         # connect this line to its L1 entry either (round 2 nit, PR #163 —
         # the same join failure, one spelling short of round 1's fix).
         ident = _identifier(h) or None
+        if h.get("capture_supported") is False:
+            # Issue #311 / PR #312 B2: no real price basis — never let the
+            # assembly pass (Ring 1 production body) narrate it. Same omit
+            # as Pass 2. Not-processed rows are also absent from stale_tickers,
+            # so leaving them here would print "(unvalued)" with no annotation.
+            continue
         if h.get("market_value_base") is None:
             # Unpriced holding (issue #295): keep the line, never show a
             # fabricated 0.0% weight — the stale list below already names it

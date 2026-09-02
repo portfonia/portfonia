@@ -678,6 +678,9 @@ def _build_pass2_prompt(
     lines.append("")
     lines.append("Holdings:")
     for h in portfolio.get("holdings", []):
+        if h.get("capture_supported") is False:
+            # Issue #311: no real price basis — never let Pass 2 narrate it.
+            continue
         mv_base = h.get("market_value_base")
         mv = h.get("market_value")
         if mv_base is None:

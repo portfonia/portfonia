@@ -26,6 +26,10 @@ from app.services.i18n_glossary import load_i18n_glossary
 # i18n_glossary.yml's report_glossary["[price unavailable]"].
 _PRICE_UNAVAILABLE = "[price unavailable]"
 
+# S1 placeholder for a holding whose market is never captured (issue #311).
+# Distinct from [price unavailable] (supported market, no price this run).
+_MARKET_NOT_SUPPORTED = "[market not supported]"
+
 
 def _build_section1(portfolio: dict[str, Any]) -> str:
     """Build §1 Portfolio Snapshot entirely from data — no LLM."""
@@ -70,7 +74,13 @@ def _build_section1(portfolio: dict[str, Any]) -> str:
             identifiers = {h.get("ticker"), h.get("fund_code"), h["name"]}
             stale_marker = " **[price stale]**" if identifiers & stale_priced_set else ""
             name_col = h["name"] + (f" ({h['ticker']})" if h.get("ticker") else "")
-            if mv is None or mv_base is None:
+            if h.get("capture_supported") is False:
+                # Not-processed market (issue #311): keep the row, distinct
+                # marker from [price unavailable], excluded from subtotals
+                # because market_value_base is None.
+                val_cell = _MARKET_NOT_SUPPORTED
+                ratio_cell = _MARKET_NOT_SUPPORTED
+            elif mv is None or mv_base is None:
                 # Unpriced holding (issue #295): keep the row, but never render
                 # a fabricated 0 / 0.0% — the placeholder is translated to the
                 # output language via report_glossary["[price unavailable]"].

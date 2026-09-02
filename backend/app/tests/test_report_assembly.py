@@ -692,3 +692,48 @@ def test_assembly_prompt_version_bumped_for_the_quality_gate_contract() -> None:
     contract produced it. A stale value means a pre- and post-quality-gate
     assembled report are indistinguishable by that field alone."""
     assert ra.ASSEMBLY_PROMPT_VERSION != "a4-v1"
+
+
+def test_assembly_prompt_omits_not_processed_holdings() -> None:
+    """Issue #311 / PR #312 B2: assembly is the Ring 1 production body.
+    A capture_supported=False holding must not appear as (unvalued)."""
+    portfolio = {
+        "base_currency": "USD",
+        "total_base": 100.0,
+        "fx_date": "2026-09-01",
+        "holdings": [
+            {
+                "name": "Apple",
+                "ticker": "AAPL",
+                "currency": "USD",
+                "market_value": 100.0,
+                "market_value_base": 100.0,
+                "asset_class": "STOCK",
+                "capture_supported": True,
+            },
+            {
+                "name": "BHP Group",
+                "ticker": "BHP.AX",
+                "currency": "AUD",
+                "market_value": None,
+                "market_value_base": None,
+                "asset_class": "STOCK",
+                "capture_supported": False,
+            },
+        ],
+        "by_asset_class": {"STOCK": 100.0},
+        "by_currency": {"USD": 100.0},
+        "by_market": {"US": 100.0},
+        "concentration": {},
+        "stale_tickers": [],
+    }
+    prompt = ra.build_assembly_prompt(
+        portfolio=portfolio,
+        price_anomalies=[],
+        ticker_intel={},
+        macro_event_intel={},
+        macro_event_exposure={},
+    )
+    assert "Apple" in prompt
+    assert "BHP.AX" not in prompt
+    assert "BHP Group" not in prompt

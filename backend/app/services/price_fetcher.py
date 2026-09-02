@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.models.holding import Holding
 from app.services._yfinance import _normalize_ticker, fetch_last_close
+from app.services.markets import is_capture_supported
 from app.services.sector_taxonomy import map_yf_sector
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,7 @@ def update_holding_prices(session: Session) -> PriceFetchResult:
             )
         ).scalars()
     )
+    rows = [r for r in rows if is_capture_supported(r)]
     if not rows:
         return result
 
@@ -139,6 +141,7 @@ def backfill_sectors(session: Session) -> int:
             )
         ).scalars()
     )
+    rows = [r for r in rows if is_capture_supported(r)]
 
     updated = 0
     for row in rows:

@@ -25,6 +25,17 @@ from app.services._yfinance import (
 _AS_OF = datetime(2026, 6, 4, 20, 0, tzinfo=UTC)
 
 
+@pytest.fixture(autouse=True)
+def _stub_yf_currency(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Do not hit live yfinance for the generic GBp currency lookup."""
+
+    class _Ticker:
+        def __init__(self, symbol: str) -> None:
+            self.fast_info = {"currency": "USD"}
+
+    monkeypatch.setattr("app.services._yfinance.yf.Ticker", _Ticker)
+
+
 # ---------------------------------------------------------------------------
 # _market_key_for_ticker
 # ---------------------------------------------------------------------------
@@ -44,6 +55,15 @@ _AS_OF = datetime(2026, 6, 4, 20, 0, tzinfo=UTC)
         # Case-insensitive
         ("0700.hk", "hk"),
         ("600519.ss", "cn"),
+        ("VOD.L", "uk"),
+        ("ASML.AS", "europe"),
+        ("MC.PA", "europe"),
+        ("SAP.DE", "europe"),
+        ("7203.T", "japan"),
+        ("005930.KS", "korea"),
+        ("035420.KQ", "korea"),
+        ("BHP.AX", "other"),
+        ("SHOP.TO", "other"),
     ],
 )
 def test_market_key_for_ticker(ticker: str, expected: str) -> None:
@@ -130,20 +150,26 @@ def test_fetch_last_close_normalizes_known_collision_ticker() -> None:
 
 
 def test_scale_price_converts_gbx_tickers_to_gbp() -> None:
-    """issue #204: yfinance quotes PSH.L in GBX (pence), a subunit of GBP —
-    the holding's declared currency. A raw pence value must be divided by
-    100 before it can be used as a GBP price."""
-    assert _scale_price("PSH.L", 5894.0) == pytest.approx(58.94)
-    # Unrelated tickers pass through unchanged.
-    assert _scale_price("AAPL", 300.0) == 300.0
+    """issue #204/#311: yfinance quotes LSE names in GBX (currency == GBp).
+    Scale is generic — not a per-ticker table."""
+    assert _scale_price(5894.0, "GBp") == pytest.approx(58.94)
+    assert _scale_price(300.0, "USD") == 300.0
+    assert _scale_price(700.0, "EUR") == 700.0
 
 
-def test_fetch_last_close_scales_psh_l_from_pence_to_pounds() -> None:
+def test_fetch_last_close_scales_psh_l_from_pence_to_pounds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A raw PSH.L close of 5894 (GBX) must come back as 58.94 (GBP)."""
 
     def fake_download(**kwargs: object) -> pd.DataFrame:
         return _make_hist("PSH.L", 5894.0)
 
+    class _Ticker:
+        def __init__(self, symbol: str) -> None:
+            self.fast_info = {"currency": "GBp"}
+
+    monkeypatch.setattr("app.services._yfinance.yf.Ticker", _Ticker)
     with (
         patch("app.services._yfinance.yf.download", side_effect=fake_download),
         patch("app.services._yfinance.time.sleep"),
@@ -163,7 +189,7 @@ def test_fetch_spot_normalizes_and_scales_known_collision_ticker() -> None:
     class _FakeTicker:
         def __init__(self, symbol: str) -> None:
             assert symbol == "PSH.L", f"fetch_spot queried un-normalized ticker {symbol!r}"
-            self.fast_info = {"lastPrice": 3930.0}
+            self.fast_info = {"lastPrice": 3930.0, "currency": "GBp"}
 
     with patch("app.services._yfinance.yf.Ticker", side_effect=_FakeTicker):
         result = fetch_spot(["PSH"])

@@ -35,6 +35,7 @@ from app.services.llm_errors import (
     classify,
     is_retryable,
 )
+from app.services.markets import VALID_HOLDING_MARKETS, resolve_holding_market
 
 _SUPPORTED_EXTENSIONS = {".md", ".txt", ".csv", ".xlsx", ".xls"}
 
@@ -118,7 +119,7 @@ Output a JSON object with exactly two keys:
   "current_value": number | null  (total value supplied by user for manual assets),
   "pricing_mode":  "auto" | "manual"  (inferred — see rules below),
   "asset_type":    "stock" | "etf" | "fund" | "cash" | "wmf" | "other" | null,
-  "market":        "US" | "HK" | "A-Share" | "Other" | null  (capital-location bucket; see rules),
+  "market":        "US" | "HK" | "A-Share" | "UK" | "Europe" | "Japan" | "Korea" | "Other" | null,
   "broker":        string | null,
   "account":       string | null,
   "portfolio":     string | null,
@@ -148,16 +149,19 @@ note the ambiguity in issues.
 2. ticker ends in .HK → HKD
 3. ticker ends in .SS or .SZ → CNY
 4. ticker ends in .L → GBP
-5. identifier is all digits (6-digit fund code or A-share code) → CNY
-6. name or broker contains a mainland Chinese institution
+5. ticker ends in .AS / .PA / .DE → EUR
+6. ticker ends in .T → JPY
+7. ticker ends in .KS or .KQ → KRW
+8. identifier is all digits (6-digit fund code or A-share code) → CNY
+9. name or broker contains a mainland Chinese institution
    ($cny_institutions) → CNY
-7. ticker is pure ASCII letters with no suffix AND no other CNY/HKD signals → USD
-8. asset is cash/$cash/$margin/margin/deposit: infer from broker context;
+10. ticker is pure ASCII letters with no suffix AND no other CNY/HKD/EUR/JPY/KRW signals → USD
+11. asset is cash/$cash/$margin/margin/deposit: infer from broker context;
    if broker is foreign (IBKR, Schwab, Fidelity, TD, Futu USD account) → USD;
    if broker is mainland Chinese → CNY;
    if broker is Hong Kong platform ($futu/Futu HKD, $stock_connect) → HKD;
    if cannot determine → add note to issues, set confidence < 0.7.
-9. Otherwise: make best guess and add explanation to issues.
+12. Otherwise: make best guess and add explanation to issues.
 
 --- asset_type inference ---
 - Has ticker with exchange suffix (.HK, .SS, .SZ) or well-known US ticker → "stock"
@@ -169,14 +173,16 @@ note the ambiguity in issues.
 
 --- market inference (the user groups capital by market; preserve their intent) ---
 1. The user explicitly gives a market/exchange column (US, HK, A-Share/$a_share_terms,
-   $us_market_zh, $hk_market_zh, etc.) → map it to one of US / HK / A-Share / Other and use it.
+   UK, Europe, Japan, Korea, $us_market_zh, $hk_market_zh, etc.) → map it to one of
+   US / HK / A-Share / UK / Europe / Japan / Korea / Other and use it.
 2. ticker ends in .HK → HK
 3. ticker ends in .SS or .SZ, OR a 6-digit fund_code, OR a 6-digit A-share code → A-Share
-4. plain US-listed ticker (no suffix) → US
-5. cash / WMP / deposit: follow the ACCOUNT's market via broker context —
+4. ticker ends in .L → UK; .AS / .PA / .DE → Europe; .T → Japan; .KS / .KQ → Korea
+5. plain US-listed ticker (no suffix, or a one-letter share class like BRK.B) → US
+6. cash / WMP / deposit: follow the ACCOUNT's market via broker context —
    IBKR / Schwab / Fidelity / TD / Futu-USD → US; $stock_connect / Futu-HKD → HK;
    mainland bank / $common_cn_platforms → A-Share.
-6. cannot determine → Other.
+7. cannot determine → Other. Do not drop the row.
 
 --- quality bar for valid_rows ---
 A row is valid if it has at minimum: name + currency + (shares OR current_value).
@@ -292,6 +298,12 @@ _TICKER_CURRENCY_MAP = {
     ".ss": "CNY",
     ".sz": "CNY",
     ".l": "GBP",
+    ".as": "EUR",
+    ".pa": "EUR",
+    ".de": "EUR",
+    ".t": "JPY",
+    ".ks": "KRW",
+    ".kq": "KRW",
     ".ax": "AUD",
     ".to": "CAD",
 }
@@ -390,6 +402,19 @@ _MARKET_ALIASES: dict[str, str] = {
     "ashare": "A-Share",
     "cn": "A-Share",
     "china": "A-Share",
+    "uk": "UK",
+    "lse": "UK",
+    "gb": "UK",
+    "europe": "Europe",
+    "eu": "Europe",
+    "euronext": "Europe",
+    "xetra": "Europe",
+    "japan": "Japan",
+    "jp": "Japan",
+    "tse": "Japan",
+    "korea": "Korea",
+    "kr": "Korea",
+    "krx": "Korea",
     **_VOCAB.market_aliases_zh,
 }
 
@@ -424,11 +449,22 @@ def _postprocess(
             row["issues"].append(f"Unrecognized asset_type {at!r} dropped to null")
             row["asset_type"] = None
 
-        # Normalize market to the canonical bucket; an unmappable non-null value
+        # Normalize market to the closed set; an unmappable non-null value
         # becomes "Other" rather than tripping the Literal or being lost.
+        # Then resolve capture_supported from ticker/market (issue #311) —
+        # unresolvable tickers stay in valid_rows as Other + not-processed.
         mkt = row.get("market")
-        if mkt is not None and mkt not in {"US", "HK", "A-Share", "Other"}:
+        if mkt is not None and mkt not in VALID_HOLDING_MARKETS:
             row["market"] = _MARKET_ALIASES.get(str(mkt).strip().lower(), "Other")
+        resolved_market, capture_ok = resolve_holding_market(
+            ticker=row.get("ticker"),
+            declared_market=row.get("market"),
+            fund_code=row.get("fund_code"),
+            asset_type=row.get("asset_type"),
+            pricing_mode=row.get("pricing_mode") or "auto",
+        )
+        row["market"] = resolved_market
+        row["capture_supported"] = capture_ok
 
         # Normalize currency case/whitespace before validation — an LLM
         # emitting "usd" instead of "USD" shouldn't trip the exact-match
@@ -814,4 +850,5 @@ def parse(text: str) -> UploadPreview:
         valid_rows=valid_rows,
         issue_rows=issue_rows,
         broker_groups=_summarize(valid_rows),
+        unsupported_capture_count=sum(1 for r in valid_rows if not r.capture_supported),
     )
