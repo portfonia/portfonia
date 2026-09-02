@@ -1,7 +1,7 @@
 import { Fragment } from "react";
 import { useTranslations } from "next-intl";
 
-import type { ParsedRow, IssueRow, BrokerGroup } from "@/lib/api";
+import type { ParsedRow, IssueNote, IssueRow, BrokerGroup } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -18,6 +18,22 @@ function num(value: number | null): string {
 
 function str(value: string | null): string {
   return value ?? "—";
+}
+
+export function rowNeedsAmber(row: ParsedRow): boolean {
+  return row.confidence < 0.7 || row.issues.some((i) => i.severity === "warning");
+}
+
+export function formatIssueNote(
+  t: ReturnType<typeof useTranslations<"holdings">>,
+  issue: IssueNote,
+): string {
+  const key = `issueNotes.${issue.code}` as "issueNotes.parser_note";
+  try {
+    return t(key, issue.params);
+  } catch {
+    return issue.params.message ?? issue.code;
+  }
 }
 
 export function PreviewTable({ rows }: { rows: ParsedRow[] }) {
@@ -38,12 +54,12 @@ export function PreviewTable({ rows }: { rows: ParsedRow[] }) {
       </TableHeader>
       <TableBody>
         {rows.map((r, i) => {
-          const inferred = r.issues.length > 0 || r.confidence < 0.7;
+          const amber = rowNeedsAmber(r);
           return (
             <Fragment key={i}>
               <TableRow
                 className={
-                  inferred ? "bg-amber-50 dark:bg-amber-950/30" : undefined
+                  amber ? "bg-amber-50 dark:bg-amber-950/30" : undefined
                 }
               >
                 <TableCell className="font-medium">
@@ -79,17 +95,21 @@ export function PreviewTable({ rows }: { rows: ParsedRow[] }) {
               {r.issues.length > 0 && (
                 <TableRow
                   className={
-                    inferred ? "bg-amber-50 dark:bg-amber-950/30" : undefined
+                    amber ? "bg-amber-50 dark:bg-amber-950/30" : undefined
                   }
                 >
                   <TableCell
                     colSpan={8}
-                    className="pt-0 text-xs text-amber-700 dark:text-amber-400"
+                    className={
+                      amber
+                        ? "pt-0 text-xs text-amber-700 dark:text-amber-400"
+                        : "pt-0 text-xs text-muted-foreground"
+                    }
                   >
                     <p className="font-medium">{t("rowNotesLabel")}</p>
                     <ul className="ml-4 list-disc">
                       {r.issues.map((issue, j) => (
-                        <li key={j}>{issue}</li>
+                        <li key={j}>{formatIssueNote(t, issue)}</li>
                       ))}
                     </ul>
                   </TableCell>

@@ -8,13 +8,15 @@ import { useTranslations } from "next-intl";
 import {
   ApiError,
   confirmHoldings,
+  downloadHoldingsTemplate,
   exportHoldings,
   uploadHoldings,
+  type ConfirmMode,
   type HoldingOut,
   type UploadPreview,
 } from "@/lib/api";
 import { isNextRedirectError } from "@/lib/next-redirect-error";
-import { TEMPLATE_MARKDOWN, downloadFile } from "@/lib/template";
+import { downloadFile } from "@/lib/template";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -35,7 +37,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { HoldingsTable } from "./holdings-table";
-import { BrokerSummary, IssueList, PreviewTable } from "./preview";
+import { BrokerSummary, IssueList, PreviewTable, rowNeedsAmber } from "./preview";
 
 export function HoldingsManager({
   initialHoldings,
@@ -53,12 +55,10 @@ export function HoldingsManager({
   const [uploading, setUploading] = useState(false);
   const [uploadSeconds, setUploadSeconds] = useState(0);
   const [saving, setSaving] = useState(false);
-  // Errors set by upload/save handlers below (translated at the moment the
-  // handler runs). The page-load error path is kept separate as a plain
-  // boolean (see `displayError`) so it stays reactive to a later locale
-  // switch instead of freezing whatever language was active at mount.
   const [error, setError] = useState<string | null>(null);
-  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [issuesConfirmOpen, setIssuesConfirmOpen] = useState(false);
+  const [replaceConfirmOpen, setReplaceConfirmOpen] = useState(false);
+  const pendingMode = useRef<ConfirmMode>("append");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const displayError = error ?? (initialLoadError ? t("errorLoadFailed") : null);
@@ -69,9 +69,6 @@ export function HoldingsManager({
     return () => clearInterval(id);
   }, [uploading]);
 
-  // The original threshold logic (which sentence shows at which elapsed
-  // time) is UI behavior, not translatable content, so it stays here — only
-  // the four resulting strings come from the catalog.
   function uploadingProgressText(seconds: number): string {
     if (seconds < 5) return t("uploadingProgress.reading");
     if (seconds < 20) return t("uploadingProgress.parsing");
@@ -89,9 +86,6 @@ export function HoldingsManager({
     try {
       setPreview(await uploadHoldings(file));
     } catch (err) {
-      // A 401 here can be the idle-logout Server Action's own redirect()
-      // throw (issue #235/#240) — that must propagate, not become an
-      // upload-failed error message.
       if (isNextRedirectError(err)) throw err;
       setError(
         `${t("errorUploadFailed")}: ${err instanceof ApiError ? err.message : String(err)}`,
@@ -102,60 +96,66 @@ export function HoldingsManager({
     }
   }
 
-  async function doSave() {
+  async function doSave(confirmMode: ConfirmMode) {
     if (!preview) return;
     setSaving(true);
     setError(null);
     try {
-      const saved = await confirmHoldings(preview.valid_rows);
+      const saved = await confirmHoldings(preview.valid_rows, confirmMode);
       if (mode === "onboarding") {
-        // Ring 1-Onboarding.md §2.3 — the other Save destination, alongside
-        // the questionnaire's. Preview is memory-only by design, so nothing
-        // else needs clearing on the way out.
         router.push("/welcome");
         return;
       }
       setHoldings(saved);
       setPreview(null);
     } catch (err) {
-      // A 401 here can be the idle-logout Server Action's own redirect()
-      // throw (issue #235/#240) — that must propagate, not become a
-      // save-failed error message.
       if (isNextRedirectError(err)) throw err;
       setError(
         `${t("errorSaveFailed")}: ${err instanceof ApiError ? err.message : String(err)}`,
       );
     } finally {
       setSaving(false);
-      setConfirmOpen(false);
+      setIssuesConfirmOpen(false);
+      setReplaceConfirmOpen(false);
     }
   }
 
-  function onSaveClick() {
+  function onAppendClick() {
     if (!preview) return;
+    pendingMode.current = "append";
     if (preview.issue_rows.length > 0) {
-      setConfirmOpen(true);
+      setIssuesConfirmOpen(true);
     } else {
-      void doSave();
+      void doSave("append");
     }
+  }
+
+  function onReplaceClick() {
+    if (!preview) return;
+    pendingMode.current = "replace";
+    setReplaceConfirmOpen(true);
   }
 
   async function onExport() {
     try {
       downloadFile(await exportHoldings(), "holdings.md");
     } catch (err) {
-      // A 401 here can be the idle-logout Server Action's own redirect()
-      // throw (issue #235/#240) — that must propagate, not become an
-      // export error message.
+      if (isNextRedirectError(err)) throw err;
+      setError(err instanceof ApiError ? err.message : String(err));
+    }
+  }
+
+  async function onDownloadTemplate() {
+    try {
+      downloadFile(await downloadHoldingsTemplate(), "holdings-template.md");
+    } catch (err) {
       if (isNextRedirectError(err)) throw err;
       setError(err instanceof ApiError ? err.message : String(err));
     }
   }
 
   const hasInferred =
-    preview?.valid_rows.some(
-      (r) => r.issues.length > 0 || r.confidence < 0.7,
-    ) ?? false;
+    preview?.valid_rows.some((r) => rowNeedsAmber(r)) ?? false;
 
   return (
     <>
@@ -165,9 +165,6 @@ export function HoldingsManager({
         </div>
       )}
 
-      {/* Onboarding skip (Ring 1-Onboarding.md §9.1 — "持仓页保存/跳过"): a
-          plain Link, never a submit — no rows are written. Save is the
-          other route into /welcome. */}
       {mode === "onboarding" && (
         <div className="mb-6 flex justify-end">
           <Link href="/welcome" className="text-sm underline-offset-4 hover:underline">
@@ -176,20 +173,13 @@ export function HoldingsManager({
         </div>
       )}
 
-      {/* Import */}
       <Card className="mb-6">
         <CardHeader>
           <CardTitle>{t("uploadHeading")}</CardTitle>
           <CardDescription>{t("uploadHint")}</CardDescription>
           {mode !== "onboarding" && (
             <CardAction>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  downloadFile(TEMPLATE_MARKDOWN, "holdings-template.md")
-                }
-              >
+              <Button variant="outline" size="sm" onClick={() => void onDownloadTemplate()}>
                 {t("downloadTemplate")}
               </Button>
             </CardAction>
@@ -219,7 +209,6 @@ export function HoldingsManager({
         </CardContent>
       </Card>
 
-      {/* Preview */}
       {preview && (
         <Card className="mb-6">
           <CardHeader>
@@ -230,7 +219,7 @@ export function HoldingsManager({
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <p className="text-xs text-muted-foreground">{t("replaceWarning")}</p>
+            <p className="text-xs text-muted-foreground">{t("appendHint")}</p>
             {preview.unsupported_capture_count > 0 && (
               <p className="text-xs text-muted-foreground">
                 {t("unsupportedCaptureBanner", {
@@ -257,7 +246,7 @@ export function HoldingsManager({
               </div>
             )}
 
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <Button
                 variant="ghost"
                 onClick={() => setPreview(null)}
@@ -266,30 +255,43 @@ export function HoldingsManager({
                 {t("cancelButton")}
               </Button>
               <Button
-                onClick={onSaveClick}
+                variant="outline"
+                onClick={onReplaceClick}
                 disabled={saving || preview.valid_rows.length === 0}
               >
-                {saving ? t("saving") : t("saveButton")}
+                {t("replaceAllButton")}
+              </Button>
+              <Button
+                onClick={onAppendClick}
+                disabled={saving || preview.valid_rows.length === 0}
+              >
+                {saving ? t("saving") : t("appendButton")}
               </Button>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Current holdings — hidden in onboarding mode (Ring 1-Onboarding.md
-          §2.3): nothing is committed yet on a brand-new signup, and Export
-          lives inside this card so hiding it takes Export with it. */}
       {mode !== "onboarding" && (
         <Card>
           <CardHeader>
             <CardTitle>{t("currentHeading")}</CardTitle>
-            {holdings.length > 0 && (
-              <CardAction>
-                <Button variant="outline" size="sm" onClick={onExport}>
-                  {t("exportButton")}
+            <CardAction>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  render={<Link href="/holdings/edit" />}
+                >
+                  {t("editHoldings")}
                 </Button>
-              </CardAction>
-            )}
+                {holdings.length > 0 && (
+                  <Button variant="outline" size="sm" onClick={() => void onExport()}>
+                    {t("exportButton")}
+                  </Button>
+                )}
+              </div>
+            </CardAction>
           </CardHeader>
           <CardContent>
             <HoldingsTable holdings={holdings} />
@@ -297,8 +299,7 @@ export function HoldingsManager({
         </Card>
       )}
 
-      {/* Last-chance discard confirmation */}
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+      <AlertDialog open={issuesConfirmOpen} onOpenChange={setIssuesConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t("confirmTitle")}</AlertDialogTitle>
@@ -312,10 +313,33 @@ export function HoldingsManager({
             </AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
-              onClick={() => void doSave()}
+              onClick={() => void doSave(pendingMode.current)}
               disabled={saving}
             >
               {saving ? t("saving") : t("confirmDiscard")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={replaceConfirmOpen} onOpenChange={setReplaceConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("replaceConfirmTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("replaceConfirmBody")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>
+              {t("cancelButton")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => void doSave("replace")}
+              disabled={saving}
+            >
+              {saving ? t("saving") : t("replaceConfirmAction")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -64,7 +64,7 @@ async function uploadAndSave(user: ReturnType<typeof userEvent.setup>) {
   const file = new File(["content"], "holdings.md", { type: "text/markdown" });
   await user.upload(input, file);
   await screen.findByText(/parsed holdings/i);
-  await user.click(screen.getByRole("button", { name: /^save holdings$/i }));
+  await user.click(screen.getByRole("button", { name: /append to holdings/i }));
 }
 
 describe("HoldingsManager", () => {
@@ -76,7 +76,7 @@ describe("HoldingsManager", () => {
     confirmHoldings.mockResolvedValue(_CONFIRMED);
   });
 
-  it("normal mode (default): shows Current holdings and Download template, Save stays on the page", async () => {
+  it("normal mode (default): shows Current holdings and Download template, Append stays on the page", async () => {
     const user = userEvent.setup();
     renderManager();
     expect(screen.getByText(/current holdings/i)).toBeInTheDocument();
@@ -84,7 +84,9 @@ describe("HoldingsManager", () => {
 
     await uploadAndSave(user);
 
-    await waitFor(() => expect(confirmHoldings).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(confirmHoldings).toHaveBeenCalledWith(_PREVIEW.valid_rows, "append"),
+    );
     expect(push).not.toHaveBeenCalled();
   });
 
@@ -150,6 +152,29 @@ describe("HoldingsManager", () => {
     await user.upload(input, file);
     expect(await screen.findByText(/not auto-priced yet/i)).toBeInTheDocument();
     expect(screen.getByText(/market not supported/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^save holdings$/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /append to holdings/i })).toBeEnabled();
+  });
+
+  it("normal mode: Replace all asks for a second confirm then confirms with mode=replace", async () => {
+    const user = userEvent.setup();
+    renderManager();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["content"], "holdings.md", { type: "text/markdown" });
+    await user.upload(input, file);
+    await screen.findByText(/parsed holdings/i);
+    await user.click(screen.getByRole("button", { name: /replace all holdings/i }));
+    expect(confirmHoldings).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: /^replace all$/i }));
+    await waitFor(() =>
+      expect(confirmHoldings).toHaveBeenCalledWith(_PREVIEW.valid_rows, "replace"),
+    );
+  });
+
+  it("normal mode: links to the edit-holdings page from the current list", () => {
+    renderManager();
+    expect(screen.getByRole("link", { name: /edit holdings/i })).toHaveAttribute(
+      "href",
+      "/holdings/edit",
+    );
   });
 });
