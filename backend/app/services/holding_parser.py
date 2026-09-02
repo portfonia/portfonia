@@ -149,16 +149,19 @@ note the ambiguity in issues.
 2. ticker ends in .HK → HKD
 3. ticker ends in .SS or .SZ → CNY
 4. ticker ends in .L → GBP
-5. identifier is all digits (6-digit fund code or A-share code) → CNY
-6. name or broker contains a mainland Chinese institution
+5. ticker ends in .AS / .PA / .DE → EUR
+6. ticker ends in .T → JPY
+7. ticker ends in .KS or .KQ → KRW
+8. identifier is all digits (6-digit fund code or A-share code) → CNY
+9. name or broker contains a mainland Chinese institution
    ($cny_institutions) → CNY
-7. ticker is pure ASCII letters with no suffix AND no other CNY/HKD signals → USD
-8. asset is cash/$cash/$margin/margin/deposit: infer from broker context;
+10. ticker is pure ASCII letters with no suffix AND no other CNY/HKD/EUR/JPY/KRW signals → USD
+11. asset is cash/$cash/$margin/margin/deposit: infer from broker context;
    if broker is foreign (IBKR, Schwab, Fidelity, TD, Futu USD account) → USD;
    if broker is mainland Chinese → CNY;
    if broker is Hong Kong platform ($futu/Futu HKD, $stock_connect) → HKD;
    if cannot determine → add note to issues, set confidence < 0.7.
-9. Otherwise: make best guess and add explanation to issues.
+12. Otherwise: make best guess and add explanation to issues.
 
 --- asset_type inference ---
 - Has ticker with exchange suffix (.HK, .SS, .SZ) or well-known US ticker → "stock"
@@ -295,6 +298,12 @@ _TICKER_CURRENCY_MAP = {
     ".ss": "CNY",
     ".sz": "CNY",
     ".l": "GBP",
+    ".as": "EUR",
+    ".pa": "EUR",
+    ".de": "EUR",
+    ".t": "JPY",
+    ".ks": "KRW",
+    ".kq": "KRW",
     ".ax": "AUD",
     ".to": "CAD",
 }

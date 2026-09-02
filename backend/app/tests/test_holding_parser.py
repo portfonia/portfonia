@@ -1264,3 +1264,19 @@ def test_postprocess_unsupported_count_matches_preview_contract() -> None:
     )
     assert [r.capture_supported for r in rows] == [True, False, False]
     assert sum(1 for r in rows if not r.capture_supported) == 2
+
+
+def test_postprocess_corrects_new_market_suffix_currencies() -> None:
+    """Issue #311 / PR #312 B3: EUR/JPY/KRW suffix map, .L stays GBP."""
+    cases = [
+        ("ASML.AS", "EUR"),
+        ("MC.PA", "EUR"),
+        ("SAP.DE", "EUR"),
+        ("7203.T", "JPY"),
+        ("005930.KS", "KRW"),
+        ("035420.KQ", "KRW"),
+        ("VOD.L", "GBP"),
+    ]
+    for ticker, expected in cases:
+        rows = _postprocess([_raw_row(name=ticker, ticker=ticker, currency="USD")])
+        assert rows[0].currency == expected, ticker
