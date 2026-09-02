@@ -61,8 +61,52 @@ def test_summary_base_currency_cny(app_client: TestClient, db_session: Session) 
 
 def test_summary_rejects_invalid_currency(app_client: TestClient, db_session: Session) -> None:
     _seed(db_session)
-    resp = app_client.get("/portfolio/summary?base_currency=EUR")
+    resp = app_client.get("/portfolio/summary?base_currency=XXX")
     assert resp.status_code == 422
+
+
+def test_summary_accepts_every_valid_currency(app_client: TestClient, db_session: Session) -> None:
+    """issue #320: base_currency widened from a 3-value Literal to all 15
+    VALID_CURRENCIES entries — EUR/GBP/etc. used to 422 here."""
+    from app.schemas.holdings import VALID_CURRENCIES
+
+    _seed(db_session)
+    for currency in VALID_CURRENCIES:
+        resp = app_client.get(f"/portfolio/summary?base_currency={currency}")
+        assert resp.status_code == 200, currency
+
+
+def test_base_currency_literal_matches_valid_currencies_exactly() -> None:
+    """Drift guard: the router's Literal is a hand-copied mirror of
+    VALID_CURRENCIES (kept as a Literal, not built dynamically, so mypy
+    --strict can verify it) — pin the two together."""
+    from typing import get_args
+
+    from app.routers.portfolio import BaseCurrency
+    from app.schemas.holdings import VALID_CURRENCIES
+
+    assert set(get_args(BaseCurrency)) == VALID_CURRENCIES
+
+
+def test_summary_includes_group_account_and_pnl_totals(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """issue #320: by_group/by_account/P&L totals/price_as_of_date pass
+    through the router unchanged from compute_portfolio()."""
+    _seed(db_session)
+    resp = app_client.get("/portfolio/summary")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["by_group"] == {"Ungrouped": "3000.00"}
+    assert body["by_account"] == {"Other": "3000.00"}
+    assert body["total_cost_basis_base"] == "0"
+    assert body["total_unrealized_pnl_base"] == "0"
+    assert body["total_unrealized_pnl_pct"] is None
+    assert body["price_as_of_date"] is None
+    hv = body["holdings"][0]
+    assert hv["pricing_mode"] == "auto"
+    assert hv["capture_supported"] is True
+    assert hv["cost_basis_base"] is None
 
 
 # POST /refresh moved to POST /admin/portfolio/refresh (issue #128 Ring 1

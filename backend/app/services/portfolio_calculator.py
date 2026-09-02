@@ -94,9 +94,20 @@ class HoldingValue:
     market_value: Decimal | None  # in holding's own currency; None = no price available
     market_value_base: Decimal | None  # in base_currency; None = no price / no FX rate
     price_as_of: datetime | None
+    pricing_mode: str = "auto"
     broker: str | None = None  # custodian / holding institution, for §1 grouping
+    account: str | None = None
+    portfolio: str | None = None  # "Group" in the C2 dashboard (issue #319 naming)
+    avg_cost: Decimal | None = None
+    shares: Decimal | None = None
     position: int | None = None  # upload order, for report layout
     capture_supported: bool = True  # issue #311; False -> [market not supported]
+    # None (not zero) unless pricing_mode=="auto" and a cost basis + valuation
+    # both exist — issue #320 decision 2. Cash/wmf and capture-unsupported
+    # holdings always carry None here; the frontend renders "—".
+    cost_basis_base: Decimal | None = None
+    unrealized_pnl_base: Decimal | None = None
+    unrealized_pnl_pct: Decimal | None = None
 
 
 @dataclass
@@ -131,9 +142,19 @@ class PortfolioSnapshot:
     by_market: dict[str, Decimal] = field(default_factory=dict)
     by_sector: dict[str, Decimal] = field(default_factory=dict)  # equity sectors only, §6.4
     by_asset_class: dict[str, Decimal] = field(default_factory=dict)  # all holdings, §1/§4.1
+    by_group: dict[str, Decimal] = field(default_factory=dict)  # Holding.portfolio, C2 dashboard
+    by_account: dict[str, Decimal] = field(default_factory=dict)  # Holding.broker, C2 dashboard
     concentration: Concentration = field(default_factory=Concentration)
     stale_tickers: list[str] = field(default_factory=list)
     stale_priced_tickers: list[str] = field(default_factory=list)
+    # Sums only holdings with a computed cost basis — cash/wmf never
+    # contributes (issue #320 decision 2).
+    total_cost_basis_base: Decimal = _ZERO
+    total_unrealized_pnl_base: Decimal = _ZERO
+    total_unrealized_pnl_pct: Decimal | None = None
+    # Max trade_date among captured closes actually matched to one of this
+    # user's holdings this run; None when nothing was captured.
+    price_as_of_date: date | None = None
 
 
 def _load_fx_rates(session: Session) -> tuple[dict[str, Decimal], date | None]:
@@ -294,6 +315,7 @@ def compute_portfolio(
     holdings: list[Holding] = list(
         session.execute(select(Holding).where(Holding.user_id == user_id)).scalars()
     )
+    used_trade_dates: list[date] = []
 
     for h in holdings:
         # --- market value in the holding's own currency ---
@@ -317,6 +339,7 @@ def compute_portfolio(
             if captured is not None:
                 price, trade_date = captured
                 price_as_of = datetime.combine(trade_date, datetime.min.time(), tzinfo=ET)
+                used_trade_dates.append(trade_date)
                 if (price_ref - trade_date).days > _PRICE_STALE_DAYS:
                     snapshot.stale_priced_tickers.append(h.ticker or h.fund_code or h.name)
             if price is None or h.shares is None:
@@ -343,6 +366,25 @@ def compute_portfolio(
             else:
                 market_value_base = converted.quantize(_CENT, rounding=ROUND_HALF_UP)
 
+        # --- P&L (issue #320 decision 2): only for auto-priced holdings with
+        # both a cost basis and a valuation. None (not zero) otherwise — cash/
+        # wmf and capture-unsupported holdings never get a cost-basis concept.
+        cost_basis_base: Decimal | None = None
+        unrealized_pnl_base: Decimal | None = None
+        unrealized_pnl_pct: Decimal | None = None
+        if (
+            h.pricing_mode == "auto"
+            and h.shares is not None
+            and h.avg_cost is not None
+            and market_value_base is not None
+        ):
+            converted_cost = _to_base(h.shares * h.avg_cost, h.currency, base_currency, fx)
+            if converted_cost is not None:
+                cost_basis_base = converted_cost.quantize(_CENT, rounding=ROUND_HALF_UP)
+                unrealized_pnl_base = market_value_base - cost_basis_base
+                if cost_basis_base > _ZERO:
+                    unrealized_pnl_pct = _ratio(unrealized_pnl_base, cost_basis_base)
+
         # Prefer the user-declared market; derive from ticker only when absent.
         market = h.market or _infer_holding_market(h)
         snapshot.holdings.append(
@@ -359,9 +401,17 @@ def compute_portfolio(
                 market_value=market_value,
                 market_value_base=market_value_base,
                 price_as_of=price_as_of if h.pricing_mode == "auto" else h.price_as_of,
+                pricing_mode=h.pricing_mode,
                 broker=h.broker,
+                account=h.account,
+                portfolio=h.portfolio,
+                avg_cost=h.avg_cost,
+                shares=h.shares,
                 position=h.position,
                 capture_supported=is_capture_supported(h),
+                cost_basis_base=cost_basis_base,
+                unrealized_pnl_base=unrealized_pnl_base,
+                unrealized_pnl_pct=unrealized_pnl_pct,
             )
         )
 
@@ -370,6 +420,10 @@ def compute_portfolio(
             # every aggregate (the stale_tickers entry above drives the
             # ops-alert / compliance narrative) — issue #295.
             continue
+
+        if cost_basis_base is not None and unrealized_pnl_base is not None:
+            snapshot.total_cost_basis_base += cost_basis_base
+            snapshot.total_unrealized_pnl_base += unrealized_pnl_base
 
         # --- aggregates ---
         snapshot.total_base += market_value_base
@@ -381,6 +435,13 @@ def compute_portfolio(
             snapshot.by_asset_type.get(asset_key, _ZERO) + market_value_base
         )
         snapshot.by_market[market] = snapshot.by_market.get(market, _ZERO) + market_value_base
+
+        group_key = h.portfolio or "Ungrouped"
+        snapshot.by_group[group_key] = snapshot.by_group.get(group_key, _ZERO) + market_value_base
+        account_key = h.broker or "Other"
+        snapshot.by_account[account_key] = (
+            snapshot.by_account.get(account_key, _ZERO) + market_value_base
+        )
 
         # Every holding has an asset_class (server_default on the model), so
         # this bucket has no "Other" fallback and naturally merges the same
@@ -400,5 +461,10 @@ def compute_portfolio(
                 snapshot.by_sector.get(sector_key, _ZERO) + market_value_base
             )
 
+    if snapshot.total_cost_basis_base > _ZERO:
+        snapshot.total_unrealized_pnl_pct = _ratio(
+            snapshot.total_unrealized_pnl_base, snapshot.total_cost_basis_base
+        )
+    snapshot.price_as_of_date = max(used_trade_dates) if used_trade_dates else None
     snapshot.concentration = _compute_concentration(snapshot)
     return snapshot
