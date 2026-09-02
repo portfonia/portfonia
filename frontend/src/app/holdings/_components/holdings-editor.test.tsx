@@ -29,6 +29,7 @@ function holding(partial: Partial<HoldingOut> & Pick<HoldingOut, "id" | "name">)
     current_value: null,
     pricing_mode: "auto",
     asset_type: "stock",
+    capture_supported: true,
     broker: "Fidelity",
     account: null,
     portfolio: null,

@@ -205,7 +205,14 @@ export function HoldingForm({
       if (initial) {
         await updateHolding(initial.id, fields);
       } else {
-        await createHolding({ ...fields, issues: [], confidence: 1 } as ParsedRow);
+        await createHolding({
+          ...fields,
+          issues: [],
+          confidence: 1,
+          // Recomputed server-side (issue #311) — a client-forged value is
+          // never trusted, this only satisfies ParsedRow's shape.
+          capture_supported: true,
+        } as ParsedRow);
       }
       router.push("/holdings/edit");
     } catch (err) {

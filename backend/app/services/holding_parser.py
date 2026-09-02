@@ -29,7 +29,7 @@ from app.schemas.holdings import (
 )
 from app.services._yfinance import _TICKER_SYMBOL_OVERRIDE
 from app.services.asset_class_config import VALID_ASSET_CLASSES
-from app.services.holdings_export import DIALECT_TAG_KEYS
+from app.services.holdings_export import DIALECT_TAG_KEYS, MANUAL_LISTED_PLACEHOLDER
 from app.services.llm_errors import (
     LLMCallError,
     LLMEmptyResponseError,
@@ -379,13 +379,72 @@ def _manual_match(tokens: list[str], n_nums: int) -> dict[str, Any] | None:
     return last
 
 
-def _parse_manual_listed_tokens(tokens: list[str]) -> dict[str, Any] | None:
-    """pricing_mode:manual listed shape, parsed by tag not by counting blindly.
+def _is_num_or_placeholder(token: str) -> bool:
+    return token == MANUAL_LISTED_PLACEHOLDER or _is_num(token)
 
-    Three numerics after currency are shares / avg_cost / current_value.
-    Two are shares / avg_cost. One is current_value only.
+
+def _manual_match_explicit(tokens: list[str]) -> dict[str, Any] | None:
+    """shares / avg_cost / current_value, each a number or the placeholder.
+
+    Unambiguous by construction — this is what `render_holding_line` emits
+    for pricing_mode:manual listed rows (always all three slots), so cost
+    basis / valuation survive an export -> edit -> replace-all round trip
+    even when the middle slot is missing. Blind positional counting alone
+    cannot tell "shares + current_value, no avg_cost" apart from "shares +
+    avg_cost, no current_value" — both are two numeric tokens (PR #310
+    round 5, the round-4 bug this replaces for the export-generated shape).
+    Hand-typed shorthand without the placeholder still falls back to
+    `_manual_match`'s count-based heuristic below.
     """
-    return _manual_match(tokens, 3) or _manual_match(tokens, 2) or _manual_match(tokens, 1)
+    last: dict[str, Any] | None = None
+    for i, tok in enumerate(tokens):
+        if tok.upper() not in VALID_CURRENCIES:
+            continue
+        if i < 1 or i + 3 >= len(tokens):
+            continue
+        nums = tokens[i + 1 : i + 4]
+        if not all(_is_num_or_placeholder(t) for t in nums):
+            continue
+        if all(t == MANUAL_LISTED_PLACEHOLDER for t in nums):
+            continue  # nothing recoverable; let the flexible fallback try
+        if i + 4 < len(tokens) and _is_num(tokens[i + 4]):
+            continue
+        ident = tokens[i - 1]
+        name = " ".join(tokens[: i - 1]).strip()
+        if not name:
+            continue
+        broker = " ".join(tokens[i + 4 :]).strip() or None
+        shares, avg_cost, current_value = (
+            None if t == MANUAL_LISTED_PLACEHOLDER else float(t.replace(",", "")) for t in nums
+        )
+        last = {
+            "name": name,
+            "currency": tok.upper(),
+            "broker": broker,
+            "pricing_mode": "manual",
+            "shares": shares,
+            "avg_cost": avg_cost,
+            "current_value": current_value,
+            **_ident_from_token(ident),
+        }
+    return last
+
+
+def _parse_manual_listed_tokens(tokens: list[str]) -> dict[str, Any] | None:
+    """pricing_mode:manual listed shape: shares / avg_cost / current_value.
+
+    Tries the unambiguous placeholder-marked shape first (what export always
+    produces), then falls back to count-based heuristics for hand-typed
+    shorthand without placeholders: three numerics after currency are
+    shares / avg_cost / current_value, two are shares / avg_cost, one is
+    current_value only.
+    """
+    return (
+        _manual_match_explicit(tokens)
+        or _manual_match(tokens, 3)
+        or _manual_match(tokens, 2)
+        or _manual_match(tokens, 1)
+    )
 
 
 def _parse_cash_tokens(tokens: list[str]) -> dict[str, Any] | None:
@@ -544,6 +603,42 @@ _TICKER_CURRENCY_MAP = {
 }
 
 
+def normalize_ticker_and_currency(row: dict[str, Any], *, emit_note: bool = True) -> None:
+    """Canonicalize a ticker (HK 4-digit form) and correct currency from its suffix.
+
+    Three callers share this: `_postprocess` runs it twice — once before
+    force-suffix (canonicalizes a ticker the user already suffixed, e.g.
+    02333.HK -> 2333.HK) and once after (canonicalizes a suffix
+    `apply_confirmed_exchange_suffix` just added, e.g. 700 -> 700.HK ->
+    0700.HK) — and the non-LLM write path (`POST`/`PATCH /holdings` via
+    `_apply_write_defaults`) runs it too. Before this was extracted, the
+    router never ran this step: an API write of ticker "700" + HKD
+    force-suffixed to "700.HK" while the identical input via file-import
+    produced "0700.HK" — a stored-form divergence that silently misses
+    `ticker_themes`/config-YAML lookups keyed on the canonical form (PR
+    #310 round 5 review).
+    """
+    ticker = row.get("ticker")
+    if not ticker:
+        return
+    normalized = _normalize_hk_ticker(ticker)
+    if normalized != ticker:
+        if emit_note:
+            _append_issue(row, "ticker_normalized_hk", {"ticker": normalized})
+        row["ticker"] = ticker = normalized
+    for suffix, currency in _TICKER_CURRENCY_MAP.items():
+        if ticker.lower().endswith(suffix):
+            if row.get("currency") != currency:
+                if emit_note:
+                    _append_issue(
+                        row,
+                        "currency_corrected",
+                        {"currency": currency, "suffix": suffix.upper()},
+                    )
+                row["currency"] = currency
+            break
+
+
 # Force-applied once market is confirmed (issue #92 / PR #310). Do not guess
 # a suffix when market cannot be determined. .AX/.TO stay out of this class.
 # Longest suffixes first so .KS is not shadowed by a future overlap.
@@ -560,6 +655,15 @@ _FORCE_EXCHANGE_SUFFIXES: tuple[str, ...] = (
     ".T",
 )
 _CAPTURE_MARKETS = SUPPORTED_CAPTURE_MARKETS
+
+# Currencies worth a ticker_no_suffix hint when a suffix cannot be applied
+# (market undetermined, or determined but ambiguous — Europe/Korea each
+# have multiple listing suffixes). Every currency this module resolves to a
+# live capture market via _confirmed_market, so the set must track that
+# resolution, not stop at the original GBP/HKD/CNY set from before #312
+# widened capture to UK/Europe/Japan/Korea (PR #310 round 5 review — EUR
+# and KRW silently got no hint after that widening).
+_SUFFIX_HINT_CURRENCIES = frozenset({"GBP", "HKD", "CNY", "EUR", "JPY", "KRW"})
 
 
 def _known_exchange_suffix(ticker: str) -> str | None:
@@ -651,9 +755,13 @@ def apply_confirmed_exchange_suffix(row: dict[str, Any], *, emit_note: bool = Tr
     (PSH.L is a London listing; UK captures). Bare-PSH lookup still uses
     `_TICKER_SYMBOL_OVERRIDE` PSH -> PSH.L. Cash/wmf have no ticker. Dotted
     share-class tickers (BRK.B) are left unsuffixed. Idempotent if the suffix
-    is already present.
+    is already present. A manual-priced row's "ticker" is a free-text label,
+    not a market symbol — capture never reads pricing_mode:manual rows
+    (`_market_tickers` only selects "auto"), so forcing a suffix serves no
+    purpose there and risks corrupting a label that only looks like a real
+    ticker (e.g. HOME -> HOME.HK) (PR #310 round 5 review).
     """
-    if row.get("asset_type") in ("cash", "wmf"):
+    if row.get("asset_type") in ("cash", "wmf") or row.get("pricing_mode") == "manual":
         return
     ticker = row.get("ticker")
     if not isinstance(ticker, str) or not ticker.strip():
@@ -665,7 +773,7 @@ def apply_confirmed_exchange_suffix(row: dict[str, Any], *, emit_note: bool = Tr
     currency_s = str(currency) if currency is not None else ""
 
     if market not in _CAPTURE_MARKETS:
-        if emit_note and not already and market is None and currency_s in ("GBP", "HKD", "CNY"):
+        if emit_note and not already and market is None and currency_s in _SUFFIX_HINT_CURRENCIES:
             _append_issue(
                 row,
                 "ticker_no_suffix",
@@ -681,7 +789,7 @@ def apply_confirmed_exchange_suffix(row: dict[str, Any], *, emit_note: bool = Tr
 
     suffix = _exchange_suffix_to_apply(market, ticker, currency_s or None)
     if suffix is None:
-        if emit_note and currency_s in ("GBP", "HKD", "CNY"):
+        if emit_note and currency_s in _SUFFIX_HINT_CURRENCIES:
             _append_issue(
                 row,
                 "ticker_no_suffix",
@@ -911,26 +1019,9 @@ def _postprocess(
                 row["currency"] = normalized_cur
 
         # Canonicalize HK tickers to yfinance's 4-digit form (02333.HK -> 2333.HK)
-        # so price lookups don't miss on a leading-zero variant. (issue #49)
-        ticker: str | None = row.get("ticker")
-        if ticker:
-            normalized = _normalize_hk_ticker(ticker)
-            if normalized != ticker:
-                _append_issue(row, "ticker_normalized_hk", {"ticker": normalized})
-                row["ticker"] = ticker = normalized
-
-        # Currency correction from ticker suffix.
-        if ticker:
-            for suffix, currency in _TICKER_CURRENCY_MAP.items():
-                if ticker.lower().endswith(suffix):
-                    if row.get("currency") != currency:
-                        _append_issue(
-                            row,
-                            "currency_corrected",
-                            {"currency": currency, "suffix": suffix.upper()},
-                        )
-                        row["currency"] = currency
-                    break
+        # and correct currency from the ticker's suffix, so price lookups
+        # don't miss on a leading-zero variant. (issue #49)
+        normalize_ticker_and_currency(row)
 
         # Cash/wmf rows carry no real instrument identifier (issue #120): the
         # model has been observed both fabricating a ticker like "CASH" that
@@ -991,22 +1082,7 @@ def _postprocess(
         )
         row["market"] = resolved_market
         row["capture_supported"] = capture_ok
-        ticker = row.get("ticker")
-        if ticker:
-            normalized = _normalize_hk_ticker(ticker)
-            if normalized != ticker:
-                _append_issue(row, "ticker_normalized_hk", {"ticker": normalized})
-                row["ticker"] = ticker = normalized
-            for suffix, currency in _TICKER_CURRENCY_MAP.items():
-                if ticker.lower().endswith(suffix):
-                    if row.get("currency") != currency:
-                        _append_issue(
-                            row,
-                            "currency_corrected",
-                            {"currency": currency, "suffix": suffix.upper()},
-                        )
-                        row["currency"] = currency
-                    break
+        normalize_ticker_and_currency(row)
 
         # Unrecognized-currency check runs last (after suffix force-apply and
         # all corrections) so the note reflects the row's final currency.

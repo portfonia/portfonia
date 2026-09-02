@@ -1391,6 +1391,83 @@ def test_export_manual_non_cash_value_only_still_round_trips_without_llm(
     assert preview.valid_rows[0].avg_cost is None
 
 
+def test_export_manual_non_cash_missing_avg_cost_round_trips_without_fabricating_cost_basis(
+    app_client: TestClient,
+) -> None:
+    """PR #310 round 5: shares + current_value known, avg_cost unknown must
+    not turn current_value into a fabricated avg_cost on re-import — the
+    round-4 bug (present-only positional export) cannot distinguish this
+    from 'shares + avg_cost, no current_value', and a fabricated cost basis
+    is worse than a missing one since nothing downstream can tell it's wrong."""
+    row: dict[str, object] = {
+        "name": "Family house",
+        "ticker": "HOME",
+        "fund_code": None,
+        "currency": "USD",
+        "shares": 1.0,
+        "avg_cost": None,
+        "current_value": 250000.0,
+        "pricing_mode": "manual",
+        "asset_type": "other",
+        "broker": "IBKR",
+        "account": None,
+        "portfolio": None,
+        "notes": None,
+        "issues": [],
+        "confidence": 1.0,
+    }
+    resp = app_client.post("/holdings", json=row)
+    assert resp.status_code == 201
+    body = app_client.get("/holdings/export").text
+    from app.services.holding_parser import parse
+
+    with patch("app.services.holding_parser._parse_attempt") as mock_attempt:
+        preview = parse(body)
+    mock_attempt.assert_not_called()
+    assert len(preview.valid_rows) == 1
+    parsed = preview.valid_rows[0]
+    assert parsed.shares == 1.0
+    assert parsed.avg_cost is None
+    assert parsed.current_value == 250000.0
+    assert preview.issue_rows == []
+
+
+def test_export_manual_non_cash_missing_shares_round_trips_without_corrupting_fields(
+    app_client: TestClient,
+) -> None:
+    """The inverse gap: avg_cost + current_value known, shares unknown."""
+    row: dict[str, object] = {
+        "name": "Family office stake",
+        "ticker": "HOME",
+        "fund_code": None,
+        "currency": "USD",
+        "shares": None,
+        "avg_cost": 25000.0,
+        "current_value": 280000.0,
+        "pricing_mode": "manual",
+        "asset_type": "other",
+        "broker": "IBKR",
+        "account": None,
+        "portfolio": None,
+        "notes": None,
+        "issues": [],
+        "confidence": 1.0,
+    }
+    resp = app_client.post("/holdings", json=row)
+    assert resp.status_code == 201
+    body = app_client.get("/holdings/export").text
+    from app.services.holding_parser import parse
+
+    with patch("app.services.holding_parser._parse_attempt") as mock_attempt:
+        preview = parse(body)
+    mock_attempt.assert_not_called()
+    parsed = preview.valid_rows[0]
+    assert parsed.shares is None
+    assert parsed.avg_cost == 25000.0
+    assert parsed.current_value == 280000.0
+    assert preview.issue_rows == []
+
+
 def test_export_cash_emits_current_value_only(app_client: TestClient) -> None:
     """Cash/wmf have no cost basis today — export is value-only, not shares/avg_cost."""
     resp = app_client.post("/holdings", json=_PARSED_CASH)
@@ -1440,6 +1517,59 @@ def test_patch_holding_force_suffixes_bare_hk_ticker(
     assert resp.status_code == 200
     assert resp.json()["ticker"] == "0700.HK"
     assert resp.json()["market"] == "HK"
+
+
+def test_patch_holding_normalizes_hk_ticker_after_force_suffix(app_client: TestClient) -> None:
+    """PR #310 round 5: the router's force-suffix path must canonicalize the
+    same way file-import parsing does (_postprocess re-runs HK-normalize
+    after applying a suffix) — a bare 3-digit HK code force-suffixed via the
+    API must come out 4-digit zero-padded, matching the dialect-import path,
+    or ticker_themes/config YAML lookups (keyed on the canonical form) miss
+    for API-written holdings even though they hit for file-imported ones."""
+    created = app_client.post("/holdings", json=_PARSED_APPLE).json()
+    resp = app_client.patch(
+        f"/holdings/{created['id']}",
+        json={"ticker": "700", "currency": "HKD", "market": "HK"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["ticker"] == "0700.HK"
+
+
+def test_patch_notes_only_still_clears_stale_price_when_write_defaults_rewrites_ticker(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """PR #310 round 5: `ticker_changed` must reflect what _apply_write_defaults
+    actually wrote (it force-suffixes a ticker even on a PATCH that never
+    mentions `ticker`), not just whether the client's PATCH body included a
+    `ticker` key. A legacy unsuffixed row (stored before force-suffix
+    existed) whose first-ever PATCH only touches `notes` must still get its
+    stale sector/price cleared and a backfill enqueued — otherwise this is
+    the round-1 regression (stale price survives a ticker change) reopened
+    through a different door."""
+    created = app_client.post("/holdings", json=_PARSED_APPLE).json()
+    holding = db_session.get(Holding, uuid.UUID(created["id"]))
+    assert holding is not None
+    holding.ticker = "0700"
+    holding.currency = "HKD"
+    holding.market = "HK"
+    holding.sector = "Technology"
+    holding.market_price = Decimal("380")
+    holding.price_as_of = datetime(2026, 1, 2, tzinfo=UTC)
+    holding.price_fetched_at = holding.price_as_of
+    db_session.commit()
+    with patch("app.tasks.capture_tasks.backfill_sectors_task") as mock_sector:
+        resp = app_client.patch(f"/holdings/{created['id']}", json={"notes": "annual review"})
+    assert resp.status_code == 200
+    assert resp.json()["ticker"] == "0700.HK"
+    db_session.expire_all()
+    holding = db_session.get(Holding, uuid.UUID(created["id"]))
+    assert holding is not None
+    assert holding.ticker == "0700.HK"
+    assert holding.sector is None
+    assert holding.market_price is None
+    assert holding.price_as_of is None
+    assert holding.price_fetched_at is None
+    mock_sector.delay.assert_called_once_with([created["id"]], str(TEST_USER_ID))
 
 
 def test_reorder_locks_before_assigning_position(app_client: TestClient) -> None:

@@ -30,6 +30,7 @@ const EXISTING: HoldingOut = {
   current_value: null,
   pricing_mode: "auto",
   asset_type: "stock",
+  capture_supported: true,
   broker: "Fidelity",
   account: null,
   portfolio: null,

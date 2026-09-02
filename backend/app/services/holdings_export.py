@@ -14,10 +14,15 @@ cost, and `price_snapshots` is market data, not what the user paid. Export
 must therefore emit shares and avg_cost for non-cash rows whenever they
 are present — dropping them on export then replace-all is unrecoverable.
 Cash and wealth-management products have no cost basis today and still
-emit `current_value` only. Manual-priced listed rows emit shares,
-avg_cost, AND current_value whenever each is present (`pricing_mode:manual`
-means those three numerics after currency parse as shares / avg_cost /
-current_value).
+emit `current_value` only. Manual-priced listed rows always emit all three
+numeric slots (shares, avg_cost, current_value), using the placeholder
+`MANUAL_LISTED_PLACEHOLDER` for a slot that is unset (`pricing_mode:manual`
+means those three tokens after currency parse as shares / avg_cost /
+current_value — see `holding_parser._manual_match_explicit`). A slot
+silently omitted instead of placeholder-marked is unrecoverable: the
+parser cannot tell "shares + current_value, no avg_cost" apart from
+"shares + avg_cost, no current_value" by count alone, and round 4 of this
+PR fabricated a cost basis that way (PR #310 round 5 review).
 """
 
 from __future__ import annotations
@@ -27,6 +32,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from app.models.holding import Holding
+
+MANUAL_LISTED_PLACEHOLDER = "-"
 
 DIALECT_TAG_KEYS: tuple[str, ...] = (
     "account",
@@ -152,19 +159,22 @@ def render_holding_line(holding: Holding) -> str:
     if holding.asset_type in ("cash", "wmf"):
         parts = [name, _fmt_num(holding.current_value), holding.currency or "", broker]
     elif holding.pricing_mode == "manual":
-        # pricing_mode:manual listed: emit shares, avg_cost, AND current_value
-        # whenever each is present. Parse reads those three numerics after
-        # currency by tag, not by counting. Cost basis is unrecoverable if
-        # dropped (price_snapshots is market data, not what the user paid).
+        # pricing_mode:manual listed: always emit all three numeric slots
+        # (shares, avg_cost, current_value), using MANUAL_LISTED_PLACEHOLDER
+        # for an unset one. A slot silently omitted instead of placeholder-
+        # marked is unrecoverable: "shares + current_value, no avg_cost"
+        # and "shares + avg_cost, no current_value" are both two numeric
+        # tokens, indistinguishable by count alone (PR #310 round 5).
         ident = _flatten(holding.ticker or holding.fund_code)
-        parts = [name, ident, holding.currency or ""]
-        if holding.shares is not None:
-            parts.append(_fmt_num(holding.shares))
-        if holding.avg_cost is not None:
-            parts.append(_fmt_num(holding.avg_cost))
-        if holding.current_value is not None:
-            parts.append(_fmt_num(holding.current_value))
-        parts.append(broker)
+        parts = [
+            name,
+            ident,
+            holding.currency or "",
+            _fmt_num(holding.shares) or MANUAL_LISTED_PLACEHOLDER,
+            _fmt_num(holding.avg_cost) or MANUAL_LISTED_PLACEHOLDER,
+            _fmt_num(holding.current_value) or MANUAL_LISTED_PLACEHOLDER,
+            broker,
+        ]
     else:
         ident = _flatten(holding.ticker or holding.fund_code)
         parts = [

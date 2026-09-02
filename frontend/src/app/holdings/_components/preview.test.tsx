@@ -14,6 +14,7 @@ function row(partial: Partial<ParsedRow> = {}): ParsedRow {
     current_value: 1000,
     pricing_mode: "manual",
     asset_type: "cash",
+    capture_supported: true,
     broker: "CMB",
     account: null,
     portfolio: null,

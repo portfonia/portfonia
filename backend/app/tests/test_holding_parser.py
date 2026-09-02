@@ -139,11 +139,15 @@ def test_postprocess_normalizes_market_aliases() -> None:
         {"name": "A", "currency": "USD", "shares": 1, "pricing_mode": "auto", "market": "美股"},
         {"name": "B", "currency": "HKD", "shares": 1, "pricing_mode": "auto", "market": "港股"},
         {"name": "C", "currency": "CNY", "shares": 1, "pricing_mode": "auto", "market": "A股"},
+        # "UK" used to be an unsupported market literal that degraded to
+        # Other via the alias fallback; #312 made UK a real capture market,
+        # so it's now already-valid and passes through unchanged (test
+        # updated post-#312 — PR #310 round 5 review).
         {"name": "D", "currency": "GBP", "shares": 1, "pricing_mode": "auto", "market": "UK"},
         {"name": "E", "currency": "USD", "shares": 1, "pricing_mode": "auto", "market": None},
     ]
     rows = _postprocess(raw)
-    assert [r.market for r in rows] == ["US", "HK", "A-Share", "Other", None]
+    assert [r.market for r in rows] == ["US", "HK", "A-Share", "UK", None]
 
 
 def test_postprocess_coerces_unknown_asset_type_to_null() -> None:
@@ -1362,6 +1366,7 @@ def test_postprocess_suffixed_gbp_ticker_does_not_warn() -> None:
     assert rows[0].capture_supported is True
     assert "ticker_no_suffix" not in _issue_codes(rows[0])
 
+
 def test_postprocess_unsupported_count_matches_preview_contract() -> None:
     """Issue #311: unresolvable rows stay valid; count is the heads-up summary."""
     rows = _postprocess(
@@ -1407,6 +1412,37 @@ def test_postprocess_corrects_new_market_suffix_currencies() -> None:
     for ticker, expected in cases:
         rows = _postprocess([_raw_row(name=ticker, ticker=ticker, currency="USD")])
         assert rows[0].currency == expected, ticker
+
+
+def test_ticker_no_suffix_warns_for_europe_and_korea_currencies() -> None:
+    """PR #310 round 5: the hint tuple predates #312's UK/Europe/Japan/Korea
+    widening. EUR and KRW resolve to a real (post-#312) capture market but an
+    ambiguous suffix (Europe/Korea each have multiple listing suffixes, so no
+    suffix is guessed) — the hint must still fire for them, not just the
+    original GBP/HKD/CNY set."""
+    for currency in ("EUR", "KRW"):
+        rows = _postprocess([_raw_row(name="Unknown listing", ticker="XYZ123", currency=currency)])
+        assert "ticker_no_suffix" in _issue_codes(rows[0]), currency
+
+
+def test_apply_confirmed_exchange_suffix_skips_manual_pricing_mode() -> None:
+    """A manual-priced 'ticker' (e.g. real estate) is a free-text label, not a
+    market symbol. Forcing a suffix serves no purpose — manual rows are never
+    auto-captured (`_market_tickers` only selects pricing_mode == 'auto') —
+    and corrupts the label. Mirrors the existing cash/wmf early return."""
+    raw = [
+        _raw_row(
+            name="Family house",
+            ticker="HOME",
+            currency="HKD",
+            pricing_mode="manual",
+            asset_type="other",
+        )
+    ]
+    rows = _postprocess(raw)
+    assert rows[0].ticker == "HOME"
+    assert "ticker_no_suffix" not in _issue_codes(rows[0])
+
 
 # ---------------------------------------------------------------------------
 # PR #310: drop LLM free-text notes; dialect round-trip
@@ -1572,6 +1608,30 @@ def test_parse_manual_listed_name_embedding_currency_does_not_steal_fields() -> 
     assert preview.valid_rows[0].name == "My iShares USD 500 Bond ETF"
     assert preview.valid_rows[0].avg_cost == 99.5
     assert preview.issue_rows == []
+
+
+def test_parse_manual_listed_explicit_placeholder_preserves_missing_avg_cost() -> None:
+    """PR #310 round 5: a `-` placeholder in the avg_cost slot must parse back
+    to avg_cost=None + current_value preserved — not misread as 'two numbers
+    present' (shares/avg_cost) the way blind positional counting would."""
+    line = "Family house HOME USD 1 - 250000 IBKR asset_type:other market:Other pricing_mode:manual"
+    parsed = parse_dialect_line(line)
+    assert parsed is not None
+    assert parsed["shares"] == 1.0
+    assert parsed["avg_cost"] is None
+    assert parsed["current_value"] == 250000.0
+
+
+def test_parse_manual_listed_explicit_placeholder_preserves_missing_shares() -> None:
+    line = (
+        "Family office stake HOME USD - 25000 280000 IBKR "
+        "asset_type:other market:Other pricing_mode:manual"
+    )
+    parsed = parse_dialect_line(line)
+    assert parsed is not None
+    assert parsed["shares"] is None
+    assert parsed["avg_cost"] == 25000.0
+    assert parsed["current_value"] == 280000.0
 
 
 def test_parse_export_dialect_skips_llm() -> None:

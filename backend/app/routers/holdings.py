@@ -25,7 +25,11 @@ from app.schemas.holdings import (
 from app.services import holding_parser
 from app.services._yfinance import _normalize_ticker
 from app.services.accounts import resolve_accounts_for_holdings
-from app.services.holding_parser import _classify_asset_class, apply_confirmed_exchange_suffix
+from app.services.holding_parser import (
+    _classify_asset_class,
+    apply_confirmed_exchange_suffix,
+    normalize_ticker_and_currency,
+)
 from app.services.holdings_export import holdings_export_filename, render_export, render_template
 from app.services.markets import is_capture_supported, resolve_holding_market
 from app.tasks.holdings_tasks import parse_holdings_upload
@@ -243,7 +247,17 @@ def _apply_write_defaults(data: dict[str, Any]) -> dict[str, Any]:
         and not data.get("fund_code")
     ):
         data["market"] = "Other"
+    # Same HK-normalize + suffix-currency correction as the file-import path
+    # (holding_parser._postprocess), run before AND after force-suffix for
+    # the same reason: before canonicalizes a ticker already suffixed by the
+    # caller, after canonicalizes a suffix apply_confirmed_exchange_suffix
+    # just added. Without this, an API write of "700"+HKD stored "700.HK"
+    # while the identical file-import input stored "0700.HK" — a divergence
+    # that silently misses ticker_themes/config-YAML lookups keyed on the
+    # canonical form (PR #310 round 5 review).
+    normalize_ticker_and_currency(data, emit_note=False)
     apply_confirmed_exchange_suffix(data, emit_note=False)
+    normalize_ticker_and_currency(data, emit_note=False)
     # Recompute capture support server-side so a client cannot enable
     # speculative yfinance by forging capture_supported=True (issue #311).
     # Suffix first so PSH -> PSH.L resolves as UK, not as a bare-US ticker.
@@ -644,8 +658,15 @@ def update_holding(
     parsed = ParsedRow.model_validate(merged)
     data = _apply_write_defaults(parsed.model_dump(exclude={"issues", "confidence"}))
     account_fields_changed = any(k in updates for k in ("broker", "account", "portfolio"))
-    ticker_changed = "ticker" in updates and updates["ticker"] != holding.ticker
-    fund_changed = "fund_code" in updates and updates["fund_code"] != holding.fund_code
+    # Compare against what _apply_write_defaults actually produced, not just
+    # whether the client's PATCH body mentioned "ticker": it force-suffixes
+    # a ticker (apply_confirmed_exchange_suffix) even on a patch that never
+    # touches the field, e.g. a notes-only edit on a legacy unsuffixed row.
+    # Comparing `updates["ticker"]` missed that case entirely — stale
+    # sector/price survived and no backfill was enqueued, the round-1
+    # regression reopened through a different door (PR #310 round 5 review).
+    ticker_changed = data.get("ticker") != holding.ticker
+    fund_changed = data.get("fund_code") != holding.fund_code
     for field, value in data.items():
         if field in _MONEY_FIELDS:
             # Untouched EncryptedDecimal columns must not round-trip through
