@@ -168,9 +168,11 @@ TICKER INTEL assembly block read from was filtered only on
 captured for it, yet could still surface there. Now filtered through the
 same `is_capture_supported()` helper capture/`price_fetcher`/
 `portfolio_calculator` already gate on. The report-assembly holdings list
-and Pass 2 prompt (`report_sections.py`/`report_prompts.py`) already omitted
-these names on the per-report side; this closes the shared-compute-layer
-sibling gap.
+(`report_assembly.py`) and Pass 2 prompt (`report_prompts.py`) already
+omitted these names from LLM-facing context on the per-report side —
+`report_sections.py` (section 1) is the distinct case that deliberately
+keeps the row, rendering `[market not supported]` rather than omitting it;
+this closes the shared-compute-layer sibling gap in the other two.
 
 **Bare ticker with no exchange suffix, resolved for the declared-market
 case by PR #310** (issue #313 item 5): a bare `VOD`/`PSH` uploaded without
