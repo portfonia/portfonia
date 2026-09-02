@@ -20,7 +20,6 @@ from unittest.mock import MagicMock, patch
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.models.forward_event import ForwardEvent
 from app.models.report import Report
 from app.tests.test_report_generator import _macro_hit, _mock_llm, _news_item
@@ -37,15 +36,19 @@ def test_weekly_zero_holdings_user_gets_empty_table_contract_via_beat_path(
     quiet-day rule that applies to every user would skip this report and the
     content contract below would never actually render.
 
-    OUTPUT_LANG forced to "en" (generate_incremental_report otherwise passes
-    the zh default through to a real translation pass): this test's target
-    is the content contract reaching the report through the real Beat/
-    active_user_ids path, not the translation pipeline, which has its own
-    coverage elsewhere. Uses test_report_generator's `_mock_llm` (not
-    test_shared_compute_a1's) since that one returns real §1-preserving
-    Pass 1/2 content instead of a generic §2-§4-only filler string.
+    Seeded user's own `locale="en"` (issue #308: generate_incremental_report
+    now reads each recipient's own report language, not the global
+    Settings.OUTPUT_LANG default) — this test's target is the content
+    contract reaching the report through the real Beat/active_users path,
+    not the translation pipeline, which has its own coverage elsewhere.
+    Before #308 this was achieved by forcing the global OUTPUT_LANG to "en"
+    instead; that global override no longer has any effect on this path
+    (deliberately — a stale mutation left in place would otherwise silently
+    stop testing anything once #308 shipped) and was removed. Uses
+    test_report_generator's `_mock_llm` (not test_shared_compute_a1's)
+    since that one returns real §1-preserving Pass 1/2 content instead of a
+    generic §2-§4-only filler string.
     """
-    get_settings().OUTPUT_LANG = "en"
     # Issue #276: the fan-out now requires a verified address; this user is
     # an existing book stand-in, so their account email is verified.
     db_session.add(
@@ -54,6 +57,7 @@ def test_weekly_zero_holdings_user_gets_empty_table_contract_via_beat_path(
             "empty-book@example.com",
             cadence="weekly",
             email_verified_at=datetime(2026, 8, 31, 12, 0),
+            locale="en",
         )
     )
     db_session.add(

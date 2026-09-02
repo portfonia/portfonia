@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
-import { catalogs, DEFAULT_LOCALE, isLocale } from "@/locales";
+import { catalogs, DEFAULT_LOCALE, isLocale, type Locale } from "@/locales";
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
@@ -17,6 +17,18 @@ function resolveLocale(formData: FormData) {
   const raw = String(formData.get("locale") ?? "");
   return isLocale(raw) ? raw : DEFAULT_LOCALE;
 }
+
+// Issue #308: maps the frontend's BCP-47-ish UI locale to the backend's bare
+// report-language code (SignupRequest.locale, Literal["en", "zh"] | None).
+// zh-Hant is mapped defensively only — it's excluded from LOCALES/isLocale
+// today (UNREVIEWED_LOCALES), so it cannot actually be the live UI selection
+// in production yet, but this keeps the mapping from silently breaking the
+// day that gate lifts.
+const UI_LOCALE_TO_BACKEND_LOCALE: Record<Locale, "en" | "zh"> = {
+  en: "en",
+  "zh-Hans": "zh",
+  "zh-Hant": "zh",
+};
 
 async function signupBackendHeaders(): Promise<Record<string, string>> {
   // Product signup is Browser → Caddy → Next.js → backend. The ASGI peer is
@@ -49,7 +61,8 @@ export async function signup(
   // submission client-side when unchecked (Ring 1-Onboarding.md §2.5); the
   // backend's Literal[True] is the independent second layer.
   const tosAccepted = formData.get("tos_accepted") === "on";
-  const auth = catalogs[resolveLocale(formData)].auth;
+  const uiLocale = resolveLocale(formData);
+  const auth = catalogs[uiLocale].auth;
 
   if (!inviteToken) {
     return { error: auth.errorMissingInviteToken };
@@ -66,6 +79,7 @@ export async function signup(
       email,
       password,
       tos_accepted: tosAccepted,
+      locale: UI_LOCALE_TO_BACKEND_LOCALE[uiLocale],
     }),
   });
 

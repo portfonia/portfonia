@@ -269,6 +269,10 @@ export interface Me {
   // §8.2): the caller's own actionable verification rows — "pending" or
   // "undeliverable" only.
   pending_email_verifications: PendingEmailVerification[];
+  // Issue #308: sourced from users.locale — deliberately named apart from
+  // the frontend's own Locale/LOCALES UI-chrome type (issue #209), see
+  // backend/app/schemas/me.py's MeOut docstring for why.
+  report_language: string;
 }
 
 export interface PendingEmailVerification {
@@ -305,6 +309,20 @@ export async function createEmailVerification(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ purpose }),
+  });
+  if (!res.ok) await throwOnHttpError(res);
+}
+
+// Set the caller's own report language (issue #308, Profile page's new
+// Report Language control). Saves immediately on change — no separate Save
+// button, matching this page's other live controls — and the caller
+// re-fetches GET /me via router.refresh() on success, same discipline as
+// resendEmailVerification/createEmailVerification above.
+export async function updateReportLanguage(reportLanguage: "en" | "zh"): Promise<void> {
+  const res = await fetch("/api/me/report-language", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ report_language: reportLanguage }),
   });
   if (!res.ok) await throwOnHttpError(res);
 }

@@ -97,6 +97,61 @@ def test_signup_persists_weekly_cadence_and_tos_accepted_at(
     assert row.tos_accepted_at is not None
 
 
+@pytest.mark.parametrize("locale", ["en", "zh"])
+def test_signup_stores_locale_from_request_when_present(
+    app_client: TestClient,
+    db_session: Session,
+    _fake_auth_provider: MagicMock,
+    locale: str,
+) -> None:
+    """Issue #308: the frontend now forwards its UI locale, mapped to a bare
+    backend code, at signup — the request's `locale` becomes users.locale
+    when present and valid."""
+    issued = create_invite(db_session, created_by=_CREATOR)
+    db_session.flush()
+
+    resp = app_client.post(
+        "/auth/signup",
+        json={
+            "invite_token": issued.token,
+            "email": f"locale-{locale}@example.com",
+            "password": "a-long-enough-password",
+            "tos_accepted": True,
+            "locale": locale,
+        },
+    )
+    assert resp.status_code == 201
+
+    row = db_session.execute(
+        select(User).where(User.email == f"locale-{locale}@example.com")
+    ).scalar_one()
+    assert row.locale == locale
+
+
+def test_signup_falls_back_to_zh_locale_when_absent(
+    app_client: TestClient, db_session: Session, _fake_auth_provider: MagicMock
+) -> None:
+    """Defense-in-depth only (issue #308): the frontend change means this
+    should not normally be hit, but an omitted `locale` must still land on
+    the existing hardcoded "zh" default rather than erroring."""
+    issued = create_invite(db_session, created_by=_CREATOR)
+    db_session.flush()
+
+    resp = app_client.post(
+        "/auth/signup",
+        json={
+            "invite_token": issued.token,
+            "email": "no-locale@example.com",
+            "password": "a-long-enough-password",
+            "tos_accepted": True,
+        },
+    )
+    assert resp.status_code == 201
+
+    row = db_session.execute(select(User).where(User.email == "no-locale@example.com")).scalar_one()
+    assert row.locale == "zh"
+
+
 @pytest.mark.parametrize("payload_extra", [{}, {"tos_accepted": False}])
 def test_signup_rejects_omitted_or_false_tos_accepted(
     app_client: TestClient,

@@ -29,6 +29,20 @@ from app.services._yfinance import _normalize_ticker
 _HOLDINGS_GATED_CADENCES = frozenset({"mwf"})
 
 
+def _active_user_conditions(cadence: str) -> list[Any]:
+    """WHERE clauses shared by `active_user_ids` and `active_users` — kept
+    in exactly one place so the two queries can never silently drift apart
+    on which users qualify (issue #308)."""
+    conditions: list[Any] = [
+        User.status == "active",
+        User.report_cadence == cadence,
+        or_(User.email_verified_at.isnot(None), User.delivery_email_verified_at.isnot(None)),
+    ]
+    if cadence in _HOLDINGS_GATED_CADENCES:
+        conditions.append(exists().where(Holding.user_id == User.id))
+    return conditions
+
+
 def active_user_ids(session: Session, cadence: str) -> list[uuid.UUID]:
     """Active accounts on the given `report_cadence`, sorted for fan-out.
 
@@ -47,15 +61,27 @@ def active_user_ids(session: Session, cadence: str) -> list[uuid.UUID]:
     a per-cadence content tradeoff, it is undeliverable regardless of
     cadence.
     """
-    conditions: list[Any] = [
-        User.status == "active",
-        User.report_cadence == cadence,
-        or_(User.email_verified_at.isnot(None), User.delivery_email_verified_at.isnot(None)),
-    ]
-    if cadence in _HOLDINGS_GATED_CADENCES:
-        conditions.append(exists().where(Holding.user_id == User.id))
-    rows = session.execute(select(User.id).where(*conditions)).scalars().all()
+    rows = session.execute(select(User.id).where(*_active_user_conditions(cadence))).scalars().all()
     return sorted(rows)
+
+
+def active_users(session: Session, cadence: str) -> list[User]:
+    """Same population as `active_user_ids`, but the full `User` row for
+    each (issue #308) — `generate_incremental_report`'s fan-out needs each
+    recipient's own `locale` (report language) alongside their id. Returns
+    full ORM objects sorted by id, not a second per-user lookup after the
+    fact: an earlier version of this fan-out re-fetched each user's row
+    inside the per-user loop via `session.get(User, user_id)` (or a second
+    batched `select`) on the SAME session `generate_report` itself is
+    already reading and writing through — reproduced empirically, that
+    interleaved second read hung indefinitely under the real-session test
+    pattern (`SessionLocal` rebound to the test's own `db_session` fixture,
+    e.g. test_weekly_cadence_fanout.py/test_shared_compute_a1.py). Fetching
+    every row ONCE, before any `generate_report` call touches this session,
+    avoids the interleaving entirely.
+    """
+    rows = session.execute(select(User).where(*_active_user_conditions(cadence))).scalars().all()
+    return sorted(rows, key=lambda u: u.id)
 
 
 def user_holdings(session: Session, user_id: uuid.UUID) -> list[Holding]:

@@ -1,5 +1,6 @@
 """Tests for user_scope.py (issue #128 A1) — the Stage-A user/identifier
 universe helpers `active_user_ids`, `user_holdings`, `global_identifier_universe`.
+Issue #308 adds `active_users`, the same population as full `User` rows.
 """
 
 from __future__ import annotations
@@ -11,7 +12,12 @@ from sqlalchemy.orm import Session
 
 from app.models.holding import Holding
 from app.models.user import User
-from app.services.user_scope import active_user_ids, global_identifier_universe, user_holdings
+from app.services.user_scope import (
+    active_user_ids,
+    active_users,
+    global_identifier_universe,
+    user_holdings,
+)
 
 _U1 = uuid.UUID("00000000-0000-0000-0000-0000000000b1")
 _U2 = uuid.UUID("00000000-0000-0000-0000-0000000000b2")
@@ -30,6 +36,7 @@ def _user(
     email: str,
     cadence: str = "mwf",
     email_verified_at: datetime | None = None,
+    locale: str = "zh",
 ) -> User:
     return User(
         id=user_id,
@@ -37,7 +44,7 @@ def _user(
         auth_subject=f"sub-{user_id}",
         email=email,
         status="active",
-        locale="zh",
+        locale=locale,
         base_currency="USD",
         report_cadence=cadence,
         email_verified_at=email_verified_at,
@@ -168,6 +175,74 @@ def test_active_user_ids_includes_user_verified_via_either_field(
 
     assert active_user_ids(db_session, "mwf") == [_U1]
     assert active_user_ids(db_session, "weekly") == [_U2]
+
+
+# --- active_users (issue #308) ---------------------------------------------------
+
+
+def test_active_users_empty_when_no_users(db_session: Session) -> None:
+    assert active_users(db_session, "mwf") == []
+
+
+_VERIFIED = datetime(2026, 8, 31, 12, 0)
+
+
+def test_active_users_same_population_as_active_user_ids(db_session: Session) -> None:
+    """Same WHERE clause as active_user_ids (shared via
+    _active_user_conditions) — the two must never silently diverge on
+    which users qualify."""
+    db_session.add_all(
+        [
+            _user(_U1, "u1@example.com", cadence="weekly", email_verified_at=_VERIFIED),
+            _user(_U2, "u2@example.com", cadence="weekly", email_verified_at=_VERIFIED),
+        ]
+    )
+    db_session.flush()
+
+    ids = active_user_ids(db_session, "weekly")
+    users = active_users(db_session, "weekly")
+    assert [u.id for u in users] == ids
+
+
+def test_active_users_carries_each_users_own_locale(db_session: Session) -> None:
+    """The whole reason active_users exists (issue #308): the fan-out needs
+    each recipient's own report language alongside their id, without a
+    second per-user lookup."""
+    db_session.add_all(
+        [
+            _user(
+                _U1,
+                "en-user@example.com",
+                cadence="weekly",
+                locale="en",
+                email_verified_at=_VERIFIED,
+            ),
+            _user(
+                _U2,
+                "zh-user@example.com",
+                cadence="weekly",
+                locale="zh",
+                email_verified_at=_VERIFIED,
+            ),
+        ]
+    )
+    db_session.flush()
+
+    users = {u.id: u for u in active_users(db_session, "weekly")}
+    assert users[_U1].locale == "en"
+    assert users[_U2].locale == "zh"
+
+
+def test_active_users_sorted_by_id(db_session: Session) -> None:
+    db_session.add_all(
+        [
+            _user(_U2, "u2@example.com", cadence="weekly", email_verified_at=_VERIFIED),
+            _user(_U1, "u1@example.com", cadence="weekly", email_verified_at=_VERIFIED),
+        ]
+    )
+    db_session.flush()
+
+    assert [u.id for u in active_users(db_session, "weekly")] == sorted([_U1, _U2])
 
 
 # --- user_holdings --------------------------------------------------------------

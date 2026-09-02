@@ -6,8 +6,10 @@ import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Me } from "@/lib/api";
+import { REPORT_LANGUAGES, type ReportLanguage } from "@/locales";
 import { ChangePasswordForm } from "./change-password-form";
 import { PendingVerificationsList } from "./pending-verifications-list";
+import { useReportLanguage } from "./use-report-language";
 import { useVerificationResend } from "./use-verification-resend";
 import { useVerificationSend } from "./use-verification-send";
 
@@ -30,6 +32,8 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
   // buttons — creates a fresh record for one of the account's own known
   // fields, no existing pending/undeliverable record required.
   const send = useVerificationSend();
+  // Issue #308: the new Report Language control's save-immediately flow.
+  const reportLanguage = useReportLanguage();
 
   if (hadLoadError || !me) {
     return (
@@ -210,6 +214,20 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
         </CardContent>
       </Card>
 
+      {/* Placeholders below (issue #220 §2 requirements 4/5/7/8): visible and
+          labeled not-yet-implemented, never a form a click could actually
+          submit — every control here is disabled. Issue #308: moved above
+          Report delivery email (was below it). */}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("portfolioOverviewHeading")}</CardTitle>
+        </CardHeader>
+        <CardContent className="px-4">
+          <p className="text-sm text-muted-foreground">{t("portfolioOverviewPlaceholder")}</p>
+        </CardContent>
+      </Card>
+
       {/* Issue #269 §6: an unverified shown address renders gray italic with
           a note and, when a resendable record exists for it, an inline
           Resend button. Known overlap with the top Email Verification
@@ -255,16 +273,33 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
         </CardContent>
       </Card>
 
-      {/* Placeholders below (issue #220 §2 requirements 4/5/7/8): visible and
-          labeled not-yet-implemented, never a form a click could actually
-          submit — every control here is disabled. */}
-
+      {/* Issue #308: new, fully-wired control — unlike the placeholder
+          Report schedule select just below, this one is real and saves
+          immediately on change. */}
       <Card>
         <CardHeader>
-          <CardTitle>{t("portfolioOverviewHeading")}</CardTitle>
+          <CardTitle>{t("reportLanguageHeading")}</CardTitle>
+          <CardDescription>{t("reportLanguageBody")}</CardDescription>
         </CardHeader>
-        <CardContent className="px-4">
-          <p className="text-sm text-muted-foreground">{t("portfolioOverviewPlaceholder")}</p>
+        <CardContent className="flex flex-col gap-2 px-4">
+          <select
+            aria-label={t("reportLanguageHeading")}
+            className="w-fit rounded-md border border-white/10 bg-transparent px-2 py-1.5 text-sm"
+            value={me.report_language}
+            disabled={reportLanguage.pending}
+            onChange={(e) => void reportLanguage.handleChange(e.target.value as ReportLanguage)}
+          >
+            {REPORT_LANGUAGES.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          {reportLanguage.error && (
+            <p className="text-sm text-destructive" role="alert">
+              {reportLanguage.error}
+            </p>
+          )}
         </CardContent>
       </Card>
 

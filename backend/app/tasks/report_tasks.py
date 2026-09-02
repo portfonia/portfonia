@@ -60,17 +60,17 @@ def generate_incremental_report(
     the check entirely.
 
     `cadence` (issue #191): which `users.report_cadence` batch this run
-    serves — passed through to `active_user_ids`, which also decides per
+    serves — passed through to `active_users`, which also decides per
     cadence whether the holdings gate applies (loosened for `weekly` only,
     see `app.services.user_scope`).
 
-    Multi-user fan-out (issue #128 A1): `active_user_ids` (active `users`
+    Multi-user fan-out (issue #128 A1): `active_users` (active `users`
     rows on this cadence, gated by holdings per-cadence) replaces the pre-A1
     single fixed-dev-user call. Each user's
     `generate_report` call is wrapped in its own try/except: one user's
     failure is logged, ops-alerted, and does NOT stop or retry the batch —
     the remaining users still get their reports (design doc §3.3/UAT-3).
-    Only a failure OUTSIDE the per-user loop (e.g. `active_user_ids` itself
+    Only a failure OUTSIDE the per-user loop (e.g. `active_users` itself
     can't reach the DB) is a batch-level failure that retries via
     `self.retry`, matching the pre-A1 behavior for that class of error.
     `moves_cache`, shared across every user in this batch, is what makes
@@ -80,10 +80,9 @@ def generate_incremental_report(
     """
     # Imports are deferred so the module loads fast and avoids circular deps
     # when Celery first imports the task registry.
-    from app.core.config import get_settings
     from app.core.database import SessionLocal
     from app.services.report_generator import generate_report
-    from app.services.user_scope import active_user_ids
+    from app.services.user_scope import active_users
     from app.services.window_data import MovesCache
 
     if trigger_hour is not None and trigger_minute is not None:
@@ -124,8 +123,12 @@ def generate_incremental_report(
     )
     session = SessionLocal()
     try:
-        user_ids = active_user_ids(session, cadence)
-        if not user_ids:
+        # Issue #308: full User rows, not just ids — each recipient's own
+        # locale (report language) rides along, read directly off the
+        # object below rather than a second per-user lookup on this same
+        # session (see active_users' docstring for why that hung).
+        users = active_users(session, cadence)
+        if not users:
             logger.info("generate_incremental_report: no active users, nothing to generate")
             return {"status": "no_active_users", "results": []}
 
@@ -139,12 +142,18 @@ def generate_incremental_report(
         # the same moves_cache dict object alone does not make the cache hit.
         batch_now = datetime.now(tz=UTC)
         results: list[dict[str, str]] = []
-        for index, user_id in enumerate(user_ids):
+        for index, user in enumerate(users):
+            user_id = user.id
             try:
                 report = generate_report(
                     session,
                     report_type=report_type,
-                    output_lang=get_settings().OUTPUT_LANG,
+                    # Issue #308: this recipient's own report language, not
+                    # a shared Settings.OUTPUT_LANG default for the whole
+                    # batch — that would defeat the entire point of a
+                    # per-user setting for scheduled (not just self-service)
+                    # reports.
+                    output_lang=user.locale,
                     session_node=session_node,
                     user_id=user_id,
                     moves_cache=moves_cache,
@@ -156,7 +165,7 @@ def generate_incremental_report(
                     # from how many succeeded: a failed user still consumed
                     # its turn, and the countdown must stay monotonic so
                     # later users neither over- nor under-claim.
-                    users_remaining=len(user_ids) - index,
+                    users_remaining=len(users) - index,
                 )
                 logger.info(
                     "generate_incremental_report: complete for user %s — report_id=%s status=%s",
