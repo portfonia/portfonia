@@ -156,13 +156,24 @@ export function HoldingForm({
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => {
       const next = { ...prev, [key]: value };
-      if (key === "asset_type" && (value === "cash" || value === "wmf")) {
-        next.ticker = "";
-        next.fund_code = "";
-        next.shares = "";
-        next.avg_cost = "";
-        next.pricing_mode = "manual";
-        if (!next.market) next.market = "Other";
+      if (key === "asset_type") {
+        if (value === "cash" || value === "wmf") {
+          next.ticker = "";
+          next.fund_code = "";
+          next.shares = "";
+          next.avg_cost = "";
+          next.pricing_mode = "manual";
+          if (!next.market) next.market = "Other";
+        } else if (value === "fund") {
+          // The merged ticker/fund_code field (issue #319 item 7) now
+          // targets fund_code — clear the other so a value typed under a
+          // previous asset_type never survives hidden and gets submitted
+          // alongside it (ParsedRow has no "exactly one" check outside
+          // cash/wmf, so a stale ticker would silently persist).
+          next.ticker = "";
+        } else {
+          next.fund_code = "";
+        }
       }
       return next;
     });
@@ -279,18 +290,13 @@ export function HoldingForm({
               ))}
             </select>
           </Field>
-          <Field label={t("fieldTicker")}>
+          <Field label={form.asset_type === "fund" ? t("fieldFundCode") : t("fieldTicker")}>
             <Input
-              value={form.ticker}
+              value={form.asset_type === "fund" ? form.fund_code : form.ticker}
               disabled={isCashWmf}
-              onChange={(e) => set("ticker", e.target.value)}
-            />
-          </Field>
-          <Field label={t("fieldFundCode")}>
-            <Input
-              value={form.fund_code}
-              disabled={isCashWmf}
-              onChange={(e) => set("fund_code", e.target.value)}
+              onChange={(e) =>
+                set(form.asset_type === "fund" ? "fund_code" : "ticker", e.target.value)
+              }
             />
           </Field>
           <Field label={t("fieldCurrency")}>

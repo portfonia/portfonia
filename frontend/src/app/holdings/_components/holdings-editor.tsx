@@ -4,17 +4,18 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { GripVertical } from "lucide-react";
+import { ChevronDown, ChevronUp, GripVertical } from "lucide-react";
 
 import {
   ApiError,
   deleteHolding,
   reorderHoldings,
+  updateHolding,
   type HoldingOut,
+  type HoldingPatch,
 } from "@/lib/api";
 import { isNextRedirectError } from "@/lib/next-redirect-error";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -45,6 +46,78 @@ function moveItem<T>(list: T[], from: number, to: number): T[] {
   return next;
 }
 
+function isCashWmf(h: HoldingOut): boolean {
+  return h.asset_type === "cash" || h.asset_type === "wmf";
+}
+
+// Empty-string-safe parse mirroring holding-form.tsx's parseNum: this file
+// has its own copy rather than a shared import since both are three lines
+// and the two forms (whole-record vs. one inline cell) are unlikely to stay
+// in lockstep.
+function parseNum(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? n : null;
+}
+
+// A sortable column's field and, for "broker", its tie-break secondary key
+// (issue #319 item 12 — broker's secondary sort is always ticker).
+type SortField = "ticker" | "currency" | "broker";
+type SortDirection = "asc" | "desc";
+
+function compareStr(a: string | null | undefined, b: string | null | undefined): number {
+  return (a ?? "").localeCompare(b ?? "");
+}
+
+function sortedIds(list: HoldingOut[], field: SortField, direction: SortDirection): string[] {
+  const sign = direction === "asc" ? 1 : -1;
+  const sorted = [...list].sort((a, b) => {
+    let primary: number;
+    if (field === "ticker") {
+      primary = compareStr(a.ticker ?? a.fund_code, b.ticker ?? b.fund_code);
+    } else if (field === "currency") {
+      primary = compareStr(a.currency, b.currency);
+    } else {
+      primary = compareStr(a.broker, b.broker);
+      if (primary === 0) primary = compareStr(a.ticker ?? a.fund_code, b.ticker ?? b.fund_code);
+    }
+    return sign * primary;
+  });
+  return sorted.map((h) => h.id);
+}
+
+function NumberCell({
+  value,
+  disabled,
+  onCommit,
+}: {
+  value: string | null;
+  disabled: boolean;
+  onCommit: (raw: string) => void;
+}) {
+  return (
+    <input
+      // Resets the input's own DOM state whenever the committed value
+      // changes underneath it (a successful save, or a rollback) — an
+      // uncontrolled input re-keyed on its source of truth, rather than a
+      // controlled one fighting the user's keystrokes on every render.
+      key={value ?? ""}
+      type="number"
+      step="any"
+      defaultValue={value ?? ""}
+      disabled={disabled}
+      className="h-8 w-24 rounded-md border border-input bg-transparent px-2 text-right text-sm tabular-nums disabled:opacity-50"
+      onClick={(e) => e.stopPropagation()}
+      onBlur={(e) => {
+        const raw = e.target.value;
+        if (raw === (value ?? "")) return;
+        onCommit(raw);
+      }}
+    />
+  );
+}
+
 export function HoldingsEditor({
   initialHoldings,
   initialLoadError = false,
@@ -59,23 +132,22 @@ export function HoldingsEditor({
   const [holdings, setHoldings] = useState<HoldingOut[]>(initialHoldings);
   const [error, setError] = useState<string | null>(null);
   const [reordering, setReordering] = useState(false);
+  const [savingCell, setSavingCell] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<HoldingOut | null>(null);
   const dragFrom = useRef<number | null>(null);
 
   const displayError = error ?? (initialLoadError ? t("errorLoadFailed") : null);
 
-  async function onDropRow(to: number) {
-    const from = dragFrom.current;
-    dragFrom.current = null;
-    if (from == null || from === to || reordering) return;
+  async function applyReorder(ids: string[]) {
+    if (reordering) return;
     const previous = holdings;
-    const next = moveItem(holdings, from, to);
+    const next = ids.map((id) => holdings.find((h) => h.id === id)).filter((h) => h != null);
     setHoldings(next);
     setReordering(true);
     setError(null);
     try {
-      const saved = await reorderHoldings(next.map((h) => h.id));
+      const saved = await reorderHoldings(ids);
       setHoldings(saved);
     } catch (err) {
       if (isNextRedirectError(err)) throw err;
@@ -85,6 +157,53 @@ export function HoldingsEditor({
       );
     } finally {
       setReordering(false);
+    }
+  }
+
+  async function onDropRow(to: number) {
+    const from = dragFrom.current;
+    dragFrom.current = null;
+    if (from == null || from === to || reordering) return;
+    await applyReorder(moveItem(holdings, from, to).map((h) => h.id));
+  }
+
+  // Item 12: header-click sort reuses PATCH /holdings/reorder — the exact
+  // same call and optimistic/rollback logic as drag reorder above — so the
+  // displayed order and persisted `position` can never diverge between the
+  // two entry points.
+  async function onSortClick(field: SortField, direction: SortDirection) {
+    await applyReorder(sortedIds(holdings, field, direction));
+  }
+
+  async function patchField(
+    id: string,
+    patch: HoldingPatch,
+    field: "shares" | "avg_cost" | "current_value" | "pricing_mode",
+    optimisticValue: string,
+  ) {
+    const previous = holdings;
+    const cellKey = `${id}:${field}`;
+    // Optimistic update mirrors drag reorder's previous-state rollback
+    // pattern (design decision 4-5): NumberCell is an uncontrolled input
+    // keyed on this same value, so writing it here also remounts the input
+    // to the reverted text on failure — without this, a failed PATCH would
+    // have nothing to roll back from and the stale typed value would stick.
+    setHoldings((prev) =>
+      prev.map((h) => (h.id === id ? { ...h, [field]: optimisticValue } : h)),
+    );
+    setSavingCell(cellKey);
+    setError(null);
+    try {
+      const saved = await updateHolding(id, patch);
+      setHoldings((prev) => prev.map((h) => (h.id === id ? saved : h)));
+    } catch (err) {
+      if (isNextRedirectError(err)) throw err;
+      setHoldings(previous);
+      setError(
+        `${t("errorUpdateFailed")}: ${err instanceof ApiError ? err.message : String(err)}`,
+      );
+    } finally {
+      setSavingCell(null);
     }
   }
 
@@ -105,6 +224,40 @@ export function HoldingsEditor({
     } finally {
       setDeletingId(null);
     }
+  }
+
+  // A function returning JSX (called inline below), not a component
+  // reference — a `<SortHeader .../>` tag defined inside the render body
+  // would be re-created every render and reset its (nonexistent, but
+  // react-hooks/static-components still flags it) internal state.
+  function sortHeader(field: SortField, label: string) {
+    return (
+      <TableHead>
+        <span className="inline-flex items-center gap-1">
+          {label}
+          <span className="inline-flex flex-col">
+            <button
+              type="button"
+              aria-label={`${t("sortAscending")}: ${label}`}
+              className="text-muted-foreground hover:text-foreground disabled:opacity-50"
+              disabled={reordering}
+              onClick={() => void onSortClick(field, "asc")}
+            >
+              <ChevronUp className="size-3" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              aria-label={`${t("sortDescending")}: ${label}`}
+              className="text-muted-foreground hover:text-foreground disabled:opacity-50"
+              disabled={reordering}
+              onClick={() => void onSortClick(field, "desc")}
+            >
+              <ChevronDown className="size-3" aria-hidden="true" />
+            </button>
+          </span>
+        </span>
+      </TableHead>
+    );
   }
 
   return (
@@ -141,80 +294,145 @@ export function HoldingsEditor({
             <TableRow>
               <TableHead className="w-8" />
               <TableHead>{t("colName")}</TableHead>
-              <TableHead>{t("colTicker")}</TableHead>
-              <TableHead>{t("colCurrency")}</TableHead>
+              {sortHeader("ticker", t("colTicker"))}
+              {sortHeader("currency", t("colCurrency"))}
               <TableHead className="text-right">{t("colShares")}</TableHead>
               <TableHead className="text-right">{t("colAvgCost")}</TableHead>
               <TableHead className="text-right">{t("colCurrentValue")}</TableHead>
               <TableHead>{t("colPricingMode")}</TableHead>
-              <TableHead>{t("colBroker")}</TableHead>
+              {sortHeader("broker", t("colBroker"))}
               <TableHead />
             </TableRow>
           </TableHeader>
           <TableBody>
-            {holdings.map((h, i) => (
-              <TableRow
-                key={h.id}
-                className="cursor-pointer"
-                onDragOver={(e) => {
-                  e.preventDefault();
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  void onDropRow(i);
-                }}
-                onClick={() => router.push(`/holdings/${h.id}`)}
-              >
-                <TableCell>
-                  <button
-                    type="button"
-                    aria-label={t("dragHandle")}
-                    draggable
-                    className="cursor-grab text-muted-foreground active:cursor-grabbing"
-                    onClick={(e) => e.stopPropagation()}
-                    onDragStart={() => {
-                      dragFrom.current = i;
-                    }}
-                    onDragEnd={() => {
-                      dragFrom.current = null;
-                    }}
-                  >
-                    <GripVertical className="size-4" aria-hidden="true" />
-                  </button>
-                </TableCell>
-                <TableCell className="font-medium">{h.name}</TableCell>
-                <TableCell>{cell(h.ticker ?? h.fund_code)}</TableCell>
-                <TableCell>{h.currency}</TableCell>
-                <TableCell className="text-right tabular-nums">{cell(h.shares)}</TableCell>
-                <TableCell className="text-right tabular-nums">{cell(h.avg_cost)}</TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {cell(h.current_value)}
-                </TableCell>
-                <TableCell>
-                  <Badge variant={h.pricing_mode === "auto" ? "secondary" : "outline"}>
-                    {h.pricing_mode}
-                  </Badge>
-                </TableCell>
-                <TableCell>{cell(h.broker)}</TableCell>
-                <TableCell>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={deletingId === h.id}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setPendingDelete(h);
-                    }}
-                  >
-                    {t("deleteButton")}
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
+            {holdings.map((h, i) => {
+              const cashWmf = isCashWmf(h);
+              return (
+                <TableRow
+                  key={h.id}
+                  className="cursor-pointer"
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    void onDropRow(i);
+                  }}
+                  onClick={(e) => {
+                    // Belt-and-suspenders alongside each editable control's
+                    // own stopPropagation (item 4-5): a native <select>'s
+                    // click sequence bubbles through its <option> children
+                    // in a way that doesn't reliably stop here otherwise.
+                    if ((e.target as HTMLElement).closest("input, select, button")) return;
+                    router.push(`/holdings/${h.id}`);
+                  }}
+                >
+                  <TableCell>
+                    <button
+                      type="button"
+                      aria-label={t("dragHandle")}
+                      draggable
+                      className="cursor-grab text-muted-foreground active:cursor-grabbing"
+                      onClick={(e) => e.stopPropagation()}
+                      onDragStart={() => {
+                        dragFrom.current = i;
+                      }}
+                      onDragEnd={() => {
+                        dragFrom.current = null;
+                      }}
+                    >
+                      <GripVertical className="size-4" aria-hidden="true" />
+                    </button>
+                  </TableCell>
+                  <TableCell className="font-medium">{h.name}</TableCell>
+                  <TableCell>{cell(h.ticker ?? h.fund_code)}</TableCell>
+                  <TableCell>{h.currency}</TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {cashWmf ? (
+                      cell(h.shares)
+                    ) : (
+                      <NumberCell
+                        value={h.shares}
+                        disabled={savingCell === `${h.id}:shares`}
+                        onCommit={(raw) =>
+                          void patchField(h.id, { shares: parseNum(raw) }, "shares", raw)
+                        }
+                      />
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {cashWmf ? (
+                      cell(h.avg_cost)
+                    ) : (
+                      <NumberCell
+                        value={h.avg_cost}
+                        disabled={savingCell === `${h.id}:avg_cost`}
+                        onCommit={(raw) =>
+                          void patchField(h.id, { avg_cost: parseNum(raw) }, "avg_cost", raw)
+                        }
+                      />
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {cashWmf ? (
+                      <NumberCell
+                        value={h.current_value}
+                        disabled={savingCell === `${h.id}:current_value`}
+                        onCommit={(raw) =>
+                          void patchField(
+                            h.id,
+                            { current_value: parseNum(raw) },
+                            "current_value",
+                            raw,
+                          )
+                        }
+                      />
+                    ) : (
+                      cell(h.current_value)
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <select
+                      className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm disabled:opacity-50"
+                      value={h.pricing_mode === "manual" ? "manual" : "auto"}
+                      disabled={cashWmf || savingCell === `${h.id}:pricing_mode`}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => {
+                        const next = e.target.value === "manual" ? "manual" : "auto";
+                        void patchField(h.id, { pricing_mode: next }, "pricing_mode", next);
+                      }}
+                    >
+                      <option value="auto">{t("pricingAuto")}</option>
+                      <option value="manual">{t("pricingManual")}</option>
+                    </select>
+                  </TableCell>
+                  <TableCell>{cell(h.broker)}</TableCell>
+                  <TableCell>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={deletingId === h.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPendingDelete(h);
+                      }}
+                    >
+                      {t("deleteButton")}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       )}
+
+      <div className="mt-6">
+        <Button variant="ghost" render={<Link href="/holdings" />}>
+          {t("backToHoldingsList")}
+        </Button>
+      </div>
 
       <AlertDialog
         open={pendingDelete != null}
