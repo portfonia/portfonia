@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.core.timezones import MARKET_TZ
 from app.services.markets import (
     CAPTURE_MARKET_ORDER,
     SUPPORTED_CAPTURE_MARKETS,
@@ -118,3 +119,7 @@ def test_resolve_fund_code_is_a_share_and_supported() -> None:
 def test_is_capture_supported_keys_off_flag_not_other() -> None:
     assert is_capture_supported(SimpleNamespace(capture_supported=True, market="Other"))
     assert not is_capture_supported(SimpleNamespace(capture_supported=False, market="UK"))
+
+
+def test_market_tz_covers_every_scheduled_capture_market() -> None:
+    assert tuple(MARKET_TZ) == CAPTURE_MARKET_ORDER

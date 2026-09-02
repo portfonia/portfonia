@@ -69,7 +69,7 @@
     "exportButton": "匯出目前持倉",
     "downloadTemplate": "下載範本",
     "uploadHeading": "從檔案匯入",
-    "uploadHint": "支援格式：.md、.txt、.csv、.xlsx、.xls。每個 Excel 檔案僅支援一張工作表。港股代碼請加 .HK 後綴，A股請加 .SS / .SZ；美股不需後綴。中國公募基金請填寫 6 位基金代碼。",
+    "uploadHint": "支援格式：.md、.txt、.csv、.xlsx、.xls。每個 Excel 檔案僅支援一張工作表。港股代碼請加 .HK 後綴，A股請加 .SS / .SZ，英股加 .L，歐股加 .AS / .PA / .DE，日股加 .T，韓股加 .KS / .KQ；美股不需後綴。中國公募基金請填寫 6 位基金代碼。",
     "chooseFile": "選擇檔案",
     "uploading": "解析中...",
     "parseAgain": "選擇其他檔案",

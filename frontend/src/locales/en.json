@@ -149,10 +149,6 @@
           "US": "US",
           "HK": "Hong Kong",
           "A-Share": "A-Share",
-          "UK": "UK",
-          "Europe": "Europe",
-          "Japan": "Japan",
-          "Korea": "Korea",
           "Other": "Other"
         }
       },

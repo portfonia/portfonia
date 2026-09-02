@@ -190,11 +190,20 @@ def test_scale_price_is_generic_gbpence_check() -> None:
     assert _scale_price(300.0, "USD") == pytest.approx(300.0)
 
 
-def test_fetch_last_close_scales_non_psh_lse_via_currency(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    "ticker,raw,scaled",
+    [
+        ("VOD.L", 7050.0, 70.50),
+        ("BARC.L", 185.4, 1.854),
+        ("TSCO.L", 358.0, 3.58),
+        ("PSH.L", 5894.0, 58.94),
+    ],
+)
+def test_fetch_last_close_scales_lse_via_generic_gbpence(
+    monkeypatch: pytest.MonkeyPatch, ticker: str, raw: float, scaled: float
 ) -> None:
     def fake_download(**kwargs: object) -> pd.DataFrame:
-        return _make_hist("VOD.L", 7050.0)
+        return _make_hist(ticker, raw)
 
     monkeypatch.setattr(
         "app.services._yfinance.yf.Ticker",
@@ -204,9 +213,9 @@ def test_fetch_last_close_scales_non_psh_lse_via_currency(
         patch("app.services._yfinance.yf.download", side_effect=fake_download),
         patch("app.services._yfinance.time.sleep"),
     ):
-        result = fetch_last_close(["VOD.L"])
-    price, _ = result["VOD.L"]
-    assert price == pytest.approx(70.50)
+        result = fetch_last_close([ticker])
+    price, _ = result[ticker]
+    assert price == pytest.approx(scaled)
 
 
 @pytest.mark.parametrize(

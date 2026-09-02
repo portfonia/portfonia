@@ -225,10 +225,15 @@ A **capture layer** (global, credit-free — RSS + yfinance; persists `news` +
 `price_snapshots`, 1yr) runs at market-session nodes and feeds a **report
 layer** (per-user, incremental).
 
-- **Capture nodes** via crontab `nowfun` per market: US in ET (DST-aware),
-  HK/CN fixed-offset. Nodes: US pre_open/open/close/after_close; HK/CN
-  open/close. News captured at every node; catch-up logic lives in the task
-  (range fetch + idempotent upsert), no watermark table.
+- **Capture nodes** via crontab `nowfun` per market (issue #311): US in ET
+  (DST-aware); HK/CN/Japan/Korea fixed-offset; UK `Europe/London` and Europe
+  `Europe/Berlin` DST-aware. Nodes: US pre_open/open/close/after_close; every
+  other scheduled market open/close only (UK 16:30 London, Europe 17:30
+  Berlin, Japan 15:00 Tokyo, Korea 15:30 Seoul, HK 16:00, A-Share 15:00).
+  News captured at every node; catch-up logic lives in the task (range fetch
+  + idempotent upsert), no watermark table. Walk order is
+  `CAPTURE_MARKET_ORDER`. Unresolvable listings are `capture_supported=False`
+  and are never fetched.
 - **OHLCV upsert + confirm-time backfill (issue #194/#195, PR #197)**:
   `price_snapshots` is global (no `user_id`) — two users holding NVDA share
   one close series. `_upsert` writes in 2000-row chunks (close-node rows

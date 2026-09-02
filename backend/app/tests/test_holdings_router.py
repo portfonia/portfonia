@@ -372,6 +372,38 @@ def test_confirm_writes_to_db(app_client: TestClient) -> None:
     assert names == {"Apple", "USD Cash"}
 
 
+def test_confirm_unresolvable_ticker_is_other_not_processed(app_client: TestClient) -> None:
+    """Issue #311: confirm recomputes capture_supported server-side."""
+    payload = {
+        **_PARSED_APPLE,
+        "name": "BHP Group",
+        "ticker": "BHP.AX",
+        "currency": "AUD",
+        "market": "US",
+        "capture_supported": True,
+    }
+    resp = app_client.post("/holdings/confirm", json=[payload])
+    assert resp.status_code == 200
+    row = resp.json()[0]
+    assert row["ticker"] == "BHP.AX"
+    assert row["market"] == "Other"
+    assert row["capture_supported"] is False
+
+
+def test_confirm_lse_ticker_is_uk_and_capture_supported(app_client: TestClient) -> None:
+    payload = {
+        **_PARSED_APPLE,
+        "name": "Vodafone",
+        "ticker": "VOD.L",
+        "currency": "GBP",
+    }
+    resp = app_client.post("/holdings/confirm", json=[payload])
+    assert resp.status_code == 200
+    row = resp.json()[0]
+    assert row["market"] == "UK"
+    assert row["capture_supported"] is True
+
+
 def test_confirm_sets_last_manual_update_for_manual_rows(app_client: TestClient) -> None:
     resp = app_client.post("/holdings/confirm", json=[_PARSED_CASH])
     assert resp.status_code == 200
@@ -752,7 +784,17 @@ def test_list_holdings_after_confirm(app_client: TestClient) -> None:
 def test_list_holdings_includes_expected_fields(app_client: TestClient) -> None:
     app_client.post("/holdings/confirm", json=[_PARSED_APPLE])
     row = app_client.get("/holdings").json()[0]
-    for field in ("id", "name", "ticker", "currency", "pricing_mode", "created_at", "updated_at"):
+    for field in (
+        "id",
+        "name",
+        "ticker",
+        "currency",
+        "pricing_mode",
+        "market",
+        "capture_supported",
+        "created_at",
+        "updated_at",
+    ):
         assert field in row
 
 

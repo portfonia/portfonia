@@ -1233,3 +1233,34 @@ def test_ticker_asset_class_rejects_missing_top_level_key(
     monkeypatch.setattr(holding_parser_module, "_get_ticker_asset_class_path", lambda: mapping)
     with pytest.raises(ValueError, match="ticker_asset_class"):
         _classify_asset_class({"ticker": "QQQ", "asset_type": "etf"})
+
+
+def test_postprocess_unsupported_count_matches_preview_contract() -> None:
+    """Issue #311: unresolvable rows stay valid; count is the heads-up summary."""
+    rows = _postprocess(
+        [
+            {
+                "name": "Vodafone",
+                "ticker": "VOD.L",
+                "currency": "GBP",
+                "shares": 10,
+                "pricing_mode": "auto",
+            },
+            {
+                "name": "BHP Group",
+                "ticker": "BHP.AX",
+                "currency": "AUD",
+                "shares": 10,
+                "pricing_mode": "auto",
+            },
+            {
+                "name": "Shopify",
+                "ticker": "SHOP.TO",
+                "currency": "CAD",
+                "shares": 5,
+                "pricing_mode": "auto",
+            },
+        ]
+    )
+    assert [r.capture_supported for r in rows] == [True, False, False]
+    assert sum(1 for r in rows if not r.capture_supported) == 2

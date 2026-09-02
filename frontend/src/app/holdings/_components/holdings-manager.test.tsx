@@ -116,4 +116,40 @@ describe("HoldingsManager", () => {
 
     await waitFor(() => expect(push).toHaveBeenCalledWith("/welcome"));
   });
+
+  it("shows a non-blocking heads-up when some rows are not auto-priced (issue #311)", async () => {
+    const user = userEvent.setup();
+    uploadHoldings.mockResolvedValue({
+      ..._PREVIEW,
+      unsupported_capture_count: 1,
+      valid_rows: [
+        _PREVIEW.valid_rows[0],
+        {
+          name: "BHP Group",
+          ticker: "BHP.AX",
+          fund_code: null,
+          currency: "AUD",
+          shares: 10,
+          avg_cost: 40,
+          current_value: null,
+          pricing_mode: "auto",
+          asset_type: "stock",
+          broker: "IBKR",
+          account: null,
+          portfolio: null,
+          notes: null,
+          issues: [],
+          confidence: 1,
+          capture_supported: false,
+        },
+      ],
+    });
+    renderManager();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["content"], "holdings.md", { type: "text/markdown" });
+    await user.upload(input, file);
+    expect(await screen.findByText(/not auto-priced yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/market not supported/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^save holdings$/i })).toBeEnabled();
+  });
 });
