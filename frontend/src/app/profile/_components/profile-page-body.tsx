@@ -214,17 +214,21 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
         </CardContent>
       </Card>
 
-      {/* Placeholders below (issue #220 §2 requirements 4/5/7/8): visible and
-          labeled not-yet-implemented, never a form a click could actually
-          submit — every control here is disabled. Issue #308: moved above
-          Report delivery email (was below it). */}
+      {/* Issue #308: this card sits above Report delivery email (was below
+          it). Issue #320: no longer a placeholder — links into the real
+          /portfolio dashboard. Remaining not-yet-implemented placeholders
+          (issue #220 §2 requirements 5/7) are further below, at Report
+          schedule. */}
 
       <Card>
         <CardHeader>
           <CardTitle>{t("portfolioOverviewHeading")}</CardTitle>
+          <CardDescription>{t("portfolioOverviewBody")}</CardDescription>
         </CardHeader>
         <CardContent className="px-4">
-          <p className="text-sm text-muted-foreground">{t("portfolioOverviewPlaceholder")}</p>
+          <Button variant="outline" render={<Link href="/portfolio" />}>
+            {t("portfolioOverviewButton")}
+          </Button>
         </CardContent>
       </Card>
 

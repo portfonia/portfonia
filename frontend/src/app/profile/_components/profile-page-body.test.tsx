@@ -143,10 +143,18 @@ describe("ProfilePageBody", () => {
   it("renders every placeholder section as visibly non-interactive", () => {
     renderBody(BASE_ME);
 
-    expect(screen.getByText(/portfolio overview/i)).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: /report schedule/i })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Delete account" })).toBeDisabled();
     expect(screen.getAllByText(/not implemented yet/i).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("links the portfolio overview card to /portfolio (issue #320: no longer a placeholder)", () => {
+    renderBody(BASE_ME);
+
+    expect(screen.getByRole("link", { name: /view portfolio overview/i })).toHaveAttribute(
+      "href",
+      "/portfolio",
+    );
   });
 
   it("renders the Change password form", () => {
@@ -184,7 +192,7 @@ describe("ProfilePageBody", () => {
     expect(screen.queryByRole("link", { name: /add your holdings/i })).not.toBeInTheDocument();
     // The rest of the page still renders — an empty `missing` doesn't hide
     // anything else.
-    expect(screen.getByText(/portfolio overview/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /view portfolio overview/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete account" })).toBeDisabled();
   });
 });

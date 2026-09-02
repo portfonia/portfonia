@@ -14,7 +14,15 @@
 // exactly one `menu` namespace in the shared catalog, read the same way on
 // every route.
 import { useState } from "react";
-import { Briefcase, ChevronDown, ClipboardList, LogIn, LogOut, User } from "lucide-react";
+import {
+  Briefcase,
+  ChartPie,
+  ChevronDown,
+  ClipboardList,
+  LogIn,
+  LogOut,
+  User,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 
@@ -47,6 +55,7 @@ import {
 const AUTHED_ENTRIES = [
   { id: "profile", href: "/profile", Icon: User },
   { id: "holdings", href: "/holdings", Icon: Briefcase },
+  { id: "portfolio", href: "/portfolio", Icon: ChartPie },
   { id: "questionnaire", href: "/questionnaire", Icon: ClipboardList },
 ] as const satisfies { id: string; href: string; Icon: LucideIcon }[];
 
