@@ -299,7 +299,7 @@ is the only auto-fixing step. A prior version of this table listed a
 2026-08-28 rather than left to drift further (see issue #227's frontend
 Dockerfile fix for the sibling doc/reality gap this was found alongside).
 
-Final gates (CI also enforces):
+Final gates (enforced by the local quality gate above, not CI — see CI-First Protocol):
 
 - Type check passes (mypy strict, tsc strict).
 - Lint passes with zero warnings.
