@@ -33,6 +33,23 @@ def test_migrations_round_trip(alembic_cfg: Config) -> None:
         command.upgrade(alembic_cfg, rev.revision)
 
 
+def test_exactly_one_alembic_head(alembic_cfg: Config) -> None:
+    """issue #313 item 3: the follow-up issue was filed claiming a dual-head
+    split (`e1f2a3b4c5d6` #248 cadence vs. `c7d8e9f0a1b2` -> `a2b3c4d5e6f7`
+    #309 locale CHECK). Re-verified against this revision — `alembic heads`
+    reports exactly one head, and the full chain from `e1f2a3b4c5d6` walks
+    linearly through `86b7be7f1fe5` -> `b7c8d9e0f1a2` -> `a2b3c4d5e6f7` to
+    `c7d8e9f0a1b2`; no fork exists in `alembic/versions/` today. Guards
+    against the split the issue described being reintroduced, whatever its
+    origin (a since-fixed local/branch state, most likely) actually was."""
+    script = ScriptDirectory.from_config(alembic_cfg)
+    heads = script.get_heads()
+    assert len(heads) == 1, (
+        f"expected exactly one Alembic head, found {heads} — "
+        "add a merge revision (`alembic merge heads`)"
+    )
+
+
 def test_news_surfaced_backfill_reconstructs_from_report_history(alembic_cfg: Config) -> None:
     """PR #139 review: migration f1a2b3c4d5e6 must not deploy news_surfaced
     empty — an empty ledger combined with load_news_window's new no-lower-

@@ -352,3 +352,47 @@ def test_global_identifier_universe_uses_fund_code_when_no_ticker(db_session: Se
     db_session.add(_h(user_id=_U1, name="Gold Fund", fund_code="019547", currency="CNY"))
     db_session.flush()
     assert set(global_identifier_universe(db_session).keys()) == {"019547"}
+
+
+def test_global_identifier_universe_excludes_capture_unsupported_holdings(
+    db_session: Session,
+) -> None:
+    """issue #313 item 1: capture itself already gates on `capture_supported`
+    (see `price_capture.py`/`is_capture_supported`), but this universe is the
+    L1 anomaly-detection / SHARED TICKER INTEL input and only filtered on
+    `pricing_mode == "auto"` — an unresolvable ticker (`market="Other"`,
+    `capture_supported=False`) still had no price series captured for it, so
+    letting it into the universe means L1/assembly can still reference a
+    holding capture has already correctly excluded."""
+    db_session.add(_user(_U1, "u1@example.com"))
+    db_session.add(
+        _h(
+            user_id=_U1,
+            name="Unresolvable Foreign Listing",
+            ticker="XYZ.WEIRD",
+            market="Other",
+            capture_supported=False,
+        )
+    )
+    db_session.flush()
+    assert global_identifier_universe(db_session) == {}
+
+
+def test_global_identifier_universe_keeps_capture_supported_holdings_alongside_unsupported(
+    db_session: Session,
+) -> None:
+    db_session.add(_user(_U1, "u1@example.com"))
+    db_session.add_all(
+        [
+            _h(user_id=_U1, name="NVIDIA", ticker="NVDA"),
+            _h(
+                user_id=_U1,
+                name="Unresolvable Foreign Listing",
+                ticker="XYZ.WEIRD",
+                market="Other",
+                capture_supported=False,
+            ),
+        ]
+    )
+    db_session.flush()
+    assert set(global_identifier_universe(db_session).keys()) == {"NVDA"}

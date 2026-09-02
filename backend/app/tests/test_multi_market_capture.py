@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
-from app.services._yfinance import _scale_price, fetch_last_close
+from app.services._yfinance import _safe_scaled_price, _scale_price, fetch_last_close
 from app.services.holding_parser import _postprocess
 from app.services.markets import CAPTURE_MARKET_ORDER
 from app.services.price_capture import capture_prices
@@ -240,6 +240,41 @@ def test_fetch_last_close_omits_lse_bar_when_currency_unknown(
     ):
         result = fetch_last_close(["VOD.L"])
     assert "VOD.L" not in result
+    assert result == {}
+
+
+def test_safe_scaled_price_treats_empty_string_currency_as_unknown_on_lse() -> None:
+    """issue #313 item 2: `_safe_scaled_price`'s fail-closed LSE check only
+    tested `currency is None`. `_fetched_currency`'s return type (`str |
+    None`) doesn't rule out an actual empty string coming back from
+    yfinance, and that value would fall through to the final `return value`
+    — identity-scaling pence as pounds, the exact 100x bug class #204/#311
+    exist to kill. `""` must omit the bar the same way `None` does."""
+    assert _safe_scaled_price("VOD.L", 7050.0, "") is None
+    assert _safe_scaled_price("VOD.L", 7050.0, None) is None
+
+
+def test_fetch_last_close_omits_lse_bar_when_fetched_currency_is_empty_string(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """issue #313 item 2: unlike the sibling test above, this does NOT
+    monkeypatch `_fetched_currency` — it lets the real function run against a
+    yfinance response whose `currency` field is `""`, the actual shape #313
+    says can reach `_safe_scaled_price` unpatched. `""` must omit the LSE bar
+    the same way `None` does, not identity-scale pence as pounds."""
+
+    def fake_download(**kwargs: object) -> pd.DataFrame:
+        return _make_hist("VOD.L", 7050.0)
+
+    monkeypatch.setattr(
+        "app.services._yfinance.yf.Ticker",
+        lambda symbol: _FakeTicker(symbol, currency=""),
+    )
+    with (
+        patch("app.services._yfinance.yf.download", side_effect=fake_download),
+        patch("app.services._yfinance.time.sleep"),
+    ):
+        result = fetch_last_close(["VOD.L"])
     assert result == {}
 
 

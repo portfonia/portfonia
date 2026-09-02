@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.models.holding import Holding
 from app.models.user import User
 from app.services._yfinance import _normalize_ticker
+from app.services.markets import is_capture_supported
 
 # Cadences whose fan-out still requires at least one holding row (issue #191
 # decision point 2). Not in this set -> an empty book still enters the batch,
@@ -141,7 +142,12 @@ def global_identifier_universe(session: Session) -> dict[str, list[Holding]]:
     Scoped to auto-priced holdings only (`pricing_mode == "auto"`) — a
     manually-priced holding has no quotable price series for L0/L1 to compute
     over, matching the existing filter in `price_capture._market_tickers` and
-    the pre-A1 `detect_window_anomalies` holdings query.
+    the pre-A1 `detect_window_anomalies` holdings query. Also excludes
+    `capture_supported=False` holdings (issue #313 item 1) via the same
+    `is_capture_supported` helper `price_capture`/`price_fetcher`/
+    `portfolio_calculator` already gate on — an unresolvable ticker never had
+    a price series captured for it, so it must not enter the L1 anomaly-
+    detection / SHARED TICKER INTEL universe either.
 
     Ticker/fund_code are Fernet ciphertext at rest (issue #31): SQL-level
     DISTINCT/equality on them is meaningless, so this fetches full rows and
@@ -160,6 +166,8 @@ def global_identifier_universe(session: Session) -> dict[str, list[Holding]]:
     )
     universe: dict[str, list[Holding]] = {}
     for h in holdings:
+        if not is_capture_supported(h):
+            continue
         raw = h.ticker or h.fund_code
         if not raw:
             continue

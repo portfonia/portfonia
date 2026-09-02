@@ -48,6 +48,17 @@ def _normalize_hk_ticker(ticker: str) -> str:
 # yfinance and need an explicit exchange suffix to resolve to the intended
 # instrument (issue #204: bare "PSH" resolved to an unrelated US ETF instead
 # of Pershing Square Holdings, which trades on the LSE as PSH.L).
+#
+# General bare-ticker suffix-forcing (any bare ticker + a known/confirmed
+# market -> the right exchange suffix, not just this one hardcoded entry) is
+# out of scope here — PR #310 (issue #92, merged) added
+# `holding_parser.apply_confirmed_exchange_suffix`, which forces the suffix
+# at parse/confirm time once a market is user-declared or confidently
+# derived (e.g. currency == "GBP" -> UK), closing issue #313 item 5's "VOD"
+# case for any holding with a declared market or currency hint. A bare
+# ticker with NEITHER (no declared market, no currency hint) is still left
+# unresolved by design ("do not guess a suffix") — Ring-1-C / issue #204
+# territory, not handled at this yfinance-fetch layer either way.
 _TICKER_SYMBOL_OVERRIDE: dict[str, str] = {
     "PSH": "PSH.L",
 }
@@ -107,10 +118,16 @@ def _safe_scaled_price(ticker: str, value: float, currency: str | None) -> float
     unknown currency → None (caller omits the ticker). EUR/JPY/KRW (and US)
     stay unscaled when currency is present or missing — they have no subunit
     marker.
+
+    Checks falsy, not just `currency is None` (issue #313 item 2):
+    `_fetched_currency`'s return type (`str | None`) does not rule out
+    yfinance itself handing back an empty string, and that value must be
+    treated as unknown here too — an empty string is not `_GBPENCE` and
+    would otherwise fall through to the final unscaled `return value`.
     """
     if currency == _GBPENCE:
         return value * 0.01
-    if currency is None and _is_lse_ticker(ticker):
+    if not currency and _is_lse_ticker(ticker):
         logger.warning(
             "omitting %s: LSE bar with unknown currency; refusing unscaled pence",
             ticker,
@@ -260,7 +277,8 @@ def _ohlcv_rows_for_ticker(
         clean = sub.dropna(subset=["Close"])
         # Do not make a second fast_info round-trip here: the caller already
         # looked up currency (or failed). Unknown LSE currency → omit bars.
-        if currency is None and _is_lse_ticker(ticker):
+        # Falsy, not just None (issue #313 item 2) — matches _safe_scaled_price.
+        if not currency and _is_lse_ticker(ticker):
             logger.warning(
                 "omitting %s: LSE OHLCV with unknown currency; refusing unscaled pence",
                 ticker,
