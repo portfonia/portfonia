@@ -2,15 +2,29 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { uploadHoldings, confirmHoldings, push } = vi.hoisted(() => ({
-  uploadHoldings: vi.fn(),
-  confirmHoldings: vi.fn(),
-  push: vi.fn(),
-}));
+const { uploadHoldings, confirmHoldings, exportHoldings, downloadHoldingsTemplate, downloadFile, push } =
+  vi.hoisted(() => ({
+    uploadHoldings: vi.fn(),
+    confirmHoldings: vi.fn(),
+    exportHoldings: vi.fn(),
+    downloadHoldingsTemplate: vi.fn(),
+    downloadFile: vi.fn(),
+    push: vi.fn(),
+  }));
 
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
-  return { ...actual, uploadHoldings, confirmHoldings };
+  return {
+    ...actual,
+    uploadHoldings,
+    confirmHoldings,
+    exportHoldings,
+    downloadHoldingsTemplate,
+  };
+});
+vi.mock("@/lib/template", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/template")>("@/lib/template");
+  return { ...actual, downloadFile };
 });
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 // lib/api.ts's real (importActual'd) exports now import logout() from
@@ -67,19 +81,42 @@ async function uploadAndSave(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: /append to holdings/i }));
 }
 
+function withLocaleStorage(initial?: string) {
+  const store = new Map<string, string>();
+  if (initial) store.set("portfonia:locale", initial);
+  Object.defineProperty(window, "localStorage", {
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+      removeItem: (key: string) => void store.delete(key),
+      clear: () => store.clear(),
+    },
+    configurable: true,
+  });
+}
+
 describe("HoldingsManager", () => {
   beforeEach(() => {
     push.mockClear();
     uploadHoldings.mockClear();
     confirmHoldings.mockClear();
+    exportHoldings.mockClear();
+    downloadHoldingsTemplate.mockClear();
+    downloadFile.mockClear();
     uploadHoldings.mockResolvedValue(_PREVIEW);
     confirmHoldings.mockResolvedValue(_CONFIRMED);
+    exportHoldings.mockResolvedValue({ blob: new Blob(["x"]), filename: "holdings.md" });
+    downloadHoldingsTemplate.mockResolvedValue(new Blob(["x"]));
   });
 
   it("normal mode (default): shows Current holdings and Download template, Append stays on the page", async () => {
     const user = userEvent.setup();
     renderManager();
-    expect(screen.getByText(/current holdings/i)).toBeInTheDocument();
+    // Exact match: appendHint's frozen copy ("...after your current
+    // holdings...") also contains this substring and now renders
+    // unconditionally near the mode selector (issue #319 items 10-11), so
+    // a case-insensitive substring match would hit both.
+    expect(screen.getByText("Current holdings")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /download template/i })).toBeInTheDocument();
 
     await uploadAndSave(user);
@@ -92,7 +129,7 @@ describe("HoldingsManager", () => {
 
   it("onboarding mode: hides Current holdings and Download template (issue #221 §2.3)", () => {
     renderManager("onboarding");
-    expect(screen.queryByText(/current holdings/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("Current holdings")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /download template/i }),
     ).not.toBeInTheDocument();
@@ -158,6 +195,7 @@ describe("HoldingsManager", () => {
   it("normal mode: Replace all asks for a second confirm then confirms with mode=replace", async () => {
     const user = userEvent.setup();
     renderManager();
+    await user.click(screen.getByRole("button", { name: /^replace$/i }));
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(["content"], "holdings.md", { type: "text/markdown" });
     await user.upload(input, file);
@@ -168,6 +206,42 @@ describe("HoldingsManager", () => {
     await waitFor(() =>
       expect(confirmHoldings).toHaveBeenCalledWith(_PREVIEW.valid_rows, "replace"),
     );
+  });
+
+  describe("append/replace mode selection (issue #319 items 10-11)", () => {
+    it("defaults to append mode and shows the appendHint callout before any file is chosen", () => {
+      renderManager();
+      expect(screen.getByRole("button", { name: /^append$/i })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      expect(
+        screen.getByText(/append adds these rows after your current holdings/i),
+      ).toBeInTheDocument();
+    });
+
+    it("hides the appendHint callout once replace mode is selected", async () => {
+      const user = userEvent.setup();
+      renderManager();
+      await user.click(screen.getByRole("button", { name: /^replace$/i }));
+      expect(
+        screen.queryByText(/append adds these rows after your current holdings/i),
+      ).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^replace$/i })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+    });
+
+    it("the mode is chosen before file selection — no file input interaction needed to pick it", () => {
+      renderManager();
+      const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+      // The mode selector renders in the DOM before (above) the file input.
+      const selector = screen.getByRole("button", { name: /^append$/i });
+      expect(
+        selector.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    });
   });
 
   it("normal mode: links to the edit-holdings page from the current list", () => {
@@ -205,11 +279,74 @@ describe("HoldingsManager", () => {
     };
     uploadHoldings.mockResolvedValue(withIssues);
     renderManager();
+    await user.click(screen.getByRole("button", { name: /^replace$/i }));
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(["content"], "holdings.md", { type: "text/markdown" });
     await user.upload(input, file);
     await screen.findByText(/parsed holdings/i);
     await user.click(screen.getByRole("button", { name: /replace all holdings/i }));
     expect(screen.getByText(/1 unparsed row will also be discarded/i)).toBeInTheDocument();
+  });
+
+  describe("export/template follow the UI locale, not the report language (issue #319 item 9)", () => {
+    it("passes the current UI locale (default en) to exportHoldings/downloadHoldingsTemplate", async () => {
+      const user = userEvent.setup();
+      renderManager(undefined, [
+        {
+          id: "1",
+          name: "Apple",
+          ticker: "AAPL",
+          fund_code: null,
+          currency: "USD",
+          shares: "1",
+          avg_cost: "1",
+          current_value: null,
+          pricing_mode: "auto",
+          asset_type: "stock",
+          capture_supported: true,
+          broker: null,
+          account: null,
+          portfolio: null,
+          notes: null,
+          last_manual_update: null,
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+        },
+      ]);
+      await user.click(screen.getByRole("button", { name: /download template/i }));
+      await waitFor(() => expect(downloadHoldingsTemplate).toHaveBeenCalledWith("en"));
+
+      await user.click(screen.getByRole("button", { name: /export current holdings/i }));
+      await waitFor(() => expect(exportHoldings).toHaveBeenCalledWith("en"));
+    });
+
+    it("maps the zh-Hans UI locale to the bare 'zh' backend code", async () => {
+      withLocaleStorage("zh-Hans");
+      const user = userEvent.setup();
+      renderManager(undefined, [
+        {
+          id: "1",
+          name: "Apple",
+          ticker: "AAPL",
+          fund_code: null,
+          currency: "USD",
+          shares: "1",
+          avg_cost: "1",
+          current_value: null,
+          pricing_mode: "auto",
+          asset_type: "stock",
+          capture_supported: true,
+          broker: null,
+          account: null,
+          portfolio: null,
+          notes: null,
+          last_manual_update: null,
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+        },
+      ]);
+      await user.click(screen.getByRole("button", { name: /下载模板/i }));
+      await waitFor(() => expect(downloadHoldingsTemplate).toHaveBeenCalledWith("zh"));
+    });
   });
 });

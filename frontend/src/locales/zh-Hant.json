@@ -125,6 +125,8 @@
     "editHoldings": "編輯持倉",
     "appendButton": "追加到持倉",
     "replaceAllButton": "取代全部持倉",
+    "modeAppendLabel": "追加",
+    "modeReplaceLabel": "取代",
     "appendHint": "追加會把這些列加到現有持倉後面。相同代碼 + 券商會作為第二筆倉，不會合併。",
     "replaceConfirmTitle": "取代全部持倉？",
     "replaceConfirmBody": "這將刪除你目前的全部持倉，只保留下方解析出的列。目前沒有快照或復原。若可能還需要現有持倉，請先匯出。{n, plural, =0 {} other {另有 # 列未能解析，也會被丟棄。}}",

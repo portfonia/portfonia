@@ -125,6 +125,8 @@
     "editHoldings": "编辑持仓",
     "appendButton": "追加到持仓",
     "replaceAllButton": "替换全部持仓",
+    "modeAppendLabel": "追加",
+    "modeReplaceLabel": "替换",
     "appendHint": "追加会把这些行加到现有持仓后面。相同代码 + 券商会作为第二笔仓，不会合并。",
     "replaceConfirmTitle": "替换全部持仓？",
     "replaceConfirmBody": "这将删除你目前的全部持仓，只保留下方解析出的行。目前没有快照或撤销。若可能还需要现有持仓，请先导出。{n, plural, =0 {} other {另有 # 行未能解析，也会被丢弃。}}",
