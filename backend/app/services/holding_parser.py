@@ -18,6 +18,7 @@ from pydantic import ValidationError
 from app.core.config import OR_ATTRIBUTION_HEADERS, get_settings
 from app.core.llm import structured_provider
 from app.schemas.holdings import (
+    KNOWN_ISSUE_CODES,
     VALID_ASSET_TYPES,
     VALID_CURRENCIES,
     BrokerGroup,
@@ -26,7 +27,9 @@ from app.schemas.holdings import (
     ParsedRow,
     UploadPreview,
 )
+from app.services._yfinance import _TICKER_SYMBOL_OVERRIDE
 from app.services.asset_class_config import VALID_ASSET_CLASSES
+from app.services.holdings_export import DIALECT_TAG_KEYS, MANUAL_LISTED_PLACEHOLDER
 from app.services.llm_errors import (
     LLMCallError,
     LLMEmptyResponseError,
@@ -35,7 +38,12 @@ from app.services.llm_errors import (
     classify,
     is_retryable,
 )
-from app.services.markets import VALID_HOLDING_MARKETS, resolve_holding_market
+from app.services.markets import (
+    SUPPORTED_CAPTURE_MARKETS,
+    VALID_HOLDING_MARKETS,
+    market_from_ticker,
+    resolve_holding_market,
+)
 
 _SUPPORTED_EXTENSIONS = {".md", ".txt", ".csv", ".xlsx", ".xls"}
 
@@ -124,9 +132,14 @@ Output a JSON object with exactly two keys:
   "account":       string | null,
   "portfolio":     string | null,
   "notes":         string | null,
-  "issues":        [string]  (list of inference notes or low-confidence warnings),
   "confidence":    number  (0.0-1.0; < 0.7 means the field values are uncertain)
 }
+
+Do not emit an "issues" array. The server attaches structured notes after
+extraction. When a field is uncertain, lower confidence instead of writing
+a free-text note. Trailing tags on a line (account: / portfolio: / notes: /
+asset_type: / market: / pricing_mode:) are structured fields — copy them
+onto the matching keys, unquoting values.
 
 --- issue_rows item schema ---
 {
@@ -142,7 +155,7 @@ Set "manual" when:
   - No ticker and no fund_code (e.g. cash, bank WMP, Alipay products), OR
   - Only a total current_value is given with no per-unit cost.
 When a row has both a ticker and a current_value but no shares: prefer "auto" and
-note the ambiguity in issues.
+lower confidence if the split is ambiguous.
 
 --- currency inference (apply in priority order) ---
 1. User explicitly states a currency code (USD, HKD, CNY, GBP, …) → use it.
@@ -160,8 +173,8 @@ note the ambiguity in issues.
    if broker is foreign (IBKR, Schwab, Fidelity, TD, Futu USD account) → USD;
    if broker is mainland Chinese → CNY;
    if broker is Hong Kong platform ($futu/Futu HKD, $stock_connect) → HKD;
-   if cannot determine → add note to issues, set confidence < 0.7.
-12. Otherwise: make best guess and add explanation to issues.
+   if cannot determine → set confidence < 0.7.
+12. Otherwise: make best guess and lower confidence if uncertain.
 
 --- asset_type inference ---
 - Has ticker with exchange suffix (.HK, .SS, .SZ) or well-known US ticker → "stock"
@@ -179,9 +192,9 @@ note the ambiguity in issues.
 3. ticker ends in .SS or .SZ, OR a 6-digit fund_code, OR a 6-digit A-share code → A-Share
 4. ticker ends in .L → UK; .AS / .PA / .DE → Europe; .T → Japan; .KS / .KQ → Korea
 5. plain US-listed ticker (no suffix, or a one-letter share class like BRK.B) → US
-6. cash / WMP / deposit: follow the ACCOUNT's market via broker context —
-   IBKR / Schwab / Fidelity / TD / Futu-USD → US; $stock_connect / Futu-HKD → HK;
-   mainland bank / $common_cn_platforms → A-Share.
+6. cash / WMP / deposit with no ticker: market is listing venue, not custodian.
+   There is no listed instrument → Other. Do NOT infer A-Share from a mainland
+   bank broker (a USD deposit at CMB / China Merchants Bank is Other, not A-Share).
 7. cannot determine → Other. Do not drop the row.
 
 --- quality bar for valid_rows ---
@@ -191,7 +204,7 @@ are missing, OR the format is completely unintelligible.
 
 Do not hallucinate tickers or fund codes — if uncertain, treat the field as
 unknown (see output compactness below for how an unknown field is rendered)
-and note it in issues rather than guessing.
+and lower confidence rather than guessing.
 
 --- output compactness (issue #84) ---
 "name", "currency", and "pricing_mode" are always required and always
@@ -233,6 +246,287 @@ def _strip_comments(text: str) -> str:
     """
     lines = [ln for ln in text.splitlines() if not ln.lstrip().startswith("#")]
     return "\n".join(lines)
+
+
+_TAG_TOKEN_RE = re.compile(
+    r"\s+(" + "|".join(DIALECT_TAG_KEYS) + r'):(?:"(?P<quoted>(?:\\.|[^"\\])*)"|(?P<bare>\S+))\s*$'
+)
+
+_ASSET_TYPE_ALIASES: dict[str, str] = {
+    "wealth-management": "wmf",
+    "wealth_management": "wmf",
+    "wmp": "wmf",
+    "wmf": "wmf",
+}
+
+
+def _unescape_tag(value: str) -> str:
+    out: list[str] = []
+    i = 0
+    while i < len(value):
+        if value[i] == "\\" and i + 1 < len(value):
+            out.append(value[i + 1])
+            i += 2
+        else:
+            out.append(value[i])
+            i += 1
+    return "".join(out)
+
+
+def split_tagged_fields(line: str) -> tuple[str, dict[str, str]]:
+    """Peel trailing key:value tags off a dialect line, right to left."""
+    tags: dict[str, str] = {}
+    rest = line.rstrip()
+    while True:
+        match = _TAG_TOKEN_RE.search(rest)
+        if not match:
+            break
+        key = match.group(1)
+        if match.group("quoted") is not None:
+            tags[key] = _unescape_tag(match.group("quoted"))
+        else:
+            tags[key] = match.group("bare") or ""
+        rest = rest[: match.start()]
+    return rest, tags
+
+
+def _is_num(token: str) -> bool:
+    try:
+        float(token.replace(",", ""))
+        return True
+    except ValueError:
+        return False
+
+
+def _parse_listed_tokens(tokens: list[str]) -> dict[str, Any] | None:
+    for i, tok in enumerate(tokens):
+        if tok.upper() not in VALID_CURRENCIES:
+            continue
+        if i < 1 or i + 2 >= len(tokens):
+            continue
+        if not (_is_num(tokens[i + 1]) and _is_num(tokens[i + 2])):
+            continue
+        ident = tokens[i - 1]
+        name = " ".join(tokens[: i - 1]).strip()
+        if not name:
+            continue
+        broker = " ".join(tokens[i + 3 :]).strip() or None
+        row: dict[str, Any] = {
+            "name": name,
+            "currency": tok.upper(),
+            "shares": float(tokens[i + 1].replace(",", "")),
+            "avg_cost": float(tokens[i + 2].replace(",", "")),
+            "broker": broker,
+            "pricing_mode": "auto",
+        }
+        if ident.isdigit() and len(ident) == 6:
+            row["fund_code"] = ident
+            row["ticker"] = None
+        else:
+            row["ticker"] = ident
+            row["fund_code"] = None
+        return row
+    return None
+
+
+def _ident_from_token(ident: str) -> dict[str, Any]:
+    if ident.isdigit() and len(ident) == 6:
+        return {"fund_code": ident, "ticker": None}
+    return {"ticker": ident, "fund_code": None}
+
+
+def _manual_match(tokens: list[str], n_nums: int) -> dict[str, Any] | None:
+    """Last currency token followed by exactly n_nums numerics.
+
+    Walking last-match avoids a currency code embedded in the name
+    (e.g. "My iShares USD 500 Bond ETF") stealing the parse.
+    """
+    last: dict[str, Any] | None = None
+    for i, tok in enumerate(tokens):
+        if tok.upper() not in VALID_CURRENCIES:
+            continue
+        if i < 1 or i + n_nums >= len(tokens):
+            continue
+        nums = tokens[i + 1 : i + 1 + n_nums]
+        if not all(_is_num(t) for t in nums):
+            continue
+        # A longer numeric run belongs to a richer manual shape.
+        if i + 1 + n_nums < len(tokens) and _is_num(tokens[i + 1 + n_nums]):
+            continue
+        ident = tokens[i - 1]
+        name = " ".join(tokens[: i - 1]).strip()
+        if not name:
+            continue
+        broker = " ".join(tokens[i + 1 + n_nums :]).strip() or None
+        row: dict[str, Any] = {
+            "name": name,
+            "currency": tok.upper(),
+            "broker": broker,
+            "pricing_mode": "manual",
+            "shares": None,
+            "avg_cost": None,
+            "current_value": None,
+            **_ident_from_token(ident),
+        }
+        parsed_nums = [float(t.replace(",", "")) for t in nums]
+        if n_nums == 3:
+            row["shares"], row["avg_cost"], row["current_value"] = parsed_nums
+        elif n_nums == 2:
+            row["shares"], row["avg_cost"] = parsed_nums
+        else:
+            row["current_value"] = parsed_nums[0]
+        last = row
+    return last
+
+
+def _is_num_or_placeholder(token: str) -> bool:
+    return token == MANUAL_LISTED_PLACEHOLDER or _is_num(token)
+
+
+def _manual_match_explicit(tokens: list[str]) -> dict[str, Any] | None:
+    """shares / avg_cost / current_value, each a number or the placeholder.
+
+    Unambiguous by construction — this is what `render_holding_line` emits
+    for pricing_mode:manual listed rows (always all three slots), so cost
+    basis / valuation survive an export -> edit -> replace-all round trip
+    even when the middle slot is missing. Blind positional counting alone
+    cannot tell "shares + current_value, no avg_cost" apart from "shares +
+    avg_cost, no current_value" — both are two numeric tokens (PR #310
+    round 5, the round-4 bug this replaces for the export-generated shape).
+    Hand-typed shorthand without the placeholder still falls back to
+    `_manual_match`'s count-based heuristic below.
+    """
+    last: dict[str, Any] | None = None
+    for i, tok in enumerate(tokens):
+        if tok.upper() not in VALID_CURRENCIES:
+            continue
+        if i < 1 or i + 3 >= len(tokens):
+            continue
+        nums = tokens[i + 1 : i + 4]
+        if not all(_is_num_or_placeholder(t) for t in nums):
+            continue
+        if all(t == MANUAL_LISTED_PLACEHOLDER for t in nums):
+            continue  # nothing recoverable; let the flexible fallback try
+        if i + 4 < len(tokens) and _is_num(tokens[i + 4]):
+            continue
+        ident = tokens[i - 1]
+        name = " ".join(tokens[: i - 1]).strip()
+        if not name:
+            continue
+        broker = " ".join(tokens[i + 4 :]).strip() or None
+        shares, avg_cost, current_value = (
+            None if t == MANUAL_LISTED_PLACEHOLDER else float(t.replace(",", "")) for t in nums
+        )
+        last = {
+            "name": name,
+            "currency": tok.upper(),
+            "broker": broker,
+            "pricing_mode": "manual",
+            "shares": shares,
+            "avg_cost": avg_cost,
+            "current_value": current_value,
+            **_ident_from_token(ident),
+        }
+    return last
+
+
+def _parse_manual_listed_tokens(tokens: list[str]) -> dict[str, Any] | None:
+    """pricing_mode:manual listed shape: shares / avg_cost / current_value.
+
+    Tries the unambiguous placeholder-marked shape first (what export always
+    produces), then falls back to count-based heuristics for hand-typed
+    shorthand without placeholders: three numerics after currency are
+    shares / avg_cost / current_value, two are shares / avg_cost, one is
+    current_value only.
+    """
+    return (
+        _manual_match_explicit(tokens)
+        or _manual_match(tokens, 3)
+        or _manual_match(tokens, 2)
+        or _manual_match(tokens, 1)
+    )
+
+
+def _parse_cash_tokens(tokens: list[str]) -> dict[str, Any] | None:
+    for i in range(len(tokens) - 1, 0, -1):
+        if tokens[i].upper() not in VALID_CURRENCIES:
+            continue
+        if not _is_num(tokens[i - 1]):
+            continue
+        name = " ".join(tokens[: i - 1]).strip()
+        if not name:
+            continue
+        broker = " ".join(tokens[i + 1 :]).strip() or None
+        return {
+            "name": name,
+            "ticker": None,
+            "fund_code": None,
+            "currency": tokens[i].upper(),
+            "shares": None,
+            "avg_cost": None,
+            "current_value": float(tokens[i - 1].replace(",", "")),
+            "broker": broker,
+            "pricing_mode": "manual",
+        }
+    return None
+
+
+def parse_dialect_line(line: str) -> dict[str, Any] | None:
+    """Parse one export-dialect line. Returns None if the line is not ours."""
+    stripped = line.strip()
+    if not stripped or stripped.lstrip().startswith("#"):
+        return None
+    rest, tags = split_tagged_fields(stripped)
+    tokens = rest.split()
+    if len(tokens) < 3:
+        return None
+    asset_type = tags.get("asset_type")
+    if asset_type is not None:
+        asset_type = _ASSET_TYPE_ALIASES.get(asset_type, asset_type)
+        tags["asset_type"] = asset_type
+    if asset_type in ("cash", "wmf"):
+        parsed = _parse_cash_tokens(tokens)
+    elif tags.get("pricing_mode") == "manual":
+        parsed = _parse_manual_listed_tokens(tokens)
+    else:
+        parsed = _parse_listed_tokens(tokens)
+        if parsed is None and asset_type is None:
+            parsed = _parse_cash_tokens(tokens)
+    if parsed is None:
+        return None
+    for key, value in tags.items():
+        if value == "":
+            continue
+        parsed[key] = value
+    if "pricing_mode" not in parsed:
+        parsed["pricing_mode"] = "manual" if parsed.get("asset_type") in ("cash", "wmf") else "auto"
+    parsed.setdefault("issues", [])
+    parsed.setdefault("confidence", 1.0)
+    return parsed
+
+
+def try_parse_dialect(text: str) -> list[dict[str, Any]] | None:
+    """If every data line carries at least one trailing tag and parses, skip the LLM.
+
+    Untagged free-form uploads still go through the model. An export from
+    GET /holdings/export always includes tags, so re-import is deterministic.
+    A mixed file (only some lines tagged) must not divert the whole upload
+    onto positional parsing (PR #310 round 2).
+    """
+    lines = [ln.strip() for ln in _strip_comments(text).splitlines() if ln.strip()]
+    if not lines:
+        return None
+    rows: list[dict[str, Any]] = []
+    for ln in lines:
+        _rest, tags = split_tagged_fields(ln)
+        if not tags:
+            return None
+        parsed = parse_dialect_line(ln)
+        if parsed is None:
+            return None
+        parsed["_source_line"] = ln
+        rows.append(parsed)
+    return rows
 
 
 def _extract_text(file_bytes: bytes, filename: str) -> str:
@@ -307,6 +601,242 @@ _TICKER_CURRENCY_MAP = {
     ".ax": "AUD",
     ".to": "CAD",
 }
+
+
+def normalize_ticker_and_currency(row: dict[str, Any], *, emit_note: bool = True) -> None:
+    """Canonicalize a ticker (HK 4-digit form) and correct currency from its suffix.
+
+    Three callers share this: `_postprocess` runs it twice — once before
+    force-suffix (canonicalizes a ticker the user already suffixed, e.g.
+    02333.HK -> 2333.HK) and once after (canonicalizes a suffix
+    `apply_confirmed_exchange_suffix` just added, e.g. 700 -> 700.HK ->
+    0700.HK) — and the non-LLM write path (`POST`/`PATCH /holdings` via
+    `_apply_write_defaults`) runs it too. Before this was extracted, the
+    router never ran this step: an API write of ticker "700" + HKD
+    force-suffixed to "700.HK" while the identical input via file-import
+    produced "0700.HK" — a stored-form divergence that silently misses
+    `ticker_themes`/config-YAML lookups keyed on the canonical form (PR
+    #310 round 5 review).
+    """
+    ticker = row.get("ticker")
+    if not ticker:
+        return
+    normalized = _normalize_hk_ticker(ticker)
+    if normalized != ticker:
+        if emit_note:
+            _append_issue(row, "ticker_normalized_hk", {"ticker": normalized})
+        row["ticker"] = ticker = normalized
+    for suffix, currency in _TICKER_CURRENCY_MAP.items():
+        if ticker.lower().endswith(suffix):
+            if row.get("currency") != currency:
+                if emit_note:
+                    _append_issue(
+                        row,
+                        "currency_corrected",
+                        {"currency": currency, "suffix": suffix.upper()},
+                    )
+                row["currency"] = currency
+            break
+
+
+# Force-applied once market is confirmed (issue #92 / PR #310). Do not guess
+# a suffix when market cannot be determined. .AX/.TO stay out of this class.
+# Longest suffixes first so .KS is not shadowed by a future overlap.
+_FORCE_EXCHANGE_SUFFIXES: tuple[str, ...] = (
+    ".HK",
+    ".SS",
+    ".SZ",
+    ".AS",
+    ".PA",
+    ".DE",
+    ".KS",
+    ".KQ",
+    ".L",
+    ".T",
+)
+_CAPTURE_MARKETS = SUPPORTED_CAPTURE_MARKETS
+
+# Currencies worth a ticker_no_suffix hint when a suffix cannot be applied
+# (market undetermined, or determined but ambiguous — Europe/Korea each
+# have multiple listing suffixes). Every currency this module resolves to a
+# live capture market via _confirmed_market, so the set must track that
+# resolution, not stop at the original GBP/HKD/CNY set from before #312
+# widened capture to UK/Europe/Japan/Korea (PR #310 round 5 review — EUR
+# and KRW silently got no hint after that widening).
+_SUFFIX_HINT_CURRENCIES = frozenset({"GBP", "HKD", "CNY", "EUR", "JPY", "KRW"})
+
+# Legal suffixes for a market whose exchange cannot be guessed from the
+# ticker alone (Europe/Korea have several venues; an A-share code outside
+# the recognized digit ranges can't be placed on Shanghai vs Shenzhen).
+# Surfaced in the ticker_suffix_ambiguous note so the user knows what to
+# type, not just that something was skipped (PR #310 round 6 review).
+_AMBIGUOUS_SUFFIX_OPTIONS: dict[str, str] = {
+    "Europe": ".AS / .PA / .DE",
+    "Korea": ".KS / .KQ",
+    "A-Share": ".SS / .SZ",
+}
+
+
+def _known_exchange_suffix(ticker: str) -> str | None:
+    upper = ticker.upper()
+    for suf in _FORCE_EXCHANGE_SUFFIXES:
+        if upper.endswith(suf):
+            return suf
+    return None
+
+
+def _ticker_base(ticker: str) -> str:
+    suf = _known_exchange_suffix(ticker)
+    if suf is None:
+        return ticker
+    return ticker[: -len(suf)]
+
+
+def _a_share_suffix(code: str) -> str | None:
+    """Shanghai vs Shenzhen from a 6-digit listed code. None if we cannot tell."""
+    digits = code.split(".")[0]
+    if not (digits.isdigit() and len(digits) == 6):
+        return None
+    if digits.startswith(("5", "6", "9")):
+        return ".SS"
+    if digits.startswith(("0", "1", "2", "3")):
+        return ".SZ"
+    return None
+
+
+def _confirmed_market(row: dict[str, Any]) -> str | None:
+    """User-set market, else a confident derivation. None = do not guess a suffix."""
+    mkt = row.get("market")
+    if mkt in VALID_HOLDING_MARKETS:
+        return str(mkt)
+    ticker = row.get("ticker") or ""
+    upper = ticker.upper()
+    for suf in _FORCE_EXCHANGE_SUFFIXES:
+        if upper.endswith(suf):
+            inferred = market_from_ticker(ticker)
+            if inferred is not None:
+                return inferred
+            break
+    if row.get("fund_code"):
+        return "A-Share"
+    base = _ticker_base(ticker).upper()
+    if base in _TICKER_SYMBOL_OVERRIDE:
+        # Override target is .L (PSH -> PSH.L); UK is a real capture market.
+        return "UK"
+    currency = row.get("currency")
+    if currency == "HKD":
+        return "HK"
+    if currency == "CNY":
+        ident = ticker.split(".")[0] if ticker else ""
+        if ident.isdigit() and len(ident) == 6:
+            return "A-Share"
+        return None
+    if currency == "USD":
+        return "US"
+    if currency == "GBP":
+        return "UK"
+    if currency == "EUR":
+        return "Europe"
+    if currency == "JPY":
+        return "Japan"
+    if currency == "KRW":
+        return "Korea"
+    return None
+
+
+def _exchange_suffix_to_apply(market: str, ticker: str, currency: str | None) -> str | None:
+    if market == "HK":
+        return ".HK"
+    if market == "A-Share":
+        return _a_share_suffix(ticker)
+    if market == "UK":
+        return ".L"
+    if market == "Japan":
+        return ".T"
+    # Europe (.AS/.PA/.DE) and Korea (.KS/.KQ) have multiple suffixes — do not guess.
+    return None
+
+
+def apply_confirmed_exchange_suffix(row: dict[str, Any], *, emit_note: bool = True) -> None:
+    """Force exchange suffix once market is determined.
+
+    Gate: user-set or confidently derived market in a live capture slice
+    (the 7 scheduled buckets). When market cannot be determined at all, do
+    not guess; `ticker_no_suffix` fires on preview. When market IS determined
+    but the specific suffix is ambiguous (Europe/Korea have several venues)
+    or unplaceable (an A-share code outside the recognized digit ranges),
+    the market is still persisted onto the row and `row["_suffix_ambiguous"]`
+    is set so the caller (`_postprocess` / `_apply_write_defaults`) forces
+    `capture_supported=False` after `resolve_holding_market` runs — a
+    still-bare ticker would otherwise fall through `market_from_ticker`'s
+    "no suffix = US" default and get speculatively fetched as an unrelated
+    US security under the real holding's identity (the PSH-class silent
+    wrong-security failure; reproduced with a bare EUR/KRW ticker and an
+    unplaceable A-share code — PR #310 round 6 review). Applying `.L`
+    persists UK (PSH.L is a London listing; UK captures). Bare-PSH lookup
+    still uses `_TICKER_SYMBOL_OVERRIDE` PSH -> PSH.L. Cash/wmf have no
+    ticker. Dotted share-class tickers (BRK.B) are left unsuffixed.
+    Idempotent if the suffix is already present. A manual-priced row's
+    "ticker" is a free-text label, not a market symbol — capture never reads
+    pricing_mode:manual rows (`_market_tickers` only selects "auto"), so
+    forcing a suffix serves no purpose there and risks corrupting a label
+    that only looks like a real ticker (e.g. HOME -> HOME.HK) (PR #310
+    round 5 review).
+    """
+    if row.get("asset_type") in ("cash", "wmf") or row.get("pricing_mode") == "manual":
+        return
+    ticker = row.get("ticker")
+    if not isinstance(ticker, str) or not ticker.strip():
+        return
+    ticker = ticker.strip()
+    market = _confirmed_market(row)
+    already = _known_exchange_suffix(ticker) is not None or "." in ticker
+    currency = row.get("currency")
+    currency_s = str(currency) if currency is not None else ""
+
+    if market not in _CAPTURE_MARKETS:
+        if emit_note and not already and market is None and currency_s in _SUFFIX_HINT_CURRENCIES:
+            _append_issue(
+                row,
+                "ticker_no_suffix",
+                {"ticker": ticker, "currency": currency_s},
+                severity="warning",
+            )
+        return
+
+    if already:
+        if not row.get("market"):
+            row["market"] = market
+        return
+
+    suffix = _exchange_suffix_to_apply(market, ticker, currency_s or None)
+    if suffix is None:
+        if not row.get("market"):
+            row["market"] = market
+        if market not in _AMBIGUOUS_SUFFIX_OPTIONS:
+            # US (the only capture market with no suffix at all) legitimately
+            # falls through here on every plain US ticker — a bare AAPL is
+            # already its correct stored form, not an unresolved one, so it
+            # must not be flagged ambiguous or forced capture_supported=False.
+            return
+        row["_suffix_ambiguous"] = True
+        if emit_note and currency_s in _SUFFIX_HINT_CURRENCIES:
+            _append_issue(
+                row,
+                "ticker_suffix_ambiguous",
+                {
+                    "ticker": ticker,
+                    "currency": currency_s,
+                    "market": market,
+                    "suffixes": _AMBIGUOUS_SUFFIX_OPTIONS.get(market, ""),
+                },
+                severity="warning",
+            )
+        return
+
+    row["ticker"] = f"{ticker}{suffix}"
+    if not row.get("market"):
+        row["market"] = market
 
 
 _FENCE_RE = re.compile(r"^\s*```(?:json)?\s*\n(.*?)\n```\s*$", re.DOTALL | re.IGNORECASE)
@@ -419,9 +949,47 @@ _MARKET_ALIASES: dict[str, str] = {
 }
 
 
+def _coerce_issue_list(raw: object) -> list[dict[str, Any]]:
+    """Keep only deterministic postprocess codes; drop LLM free-text notes."""
+    if not raw:
+        return []
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("code") or "")
+        if code not in KNOWN_ISSUE_CODES:
+            continue
+        params = item.get("params") or {}
+        if not isinstance(params, dict):
+            params = {}
+        str_params = {str(k): str(v) for k, v in params.items()}
+        severity = item.get("severity") or "info"
+        if severity not in ("info", "warning"):
+            severity = "info"
+        out.append({"code": code, "params": str_params, "severity": severity})
+    return out
+
+
+def _append_issue(
+    row: dict[str, Any],
+    code: str,
+    params: dict[str, str] | None = None,
+    *,
+    severity: str = "info",
+) -> None:
+    issues = _coerce_issue_list(row.get("issues"))
+    issues.append({"code": code, "params": params or {}, "severity": severity})
+    row["issues"] = issues
+
+
 def _postprocess(
     raw_rows: list[dict[str, Any]],
     on_invalid_row: Callable[[dict[str, Any], str], None] | None = None,
+    *,
+    dedup: bool = True,
 ) -> list[ParsedRow]:
     """Apply deterministic post-processing on top of LLM output.
 
@@ -432,21 +1000,31 @@ def _postprocess(
     whole upload (issue #25/PR #114 review: currency validation used to
     propagate a bare ValidationError out of parse(), killing every other
     valid row in the same file).
+
+    Dedup only collapses byte-identical rows (an LLM emitting the same holding
+    twice). Skip it for dialect-parsed rows: the exporter does not duplicate,
+    and #92 treats identical lots as a second lot, never a silent merge
+    (PR #310 round 2).
     """
     result: list[ParsedRow] = []
-    # Dedup only collapses byte-identical rows (an LLM emitting the same holding
-    # twice). The key includes broker/account/quantity so two genuinely distinct
+    # The key includes broker/account/quantity so two genuinely distinct
     # lots — e.g. the same ETF at two brokers — are both preserved. (issue #50)
     seen: set[tuple[str | None, ...]] = set()
 
     for row in raw_rows:
+        row["issues"] = _coerce_issue_list(row.get("issues"))
+
         # Normalize asset_type to the known set BEFORE validation so an off-list
         # value from the model is coerced to null (with a note) rather than
         # either crashing a strict Literal or silently persisting garbage.
         at = row.get("asset_type")
         if at is not None and at not in VALID_ASSET_TYPES:
-            row["issues"] = list(row.get("issues") or [])
-            row["issues"].append(f"Unrecognized asset_type {at!r} dropped to null")
+            _append_issue(
+                row,
+                "unrecognized_asset_type",
+                {"asset_type": str(at)},
+                severity="warning",
+            )
             row["asset_type"] = None
 
         # Normalize market to the closed set; an unmappable non-null value
@@ -456,15 +1034,8 @@ def _postprocess(
         mkt = row.get("market")
         if mkt is not None and mkt not in VALID_HOLDING_MARKETS:
             row["market"] = _MARKET_ALIASES.get(str(mkt).strip().lower(), "Other")
-        resolved_market, capture_ok = resolve_holding_market(
-            ticker=row.get("ticker"),
-            declared_market=row.get("market"),
-            fund_code=row.get("fund_code"),
-            asset_type=row.get("asset_type"),
-            pricing_mode=row.get("pricing_mode") or "auto",
-        )
-        row["market"] = resolved_market
-        row["capture_supported"] = capture_ok
+        # Capture resolution runs after force-suffix so PSH.L maps to UK
+        # rather than a bare-PSH US stamp (issue #311 / PR #312).
 
         # Normalize currency case/whitespace before validation — an LLM
         # emitting "usd" instead of "USD" shouldn't trip the exact-match
@@ -480,38 +1051,13 @@ def _postprocess(
         if isinstance(cur, str):
             normalized_cur = cur.strip().upper()
             if normalized_cur != cur:
-                row["issues"] = list(row.get("issues") or [])
-                row["issues"].append(f"Currency normalized to {normalized_cur!r}")
+                _append_issue(row, "currency_normalized", {"currency": normalized_cur})
                 row["currency"] = normalized_cur
 
         # Canonicalize HK tickers to yfinance's 4-digit form (02333.HK -> 2333.HK)
-        # so price lookups don't miss on a leading-zero variant. (issue #49)
-        ticker: str | None = row.get("ticker")
-        if ticker:
-            normalized = _normalize_hk_ticker(ticker)
-            if normalized != ticker:
-                row["issues"] = list(row.get("issues") or [])
-                row["issues"].append(f"Ticker normalized to {normalized} for price lookup")
-                row["ticker"] = ticker = normalized
-
-        # Currency correction from ticker suffix.
-        if ticker:
-            for suffix, currency in _TICKER_CURRENCY_MAP.items():
-                if ticker.lower().endswith(suffix):
-                    if row.get("currency") != currency:
-                        row["issues"] = list(row.get("issues") or [])
-                        row["issues"].append(
-                            f"Currency corrected to {currency} based on ticker suffix {suffix.upper()}"
-                        )
-                        row["currency"] = currency
-                    break
-
-        # Unrecognized-currency check runs last (after all corrections above
-        # had a chance to fix the value) so the note reflects the row's
-        # final currency, not an intermediate one.
-        if row.get("currency") not in VALID_CURRENCIES:
-            row["issues"] = list(row.get("issues") or [])
-            row["issues"].append(f"Unrecognized currency {row.get('currency')!r}")
+        # and correct currency from the ticker's suffix, so price lookups
+        # don't miss on a leading-zero variant. (issue #49)
+        normalize_ticker_and_currency(row)
 
         # Cash/wmf rows carry no real instrument identifier (issue #120): the
         # model has been observed both fabricating a ticker like "CASH" that
@@ -525,11 +1071,7 @@ def _postprocess(
         if row.get("asset_type") in ("cash", "wmf"):
             bogus_id = row.get("ticker") or row.get("fund_code")
             if bogus_id:
-                row["issues"] = list(row.get("issues") or [])
-                row["issues"].append(
-                    f"Dropped spurious ticker/fund_code {bogus_id!r} on cash/wmf row "
-                    "(cash/wmf products carry no real instrument identifier)"
-                )
+                _append_issue(row, "dropped_spurious_id", {"identifier": str(bogus_id)})
                 row["ticker"] = None
                 row["fund_code"] = None
             # Only moves the amount from shares when current_value is still
@@ -538,8 +1080,7 @@ def _postprocess(
             # keeps current_value as originally given rather than guessing
             # which of two conflicting numbers is real.
             if row.get("current_value") is None and row.get("shares") is not None:
-                row["issues"] = list(row.get("issues") or [])
-                row["issues"].append("Cash/wmf amount moved from shares to current_value")
+                _append_issue(row, "cash_amount_moved")
                 row["current_value"] = row["shares"]
                 row["shares"] = None
                 row["avg_cost"] = None
@@ -554,14 +1095,48 @@ def _postprocess(
             elif row.get("current_value") is not None and (
                 row.get("shares") is not None or row.get("avg_cost") is not None
             ):
-                row["issues"] = list(row.get("issues") or [])
-                row["issues"].append(
-                    "Cleared residual shares/avg_cost on cash/wmf row "
-                    "(current_value is authoritative)"
-                )
+                _append_issue(row, "cleared_residual_shares")
                 row["shares"] = None
                 row["avg_cost"] = None
             row["pricing_mode"] = "manual"
+            # Listing venue, not custodian (issue #92). Override a model that
+            # inferred A-Share from a mainland bank broker (CMB USD cash is
+            # Other). Do not reclassify listed auto tickers into Other.
+            if not row.get("ticker") and not row.get("fund_code"):
+                row["market"] = "Other"
+
+        # Force exchange suffix once market is determined (issue #92). A newly
+        # applied .HK/.SS/.SZ then goes through the same HK-normalize +
+        # suffix-currency correction as an already-suffixed ticker.
+        apply_confirmed_exchange_suffix(row, emit_note=True)
+        resolved_market, capture_ok = resolve_holding_market(
+            ticker=row.get("ticker"),
+            declared_market=row.get("market"),
+            fund_code=row.get("fund_code"),
+            asset_type=row.get("asset_type"),
+            pricing_mode=row.get("pricing_mode") or "auto",
+        )
+        row["market"] = resolved_market
+        # A row apply_confirmed_exchange_suffix left ambiguously-suffixed is
+        # still a bare ticker as far as resolve_holding_market's own
+        # ticker-based inference is concerned, so its "no suffix = US"
+        # default would otherwise win here regardless of the real
+        # (persisted) market — never capture-ready without a real suffix
+        # (PR #310 round 6 review).
+        if row.pop("_suffix_ambiguous", False):
+            capture_ok = False
+        row["capture_supported"] = capture_ok
+        normalize_ticker_and_currency(row)
+
+        # Unrecognized-currency check runs last (after suffix force-apply and
+        # all corrections) so the note reflects the row's final currency.
+        if row.get("currency") not in VALID_CURRENCIES:
+            _append_issue(
+                row,
+                "unrecognized_currency",
+                {"currency": str(row.get("currency"))},
+                severity="warning",
+            )
 
         # Coerce optional string fields: LLM occasionally emits [] instead of null.
         for str_field in ("notes", "account", "portfolio", "broker"):
@@ -573,19 +1148,20 @@ def _postprocess(
         row["asset_class"] = _classify_asset_class(row)
 
         # Deduplicate: collapse only fully-identical rows (see comment above).
-        key = (
-            row.get("ticker"),
-            row.get("fund_code"),
-            str(row.get("name", "")),
-            str(row.get("broker") or ""),
-            str(row.get("account") or ""),
-            str(row.get("shares")),
-            str(row.get("avg_cost")),
-            str(row.get("current_value")),
-        )
-        if key in seen:
-            continue
-        seen.add(key)
+        if dedup:
+            key = (
+                row.get("ticker"),
+                row.get("fund_code"),
+                str(row.get("name", "")),
+                str(row.get("broker") or ""),
+                str(row.get("account") or ""),
+                str(row.get("shares")),
+                str(row.get("avg_cost")),
+                str(row.get("current_value")),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
 
         try:
             parsed = ParsedRow.model_validate(row)
@@ -733,7 +1309,32 @@ def parse(text: str) -> UploadPreview:
     the first attempt). Each attempt is bounded to
     _PARSE_ATTEMPT_TIMEOUT_SECONDS and timed (issue #77) so a slow/hung
     provider is visible in logs and can't stall the whole call for minutes.
+
+    A file that is already in the export dialect (tagged trailing fields on
+    every data line) is parsed deterministically and never calls the LLM
+    (PR #310). Invalid dialect rows surface as issue_rows; identical lots
+    are kept (dedup skipped). Non-cash manual rows round-trip shares /
+    avg_cost / current_value; cash/wmf round-trip current_value only.
     """
+    dialect_rows = try_parse_dialect(text)
+    if dialect_rows is not None:
+        dialect_rejected: list[IssueRow] = []
+        valid_rows = _postprocess(
+            dialect_rows,
+            on_invalid_row=lambda row, reason: dialect_rejected.append(
+                IssueRow(
+                    raw=str(row.get("_source_line") or json.dumps(row, default=str)),
+                    reason=f"Rejected during validation: {reason}",
+                )
+            ),
+            dedup=False,
+        )
+        return UploadPreview(
+            valid_rows=valid_rows,
+            issue_rows=dialect_rejected,
+            broker_groups=_summarize(valid_rows),
+        )
+
     settings = get_settings()
     client = openai.OpenAI(
         api_key=settings.OPENROUTER_API_KEY.get_secret_value(),

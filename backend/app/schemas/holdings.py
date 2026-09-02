@@ -59,6 +59,34 @@ class IssueRow(BaseModel):
     reason: str
 
 
+# Deterministic postprocess codes only (issue #92 / PR #310). Model-supplied
+# free-text notes are dropped — they are English and would leak through
+# parser_note {message} for zh-locale users. Keep in sync with
+# frontend/src/app/holdings/_components/preview.tsx ISSUE_NOTE_CODES.
+KNOWN_ISSUE_CODES: frozenset[str] = frozenset(
+    {
+        "unrecognized_asset_type",
+        "currency_normalized",
+        "ticker_normalized_hk",
+        "currency_corrected",
+        "unrecognized_currency",
+        "dropped_spurious_id",
+        "cash_amount_moved",
+        "cleared_residual_shares",
+        "ticker_no_suffix",
+        "ticker_suffix_ambiguous",
+    }
+)
+
+
+class IssueNote(BaseModel):
+    """Structured parse note. Preview JSON only — not persisted on confirm."""
+
+    code: str
+    params: dict[str, str] = Field(default_factory=dict)
+    severity: Literal["info", "warning"] = "info"
+
+
 class ParsedRow(BaseModel):
     name: str
     ticker: str | None = None
@@ -95,8 +123,26 @@ class ParsedRow(BaseModel):
     account: str | None = None
     portfolio: str | None = None
     notes: str | None = None
-    issues: list[str] = Field(default_factory=list)
+    issues: list[IssueNote] = Field(default_factory=list)
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+
+    @field_validator("issues", mode="before")
+    @classmethod
+    def _drop_unknown_and_legacy_issue_strings(cls, v: object) -> object:
+        # UploadJob.preview JSONB may still carry free-text notes or unknown
+        # LLM codes from before PR #310. Drop them rather than wrapping as
+        # parser_note {message} (zh users would still see English).
+        if not v:
+            return []
+        if not isinstance(v, list):
+            return v
+        coerced: list[object] = []
+        for item in v:
+            if isinstance(item, str):
+                continue
+            if isinstance(item, dict) and item.get("code") in KNOWN_ISSUE_CODES:
+                coerced.append(item)
+        return coerced
 
     @field_validator("currency")
     @classmethod
@@ -218,3 +264,34 @@ class HoldingOut(BaseModel):
     last_manual_update: datetime | None
     created_at: datetime
     updated_at: datetime
+    position: int | None = None
+
+
+class HoldingPatch(BaseModel):
+    """Partial update for PATCH /holdings/{id}. Unset fields are left unchanged."""
+
+    name: str | None = None
+    ticker: str | None = None
+    fund_code: str | None = None
+    currency: str | None = None
+    shares: float | None = Field(default=None, ge=0)
+    avg_cost: float | None = Field(default=None, ge=0)
+    current_value: float | None = Field(default=None, ge=0)
+    pricing_mode: PricingMode | None = None
+    asset_type: AssetTypeValue | None = None
+    market: Literal["US", "HK", "A-Share", "UK", "Europe", "Japan", "Korea", "Other"] | None = None
+    broker: str | None = None
+    account: str | None = None
+    portfolio: str | None = None
+    notes: str | None = None
+
+    @field_validator("currency")
+    @classmethod
+    def _currency_must_be_known(cls, v: str | None) -> str | None:
+        if v is not None and v not in VALID_CURRENCIES:
+            raise ValueError(f"unrecognized currency {v!r} — not in VALID_CURRENCIES")
+        return v
+
+
+class ReorderIn(BaseModel):
+    ids: list[UUID]

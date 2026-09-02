@@ -424,3 +424,104 @@ this migration against production; it assumes the check, it does not
 perform it.
 
 
+
+### Single-row holdings CRUD, confirm modes, export dialect (issue #92 / #130 C1)
+
+Ring 1 Phase C1 adds an online book that is not file-import-only. The
+portfolio dashboard is **out of scope** here (remaining #130 work). File
+import stays on `/holdings`; row add/edit/delete/reorder lives on
+`/holdings/edit`, `/holdings/new`, and `/holdings/[id]`.
+
+**Write paths (all owner-scoped; another user's id is 404, not 403):**
+
+- `POST /holdings` — one `ParsedRow` body, **no LLM / `holding_parser.parse()`**.
+  Locks this user's holding rows (`FOR UPDATE`, plus the user row so an
+  empty book still serializes) then `position = max(position)+1`. Classifies
+  `asset_class` the same way confirm does. Sector fill is a Celery task
+  (`backfill_sectors_task`, commit in the worker) + sparse OHLCV/NAV enqueue
+  **only for the new ticker/fund_code** — the request does not wait on
+  yfinance. 201 `HoldingOut`.
+- `PATCH /holdings/{id}` — partial `HoldingPatch` (no `asset_class`; always
+  recomputed). Re-validates the merged row as `ParsedRow` (cash/wmf
+  boundary, currency). Untouched EncryptedDecimal money fields are not
+  rewritten through float. Re-resolves `account_id` if broker/account/
+  portfolio change (`archive_unreferenced=False`). On ticker/fund_code
+  change: clears `sector`, `market_price`, `price_as_of`, `price_fetched_at`
+  in the same commit, then enqueues sector backfill + sparse capture.
+- `DELETE /holdings/{id}` — that `Holding` row only. Does **not** touch
+  `ticker_themes` or anomaly watermarks. 204.
+- `PATCH /holdings/reorder` — `{ "ids": [uuid, ...] }` must be a permutation
+  of **all** of this user's holding ids else 422. Writes `position` in that
+  order. Declared **before** `/{holding_id}` so FastAPI does not treat
+  `reorder` as an id.
+
+**`POST /holdings/confirm?mode=append|replace`:** default **append** if
+`mode` is omitted (safer than a silent full replace). Frontend always sends
+the query param explicitly.
+
+- `append` — insert only, positions from `max+1` in payload order (same
+  `FOR UPDATE` lock as POST). Never updates existing rows; duplicate
+  ticker+broker is a second lot. Does not archive unreferenced accounts.
+  Sector + sparse enqueue only for the new rows. Response is the **full
+  book** (so the list UI is not wiped down to the payload).
+- `replace` — full delete+reinsert + enqueue whole-book sector backfill
+  and sparse capture (not inline yfinance), and `archive_unreferenced=True`.
+
+`Field(ge=0)` on `ParsedRow` still guards shares/avg_cost/current_value for
+these new writers too (encryption still prevents a DB CHECK — issue #113).
+
+**Parser preview notes:** `ParsedRow.issues` is `list[IssueNote]`
+(`{code, params, severity}`). Preview JSON only — not persisted on confirm.
+Only the deterministic postprocess whitelist (`KNOWN_ISSUE_CODES`) is kept;
+model-supplied free-text strings and unknown LLM codes are dropped (not
+wrapped as `parser_note` `{message}` — zh users would still see English).
+Amber highlight is **only** `severity=warning` or `confidence<0.7`.
+Deterministic successful transforms (cash amount shares→current_value, drop
+spurious ticker on cash, HK/currency normalize) are `info`. Exchange suffix
+(`.L` / `.HK` / `.SS` / `.SZ` / `.T`) is **force-applied** once market is
+determined (user-set or confidently derived) on file-import confirm,
+`POST /holdings`, and `PATCH /holdings/{id}`. When market cannot be
+determined the `ticker_no_suffix` warning still fires and no suffix is
+guessed. Applying `.L` persists **UK** (PSH is filed as `market=UK` with
+ticker `PSH.L`) — UK is a scheduled capture market after #312. Bare-PSH
+price lookup still uses the #204 `_TICKER_SYMBOL_OVERRIDE` `PSH → PSH.L`
+collision table. Unresolvable listed names persist `market=Other` and
+`capture_supported=False`; capture never speculative-yfinances them.
+Dialect validation rejects surface as `issue_rows`; the dialect path
+skips dedup so identical lots survive re-import. cash/wmf with no ticker →
+`market=Other`, including when the model inferred A-Share from a mainland
+bank broker. Listed auto tickers are **not** reclassified into Other.
+
+**Export / template dialect:** `GET /holdings/export` and
+`GET /holdings/template` emit the `#####` comment-rules dialect (one
+holding per line, export ordered by `position`). Locale is `users.locale`
+(report language `zh`/`en`), **not** the UI chrome locale. The positional
+prefix is name / identifier / currency / shares / avg_cost / broker for
+auto-priced listed rows; name / identifier / currency / shares / avg_cost /
+current_value / broker when `pricing_mode:manual` (each numeric emitted when
+present); name / current_value / currency / broker for cash/wmf (no cost
+basis today). Trailing tagged fields (`account:`, `portfolio:`, `notes:`,
+`asset_type:`, `market:`, `pricing_mode:`; quote a value that contains
+spaces) round-trip shares/avg_cost/current_value + tags for non-cash, and
+current_value-only for cash/wmf. `price_snapshots` is market data, not what
+the user paid, so avg_cost on export is load-bearing. `asset_type:wmf` is
+written as `wealth-management` so user-facing copy still does not use the
+letters w-m-f as jargon. A file whose every data line carries at least one
+of those tags is parsed deterministically (`try_parse_dialect`) and never
+calls the LLM. Export `Content-Disposition` filename is
+`holdings-YYYYMMDD-HHMMSSZ.md` (UTC); the frontend reads that header rather
+than hardcoding `holdings.md`.
+
+**Frontend split:** `/holdings` is upload + parse preview + read-only
+current list (not clickable, no drag, no add, no delete). Append is
+primary; Replace all is destructive and needs a second confirm (no snapshot
+store yet — export first). `/holdings/edit` is the full book: native HTML5
+drag-reorder (PATCH reorder on drop; revert to last server order on
+failure), click row → `/holdings/[id]`, add → `/holdings/new`, delete only
+here with a confirm dialog. Forms do not call the LLM. Submit is disabled
+while in-flight; success and Back go to `/holdings/edit` (dirty form
+confirms before discard). Onboarding incomplete → banner linking to
+`/holdings?onboarding=1`; the route is **not** 404'd during onboarding.
+Onboarding holdings step stays the upload page (`mode=onboarding`); Save
+there uses append so a manual add is not wiped. Get Started menu: Holdings
+→ `/holdings`, Edit holdings → `/holdings/edit`.

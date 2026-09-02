@@ -187,6 +187,22 @@ describe("GetStartedMenu", () => {
       expect(menu.textContent).not.toContain("Sign up");
     });
 
+    it("offers Edit holdings linking to /holdings/edit (issue #92)", async () => {
+      getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+      const user = userEvent.setup();
+      renderMenu();
+      await openMenu(user);
+
+      expect(screen.getByRole("menuitem", { name: "Edit holdings" })).toHaveAttribute(
+        "href",
+        "/holdings/edit",
+      );
+      expect(screen.getByRole("menuitem", { name: "Holdings" })).toHaveAttribute(
+        "href",
+        "/holdings",
+      );
+    });
+
     it("offers a Profile entry linking to /profile as the first item (issue #220)", async () => {
       getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
       const user = userEvent.setup();

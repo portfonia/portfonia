@@ -12,17 +12,33 @@ import pytest
 
 from app.core import llm
 from app.core.config import get_settings
-from app.schemas.holdings import UploadPreview
+from app.schemas.holdings import ParsedRow, UploadPreview
 from app.services import holding_parser as holding_parser_module
 from app.services.holding_parser import (
     _classify_asset_class,
+    _coerce_issue_list,
     _extract_text,
     _postprocess,
     _strip_code_fence,
     parse,
+    parse_dialect_line,
+    try_parse_dialect,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def _issue_codes(row: ParsedRow) -> list[str]:
+    return [i.code for i in row.issues]
+
+
+def _issue_haystack(row: ParsedRow) -> str:
+    parts: list[str] = []
+    for issue in row.issues:
+        parts.append(issue.code)
+        parts.extend(str(v) for v in issue.params.values())
+        parts.append(issue.severity)
+    return " ".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -123,20 +139,15 @@ def test_postprocess_normalizes_market_aliases() -> None:
         {"name": "A", "currency": "USD", "shares": 1, "pricing_mode": "auto", "market": "美股"},
         {"name": "B", "currency": "HKD", "shares": 1, "pricing_mode": "auto", "market": "港股"},
         {"name": "C", "currency": "CNY", "shares": 1, "pricing_mode": "auto", "market": "A股"},
+        # "UK" used to be an unsupported market literal that degraded to
+        # Other via the alias fallback; #312 made UK a real capture market,
+        # so it's now already-valid and passes through unchanged (test
+        # updated post-#312 — PR #310 round 5 review).
         {"name": "D", "currency": "GBP", "shares": 1, "pricing_mode": "auto", "market": "UK"},
         {"name": "E", "currency": "USD", "shares": 1, "pricing_mode": "auto", "market": None},
-        {
-            "name": "F",
-            "currency": "AUD",
-            "shares": 1,
-            "pricing_mode": "auto",
-            "market": "ASX",
-            "ticker": "BHP.AX",
-        },
     ]
     rows = _postprocess(raw)
-    assert [r.market for r in rows] == ["US", "HK", "A-Share", "UK", None, "Other"]
-    assert [r.capture_supported for r in rows] == [True, True, True, True, True, False]
+    assert [r.market for r in rows] == ["US", "HK", "A-Share", "UK", None]
 
 
 def test_postprocess_coerces_unknown_asset_type_to_null() -> None:
@@ -153,7 +164,8 @@ def test_postprocess_coerces_unknown_asset_type_to_null() -> None:
     ]
     rows = _postprocess(raw)
     assert rows[0].asset_type is None
-    assert any("crypto" in i for i in rows[0].issues)
+    assert "unrecognized_asset_type" in _issue_codes(rows[0])
+    assert "crypto" in _issue_haystack(rows[0])
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +210,9 @@ def test_postprocess_coerces_cash_wmf_row_with_fabricated_id_and_amount_in_share
     assert rows[0].shares is None
     assert rows[0].avg_cost is None
     assert rows[0].pricing_mode == "manual"
-    assert any(identifier_value in i for i in rows[0].issues)
+    assert "dropped_spurious_id" in _issue_codes(rows[0])
+    assert identifier_value in _issue_haystack(rows[0])
+    assert all(i.severity == "info" for i in rows[0].issues)
 
 
 def test_postprocess_leaves_correctly_shaped_cash_row_unchanged() -> None:
@@ -219,6 +233,7 @@ def test_postprocess_leaves_correctly_shaped_cash_row_unchanged() -> None:
     rows = _postprocess(raw)
     assert rows[0].ticker is None
     assert rows[0].current_value == 100.0
+    assert rows[0].market == "Other"
     assert rows[0].issues == []
 
 
@@ -354,7 +369,8 @@ def test_postprocess_corrects_hk_ticker_currency() -> None:
     ]
     rows = _postprocess(raw)
     assert rows[0].currency == "HKD"
-    assert any("HKD" in issue for issue in rows[0].issues)
+    assert "currency_corrected" in _issue_codes(rows[0])
+    assert "HKD" in _issue_haystack(rows[0])
 
 
 def test_postprocess_ticker_correction_of_unrecognized_currency_leaves_no_stale_issue() -> None:
@@ -366,8 +382,8 @@ def test_postprocess_ticker_correction_of_unrecognized_currency_leaves_no_stale_
     raw = [_raw_row(name="Tencent", ticker="0700.HK", currency="RMB")]
     rows = _postprocess(raw)
     assert rows[0].currency == "HKD"
-    assert not any("nrecognized" in issue for issue in rows[0].issues)
-    assert any("corrected to HKD" in issue for issue in rows[0].issues)
+    assert "unrecognized_currency" not in _issue_codes(rows[0])
+    assert "currency_corrected" in _issue_codes(rows[0])
 
 
 def test_postprocess_corrects_ss_ticker_currency() -> None:
@@ -447,7 +463,7 @@ def test_postprocess_normalizes_currency_case() -> None:
     ]
     rows = _postprocess(raw)
     assert rows[0].currency == "USD"
-    assert any("normalized" in issue.lower() for issue in rows[0].issues)
+    assert "currency_normalized" in _issue_codes(rows[0])
 
 
 def test_postprocess_drops_row_with_unrecognized_currency_without_raising() -> None:
@@ -502,7 +518,8 @@ def _raw_row(**overrides: object) -> dict[str, object]:
 def test_normalize_hk_ticker_strips_leading_zero() -> None:
     rows = _postprocess([_raw_row(name="Great Wall", ticker="02333.HK", currency="HKD")])
     assert rows[0].ticker == "2333.HK"
-    assert any("2333.HK" in issue for issue in rows[0].issues)
+    assert "ticker_normalized_hk" in _issue_codes(rows[0])
+    assert "2333.HK" in _issue_haystack(rows[0])
 
 
 def test_normalize_hk_ticker_pads_short_code() -> None:
@@ -1235,6 +1252,121 @@ def test_ticker_asset_class_rejects_missing_top_level_key(
         _classify_asset_class({"ticker": "QQQ", "asset_type": "etf"})
 
 
+def test_postprocess_overrides_cash_market_a_share_from_mainland_broker() -> None:
+    """CMB USD cash must be Other (listing venue), not A-Share inferred from the bank."""
+    raw = [
+        _raw_row(
+            name="USD Cash",
+            ticker=None,
+            shares=None,
+            avg_cost=None,
+            current_value=15000.0,
+            pricing_mode="manual",
+            asset_type="cash",
+            currency="USD",
+            broker="CMB",
+            market="A-Share",
+            confidence=1.0,
+        )
+    ]
+    rows = _postprocess(raw)
+    assert rows[0].market == "Other"
+    assert rows[0].confidence == 1.0
+    assert not any(i.severity == "warning" for i in rows[0].issues)
+
+
+def test_postprocess_high_confidence_cash_is_not_warning() -> None:
+    raw = [
+        _raw_row(
+            name="USD Cash",
+            ticker="CASH",
+            shares=199.98,
+            current_value=None,
+            pricing_mode="manual",
+            asset_type="cash",
+            currency="USD",
+            broker="CMB",
+            confidence=0.95,
+        )
+    ]
+    rows = _postprocess(raw)
+    assert rows[0].market == "Other"
+    assert rows[0].ticker is None
+    assert all(i.severity == "info" for i in rows[0].issues)
+    assert "dropped_spurious_id" in _issue_codes(rows[0])
+    assert "cash_amount_moved" in _issue_codes(rows[0])
+
+
+def test_postprocess_does_not_reclassify_listed_ticker_into_other() -> None:
+    raw = [_raw_row(name="Pershing Square", ticker="PSH", currency="GBP")]
+    rows = _postprocess(raw)
+    assert rows[0].ticker == "PSH.L"
+    assert rows[0].market == "UK"
+    assert rows[0].capture_supported is True
+
+
+def test_postprocess_force_suffixes_psh_when_market_uk() -> None:
+    """Confirmed UK + GBP applies .L; UK is a real capture market after #312."""
+    raw = [_raw_row(name="Pershing Square", ticker="PSH", currency="GBP", market="UK")]
+    rows = _postprocess(raw)
+    assert rows[0].ticker == "PSH.L"
+    assert rows[0].market == "UK"
+    assert rows[0].capture_supported is True
+    assert "ticker_no_suffix" not in _issue_codes(rows[0])
+
+
+def test_postprocess_force_suffixes_psh_via_override_without_market_tag() -> None:
+    raw = [_raw_row(name="Pershing Square", ticker="PSH", currency="GBP")]
+    rows = _postprocess(raw)
+    assert rows[0].ticker == "PSH.L"
+    assert rows[0].market == "UK"
+    assert rows[0].capture_supported is True
+    assert "ticker_no_suffix" not in _issue_codes(rows[0])
+
+
+def test_postprocess_bare_gbp_ticker_force_suffixes_uk() -> None:
+    """GBP now confirms UK, so .L is stored and capture is supported."""
+    raw = [_raw_row(name="Unknown London name", ticker="VOD", currency="GBP")]
+    rows = _postprocess(raw)
+    assert rows[0].ticker == "VOD.L"
+    assert rows[0].market == "UK"
+    assert rows[0].capture_supported is True
+    assert "ticker_no_suffix" not in _issue_codes(rows[0])
+
+
+def test_postprocess_does_not_suffix_unresolvable_other() -> None:
+    """Unresolvable suffix stays Other + not-processed; no speculative .L."""
+    raw = [_raw_row(name="BHP Group", ticker="BHP.AX", currency="AUD", market="Other")]
+    rows = _postprocess(raw)
+    assert rows[0].ticker == "BHP.AX"
+    assert rows[0].market == "Other"
+    assert rows[0].capture_supported is False
+    assert "ticker_no_suffix" not in _issue_codes(rows[0])
+
+
+def test_postprocess_force_suffixes_hk_and_a_share_when_market_confirmed() -> None:
+    hk = _postprocess([_raw_row(name="Tencent", ticker="0700", currency="HKD", market="HK")])
+    assert hk[0].ticker == "0700.HK"
+    assert hk[0].market == "HK"
+    ss = _postprocess([_raw_row(name="Moutai", ticker="600519", currency="CNY", market="A-Share")])
+    assert ss[0].ticker == "600519.SS"
+    assert ss[0].market == "A-Share"
+    sz = _postprocess(
+        [_raw_row(name="Ping An Bank", ticker="000001", currency="CNY", market="A-Share")]
+    )
+    assert sz[0].ticker == "000001.SZ"
+    assert sz[0].market == "A-Share"
+
+
+def test_postprocess_suffixed_gbp_ticker_does_not_warn() -> None:
+    raw = [_raw_row(name="Pershing Square", ticker="PSH.L", currency="GBP")]
+    rows = _postprocess(raw)
+    assert rows[0].ticker == "PSH.L"
+    assert rows[0].market == "UK"
+    assert rows[0].capture_supported is True
+    assert "ticker_no_suffix" not in _issue_codes(rows[0])
+
+
 def test_postprocess_unsupported_count_matches_preview_contract() -> None:
     """Issue #311: unresolvable rows stay valid; count is the heads-up summary."""
     rows = _postprocess(
@@ -1280,3 +1412,294 @@ def test_postprocess_corrects_new_market_suffix_currencies() -> None:
     for ticker, expected in cases:
         rows = _postprocess([_raw_row(name=ticker, ticker=ticker, currency="USD")])
         assert rows[0].currency == expected, ticker
+
+
+def test_ticker_suffix_ambiguous_warns_for_europe_and_korea_currencies() -> None:
+    """PR #310 round 5 widened the hint currency set to include EUR/KRW; round
+    6 split the single ticker_no_suffix code into two: a truly-undetermined
+    market keeps ticker_no_suffix, while a determined-but-ambiguous market
+    (Europe/Korea each have multiple listing suffixes, so none is guessed)
+    now gets its own ticker_suffix_ambiguous code — EUR/KRW always resolve to
+    a real market via _confirmed_market's currency fallback, so they always
+    land in the ambiguous branch, never the undetermined one."""
+    for currency, market in (("EUR", "Europe"), ("KRW", "Korea")):
+        rows = _postprocess([_raw_row(name="Unknown listing", ticker="XYZ123", currency=currency)])
+        assert "ticker_suffix_ambiguous" in _issue_codes(rows[0]), currency
+        assert "ticker_no_suffix" not in _issue_codes(rows[0]), currency
+        assert rows[0].market == market, currency
+
+
+def test_ambiguous_suffix_market_does_not_default_to_us_capture() -> None:
+    """PR #310 round 6 review: apply_confirmed_exchange_suffix's suffix-None
+    branch (market determined, suffix ambiguous/unplaceable) used to return
+    without persisting row["market"] — resolve_holding_market then saw a
+    still-bare ticker, and market_from_ticker's "no suffix = US" default
+    silently stamped it market=US, capture_supported=True. A bare EUR/KRW
+    ticker, and an unplaceable A-share code, must land on their real
+    (non-US) market with capture_supported=False — never speculatively
+    fetched as the wrong security (the PSH-class failure)."""
+    eur = _postprocess([_raw_row(name="Unknown EU listing", ticker="XYZ123", currency="EUR")])
+    assert eur[0].market == "Europe"
+    assert eur[0].capture_supported is False
+    assert eur[0].ticker == "XYZ123"
+
+    krw = _postprocess([_raw_row(name="Unknown KR listing", ticker="ABC456", currency="KRW")])
+    assert krw[0].market == "Korea"
+    assert krw[0].capture_supported is False
+
+    a_share = _postprocess([_raw_row(name="Unplaceable A-share", ticker="400001", currency="CNY")])
+    assert a_share[0].market == "A-Share"
+    assert a_share[0].capture_supported is False
+
+
+def test_ticker_suffix_ambiguous_note_names_the_market_and_legal_suffixes() -> None:
+    """The note must say what the current handling is AND give a usable
+    suggestion (#92 requirement) — naming the actual candidate suffixes for
+    the determined market, not a generic "set Market" that doesn't apply
+    once Market is already known (PR #310 round 6 review, item 2)."""
+    rows = _postprocess([_raw_row(name="Unknown EU listing", ticker="XYZ123", currency="EUR")])
+    note = next(i for i in rows[0].issues if i.code == "ticker_suffix_ambiguous")
+    assert note.params["market"] == "Europe"
+    assert note.params["suffixes"] == ".AS / .PA / .DE"
+    assert note.params["ticker"] == "XYZ123"
+    assert note.params["currency"] == "EUR"
+
+    korea = _postprocess([_raw_row(name="Unknown KR listing", ticker="ABC456", currency="KRW")])
+    korea_note = next(i for i in korea[0].issues if i.code == "ticker_suffix_ambiguous")
+    assert korea_note.params["suffixes"] == ".KS / .KQ"
+
+    a_share = _postprocess([_raw_row(name="Unplaceable A-share", ticker="400001", currency="CNY")])
+    a_share_note = next(i for i in a_share[0].issues if i.code == "ticker_suffix_ambiguous")
+    assert a_share_note.params["suffixes"] == ".SS / .SZ"
+
+
+def test_ambiguous_suffix_explicit_market_still_forces_capture_supported_false() -> None:
+    """The ASML case from the round-6 review: an explicit market=Europe tag
+    with no ticker suffix must not be trusted as capture-ready — that would
+    fetch the bare ticker's US/Nasdaq listing (a real, different security)
+    under the Europe-listed holding's identity, silently."""
+    rows = _postprocess([_raw_row(name="ASML", ticker="ASML", currency="EUR", market="Europe")])
+    assert rows[0].ticker == "ASML"
+    assert rows[0].market == "Europe"
+    assert rows[0].capture_supported is False
+
+
+def test_apply_confirmed_exchange_suffix_skips_manual_pricing_mode() -> None:
+    """A manual-priced 'ticker' (e.g. real estate) is a free-text label, not a
+    market symbol. Forcing a suffix serves no purpose — manual rows are never
+    auto-captured (`_market_tickers` only selects pricing_mode == 'auto') —
+    and corrupts the label. Mirrors the existing cash/wmf early return."""
+    raw = [
+        _raw_row(
+            name="Family house",
+            ticker="HOME",
+            currency="HKD",
+            pricing_mode="manual",
+            asset_type="other",
+        )
+    ]
+    rows = _postprocess(raw)
+    assert rows[0].ticker == "HOME"
+    assert "ticker_no_suffix" not in _issue_codes(rows[0])
+
+
+# ---------------------------------------------------------------------------
+# PR #310: drop LLM free-text notes; dialect round-trip
+# ---------------------------------------------------------------------------
+
+
+def test_coerce_issue_list_drops_llm_free_text_and_unknown_codes() -> None:
+    raw = [
+        "Inferred currency from broker context",
+        {"code": "made_up_llm_code", "params": {"message": "hello"}, "severity": "warning"},
+        {
+            "code": "ticker_no_suffix",
+            "params": {"ticker": "PSH", "currency": "GBP"},
+            "severity": "warning",
+        },
+        {"code": "parser_note", "params": {"message": "English leftover"}, "severity": "info"},
+    ]
+    out = _coerce_issue_list(raw)
+    assert [i["code"] for i in out] == ["ticker_no_suffix"]
+
+
+def test_postprocess_drops_model_supplied_parser_notes() -> None:
+    raw = [
+        {
+            "name": "Apple",
+            "ticker": "AAPL",
+            "currency": "USD",
+            "shares": 10,
+            "avg_cost": 180,
+            "pricing_mode": "auto",
+            "asset_type": "stock",
+            "issues": ["guessed this was a US listing"],
+            "confidence": 0.6,
+        }
+    ]
+    rows = _postprocess(raw)
+    assert rows[0].issues == []
+    assert rows[0].confidence == 0.6
+
+
+def test_parse_dialect_line_listed_and_cash_with_tags() -> None:
+    listed = parse_dialect_line(
+        'Apple AAPL USD 100 228 IBKR account:IRA portfolio:"Growth Sleeve" '
+        'notes:"core holding" asset_type:stock market:US pricing_mode:auto'
+    )
+    assert listed is not None
+    assert listed["name"] == "Apple"
+    assert listed["ticker"] == "AAPL"
+    assert listed["account"] == "IRA"
+    assert listed["portfolio"] == "Growth Sleeve"
+    assert listed["notes"] == "core holding"
+    assert listed["asset_type"] == "stock"
+    assert listed["market"] == "US"
+    cash = parse_dialect_line(
+        "USD Cash 50000 USD Schwab asset_type:cash market:Other pricing_mode:manual"
+    )
+    assert cash is not None
+    assert cash["name"] == "USD Cash"
+    assert cash["current_value"] == 50000.0
+    assert cash["asset_type"] == "cash"
+    wmf = parse_dialect_line(
+        "Bank product 100000 CNY CMB asset_type:wealth-management market:Other pricing_mode:manual"
+    )
+    assert wmf is not None
+    assert wmf["asset_type"] == "wmf"
+
+
+def test_try_parse_dialect_requires_tags_else_none() -> None:
+    untagged = "Apple AAPL USD 100 228 IBKR"
+    assert try_parse_dialect(untagged) is None
+    tagged = "Apple AAPL USD 100 228 IBKR asset_type:stock market:US pricing_mode:auto"
+    rows = try_parse_dialect(tagged)
+    assert rows is not None
+    assert rows[0]["ticker"] == "AAPL"
+
+
+def test_try_parse_dialect_mixed_tags_does_not_divert_whole_file() -> None:
+    """One tagged line must not pull an untagged sibling onto positional parse."""
+    mixed = "Apple AAPL USD 100 228 IBKR notes:reviewed\nMicrosoft MSFT USD 20 400 IBKR\n"
+    assert try_parse_dialect(mixed) is None
+
+
+def test_parse_dialect_invalid_row_surfaces_as_issue_row_without_llm() -> None:
+    """Tokenized-but-invalid dialect rows stay on the fast path as issue_rows."""
+    good = "Apple AAPL USD 10 180 IBKR asset_type:stock market:US pricing_mode:auto"
+    bad_shares = "Apple AAPL USD -5 228 IBKR asset_type:stock market:US pricing_mode:auto"
+    bad_cash = "USD Cash -100 USD Schwab asset_type:cash market:Other pricing_mode:manual"
+    text = f"{good}\n{bad_shares}\n{bad_cash}\n"
+    with patch("app.services.holding_parser._parse_attempt") as mock_attempt:
+        preview = parse(text)
+    mock_attempt.assert_not_called()
+    assert len(preview.valid_rows) == 1
+    assert preview.valid_rows[0].ticker == "AAPL"
+    assert preview.valid_rows[0].shares == 10.0
+    assert len(preview.issue_rows) == 2
+    raws = [r.raw for r in preview.issue_rows]
+    assert bad_shares in raws
+    assert bad_cash in raws
+
+
+def test_parse_dialect_keeps_identical_lots() -> None:
+    """#92: duplicate lots on dialect re-import are a second lot, never merged."""
+    line = "Apple AAPL USD 10 180 IBKR asset_type:stock market:US pricing_mode:auto"
+    with patch("app.services.holding_parser._parse_attempt") as mock_attempt:
+        preview = parse(f"{line}\n{line}\n")
+    mock_attempt.assert_not_called()
+    assert len(preview.valid_rows) == 2
+    assert preview.valid_rows[0].ticker == preview.valid_rows[1].ticker == "AAPL"
+
+
+def test_parse_manual_listed_one_numeric_token_as_current_value() -> None:
+    """pricing_mode:manual listed row with one number is current_value, not LLM."""
+    line = "Family house HOME USD 250000 IBKR asset_type:other market:Other pricing_mode:manual"
+    parsed = parse_dialect_line(line)
+    assert parsed is not None
+    assert parsed["ticker"] == "HOME"
+    assert parsed["current_value"] == 250000.0
+    assert parsed["shares"] is None
+    assert parsed["avg_cost"] is None
+    assert parsed["pricing_mode"] == "manual"
+    with patch("app.services.holding_parser._parse_attempt") as mock_attempt:
+        preview = parse(line)
+    mock_attempt.assert_not_called()
+    assert len(preview.valid_rows) == 1
+    assert preview.valid_rows[0].current_value == 250000.0
+    assert preview.valid_rows[0].pricing_mode == "manual"
+    assert preview.issue_rows == []
+
+
+def test_parse_manual_listed_three_numerics_as_shares_avg_cost_current_value() -> None:
+    """pricing_mode:manual means three numerics after currency are shares/avg_cost/value."""
+    line = (
+        "Family office stake HOME USD 10 25000 280000 IBKR "
+        "asset_type:other market:Other pricing_mode:manual"
+    )
+    parsed = parse_dialect_line(line)
+    assert parsed is not None
+    assert parsed["ticker"] == "HOME"
+    assert parsed["shares"] == 10.0
+    assert parsed["avg_cost"] == 25000.0
+    assert parsed["current_value"] == 280000.0
+    assert parsed["pricing_mode"] == "manual"
+
+
+def test_parse_manual_listed_name_embedding_currency_does_not_steal_fields() -> None:
+    """A name like 'My iShares USD 500 Bond ETF' must not bind the first USD."""
+    line = (
+        "My iShares USD 500 Bond ETF BNDX USD 10 99.5 995 IBKR "
+        "asset_type:etf market:US pricing_mode:manual"
+    )
+    parsed = parse_dialect_line(line)
+    assert parsed is not None
+    assert parsed["name"] == "My iShares USD 500 Bond ETF"
+    assert parsed["ticker"] == "BNDX"
+    assert parsed["currency"] == "USD"
+    assert parsed["shares"] == 10.0
+    assert parsed["avg_cost"] == 99.5
+    assert parsed["current_value"] == 995.0
+    with patch("app.services.holding_parser._parse_attempt") as mock_attempt:
+        preview = parse(line)
+    mock_attempt.assert_not_called()
+    assert len(preview.valid_rows) == 1
+    assert preview.valid_rows[0].name == "My iShares USD 500 Bond ETF"
+    assert preview.valid_rows[0].avg_cost == 99.5
+    assert preview.issue_rows == []
+
+
+def test_parse_manual_listed_explicit_placeholder_preserves_missing_avg_cost() -> None:
+    """PR #310 round 5: a `-` placeholder in the avg_cost slot must parse back
+    to avg_cost=None + current_value preserved — not misread as 'two numbers
+    present' (shares/avg_cost) the way blind positional counting would."""
+    line = "Family house HOME USD 1 - 250000 IBKR asset_type:other market:Other pricing_mode:manual"
+    parsed = parse_dialect_line(line)
+    assert parsed is not None
+    assert parsed["shares"] == 1.0
+    assert parsed["avg_cost"] is None
+    assert parsed["current_value"] == 250000.0
+
+
+def test_parse_manual_listed_explicit_placeholder_preserves_missing_shares() -> None:
+    line = (
+        "Family office stake HOME USD - 25000 280000 IBKR "
+        "asset_type:other market:Other pricing_mode:manual"
+    )
+    parsed = parse_dialect_line(line)
+    assert parsed is not None
+    assert parsed["shares"] is None
+    assert parsed["avg_cost"] == 25000.0
+    assert parsed["current_value"] == 280000.0
+
+
+def test_parse_export_dialect_skips_llm() -> None:
+    text = (
+        "##### comment\n"
+        "Apple AAPL USD 10 180 IBKR account:IRA asset_type:stock market:US pricing_mode:auto\n"
+    )
+    with patch("app.services.holding_parser._parse_attempt") as mock_attempt:
+        preview = parse(text)
+    mock_attempt.assert_not_called()
+    assert len(preview.valid_rows) == 1
+    assert preview.valid_rows[0].account == "IRA"

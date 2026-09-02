@@ -41,7 +41,7 @@ This file holds **conventions and mechanisms**, not a project status board.
 | Output language | reason in EN, render in `output_lang` via a translation pass with a fixed-term glossary — locale-keyed, single source of truth in `backend/config/i18n_glossary.yml` (`report_glossary`/`forbidden_renderings`; only `zh-Hans` populated today, schema reserves `zh-Hant`/`fr`/`es` for later); `en` = no-op. **Per-user since issue #308**: self-service generate/regenerate and the scheduled fan-out read the requesting/recipient user's own `users.locale` (`VALID_REPORT_LANGUAGES = ("en", "zh")`, self-service `PATCH /me/report-language`, Ops `POST /admin/users/by-email/report-language`) — `Settings.OUTPUT_LANG` (default `zh`) is now only the fallback for a missing principal row and the value the admin manual-generate endpoint still deliberately uses unchanged. |
 | Report statuses | `success` · `skipped` (quiet day, still emails heartbeat — EXCEPT a short manual quiet window: `session_node="manual"` + <2h span + 0 news + 0 anomalies suppresses the heartbeat as a same-day re-run artifact) · `needs_review` (compliance scan hit, NOT emailed) · `failed` · `in_progress` |
 | Report title / email subject | `Portfonia <Financial Analysis Report> — YYYY-MM-DD HH:MM ET` (title timestamp from `period_end`; the zh-Hans render substitutes the `report_glossary` term for "Portfonia Financial Analysis Report" from `i18n_glossary.yml`); no "Intelligence" wording, or its zh-Hans equivalent (`forbidden_renderings` in the same file), anywhere. |
-| Holdings model | `market` + `broker` are user-declared fields; `position` preserves upload order. **§1 groups by `broker` (rendered as "Custodian" — zh-Hans term in `i18n_glossary.yml`'s `report_glossary`)** in upload order with per-institution subtotals; cash sits inside its institution, broker-less rows fall into "Other". `position` is populated automatically on confirm. |
+| Holdings model | `market` + `broker` are user-declared fields; `position` preserves book order. **§1 groups by `broker` (rendered as "Custodian" — zh-Hans term in `i18n_glossary.yml`'s `report_glossary`)** in that order with per-institution subtotals; cash sits inside its institution, broker-less rows fall into "Other". `position` is set on confirm (append = max+1, replace = 0..n), single-row `POST /holdings`, and `PATCH /holdings/reorder`. |
 | Holdings upload | Async, not a single blocking request — see "Async holdings upload" section below (issue #77/#82/#85). |
 | Re-render | `regenerate_report(mode=render\|analyze)` rebuilds from stored `report_inputs` without re-fetching; `POST /reports/{id}/regenerate`. render = token-free, analyze = Pass 2 only. |
 | §1 / distribution / §4.1 classification dimension | **`asset_class`** (geography-first taxonomy — see table below), not `sector` or `asset_type`. `sector` (yfinance GICS) is retained ONLY for forward-event holding-relevance mapping (rate-sensitive/consumer sectors for FOMC/CPI events) — never reintroduce it into §1/distribution/§4.1. `by_asset_class` has no "Other" fallback (every `Holding` always has one, default `STOCK`). |
@@ -64,6 +64,7 @@ area of the code, not just the one-line summary here.
 - [Postgres backup to OCI Object Storage](docs/mechanisms/backup-and-ops.md) — issue #106/#76: daily `pg_dump` -> OCI, instance-principal auth, two real restore drills.
 - [Cash/wmf holdings exclusion fix](docs/mechanisms/holdings-pipeline.md) — issue #120/PR #121: structured-extraction model put cash amounts in the wrong field; two-layer fix.
 - [Accounts table + user_id FKs](docs/mechanisms/holdings-pipeline.md) — issue #129 checkpoint B7: `accounts` table + `holdings.account_id` (additive, text columns unchanged), `holdings`/`reports`/`upload_jobs`/`news_surfaced` gain real `user_id` FKs (`ON DELETE RESTRICT`), SQLAlchemy `relationship()` needed purely for flush-order correctness.
+- [Holdings single-row CRUD + confirm modes](docs/mechanisms/holdings-pipeline.md) — issue #92 / #130 C1: `POST`/`PATCH`/`DELETE /holdings/{id}`, `PATCH /holdings/reorder`, `POST /holdings/confirm?mode=append|replace` (default append), `#####` export/template dialect keyed off `users.locale`. Dashboard remaining on #130.
 - [FX currency coverage + ticker-normalization consistency](docs/mechanisms/capture-and-reporting.md) — issue #204/PR #253: `_CURRENCY_TO_FX_PAIR`/`fx_fetcher._PAIRS` widened from 3 to all 14 `VALID_CURRENCIES`; `_yfinance._normalize_ticker` composes a ticker-collision override table (`_TICKER_SYMBOL_OVERRIDE`) and a per-ticker price-scale table (`_TICKER_PRICE_SCALE`, GBX→GBP) with the existing HK normalizer; every consumer that derives a lookup/join key from a raw `Holding.ticker` must call it — full list of call sites and the 3 rounds of review findings that surfaced them in the mechanism doc. Deferred to #252: no scheduled capture at all for `market="Other"`.
 - [Fund NAV realtime path: Sina Finance fallback](docs/mechanisms/capture-and-reporting.md) — issue #20: Tiantian Fund's realtime endpoint blocked in production, Sina fallback added.
 - [Fund NAV staleness observability](docs/mechanisms/capture-and-reporting.md) — issue #298/PR #303: per-fund stale/missing NAV WARNING + ops alert inside `capture_fund_navs` (session-lag threshold, weekend reference, empty-history miss); durable Redis dedup `app/core/alert_dedup.py` (fail-open, key recorded only on confirmed delivery); observability only — beat schedule untouched, #135 root cause still open.
@@ -124,17 +125,23 @@ area of the code, not just the one-line summary here.
   (`frontend/src/locales/*.json` for UI chrome; `backend/config/
   i18n_glossary.yml` for report output; `_VERIFICATION_EMAIL_COPY` in
   `backend/app/services/email_sender.py` for the one transactional
-  verification email, issue #260/PR #261 — three mechanisms, not one/two,
-  see the Mechanism deep-dives table) and are the only places where
-  non-English text legitimately appears in the repo. A lint rule
-  (`i18next/no-literal-string` in `frontend/eslint.config.mjs`) enforces
-  this for UI code. `_VERIFICATION_EMAIL_COPY` is deliberately its own
-  small dict rather than folded into either existing mechanism: the
-  next-intl catalog is browser-only and unreachable from this backend
-  module, and `i18n_glossary.yml` is built for large LLM-generated report
-  bodies, not a two-line transactional email — bare locale codes (`en`/
-  `zh`), matching `users.locale`/`OUTPUT_LANG`'s convention, not the
-  frontend catalog's BCP-47 `zh-Hans` tag.
+  verification email, issue #260/PR #261; `_RULES_ZH` / `_EXAMPLES_ZH` in
+  `backend/app/services/holdings_export.py` for the holdings
+  export/template dialect keyed off `users.locale`, issue #92/PR #310 —
+  four mechanisms, not one/two/three, see the Mechanism deep-dives table)
+  and are the only places where non-English text legitimately appears in
+  the repo. A lint rule (`i18next/no-literal-string` in
+  `frontend/eslint.config.mjs`) enforces this for UI code.
+  `_VERIFICATION_EMAIL_COPY` is deliberately its own small dict rather
+  than folded into either existing mechanism: the next-intl catalog is
+  browser-only and unreachable from this backend module, and
+  `i18n_glossary.yml` is built for large LLM-generated report bodies, not
+  a two-line transactional email — bare locale codes (`en`/`zh`), matching
+  `users.locale`/`OUTPUT_LANG`'s convention, not the frontend catalog's
+  BCP-47 `zh-Hans` tag. The holdings export/template strings stay in
+  `holdings_export.py` for the same reason: they are a downloaded file
+  dialect keyed off report language, not UI chrome, and are not report
+  glossary terms.
 
 ## Product Boundary (NEVER VIOLATE)
 

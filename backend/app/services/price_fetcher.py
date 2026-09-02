@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -123,7 +124,7 @@ def update_holding_prices(session: Session) -> PriceFetchResult:
     return result
 
 
-def backfill_sectors(session: Session) -> int:
+def backfill_sectors(session: Session, holdings: Sequence[Holding] | None = None) -> int:
     """
     Populate the sector column for stock/etf holdings that lack one.
 
@@ -131,16 +132,26 @@ def backfill_sectors(session: Session) -> int:
     one-time backfill per holding, not part of every price refresh.
     A-share / HK tickers that yfinance cannot classify resolve to "Other"
     via the taxonomy (design §6.4 Ring 0 strategy). Returns rows updated.
+
+    `holdings`, when given, scopes the fill to those rows (issue #92
+    single-row POST should not scan the whole book).
     """
-    rows: list[Holding] = list(
-        session.execute(
-            select(Holding).where(
-                Holding.ticker.isnot(None),
-                Holding.sector.is_(None),
-                Holding.asset_type.in_(_SECTOR_ASSET_TYPES),
-            )
-        ).scalars()
-    )
+    if holdings is None:
+        rows = list(
+            session.execute(
+                select(Holding).where(
+                    Holding.ticker.isnot(None),
+                    Holding.sector.is_(None),
+                    Holding.asset_type.in_(_SECTOR_ASSET_TYPES),
+                )
+            ).scalars()
+        )
+    else:
+        rows = [
+            h
+            for h in holdings
+            if h.ticker is not None and h.sector is None and h.asset_type in _SECTOR_ASSET_TYPES
+        ]
     rows = [r for r in rows if is_capture_supported(r)]
 
     updated = 0

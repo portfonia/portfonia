@@ -6,8 +6,19 @@
 // section 10, frontend constraint 4). Keep these in sync until then.
 
 import { logout } from "@/lib/auth-actions";
+import { filenameFromContentDisposition } from "@/lib/template";
 
 export type PricingMode = "auto" | "manual";
+export type AssetType = "stock" | "etf" | "fund" | "cash" | "wmf" | "other";
+export type Market = "US" | "HK" | "A-Share" | "Other";
+export type ConfirmMode = "append" | "replace";
+export type IssueSeverity = "info" | "warning";
+
+export interface IssueNote {
+  code: string;
+  params: Record<string, string>;
+  severity: IssueSeverity;
+}
 
 export interface ParsedRow {
   name: string;
@@ -19,11 +30,13 @@ export interface ParsedRow {
   current_value: number | null;
   pricing_mode: PricingMode;
   asset_type: string | null;
+  asset_class?: string;
+  market?: Market | null;
   broker: string | null;
   account: string | null;
   portfolio: string | null;
   notes: string | null;
-  issues: string[];
+  issues: IssueNote[];
   confidence: number;
   capture_supported: boolean;
 }
@@ -84,7 +97,27 @@ export interface HoldingOut {
   last_manual_update: string | null;
   created_at: string;
   updated_at: string;
+  asset_class?: string;
+  market?: string | null;
+  position?: number | null;
 }
+
+export type HoldingPatch = Partial<{
+  name: string;
+  ticker: string | null;
+  fund_code: string | null;
+  currency: string;
+  shares: number | null;
+  avg_cost: number | null;
+  current_value: number | null;
+  pricing_mode: PricingMode;
+  asset_type: string | null;
+  market: Market | null;
+  broker: string | null;
+  account: string | null;
+  portfolio: string | null;
+  notes: string | null;
+}>;
 
 export class ApiError extends Error {
   constructor(
@@ -193,8 +226,9 @@ export async function uploadHoldings(file: File): Promise<UploadPreview> {
 
 export async function confirmHoldings(
   rows: ParsedRow[],
+  mode: ConfirmMode,
 ): Promise<HoldingOut[]> {
-  const res = await fetch("/api/holdings/confirm", {
+  const res = await fetch(`/api/holdings/confirm?mode=${mode}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(rows),
@@ -203,12 +237,60 @@ export async function confirmHoldings(
   return res.json() as Promise<HoldingOut[]>;
 }
 
-// Export current holdings as a downloadable markdown file (same format as the
-// upload template) so the user can edit and re-upload. Returns a Blob.
-export async function exportHoldings(): Promise<Blob> {
-  const res = await fetch("/api/holdings/export", { cache: "no-store" });
+export async function createHolding(row: ParsedRow): Promise<HoldingOut> {
+  const res = await fetch("/api/holdings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(row),
+  });
+  if (!res.ok) await throwOnHttpError(res);
+  return res.json() as Promise<HoldingOut>;
+}
+
+export async function updateHolding(
+  id: string,
+  patch: HoldingPatch,
+): Promise<HoldingOut> {
+  const res = await fetch(`/api/holdings/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) await throwOnHttpError(res);
+  return res.json() as Promise<HoldingOut>;
+}
+
+export async function deleteHolding(id: string): Promise<void> {
+  const res = await fetch(`/api/holdings/${id}`, { method: "DELETE" });
+  if (!res.ok) await throwOnHttpError(res);
+}
+
+export async function reorderHoldings(ids: string[]): Promise<HoldingOut[]> {
+  const res = await fetch("/api/holdings/reorder", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  });
+  if (!res.ok) await throwOnHttpError(res);
+  return res.json() as Promise<HoldingOut[]>;
+}
+
+export async function downloadHoldingsTemplate(): Promise<Blob> {
+  const res = await fetch("/api/holdings/template", { cache: "no-store" });
   if (!res.ok) await throwOnHttpError(res);
   return res.blob();
+}
+
+// Export current holdings as a downloadable markdown file (same format as the
+// upload template) so the user can edit and re-upload. Returns a Blob.
+export async function exportHoldings(): Promise<{ blob: Blob; filename: string }> {
+  const res = await fetch("/api/holdings/export", { cache: "no-store" });
+  if (!res.ok) await throwOnHttpError(res);
+  const filename = filenameFromContentDisposition(
+    res.headers.get("Content-Disposition"),
+    "holdings.md",
+  );
+  return { blob: await res.blob(), filename };
 }
 
 // Mirrors backend/app/schemas/questionnaire.py's QuestionnaireIn (issue #129
