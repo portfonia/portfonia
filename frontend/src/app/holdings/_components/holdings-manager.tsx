@@ -242,6 +242,14 @@ export function HoldingsManager({
                 {t("appendHint")}
               </div>
             )}
+            {confirmMode === "replace" && (
+              <div
+                role="status"
+                className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+              >
+                {t("replaceHint")}
+              </div>
+            )}
           </div>
           <input
             ref={fileInputRef}

@@ -129,6 +129,7 @@
     "modeAppendLabel": "Append",
     "modeReplaceLabel": "Replace",
     "appendHint": "Append adds these rows after your current holdings. Duplicate ticker + broker becomes a second lot.",
+    "replaceHint": "Replace deletes all your current holdings and keeps only what you upload. You'll get a final confirmation with the parsed row count before anything is deleted.",
     "replaceConfirmTitle": "Replace all holdings?",
     "replaceConfirmBody": "This deletes every holding you currently have and inserts only the rows below. There is no snapshot or undo yet. Export your current holdings first if you might need them.{n, plural, =0 {} one { # unparsed row will also be discarded.} other { # unparsed rows will also be discarded.}}",
     "replaceConfirmAction": "Replace all",

@@ -239,6 +239,18 @@ describe("HoldingsManager", () => {
       );
     });
 
+    it("shows a mode-agnostic replaceHint callout (no row count) once replace mode is selected (issue #323 item 1)", async () => {
+      const user = userEvent.setup();
+      renderManager();
+      expect(screen.queryByText(/deletes all your current holdings/i)).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: /^replace$/i }));
+      expect(screen.getByText(/deletes all your current holdings/i)).toBeInTheDocument();
+      // Mode-agnostic pre-parse note must never claim a row count — that
+      // stays the job of the post-parse replaceConfirmBody dialog, which is
+      // the only place the real parsed count is known (issue #323 item 1).
+      expect(screen.queryByText(/\d+ (row|unparsed row)/i)).not.toBeInTheDocument();
+    });
+
     it("the mode is chosen before file selection — no file input interaction needed to pick it", () => {
       renderManager();
       const input = document.querySelector('input[type="file"]') as HTMLInputElement;
