@@ -304,4 +304,45 @@ describe("HoldingsEditor", () => {
       );
     });
   });
+
+  describe("inline edit / reorder mutual exclusion (PR #321 review round 2)", () => {
+    it("a sort click while a field save is in flight does not call reorderHoldings, so its full-row response can't overwrite the just-saved field", async () => {
+      const user = userEvent.setup();
+      let resolveShares!: (h: HoldingOut) => void;
+      updateHolding.mockImplementation(
+        () =>
+          new Promise<HoldingOut>((resolve) => {
+            resolveShares = resolve;
+          }),
+      );
+      renderEditor();
+
+      const sharesInput = screen.getAllByDisplayValue("10")[0];
+      await user.clear(sharesInput);
+      await user.type(sharesInput, "25");
+      await user.tab();
+      await waitFor(() => expect(updateHolding).toHaveBeenCalled());
+
+      await user.click(screen.getByRole("button", { name: /sort ascending: ticker/i }));
+      expect(reorderHoldings).not.toHaveBeenCalled();
+
+      resolveShares({ ...AAPL, shares: "25" });
+      await waitFor(() => expect(screen.getAllByDisplayValue("25")[0]).toBeInTheDocument());
+    });
+
+    it("the sort/drag controls are disabled while a field save is in flight", async () => {
+      const user = userEvent.setup();
+      updateHolding.mockImplementation(() => new Promise(() => {}));
+      renderEditor();
+
+      const sharesInput = screen.getAllByDisplayValue("10")[0];
+      await user.clear(sharesInput);
+      await user.type(sharesInput, "25");
+      await user.tab();
+      await waitFor(() => expect(updateHolding).toHaveBeenCalled());
+
+      expect(screen.getByRole("button", { name: /sort ascending: ticker/i })).toBeDisabled();
+      expect(screen.getAllByRole("button", { name: /drag to reorder/i })[0]).toBeDisabled();
+    });
+  });
 });

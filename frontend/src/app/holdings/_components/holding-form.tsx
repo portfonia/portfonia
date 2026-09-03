@@ -142,6 +142,14 @@ export function HoldingForm({
 
   const dirty = JSON.stringify(form) !== JSON.stringify(baseline);
   const isCashWmf = form.asset_type === "cash" || form.asset_type === "wmf";
+  // The merged identifier field (issue #319 item 7) falls back to
+  // whichever slot actually holds a value: an existing "fund" row's
+  // identifier can legitimately live in `ticker` (US-listed funds, or
+  // any row the parser filed there regardless of asset_type), and
+  // without the fallback that value would render as a blank "Fund code"
+  // input while staying hidden in state (PR #321 review round 2).
+  const identifierValue =
+    form.asset_type === "fund" ? form.fund_code || form.ticker : form.ticker || form.fund_code;
 
   useEffect(() => {
     if (!dirty) return;
@@ -198,8 +206,12 @@ export function HoldingForm({
     setError(null);
     const fields: HoldingPatch = {
       name: form.name.trim(),
-      ticker: isCashWmf ? null : emptyToNull(form.ticker),
-      fund_code: isCashWmf ? null : emptyToNull(form.fund_code),
+      // Always send the resolved identifier into the slot matching the
+      // current asset_type and null the other — not each raw field
+      // independently, which could carry a stale value the merged
+      // control never showed the user (PR #321 review round 2).
+      ticker: isCashWmf || form.asset_type === "fund" ? null : emptyToNull(identifierValue),
+      fund_code: isCashWmf || form.asset_type !== "fund" ? null : emptyToNull(identifierValue),
       currency: form.currency,
       shares: isCashWmf ? null : parseNum(form.shares),
       avg_cost: isCashWmf ? null : parseNum(form.avg_cost),
@@ -292,7 +304,7 @@ export function HoldingForm({
           </Field>
           <Field label={form.asset_type === "fund" ? t("fieldFundCode") : t("fieldTicker")}>
             <Input
-              value={form.asset_type === "fund" ? form.fund_code : form.ticker}
+              value={identifierValue}
               disabled={isCashWmf}
               onChange={(e) =>
                 set(form.asset_type === "fund" ? "fund_code" : "ticker", e.target.value)

@@ -79,6 +79,29 @@ describe("HoldingForm", () => {
     expect(screen.queryByLabelText(/^shares$/i)).not.toBeInTheDocument();
   });
 
+  it("falls back to the ticker slot's value when a fund's identifier was stored there (PR #321 review round 2)", async () => {
+    const user = userEvent.setup();
+    const legacyFund: HoldingOut = {
+      ...EXISTING,
+      asset_type: "fund",
+      ticker: "FXAIX",
+      fund_code: null,
+    };
+    renderForm(legacyFund);
+
+    const identifierField = screen.getByLabelText(/^fund code$/i);
+    expect(identifierField).toHaveValue("FXAIX");
+
+    await user.click(screen.getByRole("button", { name: /save holding/i }));
+    await waitFor(() => expect(updateHolding).toHaveBeenCalled());
+    const patch = updateHolding.mock.calls[0][1] as {
+      ticker: string | null;
+      fund_code: string | null;
+    };
+    expect(patch.ticker).toBeNull();
+    expect(patch.fund_code).toBe("FXAIX");
+  });
+
   it("merges ticker/fund code into one field that switches label and target with asset type (issue #319 item 7)", async () => {
     const user = userEvent.setup();
     renderForm();

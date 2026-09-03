@@ -144,7 +144,13 @@ export function HoldingsEditor({
   const displayError = error ?? (initialLoadError ? t("errorLoadFailed") : null);
 
   async function applyReorder(ids: string[]) {
-    if (reordering) return;
+    // Mutually exclusive with an in-flight field save (PR #321 review
+    // round 2): applyReorder's success handler replaces the whole
+    // `holdings` array with the reorder response, which can overwrite a
+    // field PATCH that committed after the reorder request was sent but
+    // before its response arrived — a cross-endpoint last-write-wins race
+    // the round-1 per-field rollback does not cover.
+    if (reordering || savingCells.size > 0) return;
     const previous = holdings;
     const next = ids.map((id) => holdings.find((h) => h.id === id)).filter((h) => h != null);
     setHoldings(next);
@@ -186,6 +192,11 @@ export function HoldingsEditor({
     previousValue: string | null,
     optimisticValue: string,
   ) {
+    // Mutually exclusive with an in-flight reorder — see applyReorder's
+    // matching guard above for why (PR #321 review round 2). The inline
+    // controls are also visually disabled while reordering, so this is
+    // belt-and-suspenders against a commit that started just before that.
+    if (reordering) return;
     const cellKey = `${id}:${field}`;
     // Optimistic update mirrors drag reorder's previous-state rollback
     // pattern (design decision 4-5): NumberCell is an uncontrolled input
@@ -255,7 +266,7 @@ export function HoldingsEditor({
               type="button"
               aria-label={`${t("sortAscending")}: ${label}`}
               className="text-muted-foreground hover:text-foreground disabled:opacity-50"
-              disabled={reordering}
+              disabled={reordering || savingCells.size > 0}
               onClick={() => void onSortClick(field, "asc")}
             >
               <ChevronUp className="size-3" aria-hidden="true" />
@@ -264,7 +275,7 @@ export function HoldingsEditor({
               type="button"
               aria-label={`${t("sortDescending")}: ${label}`}
               className="text-muted-foreground hover:text-foreground disabled:opacity-50"
-              disabled={reordering}
+              disabled={reordering || savingCells.size > 0}
               onClick={() => void onSortClick(field, "desc")}
             >
               <ChevronDown className="size-3" aria-hidden="true" />
@@ -347,9 +358,15 @@ export function HoldingsEditor({
                       type="button"
                       aria-label={t("dragHandle")}
                       draggable
-                      className="cursor-grab text-muted-foreground active:cursor-grabbing"
+                      disabled={savingCells.size > 0}
+                      className="cursor-grab text-muted-foreground active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-50"
                       onClick={(e) => e.stopPropagation()}
                       onDragStart={() => {
+                        // Mutually exclusive with an in-flight field save
+                        // (PR #321 review round 2) — same reasoning as
+                        // applyReorder's own guard. Belt-and-suspenders
+                        // alongside `disabled` above.
+                        if (savingCells.size > 0) return;
                         dragFrom.current = i;
                       }}
                       onDragEnd={() => {
@@ -368,7 +385,7 @@ export function HoldingsEditor({
                     ) : (
                       <NumberCell
                         value={h.shares}
-                        disabled={savingCells.has(`${h.id}:shares`)}
+                        disabled={reordering || savingCells.has(`${h.id}:shares`)}
                         onCommit={(raw) =>
                           void patchField(
                             h.id,
@@ -387,7 +404,7 @@ export function HoldingsEditor({
                     ) : (
                       <NumberCell
                         value={h.avg_cost}
-                        disabled={savingCells.has(`${h.id}:avg_cost`)}
+                        disabled={reordering || savingCells.has(`${h.id}:avg_cost`)}
                         onCommit={(raw) =>
                           void patchField(
                             h.id,
@@ -404,7 +421,7 @@ export function HoldingsEditor({
                     {cashWmf ? (
                       <NumberCell
                         value={h.current_value}
-                        disabled={savingCells.has(`${h.id}:current_value`)}
+                        disabled={reordering || savingCells.has(`${h.id}:current_value`)}
                         onCommit={(raw) =>
                           void patchField(
                             h.id,
@@ -423,7 +440,7 @@ export function HoldingsEditor({
                     <select
                       className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm disabled:opacity-50"
                       value={h.pricing_mode === "manual" ? "manual" : "auto"}
-                      disabled={cashWmf || savingCells.has(`${h.id}:pricing_mode`)}
+                      disabled={cashWmf || reordering || savingCells.has(`${h.id}:pricing_mode`)}
                       onClick={(e) => e.stopPropagation()}
                       onChange={(e) => {
                         const previous = h.pricing_mode === "manual" ? "manual" : "auto";

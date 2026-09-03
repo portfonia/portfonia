@@ -523,10 +523,13 @@ def parse_dialect_line(line: str) -> dict[str, Any] | None:
 def try_parse_dialect(text: str) -> list[dict[str, Any]] | None:
     """If every data line carries at least one trailing tag and parses, skip the LLM.
 
-    Untagged free-form uploads still go through the model. An export from
-    GET /holdings/export always includes tags, so re-import is deterministic.
-    A mixed file (only some lines tagged) must not divert the whole upload
-    onto positional parsing (PR #310 round 2).
+    Untagged free-form uploads still go through the model. A mixed file
+    (only some lines tagged) must not divert the whole upload onto
+    positional parsing (PR #310 round 2). Since issue #319 item 8, an
+    export from GET /holdings/export no longer always includes a tag —
+    only account/portfolio/notes still round-trip, and most rows leave
+    all three blank — so this path is now the exception for a typical
+    export, not the rule; see holdings_export.py's module docstring.
     """
     lines = [ln.strip() for ln in _strip_comments(text).splitlines() if ln.strip()]
     if not lines:
