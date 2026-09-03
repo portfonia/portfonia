@@ -17,8 +17,11 @@ for the full before/after and decision rationale.
   brand/home link and the Get Started dropdown menu
   (`components/get-started-menu.tsx` — auth-gated entry registry: guest
   sees only Log in; authed sees the full `AUTHED_ENTRIES` list (Profile,
-  Holdings, Edit holdings, Portfolio, Questionnaire, as of issue #320/PR
-  #322 — see that entry's own PR for the count each new route added) plus
+  Holdings, Portfolio, Questionnaire, as of issue #320/PR #322 — the
+  standalone Edit holdings entry issue #320/PR #322 originally added
+  alongside Portfolio was removed by issue #319/PR #321's nav-entry
+  dedup, which landed and merged first; see that entry's own PR for the
+  count each new route added) plus
   email + Log out, in that order — issue #214 follow-up originally added a
   "Home" entry as an explicit way back to `/` from any inner page,
   replaced by Profile in issue #220 (see below)). Home-only

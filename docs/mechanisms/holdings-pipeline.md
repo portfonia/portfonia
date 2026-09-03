@@ -670,12 +670,20 @@ fields, participate in no chart or total, and render with the default
 incomplete-setup-nudge language; this is an informational exclusion
 notice, a different speech act — round-1 review finding, PR #322).
 
-`price_as_of_date` is the max captured-close trade date actually matched to
-one of the user's holdings this run (`None` when nothing was captured,
-including a cash-only book — the as-of banner has dedicated copy for that
-case, since cash/wmf holdings do have a valuation via `current_value` and a
-"no priced holdings" message would contradict a non-zero total assets
-figure on the same page — round-1 review finding, PR #322).
+`price_as_of_date` is the max captured-close trade date that actually
+produced a displayed `market_value_base` this run — not merely matched a
+`price_snapshots` row (round-1 shipped the weaker "matched" version; round
+2 caught that a snapshot hit for a holding missing `shares`, or one that
+fails FX conversion, never reaches a displayed number and must not date
+the banner — `used_trade_dates` only appends once `market_value_base is
+not None`, PR #322). `None` when nothing was captured, including a
+cash-only book — the as-of banner has dedicated copy for that case, since
+cash/wmf holdings do have a valuation via `current_value` and a "no priced
+holdings" message would contradict a non-zero total assets figure on the
+same page (round-1 finding); that None-case copy stays generic rather than
+naming cash/wmf specifically, since None also covers an empty book, a
+capture-unsupported-only book, or an auto holding still waiting on its
+first snapshot (round-2 finding).
 
 `base_currency` widened from a 3-value `Literal` to all 15
 `VALID_CURRENCIES` (mirrors `app/schemas/holdings.py`'s frozenset; a
@@ -692,7 +700,17 @@ leaving it desynced from the displayed figures.
 
 The by_group/by_account chart legends and the holdings table's
 Group/Custodian columns render the same translated "Ungrouped"/"Other"
-fallback label (`relabelFallbackKey`/`fallbackOrValue` in
-`portfolio-helpers.ts`) so a pie slice can be matched back to its rows —
-the table previously showed a bare "—" for these while the chart legend
-showed the untranslated English literal (round-1 review finding, PR #322).
+fallback label so a pie slice can be matched back to its rows — the table
+previously showed a bare "—" for these while the chart legend showed the
+untranslated English literal (round-1 finding). `BreakdownChart` takes a
+`labelFor(key)` prop applied only when building the displayed slice
+name, grouping on the untouched raw backend key (`portfolio-helpers.ts`'s
+`fallbackOrValue` for the table cells) — round 1 shipped a
+`relabelFallbackKey` helper that instead rewrote the source `Record`'s own
+keys before charting, so a user's real group/broker named the same as the
+translated fallback ("未分组") would silently collapse two backend keys
+into one via `Object.fromEntries`, dropping a slice; round 2 deleted that
+helper for the `labelFor` prop. by_asset_class used the same
+pre-transform pattern (harmless today only because the 13 `asset_class`
+translations happen to be unique, not because the pattern is safe) —
+round-3 review flagged the inconsistency, switched to `labelFor` too.

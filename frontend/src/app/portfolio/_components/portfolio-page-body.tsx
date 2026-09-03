@@ -77,16 +77,15 @@ export function PortfolioPageBody({
     });
   };
 
-  const byAssetClassLabeled = Object.fromEntries(
-    Object.entries(summary.by_asset_class).map(([code, value]) => [
-      assetClassLabel(t, code),
-      value,
-    ]),
-  );
   // Translate only the display label, not the data key it's built from — a
   // user's own group/broker named the same as the translated fallback
   // ("未分组") must not collapse into the real Ungrouped/Other slice
-  // (Grok review round 2, PR #322).
+  // (Grok review round 2, PR #322). asset_class codes are a closed,
+  // backend-derived enum (never user free text), so this specific
+  // collision can't happen today, but pre-transforming the Record's keys
+  // here carried the identical latent risk as the round-2 bug — round-3
+  // review leftover, applying the same labelFor fix for consistency.
+  const assetClassLabelFor = (code: string) => assetClassLabel(t, code);
   const groupLabelFor = (key: string) => (key === GROUP_UNGROUPED_KEY ? t("groupUngrouped") : key);
   const accountLabelFor = (key: string) => (key === ACCOUNT_OTHER_KEY ? t("accountOther") : key);
   const { priced, noLivePrice } = partitionHoldings(summary.holdings);
@@ -142,7 +141,8 @@ export function PortfolioPageBody({
         />
         <BreakdownChart
           title={t("chartByAssetClass")}
-          data={byAssetClassLabeled}
+          data={summary.by_asset_class}
+          labelFor={assetClassLabelFor}
           currency={summary.base_currency}
           emptyLabel={t("chartEmpty")}
         />
