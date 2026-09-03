@@ -25,6 +25,7 @@ from app.schemas.holdings import (
 from app.services import holding_parser
 from app.services._yfinance import _normalize_ticker
 from app.services.accounts import resolve_accounts_for_holdings
+from app.services.holding_ordering import sorted_holdings as _sorted_holdings
 from app.services.holding_parser import (
     _classify_asset_class,
     apply_confirmed_exchange_suffix,
@@ -37,24 +38,6 @@ from app.tasks.holdings_tasks import parse_holdings_upload
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-def _sorted_holdings(rows: Sequence[Holding]) -> list[Holding]:
-    """Order by ``position`` (issue #92), then name as a stable tiebreaker.
-
-    ``name`` is encrypted (ciphertext at the SQL level), so ``ORDER BY`` at
-    the database cannot sort by its real value. ``position`` is plaintext
-    and is the user-facing book order (confirm insert, drag-reorder, export).
-    TypeDecorator decryption happens transparently on ORM attribute access.
-    """
-    return sorted(
-        rows,
-        key=lambda h: (
-            h.position is None,
-            h.position if h.position is not None else 0,
-            h.name,
-        ),
-    )
 
 
 _MIN_BARS_FOR_TECHNICAL = 50

@@ -20,6 +20,17 @@ class HoldingValueOut(BaseModel):
     market_value: Decimal | None
     market_value_base: Decimal | None
     price_as_of: datetime | None
+    pricing_mode: str
+    capture_supported: bool
+    broker: str | None
+    account: str | None
+    portfolio: str | None
+    avg_cost: Decimal | None
+    shares: Decimal | None
+    notes: str | None
+    cost_basis_base: Decimal | None
+    unrealized_pnl_base: Decimal | None
+    unrealized_pnl_pct: Decimal | None
 
     model_config = {"from_attributes": True}
 
@@ -49,6 +60,12 @@ class PortfolioSummaryResponse(BaseModel):
     by_asset_type: dict[str, Decimal]
     by_sector: dict[str, Decimal]
     by_asset_class: dict[str, Decimal]
+    by_group: dict[str, Decimal]
+    by_account: dict[str, Decimal]
+    total_cost_basis_base: Decimal
+    total_unrealized_pnl_base: Decimal
+    total_unrealized_pnl_pct: Decimal | None
+    price_as_of_date: date | None
     concentration: ConcentrationOut
     stale_tickers: list[str]
     holdings: list[HoldingValueOut]

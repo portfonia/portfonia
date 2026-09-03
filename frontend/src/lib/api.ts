@@ -301,6 +301,63 @@ export async function exportHoldings(
   return { blob: await res.blob(), filename };
 }
 
+// Mirrors backend/app/schemas/portfolio.py's HoldingValueOut /
+// PortfolioSummaryResponse (issue #320, C2 dashboard). Decimal fields arrive
+// as strings, same convention as HoldingOut above.
+export interface HoldingValueOut {
+  holding_id: string;
+  name: string;
+  ticker: string | null;
+  fund_code: string | null;
+  currency: string;
+  asset_type: string | null;
+  asset_class: string | null;
+  sector: string | null;
+  market: string;
+  market_value: string | null;
+  market_value_base: string | null;
+  price_as_of: string | null;
+  pricing_mode: string;
+  capture_supported: boolean;
+  broker: string | null;
+  account: string | null;
+  portfolio: string | null;
+  avg_cost: string | null;
+  shares: string | null;
+  notes: string | null;
+  cost_basis_base: string | null;
+  unrealized_pnl_base: string | null;
+  unrealized_pnl_pct: string | null;
+}
+
+export interface PortfolioSummary {
+  base_currency: string;
+  fx_date: string;
+  total_base: string;
+  by_market: Record<string, string>;
+  by_currency: Record<string, string>;
+  by_asset_type: Record<string, string>;
+  by_sector: Record<string, string>;
+  by_asset_class: Record<string, string>;
+  by_group: Record<string, string>;
+  by_account: Record<string, string>;
+  total_cost_basis_base: string;
+  total_unrealized_pnl_base: string;
+  total_unrealized_pnl_pct: string | null;
+  price_as_of_date: string | null;
+  stale_tickers: string[];
+  holdings: HoldingValueOut[];
+}
+
+export async function getPortfolioSummary(baseCurrency: string): Promise<PortfolioSummary> {
+  const res = await fetch(
+    `/api/portfolio/summary?base_currency=${encodeURIComponent(baseCurrency)}`,
+    { cache: "no-store" },
+  );
+  if (!res.ok) await throwOnHttpError(res);
+  return res.json() as Promise<PortfolioSummary>;
+}
+
 // Mirrors backend/app/schemas/questionnaire.py's QuestionnaireIn (issue #129
 // checkpoint B6). Every field is a closed enum the backend validates at the
 // API boundary (422 on an unrecognized value) — this client type exists so a

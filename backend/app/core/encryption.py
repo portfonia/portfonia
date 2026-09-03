@@ -101,7 +101,8 @@ class _NoEqualityComparator(TypeDecorator.Comparator):  # type: ignore[type-arg]
     `.is_(None)`/`.isnot(None)` (NULL-ness, not value), which this keeps
     working since NULL never gets encrypted (see the TypeDecorator
     docstrings below) — everything else must fetch rows and filter/sort in
-    Python, as `_sorted_holdings()` in `app/routers/holdings.py` already does.
+    Python, as `sorted_holdings()` in `app/services/holding_ordering.py`
+    already does.
 
     `col == None` / `col != None` are also let through despite `eq`/`ne` not
     being in `_ALLOWED`: SQLAlchemy's base `operate()` already rewrites these

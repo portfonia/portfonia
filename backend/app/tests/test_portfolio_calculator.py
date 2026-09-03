@@ -161,19 +161,23 @@ def test_concentration_thresholds_loosen_for_broad_index_top_holding(db_session:
     """A broad-index ETF carries a wider single-holding threshold than a
     single stock at the same weight, since it is already diversified."""
     _seed_fx(db_session)
-    db_session.add_all(
-        [
-            _stock(
-                "Vanguard S&P 500",
-                "VOO",
-                "USD",
-                "10",
-                "300",
-                asset_class="EQUITY_US_BROAD",
-            ),
-            _cash("USD Cash", "USD", "3000"),
-        ]
+    vanguard = _stock(
+        "Vanguard S&P 500",
+        "VOO",
+        "USD",
+        "10",
+        "300",
+        asset_class="EQUITY_US_BROAD",
     )
+    # Grok review round 3 (PR #322): the two holdings are exactly tied in
+    # value (3000 == 3000). compute_portfolio() now orders holdings by
+    # position (matching /holdings book order) before concentration ranks
+    # them, so an explicit position — not incidental insertion/scan order —
+    # is what breaks the tie deterministically.
+    vanguard.position = 0
+    cash = _cash("USD Cash", "USD", "3000")
+    cash.position = 1
+    db_session.add_all([vanguard, cash])
     db_session.flush()
 
     c = compute_portfolio(db_session, user_id=_USER, base_currency="USD").concentration
@@ -223,6 +227,32 @@ def test_empty_portfolio_has_no_concentration(db_session: Session) -> None:
     snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
     assert snap.total_base == Decimal("0")
     assert snap.concentration.top_holding_name is None
+
+
+def test_holdings_ordered_by_position_matching_holdings_edit_book_order(
+    db_session: Session,
+) -> None:
+    """Grok review round 3 (PR #322): compute_portfolio() queried holdings
+    with no ORDER BY — Postgres gives no row-order guarantee, so the
+    dashboard could reshuffle rows relative to the book order the user set
+    on /holdings/edit (same sort key as _sorted_holdings in
+    app/routers/holdings.py: position, then name as a stable tiebreaker for
+    a null/tied position)."""
+    _seed_fx(db_session)
+    third = _stock("Charlie Corp", "CCC", "USD", "1", "10")
+    third.position = 2
+    first = _stock("Alpha Inc", "AAA", "USD", "1", "10")
+    first.position = 0
+    second = _stock("Bravo Ltd", "BBB", "USD", "1", "10")
+    second.position = 1
+    # Insert out of book order — a naive unordered SELECT would likely
+    # return them in this insertion order, not position order.
+    db_session.add_all([third, first, second])
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    assert [hv.name for hv in snap.holdings] == ["Alpha Inc", "Bravo Ltd", "Charlie Corp"]
 
 
 def test_user_isolation(db_session: Session) -> None:
@@ -380,6 +410,260 @@ def test_psh_ticker_resolves_captured_price_via_lse_normalization(db_session: Se
     assert snap.stale_tickers == []
     # 590 GBP / 0.75 = 786.67 USD
     assert snap.total_base == Decimal("786.67")
+
+
+def test_by_group_and_by_account_aggregation(db_session: Session) -> None:
+    """by_group keys on Holding.portfolio (None/empty -> 'Ungrouped');
+    by_account keys on Holding.broker (None/empty -> 'Other'), matching
+    report_sections.py's existing broker fallback literal (issue #320)."""
+    _seed_fx(db_session)
+    apple = _stock("Apple", "AAPL", "USD", "10", "300")
+    apple.portfolio = "Retirement"
+    apple.broker = "Fidelity"
+    cash = _cash("USD Cash", "USD", "1000")  # portfolio/broker left None
+    db_session.add_all([apple, cash])
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    assert snap.by_group == {"Retirement": Decimal("3000.00"), "Ungrouped": Decimal("1000.00")}
+    assert snap.by_account == {"Fidelity": Decimal("3000.00"), "Other": Decimal("1000.00")}
+
+
+def test_by_group_and_by_account_exclude_unpriced_holdings(db_session: Session) -> None:
+    """Same exclusion gate as by_market — a holding with no market_value_base
+    never reaches the by_group/by_account aggregation branch."""
+    _seed_fx(db_session)
+    db_session.add_all(
+        [
+            _stock("Apple", "AAPL", "USD", "10", "300"),
+            _stock("PSH", "PSH.L", "GBP", None, None),  # unpriced, excluded
+        ]
+    )
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    assert snap.by_group == {"Ungrouped": Decimal("3000.00")}
+    assert snap.by_account == {"Other": Decimal("3000.00")}
+
+
+def test_pnl_computed_for_auto_priced_holding_with_cost_basis(db_session: Session) -> None:
+    _seed_fx(db_session)
+    apple = _stock("Apple", "AAPL", "USD", "10", "300")
+    apple.avg_cost = Decimal("250")
+    db_session.add(apple)
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    hv = snap.holdings[0]
+    assert hv.cost_basis_base == Decimal("2500.00")
+    assert hv.unrealized_pnl_base == Decimal("500.00")
+    assert hv.unrealized_pnl_pct == Decimal("0.2000")  # 500 / 2500
+
+
+def test_pnl_none_for_cash_holding(db_session: Session) -> None:
+    """Cash/wmf holdings have no cost-basis concept — all three fields are
+    None (not zero), so the frontend renders '—' rather than a fake $0 P&L."""
+    _seed_fx(db_session)
+    db_session.add(_cash("USD Cash", "USD", "1000"))
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    hv = snap.holdings[0]
+    assert hv.cost_basis_base is None
+    assert hv.unrealized_pnl_base is None
+    assert hv.unrealized_pnl_pct is None
+
+
+def test_pnl_none_when_avg_cost_missing(db_session: Session) -> None:
+    """avg_cost is optional on auto-priced holdings (e.g. imported without a
+    cost basis) — P&L stays None rather than assuming a zero cost basis."""
+    _seed_fx(db_session)
+    db_session.add(_stock("Apple", "AAPL", "USD", "10", "300"))  # avg_cost unset
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    hv = snap.holdings[0]
+    assert hv.unrealized_pnl_base is None
+    assert hv.cost_basis_base is None
+
+
+def test_pnl_none_for_capture_unsupported_holding(db_session: Session) -> None:
+    """A holding with capture_supported=False has market_value_base=None
+    regardless of avg_cost — P&L can't be computed against no valuation."""
+    _seed_fx(db_session)
+    h = _stock("Unresolvable", None, "GBP", "10", None)
+    h.market = "Other"
+    h.capture_supported = False
+    h.avg_cost = Decimal("5")
+    db_session.add(h)
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    hv = snap.holdings[0]
+    assert hv.market_value_base is None
+    assert hv.unrealized_pnl_base is None
+
+
+def test_pnl_totals_exclude_cash_and_sum_priced_holdings_only(db_session: Session) -> None:
+    """Snapshot-level P&L totals sum only holdings with a computed cost basis
+    (issue #320 decision 2) — cash/wmf never contributes to the numerator or
+    denominator, so 'total unrealized return %' doesn't silently include
+    assets that have no cost-basis concept."""
+    _seed_fx(db_session)
+    apple = _stock("Apple", "AAPL", "USD", "10", "300")
+    apple.avg_cost = Decimal("250")  # cost 2500, value 3000, pnl +500
+    msft = _stock("Microsoft", "MSFT", "USD", "5", "100")
+    msft.avg_cost = Decimal("80")  # cost 400, value 500, pnl +100
+    db_session.add_all([apple, msft, _cash("USD Cash", "USD", "5000")])
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    assert snap.total_cost_basis_base == Decimal("2900.00")  # 2500 + 400
+    assert snap.total_unrealized_pnl_base == Decimal("600.00")  # 500 + 100
+    assert snap.total_unrealized_pnl_pct == Decimal("0.2069")  # 600 / 2900
+
+
+def test_pnl_totals_zero_when_no_priced_holdings(db_session: Session) -> None:
+    _seed_fx(db_session)
+    db_session.add(_cash("USD Cash", "USD", "1000"))
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    assert snap.total_cost_basis_base == Decimal("0")
+    assert snap.total_unrealized_pnl_base == Decimal("0")
+    assert snap.total_unrealized_pnl_pct is None  # never divide by zero
+
+
+def test_price_as_of_date_is_max_captured_trade_date_actually_used(
+    db_session: Session,
+) -> None:
+    """price_as_of_date is the max trade_date among captured closes actually
+    matched to one of this user's holdings — not just any row in
+    price_snapshots (issue #320 decision 5)."""
+    _seed_fx(db_session)
+    aapl = _stock("Apple", "AAPL", "USD", "10", None)
+    msft = _stock("Microsoft", "MSFT", "USD", "5", None)
+    db_session.add_all([aapl, msft])
+    db_session.flush()
+    db_session.add_all(
+        [
+            PriceSnapshot(
+                ticker="AAPL",
+                market="US",
+                session_node="close",
+                trade_date=date(2026, 1, 9),
+                close=Decimal("300"),
+            ),
+            PriceSnapshot(
+                ticker="MSFT",
+                market="US",
+                session_node="close",
+                trade_date=date(2026, 1, 8),
+                close=Decimal("400"),
+            ),
+        ]
+    )
+    db_session.flush()
+
+    snap = compute_portfolio(
+        db_session, user_id=_USER, base_currency="USD", as_of=date(2026, 1, 12)
+    )
+
+    assert snap.price_as_of_date == date(2026, 1, 9)  # max of the two, not the DB max
+
+
+def test_price_as_of_date_ignores_a_captured_close_that_never_priced_a_row(
+    db_session: Session,
+) -> None:
+    """Grok review round 2 (PR #322): a snapshot match must actually produce
+    a market_value_base before its trade_date counts — matching the table
+    isn't enough. AAPL has shares and prices on Jan 9; MSFT's snapshot on
+    Jan 10 is newer but MSFT has no shares, so nothing on the page reflects
+    a Jan 10 price — the banner must not claim it does."""
+    _seed_fx(db_session)
+    aapl = _stock("Apple", "AAPL", "USD", "10", None)
+    msft = _stock("Microsoft", "MSFT", "USD", None, None)  # no shares -> unpriceable
+    db_session.add_all([aapl, msft])
+    db_session.flush()
+    db_session.add_all(
+        [
+            PriceSnapshot(
+                ticker="AAPL",
+                market="US",
+                session_node="close",
+                trade_date=date(2026, 1, 9),
+                close=Decimal("300"),
+            ),
+            PriceSnapshot(
+                ticker="MSFT",
+                market="US",
+                session_node="close",
+                trade_date=date(2026, 1, 10),
+                close=Decimal("400"),
+            ),
+        ]
+    )
+    db_session.flush()
+
+    snap = compute_portfolio(
+        db_session, user_id=_USER, base_currency="USD", as_of=date(2026, 1, 12)
+    )
+
+    assert snap.price_as_of_date == date(2026, 1, 9)  # not Jan 10 — MSFT never priced
+
+
+def test_price_as_of_date_none_when_nothing_captured(db_session: Session) -> None:
+    _seed_fx(db_session)
+    db_session.add(_cash("USD Cash", "USD", "1000"))
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    assert snap.price_as_of_date is None
+
+
+def test_holding_value_exposes_pricing_mode_and_capture_supported(db_session: Session) -> None:
+    """Issue #320 decision 3: the frontend partitions on pricing_mode=='auto'
+    and not capture_supported — both must be readable off HoldingValue."""
+    _seed_fx(db_session)
+    unsupported = _stock("Unresolvable", None, "GBP", "10", None)
+    unsupported.market = "Other"
+    unsupported.capture_supported = False
+    db_session.add_all([_cash("USD Cash", "USD", "1000"), unsupported])
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    by_name = {hv.name: hv for hv in snap.holdings}
+    assert by_name["USD Cash"].pricing_mode == "manual"
+    assert by_name["Unresolvable"].pricing_mode == "auto"
+    assert by_name["Unresolvable"].capture_supported is False
+
+
+def test_holding_value_exposes_notes(db_session: Session) -> None:
+    """Grok review round 2 (PR #322): issue #320 decision 3 / comment 2 both
+    list `notes` as one of the user-entered fields the no-quote block must
+    show; the frozen HoldingValueOut contract table omitted it (a doc gap,
+    not a deliberate exclusion) — added here to close it."""
+    _seed_fx(db_session)
+    unsupported = _stock("Unresolvable", None, "GBP", "10", None)
+    unsupported.market = "Other"
+    unsupported.capture_supported = False
+    unsupported.notes = "Private placement, no public ticker"
+    db_session.add(unsupported)
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    assert snap.holdings[0].notes == "Private placement, no public ticker"
 
 
 def test_unpriced_holding_kept_in_list_but_excluded_from_aggregates(
