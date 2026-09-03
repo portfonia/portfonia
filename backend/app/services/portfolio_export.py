@@ -108,8 +108,22 @@ def _meta_labels(locale: str) -> tuple[str, str]:
     )
 
 
+# compute_portfolio()'s _ratio() (portfolio_calculator.py) stores this field
+# as a 0..1 fraction, not a percent — every other consumer (the /portfolio
+# table's formatPercent, the overview email's `:.1%`) multiplies by 100
+# before display. Scale here too, or the exported figure reads 100x too
+# small under a "%"-labeled column (PR #335 review 5103601953).
+_PERCENT_SCALE_COLUMNS = frozenset({"unrealized_pnl_pct"})
+
+
 def _row_values(holding: HoldingValue) -> list[object]:
-    return [getattr(holding, column) for column in EXPORT_COLUMNS]
+    values: list[object] = []
+    for column in EXPORT_COLUMNS:
+        value = getattr(holding, column)
+        if column in _PERCENT_SCALE_COLUMNS and isinstance(value, Decimal):
+            value = value * 100
+        values.append(value)
+    return values
 
 
 def _fmt_decimal(value: Decimal) -> str:

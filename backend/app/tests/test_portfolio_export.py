@@ -12,6 +12,7 @@ from datetime import date
 from decimal import Decimal
 from io import BytesIO
 
+import pytest
 from openpyxl import load_workbook
 
 from app.services.portfolio_calculator import HoldingValue, PortfolioSnapshot
@@ -45,7 +46,12 @@ _HOLDING = HoldingValue(
     capture_supported=True,
     cost_basis_base=Decimal("2505.00"),
     unrealized_pnl_base=Decimal("495.00"),
-    unrealized_pnl_pct=Decimal("19.76"),
+    # Real backend scale (PR #335 review 5103601953): compute_portfolio()'s
+    # _ratio() stores a 0..1 fraction, not a percent — 495/2505 = 0.1976,
+    # matching pnl_base/cost_basis_base above. A literal "19.76" here would
+    # mask the exact bug the review caught: the exporter must scale this one
+    # column by 100 before rendering, everything else passes through as-is.
+    unrealized_pnl_pct=Decimal("0.1976"),
 )
 
 
@@ -129,6 +135,31 @@ def test_md_row_values() -> None:
     assert row["market_value_base"] == "3000"
     assert row["pricing_mode"] == "auto"
     assert row["capture_supported"] == "true"
+    assert row["unrealized_pnl_pct"] == "19.76"
+
+
+def test_unrealized_pnl_pct_is_scaled_to_percent_not_raw_ratio() -> None:
+    """PR #335 review 5103601953: compute_portfolio() stores unrealized_pnl_pct
+    as a 0..1 ratio (portfolio_calculator.py's _ratio(), quantized to 4dp) —
+    every other consumer (the /portfolio table's formatPercent, the overview
+    email's :.1%) multiplies by 100 before display. Serializing the raw
+    Decimal under a "%"-labeled column understates the real figure 100x."""
+    holding = HoldingValue(**{**_HOLDING.__dict__, "unrealized_pnl_pct": Decimal("0.1976")})
+    snap = _snapshot(holdings=[holding])
+
+    md_row = render_portfolio_export_md(snap, "en").splitlines()[5]
+    md_cells = [c.strip() for c in md_row.strip("|").split("|")]
+    assert dict(zip(EXPORT_COLUMNS, md_cells, strict=True))["unrealized_pnl_pct"] == "19.76"
+
+    xlsx = render_portfolio_export_xlsx(snap, "en")
+    wb = load_workbook(BytesIO(xlsx))
+    ws = wb.active
+    assert ws is not None
+    rows = list(ws.iter_rows(values_only=True))
+    header_row_idx = next(i for i, r in enumerate(rows) if r[0] == "Ticker")
+    data_row = rows[header_row_idx + 1]
+    pct_idx = EXPORT_COLUMNS.index("unrealized_pnl_pct")
+    assert data_row[pct_idx] == pytest.approx(19.76)
 
 
 def test_md_locale_switches_headers() -> None:
