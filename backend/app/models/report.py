@@ -4,12 +4,23 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import Date, ForeignKey, Text, UniqueConstraint, func, text
+from sqlalchemy import CheckConstraint, Date, ForeignKey, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
 from app.models.user import User
+
+# issue #104: same closed set as email_verifications.purpose (account_email /
+# delivery_email) — recipient_purpose only ever records which of those two
+# fields the send actually used, never ops_manual (reports are never sent to
+# an Ops-probed address).
+VALID_REPORT_RECIPIENT_PURPOSES = ("account_email", "delivery_email")
+
+
+def _in_list_sql(column: str, values: tuple[str, ...]) -> str:
+    quoted = ", ".join(f"'{v}'" for v in sorted(values))
+    return f"{column} IN ({quoted})"
 
 
 class Report(Base):
@@ -21,6 +32,13 @@ class Report(Base):
             "report_type",
             "session_node",
             name="uq_reports_user_date_type_session",
+        ),
+        # Nullable column: a NULL value never trips a SQL CHECK (only FALSE
+        # does), so this only constrains rows that actually recorded a
+        # purpose — same pattern as email_verifications.purpose.
+        CheckConstraint(
+            _in_list_sql("recipient_purpose", VALID_REPORT_RECIPIENT_PURPOSES),
+            name="recipient_purpose",
         ),
     )
 
@@ -52,6 +70,14 @@ class Report(Base):
     # issue #45: Resend's own delivery id, so a sent report can be
     # cross-referenced against Resend's delivery/bounce/complaint webhooks.
     provider_message_id: Mapped[str | None] = mapped_column(Text)
+    # issue #104 (Ring 1-Email Validation.md, 2026-09-03 section): the REAL
+    # address/purpose a send actually used, written atomically alongside
+    # email_sent_at/provider_message_id. Deliberately not re-derived from
+    # recipient_email_with_purpose() after the fact — the user may have
+    # changed their delivery address between send and any later read, and
+    # poll_report_delivery needs the address this SPECIFIC send reached.
+    recipient_email: Mapped[str | None] = mapped_column(Text)
+    recipient_purpose: Mapped[str | None] = mapped_column(Text)
     generated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     # ADR-002: the intel/price window this report covered. period_start = the
     # previous report's period_end (watermark); period_end = this run's cutoff.

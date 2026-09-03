@@ -393,6 +393,14 @@ def send_report_email(report: Report, session: Session) -> bool:
                 email_sent_at=sent_at,
                 report_html=html_body,
                 provider_message_id=resend_id,
+                # issue #104 requirement #2: the REAL address/purpose this
+                # send used, in the SAME atomic write as email_sent_at/
+                # provider_message_id — not a second, separately-timed
+                # write, and not re-derived later from
+                # recipient_email_with_purpose() (which reads the user's
+                # *current* address, not what this specific send reached).
+                recipient_email=recipient,
+                recipient_purpose=purpose,
             )
         )
         session.commit()
@@ -431,6 +439,8 @@ def send_report_email(report: Report, session: Session) -> bool:
     report.email_sent_at = sent_at
     report.report_html = html_body
     report.provider_message_id = resend_id
+    report.recipient_email = recipient
+    report.recipient_purpose = purpose
 
     logger.info(
         "report %s: email delivered to %s (subject: %s, resend_id: %s)",
@@ -439,6 +449,25 @@ def send_report_email(report: Report, session: Session) -> bool:
         subject,
         resend_id or "unknown",
     )
+
+    if resend_id is not None:
+        # issue #104: schedule the same delivery-status poll pattern
+        # create_verification uses for email_verifications — lazy import to
+        # avoid a module-level cycle (report_delivery_tasks imports this
+        # module's send_ops_alert, lazily, for the same reason). Only the
+        # winning branch above reaches here, so a concurrent dedup'd sender
+        # never double-schedules. Best-effort: a broker outage here must
+        # not turn an otherwise-successful send into a misleading error —
+        # the email is already delivered and persisted; a missed poll just
+        # means an eventual bounce/complaint won't be auto-detected.
+        from app.tasks.email_verification_tasks import POLL_DELAY_SECONDS
+        from app.tasks.report_delivery_tasks import poll_report_delivery
+
+        try:
+            poll_report_delivery.apply_async(args=[str(report.id)], countdown=POLL_DELAY_SECONDS)
+        except Exception:
+            logger.exception("report %s: failed to schedule delivery-status poll", report.id)
+
     return True
 
 

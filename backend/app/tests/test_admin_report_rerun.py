@@ -34,7 +34,7 @@ _RID = uuid.UUID("00000000-0000-0000-0000-0000000000c3")
 _OTHER_UID = uuid.UUID("00000000-0000-0000-0000-0000000000c4")
 
 
-def _user(user_id: uuid.UUID, email: str) -> User:
+def _user(user_id: uuid.UUID, email: str, *, email_verified_at: datetime | None = None) -> User:
     return User(
         id=user_id,
         auth_provider="supabase",
@@ -44,6 +44,7 @@ def _user(user_id: uuid.UUID, email: str) -> User:
         locale="zh",
         base_currency="USD",
         report_cadence="mwf",
+        email_verified_at=email_verified_at,
     )
 
 
@@ -299,3 +300,97 @@ def test_rerun_translates_openai_api_error_to_502(
 
     assert resp.status_code == 502
     assert "APIError" in resp.json()["detail"]
+
+
+# --- issue #104 requirement #6: manual resend cooldown ---
+
+
+def test_rerun_resend_blocked_by_cooldown_returns_429(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """A verified recipient in cooldown must block the whole resend action
+    BEFORE email_sent_at/provider_message_id are cleared — that clearing is
+    itself the overwrite poll_report_delivery's delayed read needs
+    protecting from (design doc's 2026-09-03 section), not just the send."""
+    db_session.add(_user(_UID, "ops-target@example.com", email_verified_at=datetime.now(tz=UTC)))
+    db_session.flush()
+    original = _report(
+        _RID,
+        _UID,
+        email_sent_at=datetime(2026, 9, 2, 22, 0, tzinfo=UTC),
+        provider_message_id="old-message-id",
+    )
+    db_session.add(original)
+    db_session.flush()
+
+    with (
+        patch("app.routers.admin.check_report_resend_cooldown", return_value=420) as mock_cooldown,
+        patch("app.routers.admin.regenerate_report") as mock_regen,
+        patch("app.routers.admin.send_report_email") as mock_send,
+    ):
+        resp = app_client.post(_path(_UID, _RID), headers=_headers(), json={"resend": True})
+
+    assert resp.status_code == 429
+    assert "420" in resp.json()["detail"]
+    mock_cooldown.assert_called_once_with("ops-target@example.com")
+    mock_regen.assert_not_called()
+    mock_send.assert_not_called()
+
+    # The row must be untouched — the whole point of checking before clearing.
+    row = db_session.get(Report, _RID)
+    assert row is not None
+    assert row.email_sent_at == datetime(2026, 9, 2, 22, 0, tzinfo=UTC)
+    assert row.provider_message_id == "old-message-id"
+
+
+def test_rerun_resend_claims_cooldown_for_the_resolved_recipient_then_proceeds(
+    app_client: TestClient, db_session: Session
+) -> None:
+    db_session.add(_user(_UID, "ops-target@example.com", email_verified_at=datetime.now(tz=UTC)))
+    db_session.flush()
+    original = _report(
+        _RID,
+        _UID,
+        email_sent_at=datetime(2026, 9, 2, 22, 0, tzinfo=UTC),
+        provider_message_id="old-message-id",
+    )
+    db_session.add(original)
+    db_session.flush()
+
+    regenerated = _report(_RID, _UID, status="success")
+
+    with (
+        patch("app.routers.admin.check_report_resend_cooldown", return_value=None) as mock_cooldown,
+        patch("app.routers.admin.regenerate_report", return_value=regenerated) as mock_regen,
+        patch("app.routers.admin.send_report_email", return_value=True) as mock_send,
+    ):
+        resp = app_client.post(_path(_UID, _RID), headers=_headers(), json={"resend": True})
+
+    assert resp.status_code == 200
+    mock_cooldown.assert_called_once_with("ops-target@example.com")
+    mock_regen.assert_called_once()
+    mock_send.assert_called_once_with(regenerated, db_session)
+
+
+def test_rerun_resend_skips_cooldown_check_when_no_verified_recipient(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """No verified address means send_report_email will fail-closed on its
+    own — nothing will be sent either way, so there's no overwrite risk for
+    the cooldown to guard against, and it must not even be consulted."""
+    db_session.add(_user(_UID, "ops-target@example.com"))  # email_verified_at unset
+    db_session.flush()
+    db_session.add(_report(_RID, _UID))
+    db_session.flush()
+
+    regenerated = _report(_RID, _UID, status="success")
+
+    with (
+        patch("app.routers.admin.check_report_resend_cooldown") as mock_cooldown,
+        patch("app.routers.admin.regenerate_report", return_value=regenerated),
+        patch("app.routers.admin.send_report_email", return_value=False),
+    ):
+        resp = app_client.post(_path(_UID, _RID), headers=_headers(), json={"resend": True})
+
+    assert resp.status_code == 200
+    mock_cooldown.assert_not_called()

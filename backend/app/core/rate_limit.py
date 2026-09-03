@@ -494,3 +494,48 @@ def release_portfolio_overview_cooldown(user_id: str) -> None:
             "(store unavailable) — it will expire naturally",
             user_id,
         )
+
+
+# issue #104 (Ring 1-Email Validation.md, 2026-09-03 section, frozen
+# requirement #6): 15-minute cooldown on MANUAL report resends only (admin
+# `resend=true`, future self-service regenerate+resend) — NOT the scheduled
+# cadence fan-out, which the design explicitly excludes (a user can only
+# have one report_cadence at a time, so there's no cross-cadence race for
+# this to guard against). Keyed by RECIPIENT ADDRESS, not report id or user
+# id: a `Report` row is overwritten in place on resend (unlike
+# email_verifications' append-only supersede), so a manual resend racing
+# `poll_report_delivery`'s 10-minute (POLL_DELAY_SECONDS) delayed read of
+# the same row would make that stale task read the NEW send's data instead
+# of the one it meant to check. 15 > 10 structurally guarantees the poll
+# always completes first. Same `set_nx` claim shape as the portfolio
+# overview cooldown above — a routine double-click/retry here is expected,
+# not an abuse signal, so this is deliberately not built on `_enforce_ip`/
+# `_trip`. sha256(email) bucket, matching resend-verification's per-address
+# bucket above — the raw address never becomes part of a Redis key name.
+REPORT_RESEND_COOLDOWN_SECONDS = 900
+
+
+def _report_resend_key(email: str) -> str:
+    return f"rl:report_resend:{hashlib.sha256(email.encode()).hexdigest()}"
+
+
+def check_report_resend_cooldown(email: str) -> int | None:
+    """Claim the manual-resend slot for *email*, or report seconds left to wait.
+
+    Returns `None` and claims the cooldown window if clear to send. Returns
+    the remaining seconds (>0) if still in cooldown — the caller must not
+    send in that case. Fails closed (503) if the counter store is
+    unavailable, consistent with every other limiter in this module.
+    """
+    key = _report_resend_key(email)
+    try:
+        claimed = get_backend().set_nx(key, REPORT_RESEND_COOLDOWN_SECONDS)
+        if claimed:
+            return None
+        remaining = get_backend().ttl(key)
+    except RateLimitUnavailable:
+        logger.exception("rate_limit: report resend cooldown store unavailable")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=UNAVAILABLE_DETAIL
+        ) from None
+    return remaining if remaining > 0 else REPORT_RESEND_COOLDOWN_SECONDS

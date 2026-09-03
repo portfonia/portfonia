@@ -37,7 +37,7 @@ from app.core.config import get_settings
 from app.core.database import get_session
 from app.core.deps import require_ops_token
 from app.core.ops_log import log_ops_event
-from app.core.rate_limit import rate_limit_create_invite
+from app.core.rate_limit import check_report_resend_cooldown, rate_limit_create_invite
 from app.models.email_verification import EmailVerification
 from app.models.holding import Holding
 from app.models.invite import Invite
@@ -69,6 +69,7 @@ from app.services.invites import (
 )
 from app.services.llm_errors import LLMEmptyResponseError
 from app.services.report_generator import generate_report, regenerate_report
+from app.services.user_directory import recipient_email_with_purpose
 from app.services.user_purge import purge_user
 from app.services.user_scope import report_language_for
 from app.tasks.admin_tasks import send_admin_alert_task
@@ -546,6 +547,23 @@ def rerun_report_for_user(
         raise HTTPException(status_code=404, detail="report not found")
 
     if req.resend:
+        # issue #104 requirement #6: 15-minute manual-resend cooldown, keyed
+        # by recipient address — checked BEFORE clearing email_sent_at/
+        # provider_message_id below, because that clearing (not just the
+        # eventual send) is the actual overwrite poll_report_delivery's
+        # 10-minute-delayed read of THIS row needs protection from. Skipped
+        # entirely when there's no verified address to resolve — nothing
+        # will be sent in that case either way (send_report_email's own
+        # fail-closed handling), so there's no overwrite risk to guard.
+        resolved = recipient_email_with_purpose(session, user_id)
+        if resolved is not None:
+            recipient_email, _purpose = resolved
+            remaining = check_report_resend_cooldown(recipient_email)
+            if remaining is not None:
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"manual resend cooldown active, retry in {remaining}s",
+                )
         report.email_sent_at = None
         report.provider_message_id = None
         session.flush()

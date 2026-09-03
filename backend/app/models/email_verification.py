@@ -18,6 +18,7 @@ VALID_EMAIL_VERIFICATION_STATUSES = (
     "superseded",
     "undeliverable",
     "revoked",
+    "auto_revoked",
 )
 
 
@@ -76,6 +77,13 @@ class EmailVerification(Base):
     # (issue #45) — used to poll GET /emails/{id} for a bounce/complaint
     # signal (design doc §3.3 step 6).
     provider_message_id: Mapped[str | None] = mapped_column(Text)
+    # issue #104: only ever set on an `auto_revoked` row, holding the raw
+    # Resend `last_event` that triggered it (bounced/complained/failed/
+    # suppressed — Resend's GET /emails/{id} has no finer-grained reason
+    # field, per §二 investigation). Left null on a user-initiated `revoked`
+    # row (issue #257) — that status already means "the user clicked
+    # unsubscribe", nothing more to record.
+    revoke_reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
