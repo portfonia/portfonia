@@ -9,6 +9,7 @@ import { BreakdownChart } from "./breakdown-chart";
 import { CurrencyModeSwitcher } from "./currency-mode-switcher";
 import { CurrencySwitcher } from "./currency-switcher";
 import { DEFAULT_BASE_CURRENCY, type BaseCurrency } from "./currencies";
+import { ExportPortfolioButtons } from "./export-portfolio-buttons";
 import { NoLivePriceSection } from "./no-live-price-section";
 import { PnlSummaryCard } from "./pnl-summary-card";
 import {
@@ -127,6 +128,7 @@ export function PortfolioPageBody({
             disabled={isPending}
           />
           <SendOverviewButton baseCurrency={summary.base_currency} disabled={isPending} />
+          <ExportPortfolioButtons baseCurrency={summary.base_currency} disabled={isPending} />
         </div>
       </div>
 

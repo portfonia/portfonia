@@ -31,7 +31,7 @@ exclude = ["venv/", "alembic/versions/"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["yfinance.*", "pandas.*", "feedparser.*", "feedparser"]
+module = ["yfinance.*", "pandas.*", "feedparser.*", "feedparser", "openpyxl.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import logging
 from typing import Annotated, Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.core.database import get_session
@@ -19,6 +21,12 @@ from app.schemas.portfolio import (
     SendOverviewResponse,
 )
 from app.services.portfolio_calculator import compute_portfolio
+from app.services.portfolio_export import (
+    ExportFormat,
+    portfolio_export_filename,
+    render_portfolio_export_md,
+    render_portfolio_export_xlsx,
+)
 from app.tasks.notification_tasks import send_portfolio_overview_email_task
 
 router = APIRouter()
@@ -46,6 +54,20 @@ BaseCurrency = Literal[
     "MOP",
     "NZD",
 ]
+
+
+def _export_locale(session: Session, user_id: UUID) -> str:
+    """Same fallback as holdings.py's `_report_locale` (issue #319 pattern):
+    `users.locale` when set to a recognized report language, else English.
+    Deliberately re-derived here rather than imported — each export module
+    keeps its own tiny locale helper (holdings_export.py /
+    email_verification.py follow the same per-module convention)."""
+    from app.models.user import User
+
+    user = session.get(User, user_id)
+    if user is None or user.locale not in ("en", "zh"):
+        return "en"
+    return user.locale
 
 
 @router.get("/summary", response_model=PortfolioSummaryResponse)
@@ -137,3 +159,36 @@ def send_portfolio_overview(
         release_portfolio_overview_cooldown(user_id)
         return SendOverviewResponse(sent=False, retry_after_seconds=None)
     return SendOverviewResponse(sent=True)
+
+
+@router.get("/export")
+def export_portfolio(
+    format: Annotated[ExportFormat, Query()],
+    base_currency: Annotated[BaseCurrency, Query()] = "USD",
+    locale: str | None = Query(None),
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+) -> Response:
+    """Computed, priced snapshot export (issue #331) — distinct from
+    GET /holdings/export (issue #92/#310), which exports declared, unpriced
+    fields for re-import. Reuses `compute_portfolio()`, the same computation
+    GET /portfolio/summary already runs; no `by_*` aggregate is ever
+    serialized here, only the per-holding rows.
+
+    `locale`, when given, takes precedence over `users.locale` — same
+    precedence as GET /holdings/export (issue #319 item 9).
+    """
+    snap = compute_portfolio(session, user_id=principal.user_id, base_currency=base_currency)
+    effective_locale = locale if locale is not None else _export_locale(session, principal.user_id)
+    filename = portfolio_export_filename(format)
+    if format == "xlsx":
+        return Response(
+            content=render_portfolio_export_xlsx(snap, effective_locale),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    return Response(
+        content=render_portfolio_export_md(snap, effective_locale),
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

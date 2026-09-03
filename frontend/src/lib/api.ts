@@ -377,6 +377,29 @@ export async function sendPortfolioOverview(baseCurrency: string): Promise<SendO
   return res.json() as Promise<SendOverviewResponse>;
 }
 
+export type PortfolioExportFormat = "xlsx" | "md";
+
+// GET /portfolio/export (issue #331) — the computed, priced snapshot
+// (per-holding rows + as-of/base-currency header), distinct from
+// exportHoldings() above (declared, unpriced fields for re-import).
+// `locale` follows the same override-users.locale precedence as
+// exportHoldings/downloadHoldingsTemplate (issue #319 item 9).
+export async function exportPortfolio(
+  format: PortfolioExportFormat,
+  baseCurrency: string,
+  locale?: string,
+): Promise<{ blob: Blob; filename: string }> {
+  const params = new URLSearchParams({ format, base_currency: baseCurrency });
+  if (locale) params.set("locale", locale);
+  const res = await fetch(`/api/portfolio/export?${params.toString()}`, { cache: "no-store" });
+  if (!res.ok) await throwOnHttpError(res);
+  const filename = filenameFromContentDisposition(
+    res.headers.get("Content-Disposition"),
+    `portfolio.${format}`,
+  );
+  return { blob: await res.blob(), filename };
+}
+
 // Mirrors backend/app/schemas/questionnaire.py's QuestionnaireIn (issue #129
 // checkpoint B6). Every field is a closed enum the backend validates at the
 // API boundary (422 on an unrecognized value) — this client type exists so a
