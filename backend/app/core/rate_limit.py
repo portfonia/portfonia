@@ -1,5 +1,8 @@
-"""Fixed-window rate limits for signup, invite minting (issue #190), and
-forgot-password (issue #231)."""
+"""Fixed-window rate limits for signup, invite minting (issue #190),
+forgot-password (issue #231), and the portfolio overview email's 15-minute
+per-user send cooldown (issue #202 — a `set_nx` claim/release, not a
+fixed-window counter like the others, since a routine cooldown hit here is
+not an abuse signal worth an ops alert)."""
 
 from __future__ import annotations
 
@@ -82,6 +85,7 @@ class CounterBackend(Protocol):
     def incr_with_ttl(self, key: str, ttl_seconds: int) -> int: ...
     def ttl(self, key: str) -> int: ...
     def set_nx(self, key: str, ttl_seconds: int) -> bool: ...
+    def delete(self, key: str) -> None: ...
 
 
 class InMemoryBackend:
@@ -128,6 +132,9 @@ class InMemoryBackend:
         self._data[key] = (1, self._now + ttl_seconds)
         return True
 
+    def delete(self, key: str) -> None:
+        self._data.pop(key, None)
+
 
 class RedisBackend:
     def __init__(self, client: Redis) -> None:
@@ -159,6 +166,12 @@ class RedisBackend:
     def set_nx(self, key: str, ttl_seconds: int) -> bool:
         try:
             return bool(self._client.set(key, "1", ex=int(ttl_seconds), nx=True))
+        except RedisError as exc:
+            raise RateLimitUnavailable from exc
+
+    def delete(self, key: str) -> None:
+        try:
+            self._client.delete(key)
         except RedisError as exc:
             raise RateLimitUnavailable from exc
 
@@ -424,3 +437,60 @@ def rate_limit_enforce_resend_verification(*, user_id: str, email: str) -> None:
         ((RESEND_VERIFICATION_EMAIL_HOUR_LIMIT, RESEND_VERIFICATION_EMAIL_HOUR_TTL),),
         scope="resend-verification-email",
     )
+
+
+# issue #202: cooldown for POST /portfolio/send-overview. Deliberately NOT
+# built on `_enforce_ip`/`_trip` — those alert on every trip (right for an
+# abuse-shaped limiter like resend-verification, where hitting the limit is
+# itself the signal), but a user clicking this button twice inside 15
+# minutes is the routine, expected case, not an anomaly. This uses `set_nx`
+# as an atomic claim instead: at most one concurrent caller wins it, closing
+# the double-click race without a separate check-then-set step.
+PORTFOLIO_OVERVIEW_COOLDOWN_SECONDS = 900
+
+
+def _portfolio_overview_key(user_id: str) -> str:
+    return f"rl:portfolio_overview:{user_id}"
+
+
+def check_portfolio_overview_cooldown(user_id: str) -> int | None:
+    """Claim the send slot for *user_id*, or report seconds left to wait.
+
+    Returns `None` and claims the cooldown window if the user is clear to
+    send. Returns the remaining seconds (>0) if still in cooldown — the
+    caller sends nothing in that case. Fails closed (503) if the counter
+    store is unavailable, consistent with every other limiter in this
+    module.
+    """
+    key = _portfolio_overview_key(user_id)
+    try:
+        claimed = get_backend().set_nx(key, PORTFOLIO_OVERVIEW_COOLDOWN_SECONDS)
+        if claimed:
+            return None
+        remaining = get_backend().ttl(key)
+    except RateLimitUnavailable:
+        logger.exception("rate_limit: portfolio overview cooldown store unavailable")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=UNAVAILABLE_DETAIL
+        ) from None
+    return remaining if remaining > 0 else PORTFOLIO_OVERVIEW_COOLDOWN_SECONDS
+
+
+def release_portfolio_overview_cooldown(user_id: str) -> None:
+    """Undo a claim made by `check_portfolio_overview_cooldown` (review
+    5100733033 leftover): if the router's `.delay()` call right after the
+    claim actually fails (broker down), the send never happened at all —
+    without this, the user would be locked out of retrying for the full
+    15 minutes over a message that was never even queued. Best-effort: a
+    store outage here just leaves the claim in place (the user waits out
+    the cooldown as normal), it must not itself raise and turn a caller's
+    already-logged enqueue failure into an unhandled second exception.
+    """
+    try:
+        get_backend().delete(_portfolio_overview_key(user_id))
+    except RateLimitUnavailable:
+        logger.warning(
+            "rate_limit: could not release portfolio overview cooldown for user_id=%s "
+            "(store unavailable) — it will expire naturally",
+            user_id,
+        )

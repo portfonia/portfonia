@@ -1,6 +1,6 @@
 """Celery application and Beat schedule (Stage H + ADR-002 capture layer)."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from celery import Celery  # type: ignore[import-untyped]
@@ -24,6 +24,7 @@ celery_app = Celery(
         "app.tasks.cache_tasks",
         "app.tasks.admin_tasks",
         "app.tasks.email_verification_tasks",
+        "app.tasks.notification_tasks",
     ],
 )
 
@@ -104,6 +105,29 @@ _REPORT_CADENCES: tuple[tuple[str, str, str, dict[str, Any], str], ...] = (
         "weekly",
     ),
 )
+
+
+def next_occurrence_for_cadence(cadence: str, now: datetime) -> datetime:
+    """Next ET fire time for *cadence*, per `_REPORT_CADENCES` (issue #202).
+
+    Reads the same `cron_kwargs` Beat schedules from, via `crontab.
+    remaining_estimate`, rather than a second hand-rolled weekday/hour
+    calculation that could drift from the real schedule.
+
+    `remaining_estimate` measures "remaining" from its own `nowfun()`, not
+    from the `last_run_at` argument (that argument only anchors which past
+    occurrence to search forward from) — so `nowfun` must be pinned to
+    *now_et* or the result silently drifts to whatever the real wall clock
+    is when this happens to run, exactly the `_NowIn` problem `_node_cron`
+    already solves for Beat's own schedule.
+    """
+    for _, _, _, cron_kwargs, row_cadence in _REPORT_CADENCES:
+        if row_cadence == cadence:
+            now_et = now.astimezone(ET)
+            cron = crontab(**cron_kwargs, nowfun=lambda pinned=now_et: pinned)
+            delta: timedelta = cron.remaining_estimate(now_et)
+            return now_et + delta
+    raise ValueError(f"unknown report cadence: {cadence!r}")
 
 
 def _build_report_schedule() -> dict[str, dict[str, Any]]:

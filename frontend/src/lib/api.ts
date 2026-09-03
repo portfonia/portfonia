@@ -358,6 +358,24 @@ export async function getPortfolioSummary(baseCurrency: string): Promise<Portfol
   return res.json() as Promise<PortfolioSummary>;
 }
 
+// issue #202: explicit "Send holdings overview" button on /portfolio.
+// `sent: false` + `retry_after_seconds` is the routine 15-minute-cooldown
+// case, not an error — the caller renders "still N minutes left", not a
+// failure message.
+export interface SendOverviewResponse {
+  sent: boolean;
+  retry_after_seconds: number | null;
+}
+
+export async function sendPortfolioOverview(baseCurrency: string): Promise<SendOverviewResponse> {
+  const res = await fetch(
+    `/api/portfolio/send-overview?base_currency=${encodeURIComponent(baseCurrency)}`,
+    { method: "POST", cache: "no-store" },
+  );
+  if (!res.ok) await throwOnHttpError(res);
+  return res.json() as Promise<SendOverviewResponse>;
+}
+
 // Mirrors backend/app/schemas/questionnaire.py's QuestionnaireIn (issue #129
 // checkpoint B6). Every field is a closed enum the backend validates at the
 // API boundary (422 on an unrecognized value) — this client type exists so a

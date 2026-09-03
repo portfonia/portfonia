@@ -66,6 +66,7 @@
   "holdings": {
     "pageTitle": "持倉",
     "pageSubtitle": "上傳檔案以匯入持倉，核對後儲存。",
+    "viewPortfolioLink": "查看持倉總覽",
     "currentHeading": "目前持倉",
     "emptyState": "尚無持倉，上傳檔案開始使用。",
     "exportButton": "匯出目前持倉",
@@ -399,6 +400,11 @@
     "refreshError": "切換貨幣時刷新失敗，目前顯示上一次載入的數值。",
     "groupUngrouped": "未分組",
     "accountOther": "其他",
+    "sendOverviewButton": "傳送持倉總覽",
+    "sendOverviewSending": "傳送中…",
+    "sendOverviewSuccess": "總覽已傳送至您的信箱。",
+    "sendOverviewCooldown": "還需等待 {minutes} 分鐘才能再次傳送。",
+    "sendOverviewError": "傳送失敗，請稍後再試。",
     "assetClasses": {
       "STOCK": "個股",
       "EQUITY_US_BROAD": "美國寬基權益",

@@ -66,6 +66,7 @@
   "holdings": {
     "pageTitle": "持仓",
     "pageSubtitle": "上传文件以导入持仓，核对后保存。",
+    "viewPortfolioLink": "查看持仓总览",
     "currentHeading": "当前持仓",
     "emptyState": "暂无持仓，上传文件开始使用。",
     "exportButton": "导出当前持仓",
@@ -399,6 +400,11 @@
     "refreshError": "切换货币时刷新失败，当前显示的是上一次加载的数值。",
     "groupUngrouped": "未分组",
     "accountOther": "其他",
+    "sendOverviewButton": "发送持仓总览",
+    "sendOverviewSending": "发送中…",
+    "sendOverviewSuccess": "总览已发送至您的邮箱。",
+    "sendOverviewCooldown": "还需等待 {minutes} 分钟才能再次发送。",
+    "sendOverviewError": "发送失败，请稍后再试。",
     "assetClasses": {
       "STOCK": "个股",
       "EQUITY_US_BROAD": "美国宽基权益",

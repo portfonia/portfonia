@@ -182,6 +182,15 @@ def _no_external_notifications(monkeypatch: pytest.MonkeyPatch) -> None:
         "app.tasks.email_verification_tasks.poll_email_verification_delivery.apply_async",
         MagicMock(),
     )
+    # issue #202: same rationale as send_report_email above — a router test
+    # exercising POST /portfolio/send-overview must not hit real Resend, and
+    # the Celery dispatch it makes must not enqueue against a real broker.
+    monkeypatch.setattr(
+        "app.tasks.notification_tasks.send_portfolio_overview_email", MagicMock(return_value=True)
+    )
+    monkeypatch.setattr(
+        "app.tasks.notification_tasks.send_portfolio_overview_email_task.delay", MagicMock()
+    )
 
 
 def _admin_engine() -> Engine:
