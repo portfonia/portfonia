@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,6 +21,7 @@ interface Slice {
   key: string; // raw backend dict key — guaranteed unique, used for React/Cell keys
   name: string; // display label — may collide with another slice's label, harmlessly
   value: number;
+  formatted: string; // precomputed amount text — read back from the recharts Tooltip payload
 }
 
 export function BreakdownChart({
@@ -29,6 +31,10 @@ export function BreakdownChart({
   currency,
   emptyLabel,
   labelFor,
+  formatValue,
+  showShareOfTotal = true,
+  showPie = true,
+  headerControl,
 }: {
   title: string;
   description?: string;
@@ -42,43 +48,80 @@ export function BreakdownChart({
   // the two into one, dropping a slice. Translating only at display time
   // (this prop), while grouping on the untouched raw key, can't collide.
   labelFor?: (key: string) => string;
+  // Issue #330: the currency card's 本币/比例 modes aren't a single-currency
+  // money amount (本币 has a different currency per bucket; 比例 isn't money
+  // at all) — overriding the whole formatted string per (key, value) covers
+  // both without this component needing to know about display modes.
+  // Defaults to money in the page's `currency`, unchanged for every other
+  // caller.
+  formatValue?: (key: string, value: number) => string;
+  // 比例 mode's value is already a share of the total, so the legend's own
+  // "(NN.N%)" annotation would just repeat the main figure — suppress it
+  // there. Every other caller keeps the annotation (default true).
+  showShareOfTotal?: boolean;
+  // Issue #330 review round 1 (blocker 1): a pie's slice sizes are only
+  // meaningful when every slice shares one unit. 本币 mode's buckets are
+  // each in their own native currency — sizing arcs from those raw numbers
+  // would draw (say) 100,000 JPY as dominant over 1,000 USD regardless of
+  // which is actually worth more, mis-teaching currency mix. List-only
+  // (no pie) sidesteps the incommensurable-units problem instead of trying
+  // to size arcs from a different, normalized dataset than what's labeled.
+  showPie?: boolean;
+  // Issue #330: the currency card's mode switcher is local to that one card
+  // (design contract), not a page-level control — rendered in the header
+  // next to the title rather than lifted out as a separate component prop
+  // every other caller would have to pass null for.
+  headerControl?: ReactNode;
 }) {
+  const format = formatValue ?? ((_key: string, value: number) => formatMoney(String(value), currency));
   const total = Object.values(data).reduce((sum, v) => sum + Number(v), 0);
   const slices: Slice[] = Object.entries(data)
-    .map(([key, value]) => ({ key, name: labelFor ? labelFor(key) : key, value: Number(value) }))
+    .map(([key, value]) => ({
+      key,
+      name: labelFor ? labelFor(key) : key,
+      value: Number(value),
+      formatted: format(key, Number(value)),
+    }))
     .filter((slice) => slice.value > 0)
     .sort((a, b) => b.value - a.value);
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        {description ? <CardDescription>{description}</CardDescription> : null}
+      <CardHeader className="flex flex-row items-start justify-between gap-3">
+        <div>
+          <CardTitle>{title}</CardTitle>
+          {description ? <CardDescription>{description}</CardDescription> : null}
+        </div>
+        {headerControl}
       </CardHeader>
       <CardContent className="flex flex-col gap-4 px-4">
         {slices.length === 0 ? (
           <p className="text-sm text-muted-foreground">{emptyLabel}</p>
         ) : (
           <>
-            <div className="h-56 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={slices}
-                    dataKey="value"
-                    nameKey="name"
-                    innerRadius={48}
-                    outerRadius={84}
-                    paddingAngle={2}
-                  >
-                    {slices.map((slice, index) => (
-                      <Cell key={slice.key} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value) => formatMoney(String(value ?? "0"), currency)} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
+            {showPie ? (
+              <div className="h-56 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={slices}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={48}
+                      outerRadius={84}
+                      paddingAngle={2}
+                    >
+                      {slices.map((slice, index) => (
+                        <Cell key={slice.key} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      formatter={(_value, _name, item) => (item.payload as Slice).formatted}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            ) : null}
             <ul className="flex flex-col gap-1.5 text-sm">
               {slices.map((slice, index) => (
                 <li key={slice.key} className="flex items-center justify-between gap-3">
@@ -93,8 +136,10 @@ export function BreakdownChart({
                     <span className="truncate">{slice.name}</span>
                   </span>
                   <span className="shrink-0 tabular-nums text-foreground/80">
-                    {formatMoney(String(slice.value), currency)}
-                    {total > 0 ? ` (${((slice.value / total) * 100).toFixed(1)}%)` : null}
+                    {slice.formatted}
+                    {showShareOfTotal && total > 0
+                      ? ` (${((slice.value / total) * 100).toFixed(1)}%)`
+                      : null}
                   </span>
                 </li>
               ))}

@@ -813,3 +813,61 @@ anchors which past occurrence to search forward from), so an unpinned
 crontab silently computes against the real wall clock regardless of what
 "now" the caller intended — caught by a test asserting the exact next
 weekday/time, not just "some future datetime".
+
+### Portfolio dashboard: by-account breakdown, currency display modes, sector removal (issue #330, PR #332)
+
+Three UX changes to `/portfolio`, scoped in a design-contract comment on
+the issue (comments beat the issue summary; GitHub beats the Paperview
+vault mirror when they disagree).
+
+**`by_account` renamed to `by_broker`** (`PortfolioSnapshot`/
+`PortfolioSummaryResponse`/`compute_portfolio()`, `portfolio_calculator.py`,
+`schemas/portfolio.py`, `routers/portfolio.py`) — the field the C2 entry
+above describes as `by_account aggregates Holding.broker` was never
+per-account, just a custodian rollup; that description is now stale and
+superseded by this entry. A genuine `by_account` was added alongside it,
+keyed on `h.account or "Other"` (the free-text `Holding.account` column,
+not the normalized `accounts` table — same "stays at zero read-paths from
+this dashboard" reasoning as the C2 entry's `account_id` argument, since
+`Account` rows dedup on `(broker, account, portfolio)` and would fold
+dimensions back together). Both fields keep the C2-era exclusion gate
+(`market_value_base is not None`) and the same `"Other"` fallback literal,
+so `by_broker` and `by_account` can share one frontend constant
+(`ACCOUNT_OTHER_KEY`).
+
+**Currency card, three display modes** (本币/native, 归一/normalized,
+比例/percentage), computed entirely client-side — no new backend field,
+since `HoldingValueOut` already carries native `currency`/`market_value`
+and the full holdings list is already in the response. Normalized reuses
+`by_currency` unchanged (also the default, so no behavior change for
+anyone who never touches the switcher). `nativeCurrencyBreakdown()` and
+`currencySharePercentages()` (`portfolio-helpers.ts`) compute the other
+two. `BreakdownChart` gained `formatValue`, `showShareOfTotal`,
+`showPie`, and `headerControl` props to support a mode-local switcher
+without every other caller needing to know about display modes.
+
+Two round-1 review findings (blacktomb42, review 5101430049), both fixed
+in the same PR:
+- **Pie sizing must share one unit.** The pie's `dataKey="value"` was
+  wired straight to whichever record was active, so native mode sized
+  arcs from raw mixed-currency numbers — 100,000 JPY would visually
+  dwarf 1,000 USD regardless of which was actually worth more. Fixed by
+  adding `showPie` (default `true`) and setting it `false` for native
+  mode specifically — list-only there, sidestepping the incommensurable-
+  units problem rather than trying to size arcs from a second, different
+  dataset than the one being labeled.
+- **Native-mode membership must match normalized-mode membership.**
+  `nativeCurrencyBreakdown()` initially skipped only a holding with a
+  null `market_value`; `by_currency` (and thus normalized/percentage
+  mode) also requires `market_value_base` to be non-null, so a holding
+  with a stale FX rate (native value present, base conversion failed)
+  would appear in native mode and vanish in the other two. Fixed to skip
+  when either is null, matching `portfolio_calculator.py`'s own gate.
+
+**By-sector (GICS) card removed** from `/portfolio` — UI-only;
+`by_sector` stays in `PortfolioSnapshot`/`PortfolioSummaryResponse`/
+`portfolio_calculator.py` untouched, since redesigning "by industry" is a
+deferred, separate future issue, not blocked by this one.
+
+No drill-down (flat cards only, confirmed in the issue's own out-of-scope
+list); `Holding.account_id` untouched.

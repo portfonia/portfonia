@@ -6,14 +6,18 @@ import { useTranslations } from "next-intl";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getPortfolioSummary, type PortfolioSummary } from "@/lib/api";
 import { BreakdownChart } from "./breakdown-chart";
+import { CurrencyModeSwitcher } from "./currency-mode-switcher";
 import { CurrencySwitcher } from "./currency-switcher";
 import { DEFAULT_BASE_CURRENCY, type BaseCurrency } from "./currencies";
 import { NoLivePriceSection } from "./no-live-price-section";
 import { PnlSummaryCard } from "./pnl-summary-card";
 import {
   ACCOUNT_OTHER_KEY,
+  currencySharePercentages,
+  type CurrencyDisplayMode,
   formatMoney,
   GROUP_UNGROUPED_KEY,
+  nativeCurrencyBreakdown,
   partitionHoldings,
 } from "./portfolio-helpers";
 import { PortfolioHoldingsTable } from "./portfolio-holdings-table";
@@ -42,6 +46,10 @@ export function PortfolioPageBody({
   );
   const [loadError, setLoadError] = useState(initialLoadError);
   const [isPending, startTransition] = useTransition();
+  // Issue #330: local to the currency card, defaults to "normalized" —
+  // identical to by_currency's existing (only) behavior, so this is not a
+  // regression for anyone who never touches the new switcher.
+  const [currencyMode, setCurrencyMode] = useState<CurrencyDisplayMode>("normalized");
 
   if (loadError && !summary) {
     return <p className="text-sm text-destructive">{t("loadError")}</p>;
@@ -88,8 +96,25 @@ export function PortfolioPageBody({
   // review leftover, applying the same labelFor fix for consistency.
   const assetClassLabelFor = (code: string) => assetClassLabel(t, code);
   const groupLabelFor = (key: string) => (key === GROUP_UNGROUPED_KEY ? t("groupUngrouped") : key);
-  const accountLabelFor = (key: string) => (key === ACCOUNT_OTHER_KEY ? t("accountOther") : key);
+  // Shared by the by_broker (custodian) and by_account cards — both fall
+  // back to the same "Other" literal (issue #330).
+  const otherLabelFor = (key: string) => (key === ACCOUNT_OTHER_KEY ? t("accountOther") : key);
   const { priced, noLivePrice } = partitionHoldings(summary.holdings);
+
+  // Issue #330: three display modes for the currency card, computed
+  // entirely client-side per the design contract — no new backend field.
+  const currencyCardData =
+    currencyMode === "native"
+      ? nativeCurrencyBreakdown(priced)
+      : currencyMode === "percentage"
+        ? currencySharePercentages(summary.by_currency)
+        : summary.by_currency;
+  const currencyCardFormatValue =
+    currencyMode === "native"
+      ? (key: string, value: number) => formatMoney(String(value), key) // key IS the native currency here
+      : currencyMode === "percentage"
+        ? (_key: string, value: number) => `${value.toFixed(1)}%`
+        : undefined; // normalized: BreakdownChart's default money-in-base-currency formatting
 
   return (
     <div className="flex flex-col gap-6">
@@ -142,8 +167,15 @@ export function PortfolioPageBody({
         />
         <BreakdownChart
           title={t("chartByCustodian")}
+          data={summary.by_broker}
+          labelFor={otherLabelFor}
+          currency={summary.base_currency}
+          emptyLabel={t("chartEmpty")}
+        />
+        <BreakdownChart
+          title={t("chartByAccount")}
           data={summary.by_account}
-          labelFor={accountLabelFor}
+          labelFor={otherLabelFor}
           currency={summary.base_currency}
           emptyLabel={t("chartEmpty")}
         />
@@ -155,11 +187,21 @@ export function PortfolioPageBody({
           emptyLabel={t("chartEmpty")}
         />
         <BreakdownChart
-          title={t("chartBySector")}
-          description={t("chartBySectorScope")}
-          data={summary.by_sector}
+          title={t("chartByCurrency")}
+          data={currencyCardData}
           currency={summary.base_currency}
           emptyLabel={t("chartEmpty")}
+          formatValue={currencyCardFormatValue}
+          // Review 5101567455: native mode's "(NN.N%)" share annotation was
+          // still computed from mixed native currency amounts (same
+          // incommensurable-unit problem as the pie, just quieter) — an
+          // annotation implying a mix share doesn't make sense in percentage
+          // mode either, since the main figure already is that share.
+          showShareOfTotal={currencyMode === "normalized"}
+          showPie={currencyMode !== "native"}
+          headerControl={
+            <CurrencyModeSwitcher value={currencyMode} onChange={setCurrencyMode} />
+          }
         />
       </div>
 

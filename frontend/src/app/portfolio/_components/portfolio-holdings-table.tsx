@@ -56,7 +56,7 @@ export function PortfolioHoldingsTable({
               ) : null}
             </TableCell>
             <TableCell>{h.market}</TableCell>
-            {/* Same fallback label as the by_group/by_account chart legend
+            {/* Same fallback label as the by_group/by_broker chart legend
                 (Grok review round 1, PR #322) — "—" would leave a row
                 unmatchable to its own pie slice. */}
             <TableCell>{fallbackOrValue(h.portfolio, t("groupUngrouped"))}</TableCell>

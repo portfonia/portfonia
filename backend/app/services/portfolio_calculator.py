@@ -148,7 +148,8 @@ class PortfolioSnapshot:
     by_sector: dict[str, Decimal] = field(default_factory=dict)  # equity sectors only, §6.4
     by_asset_class: dict[str, Decimal] = field(default_factory=dict)  # all holdings, §1/§4.1
     by_group: dict[str, Decimal] = field(default_factory=dict)  # Holding.portfolio, C2 dashboard
-    by_account: dict[str, Decimal] = field(default_factory=dict)  # Holding.broker, C2 dashboard
+    by_broker: dict[str, Decimal] = field(default_factory=dict)  # Holding.broker, C2 dashboard
+    by_account: dict[str, Decimal] = field(default_factory=dict)  # Holding.account, issue #330
     concentration: Concentration = field(default_factory=Concentration)
     stale_tickers: list[str] = field(default_factory=list)
     stale_priced_tickers: list[str] = field(default_factory=list)
@@ -457,7 +458,11 @@ def compute_portfolio(
 
         group_key = h.portfolio or "Ungrouped"
         snapshot.by_group[group_key] = snapshot.by_group.get(group_key, _ZERO) + market_value_base
-        account_key = h.broker or "Other"
+        broker_key = h.broker or "Other"
+        snapshot.by_broker[broker_key] = (
+            snapshot.by_broker.get(broker_key, _ZERO) + market_value_base
+        )
+        account_key = h.account or "Other"
         snapshot.by_account[account_key] = (
             snapshot.by_account.get(account_key, _ZERO) + market_value_base
         )

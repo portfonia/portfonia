@@ -59,7 +59,8 @@ function summary(overrides: Partial<PortfolioSummary>): PortfolioSummary {
     by_sector: { Technology: "3000.00" },
     by_asset_class: { STOCK: "3000.00" },
     by_group: { Retirement: "3000.00" },
-    by_account: { Fidelity: "3000.00" },
+    by_broker: { Fidelity: "3000.00" },
+    by_account: { Other: "3000.00" },
     total_cost_basis_base: "2500.00",
     total_unrealized_pnl_base: "500.00",
     total_unrealized_pnl_pct: "0.2000",
@@ -162,6 +163,116 @@ describe("PortfolioPageBody", () => {
     expect(totalAssetsValue()).toHaveTextContent("3,000.00 USD");
     // The switcher reverted to USD — it no longer disagrees with the data.
     expect(screen.getByLabelText("Base currency")).toHaveValue("USD");
+  });
+
+  it("shows a by-broker (custodian) card and a separate by-account card (issue #330)", () => {
+    renderBody(
+      summary({
+        by_broker: { Fidelity: "3000.00" },
+        by_account: { "Individual Brokerage": "3000.00" },
+      }),
+    );
+
+    const custodianCard = screen.getByText("By custodian").closest('[data-slot="card"]');
+    if (!custodianCard) throw new Error("Custodian card not found");
+    expect(within(custodianCard as HTMLElement).getByText("Fidelity")).toBeInTheDocument();
+
+    const accountCard = screen.getByText("By account").closest('[data-slot="card"]');
+    if (!accountCard) throw new Error("Account card not found");
+    expect(within(accountCard as HTMLElement).getByText("Individual Brokerage")).toBeInTheDocument();
+  });
+
+  it("no longer renders a by-sector card (issue #330)", () => {
+    renderBody(summary({}));
+    expect(screen.queryByText("By sector")).not.toBeInTheDocument();
+  });
+
+  it("defaults the currency card to normalized (by_currency, unchanged behavior)", () => {
+    renderBody(summary({ by_currency: { USD: "3000.00" } }));
+
+    const currencyCard = screen.getByText("By currency").closest('[data-slot="card"]');
+    if (!currencyCard) throw new Error("Currency card not found");
+    const rows = within(currencyCard as HTMLElement).getAllByRole("listitem");
+    expect(rows.some((row) => row.textContent?.includes("3,000.00 USD"))).toBe(true);
+    expect(screen.getByLabelText("Display")).toHaveValue("normalized");
+  });
+
+  it("switches the currency card to native mode, summing each holding's own currency", async () => {
+    const user = userEvent.setup();
+    const usdHolding = priced({ holding_id: "h-usd", currency: "USD", market_value: "3000.00" });
+    const cnyHolding = priced({
+      holding_id: "h-cny",
+      currency: "CNY",
+      market_value: "7000.00",
+      market_value_base: "1000.00",
+    });
+    renderBody(
+      summary({
+        holdings: [usdHolding, cnyHolding],
+        by_currency: { USD: "3000.00", CNY: "1000.00" },
+      }),
+    );
+
+    await user.selectOptions(screen.getByLabelText("Display"), "native");
+
+    const currencyCard = screen.getByText("By currency").closest('[data-slot="card"]');
+    if (!currencyCard) throw new Error("Currency card not found");
+    const rows = within(currencyCard as HTMLElement).getAllByRole("listitem");
+    // Native mode sums each bucket's own market_value, unconverted — CNY
+    // shows its native 7000.00, not the 1000.00 base-currency figure.
+    expect(rows.some((row) => row.textContent?.includes("7,000.00 CNY"))).toBe(true);
+    expect(rows.some((row) => row.textContent?.includes("3,000.00 USD"))).toBe(true);
+    // Issue #330 review round 1 (blocker 1): native mode mixes incommensurable
+    // currencies, so the card must not size a pie from those raw numbers.
+    expect(
+      (currencyCard as HTMLElement).querySelector(".recharts-responsive-container"),
+    ).not.toBeInTheDocument();
+    // Review 5101567455: the "(NN.N%)" share annotation is the same
+    // incommensurable-unit problem, just quieter than the pie — must not
+    // appear in native mode either.
+    expect(rows.every((row) => !row.textContent?.includes("("))).toBe(true);
+  });
+
+  it("excludes a holding with a stale FX rate from native mode, matching normalized mode's membership", async () => {
+    // Issue #330 review round 1 (blocker 2): a holding with a native
+    // market_value but a null market_value_base (e.g. a stale FX pair) is
+    // already excluded from by_currency — native mode must apply the same
+    // gate, or switching modes would add/remove a bucket.
+    const user = userEvent.setup();
+    const staleFxHolding = priced({
+      holding_id: "h-stale",
+      currency: "GBP",
+      market_value: "590.00",
+      market_value_base: null,
+    });
+    renderBody(
+      summary({
+        holdings: [priced({}), staleFxHolding],
+        by_currency: { USD: "3000.00" },
+      }),
+    );
+
+    await user.selectOptions(screen.getByLabelText("Display"), "native");
+
+    const currencyCard = screen.getByText("By currency").closest('[data-slot="card"]');
+    if (!currencyCard) throw new Error("Currency card not found");
+    expect(within(currencyCard as HTMLElement).queryByText(/GBP/)).not.toBeInTheDocument();
+  });
+
+  it("switches the currency card to percentage mode, showing each bucket's share of the total", async () => {
+    const user = userEvent.setup();
+    renderBody(summary({ by_currency: { USD: "3000.00", CNY: "1000.00" } }));
+
+    await user.selectOptions(screen.getByLabelText("Display"), "percentage");
+
+    const currencyCard = screen.getByText("By currency").closest('[data-slot="card"]');
+    if (!currencyCard) throw new Error("Currency card not found");
+    const rows = within(currencyCard as HTMLElement).getAllByRole("listitem");
+    expect(rows.some((row) => row.textContent?.includes("75.0%"))).toBe(true);
+    expect(rows.some((row) => row.textContent?.includes("25.0%"))).toBe(true);
+    // showShareOfTotal is suppressed in percentage mode, so the value isn't
+    // duplicated as "75.0% (100.0%)".
+    expect(rows.every((row) => !row.textContent?.includes("("))).toBe(true);
   });
 
   it("disables the switcher for the whole round trip, not just the synchronous dispatch", async () => {
