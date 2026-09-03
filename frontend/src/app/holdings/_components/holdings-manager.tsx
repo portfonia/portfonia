@@ -184,7 +184,16 @@ export function HoldingsManager({
       )}
 
       {pageMode === "onboarding" && (
-        <div className="mb-6 flex justify-end">
+        // The Current holdings card (and its "Edit holdings" button) is
+        // hidden during onboarding just below, which silently left no
+        // in-UI path to /holdings/edit at all — the C1 design (Ring 1-C
+        // §3.16) requires the edit page stay reachable, gate-free, during
+        // onboarding so a manual add there isn't wiped by the later
+        // append confirm (PR #321 review round 3).
+        <div className="mb-6 flex justify-between">
+          <Link href="/holdings/edit" className="text-sm underline-offset-4 hover:underline">
+            {t("editHoldings")}
+          </Link>
           <Link href="/welcome" className="text-sm underline-offset-4 hover:underline">
             {t("skipOnboarding")}
           </Link>

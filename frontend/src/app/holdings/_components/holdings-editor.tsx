@@ -210,7 +210,30 @@ export function HoldingsEditor({
     setError(null);
     try {
       const saved = await updateHolding(id, patch);
-      setHoldings((prev) => prev.map((h) => (h.id === id ? saved : h)));
+      // Merge only this field, plus the metadata fields a pricing_mode
+      // change can recompute server-side (capture_supported/asset_class/
+      // market never depend on shares/avg_cost/current_value, only on
+      // ticker/currency/asset_type/pricing_mode, so refreshing them from
+      // any inline-edit response is always safe) — not the whole row
+      // (PR #321 review round 3): two fields on the same row can be
+      // in-flight at once (savingCells is a Set precisely because tabbing
+      // between cells doesn't wait for the first response), and replacing
+      // the entire row from one PATCH's response could clobber a sibling
+      // field's already-applied optimistic update or successful save.
+      setHoldings((prev) =>
+        prev.map((h) =>
+          h.id === id
+            ? {
+                ...h,
+                [field]: saved[field],
+                capture_supported: saved.capture_supported,
+                asset_class: saved.asset_class,
+                market: saved.market,
+                last_manual_update: saved.last_manual_update,
+              }
+            : h,
+        ),
+      );
     } catch (err) {
       if (isNextRedirectError(err)) throw err;
       // Roll back only this field, not the whole row (PR #321 review

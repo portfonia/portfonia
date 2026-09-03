@@ -224,8 +224,27 @@ def _next_position(session: Session, user_id: UUID) -> int:
     return int(current) + 1
 
 
-def _own_holding(session: Session, user_id: UUID, holding_id: UUID) -> Holding:
-    holding = session.get(Holding, holding_id)
+def _own_holding(
+    session: Session, user_id: UUID, holding_id: UUID, *, for_update: bool = False
+) -> Holding:
+    if for_update:
+        # PR #321 review round 3: update_holding's read-modify-write was
+        # unlocked — create/confirm/reorder all take _lock_user_holdings,
+        # PATCH did not. Harmless while the only client sent the whole
+        # form, but issue #319's inline edit makes two single-field
+        # PATCHes on the same row (e.g. tabbing shares -> pricing_mode
+        # before the first response lands) an ordinary interaction: each
+        # would merge against a stale pre-edit row, and the later commit
+        # could silently drop the earlier field for every non-money
+        # column (_MONEY_FIELDS below already guards shares/avg_cost/
+        # current_value specifically, but pricing_mode/asset_type/market/
+        # broker/etc. are unconditionally rewritten from the merged view
+        # on every PATCH). A row-level lock, not the broader
+        # _lock_user_holdings (that would serialize PATCHes across a
+        # user's entire book, not just this one holding), closes the gap.
+        holding = session.scalar(select(Holding).where(Holding.id == holding_id).with_for_update())
+    else:
+        holding = session.get(Holding, holding_id)
     if holding is None or holding.user_id != user_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Holding not found.")
     return holding
@@ -664,7 +683,7 @@ def update_holding(
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
 ) -> Holding:
-    holding = _own_holding(session, principal.user_id, holding_id)
+    holding = _own_holding(session, principal.user_id, holding_id, for_update=True)
     updates = patch.model_dump(exclude_unset=True)
     if not updates:
         return holding

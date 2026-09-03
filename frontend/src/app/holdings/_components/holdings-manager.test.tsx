@@ -147,6 +147,12 @@ describe("HoldingsManager", () => {
     expect(screen.queryByRole("link", { name: /skip for now/i })).not.toBeInTheDocument();
   });
 
+  it("onboarding mode: has an Edit holdings link to /holdings/edit, since the Current holdings card (and its own copy of that button) is hidden during onboarding (PR #321 review round 3)", () => {
+    renderManager("onboarding");
+    const editLink = screen.getByRole("link", { name: /edit holdings/i });
+    expect(editLink).toHaveAttribute("href", "/holdings/edit");
+  });
+
   it("onboarding mode: Save navigates to /welcome (issue #221 §2.3)", async () => {
     const user = userEvent.setup();
     renderManager("onboarding");

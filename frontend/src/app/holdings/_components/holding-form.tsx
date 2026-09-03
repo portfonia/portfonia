@@ -77,10 +77,20 @@ function parseNum(value: string): number | null {
 }
 
 function fromHolding(h: HoldingOut): FormState {
+  // Resolve the merged identifier (issue #319 item 7) into a single slot
+  // once, here, rather than falling back live at render time: a fund
+  // whose real identifier is stored in `ticker` (US-listed funds, or any
+  // row the parser filed there regardless of asset_type) needs that
+  // value copied into `fund_code` up front — a live `fund_code || ticker`
+  // OR on a controlled input snaps back to the inactive slot the instant
+  // the user clears the active one, making the field impossible to empty
+  // (PR #321 review round 3).
+  const isFund = h.asset_type === "fund";
+  const identifier = (isFund ? h.fund_code : h.ticker) ?? (isFund ? h.ticker : h.fund_code) ?? "";
   return {
     name: h.name,
-    ticker: h.ticker ?? "",
-    fund_code: h.fund_code ?? "",
+    ticker: isFund ? "" : identifier,
+    fund_code: isFund ? identifier : "",
     currency: h.currency,
     shares: h.shares ?? "",
     avg_cost: h.avg_cost ?? "",
@@ -142,14 +152,6 @@ export function HoldingForm({
 
   const dirty = JSON.stringify(form) !== JSON.stringify(baseline);
   const isCashWmf = form.asset_type === "cash" || form.asset_type === "wmf";
-  // The merged identifier field (issue #319 item 7) falls back to
-  // whichever slot actually holds a value: an existing "fund" row's
-  // identifier can legitimately live in `ticker` (US-listed funds, or
-  // any row the parser filed there regardless of asset_type), and
-  // without the fallback that value would render as a blank "Fund code"
-  // input while staying hidden in state (PR #321 review round 2).
-  const identifierValue =
-    form.asset_type === "fund" ? form.fund_code || form.ticker : form.ticker || form.fund_code;
 
   useEffect(() => {
     if (!dirty) return;
@@ -173,13 +175,18 @@ export function HoldingForm({
           next.pricing_mode = "manual";
           if (!next.market) next.market = "Other";
         } else if (value === "fund") {
-          // The merged ticker/fund_code field (issue #319 item 7) now
-          // targets fund_code — clear the other so a value typed under a
-          // previous asset_type never survives hidden and gets submitted
-          // alongside it (ParsedRow has no "exactly one" check outside
-          // cash/wmf, so a stale ticker would silently persist).
+          // The merged identifier field (issue #319 item 7) now targets
+          // fund_code — carry over whatever was already entered (the
+          // user is relabeling one identifier, not starting a second
+          // one) rather than clearing it, then empty the inactive slot
+          // so it can never survive hidden and get submitted alongside
+          // the new one (PR #321 round 3: a live per-render fallback
+          // instead of this one-time copy made the field impossible to
+          // clear once shown).
+          next.fund_code = next.fund_code || next.ticker;
           next.ticker = "";
         } else {
+          next.ticker = next.ticker || next.fund_code;
           next.fund_code = "";
         }
       }
@@ -206,12 +213,12 @@ export function HoldingForm({
     setError(null);
     const fields: HoldingPatch = {
       name: form.name.trim(),
-      // Always send the resolved identifier into the slot matching the
-      // current asset_type and null the other — not each raw field
-      // independently, which could carry a stale value the merged
-      // control never showed the user (PR #321 review round 2).
-      ticker: isCashWmf || form.asset_type === "fund" ? null : emptyToNull(identifierValue),
-      fund_code: isCashWmf || form.asset_type !== "fund" ? null : emptyToNull(identifierValue),
+      // form.ticker/form.fund_code are kept mutually exclusive by
+      // fromHolding() and set()'s asset_type branch (PR #321 round 3) —
+      // this still forces the inactive slot to null explicitly, as a
+      // defense-in-depth backstop against that invariant ever drifting.
+      ticker: isCashWmf || form.asset_type === "fund" ? null : emptyToNull(form.ticker),
+      fund_code: isCashWmf || form.asset_type !== "fund" ? null : emptyToNull(form.fund_code),
       currency: form.currency,
       shares: isCashWmf ? null : parseNum(form.shares),
       avg_cost: isCashWmf ? null : parseNum(form.avg_cost),
@@ -304,7 +311,7 @@ export function HoldingForm({
           </Field>
           <Field label={form.asset_type === "fund" ? t("fieldFundCode") : t("fieldTicker")}>
             <Input
-              value={identifierValue}
+              value={form.asset_type === "fund" ? form.fund_code : form.ticker}
               disabled={isCashWmf}
               onChange={(e) =>
                 set(form.asset_type === "fund" ? "fund_code" : "ticker", e.target.value)

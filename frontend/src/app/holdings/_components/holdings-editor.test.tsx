@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -219,6 +219,50 @@ describe("HoldingsEditor", () => {
       // save is still showing — not reverted by shares' unrelated failure.
       expect(screen.getAllByDisplayValue("10")[0]).toBeInTheDocument();
       expect(screen.getByDisplayValue("200")).toBeInTheDocument();
+    });
+
+    it("a field's successful save merges only that field, not the whole row, so a later-arriving sibling response can't overwrite it with stale data (PR #321 review round 3)", async () => {
+      const user = userEvent.setup();
+      let resolveShares!: (h: HoldingOut) => void;
+      updateHolding.mockImplementation((id: string, patch: Record<string, unknown>) => {
+        if ("shares" in patch) {
+          return new Promise<HoldingOut>((resolve) => {
+            resolveShares = resolve;
+          });
+        }
+        // avg_cost's PATCH resolves immediately, before shares'.
+        return Promise.resolve({ ...AAPL, avg_cost: "200" });
+      });
+      renderEditor();
+
+      const sharesInput = screen.getAllByDisplayValue("10")[0];
+      await user.clear(sharesInput);
+      await user.type(sharesInput, "25");
+      await user.tab();
+      await waitFor(() => expect(updateHolding).toHaveBeenCalledWith(AAPL.id, { shares: 25 }));
+
+      const avgCostInput = screen.getAllByDisplayValue("150")[0];
+      await user.clear(avgCostInput);
+      await user.type(avgCostInput, "200");
+      await user.tab();
+      await waitFor(() => expect(screen.getByDisplayValue("200")).toBeInTheDocument());
+
+      // shares' response arrives last and — as a stale full-row snapshot
+      // from a request that predates avg_cost's commit — still carries
+      // the old avg_cost. A whole-row replace here would revert avg_cost
+      // back to "150"; merging only the `shares` field must not.
+      resolveShares({ ...AAPL, shares: "25", avg_cost: "150" });
+
+      await waitFor(() => expect(screen.getAllByDisplayValue("25")[0]).toBeInTheDocument());
+      // avg_cost still shows 200 (AAPL's successful save) — not reverted
+      // to 150 by shares' later-arriving, stale-avg_cost response.
+      // MSFT's own avg_cost is untouched and still legitimately "150",
+      // so this checks AAPL's row specifically rather than asserting no
+      // "150" exists anywhere in the table.
+      expect(screen.getByDisplayValue("200")).toBeInTheDocument();
+      const aaplRow = screen.getByText("Apple Inc.").closest("tr");
+      expect(aaplRow).not.toBeNull();
+      expect(within(aaplRow!).queryByDisplayValue("150")).not.toBeInTheDocument();
     });
 
     it("edits pricing_mode via a select and saves immediately", async () => {

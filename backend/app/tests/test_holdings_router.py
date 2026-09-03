@@ -7,7 +7,7 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -1334,6 +1334,52 @@ def test_export_manual_row_with_surviving_tag_still_round_trips_via_dialect_path
     assert parsed["broker"] == "IBKR"
 
 
+def test_export_auto_listed_row_with_surviving_tag_still_round_trips_via_dialect_path(
+    app_client: TestClient,
+) -> None:
+    """PR #321 review round 3 suggestion: lock the other branch of round
+    1's reordering — an ordinary auto (2-slot) listed row that also
+    carries a surviving account/notes tag must still route to
+    `_parse_listed_tokens`, not get misdetected as the manual 3-slot
+    shape by the now-first `_manual_match_explicit` check."""
+    row = {**_PARSED_APPLE, "account": "IRA", "notes": "core holding"}
+    app_client.post("/holdings/confirm?mode=replace", json=[row])
+    body = app_client.get("/holdings/export").text
+    from app.services.holding_parser import try_parse_dialect
+
+    dialect_rows = try_parse_dialect(body)
+    assert dialect_rows is not None, "expected the account: tag to trigger the dialect path"
+    assert len(dialect_rows) == 1
+    parsed = dialect_rows[0]
+    assert parsed["ticker"] == "AAPL"
+    assert parsed["shares"] == 10.0
+    assert parsed["avg_cost"] == 180.0
+    assert parsed["broker"] == "IBKR"
+    assert parsed["pricing_mode"] == "auto"
+
+
+def test_export_cash_row_with_surviving_tag_still_round_trips_via_dialect_path(
+    app_client: TestClient,
+) -> None:
+    """PR #321 review round 3 suggestion: a cash/wmf row's export line no
+    longer carries an asset_type tag (item 8), so `parse_dialect_line`
+    only reaches `_parse_cash_tokens` via its no-ticker/no-fund-code
+    fallback — lock that a surviving account/notes tag doesn't divert it
+    into `_parse_listed_tokens` or `_manual_match_explicit` instead."""
+    row = {**_PARSED_CASH, "account": "Checking", "notes": "emergency fund"}
+    app_client.post("/holdings/confirm?mode=replace", json=[row])
+    body = app_client.get("/holdings/export").text
+    from app.services.holding_parser import try_parse_dialect
+
+    dialect_rows = try_parse_dialect(body)
+    assert dialect_rows is not None, "expected the account: tag to trigger the dialect path"
+    assert len(dialect_rows) == 1
+    parsed = dialect_rows[0]
+    assert parsed["current_value"] == 15000.0
+    assert parsed.get("ticker") is None
+    assert parsed["pricing_mode"] == "manual"
+
+
 def test_create_holding_enqueues_sector_backfill_not_sync_yfinance(
     app_client: TestClient,
 ) -> None:
@@ -1362,6 +1408,27 @@ def test_confirm_replace_enqueues_sector_backfill_for_inserted_rows(
     enqueued = mock_sector.delay.call_args[0][0]
     assert set(enqueued) == set(ids)
     assert mock_sector.delay.call_args[0][1] == str(TEST_USER_ID)
+
+
+def test_patch_holding_locks_the_row_before_reading_it(app_client: TestClient) -> None:
+    """PR #321 review round 3: update_holding's read-modify-write was
+    unlocked while create/confirm/reorder all lock — two overlapping
+    single-field PATCHes on the same row (an ordinary interaction once
+    #319 made inline edit real) could each merge against a stale
+    pre-edit row and the later commit could silently drop the earlier
+    field for any non-money column. `wraps` keeps the real lookup/lock
+    behavior so the request still succeeds normally; this only asserts
+    the call carried `for_update=True` — mirrors the existing
+    test_reorder_locks_before_assigning_position lock-call assertion
+    pattern rather than simulating true concurrency."""
+    from app.routers import holdings as holdings_router
+
+    created = app_client.post("/holdings", json=_PARSED_APPLE).json()
+    with patch("app.routers.holdings._own_holding", wraps=holdings_router._own_holding) as mock_own:
+        resp = app_client.patch(f"/holdings/{created['id']}", json={"notes": "x"})
+    assert resp.status_code == 200
+    assert resp.json()["notes"] == "x"
+    mock_own.assert_called_once_with(ANY, TEST_USER_ID, uuid.UUID(created["id"]), for_update=True)
 
 
 def test_patch_ticker_clears_stale_price_and_sector(
