@@ -29,7 +29,11 @@ export function NoLivePriceSection({ holdings }: { holdings: HoldingValueOut[] }
   if (holdings.length === 0) return null;
 
   return (
-    <Card variant="urgent">
+    // Grok review round 1 (PR #322): variant="urgent" is documented
+    // (components/ui/card.tsx, docs/mechanisms/frontend-chrome.md) as the
+    // issue #269 "complete this soon" incomplete-setup language — wrong
+    // speech act for an informational exclusion notice. Default card.
+    <Card>
       <CardHeader>
         <CardTitle>{t("noLivePriceHeading")}</CardTitle>
         <CardDescription>{t("noLivePriceBody")}</CardDescription>

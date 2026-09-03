@@ -428,8 +428,9 @@ perform it.
 ### Single-row holdings CRUD, confirm modes, export dialect (issue #92 / #130 C1)
 
 Ring 1 Phase C1 adds an online book that is not file-import-only. The
-portfolio dashboard is **out of scope** here (remaining #130 work). File
-import stays on `/holdings`; row add/edit/delete/reorder lives on
+portfolio dashboard was out of scope for this PR — see the "Portfolio
+overview dashboard" section below for C2, added later in a separate PR
+(#322). File import stays on `/holdings`; row add/edit/delete/reorder lives on
 `/holdings/edit`, `/holdings/new`, and `/holdings/[id]`.
 
 **Write paths (all owner-scoped; another user's id is 404, not 403):**
@@ -628,3 +629,70 @@ Obsidian `Hermes/Portfonia/Docs/Ring 1-C design.md` §11.
   cost to save by attaching one.
 - Items 1-7, 9, 11-12 shipped matching the frozen design as written; see
   PR #321 and the issue #319 implementation comment for the full list.
+
+
+### Portfolio overview dashboard — C2 (issue #320 / #130 C2, PR #322)
+
+`/portfolio` reads `GET /portfolio/summary` (`compute_portfolio()` in
+`portfolio_calculator.py`), which already computed most of this for the
+report pipeline — C2 is mostly exposing existing calculator output plus one
+real gap (P&L) that was never wired up.
+
+**New aggregates, same exclusion gate as the existing `by_market`:**
+`by_group` keys on `Holding.portfolio` (`None`/empty → `"Ungrouped"`),
+`by_account` keys on `Holding.broker` (`None`/empty → `"Other"`, matching
+`report_sections.py`'s §1 Custodian fallback literal). **Deliberately not**
+the normalized `accounts` table — `resolve_accounts_for_holdings` dedups
+`Account` rows on the `(broker, account, portfolio)` triple, so an `Account`
+row is really a broker×account×group combination, not an independent
+account entity; reading `account_id` for this breakdown would fold the
+group dimension back into account and produce a chart entangled with, and
+unreadable independently of, "by group". `account_id`/`accounts` stays at
+zero read-paths from this dashboard.
+
+**P&L** (`cost_basis_base`/`unrealized_pnl_base`/`unrealized_pnl_pct`,
+both per-holding on `HoldingValueOut` and as snapshot-level totals) is
+computed only when `pricing_mode=="auto"` and both `shares` and `avg_cost`
+and a valuation are present — `None` (not zero) otherwise, so cash/wmf and
+`capture_supported=False` holdings render "—" rather than a fabricated
+zero. The snapshot-level totals (`total_cost_basis_base` etc.) sum only
+holdings with a computed cost basis — cash/wmf never contributes to either
+side of "total unrealized return %".
+
+**Frontend partition for the "no market quote" section**
+(`isNoLivePrice()` in `portfolio-helpers.ts`) is
+`pricing_mode=="auto" and not capture_supported` — never the broader
+`market_value_base is None`, which would also catch a holding with a
+transient missing price/FX rate and misclassify a temporary gap as a
+permanently-unsupported market. These holdings show only user-entered
+fields, participate in no chart or total, and render with the default
+`Card` variant — not `variant="urgent"` (that's the issue #269
+incomplete-setup-nudge language; this is an informational exclusion
+notice, a different speech act — round-1 review finding, PR #322).
+
+`price_as_of_date` is the max captured-close trade date actually matched to
+one of the user's holdings this run (`None` when nothing was captured,
+including a cash-only book — the as-of banner has dedicated copy for that
+case, since cash/wmf holdings do have a valuation via `current_value` and a
+"no priced holdings" message would contradict a non-zero total assets
+figure on the same page — round-1 review finding, PR #322).
+
+`base_currency` widened from a 3-value `Literal` to all 15
+`VALID_CURRENCIES` (mirrors `app/schemas/holdings.py`'s frozenset; a
+router-level drift-guard test pins the two together). Currency switching
+never does client-side FX math — every switch is a fresh
+`GET /portfolio/summary?base_currency=X` call, kept genuinely single-flight
+by awaiting inside an async `startTransition` scope (a synchronous
+`startTransition(() => { void promise.then(...) })` in round 1 made
+`isPending` cover only the scheduling call, not the round-trip, so the
+switcher stayed clickable mid-fetch and a slower earlier response could
+overwrite a later one — round-1 review finding, PR #322); a failed refetch
+reverts the switcher to the last successfully-loaded currency rather than
+leaving it desynced from the displayed figures.
+
+The by_group/by_account chart legends and the holdings table's
+Group/Custodian columns render the same translated "Ungrouped"/"Other"
+fallback label (`relabelFallbackKey`/`fallbackOrValue` in
+`portfolio-helpers.ts`) so a pie slice can be matched back to its rows —
+the table previously showed a bare "—" for these while the chart legend
+showed the untranslated English literal (round-1 review finding, PR #322).

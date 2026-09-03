@@ -115,7 +115,7 @@ describe("PortfolioPageBody", () => {
     });
     renderBody(summary({ holdings: [priced({}), unsupported] }));
 
-    expect(screen.getByText("No live price available")).toBeInTheDocument();
+    expect(screen.getByText("No market quote")).toBeInTheDocument();
     expect(screen.getByText("Unresolvable")).toBeInTheDocument();
   });
 
@@ -138,7 +138,10 @@ describe("PortfolioPageBody", () => {
     expect(getPortfolioSummary).toHaveBeenCalledWith("CNY");
   });
 
-  it("shows a refresh error but keeps the last good data when the currency refetch fails", async () => {
+  it("shows a refresh error, reverts the switcher, and keeps the last good data when the currency refetch fails", async () => {
+    // Grok review round 1 (PR #322): a failed refetch used to leave the
+    // switcher showing the newly-picked currency while every figure on the
+    // page stayed in the old one — this pins the revert.
     const user = userEvent.setup();
     getPortfolioSummary.mockRejectedValue(new Error("boom"));
     renderBody(summary({}));
@@ -152,5 +155,32 @@ describe("PortfolioPageBody", () => {
     });
     // Last good total is still shown, not wiped out by the failed refetch.
     expect(totalAssetsValue()).toHaveTextContent("3,000.00 USD");
+    // The switcher reverted to USD — it no longer disagrees with the data.
+    expect(screen.getByLabelText("Base currency")).toHaveValue("USD");
+  });
+
+  it("disables the switcher for the whole round trip, not just the synchronous dispatch", async () => {
+    // Grok review round 1 (PR #322): the fetch used to run inside
+    // `startTransition(() => { void promise.then(...) })` — isPending only
+    // covered the synchronous scheduling call, so disabled={isPending} was
+    // effectively a no-op and a second click could race the first response.
+    // Awaiting inside an async startTransition scope keeps isPending (and
+    // thus disabled) true for the entire in-flight fetch.
+    const user = userEvent.setup();
+    let resolveFetch!: (value: PortfolioSummary) => void;
+    getPortfolioSummary.mockReturnValue(
+      new Promise<PortfolioSummary>((resolve) => {
+        resolveFetch = resolve;
+      }),
+    );
+    renderBody(summary({}));
+
+    await user.selectOptions(screen.getByLabelText("Base currency"), "CNY");
+    expect(screen.getByLabelText("Base currency")).toBeDisabled();
+
+    resolveFetch(summary({ base_currency: "CNY", total_base: "21000.00" }));
+    await waitFor(() => {
+      expect(screen.getByLabelText("Base currency")).not.toBeDisabled();
+    });
   });
 });

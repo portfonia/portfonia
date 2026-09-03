@@ -10,7 +10,13 @@ import { CurrencySwitcher } from "./currency-switcher";
 import { DEFAULT_BASE_CURRENCY, type BaseCurrency } from "./currencies";
 import { NoLivePriceSection } from "./no-live-price-section";
 import { PnlSummaryCard } from "./pnl-summary-card";
-import { formatMoney, partitionHoldings } from "./portfolio-helpers";
+import {
+  ACCOUNT_OTHER_KEY,
+  formatMoney,
+  GROUP_UNGROUPED_KEY,
+  partitionHoldings,
+  relabelFallbackKey,
+} from "./portfolio-helpers";
 import { PortfolioHoldingsTable } from "./portfolio-holdings-table";
 import { PriceAsOfBanner } from "./price-as-of-banner";
 
@@ -37,20 +43,6 @@ export function PortfolioPageBody({
   const [loadError, setLoadError] = useState(initialLoadError);
   const [isPending, startTransition] = useTransition();
 
-  const handleCurrencyChange = (next: BaseCurrency) => {
-    setCurrency(next);
-    startTransition(() => {
-      void getPortfolioSummary(next)
-        .then((nextSummary) => {
-          setSummary(nextSummary);
-          setLoadError(false);
-        })
-        .catch(() => {
-          setLoadError(true);
-        });
-    });
-  };
-
   if (loadError && !summary) {
     return <p className="text-sm text-destructive">{t("loadError")}</p>;
   }
@@ -58,11 +50,49 @@ export function PortfolioPageBody({
     return null;
   }
 
+  const handleCurrencyChange = (next: BaseCurrency) => {
+    setCurrency(next);
+    // Grok review round 1 (PR #322): the previous version fired the fetch
+    // from inside a synchronous startTransition callback (`void promise.then
+    // (...)`), so isPending only covered the (near-instant) scheduling call,
+    // not the round-trip — disabled={isPending} was effectively a no-op, the
+    // switcher stayed clickable mid-fetch, and a slower earlier response
+    // could overwrite a later one. React 19's startTransition accepts an
+    // async scope function directly and keeps isPending true for its whole
+    // duration, so awaiting here makes the switcher genuinely single-flight
+    // (a second currency can't be selected until this one settles) instead
+    // of layering on a separate request-id guard.
+    startTransition(async () => {
+      try {
+        const nextSummary = await getPortfolioSummary(next);
+        setSummary(nextSummary);
+        setLoadError(false);
+      } catch {
+        setLoadError(true);
+        // Revert the switcher to the currency the displayed data actually
+        // reflects — otherwise a failed refetch leaves the dropdown showing
+        // the new currency while every figure on the page is still the old
+        // one.
+        setCurrency(summary.base_currency as BaseCurrency);
+      }
+    });
+  };
+
   const byAssetClassLabeled = Object.fromEntries(
     Object.entries(summary.by_asset_class).map(([code, value]) => [
       assetClassLabel(t, code),
       value,
     ]),
+  );
+  const byGroupLabeled = relabelFallbackKey(
+    summary.by_group,
+    GROUP_UNGROUPED_KEY,
+    t("groupUngrouped"),
+  );
+  const byAccountLabeled = relabelFallbackKey(
+    summary.by_account,
+    ACCOUNT_OTHER_KEY,
+    t("accountOther"),
   );
   const { priced, noLivePrice } = partitionHoldings(summary.holdings);
 
@@ -103,13 +133,13 @@ export function PortfolioPageBody({
         />
         <BreakdownChart
           title={t("chartByGroup")}
-          data={summary.by_group}
+          data={byGroupLabeled}
           currency={summary.base_currency}
           emptyLabel={t("chartEmpty")}
         />
         <BreakdownChart
           title={t("chartByCustodian")}
-          data={summary.by_account}
+          data={byAccountLabeled}
           currency={summary.base_currency}
           emptyLabel={t("chartEmpty")}
         />

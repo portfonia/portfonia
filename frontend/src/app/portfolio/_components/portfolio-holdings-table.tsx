@@ -11,7 +11,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { HoldingValueOut } from "@/lib/api";
-import { formatMoney, formatPercent, pnlColorClass } from "./portfolio-helpers";
+import { fallbackOrValue, formatMoney, formatPercent, pnlColorClass } from "./portfolio-helpers";
 
 function cell(value: string | null): string {
   return value ?? "—";
@@ -56,8 +56,11 @@ export function PortfolioHoldingsTable({
               ) : null}
             </TableCell>
             <TableCell>{h.market}</TableCell>
-            <TableCell>{cell(h.portfolio)}</TableCell>
-            <TableCell>{cell(h.broker)}</TableCell>
+            {/* Same fallback label as the by_group/by_account chart legend
+                (Grok review round 1, PR #322) — "—" would leave a row
+                unmatchable to its own pie slice. */}
+            <TableCell>{fallbackOrValue(h.portfolio, t("groupUngrouped"))}</TableCell>
+            <TableCell>{fallbackOrValue(h.broker, t("accountOther"))}</TableCell>
             <TableCell className="text-right tabular-nums">
               {formatMoney(h.market_value_base, baseCurrency)}
             </TableCell>
