@@ -55,6 +55,37 @@ describe("BreakdownChart", () => {
     expect(rows[0]).not.toHaveTextContent("(");
   });
 
+  it("omits the pie chart when showPie is false, keeping the legend list", () => {
+    // Issue #330 review round 1 (blocker 1): a pie's slice sizes are only
+    // meaningful when every slice shares one unit — 本币 mode's buckets are
+    // each in their own native currency, so this card must render list-only.
+    const { container } = render(
+      <BreakdownChart
+        title="By currency"
+        data={{ USD: "3000.00", CNY: "1000.00" }}
+        currency="USD"
+        emptyLabel="No data yet"
+        showPie={false}
+      />,
+    );
+
+    expect(container.querySelector(".recharts-responsive-container")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+  });
+
+  it("renders the pie chart by default", () => {
+    const { container } = render(
+      <BreakdownChart
+        title="By currency"
+        data={{ USD: "3000.00" }}
+        currency="USD"
+        emptyLabel="No data yet"
+      />,
+    );
+
+    expect(container.querySelector(".recharts-responsive-container")).toBeInTheDocument();
+  });
+
   it("renders headerControl next to the title", () => {
     render(
       <BreakdownChart

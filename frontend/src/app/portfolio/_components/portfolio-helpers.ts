@@ -63,13 +63,15 @@ export const CURRENCY_DISPLAY_MODES: CurrencyDisplayMode[] = [
 ];
 
 // 本币 mode: group the priced holdings list by their own (native) currency,
-// summing native `market_value` — no base-currency conversion. Matches
-// by_currency's exclusion of holdings with no valuation (null market_value),
-// so switching modes never changes which holdings are represented.
+// summing native `market_value` — no base-currency conversion. Excludes a
+// holding whose market_value_base is null (e.g. a stale FX pair) even when
+// its native market_value is present — the same gate portfolio_calculator.py
+// applies before adding to by_currency (issue #330 review round 1) — so
+// switching modes never changes which holdings are represented.
 export function nativeCurrencyBreakdown(holdings: HoldingValueOut[]): Record<string, string> {
   const totals: Record<string, number> = {};
   for (const holding of holdings) {
-    if (holding.market_value === null) continue;
+    if (holding.market_value === null || holding.market_value_base === null) continue;
     totals[holding.currency] = (totals[holding.currency] ?? 0) + Number(holding.market_value);
   }
   return Object.fromEntries(

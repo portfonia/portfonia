@@ -222,6 +222,37 @@ describe("PortfolioPageBody", () => {
     // shows its native 7000.00, not the 1000.00 base-currency figure.
     expect(rows.some((row) => row.textContent?.includes("7,000.00 CNY"))).toBe(true);
     expect(rows.some((row) => row.textContent?.includes("3,000.00 USD"))).toBe(true);
+    // Issue #330 review round 1 (blocker 1): native mode mixes incommensurable
+    // currencies, so the card must not size a pie from those raw numbers.
+    expect(
+      (currencyCard as HTMLElement).querySelector(".recharts-responsive-container"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("excludes a holding with a stale FX rate from native mode, matching normalized mode's membership", async () => {
+    // Issue #330 review round 1 (blocker 2): a holding with a native
+    // market_value but a null market_value_base (e.g. a stale FX pair) is
+    // already excluded from by_currency — native mode must apply the same
+    // gate, or switching modes would add/remove a bucket.
+    const user = userEvent.setup();
+    const staleFxHolding = priced({
+      holding_id: "h-stale",
+      currency: "GBP",
+      market_value: "590.00",
+      market_value_base: null,
+    });
+    renderBody(
+      summary({
+        holdings: [priced({}), staleFxHolding],
+        by_currency: { USD: "3000.00" },
+      }),
+    );
+
+    await user.selectOptions(screen.getByLabelText("Display"), "native");
+
+    const currencyCard = screen.getByText("By currency").closest('[data-slot="card"]');
+    if (!currencyCard) throw new Error("Currency card not found");
+    expect(within(currencyCard as HTMLElement).queryByText(/GBP/)).not.toBeInTheDocument();
   });
 
   it("switches the currency card to percentage mode, showing each bucket's share of the total", async () => {

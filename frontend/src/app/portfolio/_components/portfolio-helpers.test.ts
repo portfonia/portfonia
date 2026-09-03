@@ -147,6 +147,22 @@ describe("nativeCurrencyBreakdown", () => {
   it("returns an empty object for no holdings", () => {
     expect(nativeCurrencyBreakdown([])).toEqual({});
   });
+
+  it("excludes a holding with a native value but a null market_value_base (e.g. a stale FX pair)", () => {
+    // Issue #330 review round 1: by_currency (normalized) only includes rows
+    // with market_value_base != null. Without the same gate here, switching
+    // from normalized to native mode would add a bucket that wasn't there a
+    // moment ago, contradicting the "same holdings represented" guarantee.
+    const staleFx = holding({
+      holding_id: "h1",
+      currency: "GBP",
+      market_value: "590",
+      market_value_base: null,
+    });
+    const priced = holding({ holding_id: "h2", currency: "USD", market_value: "1000" });
+
+    expect(nativeCurrencyBreakdown([staleFx, priced])).toEqual({ USD: "1000.00" });
+  });
 });
 
 describe("currencySharePercentages", () => {

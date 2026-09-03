@@ -193,6 +193,7 @@ export function PortfolioPageBody({
           emptyLabel={t("chartEmpty")}
           formatValue={currencyCardFormatValue}
           showShareOfTotal={currencyMode !== "percentage"}
+          showPie={currencyMode !== "native"}
           headerControl={
             <CurrencyModeSwitcher value={currencyMode} onChange={setCurrencyMode} />
           }

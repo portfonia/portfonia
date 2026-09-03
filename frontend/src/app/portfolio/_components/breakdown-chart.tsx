@@ -33,6 +33,7 @@ export function BreakdownChart({
   labelFor,
   formatValue,
   showShareOfTotal = true,
+  showPie = true,
   headerControl,
 }: {
   title: string;
@@ -58,6 +59,14 @@ export function BreakdownChart({
   // "(NN.N%)" annotation would just repeat the main figure — suppress it
   // there. Every other caller keeps the annotation (default true).
   showShareOfTotal?: boolean;
+  // Issue #330 review round 1 (blocker 1): a pie's slice sizes are only
+  // meaningful when every slice shares one unit. 本币 mode's buckets are
+  // each in their own native currency — sizing arcs from those raw numbers
+  // would draw (say) 100,000 JPY as dominant over 1,000 USD regardless of
+  // which is actually worth more, mis-teaching currency mix. List-only
+  // (no pie) sidesteps the incommensurable-units problem instead of trying
+  // to size arcs from a different, normalized dataset than what's labeled.
+  showPie?: boolean;
   // Issue #330: the currency card's mode switcher is local to that one card
   // (design contract), not a page-level control — rendered in the header
   // next to the title rather than lifted out as a separate component prop
@@ -90,27 +99,29 @@ export function BreakdownChart({
           <p className="text-sm text-muted-foreground">{emptyLabel}</p>
         ) : (
           <>
-            <div className="h-56 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={slices}
-                    dataKey="value"
-                    nameKey="name"
-                    innerRadius={48}
-                    outerRadius={84}
-                    paddingAngle={2}
-                  >
-                    {slices.map((slice, index) => (
-                      <Cell key={slice.key} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    formatter={(_value, _name, item) => (item.payload as Slice).formatted}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
+            {showPie ? (
+              <div className="h-56 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={slices}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={48}
+                      outerRadius={84}
+                      paddingAngle={2}
+                    >
+                      {slices.map((slice, index) => (
+                        <Cell key={slice.key} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      formatter={(_value, _name, item) => (item.payload as Slice).formatted}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            ) : null}
             <ul className="flex flex-col gap-1.5 text-sm">
               {slices.map((slice, index) => (
                 <li key={slice.key} className="flex items-center justify-between gap-3">
