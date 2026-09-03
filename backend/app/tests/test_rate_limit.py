@@ -15,6 +15,7 @@ from starlette.requests import Request
 
 from app.core import rate_limit
 from app.core.rate_limit import (
+    PORTFOLIO_OVERVIEW_COOLDOWN_SECONDS,
     RATE_LIMIT_DETAIL,
     RESEND_VERIFICATION_EMAIL_HOUR_LIMIT,
     RESEND_VERIFICATION_USER_HOUR_LIMIT,
@@ -24,6 +25,7 @@ from app.core.rate_limit import (
     UNAVAILABLE_DETAIL,
     InMemoryBackend,
     canonical_client_id,
+    check_portfolio_overview_cooldown,
     client_id_from_request,
     guard_known_invite_token,
     rate_limit_create_invite,
@@ -361,6 +363,59 @@ def test_resend_limiter_fail_closed_on_redis_outage() -> None:
     try:
         with pytest.raises(HTTPException) as exc:
             rate_limit_enforce_resend_verification(user_id="u1", email="a@example.com")
+        assert exc.value.status_code == 503
+    finally:
+        rate_limit.set_backend(InMemoryBackend())
+
+
+def test_portfolio_overview_cooldown_first_click_allowed(backend: InMemoryBackend) -> None:
+    assert check_portfolio_overview_cooldown("u1") is None
+
+
+def test_portfolio_overview_cooldown_second_click_reports_remaining_seconds(
+    backend: InMemoryBackend,
+) -> None:
+    assert check_portfolio_overview_cooldown("u1") is None
+    remaining = check_portfolio_overview_cooldown("u1")
+    assert remaining is not None
+    assert 0 < remaining <= PORTFOLIO_OVERVIEW_COOLDOWN_SECONDS
+
+
+def test_portfolio_overview_cooldown_scoped_per_user(backend: InMemoryBackend) -> None:
+    """One user's cooldown must not block a different user's send."""
+    assert check_portfolio_overview_cooldown("u1") is None
+    assert check_portfolio_overview_cooldown("u2") is None
+
+
+def test_portfolio_overview_cooldown_expires(backend: InMemoryBackend) -> None:
+    assert check_portfolio_overview_cooldown("u1") is None
+    backend.advance(PORTFOLIO_OVERVIEW_COOLDOWN_SECONDS + 1)
+    assert check_portfolio_overview_cooldown("u1") is None
+
+
+def test_portfolio_overview_cooldown_does_not_alert(
+    backend: InMemoryBackend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Hitting the cooldown is routine (a user double-clicking a button),
+    not abuse — unlike every other limiter in this module, it must never
+    fire an ops alert."""
+    alert = MagicMock()
+    monkeypatch.setattr(rate_limit, "_enqueue_alert", alert)
+    check_portfolio_overview_cooldown("u1")
+    check_portfolio_overview_cooldown("u1")
+    check_portfolio_overview_cooldown("u1")
+    alert.assert_not_called()
+
+
+def test_portfolio_overview_cooldown_fail_closed_on_redis_outage() -> None:
+    class _Down:
+        def set_nx(self, key: str, ttl_seconds: int) -> bool:
+            raise rate_limit.RateLimitUnavailable
+
+    rate_limit.set_backend(_Down())  # type: ignore[arg-type]
+    try:
+        with pytest.raises(HTTPException) as exc:
+            check_portfolio_overview_cooldown("u1")
         assert exc.value.status_code == 503
     finally:
         rate_limit.set_backend(InMemoryBackend())

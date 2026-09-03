@@ -18,6 +18,7 @@ import {
 } from "./portfolio-helpers";
 import { PortfolioHoldingsTable } from "./portfolio-holdings-table";
 import { PriceAsOfBanner } from "./price-as-of-banner";
+import { SendOverviewButton } from "./send-overview-button";
 
 // Closed set — mirrors backend/app/services/asset_class_config.py's
 // VALID_ASSET_CLASSES (13 entries, DB-constrained). Safe to translate
@@ -94,7 +95,14 @@ export function PortfolioPageBody({
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-heading text-2xl font-medium">{t("pageTitle")}</h1>
-        <CurrencySwitcher value={currency} onChange={handleCurrencyChange} disabled={isPending} />
+        <div className="flex items-center gap-3">
+          <CurrencySwitcher
+            value={currency}
+            onChange={handleCurrencyChange}
+            disabled={isPending}
+          />
+          <SendOverviewButton baseCurrency={currency} />
+        </div>
       </div>
 
       <PriceAsOfBanner priceAsOfDate={summary.price_as_of_date} />

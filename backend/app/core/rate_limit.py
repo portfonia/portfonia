@@ -424,3 +424,36 @@ def rate_limit_enforce_resend_verification(*, user_id: str, email: str) -> None:
         ((RESEND_VERIFICATION_EMAIL_HOUR_LIMIT, RESEND_VERIFICATION_EMAIL_HOUR_TTL),),
         scope="resend-verification-email",
     )
+
+
+# issue #202: cooldown for POST /portfolio/send-overview. Deliberately NOT
+# built on `_enforce_ip`/`_trip` — those alert on every trip (right for an
+# abuse-shaped limiter like resend-verification, where hitting the limit is
+# itself the signal), but a user clicking this button twice inside 15
+# minutes is the routine, expected case, not an anomaly. This uses `set_nx`
+# as an atomic claim instead: at most one concurrent caller wins it, closing
+# the double-click race without a separate check-then-set step.
+PORTFOLIO_OVERVIEW_COOLDOWN_SECONDS = 900
+
+
+def check_portfolio_overview_cooldown(user_id: str) -> int | None:
+    """Claim the send slot for *user_id*, or report seconds left to wait.
+
+    Returns `None` and claims the cooldown window if the user is clear to
+    send. Returns the remaining seconds (>0) if still in cooldown — the
+    caller sends nothing in that case. Fails closed (503) if the counter
+    store is unavailable, consistent with every other limiter in this
+    module.
+    """
+    key = f"rl:portfolio_overview:{user_id}"
+    try:
+        claimed = get_backend().set_nx(key, PORTFOLIO_OVERVIEW_COOLDOWN_SECONDS)
+        if claimed:
+            return None
+        remaining = get_backend().ttl(key)
+    except RateLimitUnavailable:
+        logger.exception("rate_limit: portfolio overview cooldown store unavailable")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=UNAVAILABLE_DETAIL
+        ) from None
+    return remaining if remaining > 0 else PORTFOLIO_OVERVIEW_COOLDOWN_SECONDS

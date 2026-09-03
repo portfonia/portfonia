@@ -66,6 +66,7 @@
   "holdings": {
     "pageTitle": "Holdings",
     "pageSubtitle": "Upload a file to import your holdings. Review, then save.",
+    "viewPortfolioLink": "View portfolio overview",
     "currentHeading": "Current holdings",
     "emptyState": "No holdings yet. Upload a file to get started.",
     "exportButton": "Export current holdings",
@@ -399,6 +400,11 @@
     "refreshError": "Couldn't refresh for the new currency. Showing the last loaded values.",
     "groupUngrouped": "Ungrouped",
     "accountOther": "Other",
+    "sendOverviewButton": "Send holdings overview",
+    "sendOverviewSending": "Sending...",
+    "sendOverviewSuccess": "Overview sent to your email.",
+    "sendOverviewCooldown": "You can send again in {minutes} min.",
+    "sendOverviewError": "Couldn't send right now — try again shortly.",
     "assetClasses": {
       "STOCK": "Individual stock",
       "EQUITY_US_BROAD": "US broad-market equity",

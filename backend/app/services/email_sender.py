@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 import httpx
 from bs4 import BeautifulSoup, Tag
@@ -20,12 +21,16 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.timezones import ET
 from app.models.report import Report
 from app.models.user import User
 from app.services.i18n_glossary import load_i18n_glossary, locale_for_output_lang
+from app.services.portfolio_calculator import PortfolioSnapshot, compute_portfolio
+from app.services.report_sections import _build_footer
 from app.services.unsubscribe_token import create_token as create_unsubscribe_token
 from app.services.user_directory import recipient_email_with_purpose
 from app.services.user_scope import report_language_for
+from app.tasks import next_occurrence_for_cadence
 
 logger = logging.getLogger(__name__)
 
@@ -600,3 +605,204 @@ def send_ops_alert(subject: str, body: str, idempotency_key: str | None = None) 
     except Exception:
         logger.exception("ops alert delivery failed: %s", subject)
         return False
+
+
+# ---------------------------------------------------------------------------
+# Portfolio overview email (issue #202) — explicit "Send holdings overview"
+# button on /portfolio, NOT a formal report: no `reports` row, no LLM call,
+# no `_scan_forbidden_output` (nothing LLM-generated to scan). Bare `en`/`zh`
+# keys matching `users.locale`/`OUTPUT_LANG`'s convention (not the frontend
+# catalog's BCP-47 tags) — same shape as `_VERIFICATION_EMAIL_COPY` above.
+# Table headers/labels live here rather than reusing report_sections.
+# _build_section1: that function's headers are hardcoded English, translated
+# only by the full report's LLM pass (report_generator._translate_md) — which
+# this lightweight email deliberately skips, so its own headers must already
+# be locale-correct. `_build_footer`'s disclaimer IS reused as-is (issue text:
+# "the standard bilingual footer disclaimer for consistency") since it is
+# already bilingual and locale-independent by design.
+_PORTFOLIO_OVERVIEW_COPY: dict[str, dict[str, str]] = {
+    "en": {
+        "subject": "Portfonia: your holdings overview",
+        "intro": "Here is a snapshot of your current holdings, as of the prices Portfonia has captured so far.",
+        "col_holding": "Holding",
+        "col_currency": "Currency",
+        "col_value": "Value",
+        "col_pct": "% Portfolio",
+        "col_custodian": "Custodian",
+        "col_asset_class": "Asset Class",
+        "price_pending": "price pending",
+        "total_label": "Portfolio total",
+        "priced_note": "{priced} of {n} holdings priced; {pending} pending",
+        "next_report_label": "Your next scheduled analytical report is expected around",
+    },
+    "zh": {
+        "subject": "Portfonia: 您的持仓总览",
+        "intro": "以下是您当前持仓的快照,价格取自 Portfonia 目前已抓取到的最新数据。",
+        "col_holding": "持仓",
+        "col_currency": "币种",
+        "col_value": "市值",
+        "col_pct": "占比",
+        "col_custodian": "持仓机构",
+        "col_asset_class": "资产类别",
+        "price_pending": "价格待更新",
+        "total_label": "持仓总值",
+        "priced_note": "{n} 项持仓中 {priced} 项已定价,{pending} 项待更新",
+        "next_report_label": "您的下一份定期分析报告预计将在此时间前后送达:",
+    },
+}
+_DEFAULT_PORTFOLIO_OVERVIEW_LOCALE = "en"
+
+
+def _glossary_term(key: str, locale: str) -> str:
+    """EN key, or its zh-Hans translation from `report_glossary` — the EN key
+    itself already IS the English rendering (report_glossary only stores the
+    non-English target locale per entry, unlike `templates` which stores both).
+    """
+    glossary = load_i18n_glossary()
+    target = locale_for_output_lang(locale)
+    if target in glossary.supported_locales and key in glossary.report_glossary:
+        return glossary.report_glossary[key][target]
+    return key
+
+
+def _build_portfolio_overview_markdown(
+    snapshot: PortfolioSnapshot, locale: str, next_report_at: datetime
+) -> str:
+    copy = _PORTFOLIO_OVERVIEW_COPY.get(
+        locale, _PORTFOLIO_OVERVIEW_COPY[_DEFAULT_PORTFOLIO_OVERVIEW_LOCALE]
+    )
+    lines: list[str] = [
+        copy["intro"],
+        "",
+        f"| {copy['col_holding']} | {copy['col_currency']} | {copy['col_value']} "
+        f"| {copy['col_pct']} | {copy['col_custodian']} | {copy['col_asset_class']} |",
+        "|---|---|---|---|---|---|",
+    ]
+    holdings = sorted(
+        snapshot.holdings, key=lambda h: h.position if h.position is not None else 1_000_000
+    )
+    priced = 0
+    for h in holdings:
+        name_col = h.name + (f" ({h.ticker})" if h.ticker else "")
+        if h.market_value is None or h.market_value_base is None:
+            val_cell = copy["price_pending"]
+            pct_cell = copy["price_pending"]
+        else:
+            priced += 1
+            ratio = h.market_value_base / snapshot.total_base if snapshot.total_base > 0 else 0
+            val_cell = f"{h.currency} {h.market_value:,.2f}"
+            pct_cell = f"{ratio:.1%}"
+        asset_class = _glossary_term(h.asset_class, locale) if h.asset_class else "—"
+        lines.append(
+            f"| {name_col} | {h.currency} | {val_cell} | {pct_cell} "
+            f"| {h.broker or '—'} | {asset_class} |"
+        )
+
+    n = len(holdings)
+    pending = n - priced
+    note = copy["priced_note"].format(priced=priced, n=n, pending=pending)
+    lines += [
+        "",
+        f"**{copy['total_label']}:** {snapshot.base_currency} {snapshot.total_base:,.2f}  ({note})",
+        "",
+        f"**{copy['next_report_label']}** {next_report_at.strftime('%Y-%m-%d %H:%M %Z')}",
+    ]
+    return "\n".join(lines)
+
+
+def send_portfolio_overview_email(session: Session, user_id: UUID, base_currency: str) -> bool:
+    """Send the explicit "Send holdings overview" email (issue #202).
+
+    Not a formal report: no `reports` row is created or touched, and
+    `user_watermark()`/`period_start`/`period_end` are never read. Caller
+    (the Celery task dispatched from `POST /portfolio/send-overview`) is
+    responsible for the 15-minute cooldown gate — this function always
+    sends when called. Returns True on success, False on any failure —
+    never raises, matching `send_report_email`'s contract.
+    """
+    resolved = recipient_email_with_purpose(session, user_id)
+    if resolved is None:
+        user = session.get(User, user_id)
+        if user is None or user.status != "active":
+            logger.error(
+                "portfolio overview: could not resolve a recipient for user_id=%s — refusing to send",
+                user_id,
+            )
+            send_ops_alert(
+                subject="Portfonia: portfolio overview recipient could not be resolved",
+                body=f"user_id={user_id} — recipient_email_with_purpose() returned None. Not sent.",
+            )
+        else:
+            logger.warning(
+                "portfolio overview: user_id=%s is active but has no verified address — "
+                "email_skip_reason=no_verified_recipient, refusing to send",
+                user_id,
+            )
+            send_ops_alert(
+                subject="Portfonia ops: portfolio overview has no verified recipient",
+                body=(
+                    f"user_id={user_id} — user row is active but neither email_verified_at "
+                    "nor delivery_email_verified_at is set. The requested overview email "
+                    "was NOT sent."
+                ),
+            )
+        return False
+
+    recipient, _purpose = resolved
+    settings = get_settings()
+    api_key = settings.RESEND_API_KEY.get_secret_value()
+
+    user = session.get(User, user_id)
+    assert user is not None  # resolved above via the same row
+    copy = _PORTFOLIO_OVERVIEW_COPY.get(
+        user.locale, _PORTFOLIO_OVERVIEW_COPY[_DEFAULT_PORTFOLIO_OVERVIEW_LOCALE]
+    )
+
+    snapshot = compute_portfolio(session, user_id=user_id, base_currency=base_currency)
+    next_report_at = next_occurrence_for_cadence(user.report_cadence, datetime.now(tz=ET))
+    body_md = _build_portfolio_overview_markdown(snapshot, user.locale, next_report_at)
+    footer_md = _build_footer(
+        {"base_currency": snapshot.base_currency, "fx_date": snapshot.fx_date.isoformat()}
+    )
+    full_md = body_md + footer_md
+
+    html_body = _render_html(full_md)
+    text_body = full_md
+
+    payload: dict[str, object] = {
+        "from": settings.EMAIL_FROM,
+        "to": [recipient],
+        "reply_to": settings.EMAIL_REPLY_TO,
+        "subject": copy["subject"],
+        "html": html_body,
+        "text": text_body,
+    }
+
+    # Deliberately no Idempotency-Key: this is an explicit, user-clicked send
+    # (issue #202) — every click that clears the 15-minute cooldown is a
+    # distinct, wanted send, unlike a report's regenerate-safety concern.
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.post(
+                _RESEND_SEND_URL,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        logger.error(
+            "portfolio overview: user_id=%s Resend HTTP %s — %s",
+            user_id,
+            exc.response.status_code,
+            exc.response.text[:400],
+        )
+        return False
+    except Exception:
+        logger.exception("portfolio overview: user_id=%s email delivery failed", user_id)
+        return False
+
+    logger.info("portfolio overview: sent to user_id=%s", user_id)
+    return True

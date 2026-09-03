@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
@@ -7,14 +8,18 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_session
 from app.core.deps import Principal, current_principal
+from app.core.rate_limit import check_portfolio_overview_cooldown
 from app.schemas.portfolio import (
     ConcentrationOut,
     HoldingValueOut,
     PortfolioSummaryResponse,
+    SendOverviewResponse,
 )
 from app.services.portfolio_calculator import compute_portfolio
+from app.tasks.notification_tasks import send_portfolio_overview_email_task
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Mirrors app/schemas/holdings.py's VALID_CURRENCIES (15 entries) — kept as an
 # explicit Literal, not built dynamically from the frozenset, so mypy --strict
@@ -96,3 +101,31 @@ def get_portfolio_summary(
         stale_tickers=snap.stale_tickers,
         holdings=holdings_out,
     )
+
+
+@router.post("/send-overview", response_model=SendOverviewResponse)
+def send_portfolio_overview(
+    base_currency: Annotated[BaseCurrency, Query()] = "USD",
+    principal: Principal = Depends(current_principal),
+) -> SendOverviewResponse:
+    """Explicit, user-clicked "Send holdings overview" (issue #202) — NOT a
+    formal report: no `reports` row, no LLM call. `base_currency` mirrors
+    whatever the /portfolio page has selected when the button is clicked, so
+    the emailed total matches what's on screen.
+
+    The 15-minute cooldown is claimed synchronously here (so the response is
+    immediate either way) before the actual send is dispatched fire-and-
+    forget — a broker blip after the claim must not turn a successful click
+    into a 500, so `.delay()` failures are logged, not raised, same pattern
+    as `_enqueue_confirm_capture` in routers/holdings.py.
+    """
+    remaining = check_portfolio_overview_cooldown(str(principal.user_id))
+    if remaining is not None:
+        return SendOverviewResponse(sent=False, retry_after_seconds=remaining)
+    try:
+        send_portfolio_overview_email_task.delay(str(principal.user_id), base_currency)
+    except Exception:
+        logger.exception(
+            "send_portfolio_overview: user_id=%s failed to enqueue send", principal.user_id
+        )
+    return SendOverviewResponse(sent=True)

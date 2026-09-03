@@ -138,3 +138,42 @@ def test_summary_passes_through_notes(app_client: TestClient, db_session: Sessio
 # able to trigger a global market-data refresh. See test_admin_router.py for
 # the orchestration test and test_old_portfolio_refresh_route_removed for the
 # 404 assertion on this old path.
+
+
+# ---------------------------------------------------------------------------
+# POST /portfolio/send-overview (issue #202) — explicit "Send holdings
+# overview" button, not a formal report. Actual send is mocked at the
+# Celery-dispatch layer by conftest's autouse `_no_external_notifications`
+# (send_portfolio_overview_email_task.delay); these tests only cover the
+# cooldown gate and response shape.
+# ---------------------------------------------------------------------------
+
+
+def test_send_overview_first_click_sends(app_client: TestClient, db_session: Session) -> None:
+    _seed(db_session)
+    resp = app_client.post("/portfolio/send-overview")
+    assert resp.status_code == 200
+    assert resp.json() == {"sent": True, "retry_after_seconds": None}
+
+
+def test_send_overview_second_click_within_cooldown_does_not_send(
+    app_client: TestClient, db_session: Session
+) -> None:
+    _seed(db_session)
+    first = app_client.post("/portfolio/send-overview")
+    assert first.json()["sent"] is True
+
+    second = app_client.post("/portfolio/send-overview")
+    body = second.json()
+    assert body["sent"] is False
+    assert body["retry_after_seconds"] is not None
+    assert 0 < body["retry_after_seconds"] <= 900
+
+
+def test_send_overview_respects_base_currency_param(
+    app_client: TestClient, db_session: Session
+) -> None:
+    _seed(db_session)
+    resp = app_client.post("/portfolio/send-overview?base_currency=CNY")
+    assert resp.status_code == 200
+    assert resp.json()["sent"] is True

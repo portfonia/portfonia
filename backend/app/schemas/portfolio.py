@@ -69,3 +69,17 @@ class PortfolioSummaryResponse(BaseModel):
     concentration: ConcentrationOut
     stale_tickers: list[str]
     holdings: list[HoldingValueOut]
+
+
+class SendOverviewResponse(BaseModel):
+    """POST /portfolio/send-overview (issue #202).
+
+    `sent=False` with `retry_after_seconds` set means the 15-minute cooldown
+    is still running — the frontend renders "still X minutes left" and never
+    shows this as an error. `sent=True` means the send was dispatched
+    (fire-and-forget); a downstream delivery failure surfaces only via the
+    ops alerts `send_portfolio_overview_email` fires, not in this response.
+    """
+
+    sent: bool
+    retry_after_seconds: int | None = None
