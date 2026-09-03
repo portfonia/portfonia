@@ -871,3 +871,72 @@ deferred, separate future issue, not blocked by this one.
 
 No drill-down (flat cards only, confirmed in the issue's own out-of-scope
 list); `Holding.account_id` untouched.
+
+### Portfolio snapshot export: xlsx and md (issue #331, PR #335)
+
+`GET /portfolio/export?format=xlsx|md&base_currency=<currency>&locale=<locale>`
+(`routers/portfolio.py`) — a separate, read-only sibling of `/holdings/export`
+(issue #92/#310), not a parameter on it. `/holdings/export` writes the
+*declared, unpriced* fields in the `#####` re-import dialect; this exports
+the *computed, priced* results from `compute_portfolio()` — same
+computation `/portfolio/summary` already runs, serialized differently, no
+new aggregation. Design contract from the issue's first comment, followed
+without deviation.
+
+**Scope**: one row per `HoldingValue`, columns fixed at
+`ticker`/`fund_code`/`name`/`market`/`broker`/`account`/`portfolio`/
+`asset_class`/`currency`/`shares`/`avg_cost`/`market_value`/
+`market_value_base`/`cost_basis_base`/`unrealized_pnl_base`/
+`unrealized_pnl_pct`/`pricing_mode`/`capture_supported`
+(`portfolio_export.EXPORT_COLUMNS`, identical order in both formats).
+Deliberately omits `sector` (dropped from this dashboard's vocabulary per
+issue #330), `notes`/`holding_id` (internal), and every `by_*` aggregate
+— those are page-view stats, never read by this module. `as_of`
+(`price_as_of_date`) and `base_currency` are a metadata header above the
+table in both formats, never a data column.
+
+**New module `backend/app/services/portfolio_export.py`**, not a shared
+renderer with `holdings_export.py`: `render_portfolio_export_xlsx()` uses
+`openpyxl` (single sheet, two metadata rows, blank row, header row, one
+row per holding); `render_portfolio_export_md()` is a zero-dependency GFM
+pipe-table builder with its own pipe/backslash/newline escaping — sharing
+`holdings_export.py`'s `#####`-dialect renderer was explicitly ruled out
+in the design contract, since that renderer serves a different purpose
+(re-import) with a different tag/escaping scheme. `openpyxl==3.1.5` was
+already pinned in `requirements.txt`, unused until this PR (most likely a
+transitive pin from the pandas ecosystem) — no new dependency line was
+needed, only `openpyxl.*` added to `pyproject.toml`'s
+`mypy.overrides.ignore_missing_imports` (the package ships no
+`py.typed`).
+
+**Locale**: column headers switch via `_HEADERS_BY_LOCALE`
+(`en`/`zh`, unrecognized falls back to `en`) — a standalone dict, not
+imported from `holdings_export.py` (different key set, different
+purpose). `locale` query param overrides `users.locale`, same precedence
+as `/holdings/export`/`/holdings/template` (issue #319 item 9); resolved
+by a private `_export_locale()` in `routers/portfolio.py` that mirrors
+`holdings.py`'s `_report_locale()` rather than importing it — this
+repo's established convention is one small locale-fallback helper per
+export module (see also `email_verification.py`'s `_resolve_locale()`),
+not a shared abstraction.
+
+**Frontend**: `ExportPortfolioButtons` (two buttons, "Download .xlsx" /
+"Download .md") on `/portfolio`, next to `SendOverviewButton`, using the
+same `exportPortfolio()` → `downloadFile()` pattern as the holdings-manager
+export button. New `exportXlsxButton`/`exportMdButton`/`exportError` keys
+added to all three locale catalogs (en/zh-Hans/zh-Hant).
+
+**Review fix (blacktomb42, review 5103601953, fixed in `666fd61`)**:
+`compute_portfolio()`'s `_ratio()` (`portfolio_calculator.py`) stores
+`unrealized_pnl_pct` as a 0..1 fraction, not a percent — every other
+consumer (the `/portfolio` table's `formatPercent`, the overview email's
+`:.1%`) multiplies by 100 before display. The first version of this
+export serialized the raw Decimal under a `%`-labeled column, a
+systematic 100x understatement for the Excel/LLM consumers this feature
+targets; the unit test fixture had masked the bug by hardcoding the
+percent-scale value directly instead of the ratio `compute_portfolio()`
+actually produces. Fixed by scaling `unrealized_pnl_pct` by 100 in
+`portfolio_export._row_values()` (the one shared helper both `render_*`
+functions call, so both formats get the fix identically) — with a
+regression test that seeds the real backend scale and asserts the
+exported value matches what the page displays.
