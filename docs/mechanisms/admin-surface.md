@@ -60,6 +60,51 @@ capability existing.
   - **`app/services/auth_provider.py` gained one function and one changed return type**: `get_auth_user(sub) -> AuthUserInfo | None` (`GET {issuer}/admin/users/{sub}`, `404`→`None`); `delete_auth_user(sub)` now returns `bool` (`True` = found and deleted, `False` = 404/already-gone) instead of `None` — existing callers (signup's compensation path) ignore the return value, so this is additive, not breaking.
   - **Signup's compensation failure is no longer silent** (issue #225 bug 2): if `delete_auth_user` itself raises inside `POST /auth/signup`'s compensation branch, `send_ops_alert` fires (previously: log line only) — a failed compensation now produces an actionable signal instead of a trace only discoverable by reading logs after the fact.
   - **Signup failure logging is now differentiated** (issue #225 bug 1): the `except Exception` branch in `POST /auth/signup` tags its log record with `signup_failure_reason` (`invite_rejected` / `auth_provider_error` / `integrity_error`) so ops monitoring can alert on auth-provider/DB faults without being drowned out by expected invite-rejection noise. The client-facing message is unchanged for all three — this is a server-side log field only, never surfaced in the response.
+- **Report rerun-and-resend — planned, not implemented (issue #324)**: on
+  2026-09-02 a user's holdings were re-uploaded to fix an
+  `asset_class`/`market` misclassification, and the already-generated,
+  already-emailed report for that day needed to reflect the fix without
+  re-fetching news/Tavily/macro intel (that data is cached in
+  `report_inputs`; re-fetching wastes budget and can introduce
+  non-determinism). No `/admin/*` endpoint does this today, so it was done
+  once via SSH + a one-off `docker compose exec -T backend python < script`
+  invocation against production, directly manipulating `reports`/`users`
+  rows. Filed as a real gap per the "API endpoint first" rule above rather
+  than left as a recurring SSH drill.
+  - **What the one-off script actually did (informs the eventual endpoint
+    shape)**: resolve `user_id` by email; find the `Report` row(s) for a
+    given `report_date` (default: "today" in ET, matching how
+    `generate_report` computes `report_date`); null `email_sent_at` and
+    `provider_message_id` on the target row **without a physical `DELETE`**
+    (deleting the row destroys the `report_inputs` cache that makes a
+    no-refetch rerun possible in the first place); call
+    `regenerate_report(session, report_id, user_id=user_id,
+    mode="analyze", output_lang=<user's locale>)` — this re-runs only the
+    body pass (Pass 2 or assembly, per `report_inputs["body_source"]`) from
+    stored intel, but does a **fresh** read of the user's live `Holding`
+    rows via `compute_portfolio`, which is what actually picks up a
+    holdings correction; if `report.status == "success"` afterward,
+    explicitly call `send_report_email(report, session)` — `regenerate_report`
+    itself never emails, and `send_report_email`'s G3 dedup guard silently
+    no-ops if `email_sent_at` is still set, which is why clearing it first
+    is the step that makes a real resend possible at all.
+  - **Proposed shape**: `POST /admin/users/{user_id}/reports/{report_id}/rerun`,
+    same ops-token auth as every other route here (not the self-service
+    `POST /reports/{id}/regenerate`, which is scoped to the caller's own
+    report and never clears `email_sent_at`). Body params: `mode: "analyze"
+    | "render"` (default `"analyze"`), `resend: bool` (default `true`).
+    When `resend=true`, clears `email_sent_at`/`provider_message_id` on the
+    target row before calling `regenerate_report`, then calls
+    `send_report_email` if the resulting status is `"success"`; when
+    `resend=false`, behaves like the existing self-service regenerate
+    (content updates, no send attempt). Full spec: issue #324.
+  - **Deliberately out of scope for #324**: a bulk "rerun every report for
+    this user today" variant, and a by-`report_date` convenience lookup in
+    place of requiring the caller to already know `report_id` — investigating
+    this gap found `GET /admin/users` already resolves `user_id` by email,
+    but there is no read endpoint to list a user's `reports` rows by date;
+    add one only if the caller ergonomics turn out to need it when this is
+    implemented.
 - **Auth**: `ADMIN_API_TOKEN` (`Settings`, `SecretStr`, required — no unset
   state, same discipline as `HOLDINGS_ENCRYPTION_KEY`) + optional
   `ADMIN_API_TOKEN_PREV` for a no-downtime rotation window (identical
