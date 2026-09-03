@@ -16,10 +16,13 @@ for the full before/after and decision rationale.
   root layout, not just the home page. Universal on every route:
   brand/home link and the Get Started dropdown menu
   (`components/get-started-menu.tsx` — auth-gated entry registry: guest
-  sees only Log in; authed sees Home + Holdings + Questionnaire + email +
-  Log out, in that order — issue #214 follow-up added Home as the first
-  entry, an explicit way back to `/` from any inner page, on top of the
-  brand-link click target). Home-only (`pathname === "/"`): the locale
+  sees only Log in; authed sees the full `AUTHED_ENTRIES` list (Profile,
+  Holdings, Edit holdings, Portfolio, Questionnaire, as of issue #320/PR
+  #322 — see that entry's own PR for the count each new route added) plus
+  email + Log out, in that order — issue #214 follow-up originally added a
+  "Home" entry as an explicit way back to `/` from any inner page,
+  replaced by Profile in issue #220 (see below)). Home-only
+  (`pathname === "/"`): the locale
   switcher, plus the brand link's target changes to `#top` (in-page jump)
   instead of `/`. The four marketing anchor links were REMOVED from the
   bar (issue #207) — the marketing sections remain on the home page
@@ -102,7 +105,10 @@ for the full before/after and decision rationale.
   renamed to `menu.profile` in all three locale catalogs — not added
   alongside it — since nothing else read the old key.
 - **Every `GetStartedMenu` entry now carries a `lucide-react` icon**
-  (`User`/`Briefcase`/`ClipboardList` for the three authed entries,
+  (`User`/`Briefcase`/`ClipboardList` for the three authed entries as of
+  this issue — `Pencil` and `ChartPie` were added for Edit holdings/
+  Portfolio by later PRs, see `AUTHED_ENTRIES` in
+  `components/get-started-menu.tsx` for the current, authoritative list;
   `LogIn`/`LogOut` for guest login and manual logout), `aria-hidden="true"`
   since the adjacent label already carries the accessible name.
   `components/ui/menu.tsx`'s `MenuItemLink`/`MenuItemButton` switched from

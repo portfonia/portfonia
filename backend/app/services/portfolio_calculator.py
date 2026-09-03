@@ -16,6 +16,7 @@ from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
 from app.services._yfinance import _normalize_ticker
 from app.services.asset_class_config import load_asset_class_config
+from app.services.holding_ordering import sorted_holdings
 from app.services.markets import is_capture_supported, market_from_ticker
 
 _ZERO = Decimal("0")
@@ -316,8 +317,12 @@ def compute_portfolio(
     snapshot = PortfolioSnapshot(base_currency=base_currency, fx_date=fx_date or date.today())
     captured_closes = _latest_captured_closes(session)
 
-    holdings: list[Holding] = list(
-        session.execute(select(Holding).where(Holding.user_id == user_id)).scalars()
+    # Same book order as /holdings and /holdings/edit (issue #92 `position`,
+    # `name` tiebreaker) — a plain unordered SELECT has no row-order
+    # guarantee, so the dashboard could otherwise reshuffle rows relative
+    # to what the user just arranged (Grok review round 3, PR #322).
+    holdings: list[Holding] = sorted_holdings(
+        list(session.execute(select(Holding).where(Holding.user_id == user_id)).scalars())
     )
     used_trade_dates: list[date] = []
 

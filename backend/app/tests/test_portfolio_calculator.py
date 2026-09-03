@@ -161,19 +161,23 @@ def test_concentration_thresholds_loosen_for_broad_index_top_holding(db_session:
     """A broad-index ETF carries a wider single-holding threshold than a
     single stock at the same weight, since it is already diversified."""
     _seed_fx(db_session)
-    db_session.add_all(
-        [
-            _stock(
-                "Vanguard S&P 500",
-                "VOO",
-                "USD",
-                "10",
-                "300",
-                asset_class="EQUITY_US_BROAD",
-            ),
-            _cash("USD Cash", "USD", "3000"),
-        ]
+    vanguard = _stock(
+        "Vanguard S&P 500",
+        "VOO",
+        "USD",
+        "10",
+        "300",
+        asset_class="EQUITY_US_BROAD",
     )
+    # Grok review round 3 (PR #322): the two holdings are exactly tied in
+    # value (3000 == 3000). compute_portfolio() now orders holdings by
+    # position (matching /holdings book order) before concentration ranks
+    # them, so an explicit position — not incidental insertion/scan order —
+    # is what breaks the tie deterministically.
+    vanguard.position = 0
+    cash = _cash("USD Cash", "USD", "3000")
+    cash.position = 1
+    db_session.add_all([vanguard, cash])
     db_session.flush()
 
     c = compute_portfolio(db_session, user_id=_USER, base_currency="USD").concentration
@@ -223,6 +227,32 @@ def test_empty_portfolio_has_no_concentration(db_session: Session) -> None:
     snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
     assert snap.total_base == Decimal("0")
     assert snap.concentration.top_holding_name is None
+
+
+def test_holdings_ordered_by_position_matching_holdings_edit_book_order(
+    db_session: Session,
+) -> None:
+    """Grok review round 3 (PR #322): compute_portfolio() queried holdings
+    with no ORDER BY — Postgres gives no row-order guarantee, so the
+    dashboard could reshuffle rows relative to the book order the user set
+    on /holdings/edit (same sort key as _sorted_holdings in
+    app/routers/holdings.py: position, then name as a stable tiebreaker for
+    a null/tied position)."""
+    _seed_fx(db_session)
+    third = _stock("Charlie Corp", "CCC", "USD", "1", "10")
+    third.position = 2
+    first = _stock("Alpha Inc", "AAA", "USD", "1", "10")
+    first.position = 0
+    second = _stock("Bravo Ltd", "BBB", "USD", "1", "10")
+    second.position = 1
+    # Insert out of book order — a naive unordered SELECT would likely
+    # return them in this insertion order, not position order.
+    db_session.add_all([third, first, second])
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    assert [hv.name for hv in snap.holdings] == ["Alpha Inc", "Bravo Ltd", "Charlie Corp"]
 
 
 def test_user_isolation(db_session: Session) -> None:
