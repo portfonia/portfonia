@@ -5,7 +5,9 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
+from unittest.mock import MagicMock
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -177,3 +179,25 @@ def test_send_overview_respects_base_currency_param(
     resp = app_client.post("/portfolio/send-overview?base_currency=CNY")
     assert resp.status_code == 200
     assert resp.json()["sent"] is True
+
+
+def test_send_overview_enqueue_failure_releases_cooldown_for_immediate_retry(
+    app_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review 5100733033 leftover: a `.delay()` failure must not leave the
+    user locked out for the full 15-minute window over a send that never
+    actually got queued."""
+    _seed(db_session)
+    monkeypatch.setattr(
+        "app.routers.portfolio.send_portfolio_overview_email_task.delay",
+        MagicMock(side_effect=RuntimeError("broker down")),
+    )
+
+    first = app_client.post("/portfolio/send-overview")
+    assert first.json() == {"sent": False, "retry_after_seconds": None}
+
+    monkeypatch.setattr(
+        "app.routers.portfolio.send_portfolio_overview_email_task.delay", MagicMock()
+    )
+    second = app_client.post("/portfolio/send-overview")
+    assert second.json()["sent"] is True

@@ -31,6 +31,7 @@ from app.core.rate_limit import (
     rate_limit_create_invite,
     rate_limit_enforce_resend_verification,
     rate_limit_signup,
+    release_portfolio_overview_cooldown,
 )
 from app.services.invites import create_invite
 
@@ -417,5 +418,35 @@ def test_portfolio_overview_cooldown_fail_closed_on_redis_outage() -> None:
         with pytest.raises(HTTPException) as exc:
             check_portfolio_overview_cooldown("u1")
         assert exc.value.status_code == 503
+    finally:
+        rate_limit.set_backend(InMemoryBackend())
+
+
+def test_portfolio_overview_cooldown_release_allows_immediate_retry(
+    backend: InMemoryBackend,
+) -> None:
+    """Review 5100733033 leftover: a claim that's released (because the
+    caller's actual enqueue failed) must not still block the next click —
+    otherwise a broker blip locks the user out for the full window over a
+    send that never happened."""
+    assert check_portfolio_overview_cooldown("u1") is None
+    release_portfolio_overview_cooldown("u1")
+    assert check_portfolio_overview_cooldown("u1") is None
+
+
+def test_portfolio_overview_cooldown_release_on_unclaimed_key_is_a_no_op(
+    backend: InMemoryBackend,
+) -> None:
+    release_portfolio_overview_cooldown("never-claimed")  # must not raise
+
+
+def test_portfolio_overview_cooldown_release_does_not_raise_on_redis_outage() -> None:
+    class _Down:
+        def delete(self, key: str) -> None:
+            raise rate_limit.RateLimitUnavailable
+
+    rate_limit.set_backend(_Down())  # type: ignore[arg-type]
+    try:
+        release_portfolio_overview_cooldown("u1")  # must not raise
     finally:
         rate_limit.set_backend(InMemoryBackend())

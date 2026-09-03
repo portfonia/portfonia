@@ -8,7 +8,10 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_session
 from app.core.deps import Principal, current_principal
-from app.core.rate_limit import check_portfolio_overview_cooldown
+from app.core.rate_limit import (
+    check_portfolio_overview_cooldown,
+    release_portfolio_overview_cooldown,
+)
 from app.schemas.portfolio import (
     ConcentrationOut,
     HoldingValueOut,
@@ -117,15 +120,19 @@ def send_portfolio_overview(
     immediate either way) before the actual send is dispatched fire-and-
     forget — a broker blip after the claim must not turn a successful click
     into a 500, so `.delay()` failures are logged, not raised, same pattern
-    as `_enqueue_confirm_capture` in routers/holdings.py.
+    as `_enqueue_confirm_capture` in routers/holdings.py. If the enqueue
+    itself fails, the claim is released (review 5100733033 leftover): the
+    send never happened, so the user must not be locked out of retrying for
+    the full 15 minutes over a message that was never even queued.
     """
-    remaining = check_portfolio_overview_cooldown(str(principal.user_id))
+    user_id = str(principal.user_id)
+    remaining = check_portfolio_overview_cooldown(user_id)
     if remaining is not None:
         return SendOverviewResponse(sent=False, retry_after_seconds=remaining)
     try:
-        send_portfolio_overview_email_task.delay(str(principal.user_id), base_currency)
+        send_portfolio_overview_email_task.delay(user_id, base_currency)
     except Exception:
-        logger.exception(
-            "send_portfolio_overview: user_id=%s failed to enqueue send", principal.user_id
-        )
+        logger.exception("send_portfolio_overview: user_id=%s failed to enqueue send", user_id)
+        release_portfolio_overview_cooldown(user_id)
+        return SendOverviewResponse(sent=False, retry_after_seconds=None)
     return SendOverviewResponse(sent=True)

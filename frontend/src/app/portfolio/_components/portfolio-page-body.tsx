@@ -101,7 +101,7 @@ export function PortfolioPageBody({
             onChange={handleCurrencyChange}
             disabled={isPending}
           />
-          <SendOverviewButton baseCurrency={currency} />
+          <SendOverviewButton baseCurrency={summary.base_currency} disabled={isPending} />
         </div>
       </div>
 

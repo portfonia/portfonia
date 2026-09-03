@@ -64,4 +64,14 @@ describe("SendOverviewButton", () => {
 
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
   });
+
+  it("is disabled while a currency switch is in flight (review 5100733033)", () => {
+    render(
+      <LocaleProvider>
+        <SendOverviewButton baseCurrency="USD" disabled />
+      </LocaleProvider>,
+    );
+
+    expect(screen.getByRole("button", { name: /send holdings overview/i })).toBeDisabled();
+  });
 });

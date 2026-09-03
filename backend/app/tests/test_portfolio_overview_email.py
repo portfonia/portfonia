@@ -63,6 +63,37 @@ def _priced_stock(name: str, ticker: str, price: str, shares: str, position: int
     )
 
 
+def _priced_stock_hkd(name: str, ticker: str, price: str, shares: str, position: int) -> Holding:
+    return Holding(
+        user_id=_USER_ID,
+        name=name,
+        pricing_mode="auto",
+        ticker=ticker,
+        currency="HKD",
+        shares=Decimal(shares),
+        market_price=Decimal(price),
+        asset_type="stock",
+        asset_class="STOCK",
+        broker="Fidelity",
+        position=position,
+    )
+
+
+def _priced_fund_no_ticker(name: str, fund_code: str, value: str, position: int) -> Holding:
+    return Holding(
+        user_id=_USER_ID,
+        name=name,
+        pricing_mode="manual",
+        fund_code=fund_code,
+        currency="USD",
+        current_value=Decimal(value),
+        asset_type="fund",
+        asset_class="BOND_FUND",
+        broker="Fidelity",
+        position=position,
+    )
+
+
 def _unpriced_stock(name: str, ticker: str, position: int) -> Holding:
     return Holding(
         user_id=_USER_ID,
@@ -113,6 +144,7 @@ def test_glossary_term_unknown_key_falls_back_to_itself() -> None:
 @pytest.fixture(autouse=True)
 def _seed_fx_and_user(db_session: Session) -> None:
     db_session.add(FxRate(pair="USDCNY", rate=Decimal("7.0"), rate_date=_FX_DATE, source="test"))
+    db_session.add(FxRate(pair="USDHKD", rate=Decimal("8.0"), rate_date=_FX_DATE, source="test"))
     db_session.add(_user())
     db_session.commit()
 
@@ -135,6 +167,41 @@ def test_markdown_lists_every_holding_priced_and_pending(db_session: Session) ->
     assert "New IPO Co (NEWCO)" in md
     assert "price pending" in md
     assert "1 of 2 holdings priced; 1 pending" in md
+
+
+def test_markdown_value_cell_is_in_base_currency_not_native_currency(
+    db_session: Session,
+) -> None:
+    """Review 5100733033 blocker: an HKD holding's value cell must render
+    market_value_base in the snapshot's base_currency (summable to the
+    total and the % column) — not h.market_value in the holding's own
+    currency, which silently ignored the page's selected base_currency."""
+    db_session.add(_priced_stock_hkd("Tencent", "0700", "400", "10", position=0))
+    db_session.commit()
+    snap = compute_portfolio(db_session, user_id=_USER_ID, base_currency="USD")
+    assert snap.base_currency == "USD"
+
+    md = _build_portfolio_overview_markdown(
+        snap, "en", next_occurrence_for_cadence("mwf", datetime.now(tz=ET))
+    )
+
+    # 400 HKD * 10 shares / 8.0 USDHKD = 500 USD.
+    assert "USD 500.00" in md
+    assert "HKD 4,000.00" not in md
+
+
+def test_markdown_name_cell_falls_back_to_fund_code_when_no_ticker(
+    db_session: Session,
+) -> None:
+    db_session.add(_priced_fund_no_ticker("Bond Fund", "F00001", "1000", position=0))
+    db_session.commit()
+    snap = compute_portfolio(db_session, user_id=_USER_ID, base_currency="USD")
+
+    md = _build_portfolio_overview_markdown(
+        snap, "en", next_occurrence_for_cadence("mwf", datetime.now(tz=ET))
+    )
+
+    assert "Bond Fund (F00001)" in md
 
 
 def test_markdown_zh_locale_translates_asset_class_and_labels(db_session: Session) -> None:

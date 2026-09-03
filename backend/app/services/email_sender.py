@@ -683,14 +683,21 @@ def _build_portfolio_overview_markdown(
     )
     priced = 0
     for h in holdings:
-        name_col = h.name + (f" ({h.ticker})" if h.ticker else "")
-        if h.market_value is None or h.market_value_base is None:
+        identifier = h.ticker or h.fund_code
+        name_col = h.name + (f" ({identifier})" if identifier else "")
+        if h.market_value_base is None:
             val_cell = copy["price_pending"]
             pct_cell = copy["price_pending"]
         else:
             priced += 1
             ratio = h.market_value_base / snapshot.total_base if snapshot.total_base > 0 else 0
-            val_cell = f"{h.currency} {h.market_value:,.2f}"
+            # base_currency, from market_value_base — matches the % column
+            # and the total line, and the /portfolio dashboard's own value
+            # column (review 5100733033 blocker: this previously rendered
+            # h.currency/h.market_value, the holding's OWN currency, which
+            # can't be summed to a base_currency total and silently ignored
+            # the page's currently-selected base_currency).
+            val_cell = f"{snapshot.base_currency} {h.market_value_base:,.2f}"
             pct_cell = f"{ratio:.1%}"
         asset_class = _glossary_term(h.asset_class, locale) if h.asset_class else "—"
         lines.append(

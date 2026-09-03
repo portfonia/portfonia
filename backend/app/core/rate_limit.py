@@ -82,6 +82,7 @@ class CounterBackend(Protocol):
     def incr_with_ttl(self, key: str, ttl_seconds: int) -> int: ...
     def ttl(self, key: str) -> int: ...
     def set_nx(self, key: str, ttl_seconds: int) -> bool: ...
+    def delete(self, key: str) -> None: ...
 
 
 class InMemoryBackend:
@@ -128,6 +129,9 @@ class InMemoryBackend:
         self._data[key] = (1, self._now + ttl_seconds)
         return True
 
+    def delete(self, key: str) -> None:
+        self._data.pop(key, None)
+
 
 class RedisBackend:
     def __init__(self, client: Redis) -> None:
@@ -159,6 +163,12 @@ class RedisBackend:
     def set_nx(self, key: str, ttl_seconds: int) -> bool:
         try:
             return bool(self._client.set(key, "1", ex=int(ttl_seconds), nx=True))
+        except RedisError as exc:
+            raise RateLimitUnavailable from exc
+
+    def delete(self, key: str) -> None:
+        try:
+            self._client.delete(key)
         except RedisError as exc:
             raise RateLimitUnavailable from exc
 
@@ -436,6 +446,10 @@ def rate_limit_enforce_resend_verification(*, user_id: str, email: str) -> None:
 PORTFOLIO_OVERVIEW_COOLDOWN_SECONDS = 900
 
 
+def _portfolio_overview_key(user_id: str) -> str:
+    return f"rl:portfolio_overview:{user_id}"
+
+
 def check_portfolio_overview_cooldown(user_id: str) -> int | None:
     """Claim the send slot for *user_id*, or report seconds left to wait.
 
@@ -445,7 +459,7 @@ def check_portfolio_overview_cooldown(user_id: str) -> int | None:
     store is unavailable, consistent with every other limiter in this
     module.
     """
-    key = f"rl:portfolio_overview:{user_id}"
+    key = _portfolio_overview_key(user_id)
     try:
         claimed = get_backend().set_nx(key, PORTFOLIO_OVERVIEW_COOLDOWN_SECONDS)
         if claimed:
@@ -457,3 +471,23 @@ def check_portfolio_overview_cooldown(user_id: str) -> int | None:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=UNAVAILABLE_DETAIL
         ) from None
     return remaining if remaining > 0 else PORTFOLIO_OVERVIEW_COOLDOWN_SECONDS
+
+
+def release_portfolio_overview_cooldown(user_id: str) -> None:
+    """Undo a claim made by `check_portfolio_overview_cooldown` (review
+    5100733033 leftover): if the router's `.delay()` call right after the
+    claim actually fails (broker down), the send never happened at all —
+    without this, the user would be locked out of retrying for the full
+    15 minutes over a message that was never even queued. Best-effort: a
+    store outage here just leaves the claim in place (the user waits out
+    the cooldown as normal), it must not itself raise and turn a caller's
+    already-logged enqueue failure into an unhandled second exception.
+    """
+    try:
+        get_backend().delete(_portfolio_overview_key(user_id))
+    except RateLimitUnavailable:
+        logger.warning(
+            "rate_limit: could not release portfolio overview cooldown for user_id=%s "
+            "(store unavailable) — it will expire naturally",
+            user_id,
+        )

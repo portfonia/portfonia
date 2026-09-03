@@ -212,6 +212,9 @@ def test_redis_down_fails_closed_with_503(
         def set_nx(self, key: str, ttl_seconds: int) -> bool:
             raise RateLimitUnavailable
 
+        def delete(self, key: str) -> None:
+            raise RateLimitUnavailable
+
     rate_limit.set_backend(_BoomBackend())
     try:
         resp = app_client.post(

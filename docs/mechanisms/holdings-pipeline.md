@@ -729,3 +729,87 @@ helper for the `labelFor` prop. by_asset_class used the same
 pre-transform pattern (harmless today only because the 13 `asset_class`
 translations happen to be unique, not because the pattern is safe) —
 round-3 review flagged the inconsistency, switched to `labelFor` too.
+
+### Portfolio overview email — explicit send button (issue #202, PR #329)
+
+Not a formal report and not tied to `confirm_holdings`. Issue #202's
+original shape (auto-send an email on every `POST /holdings/confirm`) was
+replaced during design review, before implementation started: that
+decision predated issue #319/#321's incremental single-row editing, and
+"fire unconditionally on every confirm, no dedup" would have meant one
+near-duplicate email per single-field save. The fix was not a rate limiter
+bolted onto the old trigger — it was removing the trigger. See issue #202's
+three pinned comments for the full decision record (original design
+contract, the pivot, and the review-driven fixes below).
+
+**Trigger**: `POST /portfolio/send-overview` (`app/routers/portfolio.py`),
+authenticated, `base_currency` query param mirroring `GET /portfolio/
+summary`'s own param — the emailed total must match whatever currency the
+page has selected, not a hardcoded default. Dispatched only from an
+explicit "Send holdings overview" button on `/portfolio`
+(`send-overview-button.tsx`); `/holdings` and `/holdings/edit` only gained
+a plain navigation link to `/portfolio`, no behavior change to confirm.
+
+**Cooldown**: `check_portfolio_overview_cooldown` (`app/core/rate_limit.py`)
+claims a 15-minute-TTL Redis key via `set_nx` per user before dispatch —
+deliberately NOT built on the existing `_enforce_ip`/`_trip` machinery
+every other limiter in that module uses, because that path fires an ops
+alert on every trip (right for an abuse signal like resend-verification,
+wrong here: a user clicking this button twice in 15 minutes is routine,
+not an anomaly). `release_portfolio_overview_cooldown` undoes the claim if
+the actual Celery `.delay()` enqueue then fails (review 5100733033) — the
+claim is taken before the send is confirmed queued, so without a release
+path a broker blip would lock the user out of retrying for the full window
+over a message that was never even sent. The response schema
+(`SendOverviewResponse`) uses `retry_after_seconds: None` to distinguish
+this "enqueue failed" case from a real cooldown for the frontend.
+
+**Email content**: `send_portfolio_overview_email` (`email_sender.py`)
+opens its own session (via `send_portfolio_overview_email_task`,
+`app/tasks/notification_tasks.py`), resolves the recipient through
+`recipient_email_with_purpose` (same fail-closed two-branch handling as
+`send_report_email` — an unresolved recipient always alerts ops, at parity,
+not downgraded despite this endpoint being click-triggered), and calls
+`compute_portfolio()` directly rather than a separate lightweight price
+lookup — issue #295 already made that function keep every holding in
+`snapshot.holdings` with `market_value_base=None` for an unpriced one, so
+this email inherits "list every holding, mark pending, exclude only from
+totals" for free. The holdings table is a **new, dedicated, locale-aware
+renderer** (`_build_portfolio_overview_markdown`), not a reuse of
+`report_sections._build_section1` — that function's table headers are
+hardcoded English, translated only by the full report's LLM pass
+(`report_generator._translate_md`), which this lightweight, no-LLM email
+skips entirely; its own headers come from a new bare `en`/`zh`
+`_PORTFOLIO_OVERVIEW_COPY` dict (same shape as `_VERIFICATION_EMAIL_COPY`),
+and asset-class labels/placeholders reuse `i18n_glossary.yml`'s existing
+`report_glossary` entries via a small `_glossary_term` helper rather than
+duplicating those translations a second time. The bilingual disclaimer
+footer IS reused as-is via `report_sections._build_footer` (already
+locale-independent by design). No `reports` row, no `user_watermark()`
+read, no LLM call, no `_scan_forbidden_output` (nothing LLM-generated to
+scan).
+
+**Review 5100733033 fixes** (blocker + 3 leftovers, all in PR #329's second
+commit): the per-row value cell originally rendered `h.currency`/
+`h.market_value` — the holding's OWN currency — which can't be summed to
+the `base_currency` total/percent columns next to it and silently ignored
+whatever currency the page had switched to; fixed to
+`snapshot.base_currency` + `market_value_base`, with a regression test
+using an HKD holding (the original all-USD test book couldn't have caught
+this). The name cell fell back to nothing when a holding had no `ticker`
+(an A-share fund keyed by `fund_code` alone); fixed to fall back to
+`fund_code`. The frontend button read the currency switcher's in-flight
+`currency` state, which can lead the settled `summary` by one render
+during a switch; fixed to pass `summary.base_currency` and disable the
+button while a switch is pending. And the cooldown-release fix above.
+
+**Next-report-date**: `next_occurrence_for_cadence` (new,
+`app/tasks/__init__.py`, next to `_REPORT_CADENCES`) computes the next Beat
+fire time for the user's real `report_cadence` via `crontab.
+remaining_estimate` — pinning the crontab's `nowfun` to the passed-in `now`
+is load-bearing: `remaining_estimate` measures elapsed time from its own
+`nowfun()` call, not from its `last_run_at` argument (that argument only
+anchors which past occurrence to search forward from), so an unpinned
+crontab silently computes against the real wall clock regardless of what
+"now" the caller intended — caught by a test asserting the exact next
+weekday/time, not just "some future datetime".
