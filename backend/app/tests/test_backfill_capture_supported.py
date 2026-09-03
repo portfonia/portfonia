@@ -186,10 +186,11 @@ def test_never_touches_holdings_not_stored_as_other(db_session: Session) -> None
 
 def test_cash_row_with_no_ticker_is_unchanged(db_session: Session) -> None:
     """The normal issue-#120 shape: a cash/wmf row stored as Other with no
-    ticker at all. `resolve_holding_market` already returns ("Other", True)
-    for it regardless of the seeded-None declared_market, so this is a
-    no-op — but PR #314 review round 2 asked for explicit coverage rather
-    than relying on that being true by accident of the resolution order."""
+    ticker at all. The scan's `asset_type in ("cash", "wmf")` skip (issue
+    #316 item 1) excludes this row before `_resolve`/`resolve_holding_market`
+    ever runs, so this is a no-op by construction, not by relying on
+    `resolve_holding_market`'s own no-ticker-cash branch — PR #314 review
+    round 2 asked for explicit coverage of this shape regardless."""
     seed_user(db_session, _USER)
     h = _holding(name="Cash", ticker=None, asset_type="cash", currency="USD")
     db_session.add(h)
@@ -234,7 +235,7 @@ def test_legacy_cash_row_with_spurious_ticker_is_not_promoted(db_session: Sessio
 def test_legacy_wmf_row_with_spurious_ticker_is_not_promoted(db_session: Session) -> None:
     """Same corner case as the cash test above, for the sibling asset_type
     "wmf" (wealth management product) — the backfill's skip must cover both
-    values named in issue #313 item 1, not just "cash"."""
+    values named in issue #316 item 1, not just "cash"."""
     seed_user(db_session, _USER)
     h = _holding(
         name="Bank WMP",

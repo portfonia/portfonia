@@ -140,13 +140,18 @@ step required. The one-off idempotent script
 to commit) is what actually covers the still-bare-ticker case: it seeds
 `market=None` before re-resolving, so `_confirmed_market` treats the row
 as undetermined instead of already-confirmed and the suffix-forcing step
-runs. It re-resolves every existing `market="Other"` row — reclassifying
-now-resolvable tickers (e.g. into UK/Europe/Japan/Korea), **rewriting
-`ticker` itself when a suffix gets forced** (e.g. `VOD` -> `VOD.L`, the
-change an operator most needs to see on a `--apply` dry-run, not just the
-`market`/`capture_supported` columns), and flipping `capture_supported=False`
-for tickers that still don't resolve, so section 1 renders "[market not
-supported]" instead of sitting in Other limbo indefinitely. Mirrors the
+runs. It re-resolves every existing `market="Other"` row **except**
+`asset_type in ("cash", "wmf")`, which the scan skips outright (issue
+#316 item 1: a legacy cash/wmf row can still carry a spurious pre-#120
+ticker, and that asset_type is never in scope for this rewrite regardless
+of what ticker it carries) — reclassifying now-resolvable tickers (e.g.
+into UK/Europe/Japan/Korea), **rewriting `ticker` itself when a suffix
+gets forced** (e.g. `VOD` -> `VOD.L`, the change an operator most needs
+to see on the script's stdout, dry-run (the default) or `--apply`, not
+just the `market`/`capture_supported` columns), and flipping
+`capture_supported=False` for tickers that still don't resolve, so
+section 1 renders "[market not supported]" instead of sitting in Other
+limbo indefinitely. Mirrors the
 one-off-script (not a migration, not a new bulk `/admin/*` endpoint)
 precedent already established for the email-verification backfill (issue
 #260).
