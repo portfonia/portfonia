@@ -23,8 +23,10 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.report import Report
 from app.models.user import User
+from app.services.user_scope import report_language_for
 from app.tests.test_admin_router import _headers
 
 _UID = uuid.UUID("00000000-0000-0000-0000-0000000000c2")
@@ -172,6 +174,13 @@ def test_rerun_resend_true_clears_email_state_and_resends(
     kwargs = mock_regen.call_args.kwargs
     assert kwargs["user_id"] == _UID
     assert kwargs["mode"] == "analyze"
+    # The call site resolves output_lang via report_language_for (the
+    # target user's own locale, issue #308) — pinned here rather than
+    # hardcoding "zh" so a change to that resolution shows up as a real
+    # assertion failure, not a silent pass (PR #326 review leftover).
+    assert kwargs["output_lang"] == report_language_for(
+        db_session, _UID, get_settings().OUTPUT_LANG
+    )
     mock_send.assert_called_once_with(regenerated, db_session)
 
     body = resp.json()

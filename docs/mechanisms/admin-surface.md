@@ -105,10 +105,13 @@ capability existing.
   - **Path params `user_id` + `report_id`, both required** (mirrors
     `regenerate_report`'s own `Report.id == report_id, Report.user_id ==
     user_id` ownership filter rather than trusting `report_id` alone): an
-    unknown `user_id` and a `report_id` that exists but belongs to a
-    different user both 404 with the same `"report not found"` detail —
-    the route does not distinguish the two to a caller (no user-enumeration
-    signal), consistent with the rest of this file's 404 conventions.
+    unknown `user_id` 404s as `"user not found"`; a `report_id` that
+    doesn't exist, or exists but belongs to a different user, both 404 as
+    `"report not found"` (the ownership-mismatch case does not distinguish
+    itself from a bare missing report — no cross-user enumeration signal —
+    but it is still a different `detail` from the unknown-`user_id` case,
+    corrected per blacktomb42's PR #326 review: an earlier draft of this
+    paragraph claimed both cases shared one detail string).
   - **Error mapping**: `401` missing/wrong ops token (router-level, as
     always) · `404` unknown `user_id` (`"user not found"`) or unknown/
     not-owned `report_id` (`"report not found"`) or `regenerate_report`'s
@@ -119,8 +122,13 @@ capability existing.
   - **Output language**: `report_language_for(session, user_id,
     Settings.OUTPUT_LANG)` — the target user's own `users.locale` (issue
     #308), falling back to the system default only if the row can't be
-    resolved. Same convention as the self-service regenerate and the
-    generate-for-user admin endpoint.
+    resolved. Same convention as the self-service `POST
+    /reports/{id}/regenerate`. **Not** the same as `POST
+    /admin/users/{user_id}/reports/generate` (this file's §3.2 entry
+    above), which deliberately still reads the global `Settings.OUTPUT_LANG`
+    unchanged (issue #308 decision point 2) — corrected per blacktomb42's
+    PR #326 review: an earlier draft of this paragraph claimed the two
+    admin endpoints matched on this point.
   - **Deliberately out of scope (per the design contract, issue #324's
     second comment)**: a bulk "rerun every report for this user today"
     variant, and a by-`report_date` convenience lookup in place of
