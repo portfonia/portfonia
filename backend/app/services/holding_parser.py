@@ -486,12 +486,27 @@ def parse_dialect_line(line: str) -> dict[str, Any] | None:
         tags["asset_type"] = asset_type
     if asset_type in ("cash", "wmf"):
         parsed = _parse_cash_tokens(tokens)
-    elif tags.get("pricing_mode") == "manual":
-        parsed = _parse_manual_listed_tokens(tokens)
     else:
-        parsed = _parse_listed_tokens(tokens)
-        if parsed is None and asset_type is None:
-            parsed = _parse_cash_tokens(tokens)
+        # Try the placeholder-marked manual 3-slot shape first, regardless
+        # of any pricing_mode tag: it is unambiguous by construction (see
+        # _manual_match_explicit's docstring — a 2-slot auto row's tokens
+        # can't accidentally satisfy it in the normal case), and pricing_
+        # mode is no longer an export tag (issue #319 item 8, dropped
+        # precisely because it's the one tag every Holding always has —
+        # keeping it would have meant the dialect fast path never actually
+        # retires). A manual row can still reach this function tagged only
+        # by a surviving account/portfolio/notes tag, with no pricing_mode
+        # tag to route on, so detecting the shape itself, not the tag, is
+        # what keeps that case parsing correctly instead of silently
+        # misrouting current_value into the broker field.
+        parsed = _manual_match_explicit(tokens)
+        if parsed is None:
+            if tags.get("pricing_mode") == "manual":
+                parsed = _parse_manual_listed_tokens(tokens)
+            else:
+                parsed = _parse_listed_tokens(tokens)
+                if parsed is None and asset_type is None:
+                    parsed = _parse_cash_tokens(tokens)
     if parsed is None:
         return None
     for key, value in tags.items():

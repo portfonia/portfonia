@@ -1226,18 +1226,16 @@ def test_export_filename_is_utc_timestamp(
     assert 'filename="holdings-20260902-051530Z.md"' in resp.headers["content-disposition"]
 
 
-def test_export_omits_trailing_dialect_tags(app_client: TestClient) -> None:
-    """issue #319 item 8: the product owner had the trailing
-    `account:`/`portfolio:`/`notes:`/`asset_type:`/`market:`/`pricing_mode:`
-    tag segment removed from export output, on record as accepting that
-    this retires the deterministic re-upload fast path (see the sibling
-    test below) — those fields simply do not survive an export/re-import
-    round trip any more."""
+def test_export_omits_asset_type_market_pricing_mode_tags(app_client: TestClient) -> None:
+    """issue #319 item 8: `asset_type:`/`market:`/`pricing_mode:` no longer
+    appear in export output — pure classification, always re-derivable via
+    the LLM path. `account:`/`portfolio:`/`notes:` are NOT part of this —
+    see the next test — they are free-text user data with no other slot
+    in the positional dialect (PR #321 review round 1, blacktomb42: the
+    first version of this change dropped all six keys, an unrecoverable
+    data-loss regression the review caught before merge)."""
     row = {
         **_PARSED_APPLE,
-        "account": "IRA",
-        "portfolio": "Growth Sleeve",
-        "notes": "core holding",
         "asset_type": "stock",
         "market": "US",
         "pricing_mode": "auto",
@@ -1249,22 +1247,91 @@ def test_export_omits_trailing_dialect_tags(app_client: TestClient) -> None:
     line = data_lines[0]
     assert "Apple" in line
     assert "AAPL" in line
-    for tag in ("account:", "portfolio:", "notes:", "asset_type:", "market:", "pricing_mode:"):
+    for tag in ("asset_type:", "market:", "pricing_mode:"):
         assert tag not in line
 
 
-def test_export_no_longer_triggers_the_dialect_fast_path(app_client: TestClient) -> None:
-    """The explicit tradeoff behind item 8: `try_parse_dialect` requires
-    every line to carry at least one trailing tag, so an export with no
-    tags never matches it any more — re-uploading now always falls through
-    to the LLM path. Asserted directly against `try_parse_dialect` (not a
-    full `parse()` round trip) so this test needs no LLM mock."""
-    row = {**_PARSED_APPLE, "account": "IRA", "portfolio": "Taxable", "notes": "keep me"}
+def test_export_keeps_account_portfolio_notes_tags(app_client: TestClient) -> None:
+    """account/portfolio/notes are free-text and have no positional slot —
+    unlike asset_type/market/pricing_mode, dropping them would be
+    unrecoverable, not merely "no longer free/fast", so export keeps
+    emitting them."""
+    row = {
+        **_PARSED_APPLE,
+        "account": "IRA",
+        "portfolio": "Growth Sleeve",
+        "notes": "core holding",
+    }
     app_client.post("/holdings/confirm?mode=replace", json=[row])
+    body = app_client.get("/holdings/export").text
+    data_lines = [ln for ln in body.splitlines() if ln and not ln.lstrip().startswith("#")]
+    assert len(data_lines) == 1
+    line = data_lines[0]
+    assert "account:IRA" in line
+    assert 'portfolio:"Growth Sleeve"' in line
+    assert 'notes:"core holding"' in line
+
+
+def test_export_plain_row_no_longer_triggers_the_dialect_fast_path(
+    app_client: TestClient,
+) -> None:
+    """The explicit tradeoff behind item 8: a row with no account/
+    portfolio/notes now exports with zero trailing tags (pricing_mode is
+    deliberately excluded from export precisely because it's the one tag
+    every Holding always has — see the module docstring), so
+    `try_parse_dialect` no longer matches a typical export. Asserted
+    directly against `try_parse_dialect` (not a full `parse()` round
+    trip) so this test needs no LLM mock."""
+    app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_APPLE])
     body = app_client.get("/holdings/export").text
     from app.services.holding_parser import try_parse_dialect
 
     assert try_parse_dialect(body) is None
+
+
+def test_export_manual_row_with_surviving_tag_still_round_trips_via_dialect_path(
+    app_client: TestClient,
+) -> None:
+    """Regression lock for the bug PR #321 review round 1 caught in the
+    fix itself: a manual-pricing row that also has account/portfolio/
+    notes set still carries a tag (so the file *does* hit the dialect
+    fast path via that tag), and must still route to the manual 3-slot
+    parser rather than being silently misparsed as 2-slot auto — which
+    would swallow current_value into the broker field and flip
+    pricing_mode back to auto. `_manual_match_explicit` in
+    `holding_parser.py` is tried positionally before any tag check
+    specifically to guarantee this."""
+    row: dict[str, object] = {
+        "name": "Family house",
+        "ticker": "HOME",
+        "fund_code": None,
+        "currency": "USD",
+        "shares": 1.0,
+        "avg_cost": 240000.0,
+        "current_value": 250000.0,
+        "pricing_mode": "manual",
+        "asset_type": "other",
+        "broker": "IBKR",
+        "account": "Taxable",
+        "portfolio": None,
+        "notes": None,
+        "issues": [],
+        "confidence": 1.0,
+    }
+    resp = app_client.post("/holdings", json=row)
+    assert resp.status_code == 201
+    body = app_client.get("/holdings/export").text
+    from app.services.holding_parser import try_parse_dialect
+
+    dialect_rows = try_parse_dialect(body)
+    assert dialect_rows is not None, "expected the account: tag to trigger the dialect path"
+    assert len(dialect_rows) == 1
+    parsed = dialect_rows[0]
+    assert parsed["shares"] == 1.0
+    assert parsed["avg_cost"] == 240000.0
+    assert parsed["current_value"] == 250000.0
+    assert parsed["pricing_mode"] == "manual"
+    assert parsed["broker"] == "IBKR"
 
 
 def test_create_holding_enqueues_sector_backfill_not_sync_yfinance(

@@ -181,6 +181,46 @@ describe("HoldingsEditor", () => {
       expect(screen.getAllByDisplayValue("150")[0]).toBeInTheDocument();
     });
 
+    it("a failed field save does not clobber a different field's already-successful edit on the same row (PR #321 review round 1)", async () => {
+      const user = userEvent.setup();
+      let rejectShares!: (err: Error) => void;
+      updateHolding.mockImplementation((id: string, patch: Record<string, unknown>) => {
+        if ("shares" in patch) {
+          return new Promise((_resolve, reject) => {
+            rejectShares = reject;
+          });
+        }
+        return Promise.resolve({ ...AAPL, avg_cost: "200" });
+      });
+      renderEditor();
+
+      const sharesInput = screen.getAllByDisplayValue("10")[0];
+      await user.clear(sharesInput);
+      await user.type(sharesInput, "25");
+      await user.tab();
+      await waitFor(() => expect(updateHolding).toHaveBeenCalledWith(AAPL.id, { shares: 25 }));
+
+      const avgCostInput = screen.getAllByDisplayValue("150")[0];
+      await user.clear(avgCostInput);
+      await user.type(avgCostInput, "200");
+      await user.tab();
+      await waitFor(() =>
+        expect(updateHolding).toHaveBeenCalledWith(AAPL.id, { avg_cost: 200 }),
+      );
+      // avg_cost's PATCH resolves (success) before shares' PATCH rejects —
+      // the failure must roll back only shares, not the whole row.
+      await waitFor(() => expect(screen.getByDisplayValue("200")).toBeInTheDocument());
+      rejectShares(new Error("nope"));
+
+      await waitFor(() =>
+        expect(screen.getByText(/could not update this holding/i)).toBeInTheDocument(),
+      );
+      // shares reverted to its pre-edit value, but avg_cost's successful
+      // save is still showing — not reverted by shares' unrelated failure.
+      expect(screen.getAllByDisplayValue("10")[0]).toBeInTheDocument();
+      expect(screen.getByDisplayValue("200")).toBeInTheDocument();
+    });
+
     it("edits pricing_mode via a select and saves immediately", async () => {
       const user = userEvent.setup();
       updateHolding.mockResolvedValue({ ...AAPL, pricing_mode: "manual" });

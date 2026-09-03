@@ -132,7 +132,11 @@ export function HoldingsEditor({
   const [holdings, setHoldings] = useState<HoldingOut[]>(initialHoldings);
   const [error, setError] = useState<string | null>(null);
   const [reordering, setReordering] = useState(false);
-  const [savingCell, setSavingCell] = useState<string | null>(null);
+  // A set, not a single key (PR #321 review round 1): tabbing between two
+  // cells before the first PATCH resolves must track both as independently
+  // in-flight, not have the second edit's key overwrite the first's and
+  // leave its input showing enabled while its request is still pending.
+  const [savingCells, setSavingCells] = useState<Set<string>>(new Set());
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<HoldingOut | null>(null);
   const dragFrom = useRef<number | null>(null);
@@ -179,9 +183,9 @@ export function HoldingsEditor({
     id: string,
     patch: HoldingPatch,
     field: "shares" | "avg_cost" | "current_value" | "pricing_mode",
+    previousValue: string | null,
     optimisticValue: string,
   ) {
-    const previous = holdings;
     const cellKey = `${id}:${field}`;
     // Optimistic update mirrors drag reorder's previous-state rollback
     // pattern (design decision 4-5): NumberCell is an uncontrolled input
@@ -191,19 +195,30 @@ export function HoldingsEditor({
     setHoldings((prev) =>
       prev.map((h) => (h.id === id ? { ...h, [field]: optimisticValue } : h)),
     );
-    setSavingCell(cellKey);
+    setSavingCells((prev) => new Set(prev).add(cellKey));
     setError(null);
     try {
       const saved = await updateHolding(id, patch);
       setHoldings((prev) => prev.map((h) => (h.id === id ? saved : h)));
     } catch (err) {
       if (isNextRedirectError(err)) throw err;
-      setHoldings(previous);
+      // Roll back only this field, not the whole row (PR #321 review
+      // round 1): a second field on the same row may have optimistically
+      // applied — or already saved — in the meantime, and reverting to a
+      // whole-row snapshot captured before this edit would clobber that
+      // unrelated, possibly-already-successful change.
+      setHoldings((prev) =>
+        prev.map((h) => (h.id === id ? { ...h, [field]: previousValue } : h)),
+      );
       setError(
         `${t("errorUpdateFailed")}: ${err instanceof ApiError ? err.message : String(err)}`,
       );
     } finally {
-      setSavingCell(null);
+      setSavingCells((prev) => {
+        const next = new Set(prev);
+        next.delete(cellKey);
+        return next;
+      });
     }
   }
 
@@ -353,9 +368,15 @@ export function HoldingsEditor({
                     ) : (
                       <NumberCell
                         value={h.shares}
-                        disabled={savingCell === `${h.id}:shares`}
+                        disabled={savingCells.has(`${h.id}:shares`)}
                         onCommit={(raw) =>
-                          void patchField(h.id, { shares: parseNum(raw) }, "shares", raw)
+                          void patchField(
+                            h.id,
+                            { shares: parseNum(raw) },
+                            "shares",
+                            h.shares,
+                            raw,
+                          )
                         }
                       />
                     )}
@@ -366,9 +387,15 @@ export function HoldingsEditor({
                     ) : (
                       <NumberCell
                         value={h.avg_cost}
-                        disabled={savingCell === `${h.id}:avg_cost`}
+                        disabled={savingCells.has(`${h.id}:avg_cost`)}
                         onCommit={(raw) =>
-                          void patchField(h.id, { avg_cost: parseNum(raw) }, "avg_cost", raw)
+                          void patchField(
+                            h.id,
+                            { avg_cost: parseNum(raw) },
+                            "avg_cost",
+                            h.avg_cost,
+                            raw,
+                          )
                         }
                       />
                     )}
@@ -377,12 +404,13 @@ export function HoldingsEditor({
                     {cashWmf ? (
                       <NumberCell
                         value={h.current_value}
-                        disabled={savingCell === `${h.id}:current_value`}
+                        disabled={savingCells.has(`${h.id}:current_value`)}
                         onCommit={(raw) =>
                           void patchField(
                             h.id,
                             { current_value: parseNum(raw) },
                             "current_value",
+                            h.current_value,
                             raw,
                           )
                         }
@@ -395,11 +423,18 @@ export function HoldingsEditor({
                     <select
                       className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm disabled:opacity-50"
                       value={h.pricing_mode === "manual" ? "manual" : "auto"}
-                      disabled={cashWmf || savingCell === `${h.id}:pricing_mode`}
+                      disabled={cashWmf || savingCells.has(`${h.id}:pricing_mode`)}
                       onClick={(e) => e.stopPropagation()}
                       onChange={(e) => {
+                        const previous = h.pricing_mode === "manual" ? "manual" : "auto";
                         const next = e.target.value === "manual" ? "manual" : "auto";
-                        void patchField(h.id, { pricing_mode: next }, "pricing_mode", next);
+                        void patchField(
+                          h.id,
+                          { pricing_mode: next },
+                          "pricing_mode",
+                          previous,
+                          next,
+                        );
                       }}
                     >
                       <option value="auto">{t("pricingAuto")}</option>

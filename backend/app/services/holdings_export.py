@@ -10,16 +10,36 @@ Trailing tagged fields (`account:`, `portfolio:`, `notes:`, `asset_type:`,
 `market:`, `pricing_mode:`) used to carry the columns the positional
 dialect drops, and doubled as a marker `holding_parser.try_parse_dialect`
 detected to skip the LLM entirely on a re-uploaded export (PR #310).
-Issue #319 item 8 removes the tag segment from export/template output on
-product-owner request, **explicitly accepting** that a re-uploaded
-exported file no longer hits that fast path — it now parses like any
-other free-form file, via the LLM, same result but no longer free/fast.
-`DIALECT_TAG_KEYS` and `holding_parser.try_parse_dialect`/
-`split_tagged_fields`/`parse_dialect_line` stay in place, unmodified and
-still reachable by a hand-written tagged file — they just have no export
-producing that input anymore, so `_render_tags` below is now unused by
-`render_holding_line` and kept only for a user who wants to write the
-tagged form by hand (see issue #319 investigation comment).
+
+Issue #319 item 8 removes `asset_type`/`market`/`pricing_mode` from
+export/template output on product-owner request. `asset_type`/`market`
+are pure classification, always re-derivable (asset_type from the
+cash-vs-listed shape + ticker presence; market from the exported
+ticker's own exchange suffix) — dropping them is exactly the "no
+longer free/fast, but still correct via the LLM" tradeoff the issue
+discussed. `pricing_mode` is dropped for the same reason, but had to be
+dropped deliberately rather than by default: it is the one tag every
+`Holding` always has a value for (`pricing_mode` is never null), so if
+it stayed, every export line would always carry at least this one tag
+and the dialect fast path (`holding_parser.try_parse_dialect` requires
+every line to carry *a* tag, not a specific one) would never actually
+be retired in practice — silently defeating the tradeoff the product
+owner signed off on.
+
+`account`/`portfolio`/`notes` are **not** dropped: they are free-text
+user data with no other slot anywhere in the positional dialect, so
+omitting them would be unrecoverable data loss on #92's only rollback
+path (export -> edit -> re-upload) — not a "no longer free/fast"
+tradeoff at all (PR #321 review round 1, blacktomb42: the first version
+of this change dropped all six keys, silently losing this data). Since
+these three can still make a line carry a tag, dropping `pricing_mode`
+alone would have reopened a *different* corruption path: a manual
+3-slot row reached via a surviving account/portfolio/notes tag used to
+route through `parse_dialect_line`'s tag-keyed branch selection, which
+would silently misparse it as the 2-slot auto shape. Fixed in the same
+round by making `parse_dialect_line` detect the manual 3-slot shape
+positionally (`_manual_match_explicit`, tried before any tag check) —
+see that function's docstring in `holding_parser.py`.
 
 Cost basis is load-bearing: future return/yield depends on average holding
 cost, and `price_snapshots` is market data, not what the user paid. Export
@@ -63,7 +83,9 @@ _RULES_EN = """\
 ##### Listed assets (auto): name  ticker-or-fund-code  currency  shares  avg-cost  broker
 ##### Listed assets (pricing_mode:manual): same, plus current-value after avg-cost
 ##### Cash or wealth-management products (no public code): name  total-value  currency  broker
-##### Optional trailing tags (quote a value if it contains spaces):
+##### Optional trailing tags (quote a value if it contains spaces). A
+##### downloaded export only ever writes account/portfolio/notes — the
+##### other three below are still recognized if you type them by hand:
 #####   account:"IRA" portfolio:Growth notes:"long-term" asset_type:stock market:US pricing_mode:auto
 ##### asset_type is stock / etf / fund / cash / wealth-management (cash-like) / other.
 ##### pricing_mode is auto or manual. market is listing venue (US / HK / A-Share / UK / Europe / Japan / Korea / Other).
@@ -86,7 +108,8 @@ _RULES_ZH = """\
 ##### 上市标的（自动定价）：名称  代码或基金代码  货币  份额  平均成本  券商
 ##### 上市标的（pricing_mode:manual）：同上，平均成本后再加当前市值
 ##### 现金或银行理财产品（无公开代码）：名称  总金额  货币  券商
-##### 行尾可选标签（含空格的值请加双引号）：
+##### 行尾可选标签（含空格的值请加双引号）。下载的导出文件只会写
+##### account/portfolio/notes 这三个——其余三个手工填写时解析器仍能识别：
 #####   account:"IRA" portfolio:Growth notes:"长期" asset_type:stock market:US pricing_mode:auto
 ##### asset_type 为 stock / etf / fund / cash / 理财类 / other。
 ##### pricing_mode 为 auto 或 manual。market 是上市地（US / HK / A-Share / UK / Europe / Japan / Korea / Other）。
@@ -148,18 +171,21 @@ def _quote_tag(value: str) -> str:
     return value
 
 
+# Subset of DIALECT_TAG_KEYS that export actually emits (issue #319 item
+# 8) — asset_type/market/pricing_mode are dropped; account/portfolio/
+# notes are kept (see the module docstring for why each decision differs).
+_EXPORT_TAG_KEYS: tuple[str, ...] = ("account", "portfolio", "notes")
+
+
 def _render_tags(holding: Holding) -> str:
     parts: list[str] = []
-    for key in DIALECT_TAG_KEYS:
+    for key in _EXPORT_TAG_KEYS:
         raw = getattr(holding, key)
         if raw is None:
             continue
         flat = _flatten(raw)
         if not flat:
             continue
-        if key == "asset_type" and flat == "wmf":
-            # Template/export copy must not use the letters w-m-f as jargon.
-            flat = "wealth-management"
         parts.append(f"{key}:{_quote_tag(flat)}")
     return " ".join(parts)
 
@@ -197,7 +223,9 @@ def render_holding_line(holding: Holding) -> str:
             _fmt_num(holding.avg_cost),
             broker,
         ]
-    return " ".join(p for p in parts if p)
+    head = " ".join(p for p in parts if p)
+    tags = _render_tags(holding)
+    return f"{head} {tags}".strip() if tags else head
 
 
 # Locale-keyed dispatch (issue #319 item 9) replacing the old `locale == "zh"`
