@@ -51,6 +51,25 @@ describe("SendOverviewButton", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("shows an error message when the dispatch itself failed (review 5100936994)", async () => {
+    // sent:false with retry_after_seconds:null is the router's release_
+    // portfolio_overview_cooldown path (enqueue failed after the cooldown
+    // claim) — distinct from a real cooldown, must read as an error, not
+    // "still waiting".
+    sendPortfolioOverview.mockResolvedValue({ sent: false, retry_after_seconds: null });
+    const user = userEvent.setup();
+    render(
+      <LocaleProvider>
+        <SendOverviewButton baseCurrency="USD" />
+      </LocaleProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: /send holdings overview/i }));
+
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.queryByText(/min\.?$/)).not.toBeInTheDocument();
+  });
+
   it("shows an error message on network failure", async () => {
     sendPortfolioOverview.mockRejectedValue(new Error("network down"));
     const user = userEvent.setup();

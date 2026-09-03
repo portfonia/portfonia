@@ -1,5 +1,8 @@
-"""Fixed-window rate limits for signup, invite minting (issue #190), and
-forgot-password (issue #231)."""
+"""Fixed-window rate limits for signup, invite minting (issue #190),
+forgot-password (issue #231), and the portfolio overview email's 15-minute
+per-user send cooldown (issue #202 — a `set_nx` claim/release, not a
+fixed-window counter like the others, since a routine cooldown hit here is
+not an abuse signal worth an ops alert)."""
 
 from __future__ import annotations
 
