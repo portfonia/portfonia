@@ -463,6 +463,9 @@
     "sendOverviewSuccess": "Overview sent to your email.",
     "sendOverviewCooldown": "You can send again in {minutes} min.",
     "sendOverviewError": "Couldn't send right now — try again shortly.",
+    "exportXlsxButton": "Download .xlsx",
+    "exportMdButton": "Download .md",
+    "exportError": "Couldn't download right now — try again shortly.",
     "assetClasses": {
       "STOCK": "Individual stock",
       "EQUITY_US_BROAD": "US broad-market equity",

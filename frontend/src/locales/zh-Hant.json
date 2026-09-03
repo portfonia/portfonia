@@ -463,6 +463,9 @@
     "sendOverviewSuccess": "總覽已傳送至您的信箱。",
     "sendOverviewCooldown": "還需等待 {minutes} 分鐘才能再次傳送。",
     "sendOverviewError": "傳送失敗，請稍後再試。",
+    "exportXlsxButton": "下載 .xlsx",
+    "exportMdButton": "下載 .md",
+    "exportError": "下載失敗，請稍後再試。",
     "assetClasses": {
       "STOCK": "個股",
       "EQUITY_US_BROAD": "美國寬基權益",

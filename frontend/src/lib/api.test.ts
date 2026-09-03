@@ -6,7 +6,7 @@ const { logout } = vi.hoisted(() => ({
 
 vi.mock("@/lib/auth-actions", () => ({ logout }));
 
-import { ApiError, exportHoldings, listHoldings } from "./api";
+import { ApiError, exportHoldings, exportPortfolio, listHoldings } from "./api";
 
 const originalFetch = global.fetch;
 
@@ -65,6 +65,57 @@ describe("exportHoldings", () => {
     const result = await exportHoldings();
     expect(result.filename).toBe("holdings-20260902-051530Z.md");
     expect(await result.blob.text()).toContain("##### export");
+  });
+});
+
+describe("exportPortfolio", () => {
+  afterEach(() => {
+    global.fetch = originalFetch;
+    vi.resetAllMocks();
+  });
+
+  it("uses the Content-Disposition filename from GET /portfolio/export", async () => {
+    global.fetch = vi.fn().mockResolvedValue(
+      new Response("| Ticker |\n", {
+        status: 200,
+        headers: {
+          "Content-Type": "text/markdown",
+          "Content-Disposition": 'attachment; filename="portfolio-20260902-051530Z.md"',
+        },
+      }),
+    );
+    const result = await exportPortfolio("md", "USD");
+    expect(result.filename).toBe("portfolio-20260902-051530Z.md");
+    expect(await result.blob.text()).toContain("Ticker");
+  });
+
+  it("passes format/base_currency/locale as query params", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("", { status: 200, headers: {} }));
+    global.fetch = fetchMock;
+
+    await exportPortfolio("xlsx", "CNY", "zh");
+
+    const calledUrl = fetchMock.mock.calls[0][0] as string;
+    expect(calledUrl).toContain("/api/portfolio/export?");
+    expect(calledUrl).toContain("format=xlsx");
+    expect(calledUrl).toContain("base_currency=CNY");
+    expect(calledUrl).toContain("locale=zh");
+  });
+
+  it("omits locale from the query string when not given", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("", { status: 200, headers: {} }));
+    global.fetch = fetchMock;
+
+    await exportPortfolio("md", "USD");
+
+    const calledUrl = fetchMock.mock.calls[0][0] as string;
+    expect(calledUrl).not.toContain("locale=");
+  });
+
+  it("still throws ApiError on a non-ok response", async () => {
+    global.fetch = vi.fn().mockResolvedValue(new Response("", { status: 500 }));
+
+    await expect(exportPortfolio("md", "USD")).rejects.toThrow(ApiError);
   });
 });
 

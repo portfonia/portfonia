@@ -203,3 +203,128 @@ def test_send_overview_enqueue_failure_releases_cooldown_for_immediate_retry(
     )
     second = app_client.post("/portfolio/send-overview")
     assert second.json()["sent"] is True
+
+
+# ---------------------------------------------------------------------------
+# GET /portfolio/export (issue #331) — computed-result snapshot export,
+# distinct from GET /holdings/export (issue #92/#310, declared/unpriced
+# fields for re-import). Column-set/format details are covered by
+# test_portfolio_export.py; these tests cover endpoint wiring only: params,
+# content-type/disposition, locale precedence, and auth.
+# ---------------------------------------------------------------------------
+
+
+def test_export_md_returns_markdown_file(app_client: TestClient, db_session: Session) -> None:
+    _seed(db_session)
+    resp = app_client.get("/portfolio/export?format=md")
+    assert resp.status_code == 200
+    assert "text/markdown" in resp.headers["content-type"]
+    assert "attachment" in resp.headers["content-disposition"]
+    import re as _re
+
+    assert _re.search(r'filename="portfolio-\d{8}-\d{6}Z\.md"', resp.headers["content-disposition"])
+    assert "AAPL" in resp.text
+
+
+def test_export_xlsx_returns_valid_workbook(app_client: TestClient, db_session: Session) -> None:
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    _seed(db_session)
+    resp = app_client.get("/portfolio/export?format=xlsx")
+    assert resp.status_code == 200
+    assert (
+        resp.headers["content-type"]
+        == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert "attachment" in resp.headers["content-disposition"]
+    import re as _re
+
+    assert _re.search(
+        r'filename="portfolio-\d{8}-\d{6}Z\.xlsx"', resp.headers["content-disposition"]
+    )
+    wb = load_workbook(BytesIO(resp.content))
+    ws = wb.active
+    assert ws is not None
+    all_text = " ".join(str(c) for row in ws.iter_rows(values_only=True) for c in row if c)
+    assert "AAPL" in all_text
+
+
+def test_export_rejects_missing_format(app_client: TestClient, db_session: Session) -> None:
+    _seed(db_session)
+    resp = app_client.get("/portfolio/export")
+    assert resp.status_code == 422
+
+
+def test_export_rejects_invalid_format(app_client: TestClient, db_session: Session) -> None:
+    _seed(db_session)
+    resp = app_client.get("/portfolio/export?format=csv")
+    assert resp.status_code == 422
+
+
+def test_export_respects_base_currency_param(app_client: TestClient, db_session: Session) -> None:
+    _seed(db_session)
+    resp = app_client.get("/portfolio/export?format=md&base_currency=CNY")
+    assert resp.status_code == 200
+    assert "本位币: CNY" in resp.text or "Base currency: CNY" in resp.text
+
+
+def test_export_uses_report_locale_when_no_locale_param_given(
+    app_client: TestClient, db_session: Session
+) -> None:
+    from app.models.user import User
+
+    _seed(db_session)
+    user = db_session.get(User, _USER)
+    assert user is not None
+    user.locale = "zh"
+    db_session.commit()
+
+    resp = app_client.get("/portfolio/export?format=md")
+    assert "代码" in resp.text
+
+
+def test_export_locale_param_takes_precedence_over_report_locale(
+    app_client: TestClient, db_session: Session
+) -> None:
+    from app.models.user import User
+
+    _seed(db_session)
+    user = db_session.get(User, _USER)
+    assert user is not None
+    user.locale = "zh"
+    db_session.commit()
+
+    resp = app_client.get("/portfolio/export?format=md&locale=en")
+    assert "Ticker" in resp.text
+    assert "代码" not in resp.text
+
+
+def test_export_md_and_xlsx_have_identical_columns(
+    app_client: TestClient, db_session: Session
+) -> None:
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    _seed(db_session)
+    md = app_client.get("/portfolio/export?format=md&locale=en").text
+    md_header = [c.strip() for c in md.splitlines()[3].strip("|").split("|")]
+
+    xlsx = app_client.get("/portfolio/export?format=xlsx&locale=en").content
+    wb = load_workbook(BytesIO(xlsx))
+    ws = wb.active
+    assert ws is not None
+    rows = list(ws.iter_rows(values_only=True))
+    header_row_idx = next(i for i, r in enumerate(rows) if r[0] == "Ticker")
+    xlsx_header = [c for c in rows[header_row_idx] if c is not None]
+
+    assert md_header == xlsx_header
+
+
+def test_export_excludes_by_star_aggregates(app_client: TestClient, db_session: Session) -> None:
+    _seed(db_session)
+    resp = app_client.get("/portfolio/export?format=md")
+    assert "by_market" not in resp.text
+    assert "by_currency" not in resp.text

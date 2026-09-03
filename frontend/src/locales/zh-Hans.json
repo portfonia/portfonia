@@ -463,6 +463,9 @@
     "sendOverviewSuccess": "总览已发送至您的邮箱。",
     "sendOverviewCooldown": "还需等待 {minutes} 分钟才能再次发送。",
     "sendOverviewError": "发送失败，请稍后再试。",
+    "exportXlsxButton": "下载 .xlsx",
+    "exportMdButton": "下载 .md",
+    "exportError": "下载失败，请稍后再试。",
     "assetClasses": {
       "STOCK": "个股",
       "EQUITY_US_BROAD": "美国宽基权益",
