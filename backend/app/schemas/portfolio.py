@@ -27,6 +27,7 @@ class HoldingValueOut(BaseModel):
     portfolio: str | None
     avg_cost: Decimal | None
     shares: Decimal | None
+    notes: str | None
     cost_basis_base: Decimal | None
     unrealized_pnl_base: Decimal | None
     unrealized_pnl_pct: Decimal | None

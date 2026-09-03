@@ -69,6 +69,7 @@ def get_portfolio_summary(
             portfolio=hv.portfolio,
             avg_cost=hv.avg_cost,
             shares=hv.shares,
+            notes=hv.notes,
             cost_basis_base=hv.cost_basis_base,
             unrealized_pnl_base=hv.unrealized_pnl_base,
             unrealized_pnl_pct=hv.unrealized_pnl_pct,

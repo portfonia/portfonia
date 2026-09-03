@@ -2,15 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import type { HoldingValueOut } from "@/lib/api";
 import {
-  ACCOUNT_OTHER_KEY,
   fallbackOrValue,
   formatMoney,
   formatPercent,
-  GROUP_UNGROUPED_KEY,
   isNoLivePrice,
   partitionHoldings,
   pnlColorClass,
-  relabelFallbackKey,
 } from "./portfolio-helpers";
 
 function holding(overrides: Partial<HoldingValueOut>): HoldingValueOut {
@@ -34,6 +31,7 @@ function holding(overrides: Partial<HoldingValueOut>): HoldingValueOut {
     portfolio: null,
     avg_cost: null,
     shares: "10",
+    notes: null,
     cost_basis_base: null,
     unrealized_pnl_base: null,
     unrealized_pnl_pct: null,
@@ -117,25 +115,6 @@ describe("formatPercent", () => {
     expect(formatPercent("0.2")).toBe("+20.00%");
     expect(formatPercent("-0.0569")).toBe("-5.69%");
     expect(formatPercent("0")).toBe("+0.00%");
-  });
-});
-
-describe("relabelFallbackKey", () => {
-  // Grok review round 1 (PR #322): by_group/by_account chart legends were
-  // showing the raw backend fallback literal ("Ungrouped"/"Other") untranslated
-  // on zh pages, unlike by_asset_class.
-  it("replaces the backend fallback literal with the translated label, leaving other keys untouched", () => {
-    const relabeled = relabelFallbackKey(
-      { Retirement: "3000.00", Ungrouped: "1000.00" },
-      GROUP_UNGROUPED_KEY,
-      "未分组",
-    );
-    expect(relabeled).toEqual({ Retirement: "3000.00", 未分组: "1000.00" });
-  });
-
-  it("is a no-op when the fallback key is not present", () => {
-    const relabeled = relabelFallbackKey({ Fidelity: "3000.00" }, ACCOUNT_OTHER_KEY, "其他");
-    expect(relabeled).toEqual({ Fidelity: "3000.00" });
   });
 });
 

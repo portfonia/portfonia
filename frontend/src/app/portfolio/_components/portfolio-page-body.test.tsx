@@ -40,6 +40,7 @@ function priced(overrides: Partial<HoldingValueOut>): HoldingValueOut {
     portfolio: "Retirement",
     avg_cost: "250",
     shares: "10",
+    notes: null,
     cost_basis_base: "2500.00",
     unrealized_pnl_base: "500.00",
     unrealized_pnl_pct: "0.2000",
@@ -112,11 +113,15 @@ describe("PortfolioPageBody", () => {
       cost_basis_base: null,
       unrealized_pnl_base: null,
       unrealized_pnl_pct: null,
+      notes: "Private placement, no public ticker",
     });
     renderBody(summary({ holdings: [priced({}), unsupported] }));
 
     expect(screen.getByText("No market quote")).toBeInTheDocument();
     expect(screen.getByText("Unresolvable")).toBeInTheDocument();
+    // Grok review round 2 (PR #322): notes was added to HoldingValueOut and
+    // must render in the no-quote block per decision 3 / issue comment 2.
+    expect(screen.getByText("Private placement, no public ticker")).toBeInTheDocument();
   });
 
   it("refetches the summary when the currency switcher changes", async () => {

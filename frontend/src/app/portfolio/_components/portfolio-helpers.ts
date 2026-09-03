@@ -52,24 +52,6 @@ export function formatPercent(value: string | null): string {
 export const GROUP_UNGROUPED_KEY = "Ungrouped";
 export const ACCOUNT_OTHER_KEY = "Other";
 
-// Grok review round 1 (PR #322): the by_group/by_account chart legends were
-// rendering this raw backend literal untranslated on zh pages (unlike
-// by_asset_class, which already goes through a translation map). Swaps just
-// that one key for its translated label; every other key (real user-entered
-// group/broker names) passes through unchanged.
-export function relabelFallbackKey(
-  data: Record<string, string>,
-  fallbackKey: string,
-  translatedFallback: string,
-): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(data).map(([key, value]) => [
-      key === fallbackKey ? translatedFallback : key,
-      value,
-    ]),
-  );
-}
-
 // Same fallback semantics as the backend's `h.field or literal`, for the
 // holdings table row (so a row's Group/Custodian cell reads the same label
 // as the chart slice it rolls up into, instead of a plain "—").

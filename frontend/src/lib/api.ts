@@ -324,6 +324,7 @@ export interface HoldingValueOut {
   portfolio: string | null;
   avg_cost: string | null;
   shares: string | null;
+  notes: string | null;
   cost_basis_base: string | null;
   unrealized_pnl_base: string | null;
   unrealized_pnl_pct: string | null;

@@ -550,6 +550,46 @@ def test_price_as_of_date_is_max_captured_trade_date_actually_used(
     assert snap.price_as_of_date == date(2026, 1, 9)  # max of the two, not the DB max
 
 
+def test_price_as_of_date_ignores_a_captured_close_that_never_priced_a_row(
+    db_session: Session,
+) -> None:
+    """Grok review round 2 (PR #322): a snapshot match must actually produce
+    a market_value_base before its trade_date counts — matching the table
+    isn't enough. AAPL has shares and prices on Jan 9; MSFT's snapshot on
+    Jan 10 is newer but MSFT has no shares, so nothing on the page reflects
+    a Jan 10 price — the banner must not claim it does."""
+    _seed_fx(db_session)
+    aapl = _stock("Apple", "AAPL", "USD", "10", None)
+    msft = _stock("Microsoft", "MSFT", "USD", None, None)  # no shares -> unpriceable
+    db_session.add_all([aapl, msft])
+    db_session.flush()
+    db_session.add_all(
+        [
+            PriceSnapshot(
+                ticker="AAPL",
+                market="US",
+                session_node="close",
+                trade_date=date(2026, 1, 9),
+                close=Decimal("300"),
+            ),
+            PriceSnapshot(
+                ticker="MSFT",
+                market="US",
+                session_node="close",
+                trade_date=date(2026, 1, 10),
+                close=Decimal("400"),
+            ),
+        ]
+    )
+    db_session.flush()
+
+    snap = compute_portfolio(
+        db_session, user_id=_USER, base_currency="USD", as_of=date(2026, 1, 12)
+    )
+
+    assert snap.price_as_of_date == date(2026, 1, 9)  # not Jan 10 — MSFT never priced
+
+
 def test_price_as_of_date_none_when_nothing_captured(db_session: Session) -> None:
     _seed_fx(db_session)
     db_session.add(_cash("USD Cash", "USD", "1000"))
@@ -576,6 +616,24 @@ def test_holding_value_exposes_pricing_mode_and_capture_supported(db_session: Se
     assert by_name["USD Cash"].pricing_mode == "manual"
     assert by_name["Unresolvable"].pricing_mode == "auto"
     assert by_name["Unresolvable"].capture_supported is False
+
+
+def test_holding_value_exposes_notes(db_session: Session) -> None:
+    """Grok review round 2 (PR #322): issue #320 decision 3 / comment 2 both
+    list `notes` as one of the user-entered fields the no-quote block must
+    show; the frozen HoldingValueOut contract table omitted it (a doc gap,
+    not a deliberate exclusion) — added here to close it."""
+    _seed_fx(db_session)
+    unsupported = _stock("Unresolvable", None, "GBP", "10", None)
+    unsupported.market = "Other"
+    unsupported.capture_supported = False
+    unsupported.notes = "Private placement, no public ticker"
+    db_session.add(unsupported)
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    assert snap.holdings[0].notes == "Private placement, no public ticker"
 
 
 def test_unpriced_holding_kept_in_list_but_excluded_from_aggregates(

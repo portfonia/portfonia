@@ -28,9 +28,17 @@ describe("PriceAsOfBanner", () => {
     renderBanner(null);
     expect(screen.queryByText(/no priced holdings/i)).not.toBeInTheDocument();
     expect(
-      screen.getByText(
-        "No exchange closing prices in this view — cash and wealth-management values are what you entered. End-of-day data, not real-time.",
-      ),
+      screen.getByText("No exchange closing prices in this view yet. End-of-day data, not real-time."),
     ).toBeInTheDocument();
+  });
+
+  it("does not attribute the None case to cash/wealth-management specifically", () => {
+    // Grok review round 2 (PR #322): round-1's copy for this case named
+    // "cash and wealth-management values" — but price_as_of_date is also
+    // None for an empty book, a capture-unsupported-only book, or an auto
+    // holding still waiting on its first snapshot, none of which are cash.
+    renderBanner(null);
+    expect(screen.queryByText(/cash/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/wealth-management/i)).not.toBeInTheDocument();
   });
 });

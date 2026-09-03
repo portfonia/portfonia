@@ -109,6 +109,30 @@ def test_summary_includes_group_account_and_pnl_totals(
     assert hv["cost_basis_base"] is None
 
 
+def test_summary_passes_through_notes(app_client: TestClient, db_session: Session) -> None:
+    """Grok review round 2 (PR #322): notes was added to HoldingValueOut to
+    close a gap against issue #320 decision 3 / comment 2."""
+    seed_user(db_session, _USER)
+    db_session.add(
+        Holding(
+            user_id=_USER,
+            name="Private Fund",
+            pricing_mode="auto",
+            currency="GBP",
+            asset_type="stock",
+            market="Other",
+            capture_supported=False,
+            notes="No public ticker",
+        )
+    )
+    db_session.flush()
+
+    resp = app_client.get("/portfolio/summary")
+
+    assert resp.status_code == 200
+    assert resp.json()["holdings"][0]["notes"] == "No public ticker"
+
+
 # POST /refresh moved to POST /admin/portfolio/refresh (issue #128 Ring 1
 # stage B, checkpoint B2, decision point 8/11) — an ordinary user must not be
 # able to trigger a global market-data refresh. See test_admin_router.py for

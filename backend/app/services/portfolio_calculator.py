@@ -100,6 +100,10 @@ class HoldingValue:
     portfolio: str | None = None  # "Group" in the C2 dashboard (issue #319 naming)
     avg_cost: Decimal | None = None
     shares: Decimal | None = None
+    # Grok review round 2 (PR #322): decision 3 / issue comment 2 both list
+    # notes as a field the no-quote block must show; the schema table
+    # omitted it, a doc gap rather than a deliberate exclusion.
+    notes: str | None = None
     position: int | None = None  # upload order, for report layout
     capture_supported: bool = True  # issue #311; False -> [market not supported]
     # None (not zero) unless pricing_mode=="auto" and a cost basis + valuation
@@ -321,6 +325,12 @@ def compute_portfolio(
         # --- market value in the holding's own currency ---
         market_value: Decimal | None
         price_as_of: datetime | None = None
+        # Candidate trade_date from a captured-close match; only counted
+        # into used_trade_dates once it actually prices this row (issue #320
+        # decision 5 / §12.3.5: "closes actually used", not merely matched —
+        # a snapshot hit for a holding missing shares never reaches a
+        # displayed market_value and must not date the as-of banner).
+        captured_trade_date: date | None = None
         not_processed = h.pricing_mode == "auto" and not is_capture_supported(h)
         if not_processed:
             # Issue #311: never use a stray captured price and never treat
@@ -339,7 +349,7 @@ def compute_portfolio(
             if captured is not None:
                 price, trade_date = captured
                 price_as_of = datetime.combine(trade_date, datetime.min.time(), tzinfo=ET)
-                used_trade_dates.append(trade_date)
+                captured_trade_date = trade_date
                 if (price_ref - trade_date).days > _PRICE_STALE_DAYS:
                     snapshot.stale_priced_tickers.append(h.ticker or h.fund_code or h.name)
             if price is None or h.shares is None:
@@ -365,6 +375,9 @@ def compute_portfolio(
                 market_value_base = None
             else:
                 market_value_base = converted.quantize(_CENT, rounding=ROUND_HALF_UP)
+
+        if captured_trade_date is not None and market_value_base is not None:
+            used_trade_dates.append(captured_trade_date)
 
         # --- P&L (issue #320 decision 2): only for auto-priced holdings with
         # both a cost basis and a valuation. None (not zero) otherwise — cash/
@@ -407,6 +420,7 @@ def compute_portfolio(
                 portfolio=h.portfolio,
                 avg_cost=h.avg_cost,
                 shares=h.shares,
+                notes=h.notes,
                 position=h.position,
                 capture_supported=is_capture_supported(h),
                 cost_basis_base=cost_basis_base,

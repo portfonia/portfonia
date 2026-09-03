@@ -34,4 +34,27 @@ describe("BreakdownChart", () => {
     expect(rows[1]).toHaveTextContent("Other");
     expect(rows[1]).toHaveTextContent("(25.0%)");
   });
+
+  it("keeps two distinct raw keys as separate slices even when labelFor maps them to the same display label", () => {
+    // Grok review round 2 (PR #322): round 1 pre-translated the fallback key
+    // by rewriting the source Record's own keys before this component saw
+    // it — a user-named group equal to the translated fallback string would
+    // silently collapse two slices into one via Object.fromEntries, losing
+    // a value. labelFor must only affect the rendered name, not grouping.
+    render(
+      <BreakdownChart
+        title="By group"
+        data={{ Ungrouped: "1000.00", "未分组": "500.00" }}
+        currency="USD"
+        emptyLabel="No data yet"
+        labelFor={(key) => (key === "Ungrouped" ? "未分组" : key)}
+      />,
+    );
+
+    const rows = screen.getAllByRole("listitem");
+    expect(rows).toHaveLength(2); // both slices survive, not collapsed into one
+    const amounts = rows.map((row) => row.textContent);
+    expect(amounts.some((text) => text?.includes("1,000.00 USD"))).toBe(true);
+    expect(amounts.some((text) => text?.includes("500.00 USD"))).toBe(true);
+  });
 });

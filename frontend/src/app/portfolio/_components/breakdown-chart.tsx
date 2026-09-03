@@ -17,7 +17,8 @@ const CHART_COLORS = [
 ];
 
 interface Slice {
-  name: string;
+  key: string; // raw backend dict key — guaranteed unique, used for React/Cell keys
+  name: string; // display label — may collide with another slice's label, harmlessly
   value: number;
 }
 
@@ -27,16 +28,24 @@ export function BreakdownChart({
   data,
   currency,
   emptyLabel,
+  labelFor,
 }: {
   title: string;
   description?: string;
   data: Record<string, string>;
   currency: string;
   emptyLabel: string;
+  // Grok review round 2 (PR #322): round 1 pre-translated the fallback key
+  // (e.g. "Ungrouped" -> "未分组") by rewriting the Record's own keys before
+  // this component saw them — if a user's real group/broker name happened
+  // to equal that translated string, Object.fromEntries silently collapsed
+  // the two into one, dropping a slice. Translating only at display time
+  // (this prop), while grouping on the untouched raw key, can't collide.
+  labelFor?: (key: string) => string;
 }) {
   const total = Object.values(data).reduce((sum, v) => sum + Number(v), 0);
   const slices: Slice[] = Object.entries(data)
-    .map(([name, value]) => ({ name, value: Number(value) }))
+    .map(([key, value]) => ({ key, name: labelFor ? labelFor(key) : key, value: Number(value) }))
     .filter((slice) => slice.value > 0)
     .sort((a, b) => b.value - a.value);
 
@@ -63,7 +72,7 @@ export function BreakdownChart({
                     paddingAngle={2}
                   >
                     {slices.map((slice, index) => (
-                      <Cell key={slice.name} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                      <Cell key={slice.key} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                     ))}
                   </Pie>
                   <Tooltip formatter={(value) => formatMoney(String(value ?? "0"), currency)} />
@@ -72,7 +81,7 @@ export function BreakdownChart({
             </div>
             <ul className="flex flex-col gap-1.5 text-sm">
               {slices.map((slice, index) => (
-                <li key={slice.name} className="flex items-center justify-between gap-3">
+                <li key={slice.key} className="flex items-center justify-between gap-3">
                   <span className="flex items-center gap-2 truncate">
                     <span
                       aria-hidden="true"

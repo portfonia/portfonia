@@ -26,6 +26,7 @@ function holding(overrides: Partial<HoldingValueOut>): HoldingValueOut {
     portfolio: null,
     avg_cost: null,
     shares: null,
+    notes: null,
     cost_basis_base: null,
     unrealized_pnl_base: null,
     unrealized_pnl_pct: null,

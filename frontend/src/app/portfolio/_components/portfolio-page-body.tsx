@@ -15,7 +15,6 @@ import {
   formatMoney,
   GROUP_UNGROUPED_KEY,
   partitionHoldings,
-  relabelFallbackKey,
 } from "./portfolio-helpers";
 import { PortfolioHoldingsTable } from "./portfolio-holdings-table";
 import { PriceAsOfBanner } from "./price-as-of-banner";
@@ -84,16 +83,12 @@ export function PortfolioPageBody({
       value,
     ]),
   );
-  const byGroupLabeled = relabelFallbackKey(
-    summary.by_group,
-    GROUP_UNGROUPED_KEY,
-    t("groupUngrouped"),
-  );
-  const byAccountLabeled = relabelFallbackKey(
-    summary.by_account,
-    ACCOUNT_OTHER_KEY,
-    t("accountOther"),
-  );
+  // Translate only the display label, not the data key it's built from — a
+  // user's own group/broker named the same as the translated fallback
+  // ("未分组") must not collapse into the real Ungrouped/Other slice
+  // (Grok review round 2, PR #322).
+  const groupLabelFor = (key: string) => (key === GROUP_UNGROUPED_KEY ? t("groupUngrouped") : key);
+  const accountLabelFor = (key: string) => (key === ACCOUNT_OTHER_KEY ? t("accountOther") : key);
   const { priced, noLivePrice } = partitionHoldings(summary.holdings);
 
   return (
@@ -133,13 +128,15 @@ export function PortfolioPageBody({
         />
         <BreakdownChart
           title={t("chartByGroup")}
-          data={byGroupLabeled}
+          data={summary.by_group}
+          labelFor={groupLabelFor}
           currency={summary.base_currency}
           emptyLabel={t("chartEmpty")}
         />
         <BreakdownChart
           title={t("chartByCustodian")}
-          data={byAccountLabeled}
+          data={summary.by_account}
+          labelFor={accountLabelFor}
           currency={summary.base_currency}
           emptyLabel={t("chartEmpty")}
         />

@@ -156,11 +156,13 @@ for the full before/after and decision rationale.
   own session email (`supabase.auth.getUser()`), never a client-submitted
   `email` form field, so a forged field can't steer whose password gets
   checked.
-- **Every non-implemented Profile section (portfolio overview, report
-  schedule, delivery-email change, invite generation, delete account) is
-  rendered with disabled controls**, never a submittable form — issue
-  #220's requirement that these stay visible placeholders, not silently
-  absent or falsely interactive.
+- **Every non-implemented Profile section (report schedule, delivery-email
+  change, invite generation, delete account) is rendered with disabled
+  controls**, never a submittable form — issue #220's requirement that
+  these stay visible placeholders, not silently absent or falsely
+  interactive. Portfolio overview shipped in issue #320/PR #322 — it is a
+  real link into `/portfolio`, no longer in this placeholder set (see
+  `docs/mechanisms/holdings-pipeline.md`'s C2 section).
 
 ### Post-signup onboarding: ToS gate, questionnaire → holdings → welcome, Profile gap card (issue #221, 2026-08-27)
 
