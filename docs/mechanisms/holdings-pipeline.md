@@ -629,6 +629,21 @@ Obsidian `Hermes/Portfonia/Docs/Ring 1-C design.md` §11.
   cost to save by attaching one.
 - Items 1-7, 9, 11-12 shipped matching the frozen design as written; see
   PR #321 and the issue #319 implementation comment for the full list.
+- **Item 10's remaining gap closed by issue #323/PR #327**: a new
+  `replaceHint` callout renders next to the mode selector (mirroring
+  `appendHint`'s placement, mutually exclusive with it) the moment
+  Replace is chosen, before any file is picked. It is deliberately
+  mode-agnostic and count-free — it never claims a row number, since no
+  file has been parsed yet at that point. The post-parse
+  `replaceConfirmBody` dialog (real parsed/issue row count) is unchanged
+  and remains the actual destructive-action gate; the new callout is an
+  earlier heads-up, not a replacement for it. Issue #323's second item
+  (zh-Hant `fieldPortfolio` translation) stayed deferred, per the issue's
+  own note that a full native-speaker review pass should fix the whole
+  catalog at once rather than one key at a time — the new `replaceHint`
+  key was still added to all three locale catalogs to keep the
+  structural-sync test (issue #209) passing, with zh-Hant mirroring
+  zh-Hans verbatim like every other not-yet-reviewed key in that file.
 
 
 ### Portfolio overview dashboard — C2 (issue #320 / #130 C2, PR #322)
