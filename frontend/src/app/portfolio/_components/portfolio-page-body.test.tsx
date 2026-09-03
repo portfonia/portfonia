@@ -227,6 +227,10 @@ describe("PortfolioPageBody", () => {
     expect(
       (currencyCard as HTMLElement).querySelector(".recharts-responsive-container"),
     ).not.toBeInTheDocument();
+    // Review 5101567455: the "(NN.N%)" share annotation is the same
+    // incommensurable-unit problem, just quieter than the pie — must not
+    // appear in native mode either.
+    expect(rows.every((row) => !row.textContent?.includes("("))).toBe(true);
   });
 
   it("excludes a holding with a stale FX rate from native mode, matching normalized mode's membership", async () => {

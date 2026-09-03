@@ -192,7 +192,12 @@ export function PortfolioPageBody({
           currency={summary.base_currency}
           emptyLabel={t("chartEmpty")}
           formatValue={currencyCardFormatValue}
-          showShareOfTotal={currencyMode !== "percentage"}
+          // Review 5101567455: native mode's "(NN.N%)" share annotation was
+          // still computed from mixed native currency amounts (same
+          // incommensurable-unit problem as the pie, just quieter) — an
+          // annotation implying a mix share doesn't make sense in percentage
+          // mode either, since the main figure already is that share.
+          showShareOfTotal={currencyMode === "normalized"}
           showPie={currencyMode !== "native"}
           headerControl={
             <CurrencyModeSwitcher value={currencyMode} onChange={setCurrencyMode} />
