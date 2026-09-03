@@ -53,6 +53,7 @@ from app.services.auth_provider import (
     get_auth_user,
     get_auth_user_by_email,
 )
+from app.services.email_sender import send_report_email
 from app.services.email_verification import (
     ResendTooSoon,
     VerificationSendFailed,
@@ -67,8 +68,9 @@ from app.services.invites import (
     revoke_invite,
 )
 from app.services.llm_errors import LLMEmptyResponseError
-from app.services.report_generator import generate_report
+from app.services.report_generator import generate_report, regenerate_report
 from app.services.user_purge import purge_user
+from app.services.user_scope import report_language_for
 from app.tasks.admin_tasks import send_admin_alert_task
 
 logger = logging.getLogger(__name__)
@@ -479,6 +481,105 @@ def generate_report_for_user(user_id: UUID, session: Session = Depends(get_sessi
         ) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=f"Report generation failed: {exc}") from exc
+
+
+class RerunReportRequest(BaseModel):
+    mode: Literal["analyze", "render"] = "analyze"
+    resend: bool = True
+
+
+class ReportRerunOut(BaseModel):
+    report_id: UUID
+    user_id: UUID
+    status: str
+    mode: str
+    email_sent_at: datetime | None
+    provider_message_id: str | None
+
+
+@router.post(
+    "/users/{user_id}/reports/{report_id}/rerun",
+    response_model=ReportRerunOut,
+)
+def rerun_report_for_user(
+    user_id: UUID,
+    report_id: UUID,
+    req: RerunReportRequest,
+    session: Session = Depends(get_session),
+) -> ReportRerunOut:
+    """Rerun (and optionally resend) one already-generated report (issue #324).
+
+    Built for the "holdings were corrected after a report already shipped"
+    case: rebuild the body from stored `report_inputs` — never re-fetching
+    news/Tavily/macro intel — and, if requested, actually redeliver it. This
+    is the admin-scoped counterpart to the self-service `POST
+    /reports/{id}/regenerate`; that route is scoped to the caller's own
+    principal and never clears `email_sent_at`, so it cannot rerun another
+    user's report or force a genuine resend.
+
+    mode='analyze' (default) re-runs the body pass against a FRESH read of
+    the user's live holdings via `regenerate_report` — this is what actually
+    picks up a holdings/asset_class fix. mode='render' only re-renders the
+    stored body (formatting/output-language iteration).
+
+    resend=true (default): clears `email_sent_at`/`provider_message_id` on
+    the target row BEFORE calling `regenerate_report`, then — only if the
+    resulting status is "success" — explicitly calls `send_report_email`.
+    Clearing first matters: `send_report_email`'s G3 dedup guard silently
+    no-ops on any report where `email_sent_at` is already set, so without
+    this step a rerun would produce a corrected body that never actually
+    goes out. resend=false leaves `email_sent_at` untouched and never sends
+    — identical in effect to the self-service regenerate.
+
+    The `Report` row is never physically deleted: doing so would destroy
+    the `report_inputs` JSONB cache that makes a no-refetch rerun possible
+    in the first place.
+    """
+    user = session.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="user not found")
+
+    report = session.execute(
+        select(Report).where(Report.id == report_id, Report.user_id == user_id)
+    ).scalar_one_or_none()
+    if report is None:
+        raise HTTPException(status_code=404, detail="report not found")
+
+    if req.resend:
+        report.email_sent_at = None
+        report.provider_message_id = None
+        session.flush()
+
+    try:
+        report = regenerate_report(
+            session,
+            report_id,
+            user_id=user_id,
+            mode=req.mode,
+            output_lang=report_language_for(session, user_id, get_settings().OUTPUT_LANG),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except LLMEmptyResponseError as exc:
+        raise HTTPException(
+            status_code=502, detail=f"LLM returned an empty response: {exc}"
+        ) from exc
+    except openai.APIError as exc:
+        raise HTTPException(status_code=502, detail=f"{type(exc).__name__}: {exc}") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=f"Report regeneration failed: {exc}") from exc
+
+    if req.resend and report.status == "success":
+        send_report_email(report, session)
+
+    return ReportRerunOut(
+        report_id=report.id,
+        user_id=report.user_id,
+        status=report.status,
+        mode=req.mode,
+        email_sent_at=report.email_sent_at,
+        provider_message_id=report.provider_message_id,
+    )
 
 
 class PurgeDeletedCounts(BaseModel):

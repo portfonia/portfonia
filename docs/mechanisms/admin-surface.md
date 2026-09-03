@@ -60,51 +60,82 @@ capability existing.
   - **`app/services/auth_provider.py` gained one function and one changed return type**: `get_auth_user(sub) -> AuthUserInfo | None` (`GET {issuer}/admin/users/{sub}`, `404`→`None`); `delete_auth_user(sub)` now returns `bool` (`True` = found and deleted, `False` = 404/already-gone) instead of `None` — existing callers (signup's compensation path) ignore the return value, so this is additive, not breaking.
   - **Signup's compensation failure is no longer silent** (issue #225 bug 2): if `delete_auth_user` itself raises inside `POST /auth/signup`'s compensation branch, `send_ops_alert` fires (previously: log line only) — a failed compensation now produces an actionable signal instead of a trace only discoverable by reading logs after the fact.
   - **Signup failure logging is now differentiated** (issue #225 bug 1): the `except Exception` branch in `POST /auth/signup` tags its log record with `signup_failure_reason` (`invite_rejected` / `auth_provider_error` / `integrity_error`) so ops monitoring can alert on auth-provider/DB faults without being drowned out by expected invite-rejection noise. The client-facing message is unchanged for all three — this is a server-side log field only, never surfaced in the response.
-- **Report rerun-and-resend — planned, not implemented (issue #324)**: on
+- **Report rerun-and-resend — implemented (issue #324, PR #326)**: on
   2026-09-02 a user's holdings were re-uploaded to fix an
   `asset_class`/`market` misclassification, and the already-generated,
   already-emailed report for that day needed to reflect the fix without
   re-fetching news/Tavily/macro intel (that data is cached in
   `report_inputs`; re-fetching wastes budget and can introduce
-  non-determinism). No `/admin/*` endpoint does this today, so it was done
-  once via SSH + a one-off `docker compose exec -T backend python < script`
-  invocation against production, directly manipulating `reports`/`users`
-  rows. Filed as a real gap per the "API endpoint first" rule above rather
-  than left as a recurring SSH drill.
-  - **What the one-off script actually did (informs the eventual endpoint
-    shape)**: resolve `user_id` by email; find the `Report` row(s) for a
-    given `report_date` (default: "today" in ET, matching how
-    `generate_report` computes `report_date`); null `email_sent_at` and
-    `provider_message_id` on the target row **without a physical `DELETE`**
-    (deleting the row destroys the `report_inputs` cache that makes a
-    no-refetch rerun possible in the first place); call
-    `regenerate_report(session, report_id, user_id=user_id,
-    mode="analyze", output_lang=<user's locale>)` — this re-runs only the
-    body pass (Pass 2 or assembly, per `report_inputs["body_source"]`) from
-    stored intel, but does a **fresh** read of the user's live `Holding`
-    rows via `compute_portfolio`, which is what actually picks up a
-    holdings correction; if `report.status == "success"` afterward,
-    explicitly call `send_report_email(report, session)` — `regenerate_report`
-    itself never emails, and `send_report_email`'s G3 dedup guard silently
-    no-ops if `email_sent_at` is still set, which is why clearing it first
-    is the step that makes a real resend possible at all.
-  - **Proposed shape**: `POST /admin/users/{user_id}/reports/{report_id}/rerun`,
-    same ops-token auth as every other route here (not the self-service
-    `POST /reports/{id}/regenerate`, which is scoped to the caller's own
-    report and never clears `email_sent_at`). Body params: `mode: "analyze"
-    | "render"` (default `"analyze"`), `resend: bool` (default `true`).
-    When `resend=true`, clears `email_sent_at`/`provider_message_id` on the
-    target row before calling `regenerate_report`, then calls
-    `send_report_email` if the resulting status is `"success"`; when
-    `resend=false`, behaves like the existing self-service regenerate
-    (content updates, no send attempt). Full spec: issue #324.
-  - **Deliberately out of scope for #324**: a bulk "rerun every report for
-    this user today" variant, and a by-`report_date` convenience lookup in
-    place of requiring the caller to already know `report_id` — investigating
-    this gap found `GET /admin/users` already resolves `user_id` by email,
-    but there is no read endpoint to list a user's `reports` rows by date;
-    add one only if the caller ergonomics turn out to need it when this is
-    implemented.
+  non-determinism). No `/admin/*` endpoint covered this at the time, so it
+  was done once via SSH + a one-off `docker compose exec -T backend python <
+  script` invocation against production, directly manipulating
+  `reports`/`users` rows (full investigation notes: issue #324's first
+  comment). Filed as a real gap per the "API endpoint first" rule above
+  rather than left as a recurring SSH drill, and closed by this endpoint.
+  - **`POST /admin/users/{user_id}/reports/{report_id}/rerun`**, same
+    ops-token auth as every other route here (not the self-service `POST
+    /reports/{id}/regenerate`, which is scoped to the caller's own
+    principal and never clears `email_sent_at` — it cannot rerun another
+    user's report or force a genuine resend). Body: `{"mode": "analyze" |
+    "render", "resend": bool}`, both optional, defaulting to `"analyze"`
+    and `true`. `mode` is a `Literal` on the request model, so an invalid
+    value is a `422` from FastAPI's own request validation before the
+    handler body runs. Response 200:
+    `{report_id, user_id, status, mode, email_sent_at,
+    provider_message_id}`.
+  - **`mode="analyze"` (default)** re-runs the body pass against a
+    **fresh** read of the user's live `Holding` rows via
+    `regenerate_report(..., mode="analyze")` → `compute_portfolio` — this
+    is what actually picks up a holdings/asset_class correction.
+    `mode="render"` only re-renders the stored body (formatting/output-
+    language iteration, never picks up a holdings change).
+  - **`resend=true` (default)**: the handler nulls `email_sent_at` and
+    `provider_message_id` on the target `Report` row and flushes **before**
+    calling `regenerate_report` — never a physical `DELETE` (that would
+    destroy the `report_inputs` JSONB cache that makes a no-refetch rerun
+    possible in the first place). Clearing first, not after, matters
+    because `send_report_email`'s G3 dedup guard silently no-ops on any
+    report where `email_sent_at` is already set — without this ordering a
+    rerun could produce a genuinely corrected body that still never goes
+    out. Only if the resulting `report.status == "success"` does the
+    handler explicitly call `send_report_email(report, session)` —
+    `regenerate_report` itself never emails (same as the self-service
+    route). `resend=false` leaves `email_sent_at` untouched and never
+    sends, identical in effect to the self-service regenerate.
+  - **Path params `user_id` + `report_id`, both required** (mirrors
+    `regenerate_report`'s own `Report.id == report_id, Report.user_id ==
+    user_id` ownership filter rather than trusting `report_id` alone): an
+    unknown `user_id` 404s as `"user not found"`; a `report_id` that
+    doesn't exist, or exists but belongs to a different user, both 404 as
+    `"report not found"` (the ownership-mismatch case does not distinguish
+    itself from a bare missing report — no cross-user enumeration signal —
+    but it is still a different `detail` from the unknown-`user_id` case,
+    corrected per blacktomb42's PR #326 review: an earlier draft of this
+    paragraph claimed both cases shared one detail string).
+  - **Error mapping**: `401` missing/wrong ops token (router-level, as
+    always) · `404` unknown `user_id` (`"user not found"`) or unknown/
+    not-owned `report_id` (`"report not found"`) or `regenerate_report`'s
+    own `ValueError` (e.g. no stored body to regenerate from) · `422`
+    invalid `mode` · `502` `LLMEmptyResponseError` or `openai.APIError`
+    during the body-pass rerun, `openai.APIError` message reused verbatim
+    from the generate endpoint's own mapping.
+  - **Output language**: `report_language_for(session, user_id,
+    Settings.OUTPUT_LANG)` — the target user's own `users.locale` (issue
+    #308), falling back to the system default only if the row can't be
+    resolved. Same convention as the self-service `POST
+    /reports/{id}/regenerate`. **Not** the same as `POST
+    /admin/users/{user_id}/reports/generate` (this file's §3.2 entry
+    above), which deliberately still reads the global `Settings.OUTPUT_LANG`
+    unchanged (issue #308 decision point 2) — corrected per blacktomb42's
+    PR #326 review: an earlier draft of this paragraph claimed the two
+    admin endpoints matched on this point.
+  - **Deliberately out of scope (per the design contract, issue #324's
+    second comment)**: a bulk "rerun every report for this user today"
+    variant, and a by-`report_date` convenience lookup in place of
+    requiring the caller to already know `report_id` — `GET /admin/users`
+    already resolves `user_id` by email, but there is no read endpoint to
+    list a user's `reports` rows by date; add one only if caller
+    ergonomics turn out to need it.
 - **Auth**: `ADMIN_API_TOKEN` (`Settings`, `SecretStr`, required — no unset
   state, same discipline as `HOLDINGS_ENCRYPTION_KEY`) + optional
   `ADMIN_API_TOKEN_PREV` for a no-downtime rotation window (identical
