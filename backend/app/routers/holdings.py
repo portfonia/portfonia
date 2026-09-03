@@ -242,7 +242,15 @@ def _own_holding(
         # on every PATCH). A row-level lock, not the broader
         # _lock_user_holdings (that would serialize PATCHes across a
         # user's entire book, not just this one holding), closes the gap.
-        holding = session.scalar(select(Holding).where(Holding.id == holding_id).with_for_update())
+        # Scope the lock to this user's own row in the WHERE clause itself
+        # (round-4 review): filtering by id alone would take a FOR UPDATE
+        # lock on another user's row before the ownership check below ever
+        # runs, on a mere guessed UUID.
+        holding = session.scalar(
+            select(Holding)
+            .where(Holding.id == holding_id, Holding.user_id == user_id)
+            .with_for_update()
+        )
     else:
         holding = session.get(Holding, holding_id)
     if holding is None or holding.user_id != user_id:
