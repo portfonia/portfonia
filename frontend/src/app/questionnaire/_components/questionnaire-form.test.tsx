@@ -186,4 +186,49 @@ describe("QuestionnaireForm", () => {
     await user.click(screen.getByRole("button", { name: /^save$/i }));
     expect(await screen.findByText("unrecognized style")).toBeInTheDocument();
   });
+
+  it("shows a question-level hint under the legend (issue #333)", () => {
+    renderForm(null);
+    expect(
+      screen.getByText(
+        "Used only to gauge how much background context your reports should assume — not stored as a precise figure and never used for asset-allocation math.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("shows option-level hints under each option for an in-scope dim (issue #333)", async () => {
+    const user = userEvent.setup();
+    renderForm(null);
+    await user.click(screen.getByRole("button", { name: /next/i })); // -> markets step
+    expect(
+      screen.getByText(
+        "US-listed equities, priced in USD — most sensitive to Fed policy and US economic data.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Any market outside the three above, e.g. Europe, Japan, Korea.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("does not render option-level hints for an excluded dim (asset_scale, issue #333)", () => {
+    renderForm(null);
+    // asset_scale has a question-level hint but no optionHints entry at all —
+    // the option buttons must render only their label, no extra hint line.
+    const button = screen.getByRole("button", { name: "Under $100K" });
+    expect(button.parentElement).toHaveTextContent("Under $100K");
+    expect(button.parentElement?.querySelectorAll("p")).toHaveLength(0);
+  });
+
+  it("does not render option-level hints for the other excluded dim (horizon, issue #333)", async () => {
+    const user = userEvent.setup();
+    renderForm(null);
+    for (let i = 0; i < 3; i++) {
+      await user.click(screen.getByRole("button", { name: /next/i })); // -> horizon step
+    }
+    expect(screen.getByText(/typical holding period/i)).toBeInTheDocument();
+    const button = screen.getByRole("button", { name: /medium-term/i });
+    expect(button.parentElement?.querySelectorAll("p")).toHaveLength(0);
+  });
 });
