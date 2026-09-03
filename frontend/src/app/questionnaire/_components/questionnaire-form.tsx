@@ -64,26 +64,31 @@ const TOTAL_STEPS = STEP_ORDER.length + 1; // + free-text step
 
 function OptionButton({
   label,
+  hint,
   selected,
   onClick,
 }: {
   label: string;
+  hint?: string;
   selected: boolean;
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={selected}
-      className={`w-full rounded-lg border px-4 py-2.5 text-left text-sm transition-colors ${
-        selected
-          ? "border-primary bg-primary/10 text-foreground"
-          : "border-border bg-background text-foreground/80 hover:bg-muted"
-      }`}
-    >
-      {label}
-    </button>
+    <div>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-pressed={selected}
+        className={`w-full rounded-lg border px-4 py-2.5 text-left text-sm transition-colors ${
+          selected
+            ? "border-primary bg-primary/10 text-foreground"
+            : "border-border bg-background text-foreground/80 hover:bg-muted"
+        }`}
+      >
+        {label}
+      </button>
+      {hint && <p className="mt-1 px-1 text-xs text-muted-foreground">{hint}</p>}
+    </div>
   );
 }
 
@@ -165,11 +170,17 @@ export function QuestionnaireForm({
           <legend className="mb-1 text-base font-medium">
             {t(`dims.${dim}.question`)}
           </legend>
+          <p className="-mt-2 mb-1 text-sm text-muted-foreground">{t(`dims.${dim}.hint`)}</p>
           {Object.entries(t.raw(`dims.${dim}.options`) as Record<string, string>).map(
             ([value, label]) => (
               <OptionButton
                 key={value}
                 label={label}
+                hint={
+                  t.has(`dims.${dim}.optionHints`)
+                    ? t(`dims.${dim}.optionHints.${value}`)
+                    : undefined
+                }
                 selected={answers[dim as SingleDim] === value}
                 onClick={() => selectSingle(dim as SingleDim, value)}
               />
@@ -183,11 +194,17 @@ export function QuestionnaireForm({
           <legend className="mb-1 text-base font-medium">
             {t(`dims.${dim}.question`)}
           </legend>
+          <p className="-mt-2 mb-1 text-sm text-muted-foreground">{t(`dims.${dim}.hint`)}</p>
           {Object.entries(t.raw(`dims.${dim}.options`) as Record<string, string>).map(
             ([value, label]) => (
               <OptionButton
                 key={value}
                 label={label}
+                hint={
+                  t.has(`dims.${dim}.optionHints`)
+                    ? t(`dims.${dim}.optionHints.${value}`)
+                    : undefined
+                }
                 selected={(answers[dim as MultiDim] as string[]).includes(value)}
                 onClick={() => toggleMulti(dim as MultiDim, value)}
               />

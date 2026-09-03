@@ -220,6 +220,7 @@
     "dims": {
       "asset_scale": {
         "question": "What's your current investable asset scale?",
+        "hint": "Used only to gauge how much background context your reports should assume — not stored as a precise figure and never used for asset-allocation math.",
         "options": {
           "UNDER_100K": "Under $100K",
           "100K_500K": "$100K – $500K",
@@ -229,24 +230,39 @@
       },
       "markets": {
         "question": "Which markets do you mainly invest in? (select all that apply)",
+        "hint": "Tells us which regional news and trading-hour context is relevant to you.",
         "options": {
           "US": "US",
           "HK": "Hong Kong",
           "A-Share": "A-Share",
           "Other": "Other"
+        },
+        "optionHints": {
+          "US": "US-listed equities, priced in USD — most sensitive to Fed policy and US economic data.",
+          "HK": "Hong Kong-listed equities, HKD (pegged to USD) — often the offshore listing venue for mainland Chinese companies.",
+          "A-Share": "Mainland China-listed equities, priced in RMB — trading hours don't overlap with US markets.",
+          "Other": "Any market outside the three above, e.g. Europe, Japan, Korea."
         }
       },
       "style": {
         "question": "How would you describe your investing style?",
+        "hint": "Shapes which angle reports lead with — valuation vs. growth narrative — not a label we score you against.",
         "options": {
           "VALUE": "Value",
           "GROWTH": "Growth",
           "INDEX": "Index",
           "MIXED": "Mixed"
+        },
+        "optionHints": {
+          "VALUE": "Emphasis on valuation, dividends, and downside discipline.",
+          "GROWTH": "Emphasis on earnings/revenue growth potential over current valuation.",
+          "INDEX": "Broad, diversification-first framing; less single-name emphasis.",
+          "MIXED": "No single lens — reports blend value and growth framing."
         }
       },
       "horizon": {
         "question": "What's your typical holding period?",
+        "hint": "Sets how much weight short-term price action gets versus multi-year context.",
         "options": {
           "SHORT": "Short-term (under 1 year)",
           "MEDIUM": "Medium-term (1–3 years)",
@@ -255,14 +271,21 @@
       },
       "risk_appetite": {
         "question": "How would you describe your risk appetite?",
+        "hint": "Affects how anomalies and volatility are framed — as noise to note or signal to watch — never as advice to act on.",
         "options": {
           "CONSERVATIVE": "Conservative",
           "BALANCED": "Balanced",
           "AGGRESSIVE": "Aggressive"
+        },
+        "optionHints": {
+          "CONSERVATIVE": "Volatility gets flagged more readily; less tolerance framing for drawdowns.",
+          "BALANCED": "Neutral framing — the system default.",
+          "AGGRESSIVE": "Short-term swings get less alarmed framing; more room for volatility as context."
         }
       },
       "sectors_of_interest": {
         "question": "Any sectors you especially want covered? (select all that apply, or none)",
+        "hint": "Gives extra coverage weight to these sectors even if your current holdings don't include them.",
         "options": {
           "Technology": "Technology",
           "Communication": "Communication",
@@ -276,23 +299,50 @@
           "Real Estate": "Real Estate",
           "Utilities": "Utilities",
           "Other": "Other"
+        },
+        "optionHints": {
+          "Technology": "Software, semiconductors, and hardware — e.g. chipmakers, cloud infrastructure providers.",
+          "Communication": "Telecom carriers, media, and internet platforms — e.g. wireless carriers, streaming services, social media.",
+          "Financials": "Banks, insurers, brokerages, and asset managers — e.g. commercial banks, life insurers, exchange operators.",
+          "Healthcare": "Pharma, medical devices, biotech, and healthcare services — e.g. drugmakers, device manufacturers, hospital operators.",
+          "Consumer Discretionary": "Non-essential spending — e.g. automakers, luxury goods, restaurants, apparel retail, travel and hospitality.",
+          "Consumer Staples": "Everyday essentials — e.g. food and beverage, household products, grocery retail.",
+          "Energy": "Oil and gas exploration, refining, and energy equipment/services — e.g. drillers, refiners, oilfield services.",
+          "Materials": "Chemicals, metals and mining, construction materials, and packaging — e.g. chemical producers, miners, cement makers.",
+          "Industrials": "Aerospace and defense, machinery, transportation, and construction/engineering — e.g. airlines, railroads, industrial equipment makers.",
+          "Real Estate": "Property developers, REITs, and property management — e.g. residential/commercial developers, real estate investment trusts.",
+          "Utilities": "Electric, gas, and water utility companies — e.g. power generators, grid operators, water utilities.",
+          "Other": "Companies outside the sectors listed above."
         }
       },
       "objective": {
         "question": "What's your core objective?",
+        "hint": "Tells reports what \"good news\" and \"bad news\" mean for your portfolio.",
         "options": {
           "PRESERVATION": "Capital preservation",
           "GROWTH": "Growth",
           "INCOME": "Income"
+        },
+        "optionHints": {
+          "PRESERVATION": "Downside protection and stability get more attention than upside.",
+          "GROWTH": "Upside potential and expansion get more attention than short-term drawdowns.",
+          "INCOME": "Dividend/yield-generating characteristics get more attention."
         }
       },
       "intel_focus": {
         "question": "Where should reports focus their intelligence?",
+        "hint": "Chooses which category of external news gets more space in your report.",
         "options": {
           "MACRO": "Macro signals",
           "FUNDAMENTALS": "Individual-holding fundamentals",
           "GEOPOLITICS": "Geopolitical developments",
           "BALANCED": "Balanced across all of these"
+        },
+        "optionHints": {
+          "MACRO": "Rates, inflation, central-bank and economic-data coverage.",
+          "FUNDAMENTALS": "Earnings, company-specific news tied to your actual holdings.",
+          "GEOPOLITICS": "Trade policy, sanctions, cross-border events.",
+          "BALANCED": "No single category is prioritized."
         }
       }
     }
