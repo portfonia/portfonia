@@ -61,6 +61,7 @@ class PortfolioSummaryResponse(BaseModel):
     by_sector: dict[str, Decimal]
     by_asset_class: dict[str, Decimal]
     by_group: dict[str, Decimal]
+    by_broker: dict[str, Decimal]
     by_account: dict[str, Decimal]
     total_cost_basis_base: Decimal
     total_unrealized_pnl_base: Decimal

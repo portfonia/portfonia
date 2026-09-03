@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import type { HoldingValueOut } from "@/lib/api";
 import {
+  currencySharePercentages,
   fallbackOrValue,
   formatMoney,
   formatPercent,
   isNoLivePrice,
+  nativeCurrencyBreakdown,
   partitionHoldings,
   pnlColorClass,
 } from "./portfolio-helpers";
@@ -126,6 +128,38 @@ describe("fallbackOrValue", () => {
 
   it("returns the real value when present", () => {
     expect(fallbackOrValue("Retirement", "Ungrouped label")).toBe("Retirement");
+  });
+});
+
+describe("nativeCurrencyBreakdown", () => {
+  it("sums native market_value per currency, ignoring unpriced holdings", () => {
+    const usd = holding({ holding_id: "h1", currency: "USD", market_value: "1000" });
+    const usd2 = holding({ holding_id: "h2", currency: "USD", market_value: "500" });
+    const cny = holding({ holding_id: "h3", currency: "CNY", market_value: "7000" });
+    const unpriced = holding({ holding_id: "h4", currency: "GBP", market_value: null });
+
+    expect(nativeCurrencyBreakdown([usd, usd2, cny, unpriced])).toEqual({
+      USD: "1500.00",
+      CNY: "7000.00",
+    });
+  });
+
+  it("returns an empty object for no holdings", () => {
+    expect(nativeCurrencyBreakdown([])).toEqual({});
+  });
+});
+
+describe("currencySharePercentages", () => {
+  it("converts each bucket to a percentage of the total", () => {
+    expect(currencySharePercentages({ USD: "3000.00", CNY: "1000.00" })).toEqual({
+      USD: "75.00",
+      CNY: "25.00",
+    });
+  });
+
+  it("returns an empty object when the total is zero", () => {
+    expect(currencySharePercentages({})).toEqual({});
+    expect(currencySharePercentages({ USD: "0" })).toEqual({});
   });
 });
 

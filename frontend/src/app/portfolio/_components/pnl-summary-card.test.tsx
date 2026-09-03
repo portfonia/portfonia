@@ -16,6 +16,7 @@ function summary(overrides: Partial<PortfolioSummary>): PortfolioSummary {
     by_sector: {},
     by_asset_class: {},
     by_group: {},
+    by_broker: {},
     by_account: {},
     total_cost_basis_base: "0",
     total_unrealized_pnl_base: "0",

@@ -35,7 +35,7 @@ function holding(overrides: Partial<HoldingValueOut>): HoldingValueOut {
 }
 
 describe("PortfolioHoldingsTable", () => {
-  it("shows the same Ungrouped/Other fallback labels the by_group/by_account chart legends use, not a bare dash", () => {
+  it("shows the same Ungrouped/Other fallback labels the by_group/by_broker chart legends use, not a bare dash", () => {
     // Grok review round 1 (PR #322): a "—" here couldn't be matched back to
     // the "Ungrouped"/"Other" pie slice it rolls up into.
     render(

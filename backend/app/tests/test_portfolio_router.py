@@ -93,13 +93,15 @@ def test_base_currency_literal_matches_valid_currencies_exactly() -> None:
 def test_summary_includes_group_account_and_pnl_totals(
     app_client: TestClient, db_session: Session
 ) -> None:
-    """issue #320: by_group/by_account/P&L totals/price_as_of_date pass
-    through the router unchanged from compute_portfolio()."""
+    """issue #320: by_group/by_broker/P&L totals/price_as_of_date pass
+    through the router unchanged from compute_portfolio(); issue #330 added
+    a distinct by_account (keyed on Holding.account, not Holding.broker)."""
     _seed(db_session)
     resp = app_client.get("/portfolio/summary")
     assert resp.status_code == 200
     body = resp.json()
     assert body["by_group"] == {"Ungrouped": "3000.00"}
+    assert body["by_broker"] == {"Other": "3000.00"}
     assert body["by_account"] == {"Other": "3000.00"}
     assert body["total_cost_basis_base"] == "0"
     assert body["total_unrealized_pnl_base"] == "0"

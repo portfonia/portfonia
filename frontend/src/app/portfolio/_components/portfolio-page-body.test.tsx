@@ -59,7 +59,8 @@ function summary(overrides: Partial<PortfolioSummary>): PortfolioSummary {
     by_sector: { Technology: "3000.00" },
     by_asset_class: { STOCK: "3000.00" },
     by_group: { Retirement: "3000.00" },
-    by_account: { Fidelity: "3000.00" },
+    by_broker: { Fidelity: "3000.00" },
+    by_account: { Other: "3000.00" },
     total_cost_basis_base: "2500.00",
     total_unrealized_pnl_base: "500.00",
     total_unrealized_pnl_pct: "0.2000",
@@ -162,6 +163,81 @@ describe("PortfolioPageBody", () => {
     expect(totalAssetsValue()).toHaveTextContent("3,000.00 USD");
     // The switcher reverted to USD — it no longer disagrees with the data.
     expect(screen.getByLabelText("Base currency")).toHaveValue("USD");
+  });
+
+  it("shows a by-broker (custodian) card and a separate by-account card (issue #330)", () => {
+    renderBody(
+      summary({
+        by_broker: { Fidelity: "3000.00" },
+        by_account: { "Individual Brokerage": "3000.00" },
+      }),
+    );
+
+    const custodianCard = screen.getByText("By custodian").closest('[data-slot="card"]');
+    if (!custodianCard) throw new Error("Custodian card not found");
+    expect(within(custodianCard as HTMLElement).getByText("Fidelity")).toBeInTheDocument();
+
+    const accountCard = screen.getByText("By account").closest('[data-slot="card"]');
+    if (!accountCard) throw new Error("Account card not found");
+    expect(within(accountCard as HTMLElement).getByText("Individual Brokerage")).toBeInTheDocument();
+  });
+
+  it("no longer renders a by-sector card (issue #330)", () => {
+    renderBody(summary({}));
+    expect(screen.queryByText("By sector")).not.toBeInTheDocument();
+  });
+
+  it("defaults the currency card to normalized (by_currency, unchanged behavior)", () => {
+    renderBody(summary({ by_currency: { USD: "3000.00" } }));
+
+    const currencyCard = screen.getByText("By currency").closest('[data-slot="card"]');
+    if (!currencyCard) throw new Error("Currency card not found");
+    const rows = within(currencyCard as HTMLElement).getAllByRole("listitem");
+    expect(rows.some((row) => row.textContent?.includes("3,000.00 USD"))).toBe(true);
+    expect(screen.getByLabelText("Display")).toHaveValue("normalized");
+  });
+
+  it("switches the currency card to native mode, summing each holding's own currency", async () => {
+    const user = userEvent.setup();
+    const usdHolding = priced({ holding_id: "h-usd", currency: "USD", market_value: "3000.00" });
+    const cnyHolding = priced({
+      holding_id: "h-cny",
+      currency: "CNY",
+      market_value: "7000.00",
+      market_value_base: "1000.00",
+    });
+    renderBody(
+      summary({
+        holdings: [usdHolding, cnyHolding],
+        by_currency: { USD: "3000.00", CNY: "1000.00" },
+      }),
+    );
+
+    await user.selectOptions(screen.getByLabelText("Display"), "native");
+
+    const currencyCard = screen.getByText("By currency").closest('[data-slot="card"]');
+    if (!currencyCard) throw new Error("Currency card not found");
+    const rows = within(currencyCard as HTMLElement).getAllByRole("listitem");
+    // Native mode sums each bucket's own market_value, unconverted — CNY
+    // shows its native 7000.00, not the 1000.00 base-currency figure.
+    expect(rows.some((row) => row.textContent?.includes("7,000.00 CNY"))).toBe(true);
+    expect(rows.some((row) => row.textContent?.includes("3,000.00 USD"))).toBe(true);
+  });
+
+  it("switches the currency card to percentage mode, showing each bucket's share of the total", async () => {
+    const user = userEvent.setup();
+    renderBody(summary({ by_currency: { USD: "3000.00", CNY: "1000.00" } }));
+
+    await user.selectOptions(screen.getByLabelText("Display"), "percentage");
+
+    const currencyCard = screen.getByText("By currency").closest('[data-slot="card"]');
+    if (!currencyCard) throw new Error("Currency card not found");
+    const rows = within(currencyCard as HTMLElement).getAllByRole("listitem");
+    expect(rows.some((row) => row.textContent?.includes("75.0%"))).toBe(true);
+    expect(rows.some((row) => row.textContent?.includes("25.0%"))).toBe(true);
+    // showShareOfTotal is suppressed in percentage mode, so the value isn't
+    // duplicated as "75.0% (100.0%)".
+    expect(rows.every((row) => !row.textContent?.includes("("))).toBe(true);
   });
 
   it("disables the switcher for the whole round trip, not just the synchronous dispatch", async () => {

@@ -340,6 +340,7 @@ export interface PortfolioSummary {
   by_sector: Record<string, string>;
   by_asset_class: Record<string, string>;
   by_group: Record<string, string>;
+  by_broker: Record<string, string>;
   by_account: Record<string, string>;
   total_cost_basis_base: string;
   total_unrealized_pnl_base: string;

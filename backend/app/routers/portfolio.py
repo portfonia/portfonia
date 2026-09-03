@@ -95,6 +95,7 @@ def get_portfolio_summary(
         by_sector=snap.by_sector,
         by_asset_class=snap.by_asset_class,
         by_group=snap.by_group,
+        by_broker=snap.by_broker,
         by_account=snap.by_account,
         total_cost_basis_base=snap.total_cost_basis_base,
         total_unrealized_pnl_base=snap.total_unrealized_pnl_base,

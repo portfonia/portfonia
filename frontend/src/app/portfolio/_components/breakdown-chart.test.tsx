@@ -35,6 +35,40 @@ describe("BreakdownChart", () => {
     expect(rows[1]).toHaveTextContent("(25.0%)");
   });
 
+  it("uses formatValue to override the default money-in-currency amount when given", () => {
+    // Issue #330: the currency card's native/percentage modes aren't a
+    // single-currency money amount — formatValue lets a caller fully
+    // control the displayed string per (key, value).
+    render(
+      <BreakdownChart
+        title="By currency"
+        data={{ USD: "3000.00", CNY: "1000.00" }}
+        currency="USD"
+        emptyLabel="No data yet"
+        formatValue={(_key, value) => `${value.toFixed(1)}%`}
+        showShareOfTotal={false}
+      />,
+    );
+
+    const rows = screen.getAllByRole("listitem");
+    expect(rows[0]).toHaveTextContent("3000.0%");
+    expect(rows[0]).not.toHaveTextContent("(");
+  });
+
+  it("renders headerControl next to the title", () => {
+    render(
+      <BreakdownChart
+        title="By currency"
+        data={{ USD: "3000.00" }}
+        currency="USD"
+        emptyLabel="No data yet"
+        headerControl={<button type="button">Switch</button>}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Switch" })).toBeInTheDocument();
+  });
+
   it("keeps two distinct raw keys as separate slices even when labelFor maps them to the same display label", () => {
     // Grok review round 2 (PR #322): round 1 pre-translated the fallback key
     // by rewriting the source Record's own keys before this component saw

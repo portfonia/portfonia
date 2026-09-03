@@ -46,11 +46,51 @@ export function formatPercent(value: string | null): string {
 }
 
 // Must match portfolio_calculator.py's `h.portfolio or "Ungrouped"` /
-// `h.broker or "Other"` (report_sections.py's existing broker fallback
-// literal) exactly — these are the raw dict keys the backend sends in
-// by_group/by_account.
+// `h.broker or "Other"` / `h.account or "Other"` (report_sections.py's
+// existing broker fallback literal) exactly — these are the raw dict keys
+// the backend sends in by_group/by_broker/by_account. by_broker and
+// by_account share the same "Other" fallback literal (issue #330), so one
+// constant covers both.
 export const GROUP_UNGROUPED_KEY = "Ungrouped";
 export const ACCOUNT_OTHER_KEY = "Other";
+
+// Issue #330: the currency card's three display modes.
+export type CurrencyDisplayMode = "native" | "normalized" | "percentage";
+export const CURRENCY_DISPLAY_MODES: CurrencyDisplayMode[] = [
+  "native",
+  "normalized",
+  "percentage",
+];
+
+// 本币 mode: group the priced holdings list by their own (native) currency,
+// summing native `market_value` — no base-currency conversion. Matches
+// by_currency's exclusion of holdings with no valuation (null market_value),
+// so switching modes never changes which holdings are represented.
+export function nativeCurrencyBreakdown(holdings: HoldingValueOut[]): Record<string, string> {
+  const totals: Record<string, number> = {};
+  for (const holding of holdings) {
+    if (holding.market_value === null) continue;
+    totals[holding.currency] = (totals[holding.currency] ?? 0) + Number(holding.market_value);
+  }
+  return Object.fromEntries(
+    Object.entries(totals).map(([currency, total]) => [currency, total.toFixed(2)]),
+  );
+}
+
+// 比例 mode: each normalized (by_currency) bucket as a percentage (0-100) of
+// the portfolio total. Computed from by_currency, not re-derived from
+// holdings, so it always matches whatever base currency the page is
+// currently showing.
+export function currencySharePercentages(byCurrency: Record<string, string>): Record<string, string> {
+  const total = Object.values(byCurrency).reduce((sum, value) => sum + Number(value), 0);
+  if (total <= 0) return {};
+  return Object.fromEntries(
+    Object.entries(byCurrency).map(([currency, value]) => [
+      currency,
+      ((Number(value) / total) * 100).toFixed(2),
+    ]),
+  );
+}
 
 // Same fallback semantics as the backend's `h.field or literal`, for the
 // holdings table row (so a row's Group/Custodian cell reads the same label

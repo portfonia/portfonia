@@ -412,10 +412,12 @@ def test_psh_ticker_resolves_captured_price_via_lse_normalization(db_session: Se
     assert snap.total_base == Decimal("786.67")
 
 
-def test_by_group_and_by_account_aggregation(db_session: Session) -> None:
+def test_by_group_and_by_broker_aggregation(db_session: Session) -> None:
     """by_group keys on Holding.portfolio (None/empty -> 'Ungrouped');
-    by_account keys on Holding.broker (None/empty -> 'Other'), matching
-    report_sections.py's existing broker fallback literal (issue #320)."""
+    by_broker keys on Holding.broker (None/empty -> 'Other'), matching
+    report_sections.py's existing broker fallback literal (issue #320,
+    renamed from by_account in issue #330 since it's a custodian rollup,
+    not per-account)."""
     _seed_fx(db_session)
     apple = _stock("Apple", "AAPL", "USD", "10", "300")
     apple.portfolio = "Retirement"
@@ -427,12 +429,12 @@ def test_by_group_and_by_account_aggregation(db_session: Session) -> None:
     snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
 
     assert snap.by_group == {"Retirement": Decimal("3000.00"), "Ungrouped": Decimal("1000.00")}
-    assert snap.by_account == {"Fidelity": Decimal("3000.00"), "Other": Decimal("1000.00")}
+    assert snap.by_broker == {"Fidelity": Decimal("3000.00"), "Other": Decimal("1000.00")}
 
 
-def test_by_group_and_by_account_exclude_unpriced_holdings(db_session: Session) -> None:
+def test_by_group_and_by_broker_exclude_unpriced_holdings(db_session: Session) -> None:
     """Same exclusion gate as by_market — a holding with no market_value_base
-    never reaches the by_group/by_account aggregation branch."""
+    never reaches the by_group/by_broker aggregation branch."""
     _seed_fx(db_session)
     db_session.add_all(
         [
@@ -445,6 +447,41 @@ def test_by_group_and_by_account_exclude_unpriced_holdings(db_session: Session) 
     snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
 
     assert snap.by_group == {"Ungrouped": Decimal("3000.00")}
+    assert snap.by_broker == {"Other": Decimal("3000.00")}
+
+
+def test_by_account_aggregation_keys_on_holding_account(db_session: Session) -> None:
+    """by_account (issue #330) keys on the free-text Holding.account field,
+    separate from by_broker's custodian rollup (None/empty -> 'Other')."""
+    _seed_fx(db_session)
+    apple = _stock("Apple", "AAPL", "USD", "10", "300")
+    apple.account = "Individual Brokerage"
+    cash = _cash("USD Cash", "USD", "1000")  # account left None
+    db_session.add_all([apple, cash])
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    assert snap.by_account == {
+        "Individual Brokerage": Decimal("3000.00"),
+        "Other": Decimal("1000.00"),
+    }
+
+
+def test_by_account_excludes_unpriced_holdings(db_session: Session) -> None:
+    """Same exclusion gate as by_broker/by_market — an unpriced holding never
+    reaches the by_account aggregation branch."""
+    _seed_fx(db_session)
+    db_session.add_all(
+        [
+            _stock("Apple", "AAPL", "USD", "10", "300"),
+            _stock("PSH", "PSH.L", "GBP", None, None),  # unpriced, excluded
+        ]
+    )
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
     assert snap.by_account == {"Other": Decimal("3000.00")}
 
 
