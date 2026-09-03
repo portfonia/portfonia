@@ -122,15 +122,36 @@ holding uploaded before this issue's UK node existed — to
 `capture_supported=True`, because the migration runs raw SQL against
 Fernet-encrypted ciphertext and cannot decrypt `ticker` to re-resolve it
 (documented in the migration's own docstring). This is not silently
-rewritten as part of the migration. Two paths pick it up: (1) any
-individual re-upload/re-confirm already reaches the correct value via the
-same `resolve_holding_market` call `confirm_holdings` always runs; (2) the
-one-off idempotent script `app/scripts/backfill_capture_supported.py`
-(dry-run by default, `--apply` to commit) re-resolves every existing
-`market="Other"` row the same way — reclassifying now-resolvable tickers
-(e.g. into UK/Europe/Japan/Korea) and flipping `capture_supported=False`
-for tickers that still don't resolve, so section 1 renders "[market not
-supported]" instead of sitting in Other limbo indefinitely. Mirrors the
+rewritten as part of the migration. **Re-confirm is not a general fix for
+this** (PR #314 post-merge review, round 2): `_apply_write_defaults`
+(`routers/holdings.py`, shared by `confirm_holdings` and
+`update_holding`'s single-row PATCH) passes the row's already-stored
+`market` straight into `apply_confirmed_exchange_suffix`, and that
+function's `_confirmed_market` gate returns immediately for any value
+already in `VALID_HOLDING_MARKETS` — "Other" included — so no `.L`-style
+suffix ever gets forced and `resolve_holding_market` still promotes a
+still-bare, currency-hinted ticker (e.g. `VOD` + GBP) to `market="US"`. A
+re-confirm only reaches the correct value for a row whose ticker is
+*already* suffixed (e.g. `VOD.L` stored as Other before the UK node
+existed) — that path resolves out of Other correctly because the ticker
+suffix alone is enough for `market_from_ticker`, with no suffix-forcing
+step required. The one-off idempotent script
+`app/scripts/backfill_capture_supported.py` (dry-run by default, `--apply`
+to commit) is what actually covers the still-bare-ticker case: it seeds
+`market=None` before re-resolving, so `_confirmed_market` treats the row
+as undetermined instead of already-confirmed and the suffix-forcing step
+runs. It re-resolves every existing `market="Other"` row **except**
+`asset_type in ("cash", "wmf")`, which the scan skips outright (issue
+#316 item 1: a legacy cash/wmf row can still carry a spurious pre-#120
+ticker, and that asset_type is never in scope for this rewrite regardless
+of what ticker it carries) — reclassifying now-resolvable tickers (e.g.
+into UK/Europe/Japan/Korea), **rewriting `ticker` itself when a suffix
+gets forced** (e.g. `VOD` -> `VOD.L`, the change an operator most needs
+to see on the script's stdout, dry-run (the default) or `--apply`, not
+just the `market`/`capture_supported` columns), and flipping
+`capture_supported=False` for tickers that still don't resolve, so
+section 1 renders "[market not supported]" instead of sitting in Other
+limbo indefinitely. Mirrors the
 one-off-script (not a migration, not a new bulk `/admin/*` endpoint)
 precedent already established for the email-verification backfill (issue
 #260).

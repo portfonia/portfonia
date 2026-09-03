@@ -182,3 +182,74 @@ def test_never_touches_holdings_not_stored_as_other(db_session: Session) -> None
 
     assert changed == 0
     assert h.market == "US"
+
+
+def test_cash_row_with_no_ticker_is_unchanged(db_session: Session) -> None:
+    """The normal issue-#120 shape: a cash/wmf row stored as Other with no
+    ticker at all. The scan's `asset_type in ("cash", "wmf")` skip (issue
+    #316 item 1) excludes this row before `_resolve`/`resolve_holding_market`
+    ever runs, so this is a no-op by construction, not by relying on
+    `resolve_holding_market`'s own no-ticker-cash branch — PR #314 review
+    round 2 asked for explicit coverage of this shape regardless."""
+    seed_user(db_session, _USER)
+    h = _holding(name="Cash", ticker=None, asset_type="cash", currency="USD")
+    db_session.add(h)
+    db_session.flush()
+
+    changed = backfill_capture_supported(db_session, apply_changes=True)
+
+    assert changed == 0
+    assert h.market == "Other"
+    assert h.capture_supported is True
+
+
+def test_legacy_cash_row_with_spurious_ticker_is_not_promoted(db_session: Session) -> None:
+    """PR #314 review round 2: a cash/wmf row that predates issue #120 can
+    still carry a spurious ticker string (e.g. "CASH") instead of no ticker
+    at all. Without the asset_type skip, `_resolve` would hit
+    `market_from_ticker`'s bare-ticker branch before ever reaching
+    `resolve_holding_market`'s asset_type check, promoting the row to
+    market="US"/capture_supported=True — the wrong stored market, even
+    though capture still skips it via pricing_mode="manual" so no wrong
+    price actually gets fetched. The backfill must leave asset_type
+    "cash"/"wmf" rows alone regardless of what ticker they carry."""
+    seed_user(db_session, _USER)
+    h = _holding(
+        name="Cash",
+        ticker="CASH",
+        asset_type="cash",
+        pricing_mode="manual",
+        currency="USD",
+    )
+    db_session.add(h)
+    db_session.flush()
+
+    changed = backfill_capture_supported(db_session, apply_changes=True)
+
+    assert changed == 0
+    assert h.market == "Other"
+    assert h.ticker == "CASH"
+    assert h.capture_supported is True
+
+
+def test_legacy_wmf_row_with_spurious_ticker_is_not_promoted(db_session: Session) -> None:
+    """Same corner case as the cash test above, for the sibling asset_type
+    "wmf" (wealth management product) — the backfill's skip must cover both
+    values named in issue #316 item 1, not just "cash"."""
+    seed_user(db_session, _USER)
+    h = _holding(
+        name="Bank WMP",
+        ticker="WMP001",
+        asset_type="wmf",
+        pricing_mode="manual",
+        currency="CNY",
+    )
+    db_session.add(h)
+    db_session.flush()
+
+    changed = backfill_capture_supported(db_session, apply_changes=True)
+
+    assert changed == 0
+    assert h.market == "Other"
+    assert h.ticker == "WMP001"
+    assert h.capture_supported is True

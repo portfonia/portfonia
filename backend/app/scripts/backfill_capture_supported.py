@@ -26,9 +26,8 @@ data available here to disambiguate it further.
 
 Deliberately NOT a migration — the issue is explicit that this must not be
 a silent rewrite bundled into a schema deploy — and NOT a new `/admin/*`
-bulk endpoint: a re-upload/re-confirm already reaches the same resolution
-for any individual user, and a one-off ORM-level backfill script for a
-pre-existing-row gap has an established project precedent (see the
+bulk endpoint: a one-off ORM-level backfill script for a pre-existing-row
+gap has an established project precedent (see the
 email-verification backfill note in `docs/mechanisms/email-verification.md`,
 issue #260). Idempotent: re-running is a no-op for every row already
 correctly resolved. Every change prints the decrypted ticker/name (PR #314
@@ -48,6 +47,7 @@ from __future__ import annotations
 import sys
 from typing import Any
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
@@ -71,12 +71,16 @@ def _resolve(h: Holding) -> tuple[str | None, str | None, bool]:
     every row here already has `market="Other"` stored, passing it straight
     through would silently no-op the whole suffix-forcing step. Re-resolving
     an existing Other row means treating "Other" as *undetermined*, not as
-    an already-confirmed value — `h.market` is still passed to the final
-    `resolve_holding_market(declared_market=...)` call below (using
-    `data["market"]`, the value AFTER suffix-forcing has run — matching
-    `_apply_write_defaults` exactly, NOT the original `h.market`), whose own
-    "declared Other does not win over a resolvable ticker" rule already
-    handles that case correctly.
+    an already-confirmed value — the final `resolve_holding_market(
+    declared_market=...)` call below is passed `data["market"]` (the value
+    AFTER suffix-forcing has run, NOT the original `h.market`), the same
+    call-argument source `_apply_write_defaults` uses. The *seed* is not
+    the same — `_apply_write_defaults` seeds the stored `"Other"`,
+    this function seeds `None` — which is why the two produce different
+    outcomes for a still-bare, currency-hinted ticker even though both
+    call `resolve_holding_market` the same way; `resolve_holding_market`'s
+    own "declared Other does not win over a resolvable ticker" rule then
+    handles the resolved value correctly either way.
     """
     data: dict[str, Any] = {
         "ticker": h.ticker,
@@ -107,13 +111,30 @@ def _resolve(h: Holding) -> tuple[str | None, str | None, bool]:
 
 
 def backfill_capture_supported(session: Session, *, apply_changes: bool) -> int:
-    """Re-resolve every `market="Other"` holding; return the count changed.
+    """Re-resolve every `market="Other"` holding except cash/wmf; return the
+    count changed.
 
-    Mutates ORM rows in place when `apply_changes` (caller commits) — a dry
-    run only prints what would change, matching `apply_changes=False`'s
+    `asset_type in ("cash", "wmf")` is skipped in the scan itself, not just
+    a no-op inside `_resolve` (issue #316 item 1) — those rows are never in
+    scope for this rewrite regardless of what ticker they carry. Mutates
+    ORM rows in place when `apply_changes` (caller commits) — a dry run
+    only prints what would change, matching `apply_changes=False`'s
     contract of leaving `session` untouched.
     """
-    rows = session.query(Holding).filter(Holding.market == "Other").all()
+    # Cash/WMP rows are never in scope for this rewrite (issue #313 item 4 is
+    # about listed-Other tickers) and skipping them here is a safety net, not
+    # just an optimization: `resolve_holding_market` already treats a normal
+    # no-ticker cash/wmf row as a no-op, but a row that predates issue #120
+    # can still carry a spurious ticker string (e.g. "CASH") — that would hit
+    # `market_from_ticker`'s bare-ticker branch and get promoted to
+    # market="US" before ever reaching resolve_holding_market's asset_type
+    # check (PR #314 review round 2).
+    rows = (
+        session.query(Holding)
+        .filter(Holding.market == "Other")
+        .filter(or_(Holding.asset_type.is_(None), Holding.asset_type.notin_(("cash", "wmf"))))
+        .all()
+    )
     changed = 0
     for h in rows:
         resolved_market, resolved_ticker, capture_ok = _resolve(h)
