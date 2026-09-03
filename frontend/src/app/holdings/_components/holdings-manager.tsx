@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 
+import { useLocale } from "@/app/_components/locale-provider";
 import {
   ApiError,
   confirmHoldings,
@@ -39,10 +40,19 @@ import {
 import { HoldingsTable } from "./holdings-table";
 import { BrokerSummary, IssueList, PreviewTable, rowNeedsAmber } from "./preview";
 
+// Maps the frontend's own UI-locale union to the bare code the backend's
+// export/template `locale` query param understands (issue #319 item 9):
+// zh-Hans -> "zh"; en and zh-Hant (still gated out of the switcher, issue
+// #209) both pass through literally and fall back to English server-side
+// (holdings_export.render_rules only recognizes "en"/"zh").
+function exportLocaleParam(locale: string): string {
+  return locale === "zh-Hans" ? "zh" : locale;
+}
+
 export function HoldingsManager({
   initialHoldings,
   initialLoadError = false,
-  mode = "normal",
+  mode: pageMode = "normal",
 }: {
   initialHoldings: HoldingOut[];
   initialLoadError?: boolean;
@@ -50,12 +60,20 @@ export function HoldingsManager({
 }) {
   const t = useTranslations("holdings");
   const router = useRouter();
+  const { locale } = useLocale();
   const [holdings, setHoldings] = useState<HoldingOut[]>(initialHoldings);
   const [preview, setPreview] = useState<UploadPreview | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadSeconds, setUploadSeconds] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Append/replace intent (issue #319 item 10) — chosen before file
+  // selection now, not after parsing. Picking it is not itself destructive
+  // (nothing has happened yet), so it needs no dialog of its own; the
+  // existing post-parse safety dialogs below (issuesConfirmOpen,
+  // replaceConfirmOpen) are unchanged and still gate the real, destructive
+  // save action with the real parsed row/issue counts.
+  const [confirmMode, setConfirmMode] = useState<ConfirmMode>("append");
   const [issuesConfirmOpen, setIssuesConfirmOpen] = useState(false);
   const [replaceConfirmOpen, setReplaceConfirmOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -95,13 +113,13 @@ export function HoldingsManager({
     }
   }
 
-  async function doSave(confirmMode: ConfirmMode) {
+  async function doSave(mode: ConfirmMode) {
     if (!preview) return;
     setSaving(true);
     setError(null);
     try {
-      const saved = await confirmHoldings(preview.valid_rows, confirmMode);
-      if (mode === "onboarding") {
+      const saved = await confirmHoldings(preview.valid_rows, mode);
+      if (pageMode === "onboarding") {
         router.push("/welcome");
         return;
       }
@@ -119,8 +137,12 @@ export function HoldingsManager({
     }
   }
 
-  function onAppendClick() {
+  function onSaveClick() {
     if (!preview) return;
+    if (confirmMode === "replace") {
+      setReplaceConfirmOpen(true);
+      return;
+    }
     if (preview.issue_rows.length > 0) {
       setIssuesConfirmOpen(true);
     } else {
@@ -128,14 +150,9 @@ export function HoldingsManager({
     }
   }
 
-  function onReplaceClick() {
-    if (!preview) return;
-    setReplaceConfirmOpen(true);
-  }
-
   async function onExport() {
     try {
-      const exported = await exportHoldings();
+      const exported = await exportHoldings(exportLocaleParam(locale));
       downloadFile(exported.blob, exported.filename);
     } catch (err) {
       if (isNextRedirectError(err)) throw err;
@@ -145,7 +162,10 @@ export function HoldingsManager({
 
   async function onDownloadTemplate() {
     try {
-      downloadFile(await downloadHoldingsTemplate(), "holdings-template.md");
+      downloadFile(
+        await downloadHoldingsTemplate(exportLocaleParam(locale)),
+        "holdings-template.md",
+      );
     } catch (err) {
       if (isNextRedirectError(err)) throw err;
       setError(err instanceof ApiError ? err.message : String(err));
@@ -163,8 +183,17 @@ export function HoldingsManager({
         </div>
       )}
 
-      {mode === "onboarding" && (
-        <div className="mb-6 flex justify-end">
+      {pageMode === "onboarding" && (
+        // The Current holdings card (and its "Edit holdings" button) is
+        // hidden during onboarding just below, which silently left no
+        // in-UI path to /holdings/edit at all — the C1 design (Ring 1-C
+        // §3.16) requires the edit page stay reachable, gate-free, during
+        // onboarding so a manual add there isn't wiped by the later
+        // append confirm (PR #321 review round 3).
+        <div className="mb-6 flex justify-between">
+          <Link href="/holdings/edit" className="text-sm underline-offset-4 hover:underline">
+            {t("editHoldings")}
+          </Link>
           <Link href="/welcome" className="text-sm underline-offset-4 hover:underline">
             {t("skipOnboarding")}
           </Link>
@@ -175,7 +204,7 @@ export function HoldingsManager({
         <CardHeader>
           <CardTitle>{t("uploadHeading")}</CardTitle>
           <CardDescription>{t("uploadHint")}</CardDescription>
-          {mode !== "onboarding" && (
+          {pageMode !== "onboarding" && (
             <CardAction>
               <Button variant="outline" size="sm" onClick={() => void onDownloadTemplate()}>
                 {t("downloadTemplate")}
@@ -184,6 +213,36 @@ export function HoldingsManager({
           )}
         </CardHeader>
         <CardContent>
+          <div className="mb-4 space-y-2">
+            <div className="flex gap-2" role="radiogroup" aria-label={t("uploadHeading")}>
+              <Button
+                type="button"
+                variant={confirmMode === "append" ? "default" : "outline"}
+                size="sm"
+                aria-pressed={confirmMode === "append"}
+                onClick={() => setConfirmMode("append")}
+              >
+                {t("modeAppendLabel")}
+              </Button>
+              <Button
+                type="button"
+                variant={confirmMode === "replace" ? "default" : "outline"}
+                size="sm"
+                aria-pressed={confirmMode === "replace"}
+                onClick={() => setConfirmMode("replace")}
+              >
+                {t("modeReplaceLabel")}
+              </Button>
+            </div>
+            {confirmMode === "append" && (
+              <div
+                role="status"
+                className="rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
+              >
+                {t("appendHint")}
+              </div>
+            )}
+          </div>
           <input
             ref={fileInputRef}
             type="file"
@@ -217,7 +276,6 @@ export function HoldingsManager({
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <p className="text-xs text-muted-foreground">{t("appendHint")}</p>
             {preview.unsupported_capture_count > 0 && (
               <p className="text-xs text-muted-foreground">
                 {t("unsupportedCaptureBanner", {
@@ -253,24 +311,21 @@ export function HoldingsManager({
                 {t("cancelButton")}
               </Button>
               <Button
-                variant="outline"
-                onClick={onReplaceClick}
+                onClick={onSaveClick}
                 disabled={saving || preview.valid_rows.length === 0}
               >
-                {t("replaceAllButton")}
-              </Button>
-              <Button
-                onClick={onAppendClick}
-                disabled={saving || preview.valid_rows.length === 0}
-              >
-                {saving ? t("saving") : t("appendButton")}
+                {saving
+                  ? t("saving")
+                  : confirmMode === "replace"
+                    ? t("replaceAllButton")
+                    : t("appendButton")}
               </Button>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {mode !== "onboarding" && (
+      {pageMode !== "onboarding" && (
         <Card>
           <CardHeader>
             <CardTitle>{t("currentHeading")}</CardTitle>

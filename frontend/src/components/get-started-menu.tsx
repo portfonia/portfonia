@@ -14,7 +14,7 @@
 // exactly one `menu` namespace in the shared catalog, read the same way on
 // every route.
 import { useState } from "react";
-import { Briefcase, ChevronDown, ClipboardList, LogIn, LogOut, Pencil, User } from "lucide-react";
+import { Briefcase, ChevronDown, ClipboardList, LogIn, LogOut, User } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 
@@ -39,10 +39,14 @@ import {
 // "Profile" is first (issue #220 — replaces the #214-follow-up placeholder
 // "Home" entry; the way back to "/" is the brand-link click only now, no
 // second entry for it).
+//
+// No separate "Edit holdings" entry (issue #319 item 1): the entry point
+// was triplicated (this menu had both Holdings and Edit holdings, and
+// /holdings's own card header duplicated Edit holdings again) — it now
+// lives only on the /holdings list page.
 const AUTHED_ENTRIES = [
   { id: "profile", href: "/profile", Icon: User },
   { id: "holdings", href: "/holdings", Icon: Briefcase },
-  { id: "editHoldings", href: "/holdings/edit", Icon: Pencil },
   { id: "questionnaire", href: "/questionnaire", Icon: ClipboardList },
 ] as const satisfies { id: string; href: string; Icon: LucideIcon }[];
 

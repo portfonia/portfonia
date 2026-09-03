@@ -70,14 +70,97 @@ describe("HoldingForm", () => {
     expect(push).toHaveBeenCalledWith("/holdings/edit");
   });
 
-  it("disables ticker and fund code for cash and requires current value", async () => {
+  it("disables the merged ticker/fund code field for cash and requires current value", async () => {
     const user = userEvent.setup();
     renderForm();
     await user.selectOptions(screen.getByLabelText(/^type$/i), "cash");
     expect(screen.getByLabelText(/^ticker$/i)).toBeDisabled();
-    expect(screen.getByLabelText(/^fund code$/i)).toBeDisabled();
     expect(screen.getByLabelText(/^current value$/i)).toBeRequired();
     expect(screen.queryByLabelText(/^shares$/i)).not.toBeInTheDocument();
+  });
+
+  it("falls back to the ticker slot's value when a fund's identifier was stored there (PR #321 review round 2)", async () => {
+    const user = userEvent.setup();
+    const legacyFund: HoldingOut = {
+      ...EXISTING,
+      asset_type: "fund",
+      ticker: "FXAIX",
+      fund_code: null,
+    };
+    renderForm(legacyFund);
+
+    const identifierField = screen.getByLabelText(/^fund code$/i);
+    expect(identifierField).toHaveValue("FXAIX");
+
+    await user.click(screen.getByRole("button", { name: /save holding/i }));
+    await waitFor(() => expect(updateHolding).toHaveBeenCalled());
+    const patch = updateHolding.mock.calls[0][1] as {
+      ticker: string | null;
+      fund_code: string | null;
+    };
+    expect(patch.ticker).toBeNull();
+    expect(patch.fund_code).toBe("FXAIX");
+  });
+
+  it("can be cleared to empty even when it started out showing the fallback slot's value (PR #321 review round 3)", async () => {
+    const user = userEvent.setup();
+    const legacyFund: HoldingOut = {
+      ...EXISTING,
+      asset_type: "fund",
+      ticker: "FXAIX",
+      fund_code: null,
+    };
+    renderForm(legacyFund);
+
+    const identifierField = screen.getByLabelText(/^fund code$/i);
+    expect(identifierField).toHaveValue("FXAIX");
+    await user.clear(identifierField);
+
+    // A live `fund_code || ticker` fallback would snap this back to
+    // "FXAIX" on every re-render since the (still-empty) active slot
+    // never actually held a value to clear — the bug round 3 caught.
+    expect(identifierField).toHaveValue("");
+
+    await user.click(screen.getByRole("button", { name: /save holding/i }));
+    await waitFor(() => expect(updateHolding).toHaveBeenCalled());
+    const patch = updateHolding.mock.calls[0][1] as {
+      ticker: string | null;
+      fund_code: string | null;
+    };
+    expect(patch.ticker).toBeNull();
+    expect(patch.fund_code).toBeNull();
+  });
+
+  it("merges ticker/fund code into one field that switches label and target with asset type, carrying the value over (issue #319 item 7; PR #321 round 3)", async () => {
+    const user = userEvent.setup();
+    renderForm();
+    await user.type(screen.getByLabelText(/^name$/i), "E Fund Blue Chip");
+
+    expect(screen.getByLabelText(/^ticker$/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^fund code$/i)).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText(/^ticker$/i), "AAPL");
+
+    await user.selectOptions(screen.getByLabelText(/^type$/i), "fund");
+    expect(screen.queryByLabelText(/^ticker$/i)).not.toBeInTheDocument();
+    const fundField = screen.getByLabelText(/^fund code$/i);
+    // Switching asset_type carries the already-entered value into the
+    // new active slot (the user is relabeling one identifier, not
+    // starting a second one) rather than clearing it — round 3 changed
+    // this from clear to copy, since a round-2 live fallback covering
+    // for a clear-on-switch turned out to make the field impossible to
+    // ever empty (see the round-3 test above).
+    expect(fundField).toHaveValue("AAPL");
+    await user.clear(fundField);
+    await user.type(fundField, "110011");
+    await user.click(screen.getByRole("button", { name: /save holding/i }));
+
+    await waitFor(() => expect(createHolding).toHaveBeenCalled());
+    const payload = createHolding.mock.calls[0][0] as {
+      ticker: string | null;
+      fund_code: string | null;
+    };
+    expect(payload.ticker).toBeNull();
+    expect(payload.fund_code).toBe("110011");
   });
 
   it("prompts before discarding a dirty form", async () => {

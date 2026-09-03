@@ -528,8 +528,12 @@ bank broker. Listed auto tickers are **not** reclassified into Other.
 
 **Export / template dialect:** `GET /holdings/export` and
 `GET /holdings/template` emit the `#####` comment-rules dialect (one
-holding per line, export ordered by `position`). Locale is `users.locale`
-(report language `zh`/`en`), **not** the UI chrome locale. The positional
+holding per line, export ordered by `position`). **Locale as of issue
+#319 item 9**: an optional `locale` query param (the frontend's current
+UI locale, `zh-Hans` mapped to bare `zh`) takes precedence when given;
+omitted falls back to `users.locale` (report language) as before — the
+two are independently controllable, and this is the only place UI
+locale drives anything other than UI chrome. The positional
 prefix is name / identifier / currency / shares / avg_cost / broker for
 auto-priced listed rows; name / identifier / currency / shares / avg_cost /
 current_value / broker when `pricing_mode:manual` — **always all three
@@ -541,28 +545,86 @@ basis on re-import; `_manual_match_explicit` in `holding_parser.py` reads
 this placeholder-marked shape unambiguously, falling back to the older
 count-based heuristic only for hand-typed input without the placeholder);
 name / current_value / currency / broker for cash/wmf (no cost
-basis today). Trailing tagged fields (`account:`, `portfolio:`, `notes:`,
-`asset_type:`, `market:`, `pricing_mode:`; quote a value that contains
-spaces) round-trip shares/avg_cost/current_value + tags for non-cash, and
-current_value-only for cash/wmf. `price_snapshots` is market data, not what
-the user paid, so avg_cost on export is load-bearing. `asset_type:wmf` is
-written as `wealth-management` so user-facing copy still does not use the
-letters w-m-f as jargon. A file whose every data line carries at least one
-of those tags is parsed deterministically (`try_parse_dialect`) and never
-calls the LLM. Export `Content-Disposition` filename is
-`holdings-YYYYMMDD-HHMMSSZ.md` (UTC); the frontend reads that header rather
-than hardcoding `holdings.md`.
+basis today). **Trailing tags as of issue #319 item 8**: export now emits
+only `account:`, `portfolio:`, `notes:` (quote a value that contains
+spaces) — `asset_type:`/`market:`/`pricing_mode:` are dropped, on
+product-owner request, as pure classification always re-derivable via
+the LLM path. `account`/`portfolio`/`notes` are free-text with no other
+slot in the positional dialect, so they keep round-tripping — dropping
+them too was PR #321 round 1's caught bug, see the follow-up subsection
+below. `price_snapshots` is market data, not what the user paid, so
+avg_cost on export is load-bearing (unaffected by the tag change). A
+file whose every data line carries at least one surviving tag is still
+parsed deterministically (`try_parse_dialect`) and never calls the
+LLM — see the follow-up subsection for why that is now the exception,
+not the rule, for a typical export. Export `Content-Disposition`
+filename is `holdings-YYYYMMDD-HHMMSSZ.md` (UTC); the frontend reads
+that header rather than hardcoding `holdings.md`.
 
 **Frontend split:** `/holdings` is upload + parse preview + read-only
-current list (not clickable, no drag, no add, no delete). Append is
-primary; Replace all is destructive and needs a second confirm (no snapshot
-store yet — export first). `/holdings/edit` is the full book: native HTML5
-drag-reorder (PATCH reorder on drop; revert to last server order on
-failure), click row → `/holdings/[id]`, add → `/holdings/new`, delete only
-here with a confirm dialog. Forms do not call the LLM. Submit is disabled
-while in-flight; success and Back go to `/holdings/edit` (dirty form
-confirms before discard). Onboarding incomplete → banner linking to
-`/holdings?onboarding=1`; the route is **not** 404'd during onboarding.
-Onboarding holdings step stays the upload page (`mode=onboarding`); Save
-there uses append so a manual add is not wiped. Get Started menu: Holdings
-→ `/holdings`, Edit holdings → `/holdings/edit`.
+current list (not clickable, no drag, no add, no delete). Append/replace
+intent is chosen before file selection (issue #319 item 10, see below);
+the file preview area then shows one save action reflecting that choice,
+still gated by the existing post-parse safety dialogs. `/holdings/edit`
+is the full book: native HTML5 drag-reorder (PATCH reorder on drop;
+revert to last server order on failure) plus clickable sort-ascending/
+descending arrows on the ticker/currency/broker headers reusing the same
+`PATCH /holdings/reorder` call (issue #319 item 12); shares/avg_cost
+(current_value for cash/wmf)/pricing_mode are inline-editable, each a
+single-field `PATCH /holdings/{id}` (issue #319 items 4-5); every other
+field, and delete, stay detail-page/dialog-only; click row →
+`/holdings/[id]`, add → `/holdings/new`. Forms do not call the LLM.
+Submit is disabled while in-flight; success and Back go to
+`/holdings/edit` (dirty form confirms before discard). Onboarding
+incomplete → banner linking to `/holdings?onboarding=1`; the route is
+**not** 404'd during onboarding. Onboarding holdings step stays the
+upload page (`mode=onboarding`); Save there uses append so a manual add
+is not wiped. Get Started menu: Holdings → `/holdings` only — the
+separate "Edit holdings" nav entry was removed (issue #319 item 1; the
+`/holdings` page's own card-header button is the sole entry point to
+`/holdings/edit`).
+
+### Ring 1-C1 UX follow-ups (issue #319, PR #321)
+
+Twelve direct UX/information-architecture corrections to C1 above, found
+by the product owner using the feature for the first time post-merge —
+not new features. Full requirements/design: issue #319's two comments,
+Obsidian `Hermes/Portfonia/Docs/Ring 1-C design.md` §11.
+
+- **Item 8's tag removal, corrected in PR #321 review round 1
+  (blacktomb42)**: the first implementation dropped all six
+  `DIALECT_TAG_KEYS` from export, including `account`/`portfolio`/
+  `notes` — free-text user data with no other slot anywhere in the
+  positional dialect, so that was unrecoverable data loss on #92's only
+  rollback path (export `.md` → edit → re-upload), not the "no longer
+  free/fast" tradeoff the issue actually discussed and the product owner
+  signed off on. Fixed to drop only `asset_type`/`market`/`pricing_mode`.
+  `pricing_mode` specifically had to be dropped deliberately, not left
+  in "for safety": it is the one tag every `Holding` always has a value
+  for, so keeping it would have meant every export line always carries
+  at least one tag and the dialect fast path never actually retires in
+  practice — silently defeating the accepted tradeoff. Dropping it
+  reopened a narrower, separate risk instead: `holding_parser
+  .parse_dialect_line`'s manual-vs-auto branch selection used to be
+  keyed solely on a `pricing_mode:manual` tag, so a manual-priced row
+  reached via a surviving `account`/`portfolio`/`notes` tag would
+  silently misparse as 2-slot auto (current_value swallowed into the
+  broker field, pricing_mode flipped back to auto). Fixed in the same
+  round by making `parse_dialect_line` try `_manual_match_explicit`
+  (the placeholder-marked 3-slot shape, "unambiguous by construction"
+  per its own docstring) positionally, before any tag check — safe
+  regardless of which tags survive on export.
+- **Item 10 shipped as a deliberate partial implementation** of "move
+  both `appendHint` and `replaceConfirmBody` earlier": only the
+  append/replace *choice* moved before the file picker (a `confirmMode`
+  toggle, non-destructive, no dialog needed at that point). The existing
+  post-parse safety dialogs — the issues-discard confirm for append, and
+  the real-parsed-count replace confirmation — are unchanged and still
+  gate the actual destructive save. Collapsing the replace confirmation
+  into a pre-parse prompt too would only ever be able to show `n=0`
+  (no file parsed yet), which is less safe than keeping the real,
+  parsed-row-aware one. `POST /holdings/upload` itself does not carry a
+  `mode` param — the parse step is mode-independent, so there is no LLM
+  cost to save by attaching one.
+- Items 1-7, 9, 11-12 shipped matching the frozen design as written; see
+  PR #321 and the issue #319 implementation comment for the full list.

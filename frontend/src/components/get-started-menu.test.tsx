@@ -187,16 +187,13 @@ describe("GetStartedMenu", () => {
       expect(menu.textContent).not.toContain("Sign up");
     });
 
-    it("offers Edit holdings linking to /holdings/edit (issue #92)", async () => {
+    it("no longer offers a separate Edit holdings entry (issue #319 item 1)", async () => {
       getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
       const user = userEvent.setup();
       renderMenu();
       await openMenu(user);
 
-      expect(screen.getByRole("menuitem", { name: "Edit holdings" })).toHaveAttribute(
-        "href",
-        "/holdings/edit",
-      );
+      expect(screen.queryByRole("menuitem", { name: "Edit holdings" })).not.toBeInTheDocument();
       expect(screen.getByRole("menuitem", { name: "Holdings" })).toHaveAttribute(
         "href",
         "/holdings",

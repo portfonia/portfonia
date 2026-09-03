@@ -275,16 +275,24 @@ export async function reorderHoldings(ids: string[]): Promise<HoldingOut[]> {
   return res.json() as Promise<HoldingOut[]>;
 }
 
-export async function downloadHoldingsTemplate(): Promise<Blob> {
-  const res = await fetch("/api/holdings/template", { cache: "no-store" });
+// `locale` is the frontend's UI locale (a Locale value from src/locales —
+// see exportLocaleParam below), taking precedence server-side over the
+// report-language fallback (issue #319 item 9). Omit to keep the old
+// report-language behavior.
+export async function downloadHoldingsTemplate(locale?: string): Promise<Blob> {
+  const qs = locale ? `?locale=${encodeURIComponent(locale)}` : "";
+  const res = await fetch(`/api/holdings/template${qs}`, { cache: "no-store" });
   if (!res.ok) await throwOnHttpError(res);
   return res.blob();
 }
 
 // Export current holdings as a downloadable markdown file (same format as the
 // upload template) so the user can edit and re-upload. Returns a Blob.
-export async function exportHoldings(): Promise<{ blob: Blob; filename: string }> {
-  const res = await fetch("/api/holdings/export", { cache: "no-store" });
+export async function exportHoldings(
+  locale?: string,
+): Promise<{ blob: Blob; filename: string }> {
+  const qs = locale ? `?locale=${encodeURIComponent(locale)}` : "";
+  const res = await fetch(`/api/holdings/export${qs}`, { cache: "no-store" });
   if (!res.ok) await throwOnHttpError(res);
   const filename = filenameFromContentDisposition(
     res.headers.get("Content-Disposition"),

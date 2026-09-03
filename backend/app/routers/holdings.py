@@ -224,8 +224,35 @@ def _next_position(session: Session, user_id: UUID) -> int:
     return int(current) + 1
 
 
-def _own_holding(session: Session, user_id: UUID, holding_id: UUID) -> Holding:
-    holding = session.get(Holding, holding_id)
+def _own_holding(
+    session: Session, user_id: UUID, holding_id: UUID, *, for_update: bool = False
+) -> Holding:
+    if for_update:
+        # PR #321 review round 3: update_holding's read-modify-write was
+        # unlocked — create/confirm/reorder all take _lock_user_holdings,
+        # PATCH did not. Harmless while the only client sent the whole
+        # form, but issue #319's inline edit makes two single-field
+        # PATCHes on the same row (e.g. tabbing shares -> pricing_mode
+        # before the first response lands) an ordinary interaction: each
+        # would merge against a stale pre-edit row, and the later commit
+        # could silently drop the earlier field for every non-money
+        # column (_MONEY_FIELDS below already guards shares/avg_cost/
+        # current_value specifically, but pricing_mode/asset_type/market/
+        # broker/etc. are unconditionally rewritten from the merged view
+        # on every PATCH). A row-level lock, not the broader
+        # _lock_user_holdings (that would serialize PATCHes across a
+        # user's entire book, not just this one holding), closes the gap.
+        # Scope the lock to this user's own row in the WHERE clause itself
+        # (round-4 review): filtering by id alone would take a FOR UPDATE
+        # lock on another user's row before the ownership check below ever
+        # runs, on a mere guessed UUID.
+        holding = session.scalar(
+            select(Holding)
+            .where(Holding.id == holding_id, Holding.user_id == user_id)
+            .with_for_update()
+        )
+    else:
+        holding = session.get(Holding, holding_id)
     if holding is None or holding.user_id != user_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Holding not found.")
     return holding
@@ -619,13 +646,20 @@ def reorder_holdings(
 
 @router.get("/export")
 def export_holdings(
+    locale: str | None = Query(None),
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
 ) -> Response:
+    """`locale`, when given, is the frontend's current UI locale (issue #319
+    item 9) and takes precedence over the report-language fallback below.
+    Any locale `render_rules` does not recognize falls back to English
+    there — this endpoint does not itself validate the value.
+    """
     rows = _sorted_holdings(
         session.scalars(select(Holding).where(Holding.user_id == principal.user_id)).all()
     )
-    md = render_export(list(rows), _report_locale(session, principal.user_id))
+    effective_locale = locale if locale is not None else _report_locale(session, principal.user_id)
+    md = render_export(list(rows), effective_locale)
     filename = holdings_export_filename()
     return Response(
         content=md,
@@ -636,10 +670,13 @@ def export_holdings(
 
 @router.get("/template")
 def holdings_template(
+    locale: str | None = Query(None),
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
 ) -> Response:
-    md = render_template(_report_locale(session, principal.user_id))
+    """Same `locale` precedence as GET /holdings/export above."""
+    effective_locale = locale if locale is not None else _report_locale(session, principal.user_id)
+    md = render_template(effective_locale)
     return Response(
         content=md,
         media_type="text/markdown",
@@ -654,7 +691,7 @@ def update_holding(
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
 ) -> Holding:
-    holding = _own_holding(session, principal.user_id, holding_id)
+    holding = _own_holding(session, principal.user_id, holding_id, for_update=True)
     updates = patch.model_dump(exclude_unset=True)
     if not updates:
         return holding
