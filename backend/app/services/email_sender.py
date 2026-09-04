@@ -255,6 +255,16 @@ def send_report_email(report: Report, session: Session) -> bool:
                     "email_sent_at left null; can be resent manually once the "
                     "user's identity resolves."
                 ),
+                # PR #341 review (issue #61): a status=="success" row with
+                # email_sent_at left null is now resendable by a plain
+                # generate_report retry, which re-enters this function on
+                # every hit — a persistent root cause (e.g. no verified
+                # recipient) would otherwise re-alert on every retry.
+                # Resend's Idempotency-Key dedups repeats of the same key
+                # within 24h; a distinct alert past that window still fires,
+                # which is the intended behavior for a condition that has
+                # now persisted a full day.
+                idempotency_key=f"ops-report-recipient-missing-{report.id}",
             )
         else:
             logger.warning(
@@ -276,6 +286,9 @@ def send_report_email(report: Report, session: Session) -> bool:
                     "unverified-at-send race — escalate only if the user's Profile "
                     "page shows a verified address."
                 ),
+                # See the sibling alert above (PR #341 review, issue #61) —
+                # same repeat-retry rationale.
+                idempotency_key=f"ops-report-no-verified-recipient-{report.id}",
             )
         return False
 

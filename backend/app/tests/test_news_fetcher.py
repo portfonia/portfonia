@@ -17,8 +17,8 @@ from app.services.news_fetcher import (
     _fetch_feed,
     _parse_entry_dt,
     _strip_html,
-    _url_hash,
     fetch_news,
+    url_hash,
 )
 
 # ---------------------------------------------------------------------------
@@ -59,20 +59,20 @@ def _pubdate(dt: datetime) -> str:
 
 
 # ---------------------------------------------------------------------------
-# _url_hash
+# url_hash
 # ---------------------------------------------------------------------------
 
 
-def test_url_hash_is_deterministic() -> None:
-    assert _url_hash("https://example.com/a") == _url_hash("https://example.com/a")
+def testurl_hash_is_deterministic() -> None:
+    assert url_hash("https://example.com/a") == url_hash("https://example.com/a")
 
 
-def test_url_hash_differs_for_different_urls() -> None:
-    assert _url_hash("https://example.com/a") != _url_hash("https://example.com/b")
+def testurl_hash_differs_for_different_urls() -> None:
+    assert url_hash("https://example.com/a") != url_hash("https://example.com/b")
 
 
-def test_url_hash_length() -> None:
-    assert len(_url_hash("https://example.com")) == 16
+def testurl_hash_length() -> None:
+    assert len(url_hash("https://example.com")) == 16
 
 
 # ---------------------------------------------------------------------------

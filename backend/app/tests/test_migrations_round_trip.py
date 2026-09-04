@@ -59,7 +59,7 @@ def test_news_surfaced_backfill_reconstructs_from_report_history(alembic_cfg: Co
     title/source/url/published_at/summary, no url_hash), plus an untouched
     `failed` report and an item with no matching News row, then confirm the
     backfill resolves only the real one — by url, hashed the same way
-    news_fetcher._url_hash does — to a news_surfaced row."""
+    news_fetcher.url_hash does — to a news_surfaced row."""
     from app.models.news import News
     from app.models.news_surfaced import NewsSurfaced
     from app.models.report import Report

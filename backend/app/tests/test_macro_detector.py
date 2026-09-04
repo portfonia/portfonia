@@ -36,10 +36,10 @@ def _item(
     url: str | None = None,
 ) -> NewsItem:
     url = url or f"https://example.com/{title.replace(' ', '-').lower()}"
-    from app.services.news_fetcher import _url_hash
+    from app.services.news_fetcher import url_hash
 
     return NewsItem(
-        url_hash=_url_hash(url),
+        url_hash=url_hash(url),
         title=title,
         url=url,
         source="TEST",

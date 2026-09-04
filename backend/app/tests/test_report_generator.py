@@ -176,11 +176,11 @@ def _mock_l2_llm_boundary() -> None:  # type: ignore[misc]
 
 
 def _news_item(title: str) -> NewsItem:
-    from app.services.news_fetcher import _url_hash
+    from app.services.news_fetcher import url_hash
 
     url = f"https://example.com/{title.replace(' ', '-').lower()}"
     return NewsItem(
-        url_hash=_url_hash(url),
+        url_hash=url_hash(url),
         title=title,
         url=url,
         source="TEST",

@@ -67,7 +67,7 @@ from app.services.macro_event_intel import (
     l2_event_keys_for_user,
     user_event_exposure,
 )
-from app.services.news_fetcher import NewsItem, _url_hash
+from app.services.news_fetcher import NewsItem, url_hash
 from app.services.portfolio_calculator import compute_portfolio
 from app.services.price_anomaly_detector import PriceAnomaly
 from app.services.report_assembly import (
@@ -426,8 +426,17 @@ def _finish_report(
     stage-skip path skips that call entirely (nothing upstream of the stored
     body is re-fetched), so it passes None here and url_hash is instead
     recomputed from `ctx.news_items`' stored `url` field via the same
-    `_url_hash` the original fetch used — a pure function of the URL, so
+    `url_hash` the original fetch used — a pure function of the URL, so
     this reproduces the same hashes without a DB round-trip.
+
+    NOT reused by `regenerate_report()` (PR #341 review): that function
+    deliberately never emails and never calls `mark_news_surfaced` — it is
+    an on-demand iteration/inspection tool, not a generation attempt, and
+    merges into the row's EXISTING `report_inputs` rather than writing a
+    fresh `ctx.to_jsonb()`. Folding it into this shared tail would either
+    have to thread a "skip email/mark" flag through every caller or silently
+    change its no-side-effects contract — its own small persist block at the
+    end stays separate on purpose.
     """
     report_date_str = eff_date.strftime("%Y-%m-%d")
     full_md, violations, translated_body = _render_full_md(
@@ -462,7 +471,7 @@ def _finish_report(
     url_hashes = (
         [item.url_hash for item in news_items]
         if news_items is not None
-        else [_url_hash(item["url"]) for item in ctx.news_items]
+        else [url_hash(item["url"]) for item in ctx.news_items]
     )
     mark_news_surfaced(session, user_id, report.id, url_hashes)
     session.commit()
@@ -1806,6 +1815,11 @@ def regenerate_report(
     else:
         raise ValueError(f"unknown mode {mode!r} (expected 'render' or 'analyze')")
 
+    # This render/persist block is intentionally NOT `_finish_report()`
+    # (generate_report's shared tail, #61/PR #341 review) — it must not
+    # email or call `mark_news_surfaced`, and merges into the row's existing
+    # `report_inputs` rather than a fresh `ctx.to_jsonb()`. See
+    # `_finish_report`'s docstring for the full reasoning.
     report_date_str = report.report_date.strftime("%Y-%m-%d")
     full_md, violations, translated_body = _render_full_md(
         report_date_str,

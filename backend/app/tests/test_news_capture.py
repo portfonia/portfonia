@@ -10,13 +10,13 @@ from sqlalchemy.orm import Session
 
 from app.models.news import News
 from app.services.news_capture import capture_news
-from app.services.news_fetcher import NewsItem, _url_hash
+from app.services.news_fetcher import NewsItem, url_hash
 
 
 def _item(title: str) -> NewsItem:
     url = f"https://example.com/{title.replace(' ', '-').lower()}"
     return NewsItem(
-        url_hash=_url_hash(url),
+        url_hash=url_hash(url),
         title=title,
         url=url,
         source="TEST",
