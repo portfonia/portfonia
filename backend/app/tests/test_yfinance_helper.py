@@ -6,6 +6,7 @@ No database required — all tests mock yf.download and time.sleep.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from unittest.mock import patch
 
@@ -346,12 +347,22 @@ _YF_LOGGER = logging.getLogger("yfinance")
 
 
 @pytest.fixture(autouse=True)
-def _restore_yf_logger_level() -> None:
+def _restore_yf_logger_level() -> Iterator[None]:
     """Every test in this module must leave the real `yfinance` logger as it
     found it, regardless of what the test under test does to it."""
     original = _YF_LOGGER.level
     yield
     _YF_LOGGER.setLevel(original)
+
+
+@pytest.fixture(autouse=True)
+def _reenable_module_logger_for_caplog() -> None:
+    """A db_session-using test elsewhere in the suite runs `alembic upgrade`,
+    whose fileConfig() defaults disable_existing_loggers=True and silently
+    disables this already-imported module's logger regardless of test file
+    or run order — re-enable so caplog can see telemetry records (same
+    mechanism as test_fund_nav_fetcher.py)."""
+    logging.getLogger("app.services._yfinance").disabled = False
 
 
 def test_quiet_yfinance_logs_demotes_to_critical_during_the_block() -> None:

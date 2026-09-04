@@ -17,6 +17,16 @@ from app.services._finnhub import FinnhubQuote, fetch_quotes
 _API_KEY = "test-finnhub-key"
 
 
+@pytest.fixture(autouse=True)
+def _reenable_module_logger_for_caplog() -> None:
+    """A db_session-using test elsewhere in the suite runs `alembic upgrade`,
+    whose fileConfig() defaults disable_existing_loggers=True and silently
+    disables this already-imported module's logger regardless of test file
+    or run order — re-enable so caplog can see telemetry records (same
+    mechanism as test_fund_nav_fetcher.py)."""
+    logging.getLogger("app.services._finnhub").disabled = False
+
+
 def _patched_client(quote_by_ticker: dict[str, dict[str, object]]) -> MagicMock:
     """Mock httpx.Client whose .get dispatches on the `symbol` query param."""
 

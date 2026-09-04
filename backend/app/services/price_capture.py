@@ -24,6 +24,7 @@ from app.core.timezones import CST, MARKET_TZ
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
 from app.services._finnhub import fetch_quotes as fetch_finnhub_quotes
+from app.services._massive import fetch_prev_close_ohlcv as fetch_massive_prev_close_ohlcv
 from app.services._yfinance import fetch_ohlcv_range, fetch_spot
 from app.services.email_sender import send_ops_alert
 from app.services.markets import is_capture_supported, market_from_ticker
@@ -122,7 +123,8 @@ def capture_prices(
     rows: list[dict[str, object]] = []
 
     if session_node == "close":
-        for ticker, bars in fetch_ohlcv_range(selected, lookback_days=lookback_days).items():
+        ohlcv = fetch_ohlcv_range(selected, lookback_days=lookback_days)
+        for ticker, bars in ohlcv.items():
             for bar_date, o, h, low, c, vol in bars:
                 rows.append(
                     {
@@ -135,6 +137,37 @@ def capture_prices(
                         "low": low,
                         "close": c,
                         "volume": vol,
+                        "captured_at": now,
+                    }
+                )
+
+        # Massive.com fallback (issue #56): free-tier EOD-only, current
+        # trading day withheld — matches this node's semantics exactly (it
+        # wants the finalized prior-session bar, never same-day intraday).
+        # US-only, close-node-only: never wired into pre_open/open/
+        # after_close (structurally cannot serve same-day data) or any
+        # non-US market (free tier is US-stocks-only, officially, at every
+        # paid tier too).
+        missing = [t for t in selected if t not in ohlcv]
+        massive_key = get_settings().MASSIVE_API_KEY
+        if market == "US" and massive_key is not None and missing:
+            for ticker, bar in fetch_massive_prev_close_ohlcv(
+                missing, massive_key.get_secret_value()
+            ).items():
+                bar_date, o, h, low, c, vol = bar
+                logger.info("capture_prices: massive fallback used for %s %s", ticker, bar_date)
+                rows.append(
+                    {
+                        "ticker": ticker,
+                        "market": market,
+                        "session_node": session_node,
+                        "trade_date": bar_date,
+                        "open": o,
+                        "high": h,
+                        "low": low,
+                        "close": c,
+                        "volume": vol,
+                        "source": "massive",
                         "captured_at": now,
                     }
                 )
