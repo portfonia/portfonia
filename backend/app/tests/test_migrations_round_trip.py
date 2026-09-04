@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, insert
 from sqlalchemy.orm import Session
 
 from alembic import command
@@ -97,47 +97,51 @@ def test_news_surfaced_backfill_reconstructs_from_report_history(alembic_cfg: Co
         # insert so the fixture data makes the "resolve by re-hashing" property
         # unambiguous rather than accidentally matching an inserted literal.
         real_news.url_hash = "1fc36081a0529bad"  # md5(surfaced_url)[:16], verified via hashlib
-        seed_session.add(
-            Report(
-                user_id=user_id,
-                report_date=datetime(2026, 6, 5).date(),
-                report_type="incremental",
-                session_node="after_close",
-                status="needs_review",
-                report_inputs={
-                    "news_items": [
-                        {
-                            "title": "Fed raises rates",
-                            "source": "TEST",
-                            "url": surfaced_url,
-                            "published_at": "2026-06-04T00:00:00+00:00",
-                            "summary": "s",
-                        }
-                    ]
+        # Core insert with an explicit column list, not `seed_session.add
+        # (Report(...))` — the live `Report` ORM class always reflects every
+        # column the CURRENT codebase has (e.g. issue #104's recipient_email/
+        # recipient_purpose, added long after this revision), while the DB
+        # here is deliberately pinned at ed3e81d6cccb's older schema.
+        # SQLAlchemy's ORM insert batches same-type rows together
+        # (insertmanyvalues) and includes every mapped column — even ones
+        # left unset on the instance — for batch-shape consistency, so an
+        # ORM-object insert of two Report rows fails the moment Report gains
+        # any column this old schema doesn't have. An explicit `.values()`
+        # Core insert only ever references the columns actually named here,
+        # decoupling this seed from Report's present-day column set.
+        news_items = {
+            "news_items": [
+                {
+                    "title": "Fed raises rates",
+                    "source": "TEST",
+                    "url": surfaced_url,
+                    "published_at": "2026-06-04T00:00:00+00:00",
+                    "summary": "s",
+                }
+            ]
+        }
+        seed_session.execute(
+            insert(Report),
+            [
+                {
+                    "user_id": user_id,
+                    "report_date": datetime(2026, 6, 5).date(),
+                    "report_type": "incremental",
+                    "session_node": "after_close",
+                    "status": "needs_review",
+                    "report_inputs": news_items,
                 },
-            )
-        )
-        # A failed report's report_inputs must be ignored (never reached a
-        # DONE status, so nothing in it was ever actually shown).
-        seed_session.add(
-            Report(
-                user_id=user_id,
-                report_date=datetime(2026, 6, 6).date(),
-                report_type="incremental",
-                session_node="after_close",
-                status="failed",
-                report_inputs={
-                    "news_items": [
-                        {
-                            "title": "Fed raises rates",
-                            "source": "TEST",
-                            "url": surfaced_url,
-                            "published_at": "2026-06-04T00:00:00+00:00",
-                            "summary": "s",
-                        }
-                    ]
+                # A failed report's report_inputs must be ignored (never
+                # reached a DONE status, so nothing in it was ever shown).
+                {
+                    "user_id": user_id,
+                    "report_date": datetime(2026, 6, 6).date(),
+                    "report_type": "incremental",
+                    "session_node": "after_close",
+                    "status": "failed",
+                    "report_inputs": news_items,
                 },
-            )
+            ],
         )
         seed_session.commit()
         real_news_id = real_news.id

@@ -17,6 +17,7 @@ from app.core import rate_limit
 from app.core.rate_limit import (
     PORTFOLIO_OVERVIEW_COOLDOWN_SECONDS,
     RATE_LIMIT_DETAIL,
+    REPORT_RESEND_COOLDOWN_SECONDS,
     RESEND_VERIFICATION_EMAIL_HOUR_LIMIT,
     RESEND_VERIFICATION_USER_HOUR_LIMIT,
     SIGNUP_IP_MINUTE_LIMIT,
@@ -26,12 +27,14 @@ from app.core.rate_limit import (
     InMemoryBackend,
     canonical_client_id,
     check_portfolio_overview_cooldown,
+    check_report_resend_cooldown,
     client_id_from_request,
     guard_known_invite_token,
     rate_limit_create_invite,
     rate_limit_enforce_resend_verification,
     rate_limit_signup,
     release_portfolio_overview_cooldown,
+    release_report_resend_cooldown,
 )
 from app.services.invites import create_invite
 
@@ -448,5 +451,92 @@ def test_portfolio_overview_cooldown_release_does_not_raise_on_redis_outage() ->
     rate_limit.set_backend(_Down())  # type: ignore[arg-type]
     try:
         release_portfolio_overview_cooldown("u1")  # must not raise
+    finally:
+        rate_limit.set_backend(InMemoryBackend())
+
+
+# issue #104 requirement #6: manual report-resend cooldown, keyed by
+# recipient address (not user id — same set_nx claim shape as the portfolio
+# overview cooldown above, but a different key dimension since the race
+# it guards against, poll_report_delivery reading an overwritten Report
+# row, is about the ADDRESS a send reached, not who clicked resend).
+
+
+def test_report_resend_cooldown_first_send_allowed(backend: InMemoryBackend) -> None:
+    assert check_report_resend_cooldown("a@example.com") is None
+
+
+def test_report_resend_cooldown_second_send_reports_remaining_seconds(
+    backend: InMemoryBackend,
+) -> None:
+    assert check_report_resend_cooldown("a@example.com") is None
+    remaining = check_report_resend_cooldown("a@example.com")
+    assert remaining is not None
+    assert 0 < remaining <= REPORT_RESEND_COOLDOWN_SECONDS
+
+
+def test_report_resend_cooldown_scoped_per_address(backend: InMemoryBackend) -> None:
+    """One recipient address's cooldown must not block a different address."""
+    assert check_report_resend_cooldown("a@example.com") is None
+    assert check_report_resend_cooldown("b@example.com") is None
+
+
+def test_report_resend_cooldown_expires(backend: InMemoryBackend) -> None:
+    assert check_report_resend_cooldown("a@example.com") is None
+    backend.advance(REPORT_RESEND_COOLDOWN_SECONDS + 1)
+    assert check_report_resend_cooldown("a@example.com") is None
+
+
+def test_report_resend_cooldown_key_never_contains_raw_address(
+    backend: InMemoryBackend,
+) -> None:
+    check_report_resend_cooldown("someone@example.com")
+    stored = backend.stored_keys()
+    assert stored
+    assert not any("someone@example.com" in key for key in stored)
+
+
+def test_report_resend_cooldown_fail_closed_on_redis_outage() -> None:
+    class _Down:
+        def set_nx(self, key: str, ttl_seconds: int) -> bool:
+            raise rate_limit.RateLimitUnavailable
+
+    rate_limit.set_backend(_Down())  # type: ignore[arg-type]
+    try:
+        with pytest.raises(HTTPException) as exc:
+            check_report_resend_cooldown("a@example.com")
+        assert exc.value.status_code == 503
+    finally:
+        rate_limit.set_backend(InMemoryBackend())
+
+
+# PR #338 review leftover (blacktomb42): release-on-failure, mirroring the
+# portfolio overview cooldown's own release function — a regenerate_report
+# failure after the claim must not still lock the caller out for the full
+# 15 minutes over a resend that never happened.
+
+
+def test_report_resend_cooldown_release_allows_immediate_retry(
+    backend: InMemoryBackend,
+) -> None:
+    assert check_report_resend_cooldown("a@example.com") is None
+    release_report_resend_cooldown("a@example.com")
+    assert check_report_resend_cooldown("a@example.com") is None
+
+
+def test_report_resend_cooldown_release_on_unclaimed_key_is_a_no_op(
+    backend: InMemoryBackend,
+) -> None:
+    release_report_resend_cooldown("never-claimed@example.com")  # must not raise
+
+
+def test_report_resend_cooldown_release_does_not_raise_on_redis_outage() -> None:
+    class _Down:
+        def delete(self, key: str) -> None:
+            raise rate_limit.RateLimitUnavailable
+
+    rate_limit.set_backend(_Down())  # type: ignore[arg-type]
+    try:
+        release_report_resend_cooldown("a@example.com")  # must not raise
     finally:
         rate_limit.set_backend(InMemoryBackend())

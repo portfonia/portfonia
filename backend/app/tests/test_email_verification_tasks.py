@@ -50,12 +50,20 @@ def _fake_record(
 
 
 @patch("app.tasks.email_verification_tasks.get_settings")
-def test_poll_skips_when_no_full_access_key_configured(mock_settings: MagicMock) -> None:
+def test_poll_skips_and_alerts_when_no_full_access_key_configured(
+    mock_settings: MagicMock,
+) -> None:
+    """issue #104 requirement #7: a missing key now fires one deduped ops
+    alert instead of silently skipping."""
     mock_settings.return_value = MagicMock(RESEND_ALL_ACCESS_API_KEY=None)
 
-    result = poll_email_verification_delivery.run(str(_VID))
+    with patch(
+        "app.tasks.email_verification_tasks.alert_resend_all_access_key_issue"
+    ) as mock_alert:
+        result = poll_email_verification_delivery.run(str(_VID))
 
     assert result == "skipped_no_key"
+    mock_alert.assert_called_once_with("missing")
 
 
 @patch("app.tasks.email_verification_tasks.get_settings")
@@ -218,6 +226,38 @@ def test_poll_skips_when_provider_reports_404(
 @patch("app.tasks.email_verification_tasks.httpx.Client")
 @patch("app.tasks.email_verification_tasks.get_settings")
 @patch("app.core.database.SessionLocal")
+def test_poll_skips_and_alerts_on_401(
+    mock_session_cls: MagicMock, mock_settings: MagicMock, mock_client_cls: MagicMock
+) -> None:
+    """issue #104 requirement #7: an invalid/revoked key now fires one
+    deduped ops alert instead of falling into self.retry()."""
+    mock_settings.return_value = MagicMock(
+        RESEND_ALL_ACCESS_API_KEY=MagicMock(get_secret_value=lambda: "full-access-key")
+    )
+    record = _fake_record()
+    mock_session = MagicMock()
+    mock_session.get.return_value = record
+    mock_session_cls.return_value = mock_session
+
+    resp = MagicMock(status_code=401)
+    mock_client = MagicMock()
+    mock_client.__enter__.return_value = mock_client
+    mock_client.get.return_value = resp
+    mock_client_cls.return_value = mock_client
+
+    with patch(
+        "app.tasks.email_verification_tasks.alert_resend_all_access_key_issue"
+    ) as mock_alert:
+        result = poll_email_verification_delivery.run(str(_VID))
+
+    assert result == "skipped_unauthorized"
+    mock_alert.assert_called_once_with("unauthorized")
+    mock_session.execute.assert_not_called()
+
+
+@patch("app.tasks.email_verification_tasks.httpx.Client")
+@patch("app.tasks.email_verification_tasks.get_settings")
+@patch("app.core.database.SessionLocal")
 def test_poll_retries_on_http_error(
     mock_session_cls: MagicMock, mock_settings: MagicMock, mock_client_cls: MagicMock
 ) -> None:
@@ -371,3 +411,47 @@ def test_send_account_verification_task_gives_up_after_max_retries(
         send_account_email_verification_task.run(str(_SIGNUP_UID))
 
     assert "POST /admin/email-verifications" in caplog.text
+
+
+# --- alert_resend_all_access_key_issue (issue #104 requirement #7) ---
+
+
+@patch("app.services.email_sender.send_ops_alert", return_value=True)
+def test_alert_resend_all_access_key_issue_sends_and_dedups(mock_alert: MagicMock) -> None:
+    """Shared by both poll_email_verification_delivery (this module) and
+    poll_report_delivery — a persisting key issue must alert once, not on
+    every 10-minute poll (alert_dedup.py's existing anti-spam contract)."""
+    from app.tasks.email_verification_tasks import alert_resend_all_access_key_issue
+
+    alert_resend_all_access_key_issue("missing")
+    alert_resend_all_access_key_issue("missing")
+    alert_resend_all_access_key_issue("missing")
+
+    mock_alert.assert_called_once()
+
+
+@patch("app.services.email_sender.send_ops_alert", return_value=True)
+def test_alert_resend_all_access_key_issue_distinct_reasons_alert_separately(
+    mock_alert: MagicMock,
+) -> None:
+    from app.tasks.email_verification_tasks import alert_resend_all_access_key_issue
+
+    alert_resend_all_access_key_issue("missing")
+    alert_resend_all_access_key_issue("unauthorized")
+
+    assert mock_alert.call_count == 2
+
+
+@patch("app.services.email_sender.send_ops_alert", return_value=False)
+def test_alert_resend_all_access_key_issue_does_not_dedup_a_failed_send(
+    mock_alert: MagicMock,
+) -> None:
+    """A failed alert delivery must not be recorded as "already alerted" —
+    same fail-open contract as alert_dedup.py's other callers (issue #298
+    review)."""
+    from app.tasks.email_verification_tasks import alert_resend_all_access_key_issue
+
+    alert_resend_all_access_key_issue("missing")
+    alert_resend_all_access_key_issue("missing")
+
+    assert mock_alert.call_count == 2

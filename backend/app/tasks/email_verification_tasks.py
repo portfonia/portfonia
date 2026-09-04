@@ -22,7 +22,7 @@ from app.tasks import celery_app
 
 logger = logging.getLogger(__name__)
 
-_RESEND_EMAIL_URL = "https://api.resend.com/emails/{id}"
+RESEND_EMAIL_URL = "https://api.resend.com/emails/{id}"
 
 # design doc §3.3 step 6: "5-10 分钟" — give Resend's own bounce/complaint
 # pipeline time to report before polling.
@@ -31,7 +31,41 @@ POLL_DELAY_SECONDS = 600
 # last_event values that unambiguously mean "will not reach the recipient" —
 # see app/core/config.py's RESEND_ALL_ACCESS_API_KEY comment for where these
 # came from (Resend's own docs, WebFetch-verified 2026-08-29).
-_UNDELIVERABLE_EVENTS = frozenset({"bounced", "complained", "failed", "suppressed"})
+UNDELIVERABLE_EVENTS = frozenset({"bounced", "complained", "failed", "suppressed"})
+
+# issue #104 requirement #7: 24h dedup TTL so a persisting key outage emails
+# once, not on every 10-minute poll — same reasoning as alert_dedup.py's own
+# fund-NAV-staleness use (issue #298).
+_RESEND_ALL_ACCESS_KEY_ALERT_TTL = 86400
+
+
+def alert_resend_all_access_key_issue(reason: str) -> None:
+    """A missing/invalid RESEND_ALL_ACCESS_API_KEY silently breaks delivery-
+    status polling for BOTH poll_email_verification_delivery (this module)
+    and poll_report_delivery (app/tasks/report_delivery_tasks.py) — issue
+    #104 requirement #7 changes both from a silent skip to one deduped ops
+    alert. Shared here (not duplicated in report_delivery_tasks.py) since
+    it's the same operational issue regardless of which task noticed it
+    first; deduped via alert_dedup.py so the alert doesn't repeat on every
+    poll while the underlying config issue persists.
+    """
+    from app.core.alert_dedup import already_alerted, mark_alerted
+    from app.services.email_sender import send_ops_alert
+
+    dedup_key = f"resend_all_access_key:{reason}"
+    if already_alerted(dedup_key):
+        return
+    sent = send_ops_alert(
+        subject="Portfonia ops: RESEND_ALL_ACCESS_API_KEY issue",
+        body=(
+            f"Delivery-status polling ({reason}) is broken for both email "
+            "verifications and reports (poll_email_verification_delivery / "
+            "poll_report_delivery). Fix RESEND_ALL_ACCESS_API_KEY in the production "
+            "environment — this alert will stop repeating once resolved."
+        ),
+    )
+    if sent:
+        mark_alerted(dedup_key, _RESEND_ALL_ACCESS_KEY_ALERT_TTL)
 
 
 @celery_app.task(  # type: ignore[untyped-decorator]
@@ -127,6 +161,7 @@ def poll_email_verification_delivery(self: Any, verification_id: str) -> str:
     settings = get_settings()
     if settings.RESEND_ALL_ACCESS_API_KEY is None:
         logger.info("email verification poll skipped: RESEND_ALL_ACCESS_API_KEY unset")
+        alert_resend_all_access_key_issue("missing")
         return "skipped_no_key"
 
     session = SessionLocal()
@@ -149,16 +184,23 @@ def poll_email_verification_delivery(self: Any, verification_id: str) -> str:
         api_key = settings.RESEND_ALL_ACCESS_API_KEY.get_secret_value()
         with httpx.Client(timeout=15.0) as client:
             resp = client.get(
-                _RESEND_EMAIL_URL.format(id=record.provider_message_id),
+                RESEND_EMAIL_URL.format(id=record.provider_message_id),
                 headers={"Authorization": f"Bearer {api_key}"},
             )
         if resp.status_code == 404:
             # Resend has no record of this id — not the same as a delivery
             # failure; leave the row pending rather than guessing.
             return "skipped_not_found_at_provider"
+        if resp.status_code == 401:
+            # The key itself is invalid/revoked — retrying will not help,
+            # unlike a transient httpx.HTTPError below (issue #104
+            # requirement #7). Alert instead of falling into self.retry().
+            logger.error("email verification poll: RESEND_ALL_ACCESS_API_KEY unauthorized (401)")
+            alert_resend_all_access_key_issue("unauthorized")
+            return "skipped_unauthorized"
         resp.raise_for_status()
         last_event = resp.json().get("last_event")
-        if last_event in _UNDELIVERABLE_EVENTS:
+        if last_event in UNDELIVERABLE_EVENTS:
             # Conditional UPDATE, not an assign-then-commit on the loaded
             # `record` (review, PR #261): this task runs on its own
             # SessionLocal(), a separate connection from whatever session a
