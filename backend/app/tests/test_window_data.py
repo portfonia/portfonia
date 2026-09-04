@@ -18,6 +18,7 @@ from app.models.news import News
 from app.models.news_surfaced import NewsSurfaced
 from app.models.price_snapshot import PriceSnapshot
 from app.models.report import Report
+from app.models.ticker_leverage import TickerLeverageOverride
 from app.models.ticker_theme import TickerTheme
 from app.services import window_data
 from app.services.window_data import (
@@ -812,6 +813,101 @@ def test_select_user_anomalies_threshold_differs_by_user_asset_class(db_session:
     assert tech_anomalies == []  # EQUITY_US_TECH cap 35%*trading_days-capped 20% not cleared
 
 
+def test_select_user_anomalies_leverage_widens_cumulative_threshold(db_session: Session) -> None:
+    """Issue #87: a leveraged ticker's routine cumulative drift must not
+    fire as a false anomaly. Reuses the exact AAPL/STOCK fixture from
+    test_select_user_anomalies_threshold_differs_by_user_asset_class (net
+    ~+12.5%, clears STOCK's un-leveraged 10% cap) but with a 2x leverage_map
+    entry — cap widens to 20%, so the same move no longer clears it."""
+    db_session.add(_hk_holding(_USER, "MU Bull 2X", "MUU", "STOCK"))
+    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    db_session.add_all(
+        [
+            _close_at("MUU", date(2026, 6, 2), 100.0, start),
+            _close("MUU", date(2026, 6, 3), 103.0),
+            _close("MUU", date(2026, 6, 4), 106.09),
+            _close("MUU", date(2026, 6, 5), 109.27),
+            _close("MUU", date(2026, 6, 6), 112.55),  # net ~+12.5%
+        ]
+    )
+    db_session.flush()
+    end = datetime(2026, 6, 6, 20, 30, tzinfo=UTC)
+
+    moves, trading_days = compute_global_moves(db_session, start, end)
+    theme_map = window_data._load_theme_map(db_session)
+    holdings = list(
+        db_session.execute(select(Holding).where(Holding.user_id == _USER)).scalars().all()
+    )
+
+    unleveraged = select_user_anomalies(moves, holdings, trading_days, theme_map, {})
+    leveraged = select_user_anomalies(
+        moves, holdings, trading_days, theme_map, {"MUU": Decimal("2")}
+    )
+
+    assert [a.identifier for a in unleveraged] == ["MUU"]  # un-leveraged STOCK cap 10% cleared
+    assert leveraged == []  # 2x-widened cap 20% not cleared by the same +12.5% move
+
+
+def test_select_user_anomalies_leverage_widens_single_day_threshold(db_session: Session) -> None:
+    """The per_day trigger widens by the same multiple, not just the
+    cumulative cap — a leveraged product's daily move that would trip the
+    un-leveraged per_day (5%) must not fire once widened (2x -> 10%)."""
+    db_session.add(_hk_holding(_USER, "MU Bull 2X", "MUU", "STOCK"))
+    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    db_session.add_all(
+        [
+            _close_at("MUU", date(2026, 6, 2), 100.0, start),
+            _close("MUU", date(2026, 6, 3), 107.0),  # +7% single day
+        ]
+    )
+    db_session.flush()
+    end = datetime(2026, 6, 3, 20, 30, tzinfo=UTC)
+
+    moves, trading_days = compute_global_moves(db_session, start, end)
+    theme_map = window_data._load_theme_map(db_session)
+    holdings = list(
+        db_session.execute(select(Holding).where(Holding.user_id == _USER)).scalars().all()
+    )
+
+    unleveraged = select_user_anomalies(moves, holdings, trading_days, theme_map, {})
+    leveraged = select_user_anomalies(
+        moves, holdings, trading_days, theme_map, {"MUU": Decimal("2")}
+    )
+
+    assert [a.identifier for a in unleveraged] == ["MUU"]  # un-leveraged per_day 5% cleared
+    assert leveraged == []  # 2x-widened per_day 10% not cleared by a 7% single-day move
+
+
+def test_detect_window_anomalies_reads_leverage_override_from_db(db_session: Session) -> None:
+    """detect_window_anomalies must load ticker_leverage_overrides itself
+    (not just accept a leverage_map param) — the full DB-backed path a real
+    report run takes."""
+    db_session.add(_hk_holding(_USER, "MU Bull 2X", "MUU", "STOCK"))
+    db_session.add(
+        TickerLeverageOverride(
+            ticker="MUU",
+            leverage_multiple=Decimal("2"),
+            created_by=_USER,
+        )
+    )
+    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    db_session.add_all(
+        [
+            _close_at("MUU", date(2026, 6, 2), 100.0, start),
+            _close("MUU", date(2026, 6, 3), 103.0),
+            _close("MUU", date(2026, 6, 4), 106.09),
+            _close("MUU", date(2026, 6, 5), 109.27),
+            _close("MUU", date(2026, 6, 6), 112.55),  # net ~+12.5%
+        ]
+    )
+    db_session.flush()
+    end = datetime(2026, 6, 6, 20, 30, tzinfo=UTC)
+
+    anomalies, _ = detect_window_anomalies(db_session, start, end, _USER)
+
+    assert anomalies == []  # 2x-widened STOCK cap 20% not cleared by +12.5%
+
+
 def test_compute_global_moves_computes_shared_identifier_once(db_session: Session) -> None:
     """Two different users' Holding rows for the same identifier must not
     cause its price series to be fetched/computed twice."""
@@ -943,8 +1039,12 @@ def test_select_user_anomalies_no_cross_user_leakage(db_session: Session) -> Non
             db_session.execute(select(Holding).where(Holding.user_id == user_id)).scalars().all()
         )
 
-    user_a_anomalies = select_user_anomalies(moves, _holdings_of(_USER), trading_days, theme_map)
-    user_b_anomalies = select_user_anomalies(moves, _holdings_of(_USER_B), trading_days, theme_map)
+    user_a_anomalies = select_user_anomalies(
+        moves, _holdings_of(_USER), trading_days, theme_map, {}
+    )
+    user_b_anomalies = select_user_anomalies(
+        moves, _holdings_of(_USER_B), trading_days, theme_map, {}
+    )
 
     assert [a.identifier for a in user_a_anomalies] == ["NVDA"]
     assert [a.identifier for a in user_b_anomalies] == ["AAPL"]
@@ -970,7 +1070,7 @@ def test_select_user_anomalies_skips_manual_pricing_mode(db_session: Session) ->
 
     moves, trading_days = compute_global_moves(db_session, start, end)
     theme_map = window_data._load_theme_map(db_session)
-    anomalies = select_user_anomalies(moves, [manual], trading_days, theme_map)
+    anomalies = select_user_anomalies(moves, [manual], trading_days, theme_map, {})
     assert anomalies == []
 
 

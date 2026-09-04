@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.models.fx_rate import FxRate
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
+from app.models.ticker_leverage import TickerLeverageOverride
 from app.services.portfolio_calculator import _CURRENCY_TO_FX_PAIR, _to_base, compute_portfolio
 from app.tests.conftest import seed_user
 
@@ -187,6 +188,39 @@ def test_concentration_thresholds_loosen_for_broad_index_top_holding(db_session:
     assert c.top_holding_asset_class == "EQUITY_US_BROAD"
     assert c.single_holding_watch is True  # 0.50 > EQUITY_US_BROAD watch 0.30
     assert c.single_holding_high is True  # 0.50 > EQUITY_US_BROAD high 0.45
+
+
+def test_concentration_single_holding_tightens_for_leveraged_ticker(db_session: Session) -> None:
+    """Issue #87: a leveraged top holding's single-holding watch/high are the
+    underlying asset_class's thresholds divided by leverage_multiple —
+    tighter than an unleveraged position of the same weight (opposite
+    direction from window_data.py's anomaly-threshold widening). Ratio 7.5%
+    sits between STOCK's un-leveraged watch (10%) and its 2x-leveraged watch
+    (5%), so the override must change the flag outcome, not just the label.
+
+    MUU (value 7500) must still rank as the single largest holding, so the
+    remaining 92500 is spread across 20 smaller cash rows (4625 each) rather
+    than one — a single larger "other" holding would outrank MUU and this
+    would stop being a single-holding-concentration test at all."""
+    _seed_fx(db_session)
+    leveraged = _stock("MU Bull 2X", "MUU", "USD", "10", "750", asset_class="STOCK")
+    db_session.add_all([leveraged] + [_cash(f"USD Cash {i}", "USD", "4625") for i in range(20)])
+    db_session.flush()
+
+    unleveraged = compute_portfolio(db_session, user_id=_USER, base_currency="USD").concentration
+    assert unleveraged.top_holding_name == "MU Bull 2X"
+    assert unleveraged.top_holding_ratio == Decimal("0.0750")
+    assert unleveraged.single_holding_watch is False  # 0.075 <= STOCK watch 0.10
+    assert unleveraged.single_holding_high is False
+
+    db_session.add(
+        TickerLeverageOverride(ticker="MUU", leverage_multiple=Decimal("2"), created_by=_USER)
+    )
+    db_session.flush()
+
+    leveraged_c = compute_portfolio(db_session, user_id=_USER, base_currency="USD").concentration
+    assert leveraged_c.single_holding_watch is True  # 0.075 > 2x-tightened watch 0.05
+    assert leveraged_c.single_holding_high is False  # 0.075 <= 2x-tightened high 0.10
 
 
 def test_unclassified_stock_sector_defaults_to_other(db_session: Session) -> None:

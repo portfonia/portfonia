@@ -18,6 +18,7 @@ from app.services._yfinance import _normalize_ticker
 from app.services.asset_class_config import load_asset_class_config
 from app.services.holding_ordering import sorted_holdings
 from app.services.markets import is_capture_supported, market_from_ticker
+from app.services.ticker_leverage import load_leverage_map
 
 _ZERO = Decimal("0")
 _CENT = Decimal("0.01")
@@ -253,8 +254,20 @@ def _ratio(part: Decimal, whole: Decimal) -> Decimal:
     return (part / whole).quantize(_RATIO, rounding=ROUND_HALF_UP)
 
 
-def _compute_concentration(snapshot: PortfolioSnapshot) -> Concentration:
-    """Derive §6.5 snapshot concentration from already-aggregated values."""
+def _compute_concentration(
+    snapshot: PortfolioSnapshot, leverage_map: dict[str, Decimal]
+) -> Concentration:
+    """Derive §6.5 snapshot concentration from already-aggregated values.
+
+    ``leverage_map`` (ticker_leverage_overrides, issue #87): a leveraged
+    single-name position carries more effective risk than a same-notional
+    non-leveraged position, so when the TOP holding has a leverage
+    override its single-holding watch/high are tightened (divided down) by
+    leverage_multiple — the opposite direction from window_data.py's
+    anomaly-threshold widening. Only the single-holding thresholds are
+    ticker-specific; top3/asset_class-bucket thresholds are basket-level
+    and stay unadjusted.
+    """
     c = Concentration()
     total = snapshot.total_base
     if total <= _ZERO or not snapshot.holdings:
@@ -274,6 +287,13 @@ def _compute_concentration(snapshot: PortfolioSnapshot) -> Concentration:
         if top_thresholds is not None
         else _DEFAULT_SINGLE_THRESHOLD
     )
+    top_raw_ticker = top.ticker or top.fund_code or ""
+    top_leverage = (
+        leverage_map.get(_normalize_ticker(top_raw_ticker).upper()) if top_raw_ticker else None
+    )
+    if top_leverage is not None:
+        watch = watch / top_leverage
+        high = high / top_leverage
     c.single_holding_watch = c.top_holding_ratio > watch
     c.single_holding_high = c.top_holding_ratio > high
 
@@ -490,5 +510,6 @@ def compute_portfolio(
             snapshot.total_unrealized_pnl_base, snapshot.total_cost_basis_base
         )
     snapshot.price_as_of_date = max(used_trade_dates) if used_trade_dates else None
-    snapshot.concentration = _compute_concentration(snapshot)
+    leverage_map = load_leverage_map(session)
+    snapshot.concentration = _compute_concentration(snapshot, leverage_map)
     return snapshot

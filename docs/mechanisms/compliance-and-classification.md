@@ -103,3 +103,52 @@ overrides are a Ring 1 decision, documented in `Portfonia Concept & Design.md`, 
 built yet.
 
 
+### Leveraged-product threshold multiplier — `ticker_leverage_overrides` (#87)
+
+Leveraged/inverse ETPs (e.g. `MUU`, Direxion 2x MU) were falling into
+`EQUITY_BROAD`/`STOCK` and getting thresholds calibrated for non-leveraged
+holdings — every normal trading day fired as an anomaly, and §4.1
+concentration under-weighted the extra risk of a leveraged single-name
+position. Two options were rejected before landing on the current design
+(full exploration/tradeoff writeup in issue #87's first comment): reclassifying
+into `STOCK` only fixed the concentration half and made the anomaly half
+worse (STOCK's `cumulative_cap` is *tighter* than `EQUITY_BROAD`'s); an
+LLM-detected `leverage_multiple` at parse time would miss every
+manually-entered holding, since `POST`/`PATCH /holdings` never calls the LLM.
+
+**Design**: `ticker_leverage_overrides` (`app/models/ticker_leverage.py`) is
+a system-wide table, not per-user — same sharing model as `ticker_themes`
+— keyed by the ticker normalized through the same
+`app.services._yfinance._normalize_ticker` helper the FX-pair/asset_class
+lookups use (`app.services.ticker_leverage.normalize_leverage_ticker`; see
+the issue #204 mechanism note above this file's FX-pair entry for why an
+un-normalized join key silently splits one ticker's data across two rows).
+`Holding.asset_class` is never modified — a leveraged QQQ product stays
+`EQUITY_US_TECH`. `leverage_multiple` is looked up at read time only, in two
+places that move the threshold in **opposite directions**:
+
+- `window_data.select_user_anomalies` (leverage_map param) widens
+  (multiplies up) both `per_day` and `cumulative_cap` before
+  `_window_threshold` — a leveraged product's routine daily/cumulative move
+  is the underlying's move times the multiple, so widening keeps the flag
+  meaningful instead of firing on leverage arithmetic itself.
+- `portfolio_calculator._compute_concentration` divides down the TOP
+  holding's `concentration_watch`/`concentration_high` by its
+  `leverage_multiple`, when the top holding has one — a leveraged
+  single-name position carries more effective risk than a same-notional
+  non-leveraged one. Only the single-holding thresholds are ticker-specific
+  this way; top3/asset_class-bucket thresholds are basket-level and stay
+  unadjusted.
+
+Both directions load the whole table fresh per call (`load_leverage_map`, no
+cache — same convention as `load_asset_class_config`) so an admin edit takes
+effect on the next report. `direction` (`bull`/`bear`) is stored for
+documentation/audit only; it does not currently affect either formula.
+
+**Ops CRUD**: `GET`/`POST`/`PATCH`/`DELETE /admin/ticker-leverage[/{ticker}]`
+(`app/routers/admin.py`), `ADMIN_API_TOKEN` auth + the router's structural
+audit logging — no dedicated UI. No LLM involvement anywhere in this
+feature; `leverage_multiple` is looked up, never parsed or inferred, so
+`holding_parser.py` is untouched.
+
+
