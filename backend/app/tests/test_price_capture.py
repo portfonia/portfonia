@@ -6,7 +6,7 @@ import logging
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy import func, select
@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
+from app.services._finnhub import FinnhubQuote
 from app.services.price_capture import (
     _UPSERT_CHUNK_SIZE,
     _upsert,
@@ -76,6 +77,113 @@ def test_capture_close_is_idempotent(db_session: Session) -> None:
     )
     assert len(rows) == 1
     assert rows[0].close == Decimal("204.0")
+
+
+# ---------------------------------------------------------------------------
+# Finnhub fallback wiring (issue #56) — non-close US-market spot capture only
+# ---------------------------------------------------------------------------
+
+
+def _settings_with_finnhub_key(key: str | None) -> MagicMock:
+    settings = MagicMock()
+    if key is None:
+        settings.FINNHUB_API_KEY = None
+    else:
+        settings.FINNHUB_API_KEY.get_secret_value.return_value = key
+    settings.MASSIVE_API_KEY = None
+    return settings
+
+
+def test_capture_spot_falls_back_to_finnhub_for_yfinance_miss(db_session: Session) -> None:
+    db_session.add(_holding("Apple", "AAPL", market="US"))
+    db_session.flush()
+
+    with (
+        patch(
+            "app.services.price_capture.get_settings", return_value=_settings_with_finnhub_key("k")
+        ),
+        patch("app.services.price_capture.fetch_spot", return_value={}),
+        patch(
+            "app.services.price_capture.fetch_finnhub_quotes",
+            return_value={"AAPL": FinnhubQuote(last=328.21, previous_close=324.96)},
+        ) as mock_finnhub,
+    ):
+        n = capture_prices(db_session, market="US", session_node="pre_open")
+
+    mock_finnhub.assert_called_once_with(["AAPL"], "k")
+    assert n == 1
+    row = db_session.execute(
+        select(PriceSnapshot).where(PriceSnapshot.ticker == "AAPL")
+    ).scalar_one()
+    assert row.last == Decimal("328.21")
+    assert row.source == "finnhub"
+
+
+def test_capture_spot_does_not_call_finnhub_when_yfinance_succeeds(db_session: Session) -> None:
+    db_session.add(_holding("Apple", "AAPL", market="US"))
+    db_session.flush()
+
+    with (
+        patch(
+            "app.services.price_capture.get_settings", return_value=_settings_with_finnhub_key("k")
+        ),
+        patch("app.services.price_capture.fetch_spot", return_value={"AAPL": 330.0}),
+        patch("app.services.price_capture.fetch_finnhub_quotes") as mock_finnhub,
+    ):
+        capture_prices(db_session, market="US", session_node="pre_open")
+
+    mock_finnhub.assert_not_called()
+
+
+def test_capture_spot_does_not_call_finnhub_when_key_unset(db_session: Session) -> None:
+    db_session.add(_holding("Apple", "AAPL", market="US"))
+    db_session.flush()
+
+    with (
+        patch(
+            "app.services.price_capture.get_settings", return_value=_settings_with_finnhub_key(None)
+        ),
+        patch("app.services.price_capture.fetch_spot", return_value={}),
+        patch("app.services.price_capture.fetch_finnhub_quotes") as mock_finnhub,
+    ):
+        capture_prices(db_session, market="US", session_node="pre_open")
+
+    mock_finnhub.assert_not_called()
+
+
+def test_capture_spot_non_us_market_does_not_call_finnhub(db_session: Session) -> None:
+    db_session.add(_holding("Tencent", "0700.HK", market="HK"))
+    db_session.flush()
+
+    with (
+        patch(
+            "app.services.price_capture.get_settings", return_value=_settings_with_finnhub_key("k")
+        ),
+        patch("app.services.price_capture.fetch_spot", return_value={}),
+        patch("app.services.price_capture.fetch_finnhub_quotes") as mock_finnhub,
+    ):
+        capture_prices(db_session, market="HK", session_node="pre_open")
+
+    mock_finnhub.assert_not_called()
+
+
+def test_capture_close_node_does_not_call_finnhub(db_session: Session) -> None:
+    """Finnhub is a spot/intraday-node fallback (near-real-time single point)
+    — the close node uses fetch_ohlcv_range, not fetch_spot, and must never
+    reach for Finnhub even on a yfinance miss."""
+    db_session.add(_holding("Apple", "AAPL", market="US"))
+    db_session.flush()
+
+    with (
+        patch(
+            "app.services.price_capture.get_settings", return_value=_settings_with_finnhub_key("k")
+        ),
+        patch("app.services.price_capture.fetch_ohlcv_range", return_value={}),
+        patch("app.services.price_capture.fetch_finnhub_quotes") as mock_finnhub,
+    ):
+        capture_prices(db_session, market="US", session_node="close")
+
+    mock_finnhub.assert_not_called()
 
 
 def test_capture_close_backfills_multiple_days(db_session: Session) -> None:

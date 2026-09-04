@@ -19,9 +19,11 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.core.alert_dedup import already_alerted, mark_alerted
+from app.core.config import get_settings
 from app.core.timezones import CST, MARKET_TZ
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
+from app.services._finnhub import fetch_quotes as fetch_finnhub_quotes
 from app.services._yfinance import fetch_ohlcv_range, fetch_spot
 from app.services.email_sender import send_ops_alert
 from app.services.markets import is_capture_supported, market_from_ticker
@@ -138,7 +140,8 @@ def capture_prices(
                 )
     else:
         td = trade_date or datetime.now(tz=MARKET_TZ.get(market, UTC)).date()
-        for ticker, last in fetch_spot(selected).items():
+        spot = fetch_spot(selected)
+        for ticker, last in spot.items():
             rows.append(
                 {
                     "ticker": ticker,
@@ -149,6 +152,30 @@ def capture_prices(
                     "captured_at": now,
                 }
             )
+
+        # Finnhub fallback (issue #56): near-real-time single point, a fit
+        # for spot/intraday nodes — never the close node, which uses
+        # fetch_ohlcv_range and wants finalized daily bars, not a quote.
+        # US-only by verified free-tier capability (non-US symbols return
+        # {"error": ...}), so this only runs for the US market bucket.
+        missing = [t for t in selected if t not in spot]
+        finnhub_key = get_settings().FINNHUB_API_KEY
+        if market == "US" and finnhub_key is not None and missing:
+            for ticker, quote in fetch_finnhub_quotes(
+                missing, finnhub_key.get_secret_value()
+            ).items():
+                logger.info("capture_prices: finnhub fallback used for %s", ticker)
+                rows.append(
+                    {
+                        "ticker": ticker,
+                        "market": market,
+                        "session_node": session_node,
+                        "trade_date": td,
+                        "last": quote.last,
+                        "source": "finnhub",
+                        "captured_at": now,
+                    }
+                )
 
     written = _upsert(session, rows)
     logger.info(

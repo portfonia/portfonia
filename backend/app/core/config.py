@@ -171,6 +171,17 @@ class Settings(BaseSettings):
     # FRED are skipped and the forward block falls back to FOMC + earnings only.
     FRED_API_KEY: SecretStr | None = None
 
+    # Price-fetch resilience (#56). Both optional: when unset, the
+    # corresponding fallback is silently skipped, same convention as
+    # FRED_API_KEY above. FINNHUB_API_KEY is shared with the unrelated
+    # Daily_Intelligence project's production use (same free-tier
+    # rate-limit bucket, 60 req/min) — a deliberate, accepted coupling,
+    # not something to give this project its own key for.
+    FINNHUB_API_KEY: SecretStr | None = None
+    # Massive.com (formerly Polygon.io) free tier: US-only EOD aggregates
+    # (T-1 onward), no same-day data. Used as a close-node OHLCV fallback.
+    MASSIVE_API_KEY: SecretStr | None = None
+
     # Email
     EMAIL_PROVIDER: str = "resend"
     RESEND_API_KEY: SecretStr
