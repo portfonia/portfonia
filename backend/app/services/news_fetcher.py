@@ -83,7 +83,7 @@ class NewsItem:
 # ---------------------------------------------------------------------------
 
 
-def _url_hash(url: str) -> str:
+def url_hash(url: str) -> str:
     """Return the first 16 hex chars of MD5(url).  Not security-sensitive."""
     return hashlib.md5(url.encode(), usedforsecurity=False).hexdigest()[:16]
 
@@ -190,7 +190,7 @@ def _fetch_feed(source: str, url: str, cutoff: datetime) -> list[NewsItem]:
 
         items.append(
             NewsItem(
-                url_hash=_url_hash(link),
+                url_hash=url_hash(link),
                 title=title_str.strip(),
                 url=link,
                 source=source,

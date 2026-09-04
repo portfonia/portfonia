@@ -67,7 +67,7 @@ from app.services.macro_event_intel import (
     l2_event_keys_for_user,
     user_event_exposure,
 )
-from app.services.news_fetcher import NewsItem
+from app.services.news_fetcher import NewsItem, url_hash
 from app.services.portfolio_calculator import compute_portfolio
 from app.services.price_anomaly_detector import PriceAnomaly
 from app.services.report_assembly import (
@@ -407,6 +407,113 @@ def _is_short_manual_quiet(
     return span_hours < _SHORT_MANUAL_WINDOW_HOURS
 
 
+def _finish_report(
+    session: Session,
+    report: Report,
+    ctx: ReportContext,
+    user_id: uuid.UUID,
+    eff_date: date,
+    output_lang: str,
+    raw_body: str,
+    news_items: list[NewsItem] | None,
+) -> Report:
+    """Render, persist, mark news surfaced, and email — generate_report's
+    common tail (steps 7/8/9/10), shared by the full pipeline and the
+    stage-skip-on-retry path (#61).
+
+    `news_items` is the NewsItem list `mark_news_surfaced` needs (it reads
+    `.url_hash`). The full pipeline has it from `load_news_window`; the
+    stage-skip path skips that call entirely (nothing upstream of the stored
+    body is re-fetched), so it passes None here and url_hash is instead
+    recomputed from `ctx.news_items`' stored `url` field via the same
+    `url_hash` the original fetch used — a pure function of the URL, so
+    this reproduces the same hashes without a DB round-trip.
+
+    NOT reused by `regenerate_report()` (PR #341 review): that function
+    deliberately never emails and never calls `mark_news_surfaced` — it is
+    an on-demand iteration/inspection tool, not a generation attempt, and
+    merges into the row's EXISTING `report_inputs` rather than writing a
+    fresh `ctx.to_jsonb()`. Folding it into this shared tail would either
+    have to thread a "skip email/mark" flag through every caller or silently
+    change its no-side-effects contract — its own small persist block at the
+    end stays separate on purpose.
+    """
+    report_date_str = eff_date.strftime("%Y-%m-%d")
+    full_md, violations, translated_body = _render_full_md(
+        report_date_str,
+        ctx.portfolio_summary,
+        ctx.news_items,
+        raw_body,
+        output_lang,
+        ctx.period_start,
+        ctx.period_end,
+        ctx.window_trading_days,
+        ctx.price_anomalies,
+        ctx.technical_positions,
+        ctx.forward_events,
+        ctx.price_data_through,
+    )
+    ctx.pass2_translated = translated_body
+    logger.info("report %s: assembled + rendered (lang=%s)", report.id, output_lang)
+
+    # ------------------------------------------------------------------
+    # 9. Persist
+    # ------------------------------------------------------------------
+    # Compliance > everything: a body that tripped the blacklist is held as
+    # 'needs_review' and never emailed — content is preserved for inspection.
+    final_status = "needs_review" if violations else "success"
+    report.status = final_status
+    report.report_md = full_md
+    report.report_inputs = ctx.to_jsonb()
+    report.generated_at = datetime.now(tz=UTC)
+    # H-DEBT-3 (#30): mark this window's news as surfaced in the same
+    # transaction as the status commit, so the two can never diverge.
+    url_hashes = (
+        [item.url_hash for item in news_items]
+        if news_items is not None
+        else [url_hash(item["url"]) for item in ctx.news_items]
+    )
+    mark_news_surfaced(session, user_id, report.id, url_hashes)
+    session.commit()
+    log_ops_event("report.generate.end", report_id=str(report.id), status=final_status)
+
+    if violations:
+        logger.error(
+            "report %s: BLOCKED for compliance review — forbidden terms: %s",
+            report.id,
+            violations,
+        )
+        return report
+
+    logger.info(
+        "report %s: generation complete (%d chars, %d search results)",
+        report.id,
+        len(full_md),
+        len(ctx.search_results),
+    )
+
+    # ------------------------------------------------------------------
+    # 10. Email
+    # ------------------------------------------------------------------
+    # The report is already committed as 'success' above. send_report_email
+    # is contracted never to raise, but we isolate it anyway so an unexpected
+    # failure here cannot fall through to the generation-failure handler and
+    # flip an already-persisted success to 'failed'.
+    try:
+        if not send_report_email(report, session):
+            # See the quiet-day branch above for why this no longer
+            # claims delivery (PR #181 review).
+            logger.warning(
+                "report %s: email delivery not confirmed — see "
+                "email_sender logs above for the cause",
+                report.id,
+            )
+    except Exception:
+        logger.exception("report %s: email send raised unexpectedly", report.id)
+
+    return report
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -492,6 +599,23 @@ def generate_report(
     ).scalar_one_or_none()
 
     if existing is not None and existing.status in ("success", "skipped"):
+        if existing.status == "success" and existing.email_sent_at is None:
+            # #61: the render/persist commit succeeded but the email attempt
+            # after it either failed, was skipped, or never confirmed
+            # delivery — send_report_email never flips status or raises, so
+            # this row is otherwise unreachable by any retry. Resend using
+            # the already-persisted body: no re-render, no LLM call.
+            logger.info(
+                "report %s: success but email never confirmed sent — resending only",
+                existing.id,
+            )
+            if not send_report_email(existing, session):
+                logger.warning(
+                    "report %s: email delivery not confirmed — see "
+                    "email_sender logs above for the cause",
+                    existing.id,
+                )
+            return existing
         logger.info(
             "report %s: already complete for %s (status=%s) — returning existing",
             existing.id,
@@ -503,27 +627,65 @@ def generate_report(
     # ------------------------------------------------------------------
     # Create or reset report record (status=in_progress)
     # ------------------------------------------------------------------
+    prior_ctx: ReportContext | None = None
     if existing is not None:
         report = existing
-        report.status = "in_progress"
-        report.prompt_version = _PROMPT_VERSION
-        report.disclaimer_version = _DISCLAIMER_VERSION
-        report.report_md = None
-        report.report_inputs = None
-        report.generated_at = None
-        report.email_sent_at = None
-        # issue #45 review follow-up: email_sent_at and provider_message_id are
-        # a pair (both set together in email_sender.send_report_email). Clearing
-        # only email_sent_at here would leave a stale Resend id from the prior
-        # send attached to a row that now reads as "not sent".
-        report.provider_message_id = None
-        # H-DEBT-3 / PR #139 review: this row's window is frozen and reused
-        # below, so a retry (e.g. a reopened needs_review row) must reselect
-        # the SAME news candidate set the first attempt saw. Without this, a
-        # prior attempt's own mark_news_surfaced call would make
-        # load_news_window silently exclude those items on retry — a no-op
-        # for a failed row (never marked), a real bug for needs_review.
-        unmark_news_surfaced(session, report.id)
+        # #61: a retry of a failed/in_progress row whose prior attempt
+        # already produced a complete Pass 2/assembly body — under the SAME
+        # prompt/disclaimer version this retry would otherwise use — can
+        # skip re-running Pass 1 + Pass 2 (the costly LLM calls) and resume
+        # directly from render. Snapshot report_inputs/prompt_version/
+        # disclaimer_version BEFORE the reset below would overwrite them.
+        # needs_review is deliberately excluded (status check above only
+        # short-circuits success/skipped, so needs_review still reaches
+        # here): _render_full_md is a pure function of raw_body, so reusing
+        # the same raw_body would reproduce the exact same compliance
+        # violations — a needs_review retry only has a chance at different
+        # output by redoing Pass 1 + Pass 2, so it always takes the full
+        # reset path below.
+        prior_inputs = cast(ReportInputsDict | None, existing.report_inputs)
+        prior_stored_body = (
+            (prior_inputs.get("assembly_raw") or prior_inputs.get("pass2_raw") or "")
+            if prior_inputs
+            else ""
+        )
+        reusable = bool(
+            existing.status != "needs_review"
+            and prior_stored_body
+            and existing.prompt_version == _PROMPT_VERSION
+            and existing.disclaimer_version == _DISCLAIMER_VERSION
+        )
+        if reusable:
+            assert prior_inputs is not None
+            prior_ctx = ReportContext.from_jsonb(cast(dict[str, Any], prior_inputs))
+            report.status = "in_progress"
+            # prompt_version/disclaimer_version already match (that's what
+            # made this reusable) — report_md/report_inputs/generated_at/
+            # email_sent_at/provider_message_id and the news window
+            # (unmark_news_surfaced) stay untouched: the stage-skip branch
+            # below (_finish_report) overwrites them with equivalent content
+            # anyway, and unmarking would only matter for a re-fetch of the
+            # news window, which the stage-skip branch never does.
+        else:
+            report.status = "in_progress"
+            report.prompt_version = _PROMPT_VERSION
+            report.disclaimer_version = _DISCLAIMER_VERSION
+            report.report_md = None
+            report.report_inputs = None
+            report.generated_at = None
+            report.email_sent_at = None
+            # issue #45 review follow-up: email_sent_at and provider_message_id are
+            # a pair (both set together in email_sender.send_report_email). Clearing
+            # only email_sent_at here would leave a stale Resend id from the prior
+            # send attached to a row that now reads as "not sent".
+            report.provider_message_id = None
+            # H-DEBT-3 / PR #139 review: this row's window is frozen and reused
+            # below, so a retry (e.g. a reopened needs_review row) must reselect
+            # the SAME news candidate set the first attempt saw. Without this, a
+            # prior attempt's own mark_news_surfaced call would make
+            # load_news_window silently exclude those items on retry — a no-op
+            # for a failed row (never marked), a real bug for needs_review.
+            unmark_news_surfaced(session, report.id)
     else:
         report = Report(
             user_id=user_id,
@@ -580,6 +742,32 @@ def generate_report(
             period_start.isoformat(),
             period_end.isoformat(),
         )
+
+    if prior_ctx is not None:
+        # #61: resume straight from render using the stored Pass 2/assembly
+        # body — everything upstream of it (portfolio/news/anomalies fetch,
+        # macro/L1/L2/cross-name intel, Pass 1, Tavily, Pass 2/assembly) is
+        # skipped entirely, not just the LLM calls, since prior_ctx already
+        # carries every field the render step reads.
+        logger.info(
+            "report %s: resuming from stored Pass 2/assembly body — skipping Pass 1 + Pass 2 (#61)",
+            report.id,
+        )
+        resume_raw_body = prior_ctx.assembly_raw or prior_ctx.pass2_raw
+        try:
+            return _finish_report(
+                session, report, prior_ctx, user_id, eff_date, output_lang, resume_raw_body, None
+            )
+        except Exception:
+            logger.exception("report %s: generation failed (resume)", report.id)
+            report.status = "failed"
+            report.report_inputs = prior_ctx.to_jsonb()
+            log_ops_event("report.generate.end", report_id=str(report.id), status="failed")
+            try:
+                session.commit()
+            except Exception:
+                session.rollback()
+            raise
 
     log_ops_event(
         "report.generate.start",
@@ -1376,77 +1564,11 @@ def generate_report(
             )
 
         # ------------------------------------------------------------------
-        # 7/8. Annotate + assemble + render language + compliance scan (#5/#7/#8)
+        # 7/8/9/10. Annotate + assemble + render + persist + email (#5/#7/#8)
         # ------------------------------------------------------------------
-        report_date_str = eff_date.strftime("%Y-%m-%d")
-        full_md, violations, translated_body = _render_full_md(
-            report_date_str,
-            ctx.portfolio_summary,
-            ctx.news_items,
-            raw_body,
-            output_lang,
-            ctx.period_start,
-            ctx.period_end,
-            ctx.window_trading_days,
-            ctx.price_anomalies,
-            ctx.technical_positions,
-            ctx.forward_events,
-            ctx.price_data_through,
+        return _finish_report(
+            session, report, ctx, user_id, eff_date, output_lang, raw_body, news_items
         )
-        ctx.pass2_translated = translated_body
-        logger.info("report %s: assembled + rendered (lang=%s)", report.id, output_lang)
-
-        # ------------------------------------------------------------------
-        # 9. Persist
-        # ------------------------------------------------------------------
-        # Compliance > everything: a body that tripped the blacklist is held as
-        # 'needs_review' and never emailed — content is preserved for inspection.
-        final_status = "needs_review" if violations else "success"
-        report.status = final_status
-        report.report_md = full_md
-        report.report_inputs = ctx.to_jsonb()
-        report.generated_at = datetime.now(tz=UTC)
-        # H-DEBT-3 (#30): mark this window's news as surfaced in the same
-        # transaction as the status commit, so the two can never diverge.
-        mark_news_surfaced(session, user_id, report.id, [item.url_hash for item in news_items])
-        session.commit()
-        log_ops_event("report.generate.end", report_id=str(report.id), status=final_status)
-
-        if violations:
-            logger.error(
-                "report %s: BLOCKED for compliance review — forbidden terms: %s",
-                report.id,
-                violations,
-            )
-            return report
-
-        logger.info(
-            "report %s: generation complete (%d chars, %d search results)",
-            report.id,
-            len(full_md),
-            len(ctx.search_results),
-        )
-
-        # ------------------------------------------------------------------
-        # 10. Email
-        # ------------------------------------------------------------------
-        # The report is already committed as 'success' above. send_report_email
-        # is contracted never to raise, but we isolate it anyway so an unexpected
-        # failure here cannot fall through to the generation-failure handler and
-        # flip an already-persisted success to 'failed'.
-        try:
-            if not send_report_email(report, session):
-                # See the quiet-day branch above for why this no longer
-                # claims delivery (PR #181 review).
-                logger.warning(
-                    "report %s: email delivery not confirmed — see "
-                    "email_sender logs above for the cause",
-                    report.id,
-                )
-        except Exception:
-            logger.exception("report %s: email send raised unexpectedly", report.id)
-
-        return report
 
     except Exception:
         logger.exception("report %s: generation failed", report.id)
@@ -1693,6 +1815,11 @@ def regenerate_report(
     else:
         raise ValueError(f"unknown mode {mode!r} (expected 'render' or 'analyze')")
 
+    # This render/persist block is intentionally NOT `_finish_report()`
+    # (generate_report's shared tail, #61/PR #341 review) — it must not
+    # email or call `mark_news_surfaced`, and merges into the row's existing
+    # `report_inputs` rather than a fresh `ctx.to_jsonb()`. See
+    # `_finish_report`'s docstring for the full reasoning.
     report_date_str = report.report_date.strftime("%Y-%m-%d")
     full_md, violations, translated_body = _render_full_md(
         report_date_str,

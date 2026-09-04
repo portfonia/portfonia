@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, TypedDict
@@ -218,3 +218,18 @@ class ReportContext:
         """
         result: dict[str, Any] = json.loads(json.dumps(asdict(self), default=_decimal_default))
         return result
+
+    @classmethod
+    def from_jsonb(cls, data: dict[str, Any]) -> ReportContext:
+        """Rehydrate a ReportContext from a previously stored `report_inputs`.
+
+        Used by generate_report's stage-skip-on-retry path (#61) to resume
+        render/translate/persist from a prior attempt's completed Pass 2 or
+        assembly output without recomputing anything upstream of it. Unknown
+        keys (a JSONB written by a newer field than this dataclass has, or an
+        older row missing a since-added field — see ReportInputsDict's
+        `total=False` note) are ignored/defaulted via plain dataclass
+        construction rather than raising.
+        """
+        valid = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in valid})
