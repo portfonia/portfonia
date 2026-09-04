@@ -394,3 +394,56 @@ def test_rerun_resend_skips_cooldown_check_when_no_verified_recipient(
 
     assert resp.status_code == 200
     mock_cooldown.assert_not_called()
+
+
+def test_rerun_resend_releases_cooldown_when_regenerate_fails(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """PR #338 review leftover (blacktomb42): a regenerate_report failure
+    AFTER the cooldown claim means the resend never actually reached
+    send_report_email — the caller must not still be locked out for the
+    full 15 minutes over a resend that never happened."""
+    db_session.add(_user(_UID, "ops-target@example.com", email_verified_at=datetime.now(tz=UTC)))
+    db_session.flush()
+    db_session.add(_report(_RID, _UID))
+    db_session.flush()
+
+    with (
+        patch("app.routers.admin.check_report_resend_cooldown", return_value=None),
+        patch("app.routers.admin.release_report_resend_cooldown") as mock_release,
+        patch(
+            "app.routers.admin.regenerate_report",
+            side_effect=ValueError("no stored report body"),
+        ),
+    ):
+        resp = app_client.post(_path(_UID, _RID), headers=_headers(), json={"resend": True})
+
+    assert resp.status_code == 404
+    mock_release.assert_called_once_with("ops-target@example.com")
+
+
+def test_rerun_resend_true_skips_send_does_not_release_cooldown_on_success(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """The release is only for a failed regenerate — a successful rerun
+    (even one that ends up not sending, e.g. status != success) must leave
+    the claimed cooldown in place; releasing it would defeat the whole
+    point of the cooldown."""
+    db_session.add(_user(_UID, "ops-target@example.com", email_verified_at=datetime.now(tz=UTC)))
+    db_session.flush()
+    db_session.add(_report(_RID, _UID))
+    db_session.flush()
+
+    failed = _report(_RID, _UID, status="failed")
+
+    with (
+        patch("app.routers.admin.check_report_resend_cooldown", return_value=None),
+        patch("app.routers.admin.release_report_resend_cooldown") as mock_release,
+        patch("app.routers.admin.regenerate_report", return_value=failed),
+        patch("app.routers.admin.send_report_email") as mock_send,
+    ):
+        resp = app_client.post(_path(_UID, _RID), headers=_headers(), json={"resend": True})
+
+    assert resp.status_code == 200
+    mock_send.assert_not_called()
+    mock_release.assert_not_called()

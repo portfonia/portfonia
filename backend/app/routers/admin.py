@@ -37,7 +37,11 @@ from app.core.config import get_settings
 from app.core.database import get_session
 from app.core.deps import require_ops_token
 from app.core.ops_log import log_ops_event
-from app.core.rate_limit import check_report_resend_cooldown, rate_limit_create_invite
+from app.core.rate_limit import (
+    check_report_resend_cooldown,
+    rate_limit_create_invite,
+    release_report_resend_cooldown,
+)
 from app.models.email_verification import EmailVerification
 from app.models.holding import Holding
 from app.models.invite import Invite
@@ -484,6 +488,15 @@ def generate_report_for_user(user_id: UUID, session: Session = Depends(get_sessi
         raise HTTPException(status_code=502, detail=f"Report generation failed: {exc}") from exc
 
 
+def _release_report_resend_cooldown_if_claimed(email: str | None) -> None:
+    """PR #338 review leftover (blacktomb42): a claimed cooldown must not
+    outlive a `regenerate_report` failure that happened before any resend
+    was actually attempted — no-ops when `email` is None (nothing was
+    claimed, e.g. no verified recipient)."""
+    if email is not None:
+        release_report_resend_cooldown(email)
+
+
 class RerunReportRequest(BaseModel):
     mode: Literal["analyze", "render"] = "analyze"
     resend: bool = True
@@ -546,6 +559,7 @@ def rerun_report_for_user(
     if report is None:
         raise HTTPException(status_code=404, detail="report not found")
 
+    claimed_cooldown_email: str | None = None
     if req.resend:
         # issue #104 requirement #6: 15-minute manual-resend cooldown, keyed
         # by recipient address — checked BEFORE clearing email_sent_at/
@@ -564,6 +578,7 @@ def rerun_report_for_user(
                     status_code=429,
                     detail=f"manual resend cooldown active, retry in {remaining}s",
                 )
+            claimed_cooldown_email = recipient_email
         report.email_sent_at = None
         report.provider_message_id = None
         session.flush()
@@ -577,14 +592,18 @@ def rerun_report_for_user(
             output_lang=report_language_for(session, user_id, get_settings().OUTPUT_LANG),
         )
     except ValueError as exc:
+        _release_report_resend_cooldown_if_claimed(claimed_cooldown_email)
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except LLMEmptyResponseError as exc:
+        _release_report_resend_cooldown_if_claimed(claimed_cooldown_email)
         raise HTTPException(
             status_code=502, detail=f"LLM returned an empty response: {exc}"
         ) from exc
     except openai.APIError as exc:
+        _release_report_resend_cooldown_if_claimed(claimed_cooldown_email)
         raise HTTPException(status_code=502, detail=f"{type(exc).__name__}: {exc}") from exc
     except RuntimeError as exc:
+        _release_report_resend_cooldown_if_claimed(claimed_cooldown_email)
         raise HTTPException(status_code=502, detail=f"Report regeneration failed: {exc}") from exc
 
     if req.resend and report.status == "success":

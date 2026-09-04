@@ -13,6 +13,7 @@ import uuid
 from unittest.mock import MagicMock, patch
 
 import httpx
+import pytest
 
 from app.tasks import celery_app
 from app.tasks.report_delivery_tasks import poll_report_delivery
@@ -139,6 +140,7 @@ def test_poll_leaves_state_untouched_on_delivered(
     mock_session.add.assert_not_called()
 
 
+@pytest.mark.parametrize("last_event", ["bounced", "failed", "suppressed"])
 @patch("app.services.email_sender.send_ops_alert")
 @patch("app.tasks.report_delivery_tasks.httpx.Client")
 @patch("app.tasks.report_delivery_tasks.get_settings")
@@ -148,11 +150,16 @@ def test_poll_bounce_clears_verified_at_and_appends_auto_revoked_row(
     mock_settings: MagicMock,
     mock_client_cls: MagicMock,
     mock_ops_alert: MagicMock,
+    last_event: str,
 ) -> None:
     """issue #104 requirement #3: bounce/complaint/failed/suppressed all get
     the same treatment — clear the user's *_verified_at, append an
-    auto_revoked audit row. This test uses `bounced`, a non-complaint
-    event, so no ops alert should fire (that's complaint-only)."""
+    auto_revoked audit row. Parametrized over the three non-complaint
+    events (PR #338 review, blacktomb42: only `bounced` was previously
+    exercised directly, leaving `failed`/`suppressed` untested even though
+    they share the exact same code path via UNDELIVERABLE_EVENTS) — none of
+    these fire an ops alert (that's complaint-only, covered separately by
+    test_poll_complaint_fires_one_ops_alert below)."""
     mock_settings.return_value = MagicMock(
         RESEND_ALL_ACCESS_API_KEY=MagicMock(get_secret_value=lambda: "full-access-key")
     )
@@ -163,7 +170,7 @@ def test_poll_bounce_clears_verified_at_and_appends_auto_revoked_row(
     mock_session_cls.return_value = mock_session
 
     resp = MagicMock(status_code=200)
-    resp.json.return_value = {"last_event": "bounced"}
+    resp.json.return_value = {"last_event": last_event}
     resp.raise_for_status.return_value = None
     mock_client = MagicMock()
     mock_client.__enter__.return_value = mock_client
@@ -172,7 +179,7 @@ def test_poll_bounce_clears_verified_at_and_appends_auto_revoked_row(
 
     result = poll_report_delivery.run(str(_RID))
 
-    assert result == "auto_revoked_bounced"
+    assert result == f"auto_revoked_{last_event}"
     # The clear is a conditional UPDATE ... WHERE user's address column ==
     # report.recipient_email AND verified_col IS NOT NULL — not a plain
     # attribute assignment (same discipline as poll_email_verification_
@@ -184,7 +191,7 @@ def test_poll_bounce_clears_verified_at_and_appends_auto_revoked_row(
     mock_session.add.assert_called_once()
     added_row = mock_session.add.call_args[0][0]
     assert added_row.status == "auto_revoked"
-    assert added_row.revoke_reason == "bounced"
+    assert added_row.revoke_reason == last_event
     assert added_row.purpose == "account_email"
     assert added_row.email == "user@example.com"
     assert added_row.user_id == _UID

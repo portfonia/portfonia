@@ -34,6 +34,7 @@ from app.core.rate_limit import (
     rate_limit_enforce_resend_verification,
     rate_limit_signup,
     release_portfolio_overview_cooldown,
+    release_report_resend_cooldown,
 )
 from app.services.invites import create_invite
 
@@ -505,5 +506,37 @@ def test_report_resend_cooldown_fail_closed_on_redis_outage() -> None:
         with pytest.raises(HTTPException) as exc:
             check_report_resend_cooldown("a@example.com")
         assert exc.value.status_code == 503
+    finally:
+        rate_limit.set_backend(InMemoryBackend())
+
+
+# PR #338 review leftover (blacktomb42): release-on-failure, mirroring the
+# portfolio overview cooldown's own release function — a regenerate_report
+# failure after the claim must not still lock the caller out for the full
+# 15 minutes over a resend that never happened.
+
+
+def test_report_resend_cooldown_release_allows_immediate_retry(
+    backend: InMemoryBackend,
+) -> None:
+    assert check_report_resend_cooldown("a@example.com") is None
+    release_report_resend_cooldown("a@example.com")
+    assert check_report_resend_cooldown("a@example.com") is None
+
+
+def test_report_resend_cooldown_release_on_unclaimed_key_is_a_no_op(
+    backend: InMemoryBackend,
+) -> None:
+    release_report_resend_cooldown("never-claimed@example.com")  # must not raise
+
+
+def test_report_resend_cooldown_release_does_not_raise_on_redis_outage() -> None:
+    class _Down:
+        def delete(self, key: str) -> None:
+            raise rate_limit.RateLimitUnavailable
+
+    rate_limit.set_backend(_Down())  # type: ignore[arg-type]
+    try:
+        release_report_resend_cooldown("a@example.com")  # must not raise
     finally:
         rate_limit.set_backend(InMemoryBackend())

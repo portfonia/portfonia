@@ -539,3 +539,23 @@ def check_report_resend_cooldown(email: str) -> int | None:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=UNAVAILABLE_DETAIL
         ) from None
     return remaining if remaining > 0 else REPORT_RESEND_COOLDOWN_SECONDS
+
+
+def release_report_resend_cooldown(email: str) -> None:
+    """Undo a claim made by `check_report_resend_cooldown` (PR #338 review
+    leftover, blacktomb42): if `regenerate_report` raises AFTER the claim —
+    the resend never actually reached `send_report_email` — the caller must
+    not still be locked out for the full 15 minutes over a resend that
+    never happened. Same best-effort shape as
+    `release_portfolio_overview_cooldown`: a store outage here just leaves
+    the claim in place (the caller waits out the cooldown as normal), it
+    must not itself raise and turn an already-logged regenerate failure
+    into a second, unhandled exception.
+    """
+    try:
+        get_backend().delete(_report_resend_key(email))
+    except RateLimitUnavailable:
+        logger.warning(
+            "rate_limit: could not release report resend cooldown for the resolved "
+            "recipient (store unavailable) — it will expire naturally"
+        )
