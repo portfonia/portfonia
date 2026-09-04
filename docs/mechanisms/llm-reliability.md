@@ -160,4 +160,52 @@ locking on the first failure.
   run and the scheduled after-close run produce non-overlapping windows in
   two separate rows, both emailed independently.
 
+### Stage-skip on retry (issue #61)
+
+Originally scoped as full stage-level pipeline checkpointing plus a "frozen
+run-reference-time" concept; investigation found the frozen-reference-time
+half already covered (`period_start`/`period_end` freezing above, and
+`batch_now` in `app/tasks/report_tasks.py`'s fan-out), so the issue narrowed
+to the one remaining gap: `generate_report`'s retry-reset block
+unconditionally redid Pass 1 + Pass 2 (the costly LLM calls) on ANY retry of
+a `failed`/`in_progress` row, even when the prior attempt's failure was in
+render or email — after Pass 2 had already succeeded and its output was
+sitting, unused, in the failed row's own `report_inputs` (persisted by the
+outer exception handler's `report.report_inputs = ctx.to_jsonb()`).
+
+- **Reuse gate**: before the reset, `generate_report` snapshots
+  `existing.report_inputs`/`prompt_version`/`disclaimer_version`. If a
+  `pass2_raw`/`assembly_raw` body is present AND both versions match what
+  this retry would use AND status is not `needs_review`, the row is
+  `ReportContext.from_jsonb()`-rehydrated into `prior_ctx` and the entire
+  reset block (report_md/report_inputs/generated_at/email_sent_at/
+  provider_message_id nulling, `unmark_news_surfaced`) is skipped.
+  `needs_review` is deliberately excluded even though it also carries a
+  reusable body: `_render_full_md` is a pure function of `raw_body`, so
+  reusing it would reproduce the exact same compliance violations forever —
+  a `needs_review` retry only has a chance at different output by redoing
+  Pass 1 + Pass 2, so it always takes the full-reset path.
+- **Resume path**: when `prior_ctx is not None`, `generate_report` skips
+  straight past portfolio/news/anomaly fetch, macro/L1/L2/cross-name intel,
+  Pass 1, Tavily, and Pass 2/assembly entirely — not just the LLM calls —
+  and calls `_finish_report()` (the extracted render/persist/mark-news/email
+  tail, shared with the normal full-pipeline path) using `prior_ctx` and its
+  stored `assembly_raw or pass2_raw`. `mark_news_surfaced` still needs to
+  run for this attempt (the failed attempt never reached it), but there are
+  no `NewsItem` objects to read `.url_hash` from since `load_news_window`
+  was never called on this path — `_url_hash()` (a pure function of the URL,
+  from `news_fetcher.py`) is recomputed from the `url` field already stored
+  in `ctx.news_items`, avoiding a DB round-trip.
+- **Email-only resend**: separately, a row where `status == "success"` but
+  `email_sent_at IS NULL` (send failed/was skipped, never flips status or
+  raises) was previously unreachable by any retry — the top-level
+  `status in ("success", "skipped")` short-circuit returned it unchanged.
+  A new branch there detects this case and calls `send_report_email`
+  directly, with no re-render and no LLM call.
+- `ReportContext.from_jsonb()` (`report_context.py`) is a generic
+  dataclass-field-filtered rehydration, the mirror of `to_jsonb()` — ignores
+  unknown keys and defaults missing ones via plain dataclass construction,
+  matching `ReportInputsDict`'s existing `total=False` tolerance for rows
+  written before a field existed.
+
 

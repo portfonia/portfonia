@@ -26,11 +26,12 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.forward_event import ForwardEvent
+from app.models.report import Report
 from app.services import report_generator as rg
 from app.services.macro_detector import MacroSignals, ThemeHit
 from app.services.news_fetcher import NewsItem
@@ -1342,6 +1343,178 @@ def test_generate_report_retry_clears_stale_provider_message_id(db_session: Sess
     # touches provider_message_id, so a None here proves the reset branch
     # cleared it rather than it being silently repopulated by a real send.
     assert retried.provider_message_id is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: stage-skip on retry (#61) — a retry must not redo Pass 1 + Pass 2
+# when the failed row already carries a complete body, and must not redo
+# ANYTHING for a success-but-unsent-email row.
+# ---------------------------------------------------------------------------
+
+
+def test_generate_report_retry_after_render_failure_skips_pass1_pass2(
+    db_session: Session, _no_email: MagicMock
+) -> None:
+    """#61: Pass 2 succeeds, render raises -> the failed row's report_inputs
+    already carries a complete pass2_raw (persisted by the outer except
+    handler). A retry must resume straight from render using that stored
+    body instead of redoing Pass 1 + Pass 2 (a real, costly LLM call) and
+    re-fetching the portfolio/news/anomalies inputs those passes needed."""
+    with (
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch(
+            "app.services.report_generator.load_news_window",
+            return_value=[_news_item("Fed raises rates")],
+        ),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+        patch(
+            "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
+        ),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_mock_llm) as mock_llm,
+        patch("app.services.report_generator._run_tavily_search", return_value=[]),
+        patch(
+            "app.services.report_generator._render_full_md",
+            side_effect=RuntimeError("render boom"),
+        ),
+        pytest.raises(RuntimeError, match="render boom"),
+    ):
+        rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+
+    assert mock_llm.call_count == 2  # Pass 1 + Pass 2 each ran exactly once
+
+    row = db_session.execute(
+        select(Report).where(Report.user_id == _USER, Report.report_date == _TODAY)
+    ).scalar_one()
+    assert row.status == "failed"
+    assert row.report_inputs is not None
+    assert row.report_inputs.get("pass2_raw")
+
+    with (
+        patch("app.services.report_generator.compute_portfolio") as mock_portfolio2,
+        patch("app.services.report_generator.load_news_window") as mock_news2,
+        patch("app.services.report_generator.detect_macro_signals") as mock_macro2,
+        patch("app.services.report_generator.detect_window_anomalies") as mock_anom2,
+        patch("app.services.report_generator._openrouter_client") as mock_client2,
+        patch("app.services.report_generator._call_llm") as mock_llm2,
+    ):
+        retried = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+
+    assert retried.id == row.id
+    assert retried.status == "success"
+    assert retried.report_md is not None
+    assert "§4 Risk Radar" in retried.report_md
+    mock_llm2.assert_not_called()
+    mock_client2.assert_not_called()
+    mock_portfolio2.assert_not_called()
+    mock_news2.assert_not_called()
+    mock_macro2.assert_not_called()
+    mock_anom2.assert_not_called()
+
+
+def test_generate_report_retry_after_prompt_version_bump_reruns_pass1_pass2(
+    db_session: Session, _no_email: MagicMock
+) -> None:
+    """#61: the stage-skip reuse gate must not fire across a prompt_version
+    change — a prompt/code change landing between the failed attempt and the
+    retry must force a full regeneration under the new prompt, not ship a
+    body produced under the stale one."""
+    with (
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch(
+            "app.services.report_generator.load_news_window",
+            return_value=[_news_item("Fed raises rates")],
+        ),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+        patch(
+            "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
+        ),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
+        patch("app.services.report_generator._run_tavily_search", return_value=[]),
+        patch(
+            "app.services.report_generator._render_full_md",
+            side_effect=RuntimeError("render boom"),
+        ),
+        pytest.raises(RuntimeError, match="render boom"),
+    ):
+        rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+
+    row = db_session.execute(
+        select(Report).where(Report.user_id == _USER, Report.report_date == _TODAY)
+    ).scalar_one()
+    assert row.status == "failed"
+    assert row.report_inputs is not None
+    assert row.report_inputs.get("pass2_raw")
+
+    with (
+        patch.object(rg, "_PROMPT_VERSION", rg._PROMPT_VERSION + "-bumped"),
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch(
+            "app.services.report_generator.load_news_window",
+            return_value=[_news_item("Fed raises rates")],
+        ),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+        patch(
+            "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
+        ),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_mock_llm) as mock_llm2,
+        patch("app.services.report_generator._run_tavily_search", return_value=[]),
+    ):
+        retried = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+
+    assert retried.id == row.id
+    assert retried.status == "success"
+    mock_llm2.assert_called()  # full rerun, not the stage-skip reuse path
+    assert retried.prompt_version == rg._PROMPT_VERSION + "-bumped"
+
+
+def test_generate_report_retry_of_unsent_success_only_resends_email(
+    db_session: Session,
+) -> None:
+    """#61: status=='success' but email_sent_at IS NULL (delivery never
+    confirmed) must be resendable via a plain retry, without re-rendering or
+    making any LLM call — the report body is already final."""
+    with (
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch(
+            "app.services.report_generator.load_news_window",
+            return_value=[_news_item("Fed raises rates")],
+        ),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+        patch(
+            "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
+        ),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
+        patch("app.services.report_generator._run_tavily_search", return_value=[]),
+        patch("app.services.report_generator.send_report_email", return_value=False) as mock_email,
+    ):
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+
+    assert report.status == "success"
+    assert report.email_sent_at is None
+    mock_email.assert_called_once()
+
+    with (
+        patch("app.services.report_generator.compute_portfolio") as mock_portfolio2,
+        patch("app.services.report_generator.load_news_window") as mock_news2,
+        patch("app.services.report_generator._openrouter_client") as mock_client2,
+        patch("app.services.report_generator._call_llm") as mock_llm2,
+        patch("app.services.report_generator._render_full_md") as mock_render2,
+        patch("app.services.report_generator.send_report_email", return_value=True) as mock_email2,
+    ):
+        retried = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+
+    assert retried.id == report.id
+    assert retried.status == "success"
+    mock_email2.assert_called_once()
+    mock_llm2.assert_not_called()
+    mock_client2.assert_not_called()
+    mock_portfolio2.assert_not_called()
+    mock_news2.assert_not_called()
+    mock_render2.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
