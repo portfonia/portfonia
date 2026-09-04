@@ -31,6 +31,7 @@ from app.services._yfinance import _normalize_ticker
 from app.services.asset_class_config import load_asset_class_config
 from app.services.news_fetcher import NewsItem
 from app.services.price_anomaly_detector import ConstituentMove, PriceAnomaly
+from app.services.ticker_leverage import load_leverage_map
 from app.services.user_scope import global_identifier_universe, user_holdings
 
 logger = logging.getLogger(__name__)
@@ -676,6 +677,7 @@ def select_user_anomalies(
     holdings: Sequence[Holding],
     trading_days: int,
     theme_map: dict[str, TickerTheme],
+    leverage_map: dict[str, Decimal],
 ) -> list[PriceAnomaly]:
     """Per-user threshold judgment + theme merge over globally-computed moves.
 
@@ -693,6 +695,14 @@ def select_user_anomalies(
     ``detect_window_anomalies`` did — merging only ever considers the
     holdings passed in here (this one user's), so it cannot pull another
     user's holdings into a merged entry.
+
+    ``leverage_map`` (ticker_leverage_overrides, issue #87): a leveraged
+    product's routine daily/cumulative move is the underlying's move times
+    its leverage_multiple, so both per_day and cumulative_cap are widened
+    (multiplied up) for a ticker with an override — the opposite direction
+    from the §4.1 concentration adjustment in portfolio_calculator.py.
+    Keeps this function pure/in-memory like theme_map: the caller loads the
+    table once via ``load_leverage_map`` and passes the dict in.
     """
     config = load_asset_class_config()
     theme_buckets: dict[str, list[tuple[Holding, PriceAnomaly]]] = {}
@@ -718,6 +728,13 @@ def select_user_anomalies(
         if thresholds is None:
             continue
         per_day, cumulative_cap = thresholds.anomaly_per_day, thresholds.anomaly_cumulative_cap
+        # `identifier` is already _normalize_ticker(...).upper() (see above),
+        # the same form load_leverage_map's keys use — no re-normalization
+        # needed here.
+        leverage = leverage_map.get(identifier)
+        if leverage is not None:
+            per_day = per_day * leverage
+            cumulative_cap = cumulative_cap * leverage
         window_threshold = _window_threshold(per_day, cumulative_cap, trading_days)
         single_day_hit = move.max_day_pct is not None and abs(move.max_day_pct) >= per_day
         cumulative_hit = abs(move.net_pct) >= window_threshold
@@ -802,5 +819,6 @@ def detect_window_anomalies(
     moves, trading_days = resolve_global_moves(session, start, end, moves_cache)
     holdings = user_holdings(session, user_id)
     theme_map = _load_theme_map(session)
-    anomalies = select_user_anomalies(moves, holdings, trading_days, theme_map)
+    leverage_map = load_leverage_map(session)
+    anomalies = select_user_anomalies(moves, holdings, trading_days, theme_map, leverage_map)
     return anomalies, trading_days

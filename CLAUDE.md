@@ -103,6 +103,7 @@ area of the code, not just the one-line summary here.
 - [Asset classification + fund NAV capture](docs/mechanisms/compliance-and-classification.md) — `asset_class` economic-exposure dimension, `ticker_themes`, fund NAV via lsjz.
 - [§1 / distribution / §4.1 read `asset_class`, not sector](docs/mechanisms/compliance-and-classification.md) — 2026-06-19: switched from `sector`/`asset_type`, concentration threshold rules.
 - [Asset_class thresholds are admin-configurable](docs/mechanisms/compliance-and-classification.md) — issue #35: `config/asset_class_thresholds.yml`, hot-reloaded, closed taxonomy.
+- [Leveraged-product threshold multiplier](docs/mechanisms/compliance-and-classification.md) — issue #87: system-wide `ticker_leverage_overrides` table (not per-user, not a new `asset_class` tier), read-time join widens window_data.py anomaly thresholds and tightens portfolio_calculator.py §4.1 single-holding concentration thresholds by `leverage_multiple` — opposite directions, both required; `/admin/ticker-leverage` CRUD, no LLM involvement.
 
 ## Language Policy (MANDATORY)
 

@@ -22,6 +22,7 @@ import logging
 import time
 from collections.abc import Callable, Coroutine
 from datetime import datetime
+from decimal import Decimal
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
@@ -73,6 +74,15 @@ from app.services.invites import (
 )
 from app.services.llm_errors import LLMEmptyResponseError
 from app.services.report_generator import generate_report, regenerate_report
+from app.services.ticker_leverage import (
+    LeverageOverride,
+    LeverageOverrideAlreadyExists,
+    create_leverage_override,
+    delete_leverage_override,
+    get_leverage_override,
+    list_leverage_overrides,
+    update_leverage_override,
+)
 from app.services.user_directory import recipient_email_with_purpose
 from app.services.user_purge import purge_user
 from app.services.user_scope import report_language_for
@@ -1077,3 +1087,104 @@ def get_email_verification_endpoint(
         last_sent_at=record.last_sent_at,
         verified_at=record.verified_at,
     )
+
+
+class LeverageOverrideOut(BaseModel):
+    ticker: str
+    leverage_multiple: Decimal
+    direction: Literal["bull", "bear"] | None
+    notes: str | None
+    created_by: UUID
+    created_at: datetime
+    updated_at: datetime
+
+    @staticmethod
+    def from_override(o: LeverageOverride) -> LeverageOverrideOut:
+        return LeverageOverrideOut(
+            ticker=o.ticker,
+            leverage_multiple=o.leverage_multiple,
+            direction=o.direction,
+            notes=o.notes,
+            created_by=o.created_by,
+            created_at=o.created_at,
+            updated_at=o.updated_at,
+        )
+
+
+class CreateLeverageOverrideBody(BaseModel):
+    ticker: str = Field(min_length=1)
+    leverage_multiple: Decimal = Field(gt=0)
+    direction: Literal["bull", "bear"] | None = None
+    notes: str | None = None
+
+
+@router.post("/ticker-leverage", response_model=LeverageOverrideOut, status_code=201)
+def create_ticker_leverage_endpoint(
+    body: CreateLeverageOverrideBody, session: Session = Depends(get_session)
+) -> LeverageOverrideOut:
+    """Issue #87: system-wide leveraged-product multiplier, applied at read
+    time by window_data.py (anomaly thresholds widened) and
+    portfolio_calculator.py (§4.1 single-holding concentration thresholds
+    tightened). Never written back onto Holding.asset_class."""
+    try:
+        created = create_leverage_override(
+            session,
+            ticker=body.ticker,
+            leverage_multiple=body.leverage_multiple,
+            direction=body.direction,
+            notes=body.notes,
+            created_by=UUID(get_settings().DEV_USER_ID),
+        )
+    except LeverageOverrideAlreadyExists:
+        raise HTTPException(
+            status_code=409, detail="ticker already has a leverage override"
+        ) from None
+    session.commit()
+    return LeverageOverrideOut.from_override(created)
+
+
+@router.get("/ticker-leverage", response_model=list[LeverageOverrideOut])
+def list_ticker_leverage_endpoint(
+    session: Session = Depends(get_session),
+) -> list[LeverageOverrideOut]:
+    return [LeverageOverrideOut.from_override(o) for o in list_leverage_overrides(session)]
+
+
+@router.get("/ticker-leverage/{ticker}", response_model=LeverageOverrideOut)
+def get_ticker_leverage_endpoint(
+    ticker: str, session: Session = Depends(get_session)
+) -> LeverageOverrideOut:
+    override = get_leverage_override(session, ticker)
+    if override is None:
+        raise HTTPException(status_code=404, detail="ticker leverage override not found")
+    return LeverageOverrideOut.from_override(override)
+
+
+class UpdateLeverageOverrideBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    leverage_multiple: Decimal | None = Field(default=None, gt=0)
+    direction: Literal["bull", "bear"] | None = Field(default=None)
+    notes: str | None = Field(default=None)
+
+
+@router.patch("/ticker-leverage/{ticker}", response_model=LeverageOverrideOut)
+def update_ticker_leverage_endpoint(
+    ticker: str, body: UpdateLeverageOverrideBody, session: Session = Depends(get_session)
+) -> LeverageOverrideOut:
+    updates = body.model_dump(exclude_unset=True)
+    try:
+        updated = update_leverage_override(session, ticker, **updates)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="ticker leverage override not found") from None
+    session.commit()
+    return LeverageOverrideOut.from_override(updated)
+
+
+@router.delete("/ticker-leverage/{ticker}", status_code=204)
+def delete_ticker_leverage_endpoint(ticker: str, session: Session = Depends(get_session)) -> None:
+    try:
+        delete_leverage_override(session, ticker)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="ticker leverage override not found") from None
+    session.commit()
