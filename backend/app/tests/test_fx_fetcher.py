@@ -67,3 +67,148 @@ def test_pairs_cover_every_valid_currency_except_usd() -> None:
     from app.schemas.holdings import VALID_CURRENCIES
 
     assert {pair[3:] for pair in fx_fetcher._PAIRS} == VALID_CURRENCIES - {"USD"}
+
+
+# ---------------------------------------------------------------------------
+# issue #354 item 7(a): per-pair fetch-failure ops alert
+# ---------------------------------------------------------------------------
+
+
+def test_total_fetch_failure_sends_ops_alert(db_session: Session) -> None:
+    """Previously a 100%-fetch failure only logged an ERROR — nothing ever
+    reached the ops inbox. An empty fx_rates table also trips every pair's
+    "never resolved" gap check (item 7b) in the same run — a separate, both-
+    real failure mode, not a duplicate of this one."""
+    with (
+        patch.object(fx_fetcher, "fetch_last_close", return_value={}),
+        patch.object(fx_fetcher, "send_ops_alert", return_value=True) as mock_alert,
+    ):
+        fx_fetcher.update_fx_rates(db_session)
+
+    fetch_failed_alert = next(
+        c for c in mock_alert.call_args_list if "FX fetch failed" in c.kwargs["subject"]
+    )
+    assert "USDCNY" in fetch_failed_alert.kwargs["body"]
+
+
+def test_partial_fetch_failure_sends_ops_alert(db_session: Session) -> None:
+    points = {"USDCNY=X": (7.18, _AS_OF)}
+    with (
+        patch.object(fx_fetcher, "fetch_last_close", return_value=points),
+        patch.object(fx_fetcher, "send_ops_alert", return_value=True) as mock_alert,
+    ):
+        fx_fetcher.update_fx_rates(db_session)
+
+    # One alert for the failed-pairs set, one for the staleness/gap check's
+    # response to those same missing pairs (item 7(b)) — both real, distinct
+    # failure modes per the issue's design, not a double-count of the same one.
+    assert mock_alert.called
+    failed_pair_alert = next(
+        c for c in mock_alert.call_args_list if "FX fetch failed" in c.kwargs["subject"]
+    )
+    assert "USDHKD" in failed_pair_alert.kwargs["body"]
+    assert "USDCNY" not in failed_pair_alert.kwargs["body"]
+
+
+def test_fetch_failure_alert_is_deduped_same_day(db_session: Session) -> None:
+    """A second run with the identical failure set on the same day must not
+    re-alert — the durable Redis dedup (issue #298 pattern), not send_ops_
+    alert's own Resend Idempotency-Key, is what suppresses this."""
+    with (
+        patch.object(fx_fetcher, "fetch_last_close", return_value={}),
+        patch.object(fx_fetcher, "send_ops_alert", return_value=True) as mock_alert,
+    ):
+        fx_fetcher.update_fx_rates(db_session)
+        fx_fetcher.update_fx_rates(db_session)
+
+    fetch_failed_calls = [
+        c for c in mock_alert.call_args_list if "FX fetch failed" in c.kwargs["subject"]
+    ]
+    assert len(fetch_failed_calls) == 1
+
+
+def test_failed_alert_not_deduped_when_send_fails(db_session: Session) -> None:
+    """A failed send must leave the dedup state unset so the next run retries
+    it (mirrors price_capture.py's _send_nav_alert round-2 review fix)."""
+    with (
+        patch.object(fx_fetcher, "fetch_last_close", return_value={}),
+        patch.object(fx_fetcher, "send_ops_alert", return_value=False) as mock_alert,
+    ):
+        fx_fetcher.update_fx_rates(db_session)
+        fx_fetcher.update_fx_rates(db_session)
+
+    fetch_failed_calls = [
+        c for c in mock_alert.call_args_list if "FX fetch failed" in c.kwargs["subject"]
+    ]
+    assert len(fetch_failed_calls) == 2
+
+
+# ---------------------------------------------------------------------------
+# issue #354 item 7(b): request-time resolvable-rate gap/staleness ops alert
+# ---------------------------------------------------------------------------
+
+
+def test_missing_pair_sends_never_resolved_alert(db_session: Session) -> None:
+    """A pair with zero fx_rates rows ever (never fetched successfully) is a
+    distinct failure from "stale" — this is the read-time gap 7(b) exists to
+    catch, since a per-fetch-attempt-only alert (7a) can miss it once the
+    daily task itself stops running at all."""
+    points = {yf_ticker: (7.18, _AS_OF) for yf_ticker in fx_fetcher._PAIRS.values()}
+    del points["USDHKD=X"]
+    with (
+        patch.object(fx_fetcher, "fetch_last_close", return_value=points),
+        patch.object(fx_fetcher, "send_ops_alert", return_value=True) as mock_alert,
+    ):
+        fx_fetcher.update_fx_rates(db_session)
+
+    missing_alert = next(
+        c for c in mock_alert.call_args_list if "never resolved" in c.kwargs["subject"]
+    )
+    assert "USDHKD" in missing_alert.kwargs["subject"]
+
+
+def test_stale_resolvable_pair_sends_stale_alert(db_session: Session) -> None:
+    """A pair that keeps fetching "successfully" but whose resolvable latest
+    rate has stopped advancing (fetch always lands on the same old
+    rate_date) is the exact production mechanism this issue's root cause
+    was about — 7(a) alone cannot see it since every fetch reports success."""
+    old_date = date(2026, 1, 1)
+    db_session.add(FxRate(pair="USDHKD", rate=Decimal("8.0"), rate_date=old_date, source="test"))
+    db_session.flush()
+
+    with (
+        patch.object(fx_fetcher, "fetch_last_close") as mock_fetch,
+        patch.object(fx_fetcher, "send_ops_alert", return_value=True) as mock_alert,
+    ):
+        # Everything except USDHKD fetches fine at the real "today"; USDHKD
+        # keeps returning no new data (its yfinance point is simply absent),
+        # so its only resolvable rate stays pinned at old_date.
+        points = {
+            yf_ticker: (7.18, datetime.now(tz=UTC))
+            for yf_ticker in fx_fetcher._PAIRS.values()
+            if yf_ticker != "USDHKD=X"
+        }
+        mock_fetch.return_value = points
+        fx_fetcher.update_fx_rates(db_session)
+
+    stale_alert = next(
+        c for c in mock_alert.call_args_list if "FX pair stale" in c.kwargs["subject"]
+    )
+    assert "USDHKD" in stale_alert.kwargs["subject"]
+    assert old_date.isoformat() in stale_alert.kwargs["body"]
+
+
+def test_healthy_pairs_send_no_staleness_alert(db_session: Session) -> None:
+    """Unlike _fake_points()'s fixed historical _AS_OF (used by the upsert-
+    mechanics tests above, which don't care about staleness), the staleness
+    check compares against the real current date — these points must be
+    genuinely fresh (today, ET) for "no alert" to be the correct outcome."""
+    fresh_as_of = datetime.now(tz=UTC)
+    points = {yf_ticker: (7.18, fresh_as_of) for yf_ticker in fx_fetcher._PAIRS.values()}
+    with (
+        patch.object(fx_fetcher, "fetch_last_close", return_value=points),
+        patch.object(fx_fetcher, "send_ops_alert", return_value=True) as mock_alert,
+    ):
+        fx_fetcher.update_fx_rates(db_session)
+
+    assert mock_alert.call_count == 0

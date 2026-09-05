@@ -99,6 +99,11 @@ _EXTERNAL_NOTIFY_MODULES = (
     # issue #264: holdings_tasks.cleanup_upload_jobs calls send_ops_alert on
     # retry exhaustion (same pattern as cache_tasks).
     "app.tasks.holdings_tasks",
+    # issue #354: update_fx_rates() now alerts on per-pair fetch failure and
+    # on a request-time resolvable-rate gap/staleness — both existing
+    # test_fx_fetcher.py fixtures (all-pairs-failed, partial-failure) would
+    # otherwise hit the real Resend API.
+    "app.services.fx_fetcher",
 )
 
 
