@@ -13,16 +13,19 @@ export function MenuDropdown({
   trigger,
   children,
   triggerClassName,
+  disabled,
 }: {
   trigger: React.ReactNode;
   children: React.ReactNode;
   triggerClassName?: string;
+  disabled?: boolean;
 }) {
   return (
     <Menu.Root>
       <Menu.Trigger
+        disabled={disabled}
         className={cn(
-          "inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
+          "inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50",
           triggerClassName,
         )}
       >
@@ -64,15 +67,23 @@ export function MenuItemLink({
 
 export function MenuItemButton({
   onClick,
+  disabled,
   children,
 }: {
   onClick: () => void;
+  disabled?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <Menu.Item
       onClick={onClick}
-      className="flex w-full cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-left text-sm outline-none data-[highlighted]:bg-muted data-[highlighted]:text-foreground"
+      disabled={disabled}
+      className={cn(
+        "flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm outline-none",
+        disabled
+          ? "cursor-not-allowed opacity-50"
+          : "cursor-pointer data-[highlighted]:bg-muted data-[highlighted]:text-foreground",
+      )}
     >
       {children}
     </Menu.Item>

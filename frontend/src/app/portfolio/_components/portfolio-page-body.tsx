@@ -9,6 +9,7 @@ import { BreakdownChart } from "./breakdown-chart";
 import { CurrencySwitcher } from "./currency-switcher";
 import { DEFAULT_BASE_CURRENCY, type BaseCurrency } from "./currencies";
 import { ExportPortfolioButtons } from "./export-portfolio-buttons";
+import { FxAsOfBanner } from "./fx-as-of-banner";
 import { NoLivePriceSection } from "./no-live-price-section";
 import { PnlSummaryCard } from "./pnl-summary-card";
 import {
@@ -132,6 +133,7 @@ export function PortfolioPageBody({
       </div>
 
       <PriceAsOfBanner priceAsOfDate={summary.price_as_of_date} />
+      <FxAsOfBanner fxRatesAsOf={summary.fx_rates_as_of} />
 
       {loadError && (
         <p role="alert" className="text-sm text-destructive">
