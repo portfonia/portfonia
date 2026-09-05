@@ -74,6 +74,23 @@ consumers of the identifier convention had been added since:
   queried by the raw ticker too, so it never found the normalized rows and
   re-enqueued a full 420-day `backfill_ohlcv_task` on every single confirm
   for a ticker that already had a year of correctly-captured history)
+- `price_capture.capture_prices`'s own `missing`-list check (issue #351,
+  PR #352 — a consumer added after #204 landed, missed by every later
+  audit pass since it touches a *derived fallback-trigger list*, not a
+  lookup key): `missing = [t for t in selected if t not in ohlcv/spot]`
+  compared the raw selected ticker against `ohlcv`/`spot`'s normalized
+  keys, so any ticker that normalizes (PSH included) was permanently
+  misclassified as a capture failure — wasting the US-only
+  Massive.com/Finnhub fallback calls and polluting capture telemetry on
+  every run, even when yfinance had already succeeded. Fixed by comparing
+  `_normalize_ticker(t)` instead, in both the close (Massive) and spot
+  (Finnhub) branches. A review follow-up on the same PR caught that the
+  `missing` list itself must hold the *normalized* form too, not just be
+  compared against it: on a genuine miss (not just this normalization
+  bug), the fallback call was still handed the raw ticker, which for a
+  future override-table entry could ask a US-only provider for an
+  entirely different instrument than the one it needed — the same
+  wrong-instrument collision class #204 exists to prevent.
 
 `holding_parser.py`'s own `_normalize_hk_ticker` (a *separate*, older
 function — parse-time DB-write canonicalization, e.g. `02333.HK` →
@@ -210,6 +227,26 @@ unresolved by design ("do not guess a suffix") and falls through to US —
 that residual gap, not the whole item, is what's deferred to Ring-1-C /
 issue #204; `_TICKER_SYMBOL_OVERRIDE` in `_yfinance.py` remains a single
 hardcoded entry (`PSH`) for the bare-ticker-with-no-hint-at-all case.
+
+**PR #310 does not retroactively fix a row already written before it
+existed** (issue #351): the actual production `PSH` holding predated PR
+#310 and was found stuck at `ticker='PSH'`, `market='US'`,
+`capture_supported=True` — permanently, since re-editing/re-confirming it
+does not help either: `_confirmed_market()` treats a market already in
+`VALID_HOLDING_MARKETS` (`"US"` included) as already-confirmed and never
+re-derives from currency. Every current write path was confirmed to
+already route through `_apply_write_defaults` (no new holding can land in
+this state today), so the gap is pre-existing data only. A general
+backfill script (same shape as `backfill_capture_supported.py`'s
+`market="Other"` sweep, widened to bare-ticker + non-USD-currency +
+already-a-supported-market rows) was designed and rejected by the product
+owner as disproportionate blast radius for one known-bad row; PSH's
+`market`/`ticker` were corrected directly in production instead (verified
+before and after via a read-only ORM query through the live container),
+using the same `apply_confirmed_exchange_suffix`/`resolve_holding_market`
+sequence rather than hardcoded values. No script added — if a second
+row in this state ever surfaces, revisit whether a script is now
+warranted rather than repeating a one-off manual fix.
 
 Out of scope: commodity exchanges; any market beyond the seven scheduled
 buckets; FX (GBP/EUR/JPY/KRW pairs already covered by #204).
