@@ -25,7 +25,7 @@ from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
 from app.services._finnhub import fetch_quotes as fetch_finnhub_quotes
 from app.services._massive import fetch_prev_close_ohlcv as fetch_massive_prev_close_ohlcv
-from app.services._yfinance import fetch_ohlcv_range, fetch_spot
+from app.services._yfinance import _normalize_ticker, fetch_ohlcv_range, fetch_spot
 from app.services.email_sender import send_ops_alert
 from app.services.markets import is_capture_supported, market_from_ticker
 
@@ -148,7 +148,15 @@ def capture_prices(
         # after_close (structurally cannot serve same-day data) or any
         # non-US market (free tier is US-stocks-only, officially, at every
         # paid tier too).
-        missing = [t for t in selected if t not in ohlcv]
+        # ohlcv is keyed by fetch_ohlcv_range's normalized ticker (e.g. "PSH"
+        # -> "PSH.L" via _TICKER_SYMBOL_OVERRIDE) — comparing the raw
+        # selected ticker against those keys always misses for any ticker
+        # that normalizes, wrongly flagging a clean yfinance hit as missing
+        # (issue #351). `missing` itself is built from the normalized form
+        # too: a genuine miss must still ask the fallback for the right
+        # instrument, not risk the same raw-ticker collision #204 fixed for
+        # the primary yfinance lookup.
+        missing = [_normalize_ticker(t) for t in selected if _normalize_ticker(t) not in ohlcv]
         massive_key = get_settings().MASSIVE_API_KEY
         if market == "US" and massive_key is not None and missing:
             for ticker, bar in fetch_massive_prev_close_ohlcv(
@@ -191,7 +199,11 @@ def capture_prices(
         # fetch_ohlcv_range and wants finalized daily bars, not a quote.
         # US-only by verified free-tier capability (non-US symbols return
         # {"error": ...}), so this only runs for the US market bucket.
-        missing = [t for t in selected if t not in spot]
+        # Same normalized-key mismatch as the close branch above, including
+        # `missing` itself being built from the normalized form so a real
+        # miss doesn't hand the fallback a raw, possibly wrong-instrument
+        # ticker (issue #351).
+        missing = [_normalize_ticker(t) for t in selected if _normalize_ticker(t) not in spot]
         finnhub_key = get_settings().FINNHUB_API_KEY
         if market == "US" and finnhub_key is not None and missing:
             for ticker, quote in fetch_finnhub_quotes(
