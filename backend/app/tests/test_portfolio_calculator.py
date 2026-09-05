@@ -581,11 +581,16 @@ def test_pnl_none_for_capture_unsupported_holding(db_session: Session) -> None:
     assert hv.unrealized_pnl_base is None
 
 
-def test_pnl_totals_exclude_cash_and_sum_priced_holdings_only(db_session: Session) -> None:
-    """Snapshot-level P&L totals sum only holdings with a computed cost basis
-    (issue #320 decision 2) — cash/wmf never contributes to the numerator or
-    denominator, so 'total unrealized return %' doesn't silently include
-    assets that have no cost-basis concept."""
+def test_pnl_totals_treat_cash_as_zero_pnl_cost_basis(db_session: Session) -> None:
+    """Issue #350 item 5: at the portfolio-level aggregate, cash/wmf's
+    market_value_base joins total_cost_basis_base (as if cost basis ==
+    current value) — a diluting-but-neutral contributor to the P&L
+    denominator — but never touches total_unrealized_pnl_base's numerator
+    (no "return on cash" concept). Per-holding cost_basis_base/
+    unrealized_pnl_base (asserted elsewhere, e.g.
+    test_pnl_none_for_cash_holding) are unaffected; only the aggregate
+    widens. Supersedes the pre-#350 "cash never contributes to the
+    denominator either" behavior this test used to lock in."""
     _seed_fx(db_session)
     apple = _stock("Apple", "AAPL", "USD", "10", "300")
     apple.avg_cost = Decimal("250")  # cost 2500, value 3000, pnl +500
@@ -596,21 +601,81 @@ def test_pnl_totals_exclude_cash_and_sum_priced_holdings_only(db_session: Sessio
 
     snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
 
-    assert snap.total_cost_basis_base == Decimal("2900.00")  # 2500 + 400
-    assert snap.total_unrealized_pnl_base == Decimal("600.00")  # 500 + 100
-    assert snap.total_unrealized_pnl_pct == Decimal("0.2069")  # 600 / 2900
+    assert snap.total_cost_basis_base == Decimal("7900.00")  # 2500 + 400 + 5000 cash
+    assert snap.total_unrealized_pnl_base == Decimal("600.00")  # 500 + 100, cash contributes 0
+    assert snap.total_unrealized_pnl_pct == Decimal("0.0759")  # 600 / 7900
 
 
-def test_pnl_totals_zero_when_no_priced_holdings(db_session: Session) -> None:
+def test_pnl_totals_cash_only_book_has_zero_pct_not_none(db_session: Session) -> None:
+    """A cash-only book now has a well-defined (0%) total return rather than
+    None: cash alone still gives total_cost_basis_base a positive value
+    since issue #350 item 5, so the never-divide-by-zero branch no longer
+    applies here."""
     _seed_fx(db_session)
     db_session.add(_cash("USD Cash", "USD", "1000"))
     db_session.flush()
 
     snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
 
+    assert snap.total_cost_basis_base == Decimal("1000.00")
+    assert snap.total_unrealized_pnl_base == Decimal("0")
+    assert snap.total_unrealized_pnl_pct == Decimal("0.0000")
+
+
+def test_pnl_totals_wmf_holding_also_treated_as_zero_pnl_cost_basis(db_session: Session) -> None:
+    """The dilution applies to wmf too, not only cash — both asset_type
+    values are in scope per issue #350 item 5's requirement."""
+    _seed_fx(db_session)
+    wmf = Holding(
+        user_id=_USER,
+        name="Wealth Product",
+        pricing_mode="manual",
+        currency="USD",
+        current_value=Decimal("2000"),
+        asset_type="wmf",
+        asset_class="CASH_EQUIV",
+    )
+    db_session.add(wmf)
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    assert snap.total_cost_basis_base == Decimal("2000.00")
+    assert snap.total_unrealized_pnl_base == Decimal("0")
+
+
+def test_pnl_totals_exclude_capture_unsupported_holding_from_cash_dilution(
+    db_session: Session,
+) -> None:
+    """Issue #350 item 5 review scoping: the dilution is deliberately scoped
+    to asset_type in ("cash", "wmf"), NOT the broader pricing_mode != "auto"
+    set — a capture_supported=False holding (e.g. an unresolvable foreign
+    listing) has no reliable valuation to treat as its own cost basis, and
+    its market_value_base is None anyway (excluded before the aggregate
+    block even runs), so it must not silently join total_cost_basis_base."""
+    _seed_fx(db_session)
+    h = _stock("Unresolvable", None, "GBP", "10", None)
+    h.market = "Other"
+    h.capture_supported = False
+    db_session.add(h)
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
     assert snap.total_cost_basis_base == Decimal("0")
     assert snap.total_unrealized_pnl_base == Decimal("0")
-    assert snap.total_unrealized_pnl_pct is None  # never divide by zero
+    assert snap.total_unrealized_pnl_pct is None
+
+
+def test_pnl_totals_pending_zero_when_truly_no_holdings(db_session: Session) -> None:
+    """The never-divide-by-zero branch still matters for an empty book."""
+    _seed_fx(db_session)
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    assert snap.total_cost_basis_base == Decimal("0")
+    assert snap.total_unrealized_pnl_base == Decimal("0")
+    assert snap.total_unrealized_pnl_pct is None
 
 
 def test_price_as_of_date_is_max_captured_trade_date_actually_used(
