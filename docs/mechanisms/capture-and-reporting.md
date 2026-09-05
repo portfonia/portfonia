@@ -960,3 +960,125 @@ data loss ("price pending" vs. "gone"). Confirmed against production
 use `or 0` (deliberate exclusion of unpriced rows from subtotal math).
 
 **Status**: PR #301 open, awaiting review/merge.
+
+### Per-pair independent FX rate resolution + fx_rates_as_of (issue #354)
+
+**Trigger**: switching `/portfolio`'s base-currency selector produced
+currency-dependent results instead of a full multi-currency book normalized
+into the chosen currency — holdings in any currency other than the selected
+one, or other than USD/CNY, rendered as `--`. Verified against production:
+the same `capture_fx_task` run wrote `USDCNY` at `rate_date=2026-09-04` and
+`USDCNH` at `rate_date=2026-09-03` — yfinance's per-cross "latest close"
+settlement time is not synchronized across pairs, which is routine, not an
+incident.
+
+**Root cause**: `portfolio_calculator._load_fx_rates()` computed one
+`max(rate_date)` across **all 14** FX pairs combined, then loaded only rows
+matching that single shared date. Any pair not yet on that exact date
+vanished entirely from the request's `fx` dict, and `_to_base()` returns
+`None` on a missing pair — routing the holding into the existing
+issue-#295 "unpriced" placeholder path. Whichever pair advanced to a new
+trading day first made every *other* pair disappear until it caught up.
+`compute_portfolio()`'s two-layer aggregation architecture (native-currency
+first, then per-holding `_to_base()` conversion) was already correct and is
+unchanged by this fix — the bug was entirely in which FX snapshot got
+loaded, not in how holdings aggregate.
+
+**Fix — pairs resolve independently, mixing is accepted by design, not
+forced-aligned**: `_load_fx_rates()` now groups by `FxRate.pair` and takes
+each pair's own `max(rate_date) <= today` independently, returning
+`(rates: dict[pair, Decimal], pair_dates: dict[pair, date])`. A single
+render can therefore legitimately use HKD's 2026-09-03 rate alongside CNY's
+2026-09-04 rate — this was an explicit, discussed product decision (not
+deferred to implementation): forcing one shared date across pairs is what
+caused the bug, and disclosure (see banner below) makes the accepted
+mixed-date tradeoff safe without re-introducing the alignment requirement.
+
+**`fx_rates_as_of` replaces the single `fx_date` scalar**:
+`PortfolioSnapshot.fx_date: date` is retired outright — once pairs resolve
+independently, one scalar can't represent "the" FX date. Replacement is
+`fx_rates_as_of: dict[str, date]`, keyed by 3-letter currency code (never
+`"USD"`, which needs no rate as the pivot), populated only for currencies
+this render actually needed (a holding's native currency, or the selected
+`base_currency`). Every consumer of the old scalar moved to the new map:
+`GET /portfolio/summary`'s `fx_rates_as_of` field, `report_serializers.py`,
+and a new shared `portfolio_calculator.format_fx_rates_as_of()` helper
+(`"CCY as of DATE, CCY as of DATE"`, or `"n/a"` when empty) used by
+`report_sections.py`'s §1 header / footer disclosure / data-window line,
+`report_assembly.py`, and `report_prompts.py` — all of which previously
+interpolated a single date string. `report_sections._fx_is_stale()` changed
+from a single bool to `list[str]` (stale currencies, sorted) since staleness
+is now inherently per-currency; `report_generator.py`'s FX-stale ops alert
+names the specific stale currencies instead of assuming CNY/HKD.
+`i18n_glossary.yml`'s `data_sources_note` wording changed from "...closes
+**as of** $fx_date" to "...closes **($fx_date)**" in both locales — the
+substituted value now already contains "as of" per-currency, so the old
+wrapping would have doubled the phrase ("as of CNY as of 2026-09-04").
+
+**Frontend**: `PortfolioSummary.fx_rates_as_of: Record<string, string>`
+replaces `fx_date: string`. New `FxAsOfBanner` component
+(`fx-as-of-banner.tsx`), a sibling of `PriceAsOfBanner` rendered directly
+next to it in `portfolio-page-body.tsx` — one line, one `"CCY as of DATE"`
+entry per currency sorted alphabetically, joined with `" · "`. Omitted
+entirely (renders `null`) when `fx_rates_as_of` is empty (single-currency
+book already matching `base_currency`, no conversion happened) — mirrors
+`PriceAsOfBanner`'s existing hide-when-inapplicable convention rather than
+inventing an "N/A" state. Unconditional whenever any conversion happened —
+this is a transparency banner, not a staleness alert; the ops alert below is
+the separate, conditional mechanism for a genuine staleness breach.
+
+**Ops alerts — two distinct failure modes, not one**:
+1. **Per-pair fetch failure** (`fx_fetcher.py`, item 7a): `update_fx_rates()`
+   previously only `logger.warning`/`logger.error`'d a fetch miss — nothing
+   reached the ops inbox even on a 100%-pairs failure. `_warn_failed_pairs()`
+   now alerts on any non-empty `result.failed`, deduped by
+   `(sorted-failed-pair-set, today)` via `app/core/alert_dedup.py` (issue
+   #298's precedent, not a new suppression mechanism).
+2. **Request-time resolvable-rate gap/staleness** (`fx_fetcher.py`, item 7b):
+   distinct from #1 because the reproduced bug had **all 14 pairs fetching
+   successfully** — a per-fetch-attempt-only alert cannot see a pair whose
+   *resolvable* latest rate has stopped advancing while still "succeeding"
+   each day, or a pair with zero rows ever. `_check_fx_staleness()` runs once
+   per `update_fx_rates()` call (not per request) against the full `_PAIRS`
+   set, mirroring `price_capture.py`'s `_warn_if_nav_missing`/
+   `_warn_if_nav_stale` pattern exactly (same dedup helper, same
+   fail-open-on-Redis-outage stance). "Never resolved" (zero rows) and
+   "stale" (resolvable rate lagging today by more than the existing 4-day
+   `_FX_STALE_DAYS` tolerance, mirroring `portfolio_calculator.
+   _PRICE_STALE_DAYS`/`report_sections._FX_STALE_DAYS`) are reported as
+   separate alert subjects — different remediation ("never captured" vs.
+   "capture stalled").
+
+**Currency-switcher rebuild + display narrowing (frontend-only, no backend
+change)**: `currency-switcher.tsx`'s plain native `<select>` replaced with
+the same `MenuDropdown`/`MenuItemButton` (`components/ui/menu.tsx`)
+primitives `LocaleSwitcher` uses (issue #350 item 4 precedent), with
+flag-icons per currency (CNH → `cn`, same flag as CNY — it is an offshore
+quote of the same currency, not a separate jurisdiction; EUR → `eu`, the
+flag-icons European Union entry, explicitly not a member state's flag —
+both product-owner decisions from this issue's design conversation, not
+defaults). `currencies.ts` splits into three lists, each with a different
+real effect (documented inline in the file to prevent a future edit
+narrowing the wrong one): `BASE_CURRENCIES` (all 15, schema-mirroring,
+unchanged — still the option list for the unrelated `/profile` report-
+currency setting, issue #350 item 1) stays untouched;
+`PORTFOLIO_DISPLAY_CURRENCIES` (7: USD/CNY/CNH/GBP/HKD/TWD/EUR) is exactly
+what the switcher's menu lists — MOP and the other 7 `BASE_CURRENCIES`
+entries are left off the menu entirely, a switcher-menu-contents decision
+only (holdings, `by_currency`, and `fx_rates_as_of` entries in any of those
+excluded currencies still render normally everywhere else on the page, this
+gates nothing else); `PORTFOLIO_NORMALIZATION_TARGETS` (2: USD/CNY) is the
+subset of the 7 that's actually clickable — the other 5 still appear in the
+menu with a greyed-out (CSS `grayscale`) flag via a `disabled` prop added to
+`MenuItemButton`/`MenuDropdown`'s underlying `Menu.Item`/`Menu.Trigger`
+(both already supported `disabled` in the installed `@base-ui/react`
+version; this PR is the first caller to use it), not hidden — shown-but-
+disabled was an explicit product-owner clarification during this issue's
+implementation, not the default inline-comment interpretation.
+
+**Constraints honored** (per issue #354's design-tradeoffs comment, all
+verified unchanged by this fix): `_to_base()`'s aggregation architecture,
+`VALID_CURRENCIES`, and `_CURRENCY_TO_FX_PAIR`/`fx_fetcher._PAIRS`'s pair
+coverage are all untouched — this was a read-time date-selection fix, not an
+aggregation or coverage fix. FX rates are still pulled once daily into
+`fx_rates`; no request-path call to the FX source was added.
