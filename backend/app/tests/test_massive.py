@@ -28,6 +28,15 @@ def _reenable_module_logger_for_caplog() -> None:
     logging.getLogger("app.services._massive").disabled = False
 
 
+@pytest.fixture(autouse=True)
+def _mock_inter_request_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The pacing delay is a real 12s (60s/5 req-per-min) — without this,
+    any test that fetches more than one ticker would actually sleep for it.
+    Tests asserting on pacing behavior itself re-patch time.sleep locally,
+    which layers cleanly on top of this."""
+    monkeypatch.setattr("app.services._massive.time.sleep", MagicMock())
+
+
 def _bar(
     o: float = 115.55, h: float = 117.59, low: float = 114.13, c: float = 115.97, v: float = 1000.0
 ) -> dict[str, object]:
@@ -199,3 +208,42 @@ def test_fetch_prev_close_ohlcv_empty_input_makes_no_request() -> None:
         result = fetch_prev_close_ohlcv([], _API_KEY)
     assert result == {}
     client.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Inter-request pacing (review follow-up, PR #342): free tier is 5 req/min —
+# sequential unpaced GETs on a large miss batch can trip 429 and fail-open
+# skip tickers that would otherwise have succeeded.
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_prev_close_ohlcv_paces_requests_to_respect_free_tier_rate_limit() -> None:
+    with (
+        patch(
+            "app.services._massive.httpx.Client",
+            return_value=_patched_client(
+                {
+                    "AAPL": {"results": [_bar()], "status": "OK"},
+                    "MSFT": {"results": [_bar()], "status": "OK"},
+                }
+            ),
+        ),
+        patch("app.services._massive.time.sleep") as mock_sleep,
+    ):
+        result = fetch_prev_close_ohlcv(["AAPL", "MSFT"], _API_KEY)
+
+    assert set(result.keys()) == {"AAPL", "MSFT"}
+    mock_sleep.assert_called_once()
+
+
+def test_fetch_prev_close_ohlcv_single_ticker_no_pacing_delay() -> None:
+    with (
+        patch(
+            "app.services._massive.httpx.Client",
+            return_value=_patched_client({"AAPL": {"results": [_bar()], "status": "OK"}}),
+        ),
+        patch("app.services._massive.time.sleep") as mock_sleep,
+    ):
+        fetch_prev_close_ohlcv(["AAPL"], _API_KEY)
+
+    mock_sleep.assert_not_called()

@@ -30,6 +30,14 @@ logger = logging.getLogger(__name__)
 
 _PREV_CLOSE_URL = "https://api.massive.com/v2/aggs/ticker/{ticker}/prev"
 
+# Free tier is rate-limited to 5 req/min (official pricing page) — an
+# unpaced sequential loop over a large yfinance-miss batch can trip 429 and
+# fail-open-skip tickers that would otherwise have succeeded (PR #342
+# review). 12s is 60s/5, the minimum spacing that never exceeds the limit;
+# only paid between requests (never before the first), so the common case
+# of 0-1 missing tickers sees no added latency.
+_INTER_REQUEST_DELAY_SECONDS = 12
+
 
 def _log_telemetry(ticker_count: int, latency_ms: float, error_type: str | None = None) -> None:
     """Same log shape as _yfinance._log_fetch_telemetry — source differs only."""
@@ -63,7 +71,9 @@ def fetch_prev_close_ohlcv(tickers: list[str], api_key: str) -> dict[str, OhlcvP
 
     out: dict[str, OhlcvPoint] = {}
     with httpx.Client() as client:
-        for ticker in tickers:
+        for i, ticker in enumerate(tickers):
+            if i > 0:
+                time.sleep(_INTER_REQUEST_DELAY_SECONDS)
             start = time.monotonic()
             try:
                 resp = client.get(
