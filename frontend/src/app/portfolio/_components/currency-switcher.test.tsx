@@ -15,7 +15,7 @@ function renderSwitcher(onChange = vi.fn()) {
 }
 
 describe("CurrencySwitcher", () => {
-  it("lists all 7 display currencies, not just the 2 selectable ones (issue #354)", async () => {
+  it("lists all 7 display currencies, not just the 3 selectable ones (issue #354)", async () => {
     const user = userEvent.setup();
     renderSwitcher();
 
@@ -27,22 +27,20 @@ describe("CurrencySwitcher", () => {
     }
   });
 
-  it("only USD and CNY are enabled; the other 5 are disabled, not hidden", async () => {
+  it("USD, CNY, and HKD are enabled; the other 4 are disabled, not hidden", async () => {
     const user = userEvent.setup();
     renderSwitcher();
 
     await user.click(screen.getByRole("button", { name: /base currency/i }));
     await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument());
 
-    expect(screen.getByRole("menuitem", { name: "USD" })).not.toHaveAttribute(
-      "aria-disabled",
-      "true",
-    );
-    expect(screen.getByRole("menuitem", { name: "CNY" })).not.toHaveAttribute(
-      "aria-disabled",
-      "true",
-    );
-    for (const code of ["CNH", "GBP", "HKD", "TWD", "EUR"]) {
+    for (const code of ["USD", "CNY", "HKD"]) {
+      expect(screen.getByRole("menuitem", { name: code })).not.toHaveAttribute(
+        "aria-disabled",
+        "true",
+      );
+    }
+    for (const code of ["CNH", "GBP", "TWD", "EUR"]) {
       expect(screen.getByRole("menuitem", { name: code })).toHaveAttribute(
         "aria-disabled",
         "true",
@@ -70,6 +68,17 @@ describe("CurrencySwitcher", () => {
     await user.click(screen.getByRole("menuitem", { name: "CNY" }));
 
     expect(onChange).toHaveBeenCalledWith("CNY");
+  });
+
+  it("HKD is also selectable (issue #354 correction: 3 normalization targets, not 2)", async () => {
+    const user = userEvent.setup();
+    const onChange = renderSwitcher();
+
+    await user.click(screen.getByRole("button", { name: /base currency/i }));
+    await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument());
+    await user.click(screen.getByRole("menuitem", { name: "HKD" }));
+
+    expect(onChange).toHaveBeenCalledWith("HKD");
   });
 
   it("renders a grayscale flag on the disabled currencies", async () => {

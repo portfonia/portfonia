@@ -1067,9 +1067,12 @@ what the switcher's menu lists — MOP and the other 7 `BASE_CURRENCIES`
 entries are left off the menu entirely, a switcher-menu-contents decision
 only (holdings, `by_currency`, and `fx_rates_as_of` entries in any of those
 excluded currencies still render normally everywhere else on the page, this
-gates nothing else); `PORTFOLIO_NORMALIZATION_TARGETS` (2: USD/CNY) is the
-subset of the 7 that's actually clickable — the other 5 still appear in the
-menu with a greyed-out (CSS `grayscale`) flag via a `disabled` prop added to
+gates nothing else); `PORTFOLIO_NORMALIZATION_TARGETS` (3: USD/CNY/HKD,
+corrected from an initial USD/CNY-only pass after product-owner review —
+HKD's own pair, USDHKD, was never in question by this issue's root-cause
+fix) is the subset of the 7 that's actually clickable — the other 4 still
+appear in the menu with a greyed-out (CSS `grayscale`) flag via a `disabled`
+prop added to
 `MenuItemButton`/`MenuDropdown`'s underlying `Menu.Item`/`Menu.Trigger`
 (both already supported `disabled` in the installed `@base-ui/react`
 version; this PR is the first caller to use it), not hidden — shown-but-

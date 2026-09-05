@@ -58,11 +58,15 @@ export const PORTFOLIO_DISPLAY_CURRENCIES = [
 ] as const satisfies readonly BaseCurrency[];
 
 // Of the 7 PORTFOLIO_DISPLAY_CURRENCIES, only these are actually selectable
-// as the normalization target today — the other 5 still appear in the
+// as the normalization target today — the other 4 still appear in the
 // switcher menu (with a greyed-out flag) but are disabled, not hidden
 // (issue #354 comment 3, item 3 + product-owner clarification during this
-// issue's implementation: all 7 are listed, only 2 are clickable).
+// issue's implementation: all 7 are listed, only 3 are clickable — corrected
+// from an initial USD/CNY-only implementation after review, since HKD's own
+// FX pair (USDHKD) is not one of the ones this issue's root-cause fix left
+// in question).
 export const PORTFOLIO_NORMALIZATION_TARGETS = [
   "USD",
   "CNY",
+  "HKD",
 ] as const satisfies readonly BaseCurrency[];
