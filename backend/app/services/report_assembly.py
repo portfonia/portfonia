@@ -57,6 +57,7 @@ from app.core.timezones import ET
 from app.services._yfinance import _normalize_ticker
 from app.services.analysis_framework import load_analysis_framework
 from app.services.i18n_glossary import load_i18n_glossary
+from app.services.portfolio_calculator import format_fx_rates_as_of
 from app.services.report_llm import _call_llm
 from app.services.report_prompts import (
     _COMPLIANCE_SYSTEM_PREFIX,
@@ -318,7 +319,7 @@ def build_assembly_prompt(
 
     total = float(portfolio.get("total_base") or 0.0)
     base_ccy = portfolio.get("base_currency", "USD")
-    fx_date = portfolio.get("fx_date", "unknown")
+    fx_date = format_fx_rates_as_of(portfolio.get("fx_rates_as_of", {}))
     # §4.3 asks for an FX note; fx_date is the only FX fact the snapshot
     # carries, and Pass 2's header includes it (review round-2 finding, PR
     # #163: this prompt previously omitted it entirely).

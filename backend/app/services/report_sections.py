@@ -13,6 +13,7 @@ from typing import Any
 
 from app.core.timezones import ET
 from app.services.i18n_glossary import load_i18n_glossary, locale_for_output_lang
+from app.services.portfolio_calculator import format_fx_rates_as_of
 
 # ---------------------------------------------------------------------------
 # §1 Portfolio Snapshot
@@ -34,13 +35,13 @@ _MARKET_NOT_SUPPORTED = "[market not supported]"
 def _build_section1(portfolio: dict[str, Any]) -> str:
     """Build §1 Portfolio Snapshot entirely from data — no LLM."""
     base_ccy = portfolio.get("base_currency", "USD")
-    fx_date = portfolio.get("fx_date", "n/a")
+    fx_date = format_fx_rates_as_of(portfolio.get("fx_rates_as_of", {}))
     total = portfolio.get("total_base", 0)
 
     lines: list[str] = [
         "## §1 Portfolio Snapshot",
         "",
-        f"**Total value:** {base_ccy} {total:,.0f}  (FX date: {fx_date})",
+        f"**Total value:** {base_ccy} {total:,.0f}  (FX rates: {fx_date})",
         "",
         "| Holding | Currency | Value | % Portfolio | Custodian | Asset Class |",
         "|---------|----------|-------|-------------|-----------|-------------|",
@@ -501,7 +502,7 @@ def _build_footer(portfolio: dict[str, Any], output_lang: str = "en") -> str:
     glossary once (not once per template lookup — PR #91 review).
     """
     base_ccy = portfolio.get("base_currency", "USD")
-    fx_date = portfolio.get("fx_date", "unknown")
+    fx_date = format_fx_rates_as_of(portfolio.get("fx_rates_as_of", {}))
     templates = load_i18n_glossary().templates
     locale = locale_for_output_lang(output_lang)
 
@@ -536,8 +537,8 @@ def _build_footer(portfolio: dict[str, Any], output_lang: str = "en") -> str:
 _FX_STALE_DAYS = 4
 
 
-def _fx_is_stale(fx_date: str, period_end: str) -> bool:
-    """True when the FX rate date trails the window cutoff by more than 4 days.
+def _fx_is_stale(fx_rates_as_of: dict[str, str], period_end: str) -> list[str]:
+    """Currencies whose FX rate trails the window cutoff by more than 4 days.
 
     Both are dates we control (fx_rates.rate_date / period_end); fx_rates is
     populated once per day, so the most recent available rate is naturally
@@ -546,14 +547,25 @@ def _fx_is_stale(fx_date: str, period_end: str) -> bool:
     old rate, worth flagging in a volatile week (R-4 surfaced rates frozen
     6 days). Deliberately mirrors portfolio_calculator._PRICE_STALE_DAYS so
     "how stale is too stale" is one mental model across the report
-    (issue #299). Any parse failure → not flagged.
+    (issue #299). Checked per currency (issue #354) — since pairs now resolve
+    independently, one currency's rate can be stale while another's isn't;
+    the old single-scalar version could not represent that. Any parse
+    failure for a given currency's date → that currency is skipped, not
+    flagged. Returns currencies sorted for deterministic output.
     """
     try:
-        fx = date.fromisoformat(fx_date[:10])
         end = datetime.fromisoformat(period_end).astimezone(ET).date()
     except (ValueError, TypeError):
-        return False
-    return (end - fx).days > _FX_STALE_DAYS
+        return []
+    stale: list[str] = []
+    for ccy, fx_date_str in fx_rates_as_of.items():
+        try:
+            fx = date.fromisoformat(fx_date_str[:10])
+        except (ValueError, TypeError):
+            continue
+        if (end - fx).days > _FX_STALE_DAYS:
+            stale.append(ccy)
+    return sorted(stale)
 
 
 def _build_data_window(
@@ -573,7 +585,8 @@ def _build_data_window(
         window_line = f"since last report: {span} ({td})"
     else:
         window_line = "window unavailable"
-    fx_date = portfolio.get("fx_date", "n/a")
+    fx_rates_as_of = portfolio.get("fx_rates_as_of", {})
+    fx_date = format_fx_rates_as_of(fx_rates_as_of)
     # R-5: state where PRICE data actually stops. The capture layer only takes
     # closes at session nodes, so a premarket/intraday run has no quotes past the
     # prior close — say so rather than letting the wall-clock window imply it.
@@ -583,14 +596,15 @@ def _build_data_window(
         if price_data_through
         else ""
     )
+    stale_currencies = _fx_is_stale(fx_rates_as_of, period_end)
     fx_flag = (
-        " [!] FX rate is stale relative to the window cutoff."
-        if _fx_is_stale(str(fx_date), period_end)
+        f" [!] FX rate(s) stale relative to the window cutoff: {', '.join(stale_currencies)}."
+        if stale_currencies
         else ""
     )
     return (
         f"> **Data window** — {window_line}; {len(news_items)} news item(s); "
-        f"FX as of {fx_date}.{price_line} Price moves are measured against the "
+        f"FX rates: {fx_date}.{price_line} Price moves are measured against the "
         f"baseline close at the window start.{fx_flag}\n\n"
     )
 

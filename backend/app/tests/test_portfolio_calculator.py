@@ -90,7 +90,7 @@ def test_full_snapshot_values_and_distributions(db_session: Session) -> None:
 
     snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
 
-    assert snap.fx_date == _FX_DATE
+    assert snap.fx_rates_as_of == {"CNY": _FX_DATE}
     assert snap.stale_tickers == ["BAD"]
     # 3000 USD + 14000 CNY/7 = 2000 USD + 5000 cash
     assert snap.total_base == Decimal("10000.00")
@@ -242,6 +242,9 @@ def test_base_currency_cny(db_session: Session) -> None:
     snap = compute_portfolio(db_session, user_id=_USER, base_currency="CNY")
 
     assert snap.total_base == Decimal("21000.00")  # 3000 USD * 7.0
+    # base_currency itself counts as "needed" even though every holding here
+    # is USD-denominated — USD itself never appears (it's the pivot, no rate).
+    assert snap.fx_rates_as_of == {"CNY": _FX_DATE}
 
 
 def test_missing_fx_rate_marks_stale(db_session: Session) -> None:
@@ -254,6 +257,50 @@ def test_missing_fx_rate_marks_stale(db_session: Session) -> None:
 
     assert snap.total_base == Decimal("0")
     assert "0700.HK" in snap.stale_tickers
+
+
+def test_fx_pairs_resolve_independently_across_different_dates(db_session: Session) -> None:
+    """issue #354: production showed USDCNY and USDCNH from the identical
+    capture run land on rate_dates a full day apart — yfinance's per-cross
+    "latest close" timing does not synchronize. The old _load_fx_rates()
+    picked one max(rate_date) across ALL 14 pairs and only loaded rows
+    matching exactly that date, so the pair still on the earlier date
+    (HKD here) vanished from the fx dict entirely and its holding fell into
+    stale_tickers even though a perfectly good (if one-day-older) rate
+    existed. Each pair must resolve its own latest date independently."""
+    earlier = date(2026, 1, 1)
+    db_session.add_all(
+        [
+            FxRate(pair="USDCNY", rate=Decimal("7.0"), rate_date=_FX_DATE, source="test"),
+            FxRate(pair="USDHKD", rate=Decimal("8.0"), rate_date=earlier, source="test"),
+            _stock("Moutai", "600519.SS", "CNY", "10", "700"),
+            _stock("HK Co", "0700.HK", "HKD", "100", "80"),
+        ]
+    )
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    assert snap.stale_tickers == []
+    # 7000 CNY / 7.0 = 1000 USD; 8000 HKD / 8.0 = 1000 USD
+    assert snap.total_base == Decimal("2000.00")
+    assert snap.fx_rates_as_of == {"CNY": _FX_DATE, "HKD": earlier}
+
+
+def test_fx_rates_as_of_only_includes_currencies_this_render_needed(
+    db_session: Session,
+) -> None:
+    """issue #354: fx_rates_as_of must not leak every FX pair the table
+    happens to have a rate for — only currencies actually appearing as a
+    holding's native currency or the selected base_currency (never USD,
+    which needs no rate as the pivot)."""
+    _seed_fx(db_session)  # seeds USDCNY, USDHKD, USDCNH
+    db_session.add(_stock("Apple", "AAPL", "USD", "10", "300"))
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    assert snap.fx_rates_as_of == {}
 
 
 def test_empty_portfolio_has_no_concentration(db_session: Session) -> None:

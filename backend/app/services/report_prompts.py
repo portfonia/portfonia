@@ -17,6 +17,7 @@ from app.services.analysis_framework import load_analysis_framework
 from app.services.i18n_glossary import load_i18n_glossary
 from app.services.macro_detector import MacroSignals
 from app.services.news_fetcher import NewsItem
+from app.services.portfolio_calculator import format_fx_rates_as_of
 from app.services.questionnaire_taxonomy import (
     ASSET_SCALE_PROMPT_TEXT,
     HORIZON_PROMPT_TEXT,
@@ -672,7 +673,7 @@ def _build_pass2_prompt(
     # Portfolio snapshot (scoped to what's needed — not full history)
     total = portfolio.get("total_base", 0)
     base_ccy = portfolio.get("base_currency", "USD")
-    fx_date = portfolio.get("fx_date", "unknown")
+    fx_date = format_fx_rates_as_of(portfolio.get("fx_rates_as_of", {}))
     lines.append(f"=== PORTFOLIO SNAPSHOT (base: {base_ccy}, FX date: {fx_date}) ===")
     lines.append(f"Total: {base_ccy} {total:,.0f}")
     lines.append("")

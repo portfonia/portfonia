@@ -133,7 +133,7 @@ def _serialize_portfolio(snap: PortfolioSnapshot) -> dict[str, Any]:
     ]
     return {
         "base_currency": snap.base_currency,
-        "fx_date": snap.fx_date.isoformat(),
+        "fx_rates_as_of": {k: v.isoformat() for k, v in snap.fx_rates_as_of.items()},
         "total_base": float(snap.total_base),
         "by_market": {k: float(v) for k, v in snap.by_market.items()},
         "by_currency": {k: float(v) for k, v in snap.by_currency.items()},
