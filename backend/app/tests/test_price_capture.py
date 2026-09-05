@@ -848,6 +848,50 @@ def test_capture_spot_missing_check_uses_normalized_ticker(db_session: Session) 
     assert n == 1
 
 
+def test_capture_close_missing_fallback_receives_normalized_ticker(db_session: Session) -> None:
+    """Issue #351 review follow-up: a genuine miss must still pass the
+    fallback the normalized ticker, not the raw stored one. The override
+    table can map a raw ticker to a completely different symbol (PSH ->
+    PSH.L) — querying Massive with the raw form on a real miss would ask
+    for the wrong instrument, the same collision class #204 fixed for the
+    primary yfinance lookup.
+    """
+    db_session.add(_holding("Pershing Square Holdings", "PSH", market="US"))
+    db_session.flush()
+
+    with (
+        patch(
+            "app.services.price_capture.get_settings",
+            return_value=_settings_with_keys(finnhub=None, massive="k"),
+        ),
+        patch("app.services.price_capture.fetch_ohlcv_range", return_value={}),
+        patch(
+            "app.services.price_capture.fetch_massive_prev_close_ohlcv", return_value={}
+        ) as mock_massive,
+    ):
+        capture_prices(db_session, market="US", session_node="close")
+
+    mock_massive.assert_called_once_with(["PSH.L"], "k")
+
+
+def test_capture_spot_missing_fallback_receives_normalized_ticker(db_session: Session) -> None:
+    """Same as above for the spot/Finnhub branch (issue #351 review follow-up)."""
+    db_session.add(_holding("Pershing Square Holdings", "PSH", market="US"))
+    db_session.flush()
+
+    with (
+        patch(
+            "app.services.price_capture.get_settings",
+            return_value=_settings_with_finnhub_key("k"),
+        ),
+        patch("app.services.price_capture.fetch_spot", return_value={}),
+        patch("app.services.price_capture.fetch_finnhub_quotes", return_value={}) as mock_finnhub,
+    ):
+        capture_prices(db_session, market="US", session_node="open")
+
+    mock_finnhub.assert_called_once_with(["PSH.L"], "k")
+
+
 @pytest.mark.parametrize("node", ["pre_open", "open", "after_close"])
 def test_capture_spot_nodes_never_call_massive(db_session: Session, node: str) -> None:
     """Massive's free tier structurally cannot serve same-day data — wiring
