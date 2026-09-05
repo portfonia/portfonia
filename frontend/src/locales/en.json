@@ -432,12 +432,6 @@
     "chartBySector": "By sector",
     "chartBySectorScope": "Stocks and ETFs only.",
     "chartByCurrency": "By currency",
-    "currencyDisplayModeLabel": "Display",
-    "currencyDisplayMode": {
-      "native": "Native currency",
-      "normalized": "Normalized",
-      "percentage": "Percentage"
-    },
     "chartEmpty": "No data yet.",
     "holdingsHeading": "Holdings",
     "holdingsPnlNote": "Cash and wealth-management holdings show \"—\" for P&L — they have no cost basis.",

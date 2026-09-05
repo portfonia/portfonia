@@ -432,12 +432,6 @@
     "chartBySector": "按行業",
     "chartBySectorScope": "僅統計個股與ETF。",
     "chartByCurrency": "按幣種",
-    "currencyDisplayModeLabel": "顯示方式",
-    "currencyDisplayMode": {
-      "native": "本幣",
-      "normalized": "歸一",
-      "percentage": "比例"
-    },
     "chartEmpty": "暫無數據。",
     "holdingsHeading": "持倉明細",
     "holdingsPnlNote": "現金及理財類持倉的損益欄顯示「—」——它們沒有成本基礎。",

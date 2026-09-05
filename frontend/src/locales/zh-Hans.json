@@ -432,12 +432,6 @@
     "chartBySector": "按行业",
     "chartBySectorScope": "仅统计个股与ETF。",
     "chartByCurrency": "按币种",
-    "currencyDisplayModeLabel": "显示方式",
-    "currencyDisplayMode": {
-      "native": "本币",
-      "normalized": "归一",
-      "percentage": "比例"
-    },
     "chartEmpty": "暂无数据。",
     "holdingsHeading": "持仓明细",
     "holdingsPnlNote": "现金及理财类持仓的盈亏列显示“—”——它们没有成本基础。",
