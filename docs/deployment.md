@@ -148,7 +148,19 @@ to the production server:
    false positive. Distinguishing the two is why this script checks
    `$ssh_exit` before looking at `$unit_state` at all.
 5. `curl https://api.portfonia.com/health` — confirm `{"status":"ok",...}`.
-6. Report success (what changed) or failure (which step, what the logs
+6. `docker builder prune -af` — reclaim BuildKit's build-cache layers left
+   behind by this deploy's `--build` (and every prior one). Safe after a
+   successful deploy: prunes only cache, never touches the images just
+   tagged/running, containers, or volumes — verify with `docker compose ps`
+   (all services still Up) and `docker system df` (Build Cache back near
+   0B) if in doubt. **Do this every deploy, not just when disk looks
+   tight**: discovered 2026-09-05 that this had never been run since the
+   server went live — build cache had silently grown to 29GB (28GB
+   reclaimable), pushing `/` to 80% used, while the actual running images
+   totaled under 3GB. A production host has no local dev workflow to
+   surface this the way Colima's own disk-pressure errors do locally, so
+   skipping this step lets it grow unnoticed until disk actually runs out.
+7. Report success (what changed) or failure (which step, what the logs
    showed) — don't declare done without step 5 passing.
 
 **Before step 3, check whether the commits being deployed add a new
