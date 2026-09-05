@@ -105,25 +105,36 @@ real zh-Hant column, revisit whether these UI terms should be the seed.
 
 ## zh-Hant review status
 
-Every string in `zh-Hant.json` was drafted by an LLM for this PR, not
-translated or reviewed by a native Traditional Chinese speaker. Per the
-issue's explicit requirement, this must not be treated as ship-ready
-sign-off — it needs human review (ideally Taiwan or HK usage) before this
-locale is exposed to real users. The PR description lists this file as the
-review item.
+Every string in `zh-Hant.json` was originally drafted by an LLM, not
+translated or reviewed by a native Traditional Chinese speaker. The
+original PR (#226) held it behind an `UNREVIEWED_LOCALES` gate in
+`index.ts` for exactly that reason — see the "Enforced, not just
+documented" history below, kept for context.
 
-**Enforced, not just documented (fixed after review, PR #226):** an earlier
-version of this PR had `zh-Hant` in `index.ts`'s exported `LOCALES` list,
-which is what the switcher (`site-header.tsx`) and `isLocale()` both read —
-so despite this section, the unreviewed locale was still user-selectable in
-practice. `index.ts` now keeps `zh-Hant.json`'s catalog and its coverage in
-`locales.test.ts`'s structural shape-lock (so it can't silently drift while
-waiting on review), but excludes it from `LOCALES` via an internal
-`UNREVIEWED_LOCALES` list. Since `isLocale()` reads `LOCALES`, this also
-blocks resolving a stored `zh-Hant` value from `localStorage` or a Server
-Action's locale form field — not just hiding the switcher option. Move a
-locale out of `UNREVIEWED_LOCALES` once it's signed off; nothing else
-changes.
+**Gate lifted (issue #350 item 4, deliberate product-owner decision):**
+`UNREVIEWED_LOCALES` is now empty — `zh-Hant` is a fully supported,
+user-selectable locale, matching `isLocale()`'s and the switcher's
+behavior for `en`/`zh-Hans`. This knowingly reverses the "pending
+native-speaker review" hold below without a review having actually
+happened; it was raised and confirmed explicitly with the product owner
+during issue #350's design conversation, not an oversight. Do not
+reintroduce the gate or re-litigate this decision without the same kind
+of explicit sign-off.
+
+**Original hold + its enforcement mechanism (PR #226, for history):** an
+earlier version of that PR had `zh-Hant` in `index.ts`'s exported
+`LOCALES` list, which is what the switcher (`site-header.tsx`) and
+`isLocale()` both read — so the unreviewed locale was still
+user-selectable in practice despite the section above. `index.ts` was
+fixed to keep `zh-Hant.json`'s catalog and its coverage in
+`locales.test.ts`'s structural shape-lock (so it can't silently drift),
+while excluding it from `LOCALES` via the (now-empty)
+`UNREVIEWED_LOCALES` list — which is also why `isLocale()` blocked
+resolving a stored `zh-Hant` value from `localStorage` or a Server
+Action's locale form field, not just hiding the switcher option. The
+mechanism itself (an `UNREVIEWED_LOCALES` list gating `LOCALES`) is
+unchanged and available again for a future locale that needs the same
+treatment — see "Adding a fourth locale" below.
 
 ## Adding a fourth locale
 

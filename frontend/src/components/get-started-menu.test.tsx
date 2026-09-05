@@ -413,24 +413,24 @@ describe("GetStartedMenu", () => {
       expect(screen.queryByRole("menuitem", { name: "Profile" })).not.toBeInTheDocument();
     });
 
-    // blacktomb42 review (PR #226): zh-Hant is pending native-speaker review
-    // (issue #209 requirement) and must not be reachable by a real user
-    // through any path — including a stored locale value from before it was
-    // gated, or manual tampering. isLocale() (src/locales/index.ts) rejects
-    // it, so restoring falls back to the default rather than rendering
-    // unreviewed copy.
-    it("falls back to English when a stored locale is zh-Hant (not yet human-reviewed)", async () => {
+    // Issue #350 item 4 lifted zh-Hant's UNREVIEWED_LOCALES gate (a
+    // deliberate product-owner decision, see src/locales/README.md's
+    // "zh-Hant review status") — a stored zh-Hant value now restores and
+    // renders like any other supported locale, superseding the PR #226
+    // fallback behavior this test used to lock in.
+    it("restores zh-Hant from a stored locale and renders its own copy (issue #350 item 4: gate lifted)", async () => {
       withLocaleStorage("zh-Hant");
 
       getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
       const user = userEvent.setup();
       renderMenu();
 
-      await user.click(await screen.findByRole("button", { name: "Get Started" }));
+      await user.click(await screen.findByRole("button", { name: "開始使用" }));
 
       await waitFor(() =>
-        expect(screen.getByRole("menuitem", { name: "Holdings" })).toBeInTheDocument(),
+        expect(screen.getByRole("menuitem", { name: "持倉" })).toBeInTheDocument(),
       );
+      expect(screen.queryByRole("menuitem", { name: "Holdings" })).not.toBeInTheDocument();
     });
 
     it("uses the zh-Hans Logging in... label when zh-Hans is selected", async () => {

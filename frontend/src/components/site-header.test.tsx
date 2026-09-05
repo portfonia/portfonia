@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
@@ -114,19 +115,22 @@ describe("SiteHeader", () => {
       usePathname.mockReturnValue(route);
       renderHeader();
 
-      expect(screen.getByRole("combobox", { name: /language/i })).toBeInTheDocument();
+      // Issue #350 item 4: rebuilt as a Menu-based trigger (matching Get
+      // Started's styling), not a native <select>/combobox anymore.
+      expect(screen.getByRole("button", { name: /language/i })).toBeInTheDocument();
     },
   );
 
-  // blacktomb42 review (PR #226): zh-Hant's catalog is LLM-drafted, pending
-  // native-speaker review (issue #209 requirement) — the switcher must not
-  // offer it to real users until that review lands.
-  it("does not offer zh-Hant in the switcher (pending human review)", () => {
+  it("offers all three locales, including zh-Hant (issue #350 item 4: gate lifted)", async () => {
     usePathname.mockReturnValue("/");
+    const user = userEvent.setup();
     renderHeader();
 
-    expect(
-      screen.queryByRole("option", { name: "繁體中文" }),
-    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /language/i }));
+
+    await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument());
+    expect(screen.getByRole("menuitem", { name: "English" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "简体中文" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "繁體中文" })).toBeInTheDocument();
   });
 });

@@ -55,7 +55,7 @@ tradeoffs, review provenance) for one system, filed under `docs/mechanisms/`.
 This table is the pointer index — read the linked file before touching that
 area of the code, not just the one-line summary here.
 
-- [Frontend chrome (header/nav) convention](docs/mechanisms/frontend-chrome.md) — issue #146/#148: one shared `SiteHeader`, auth-gated Get Started menu; issue #214 (PR #215): unconditional pathname-triggered session re-verification (no throttling — a grace window that shipped in PR #215 was reverted the same day), optimistic logout + login-pending placeholder, bounded `getUser()` timeout/retry, Home menu entry; issue #209: global next-intl message catalog (`frontend/src/locales/{en,zh-Hans,zh-Hant}.json`) replaces `home-messages.ts`/`messages.ts`, `lang` and the locale switcher are no longer home-only, no URL-based locale routing (product decision); issue #220 (PR #228): Home menu entry replaced by Profile (`/profile`), lucide-react icons on every menu entry, new `profile` locale namespace; issue #269 (PR #270): Profile page section reorder (gap card → Email Verification → Account → ... → Change password → Delete account) plus two new `Card` variants — `variant="urgent"` (soft pink) for the gap card/Email Verification, `variant="danger"` (red border only, no fill) for Delete account, not interchangeable.
+- [Frontend chrome (header/nav) convention](docs/mechanisms/frontend-chrome.md) — issue #146/#148: one shared `SiteHeader`, auth-gated Get Started menu; issue #214 (PR #215): unconditional pathname-triggered session re-verification (no throttling — a grace window that shipped in PR #215 was reverted the same day), optimistic logout + login-pending placeholder, bounded `getUser()` timeout/retry, Home menu entry; issue #209: global next-intl message catalog (`frontend/src/locales/{en,zh-Hans,zh-Hant}.json`) replaces `home-messages.ts`/`messages.ts`, `lang` and the locale switcher are no longer home-only, no URL-based locale routing (product decision); issue #220 (PR #228): Home menu entry replaced by Profile (`/profile`), lucide-react icons on every menu entry, new `profile` locale namespace; issue #269 (PR #270): Profile page section reorder (gap card → Email Verification → Account → ... → Change password → Delete account) plus two new `Card` variants — `variant="urgent"` (soft pink) for the gap card/Email Verification, `variant="danger"` (red border only, no fill) for Delete account, not interchangeable; issue #350 item 4: `LocaleSwitcher` (`components/locale-switcher.tsx`) rebuilt on the same `MenuDropdown`/Base UI `Menu` primitives as `GetStartedMenu` (was a plain native `<select>`), adds `flag-icons` (MIT, SVG, ISO 3166-1-alpha-2) flags per locale — English→`us`, Simplified Chinese→`cn`, Traditional Chinese→`tw` — and lifts `zh-Hant`'s `UNREVIEWED_LOCALES` gate (see Language Policy above).
 - [Profile page: GET /me account summary](docs/mechanisms/identity-and-auth.md) — issue #220/PR #228: `/profile` account email + change-password + investment-style link + delivery-email display + non-interactive placeholders; `GET /me` ships the full #221 response shape (`missing` never contains `"tos"`). Issue #269/PR #270 added `email_verified_at`/`delivery_email_verified_at` to `GET /me` — see the Frontend chrome entry above for the page-layout half of that PR.
 - [Post-signup onboarding](docs/mechanisms/frontend-chrome.md) — issue #221: ToS gate (client checkbox + backend `Literal[True]`, both required), `signup` redirects to `/questionnaire?onboarding=1` (the only `mode="onboarding"` trigger), `mode` prop on `QuestionnaireForm`/`HoldingsManager` (no `/onboarding/*` route tree), new `/welcome` route with sessionStorage dedupe, Profile gap card reading `GET /me`'s `missing`, `report_cadence` defaults to `weekly`, admin manual-generate's no-holdings 422 removed (`active_user_ids()`/Beat untouched at the time — cadence follow-up landed separately as issue #191, see the entry below), and a real password-leak fix in the 422 secret-redaction handler that adding the required field exposed. Issue #280: onboarding questionnaire Save now routes to `/holdings?onboarding=1` instead of `/welcome` (the §2.2 table inverted the linear ToS → questionnaire → holdings → welcome order; design correction in Ring 1-Onboarding.md §9.1), holdings onboarding gains a Skip link into `/welcome`, `/welcome` gained an unverified-email prompt (`delivery_email ?? email`, per-scope check matching Profile's issue #269 §6 rule); issue #290 lifted the pre-gate register — welcome copy split into holdings status (never mentions send) + delivery claim mirroring Layer 2's send decision (send-stop only when both timestamps are null, naming the address that would actually receive; PR #294 review corrected the round-1 #269 per-shown-address predicate), Profile's `emailVerificationNoRecipient` now states send-stop, and successful login redirects unconditionally to `/profile` (`/login` only serves returning users — signup never passes through it).
 - [Async holdings upload](docs/mechanisms/holdings-pipeline.md) — issue #77/#82/#85: `POST /holdings/upload` returns 202 + job id, Celery parses, 45s SLA, two-layer hard-kill resolution.
@@ -111,15 +111,18 @@ area of the code, not just the one-line summary here.
 - **All repository content is English**: code, identifiers, comments, commit
   messages, PR descriptions, issue text, README, `docs/`, ADRs, tests.
 - **In-product strings are i18n-keyed** and shipped through the translation
-  layer, never hardcoded in any single language. Runtime UI locales actually
-  exposed to users: English, Simplified Chinese (issue #209 — see
-  `frontend/src/locales/README.md` for adding a fourth). Traditional Chinese
-  has a catalog (`zh-Hant.json`, structurally locked in sync with the other
-  two) but is explicitly gated out of the switcher and out of
-  `isLocale()`'s accepted values pending native-speaker review — it is not
-  yet a supported locale, just a prepared one (blacktomb42 review, PR #226
-  round 2: this line previously overclaimed it as supported while gated).
-  Report output languages are separate and narrower: report translation
+  layer, never hardcoded in any single language. Runtime UI locales
+  exposed to users: English, Simplified Chinese, and Traditional Chinese
+  (issue #209 added the first two; issue #350 item 4 lifted Traditional
+  Chinese's review gate — see `frontend/src/locales/README.md` for adding
+  a fourth, and its "zh-Hant review status" section for the gate-lift
+  history). `zh-Hant.json`'s catalog was originally LLM-drafted with no
+  native-speaker review (blacktomb42 review, PR #226 round 2: an earlier
+  version of this line overclaimed it as supported while still gated) —
+  the product owner explicitly chose to ship it anyway rather than wait
+  for that review; this is a deliberate, logged decision, not an
+  oversight to "fix" by re-gating it. Report output languages are
+  separate and narrower: report translation
   only covers the bare codes `en`/`zh` — not `zh-Hans`, the frontend
   catalog's BCP-47 tag; `i18n_glossary.yml`'s locale keys are the one place
   `zh-Hans` legitimately appears on this side of the boundary (see the
