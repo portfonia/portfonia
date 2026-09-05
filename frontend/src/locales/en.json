@@ -416,8 +416,8 @@
   "portfolio": {
     "pageTitle": "Portfolio Overview",
     "currencyLabel": "Base currency",
-    "asOfBanner": "Prices as of {date} close — end-of-day data, not real-time.",
-    "asOfBannerUnavailable": "No exchange closing prices in this view yet. End-of-day data, not real-time.",
+    "asOfBanner": "Prices as of {date} — each market's own latest close, not one global timestamp. End-of-day data, not real-time.",
+    "asOfBannerUnavailable": "No per-market closing prices captured yet for this view. End-of-day data, not real-time.",
     "totalAssetsLabel": "Total assets",
     "pnlHeading": "Unrealized P&L",
     "pnlScopeNote": "Excludes cash and wealth-management holdings, which have no cost basis.",

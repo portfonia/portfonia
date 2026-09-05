@@ -416,8 +416,8 @@
   "portfolio": {
     "pageTitle": "持倉總覽",
     "currencyLabel": "基準貨幣",
-    "asOfBanner": "價格截至 {date} 收盤——為收盤數據，非即時。",
-    "asOfBannerUnavailable": "本次未使用任何交易所收盤價。為收盤數據，非即時。",
+    "asOfBanner": "價格截至 {date}——各市場按自身最新收盤計算，並非同一全域時間點。為收盤數據，非即時。",
+    "asOfBannerUnavailable": "本次尚未擷取任何市場的收盤價。為收盤數據，非即時。",
     "totalAssetsLabel": "總資產",
     "pnlHeading": "未實現損益",
     "pnlScopeNote": "不含現金及理財類持倉——它們沒有成本基礎的概念。",

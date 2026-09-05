@@ -416,8 +416,8 @@
   "portfolio": {
     "pageTitle": "持仓总览",
     "currencyLabel": "基准货币",
-    "asOfBanner": "价格截至 {date} 收盘——为收盘数据，非实时。",
-    "asOfBannerUnavailable": "本次未使用任何交易所收盘价。为收盘数据，非实时。",
+    "asOfBanner": "价格截至 {date}——各市场按自身最新收盘计算，并非同一全局时间点。为收盘数据，非实时。",
+    "asOfBannerUnavailable": "本次尚未捕获任何市场的收盘价。为收盘数据，非实时。",
     "totalAssetsLabel": "总资产",
     "pnlHeading": "未实现盈亏",
     "pnlScopeNote": "不含现金及理财类持仓——它们没有成本基础的概念。",
