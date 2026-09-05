@@ -73,18 +73,23 @@ export function CurrencySwitcher({
   disabled?: boolean;
 }) {
   const t = useTranslations("portfolio");
-  const current = PORTFOLIO_DISPLAY_CURRENCIES.includes(
-    value as (typeof PORTFOLIO_DISPLAY_CURRENCIES)[number],
-  )
-    ? (value as (typeof PORTFOLIO_DISPLAY_CURRENCIES)[number])
-    : PORTFOLIO_DISPLAY_CURRENCIES[0];
+  // Review finding (blacktomb42, PR #355): `value` can be a BaseCurrency
+  // outside PORTFOLIO_DISPLAY_CURRENCIES entirely — e.g. GET /portfolio/
+  // summary seeding base_currency from the user's own report-currency
+  // preference (issue #350 item 1, all 15 BASE_CURRENCIES), which can be
+  // JPY or any other currency this switcher doesn't list. Substituting a
+  // different currency's label/flag on the trigger in that case would show
+  // "USD" while every figure on the page is actually normalized to JPY —
+  // silently misleading. Always show the real `value` as text; only render
+  // a flag when we actually have one for it.
+  const hasFlag = (PORTFOLIO_DISPLAY_CURRENCIES as readonly string[]).includes(value);
 
   return (
     <MenuDropdown
       trigger={
         <>
-          <Flag currency={current} />
-          <span>{current}</span>
+          {hasFlag && <Flag currency={value as (typeof PORTFOLIO_DISPLAY_CURRENCIES)[number]} />}
+          <span>{value}</span>
           {/* Visually hidden, but still part of the trigger button's
               accessible name — matches LocaleSwitcher's pattern. */}
           <span className="sr-only">{t("currencyLabel")}</span>

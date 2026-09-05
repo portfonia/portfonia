@@ -94,6 +94,23 @@ describe("CurrencySwitcher", () => {
     expect(cnyItem.querySelector(".fi-cn")).not.toHaveClass("grayscale");
   });
 
+  it("shows the real value on the trigger, not a substituted currency, when value is outside the display list (review finding, PR #355)", () => {
+    // e.g. base_currency seeded from the user's own report-currency
+    // preference (all 15 BASE_CURRENCIES), which can be a currency this
+    // switcher doesn't list at all. Must never silently show "USD" while
+    // the page is actually normalized to something else.
+    render(
+      <LocaleProvider>
+        <CurrencySwitcher value="JPY" onChange={vi.fn()} />
+      </LocaleProvider>,
+    );
+
+    const trigger = screen.getByRole("button", { name: /base currency/i });
+    expect(trigger).toHaveTextContent("JPY");
+    expect(trigger).not.toHaveTextContent("USD");
+    expect(trigger.querySelector(".fi")).not.toBeInTheDocument();
+  });
+
   it("EUR uses the flag-icons EU flag, not a member state's flag", async () => {
     const user = userEvent.setup();
     renderSwitcher();
