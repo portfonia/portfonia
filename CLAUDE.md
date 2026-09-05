@@ -262,6 +262,15 @@ legitimate local state is `.env` (uploaded via `scp`).
 - `.env` files are **never** committed. Enforce via `.gitignore` from day one.
 - API keys (Claude, Resend, market-data providers) are loaded from `.env` only.
   Never hardcode, never log, never echo to stdout in error paths.
+- **`.env.local` is untracked and per-worktree** (issue #56, 2026-09-04): a
+  key rename or new key added while working in a task worktree lives only
+  in that worktree's copy — it does **not** propagate back to the main
+  checkout's `.env.local` when the worktree is removed, and there is no
+  git history to catch the drift since the file was never tracked. After
+  removing a worktree that changed `.env.local`, manually replicate the
+  same edit to the main checkout's `.env.local` (or the setting silently
+  reads as unset there — `Settings.<KEY>` fields default to `None`, so
+  this fails quiet, not loud).
 - For test code: never read or write the developer's real `~/.config/...`
   directories. Honor a project-scoped env var (e.g. `PORTFONIA_HOME`) and
   default tests to a temp dir. Direct use of `os.path.expanduser("~")` in
