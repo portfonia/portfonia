@@ -251,6 +251,44 @@ def test_send_success(
     payload = mock_client.post.call_args.kwargs["json"]
     assert payload["to"] == ["test@example.com"]
     assert "Idempotency-Key" not in mock_client.post.call_args.kwargs["headers"]
+    # Issue #350 item 3: the reused _build_footer disclaimer now follows
+    # this user's own locale ("en", the autouse _seed_fx_and_user default)
+    # rather than always rendering bilingual.
+    assert "Disclaimer" in payload["html"]
+    assert "免责声明" not in payload["html"]
+
+
+@patch(
+    "app.services.email_sender.recipient_email_with_purpose",
+    return_value=("test@example.com", "account_email"),
+)
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
+def test_send_footer_matches_zh_locale_user(
+    mock_client_cls: MagicMock,
+    mock_settings: MagicMock,
+    _recipient: MagicMock,
+    db_session: Session,
+) -> None:
+    mock_settings.return_value = _mock_settings()
+    db_session.add(_priced_stock("Apple", "AAPL", "150", "10", position=0))
+    user = db_session.get(User, _USER_ID)
+    assert user is not None
+    user.locale = "zh"
+    db_session.commit()
+
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"id": "resend-id"}
+    mock_client = MagicMock()
+    mock_client.post.return_value = mock_resp
+    mock_client_cls.return_value.__enter__.return_value = mock_client
+
+    result = send_portfolio_overview_email(db_session, _USER_ID, "USD")
+
+    assert result is True
+    payload = mock_client.post.call_args.kwargs["json"]
+    assert "免责声明" in payload["html"]
+    assert "Disclaimer" not in payload["html"]
 
 
 @patch("app.services.email_sender.send_ops_alert")

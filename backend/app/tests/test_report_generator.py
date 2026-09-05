@@ -1908,6 +1908,10 @@ def test_generate_report_translates_when_output_lang_set(db_session: Session) ->
         report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY, output_lang="zh")
     assert report.report_md is not None
     assert "[zh]" in report.report_md
+    # Issue #350 item 3: the footer follows output_lang too — zh-only here,
+    # not the pre-#350 always-bilingual footer.
+    assert "免责声明" in report.report_md
+    assert "Disclaimer" not in report.report_md
 
 
 def test_regenerate_render_is_token_free(db_session: Session) -> None:
@@ -2079,8 +2083,11 @@ def test_generate_report_normal_path_has_footer(db_session: Session) -> None:
 
     assert report.status == "success"
     assert report.report_md is not None
-    assert "免责声明" in report.report_md
+    # Issue #350 item 3: the footer renders in output_lang ONLY — this test
+    # calls generate_report with no output_lang (defaults to "en"), so the
+    # footer is English-only, not the pre-#350 always-bilingual footer.
     assert "Data Sources & Disclaimer" in report.report_md
+    assert "免责声明" not in report.report_md
 
 
 def test_generate_report_quiet_day_has_footer(db_session: Session) -> None:
@@ -2097,8 +2104,8 @@ def test_generate_report_quiet_day_has_footer(db_session: Session) -> None:
     assert report.status == "skipped"
     mock_llm.assert_not_called()
     assert report.report_md is not None
-    assert "免责声明" in report.report_md
     assert "Data Sources & Disclaimer" in report.report_md
+    assert "免责声明" not in report.report_md
 
 
 # ---------------------------------------------------------------------------

@@ -470,13 +470,25 @@ def test_build_footer_contains_fx_date() -> None:
     assert "USD" in footer
 
 
-def test_build_footer_contains_bilingual_disclaimer() -> None:
+def test_build_footer_defaults_to_english_only() -> None:
+    """Issue #350 item 3: the footer now renders in ONE language (default
+    output_lang="en") — the pre-#350 behavior of always emitting both
+    English and zh-Hans regardless of the report's own language is gone."""
     portfolio = {"base_currency": "USD", "fx_date": "2026-06-04", "holdings": []}
     footer = sec._build_footer(portfolio)
     assert "Disclaimer" in footer
-    assert "免责声明" in footer
     assert "investment advice" in footer
+    assert "免责声明" not in footer
+    assert "投资建议" not in footer
+
+
+def test_build_footer_renders_zh_only_for_output_lang_zh() -> None:
+    portfolio = {"base_currency": "USD", "fx_date": "2026-06-04", "holdings": []}
+    footer = sec._build_footer(portfolio, "zh")
+    assert "免责声明" in footer
     assert "投资建议" in footer
+    assert "Disclaimer" not in footer
+    assert "investment advice" not in footer
 
 
 def test_build_footer_starts_with_separator() -> None:

@@ -249,7 +249,7 @@ def _render_full_md(
         # Translation can paraphrase into advisory tone — re-scan the output.
         violations = violations + _scan_forbidden_output(dynamic_out)
 
-    full_md = dynamic_out + _build_footer(portfolio)
+    full_md = dynamic_out + _build_footer(portfolio, output_lang)
     return full_md, violations, dynamic_out
 
 

@@ -180,8 +180,10 @@ in any other language.
 ### Compliance scaffolding
 
 - Disclaimer text is injected at the **template layer**, not by the model.
-  Every report has fixed header + footer disclaimers (EN + zh-CN). AI fills
-  only the body region.
+  Every report has fixed header + footer disclaimers, rendered in the
+  report's own `output_lang` only (issue #350 item 3 — previously always
+  EN + zh-CN regardless of the recipient's actual language; see
+  `report_sections._build_footer`). AI fills only the body region.
 - Prompt-level hard constraints (the layer-3 rule + vocabulary blacklist)
   are part of the system prompt for every report and Q&A flow. Do not move
   these constraints to user-tunable prompts.
@@ -191,8 +193,9 @@ in any other language.
   `needs_review` and **suppresses email** — content is preserved for
   inspection, never delivered. The scan covers the LLM body only, never the
   template footer (whose disclaimer legitimately contains "buy/sell").
-- **Single footer disclaimer, no inline markers** (2026-06-08): the compliance
-  base is the one bilingual disclaimer in the footer. The body carries NO
+- **Single footer disclaimer, no inline markers** (2026-06-08; single-language
+  since issue #350 item 3): the compliance base is the one disclaimer in the
+  footer, rendered in the report's own language. The body carries NO
   per-sentence `[For information only…]` suffix and NO bracketed provenance tags
   (the legacy market-data/news/analysis marker tags stripped by
   `report_generator._STRAY_TAGS`, sourced from `i18n_glossary.yml`'s
