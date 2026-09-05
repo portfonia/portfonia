@@ -420,7 +420,7 @@
     "asOfBannerUnavailable": "本次尚未捕获任何市场的收盘价。为收盘数据，非实时。",
     "totalAssetsLabel": "总资产",
     "pnlHeading": "未实现盈亏",
-    "pnlScopeNote": "不含现金及理财类持仓——它们没有成本基础的概念。",
+    "pnlScopeNote": "现金及理财类持仓本身没有收益概念，但会计入下方的总成本基础，从而拉低总收益率。",
     "pnlTotalCostBasis": "总成本",
     "pnlTotalUnrealized": "总未实现盈亏",
     "pnlTotalUnrealizedPct": "总未实现收益率",

@@ -451,9 +451,12 @@ def generate_report_for_user(user_id: UUID, session: Session = Depends(get_sessi
     session_node is always "manual", matching the self-service default, so
     a same-day scheduled after_close run still gets its own row. Currency
     and language are the system-wide defaults (generate_report's USD,
-    Settings.OUTPUT_LANG), not users.base_currency / users.locale — same
-    as the scheduled fan-out and the self-service endpoint. The user must
-    exist and be status=active. No holdings precondition (issue #221 §2.7):
+    Settings.OUTPUT_LANG), not users.base_currency / users.locale — this
+    endpoint is deliberately the ONE exception left on system-wide
+    defaults (matching the locale precedent from issue #308): the
+    scheduled fan-out and the self-service endpoint both read the target
+    user's own base_currency/locale since issue #350 item 1 / #308. The
+    user must exist and be status=active. No holdings precondition (issue #221 §2.7):
     an empty book renders §1/distribution/§4.1/§4.2/§4.4 as empty tables
     rather than failing — self-service POST /reports/generate never had
     this check either. active_user_ids() (the scheduled fan-out, issue #191)

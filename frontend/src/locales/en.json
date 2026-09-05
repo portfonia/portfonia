@@ -420,7 +420,7 @@
     "asOfBannerUnavailable": "No per-market closing prices captured yet for this view. End-of-day data, not real-time.",
     "totalAssetsLabel": "Total assets",
     "pnlHeading": "Unrealized P&L",
-    "pnlScopeNote": "Excludes cash and wealth-management holdings, which have no cost basis.",
+    "pnlScopeNote": "Cash and wealth-management holdings have no return of their own, but count toward the total cost basis below, diluting the total return %.",
     "pnlTotalCostBasis": "Total cost basis",
     "pnlTotalUnrealized": "Total unrealized gain/loss",
     "pnlTotalUnrealizedPct": "Total unrealized return",

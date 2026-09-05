@@ -420,7 +420,7 @@
     "asOfBannerUnavailable": "本次尚未擷取任何市場的收盤價。為收盤數據，非即時。",
     "totalAssetsLabel": "總資產",
     "pnlHeading": "未實現損益",
-    "pnlScopeNote": "不含現金及理財類持倉——它們沒有成本基礎的概念。",
+    "pnlScopeNote": "現金及理財類持倉本身沒有收益概念，但會計入下方的總成本基礎，從而拉低總收益率。",
     "pnlTotalCostBasis": "總成本",
     "pnlTotalUnrealized": "總未實現損益",
     "pnlTotalUnrealizedPct": "總未實現收益率",
