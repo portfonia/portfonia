@@ -232,7 +232,6 @@ def _portfolio_snap() -> PortfolioSnapshot:
     )
     return PortfolioSnapshot(
         base_currency="USD",
-        fx_date=_TODAY,
         holdings=[hv],
         total_base=Decimal("10000"),
         by_currency={"USD": Decimal("10000")},
@@ -363,7 +362,7 @@ def test_generate_report_empty_book_content_contract(db_session: Session) -> Non
     Exposed holdings rendered as "—" rather than omitted or crashing.
     No UserInvestmentContext row is seeded — Pass 2 falls back to the B1
     system default framework, which is already the existing behavior."""
-    empty_portfolio = PortfolioSnapshot(base_currency="USD", fx_date=_TODAY)
+    empty_portfolio = PortfolioSnapshot(base_currency="USD")
     db_session.add(
         ForwardEvent(
             event_type="macro",

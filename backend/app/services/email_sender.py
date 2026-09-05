@@ -813,7 +813,10 @@ def send_portfolio_overview_email(session: Session, user_id: UUID, base_currency
     next_report_at = next_occurrence_for_cadence(user.report_cadence, datetime.now(tz=ET))
     body_md = _build_portfolio_overview_markdown(snapshot, user.locale, next_report_at)
     footer_md = _build_footer(
-        {"base_currency": snapshot.base_currency, "fx_date": snapshot.fx_date.isoformat()},
+        {
+            "base_currency": snapshot.base_currency,
+            "fx_rates_as_of": {k: v.isoformat() for k, v in snapshot.fx_rates_as_of.items()},
+        },
         user.locale,
     )
     full_md = body_md + footer_md

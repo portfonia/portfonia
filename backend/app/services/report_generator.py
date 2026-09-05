@@ -859,16 +859,22 @@ def generate_report(
 
         # FX stale check: if rates trail the window cutoff, valuation in non-USD
         # currencies is based on stale exchange rates — alert ops but don't block.
-        fx_date_str = ctx.portfolio_summary.get("fx_date", "")
-        if fx_date_str and _fx_is_stale(fx_date_str, period_end.isoformat()):
+        # Per-currency since issue #354 — pairs now resolve independently, so
+        # one currency's rate can be stale while another's is fine.
+        fx_rates_as_of = ctx.portfolio_summary.get("fx_rates_as_of", {})
+        stale_currencies = _fx_is_stale(fx_rates_as_of, period_end.isoformat())
+        if stale_currencies:
+            stale_list = ", ".join(
+                f"{ccy} (as of {fx_rates_as_of[ccy]})" for ccy in stale_currencies
+            )
             send_ops_alert(
                 subject=f"[Portfonia] FX rates stale — report {report.report_date}",
                 body=(
-                    f"Report {report.id} ({report.report_date}): FX rates are as of "
-                    f"{fx_date_str}, which trails the window cutoff. "
-                    f"CNY/HKD portfolio values and the FX footer note will reflect "
-                    f"stale exchange rates.\n\n"
-                    f"Likely cause: capture_fx_task missed or failed. "
+                    f"Report {report.id} ({report.report_date}): FX rates for the "
+                    f"following currencies trail the window cutoff: {stale_list}. "
+                    f"Portfolio values in these currencies and the FX footer note "
+                    f"will reflect stale exchange rates.\n\n"
+                    f"Likely cause: capture_fx_task missed or failed for these pairs. "
                     f"Check worker.log and run capture_fx_task.apply() to backfill."
                 ),
                 idempotency_key=f"ops-fx-stale-{report.id}",

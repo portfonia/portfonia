@@ -65,7 +65,6 @@ def _portfolio_snap() -> PortfolioSnapshot:
     )
     return PortfolioSnapshot(
         base_currency="USD",
-        fx_date=_TODAY,
         holdings=[hv],
         total_base=Decimal("10000"),
         by_currency={"USD": Decimal("10000")},
@@ -644,7 +643,7 @@ def test_pass2_prompt_unpriced_holding_is_unvalued_not_zero_weight() -> None:
     never a fabricated percentage (issue #295)."""
     portfolio = {
         "base_currency": "USD",
-        "fx_date": "2026-08-17",
+        "fx_rates_as_of": {"CNY": "2026-08-17"},
         "total_base": 100.0,
         "by_market": {"US": 100.0},
         "by_currency": {},

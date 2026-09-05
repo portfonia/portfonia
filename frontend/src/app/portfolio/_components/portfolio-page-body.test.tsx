@@ -51,7 +51,7 @@ function priced(overrides: Partial<HoldingValueOut>): HoldingValueOut {
 function summary(overrides: Partial<PortfolioSummary>): PortfolioSummary {
   return {
     base_currency: "USD",
-    fx_date: "2026-01-02",
+    fx_rates_as_of: {},
     total_base: "3000.00",
     by_market: { US: "3000.00" },
     by_currency: { USD: "3000.00" },
@@ -103,6 +103,17 @@ describe("PortfolioPageBody", () => {
     expect(totalAssetsValue()).toHaveTextContent("3,000.00 USD");
   });
 
+  it("shows no FX banner when the book needed no conversion (empty fx_rates_as_of)", () => {
+    renderBody(summary({ fx_rates_as_of: {} }));
+    expect(screen.queryByText(/FX rates:/)).not.toBeInTheDocument();
+  });
+
+  it("shows the FX-as-of banner with each currency's own date when a conversion happened (issue #354)", () => {
+    renderBody(summary({ fx_rates_as_of: { CNY: "2026-09-04", HKD: "2026-09-03" } }));
+    expect(screen.getByText(/CNY as of 2026-09-04/)).toBeInTheDocument();
+    expect(screen.getByText(/HKD as of 2026-09-03/)).toBeInTheDocument();
+  });
+
   it("splits capture-unsupported holdings into the no-live-price section, not the main table", () => {
     const unsupported = priced({
       holding_id: "h2",
@@ -136,7 +147,9 @@ describe("PortfolioPageBody", () => {
     );
     renderBody(summary({}));
 
-    await user.selectOptions(screen.getByLabelText("Base currency"), "CNY");
+    await user.click(screen.getByRole("button", { name: /base currency/i }));
+    await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument());
+    await user.click(screen.getByRole("menuitem", { name: "CNY" }));
 
     await waitFor(() => {
       expect(totalAssetsValue()).toHaveTextContent("21,000.00 CNY");
@@ -152,7 +165,9 @@ describe("PortfolioPageBody", () => {
     getPortfolioSummary.mockRejectedValue(new Error("boom"));
     renderBody(summary({}));
 
-    await user.selectOptions(screen.getByLabelText("Base currency"), "CNY");
+    await user.click(screen.getByRole("button", { name: /base currency/i }));
+    await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument());
+    await user.click(screen.getByRole("menuitem", { name: "CNY" }));
 
     await waitFor(() => {
       expect(
@@ -162,7 +177,7 @@ describe("PortfolioPageBody", () => {
     // Last good total is still shown, not wiped out by the failed refetch.
     expect(totalAssetsValue()).toHaveTextContent("3,000.00 USD");
     // The switcher reverted to USD — it no longer disagrees with the data.
-    expect(screen.getByLabelText("Base currency")).toHaveValue("USD");
+    expect(screen.getByRole("button", { name: /base currency/i })).toHaveTextContent("USD");
   });
 
   it("shows a by-broker (custodian) card and a separate by-account card (issue #330)", () => {
@@ -261,12 +276,14 @@ describe("PortfolioPageBody", () => {
     );
     renderBody(summary({}));
 
-    await user.selectOptions(screen.getByLabelText("Base currency"), "CNY");
-    expect(screen.getByLabelText("Base currency")).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: /base currency/i }));
+    await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument());
+    await user.click(screen.getByRole("menuitem", { name: "CNY" }));
+    expect(screen.getByRole("button", { name: /base currency/i })).toBeDisabled();
 
     resolveFetch(summary({ base_currency: "CNY", total_base: "21000.00" }));
     await waitFor(() => {
-      expect(screen.getByLabelText("Base currency")).not.toBeDisabled();
+      expect(screen.getByRole("button", { name: /base currency/i })).not.toBeDisabled();
     });
   });
 });

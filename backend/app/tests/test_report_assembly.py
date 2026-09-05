@@ -10,7 +10,7 @@ from app.services import report_assembly as ra
 _PORTFOLIO: dict[str, Any] = {
     "base_currency": "USD",
     "total_base": 500000.0,
-    "fx_date": "2026-08-17",
+    "fx_rates_as_of": {"CNY": "2026-08-17"},
     "holdings": [
         {
             "name": "NVIDIA",
@@ -336,7 +336,7 @@ def test_shadow_models_deduplicate_while_keeping_order() -> None:
 _FUND_PORTFOLIO: dict[str, Any] = {
     "base_currency": "USD",
     "total_base": 400000.0,
-    "fx_date": "2026-08-17",
+    "fx_rates_as_of": {"CNY": "2026-08-17"},
     "holdings": [
         {
             "name": "Offshore Fund",
@@ -444,7 +444,7 @@ def test_report_window_is_rendered_in_et_like_pass2() -> None:
 _WEIGHTED_PORTFOLIO: dict[str, Any] = {
     "base_currency": "USD",
     "total_base": 500000.0,
-    "fx_date": "2026-08-17",
+    "fx_rates_as_of": {"CNY": "2026-08-17"},
     "holdings": [],
     "by_asset_class": {"BIG": 400000.0, "SMALL_A": 50000.0, "SMALL_B": 50000.0},
     "by_currency": {},
@@ -502,7 +502,7 @@ def test_prompt_includes_fx_date_for_section_4_3() -> None:
 _HK_PORTFOLIO: dict[str, Any] = {
     "base_currency": "HKD",
     "total_base": 100000.0,
-    "fx_date": "2026-08-17",
+    "fx_rates_as_of": {"CNY": "2026-08-17"},
     "holdings": [
         {
             "name": "Tencent",
@@ -534,7 +534,7 @@ def test_holdings_listing_prints_the_normalized_identifier_l1_is_keyed_under() -
 _PSH_PORTFOLIO: dict[str, Any] = {
     "base_currency": "GBP",
     "total_base": 59000.0,
-    "fx_date": "2026-08-28",
+    "fx_rates_as_of": {"CNY": "2026-08-28"},
     "holdings": [
         {
             "name": "Pershing Square Holdings",
@@ -618,7 +618,7 @@ def test_cluster_block_is_absent_from_the_instruction_when_no_clusters() -> None
 _TRACKING_PORTFOLIO: dict[str, Any] = {
     "base_currency": "USD",
     "total_base": 840000.0,
-    "fx_date": "2026-08-17",
+    "fx_rates_as_of": {"CNY": "2026-08-17"},
     "holdings": [
         {
             "name": "Taiwan Semiconductor",
@@ -700,7 +700,7 @@ def test_assembly_prompt_omits_not_processed_holdings() -> None:
     portfolio = {
         "base_currency": "USD",
         "total_base": 100.0,
-        "fx_date": "2026-09-01",
+        "fx_rates_as_of": {"CNY": "2026-09-01"},
         "holdings": [
             {
                 "name": "Apple",

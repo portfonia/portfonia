@@ -48,7 +48,7 @@ def test_summary_returns_distributions(app_client: TestClient, db_session: Sessi
     assert resp.status_code == 200
     body = resp.json()
     assert body["base_currency"] == "USD"
-    assert body["fx_date"] == "2026-01-02"
+    assert body["fx_rates_as_of"] == {}
     assert body["total_base"] == "3000.00"
     assert body["by_sector"] == {"Technology": "3000.00"}
     assert body["concentration"]["top_holding_name"] == "Apple"

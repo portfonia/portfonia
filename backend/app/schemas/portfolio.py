@@ -53,7 +53,7 @@ class ConcentrationOut(BaseModel):
 
 class PortfolioSummaryResponse(BaseModel):
     base_currency: str
-    fx_date: date
+    fx_rates_as_of: dict[str, date]
     total_base: Decimal
     by_market: dict[str, Decimal]
     by_currency: dict[str, Decimal]

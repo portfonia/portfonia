@@ -34,7 +34,6 @@ def _portfolio_snap() -> PortfolioSnapshot:
     )
     return PortfolioSnapshot(
         base_currency="USD",
-        fx_date=_TODAY,
         holdings=[hv],
         total_base=Decimal("10000"),
         by_currency={"USD": Decimal("10000")},
@@ -70,7 +69,7 @@ def test_build_data_window_states_interval() -> None:
         {"published_at": "2026-06-03T20:00:00+00:00"},
     ]
     portfolio = {
-        "fx_date": "2026-06-03",
+        "fx_rates_as_of": {"CNY": "2026-06-03"},
         "holdings": [{"price_as_of": "2026-06-03T20:00:00+00:00"}],
     }
     w = sec._build_data_window(
@@ -79,7 +78,7 @@ def test_build_data_window_states_interval() -> None:
     assert "Data window" in w
     assert "2026-06-01 12:00 to 2026-06-04 16:30 ET" in w
     assert "3 trading day(s)" in w
-    assert "FX as of 2026-06-03" in w
+    assert "FX rates: CNY as of 2026-06-03" in w
     assert "baseline close" in w
 
 
@@ -100,7 +99,7 @@ def test_build_section1_contains_required_rows() -> None:
 def test_build_section1_groups_by_broker_in_upload_order_with_subtotals() -> None:
     portfolio = {
         "base_currency": "USD",
-        "fx_date": "2026-06-06",
+        "fx_rates_as_of": {"CNY": "2026-06-06"},
         "total_base": 300.0,
         "by_market": {"US": 200.0, "HK": 100.0},
         "by_currency": {},
@@ -359,7 +358,7 @@ def test_inject_forward_block_inserts_before_section3() -> None:
 def test_data_window_states_price_cutoff_and_no_intraday() -> None:
     w = sec._build_data_window(
         [],
-        {"fx_date": "2026-06-09"},
+        {"fx_rates_as_of": {"CNY": "2026-06-09"}},
         "2026-06-09T12:00:00+00:00",
         "2026-06-10T12:38:00+00:00",
         1,
@@ -373,23 +372,23 @@ def test_data_window_flags_stale_fx() -> None:
     # FX dated 2026-06-04 against a 2026-06-10 cutoff → 6 days → flagged.
     w = sec._build_data_window(
         [],
-        {"fx_date": "2026-06-04"},
+        {"fx_rates_as_of": {"CNY": "2026-06-04"}},
         "2026-06-09T12:00:00+00:00",
         "2026-06-10T20:30:00+00:00",
         1,
     )
-    assert "FX rate is stale" in w
+    assert "FX rate(s) stale" in w
 
 
 def test_data_window_no_stale_flag_when_fx_current() -> None:
     w = sec._build_data_window(
         [],
-        {"fx_date": "2026-06-10"},
+        {"fx_rates_as_of": {"CNY": "2026-06-10"}},
         "2026-06-09T12:00:00+00:00",
         "2026-06-10T20:30:00+00:00",
         1,
     )
-    assert "FX rate is stale" not in w
+    assert "FX rate(s) stale" not in w
 
 
 def test_data_window_no_stale_flag_when_fx_gap_is_normal_weekend() -> None:
@@ -398,12 +397,12 @@ def test_data_window_no_stale_flag_when_fx_gap_is_normal_weekend() -> None:
     # false-positive on essentially every Monday/holiday-adjacent report.
     w = sec._build_data_window(
         [],
-        {"fx_date": "2026-06-05"},
+        {"fx_rates_as_of": {"CNY": "2026-06-05"}},
         "2026-06-08T12:00:00+00:00",
         "2026-06-09T20:30:00+00:00",
         1,
     )
-    assert "FX rate is stale" not in w
+    assert "FX rate(s) stale" not in w
 
 
 def test_data_window_flags_stale_fx_gap_of_five_days() -> None:
@@ -411,12 +410,12 @@ def test_data_window_flags_stale_fx_gap_of_five_days() -> None:
     # calendar (issue #299) — the R-4 "rates frozen 6 days" case still alerts.
     w = sec._build_data_window(
         [],
-        {"fx_date": "2026-06-04"},
+        {"fx_rates_as_of": {"CNY": "2026-06-04"}},
         "2026-06-08T12:00:00+00:00",
         "2026-06-09T20:30:00+00:00",
         1,
     )
-    assert "FX rate is stale" in w
+    assert "FX rate(s) stale" in w
 
 
 # ---------------------------------------------------------------------------
@@ -464,7 +463,7 @@ def test_forward_block_tags_today_row() -> None:
 
 
 def test_build_footer_contains_fx_date() -> None:
-    portfolio = {"base_currency": "USD", "fx_date": "2026-06-04", "holdings": []}
+    portfolio = {"base_currency": "USD", "fx_rates_as_of": {"CNY": "2026-06-04"}, "holdings": []}
     footer = sec._build_footer(portfolio)
     assert "2026-06-04" in footer
     assert "USD" in footer
@@ -474,7 +473,7 @@ def test_build_footer_defaults_to_english_only() -> None:
     """Issue #350 item 3: the footer now renders in ONE language (default
     output_lang="en") — the pre-#350 behavior of always emitting both
     English and zh-Hans regardless of the report's own language is gone."""
-    portfolio = {"base_currency": "USD", "fx_date": "2026-06-04", "holdings": []}
+    portfolio = {"base_currency": "USD", "fx_rates_as_of": {"CNY": "2026-06-04"}, "holdings": []}
     footer = sec._build_footer(portfolio)
     assert "Disclaimer" in footer
     assert "investment advice" in footer
@@ -483,7 +482,7 @@ def test_build_footer_defaults_to_english_only() -> None:
 
 
 def test_build_footer_renders_zh_only_for_output_lang_zh() -> None:
-    portfolio = {"base_currency": "USD", "fx_date": "2026-06-04", "holdings": []}
+    portfolio = {"base_currency": "USD", "fx_rates_as_of": {"CNY": "2026-06-04"}, "holdings": []}
     footer = sec._build_footer(portfolio, "zh")
     assert "免责声明" in footer
     assert "投资建议" in footer
@@ -492,7 +491,7 @@ def test_build_footer_renders_zh_only_for_output_lang_zh() -> None:
 
 
 def test_build_footer_starts_with_separator() -> None:
-    portfolio = {"base_currency": "USD", "fx_date": "2026-06-04", "holdings": []}
+    portfolio = {"base_currency": "USD", "fx_rates_as_of": {"CNY": "2026-06-04"}, "holdings": []}
     footer = sec._build_footer(portfolio)
     assert "---" in footer
 
@@ -509,7 +508,7 @@ def test_build_section1_renders_unpriced_holding_placeholder() -> None:
     custodian subtotal."""
     portfolio = {
         "base_currency": "USD",
-        "fx_date": "2026-06-06",
+        "fx_rates_as_of": {"CNY": "2026-06-06"},
         "total_base": 100.0,
         "by_market": {"US": 100.0},
         "by_currency": {},
@@ -549,7 +548,7 @@ def test_build_section1_priced_at_zero_with_zero_total_does_not_crash() -> None:
     A zero-value holding must render 0.0% like the pre-#295 code did."""
     portfolio = {
         "base_currency": "USD",
-        "fx_date": "2026-06-06",
+        "fx_rates_as_of": {"CNY": "2026-06-06"},
         "total_base": 0,
         "by_market": {},
         "by_currency": {},
@@ -599,7 +598,6 @@ def test_serialize_portfolio_unpriced_holding_survives_with_none_values() -> Non
     )
     snap = PortfolioSnapshot(
         base_currency="USD",
-        fx_date=_TODAY,
         holdings=[hv],
         total_base=Decimal("0"),
         stale_tickers=["PSH.L"],
@@ -621,7 +619,7 @@ def test_build_section1_marks_stale_priced_rows_inline() -> None:
     marker, distinct from the never-captured placeholder (issue #295)."""
     portfolio = {
         "base_currency": "USD",
-        "fx_date": "2026-06-06",
+        "fx_rates_as_of": {"CNY": "2026-06-06"},
         "total_base": 100.0,
         "by_market": {"US": 100.0},
         "by_currency": {},

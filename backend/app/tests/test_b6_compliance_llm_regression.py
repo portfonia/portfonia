@@ -79,7 +79,6 @@ _CASH_HOLDING = HoldingValue(
 )
 _DIAGNOSTIC_PORTFOLIO = PortfolioSnapshot(
     base_currency="USD",
-    fx_date=_TODAY,
     holdings=[_NVDA_HOLDING, _CASH_HOLDING],
     total_base=Decimal("100000"),
     by_currency={"USD": Decimal("100000")},

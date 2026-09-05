@@ -332,7 +332,12 @@ export interface HoldingValueOut {
 
 export interface PortfolioSummary {
   base_currency: string;
-  fx_date: string;
+  // Per-currency (never "USD") rate_date actually used for this render's
+  // conversions (issue #354) — replaces the old single fx_date scalar,
+  // which assumed every FX pair shared one date. Empty when the book is
+  // single-currency and already matches base_currency (no conversion
+  // happened).
+  fx_rates_as_of: Record<string, string>;
   total_base: string;
   by_market: Record<string, string>;
   by_currency: Record<string, string>;

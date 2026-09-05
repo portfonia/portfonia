@@ -418,6 +418,7 @@
     "currencyLabel": "基準貨幣",
     "asOfBanner": "價格截至 {date}——各市場按自身最新收盤計算，並非同一全域時間點。為收盤數據，非即時。",
     "asOfBannerUnavailable": "本次尚未擷取任何市場的收盤價。為收盤數據，非即時。",
+    "fxAsOfBanner": "匯率：{list}——各貨幣按自身最新匯率計算，並非同一日期。",
     "totalAssetsLabel": "總資產",
     "pnlHeading": "未實現損益",
     "pnlScopeNote": "現金及理財類持倉本身沒有收益概念，但會計入下方的總成本基礎，從而拉低總收益率。",

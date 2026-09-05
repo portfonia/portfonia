@@ -108,7 +108,6 @@ def _empty_portfolio_snap() -> PortfolioSnapshot:
     half trivially empty for every user regardless of the cached classes."""
     return PortfolioSnapshot(
         base_currency="USD",
-        fx_date=date(2026, 6, 6),
         holdings=[],
         total_base=Decimal("0"),
         by_currency={},

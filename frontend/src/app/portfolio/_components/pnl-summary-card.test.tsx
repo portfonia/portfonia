@@ -8,7 +8,7 @@ import { PnlSummaryCard } from "./pnl-summary-card";
 function summary(overrides: Partial<PortfolioSummary>): PortfolioSummary {
   return {
     base_currency: "USD",
-    fx_date: "2026-01-02",
+    fx_rates_as_of: {},
     total_base: "1000.00",
     by_market: {},
     by_currency: {},

@@ -319,7 +319,7 @@ def test_ticker_price_scale_table_is_gone() -> None:
 def test_section1_uses_market_not_supported_distinct_from_price_unavailable() -> None:
     portfolio = {
         "base_currency": "USD",
-        "fx_date": "2026-09-01",
+        "fx_rates_as_of": {"CNY": "2026-09-01"},
         "total_base": 100.0,
         "by_market": {"US": 100.0},
         "by_currency": {},
@@ -372,7 +372,7 @@ def test_section1_uses_market_not_supported_distinct_from_price_unavailable() ->
 def test_pass2_prompt_omits_not_processed_holdings() -> None:
     portfolio = {
         "base_currency": "USD",
-        "fx_date": "2026-09-01",
+        "fx_rates_as_of": {"CNY": "2026-09-01"},
         "total_base": 100.0,
         "by_market": {"US": 100.0},
         "by_currency": {},

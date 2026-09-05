@@ -58,7 +58,7 @@ _HOLDING = HoldingValue(
 def _snapshot(
     holdings: list[HoldingValue] | None = None, price_as_of_date: date | None = None
 ) -> PortfolioSnapshot:
-    snap = PortfolioSnapshot(base_currency="USD", fx_date=date(2026, 1, 2))
+    snap = PortfolioSnapshot(base_currency="USD")
     snap.holdings = holdings if holdings is not None else [_HOLDING]
     snap.price_as_of_date = price_as_of_date
     # by_* aggregates deliberately populated here to prove the exporter never

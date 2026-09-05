@@ -140,7 +140,6 @@ class Concentration:
 @dataclass
 class PortfolioSnapshot:
     base_currency: str
-    fx_date: date  # which day's FX rates were used
     holdings: list[HoldingValue] = field(default_factory=list)
     total_base: Decimal = _ZERO
     by_currency: dict[str, Decimal] = field(default_factory=dict)
@@ -162,28 +161,65 @@ class PortfolioSnapshot:
     # Max trade_date among captured closes actually matched to one of this
     # user's holdings this run; None when nothing was captured.
     price_as_of_date: date | None = None
+    # Per-currency (3-letter code, never "USD") rate_date actually resolved
+    # for this render's conversions — issue #354. Replaces the old single
+    # `fx_date` scalar, which assumed every FX pair shared one date; real FX
+    # data does not arrive that way (see _load_fx_rates docstring). Only
+    # populated for currencies actually needed by this render (a holding's
+    # native currency, or the selected base_currency).
+    fx_rates_as_of: dict[str, date] = field(default_factory=dict)
 
 
-def _load_fx_rates(session: Session) -> tuple[dict[str, Decimal], date | None]:
+def _load_fx_rates(session: Session) -> tuple[dict[str, Decimal], dict[str, date]]:
     """
-    Return the most recent fx_rates snapshot as {pair: rate} plus its date.
+    Return the latest fx_rates snapshot as {pair: rate} plus {pair: rate_date}.
 
-    Picks the newest rate_date on or before today (ET), then loads every pair
-    for exactly that date. Falls back to the latest available date on
-    weekends / holidays. Returns ({}, None) when the table is empty.
+    Each pair resolves its own latest rate_date on or before today (ET)
+    independently (issue #354) — real FX data does not arrive with every pair
+    ticking over to a new trading day at the same moment. Production showed
+    USDCNY and USDCNH from the identical capture run land on different
+    rate_dates a full day apart; the previous implementation required one
+    shared max(rate_date) across ALL pairs, so whichever pair advanced to a
+    new trading day first made every other pair vanish from the dict until it
+    caught up — silently dropping holdings/base-currency conversions in that
+    other pair's currency. Returns ({}, {}) when the table is empty.
     """
     today_et = datetime.now(tz=ET).date()
 
-    latest_date = session.execute(
-        select(func.max(FxRate.rate_date)).where(FxRate.rate_date <= today_et)
-    ).scalar_one_or_none()
+    latest_per_pair = (
+        select(FxRate.pair, func.max(FxRate.rate_date).label("rate_date"))
+        .where(FxRate.rate_date <= today_et)
+        .group_by(FxRate.pair)
+        .subquery()
+    )
+    rows = session.execute(
+        select(FxRate.pair, FxRate.rate, FxRate.rate_date).join(
+            latest_per_pair,
+            (FxRate.pair == latest_per_pair.c.pair)
+            & (FxRate.rate_date == latest_per_pair.c.rate_date),
+        )
+    ).all()
 
-    if latest_date is None:
-        return {}, None
+    rates: dict[str, Decimal] = {}
+    pair_dates: dict[str, date] = {}
+    for pair, rate, rate_date in rows:
+        rates[pair] = rate
+        pair_dates[pair] = rate_date
+    return rates, pair_dates
 
-    rows = session.execute(select(FxRate).where(FxRate.rate_date == latest_date)).scalars()
-    rates = {row.pair: row.rate for row in rows}
-    return rates, latest_date
+
+def format_fx_rates_as_of(fx_rates_as_of: dict[str, str]) -> str:
+    """Render the per-currency FX-rate-as-of map as one display string.
+
+    Shared by every report-text call site that used to interpolate the old
+    single `fx_date` scalar (report_sections.py/report_assembly.py/
+    report_prompts.py) so "n/a" for an empty map and the "CCY as of DATE"
+    shape stay in exactly one place. Sorted by currency code for
+    deterministic output.
+    """
+    if not fx_rates_as_of:
+        return "n/a"
+    return ", ".join(f"{ccy} as of {d}" for ccy, d in sorted(fx_rates_as_of.items()))
 
 
 def _latest_captured_closes(session: Session) -> dict[str, tuple[Decimal, date]]:
@@ -334,8 +370,8 @@ def compute_portfolio(
     flagged for ops alerting).
     """
     price_ref = as_of or date.today()
-    fx, fx_date = _load_fx_rates(session)
-    snapshot = PortfolioSnapshot(base_currency=base_currency, fx_date=fx_date or date.today())
+    fx, fx_pair_dates = _load_fx_rates(session)
+    snapshot = PortfolioSnapshot(base_currency=base_currency)
     captured_closes = _latest_captured_closes(session)
 
     # Same book order as /holdings and /holdings/edit (issue #92 `position`,
@@ -524,6 +560,17 @@ def compute_portfolio(
             snapshot.total_unrealized_pnl_base, snapshot.total_cost_basis_base
         )
     snapshot.price_as_of_date = max(used_trade_dates) if used_trade_dates else None
+
+    # issue #354: only disclose a date for a currency this render actually
+    # needed a rate for (a holding's native currency, or base_currency
+    # itself) — USD needs no rate, it's the pivot.
+    needed_currencies = {h.currency for h in holdings} | {base_currency}
+    needed_currencies.discard("USD")
+    for ccy in needed_currencies:
+        pair = _CURRENCY_TO_FX_PAIR.get(ccy)
+        if pair is not None and pair in fx_pair_dates:
+            snapshot.fx_rates_as_of[ccy] = fx_pair_dates[pair]
+
     leverage_map = load_leverage_map(session)
     snapshot.concentration = _compute_concentration(snapshot, leverage_map)
     return snapshot

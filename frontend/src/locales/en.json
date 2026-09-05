@@ -418,6 +418,7 @@
     "currencyLabel": "Base currency",
     "asOfBanner": "Prices as of {date} — each market's own latest close, not one global timestamp. End-of-day data, not real-time.",
     "asOfBannerUnavailable": "No per-market closing prices captured yet for this view. End-of-day data, not real-time.",
+    "fxAsOfBanner": "FX rates: {list} — each currency's own latest rate, not one shared date.",
     "totalAssetsLabel": "Total assets",
     "pnlHeading": "Unrealized P&L",
     "pnlScopeNote": "Cash and wealth-management holdings have no return of their own, but count toward the total cost basis below, diluting the total return %.",
