@@ -6,7 +6,7 @@ import logging
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy import func, select
@@ -14,6 +14,8 @@ from sqlalchemy.orm import Session
 
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
+from app.services._finnhub import FinnhubQuote
+from app.services._yfinance import OhlcvPoint
 from app.services.price_capture import (
     _UPSERT_CHUNK_SIZE,
     _upsert,
@@ -76,6 +78,120 @@ def test_capture_close_is_idempotent(db_session: Session) -> None:
     )
     assert len(rows) == 1
     assert rows[0].close == Decimal("204.0")
+
+
+# ---------------------------------------------------------------------------
+# Finnhub fallback wiring (issue #56) — non-close US-market spot capture only
+# ---------------------------------------------------------------------------
+
+
+def _settings_with_finnhub_key(key: str | None) -> MagicMock:
+    return _settings_with_keys(finnhub=key, massive=None)
+
+
+def _settings_with_keys(finnhub: str | None, massive: str | None) -> MagicMock:
+    settings = MagicMock()
+    if finnhub is None:
+        settings.FINNHUB_API_KEY = None
+    else:
+        settings.FINNHUB_API_KEY.get_secret_value.return_value = finnhub
+    if massive is None:
+        settings.MASSIVE_API_KEY = None
+    else:
+        settings.MASSIVE_API_KEY.get_secret_value.return_value = massive
+    return settings
+
+
+def test_capture_spot_falls_back_to_finnhub_for_yfinance_miss(db_session: Session) -> None:
+    db_session.add(_holding("Apple", "AAPL", market="US"))
+    db_session.flush()
+
+    with (
+        patch(
+            "app.services.price_capture.get_settings", return_value=_settings_with_finnhub_key("k")
+        ),
+        patch("app.services.price_capture.fetch_spot", return_value={}),
+        patch(
+            "app.services.price_capture.fetch_finnhub_quotes",
+            return_value={"AAPL": FinnhubQuote(last=328.21, previous_close=324.96)},
+        ) as mock_finnhub,
+    ):
+        n = capture_prices(db_session, market="US", session_node="pre_open")
+
+    mock_finnhub.assert_called_once_with(["AAPL"], "k")
+    assert n == 1
+    row = db_session.execute(
+        select(PriceSnapshot).where(PriceSnapshot.ticker == "AAPL")
+    ).scalar_one()
+    assert row.last == Decimal("328.21")
+    assert row.source == "finnhub"
+
+
+def test_capture_spot_does_not_call_finnhub_when_yfinance_succeeds(db_session: Session) -> None:
+    db_session.add(_holding("Apple", "AAPL", market="US"))
+    db_session.flush()
+
+    with (
+        patch(
+            "app.services.price_capture.get_settings", return_value=_settings_with_finnhub_key("k")
+        ),
+        patch("app.services.price_capture.fetch_spot", return_value={"AAPL": 330.0}),
+        patch("app.services.price_capture.fetch_finnhub_quotes") as mock_finnhub,
+    ):
+        capture_prices(db_session, market="US", session_node="pre_open")
+
+    mock_finnhub.assert_not_called()
+
+
+def test_capture_spot_does_not_call_finnhub_when_key_unset(db_session: Session) -> None:
+    db_session.add(_holding("Apple", "AAPL", market="US"))
+    db_session.flush()
+
+    with (
+        patch(
+            "app.services.price_capture.get_settings", return_value=_settings_with_finnhub_key(None)
+        ),
+        patch("app.services.price_capture.fetch_spot", return_value={}),
+        patch("app.services.price_capture.fetch_finnhub_quotes") as mock_finnhub,
+    ):
+        capture_prices(db_session, market="US", session_node="pre_open")
+
+    mock_finnhub.assert_not_called()
+
+
+def test_capture_spot_non_us_market_does_not_call_finnhub(db_session: Session) -> None:
+    db_session.add(_holding("Tencent", "0700.HK", market="HK"))
+    db_session.flush()
+
+    with (
+        patch(
+            "app.services.price_capture.get_settings", return_value=_settings_with_finnhub_key("k")
+        ),
+        patch("app.services.price_capture.fetch_spot", return_value={}),
+        patch("app.services.price_capture.fetch_finnhub_quotes") as mock_finnhub,
+    ):
+        capture_prices(db_session, market="HK", session_node="pre_open")
+
+    mock_finnhub.assert_not_called()
+
+
+def test_capture_close_node_does_not_call_finnhub(db_session: Session) -> None:
+    """Finnhub is a spot/intraday-node fallback (near-real-time single point)
+    — the close node uses fetch_ohlcv_range, not fetch_spot, and must never
+    reach for Finnhub even on a yfinance miss."""
+    db_session.add(_holding("Apple", "AAPL", market="US"))
+    db_session.flush()
+
+    with (
+        patch(
+            "app.services.price_capture.get_settings", return_value=_settings_with_finnhub_key("k")
+        ),
+        patch("app.services.price_capture.fetch_ohlcv_range", return_value={}),
+        patch("app.services.price_capture.fetch_finnhub_quotes") as mock_finnhub,
+    ):
+        capture_prices(db_session, market="US", session_node="close")
+
+    mock_finnhub.assert_not_called()
 
 
 def test_capture_close_backfills_multiple_days(db_session: Session) -> None:
@@ -596,3 +712,134 @@ def test_upsert_chunks_past_postgres_parameter_limit(db_session: Session) -> Non
         select(func.count()).select_from(PriceSnapshot).where(PriceSnapshot.ticker == "BULK")
     ).scalar_one()
     assert count == _PARAM_OVERFLOW_ROW_COUNT
+
+
+# ---------------------------------------------------------------------------
+# Massive.com fallback wiring (issue #56) — close-node US-market only
+# ---------------------------------------------------------------------------
+
+_MASSIVE_BAR: OhlcvPoint = (date(2026, 9, 2), 115.55, 117.59, 114.13, 115.97, 1000.0)
+
+
+def test_capture_close_falls_back_to_massive_for_yfinance_miss(db_session: Session) -> None:
+    db_session.add(_holding("Apple", "AAPL", market="US"))
+    db_session.flush()
+
+    with (
+        patch(
+            "app.services.price_capture.get_settings",
+            return_value=_settings_with_keys(finnhub=None, massive="k"),
+        ),
+        patch("app.services.price_capture.fetch_ohlcv_range", return_value={}),
+        patch(
+            "app.services.price_capture.fetch_massive_prev_close_ohlcv",
+            return_value={"AAPL": _MASSIVE_BAR},
+        ) as mock_massive,
+    ):
+        n = capture_prices(db_session, market="US", session_node="close")
+
+    mock_massive.assert_called_once_with(["AAPL"], "k")
+    assert n == 1
+    row = db_session.execute(
+        select(PriceSnapshot).where(PriceSnapshot.ticker == "AAPL")
+    ).scalar_one()
+    assert row.close == Decimal("115.97")
+    assert row.trade_date == date(2026, 9, 2)
+    assert row.source == "massive"
+
+
+def test_capture_close_does_not_call_massive_when_yfinance_succeeds(db_session: Session) -> None:
+    db_session.add(_holding("Apple", "AAPL", market="US"))
+    db_session.flush()
+    ohlcv = {"AAPL": [(date(2026, 6, 5), 200.0, 205.0, 199.0, 203.5, 1000.0)]}
+
+    with (
+        patch(
+            "app.services.price_capture.get_settings",
+            return_value=_settings_with_keys(finnhub=None, massive="k"),
+        ),
+        patch("app.services.price_capture.fetch_ohlcv_range", return_value=ohlcv),
+        patch("app.services.price_capture.fetch_massive_prev_close_ohlcv") as mock_massive,
+    ):
+        capture_prices(db_session, market="US", session_node="close")
+
+    mock_massive.assert_not_called()
+
+
+def test_capture_close_does_not_call_massive_when_key_unset(db_session: Session) -> None:
+    db_session.add(_holding("Apple", "AAPL", market="US"))
+    db_session.flush()
+
+    with (
+        patch(
+            "app.services.price_capture.get_settings",
+            return_value=_settings_with_keys(finnhub=None, massive=None),
+        ),
+        patch("app.services.price_capture.fetch_ohlcv_range", return_value={}),
+        patch("app.services.price_capture.fetch_massive_prev_close_ohlcv") as mock_massive,
+    ):
+        capture_prices(db_session, market="US", session_node="close")
+
+    mock_massive.assert_not_called()
+
+
+def test_capture_close_non_us_market_does_not_call_massive(db_session: Session) -> None:
+    db_session.add(_holding("Tencent", "0700.HK", market="HK"))
+    db_session.flush()
+
+    with (
+        patch(
+            "app.services.price_capture.get_settings",
+            return_value=_settings_with_keys(finnhub=None, massive="k"),
+        ),
+        patch("app.services.price_capture.fetch_ohlcv_range", return_value={}),
+        patch("app.services.price_capture.fetch_massive_prev_close_ohlcv") as mock_massive,
+    ):
+        capture_prices(db_session, market="HK", session_node="close")
+
+    mock_massive.assert_not_called()
+
+
+@pytest.mark.parametrize("node", ["pre_open", "open", "after_close"])
+def test_capture_spot_nodes_never_call_massive(db_session: Session, node: str) -> None:
+    """Massive's free tier structurally cannot serve same-day data — wiring
+    it into a spot/intraday node would just burn quota for nothing."""
+    db_session.add(_holding("Apple", "AAPL", market="US"))
+    db_session.flush()
+
+    with (
+        patch(
+            "app.services.price_capture.get_settings",
+            return_value=_settings_with_keys(finnhub=None, massive="k"),
+        ),
+        patch("app.services.price_capture.fetch_spot", return_value={}),
+        patch("app.services.price_capture.fetch_massive_prev_close_ohlcv") as mock_massive,
+    ):
+        capture_prices(db_session, market="US", session_node=node)
+
+    mock_massive.assert_not_called()
+
+
+def test_capture_close_massive_does_not_re_request_ticker_yfinance_already_returned(
+    db_session: Session,
+) -> None:
+    db_session.add_all(
+        [_holding("Apple", "AAPL", market="US"), _holding("Microsoft", "MSFT", market="US")]
+    )
+    db_session.flush()
+    ohlcv = {"AAPL": [(date(2026, 6, 5), 200.0, 205.0, 199.0, 203.5, 1000.0)]}
+
+    with (
+        patch(
+            "app.services.price_capture.get_settings",
+            return_value=_settings_with_keys(finnhub=None, massive="k"),
+        ),
+        patch("app.services.price_capture.fetch_ohlcv_range", return_value=ohlcv),
+        patch(
+            "app.services.price_capture.fetch_massive_prev_close_ohlcv",
+            return_value={"MSFT": _MASSIVE_BAR},
+        ) as mock_massive,
+    ):
+        capture_prices(db_session, market="US", session_node="close")
+
+    mock_massive.assert_called_once_with(["MSFT"], "k")

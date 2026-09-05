@@ -5,6 +5,8 @@ No database required — all tests mock yf.download and time.sleep.
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from unittest.mock import patch
 
@@ -17,8 +19,11 @@ from app.services._yfinance import (
     _download_batch,
     _market_key_for_ticker,
     _normalize_ticker,
+    _quiet_yfinance_logs,
+    _raw_download,
     _scale_price,
     fetch_last_close,
+    fetch_ohlcv_range,
     fetch_spot,
 )
 
@@ -332,3 +337,154 @@ def test_download_batch_all_nan_series_omitted() -> None:
         result = _download_batch(["AAPL"])
 
     assert result == {}
+
+
+# ---------------------------------------------------------------------------
+# _quiet_yfinance_logs — log-noise suppression (issue #56)
+# ---------------------------------------------------------------------------
+
+_YF_LOGGER = logging.getLogger("yfinance")
+
+
+@pytest.fixture(autouse=True)
+def _restore_yf_logger_level() -> Iterator[None]:
+    """Every test in this module must leave the real `yfinance` logger as it
+    found it, regardless of what the test under test does to it."""
+    original = _YF_LOGGER.level
+    yield
+    _YF_LOGGER.setLevel(original)
+
+
+@pytest.fixture(autouse=True)
+def _reenable_module_logger_for_caplog() -> None:
+    """A db_session-using test elsewhere in the suite runs `alembic upgrade`,
+    whose fileConfig() defaults disable_existing_loggers=True and silently
+    disables this already-imported module's logger regardless of test file
+    or run order — re-enable so caplog can see telemetry records (same
+    mechanism as test_fund_nav_fetcher.py)."""
+    logging.getLogger("app.services._yfinance").disabled = False
+
+
+def test_quiet_yfinance_logs_demotes_to_critical_during_the_block() -> None:
+    _YF_LOGGER.setLevel(logging.WARNING)
+    with _quiet_yfinance_logs():
+        assert _YF_LOGGER.level == logging.CRITICAL
+    assert _YF_LOGGER.level == logging.WARNING
+
+
+def test_quiet_yfinance_logs_restores_level_on_exception() -> None:
+    _YF_LOGGER.setLevel(logging.WARNING)
+    with pytest.raises(RuntimeError), _quiet_yfinance_logs():
+        assert _YF_LOGGER.level == logging.CRITICAL
+        raise RuntimeError("boom")
+    assert _YF_LOGGER.level == logging.WARNING
+
+
+def test_raw_download_suppresses_yfinance_logger_during_call() -> None:
+    _YF_LOGGER.setLevel(logging.WARNING)
+    seen_levels: list[int] = []
+
+    def fake_download(**kwargs: object) -> pd.DataFrame:
+        seen_levels.append(_YF_LOGGER.level)
+        return _make_hist("AAPL", 100.0)
+
+    with patch("app.services._yfinance.yf.download", side_effect=fake_download):
+        _raw_download(["AAPL"])
+
+    assert seen_levels == [logging.CRITICAL]
+    assert _YF_LOGGER.level == logging.WARNING
+
+
+def test_fetch_ohlcv_range_suppresses_yfinance_logger_during_call() -> None:
+    _YF_LOGGER.setLevel(logging.WARNING)
+    seen_levels: list[int] = []
+
+    def fake_download(**kwargs: object) -> pd.DataFrame:
+        seen_levels.append(_YF_LOGGER.level)
+        return _make_hist("AAPL", 100.0)
+
+    with patch("app.services._yfinance.yf.download", side_effect=fake_download):
+        fetch_ohlcv_range(["AAPL"])
+
+    assert seen_levels == [logging.CRITICAL]
+    assert _YF_LOGGER.level == logging.WARNING
+
+
+def test_fetch_spot_suppresses_yfinance_logger_during_call() -> None:
+    _YF_LOGGER.setLevel(logging.WARNING)
+    seen_levels: list[int] = []
+
+    class _Ticker:
+        def __init__(self, symbol: str) -> None:
+            seen_levels.append(_YF_LOGGER.level)
+            self.fast_info = {"lastPrice": 100.0, "currency": "USD"}
+
+    with patch("app.services._yfinance.yf.Ticker", side_effect=_Ticker):
+        fetch_spot(["AAPL"])
+
+    assert seen_levels == [logging.CRITICAL]
+    assert _YF_LOGGER.level == logging.WARNING
+
+
+# ---------------------------------------------------------------------------
+# Provider telemetry (issue #56) — structured logger.info at each fetch site
+# ---------------------------------------------------------------------------
+
+
+def test_raw_download_logs_telemetry_on_success(caplog: pytest.LogCaptureFixture) -> None:
+    with (
+        patch("app.services._yfinance.yf.download", return_value=_make_hist("AAPL", 100.0)),
+        caplog.at_level(logging.INFO, logger="app.services._yfinance"),
+    ):
+        _raw_download(["AAPL"])
+
+    telemetry = [r for r in caplog.records if "source=yfinance" in r.getMessage()]
+    assert len(telemetry) == 1
+    msg = telemetry[0].getMessage()
+    assert "ticker_count=1" in msg
+    assert "latency_ms=" in msg
+
+
+def test_raw_download_logs_telemetry_with_error_type_on_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def fake_download(**kwargs: object) -> pd.DataFrame:
+        raise OSError("network unreachable")
+
+    with (
+        patch("app.services._yfinance.yf.download", side_effect=fake_download),
+        caplog.at_level(logging.INFO, logger="app.services._yfinance"),
+    ):
+        _raw_download(["AAPL"])
+
+    telemetry = [r for r in caplog.records if "source=yfinance" in r.getMessage()]
+    assert len(telemetry) == 1
+    assert "error_type=connection" in telemetry[0].getMessage()
+
+
+def test_fetch_ohlcv_range_logs_telemetry(caplog: pytest.LogCaptureFixture) -> None:
+    with (
+        patch("app.services._yfinance.yf.download", return_value=_make_hist("AAPL", 100.0)),
+        caplog.at_level(logging.INFO, logger="app.services._yfinance"),
+    ):
+        fetch_ohlcv_range(["AAPL"])
+
+    telemetry = [r for r in caplog.records if "source=yfinance" in r.getMessage()]
+    assert len(telemetry) == 1
+    assert "ticker_count=1" in telemetry[0].getMessage()
+
+
+def test_fetch_spot_logs_telemetry(caplog: pytest.LogCaptureFixture) -> None:
+    class _Ticker:
+        def __init__(self, symbol: str) -> None:
+            self.fast_info = {"lastPrice": 100.0, "currency": "USD"}
+
+    with (
+        patch("app.services._yfinance.yf.Ticker", side_effect=_Ticker),
+        caplog.at_level(logging.INFO, logger="app.services._yfinance"),
+    ):
+        fetch_spot(["AAPL"])
+
+    telemetry = [r for r in caplog.records if "source=yfinance" in r.getMessage()]
+    assert len(telemetry) == 1
+    assert "ticker_count=1" in telemetry[0].getMessage()

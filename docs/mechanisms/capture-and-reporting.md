@@ -214,6 +214,97 @@ hardcoded entry (`PSH`) for the bare-ticker-with-no-hint-at-all case.
 Out of scope: commodity exchanges; any market beyond the seven scheduled
 buckets; FX (GBP/EUR/JPY/KRW pairs already covered by #204).
 
+### Price-fetch resilience: typed errors, telemetry, Finnhub + Massive.com fallbacks (issue #56)
+
+Before this issue, `_yfinance.py`'s `_raw_download`/`_download_batch`/
+`fetch_ohlcv_range`/`fetch_spot` collapsed every failure into a bare
+`except Exception: logger.exception(...)` — a 429, a dropped connection,
+and "this ticker genuinely has no data" were indistinguishable to callers,
+and yfinance had no fallback source at all. Four pieces, frozen in design
+before implementation (Obsidian `Hermes/Portfonia/Docs/Ring 1-Price Info
+Outlet.md`; GitHub issue #56 comments carry the same content):
+
+**Typed error taxonomy** (`app/services/price_errors.py`):
+`PriceFetchErrorCode` (`rate_limit`/`connection`/`no_data`) +
+`classify_http_status`/`classify_exception`, modeled on
+`llm_errors.py`'s `LLMErrorCode`/`ErrorPolicy` split (issue #55):
+classification owns *what kind* of failure occurred, callers keep owning
+retry *policy*. `NO_DATA` is never raised as an exception — it's assigned
+directly by a caller that got a successful-but-empty response. This issue
+does **not** centralize `price_fetcher.py`'s existing total-failure/
+partial-failure retry loops onto this taxonomy — those keep their own
+counts and timing, untouched.
+
+**Provider telemetry**: a structured `logger.info("price_fetch
+source=... ticker_count=... latency_ms=... [error_type=...]")` at every
+fetch call site (`_yfinance._raw_download`/`fetch_ohlcv_range`/
+`fetch_spot`, and the Finnhub/Massive call sites below) — log-shape only,
+no new table or dashboard. The format string is duplicated per module
+(`_log_fetch_telemetry` in `_yfinance.py`, `_log_telemetry` in
+`_finnhub.py`/`_massive.py`) rather than factored into one shared helper —
+deliberate, matching the "no fetcher interface abstraction" decision below.
+
+**yfinance log-noise suppression**: `_yfinance._quiet_yfinance_logs()`, a
+context manager that demotes the `yfinance` logger to `CRITICAL` for the
+duration of a `yf.download()`/`.history()` call and restores the prior
+level on exit (including on exception) — kills a known false "possibly
+delisted; no price data found" ERROR on transient misses. Wraps every
+yfinance call site in `_yfinance.py`.
+
+**Finnhub US-market spot fallback** (`app/services/_finnhub.py`,
+`fetch_quotes(tickers, api_key) -> dict[str, FinnhubQuote]`): last price +
+previous close from Finnhub's `/quote` endpoint, one GET per ticker, no
+other Finnhub endpoints. Live-verified (2026-09-04) that the free tier
+returns `{"error": ...}` for non-US symbols (HK/LSE/Tokyo tested) — US-only
+by confirmed capability, not a conservative guess. Wired into
+`price_capture.py::capture_prices()`'s **non-close** branch only (a
+near-real-time single point fits spot/intraday nodes, not the close node's
+finalized daily bar), gated on `market == "US"` and
+`Settings.FINNHUB_API_KEY` being set, called only for the ticker subset
+`fetch_spot` didn't return. Rows get `source="finnhub"` explicitly.
+`FINNHUB_API_KEY` is the same key already in production use by the
+unrelated Daily_Intelligence project (shared free-tier 60 req/min
+bucket) — a deliberate, accepted cross-project coupling, not something to
+give this project its own key for.
+
+**Massive.com (formerly Polygon.io) close-node EOD fallback**
+(`app/services/_massive.py`, `fetch_prev_close_ohlcv(tickers, api_key) ->
+dict[str, OhlcvPoint]`): one GET per ticker to
+`api.massive.com/v2/aggs/ticker/{t}/prev` (new domain — the old
+`api.polygon.io` has no committed sunset date; free tier has no batch
+form). The free tier's shape is the mirror image of Finnhub's: same-day
+data withheld entirely (verified live: `403 NOT_AUTHORIZED`, "Your plan
+doesn't include this data timeframe"), T-1-onward EOD aggregates freely
+available — a close match for the `close` capture node, which runs
+post-close and wants the finalized prior-session bar, never same-day
+intraday. Wired into `capture_prices()`'s **close** branch only, gated on
+`market == "US"` and `Settings.MASSIVE_API_KEY`, called only for the
+ticker subset `fetch_ohlcv_range` didn't return; rows get
+`source="massive"` explicitly. Deliberately never wired into
+`pre_open`/`open`/`after_close` (structurally cannot serve same-day data —
+would just burn quota) or any non-US market (free tier is US-stocks-only
+at every paid tier too, per the official pricing page).
+
+**Contract enforced for both fallbacks**: every price/bar routes through
+the same `_safe_scaled_price` currency/scale-safety gate yfinance prices
+go through, even though both sources are US-only today and the gate is
+currently a no-op for them — this is the gate that prevents a repeat of
+the issue #204/#311 GBX/pence bug (an unscaled LSE price stored 100x too
+high) if either fallback's scope ever widens. Both modules are fail-open
+per ticker (network error, an HTTP error, an empty/malformed response) —
+never raise, never abort the batch for other tickers.
+
+**Explicitly excluded** (deferred, not forgotten — see the Obsidian doc's
+"明确排除" list): a fetcher-interface abstraction layer / ordered
+multi-source chain (both real fallbacks here are simple `market ==`
+conditionals, not a health-tracked source pool — building an interface
+for two condition-gated single-implementations is speculative), per-source
+health tracking/circuit breaking, the Guardian News API (unrelated to
+price fetching, and never verified working), and
+`_missing_close_tickers`/`_merge_daily_ohlc`-style precise-merge retry
+refinement (a behavioral change to the existing retry loops, deliberately
+kept separate from this observability-plus-narrow-fallback change).
+
 ### Fund NAV realtime path: Sina Finance fallback (issue #20)
 
 `fund_nav_fetcher.py`'s realtime path (`_fetch_nav` → `update_fund_navs`, keeps

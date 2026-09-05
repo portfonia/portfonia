@@ -18,14 +18,59 @@ from __future__ import annotations
 import logging
 import re
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, date, datetime
 
 import pandas as pd
 import yfinance as yf
 
 from app.services.markets import yf_batch_key
+from app.services.price_errors import classify_exception
 
 logger = logging.getLogger(__name__)
+
+_YF_LOGGER = logging.getLogger("yfinance")
+
+
+@contextmanager
+def _quiet_yfinance_logs() -> Iterator[None]:
+    """Demote the `yfinance` logger to CRITICAL for the duration of a call.
+
+    yfinance emits a known false "possibly delisted; no price data found"
+    ERROR on transient misses (a throttle or a genuinely quiet trading day),
+    which is noise at our log level, not a signal — the caller here already
+    handles the miss (empty result / omitted ticker). Restores the prior
+    level on exit, including on exception (issue #56).
+    """
+    previous = _YF_LOGGER.level
+    _YF_LOGGER.setLevel(logging.CRITICAL)
+    try:
+        yield
+    finally:
+        _YF_LOGGER.setLevel(previous)
+
+
+def _log_fetch_telemetry(
+    source: str, ticker_count: int, latency_ms: float, error_type: str | None = None
+) -> None:
+    """Structured provider telemetry (issue #56) — log shape only, no table/alerting."""
+    if error_type is not None:
+        logger.info(
+            "price_fetch source=%s ticker_count=%d latency_ms=%d error_type=%s",
+            source,
+            ticker_count,
+            round(latency_ms),
+            error_type,
+        )
+    else:
+        logger.info(
+            "price_fetch source=%s ticker_count=%d latency_ms=%d",
+            source,
+            ticker_count,
+            round(latency_ms),
+        )
+
 
 _HK_TICKER_RE = re.compile(r"^0*(\d+)\.HK$", re.IGNORECASE)
 
@@ -87,7 +132,8 @@ _GBPENCE = "GBp"
 def _fetched_currency(ticker: str) -> str | None:
     """Best-effort yfinance currency for `ticker`. None on any failure."""
     try:
-        info = yf.Ticker(ticker).fast_info
+        with _quiet_yfinance_logs():
+            info = yf.Ticker(ticker).fast_info
         cur = info.get("currency") if info is not None else None
     except Exception:
         logger.exception("yfinance currency lookup failed for %s", ticker)
@@ -186,18 +232,29 @@ def _extract_close_points(series: pd.Series, n: int) -> list[ClosePoint]:
 def _raw_download(tickers: list[str]) -> pd.DataFrame:
     """Shared yf.download call; returns the Close DataFrame or empty DataFrame on error."""
     ticker_str = " ".join(tickers)
+    start = time.monotonic()
     try:
-        hist = yf.download(
-            tickers=ticker_str,
-            period="5d",
-            auto_adjust=True,
-            progress=False,
-        )
-    except Exception:
+        with _quiet_yfinance_logs():
+            hist = yf.download(
+                tickers=ticker_str,
+                period="5d",
+                auto_adjust=True,
+                progress=False,
+            )
+    except Exception as exc:
         logger.exception("yfinance download failed for %s", ticker_str)
+        _log_fetch_telemetry(
+            "yfinance",
+            len(tickers),
+            (time.monotonic() - start) * 1000,
+            error_type=classify_exception(exc).value,
+        )
         return pd.DataFrame()
+    latency_ms = (time.monotonic() - start) * 1000
     if hist.empty:
+        _log_fetch_telemetry("yfinance", len(tickers), latency_ms, error_type="no_data")
         return pd.DataFrame()
+    _log_fetch_telemetry("yfinance", len(tickers), latency_ms)
     close = hist["Close"]
     if isinstance(close, pd.Series):
         close = close.to_frame(name=tickers[0])
@@ -334,15 +391,26 @@ def fetch_ohlcv_range(tickers: list[str], lookback_days: int = 7) -> dict[str, l
     for i, batch in enumerate(batches):
         if i > 0:
             time.sleep(_INTER_BATCH_DELAY)
+        start = time.monotonic()
         try:
-            hist = yf.download(
-                tickers=" ".join(batch), period=period, auto_adjust=True, progress=False
-            )
-        except Exception:
+            with _quiet_yfinance_logs():
+                hist = yf.download(
+                    tickers=" ".join(batch), period=period, auto_adjust=True, progress=False
+                )
+        except Exception as exc:
             logger.exception("yfinance OHLCV download failed for %s", batch)
+            _log_fetch_telemetry(
+                "yfinance",
+                len(batch),
+                (time.monotonic() - start) * 1000,
+                error_type=classify_exception(exc).value,
+            )
             continue
+        latency_ms = (time.monotonic() - start) * 1000
         if hist.empty:
+            _log_fetch_telemetry("yfinance", len(batch), latency_ms, error_type="no_data")
             continue
+        _log_fetch_telemetry("yfinance", len(batch), latency_ms)
         for t in batch:
             rows = _ohlcv_rows_for_ticker(hist, t, currency=_fetched_currency(t))
             if rows:
@@ -366,16 +434,29 @@ def fetch_spot(tickers: list[str]) -> dict[str, float]:
     out: dict[str, float] = {}
     for raw in tickers:
         t = _normalize_ticker(raw)
+        start = time.monotonic()
         try:
-            info = yf.Ticker(t).fast_info
+            with _quiet_yfinance_logs():
+                info = yf.Ticker(t).fast_info
             last = info.get("lastPrice")
+            latency_ms = (time.monotonic() - start) * 1000
             if last is not None and not pd.isna(last):
                 raw_cur = info.get("currency")
                 currency = None if raw_cur is None else str(raw_cur)
                 scaled = _safe_scaled_price(t, float(last), currency)
                 if scaled is None:
+                    _log_fetch_telemetry("yfinance", 1, latency_ms, error_type="no_data")
                     continue
                 out[t] = scaled
-        except Exception:
+                _log_fetch_telemetry("yfinance", 1, latency_ms)
+            else:
+                _log_fetch_telemetry("yfinance", 1, latency_ms, error_type="no_data")
+        except Exception as exc:
             logger.exception("yfinance spot fetch failed for %s", t)
+            _log_fetch_telemetry(
+                "yfinance",
+                1,
+                (time.monotonic() - start) * 1000,
+                error_type=classify_exception(exc).value,
+            )
     return out
