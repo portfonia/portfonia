@@ -940,3 +940,63 @@ actually produces. Fixed by scaling `unrealized_pnl_pct` by 100 in
 functions call, so both formats get the fix identically) — with a
 regression test that seeds the real backend scale and asserts the
 exported value matches what the page displays.
+
+### Currency & language cleanup batch — per-user currency, by-currency card, cash P&L, as-of banner (issue #350)
+
+Four of this batched issue's six items land here (item 3, the report
+footer disclaimer, is in `capture-and-reporting.md`; item 4, the header
+locale switcher, has no dedicated mechanism doc — see CLAUDE.md's
+Frontend chrome mechanism-table entry).
+
+**Item 1 — persisted per-user report/base currency**: `users.base_currency`
+was dead code (hardcoded `"USD"` at signup, no `CheckConstraint`, no
+endpoint to change it) despite `Principal.base_currency` already loading
+it. Wired end to end, mirroring issue #308's report-language pattern
+exactly: a CHECK constraint (all 15 `VALID_CURRENCIES`, migration
+`f3a4b5c6d7e8`), `report_currency_for()` reader
+(`app/services/user_scope.py`), `PATCH /me/report-currency` + ops sibling
+`POST /admin/users/by-email/report-currency` (both validated against
+`VALID_CURRENCIES` directly — a hand-kept 15-value Literal was judged
+more drift-prone than the report-language precedent's 2-value one), and
+threading through self-service generate/regenerate, the admin rerun
+endpoint, and the scheduled fan-out (`_Recipient` gains `base_currency`).
+`GET /portfolio/summary`'s `base_currency` query param now defaults to
+this preference when omitted rather than a hardcoded `"USD"` — this is
+what seeds the frontend `CurrencySwitcher`'s initial value on first page
+load (the switcher itself stays freely changeable per-view, unaffected).
+
+**Item 2 — unified by-currency card**: the three-mode (native/normalized/
+percentage) dropdown is gone. One row per currency, format confirmed with
+the product owner: `{native amount} {native currency} / {base amount}
+{base currency} ({share}%)`, e.g. `2,457,658.27 CNY / 366,743.50 USD
+(53.5%)` — `formatCurrencyBreakdownRow()` in `portfolio-helpers.ts`. The
+pie unconditionally sizes from `by_currency`'s base-currency values (what
+"normalized" mode did before) — there is only one dataset now, so the
+issue #330-era incommensurable-units special case for native-mode pies is
+gone along with the mode itself. `currency-mode-switcher.tsx` and
+`currencySharePercentages()`/`CurrencyDisplayMode` are deleted, not kept
+around unused.
+
+**Item 5 — cash/wmf as zero-cost-basis at the portfolio-level aggregate**:
+`compute_portfolio()`'s per-holding P&L gate already gave cash/wmf a
+`None` P&L (no per-holding "return on cash" concept, unchanged) — but the
+aggregate sum skipped them entirely, so cash was fully ABSENT from
+`total_cost_basis_base`/`total_unrealized_pnl_base` rather than neutral
+within them. A cash/wmf holding's `market_value_base` now joins
+`total_cost_basis_base` only (never `total_unrealized_pnl_base`) at the
+aggregate step — diluting `total_unrealized_pnl_pct`'s denominator
+without moving the numerator. Scoped to `asset_type in ("cash", "wmf")`
+specifically, not the broader `pricing_mode != "auto"` set: a
+`capture_supported=False` holding has no reliable valuation to treat as
+its own cost basis, and its `market_value_base` is already `None` (so it
+never reaches this code path regardless).
+
+**Item 6 — price-as-of banner timezone framing**: `price_as_of_date` is
+`max(used_trade_dates)` collapsed across every market a holding was
+priced in, each captured using that market's own local clock
+(`MARKET_TZ`) — the banner showed a bare date with no timezone/market
+context, misreadable as one global timestamp for a book spanning multiple
+markets. Copy-only fix (no schema change): `asOfBanner` now reads
+"Prices as of {date} — each market's own latest close, not one global
+timestamp." across all three locale catalogs; `asOfBannerUnavailable`'s
+copy aligned to the same framing for consistency.

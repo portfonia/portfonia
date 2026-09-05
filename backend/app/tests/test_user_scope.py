@@ -16,6 +16,7 @@ from app.services.user_scope import (
     active_user_ids,
     active_users,
     global_identifier_universe,
+    report_currency_for,
     user_holdings,
 )
 
@@ -37,6 +38,7 @@ def _user(
     cadence: str = "mwf",
     email_verified_at: datetime | None = None,
     locale: str = "zh",
+    base_currency: str = "USD",
 ) -> User:
     return User(
         id=user_id,
@@ -45,7 +47,7 @@ def _user(
         email=email,
         status="active",
         locale=locale,
-        base_currency="USD",
+        base_currency=base_currency,
         report_cadence=cadence,
         email_verified_at=email_verified_at,
     )
@@ -396,3 +398,19 @@ def test_global_identifier_universe_keeps_capture_supported_holdings_alongside_u
     )
     db_session.flush()
     assert set(global_identifier_universe(db_session).keys()) == {"NVDA"}
+
+
+# --- report_currency_for (issue #350 item 1) ---
+
+
+def test_report_currency_for_reads_users_base_currency(db_session: Session) -> None:
+    db_session.add(_user(_U1, "report-currency-u1@example.com", base_currency="CNY"))
+    db_session.flush()
+    assert report_currency_for(db_session, _U1, "USD") == "CNY"
+
+
+def test_report_currency_for_falls_back_to_default_when_user_missing(
+    db_session: Session,
+) -> None:
+    missing_id = uuid.UUID("00000000-0000-0000-0000-0000000000ff")
+    assert report_currency_for(db_session, missing_id, "USD") == "USD"

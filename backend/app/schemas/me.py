@@ -52,3 +52,7 @@ class MeOut(BaseModel):
     # keeps that from becoming another overlapping-term drift (the Custodian
     # label precedent, glossary-consistency.test.ts).
     report_language: str
+    # Issue #350 item 1: sourced from users.base_currency, the report-
+    # currency sibling of report_language above (same column-naming split:
+    # "report currency" at the API boundary, users.base_currency in the DB).
+    report_currency: str

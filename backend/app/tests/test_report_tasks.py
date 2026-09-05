@@ -137,11 +137,14 @@ def _make_report(user_id: uuid.UUID, report_id: uuid.UUID | None = None) -> Magi
     return r
 
 
-def _active_user(user_id: uuid.UUID, locale: str = "zh") -> SimpleNamespace:
+def _active_user(
+    user_id: uuid.UUID, locale: str = "zh", base_currency: str = "USD"
+) -> SimpleNamespace:
     """Stand-in for the `User` ORM rows `active_users` now returns (issue
-    #308) — `report_tasks.py` reads `.id` and `.locale` straight off each
-    object, no bare-UUID list and no second per-user lookup."""
-    return SimpleNamespace(id=user_id, locale=locale)
+    #308; `base_currency` added issue #350 item 1) — `report_tasks.py`
+    reads `.id`, `.locale`, and `.base_currency` straight off each object,
+    no bare-UUID list and no second per-user lookup."""
+    return SimpleNamespace(id=user_id, locale=locale, base_currency=base_currency)
 
 
 @patch("app.services.user_scope.active_users")
@@ -222,6 +225,37 @@ def test_task_reads_each_recipients_own_report_language(
     output_langs = {c.kwargs["user_id"]: c.kwargs["output_lang"] for c in mock_gen.call_args_list}
     assert output_langs[_U1] == "en"
     assert output_langs[_U2] == "zh"
+
+
+@patch("app.services.user_scope.active_users")
+@patch("app.tasks.report_tasks.send_ops_alert")
+@patch("app.core.database.SessionLocal")
+@patch("app.services.report_generator.generate_report")
+def test_task_reads_each_recipients_own_report_currency(
+    mock_gen: MagicMock,
+    mock_session_cls: MagicMock,
+    mock_alert: MagicMock,
+    mock_active_users: MagicMock,
+) -> None:
+    """Issue #350 item 1: same reasoning as the report-language test above
+    — each recipient's OWN users.base_currency must drive their
+    generate_report base_currency, not a shared batch default."""
+    mock_active_users.return_value = [
+        _active_user(_U1, base_currency="CNY"),
+        _active_user(_U2, base_currency="HKD"),
+    ]
+    mock_session_cls.return_value = MagicMock()
+    mock_gen.side_effect = lambda session, **kw: _make_report(kw["user_id"])
+
+    from app.tasks.report_tasks import generate_incremental_report
+
+    generate_incremental_report.run()
+
+    base_currencies = {
+        c.kwargs["user_id"]: c.kwargs["base_currency"] for c in mock_gen.call_args_list
+    }
+    assert base_currencies[_U1] == "CNY"
+    assert base_currencies[_U2] == "HKD"
 
 
 @patch("app.services.user_scope.active_users")

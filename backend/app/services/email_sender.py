@@ -659,9 +659,11 @@ def send_ops_alert(subject: str, body: str, idempotency_key: str | None = None) 
 # _build_section1: that function's headers are hardcoded English, translated
 # only by the full report's LLM pass (report_generator._translate_md) — which
 # this lightweight email deliberately skips, so its own headers must already
-# be locale-correct. `_build_footer`'s disclaimer IS reused as-is (issue text:
-# "the standard bilingual footer disclaimer for consistency") since it is
-# already bilingual and locale-independent by design.
+# be locale-correct. `_build_footer`'s disclaimer IS reused as-is, passed
+# this user's own `locale` (issue #350 item 3: the footer renders in one
+# language only, matching the report body's own output_lang instead of
+# always emitting both English and zh-Hans regardless of the recipient's
+# actual language).
 _PORTFOLIO_OVERVIEW_COPY: dict[str, dict[str, str]] = {
     "en": {
         "subject": "Portfonia: your holdings overview",
@@ -811,7 +813,8 @@ def send_portfolio_overview_email(session: Session, user_id: UUID, base_currency
     next_report_at = next_occurrence_for_cadence(user.report_cadence, datetime.now(tz=ET))
     body_md = _build_portfolio_overview_markdown(snapshot, user.locale, next_report_at)
     footer_md = _build_footer(
-        {"base_currency": snapshot.base_currency, "fx_date": snapshot.fx_date.isoformat()}
+        {"base_currency": snapshot.base_currency, "fx_date": snapshot.fx_date.isoformat()},
+        user.locale,
     )
     full_md = body_md + footer_md
 

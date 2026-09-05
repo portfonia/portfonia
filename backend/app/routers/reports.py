@@ -14,7 +14,7 @@ from app.schemas.reports import GenerateReportRequest, ReportListItem, ReportOut
 from app.services.email_sender import send_report_email
 from app.services.llm_errors import LLMEmptyResponseError
 from app.services.report_generator import generate_report, regenerate_report
-from app.services.user_scope import report_language_for
+from app.services.user_scope import report_currency_for, report_language_for
 
 router = APIRouter()
 
@@ -38,7 +38,12 @@ def trigger_report_generation(
             user_id=principal.user_id,
             report_date=req.report_date,
             report_type=req.report_type,
-            base_currency=req.base_currency,
+            # Issue #350 item 1: an explicit ?base_currency in the request
+            # body still wins (untouched escape hatch), otherwise the
+            # requesting user's own persisted preference — mirrors
+            # output_lang's precedence immediately below.
+            base_currency=req.base_currency
+            or report_currency_for(session, principal.user_id, "USD"),
             # Issue #308: the requesting user's own report language, not the
             # global Settings.OUTPUT_LANG default.
             output_lang=report_language_for(session, principal.user_id, get_settings().OUTPUT_LANG),
@@ -57,6 +62,7 @@ def regenerate(
     report_id: uuid.UUID,
     mode: str = "render",
     output_lang: str | None = None,
+    base_currency: str | None = None,
     resend: bool = False,
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
@@ -73,15 +79,26 @@ def regenerate(
     is always the calling principal. The explicit ?output_lang= query
     param stays an untouched ops/debug escape hatch that overrides this
     default, unrelated to this issue.
+
+    Issue #350 item 1: `base_currency` follows the identical precedence —
+    the explicit ?base_currency= query param wins, else the caller's own
+    persisted preference. Only affects mode="analyze" (see
+    regenerate_report's own docstring).
     """
     if mode not in ("render", "analyze"):
         raise HTTPException(status_code=422, detail="mode must be 'render' or 'analyze'")
     lang = output_lang or report_language_for(
         session, principal.user_id, get_settings().OUTPUT_LANG
     )
+    currency = base_currency or report_currency_for(session, principal.user_id, "USD")
     try:
         report = regenerate_report(
-            session, report_id, user_id=principal.user_id, mode=mode, output_lang=lang
+            session,
+            report_id,
+            user_id=principal.user_id,
+            mode=mode,
+            output_lang=lang,
+            base_currency=currency,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

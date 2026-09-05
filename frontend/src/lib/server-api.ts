@@ -54,11 +54,20 @@ export async function getInvestmentContextServer(): Promise<InvestmentContext | 
   return res.json() as Promise<InvestmentContext>;
 }
 
-export async function getPortfolioSummaryServer(baseCurrency: string): Promise<PortfolioSummary> {
-  const res = await fetch(
-    `${BACKEND_URL}/portfolio/summary?base_currency=${encodeURIComponent(baseCurrency)}`,
-    { cache: "no-store", headers: await authHeaders() },
-  );
+// `baseCurrency` omitted (issue #350 item 1): the backend defaults
+// GET /portfolio/summary's base_currency to the caller's own persisted
+// users.base_currency preference when the query param is absent — passing
+// nothing here (rather than a hardcoded DEFAULT_BASE_CURRENCY) is what lets
+// the very first server-rendered load reflect that preference instead of
+// always seeding "USD".
+export async function getPortfolioSummaryServer(
+  baseCurrency?: string,
+): Promise<PortfolioSummary> {
+  const query = baseCurrency ? `?base_currency=${encodeURIComponent(baseCurrency)}` : "";
+  const res = await fetch(`${BACKEND_URL}/portfolio/summary${query}`, {
+    cache: "no-store",
+    headers: await authHeaders(),
+  });
   if (!res.ok) {
     await throwOnHttpError(res);
   }

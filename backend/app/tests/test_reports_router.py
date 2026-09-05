@@ -89,6 +89,45 @@ def test_generate_report_uses_principals_own_report_language(
     assert mock_gen.call_args.kwargs["output_lang"] == "en"
 
 
+def test_generate_report_uses_principals_own_report_currency(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """Issue #350 item 1: self-service generate reads the caller's own
+    users.base_currency instead of a hardcoded "USD" default."""
+    fake_report = _make_report(db_session, user_id=TEST_USER_ID)
+    user = db_session.get(User, TEST_USER_ID)
+    assert user is not None
+    user.base_currency = "CNY"
+    db_session.flush()
+
+    with patch("app.routers.reports.generate_report", return_value=fake_report) as mock_gen:
+        resp = app_client.post("/reports/generate", json={"report_type": "incremental"})
+
+    assert resp.status_code == 201
+    assert mock_gen.call_args.kwargs["base_currency"] == "CNY"
+
+
+def test_generate_report_explicit_base_currency_overrides_principals_preference(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """An explicit base_currency in the request body still overrides the
+    caller's own preference for this one call (untouched escape hatch)."""
+    fake_report = _make_report(db_session, user_id=TEST_USER_ID)
+    user = db_session.get(User, TEST_USER_ID)
+    assert user is not None
+    user.base_currency = "CNY"
+    db_session.flush()
+
+    with patch("app.routers.reports.generate_report", return_value=fake_report) as mock_gen:
+        resp = app_client.post(
+            "/reports/generate",
+            json={"report_type": "incremental", "base_currency": "HKD"},
+        )
+
+    assert resp.status_code == 201
+    assert mock_gen.call_args.kwargs["base_currency"] == "HKD"
+
+
 # ---------------------------------------------------------------------------
 # POST /reports/{id}/regenerate — same
 # ---------------------------------------------------------------------------
@@ -140,6 +179,43 @@ def test_regenerate_explicit_output_lang_query_param_overrides_owner_locale(
 
     assert resp.status_code == 200
     assert mock_regen.call_args.kwargs["output_lang"] == "zh"
+
+
+def test_regenerate_defaults_to_report_owners_report_currency(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """Issue #350 item 1: regenerate defaults base_currency to the report's
+    OWNING user's own users.base_currency — same precedence as output_lang
+    immediately above."""
+    fake_report = _make_report(db_session, user_id=TEST_USER_ID)
+    user = db_session.get(User, TEST_USER_ID)
+    assert user is not None
+    user.base_currency = "CNY"
+    db_session.flush()
+
+    with patch("app.routers.reports.regenerate_report", return_value=fake_report) as mock_regen:
+        resp = app_client.post(f"/reports/{fake_report.id}/regenerate")
+
+    assert resp.status_code == 200
+    assert mock_regen.call_args.kwargs["base_currency"] == "CNY"
+
+
+def test_regenerate_explicit_base_currency_query_param_overrides_owner_preference(
+    app_client: TestClient, db_session: Session
+) -> None:
+    fake_report = _make_report(db_session, user_id=TEST_USER_ID)
+    user = db_session.get(User, TEST_USER_ID)
+    assert user is not None
+    user.base_currency = "CNY"
+    db_session.flush()
+
+    with patch("app.routers.reports.regenerate_report", return_value=fake_report) as mock_regen:
+        resp = app_client.post(
+            f"/reports/{fake_report.id}/regenerate", params={"base_currency": "HKD"}
+        )
+
+    assert resp.status_code == 200
+    assert mock_regen.call_args.kwargs["base_currency"] == "HKD"
 
 
 def test_regenerate_404_for_other_user(app_client: TestClient, db_session: Session) -> None:

@@ -39,6 +39,7 @@ def _seed_user(
     email_verified_at: object = None,
     delivery_email_verified_at: object = None,
     locale: str = "zh",
+    base_currency: str = "USD",
 ) -> User:
     row = User(
         id=user_id,
@@ -47,7 +48,7 @@ def _seed_user(
         email=email,
         status="active",
         locale=locale,
-        base_currency="USD",
+        base_currency=base_currency,
         report_cadence="mwf",
         delivery_email=delivery_email,
         tos_accepted_at=tos_accepted_at,
@@ -359,3 +360,15 @@ def test_me_exposes_report_language_from_locale(
 
     body = app_client.get("/me").json()
     assert body["report_language"] == "en"
+
+
+# --- report_currency (issue #350 item 1) ---
+
+
+def test_me_exposes_report_currency_from_base_currency(
+    app_client: TestClient, db_session: Session
+) -> None:
+    _seed_user(db_session, base_currency="CNY")
+
+    body = app_client.get("/me").json()
+    assert body["report_currency"] == "CNY"

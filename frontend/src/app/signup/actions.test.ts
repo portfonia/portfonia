@@ -211,16 +211,13 @@ describe("signup action", () => {
     expect(body.tos_accepted).toBe(true);
   });
 
-  // zh-Hant is deliberately excluded here: resolveLocale's isLocale() gate
-  // (UNREVIEWED_LOCALES) already falls it back to DEFAULT_LOCALE before the
-  // backend-code mapping ever sees it, so it cannot reach this mapping
-  // through a real form submission yet. Its row in the mapping table is
-  // defensive-only (issue #308 engineering contract) — TypeScript's
-  // Record<Locale, "en" | "zh"> exhaustiveness check is what actually
-  // guarantees it stays populated, not a runtime test of an unreachable path.
+  // zh-Hant reaches this mapping through a real form submission since issue
+  // #350 item 4 lifted its UNREVIEWED_LOCALES gate — resolveLocale's
+  // isLocale() no longer falls it back to DEFAULT_LOCALE.
   it.each([
     ["en", "en"],
     ["zh-Hans", "zh"],
+    ["zh-Hant", "zh"],
   ])(
     "maps the UI locale %s to the bare backend code %s and forwards it as `locale` (issue #308)",
     async (uiLocale, backendCode) => {

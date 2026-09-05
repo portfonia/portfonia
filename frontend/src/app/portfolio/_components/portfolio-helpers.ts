@@ -54,20 +54,15 @@ export function formatPercent(value: string | null): string {
 export const GROUP_UNGROUPED_KEY = "Ungrouped";
 export const ACCOUNT_OTHER_KEY = "Other";
 
-// Issue #330: the currency card's three display modes.
-export type CurrencyDisplayMode = "native" | "normalized" | "percentage";
-export const CURRENCY_DISPLAY_MODES: CurrencyDisplayMode[] = [
-  "native",
-  "normalized",
-  "percentage",
-];
-
-// 本币 mode: group the priced holdings list by their own (native) currency,
-// summing native `market_value` — no base-currency conversion. Excludes a
-// holding whose market_value_base is null (e.g. a stale FX pair) even when
-// its native market_value is present — the same gate portfolio_calculator.py
-// applies before adding to by_currency (issue #330 review round 1) — so
-// switching modes never changes which holdings are represented.
+// Group the priced holdings list by their own (native) currency, summing
+// native `market_value` — no base-currency conversion. Excludes a holding
+// whose market_value_base is null (e.g. a stale FX pair) even when its
+// native market_value is present — the same gate portfolio_calculator.py
+// applies before adding to by_currency, so this native total and
+// by_currency's base total always represent the exact same set of
+// holdings (issue #330 review round 1; still required post-#350: the
+// by-currency card row now shows both figures side by side, so a mismatch
+// there would be visible on every row, not just a hidden mode-switch bug).
 export function nativeCurrencyBreakdown(holdings: HoldingValueOut[]): Record<string, string> {
   const totals: Record<string, number> = {};
   for (const holding of holdings) {
@@ -79,19 +74,23 @@ export function nativeCurrencyBreakdown(holdings: HoldingValueOut[]): Record<str
   );
 }
 
-// 比例 mode: each normalized (by_currency) bucket as a percentage (0-100) of
-// the portfolio total. Computed from by_currency, not re-derived from
-// holdings, so it always matches whatever base currency the page is
-// currently showing.
-export function currencySharePercentages(byCurrency: Record<string, string>): Record<string, string> {
-  const total = Object.values(byCurrency).reduce((sum, value) => sum + Number(value), 0);
-  if (total <= 0) return {};
-  return Object.fromEntries(
-    Object.entries(byCurrency).map(([currency, value]) => [
-      currency,
-      ((Number(value) / total) * 100).toFixed(2),
-    ]),
-  );
+// Issue #350 item 2: the by-currency card's unified row format — confirmed
+// with the product owner rather than derived from the ambiguous original
+// wording: "{native amount} {native currency code} / {base-currency
+// amount} {base currency code} ({share of total}%)", e.g.
+// "2,457,658.27 CNY / 366,743.50 USD (53.5%)". `nativeAmount` is the raw
+// (unformatted) native total for this currency bucket — "0.00" when the
+// bucket has no native total, which can't actually happen here since both
+// figures are keyed off the same by_currency currency code, but keeps this
+// function total rather than assuming its caller's map lookup always hits.
+export function formatCurrencyBreakdownRow(
+  nativeAmount: string,
+  nativeCurrency: string,
+  baseAmount: number,
+  baseCurrency: string,
+  sharePct: number,
+): string {
+  return `${formatMoney(nativeAmount, nativeCurrency)} / ${formatMoney(String(baseAmount), baseCurrency)} (${sharePct.toFixed(1)}%)`;
 }
 
 // Same fallback semantics as the backend's `h.field or literal`, for the

@@ -16,10 +16,10 @@ logger = logging.getLogger(__name__)
 
 
 class _Recipient(NamedTuple):
-    """Snapshot of the two `User` fields the fan-out loop needs (issue
-    #308, blacktomb42 PR #309 round-1 review) — taken ONCE, immediately
-    after `active_users()` returns, before any `generate_report` call in
-    this loop can `session.commit()`.
+    """Snapshot of the `User` fields the fan-out loop needs (issue #308,
+    blacktomb42 PR #309 round-1 review; `base_currency` added issue #350
+    item 1) — taken ONCE, immediately after `active_users()` returns,
+    before any `generate_report` call in this loop can `session.commit()`.
 
     `expire_on_commit` defaults to True on every `Session` in this
     codebase (including the real one `db_session` builds for tests), so a
@@ -34,6 +34,7 @@ class _Recipient(NamedTuple):
 
     user_id: uuid.UUID
     locale: str
+    base_currency: str
 
 
 # How late (minutes) a scheduled run may fire after its intended crontab time
@@ -154,7 +155,9 @@ def generate_incremental_report(
         if not users:
             logger.info("generate_incremental_report: no active users, nothing to generate")
             return {"status": "no_active_users", "results": []}
-        recipients = [_Recipient(user_id=u.id, locale=u.locale) for u in users]
+        recipients = [
+            _Recipient(user_id=u.id, locale=u.locale, base_currency=u.base_currency) for u in users
+        ]
 
         moves_cache: MovesCache = {}
         # Stamped ONCE for the whole batch (PR #151 review): moves_cache is keyed
@@ -179,6 +182,10 @@ def generate_incremental_report(
                     # reports. Read off the snapshot, not a live `User`
                     # attribute (see `_Recipient`'s docstring).
                     output_lang=recipient.locale,
+                    # Issue #350 item 1: this recipient's own base_currency
+                    # preference, same reasoning as output_lang immediately
+                    # above — not a shared batch default.
+                    base_currency=recipient.base_currency,
                     session_node=session_node,
                     user_id=user_id,
                     moves_cache=moves_cache,

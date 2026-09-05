@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.encryption import EncryptedString
 from app.models.base import Base
+from app.schemas.holdings import VALID_CURRENCIES
 
 VALID_USER_STATUSES = ("active", "deleted", "suspended")
 VALID_AUTH_PROVIDERS = ("supabase",)
@@ -43,6 +44,9 @@ class User(Base):
             _in_list_sql("report_cadence", VALID_REPORT_CADENCES), name="report_cadence"
         ),
         CheckConstraint(_in_list_sql("locale", VALID_REPORT_LANGUAGES), name="locale"),
+        CheckConstraint(
+            _in_list_sql("base_currency", tuple(VALID_CURRENCIES)), name="base_currency"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

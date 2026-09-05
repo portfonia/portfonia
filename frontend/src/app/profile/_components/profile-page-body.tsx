@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 
+import { BASE_CURRENCIES, type BaseCurrency } from "@/app/portfolio/_components/currencies";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Me } from "@/lib/api";
 import { REPORT_LANGUAGES, type ReportLanguage } from "@/locales";
 import { ChangePasswordForm } from "./change-password-form";
 import { PendingVerificationsList } from "./pending-verifications-list";
+import { useReportCurrency } from "./use-report-currency";
 import { useReportLanguage } from "./use-report-language";
 import { useVerificationResend } from "./use-verification-resend";
 import { useVerificationSend } from "./use-verification-send";
@@ -34,6 +36,9 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
   const send = useVerificationSend();
   // Issue #308: the new Report Language control's save-immediately flow.
   const reportLanguage = useReportLanguage();
+  // Issue #350 item 1: the Report Currency control's save-immediately flow,
+  // sharing the same card as Report Language.
+  const reportCurrency = useReportCurrency();
 
   if (hadLoadError || !me) {
     return (
@@ -279,13 +284,14 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
 
       {/* Issue #308: new, fully-wired control — unlike the placeholder
           Report schedule select just below, this one is real and saves
-          immediately on change. */}
+          immediately on change. Issue #350 item 1 adds the Report Currency
+          select to the same card. */}
       <Card>
         <CardHeader>
           <CardTitle>{t("reportLanguageHeading")}</CardTitle>
           <CardDescription>{t("reportLanguageBody")}</CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-2 px-4">
+        <CardContent className="flex flex-col gap-3 px-4">
           <select
             aria-label={t("reportLanguageHeading")}
             className="w-fit rounded-md border border-white/10 bg-transparent px-2 py-1.5 text-sm"
@@ -302,6 +308,24 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
           {reportLanguage.error && (
             <p className="text-sm text-destructive" role="alert">
               {reportLanguage.error}
+            </p>
+          )}
+          <select
+            aria-label={t("reportCurrencyLabel")}
+            className="w-fit rounded-md border border-white/10 bg-transparent px-2 py-1.5 text-sm"
+            value={me.report_currency}
+            disabled={reportCurrency.pending}
+            onChange={(e) => void reportCurrency.handleChange(e.target.value as BaseCurrency)}
+          >
+            {BASE_CURRENCIES.map((code) => (
+              <option key={code} value={code}>
+                {code}
+              </option>
+            ))}
+          </select>
+          {reportCurrency.error && (
+            <p className="text-sm text-destructive" role="alert">
+              {reportCurrency.error}
             </p>
           )}
         </CardContent>

@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { HoldingValueOut } from "@/lib/api";
 import {
-  currencySharePercentages,
   fallbackOrValue,
+  formatCurrencyBreakdownRow,
   formatMoney,
   formatPercent,
   isNoLivePrice,
@@ -165,17 +165,19 @@ describe("nativeCurrencyBreakdown", () => {
   });
 });
 
-describe("currencySharePercentages", () => {
-  it("converts each bucket to a percentage of the total", () => {
-    expect(currencySharePercentages({ USD: "3000.00", CNY: "1000.00" })).toEqual({
-      USD: "75.00",
-      CNY: "25.00",
-    });
+describe("formatCurrencyBreakdownRow", () => {
+  it("renders the confirmed unified row format: native / base (share%)", () => {
+    // Matches the exact example confirmed with the product owner during
+    // issue #350's design discussion.
+    expect(formatCurrencyBreakdownRow("2457658.27", "CNY", 366743.5, "USD", 53.5)).toBe(
+      "2,457,658.27 CNY / 366,743.50 USD (53.5%)",
+    );
   });
 
-  it("returns an empty object when the total is zero", () => {
-    expect(currencySharePercentages({})).toEqual({});
-    expect(currencySharePercentages({ USD: "0" })).toEqual({});
+  it("rounds the share percentage to one decimal place", () => {
+    expect(formatCurrencyBreakdownRow("1000.00", "USD", 1000, "USD", 33.333)).toBe(
+      "1,000.00 USD / 1,000.00 USD (33.3%)",
+    );
   });
 });
 

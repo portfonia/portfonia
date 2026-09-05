@@ -13,10 +13,16 @@ function renderBanner(priceAsOfDate: string | null) {
 }
 
 describe("PriceAsOfBanner", () => {
-  it("states the closing-price date when one is available", () => {
+  it("states the closing-price date when one is available, framed as each market's own close (issue #350 item 6)", () => {
+    // price_as_of_date is max(used_trade_dates) collapsed across every
+    // market a holding was priced in (each captured using that market's own
+    // local clock) — a bare date with no framing would misread as one
+    // single global timestamp when a book spans, say, US and Asia listings.
     renderBanner("2026-01-09");
     expect(
-      screen.getByText("Prices as of 2026-01-09 close — end-of-day data, not real-time."),
+      screen.getByText(
+        "Prices as of 2026-01-09 — each market's own latest close, not one global timestamp. End-of-day data, not real-time.",
+      ),
     ).toBeInTheDocument();
   });
 
@@ -28,7 +34,9 @@ describe("PriceAsOfBanner", () => {
     renderBanner(null);
     expect(screen.queryByText(/no priced holdings/i)).not.toBeInTheDocument();
     expect(
-      screen.getByText("No exchange closing prices in this view yet. End-of-day data, not real-time."),
+      screen.getByText(
+        "No per-market closing prices captured yet for this view. End-of-day data, not real-time.",
+      ),
     ).toBeInTheDocument();
   });
 

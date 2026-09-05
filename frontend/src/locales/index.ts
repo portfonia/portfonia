@@ -29,14 +29,19 @@ const ALL_LOCALE_META: { value: Locale; label: string }[] = [
   { value: "zh-Hant", label: "繁體中文" },
 ];
 
-// Locales pending native-speaker review (issue #209 requirement) — drafted
-// this session, not yet reviewed. Excluding a locale here does not remove
-// its catalog file or drop it from the structural shape-lock test; it only
-// blocks every path a real user could reach it through (the switcher below,
-// and isLocale() — which also gates restoring a stored value and resolving
-// a Server Action's locale form field). Move a locale out of this list once
-// it's signed off (see this directory's README's "zh-Hant review status").
-const UNREVIEWED_LOCALES: readonly Locale[] = ["zh-Hant"];
+// Locales pending native-speaker review (issue #209 requirement). Excluding
+// a locale here does not remove its catalog file or drop it from the
+// structural shape-lock test; it only blocks every path a real user could
+// reach it through (the switcher below, and isLocale() — which also gates
+// restoring a stored value and resolving a Server Action's locale form
+// field). Move a locale out of this list once it's signed off.
+//
+// Empty as of issue #350 item 4: zh-Hant held this gate from PR #226 until
+// a deliberate, explicit product-owner decision lifted it (see this
+// directory's README's "zh-Hant review status") — knowingly proceeding
+// without the native-speaker review the gate was originally waiting on.
+// The mechanism stays available for a future locale that needs it.
+const UNREVIEWED_LOCALES: readonly Locale[] = [];
 
 // Reviewer finding (blacktomb42, PR #226): ALL_LOCALE_META used to be
 // exposed directly as the switcher's options, so an "unreviewed" locale was

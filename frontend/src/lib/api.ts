@@ -465,6 +465,9 @@ export interface Me {
   // the frontend's own Locale/LOCALES UI-chrome type (issue #209), see
   // backend/app/schemas/me.py's MeOut docstring for why.
   report_language: string;
+  // Issue #350 item 1: sourced from users.base_currency — the report-
+  // currency sibling of report_language above.
+  report_currency: string;
 }
 
 export interface PendingEmailVerification {
@@ -515,6 +518,18 @@ export async function updateReportLanguage(reportLanguage: "en" | "zh"): Promise
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ report_language: reportLanguage }),
+  });
+  if (!res.ok) await throwOnHttpError(res);
+}
+
+// Set the caller's own report currency (issue #350 item 1, Profile page's
+// new Report Currency control) — same save-immediately discipline as
+// updateReportLanguage above.
+export async function updateReportCurrency(reportCurrency: string): Promise<void> {
+  const res = await fetch("/api/me/report-currency", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ report_currency: reportCurrency }),
   });
   if (!res.ok) await throwOnHttpError(res);
 }

@@ -81,11 +81,11 @@ describe("LocaleProvider keeps document.documentElement.lang in sync", () => {
     await waitFor(() => expect(document.documentElement.lang).toBe("zh-Hans"));
   });
 
-  // blacktomb42 review (PR #226): zh-Hant's catalog is LLM-drafted and
-  // explicitly pending native-speaker review (issue #209 requirement) — it
-  // must not be reachable by a real user through any path, not just absent
-  // from the switcher's own options.
-  it("does not restore a stored zh-Hant locale (not yet human-reviewed) — falls back to the default", async () => {
+  // Issue #350 item 4 lifted zh-Hant's UNREVIEWED_LOCALES gate (a deliberate
+  // product-owner decision, see src/locales/README.md's "zh-Hant review
+  // status") — a stored zh-Hant value now restores like any other supported
+  // locale, superseding the PR #226 behavior this test used to lock in.
+  it("restores a stored zh-Hant locale (issue #350 item 4: gate lifted)", async () => {
     withLocaleStorage("zh-Hant");
 
     render(
@@ -94,7 +94,7 @@ describe("LocaleProvider keeps document.documentElement.lang in sync", () => {
       </LocaleProvider>,
     );
 
-    await waitFor(() => expect(document.documentElement.lang).toBe("en"));
+    await waitFor(() => expect(document.documentElement.lang).toBe("zh-Hant"));
   });
 });
 

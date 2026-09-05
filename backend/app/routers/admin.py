@@ -49,6 +49,7 @@ from app.models.invite import Invite
 from app.models.report import Report
 from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
+from app.schemas.holdings import VALID_CURRENCIES
 from app.schemas.reports import ReportOut
 from app.services import fx_fetcher, price_fetcher
 from app.services.auth_provider import (
@@ -85,7 +86,7 @@ from app.services.ticker_leverage import (
 )
 from app.services.user_directory import recipient_email_with_purpose
 from app.services.user_purge import purge_user
-from app.services.user_scope import report_language_for
+from app.services.user_scope import report_currency_for, report_language_for
 from app.tasks.admin_tasks import send_admin_alert_task
 
 logger = logging.getLogger(__name__)
@@ -450,9 +451,12 @@ def generate_report_for_user(user_id: UUID, session: Session = Depends(get_sessi
     session_node is always "manual", matching the self-service default, so
     a same-day scheduled after_close run still gets its own row. Currency
     and language are the system-wide defaults (generate_report's USD,
-    Settings.OUTPUT_LANG), not users.base_currency / users.locale — same
-    as the scheduled fan-out and the self-service endpoint. The user must
-    exist and be status=active. No holdings precondition (issue #221 §2.7):
+    Settings.OUTPUT_LANG), not users.base_currency / users.locale — this
+    endpoint is deliberately the ONE exception left on system-wide
+    defaults (matching the locale precedent from issue #308): the
+    scheduled fan-out and the self-service endpoint both read the target
+    user's own base_currency/locale since issue #350 item 1 / #308. The
+    user must exist and be status=active. No holdings precondition (issue #221 §2.7):
     an empty book renders §1/distribution/§4.1/§4.2/§4.4 as empty tables
     rather than failing — self-service POST /reports/generate never had
     this check either. active_user_ids() (the scheduled fan-out, issue #191)
@@ -600,6 +604,12 @@ def rerun_report_for_user(
             user_id=user_id,
             mode=req.mode,
             output_lang=report_language_for(session, user_id, get_settings().OUTPUT_LANG),
+            # Issue #350 item 1: this user's CURRENT base_currency
+            # preference, not whatever the report was originally generated
+            # with — mirrors output_lang immediately above. Only affects
+            # mode="analyze" (regenerate_report's own re-fetch branch);
+            # mode="render" never re-reads this parameter.
+            base_currency=report_currency_for(session, user_id, "USD"),
         )
     except ValueError as exc:
         _release_report_resend_cooldown_if_claimed(claimed_cooldown_email)
@@ -902,6 +912,50 @@ def update_report_language_by_email(
     session.commit()
     return UpdateReportLanguageByEmailOut(
         user_id=user.id, email=user.email, report_language=user.locale
+    )
+
+
+class UpdateReportCurrencyByEmailBody(BaseModel):
+    # Not a Literal — same reasoning as me.py's UpdateReportCurrencyBody:
+    # VALID_CURRENCIES (15 members) is checked directly rather than hand-
+    # kept as a second/third drifting whitelist.
+    report_currency: str
+
+    @field_validator("report_currency")
+    @classmethod
+    def _validate_report_currency(cls, v: str) -> str:
+        if v not in VALID_CURRENCIES:
+            raise ValueError(f"unrecognized currency {v!r} — not in VALID_CURRENCIES")
+        return v
+
+
+class UpdateReportCurrencyByEmailOut(BaseModel):
+    user_id: UUID
+    email: str
+    report_currency: str
+
+
+@router.post("/users/by-email/report-currency", response_model=UpdateReportCurrencyByEmailOut)
+def update_report_currency_by_email(
+    body: UpdateReportCurrencyByEmailBody,
+    email: str | None = None,
+    session: Session = Depends(get_session),
+) -> UpdateReportCurrencyByEmailOut:
+    """Set one user's report/base currency by email (issue #350 item 1) —
+    the report-currency sibling of update_report_language_by_email above,
+    same grouping (by-email URL shape) and same lighter-weight shape (no
+    re-typed-email confirmation ceremony — a single-field, reversible
+    write with no data-loss risk)."""
+    normalized_email = _normalize_email(email)
+    if normalized_email is None:
+        raise HTTPException(status_code=422, detail="email query param is required")
+    user = session.execute(select(User).where(User.email == normalized_email)).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    user.base_currency = body.report_currency
+    session.commit()
+    return UpdateReportCurrencyByEmailOut(
+        user_id=user.id, email=user.email, report_currency=user.base_currency
     )
 
 

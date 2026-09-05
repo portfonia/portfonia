@@ -464,6 +464,20 @@ def compute_portfolio(
         if cost_basis_base is not None and unrealized_pnl_base is not None:
             snapshot.total_cost_basis_base += cost_basis_base
             snapshot.total_unrealized_pnl_base += unrealized_pnl_base
+        elif h.asset_type in ("cash", "wmf"):
+            # Issue #350 item 5: at the PORTFOLIO-LEVEL aggregate only (never
+            # per-holding — the HoldingValue row above keeps cost_basis_base/
+            # unrealized_pnl_base as None, unchanged), treat a cash/wmf
+            # holding's current value as its own cost basis. This makes cash
+            # a diluting-but-neutral contributor to total_unrealized_pnl_pct's
+            # denominator instead of being fully absent from portfolio-level
+            # P&L — contributing 0 to total_unrealized_pnl_base (no "return on
+            # cash" concept) while still counting toward total capital.
+            # Scoped to asset_type in ("cash", "wmf") specifically, not the
+            # broader pricing_mode != "auto" set, which also includes
+            # capture_supported=False holdings that have no reliable
+            # valuation to treat as cost basis at all.
+            snapshot.total_cost_basis_base += market_value_base
 
         # --- aggregates ---
         snapshot.total_base += market_value_base

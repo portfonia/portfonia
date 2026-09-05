@@ -249,7 +249,7 @@ def _render_full_md(
         # Translation can paraphrase into advisory tone — re-scan the output.
         violations = violations + _scan_forbidden_output(dynamic_out)
 
-    full_md = dynamic_out + _build_footer(portfolio)
+    full_md = dynamic_out + _build_footer(portfolio, output_lang)
     return full_md, violations, dynamic_out
 
 
@@ -1589,6 +1589,7 @@ def regenerate_report(
     user_id: uuid.UUID,
     mode: str = "render",
     output_lang: str = "en",
+    base_currency: str | None = None,
 ) -> Report:
     """Rebuild an existing report from its stored inputs WITHOUT re-fetching (#6).
 
@@ -1610,6 +1611,14 @@ def regenerate_report(
     resolves identity itself. Used both to scope the ownership lookup below
     and, in mode='analyze', to re-fetch the live portfolio under the right
     user.
+
+    `base_currency` (issue #350 item 1): only consulted in mode='analyze',
+    where it overrides the ORIGINAL report's stored base_currency for the
+    fresh live-portfolio refetch below — `None` (the default) preserves
+    the pre-#350 behavior of re-using the stored value, so an existing
+    caller that never passes this stays byte-for-byte unchanged. mode=
+    'render' never reads this parameter: it has no live refetch to apply
+    it to.
 
     Does not email — this is an iteration/inspection tool.
     """
@@ -1637,10 +1646,11 @@ def regenerate_report(
         # original generation and this regenerate are picked up (ticker fixes,
         # broker corrections, new/removed rows). Pass 2 and §1 both use it.
         stored_base_ccy = inputs.get("portfolio_summary", {}).get("base_currency", "USD")
+        effective_base_ccy = base_currency if base_currency is not None else stored_base_ccy
         fresh_snap = compute_portfolio(
             session,
             user_id=user_id,
-            base_currency=stored_base_ccy,
+            base_currency=effective_base_ccy,
             as_of=report.period_end.astimezone(ET).date() if report.period_end else None,
         )
         portfolio = _serialize_portfolio(fresh_snap)

@@ -45,7 +45,8 @@ re-render-safe); the LLM writes only prose/attribution. Current shape:
 field is a first-class body parameter on `POST /emails`, confirmed
 against Resend's send-email API docs) plus a `headers` object carrying
 `List-Unsubscribe` and `List-Unsubscribe-Post`. The plain-text part is
-`report.report_md` (already includes the bilingual disclaimer footer)
+`report.report_md` (already includes the single-language disclaimer
+footer, since issue #350 item 3 — see "Report footer disclaimer" below)
 plus a short unsubscribe URL line. The HTML footer is the same URL,
 rendered as a markdown link through `_render_html`. See
 `docs/mechanisms/email-verification.md` (issue #257 section) for the
@@ -100,3 +101,21 @@ inline via BeautifulSoup.
   nits, all verified against actual code and fixed before merge.
 
 
+
+### Report footer disclaimer: single-language, not always bilingual (issue #350 item 3)
+
+`report_sections._build_footer` unconditionally emitted both English and
+zh-Hans for every report — `footer_header`/`data_sources_label`/
+`disclaimer_label`/`disclaimer`, all doubled — regardless of the report's
+own language. This predates the per-user `output_lang` mechanism (issue
+#308) that now drives the rest of the report body's language per
+recipient; the footer had simply never been revisited since. `_build_footer`
+now takes an `output_lang: str = "en"` parameter and renders only that
+locale's copy, mapped through the existing `locale_for_output_lang`
+helper (`en`/`zh` -> `en`/`zh-Hans`). Both call sites thread the real
+value through: `report_generator.py`'s full-report path (`output_lang`
+already in scope) and `email_sender.py`'s portfolio-overview email (issue
+#202 — now passes the recipient's own `users.locale` instead of relying
+on the disclaimer being "locale-independent by design", the assumption
+this issue removes). Does not touch the disclaimer's content or its
+template-layer status — only which language renders.

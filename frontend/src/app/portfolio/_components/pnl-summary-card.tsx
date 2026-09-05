@@ -6,9 +6,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import type { PortfolioSummary } from "@/lib/api";
 import { formatMoney, formatPercent, pnlColorClass } from "./portfolio-helpers";
 
-// Issue #320 decision 2: these totals exclude cash/wmf (no cost-basis
-// concept applies) — the description line states that scope so "total
-// unrealized return %" isn't misread as covering all assets.
+// Issue #320 decision 2: cash/wmf never get a per-holding cost-basis
+// concept. Issue #350 item 5 changed the AGGREGATE though: cash/wmf's
+// value now joins total_cost_basis_base (diluting total_unrealized_pnl_pct's
+// denominator) while still contributing 0 to the numerator — the
+// description line states that so "total unrealized return %" isn't
+// misread as excluding cash/wmf, which it no longer does.
 export function PnlSummaryCard({ summary }: { summary: PortfolioSummary }) {
   const t = useTranslations("portfolio");
   // Grok review round 3 (PR #322): total_cost_basis_base/total_unrealized_pnl_base

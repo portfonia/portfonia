@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
@@ -13,6 +13,7 @@ from app.models.email_verification import EmailVerification
 from app.models.holding import Holding
 from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
+from app.schemas.holdings import VALID_CURRENCIES
 from app.schemas.me import MeOut, PendingVerificationOut
 
 router = APIRouter()
@@ -86,6 +87,7 @@ def get_me(
             for record in pending_verifications
         ],
         report_language=user.locale,
+        report_currency=user.base_currency,
     )
 
 
@@ -119,3 +121,40 @@ def update_report_language(
     user.locale = body.report_language
     session.commit()
     return UpdateReportLanguageOut(report_language=user.locale)
+
+
+class UpdateReportCurrencyBody(BaseModel):
+    # Not a Literal (unlike UpdateReportLanguageBody's 2-value report_
+    # language): VALID_CURRENCIES has 15 members and is the actual
+    # cross-checked source of truth used elsewhere for this field (e.g.
+    # app/schemas/holdings.py's currency validator) — checking membership
+    # against it directly here avoids adding a THIRD hand-kept 15-value
+    # whitelist that could drift from the other two.
+    report_currency: str
+
+    @field_validator("report_currency")
+    @classmethod
+    def _validate_report_currency(cls, v: str) -> str:
+        if v not in VALID_CURRENCIES:
+            raise ValueError(f"unrecognized currency {v!r} — not in VALID_CURRENCIES")
+        return v
+
+
+class UpdateReportCurrencyOut(BaseModel):
+    report_currency: str
+
+
+@router.patch("/report-currency", response_model=UpdateReportCurrencyOut)
+def update_report_currency(
+    body: UpdateReportCurrencyBody,
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+) -> UpdateReportCurrencyOut:
+    """Self-service write of the caller's own report/base currency (issue
+    #350 item 1) — same shape as update_report_language above: writes
+    users.base_currency for the caller's own row only, no rate limiting."""
+    user = session.get(User, principal.user_id)
+    assert user is not None  # current_principal already required this row
+    user.base_currency = body.report_currency
+    session.commit()
+    return UpdateReportCurrencyOut(report_currency=user.base_currency)

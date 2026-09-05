@@ -19,6 +19,7 @@ const _ME: Me = {
   missing: ["holdings"],
   pending_email_verifications: [],
   report_language: "en",
+  report_currency: "USD",
 };
 
 function renderBody(me: Me | null, hadLoadError = false) {

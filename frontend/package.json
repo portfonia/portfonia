@@ -19,6 +19,7 @@
     "altcha": "2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "flag-icons": "^7.5.0",
     "lucide-react": "^1.16.0",
     "next": "16.2.6",
     "next-intl": "^4.14.0",

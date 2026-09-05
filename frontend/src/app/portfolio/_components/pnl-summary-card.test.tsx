@@ -49,6 +49,18 @@ describe("PnlSummaryCard", () => {
     expect(screen.queryByText(/0\.00 USD/)).not.toBeInTheDocument();
   });
 
+  it("states that cash/wmf dilute the total return rather than claiming they're excluded (issue #350 item 5 follow-up)", () => {
+    // blacktomb42 review on PR #353: post-item-5, cash/wmf DO join
+    // total_cost_basis_base at the aggregate level (diluting
+    // total_unrealized_pnl_pct's denominator) even though they still
+    // contribute 0 to the numerator — the old "Excludes cash and
+    // wealth-management holdings" copy became false for this card.
+    renderCard(summary({}));
+
+    expect(screen.queryByText(/excludes cash/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/dilut/i)).toBeInTheDocument();
+  });
+
   it("renders real figures when at least one holding has a cost basis", () => {
     renderCard(
       summary({
