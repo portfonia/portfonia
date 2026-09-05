@@ -2599,6 +2599,86 @@ def test_regenerate_analyze_reruns_the_pass_that_wrote_the_body(
     assert "heaviest position" not in rerendered.report_md
 
 
+def test_regenerate_analyze_reuses_stored_base_currency_by_default(
+    db_session: Session,
+) -> None:
+    """Issue #350 item 1: `base_currency=None` (the default) preserves the
+    pre-#350 behavior of re-using the ORIGINAL report's stored
+    portfolio_summary.base_currency for the live refetch — an existing
+    caller that never passes this parameter stays byte-for-byte unchanged.
+
+    `generate_report` itself runs under `_normal_path_patches`'s
+    `compute_portfolio` mock, which always returns `_portfolio_snap()`
+    (base_currency="USD") regardless of the `base_currency` argument — so
+    the ORIGINAL report's stored value is set directly here (same
+    technique as test_regenerate_analyze_recomputes_macro_event_exposure_
+    from_fresh_portfolio above), rather than relying on that mock to
+    respect an argument it deliberately ignores.
+    """
+    with contextlib.ExitStack() as stack:
+        for p in _assembly_ready_patches(
+            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
+        ):
+            stack.enter_context(p)  # type: ignore[arg-type]
+        stack.enter_context(
+            patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
+        )
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+
+    assert report.report_inputs is not None
+    stored_inputs = dict(report.report_inputs)
+    stored_inputs["portfolio_summary"] = {
+        **stored_inputs["portfolio_summary"],
+        "base_currency": "CNY",
+    }
+    report.report_inputs = stored_inputs
+    db_session.commit()
+
+    with (
+        patch(
+            "app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()
+        ) as mock_compute,
+        patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY),
+    ):
+        rg.regenerate_report(db_session, report.id, user_id=_USER, mode="analyze")
+
+    assert mock_compute.call_args.kwargs["base_currency"] == "CNY"
+
+
+def test_regenerate_analyze_base_currency_override(db_session: Session) -> None:
+    """An explicit `base_currency` override wins over the report's stored
+    value — this is what routers/reports.py's regenerate endpoint and
+    routers/admin.py's rerun endpoint use to apply the caller's CURRENT
+    users.base_currency preference instead of the stale one baked into the
+    original report."""
+    with contextlib.ExitStack() as stack:
+        for p in _assembly_ready_patches(
+            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
+        ):
+            stack.enter_context(p)  # type: ignore[arg-type]
+        stack.enter_context(
+            patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
+        )
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+
+    # Stored value is "USD" (the mocked compute_portfolio's own snapshot) —
+    # an explicit override below must still win over it.
+    assert report.report_inputs is not None
+    assert report.report_inputs["portfolio_summary"]["base_currency"] == "USD"
+
+    with (
+        patch(
+            "app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()
+        ) as mock_compute,
+        patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY),
+    ):
+        rg.regenerate_report(
+            db_session, report.id, user_id=_USER, mode="analyze", base_currency="CNY"
+        )
+
+    assert mock_compute.call_args.kwargs["base_currency"] == "CNY"
+
+
 def test_regenerate_analyze_recomputes_macro_event_exposure_from_fresh_portfolio(
     db_session: Session,
 ) -> None:

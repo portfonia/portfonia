@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models.fx_rate import FxRate
 from app.models.holding import Holding
+from app.models.user import User
 from app.tests.conftest import seed_user
 
 _USER = uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -52,6 +53,26 @@ def test_summary_returns_distributions(app_client: TestClient, db_session: Sessi
     assert body["by_sector"] == {"Technology": "3000.00"}
     assert body["concentration"]["top_holding_name"] == "Apple"
     assert body["concentration"]["single_holding_high"] is True
+
+
+def test_summary_defaults_to_principals_own_report_currency_when_omitted(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """Issue #350 item 1: an OMITTED base_currency query param resolves to
+    the caller's own persisted users.base_currency, not a hardcoded "USD"
+    default — this is what seeds the frontend CurrencySwitcher's initial
+    value on first page load."""
+    _seed(db_session)
+    row = db_session.get(User, _USER)
+    assert row is not None
+    row.base_currency = "CNY"
+    db_session.flush()
+
+    resp = app_client.get("/portfolio/summary")
+
+    assert resp.status_code == 200
+    assert resp.json()["base_currency"] == "CNY"
+    assert resp.json()["total_base"] == "21000.00"
 
 
 def test_summary_base_currency_cny(app_client: TestClient, db_session: Session) -> None:

@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.models.report import Report
 from app.models.user import User
-from app.services.user_scope import report_language_for
+from app.services.user_scope import report_currency_for, report_language_for
 from app.tests.test_admin_router import _headers
 
 _UID = uuid.UUID("00000000-0000-0000-0000-0000000000c2")
@@ -182,6 +182,10 @@ def test_rerun_resend_true_clears_email_state_and_resends(
     assert kwargs["output_lang"] == report_language_for(
         db_session, _UID, get_settings().OUTPUT_LANG
     )
+    # Issue #350 item 1: same pinned-not-hardcoded discipline for
+    # base_currency — this user's CURRENT preference, not whatever the
+    # report was originally generated with.
+    assert kwargs["base_currency"] == report_currency_for(db_session, _UID, "USD")
     mock_send.assert_called_once_with(regenerated, db_session)
 
     body = resp.json()

@@ -20,16 +20,26 @@ vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
 // buttons) — same importActual pattern as questionnaire-form.test.tsx.
 // createEmailVerification is the issue #289 sibling flow (fresh verification
 // for an account's own known address, no existing record required).
-const { resendEmailVerification, createEmailVerification, updateReportLanguage } = vi.hoisted(
-  () => ({
-    resendEmailVerification: vi.fn(),
-    createEmailVerification: vi.fn(),
-    updateReportLanguage: vi.fn(),
-  }),
-);
+const {
+  resendEmailVerification,
+  createEmailVerification,
+  updateReportLanguage,
+  updateReportCurrency,
+} = vi.hoisted(() => ({
+  resendEmailVerification: vi.fn(),
+  createEmailVerification: vi.fn(),
+  updateReportLanguage: vi.fn(),
+  updateReportCurrency: vi.fn(),
+}));
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
-  return { ...actual, resendEmailVerification, createEmailVerification, updateReportLanguage };
+  return {
+    ...actual,
+    resendEmailVerification,
+    createEmailVerification,
+    updateReportLanguage,
+    updateReportCurrency,
+  };
 });
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
@@ -87,6 +97,7 @@ const BASE_ME: Me = {
   missing: ["questionnaire", "holdings"],
   pending_email_verifications: [],
   report_language: "en",
+  report_currency: "USD",
 };
 
 describe("ProfilePageBody", () => {
@@ -94,6 +105,7 @@ describe("ProfilePageBody", () => {
     resendEmailVerification.mockReset();
     createEmailVerification.mockReset();
     updateReportLanguage.mockReset();
+    updateReportCurrency.mockReset();
     routerRefresh.mockReset();
   });
 
@@ -209,7 +221,7 @@ describe("Section order (issue #269 §1/§4, issue #308)", () => {
       "Investment style",
       "Portfolio overview",
       "Report delivery email",
-      "Report language",
+      "Report language & currency",
       "Report schedule",
       "Invite someone",
       "Change password",
@@ -543,6 +555,52 @@ describe("Report language (issue #308)", () => {
 
     const select = screen.getByRole("combobox", { name: /report language/i });
     await user.selectOptions(select, "zh");
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(select).toBeEnabled();
+  });
+});
+
+describe("Report currency (issue #350 item 1)", () => {
+  it("renders a real, non-disabled selector defaulted to the account's current value", () => {
+    renderBody({ ...BASE_ME, report_currency: "CNY" });
+
+    const select = screen.getByRole("combobox", { name: /report currency/i });
+    expect(select).toBeEnabled();
+    expect(select).toHaveValue("CNY");
+  });
+
+  it("offers all 15 VALID_CURRENCIES", () => {
+    renderBody(BASE_ME);
+
+    const select = screen.getByRole("combobox", { name: /report currency/i });
+    const options = within(select)
+      .getAllByRole("option")
+      .map((o) => o.textContent);
+    expect(options).toHaveLength(15);
+    expect(options).toContain("USD");
+    expect(options).toContain("CNY");
+  });
+
+  it("calls updateReportCurrency immediately on change, then router.refresh", async () => {
+    updateReportCurrency.mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    renderBody({ ...BASE_ME, report_currency: "USD" });
+
+    const select = screen.getByRole("combobox", { name: /report currency/i });
+    await user.selectOptions(select, "CNY");
+
+    expect(updateReportCurrency).toHaveBeenCalledWith("CNY");
+    await waitFor(() => expect(routerRefresh).toHaveBeenCalled());
+  });
+
+  it("shows an error and leaves the control enabled when the update fails", async () => {
+    updateReportCurrency.mockRejectedValue(new ApiError(500, "boom"));
+    const user = userEvent.setup();
+    renderBody({ ...BASE_ME, report_currency: "USD" });
+
+    const select = screen.getByRole("combobox", { name: /report currency/i });
+    await user.selectOptions(select, "CNY");
 
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(select).toBeEnabled();

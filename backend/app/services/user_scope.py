@@ -130,6 +130,20 @@ def report_language_for(session: Session, user_id: uuid.UUID, default: str) -> s
     return default
 
 
+def report_currency_for(session: Session, user_id: uuid.UUID, default: str) -> str:
+    """One user's own report/base currency (issue #350 item 1), falling
+    back to `default` if their row can't be found — same shape and same
+    reasoning as `report_language_for` immediately above (read that
+    docstring first): explicit `default` parameter (never resolved
+    internally via `get_settings()`), and the fallback branch is only
+    reachable from a loosely-configured test double, never in production
+    (`users.base_currency` is `NOT NULL` + `CheckConstraint`)."""
+    user = session.get(User, user_id)
+    if user is not None and isinstance(user.base_currency, str):
+        return user.base_currency
+    return default
+
+
 def user_holdings(session: Session, user_id: uuid.UUID) -> list[Holding]:
     """All holding rows belonging to one user."""
     return list(session.execute(select(Holding).where(Holding.user_id == user_id)).scalars().all())

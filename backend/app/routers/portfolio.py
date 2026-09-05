@@ -27,6 +27,7 @@ from app.services.portfolio_export import (
     render_portfolio_export_md,
     render_portfolio_export_xlsx,
 )
+from app.services.user_scope import report_currency_for
 from app.tasks.notification_tasks import send_portfolio_overview_email_task
 
 router = APIRouter()
@@ -72,11 +73,18 @@ def _export_locale(session: Session, user_id: UUID) -> str:
 
 @router.get("/summary", response_model=PortfolioSummaryResponse)
 def get_portfolio_summary(
-    base_currency: Annotated[BaseCurrency, Query()] = "USD",
+    base_currency: Annotated[BaseCurrency | None, Query()] = None,
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
 ) -> PortfolioSummaryResponse:
-    snap = compute_portfolio(session, user_id=principal.user_id, base_currency=base_currency)
+    """`base_currency` omitted (issue #350 item 1): defaults to the caller's
+    own persisted users.base_currency preference rather than a hardcoded
+    "USD" — this is what seeds the frontend CurrencySwitcher's initial
+    value on first page load (page.tsx calls this with no query param).
+    An explicit ?base_currency= still overrides it for every subsequent
+    in-page switch, unaffected by this change."""
+    effective_currency = base_currency or report_currency_for(session, principal.user_id, "USD")
+    snap = compute_portfolio(session, user_id=principal.user_id, base_currency=effective_currency)
 
     holdings_out = [
         HoldingValueOut(
