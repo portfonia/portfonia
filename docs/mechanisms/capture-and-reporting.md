@@ -1027,6 +1027,23 @@ inventing an "N/A" state. Unconditional whenever any conversion happened —
 this is a transparency banner, not a staleness alert; the ops alert below is
 the separate, conditional mechanism for a genuine staleness breach.
 
+**Ops alerts gated on `APP_ENV == "production"` (2026-09-05 follow-up)**:
+`_send_fx_alert()` — the single choke point both mechanisms below route
+through — skips the real `send_ops_alert()` call entirely (dedup bookkeeping
+included) unless `get_settings().APP_ENV == "production"`, the same
+field/pattern `db_backup.py` already uses. Trigger: enabling this on a local
+dev Postgres sent real alerts to the admin inbox within minutes of manual
+testing — no Celery beat runs locally (per this file's "App runtime retired
+locally" convention), so a dev DB's `fx_rates` reads as permanently
+stale/missing by design, and the old masking bug had hidden this from ever
+being checked before. `logger.warning`/`logger.error` at the call sites are
+unaffected; only the real send (and its dedup) is skipped outside
+production. `test_fx_fetcher.py`'s `production_env` fixture (cache_clear() +
+`patch.dict(os.environ, {"APP_ENV": "production"})`, mirroring
+`test_db_backup.py`'s existing pattern) opts individual tests into a real
+alert firing; `test_no_alert_sent_outside_production` pins the default-off
+behavior.
+
 **Ops alerts — two distinct failure modes, not one**:
 1. **Per-pair fetch failure** (`fx_fetcher.py`, item 7a): `update_fx_rates()`
    previously only `logger.warning`/`logger.error`'d a fetch miss — nothing

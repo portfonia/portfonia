@@ -2,18 +2,37 @@
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from unittest.mock import patch
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.fx_rate import FxRate
 from app.services import fx_fetcher
 
 # 16:00 ET on 2026-06-04 → rate_date 2026-06-04 (well clear of midnight).
 _AS_OF = datetime(2026, 6, 4, 20, 0, tzinfo=UTC)
+
+
+@pytest.fixture
+def production_env() -> Generator[None, None, None]:
+    """issue #354 follow-up: FX ops alerts are gated on APP_ENV=="production"
+    (same field/pattern as db_backup.py) so a local dev DB's permanently
+    stale fx_rates (no Celery beat runs there) doesn't send real alerts to
+    the admin inbox. Tests that assert an alert fires must opt into this —
+    same cache_clear()-wrapped patch.dict pattern as test_db_backup.py."""
+    get_settings.cache_clear()
+    with patch.dict("os.environ", {"APP_ENV": "production"}):
+        get_settings.cache_clear()
+        try:
+            yield
+        finally:
+            get_settings.cache_clear()
 
 
 def _fake_points() -> dict[str, tuple[float, datetime]]:
@@ -70,11 +89,32 @@ def test_pairs_cover_every_valid_currency_except_usd() -> None:
 
 
 # ---------------------------------------------------------------------------
+# issue #354 follow-up: alerts gated on APP_ENV=="production"
+# ---------------------------------------------------------------------------
+
+
+def test_no_alert_sent_outside_production(db_session: Session) -> None:
+    """A local dev Postgres is never kept fresh (no Celery beat runs there),
+    so a total fetch failure/every pair reading as stale is the DB's normal,
+    expected state — real alerts would spam the admin inbox for a condition
+    that isn't an incident. get_settings().APP_ENV defaults to
+    "development" (no production_env fixture requested here)."""
+    get_settings.cache_clear()
+    with (
+        patch.object(fx_fetcher, "fetch_last_close", return_value={}),
+        patch.object(fx_fetcher, "send_ops_alert", return_value=True) as mock_alert,
+    ):
+        fx_fetcher.update_fx_rates(db_session)
+
+    assert mock_alert.call_count == 0
+
+
+# ---------------------------------------------------------------------------
 # issue #354 item 7(a): per-pair fetch-failure ops alert
 # ---------------------------------------------------------------------------
 
 
-def test_total_fetch_failure_sends_ops_alert(db_session: Session) -> None:
+def test_total_fetch_failure_sends_ops_alert(db_session: Session, production_env: None) -> None:
     """Previously a 100%-fetch failure only logged an ERROR — nothing ever
     reached the ops inbox. An empty fx_rates table also trips every pair's
     "never resolved" gap check (item 7b) in the same run — a separate, both-
@@ -91,7 +131,7 @@ def test_total_fetch_failure_sends_ops_alert(db_session: Session) -> None:
     assert "USDCNY" in fetch_failed_alert.kwargs["body"]
 
 
-def test_partial_fetch_failure_sends_ops_alert(db_session: Session) -> None:
+def test_partial_fetch_failure_sends_ops_alert(db_session: Session, production_env: None) -> None:
     points = {"USDCNY=X": (7.18, _AS_OF)}
     with (
         patch.object(fx_fetcher, "fetch_last_close", return_value=points),
@@ -110,7 +150,7 @@ def test_partial_fetch_failure_sends_ops_alert(db_session: Session) -> None:
     assert "USDCNY" not in failed_pair_alert.kwargs["body"]
 
 
-def test_fetch_failure_alert_is_deduped_same_day(db_session: Session) -> None:
+def test_fetch_failure_alert_is_deduped_same_day(db_session: Session, production_env: None) -> None:
     """A second run with the identical failure set on the same day must not
     re-alert — the durable Redis dedup (issue #298 pattern), not send_ops_
     alert's own Resend Idempotency-Key, is what suppresses this."""
@@ -127,7 +167,9 @@ def test_fetch_failure_alert_is_deduped_same_day(db_session: Session) -> None:
     assert len(fetch_failed_calls) == 1
 
 
-def test_failed_alert_not_deduped_when_send_fails(db_session: Session) -> None:
+def test_failed_alert_not_deduped_when_send_fails(
+    db_session: Session, production_env: None
+) -> None:
     """A failed send must leave the dedup state unset so the next run retries
     it (mirrors price_capture.py's _send_nav_alert round-2 review fix)."""
     with (
@@ -148,7 +190,7 @@ def test_failed_alert_not_deduped_when_send_fails(db_session: Session) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_missing_pair_sends_never_resolved_alert(db_session: Session) -> None:
+def test_missing_pair_sends_never_resolved_alert(db_session: Session, production_env: None) -> None:
     """A pair with zero fx_rates rows ever (never fetched successfully) is a
     distinct failure from "stale" — this is the read-time gap 7(b) exists to
     catch, since a per-fetch-attempt-only alert (7a) can miss it once the
@@ -167,7 +209,7 @@ def test_missing_pair_sends_never_resolved_alert(db_session: Session) -> None:
     assert "USDHKD" in missing_alert.kwargs["subject"]
 
 
-def test_stale_resolvable_pair_sends_stale_alert(db_session: Session) -> None:
+def test_stale_resolvable_pair_sends_stale_alert(db_session: Session, production_env: None) -> None:
     """A pair that keeps fetching "successfully" but whose resolvable latest
     rate has stopped advancing (fetch always lands on the same old
     rate_date) is the exact production mechanism this issue's root cause
@@ -198,7 +240,7 @@ def test_stale_resolvable_pair_sends_stale_alert(db_session: Session) -> None:
     assert old_date.isoformat() in stale_alert.kwargs["body"]
 
 
-def test_healthy_pairs_send_no_staleness_alert(db_session: Session) -> None:
+def test_healthy_pairs_send_no_staleness_alert(db_session: Session, production_env: None) -> None:
     """Unlike _fake_points()'s fixed historical _AS_OF (used by the upsert-
     mechanics tests above, which don't care about staleness), the staleness
     check compares against the real current date — these points must be

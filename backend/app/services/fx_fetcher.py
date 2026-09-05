@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.core.alert_dedup import already_alerted, mark_alerted
+from app.core.config import get_settings
 from app.core.timezones import ET
 from app.models.fx_rate import FxRate
 from app.services._yfinance import fetch_last_close
@@ -66,7 +67,18 @@ def _send_fx_alert(subject: str, body: str, dedup_key: str) -> None:
     Resend Idempotency-Key, is what stops a daily-beat re-alert on a
     persisting condition; the dedup key is recorded only after confirmed
     delivery so a failed send leaves the state un-deduped for the next beat.
+
+    Gated on APP_ENV == "production" (same field/convention db_backup.py
+    already uses) — issue #354 follow-up: a local dev Postgres is never
+    kept fresh (no Celery beat runs there), so its fx_rates table reads as
+    permanently stale/missing by design, not by incident. Without this gate,
+    anyone manually exercising update_fx_rates()/capture_fx_task() against
+    local dev with a real RESEND_API_KEY configured sends real alerts to the
+    admin inbox for an expected dev-only condition. logger.warning/error
+    calls at the call sites are unaffected — only the real send is skipped.
     """
+    if get_settings().APP_ENV != "production":
+        return
     if already_alerted(dedup_key):
         return
     if send_ops_alert(subject=subject, body=body, idempotency_key=dedup_key):
