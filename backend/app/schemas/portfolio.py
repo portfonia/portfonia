@@ -72,6 +72,57 @@ class PortfolioSummaryResponse(BaseModel):
     holdings: list[HoldingValueOut]
 
 
+class PerformancePointOut(BaseModel):
+    date: date
+    value_base: Decimal
+    return_pct_cumulative: Decimal
+    is_approximate: bool
+
+
+class PortfolioSeriesOut(BaseModel):
+    empty: bool
+    start_date: date | None
+    end_date: date | None
+    points: list[PerformancePointOut]
+    quality_flags: list[str]
+
+
+class BenchmarkPointOut(BaseModel):
+    date: date
+    return_pct_cumulative: Decimal
+
+
+class BenchmarkSeriesOut(BaseModel):
+    index_code: str
+    name: str
+    start_date: date | None
+    points: list[BenchmarkPointOut]
+
+
+class PerformanceHeaderOut(BaseModel):
+    value_base: Decimal
+    value_change_base: Decimal
+    value_change_pct: Decimal
+    label: str
+
+
+class PerformanceMetaOut(BaseModel):
+    range: str
+    twr: bool
+    base_currency: str
+    filters: dict[str, list[str]]
+
+
+class PortfolioPerformanceResponse(BaseModel):
+    """GET /portfolio/performance (issue #360 Phase 1) — backend contract
+    only, no UI consumes this yet (Phase 2)."""
+
+    portfolio: PortfolioSeriesOut
+    benchmarks: list[BenchmarkSeriesOut]
+    header: PerformanceHeaderOut
+    meta: PerformanceMetaOut
+
+
 class SendOverviewResponse(BaseModel):
     """POST /portfolio/send-overview (issue #202).
 

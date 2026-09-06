@@ -1,5 +1,6 @@
 from app.models.account import Account
 from app.models.base import Base
+from app.models.benchmark_price import BenchmarkPrice
 from app.models.cross_name_intel import CrossNameIntel
 from app.models.forward_event import ForwardEvent
 from app.models.fx_rate import FxRate
@@ -8,6 +9,8 @@ from app.models.invite import Invite
 from app.models.macro_event_intel import MacroEventIntel
 from app.models.news import News
 from app.models.news_surfaced import NewsSurfaced
+from app.models.portfolio_snapshot_batch import PortfolioSnapshotBatch
+from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
 from app.models.price_snapshot import PriceSnapshot
 from app.models.report import Report
 from app.models.search_cache import SearchCache
@@ -19,6 +22,7 @@ from app.models.user_investment_context import UserInvestmentContext
 __all__ = [
     "Account",
     "Base",
+    "BenchmarkPrice",
     "CrossNameIntel",
     "ForwardEvent",
     "FxRate",
@@ -27,6 +31,8 @@ __all__ = [
     "MacroEventIntel",
     "News",
     "NewsSurfaced",
+    "PortfolioSnapshotBatch",
+    "PortfolioValueSnapshot",
     "PriceSnapshot",
     "Report",
     "SearchCache",
