@@ -49,6 +49,19 @@ _DEFAULT_CAP_YEARS = 5
 
 
 def _existing_real_history(session: Session, user_id: UUID) -> int:
+    """Count of REAL (non-backfill, i.e. daily-task-produced) rows only.
+
+    Deliberately not "any snapshot row at all" (review 5124107298 finding
+    4 raised this as a possible gap): the D2 amendment's refuse condition
+    is explicitly scoped to "real (non-backfill) history already exists" —
+    a user with ONLY prior backfill rows and no real daily-task history yet
+    is exactly the "still first enable" state this script must remain
+    re-runnable for. `_insert_rows_skip_existing`'s `ON CONFLICT DO
+    NOTHING` already makes a second run over that state a safe no-op
+    (idempotent skip, matching the amendment's "脚本重跑不覆盖已落库历史"), so
+    widening this count to include prior backfill rows would make the
+    script LESS resumable than the spec asks for, not more correct.
+    """
     return int(
         session.execute(
             select(func.count())

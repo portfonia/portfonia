@@ -153,12 +153,16 @@ def test_backfill_never_overwrites_existing_rows_on_rerun(db_session: Session) -
     )
     assert rows_first
 
-    # Re-run with force (bypassing the existing-history refusal) must not
-    # duplicate or overwrite rows already written.
+    # A second run WITHOUT --force is not refused (only REAL, non-backfill
+    # history triggers the refusal — review 5124107298 finding 4; see
+    # `_existing_real_history`'s docstring) and must remain a safe no-op:
+    # ON CONFLICT DO NOTHING skips every already-written (user, date,
+    # holding_id) key rather than duplicating or overwriting it.
     with patch("app.scripts.backfill_portfolio_value_history._run_time_fx_rates", return_value={}):
-        backfill_portfolio_value_history(
-            db_session, user_id, apply_changes=True, force=True, today=TODAY
+        result = backfill_portfolio_value_history(
+            db_session, user_id, apply_changes=True, today=TODAY
         )
+    assert result["refused"] == 0
     rows_second = (
         db_session.execute(
             select(PortfolioValueSnapshot).where(PortfolioValueSnapshot.user_id == user_id)

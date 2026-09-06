@@ -6,6 +6,7 @@ from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 
+import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -23,8 +24,27 @@ def test_backfill_benchmark_prices_writes_history(db_session: Session) -> None:
     with patch.object(benchmark_prices, "_fetch_index_closes", return_value=fake) as mock_fetch:
         written = backfill_benchmark_prices(db_session, years=5)
     assert written == 3
-    # Requested a ~5-year lookback window, not the daily task's short one.
-    assert mock_fetch.call_args.kwargs["lookback_days"] == 365 * 5
+    # Review 5124107298 finding 2: a multi-year backfill must use yfinance's
+    # `Ny` period form, not an arbitrary `Nd` day count.
+    assert mock_fetch.call_args.kwargs["period"] == "5y"
 
     rows = db_session.execute(select(BenchmarkPrice)).scalars().all()
     assert len(rows) == 3
+
+
+def test_capture_benchmark_index_prices_uses_short_day_period(db_session: Session) -> None:
+    """The daily catch-up path keeps the short `Nd` form — only the
+    multi-year backfill needed to change (finding 2)."""
+    with patch.object(benchmark_prices, "_fetch_index_closes", return_value={}) as mock_fetch:
+        benchmark_prices.capture_benchmark_index_prices(db_session, lookback_days=7)
+    assert mock_fetch.call_args.kwargs["period"] == "7d"
+
+
+def test_fetch_index_closes_period_reaches_yfinance_download_verbatim() -> None:
+    """Narrow, real (unmocked-at-our-boundary) check that the exact period
+    string built by a caller is what actually reaches `yf.download` — the
+    mocked tests above never exercise this boundary, which is exactly how
+    review 5124107298 finding 2 slipped through the first time."""
+    with patch("app.services.benchmark_prices.yf.download", return_value=pd.DataFrame()) as mock_dl:
+        benchmark_prices._fetch_index_closes(["^GSPC"], "5y")
+    assert mock_dl.call_args.kwargs["period"] == "5y"

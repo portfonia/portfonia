@@ -37,13 +37,26 @@ INDEX_YF_TICKERS: dict[str, str] = {
 
 
 def _fetch_index_closes(
-    yf_tickers: list[str], lookback_days: int
+    yf_tickers: list[str], period: str
 ) -> dict[str, list[tuple[date, Decimal]]]:
     """{yf_ticker: [(price_date, close), ...]} oldest -> newest, omitting any
-    ticker yfinance returned no data for."""
+    ticker yfinance returned no data for.
+
+    `period` is passed straight to `yf.download` — callers build it (see
+    `capture_benchmark_index_prices`/`backfill_benchmark_prices`) rather
+    than this function guessing a format from a day/year count. An
+    arbitrary `Nd` string does not error for a multi-year N (verified
+    against the installed yfinance 1.3.0: it returns N trading-day ROWS,
+    which for large N spans MORE calendar time than N days — e.g. `1825d`
+    returned 1825 rows spanning ~7.25 calendar years, not 5), but that
+    row-count-not-calendar-days semantic is surprising and unrelated to
+    what `--years` actually means, so the multi-year backfill path uses
+    `Ny` instead (review 5124107298 finding 2 / PR #363) — `Nd` is kept
+    only for the short daily catch-up window, which yfinance/this codebase
+    already uses this way elsewhere (`_yfinance.fetch_ohlcv_range`).
+    """
     if not yf_tickers:
         return {}
-    period = f"{max(lookback_days, 2)}d"
     try:
         with _quiet_yfinance_logs():
             hist = yf.download(
@@ -88,7 +101,8 @@ def capture_benchmark_index_prices(session: Session, lookback_days: int = 7) -> 
     benchmark index. `lookback_days` mirrors `capture_prices`'s catch-up
     window so a missed fire is covered by the next run."""
     yf_to_code = {yf_ticker: code for code, yf_ticker in INDEX_YF_TICKERS.items()}
-    fetched = _fetch_index_closes(list(yf_to_code), lookback_days)
+    period = f"{max(lookback_days, 2)}d"
+    fetched = _fetch_index_closes(list(yf_to_code), period=period)
     rows: list[dict[str, object]] = []
     for yf_ticker, points in fetched.items():
         code = yf_to_code[yf_ticker]
@@ -103,9 +117,10 @@ def capture_benchmark_index_prices(session: Session, lookback_days: int = 7) -> 
 
 def backfill_benchmark_prices(session: Session, years: int = 5) -> int:
     """One-off ~`years`-of-history seed — a normal time series fetch, no
-    approximation (unlike the portfolio value backfill)."""
+    approximation (unlike the portfolio value backfill). Uses yfinance's
+    `Ny` period form (not `Nd` — see `_fetch_index_closes`'s docstring)."""
     yf_to_code = {yf_ticker: code for code, yf_ticker in INDEX_YF_TICKERS.items()}
-    fetched = _fetch_index_closes(list(yf_to_code), lookback_days=365 * years)
+    fetched = _fetch_index_closes(list(yf_to_code), period=f"{max(years, 1)}y")
     rows: list[dict[str, object]] = []
     for yf_ticker, points in fetched.items():
         code = yf_to_code[yf_ticker]

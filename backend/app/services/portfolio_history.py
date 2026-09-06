@@ -316,6 +316,20 @@ def write_user_snapshot(
     supplied, the whole day is marked `skipped_deps` and NO rows are
     written — the daily task's next catch-up run covers it instead of
     silently writing a partial day.
+
+    This gate is deliberately FX-only, not FX-AND-price (review 5124107298
+    finding 3 flagged this asymmetry). A symmetric price-readiness check —
+    "did today's price capture produce anything for this user's tickers
+    yet" — was considered and rejected: this codebase has no real market
+    holiday calendar (see `price_capture._session_lag`'s own admission that
+    weekdays stand in for the XSHG session calendar), so a strict "at least
+    one exact-date close must exist" check would misfire as `skipped_deps`
+    on every US/HK/A-share holiday for a single-market book, silently
+    losing legitimate trading-halt days from the chart — a worse failure
+    mode than the one it would close. Per-holding price gaps already
+    degrade gracefully to `data_quality="insufficient"` on that one row
+    (see `_local_value_for_holding`) rather than blocking the whole batch,
+    which is the accepted, documented tradeoff for Phase 1.
     """
     holdings = list(session.execute(select(Holding).where(Holding.user_id == user_id)).scalars())
     batch = get_or_create_batch(session, user_id, snapshot_date)

@@ -1,17 +1,28 @@
 """`GET /portfolio/performance` computation core (issue #360 Phase 1).
 
-Reads only what the daily snapshot writer (`portfolio_history.py`) already
-computed and stored — this module never re-prices a holding or re-derives
-FX for an individual row. The one exception is the portfolio's stored
-canonical base currency (`users.base_currency` at capture time) differing
-from the request's `base_currency`: that is a single aggregate-level
-re-conversion per day (see `_convert_amount`), not a re-valuation.
+Mostly reads what the daily snapshot writer (`portfolio_history.py`)
+already computed and stored, at two levels of aggregate re-conversion: the
+portfolio's stored canonical base currency (`users.base_currency` at
+capture time) differing from the request's `base_currency` re-converts the
+already-aggregated per-day totals once per day (`_convert_amount`), never
+per holding.
+
+The one place this module DOES re-price an individual position is the TWR
+mark for a holding that has no snapshot row at all on the day being marked
+— a full exit, or a holding row deleted/replaced entirely
+(`_reprice_from_source`, reusing `portfolio_history.historical_price`/
+`historical_fx_rates_asof`). This was added after review 5124107298 found
+that simply excluding such a holding from V_t_minus turned a solo full exit
+into an approximately -100% "return" instead of the cash-flow-neutral
+price move the D3 amendment requires — see `_contribution`'s docstring for
+the full reasoning and when the fast path (reusing an existing day-t row)
+applies instead.
 
 Approximate EOD TWR (D3 amendment): day t's return marks yesterday's
-*filtered* holdings at today's own stored values for the SAME `holding_id`
-— quantity changes, new lots, exits, and a holding dropping out of the
+*filtered* holdings at today's price/FX for the SAME `holding_id` —
+quantity changes, new lots, exits, and a holding dropping out of the
 current filter are all treated identically as an end-of-day cash flow, not
-a return (see `_contribution`).
+a return.
 """
 
 from __future__ import annotations
@@ -28,7 +39,8 @@ from app.models.portfolio_snapshot_batch import PortfolioSnapshotBatch
 from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
 from app.services.benchmark_prices import INDEX_YF_TICKERS
 from app.services.fx_conversion import to_base
-from app.services.portfolio_history import historical_fx_rates_asof
+from app.services.instrument_symbols import normalize_legacy_ticker
+from app.services.portfolio_history import historical_fx_rates_asof, historical_price
 from app.services.user_scope import report_currency_for
 
 _PCT = Decimal("0.0001")
@@ -174,24 +186,71 @@ def _is_approximate(rows: list[PortfolioValueSnapshot]) -> bool:
     return any(r.is_backfilled or r.is_fx_fallback or r.data_quality != "ok" for r in rows)
 
 
+def _reprice_from_source(
+    session: Session,
+    prev_row: PortfolioValueSnapshot,
+    day_t: date,
+    canonical_currency: str,
+) -> Decimal | None:
+    """Reprice `prev_row`'s position at `day_t` directly from
+    `price_snapshots`/`fx_rates`, for a holding with NO stored snapshot row
+    on `day_t` at all (a full exit, or a holding deleted/replaced entirely —
+    review 5124107298 finding 1 / PR #363).
+
+    This is the fallback path only — the fast path in `_contribution`
+    below reuses an existing day-t row (whether or not it currently passes
+    the active filter) without ever reaching here. Returns None when the
+    position genuinely can't be priced (matches D5's "insufficient"
+    contribution, excluded from V_t_minus) — that is now the ONLY reason a
+    holding drops out of V_t_minus; a bare structural absence on day_t no
+    longer does.
+    """
+    if prev_row.shares is not None:
+        key = prev_row.ticker or prev_row.fund_code
+        if not key:
+            return None
+        priced = historical_price(session, normalize_legacy_ticker(key), day_t)
+        if priced is None:
+            return None
+        price, _trade_date = priced
+        local_value = prev_row.shares * price
+    else:
+        if prev_row.current_value is None:
+            return None
+        local_value = prev_row.current_value
+
+    if prev_row.currency == canonical_currency:
+        return local_value
+    rates = {pair: rate for pair, (rate, _d) in historical_fx_rates_asof(session, day_t).items()}
+    return to_base(local_value, prev_row.currency, canonical_currency, rates)
+
+
 def _contribution(
-    prev_row: PortfolioValueSnapshot, curr_row: PortfolioValueSnapshot | None
+    session: Session,
+    prev_row: PortfolioValueSnapshot,
+    curr_row: PortfolioValueSnapshot | None,
+    day_t: date,
+    canonical_currency: str,
 ) -> Decimal | None:
     """Value of `prev_row`'s position marked at `curr_row`'s day (D3
     amendment): "yesterday's quantity/local-value at today's price/FX".
-    None when `curr_row` doesn't exist (position exited/relabeled out of
-    the current filter) or lacks the fields needed — both cases are
-    excluded from V_t_minus and so become an implicit cash flow rather
-    than a return, per the TWR spec.
+
+    `curr_row` is the day-t row for the SAME `holding_id`, regardless of
+    whether it currently passes the active filter (a holding relabeled out
+    of the current sub-portfolio view is D8's "shows up as an outflow", not
+    a price move — its own stored day-t row is still the right mark). Only
+    when NO day-t row exists at all (full exit, or the holding row itself
+    was deleted/replaced) does this fall back to repricing directly from
+    `price_snapshots`/`fx_rates` (`_reprice_from_source`) — never simply
+    excluding the lot, which review 5124107298 finding 1 caught turning a
+    solo full exit into an approximately -100% "return" instead of a
+    cash-flow-neutral price move.
     """
-    if curr_row is None or curr_row.market_value_base is None:
+    if curr_row is None:
+        return _reprice_from_source(session, prev_row, day_t, canonical_currency)
+    if curr_row.market_value_base is None:
         return None
-    if (
-        prev_row.shares is not None
-        and curr_row.shares is not None
-        and curr_row.shares != 0
-        and curr_row.market_value_base is not None
-    ):
+    if prev_row.shares is not None and curr_row.shares is not None and curr_row.shares != 0:
         unit_value_base = curr_row.market_value_base / curr_row.shares
         return prev_row.shares * unit_value_base
     if (
@@ -207,14 +266,17 @@ def _contribution(
 
 
 def _twr_day_return(
+    session: Session,
     prev_rows_by_id: dict[uuid.UUID, PortfolioValueSnapshot],
-    curr_rows_by_id: dict[uuid.UUID, PortfolioValueSnapshot],
+    curr_rows_by_id_all: dict[uuid.UUID, PortfolioValueSnapshot],
     v_prev: Decimal,
+    day_t: date,
+    canonical_currency: str,
 ) -> Decimal | None:
     if v_prev <= 0:
         return None
     contributions = [
-        _contribution(prev_row, curr_rows_by_id.get(hid))
+        _contribution(session, prev_row, curr_rows_by_id_all.get(hid), day_t, canonical_currency)
         for hid, prev_row in prev_rows_by_id.items()
         if hid is not None
     ]
@@ -251,8 +313,18 @@ def _build_portfolio_series(
     )
 
     filtered_by_date: dict[date, list[PortfolioValueSnapshot]] = {}
+    all_by_id_by_date: dict[date, dict[uuid.UUID, PortfolioValueSnapshot]] = {}
     for d in dates:
         filtered_by_date[d] = [r for r in rows_by_date[d] if filters.matches(r)]
+        # ALL of that day's rows keyed by holding_id, regardless of filter —
+        # the TWR mark for a holding relabeled out of the current filter
+        # still uses its own stored day-t row (D8: a relabel is an outflow
+        # from this view, not a price move); only a holding with no day-t
+        # row at all falls back to repricing from source (see
+        # `_contribution`/`_reprice_from_source`).
+        all_by_id_by_date[d] = {
+            r.holding_id: r for r in rows_by_date[d] if r.holding_id is not None
+        }
 
     included: list[tuple[date, Decimal, dict[uuid.UUID, PortfolioValueSnapshot], bool]] = []
     for d in dates:
@@ -282,7 +354,14 @@ def _build_portfolio_series(
         if idx == 0:
             cumulative = Decimal("0")
         elif twr:
-            r_t = _twr_day_return(prev_by_id or {}, by_id, prev_value or Decimal("0"))
+            r_t = _twr_day_return(
+                session,
+                prev_by_id or {},
+                all_by_id_by_date[d],
+                prev_value or Decimal("0"),
+                d,
+                canonical_currency,
+            )
             if r_t is not None:
                 ratio = ratio * (Decimal("1") + r_t)
             cumulative = (ratio - Decimal("1")).quantize(_PCT, rounding=ROUND_HALF_UP)

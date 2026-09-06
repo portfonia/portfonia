@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.models.benchmark_price import BenchmarkPrice
 from app.models.portfolio_snapshot_batch import PortfolioSnapshotBatch
 from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
+from app.models.price_snapshot import PriceSnapshot
 from app.services.portfolio_performance import compute_portfolio_performance
 from app.tests.conftest import seed_user
 
@@ -36,13 +37,16 @@ def _row(
     account: str | None = None,
     market: str | None = "US",
     data_quality: str = "ok",
+    ticker: str | None = None,
+    currency: str = "USD",
 ) -> None:
     session.add(
         PortfolioValueSnapshot(
             user_id=user_id,
             snapshot_date=d,
             holding_id=holding_id,
-            currency="USD",
+            currency=currency,
+            ticker=ticker,
             shares=shares,
             current_value=current_value,
             market_value_base=market_value_base,
@@ -149,6 +153,45 @@ def test_filter_on_historical_account_keeps_sold_lot(db_session: Session) -> Non
     assert len(result.portfolio.points) == 2
     assert result.portfolio.points[0].value_base == Decimal("1000.00")
     assert result.portfolio.points[1].value_base == Decimal("0.00")  # sold out of this account
+
+
+def test_solo_full_exit_tracks_price_move_not_negative_100_pct(db_session: Session) -> None:
+    """Regression for review 5124107298 finding 1 (PR #363): a full exit
+    must read as a cash-flow-neutral price move on the exit day, not an
+    exclusion from V_t_minus that manufactures an approximately -100%
+    "return". The holding is repriced from `price_snapshots` for day 2
+    even though it no longer has a snapshot row that day (position fully
+    sold, book empty)."""
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    holding_id = uuid.uuid4()
+    _mark_complete(db_session, user_id, D1)
+    _mark_complete(db_session, user_id, D2)  # batch complete, but zero holdings that day
+    _row(
+        db_session,
+        user_id,
+        D1,
+        holding_id,
+        shares=Decimal("10"),
+        market_value_base=Decimal("1000"),
+        ticker="AAPL",
+    )
+    # AAPL's real market price kept moving +10% even though the user sold
+    # out of it entirely before day 2's snapshot was written.
+    db_session.add(
+        PriceSnapshot(
+            ticker="AAPL", market="US", session_node="close", trade_date=D2, close=Decimal("110")
+        )
+    )
+    db_session.flush()
+
+    result = compute_portfolio_performance(
+        db_session, user_id, range_key="ALL", benchmark_codes=[], twr=True, today=D2
+    )
+    assert result.portfolio.points[-1].return_pct_cumulative == Decimal("0.1000")
+    # The book is genuinely empty after the sale — value_base correctly
+    # drops to 0 even though TWR does not.
+    assert result.portfolio.points[-1].value_base == Decimal("0.00")
 
 
 def test_filter_on_account_never_held_gives_empty_series(db_session: Session) -> None:
