@@ -10,7 +10,15 @@ import { filenameFromContentDisposition } from "@/lib/template";
 
 export type PricingMode = "auto" | "manual";
 export type AssetType = "stock" | "etf" | "fund" | "cash" | "wmf" | "other";
-export type Market = "US" | "HK" | "A-Share" | "Other";
+// Widened from 4 to the backend's full 8-value instrument Market taxonomy
+// (issue #57 stage 57-3 frozen design section 7) — UK/Europe/Japan/Korea
+// were already reachable through the holdings form's `as ParsedRow["market"]`
+// cast (see holding-form.tsx) despite this type omitting them, so this is a
+// type-accuracy fix, not a behavior change. Distinct from `Questionnaire.
+// markets` below, which mirrors the separate, still-4-value `VALID_MARKETS`
+// investment-style taxonomy (`questionnaire_taxonomy.py`) and is out of
+// scope for #57.
+export type Market = "US" | "HK" | "A-Share" | "UK" | "Europe" | "Japan" | "Korea" | "Other";
 export type ConfirmMode = "append" | "replace";
 export type IssueSeverity = "info" | "warning";
 
