@@ -58,7 +58,8 @@ def _existing_real_history(session: Session, user_id: UUID) -> int:
     is exactly the "still first enable" state this script must remain
     re-runnable for. `_insert_rows_skip_existing`'s `ON CONFLICT DO
     NOTHING` already makes a second run over that state a safe no-op
-    (idempotent skip, matching the amendment's "脚本重跑不覆盖已落库历史"), so
+    (idempotent skip, matching the amendment's rule that a script rerun
+    must never overwrite history already written to the database), so
     widening this count to include prior backfill rows would make the
     script LESS resumable than the spec asks for, not more correct.
     """

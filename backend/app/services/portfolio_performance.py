@@ -238,19 +238,23 @@ def _contribution(
     `curr_row` is the day-t row for the SAME `holding_id`, regardless of
     whether it currently passes the active filter (a holding relabeled out
     of the current sub-portfolio view is D8's "shows up as an outflow", not
-    a price move — its own stored day-t row is still the right mark). Only
-    when NO day-t row exists at all (full exit, or the holding row itself
-    was deleted/replaced) does this fall back to repricing directly from
-    `price_snapshots`/`fx_rates` (`_reprice_from_source`) — never simply
-    excluding the lot, which review 5124107298 finding 1 caught turning a
-    solo full exit into an approximately -100% "return" instead of a
-    cash-flow-neutral price move.
+    a price move — its own stored day-t row is still the right mark). This
+    falls back to repricing directly from `price_snapshots`/`fx_rates`
+    (`_reprice_from_source`) in two cases: NO day-t row exists at all (full
+    exit, or the holding row itself was deleted/replaced — review
+    5124107298 finding 1), or a day-t row exists but carries `shares == 0`
+    (re-review leftover: a degenerate zero-share row has no usable
+    per-share price to derive a mark from, the same unpriceable situation
+    as no row at all — never simply excluded, which is what let finding 1
+    happen in the first place).
     """
     if curr_row is None:
         return _reprice_from_source(session, prev_row, day_t, canonical_currency)
     if curr_row.market_value_base is None:
         return None
-    if prev_row.shares is not None and curr_row.shares is not None and curr_row.shares != 0:
+    if curr_row.shares == Decimal("0"):
+        return _reprice_from_source(session, prev_row, day_t, canonical_currency)
+    if prev_row.shares is not None and curr_row.shares is not None:
         unit_value_base = curr_row.market_value_base / curr_row.shares
         return prev_row.shares * unit_value_base
     if (

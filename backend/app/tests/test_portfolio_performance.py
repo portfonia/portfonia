@@ -194,6 +194,51 @@ def test_solo_full_exit_tracks_price_move_not_negative_100_pct(db_session: Sessi
     assert result.portfolio.points[-1].value_base == Decimal("0.00")
 
 
+def test_zero_share_day_t_row_also_triggers_reprice_not_exclusion(db_session: Session) -> None:
+    """Re-review leftover (PR #363, approval comment): a day-t row that
+    exists but carries `shares == 0` must be treated the same as no row at
+    all — repriced from `price_snapshots`, not excluded from V_t_minus,
+    which would silently reproduce finding 1's -100% bug for this one row
+    shape even after the "no row at all" case was fixed."""
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    holding_id = uuid.uuid4()
+    _mark_complete(db_session, user_id, D1)
+    _mark_complete(db_session, user_id, D2)
+    _row(
+        db_session,
+        user_id,
+        D1,
+        holding_id,
+        shares=Decimal("10"),
+        market_value_base=Decimal("1000"),
+        ticker="AAPL",
+    )
+    # Degenerate day-2 row: shares collapsed to zero without the row being
+    # removed — distinct from the "no row at all" scenario the other exit
+    # test covers, but must be handled the same way.
+    _row(
+        db_session,
+        user_id,
+        D2,
+        holding_id,
+        shares=Decimal("0"),
+        market_value_base=Decimal("0"),
+        ticker="AAPL",
+    )
+    db_session.add(
+        PriceSnapshot(
+            ticker="AAPL", market="US", session_node="close", trade_date=D2, close=Decimal("110")
+        )
+    )
+    db_session.flush()
+
+    result = compute_portfolio_performance(
+        db_session, user_id, range_key="ALL", benchmark_codes=[], twr=True, today=D2
+    )
+    assert result.portfolio.points[-1].return_pct_cumulative == Decimal("0.1000")
+
+
 def test_filter_on_account_never_held_gives_empty_series(db_session: Session) -> None:
     user_id = uuid.uuid4()
     seed_user(db_session, user_id)

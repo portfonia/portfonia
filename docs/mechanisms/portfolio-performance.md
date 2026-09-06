@@ -84,10 +84,15 @@ rows in the first place. An earlier version of this module simply excluded
 such a holding from that day's numerator while the denominator still
 included it — that turned a solo full exit into an approximately −100%
 "return" instead of the cash-flow-neutral price move D3 requires, caught
-by review before merge. Only when the position genuinely can't be repriced
-(no `price_snapshots` row within the 10-day lookback either) does it fall
-back to exclusion, matching D5's "insufficient" contribution — that is now
-the ONLY reason a holding drops out of $V_t^-$.
+by review before merge. The same reprice path also fires for a day-*t* row
+that DOES exist but carries `shares == 0` (approval re-review leftover) — a
+degenerate zero-share row has no usable per-share price to derive a mark
+from, the same unpriceable situation as no row at all, and must not simply
+fall through to exclusion either (that would silently reproduce the exact
+−100% bug for this one row shape). Only when the position genuinely can't
+be repriced (no `price_snapshots` row within the 10-day lookback either)
+does it fall back to exclusion, matching D5's "insufficient" contribution —
+that is now the ONLY reason a holding drops out of $V_t^-$.
 
 TWR off: `(V_end / V_start) − 1` over the range's first/last included days
 — literally the raw market-value ratio, which is why the header's dollar
@@ -132,7 +137,8 @@ refuses a second run unless real (non-backfill) history already exists;
 confirmed intentional after re-checking the amendment's literal text,
 "refuse if REAL non-backfill history already exists": a user with only
 backfill rows is still "first enable", and `ON CONFLICT DO NOTHING` already
-makes that re-run a safe idempotent no-op, matching "脚本重跑不覆盖已落库历史"
+makes that re-run a safe idempotent no-op, matching the amendment's rule
+that a rerun must never overwrite history already written to the database
 directly). Start date is the earliest date any currently-held auto-priced
 ticker has usable price history, capped at `--years` (default 5) — never
 `holding.created_at` (a replace-import deletes and recreates rows, so that
@@ -178,9 +184,10 @@ review follow-up issuecomment-5556912227)
   `twr=true` (`PerformanceHeader.value_change_base` is always the raw $
   change, `value_change_pct` is the TWR-chained % when `twr=true`) — this
   is the Phase 1 API contract as specified (the issue's requirement 7:
-  "TWR 开启时,顶部金额数字称为市值变化"); Phase 2's UI copy needs to make the
-  distinction between the $ figure and the % figure clear to the user, not
-  something this API response can resolve on its own.
+  with TWR on, the header dollar figure is labeled "market value change",
+  never "return"); Phase 2's UI copy needs to make the distinction between
+  the $ figure and the % figure clear to the user, not something this API
+  response can resolve on its own.
 
 ## Explicitly out of Phase 1
 
