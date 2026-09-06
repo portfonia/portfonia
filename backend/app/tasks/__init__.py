@@ -233,6 +233,23 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "task": "app.tasks.cache_tasks.sweep_stale_shared_intel_cache",
         "schedule": crontab(hour=4, minute=0),
     },
+    # Portfolio Performance (issue #360 Phase 1). 20:30 ET, Mon-Fri — after
+    # every market's close node (latest is US after_close at 20:00 ET) and
+    # after the 17:15 ET FX fetch, so a user's day almost always resolves
+    # its FX dependency on the first try (capture_portfolio_value_snapshot's
+    # own per-user skipped_deps check covers the rare case it doesn't).
+    "capture-portfolio-value-snapshot-daily": {
+        "task": "app.tasks.capture_tasks.capture_portfolio_value_snapshot_task",
+        "schedule": crontab(hour=20, minute=30, day_of_week="mon-fri"),
+    },
+    # Same cadence as the snapshot task above — benchmark closes (sp500/
+    # dow30/nasdaq, D9) are independent of holdings/FX and could run
+    # earlier, but sharing one fixed time keeps the schedule easy to reason
+    # about; both tasks are idempotent upserts either way.
+    "capture-benchmark-index-prices-daily": {
+        "task": "app.tasks.capture_tasks.capture_benchmark_index_prices_task",
+        "schedule": crontab(hour=20, minute=30, day_of_week="mon-fri"),
+    },
 }
 _beat_schedule.update(_build_report_schedule())
 _beat_schedule.update(_build_capture_schedule())

@@ -15,8 +15,15 @@ from app.core.rate_limit import (
     release_portfolio_overview_cooldown,
 )
 from app.schemas.portfolio import (
+    BenchmarkPointOut,
+    BenchmarkSeriesOut,
     ConcentrationOut,
     HoldingValueOut,
+    PerformanceHeaderOut,
+    PerformanceMetaOut,
+    PerformancePointOut,
+    PortfolioPerformanceResponse,
+    PortfolioSeriesOut,
     PortfolioSummaryResponse,
     SendOverviewResponse,
 )
@@ -27,6 +34,7 @@ from app.services.portfolio_export import (
     render_portfolio_export_md,
     render_portfolio_export_xlsx,
 )
+from app.services.portfolio_performance import compute_portfolio_performance
 from app.services.user_scope import report_currency_for
 from app.tasks.notification_tasks import send_portfolio_overview_email_task
 
@@ -55,6 +63,10 @@ BaseCurrency = Literal[
     "MOP",
     "NZD",
 ]
+
+
+RangeKey = Literal["1M", "6M", "YTD", "1Y", "5Y", "ALL"]
+BenchmarkCode = Literal["sp500", "dow30", "nasdaq"]
 
 
 def _export_locale(session: Session, user_id: UUID) -> str:
@@ -199,4 +211,79 @@ def export_portfolio(
         content=render_portfolio_export_md(snap, effective_locale),
         media_type="text/markdown",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/performance", response_model=PortfolioPerformanceResponse)
+def get_portfolio_performance(
+    range: Annotated[RangeKey, Query()] = "1Y",
+    benchmarks: Annotated[list[BenchmarkCode] | None, Query()] = None,
+    markets: Annotated[list[str] | None, Query()] = None,
+    groups: Annotated[list[str] | None, Query()] = None,
+    brokers: Annotated[list[str] | None, Query()] = None,
+    accounts: Annotated[list[str] | None, Query()] = None,
+    twr: Annotated[bool, Query()] = True,
+    base_currency: Annotated[BaseCurrency | None, Query()] = None,
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+) -> PortfolioPerformanceResponse:
+    """Issue #360 Phase 1 — backend only, no UI consumes this yet.
+
+    Reads pre-computed `portfolio_value_snapshots`/`benchmark_prices` rows;
+    never re-prices a holding or re-derives FX for an individual row (see
+    `app/services/portfolio_performance.py` module docstring). Filters are
+    AND'd across dimensions and apply to each day's own snapshot-time
+    labels (D8) — a sold lot or a renamed account/broker still shows up in
+    the days before the change.
+    """
+    result = compute_portfolio_performance(
+        session,
+        principal.user_id,
+        range_key=range,
+        benchmark_codes=list(benchmarks) if benchmarks else [],
+        markets=markets,
+        groups=groups,
+        brokers=brokers,
+        accounts=accounts,
+        twr=twr,
+        base_currency=base_currency,
+    )
+
+    return PortfolioPerformanceResponse(
+        portfolio=PortfolioSeriesOut(
+            empty=result.portfolio.empty,
+            start_date=result.portfolio.start_date,
+            end_date=result.portfolio.end_date,
+            points=[
+                PerformancePointOut(
+                    date=p.point_date,
+                    value_base=p.value_base,
+                    return_pct_cumulative=p.return_pct_cumulative,
+                    is_approximate=p.is_approximate,
+                )
+                for p in result.portfolio.points
+            ],
+            quality_flags=result.portfolio.quality_flags,
+        ),
+        benchmarks=[
+            BenchmarkSeriesOut(
+                index_code=b.index_code,
+                name=b.name,
+                start_date=b.start_date,
+                points=[
+                    BenchmarkPointOut(
+                        date=p.point_date, return_pct_cumulative=p.return_pct_cumulative
+                    )
+                    for p in b.points
+                ],
+            )
+            for b in result.benchmarks
+        ],
+        header=PerformanceHeaderOut(
+            value_base=result.header.value_base,
+            value_change_base=result.header.value_change_base,
+            value_change_pct=result.header.value_change_pct,
+            label=result.header.label,
+        ),
+        meta=PerformanceMetaOut(**result.meta),
     )

@@ -371,6 +371,72 @@ def capture_forward_events_task(self: Any) -> dict[str, int]:
 
 
 @celery_app.task(  # type: ignore[untyped-decorator]
+    name="app.tasks.capture_tasks.capture_portfolio_value_snapshot_task",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=300,
+)
+def capture_portfolio_value_snapshot_task(self: Any) -> dict[str, int]:
+    """Daily Portfolio Performance snapshot (issue #360 Phase 1). Scheduled
+    after the day's price-capture and FX-fetch tasks (app/tasks/__init__.py)
+    so a user's day almost always resolves its FX dependency on the first
+    try; when it doesn't, that user/day is marked `skipped_deps` and this
+    task's own idempotent write means the next run's catch-up covers it.
+    """
+    from app.core.database import SessionLocal
+    from app.services.portfolio_history import capture_portfolio_value_snapshot
+
+    session = SessionLocal()
+    try:
+        result = capture_portfolio_value_snapshot(session)
+        session.commit()
+        return result
+    except Exception as exc:
+        session.rollback()
+        logger.exception("capture_portfolio_value_snapshot_task: failed")
+        if self.request.retries >= self.max_retries:
+            _capture_failed(
+                "capture_portfolio_value_snapshot_task",
+                exc,
+                context="Portfolio Performance chart will be missing today's data point.",
+            )
+        raise self.retry(exc=exc) from exc
+    finally:
+        session.close()
+
+
+@celery_app.task(  # type: ignore[untyped-decorator]
+    name="app.tasks.capture_tasks.capture_benchmark_index_prices_task",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=300,
+)
+def capture_benchmark_index_prices_task(self: Any) -> dict[str, int]:
+    """Daily close capture for the sp500/dow30/nasdaq benchmark indexes
+    (issue #360 Phase 1, D9)."""
+    from app.core.database import SessionLocal
+    from app.services.benchmark_prices import capture_benchmark_index_prices
+
+    session = SessionLocal()
+    try:
+        written = capture_benchmark_index_prices(session)
+        session.commit()
+        return {"written": written}
+    except Exception as exc:
+        session.rollback()
+        logger.exception("capture_benchmark_index_prices_task: failed")
+        if self.request.retries >= self.max_retries:
+            _capture_failed(
+                "capture_benchmark_index_prices_task",
+                exc,
+                context="Portfolio Performance benchmark lines will be missing today's data point.",
+            )
+        raise self.retry(exc=exc) from exc
+    finally:
+        session.close()
+
+
+@celery_app.task(  # type: ignore[untyped-decorator]
     name="app.tasks.capture_tasks.backfill_sectors_task",
     bind=True,
     max_retries=1,
