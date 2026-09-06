@@ -848,13 +848,21 @@ def test_capture_spot_missing_check_uses_normalized_ticker(db_session: Session) 
     assert n == 1
 
 
-def test_capture_close_missing_fallback_receives_normalized_ticker(db_session: Session) -> None:
-    """Issue #351 review follow-up: a genuine miss must still pass the
-    fallback the normalized ticker, not the raw stored one. The override
-    table can map a raw ticker to a completely different symbol (PSH ->
-    PSH.L) — querying Massive with the raw form on a real miss would ask
-    for the wrong instrument, the same collision class #204 fixed for the
-    primary yfinance lookup.
+def test_capture_close_missing_fallback_never_sends_non_us_wire_symbol(
+    db_session: Session,
+) -> None:
+    """Issue #351 review follow-up (superseded by issue #57 stage 57-2): a
+    genuine miss must still be looked up under the normalized ticker
+    internally, but that normalized code must never be SENT to a US-only
+    fallback when it is not itself US wire syntax. The override table maps
+    a raw ticker to a completely different symbol (PSH -> PSH.L); PSH.L is
+    an LSE listing, so a holding declared market=US with raw ticker "PSH"
+    must not have "PSH.L" requested from Massive (frozen design section 4:
+    "Finnhub/Massive reject the non-US lookup code even if the historical
+    declared bucket says US" — explicitly called out for this exact case
+    when 57-2 was scoped). Before this correction, the fallback was called
+    with the raw normalized ticker unconditionally; that regressed the
+    US-only eligibility gate for exactly this historical-mismatch shape.
     """
     db_session.add(_holding("Pershing Square Holdings", "PSH", market="US"))
     db_session.flush()
@@ -871,11 +879,13 @@ def test_capture_close_missing_fallback_receives_normalized_ticker(db_session: S
     ):
         capture_prices(db_session, market="US", session_node="close")
 
-    mock_massive.assert_called_once_with(["PSH.L"], "k")
+    mock_massive.assert_not_called()
 
 
-def test_capture_spot_missing_fallback_receives_normalized_ticker(db_session: Session) -> None:
-    """Same as above for the spot/Finnhub branch (issue #351 review follow-up)."""
+def test_capture_spot_missing_fallback_never_sends_non_us_wire_symbol(
+    db_session: Session,
+) -> None:
+    """Same as above for the spot/Finnhub branch (issue #57 stage 57-2)."""
     db_session.add(_holding("Pershing Square Holdings", "PSH", market="US"))
     db_session.flush()
 
@@ -889,7 +899,52 @@ def test_capture_spot_missing_fallback_receives_normalized_ticker(db_session: Se
     ):
         capture_prices(db_session, market="US", session_node="open")
 
-    mock_finnhub.assert_called_once_with(["PSH.L"], "k")
+    mock_finnhub.assert_not_called()
+
+
+def test_capture_close_missing_fallback_receives_normalized_ticker(db_session: Session) -> None:
+    """Issue #351 review follow-up: a genuine miss must still pass the
+    fallback the normalized ticker, not the raw stored one, for a code that
+    IS itself US wire syntax post-normalization (unlike the PSH/UK case
+    above). The override table can map a raw ticker to a different symbol —
+    querying Massive with the raw form on a real miss would ask for the
+    wrong instrument, the same collision class #204 fixed for the primary
+    yfinance lookup.
+    """
+    db_session.add(_holding("Berkshire Hathaway B", "BRK.B", market="US"))
+    db_session.flush()
+
+    with (
+        patch(
+            "app.services.price_capture.get_settings",
+            return_value=_settings_with_keys(finnhub=None, massive="k"),
+        ),
+        patch("app.services.price_capture.fetch_ohlcv_range", return_value={}),
+        patch(
+            "app.services.price_capture.fetch_massive_prev_close_ohlcv", return_value={}
+        ) as mock_massive,
+    ):
+        capture_prices(db_session, market="US", session_node="close")
+
+    mock_massive.assert_called_once_with(["BRK.B"], "k")
+
+
+def test_capture_spot_missing_fallback_receives_normalized_ticker(db_session: Session) -> None:
+    """Same as above for the spot/Finnhub branch (issue #351 review follow-up)."""
+    db_session.add(_holding("Berkshire Hathaway B", "BRK.B", market="US"))
+    db_session.flush()
+
+    with (
+        patch(
+            "app.services.price_capture.get_settings",
+            return_value=_settings_with_finnhub_key("k"),
+        ),
+        patch("app.services.price_capture.fetch_spot", return_value={}),
+        patch("app.services.price_capture.fetch_finnhub_quotes", return_value={}) as mock_finnhub,
+    ):
+        capture_prices(db_session, market="US", session_node="open")
+
+    mock_finnhub.assert_called_once_with(["BRK.B"], "k")
 
 
 @pytest.mark.parametrize("node", ["pre_open", "open", "after_close"])
