@@ -20,8 +20,8 @@ class TickerLeverageOverride(Base):
     ``asset_class_thresholds.yml``: one record applies to every holding that
     references the ticker, regardless of owner. ``ticker`` must already be
     normalized+uppercased via the same helper the FX-pair/asset_class
-    lookups use (``app.services._yfinance._normalize_ticker`` — see the
-    issue #204 mechanism note) before it reaches this table; an
+    lookups use (``app.services.instrument_symbols.intelligence_identifier``
+    — see the issue #204 mechanism note) before it reaches this table; an
     un-normalized PK would silently split one ticker's override across two
     rows the way PSH/PSH.L once did.
 

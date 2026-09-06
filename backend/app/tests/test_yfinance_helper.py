@@ -18,7 +18,6 @@ from app.services._yfinance import (
     _chunk,
     _download_batch,
     _market_key_for_ticker,
-    _normalize_ticker,
     _quiet_yfinance_logs,
     _raw_download,
     _scale_price,
@@ -109,26 +108,11 @@ def _make_hist(ticker: str, price: float) -> pd.DataFrame:
     return pd.concat({"Close": close}, axis=1)
 
 
-# ---------------------------------------------------------------------------
-# _normalize_ticker (issue #204: known bare-ticker collisions on yfinance)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "ticker,expected",
-    [
-        # PSH: bare ticker collides with an unrelated US-listed ETF on
-        # yfinance; the real Pershing Square Holdings trades on the LSE.
-        ("PSH", "PSH.L"),
-        ("psh", "PSH.L"),
-        # Non-overridden tickers pass through unchanged.
-        ("AAPL", "AAPL"),
-        # HK normalization still composes through this function.
-        ("02333.HK", "2333.HK"),
-    ],
-)
-def test_normalize_ticker(ticker: str, expected: str) -> None:
-    assert _normalize_ticker(ticker) == expected
+# `_normalize_ticker` (issue #204: known bare-ticker collisions on
+# yfinance) moved to `instrument_symbols.normalize_legacy_ticker` in issue
+# #57; its golden-fixture coverage lives in `test_instrument_symbols.py`,
+# and the `_yfinance._normalize_ticker` forwarding shim this test file used
+# to exercise here was removed in stage 57-3.
 
 
 def test_fetch_last_close_empty_input() -> None:

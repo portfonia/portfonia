@@ -1,12 +1,16 @@
-"""Stage 57-2 integration slice: capture -> storage -> valuation -> sparse
-history/technical reads share one normalization identity end to end
-(issue #57 frozen design, stage 57-2 DoD).
+"""Capture -> storage -> valuation -> sparse history/technical reads share
+one normalization identity end to end (issue #57 frozen design, stage 57-2
+DoD — these integration cases are unchanged by stage 57-3).
 
-Also carries the static import-provenance check: none of this stage's
-migrated modules may import a provider-private normalization symbol
-directly anymore (`_yfinance._normalize_ticker` / `_TICKER_SYMBOL_OVERRIDE`)
-— only the still-pending 57-3 intelligence/report consumers (plus the
-57-1 golden-fixture test) may.
+Also carries the static zero-dependency check, tightened to its final form
+in stage 57-3: no business module may import OR attribute-access a
+provider-private normalization symbol (`_yfinance._normalize_ticker`,
+`_normalize_hk_ticker`, `_TICKER_SYMBOL_OVERRIDE`) anymore. Stage 57-2 left
+an allowlist of five still-pending intelligence/report consumers; stage
+57-3 migrated all five (`report_assembly`, `user_scope`, `ticker_leverage`,
+`ticker_intel`, `window_data`) and removed the `_yfinance._normalize_ticker`
+forwarding shim and the `_TICKER_SYMBOL_OVERRIDE` re-export, so the
+allowlist is now empty.
 """
 
 from __future__ import annotations
@@ -28,33 +32,54 @@ from app.tests.conftest import TEST_USER_ID, seed_user
 
 _APP_DIR = Path(__file__).resolve().parents[1]
 
-# Stage 57-2 migrated this set off `_yfinance`'s private normalization
-# symbols (`_normalize_ticker`/`_TICKER_SYMBOL_OVERRIDE` specifically —
-# `_finnhub.py`/`_massive.py`/`_yfinance.py` itself/`fx_fetcher.py` import
-# OTHER names from `_yfinance`, e.g. the price-scale helpers, which is a
-# separate, still-fine concern per the frozen design's transition policy).
-# 57-3 will migrate the rest of this set (tracked in the 57-1 PR's
-# inventory).
-_ALLOWED_REMAINING_IMPORTERS = {
-    "services/report_assembly.py",
-    "services/user_scope.py",
-    "services/ticker_leverage.py",
-    "services/ticker_intel.py",
-    "services/window_data.py",
+_BANNED_PRIVATE_NORMALIZATION_SYMBOLS = {
+    "_normalize_ticker",
+    "_normalize_hk_ticker",
+    "_TICKER_SYMBOL_OVERRIDE",
 }
 
+# Stage 57-3 DoD (issue #57 frozen design section 2/6): zero remaining
+# business importers or attribute-accessors anywhere in the tree.
+_ALLOWED_REMAINING_IMPORTERS: set[str] = set()
 
-def _imports_from_yfinance_private(path: Path) -> bool:
+
+def _references_yfinance_private_symbol(path: Path) -> bool:
+    """True if `path` imports, or attribute-accesses via a module alias,
+    any of `_BANNED_PRIVATE_NORMALIZATION_SYMBOLS` from `_yfinance`.
+
+    Covers both `from app.services._yfinance import _normalize_ticker` and
+    `from app.services import _yfinance; ... _yfinance._normalize_ticker(...)`
+    — the two forms the pre-57-3 shim/re-export were actually consumed
+    through (see the removed `test_instrument_symbols.py` shim tests)."""
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    yfinance_aliases: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module == "app.services._yfinance":
             names = {alias.name for alias in node.names}
-            if names & {"_normalize_ticker", "_TICKER_SYMBOL_OVERRIDE"}:
+            if names & _BANNED_PRIVATE_NORMALIZATION_SYMBOLS:
                 return True
+        elif isinstance(node, ast.ImportFrom) and node.module == "app.services":
+            for alias in node.names:
+                if alias.name == "_yfinance":
+                    yfinance_aliases.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "app.services._yfinance":
+                    yfinance_aliases.add(alias.asname or "_yfinance")
+    if not yfinance_aliases:
+        return False
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id in yfinance_aliases
+            and node.attr in _BANNED_PRIVATE_NORMALIZATION_SYMBOLS
+        ):
+            return True
     return False
 
 
-def test_stage_57_2_migrated_modules_no_longer_import_yfinance_private_symbols() -> None:
+def test_stage_57_2_migrated_modules_no_longer_reference_yfinance_private_symbols() -> None:
     migrated = [
         "routers/holdings.py",
         "services/holding_parser.py",
@@ -67,25 +92,25 @@ def test_stage_57_2_migrated_modules_no_longer_import_yfinance_private_symbols()
     ]
     for rel in migrated:
         path = _APP_DIR / rel
-        assert not _imports_from_yfinance_private(path), (
-            f"{rel} still imports a provider-private normalization symbol from "
-            f"_yfinance — issue #57 stage 57-2 requires it to use "
-            f"instrument_symbols.normalize_legacy_ticker instead"
+        assert not _references_yfinance_private_symbol(path), (
+            f"{rel} still references a provider-private normalization symbol from "
+            f"_yfinance — issue #57 requires it to use "
+            f"instrument_symbols.normalize_legacy_ticker/intelligence_identifier instead"
         )
 
 
-def test_repo_wide_yfinance_private_importers_are_the_known_57_3_inventory() -> None:
-    """Whole-tree sweep: fail loudly if some OTHER module started importing
-    the provider-private symbols during this stage (a new import is a
-    review failure per the frozen design's transition/import policy)."""
+def test_repo_wide_yfinance_private_references_are_zero() -> None:
+    """Whole-tree sweep, final stage-57-3 form: fail loudly if ANY business
+    module references the provider-private symbols — the allowlist that
+    covered the still-pending 57-3 consumers is now empty."""
     offenders: set[str] = set()
     for path in _APP_DIR.rglob("*.py"):
         if "tests" in path.parts or "__pycache__" in path.parts:
             continue
-        if _imports_from_yfinance_private(path):
+        if _references_yfinance_private_symbol(path):
             offenders.add(str(path.relative_to(_APP_DIR)))
     assert offenders == _ALLOWED_REMAINING_IMPORTERS, (
-        f"unexpected drift in provider-private-symbol importers: {offenders}"
+        f"unexpected provider-private-symbol references: {offenders}"
     )
 
 

@@ -27,8 +27,8 @@ from app.models.news_surfaced import NewsSurfaced
 from app.models.price_snapshot import PriceSnapshot
 from app.models.report import Report
 from app.models.ticker_theme import TickerTheme
-from app.services._yfinance import _normalize_ticker
 from app.services.asset_class_config import load_asset_class_config
+from app.services.instrument_symbols import InstrumentKey, intelligence_identifier
 from app.services.news_fetcher import NewsItem
 from app.services.price_anomaly_detector import ConstituentMove, PriceAnomaly
 from app.services.ticker_leverage import load_leverage_map
@@ -718,7 +718,7 @@ def select_user_anomalies(
         # normalization, so a mixed-case ticker's move gets computed
         # correctly under moves' uppercase key but would silently miss here
         # without the same normalization on this side of the lookup.
-        identifier = _normalize_ticker(raw).upper() if raw else None
+        identifier = intelligence_identifier(InstrumentKey("ticker", raw)) if raw else None
         if not identifier:
             continue
         move = moves.get(identifier)
@@ -728,7 +728,7 @@ def select_user_anomalies(
         if thresholds is None:
             continue
         per_day, cumulative_cap = thresholds.anomaly_per_day, thresholds.anomaly_cumulative_cap
-        # `identifier` is already _normalize_ticker(...).upper() (see above),
+        # `identifier` is already intelligence_identifier(...) (see above),
         # the same form load_leverage_map's keys use — no re-normalization
         # needed here.
         leverage = leverage_map.get(identifier)

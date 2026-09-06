@@ -1,9 +1,12 @@
-"""Golden-fixture parity for the #57 stage 57-1 extraction.
+"""Golden-fixture parity for `instrument_symbols.normalize_legacy_ticker`.
 
-Asserts that `instrument_symbols.normalize_legacy_ticker` and the
-`_yfinance._normalize_ticker` forwarding shim both reproduce, byte-for-byte,
-outputs recorded from the pre-refactor `_yfinance._normalize_ticker`
-implementation (see the fixture file's own `_comment`/`source_head`).
+Asserts that the extracted implementation reproduces, byte-for-byte, outputs
+recorded from the pre-#57 `_yfinance._normalize_ticker` implementation (see
+the fixture file's own `_comment`/`source_head`). Stage 57-3 removed the
+`_yfinance._normalize_ticker` forwarding shim and the `_TICKER_SYMBOL_
+OVERRIDE` re-export this file used to also exercise — `normalize_legacy_
+ticker` is now the only implementation, so there is nothing left to compare
+it against.
 """
 
 from __future__ import annotations
@@ -13,7 +16,6 @@ from pathlib import Path
 
 import pytest
 
-from app.services import _yfinance
 from app.services.instrument_symbols import normalize_legacy_ticker
 
 _FIXTURE_PATH = Path(__file__).parent / "fixtures" / "legacy_ticker_normalization_golden.json"
@@ -32,19 +34,3 @@ _CASES = _load_cases()
 @pytest.mark.parametrize("case", _CASES, ids=[repr(c["input"]) for c in _CASES])
 def test_normalize_legacy_ticker_matches_golden_fixture(case: dict[str, str]) -> None:
     assert normalize_legacy_ticker(case["input"]) == case["expected"]
-
-
-@pytest.mark.parametrize("case", _CASES, ids=[repr(c["input"]) for c in _CASES])
-def test_yfinance_shim_matches_golden_fixture(case: dict[str, str]) -> None:
-    assert _yfinance._normalize_ticker(case["input"]) == case["expected"]
-
-
-def test_yfinance_shim_delegates_to_instrument_symbols() -> None:
-    assert _yfinance._normalize_ticker is not normalize_legacy_ticker
-    assert _yfinance._normalize_ticker("PSH") == normalize_legacy_ticker("PSH")
-
-
-def test_yfinance_reexports_ticker_symbol_override() -> None:
-    from app.services.instrument_symbols import _TICKER_SYMBOL_OVERRIDE
-
-    assert _yfinance._TICKER_SYMBOL_OVERRIDE is _TICKER_SYMBOL_OVERRIDE
