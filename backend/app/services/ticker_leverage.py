@@ -3,9 +3,10 @@
 ``ticker_leverage_overrides`` is a system-wide table (not per-user), same
 sharing model as ``ticker_themes``. Every write here normalizes the ticker
 through the same helper the FX-pair/asset_class lookups use
-(``_normalize_ticker``) so a caller passing an un-normalized ticker (e.g.
-``psh`` vs. ``PSH.L``) can never silently create a second row for what
-should be one override — see the issue #204 mechanism note this mirrors.
+(``instrument_symbols.intelligence_identifier``) so a caller passing an
+un-normalized ticker (e.g. ``psh`` vs. ``PSH.L``) can never silently create
+a second row for what should be one override — see the issue #204
+mechanism note this mirrors.
 
 Nothing here touches ``Holding.asset_class`` or any LLM parsing path;
 ``leverage_multiple`` is looked up, never parsed or inferred.
@@ -22,14 +23,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.ticker_leverage import TickerLeverageOverride
-from app.services._yfinance import _normalize_ticker
+from app.services.instrument_symbols import InstrumentKey, intelligence_identifier
 
 
 def normalize_leverage_ticker(ticker: str) -> str:
     """The one normalization path for this table's PK — mirrors the
     identifier normalization window_data.py/portfolio_calculator.py apply
     on the read side, so a lookup key built either way always matches."""
-    return _normalize_ticker(ticker).upper()
+    return intelligence_identifier(InstrumentKey("ticker", ticker))
 
 
 @dataclass(frozen=True)

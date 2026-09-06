@@ -24,7 +24,6 @@ from datetime import UTC, date, datetime
 import pandas as pd
 import yfinance as yf
 
-from app.services.instrument_symbols import _TICKER_SYMBOL_OVERRIDE as _TICKER_SYMBOL_OVERRIDE
 from app.services.instrument_symbols import normalize_legacy_ticker
 from app.services.markets import yf_batch_key
 from app.services.price_errors import classify_exception
@@ -73,15 +72,14 @@ def _log_fetch_telemetry(
         )
 
 
-# Canonicalization rules moved to instrument_symbols (issue #57, stage 57-1).
-# _TICKER_SYMBOL_OVERRIDE stays re-exported (not re-implemented) — this
-# module's own internal call sites use `normalize_legacy_ticker` directly
-# (stage 57-2); `_normalize_ticker` remains only as a forwarding shim for
-# the still-unmigrated intelligence/report consumers (57-3) and their
-# tests. Do not add new logic here — extend instrument_symbols instead.
-def _normalize_ticker(ticker: str) -> str:
-    """Forwarding shim to `instrument_symbols.normalize_legacy_ticker` (issue #57)."""
-    return normalize_legacy_ticker(ticker)
+# Canonicalization rules moved to instrument_symbols (issue #57, stage
+# 57-1); this module's own internal call sites use `normalize_legacy_
+# ticker` directly (stage 57-2). Stage 57-3 removed the `_normalize_ticker`
+# forwarding shim and the `_TICKER_SYMBOL_OVERRIDE` re-export that used to
+# live here once the last business consumers (report_assembly, user_scope,
+# ticker_leverage, ticker_intel, window_data) migrated to `instrument_
+# symbols.intelligence_identifier`. Do not add new logic here — extend
+# instrument_symbols instead.
 
 
 # yfinance marks LSE ordinary shares in pence with currency="GBp" (lowercase

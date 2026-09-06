@@ -54,9 +54,9 @@ from typing import Any
 from openai import OpenAI
 
 from app.core.timezones import ET
-from app.services._yfinance import _normalize_ticker
 from app.services.analysis_framework import load_analysis_framework
 from app.services.i18n_glossary import load_i18n_glossary
+from app.services.instrument_symbols import InstrumentKey, intelligence_identifier
 from app.services.portfolio_calculator import format_fx_rates_as_of
 from app.services.report_llm import _call_llm
 from app.services.report_prompts import (
@@ -187,8 +187,8 @@ def _weight(holding: dict[str, Any], total: float) -> float:
 
 def _identifier(holding: dict[str, Any]) -> str:
     """The key a holding is looked up under elsewhere in this pipeline:
-    `_normalize_ticker(...).upper()`'d ticker, or fund_code for a
-    fund-only row (`_normalize_ticker` passes an unrecognized string —
+    `intelligence_identifier(...)`'d ticker, or fund_code for a fund-only
+    row (`intelligence_identifier` passes an unrecognized string —
     including a plain numeric fund code — through unchanged, so this is
     safe for both). Matches `select_user_anomalies`/`compute_global_moves`'s
     key convention, which `ticker_intel.build_l1_facts` already had to
@@ -201,7 +201,7 @@ def _identifier(holding: dict[str, Any]) -> str:
     listing printed no identifier for it at all — nothing in the prompt
     connected "Offshore Fund" prose to an L1 entry keyed by "110011"."""
     raw = holding.get("ticker") or holding.get("fund_code") or ""
-    return _normalize_ticker(str(raw)).upper()
+    return intelligence_identifier(InstrumentKey("ticker", str(raw)))
 
 
 # Below this share of the book a holding is treated as a TRACKING POSITION:
