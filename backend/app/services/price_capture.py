@@ -25,8 +25,13 @@ from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
 from app.services._finnhub import fetch_quotes as fetch_finnhub_quotes
 from app.services._massive import fetch_prev_close_ohlcv as fetch_massive_prev_close_ohlcv
-from app.services._yfinance import _normalize_ticker, fetch_ohlcv_range, fetch_spot
+from app.services._yfinance import fetch_ohlcv_range, fetch_spot
 from app.services.email_sender import send_ops_alert
+from app.services.instrument_symbols import (
+    InstrumentKey,
+    build_provider_request_plan,
+    normalize_legacy_ticker,
+)
 from app.services.markets import is_capture_supported, market_from_ticker
 
 logger = logging.getLogger(__name__)
@@ -149,36 +154,68 @@ def capture_prices(
         # non-US market (free tier is US-stocks-only, officially, at every
         # paid tier too).
         # ohlcv is keyed by fetch_ohlcv_range's normalized ticker (e.g. "PSH"
-        # -> "PSH.L" via _TICKER_SYMBOL_OVERRIDE) — comparing the raw
+        # -> "PSH.L" via the shared override table) — comparing the raw
         # selected ticker against those keys always misses for any ticker
         # that normalizes, wrongly flagging a clean yfinance hit as missing
-        # (issue #351). `missing` itself is built from the normalized form
-        # too: a genuine miss must still ask the fallback for the right
+        # (issue #351). `missing_keys` itself is built from the normalized
+        # form too: a genuine miss must still ask the fallback for the right
         # instrument, not risk the same raw-ticker collision #204 fixed for
-        # the primary yfinance lookup.
-        missing = [_normalize_ticker(t) for t in selected if _normalize_ticker(t) not in ohlcv]
+        # the primary yfinance lookup. Issue #57 stage 57-2: the actual
+        # provider request/response mapping now goes through a forward-built
+        # plan (`build_provider_request_plan`) instead of trusting the
+        # provider's echoed key verbatim — an unmatched response key is
+        # omitted with a diagnostic rather than written straight to
+        # PriceSnapshot.
+        missing_keys = [
+            InstrumentKey("ticker", normalize_legacy_ticker(t))
+            for t in selected
+            if normalize_legacy_ticker(t) not in ohlcv
+        ]
         massive_key = get_settings().MASSIVE_API_KEY
-        if market == "US" and massive_key is not None and missing:
-            for ticker, bar in fetch_massive_prev_close_ohlcv(
-                missing, massive_key.get_secret_value()
-            ).items():
-                bar_date, o, h, low, c, vol = bar
-                logger.info("capture_prices: massive fallback used for %s %s", ticker, bar_date)
-                rows.append(
-                    {
-                        "ticker": ticker,
-                        "market": market,
-                        "session_node": session_node,
-                        "trade_date": bar_date,
-                        "open": o,
-                        "high": h,
-                        "low": low,
-                        "close": c,
-                        "volume": vol,
-                        "source": "massive",
-                        "captured_at": now,
-                    }
+        if market == "US" and massive_key is not None and missing_keys:
+            massive_plan = build_provider_request_plan("massive", missing_keys)
+            if massive_plan.unsupported:
+                # A missing code with no US-eligible wire symbol (e.g. a
+                # holding declared market=US whose legacy lookup key is a
+                # non-US suffix, like the historical PSH -> PSH.L alias)
+                # must not be sent to a US-only fallback — issue #57 stage
+                # 57-2 correction, matches the frozen provider table.
+                logger.info(
+                    "capture_prices: massive fallback skipping unsupported code(s): %s",
+                    massive_plan.unsupported,
                 )
+            if massive_plan.wire_symbols:
+                for wire_ticker, bar in fetch_massive_prev_close_ohlcv(
+                    list(massive_plan.wire_symbols), massive_key.get_secret_value()
+                ).items():
+                    internal_ticker = massive_plan.to_internal.get(wire_ticker)
+                    if internal_ticker is None:
+                        logger.warning(
+                            "capture_prices: massive returned unmatched wire symbol %s; omitting",
+                            wire_ticker,
+                        )
+                        continue
+                    bar_date, o, h, low, c, vol = bar
+                    logger.info(
+                        "capture_prices: massive fallback used for %s %s",
+                        internal_ticker,
+                        bar_date,
+                    )
+                    rows.append(
+                        {
+                            "ticker": internal_ticker,
+                            "market": market,
+                            "session_node": session_node,
+                            "trade_date": bar_date,
+                            "open": o,
+                            "high": h,
+                            "low": low,
+                            "close": c,
+                            "volume": vol,
+                            "source": "massive",
+                            "captured_at": now,
+                        }
+                    )
     else:
         td = trade_date or datetime.now(tz=MARKET_TZ.get(market, UTC)).date()
         spot = fetch_spot(selected)
@@ -200,27 +237,49 @@ def capture_prices(
         # US-only by verified free-tier capability (non-US symbols return
         # {"error": ...}), so this only runs for the US market bucket.
         # Same normalized-key mismatch as the close branch above, including
-        # `missing` itself being built from the normalized form so a real
-        # miss doesn't hand the fallback a raw, possibly wrong-instrument
-        # ticker (issue #351).
-        missing = [_normalize_ticker(t) for t in selected if _normalize_ticker(t) not in spot]
+        # `missing_keys` itself being built from the normalized form so a
+        # real miss doesn't hand the fallback a raw, possibly wrong-
+        # instrument ticker (issue #351). Same forward-built request plan as
+        # the massive branch above (issue #57 stage 57-2).
+        missing_keys = [
+            InstrumentKey("ticker", normalize_legacy_ticker(t))
+            for t in selected
+            if normalize_legacy_ticker(t) not in spot
+        ]
         finnhub_key = get_settings().FINNHUB_API_KEY
-        if market == "US" and finnhub_key is not None and missing:
-            for ticker, quote in fetch_finnhub_quotes(
-                missing, finnhub_key.get_secret_value()
-            ).items():
-                logger.info("capture_prices: finnhub fallback used for %s", ticker)
-                rows.append(
-                    {
-                        "ticker": ticker,
-                        "market": market,
-                        "session_node": session_node,
-                        "trade_date": td,
-                        "last": quote.last,
-                        "source": "finnhub",
-                        "captured_at": now,
-                    }
+        if market == "US" and finnhub_key is not None and missing_keys:
+            finnhub_plan = build_provider_request_plan("finnhub", missing_keys)
+            if finnhub_plan.unsupported:
+                # Same US-eligibility correction as the massive branch above
+                # (issue #57 stage 57-2) — a missing code with no US wire
+                # symbol must not be sent to a US-only fallback.
+                logger.info(
+                    "capture_prices: finnhub fallback skipping unsupported code(s): %s",
+                    finnhub_plan.unsupported,
                 )
+            if finnhub_plan.wire_symbols:
+                for wire_ticker, quote in fetch_finnhub_quotes(
+                    list(finnhub_plan.wire_symbols), finnhub_key.get_secret_value()
+                ).items():
+                    internal_ticker = finnhub_plan.to_internal.get(wire_ticker)
+                    if internal_ticker is None:
+                        logger.warning(
+                            "capture_prices: finnhub returned unmatched wire symbol %s; omitting",
+                            wire_ticker,
+                        )
+                        continue
+                    logger.info("capture_prices: finnhub fallback used for %s", internal_ticker)
+                    rows.append(
+                        {
+                            "ticker": internal_ticker,
+                            "market": market,
+                            "session_node": session_node,
+                            "trade_date": td,
+                            "last": quote.last,
+                            "source": "finnhub",
+                            "captured_at": now,
+                        }
+                    )
 
     written = _upsert(session, rows)
     logger.info(

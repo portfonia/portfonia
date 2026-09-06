@@ -14,9 +14,9 @@ from app.core.timezones import ET
 from app.models.fx_rate import FxRate
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
-from app.services._yfinance import _normalize_ticker
 from app.services.asset_class_config import load_asset_class_config
 from app.services.holding_ordering import sorted_holdings
+from app.services.instrument_symbols import normalize_legacy_ticker
 from app.services.markets import is_capture_supported, market_from_ticker
 from app.services.ticker_leverage import load_leverage_map
 
@@ -325,7 +325,9 @@ def _compute_concentration(
     )
     top_raw_ticker = top.ticker or top.fund_code or ""
     top_leverage = (
-        leverage_map.get(_normalize_ticker(top_raw_ticker).upper()) if top_raw_ticker else None
+        leverage_map.get(normalize_legacy_ticker(top_raw_ticker).upper())
+        if top_raw_ticker
+        else None
     )
     if top_leverage is not None:
         watch = watch / top_leverage
@@ -407,7 +409,7 @@ def compute_portfolio(
             price_as_of = h.price_as_of
             # Fund NAVs are stored in price_snapshots under the fund_code key.
             raw_key = h.ticker or h.fund_code or ""
-            captured = captured_closes.get(_normalize_ticker(raw_key))
+            captured = captured_closes.get(normalize_legacy_ticker(raw_key))
             if captured is not None:
                 price, trade_date = captured
                 price_as_of = datetime.combine(trade_date, datetime.min.time(), tzinfo=ET)

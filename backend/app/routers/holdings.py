@@ -23,7 +23,6 @@ from app.schemas.holdings import (
     UploadJobOut,
 )
 from app.services import holding_parser
-from app.services._yfinance import _normalize_ticker
 from app.services.accounts import resolve_accounts_for_holdings
 from app.services.holding_ordering import sorted_holdings as _sorted_holdings
 from app.services.holding_parser import (
@@ -32,6 +31,7 @@ from app.services.holding_parser import (
     normalize_ticker_and_currency,
 )
 from app.services.holdings_export import holdings_export_filename, render_export, render_template
+from app.services.instrument_symbols import normalize_legacy_ticker
 from app.services.markets import is_capture_supported, resolve_holding_market
 from app.tasks.holdings_tasks import parse_holdings_upload
 
@@ -86,7 +86,7 @@ def _tickers_with_sparse_history(
     # "PSH.L" for a holding whose raw ticker is "PSH") — querying by the raw
     # ticker never matches, so every confirm re-enqueued a fresh 420-day
     # backfill for a ticker that already had a full year of history.
-    normalized_to_raw: dict[str, str] = {_normalize_ticker(t): t for t in tickers}
+    normalized_to_raw: dict[str, str] = {normalize_legacy_ticker(t): t for t in tickers}
     bar_counts: dict[str, int] = {
         row[0]: row[1]
         for row in session.execute(
@@ -100,7 +100,9 @@ def _tickers_with_sparse_history(
         ).all()
     }
     sparse = sorted(
-        t for t in tickers if bar_counts.get(_normalize_ticker(t), 0) < _MIN_BARS_FOR_TECHNICAL
+        t
+        for t in tickers
+        if bar_counts.get(normalize_legacy_ticker(t), 0) < _MIN_BARS_FOR_TECHNICAL
     )
     if sparse:
         # Concept §8.8: application logs record user_id, never holdings

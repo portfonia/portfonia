@@ -27,9 +27,12 @@ from app.schemas.holdings import (
     ParsedRow,
     UploadPreview,
 )
-from app.services._yfinance import _TICKER_SYMBOL_OVERRIDE
 from app.services.asset_class_config import VALID_ASSET_CLASSES
 from app.services.holdings_export import DIALECT_TAG_KEYS, MANUAL_LISTED_PLACEHOLDER
+from app.services.instrument_symbols import (
+    _decide_exchange_suffix,
+    _normalize_ticker_and_correct_currency,
+)
 from app.services.llm_errors import (
     LLMCallError,
     LLMEmptyResponseError,
@@ -38,12 +41,7 @@ from app.services.llm_errors import (
     classify,
     is_retryable,
 )
-from app.services.markets import (
-    SUPPORTED_CAPTURE_MARKETS,
-    VALID_HOLDING_MARKETS,
-    market_from_ticker,
-    resolve_holding_market,
-)
+from app.services.markets import VALID_HOLDING_MARKETS, resolve_holding_market
 
 _SUPPORTED_EXTENSIONS = {".md", ".txt", ".csv", ".xlsx", ".xls"}
 
@@ -583,46 +581,20 @@ def _extract_text(file_bytes: bytes, filename: str) -> str:
     return str(df.to_csv(index=False))
 
 
-_HK_TICKER_RE = re.compile(r"^0*(\d+)\.HK$", re.IGNORECASE)
-
-
-def _normalize_hk_ticker(ticker: str) -> str:
-    """Canonicalize a Hong Kong ticker to yfinance's 4-digit form.
-
-    HKEX moved equity codes to a 5-digit scheme (leading-zero padded), and users
-    commonly write either form (02333.HK vs 2333.HK). yfinance expects the
-    4-digit form (0700.HK, 2333.HK), so a stray leading zero makes the price
-    lookup miss silently. Strip leading zeros, then left-pad numeric codes below
-    10000 back to 4 digits. Genuine 5-digit codes (>=10000, e.g. derivatives)
-    are left as their bare numeric form. Non-HK or unrecognized tickers pass
-    through unchanged. (issue #49)
-    """
-    m = _HK_TICKER_RE.match(ticker)
-    if not m:
-        return ticker
-    num = int(m.group(1))
-    digits = f"{num:04d}" if num < 10000 else str(num)
-    return f"{digits}.HK"
-
-
-_TICKER_CURRENCY_MAP = {
-    ".hk": "HKD",
-    ".ss": "CNY",
-    ".sz": "CNY",
-    ".l": "GBP",
-    ".as": "EUR",
-    ".pa": "EUR",
-    ".de": "EUR",
-    ".t": "JPY",
-    ".ks": "KRW",
-    ".kq": "KRW",
-    ".ax": "AUD",
-    ".to": "CAD",
-}
+# _normalize_hk_ticker/_HK_TICKER_RE used to live here; the duplicate HK
+# algorithm moved to `instrument_symbols` in stage 57-1 (kept there as the
+# single implementation — issue #57 frozen design section 2). Nothing in
+# this module calls a local copy anymore as of stage 57-2, below.
 
 
 def normalize_ticker_and_currency(row: dict[str, Any], *, emit_note: bool = True) -> None:
     """Canonicalize a ticker (HK 4-digit form) and correct currency from its suffix.
+
+    Compatibility wrapper (issue #57 stage 57-2) over `instrument_symbols.
+    _normalize_ticker_and_correct_currency` — the shared implementation now
+    owns the HK/currency-suffix tables; this function only translates the
+    result back onto the row and, when `emit_note`, replays the returned
+    notes through `_append_issue` in order.
 
     Three callers share this: `_postprocess` runs it twice — once before
     force-suffix (canonicalizes a ticker the user already suffixed, e.g.
@@ -639,144 +611,28 @@ def normalize_ticker_and_currency(row: dict[str, Any], *, emit_note: bool = True
     ticker = row.get("ticker")
     if not ticker:
         return
-    normalized = _normalize_hk_ticker(ticker)
-    if normalized != ticker:
-        if emit_note:
-            _append_issue(row, "ticker_normalized_hk", {"ticker": normalized})
-        row["ticker"] = ticker = normalized
-    for suffix, currency in _TICKER_CURRENCY_MAP.items():
-        if ticker.lower().endswith(suffix):
-            if row.get("currency") != currency:
-                if emit_note:
-                    _append_issue(
-                        row,
-                        "currency_corrected",
-                        {"currency": currency, "suffix": suffix.upper()},
-                    )
-                row["currency"] = currency
-            break
-
-
-# Force-applied once market is confirmed (issue #92 / PR #310). Do not guess
-# a suffix when market cannot be determined. .AX/.TO stay out of this class.
-# Longest suffixes first so .KS is not shadowed by a future overlap.
-_FORCE_EXCHANGE_SUFFIXES: tuple[str, ...] = (
-    ".HK",
-    ".SS",
-    ".SZ",
-    ".AS",
-    ".PA",
-    ".DE",
-    ".KS",
-    ".KQ",
-    ".L",
-    ".T",
-)
-_CAPTURE_MARKETS = SUPPORTED_CAPTURE_MARKETS
-
-# Currencies worth a ticker_no_suffix hint when a suffix cannot be applied
-# (market undetermined, or determined but ambiguous — Europe/Korea each
-# have multiple listing suffixes). Every currency this module resolves to a
-# live capture market via _confirmed_market, so the set must track that
-# resolution, not stop at the original GBP/HKD/CNY set from before #312
-# widened capture to UK/Europe/Japan/Korea (PR #310 round 5 review — EUR
-# and KRW silently got no hint after that widening).
-_SUFFIX_HINT_CURRENCIES = frozenset({"GBP", "HKD", "CNY", "EUR", "JPY", "KRW"})
-
-# Legal suffixes for a market whose exchange cannot be guessed from the
-# ticker alone (Europe/Korea have several venues; an A-share code outside
-# the recognized digit ranges can't be placed on Shanghai vs Shenzhen).
-# Surfaced in the ticker_suffix_ambiguous note so the user knows what to
-# type, not just that something was skipped (PR #310 round 6 review).
-_AMBIGUOUS_SUFFIX_OPTIONS: dict[str, str] = {
-    "Europe": ".AS / .PA / .DE",
-    "Korea": ".KS / .KQ",
-    "A-Share": ".SS / .SZ",
-}
-
-
-def _known_exchange_suffix(ticker: str) -> str | None:
-    upper = ticker.upper()
-    for suf in _FORCE_EXCHANGE_SUFFIXES:
-        if upper.endswith(suf):
-            return suf
-    return None
-
-
-def _ticker_base(ticker: str) -> str:
-    suf = _known_exchange_suffix(ticker)
-    if suf is None:
-        return ticker
-    return ticker[: -len(suf)]
-
-
-def _a_share_suffix(code: str) -> str | None:
-    """Shanghai vs Shenzhen from a 6-digit listed code. None if we cannot tell."""
-    digits = code.split(".")[0]
-    if not (digits.isdigit() and len(digits) == 6):
-        return None
-    if digits.startswith(("5", "6", "9")):
-        return ".SS"
-    if digits.startswith(("0", "1", "2", "3")):
-        return ".SZ"
-    return None
-
-
-def _confirmed_market(row: dict[str, Any]) -> str | None:
-    """User-set market, else a confident derivation. None = do not guess a suffix."""
-    mkt = row.get("market")
-    if mkt in VALID_HOLDING_MARKETS:
-        return str(mkt)
-    ticker = row.get("ticker") or ""
-    upper = ticker.upper()
-    for suf in _FORCE_EXCHANGE_SUFFIXES:
-        if upper.endswith(suf):
-            inferred = market_from_ticker(ticker)
-            if inferred is not None:
-                return inferred
-            break
-    if row.get("fund_code"):
-        return "A-Share"
-    base = _ticker_base(ticker).upper()
-    if base in _TICKER_SYMBOL_OVERRIDE:
-        # Override target is .L (PSH -> PSH.L); UK is a real capture market.
-        return "UK"
-    currency = row.get("currency")
-    if currency == "HKD":
-        return "HK"
-    if currency == "CNY":
-        ident = ticker.split(".")[0] if ticker else ""
-        if ident.isdigit() and len(ident) == 6:
-            return "A-Share"
-        return None
-    if currency == "USD":
-        return "US"
-    if currency == "GBP":
-        return "UK"
-    if currency == "EUR":
-        return "Europe"
-    if currency == "JPY":
-        return "Japan"
-    if currency == "KRW":
-        return "Korea"
-    return None
-
-
-def _exchange_suffix_to_apply(market: str, ticker: str, currency: str | None) -> str | None:
-    if market == "HK":
-        return ".HK"
-    if market == "A-Share":
-        return _a_share_suffix(ticker)
-    if market == "UK":
-        return ".L"
-    if market == "Japan":
-        return ".T"
-    # Europe (.AS/.PA/.DE) and Korea (.KS/.KQ) have multiple suffixes — do not guess.
-    return None
+    new_ticker, new_currency, notes = _normalize_ticker_and_correct_currency(
+        ticker, row.get("currency")
+    )
+    if new_ticker != ticker:
+        row["ticker"] = new_ticker
+    if new_currency != row.get("currency"):
+        row["currency"] = new_currency
+    if emit_note:
+        for note in notes:
+            _append_issue(row, note.code, dict(note.params), severity=note.severity)
 
 
 def apply_confirmed_exchange_suffix(row: dict[str, Any], *, emit_note: bool = True) -> None:
     """Force exchange suffix once market is determined.
+
+    Compatibility wrapper (issue #57 stage 57-2) over `instrument_symbols.
+    _decide_exchange_suffix` — the shared implementation now owns the
+    confirmed-market derivation and suffix-forcing tables; this function
+    only applies the decision back onto the row (preserving the exact
+    `row["market"]`-already-set guard and the transient `row["_suffix_
+    ambiguous"]` flag the caller reads) and, when `emit_note`, replays the
+    returned notes.
 
     Gate: user-set or confidently derived market in a live capture slice
     (the 7 scheduled buckets). When market cannot be determined at all, do
@@ -792,8 +648,8 @@ def apply_confirmed_exchange_suffix(row: dict[str, Any], *, emit_note: bool = Tr
     wrong-security failure; reproduced with a bare EUR/KRW ticker and an
     unplaceable A-share code — PR #310 round 6 review). Applying `.L`
     persists UK (PSH.L is a London listing; UK captures). Bare-PSH lookup
-    still uses `_TICKER_SYMBOL_OVERRIDE` PSH -> PSH.L. Cash/wmf have no
-    ticker. Dotted share-class tickers (BRK.B) are left unsuffixed.
+    still uses the shared `_TICKER_SYMBOL_OVERRIDE` PSH -> PSH.L. Cash/wmf
+    have no ticker. Dotted share-class tickers (BRK.B) are left unsuffixed.
     Idempotent if the suffix is already present. A manual-priced row's
     "ticker" is a free-text label, not a market symbol — capture never reads
     pricing_mode:manual rows (`_market_tickers` only selects "auto"), so
@@ -807,54 +663,21 @@ def apply_confirmed_exchange_suffix(row: dict[str, Any], *, emit_note: bool = Tr
     if not isinstance(ticker, str) or not ticker.strip():
         return
     ticker = ticker.strip()
-    market = _confirmed_market(row)
-    already = _known_exchange_suffix(ticker) is not None or "." in ticker
-    currency = row.get("currency")
-    currency_s = str(currency) if currency is not None else ""
-
-    if market not in _CAPTURE_MARKETS:
-        if emit_note and not already and market is None and currency_s in _SUFFIX_HINT_CURRENCIES:
-            _append_issue(
-                row,
-                "ticker_no_suffix",
-                {"ticker": ticker, "currency": currency_s},
-                severity="warning",
-            )
-        return
-
-    if already:
-        if not row.get("market"):
-            row["market"] = market
-        return
-
-    suffix = _exchange_suffix_to_apply(market, ticker, currency_s or None)
-    if suffix is None:
-        if not row.get("market"):
-            row["market"] = market
-        if market not in _AMBIGUOUS_SUFFIX_OPTIONS:
-            # US (the only capture market with no suffix at all) legitimately
-            # falls through here on every plain US ticker — a bare AAPL is
-            # already its correct stored form, not an unresolved one, so it
-            # must not be flagged ambiguous or forced capture_supported=False.
-            return
+    decision = _decide_exchange_suffix(
+        market=row.get("market"),
+        ticker=ticker,
+        fund_code=row.get("fund_code"),
+        currency=row.get("currency"),
+    )
+    if decision.market is not None and not row.get("market"):
+        row["market"] = decision.market
+    if decision.ticker != ticker:
+        row["ticker"] = decision.ticker
+    if decision.suffix_ambiguous:
         row["_suffix_ambiguous"] = True
-        if emit_note and currency_s in _SUFFIX_HINT_CURRENCIES:
-            _append_issue(
-                row,
-                "ticker_suffix_ambiguous",
-                {
-                    "ticker": ticker,
-                    "currency": currency_s,
-                    "market": market,
-                    "suffixes": _AMBIGUOUS_SUFFIX_OPTIONS.get(market, ""),
-                },
-                severity="warning",
-            )
-        return
-
-    row["ticker"] = f"{ticker}{suffix}"
-    if not row.get("market"):
-        row["market"] = market
+    if emit_note:
+        for note in decision.notes:
+            _append_issue(row, note.code, dict(note.params), severity=note.severity)
 
 
 _FENCE_RE = re.compile(r"^\s*```(?:json)?\s*\n(.*?)\n```\s*$", re.DOTALL | re.IGNORECASE)

@@ -74,11 +74,11 @@ def _log_fetch_telemetry(
 
 
 # Canonicalization rules moved to instrument_symbols (issue #57, stage 57-1).
-# _TICKER_SYMBOL_OVERRIDE is re-exported (not re-implemented) because
-# holding_parser.py imports it directly from this module; _normalize_ticker
-# is kept as a forwarding shim so every other existing call site
-# (`from app.services._yfinance import _normalize_ticker`) keeps working
-# unchanged. Do not add new logic here — extend instrument_symbols instead.
+# _TICKER_SYMBOL_OVERRIDE stays re-exported (not re-implemented) — this
+# module's own internal call sites use `normalize_legacy_ticker` directly
+# (stage 57-2); `_normalize_ticker` remains only as a forwarding shim for
+# the still-unmigrated intelligence/report consumers (57-3) and their
+# tests. Do not add new logic here — extend instrument_symbols instead.
 def _normalize_ticker(ticker: str) -> str:
     """Forwarding shim to `instrument_symbols.normalize_legacy_ticker` (issue #57)."""
     return normalize_legacy_ticker(ticker)
@@ -266,7 +266,7 @@ def fetch_last_close(tickers: list[str]) -> dict[str, ClosePoint]:
     if not tickers:
         return {}
 
-    tickers = [_normalize_ticker(t) for t in tickers]
+    tickers = [normalize_legacy_ticker(t) for t in tickers]
 
     # Group by market, preserving insertion order within each group.
     by_market: dict[str, list[str]] = {}
@@ -341,7 +341,7 @@ def fetch_ohlcv_range(tickers: list[str], lookback_days: int = 7) -> dict[str, l
     """
     if not tickers:
         return {}
-    tickers = [_normalize_ticker(t) for t in tickers]
+    tickers = [normalize_legacy_ticker(t) for t in tickers]
     period = f"{max(lookback_days, 2)}d"
     by_market: dict[str, list[str]] = {}
     for t in tickers:
@@ -397,7 +397,7 @@ def fetch_spot(tickers: list[str]) -> dict[str, float]:
     """
     out: dict[str, float] = {}
     for raw in tickers:
-        t = _normalize_ticker(raw)
+        t = normalize_legacy_ticker(raw)
         start = time.monotonic()
         try:
             with _quiet_yfinance_logs():

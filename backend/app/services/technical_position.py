@@ -25,7 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.price_snapshot import PriceSnapshot
-from app.services._yfinance import _normalize_ticker
+from app.services.instrument_symbols import normalize_legacy_ticker
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +98,7 @@ def compute_technical_position(
     # raw ticker here always found zero bars, leaving §4.4 permanently
     # empty for any normalized ticker regardless of capture/valuation being
     # otherwise correct.
-    ticker = _normalize_ticker(ticker)
+    ticker = normalize_legacy_ticker(ticker)
     closes = _load_closes(session, ticker, today - timedelta(days=_LOOKBACK_DAYS))
     last = closes[-1] if closes else None
 

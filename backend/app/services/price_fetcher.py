@@ -14,7 +14,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.holding import Holding
-from app.services._yfinance import _normalize_ticker, fetch_last_close
+from app.services._yfinance import fetch_last_close
+from app.services.instrument_symbols import normalize_legacy_ticker
 from app.services.markets import is_capture_supported
 from app.services.sector_taxonomy import map_yf_sector
 
@@ -86,7 +87,7 @@ def update_holding_prices(session: Session) -> PriceFetchResult:
     # `points` is keyed by fetch_last_close's normalized ticker (issue #204:
     # e.g. "PSH.L" for the raw "PSH"), so membership must check the
     # normalized form or every normalized ticker looks perpetually missing.
-    failed_first_pass = [t for t in unique_tickers if _normalize_ticker(t) not in points]
+    failed_first_pass = [t for t in unique_tickers if normalize_legacy_ticker(t) not in points]
     if failed_first_pass:
         logger.warning(
             "yfinance partial failure (%d/%d tickers missing), retrying individually: %s",
@@ -108,7 +109,7 @@ def update_holding_prices(session: Session) -> PriceFetchResult:
     for row in rows:
         ticker = row.ticker
         assert ticker is not None  # filtered in query above
-        normalized = _normalize_ticker(ticker)
+        normalized = normalize_legacy_ticker(ticker)
         if normalized not in points:
             result.failed.append(ticker)
             logger.warning("no price data for ticker %s", ticker)
