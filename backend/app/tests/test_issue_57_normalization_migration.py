@@ -79,7 +79,7 @@ def _references_yfinance_private_symbol(path: Path) -> bool:
     return False
 
 
-def test_stage_57_2_migrated_modules_no_longer_reference_yfinance_private_symbols() -> None:
+def test_previously_migrated_modules_no_longer_reference_yfinance_private_symbols() -> None:
     migrated = [
         "routers/holdings.py",
         "services/holding_parser.py",
