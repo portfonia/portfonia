@@ -1,0 +1,72 @@
+{
+  "synthetic": true,
+  "format": "XLSX construction specification, not copied source workbook",
+  "sheet_name": "ListOfSecurities",
+  "declared_dimension": "A1:R8",
+  "headers": [
+    "Stock Code",
+    "Name of Securities",
+    "Category",
+    "Sub-Category",
+    "Board Lot",
+    "ISIN",
+    "Expiry Date",
+    "Subject to Stamp Duty",
+    "Shortsell Eligible",
+    "CAS Eligible",
+    "VCM Eligible",
+    "Admitted to CCASS",
+    "Debt Securities Board Lot (Nominal)",
+    "Debt Securities Investor Type",
+    "POS Eligible",
+    "Spread Table",
+    "Trading Currency",
+    "RMB Counter"
+  ],
+  "rows": [
+    [
+      "00777",
+      "SYNTHETIC EQUITY",
+      "Equity",
+      "Equity Securities (Main Board)"
+    ],
+    [
+      "80777",
+      "SYNTHETIC RMB COUNTER",
+      "Equity",
+      "Equity Securities (Main Board)"
+    ],
+    [
+      "02888",
+      "SYNTHETIC ETF",
+      "Exchange Traded Products",
+      "Exchange Traded Funds"
+    ],
+    [
+      "00999",
+      "SYNTHETIC REIT",
+      "Real Estate Investment Trusts",
+      null
+    ],
+    [
+      "19999",
+      "SYNTHETIC WARRANT",
+      "Derivative Warrants",
+      null
+    ]
+  ],
+  "expected_codes": [
+    "0777.HK",
+    "80777.HK",
+    "2888.HK",
+    "0999.HK",
+    "19999.HK"
+  ],
+  "mutations": {
+    "duplicate_code": "00777",
+    "future_effective_date": "next business day",
+    "zip_truncation": true,
+    "html_instead_of_xlsx": true,
+    "dimension_underreports_rows": true
+  }
+}

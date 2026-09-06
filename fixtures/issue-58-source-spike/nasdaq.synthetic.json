@@ -1,0 +1,67 @@
+{
+  "synthetic": true,
+  "format": "pipe-delimited UTF-8",
+  "headers": [
+    "ACT Symbol",
+    "Security Name",
+    "Exchange",
+    "CQS Symbol",
+    "ETF",
+    "Round Lot Size",
+    "Test Issue",
+    "NASDAQ Symbol"
+  ],
+  "rows": [
+    [
+      "SYN.B",
+      "Synthetic Class B Common Stock",
+      "N",
+      "SYN.B",
+      "N",
+      "100",
+      "N",
+      "SYN.B"
+    ],
+    [
+      "SYETF",
+      "Synthetic ETF",
+      "P",
+      "SYETF",
+      "Y",
+      "100",
+      "N",
+      "SYETF"
+    ],
+    [
+      "SYTST",
+      "Synthetic Test Security",
+      "N",
+      "SYTST",
+      "N",
+      "100",
+      "Y",
+      "SYTST"
+    ]
+  ],
+  "expected_keys": [
+    "ticker:SYN.B",
+    "ticker:SYETF"
+  ],
+  "notation_only_prefix": true,
+  "mutations": {
+    "duplicate": [
+      "SYN.B",
+      "Conflicting Synthetic Issuer",
+      "N",
+      "SYN.B",
+      "N",
+      "100",
+      "N",
+      "SYN.B"
+    ],
+    "unknown_exchange": "?",
+    "unmapped_preferred_symbol": "SYN$A",
+    "empty_file": "",
+    "truncated_footer": "File Creation Time:"
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "synthetic": true,
+  "format": "UTF-8 JavaScript assignment; parse array without evaluation",
+  "prefix": "var r = ",
+  "suffix": ";",
+  "row_fields": [
+    "fund_code",
+    "pinyin_abbreviation",
+    "source_short_name",
+    "source_fund_type",
+    "full_pinyin"
+  ],
+  "rows": [
+    [
+      "000123",
+      "SYNFUND",
+      "Synthetic Mixed Fund",
+      "\u6df7\u5408\u578b-\u504f\u80a1",
+      "SYNTHETICFUND"
+    ],
+    [
+      "513999",
+      "SYNETF",
+      "Synthetic ETF",
+      "\u6307\u6570\u578b-\u80a1\u7968",
+      "SYNTHETICETF"
+    ],
+    [
+      "180999",
+      "SYNREIT",
+      "Synthetic REIT",
+      "Reits",
+      ""
+    ],
+    [
+      "000124",
+      "SYNUNKNOWN",
+      "Synthetic Unknown Type",
+      "",
+      ""
+    ]
+  ],
+  "expected_kind": "fund_code",
+  "expected_exchange": null,
+  "expected_listing_status": "unknown",
+  "mutations": {
+    "duplicate_code": "000123",
+    "wrong_row_width": 4,
+    "html_challenge": true,
+    "invalid_utf8": true,
+    "appended_executable_javascript": true,
+    "replacement_character": "\ufffd"
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "observed_on": "2026-09-05",
+  "single_observation_not_uptime_sla": true,
+  "downloads": [
+    {
+      "name": "nasdaqlisted.txt",
+      "url": "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt",
+      "status": 200,
+      "bytes": 347010,
+      "content_type": "text/plain",
+      "last_modified": "Sat, 05 Sep 2026 01:31:30 GMT",
+      "sha256": "491337a821469a830093aca740849358982960c46f0192537f5de898f59e9200"
+    },
+    {
+      "name": "otherlisted.txt",
+      "url": "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt",
+      "status": 200,
+      "bytes": 538961,
+      "content_type": "text/plain",
+      "last_modified": "Sat, 05 Sep 2026 01:31:31 GMT",
+      "sha256": "0e7be707f683443160a78e85139d8af18f786270c9ed82de8402d1d72538a319"
+    },
+    {
+      "name": "fund.js",
+      "url": "https://fund.eastmoney.com/js/fundcode_search.js",
+      "status": 200,
+      "bytes": 3159312,
+      "content_type": "application/javascript",
+      "last_modified": "Sat, 05 Sep 2026 09:35:32 GMT",
+      "sha256": "e76979675f960062d79d5c9dc9e20d0d6e5e578a8e76b01bc183f9a66354a99b"
+    },
+    {
+      "name": "hk.xlsx",
+      "url": "https://www.hkex.com.hk/eng/services/trading/securities/securitieslists/ListOfSecurities.xlsx",
+      "status": 200,
+      "bytes": 1399952,
+      "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "last_modified": "Fri, 04 Sep 2026 14:39:28 GMT",
+      "sha256": "2a9f2f51c5c364eef1599064909fe0281213b1c008e8b0fa1f5fbc22717bc86f"
+    }
+  ],
+  "parsed_counts": {
+    "nasdaqlisted_raw": 5592,
+    "nasdaqlisted_non_test": 5584,
+    "otherlisted_raw": 7596,
+    "otherlisted_non_test": 7571,
+    "hkex": 17842,
+    "fund": 27794
+  },
+  "hkex_dimension_reported_rows": 8,
+  "hkex_actual_sheet_rows": 17849,
+  "fund_blank_type_rows": 12,
+  "production_activated": false,
+  "a_share_probes": [
+    {
+      "name": "sse.json",
+      "status": 200,
+      "bytes": 1944391,
+      "content_type": "application/json;charset=UTF-8"
+    },
+    {
+      "name": "szse.xlsx",
+      "error": "<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000)>"
+    }
+  ],
+  "sse_mainboard_rows": 1700
+}
