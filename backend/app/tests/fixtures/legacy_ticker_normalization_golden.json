@@ -1,0 +1,98 @@
+{
+  "_comment": "Byte-for-byte golden outputs captured from the pre-refactor app.services._yfinance._normalize_ticker (issue #57, PR 57-1), before extraction into instrument_symbols.normalize_legacy_ticker. Recorded at HEAD b36a2ba. Do not regenerate from the new implementation.",
+  "source_head": "b36a2baeeef14361115148160137d2a3ef8be01f",
+  "cases": [
+    {
+      "input": "",
+      "expected": ""
+    },
+    {
+      "input": "  ",
+      "expected": "  "
+    },
+    {
+      "input": " AAPL ",
+      "expected": " AAPL "
+    },
+    {
+      "input": "aapl",
+      "expected": "aapl"
+    },
+    {
+      "input": "PSH",
+      "expected": "PSH.L"
+    },
+    {
+      "input": "psh",
+      "expected": "PSH.L"
+    },
+    {
+      "input": "Psh",
+      "expected": "PSH.L"
+    },
+    {
+      "input": "02333.HK",
+      "expected": "2333.HK"
+    },
+    {
+      "input": "2333.HK",
+      "expected": "2333.HK"
+    },
+    {
+      "input": "0700.HK",
+      "expected": "0700.HK"
+    },
+    {
+      "input": "700.HK",
+      "expected": "0700.HK"
+    },
+    {
+      "input": "12345.HK",
+      "expected": "12345.HK"
+    },
+    {
+      "input": "00001.HK",
+      "expected": "0001.HK"
+    },
+    {
+      "input": "10000.HK",
+      "expected": "10000.HK"
+    },
+    {
+      "input": "09999.HK",
+      "expected": "9999.HK"
+    },
+    {
+      "input": "0.HK",
+      "expected": "0000.HK"
+    },
+    {
+      "input": "hk",
+      "expected": "hk"
+    },
+    {
+      "input": "BRK.B",
+      "expected": "BRK.B"
+    },
+    {
+      "input": "005827",
+      "expected": "005827"
+    },
+    {
+      "input": "AAPL",
+      "expected": "AAPL"
+    },
+    {
+      "input": ".HK",
+      "expected": ".HK"
+    },
+    {
+      "input": "0777.hk",
+      "expected": "0777.HK"
+    },
+    {
+      "input": "PSH.L",
+      "expected": "PSH.L"
+    }
+  ]
+}
