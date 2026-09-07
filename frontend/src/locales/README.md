@@ -32,8 +32,10 @@ One locale-keyed catalog for every in-product string, read via
 - `holdings` — `/holdings` page.
 - `questionnaire` — `/questionnaire` page.
 - `home` — marketing-page-only body content (hero, how-it-works, sample
-  report preview, boundary, FAQ, footer). Nothing outside `/` reads this
-  namespace.
+  report preview, audience, boundary, FAQ, footer). Nothing outside `/`
+  reads this namespace. `home.audience` is the positive-framing “who this
+  is for” copy (issue #364); `home.boundary` remains the Layer-3
+  compliance disclosure and is not a marketing slot.
 - `emailVerification` — `/verify-email` page (issue #260).
 - `unsubscribe` — `/unsubscribe` page (issue #257).
 
@@ -80,9 +82,9 @@ functions, so these became either:
 
 Sample report preview data (`home.preview.holdingsRows`, `anomalyRows`,
 `technicalRows`, `calendarRows`, `distributionLines`, and `home.how.cards` /
-`home.faq.items` / `home.boundary.items`) are plain arrays/objects read with
-`t.raw()`, not `t()` — they're structured mock data for the marketing page,
-not ICU message strings.
+`home.faq.items` / `home.audience.paragraphs` / `home.boundary.items`) are
+plain arrays/objects read with `t.raw()`, not `t()` — they're structured
+mock data for the marketing page, not ICU message strings.
 
 ## Overlapping terms with the report glossary
 

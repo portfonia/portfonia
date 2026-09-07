@@ -544,7 +544,8 @@
       "eyebrow": "MVP · Multi-user closed beta",
       "titleLine1": "What's worth noticing",
       "titleAccent": "in your holdings.",
-      "sub": "Portfonia watches the market and maps it back to your actual positions — US equities, HK equities, A-shares, funds, cash, and FX. It tells you what changed and why it matters, helping you make timely, well-informed decisions.",
+      "tagline": "Holdings-relevant depth and breadth — with you through the cycle, as lasting judgment compounds.",
+      "sub": "Portfonia is holdings intelligence built to last through market cycles. We keep watching the news, the macro, and company developments, and map them systematically onto every position you actually hold — depth and breadth that stay close to what you care about. Cycles rise and fall; the judgment worth keeping for years needs information you can trust for years. That is why we exist.",
       "ctaPrimary": "Get started",
       "ctaSecondary": "See how it works"
     },
@@ -861,6 +862,14 @@
         ]
       ],
       "technicalNote": "Range position: 0% = at the 52-week low, 100% = at the high. Describes where price sits — not a signal."
+    },
+    "audience": {
+      "heading": "For investors who stay through the cycle",
+      "paragraphs": [
+        "Portfonia is holdings intelligence that stays with investors through the cycle. We believe that decisions of real quality rest on a deep reading of trends, cycles, and fundamentals — a reading that takes time, and that needs information closely tied to what you hold, delivered continuously and reliably.",
+        "Our work is to take what is scattered across news, macro events, and company developments, and map it back, systematically, onto every position you hold. That is how you get depth and breadth that actually fit the names you follow — so you can see where an asset sits, what is changing around it, and which signals are worth a closer look. Judgment stays yours. We make sure that judgment sits on solid information.",
+        "Market cycles rise and fall. What Portfonia stays with is the decision that spans a cycle and still holds up when time has had its say."
+      ]
     },
     "boundary": {
       "heading": "Deliberately out of scope",
