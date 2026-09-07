@@ -1,7 +1,12 @@
-"""Daily portfolio value snapshot writer + one-off backfill core (issue #360
-Phase 1). Shared by `app/tasks/capture_tasks.py` (daily beat task),
-`app/scripts/backfill_portfolio_value_history.py` (one-off first-enable
-backfill), and read by `app/services/portfolio_performance.py`.
+"""Daily portfolio value snapshot writer (issue #360 Phase 1). Used by
+`app/tasks/capture_tasks.py` (daily beat task) and read by
+`app/services/portfolio_performance.py`.
+
+The `is_backfilled`/`upsert=False` write path and the run-time FX fallback
+below exist only for legacy-safety (issue #366 retired the composition-
+replay backfill script that was their sole caller — no product path writes
+`is_backfilled=True` rows anymore; `portfolio_performance.py`'s read path
+excludes any that still exist).
 
 Valuation here deliberately does NOT call `compute_portfolio`/
 `portfolio_calculator` (CLAUDE.md: do not change summary's

@@ -83,6 +83,12 @@ class PortfolioSeriesOut(BaseModel):
     empty: bool
     start_date: date | None
     end_date: date | None
+    # First real (non-backfilled) complete-batch snapshot day for this user,
+    # unfiltered by market/group/broker/account (issue #366 / vault §6) —
+    # the "since tracking" evidence anchor, never "earliest ticker price
+    # available" (the retired composition-replay start signal). May be
+    # earlier than `start_date` when dimension filters shorten the series.
+    tracking_start: date | None
     points: list[PerformancePointOut]
     quality_flags: list[str]
 
@@ -97,6 +103,10 @@ class BenchmarkSeriesOut(BaseModel):
     name: str
     start_date: date | None
     points: list[BenchmarkPointOut]
+    # False when this benchmark has no data point inside the common compare
+    # window (issue #366 D7) — `points` is then empty and its cumulative %
+    # must NOT be read against the portfolio's window.
+    comparable: bool
 
 
 class PerformanceHeaderOut(BaseModel):

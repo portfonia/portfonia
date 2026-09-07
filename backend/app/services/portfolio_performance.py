@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.portfolio_snapshot_batch import PortfolioSnapshotBatch
@@ -65,6 +65,13 @@ class Filters:
     accounts: frozenset[str] | None = None
 
     def matches(self, row: PortfolioValueSnapshot) -> bool:
+        # is_backfilled rows are legacy/known-bad history (issue #366 —
+        # the retired composition-replay backfill) and must never re-enter
+        # any portfolio aggregate, TWR link, or "any match" empty check
+        # regardless of dimension filters, even before a production purge
+        # removes them outright.
+        if row.is_backfilled:
+            return False
         if self.markets is not None and row.market not in self.markets:
             return False
         if self.groups is not None and row.portfolio not in self.groups:
@@ -87,6 +94,9 @@ class PortfolioSeries:
     empty: bool
     start_date: date | None
     end_date: date | None
+    # User-level (unfiltered), first real non-backfilled complete-batch
+    # snapshot day — the "since tracking" anchor (issue #366 / vault §6).
+    tracking_start: date | None = None
     points: list[PerformancePoint] = field(default_factory=list)
     quality_flags: list[str] = field(default_factory=list)
 
@@ -103,6 +113,10 @@ class BenchmarkSeries:
     name: str
     start_date: date | None
     points: list[BenchmarkPoint] = field(default_factory=list)
+    # False when this benchmark has no point inside the common compare
+    # window (issue #366 D7) — `points` is then cleared to [] rather than
+    # left self-normalized over its own, unrelated window.
+    comparable: bool = True
 
 
 @dataclass
@@ -151,6 +165,30 @@ def _complete_batch_dates(
         .order_by(PortfolioSnapshotBatch.snapshot_date.asc())
     ).scalars()
     return list(rows)
+
+
+def _tracking_start(session: Session, user_id: uuid.UUID) -> date | None:
+    """Earliest `snapshot_date` with a `complete` batch and at least one
+    non-`is_backfilled` row for this user — unfiltered by market/group/
+    broker/account and unbounded by the requested range (issue #366 /
+    vault §6, superseding the retired `_earliest_usable_start` composition-
+    replay signal that conflated "ticker price history available" with
+    "this position was actually being tracked"). `None` when the user has
+    never produced a real snapshot."""
+    return session.execute(
+        select(func.min(PortfolioValueSnapshot.snapshot_date))
+        .select_from(PortfolioValueSnapshot)
+        .join(
+            PortfolioSnapshotBatch,
+            (PortfolioSnapshotBatch.user_id == PortfolioValueSnapshot.user_id)
+            & (PortfolioSnapshotBatch.snapshot_date == PortfolioValueSnapshot.snapshot_date),
+        )
+        .where(
+            PortfolioValueSnapshot.user_id == user_id,
+            PortfolioValueSnapshot.is_backfilled.is_(False),
+            PortfolioSnapshotBatch.status == "complete",
+        )
+    ).scalar_one_or_none()
 
 
 def _rows_for_dates(
@@ -308,9 +346,21 @@ def _build_portfolio_series(
     twr: bool,
     canonical_currency: str,
     requested_currency: str,
+    tracking_start: date | None,
 ) -> tuple[PortfolioSeries, Decimal, Decimal]:
     dates = _complete_batch_dates(session, user_id, start_date, end_date)
     rows_by_date = _rows_for_dates(session, user_id, dates)
+
+    # Drop days whose ONLY rows are `is_backfilled` (issue #366 legacy-safety
+    # path — production purge should remove these outright, but the read
+    # path must not depend on that). Distinct from a real zero-holdings day
+    # (no rows at all, a legitimate $0 per `_day_value`'s docstring) and from
+    # a dimension filter excluding every row (also a legitimate $0, D8's
+    # "sold lot" case) — a day with rows that are ALL backfilled has no real
+    # tracked data at all and must not appear as a fabricated $0 point.
+    dates = [
+        d for d in dates if not rows_by_date[d] or any(not r.is_backfilled for r in rows_by_date[d])
+    ]
 
     any_match_in_range = any(
         any(filters.matches(r) for r in rows_by_date.get(d, [])) for d in dates
@@ -320,14 +370,18 @@ def _build_portfolio_series(
     all_by_id_by_date: dict[date, dict[uuid.UUID, PortfolioValueSnapshot]] = {}
     for d in dates:
         filtered_by_date[d] = [r for r in rows_by_date[d] if filters.matches(r)]
-        # ALL of that day's rows keyed by holding_id, regardless of filter —
-        # the TWR mark for a holding relabeled out of the current filter
-        # still uses its own stored day-t row (D8: a relabel is an outflow
-        # from this view, not a price move); only a holding with no day-t
-        # row at all falls back to repricing from source (see
-        # `_contribution`/`_reprice_from_source`).
+        # ALL of that day's rows keyed by holding_id, regardless of dimension
+        # filter — the TWR mark for a holding relabeled out of the current
+        # filter still uses its own stored day-t row (D8: a relabel is an
+        # outflow from this view, not a price move); only a holding with no
+        # day-t row at all falls back to repricing from source (see
+        # `_contribution`/`_reprice_from_source`). `is_backfilled` rows are
+        # excluded here too (issue #366) — known-bad history must never
+        # supply a TWR mark, even as a fallback.
         all_by_id_by_date[d] = {
-            r.holding_id: r for r in rows_by_date[d] if r.holding_id is not None
+            r.holding_id: r
+            for r in rows_by_date[d]
+            if r.holding_id is not None and not r.is_backfilled
         }
 
     included: list[tuple[date, Decimal, dict[uuid.UUID, PortfolioValueSnapshot], bool]] = []
@@ -340,7 +394,9 @@ def _build_portfolio_series(
         included.append((d, value, by_id, _is_approximate(rows)))
 
     if not any_match_in_range:
-        empty_series = PortfolioSeries(empty=True, start_date=None, end_date=None)
+        empty_series = PortfolioSeries(
+            empty=True, start_date=None, end_date=None, tracking_start=tracking_start
+        )
         return empty_series, Decimal("0"), Decimal("0")
 
     quality_flags: set[str] = set()
@@ -398,6 +454,7 @@ def _build_portfolio_series(
         empty=False,
         start_date=points[0].point_date if points else None,
         end_date=points[-1].point_date if points else None,
+        tracking_start=tracking_start,
         points=points,
         quality_flags=sorted(quality_flags),
     )
@@ -448,6 +505,65 @@ def _build_benchmark_series(
     )
 
 
+def _rebase_benchmark_to_window(
+    series: BenchmarkSeries, compare_start: date, end_date: date
+) -> BenchmarkSeries:
+    """Re-anchor an independently-normalized benchmark series (0% at its own
+    first point over the full requested range) to the portfolio's common
+    compare window (issue #366 D7): `compare_start = max(range_start,
+    tracking_start, first_portfolio_point_in_filtered_series)`, which
+    `_build_portfolio_series` already guarantees equals the portfolio
+    series' own `start_date` whenever it is non-empty (real data can never
+    predate `tracking_start`, and the DB query already bounds it to
+    `range_start`).
+
+    Rebasing from the already-computed cumulative % (rather than
+    re-fetching raw prices) is exact: old_pct(t) = price(t)/price(base) - 1,
+    so (1+old_pct(t)) / (1+old_pct(new_base)) = price(t)/price(new_base) =
+    1 + new_pct(t).
+
+    `series.start_date` (the benchmark's own true earliest data point in
+    the full requested range) is preserved for disclosure even though
+    `points` is clipped — the contract requires each series to still
+    report where its own data begins, without presenting that as a
+    head-to-head comparison window.
+    """
+    windowed = [p for p in series.points if compare_start <= p.point_date <= end_date]
+    if not windowed:
+        return BenchmarkSeries(
+            index_code=series.index_code,
+            name=series.name,
+            start_date=series.start_date,
+            points=[],
+            comparable=False,
+        )
+    base_multiplier = Decimal("1") + windowed[0].return_pct_cumulative
+    if base_multiplier == 0:
+        return BenchmarkSeries(
+            index_code=series.index_code,
+            name=series.name,
+            start_date=series.start_date,
+            points=[],
+            comparable=False,
+        )
+    rebased = [
+        BenchmarkPoint(
+            point_date=p.point_date,
+            return_pct_cumulative=(
+                (Decimal("1") + p.return_pct_cumulative) / base_multiplier - Decimal("1")
+            ).quantize(_PCT, rounding=ROUND_HALF_UP),
+        )
+        for p in windowed
+    ]
+    return BenchmarkSeries(
+        index_code=series.index_code,
+        name=series.name,
+        start_date=series.start_date,
+        points=rebased,
+        comparable=True,
+    )
+
+
 def compute_portfolio_performance(
     session: Session,
     user_id: uuid.UUID,
@@ -475,6 +591,8 @@ def compute_portfolio_performance(
         accounts=frozenset(accounts) if accounts else None,
     )
 
+    tracking_start = _tracking_start(session, user_id)
+
     portfolio_series, value_start, value_end = _build_portfolio_series(
         session,
         user_id,
@@ -484,6 +602,7 @@ def compute_portfolio_performance(
         twr,
         canonical_currency,
         requested_currency,
+        tracking_start,
     )
 
     benchmarks = [
@@ -491,6 +610,22 @@ def compute_portfolio_performance(
         for code in benchmark_codes
         if code in INDEX_YF_TICKERS
     ]
+
+    # Common compare window (issue #366 D7): once the portfolio series is
+    # non-empty, its own `start_date` already equals
+    # max(range_start, tracking_start, first_filtered_point) — real rows
+    # can't predate tracking_start, and the DB query already bounds
+    # everything to range_start. Re-anchor each benchmark's independently-
+    # normalized-over-the-full-range series to that same start so cumulative
+    # % is never read as head-to-head outperformance across unequal windows.
+    # When the portfolio has no matching history, benchmarks stay
+    # self-normalized over the full requested range (no comparison target
+    # exists to co-normalize against — §1 requirement 5).
+    if not portfolio_series.empty and portfolio_series.start_date is not None:
+        benchmarks = [
+            _rebase_benchmark_to_window(b, portfolio_series.start_date, end_date)
+            for b in benchmarks
+        ]
 
     value_change = value_end - value_start
     if twr and portfolio_series.points:
