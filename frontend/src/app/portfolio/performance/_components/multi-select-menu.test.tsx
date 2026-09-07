@@ -15,6 +15,7 @@ function renderMenu(
   selected: string[] = [],
   onChange = vi.fn(),
   disabled = false,
+  allMode: "none" | "all-options" = "none",
 ) {
   render(
     <LocaleProvider>
@@ -24,6 +25,7 @@ function renderMenu(
         selected={selected}
         onChange={onChange}
         disabled={disabled}
+        allMode={allMode}
       />
     </LocaleProvider>,
   );
@@ -94,5 +96,52 @@ describe("MultiSelectMenu", () => {
     expect(onChange).toHaveBeenNthCalledWith(1, ["US"]);
     expect(onChange).toHaveBeenNthCalledWith(2, ["HK"]);
     expect(screen.getByRole("menu")).toBeInTheDocument();
+  });
+
+  it("all-options mode: All means every option selected, never empty (review finding 1)", async () => {
+    const user = userEvent.setup();
+    const onChange = renderMenu(["US"], vi.fn(), false, "all-options");
+
+    // Partial selection is NOT All in this mode.
+    expect(screen.getByRole("button", { name: /Markets/ })).toHaveTextContent("1 selected");
+    await openMenu(user, "Markets");
+    expect(screen.getByRole("menuitemcheckbox", { name: "All" })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
+
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "All" }));
+
+    expect(onChange).toHaveBeenCalledWith(["US", "HK", "A-Share"]);
+  });
+
+  it("all-options mode: reports All only when every option is selected", async () => {
+    const user = userEvent.setup();
+    const onChange = renderMenu(["US", "HK", "A-Share"], vi.fn(), false, "all-options");
+
+    expect(screen.getByRole("button", { name: /Markets/ })).toHaveTextContent("All");
+    await openMenu(user, "Markets");
+    expect(screen.getByRole("menuitemcheckbox", { name: "All" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+
+    // Clicking an already-active All row is a no-op (All is applied through
+    // this row, never toggled off to an empty "All").
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "All" }));
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("none mode: clicking All while empty is a no-op (dimension semantics)", async () => {
+    const user = userEvent.setup();
+    const onChange = renderMenu([]);
+
+    await openMenu(user, "Markets");
+    expect(screen.getByRole("menuitemcheckbox", { name: "All" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "All" }));
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

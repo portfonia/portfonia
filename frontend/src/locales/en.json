@@ -501,7 +501,6 @@
       "metricDisclosureTwr": "The dollar figure is the raw change in market value over the period; the percentage is the approximate time-weighted return, which removes the effect of inferred cash flows. They are two different measures — the percentage is not the dollar change expressed as a rate. TWR here is an end-of-day approximation: cash flows are inferred from daily snapshot differences, not verified transactions.",
       "metricDisclosureRaw": "Both figures describe the change in portfolio market value over the period; neither removes the effect of deposits or withdrawals. To exclude inferred cash flows, switch the return method to Approx. TWR.",
       "chartTitle": "Growth of tracked value vs. benchmarks",
-      "chartDescription": "Cumulative change from each line's own first point in the selected range.",
       "trackingSinceNote": "Portfolio tracked since {date}; earlier history is not reconstructed.",
       "approxBadgeLabel": "Approximate data",
       "qualityFlag": {
@@ -520,7 +519,9 @@
       "emptyBody": "A portfolio line appears only after daily snapshots start recording your holdings — real snapshots only, never reconstructed history. Benchmarks stay visible for context.",
       "filteredEmptyTitle": "Nothing matches the selected filters in this range",
       "filteredEmptyBody": "No snapshot in this range matches the current filters. Benchmarks stay visible for context. Try widening the range or clearing filters.",
-      "chartNoData": "No data for the selected range and filters."
+      "chartNoData": "No data for the selected range and filters.",
+      "chartDescriptionTracked": "Cumulative change from the start of your tracked window. Comparable benchmarks are co-anchored to that same window for comparison (common compare start), not each line's own first point.",
+      "chartDescriptionBenchmarksOnly": "No portfolio history to compare against in this range — benchmarks are normalized over their own data in the selected range."
     },
     "assetClasses": {
       "STOCK": "Individual stock",

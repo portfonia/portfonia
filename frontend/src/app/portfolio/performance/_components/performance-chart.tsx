@@ -36,17 +36,12 @@ export interface ChartSeriesSpec {
 
 const APPROX_DASH = "5 4";
 
+// Strict per-key read: the solid column returns only the solid value and the
+// dashed column only the approximate value (review 5128075545 finding 2) —
+// a date is drawn by exactly one column (performance-data.ts splits on
+// is_approximate), so falling back across keys would make the tooltip list
+// Portfolio twice on approximate days.
 function rowValue(row: ChartSeriesRow, key: string): number | null {
-  if (key === "portfolio") {
-    const solid = row.portfolio;
-    if (solid !== null) return solid;
-    const approx = row.portfolioApprox;
-    return approx !== null && Number.isFinite(approx) ? approx : null;
-  }
-  if (key === "portfolioApprox") {
-    const approx = row.portfolioApprox;
-    return approx !== null && Number.isFinite(approx) ? approx : null;
-  }
   const value = row[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }

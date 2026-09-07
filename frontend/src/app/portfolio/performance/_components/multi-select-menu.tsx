@@ -19,30 +19,47 @@ export interface MultiSelectOption {
 // Items stay open while toggling (Base UI CheckboxItem does not close on
 // click by default) so several options can be adjusted in one pass.
 //
-// Selection semantics follow the API's: an empty selection sends no filter
-// param = "all". The first row is an explicit "All" checkbox (checked while
-// nothing is selected) so that meaning is discoverable instead of implied by
-// an empty list.
+// What "All" means is mode-specific, because the API's two consumers have
+// opposite omit semantics (review 5128075545 finding 1):
+// - `allMode="none"` (dataset dimensions): empty selection = All = omit the
+//   filter param, which the router reads as "no filter". The All row is
+//   checked while nothing is selected.
+// - `allMode="all-options"` (benchmarks): omitting the param means NO
+//   benchmarks (the router expands [] to zero series), so All must mean
+//   "every option selected", never empty. Clicking All selects all options.
 export function MultiSelectMenu({
   label,
   options,
   selected,
   onChange,
   disabled,
+  allMode = "none",
 }: {
   label: string;
   options: MultiSelectOption[];
   selected: readonly string[];
   onChange: (next: string[]) => void;
   disabled?: boolean;
+  allMode?: "none" | "all-options";
 }) {
   const t = useTranslations("portfolio");
-  const allSelected = selected.length === 0;
+  const allSelected =
+    allMode === "all-options"
+      ? options.length > 0 && selected.length === options.length
+      : selected.length === 0;
 
   const toggle = (value: string) => {
     onChange(
       selected.includes(value) ? selected.filter((v) => v !== value) : [...selected, value],
     );
+  };
+
+  // Clicking an already-active All row is a no-op (same as the pre-review
+  // dimension behavior: an "All" state is applied, not toggled off through
+  // this row — clearing every code is done by unchecking the options).
+  const applyAll = () => {
+    if (allSelected) return;
+    onChange(allMode === "all-options" ? options.map((option) => option.value) : []);
   };
 
   const summary = allSelected
@@ -60,12 +77,7 @@ export function MultiSelectMenu({
         </>
       }
     >
-      <MenuItemCheckbox
-        checked={allSelected}
-        onCheckedChange={(checked) => {
-          if (checked) onChange([]);
-        }}
-      >
+      <MenuItemCheckbox checked={allSelected} onCheckedChange={applyAll}>
         {t("performance.selectionAll")}
       </MenuItemCheckbox>
       <MenuSeparator />

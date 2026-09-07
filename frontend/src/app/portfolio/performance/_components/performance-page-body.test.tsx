@@ -179,6 +179,9 @@ describe("PerformancePageBody", () => {
     expect(screen.getByText(/Approx\. TWR since/)).toBeInTheDocument();
     expect(screen.getByText("+21.00%")).toBeInTheDocument();
     expect(screen.queryByTestId("portfolio-empty-state")).not.toBeInTheDocument();
+    // With a tracked portfolio, comparable benchmarks are co-anchored to the
+    // portfolio window — the description says so (review finding 3).
+    expect(screen.getByText(/co-anchored to that same window/)).toBeInTheDocument();
     // Legend shows portfolio + drawn benchmark; Nasdaq has no overlap and is
     // reported as not drawn instead.
     const legend = screen.getByTestId("chart-legend");
@@ -236,6 +239,72 @@ describe("PerformancePageBody", () => {
     expect(getPerformanceMock.mock.calls[1][0].benchmarks).toEqual(["dow30", "nasdaq"]);
   });
 
+  it("Benchmarks All reselects every code and never sends an empty benchmark list (review finding 1)", async () => {
+    const user = userEvent.setup();
+    renderBody();
+    await waitForChart();
+    // Initial request carries all three codes (default state).
+    expect(getPerformanceMock.mock.calls[0][0].benchmarks).toEqual([
+      "sp500",
+      "dow30",
+      "nasdaq",
+    ]);
+
+    // Drop two benchmarks so All is no longer the active state.
+    await user.click(screen.getByRole("button", { name: /Benchmarks/ }));
+    await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument());
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "S&P 500" }));
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "Dow 30" }));
+    await waitFor(() => expect(getPerformanceMock).toHaveBeenCalledTimes(3));
+
+    // Clicking All restores every code — never [].
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "All" }));
+    await waitFor(() => expect(getPerformanceMock).toHaveBeenCalledTimes(4));
+    expect(getPerformanceMock.mock.calls[3][0].benchmarks).toEqual([
+      "sp500",
+      "dow30",
+      "nasdaq",
+    ]);
+    for (const call of getPerformanceMock.mock.calls) {
+      expect(call[0].benchmarks.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("Benchmarks All while every code is already selected does not refetch", async () => {
+    const user = userEvent.setup();
+    renderBody();
+    await waitForChart();
+    expect(getPerformanceMock).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: /Benchmarks/ }));
+    await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument());
+    expect(screen.getByRole("menuitemcheckbox", { name: "All" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "All" }));
+
+    expect(getPerformanceMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("dimension-menu All still means omit (empty selection = no filter)", async () => {
+    const user = userEvent.setup();
+    renderBody();
+    await waitForChart();
+
+    await user.click(screen.getByRole("button", { name: /Markets/ }));
+    await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument());
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "HK" }));
+    await waitFor(() => expect(getPerformanceMock).toHaveBeenCalledTimes(2));
+    expect(getPerformanceMock.mock.calls[1][0].markets).toEqual(["HK"]);
+
+    // All row (still open after the HK toggle) clears back to the omitted
+    // param — unchanged dimension semantics.
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "All" }));
+    await waitFor(() => expect(getPerformanceMock).toHaveBeenCalledTimes(3));
+    expect(getPerformanceMock.mock.calls[2][0].markets).toEqual([]);
+  });
+
   it("filters by a dimension value and shows the reset affordance", async () => {
     const user = userEvent.setup();
     renderBody();
@@ -282,6 +351,8 @@ describe("PerformancePageBody", () => {
     // Benchmarks still draw — never blank the whole chart (requirement 5).
     expect(screen.getByTestId("chart-legend")).toHaveTextContent("S&P 500");
     expect(screen.queryByText("Period summary")).not.toBeInTheDocument();
+    // Empty-portfolio description says benchmarks self-normalize (D7).
+    expect(screen.getByText(/benchmarks are normalized over their own data/)).toBeInTheDocument();
   });
 
   it("switches the empty copy to the filtered variant once a filter is active", async () => {

@@ -501,7 +501,6 @@
       "metricDisclosureTwr": "美元金額是區間內市值的實際變化；百分比是近似時間加權收益率，已剔除推斷現金流影響。兩者是不同口徑——百分比不是美元變化的另一種表達。TWR 為日末近似：現金流由每日快照差異推斷，並非已核實的交易紀錄。",
       "metricDisclosureRaw": "美元金額與百分比均描述區間內投資組合市值的變動，均未剔除出入金影響。如需剔除推斷現金流，請將收益口徑切換為近似 TWR。",
       "chartTitle": "追蹤市值與基準走勢",
-      "chartDescription": "所選區間內各序列自各自首點起的累計變化。",
       "trackingSinceNote": "組合自 {date} 起被追蹤；更早歷史不回填。",
       "approxBadgeLabel": "資料含近似",
       "qualityFlag": {
@@ -520,7 +519,9 @@
       "emptyBody": "每日快照開始記錄後組合線才會出現——只繪製真實快照，從不事後補造歷史。基準線仍保留供參考。",
       "filteredEmptyTitle": "所選區間內沒有符合篩選的歷史",
       "filteredEmptyBody": "該區間內沒有與目前篩選相符的快照。基準線仍保留供參考。可嘗試擴大區間或清除篩選。",
-      "chartNoData": "所選區間與篩選下沒有資料。"
+      "chartNoData": "所選區間與篩選下沒有資料。",
+      "chartDescriptionTracked": "自追蹤窗口起點的累計變化。可比基準被重新錨定到與組合相同的窗口（共同起點）作對比，而非各序列自己的首點。",
+      "chartDescriptionBenchmarksOnly": "該區間內沒有可對比的組合歷史——基準依各自資料在所選區間內獨立歸一化。"
     },
     "assetClasses": {
       "STOCK": "個股",

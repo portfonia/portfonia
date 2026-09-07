@@ -320,6 +320,10 @@ export function PerformancePageBody({
               }))}
               selected={benchmarks}
               onChange={(next) => changeBenchmarks(next as BenchmarkCode[])}
+              // Benchmarks are NOT an omit-param filter: the router treats
+              // absent benchmarks as zero series, so "All" must mean every
+              // code selected, never empty (review 5128075545 finding 1).
+              allMode="all-options"
             />
             {DIMENSION_META.map(({ id, labelKey, field }) => (
               <MultiSelectMenu
@@ -434,7 +438,9 @@ export function PerformancePageBody({
           <div>
             <CardTitle>{t("performance.chartTitle")}</CardTitle>
             <CardDescription>
-              {t("performance.chartDescription")}
+              {portfolioEmpty
+                ? t("performance.chartDescriptionBenchmarksOnly")
+                : t("performance.chartDescriptionTracked")}
               {!portfolioEmpty && response?.portfolio.tracking_start ? (
                 <span>
                   {" "}
