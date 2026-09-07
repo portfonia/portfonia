@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useTranslations } from "next-intl";
 
@@ -120,7 +121,15 @@ export function PortfolioPageBody({
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="font-heading text-2xl font-medium">{t("pageTitle")}</h1>
+        <div className="flex flex-col items-start gap-1">
+          <h1 className="font-heading text-2xl font-medium">{t("pageTitle")}</h1>
+          <Link
+            href="/portfolio/performance"
+            className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
+          >
+            {t("performance.viewPerformanceLink")}
+          </Link>
+        </div>
         <div className="flex items-center gap-3">
           <CurrencySwitcher
             value={currency}

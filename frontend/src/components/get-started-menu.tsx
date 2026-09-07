@@ -16,6 +16,7 @@
 import { useState } from "react";
 import {
   Briefcase,
+  ChartLine,
   ChartPie,
   ChevronDown,
   ClipboardList,
@@ -56,6 +57,11 @@ const AUTHED_ENTRIES = [
   { id: "profile", href: "/profile", Icon: User },
   { id: "holdings", href: "/holdings", Icon: Briefcase },
   { id: "portfolio", href: "/portfolio", Icon: ChartPie },
+  // Issue #360 Phase 2: Portfolio Performance is a sibling view of /portfolio
+  // (reachable from its page header too), but it has its own row here so it
+  // stays discoverable from any authed page — same "one row per shipped
+  // route" convention as the rest of this registry.
+  { id: "portfolioPerformance", href: "/portfolio/performance", Icon: ChartLine },
   { id: "questionnaire", href: "/questionnaire", Icon: ClipboardList },
 ] as const satisfies { id: string; href: string; Icon: LucideIcon }[];
 
