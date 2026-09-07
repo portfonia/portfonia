@@ -5,6 +5,7 @@
 // without repeating positioning/popup classes. Keyboard nav, Esc, outside-
 // click and focus management come from the primitive itself.
 import Link from "next/link";
+import { Check } from "lucide-react";
 import { Menu } from "@base-ui/react/menu";
 
 import { cn } from "@/lib/utils";
@@ -92,4 +93,40 @@ export function MenuItemButton({
 
 export function MenuSeparator() {
   return <div role="separator" className="my-1 h-px bg-border" />;
+}
+
+// Multi-select menu item backed by Base UI's Menu.CheckboxItem (issue #360
+// Phase 2: benchmark / dataset-filter dropdowns). Stays open on click
+// (closeOnClick defaults to false for CheckboxItem) so a user can toggle
+// several options in one pass. The Check indicator renders only while
+// checked, so the item's accessible name is just its label.
+export function MenuItemCheckbox({
+  checked,
+  onCheckedChange,
+  disabled,
+  children,
+}: {
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Menu.CheckboxItem
+      checked={checked}
+      onCheckedChange={onCheckedChange}
+      disabled={disabled}
+      className={cn(
+        "flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm outline-none select-none",
+        disabled
+          ? "cursor-not-allowed opacity-50"
+          : "cursor-pointer data-[highlighted]:bg-muted data-[highlighted]:text-foreground",
+      )}
+    >
+      <Menu.CheckboxItemIndicator className="flex size-4 shrink-0 items-center justify-center">
+        <Check aria-hidden="true" className="size-3.5" />
+      </Menu.CheckboxItemIndicator>
+      {children}
+    </Menu.CheckboxItem>
+  );
 }

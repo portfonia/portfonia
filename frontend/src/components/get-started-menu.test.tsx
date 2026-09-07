@@ -319,6 +319,18 @@ describe("GetStartedMenu", () => {
       expect(menu.textContent).not.toContain("Settings");
       expect(menu.textContent).not.toContain("Vigil");
     });
+
+    it("offers the Portfolio Performance entry linking to /portfolio/performance (issue #360 Phase 2)", async () => {
+      getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+      const user = userEvent.setup();
+      renderMenu();
+      await openMenu(user);
+
+      expect(screen.getByRole("menuitem", { name: "Performance" })).toHaveAttribute(
+        "href",
+        "/portfolio/performance",
+      );
+    });
   });
 
   describe("login-pending transition", () => {

@@ -546,3 +546,109 @@ export async function updateReportCurrency(reportCurrency: string): Promise<void
   });
   if (!res.ok) await throwOnHttpError(res);
 }
+
+// Mirrors backend/app/schemas/portfolio.py's Performance*Out models (issue
+// #360 Phase 1 — the frozen GET /portfolio/performance contract Phase 2
+// builds against). Decimal fields arrive as strings, same convention as the
+// rest of this file. `return_pct_cumulative`/`value_change_pct` are ratios
+// (0.0234 = 2.34%), matching total_unrealized_pnl_pct's convention.
+export type PerformanceRange = "1M" | "6M" | "YTD" | "1Y" | "5Y" | "ALL";
+export type BenchmarkCode = "sp500" | "dow30" | "nasdaq";
+
+export const PERFORMANCE_RANGES = ["1M", "6M", "YTD", "1Y", "5Y", "ALL"] as const satisfies readonly PerformanceRange[];
+export const BENCHMARK_CODES = ["sp500", "dow30", "nasdaq"] as const satisfies readonly BenchmarkCode[];
+
+export interface PerformancePoint {
+  date: string;
+  value_base: string;
+  return_pct_cumulative: string;
+  is_approximate: boolean;
+}
+
+export interface PortfolioPerformanceSeries {
+  empty: boolean;
+  start_date: string | null;
+  end_date: string | null;
+  // First real (non-backfilled) complete-batch snapshot day for this user,
+  // unfiltered by dimension (issue #366) — may be earlier than start_date
+  // when dimension filters shorten the series.
+  tracking_start: string | null;
+  points: PerformancePoint[];
+  quality_flags: string[];
+}
+
+export interface BenchmarkPoint {
+  date: string;
+  return_pct_cumulative: string;
+}
+
+export interface BenchmarkPerformanceSeries {
+  index_code: BenchmarkCode;
+  name: string;
+  start_date: string | null;
+  points: BenchmarkPoint[];
+  // False when this benchmark has no point inside the common compare
+  // window (issue #366 D7) — its cumulative % must not be read against the
+  // portfolio's window, and the UI must not draw it as a comparison line.
+  comparable: boolean;
+}
+
+export interface PortfolioPerformanceHeader {
+  value_base: string;
+  value_change_base: string;
+  value_change_pct: string;
+  // "market_value_change" when twr=true (issue #360 requirement 7) — the $
+  // figure is never return dollars; the UI labels it as such.
+  label: string;
+}
+
+export interface PortfolioPerformanceMeta {
+  range: PerformanceRange;
+  twr: boolean;
+  base_currency: string;
+  filters: Record<string, string[]>;
+}
+
+export interface PortfolioPerformanceResponse {
+  portfolio: PortfolioPerformanceSeries;
+  benchmarks: BenchmarkPerformanceSeries[];
+  header: PortfolioPerformanceHeader;
+  meta: PortfolioPerformanceMeta;
+}
+
+export interface PortfolioPerformanceQuery {
+  range: PerformanceRange;
+  benchmarks: BenchmarkCode[];
+  markets: string[];
+  groups: string[];
+  brokers: string[];
+  accounts: string[];
+  twr: boolean;
+  baseCurrency: string;
+}
+
+// GET /portfolio/performance (issue #360 Phase 2). `baseCurrency` is always
+// sent explicitly (seeded from the user's own report-currency preference via
+// the summary the server component fetched) so the chart and the header's $
+// figures are consistent with what the /portfolio overview shows. Omitting a
+// dimension sends no param for it = "no filter" (ALL), matching the backend's
+// default; the backend ANDs the dimensions that ARE present.
+export async function getPortfolioPerformance(
+  query: PortfolioPerformanceQuery,
+): Promise<PortfolioPerformanceResponse> {
+  const params = new URLSearchParams({ range: query.range, twr: String(query.twr) });
+  const dimensions = [
+    ["benchmarks", query.benchmarks],
+    ["markets", query.markets],
+    ["groups", query.groups],
+    ["brokers", query.brokers],
+    ["accounts", query.accounts],
+  ] as const satisfies readonly (readonly [string, readonly string[]])[];
+  for (const [name, values] of dimensions) {
+    for (const value of values) params.append(name, value);
+  }
+  params.set("base_currency", query.baseCurrency);
+  const res = await fetch(`/api/portfolio/performance?${params.toString()}`, { cache: "no-store" });
+  if (!res.ok) await throwOnHttpError(res);
+  return res.json() as Promise<PortfolioPerformanceResponse>;
+}
