@@ -127,23 +127,52 @@ rows never match any filter regardless of dimension selection (issue #366).
 
 ## Currency
 
-Each row's `market_value_base` is in the user's own persisted
-`users.base_currency` at capture time (the "canonical" currency) — not
-re-derived per request. If the request's `base_currency` differs, the
-already-aggregated per-day totals are re-converted once per day via
+Each row's `market_value_base` is in whatever currency was live for that
+user **at capture time** — recorded per-row in `base_currency` (issue #367
+review finding A, added after Phase 1 shipped without it; see below). If
+the request's `base_currency` differs from a given DAY's own recorded
+currency, that day's already-aggregated total is re-converted via
 `historical_fx_rates_asof` (never per holding) — see
-`compute_portfolio_performance`'s `_convert_amount`. **Accepted
-approximation, documented per blacktomb42's review follow-up
-(issuecomment-5556912227)**: this re-conversion applies ONLY when the
-request's `base_currency` differs from the stored canonical one — the
-common case (frontend requests the user's own `base_currency`, matching
-what was captured) never hits this path at all. When it does apply, the
-conversion uses the SAME 10-day-lookback historical FX rate the write path
-uses, at the AGGREGATE level (one rate per day, not one per holding) — a
-day where the two currencies' relative FX moved intraday, or where the
-lookback resolves a slightly different date than the canonical write did,
-is a real but small source of imprecision, accepted for Phase 1 rather than
-re-pricing every holding on every read.
+`compute_portfolio_performance`'s `_convert_amount` and
+`_build_portfolio_series`'s `_day_currency`. **Accepted approximation,
+documented per blacktomb42's review follow-up (issuecomment-5556912227)**:
+this re-conversion applies ONLY when the request's `base_currency` differs
+from that day's own recorded one — the common case (frontend requests the
+user's own current `base_currency`, matching what most days were captured
+under) never hits this path at all. When it does apply, the conversion uses
+the SAME 10-day-lookback historical FX rate the write path uses, at the
+AGGREGATE level (one rate per day, not one per holding) — a day where the
+two currencies' relative FX moved intraday, or where the lookback resolves
+a slightly different date than the capture-time write did, is a real but
+small source of imprecision, accepted for Phase 1 rather than re-pricing
+every holding on every read.
+
+**`portfolio_value_snapshots.base_currency` (issue #367 review finding A,
+blacktomb42, review 5563537095)**: Phase 1 shipped WITHOUT this column —
+the reader called `report_currency_for(user_id)` once per REQUEST and
+treated every historical row as if it had always been denominated in
+whatever the user's CURRENT preference is. `PATCH /me/report-currency`
+(issue #350) lets a user change that preference at any time, so a row
+written under an old preference and a row written after a change are
+numerically incomparable without knowing what each one actually used — the
+reader had silently assumed they were always the same unit. Reviewer's
+repro: 100 USD cash, USD/CNY held constant at 7, preference USD on day 1
+then CNY on day 2 — `market_value_base` goes 100 -> 700 with ZERO real
+economic change (100 USD literally IS 700 CNY at that rate), but the old
+reader read the jump as +600% TWR. Migration `d2e3f4a5b6c7` adds the
+column (backfilled from each row's user's CURRENT `base_currency` — the
+best available approximation for pre-existing rows, since no historical
+preference-change log exists and, per the review, no production row so far
+has actually hit this defect). `write_user_snapshot` now records it
+per-day; `_day_currency` in `portfolio_performance.py` reads it back **per
+day** (never once per request) for both the raw-MV `_convert_amount` call
+and the TWR chain, converting `v_prev` into DAY T's own currency before
+computing `r_t = v_minus/v_prev - 1` so a preference change between two
+adjacent days can't corrupt the ratio's unit consistency (`_contribution`'s
+fast path was ALREADY safe — it derives a per-share price from `curr_row.
+market_value_base` and never touches `prev_row`'s stored value directly —
+the bug was entirely in how the aggregate day-values were compared, not in
+that fast path).
 
 ## Since-tracking start, not composition-replay (issue #366, supersedes D2)
 
@@ -221,22 +250,54 @@ dates` already bounds every candidate day to `range_start`, and a real
 so `compare_start` reduces in code to simply `portfolio_series.start_date`
 (`compute_portfolio_performance`). The three-term form in the design doc
 documents WHY that point ends up where it does, not a separate computation.
+This equivalence depends on `portfolio_series.start_date` itself being
+correct — see finding 1 below for a case where it originally wasn't.
 
 `_rebase_benchmark_to_window` re-anchors each benchmark's already-computed,
-independently-normalized series to `compare_start`: `new_pct(t) = (1 +
-old_pct(t)) / (1 + old_pct(compare_start)) - 1`, algebraically exact since
-`old_pct(t) = price(t)/price(base) - 1`. This clips `points` to `[compare_
-start, range_end]` while preserving the benchmark's own true `start_date`
-for disclosure — the API still reports where each series' real data begins,
-it just never presents an unequal window as head-to-head outperformance. A
-benchmark with zero points inside the compare window (e.g., its only data
-predates `tracking_start` entirely) comes back `comparable=False` with an
-empty `points` list rather than a silently cross-window percentage.
+independently-normalized series to `[compare_start, compare_end]`:
+`new_pct(t) = (1 + old_pct(t)) / (1 + old_pct(compare_start)) - 1`,
+algebraically exact since `old_pct(t) = price(t)/price(base) - 1`. This
+clips `points` to that window while preserving the benchmark's own true
+`start_date` for disclosure — the API still reports where each series' real
+data begins, it just never presents an unequal window as head-to-head
+outperformance. A benchmark with zero points inside the compare window
+(e.g., its only data predates `tracking_start` entirely, or falls entirely
+after the portfolio's own real history ends) comes back `comparable=False`
+with an empty `points` list rather than a silently cross-window percentage.
 
 When the portfolio series is `empty` (no matching history in range at all),
 benchmarks stay self-normalized over the full requested range — there is no
 comparison target to co-normalize against, and the line must still draw
 per the original Phase 1 requirement (§1.5).
+
+**Review round fixes (issue #367, blacktomb42, review 5563537095) — both
+required changes before merge:**
+
+- **Finding 1 — a newly tracked sub-account inherited an unrelated
+  account's pre-tracking start.** `_build_portfolio_series` looped over
+  EVERY complete-batch date in the requested range, and `_day_value([])`'s
+  "empty filtered set = legitimate $0" rule (D8's sold-lot case) applied
+  indiscriminately to dates BEFORE a filtered dimension's own first real
+  appearance too — a newly added `AccountY` that first exists on day 2
+  still got a fabricated $0 point on day 1 (when only `AccountX` existed),
+  making `portfolio_series.start_date` land on day 1 and, via the
+  common-window logic above, giving every benchmark the wrong anchor.
+  Fixed by computing `matched_dates` (dates where the active filter
+  matches at least one row) and restricting the series to dates `>=
+  matched_dates[0]` — a $0 point is now only ever produced ON OR AFTER a
+  dimension's own first real match (D8's sold-lot/renamed-account case
+  stays intact; a date strictly BEFORE first appearance is excluded from
+  the series entirely, not zero-valued).
+- **Finding 2 — `comparable=True` didn't require actual overlap with the
+  portfolio's real history.** `_rebase_benchmark_to_window` originally
+  capped its window at the raw REQUESTED range end, not the portfolio's
+  own real last day — a benchmark point that existed only AFTER the
+  portfolio's tracked history stopped (e.g. the portfolio's last batch was
+  several days ago, but the requested range and a benchmark both extend
+  further) fell inside `[compare_start, range_end]` and came back
+  `comparable=True` with zero portfolio data to compare it against. Fixed
+  by capping the window's end at `min(range_end, portfolio_series.
+  end_date)` in `compute_portfolio_performance` before calling the rebase.
 
 ## Production cleanup (one-off, issue #366)
 
@@ -273,6 +334,21 @@ ordering: no other daily entry in that file fires between 17:15 ET and
 day's price-capture and FX-fetch tasks have had their scheduled chance to
 run (not a guarantee they *succeeded* — that's what `skipped_deps` and the
 daily task's own idempotent re-run cover).
+
+**Full-exit fan-out (issue #367 review finding B, blacktomb42, review
+5563537095)**: `capture_portfolio_value_snapshot`'s user selection
+originally was `User.id.in_(select(Holding.user_id).distinct())` only —
+active users currently holding at least one position. `write_user_snapshot`
+already handles zero holdings correctly (marks the batch `complete` with
+zero rows, D5's genuine $0 case), but that code path only runs if this
+function calls it at all: a user whose LAST holding was deleted dropped out
+of the `holdings`-backed selection permanently, so the exit day's
+zero-holdings batch never got written, and the portfolio read back as
+frozen at its last real value instead of reflecting the exit. Fixed by
+OR'ing in every user who already has ANY `portfolio_snapshot_batches` row
+(i.e. was ever tracked before) — once tracking starts, the daily fan-out
+keeps checking that user for good, matching `tracking_start`'s own
+"evidence, not current state" philosophy above.
 
 ## Other accepted Phase 1 tradeoffs (document only, per blacktomb42's
 review follow-up issuecomment-5556912227)

@@ -220,6 +220,22 @@ def _day_value(rows: list[PortfolioValueSnapshot]) -> Decimal | None:
     return sum(priced, Decimal("0"))
 
 
+def _day_currency(rows: list[PortfolioValueSnapshot]) -> str | None:
+    """The currency `market_value_base` is actually denominated in for one
+    (user, day)'s rows. All of a day's rows share exactly one value — one
+    `write_user_snapshot` call resolves `report_currency_for` ONCE per day
+    (issue #367 review finding A, blacktomb42): a user's `users.
+    base_currency` preference can change BETWEEN two capture days
+    (`PATCH /me/report-currency`), so a single global "canonical currency"
+    read once per REQUEST — the pre-fix behavior — silently treated two
+    different days' `market_value_base` numbers as the same unit whenever
+    the preference changed in between, corrupting both raw MV and TWR
+    percentages. `None` only when the day has no rows at all (a true
+    zero-holdings day, D5) — the caller's $0 value converts to $0 in any
+    currency, so no currency is needed for it."""
+    return rows[0].base_currency if rows else None
+
+
 def _is_approximate(rows: list[PortfolioValueSnapshot]) -> bool:
     return any(r.is_backfilled or r.is_fx_fallback or r.data_quality != "ok" for r in rows)
 
@@ -344,7 +360,6 @@ def _build_portfolio_series(
     end_date: date,
     filters: Filters,
     twr: bool,
-    canonical_currency: str,
     requested_currency: str,
     tracking_start: date | None,
 ) -> tuple[PortfolioSeries, Decimal, Decimal]:
@@ -362,9 +377,21 @@ def _build_portfolio_series(
         d for d in dates if not rows_by_date[d] or any(not r.is_backfilled for r in rows_by_date[d])
     ]
 
-    any_match_in_range = any(
-        any(filters.matches(r) for r in rows_by_date.get(d, [])) for d in dates
-    )
+    # Review 5563537095/blacktomb42 finding 1 (issue #367): a date BEFORE
+    # the filtered dimension's own first real appearance must be excluded
+    # from the series entirely, not read as a legitimate $0 — that reading
+    # is reserved for a date AT OR AFTER the filter's first real match
+    # where that day's rows happen not to match (D8's "sold lot"/renamed
+    # case, `test_filter_on_historical_account_keeps_sold_lot`). Without
+    # this, a newly added sub-account (or any dimension value that starts
+    # existing partway through `tracking_start`..`range_end`) inherited an
+    # unrelated OTHER account's earlier start date via `_day_value([])`'s
+    # "empty filtered set = $0" rule, which in turn gave the common-window
+    # benchmark rebase (issue #366 D7) the wrong anchor.
+    matched_dates = [d for d in dates if any(filters.matches(r) for r in rows_by_date.get(d, []))]
+    any_match_in_range = bool(matched_dates)
+    if any_match_in_range:
+        dates = [d for d in dates if d >= matched_dates[0]]
 
     filtered_by_date: dict[date, list[PortfolioValueSnapshot]] = {}
     all_by_id_by_date: dict[date, dict[uuid.UUID, PortfolioValueSnapshot]] = {}
@@ -384,14 +411,20 @@ def _build_portfolio_series(
             if r.holding_id is not None and not r.is_backfilled
         }
 
-    included: list[tuple[date, Decimal, dict[uuid.UUID, PortfolioValueSnapshot], bool]] = []
+    included: list[tuple[date, Decimal, dict[uuid.UUID, PortfolioValueSnapshot], bool, str]] = []
     for d in dates:
         rows = filtered_by_date[d]
         value = _day_value(rows)
         if value is None:
             continue
         by_id = {r.holding_id: r for r in rows if r.holding_id is not None}
-        included.append((d, value, by_id, _is_approximate(rows)))
+        # The day's OWN recorded currency (issue #367 finding A) — derived
+        # from the UNFILTERED day rows, since one write call resolves one
+        # currency for every holding that day regardless of which pass the
+        # active dimension filter; falls back to `requested_currency` only
+        # for a true zero-holdings day (no rows at all — $0 either way).
+        day_currency = _day_currency(rows_by_date[d]) or requested_currency
+        included.append((d, value, by_id, _is_approximate(rows), day_currency))
 
     if not any_match_in_range:
         empty_series = PortfolioSeries(
@@ -404,9 +437,10 @@ def _build_portfolio_series(
     ratio = Decimal("1")
     prev_by_id: dict[uuid.UUID, PortfolioValueSnapshot] | None = None
     prev_value: Decimal | None = None
+    prev_currency: str | None = None
 
-    for idx, (d, value, by_id, approx) in enumerate(included):
-        converted_value = _convert_amount(session, value, canonical_currency, requested_currency, d)
+    for idx, (d, value, by_id, approx, day_currency) in enumerate(included):
+        converted_value = _convert_amount(session, value, day_currency, requested_currency, d)
         if converted_value is None:
             continue
         converted_value = converted_value.quantize(_CENT, rounding=ROUND_HALF_UP)
@@ -414,13 +448,31 @@ def _build_portfolio_series(
         if idx == 0:
             cumulative = Decimal("0")
         elif twr:
-            r_t = _twr_day_return(
-                session,
-                prev_by_id or {},
-                all_by_id_by_date[d],
-                prev_value or Decimal("0"),
-                d,
-                canonical_currency,
+            # v_prev was aggregated under YESTERDAY's own currency
+            # (`prev_currency`) — issue #367 finding A: `_contribution`'s
+            # fast path derives today's per-share value from `curr_row.
+            # market_value_base`, which is in TODAY's currency
+            # (`day_currency`). Mixing the two units together (the pre-fix
+            # behavior, both silently assumed to be one global "canonical"
+            # currency) turned a mere `PATCH /me/report-currency` change
+            # into a fictional TWR swing with no real market move behind
+            # it. Re-expressing v_prev in today's currency first keeps the
+            # ratio r_t = v_minus/v_prev unit-consistent regardless of
+            # whether the user's preference changed between the two days.
+            v_prev_today = _convert_amount(
+                session, prev_value or Decimal("0"), prev_currency or day_currency, day_currency, d
+            )
+            r_t = (
+                _twr_day_return(
+                    session,
+                    prev_by_id or {},
+                    all_by_id_by_date[d],
+                    v_prev_today,
+                    d,
+                    day_currency,
+                )
+                if v_prev_today is not None
+                else None
             )
             if r_t is not None:
                 ratio = ratio * (Decimal("1") + r_t)
@@ -449,6 +501,7 @@ def _build_portfolio_series(
             )
         prev_by_id = by_id
         prev_value = value
+        prev_currency = day_currency
 
     series = PortfolioSeries(
         empty=False,
@@ -506,7 +559,7 @@ def _build_benchmark_series(
 
 
 def _rebase_benchmark_to_window(
-    series: BenchmarkSeries, compare_start: date, end_date: date
+    series: BenchmarkSeries, compare_start: date, compare_end: date
 ) -> BenchmarkSeries:
     """Re-anchor an independently-normalized benchmark series (0% at its own
     first point over the full requested range) to the portfolio's common
@@ -516,6 +569,14 @@ def _rebase_benchmark_to_window(
     series' own `start_date` whenever it is non-empty (real data can never
     predate `tracking_start`, and the DB query already bounds it to
     `range_start`).
+
+    `compare_end` is the caller-computed `min(range_end,
+    portfolio_series.end_date)` — NOT the raw requested range end. Review
+    5563537095/blacktomb42 finding 2 (issue #367): capping only at the raw
+    range end let a benchmark point that exists AFTER the portfolio's own
+    real last day (e.g. the portfolio's tracked history ends before the
+    request's `range_end`) leak into the window with `comparable=True`,
+    comparing the portfolio against a period it has no data for at all.
 
     Rebasing from the already-computed cumulative % (rather than
     re-fetching raw prices) is exact: old_pct(t) = price(t)/price(base) - 1,
@@ -528,7 +589,7 @@ def _rebase_benchmark_to_window(
     report where its own data begins, without presenting that as a
     head-to-head comparison window.
     """
-    windowed = [p for p in series.points if compare_start <= p.point_date <= end_date]
+    windowed = [p for p in series.points if compare_start <= p.point_date <= compare_end]
     if not windowed:
         return BenchmarkSeries(
             index_code=series.index_code,
@@ -600,7 +661,6 @@ def compute_portfolio_performance(
         end_date,
         filters,
         twr,
-        canonical_currency,
         requested_currency,
         tracking_start,
     )
@@ -618,12 +678,21 @@ def compute_portfolio_performance(
     # everything to range_start. Re-anchor each benchmark's independently-
     # normalized-over-the-full-range series to that same start so cumulative
     # % is never read as head-to-head outperformance across unequal windows.
-    # When the portfolio has no matching history, benchmarks stay
-    # self-normalized over the full requested range (no comparison target
-    # exists to co-normalize against — §1 requirement 5).
-    if not portfolio_series.empty and portfolio_series.start_date is not None:
+    # The end is capped at the portfolio's own last real day, NOT the raw
+    # requested range end (review 5563537095/blacktomb42 finding 2, issue
+    # #367) — a benchmark point after the portfolio's real history ends
+    # must not silently compare against a period the portfolio has no data
+    # for at all. When the portfolio has no matching history, benchmarks
+    # stay self-normalized over the full requested range (no comparison
+    # target exists to co-normalize against — §1 requirement 5).
+    if (
+        not portfolio_series.empty
+        and portfolio_series.start_date is not None
+        and portfolio_series.end_date is not None
+    ):
+        compare_end = min(end_date, portfolio_series.end_date)
         benchmarks = [
-            _rebase_benchmark_to_window(b, portfolio_series.start_date, end_date)
+            _rebase_benchmark_to_window(b, portfolio_series.start_date, compare_end)
             for b in benchmarks
         ]
 

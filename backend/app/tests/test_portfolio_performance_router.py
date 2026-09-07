@@ -30,6 +30,7 @@ def test_get_portfolio_performance_returns_expected_shape(
             snapshot_date=D1,
             holding_id=holding_id,
             currency="USD",
+            base_currency="USD",
             shares=Decimal("1"),
             market_value_base=Decimal("100"),
         )

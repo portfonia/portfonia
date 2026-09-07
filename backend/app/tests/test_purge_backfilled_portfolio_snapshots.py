@@ -32,6 +32,7 @@ def test_dry_run_deletes_nothing(db_session: Session) -> None:
             snapshot_date=D1,
             holding_id=uuid.uuid4(),
             currency="USD",
+            base_currency="USD",
             market_value_base=Decimal("5000"),
             is_backfilled=True,
         )
@@ -59,6 +60,7 @@ def test_apply_deletes_backfilled_rows_and_orphan_batch_only(db_session: Session
             snapshot_date=D1,
             holding_id=bad_holding,
             currency="USD",
+            base_currency="USD",
             market_value_base=Decimal("5000"),
             is_backfilled=True,
         )
@@ -72,6 +74,7 @@ def test_apply_deletes_backfilled_rows_and_orphan_batch_only(db_session: Session
             snapshot_date=D2,
             holding_id=real_holding,
             currency="USD",
+            base_currency="USD",
             market_value_base=Decimal("1000"),
             is_backfilled=False,
         )
@@ -82,6 +85,7 @@ def test_apply_deletes_backfilled_rows_and_orphan_batch_only(db_session: Session
             snapshot_date=D2,
             holding_id=bad_holding,
             currency="USD",
+            base_currency="USD",
             market_value_base=Decimal("9000"),
             is_backfilled=True,
         )
@@ -114,6 +118,7 @@ def test_scoped_to_user_id_leaves_other_users_untouched(db_session: Session) -> 
                 snapshot_date=D1,
                 holding_id=uuid.uuid4(),
                 currency="USD",
+                base_currency="USD",
                 market_value_base=Decimal("5000"),
                 is_backfilled=True,
             )

@@ -12,9 +12,12 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.models.benchmark_price import BenchmarkPrice
+from app.models.fx_rate import FxRate
+from app.models.holding import Holding
 from app.models.portfolio_snapshot_batch import PortfolioSnapshotBatch
 from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
 from app.models.price_snapshot import PriceSnapshot
+from app.services.portfolio_history import write_user_snapshot
 from app.services.portfolio_performance import compute_portfolio_performance
 from app.tests.conftest import seed_user
 
@@ -42,6 +45,7 @@ def _row(
     data_quality: str = "ok",
     ticker: str | None = None,
     currency: str = "USD",
+    base_currency: str = "USD",
     is_backfilled: bool = False,
 ) -> None:
     session.add(
@@ -50,6 +54,7 @@ def _row(
             snapshot_date=d,
             holding_id=holding_id,
             currency=currency,
+            base_currency=base_currency,
             ticker=ticker,
             shares=shares,
             current_value=current_value,
@@ -583,6 +588,281 @@ def test_benchmark_with_no_overlap_in_compare_window_marked_non_comparable(
     assert dow30.comparable is False
     assert dow30.points == []
     assert dow30.start_date == D1  # still disclosed
+
+
+# --- review 5563537095/blacktomb42 findings 1-2 (issue #367 fix round) ---
+
+
+def _seed_newly_added_subaccount_scenario(db_session: Session, user_id: uuid.UUID) -> None:
+    """Shared fixture for both TWR-toggle regressions below: AccountX is
+    tracked from D1 (establishes `tracking_start`); AccountY, filtered on
+    below, only starts existing on D2 — it has NO row at all on D1, not
+    even an unmatched one."""
+    account_x = uuid.uuid4()
+    account_y = uuid.uuid4()
+    for d in (D1, D2, D3):
+        _mark_complete(db_session, user_id, d)
+    for d in (D1, D2, D3):
+        _row(
+            db_session,
+            user_id,
+            d,
+            account_x,
+            shares=Decimal("10"),
+            market_value_base=Decimal("1000"),
+            account="AccountX",
+        )
+    _row(
+        db_session,
+        user_id,
+        D2,
+        account_y,
+        shares=Decimal("10"),
+        market_value_base=Decimal("1000"),
+        account="AccountY",
+    )
+    _row(
+        db_session,
+        user_id,
+        D3,
+        account_y,
+        shares=Decimal("10"),
+        market_value_base=Decimal("1100"),
+        account="AccountY",
+    )
+    db_session.add_all(
+        [
+            BenchmarkPrice(index_code="sp500", price_date=D1, close_price=Decimal("100")),
+            BenchmarkPrice(index_code="sp500", price_date=D2, close_price=Decimal("200")),
+            BenchmarkPrice(index_code="sp500", price_date=D3, close_price=Decimal("220")),
+        ]
+    )
+
+
+def test_new_subaccount_with_no_prior_row_excluded_from_pretracking_days_twr(
+    db_session: Session,
+) -> None:
+    """Regression for finding 1: AccountY has no row at all before D2 (not
+    an unmatched row on an existing day, the absent-before-entry case the
+    original filtered-window test missed). Its filtered series must start
+    D2, not inherit AccountX's D1 tracking_start via a fabricated $0."""
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    _seed_newly_added_subaccount_scenario(db_session, user_id)
+    db_session.flush()
+
+    result = compute_portfolio_performance(
+        db_session,
+        user_id,
+        range_key="ALL",
+        benchmark_codes=["sp500"],
+        accounts=["AccountY"],
+        twr=True,
+        today=D3,
+    )
+    assert result.portfolio.tracking_start == D1  # unfiltered, user-level
+    assert result.portfolio.start_date == D2  # NOT D1 — no AccountY row at all on D1
+    assert [p.point_date for p in result.portfolio.points] == [D2, D3]
+    assert result.portfolio.points[-1].return_pct_cumulative == Decimal("0.1000")
+
+    sp500 = result.benchmarks[0]
+    assert sp500.comparable is True
+    assert [p.point_date for p in sp500.points] == [D2, D3]
+    assert sp500.points[0].return_pct_cumulative == Decimal("0")
+    assert sp500.points[1].return_pct_cumulative == Decimal("0.1000")  # not the D1-anchored +120%
+
+
+def test_new_subaccount_with_no_prior_row_excluded_from_pretracking_days_raw_mv(
+    db_session: Session,
+) -> None:
+    """Same fixture, `twr=False`: the raw market-value ratio must also
+    measure D2->D3 (+10%), not D1->D3 (which the fabricated $0 anchor at
+    D1 would otherwise turn into a misleadingly larger swing)."""
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    _seed_newly_added_subaccount_scenario(db_session, user_id)
+    db_session.flush()
+
+    result = compute_portfolio_performance(
+        db_session,
+        user_id,
+        range_key="ALL",
+        benchmark_codes=["sp500"],
+        accounts=["AccountY"],
+        twr=False,
+        today=D3,
+    )
+    assert result.portfolio.start_date == D2
+    assert result.header.value_change_pct == Decimal("0.1000")
+
+    sp500 = result.benchmarks[0]
+    assert sp500.comparable is True
+    assert [p.point_date for p in sp500.points] == [D2, D3]
+    assert sp500.points[1].return_pct_cumulative == Decimal("0.1000")
+
+
+def test_benchmark_ending_before_portfolio_still_comparable_over_its_own_extent(
+    db_session: Session,
+) -> None:
+    """Finding 2, second repro shape: a benchmark that simply has no data
+    past its own last real day stays comparable over the days it DOES
+    share with the portfolio — this must not regress once the rebase
+    window is capped at the portfolio's real end (D3), not just the raw
+    requested range end."""
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    holding_id = uuid.uuid4()
+    for d in (D1, D2, D3):
+        _mark_complete(db_session, user_id, d)
+        _row(
+            db_session,
+            user_id,
+            d,
+            holding_id,
+            shares=Decimal("10"),
+            market_value_base=Decimal("1000"),
+        )
+    db_session.add_all(
+        [
+            BenchmarkPrice(index_code="sp500", price_date=D1, close_price=Decimal("100")),
+            BenchmarkPrice(index_code="sp500", price_date=D2, close_price=Decimal("110")),
+        ]
+    )
+    db_session.flush()
+
+    result = compute_portfolio_performance(
+        db_session, user_id, range_key="ALL", benchmark_codes=["sp500"], today=D3
+    )
+    assert result.portfolio.end_date == D3
+    sp500 = result.benchmarks[0]
+    assert sp500.comparable is True
+    assert [p.point_date for p in sp500.points] == [D1, D2]
+    assert sp500.points[1].return_pct_cumulative == Decimal("0.1000")
+
+
+def test_benchmark_entirely_after_portfolios_real_end_marked_non_comparable(
+    db_session: Session,
+) -> None:
+    """Finding 2's core repro: the portfolio's real tracked history ends
+    at D2 (no D3 batch at all), but the requested range extends to D3 and
+    a benchmark has a point there. That benchmark point has no portfolio
+    data to compare against at all and must not leak into the window with
+    `comparable=True` just because it falls inside `[compare_start,
+    raw_range_end]`."""
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    holding_id = uuid.uuid4()
+    _mark_complete(db_session, user_id, D1)
+    _mark_complete(db_session, user_id, D2)
+    _row(
+        db_session, user_id, D1, holding_id, shares=Decimal("10"), market_value_base=Decimal("1000")
+    )
+    _row(
+        db_session, user_id, D2, holding_id, shares=Decimal("10"), market_value_base=Decimal("1000")
+    )
+    # No batch/row at all for D3 — the portfolio's real history stops at D2.
+    db_session.add(BenchmarkPrice(index_code="sp500", price_date=D3, close_price=Decimal("100")))
+    db_session.flush()
+
+    result = compute_portfolio_performance(
+        db_session, user_id, range_key="ALL", benchmark_codes=["sp500"], today=D3
+    )
+    assert result.portfolio.end_date == D2
+    sp500 = result.benchmarks[0]
+    assert sp500.comparable is False
+    assert sp500.points == []
+    assert sp500.start_date == D3  # still disclosed
+
+
+# --- review 5563537095/blacktomb42 finding A (issue #367 fix round,
+# pre-existing defect not introduced by the #366 fix but fixed alongside
+# it per explicit direction) ---
+
+
+def test_currency_preference_change_between_capture_days_does_not_fake_a_return(
+    db_session: Session,
+) -> None:
+    """A user switching `PATCH /me/report-currency` between two capture
+    days must not manufacture a fictional TWR swing: reviewer's exact
+    repro — 100 USD cash, USD/CNY held constant at 7, preference USD on
+    day 1 then CNY on day 2 — used to read as +600% (100 -> 700 compared
+    naively) instead of the true ~0% (100 USD IS 700 CNY at that rate, no
+    real change). Goes through the REAL writer (`write_user_snapshot`), not
+    hand-built fixture rows, since the bug is specifically about what the
+    writer records vs. what the reader assumes."""
+    user_id = uuid.uuid4()
+    user = seed_user(db_session, user_id)
+    db_session.add(
+        Holding(
+            user_id=user_id,
+            name="USD Cash",
+            currency="USD",
+            pricing_mode="manual",
+            asset_type="cash",
+            current_value=Decimal("100"),
+        )
+    )
+    db_session.add(FxRate(pair="USDCNY", rate=Decimal("7"), rate_date=D1))
+    db_session.add(FxRate(pair="USDCNY", rate=Decimal("7"), rate_date=D2))
+    db_session.flush()
+
+    write_user_snapshot(db_session, user_id, D1)  # preference still USD
+    user.base_currency = "CNY"
+    db_session.flush()
+    write_user_snapshot(db_session, user_id, D2)  # preference now CNY
+    db_session.flush()
+
+    twr_result = compute_portfolio_performance(
+        db_session, user_id, range_key="ALL", benchmark_codes=[], twr=True, today=D2
+    )
+    assert abs(twr_result.portfolio.points[-1].return_pct_cumulative) < Decimal("0.001")
+
+    raw_result = compute_portfolio_performance(
+        db_session, user_id, range_key="ALL", benchmark_codes=[], twr=False, today=D2
+    )
+    assert raw_result.header.value_change_pct == Decimal("0")
+
+
+# --- review 5563537095/blacktomb42 finding B (issue #367 fix round,
+# pre-existing defect not introduced by the #366 fix but fixed alongside
+# it per explicit direction) ---
+
+
+def test_full_exit_via_real_daily_fan_out_reads_as_zero_not_frozen(db_session: Session) -> None:
+    """End-to-end version of finding B: goes through the actual scheduled
+    entry point (`capture_portfolio_value_snapshot`), not a hand-inserted
+    zero-row batch, then reads it back through `GET /portfolio/
+    performance`'s computation core. Before the fix, the API would still
+    report D2 frozen at D1's $100 because the daily fan-out never called
+    `write_user_snapshot` again once the user had zero holdings."""
+    from app.models.holding import Holding
+    from app.services.portfolio_history import capture_portfolio_value_snapshot
+
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    holding = Holding(
+        user_id=user_id,
+        name="USD Cash",
+        currency="USD",
+        pricing_mode="manual",
+        asset_type="cash",
+        current_value=Decimal("100"),
+    )
+    db_session.add(holding)
+    db_session.flush()
+
+    capture_portfolio_value_snapshot(db_session, D1)
+    db_session.delete(holding)
+    db_session.flush()
+    capture_portfolio_value_snapshot(db_session, D2)
+    db_session.flush()
+
+    result = compute_portfolio_performance(
+        db_session, user_id, range_key="ALL", benchmark_codes=[], today=D2
+    )
+    assert [p.point_date for p in result.portfolio.points] == [D1, D2]
+    assert result.portfolio.points[0].value_base == Decimal("100.00")
+    assert result.portfolio.points[1].value_base == Decimal("0.00")  # exit recorded, not frozen
 
 
 def test_backfill_portfolio_value_history_script_removed() -> None:
