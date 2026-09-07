@@ -92,6 +92,17 @@ class PortfolioValueSnapshot(Base):
     current_value: Mapped[Decimal | None] = mapped_column(EncryptedDecimal)
 
     market_value: Mapped[Decimal | None] = mapped_column(Numeric)
+    # Currency `market_value_base`/`cost_basis_base` are actually denominated
+    # in — i.e. `report_currency_for(user_id)` AT CAPTURE TIME (issue #367
+    # fix): a user's `users.base_currency` preference can change between two
+    # capture days (`PATCH /me/report-currency`), and without recording each
+    # row's OWN capture-time currency, the reader had no way to tell two
+    # numerically different `market_value_base` values apart from a real
+    # market move — see `_day_currency` in portfolio_performance.py, which
+    # reads this per DAY (all of one day's rows share one value, from one
+    # `write_user_snapshot` call) rather than assuming one currency applies
+    # across the whole requested date range.
+    base_currency: Mapped[str] = mapped_column(Text, nullable=False)
     market_value_base: Mapped[Decimal | None] = mapped_column(Numeric)
     cost_basis_base: Mapped[Decimal | None] = mapped_column(Numeric)
 

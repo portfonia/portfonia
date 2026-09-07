@@ -254,6 +254,7 @@ def get_portfolio_performance(
             empty=result.portfolio.empty,
             start_date=result.portfolio.start_date,
             end_date=result.portfolio.end_date,
+            tracking_start=result.portfolio.tracking_start,
             points=[
                 PerformancePointOut(
                     date=p.point_date,
@@ -276,6 +277,7 @@ def get_portfolio_performance(
                     )
                     for p in b.points
                 ],
+                comparable=b.comparable,
             )
             for b in result.benchmarks
         ],

@@ -1,20 +1,36 @@
-# Portfolio Performance — Phase 1 (backend only)
+# Portfolio Performance — Phase 1 (backend only) + issue #366 correction
 
-Issue #360. Governing decisions: the issue's Decisions comment + the
-2026-09-06 amendment comment + the Implementation design comment (read
-those before this file — this is an implementation summary, not the spec
-itself). Paired Chinese-language design doc: Obsidian
-`Hermes/Portfonia/Docs/Portfolio_Pfmc.md`.
+Issue #360 (Phase 1) and issue #366 (tracking-start fix + composition-replay
+removal, 2026-09-07 design amendment). Governing decisions: #360's Decisions
+comment + the 2026-09-06 amendment comment + the Implementation design
+comment, and #366's Design + Implementation-contract comments (read those
+before this file — this is an implementation summary, not the spec itself).
+Paired Chinese-language design doc: Obsidian
+`Hermes/Portfonia/Docs/Portfolio_Pfmc.md` §2 (D2/D5/D7) + §6.
+
+**#366 in one line**: Phase 1's one-off portfolio backfill derived a
+position's chart start date from "earliest ticker price we happen to have"
+(`price_snapshots`), not from when the user was actually being tracked —
+production verification found ~35,605 fictional rows across 4 accounts with
+start dates in 2024-11/12 for a product that only existed since mid-2026.
+The backfill script is deleted outright (not deprecated); `GET /portfolio/
+performance` now derives `tracking_start` from the first real (non-
+backfilled) complete snapshot day, and co-normalizes cumulative % against
+benchmarks to a common compare window instead of each series' own
+independent start. See "Since-tracking start" and "Common compare window"
+below.
 
 ## Scope
 
-Phase 1 ships schema + two daily Celery tasks + two one-off backfill
-scripts + `GET /portfolio/performance`. No frontend, no chart — Phase 2 is
-a separate follow-up PR against this frozen response contract. Deliberately
-does not touch `/portfolio/summary` or `compute_portfolio`'s
-`capture_supported=False` exclusion (D5 amendment: Performance computes its
-own value rules independently — aligning the two is explicitly out of
-scope for this phase).
+Phase 1 ships schema + two daily Celery tasks + `GET /portfolio/
+performance` + one one-off backfill script (`backfill_benchmark_prices.py`
+— benchmark index history only; the per-user portfolio composition-replay
+backfill from Phase 1 was retired by #366, see below). No frontend, no
+chart — Phase 2 is a separate follow-up PR against this frozen response
+contract. Deliberately does not touch `/portfolio/summary` or
+`compute_portfolio`'s `capture_supported=False` exclusion (D5 amendment:
+Performance computes its own value rules independently — aligning the two
+is explicitly out of scope for this phase, and #366 does not revisit this).
 
 ## Schema
 
@@ -106,44 +122,193 @@ AND'd across dimensions, applied to each day's own denormalized labels —
 a sold lot or a since-renamed account/broker still appears in the days
 before the change. `portfolio.empty=true` only when literally no snapshot
 row in the selected range matches the filter at all; an empty *current*
-book with matching history still draws that history.
+book with matching history still draws that history. `is_backfilled=True`
+rows never match any filter regardless of dimension selection (issue #366).
 
 ## Currency
 
-Each row's `market_value_base` is in the user's own persisted
-`users.base_currency` at capture time (the "canonical" currency) — not
-re-derived per request. If the request's `base_currency` differs, the
-already-aggregated per-day totals are re-converted once per day via
+Each row's `market_value_base` is in whatever currency was live for that
+user **at capture time** — recorded per-row in `base_currency` (issue #367
+review finding A, added after Phase 1 shipped without it; see below). If
+the request's `base_currency` differs from a given DAY's own recorded
+currency, that day's already-aggregated total is re-converted via
 `historical_fx_rates_asof` (never per holding) — see
-`compute_portfolio_performance`'s `_convert_amount`. **Accepted
-approximation, documented per blacktomb42's review follow-up
-(issuecomment-5556912227)**: this re-conversion applies ONLY when the
-request's `base_currency` differs from the stored canonical one — the
-common case (frontend requests the user's own `base_currency`, matching
-what was captured) never hits this path at all. When it does apply, the
-conversion uses the SAME 10-day-lookback historical FX rate the write path
-uses, at the AGGREGATE level (one rate per day, not one per holding) — a
-day where the two currencies' relative FX moved intraday, or where the
-lookback resolves a slightly different date than the canonical write did,
-is a real but small source of imprecision, accepted for Phase 1 rather than
-re-pricing every holding on every read.
+`compute_portfolio_performance`'s `_convert_amount` and
+`_build_portfolio_series`'s `_day_currency`. **Accepted approximation,
+documented per blacktomb42's review follow-up (issuecomment-5556912227)**:
+this re-conversion applies ONLY when the request's `base_currency` differs
+from that day's own recorded one — the common case (frontend requests the
+user's own current `base_currency`, matching what most days were captured
+under) never hits this path at all. When it does apply, the conversion uses
+the SAME 10-day-lookback historical FX rate the write path uses, at the
+AGGREGATE level (one rate per day, not one per holding) — a day where the
+two currencies' relative FX moved intraday, or where the lookback resolves
+a slightly different date than the capture-time write did, is a real but
+small source of imprecision, accepted for Phase 1 rather than re-pricing
+every holding on every read.
 
-## Backfill (D2 amendment)
+**`portfolio_value_snapshots.base_currency` (issue #367 review finding A,
+blacktomb42, review 5563537095)**: Phase 1 shipped WITHOUT this column —
+the reader called `report_currency_for(user_id)` once per REQUEST and
+treated every historical row as if it had always been denominated in
+whatever the user's CURRENT preference is. `PATCH /me/report-currency`
+(issue #350) lets a user change that preference at any time, so a row
+written under an old preference and a row written after a change are
+numerically incomparable without knowing what each one actually used — the
+reader had silently assumed they were always the same unit. Reviewer's
+repro: 100 USD cash, USD/CNY held constant at 7, preference USD on day 1
+then CNY on day 2 — `market_value_base` goes 100 -> 700 with ZERO real
+economic change (100 USD literally IS 700 CNY at that rate), but the old
+reader read the jump as +600% TWR. Migration `d2e3f4a5b6c7` adds the
+column (backfilled from each row's user's CURRENT `base_currency` — the
+best available approximation for pre-existing rows, since no historical
+preference-change log exists and, per the review, no production row so far
+has actually hit this defect). `write_user_snapshot` now records it
+per-day; `_day_currency` in `portfolio_performance.py` reads it back **per
+day** (never once per request) for both the raw-MV `_convert_amount` call
+and the TWR chain, converting `v_prev` into DAY T's own currency before
+computing `r_t = v_minus/v_prev - 1` so a preference change between two
+adjacent days can't corrupt the ratio's unit consistency (`_contribution`'s
+fast path was ALREADY safe — it derives a per-share price from `curr_row.
+market_value_base` and never touches `prev_row`'s stored value directly —
+the bug was entirely in how the aggregate day-values were compared, not in
+that fast path).
 
-`app/scripts/backfill_portfolio_value_history.py` — first-enable only,
-refuses a second run unless real (non-backfill) history already exists;
-**does NOT refuse a second run over only-prior-backfill history without
-`--force`** (review 5124107298 finding 4 raised this as a possible gap —
-confirmed intentional after re-checking the amendment's literal text,
-"refuse if REAL non-backfill history already exists": a user with only
-backfill rows is still "first enable", and `ON CONFLICT DO NOTHING` already
-makes that re-run a safe idempotent no-op, matching the amendment's rule
-that a rerun must never overwrite history already written to the database
-directly). Start date is the earliest date any currently-held auto-priced
-ticker has usable price history, capped at `--years` (default 5) — never
-`holding.created_at` (a replace-import deletes and recreates rows, so that
-column doesn't mean "date first owned"). Never overwrites an existing row
-(`ON CONFLICT DO NOTHING`).
+## Since-tracking start, not composition-replay (issue #366, supersedes D2)
+
+Phase 1's `backfill_portfolio_value_history.py` picked a position's chart
+start date from "the earliest date `price_snapshots` happens to have usable
+price history for this ticker," capped at `--years`. That conflates **price
+data availability** (a technical-analysis lookback concern) with **when the
+user's holdings were actually tracked** — this codebase stores quantity +
+average cost, never a buy date or trade ledger, so replaying today's book
+backward on market prices produces a curve for a portfolio composition that
+may never have existed on those dates. Production verification exposed this
+directly (~35,605 rows, starts in 2024-11/12, for a product live since
+2026-05) — full incident writeup in vault §6.
+
+**Retired outright, not deprecated behind a flag**: the script, its
+dedicated test file, and every doc/comment instructing it as a product step
+are deleted. `backfill_benchmark_prices.py` is unaffected — index closes are
+market data, not a claim about the user's holdings, and can be backfilled
+freely.
+
+**`tracking_start`** (`GET /portfolio/performance`'s `portfolio.
+tracking_start`) is now the evidence-based replacement: the earliest
+`snapshot_date` with a `complete` batch and at least one row with
+`is_backfilled=False`, for that user, **unfiltered** by market/group/broker/
+account (`_tracking_start` in `portfolio_performance.py`). No new column —
+the first real snapshot day already IS the day tracking began; a signal
+inventory in vault §6.4 checked `User.created_at` (registration ≠ tracking),
+a durable "first confirm" flag (never existed), `upload_jobs`' earliest row
+(purged ~30 days later), and `accounts.MIN(created_at)` (a weak proxy,
+missing entirely for a broker-less holding) before settling on this.
+
+**`is_backfilled`/`approx_backfill` schema fields remain** for legacy
+safety during the transition (a production purge should remove all such
+rows outright — see "Production cleanup" below — but the read path does not
+depend on that): `Filters.matches` unconditionally excludes any
+`is_backfilled=True` row from every aggregate, TWR link, and the
+`any_match_in_range` empty-check; `_build_portfolio_series` additionally
+drops any date whose snapshot rows are ALL backfilled from the series
+entirely (not a $0 point — that reading is reserved for a real zero-holdings
+day or a dimension filter matching nothing that day, D8's "sold lot" case;
+a day with only known-bad rows has no real tracked data at all).
+
+**New holdings never trigger a backfill, still** (D7, unchanged by #366):
+a holding's row enters the series starting the first day it has a real
+snapshot, full stop — no retroactive rewrite of already-drawn history. The
+dilemma this forecloses (vault §6.3): re-backfilling the WHOLE book every
+time a holding is added would rewrite history nightly and still only answer
+"what if today's names had always been held," never the user's actual past
+performance — rejected regardless of engineering cost, because quantity +
+average cost cannot uniquely reconstruct a multi-year trade path even in
+principle (industry precedent survey: vault §6.5, Sharesight/Wealthfolio/
+Fidelity).
+
+**Summary's unrealized % and Performance's since-tracking % are deliberately
+different questions**, not two measurements of the same thing to reconcile
+(vault §6.3's worked example: cost 50 -> first tracked price 100 -> later
+price 110 is simultaneously "+120% vs cost" and "+10% since tracking," both
+correct). No product path should fake-align them.
+
+## Common compare window (issue #366 D7)
+
+Comparing a portfolio's cumulative % against a benchmark's is only
+meaningful when both are measured over the **same** window. Phase 1
+normalized the portfolio and each benchmark independently, each to 0% at
+its own first available point over the FULL requested range — correct when
+the portfolio's own data already spans that whole range, wrong the moment
+`tracking_start` (or a dimension filter — see below) makes the portfolio's
+real first point land later than a long-lived benchmark's.
+
+`compare_start = max(range_start, tracking_start, first_portfolio_point_in_
+filtered_series)`. In this implementation the last term always dominates
+the other two once the portfolio series is non-empty: `_complete_batch_
+dates` already bounds every candidate day to `range_start`, and a real
+(non-backfilled) row can never predate `tracking_start` by construction —
+so `compare_start` reduces in code to simply `portfolio_series.start_date`
+(`compute_portfolio_performance`). The three-term form in the design doc
+documents WHY that point ends up where it does, not a separate computation.
+This equivalence depends on `portfolio_series.start_date` itself being
+correct — see finding 1 below for a case where it originally wasn't.
+
+`_rebase_benchmark_to_window` re-anchors each benchmark's already-computed,
+independently-normalized series to `[compare_start, compare_end]`:
+`new_pct(t) = (1 + old_pct(t)) / (1 + old_pct(compare_start)) - 1`,
+algebraically exact since `old_pct(t) = price(t)/price(base) - 1`. This
+clips `points` to that window while preserving the benchmark's own true
+`start_date` for disclosure — the API still reports where each series' real
+data begins, it just never presents an unequal window as head-to-head
+outperformance. A benchmark with zero points inside the compare window
+(e.g., its only data predates `tracking_start` entirely, or falls entirely
+after the portfolio's own real history ends) comes back `comparable=False`
+with an empty `points` list rather than a silently cross-window percentage.
+
+When the portfolio series is `empty` (no matching history in range at all),
+benchmarks stay self-normalized over the full requested range — there is no
+comparison target to co-normalize against, and the line must still draw
+per the original Phase 1 requirement (§1.5).
+
+**Review round fixes (issue #367, blacktomb42, review 5563537095) — both
+required changes before merge:**
+
+- **Finding 1 — a newly tracked sub-account inherited an unrelated
+  account's pre-tracking start.** `_build_portfolio_series` looped over
+  EVERY complete-batch date in the requested range, and `_day_value([])`'s
+  "empty filtered set = legitimate $0" rule (D8's sold-lot case) applied
+  indiscriminately to dates BEFORE a filtered dimension's own first real
+  appearance too — a newly added `AccountY` that first exists on day 2
+  still got a fabricated $0 point on day 1 (when only `AccountX` existed),
+  making `portfolio_series.start_date` land on day 1 and, via the
+  common-window logic above, giving every benchmark the wrong anchor.
+  Fixed by computing `matched_dates` (dates where the active filter
+  matches at least one row) and restricting the series to dates `>=
+  matched_dates[0]` — a $0 point is now only ever produced ON OR AFTER a
+  dimension's own first real match (D8's sold-lot/renamed-account case
+  stays intact; a date strictly BEFORE first appearance is excluded from
+  the series entirely, not zero-valued).
+- **Finding 2 — `comparable=True` didn't require actual overlap with the
+  portfolio's real history.** `_rebase_benchmark_to_window` originally
+  capped its window at the raw REQUESTED range end, not the portfolio's
+  own real last day — a benchmark point that existed only AFTER the
+  portfolio's tracked history stopped (e.g. the portfolio's last batch was
+  several days ago, but the requested range and a benchmark both extend
+  further) fell inside `[compare_start, range_end]` and came back
+  `comparable=True` with zero portfolio data to compare it against. Fixed
+  by capping the window's end at `min(range_end, portfolio_series.
+  end_date)` in `compute_portfolio_performance` before calling the rebase.
+
+## Production cleanup (one-off, issue #366)
+
+The ~35,605 rows Phase 1's retired backfill wrote in production must be
+deleted by ops — **not** superseded by a user-facing "correct my history"
+product (explicitly out of scope; the read-path exclusion above is a
+legacy-safety net, not a substitute for actually removing known-bad data).
+See the PR description for the exact one-shot SQL/script, dry-run output,
+and row counts actually deleted.
+
+## Backfill (benchmark only)
 
 `app/scripts/backfill_benchmark_prices.py` is a plain ~5-year history seed,
 no approximation, safe to re-run (idempotent upsert). Uses yfinance's `Ny`
@@ -169,6 +334,21 @@ ordering: no other daily entry in that file fires between 17:15 ET and
 day's price-capture and FX-fetch tasks have had their scheduled chance to
 run (not a guarantee they *succeeded* — that's what `skipped_deps` and the
 daily task's own idempotent re-run cover).
+
+**Full-exit fan-out (issue #367 review finding B, blacktomb42, review
+5563537095)**: `capture_portfolio_value_snapshot`'s user selection
+originally was `User.id.in_(select(Holding.user_id).distinct())` only —
+active users currently holding at least one position. `write_user_snapshot`
+already handles zero holdings correctly (marks the batch `complete` with
+zero rows, D5's genuine $0 case), but that code path only runs if this
+function calls it at all: a user whose LAST holding was deleted dropped out
+of the `holdings`-backed selection permanently, so the exit day's
+zero-holdings batch never got written, and the portfolio read back as
+frozen at its last real value instead of reflecting the exit. Fixed by
+OR'ing in every user who already has ANY `portfolio_snapshot_batches` row
+(i.e. was ever tracked before) — once tracking starts, the daily fan-out
+keeps checking that user for good, matching `tracking_start`'s own
+"evidence, not current state" philosophy above.
 
 ## Other accepted Phase 1 tradeoffs (document only, per blacktomb42's
 review follow-up issuecomment-5556912227)

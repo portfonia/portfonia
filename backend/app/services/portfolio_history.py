@@ -1,7 +1,12 @@
-"""Daily portfolio value snapshot writer + one-off backfill core (issue #360
-Phase 1). Shared by `app/tasks/capture_tasks.py` (daily beat task),
-`app/scripts/backfill_portfolio_value_history.py` (one-off first-enable
-backfill), and read by `app/services/portfolio_performance.py`.
+"""Daily portfolio value snapshot writer (issue #360 Phase 1). Used by
+`app/tasks/capture_tasks.py` (daily beat task) and read by
+`app/services/portfolio_performance.py`.
+
+The `is_backfilled`/`upsert=False` write path and the run-time FX fallback
+below exist only for legacy-safety (issue #366 retired the composition-
+replay backfill script that was their sole caller — no product path writes
+`is_backfilled=True` rows anymore; `portfolio_performance.py`'s read path
+excludes any that still exist).
 
 Valuation here deliberately does NOT call `compute_portfolio`/
 `portfolio_calculator` (CLAUDE.md: do not change summary's
@@ -19,7 +24,7 @@ from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from functools import partial
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -215,6 +220,7 @@ def build_snapshot_row(
         "shares": local.shares,
         "current_value": local.value if h.pricing_mode != "auto" else None,
         "market_value": local.value if h.pricing_mode == "auto" else None,
+        "base_currency": base_currency,
         "market_value_base": market_value_base,
         "cost_basis_base": None,
         "fx_rate_used": fx_used,
@@ -240,6 +246,7 @@ _UPSERT_UPDATE_COLUMNS = (
     "shares",
     "current_value",
     "market_value",
+    "base_currency",
     "market_value_base",
     "cost_basis_base",
     "fx_rate_used",
@@ -376,19 +383,36 @@ def capture_portfolio_value_snapshot(
     session: Session, snapshot_date: date | None = None
 ) -> dict[str, int]:
     """Daily beat entry point: write today's snapshot for every active user
-    with at least one holding. Scheduled after the day's price-capture and
-    FX-fetch tasks (see app/tasks/__init__.py) so `write_user_snapshot`'s
-    dependency check almost always finds today's FX rate already there;
-    when it doesn't (a delayed FX task), that user's day is marked
-    `skipped_deps` and picked up by the next run rather than silently
-    understating today's value.
+    with at least one holding, OR who has ever been tracked before (issue
+    #367 review finding B, blacktomb42, review 5563537095). Scheduled
+    after the day's price-capture and FX-fetch tasks (see
+    app/tasks/__init__.py) so `write_user_snapshot`'s dependency check
+    almost always finds today's FX rate already there; when it doesn't (a
+    delayed FX task), that user's day is marked `skipped_deps` and picked
+    up by the next run rather than silently understating today's value.
+
+    The "ever tracked" half of the OR matters for a genuine full exit:
+    `write_user_snapshot` already handles zero holdings correctly (marks
+    the batch `complete` with zero rows written, D5's real $0 case) — but
+    that only runs if this function calls it at all. Selecting ONLY users
+    currently in `holdings` meant a user whose LAST holding was deleted
+    dropped out of this list permanently, so the exit day's zero-holdings
+    batch never got written, and later `GET /portfolio/performance` calls
+    read the portfolio as frozen at its last real value instead of
+    reflecting the exit. Once a user has any `portfolio_snapshot_batches`
+    row at all, they stay in this daily fan-out for good — correct and
+    cheap, since `write_user_snapshot`'s own zero-holdings branch is a
+    single early-return with no further queries.
     """
     target_date = snapshot_date or date.today()
     user_ids = list(
         session.execute(
             select(User.id).where(
                 User.status == "active",
-                User.id.in_(select(Holding.user_id).distinct()),
+                or_(
+                    User.id.in_(select(Holding.user_id).distinct()),
+                    User.id.in_(select(PortfolioSnapshotBatch.user_id).distinct()),
+                ),
             )
         ).scalars()
     )

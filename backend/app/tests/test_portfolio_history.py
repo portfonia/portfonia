@@ -154,6 +154,48 @@ def test_cash_holding_local_value_flat_but_base_moves_with_fx(db_session: Sessio
     assert day1.market_value_base != day2.market_value_base
 
 
+def test_base_currency_column_records_capture_time_preference_not_current(
+    db_session: Session,
+) -> None:
+    """Issue #367 review finding A (blacktomb42, review 5563537095): each
+    row must record the currency `market_value_base` was ACTUALLY computed
+    in at write time, since `users.base_currency` can change between two
+    capture days (`PATCH /me/report-currency`) — the reader has no other
+    way to tell a real market move apart from a mere unit change."""
+    user_id = uuid.uuid4()
+    user = seed_user(db_session, user_id)
+    holding = Holding(
+        user_id=user_id,
+        name="USD Cash",
+        currency="USD",
+        pricing_mode="manual",
+        asset_type="cash",
+        current_value=Decimal("100"),
+    )
+    db_session.add(holding)
+    day1 = date(2026, 9, 4)
+    day2 = TODAY
+    _seed_fx(db_session, "USDCNY", day1, Decimal("7"))
+    _seed_fx(db_session, "USDCNY", day2, Decimal("7"))
+    db_session.flush()
+
+    write_user_snapshot(db_session, user_id, day1)
+    user.base_currency = "CNY"
+    db_session.flush()
+    write_user_snapshot(db_session, user_id, day2)
+
+    rows = {
+        r.snapshot_date: r
+        for r in db_session.execute(
+            select(PortfolioValueSnapshot).where(PortfolioValueSnapshot.user_id == user_id)
+        ).scalars()
+    }
+    assert rows[day1].base_currency == "USD"
+    assert rows[day1].market_value_base == Decimal("100.00")
+    assert rows[day2].base_currency == "CNY"
+    assert rows[day2].market_value_base == Decimal("700.00")  # 100 USD * 7, same real value
+
+
 def test_insufficient_value_omitted_not_zero_padded(db_session: Session) -> None:
     user_id = uuid.uuid4()
     seed_user(db_session, user_id)
@@ -216,6 +258,50 @@ def test_capture_portfolio_value_snapshot_writes_for_every_active_user_with_hold
     assert result["complete"] == 2
     assert result["skipped_deps"] == 0
     assert result["written"] == 2
+
+
+def test_full_exit_still_captured_after_last_holding_deleted(db_session: Session) -> None:
+    """Issue #367 review finding B (blacktomb42, review 5563537095): a user
+    whose LAST holding is deleted must still get a (zero-holdings, $0)
+    snapshot batch written on subsequent days — `write_user_snapshot`
+    already handles this correctly (D5's real $0 case), but the daily
+    fan-out previously stopped calling it at all once the user dropped out
+    of `holdings` entirely, silently freezing their portfolio history at
+    its last real value instead of recording the exit."""
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    day1 = date(2026, 9, 4)
+    day2 = TODAY
+    holding = Holding(
+        user_id=user_id,
+        name="USD Cash",
+        currency="USD",
+        pricing_mode="manual",
+        asset_type="cash",
+        current_value=Decimal("100"),
+    )
+    db_session.add(holding)
+    db_session.flush()
+
+    result_day1 = capture_portfolio_value_snapshot(db_session, day1)
+    assert result_day1["users"] == 1
+    assert result_day1["written"] == 1
+
+    db_session.delete(holding)
+    db_session.flush()
+
+    result_day2 = capture_portfolio_value_snapshot(db_session, day2)
+    assert result_day2["users"] == 1  # still selected — was tracked before
+    assert result_day2["complete"] == 1
+    assert result_day2["written"] == 0  # zero holdings, D5's real $0
+
+    batches = {
+        b.snapshot_date: b.status
+        for b in db_session.execute(
+            select(PortfolioSnapshotBatch).where(PortfolioSnapshotBatch.user_id == user_id)
+        ).scalars()
+    }
+    assert batches == {day1: "complete", day2: "complete"}
 
 
 def test_user_purge_cascades_snapshot_and_batch_rows(db_session: Session) -> None:
