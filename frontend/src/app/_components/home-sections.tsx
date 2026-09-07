@@ -60,7 +60,10 @@ export function HomeSections() {
               {t.hero.titleAccent}
             </em>
           </h1>
-          <p className="mt-6 max-w-[46ch] text-lg leading-relaxed text-foreground/70">
+          <p className="mt-5 max-w-2xl font-serif text-xl leading-snug text-foreground/80">
+            {t.hero.tagline}
+          </p>
+          <p className="mt-6 max-w-2xl text-lg leading-relaxed text-foreground/70">
             {t.hero.sub}
           </p>
           <div className="mt-9 flex flex-wrap items-center gap-4">
@@ -295,6 +298,19 @@ export function HomeSections() {
             <p className="mt-6 border-t border-white/10 pt-5 text-sm text-foreground/60">
               {t.preview.footnote}
             </p>
+          </div>
+        </div>
+      </section>
+
+      <section id="audience" className="px-6 py-16 sm:py-20">
+        <div className="mx-auto max-w-4xl">
+          <div className="mb-8 border-b border-white/10 pb-5">
+            <h2 className="font-serif text-2xl sm:text-3xl">{t.audience.heading}</h2>
+          </div>
+          <div className="space-y-5 text-base leading-relaxed text-foreground/70 sm:text-lg">
+            {t.audience.paragraphs.map((paragraph) => (
+              <p key={paragraph}>{paragraph}</p>
+            ))}
           </div>
         </div>
       </section>

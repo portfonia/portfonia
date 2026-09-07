@@ -100,6 +100,7 @@ export function useHomeMessages(): Messages["home"] {
     hero: t.raw("hero"),
     how: t.raw("how"),
     preview: t.raw("preview"),
+    audience: t.raw("audience"),
     boundary: t.raw("boundary"),
     faq: t.raw("faq"),
     status: t.raw("status"),
