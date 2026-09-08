@@ -7,7 +7,11 @@
   vocabulary — stop-loss, strong-buy, target-price, investment-advice, and
   their zh-Hans equivalents (exact patterns, including context-aware regex
   for terms with legitimate non-advisory uses, live in
-  `config/compliance_vocab.yml`, loaded by the source file).
+  `config/compliance_vocab.yml`, loaded by the source file). English
+  `recommend*` is also context-aware (issue #375, patterns stay in
+  `forbidden_vocab.py`, not the YAML): user-directed framing holds;
+  third-party house-view / bank / analyst attribution does not. Chinese
+  vocab is unchanged by #375.
   Descriptive TA-observation terms (support/resistance, etc., EN + zh-Hans —
   see `ta_observation_terms` in `i18n_glossary.yml`) are explicitly
   allowed — see "Forbidden vocabulary" below for the Layer-4 line.

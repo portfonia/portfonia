@@ -201,6 +201,12 @@ in any other language.
   `needs_review` and **suppresses email** — content is preserved for
   inspection, never delivered. The scan covers the LLM body only, never the
   template footer (whose disclaimer legitimately contains "buy/sell").
+  English `recommend*` is context-aware (issue #375): first-person /
+  product-to-user / `recommend you` / sentence-initial `recommend buying|selling|holding|reducing`
+  still hold; third-party house-view attribution ("UBS … recommends",
+  "the bank recommends", "analysts recommend") does not. Prompt blacklist
+  still includes `recommend`. Residual: a user-directed recommend that
+  mimics third-party syntax in the same clause may slip.
 - **Single footer disclaimer, no inline markers** (2026-06-08; single-language
   since issue #350 item 3): the compliance base is the one disclaimer in the
   footer, rendered in the report's own language. The body carries NO
