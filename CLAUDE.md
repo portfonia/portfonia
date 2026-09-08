@@ -476,7 +476,10 @@ compatibility, and worked examples. Contract constraints must specify
 invariants, dependencies, exclusions, concrete acceptance tests, validation,
 and release/authorization gates. Desired outcomes alone are insufficient.
 Separate confirmed decisions from authored designs and unresolved questions;
-never invent approval. Apply this to all Portfonia issues, not just #377.
+never invent approval. Keep design and validation proportional to the authorized
+problem; do not turn this template into extra tooling, cleanup or operational
+requirements. The owner decides whether adjacent work belongs in scope. Apply
+this to all Portfonia issues, not just #377.
 
 Every new feature/improvement request and every bug — regardless of whether
 it's fixed immediately — gets a GitHub issue first, before the fix/feature
