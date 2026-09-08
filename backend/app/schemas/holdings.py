@@ -92,16 +92,14 @@ class ParsedRow(BaseModel):
     ticker: str | None = None
     fund_code: str | None = None
     currency: str
-    # Boundary validation (issue #25): this is the only user-writable entry
-    # point for these fields — POST /holdings/confirm takes list[ParsedRow]
-    # directly. A DB-level CHECK on shares/avg_cost/current_value is no
-    # longer possible after encryption at rest (issue #31/PR #111 made these
-    # columns Fernet ciphertext, not plaintext numeric) — see issue #113.
-    # market_price is deliberately excluded: it's never user input, only
-    # written by trusted fetcher code (yfinance/NAV).
-    shares: float | None = Field(default=None, ge=0)
-    avg_cost: float | None = Field(default=None, ge=0)
-    current_value: float | None = Field(default=None, ge=0)
+    # Boundary validation (issue #25/#113): user-writable amounts on
+    # POST /holdings, POST /holdings/confirm, and PATCH /holdings/{id}.
+    # A DB-level CHECK on shares/avg_cost/current_value is not possible
+    # after encryption at rest (issue #31/PR #111). market_price is
+    # excluded: it is never user input, only written by trusted fetchers.
+    shares: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    avg_cost: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    current_value: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     pricing_mode: PricingMode
     asset_type: AssetTypeValue | None = None
     # Economic classification set by _postprocess (ticker lookup + asset_type
@@ -274,9 +272,9 @@ class HoldingPatch(BaseModel):
     ticker: str | None = None
     fund_code: str | None = None
     currency: str | None = None
-    shares: float | None = Field(default=None, ge=0)
-    avg_cost: float | None = Field(default=None, ge=0)
-    current_value: float | None = Field(default=None, ge=0)
+    shares: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    avg_cost: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    current_value: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     pricing_mode: PricingMode | None = None
     asset_type: AssetTypeValue | None = None
     market: Literal["US", "HK", "A-Share", "UK", "Europe", "Japan", "Korea", "Other"] | None = None

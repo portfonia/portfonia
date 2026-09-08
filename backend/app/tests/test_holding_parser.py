@@ -478,6 +478,15 @@ def test_postprocess_drops_row_with_unrecognized_currency_without_raising() -> N
     assert [r.name for r in rows] == ["Apple"]
 
 
+def test_postprocess_drops_invalid_amount_row_without_raising() -> None:
+    raw = [
+        _raw_row(name="Apple", ticker="AAPL"),
+        _raw_row(name="Bogus", ticker="MSFT", shares=float("inf")),
+    ]
+    rows = _postprocess(raw)
+    assert [r.name for r in rows] == ["Apple"]
+
+
 def test_postprocess_invokes_on_invalid_row_callback() -> None:
     rejected: list[tuple[dict[str, object], str]] = []
     raw = [_raw_row(name="Bogus", currency="ZZZ")]

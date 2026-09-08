@@ -197,3 +197,23 @@ class EncryptedDecimal(TypeDecorator[Decimal]):
             # Deliberately omit the value — it's a decrypted holdings amount,
             # not safe to put in logs/error trackers either.
             raise ValueError("Decrypted holdings value is not a valid Decimal") from exc
+
+
+HOLDING_AMOUNT_BIND_ERROR = "Holding amount must be a finite non-negative Decimal"
+
+
+class EncryptedHoldingAmount(EncryptedDecimal):
+    """EncryptedDecimal restricted to Holding shares/avg_cost/current_value.
+
+    Accepts Decimal | None only. NULL passes through; other runtime types and
+    non-finite or negative Decimals raise ValueError before encryption.
+    """
+
+    cache_ok = True
+
+    def process_bind_param(self, value: Decimal | None, dialect: object) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, Decimal) or not value.is_finite() or value < 0:
+            raise ValueError(HOLDING_AMOUNT_BIND_ERROR)
+        return super().process_bind_param(value, dialect)

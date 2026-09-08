@@ -1,6 +1,7 @@
 """Portfonia FastAPI entry point."""
 
 import logging
+import math
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
@@ -74,6 +75,19 @@ app.include_router(unsubscribe.router, prefix="/unsubscribe", tags=["unsubscribe
 _SECRET_BODY_FIELDS = frozenset({"password"})
 
 
+def _replace_nonfinite_for_json(value: object) -> object:
+    """JSONResponse rejects inf/nan; keep 422 payloads serializable."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {k: _replace_nonfinite_for_json(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_replace_nonfinite_for_json(v) for v in value]
+    if isinstance(value, tuple):
+        return [_replace_nonfinite_for_json(v) for v in value]
+    return value
+
+
 def _redact_secret_validation_errors(errors: list[object]) -> list[object]:
     redacted: list[object] = []
     for err in errors:
@@ -103,7 +117,7 @@ def _redact_secret_validation_errors(errors: list[object]) -> list[object]:
 
 @app.exception_handler(RequestValidationError)
 async def _hide_secrets_in_422(_request: Request, exc: RequestValidationError) -> JSONResponse:
-    errors = jsonable_encoder(exc.errors())
+    errors = jsonable_encoder(_replace_nonfinite_for_json(exc.errors()))
     if not isinstance(errors, list):
         errors = [errors]
     return JSONResponse(

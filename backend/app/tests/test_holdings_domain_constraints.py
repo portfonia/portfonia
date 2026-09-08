@@ -1,8 +1,8 @@
 """Coverage for the holdings domain CHECK constraints (issue #25).
 
 Two layers, tested separately: Pydantic boundary validation on ParsedRow
-(the only user-writable entry point — POST /holdings/confirm takes
-list[ParsedRow] directly), and the DB-level CHECK constraints added by
+and HoldingPatch (POST /holdings, POST /holdings/confirm, and
+PATCH /holdings/{id}), and the DB-level CHECK constraints added by
 migration 6cd7544f63cf, which guard any write that bypasses the app layer.
 """
 
@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.holding import Holding
-from app.schemas.holdings import VALID_CURRENCIES, ParsedRow
+from app.schemas.holdings import VALID_CURRENCIES, HoldingPatch, ParsedRow
 from app.services.asset_class_config import VALID_ASSET_CLASSES
 from app.tests.conftest import TEST_USER_ID, seed_user
 
@@ -53,6 +53,41 @@ def test_parsed_row_rejects_negative_amount(field: str) -> None:
 def test_parsed_row_accepts_zero_amount(field: str) -> None:
     row = ParsedRow(name="X", currency="USD", pricing_mode="auto", **{field: 0})
     assert getattr(row, field) == 0
+
+
+@pytest.mark.parametrize("field", ["shares", "avg_cost", "current_value"])
+def test_parsed_row_accepts_positive_and_null_amount(field: str) -> None:
+    row = ParsedRow(name="X", currency="USD", pricing_mode="auto", **{field: 1.25})
+    assert getattr(row, field) == 1.25
+    row_none = ParsedRow(name="X", currency="USD", pricing_mode="auto", **{field: None})
+    assert getattr(row_none, field) is None
+
+
+@pytest.mark.parametrize("field", ["shares", "avg_cost", "current_value"])
+@pytest.mark.parametrize("value", [float("inf"), float("-inf"), float("nan"), "Infinity", "NaN"])
+def test_parsed_row_rejects_nonfinite_amount(field: str, value: object) -> None:
+    with pytest.raises(ValidationError):
+        ParsedRow(name="X", currency="USD", pricing_mode="auto", **{field: value})
+
+
+@pytest.mark.parametrize("field", ["shares", "avg_cost", "current_value"])
+def test_holding_patch_rejects_negative_amount(field: str) -> None:
+    with pytest.raises(ValidationError):
+        HoldingPatch(**{field: -1})
+
+
+@pytest.mark.parametrize("field", ["shares", "avg_cost", "current_value"])
+def test_holding_patch_accepts_zero_positive_and_null_amount(field: str) -> None:
+    assert getattr(HoldingPatch(**{field: 0}), field) == 0
+    assert getattr(HoldingPatch(**{field: 1.25}), field) == 1.25
+    assert getattr(HoldingPatch(**{field: None}), field) is None
+
+
+@pytest.mark.parametrize("field", ["shares", "avg_cost", "current_value"])
+@pytest.mark.parametrize("value", [float("inf"), float("-inf"), float("nan"), "Infinity", "NaN"])
+def test_holding_patch_rejects_nonfinite_amount(field: str, value: object) -> None:
+    with pytest.raises(ValidationError):
+        HoldingPatch(**{field: value})
 
 
 def test_parsed_row_rejects_unknown_currency() -> None:
