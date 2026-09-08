@@ -1722,3 +1722,117 @@ def test_reorder_locks_before_assigning_position(app_client: TestClient) -> None
     mock_lock.assert_called()
     assert [row["id"] for row in resp.json()] == [b["id"], a["id"]]
     assert [row["position"] for row in resp.json()] == [0, 1]
+
+
+# ---------------------------------------------------------------------------
+# Issue #113 — finite non-negative amount validation
+# ---------------------------------------------------------------------------
+
+
+def _manual_other_row(**overrides: object) -> dict[str, object]:
+    row: dict[str, object] = {
+        "name": "Widget",
+        "ticker": None,
+        "fund_code": None,
+        "currency": "USD",
+        "shares": 0,
+        "avg_cost": 1.25,
+        "current_value": None,
+        "pricing_mode": "manual",
+        "asset_type": "other",
+        "broker": None,
+        "account": None,
+        "portfolio": None,
+        "notes": None,
+        "issues": [],
+        "confidence": 1.0,
+    }
+    row.update(overrides)
+    return row
+
+
+def test_create_accepts_zero_shares_manual_other(app_client: TestClient) -> None:
+    resp = app_client.post("/holdings", json=_manual_other_row())
+    assert resp.status_code == 201
+    assert resp.json()["shares"] in ("0", "0.0", "0.00")
+    assert resp.json()["avg_cost"] in ("1.25", "1.250")
+
+
+def test_create_rejects_json_overflow_amount_with_serializable_422(
+    app_client: TestClient,
+) -> None:
+    raw = json.dumps(_manual_other_row()).replace('"shares": 0', '"shares": 1e309', 1)
+    resp = app_client.post("/holdings", content=raw, headers={"Content-Type": "application/json"})
+    assert resp.status_code == 422
+    body = resp.json()
+    assert "detail" in body
+    json.dumps(body)
+    assert app_client.get("/holdings").json() == []
+
+
+def test_confirm_rejects_infinity_string_amount_without_mutation(
+    app_client: TestClient,
+) -> None:
+    existing = app_client.post("/holdings", json=_PARSED_APPLE).json()
+    resp = app_client.post(
+        "/holdings/confirm?mode=append",
+        json=[_manual_other_row(avg_cost="Infinity")],
+    )
+    assert resp.status_code == 422
+    json.dumps(resp.json())
+    listed = app_client.get("/holdings").json()
+    assert len(listed) == 1
+    assert listed[0]["id"] == existing["id"]
+
+
+def test_patch_rejects_json_overflow_amount_without_mutation(
+    app_client: TestClient, db_session: Session
+) -> None:
+    created = app_client.post("/holdings", json=_PARSED_APPLE).json()
+    resp = app_client.patch(
+        f"/holdings/{created['id']}",
+        content='{"current_value": 1e309}',
+        headers={"Content-Type": "application/json"},
+    )
+    assert resp.status_code == 422
+    json.dumps(resp.json())
+    db_session.expire_all()
+    holding = db_session.get(Holding, uuid.UUID(created["id"]))
+    assert holding is not None
+    assert holding.shares == Decimal("10")
+    assert holding.current_value is None
+
+
+def test_patch_merged_cash_validation_is_422_without_mutation(
+    app_client: TestClient, db_session: Session
+) -> None:
+    created = app_client.post("/holdings", json=_PARSED_CASH).json()
+    resp = app_client.patch(f"/holdings/{created['id']}", json={"current_value": None})
+    assert resp.status_code == 422
+    json.dumps(resp.json())
+    db_session.expire_all()
+    holding = db_session.get(Holding, uuid.UUID(created["id"]))
+    assert holding is not None
+    assert holding.current_value == Decimal("15000.0") or holding.current_value == Decimal("15000")
+
+
+def test_confirm_replace_persistence_failure_rolls_back_and_does_not_enqueue(
+    app_client: TestClient, db_session: Session
+) -> None:
+    created = app_client.post("/holdings", json=_PARSED_APPLE).json()
+    with (
+        patch(
+            "app.routers.holdings._insert_from_rows",
+            side_effect=RuntimeError("persist failed"),
+        ),
+        patch("app.tasks.capture_tasks.backfill_sectors_task") as mock_sector,
+        patch("app.tasks.capture_tasks.backfill_ohlcv_task") as mock_ohlcv,
+        pytest.raises(RuntimeError, match="persist failed"),
+    ):
+        app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_CASH])
+    mock_sector.delay.assert_not_called()
+    mock_ohlcv.delay.assert_not_called()
+    db_session.rollback()
+    remaining = db_session.get(Holding, uuid.UUID(created["id"]))
+    assert remaining is not None
+    assert remaining.name == "Apple"

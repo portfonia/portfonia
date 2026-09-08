@@ -132,15 +132,15 @@ the threat is DB-dump/backup theft, which disk encryption alone doesn't stop.
   including `upgrade → downgrade → upgrade`.
 - **Encrypted amount constraints (#25/#113):** shares/avg_cost/current_value
   are Fernet ciphertext in Text columns, so PostgreSQL cannot apply a numeric
-  CHECK. Current application validation uses `Field(ge=0)` in `ParsedRow`
-  and `HoldingPatch`, covering create, confirm and PATCH. The proposed #113
-  fix adds finite-value validation and a binding guard for only these three
-  Holding fields, preserving encryption, reads, PATCH precision and atomic
-  writes. It is an application guarantee, not a restored DB CHECK; raw SQL
-  can bypass it. Audit tooling, historical-data processing, market-price work
-  and broad logging/error redesign are outside this fix. See the current
-  issue comments for the implementation contract; this paragraph does not
-  claim the proposed fix has shipped.
+  CHECK. Application validation is `Field(ge=0, allow_inf_nan=False)` on
+  `ParsedRow` and `HoldingPatch` (create, confirm, PATCH) plus
+  `EncryptedHoldingAmount` on those three Holding columns only. The
+  constrained type rejects non-Decimal, non-finite, or negative values
+  before encryption; NULL and zero pass through. Generic `EncryptedDecimal`
+  (including `market_price` and portfolio snapshots) is unchanged. This is
+  an application guarantee, not a restored DB CHECK; raw SQL can bypass it.
+  Audit tooling, historical-data processing, market-price work and broad
+  logging/error redesign remain outside this fix.
 - **Not yet covered**: `Report.report_inputs` and rendered report bodies
   still carry holdings-derived plaintext (ticker, shares, values quoted in
   prose/tables) — issue #31 is scoped to the `holdings` table only. Worth a
@@ -202,10 +202,10 @@ bypassing the API (a script, a manual `UPDATE`) had no guard at all.
   wrong-but-fixable value (e.g. `"RMB"` on a `.HK` ticker) left a stale
   "Unrecognized currency" note on a row whose final currency was valid.
 - **`shares`/`avg_cost`/`current_value` `>= 0` is explicitly OUT of scope
-  here** — see the "Side effect discovered 2026-08-09" bullet in the
-  encryption section above and issue #113. Handled instead via
-  `Field(ge=0)` on `ParsedRow` and `HoldingPatch` (application layer);
-  the narrowly scoped follow-up is #113, not an audit or migration project.
+  here** — see the encrypted-amount-constraints bullet in the encryption
+  section above and issue #113. Handled at the application layer via
+  `Field(ge=0, allow_inf_nan=False)` and `EncryptedHoldingAmount`, not a
+  DB CHECK or an audit/migration project.
 - **Naming-convention gotcha** (cost real debugging time — worth remembering
   for the next CHECK constraint added anywhere in this codebase): `Base`'s
   `naming_convention` (`app/models/base.py`, `"ck":
@@ -476,8 +476,10 @@ the query param explicitly.
 - `replace` — full delete+reinsert + enqueue whole-book sector backfill
   and sparse capture (not inline yfinance), and `archive_unreferenced=True`.
 
-`Field(ge=0)` on `ParsedRow` still guards shares/avg_cost/current_value for
-these new writers too (encryption still prevents a DB CHECK — issue #113).
+`Field(ge=0, allow_inf_nan=False)` on `ParsedRow`/`HoldingPatch` and
+`EncryptedHoldingAmount` on the three Holding columns guard
+shares/avg_cost/current_value for these writers too (encryption still
+prevents a DB CHECK — issue #113).
 
 **Parser preview notes:** `ParsedRow.issues` is `list[IssueNote]`
 (`{code, params, severity}`). Preview JSON only — not persisted on confirm.

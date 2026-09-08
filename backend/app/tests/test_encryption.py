@@ -7,12 +7,15 @@ from decimal import Decimal
 import pytest
 from cryptography.fernet import Fernet, InvalidToken
 from pydantic import ValidationError
-from sqlalchemy import select, text
+from sqlalchemy import insert, select, text
+from sqlalchemy.exc import StatementError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.encryption import (
+    HOLDING_AMOUNT_BIND_ERROR,
     EncryptedDecimal,
+    EncryptedHoldingAmount,
     EncryptedString,
     HoldingsDecryptionError,
     decrypt_value,
@@ -52,6 +55,107 @@ def test_encrypted_decimal_null_passes_through_unencrypted() -> None:
     col = EncryptedDecimal()
     assert col.process_bind_param(None, dialect=None) is None
     assert col.process_result_value(None, dialect=None) is None
+
+
+def test_generic_encrypted_decimal_still_binds_negative_and_nonfinite() -> None:
+    col = EncryptedDecimal()
+    token = col.process_bind_param(Decimal("-1"), dialect=None)
+    assert token is not None
+    assert col.process_result_value(token, dialect=None) == Decimal("-1")
+    inf_token = col.process_bind_param(Decimal("Infinity"), dialect=None)
+    assert inf_token is not None
+
+
+def test_encrypted_holding_amount_null_passes_through() -> None:
+    col = EncryptedHoldingAmount()
+    assert col.process_bind_param(None, dialect=None) is None
+    assert col.process_result_value(None, dialect=None) is None
+
+
+@pytest.mark.parametrize("value", [Decimal("0"), Decimal("-0.00"), Decimal("1.25")])
+def test_encrypted_holding_amount_binds_finite_non_negative(value: Decimal) -> None:
+    col = EncryptedHoldingAmount()
+    token = col.process_bind_param(value, dialect=None)
+    assert token is not None
+    assert col.process_result_value(token, dialect=None) == value
+
+
+@pytest.mark.parametrize(
+    "value",
+    [Decimal("-1"), Decimal("NaN"), Decimal("Infinity"), Decimal("-Infinity"), 1.25, "1.25"],
+)
+def test_encrypted_holding_amount_rejects_invalid_bind(value: object) -> None:
+    col = EncryptedHoldingAmount()
+    with pytest.raises(ValueError, match=HOLDING_AMOUNT_BIND_ERROR):
+        col.process_bind_param(value, dialect=None)  # type: ignore[arg-type]
+
+
+def test_holding_amount_columns_use_constrained_type() -> None:
+    assert isinstance(Holding.__table__.c.shares.type, EncryptedHoldingAmount)
+    assert isinstance(Holding.__table__.c.avg_cost.type, EncryptedHoldingAmount)
+    assert isinstance(Holding.__table__.c.current_value.type, EncryptedHoldingAmount)
+    assert type(Holding.__table__.c.market_price.type) is EncryptedDecimal
+
+
+def _amount_holding(**overrides: object) -> Holding:
+    defaults: dict[str, object] = dict(
+        user_id=TEST_USER_ID,
+        name="Amount Guard",
+        pricing_mode="auto",
+        currency="USD",
+        asset_class="STOCK",
+    )
+    defaults.update(overrides)
+    return Holding(**defaults)
+
+
+@pytest.mark.parametrize("field", ["shares", "avg_cost", "current_value"])
+@pytest.mark.parametrize("value", [Decimal("-1"), Decimal("NaN"), Decimal("Infinity")])
+def test_orm_write_rejects_invalid_holding_amount(
+    db_session: Session, field: str, value: Decimal
+) -> None:
+    with (
+        pytest.raises(StatementError, match=HOLDING_AMOUNT_BIND_ERROR),
+        db_session.begin_nested(),
+    ):
+        db_session.add(_amount_holding(**{field: value}))
+        db_session.flush()
+    db_session.add(_amount_holding(shares=Decimal("2")))
+    db_session.flush()
+    stored = db_session.scalars(select(Holding)).all()
+    assert len(stored) == 1
+    assert stored[0].shares == Decimal("2")
+
+
+@pytest.mark.parametrize("field", ["shares", "avg_cost", "current_value"])
+def test_core_insert_rejects_invalid_holding_amount(db_session: Session, field: str) -> None:
+    values: dict[str, object] = dict(
+        user_id=TEST_USER_ID,
+        name="Core Amount",
+        pricing_mode="auto",
+        currency="USD",
+        asset_class="STOCK",
+        **{field: Decimal("-1")},
+    )
+    with (
+        pytest.raises(StatementError, match=HOLDING_AMOUNT_BIND_ERROR),
+        db_session.begin_nested(),
+    ):
+        db_session.execute(insert(Holding).values(**values))
+    db_session.execute(
+        insert(Holding).values(
+            user_id=TEST_USER_ID,
+            name="Core Amount",
+            pricing_mode="auto",
+            currency="USD",
+            asset_class="STOCK",
+            shares=Decimal("3"),
+        )
+    )
+    db_session.flush()
+    stored = db_session.scalars(select(Holding)).all()
+    assert len(stored) == 1
+    assert stored[0].shares == Decimal("3")
 
 
 def test_unicode_value_round_trips() -> None:

@@ -17,7 +17,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.encryption import EncryptedDecimal, EncryptedString
+from app.core.encryption import EncryptedDecimal, EncryptedHoldingAmount, EncryptedString
 from app.models.account import Account
 from app.models.base import Base
 from app.models.user import User
@@ -97,9 +97,9 @@ class Holding(Base):
     ticker: Mapped[str | None] = mapped_column(EncryptedString)
     fund_code: Mapped[str | None] = mapped_column(EncryptedString)
     currency: Mapped[str] = mapped_column(Text, nullable=False)
-    shares: Mapped[Decimal | None] = mapped_column(EncryptedDecimal)
-    avg_cost: Mapped[Decimal | None] = mapped_column(EncryptedDecimal)
-    current_value: Mapped[Decimal | None] = mapped_column(EncryptedDecimal)
+    shares: Mapped[Decimal | None] = mapped_column(EncryptedHoldingAmount)
+    avg_cost: Mapped[Decimal | None] = mapped_column(EncryptedHoldingAmount)
+    current_value: Mapped[Decimal | None] = mapped_column(EncryptedHoldingAmount)
     asset_type: Mapped[str | None] = mapped_column(Text)
     # Economic-exposure classification, geography-first (STOCK / EQUITY_US_BROAD /
     # EQUITY_US_TECH / EQUITY_DM / EQUITY_CN / EQUITY_EM / EQUITY_BROAD /

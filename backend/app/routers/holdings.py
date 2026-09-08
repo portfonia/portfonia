@@ -6,7 +6,9 @@ from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import Response
+from pydantic import ValidationError
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
@@ -684,7 +686,10 @@ def update_holding(
     merged.update(updates)
     # Re-run ParsedRow validation (cash/wmf boundary, currency, asset_class)
     # on the merged state so a partial patch cannot leave an illegal row.
-    parsed = ParsedRow.model_validate(merged)
+    try:
+        parsed = ParsedRow.model_validate(merged)
+    except ValidationError as exc:
+        raise RequestValidationError(exc.errors()) from exc
     data = _apply_write_defaults(parsed.model_dump(exclude={"issues", "confidence"}))
     account_fields_changed = any(k in updates for k in ("broker", "account", "portfolio"))
     # Compare against what _apply_write_defaults actually produced, not just
