@@ -22,12 +22,45 @@ function portfolioSeries(points: PortfolioPerformanceSeries["points"]): Portfoli
   };
 }
 
+function benchmarkPoint(
+  date: string,
+  return_pct_cumulative: string | null,
+  extras: Partial<BenchmarkPerformanceSeries["points"][number]> = {},
+): BenchmarkPerformanceSeries["points"][number] {
+  return {
+    date,
+    return_pct_cumulative,
+    price_as_of: return_pct_cumulative === null ? null : date,
+    fx_as_of: {},
+    carried: false,
+    unavailable_reason: null,
+    ...extras,
+  };
+}
+
 function benchmarkSeries(
   index_code: BenchmarkPerformanceSeries["index_code"],
   points: BenchmarkPerformanceSeries["points"],
-  comparable: boolean,
+  extras: Partial<BenchmarkPerformanceSeries> = {},
 ): BenchmarkPerformanceSeries {
-  return { index_code, name: index_code, start_date: points[0]?.date ?? null, points, comparable };
+  const nonNull = points.filter((point) => point.return_pct_cumulative !== null);
+  return {
+    index_code,
+    name: index_code,
+    start_date: points[0]?.date ?? null,
+    points,
+    comparable: extras.comparable ?? true,
+    displayable: extras.displayable ?? nonNull.length > 0,
+    normalization: extras.normalization ?? "portfolio_start",
+    anchor_date: extras.anchor_date ?? nonNull[0]?.date ?? null,
+    display_start_date: extras.display_start_date ?? nonNull[0]?.date ?? null,
+    display_end_date: extras.display_end_date ?? nonNull.at(-1)?.date ?? null,
+    comparison_start: extras.comparison_start ?? null,
+    comparison_end: extras.comparison_end ?? null,
+    comparison_status: extras.comparison_status ?? "available",
+    comparison_return_pct: extras.comparison_return_pct ?? null,
+    ...extras,
+  };
 }
 
 describe("buildChartData", () => {
@@ -36,14 +69,10 @@ describe("buildChartData", () => {
       { date: "2026-08-03", value_base: "100", return_pct_cumulative: "0", is_approximate: false },
       { date: "2026-08-04", value_base: "110", return_pct_cumulative: "0.1", is_approximate: false },
     ]);
-    const sp500 = benchmarkSeries(
-      "sp500",
-      [
-        { date: "2026-08-03", return_pct_cumulative: "0" },
-        { date: "2026-08-04", return_pct_cumulative: "0.02" },
-      ],
-      true,
-    );
+    const sp500 = benchmarkSeries("sp500", [
+      benchmarkPoint("2026-08-03", "0"),
+      benchmarkPoint("2026-08-04", "0.02"),
+    ]);
 
     const { rows, drawnBenchmarks } = buildChartData(portfolio, [sp500]);
 
@@ -53,21 +82,22 @@ describe("buildChartData", () => {
     expect(rows[1]).toMatchObject({ portfolio: 0.1, sp500: 0.02 });
   });
 
-  it("excludes non-comparable or point-less benchmarks from drawn rows (D7)", () => {
+  it("draws non-comparable history when displayable, and keeps nulls as null", () => {
     const portfolio = portfolioSeries([
       { date: "2026-08-03", value_base: "100", return_pct_cumulative: "0", is_approximate: false },
     ]);
-    const dow30 = benchmarkSeries("dow30", [], false);
+    const dow30 = benchmarkSeries("dow30", [], { comparable: false, displayable: false });
     const nasdaq = benchmarkSeries(
       "nasdaq",
-      [{ date: "2026-08-03", return_pct_cumulative: "0" }],
-      true,
+      [benchmarkPoint("2026-08-03", "0"), benchmarkPoint("2026-08-04", null, { unavailable_reason: "missing_price" })],
+      { comparable: false, comparison_status: "anchor_unavailable", normalization: "own_start" },
     );
 
     const { rows, drawnBenchmarks } = buildChartData(portfolio, [dow30, nasdaq]);
 
     expect(drawnBenchmarks.map((b) => b.index_code)).toEqual(["nasdaq"]);
     expect(rows[0]).toMatchObject({ portfolio: 0, nasdaq: 0 });
+    expect(rows[1]).toMatchObject({ nasdaq: null });
     expect(rows[0].dow30).toBeUndefined();
   });
 
@@ -75,11 +105,7 @@ describe("buildChartData", () => {
     const portfolio = portfolioSeries([
       { date: "2026-08-04", value_base: "100", return_pct_cumulative: "0", is_approximate: false },
     ]);
-    const sp500 = benchmarkSeries(
-      "sp500",
-      [{ date: "2026-08-03", return_pct_cumulative: "0" }],
-      true,
-    );
+    const sp500 = benchmarkSeries("sp500", [benchmarkPoint("2026-08-03", "0")]);
 
     const { rows } = buildChartData(portfolio, [sp500]);
     expect(rows.map((row) => row.date)).toEqual(["2026-08-03", "2026-08-04"]);

@@ -72,6 +72,31 @@ def to_base(
     return amount_usd * rates[pair]
 
 
+def conversion_pairs(currency: str, base_currency: str) -> list[str] | None:
+    """USD-pivot pair names `to_base` will read, in conversion order.
+
+    Empty when the currencies already match. `None` when a currency has no
+    mapped pair — the amount cannot be converted, same as a missing rate.
+    Cross conversions preserve both legs so callers can disclose each
+    source date instead of inventing a single blended FX date.
+    """
+    if currency == base_currency:
+        return []
+    pairs: list[str] = []
+    if currency != "USD":
+        pair = CURRENCY_TO_FX_PAIR.get(currency)
+        if pair is None:
+            return None
+        pairs.append(pair)
+    if base_currency != "USD":
+        pair = CURRENCY_TO_FX_PAIR.get(base_currency)
+        if pair is None:
+            return None
+        if pair not in pairs:
+            pairs.append(pair)
+    return pairs
+
+
 def fx_multiplier(currency: str, base_currency: str, rates: dict[str, Decimal]) -> Decimal | None:
     """The single multiplier `m` such that `to_base(amount, ...) == amount * m`.
 
