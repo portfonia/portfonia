@@ -399,6 +399,15 @@ failure mode this protocol exists to prevent.
 
 ## Branching
 
+**Isolated worktree requirement (all repository changes):** The main checkout
+is read-only for task edits. Create a separate git worktree on a task branch
+before changing code, configuration, documentation, or agent instructions;
+switching branches in the main checkout is not isolation. Keep main clean,
+preserve unrelated user work, and submit the task branch as a PR for review.
+Small or documentation-only changes have no exception. See AGENTS.md for
+the task-edit recovery procedure. Merge/deployment authorization remains
+separate from creating the PR.
+
 > **2026-08-06 correction:** every change — code, config, or docs, at every
 > Ring, no solo-work exception — starts on a branch and goes through a PR.
 > The prior "Ring 0 commits directly to `main`" carve-out is retracted: it was
@@ -457,6 +466,17 @@ Full design, including token rotation, constant-time comparison, router-level
 auth declaration, and audit logging: Obsidian `Hermes/Portfonia/Docs/Ring 1-B design.md` §4.
 
 ## Issue Tracking (MANDATORY)
+
+**Project-wide issue documentation contract (2026-09-08):** Follow
+`AGENTS.md` for issue structure and implementation-ready design requirements.
+Keep the body concise; publish Requirements, Reasons, Exploration, Design,
+and Contract constraints as five separate comments. Design must specify
+modules/data flow, schema/API, algorithms, ordering, failure branches,
+compatibility, and worked examples. Contract constraints must specify
+invariants, dependencies, exclusions, concrete acceptance tests, validation,
+and release/authorization gates. Desired outcomes alone are insufficient.
+Separate confirmed decisions from authored designs and unresolved questions;
+never invent approval. Apply this to all Portfonia issues, not just #377.
 
 Every new feature/improvement request and every bug — regardless of whether
 it's fixed immediately — gets a GitHub issue first, before the fix/feature
