@@ -8,11 +8,13 @@
 // in the page body / performance-data.ts.
 
 import { useLocale } from "@/app/_components/locale-provider";
+import { useTranslations } from "next-intl";
 import { formatFullDate, formatShortDate, formatSignedPct, formatTickPct } from "./performance-format";
 import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -21,7 +23,8 @@ import {
   type TooltipPayloadEntry,
 } from "recharts";
 import { useMemo } from "react";
-import type { ChartSeriesRow } from "./performance-data";
+import type { BenchmarkCode } from "@/lib/api";
+import type { BuiltChartData, ChartSeriesRow } from "./performance-data";
 
 export interface ChartSeriesSpec {
   // Chart data column key (portfolio / portfolioApprox / a benchmark code).
@@ -29,18 +32,12 @@ export interface ChartSeriesSpec {
   label: string;
   color: string;
   dashed?: boolean;
-  // Portfolio strokes are thicker than benchmark strokes (issue #360
-  // requirement 6) and get the single-point dot.
   isPortfolio?: boolean;
+  singletonDot?: boolean;
 }
 
 const APPROX_DASH = "5 4";
 
-// Strict per-key read: the solid column returns only the solid value and the
-// dashed column only the approximate value (review 5128075545 finding 2) —
-// a date is drawn by exactly one column (performance-data.ts splits on
-// is_approximate), so falling back across keys would make the tooltip list
-// Portfolio twice on approximate days.
 function rowValue(row: ChartSeriesRow, key: string): number | null {
   const value = row[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -50,12 +47,15 @@ function ChartTooltip({
   active,
   payload,
   series,
+  pointMeta,
 }: {
   active?: boolean;
   payload?: readonly TooltipPayloadEntry[];
   series: readonly ChartSeriesSpec[];
+  pointMeta: BuiltChartData["pointMeta"];
 }) {
   const { locale } = useLocale();
+  const t = useTranslations("portfolio.performance");
   const row = payload?.[0]?.payload as ChartSeriesRow | undefined;
   if (!active || !row) return null;
 
@@ -63,17 +63,34 @@ function ChartTooltip({
     .map((spec) => {
       const value = rowValue(row, spec.key);
       if (value === null) return null;
+      const meta =
+        spec.isPortfolio || spec.key === "portfolioApprox"
+          ? undefined
+          : pointMeta[row.date]?.[spec.key as BenchmarkCode];
       return (
-        <li key={spec.key} className="flex items-center justify-between gap-4">
-          <span className="flex items-center gap-2 truncate">
-            <span
-              aria-hidden="true"
-              className="size-2 shrink-0 rounded-full"
-              style={{ backgroundColor: spec.color }}
-            />
-            <span className="truncate">{spec.label}</span>
+        <li key={spec.key} className="flex flex-col gap-0.5">
+          <span className="flex items-center justify-between gap-4">
+            <span className="flex items-center gap-2 truncate">
+              <span
+                aria-hidden="true"
+                className="size-2 shrink-0 rounded-full"
+                style={{ backgroundColor: spec.color }}
+              />
+              <span className="truncate">{spec.label}</span>
+            </span>
+            <span className="shrink-0 tabular-nums">{formatSignedPct(value)}</span>
           </span>
-          <span className="shrink-0 tabular-nums">{formatSignedPct(value)}</span>
+          {meta ? (
+            <span className="pl-4 text-xs text-muted-foreground">
+              {t("tooltipCloseAsOf", { date: formatFullDate(meta.priceAsOf ?? row.date, locale) })}
+              {Object.entries(meta.fxAsOf).map(([pair, source]) => (
+                <span key={pair} className="block">
+                  {t("tooltipFxAsOf", { pair, date: formatFullDate(source, locale) })}
+                </span>
+              ))}
+              {meta.carried ? <span className="block">{t("tooltipCarried")}</span> : null}
+            </span>
+          ) : null}
         </li>
       );
     })
@@ -92,11 +109,13 @@ function ChartTooltip({
 export function PerformanceChart({
   rows,
   series,
-  singlePortfolioPoint,
+  pointMeta,
+  anchorDate,
 }: {
   rows: readonly ChartSeriesRow[];
   series: readonly ChartSeriesSpec[];
-  singlePortfolioPoint: boolean;
+  pointMeta: BuiltChartData["pointMeta"];
+  anchorDate: string | null;
 }) {
   const { locale } = useLocale();
   const yDomain = useMemo(() => {
@@ -124,7 +143,7 @@ export function PerformanceChart({
   if (rows.length === 0) return null;
 
   const tooltipContent = (props: TooltipContentProps) => (
-    <ChartTooltip {...props} series={series} />
+    <ChartTooltip {...props} series={series} pointMeta={pointMeta} />
   );
 
   return (
@@ -156,6 +175,13 @@ export function PerformanceChart({
             tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
             width={48}
           />
+          {anchorDate ? (
+            <ReferenceLine
+              x={anchorDate}
+              stroke="var(--muted-foreground)"
+              strokeDasharray="3 3"
+            />
+          ) : null}
           <Tooltip content={tooltipContent} />
           {series.map((spec) => (
             <Line
@@ -166,7 +192,7 @@ export function PerformanceChart({
               strokeWidth={spec.isPortfolio ? 2.5 : 1.5}
               strokeDasharray={spec.dashed ? APPROX_DASH : undefined}
               dot={
-                singlePortfolioPoint && spec.isPortfolio
+                spec.singletonDot
                   ? { r: 4, strokeWidth: 0, fill: spec.color }
                   : false
               }

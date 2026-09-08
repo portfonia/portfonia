@@ -38,6 +38,18 @@ from sqlalchemy.orm import Session
 from app.models.portfolio_snapshot_batch import PortfolioSnapshotBatch
 from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
 from app.services.benchmark_prices import INDEX_YF_TICKERS
+from app.services.benchmark_valuation import (
+    ComparisonStatus,
+    DailyValuation,
+    Normalization,
+    RawClose,
+    evaluate_index_day,
+    evaluate_index_range,
+    first_source_in_range,
+    load_fx_series,
+    load_index_closes,
+    required_pairs_for_closes,
+)
 from app.services.fx_conversion import to_base
 from app.services.instrument_symbols import normalize_legacy_ticker
 from app.services.portfolio_history import historical_fx_rates_asof, historical_price
@@ -104,7 +116,11 @@ class PortfolioSeries:
 @dataclass
 class BenchmarkPoint:
     point_date: date
-    return_pct_cumulative: Decimal
+    return_pct_cumulative: Decimal | None
+    price_as_of: date | None = None
+    fx_as_of: dict[str, date] = field(default_factory=dict)
+    carried: bool = False
+    unavailable_reason: str | None = None
 
 
 @dataclass
@@ -113,10 +129,20 @@ class BenchmarkSeries:
     name: str
     start_date: date | None
     points: list[BenchmarkPoint] = field(default_factory=list)
-    # False when this benchmark has no point inside the common compare
-    # window (issue #366 D7) — `points` is then cleared to [] rather than
-    # left self-normalized over its own, unrelated window.
+    # Comparison eligibility (issue #377) is independent of whether the
+    # series is displayable. A non-comparable series may still carry full
+    # selected-range history; it must not be treated as a head-to-head
+    # return against the portfolio.
     comparable: bool = True
+    displayable: bool = False
+    normalization: Normalization = "unavailable"
+    anchor_date: date | None = None
+    display_start_date: date | None = None
+    display_end_date: date | None = None
+    comparison_start: date | None = None
+    comparison_end: date | None = None
+    comparison_status: ComparisonStatus = "no_portfolio"
+    comparison_return_pct: Decimal | None = None
 
 
 @dataclass
@@ -516,113 +542,177 @@ def _build_portfolio_series(
     return series, value_start, value_end
 
 
-def _build_benchmark_series(
-    session: Session,
+def _point_from_valuation(valuation: DailyValuation, return_pct: Decimal | None) -> BenchmarkPoint:
+    return BenchmarkPoint(
+        point_date=valuation.evaluation_date,
+        return_pct_cumulative=return_pct,
+        price_as_of=valuation.price_as_of,
+        fx_as_of=dict(valuation.fx_as_of),
+        carried=valuation.carried,
+        unavailable_reason=valuation.unavailable_reason,
+    )
+
+
+def _classify_comparison(
+    portfolio: PortfolioSeries,
+    by_day: dict[date, DailyValuation],
+) -> tuple[ComparisonStatus, bool, Decimal | None, date | None, date | None]:
+    if (
+        portfolio.empty
+        or portfolio.start_date is None
+        or portfolio.end_date is None
+        or not portfolio.points
+    ):
+        return "no_portfolio", False, None, None, None
+
+    p0 = portfolio.start_date
+    p1 = portfolio.end_date
+    anchor = by_day.get(p0)
+    if anchor is None or anchor.value is None or anchor.value <= 0:
+        return "anchor_unavailable", False, None, p0, p1
+
+    for point in portfolio.points:
+        day_value = by_day.get(point.point_date)
+        if day_value is None or day_value.value is None:
+            return "incomplete_window", False, None, p0, p1
+
+    if p0 == p1:
+        return "baseline_only", True, Decimal("0.0000"), p0, p1
+
+    end_value = by_day[p1].value
+    if end_value is None or end_value <= 0:
+        return "incomplete_window", False, None, p0, p1
+    comparison_return = (end_value / anchor.value - Decimal("1")).quantize(
+        _PCT, rounding=ROUND_HALF_UP
+    )
+    return "available", True, comparison_return, p0, p1
+
+
+def _unavailable_series(
     index_code: str,
-    start_date: date,
-    end_date: date,
-    requested_currency: str,
+    source_start: date | None,
+    portfolio: PortfolioSeries,
+    by_day: dict[date, DailyValuation],
 ) -> BenchmarkSeries:
-    from app.models.benchmark_price import BenchmarkPrice
-
-    rows = session.execute(
-        select(BenchmarkPrice.price_date, BenchmarkPrice.close_price, BenchmarkPrice.currency)
-        .where(
-            BenchmarkPrice.index_code == index_code,
-            BenchmarkPrice.price_date >= start_date,
-            BenchmarkPrice.price_date <= end_date,
-        )
-        .order_by(BenchmarkPrice.price_date.asc())
-    ).all()
-
-    points: list[BenchmarkPoint] = []
-    base_value: Decimal | None = None
-    for price_date, close_price, currency in rows:
-        converted = _convert_amount(session, close_price, currency, requested_currency, price_date)
-        if converted is None:
-            continue
-        if base_value is None:
-            base_value = converted
-            pct = Decimal("0")
-        elif base_value > 0:
-            pct = (converted / base_value - Decimal("1")).quantize(_PCT, rounding=ROUND_HALF_UP)
-        else:
-            pct = Decimal("0")
-        points.append(BenchmarkPoint(point_date=price_date, return_pct_cumulative=pct))
-
+    status, comparable, comparison_return, comparison_start, comparison_end = _classify_comparison(
+        portfolio, by_day
+    )
     return BenchmarkSeries(
         index_code=index_code,
         name=BENCHMARK_NAMES.get(index_code, index_code),
-        start_date=points[0].point_date if points else None,
-        points=points,
+        start_date=source_start,
+        points=[],
+        comparable=comparable,
+        displayable=False,
+        normalization="unavailable",
+        comparison_start=comparison_start,
+        comparison_end=comparison_end,
+        comparison_status=status,
+        comparison_return_pct=comparison_return,
     )
 
 
-def _rebase_benchmark_to_window(
-    series: BenchmarkSeries, compare_start: date, compare_end: date
+def _serialize_benchmark_series(
+    index_code: str,
+    range_start: date,
+    range_end: date,
+    closes: list[RawClose],
+    by_day: dict[date, DailyValuation],
+    portfolio: PortfolioSeries,
 ) -> BenchmarkSeries:
-    """Re-anchor an independently-normalized benchmark series (0% at its own
-    first point over the full requested range) to the portfolio's common
-    compare window (issue #366 D7): `compare_start = max(range_start,
-    tracking_start, first_portfolio_point_in_filtered_series)`, which
-    `_build_portfolio_series` already guarantees equals the portfolio
-    series' own `start_date` whenever it is non-empty (real data can never
-    predate `tracking_start`, and the DB query already bounds it to
-    `range_start`).
+    source_start = first_source_in_range(closes, range_start, range_end)
+    if not by_day:
+        return _unavailable_series(index_code, source_start, portfolio, {})
 
-    `compare_end` is the caller-computed `min(range_end,
-    portfolio_series.end_date)` — NOT the raw requested range end. Review
-    5563537095/blacktomb42 finding 2 (issue #367): capping only at the raw
-    range end let a benchmark point that exists AFTER the portfolio's own
-    real last day (e.g. the portfolio's tracked history ends before the
-    request's `range_end`) leak into the window with `comparable=True`,
-    comparing the portfolio against a period it has no data for at all.
+    p0 = portfolio.start_date if not portfolio.empty else None
+    p0_value = by_day[p0].value if p0 is not None and p0 in by_day else None
+    if p0 is not None and p0_value is not None and p0_value > 0:
+        anchor_date = p0
+        anchor_value = p0_value
+        normalization: Normalization = "portfolio_start"
+    else:
+        first_valid = next(
+            (day for day, valuation in sorted(by_day.items()) if valuation.value is not None),
+            None,
+        )
+        if first_valid is None:
+            return _unavailable_series(index_code, source_start, portfolio, by_day)
+        first_value = by_day[first_valid].value
+        if first_value is None or first_value <= 0:
+            return _unavailable_series(index_code, source_start, portfolio, by_day)
+        anchor_date = first_valid
+        anchor_value = first_value
+        normalization = "own_start"
 
-    Rebasing from the already-computed cumulative % (rather than
-    re-fetching raw prices) is exact: old_pct(t) = price(t)/price(base) - 1,
-    so (1+old_pct(t)) / (1+old_pct(new_base)) = price(t)/price(new_base) =
-    1 + new_pct(t).
-
-    `series.start_date` (the benchmark's own true earliest data point in
-    the full requested range) is preserved for disclosure even though
-    `points` is clipped — the contract requires each series to still
-    report where its own data begins, without presenting that as a
-    head-to-head comparison window.
-    """
-    windowed = [p for p in series.points if compare_start <= p.point_date <= compare_end]
-    if not windowed:
-        return BenchmarkSeries(
-            index_code=series.index_code,
-            name=series.name,
-            start_date=series.start_date,
-            points=[],
-            comparable=False,
-        )
-    base_multiplier = Decimal("1") + windowed[0].return_pct_cumulative
-    if base_multiplier == 0:
-        return BenchmarkSeries(
-            index_code=series.index_code,
-            name=series.name,
-            start_date=series.start_date,
-            points=[],
-            comparable=False,
-        )
-    rebased = [
-        BenchmarkPoint(
-            point_date=p.point_date,
-            return_pct_cumulative=(
-                (Decimal("1") + p.return_pct_cumulative) / base_multiplier - Decimal("1")
-            ).quantize(_PCT, rounding=ROUND_HALF_UP),
-        )
-        for p in windowed
-    ]
-    return BenchmarkSeries(
-        index_code=series.index_code,
-        name=series.name,
-        start_date=series.start_date,
-        points=rebased,
-        comparable=True,
+    first_valid_day = next(
+        day for day, valuation in sorted(by_day.items()) if valuation.value is not None
     )
+    points: list[BenchmarkPoint] = []
+    for day in sorted(by_day):
+        if day < first_valid_day:
+            continue
+        valuation = by_day[day]
+        if valuation.value is None:
+            points.append(_point_from_valuation(valuation, None))
+            continue
+        pct = (valuation.value / anchor_value - Decimal("1")).quantize(_PCT, rounding=ROUND_HALF_UP)
+        points.append(_point_from_valuation(valuation, pct))
+
+    non_null = [point for point in points if point.return_pct_cumulative is not None]
+    status, comparable, comparison_return, comparison_start, comparison_end = _classify_comparison(
+        portfolio, by_day
+    )
+    return BenchmarkSeries(
+        index_code=index_code,
+        name=BENCHMARK_NAMES.get(index_code, index_code),
+        start_date=source_start,
+        points=points,
+        comparable=comparable,
+        displayable=bool(non_null),
+        normalization=normalization,
+        anchor_date=anchor_date,
+        display_start_date=non_null[0].point_date if non_null else None,
+        display_end_date=non_null[-1].point_date if non_null else None,
+        comparison_start=comparison_start,
+        comparison_end=comparison_end,
+        comparison_status=status,
+        comparison_return_pct=comparison_return,
+    )
+
+
+def _build_selected_benchmarks(
+    session: Session,
+    benchmark_codes: list[str],
+    range_start: date,
+    range_end: date,
+    requested_currency: str,
+    portfolio: PortfolioSeries,
+) -> list[BenchmarkSeries]:
+    codes = [code for code in benchmark_codes if code in INDEX_YF_TICKERS]
+    if not codes:
+        return []
+    closes_by_index = load_index_closes(session, codes, range_start, range_end)
+    fx_by_pair = load_fx_series(
+        session,
+        required_pairs_for_closes(closes_by_index, requested_currency),
+        range_start,
+        range_end,
+    )
+    series: list[BenchmarkSeries] = []
+    for code in codes:
+        closes = closes_by_index.get(code, [])
+        by_day = evaluate_index_range(
+            range_start, range_end, closes, fx_by_pair, requested_currency
+        )
+        for point in portfolio.points:
+            if point.point_date not in by_day:
+                by_day[point.point_date] = evaluate_index_day(
+                    point.point_date, closes, fx_by_pair, requested_currency
+                )
+        series.append(
+            _serialize_benchmark_series(code, range_start, range_end, closes, by_day, portfolio)
+        )
+    return series
 
 
 def compute_portfolio_performance(
@@ -665,36 +755,19 @@ def compute_portfolio_performance(
         tracking_start,
     )
 
-    benchmarks = [
-        _build_benchmark_series(session, code, start_date, end_date, requested_currency)
-        for code in benchmark_codes
-        if code in INDEX_YF_TICKERS
-    ]
-
-    # Common compare window (issue #366 D7): once the portfolio series is
-    # non-empty, its own `start_date` already equals
-    # max(range_start, tracking_start, first_filtered_point) — real rows
-    # can't predate tracking_start, and the DB query already bounds
-    # everything to range_start. Re-anchor each benchmark's independently-
-    # normalized-over-the-full-range series to that same start so cumulative
-    # % is never read as head-to-head outperformance across unequal windows.
-    # The end is capped at the portfolio's own last real day, NOT the raw
-    # requested range end (review 5563537095/blacktomb42 finding 2, issue
-    # #367) — a benchmark point after the portfolio's real history ends
-    # must not silently compare against a period the portfolio has no data
-    # for at all. When the portfolio has no matching history, benchmarks
-    # stay self-normalized over the full requested range (no comparison
-    # target exists to co-normalize against — §1 requirement 5).
-    if (
-        not portfolio_series.empty
-        and portfolio_series.start_date is not None
-        and portfolio_series.end_date is not None
-    ):
-        compare_end = min(end_date, portfolio_series.end_date)
-        benchmarks = [
-            _rebase_benchmark_to_window(b, portfolio_series.start_date, compare_end)
-            for b in benchmarks
-        ]
+    # Issue #377: evaluate each selected index across the requested range
+    # with bounded as-of prices/FX, then normalize to P0 when that day is
+    # valuable. Display history is not clipped to the portfolio window;
+    # comparison_status/comparable say whether the shared-anchor return is
+    # honest. Do not rebase already-rounded percentages.
+    benchmarks = _build_selected_benchmarks(
+        session,
+        benchmark_codes,
+        start_date,
+        end_date,
+        requested_currency,
+        portfolio_series,
+    )
 
     value_change = value_end - value_start
     if twr and portfolio_series.points:

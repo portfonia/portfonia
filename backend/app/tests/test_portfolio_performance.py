@@ -517,9 +517,14 @@ def test_common_window_filtered_portfolio_shorter_than_benchmark(db_session: Ses
     sp500 = result.benchmarks[0]
     assert sp500.start_date == D1  # true data start still disclosed
     assert sp500.comparable is True
-    assert [p.point_date for p in sp500.points] == [D2, D3]  # D1 clipped out
-    assert sp500.points[0].return_pct_cumulative == Decimal("0")
-    assert sp500.points[1].return_pct_cumulative == Decimal("0.1000")  # rebased off D2, not D1
+    assert sp500.displayable is True
+    assert sp500.normalization == "portfolio_start"
+    assert sp500.anchor_date == D2
+    assert [p.point_date for p in sp500.points] == [D1, D2, D3]
+    # 100/110 - 1 = -0.0909; D2 is the shared zero, D3 is +10% off D2.
+    assert sp500.points[0].return_pct_cumulative == Decimal("-0.0909")
+    assert sp500.points[1].return_pct_cumulative == Decimal("0.0000")
+    assert sp500.points[2].return_pct_cumulative == Decimal("0.1000")
 
 
 def test_range_before_tracking_start_clips_benchmark_and_co_normalizes(
@@ -558,18 +563,24 @@ def test_range_before_tracking_start_clips_benchmark_and_co_normalizes(
     sp500 = result.benchmarks[0]
     assert sp500.start_date == D1  # disclosed, but not the compare window
     assert sp500.comparable is True
-    assert [p.point_date for p in sp500.points] == [D2, D3]
-    assert sp500.points[0].return_pct_cumulative == Decimal("0")
-    # 115.5/105 - 1 = +10%, rebased off D2's 105, not D1's 100.
-    assert sp500.points[1].return_pct_cumulative == Decimal("0.1000")
+    assert sp500.normalization == "portfolio_start"
+    assert sp500.anchor_date == D2
+    assert [p.point_date for p in sp500.points] == [D1, D2, D3]
+    # 100/105 - 1 = -0.0476; D2 is the shared zero, D3 is +10% off D2.
+    assert sp500.points[0].return_pct_cumulative == Decimal("-0.0476")
+    assert sp500.points[1].return_pct_cumulative == Decimal("0.0000")
+    # 115.5/105 - 1 = +10%, anchored at D2's 105, not D1's 100.
+    assert sp500.points[2].return_pct_cumulative == Decimal("0.1000")
 
 
 def test_benchmark_with_no_overlap_in_compare_window_marked_non_comparable(
     db_session: Session,
 ) -> None:
-    """A benchmark whose only data predates `tracking_start` has nothing to
-    show in the common window — it must be marked non-comparable with an
-    empty point list, never a silently cross-window %."""
+    """A close from the day before tracking is still a valid as-of price at
+    P0 (1 calendar day, inside the 10-day bound). History stays visible and
+    is co-anchored to the single portfolio snapshot (issue #377). The old
+    clip-and-clear empty-points rule is replaced; non-comparability is
+    reserved for a source that cannot value P0 at all."""
     user_id = uuid.uuid4()
     seed_user(db_session, user_id)
     holding_id = uuid.uuid4()
@@ -577,7 +588,6 @@ def test_benchmark_with_no_overlap_in_compare_window_marked_non_comparable(
     _row(
         db_session, user_id, D2, holding_id, shares=Decimal("10"), market_value_base=Decimal("1000")
     )
-    # This benchmark only has data before tracking even starts.
     db_session.add(BenchmarkPrice(index_code="dow30", price_date=D1, close_price=Decimal("100")))
     db_session.flush()
 
@@ -585,9 +595,15 @@ def test_benchmark_with_no_overlap_in_compare_window_marked_non_comparable(
         db_session, user_id, range_key="ALL", benchmark_codes=["dow30"], today=D2
     )
     dow30 = result.benchmarks[0]
-    assert dow30.comparable is False
-    assert dow30.points == []
-    assert dow30.start_date == D1  # still disclosed
+    assert dow30.displayable is True
+    assert dow30.comparable is True
+    assert dow30.comparison_status == "baseline_only"
+    assert dow30.comparison_return_pct == Decimal("0.0000")
+    assert dow30.start_date == D1
+    assert [p.point_date for p in dow30.points] == [D1, D2]
+    assert dow30.points[0].return_pct_cumulative == Decimal("0.0000")
+    assert dow30.points[1].price_as_of == D1
+    assert dow30.points[1].carried is True
 
 
 # --- review 5563537095/blacktomb42 findings 1-2 (issue #367 fix round) ---
@@ -667,9 +683,10 @@ def test_new_subaccount_with_no_prior_row_excluded_from_pretracking_days_twr(
 
     sp500 = result.benchmarks[0]
     assert sp500.comparable is True
-    assert [p.point_date for p in sp500.points] == [D2, D3]
-    assert sp500.points[0].return_pct_cumulative == Decimal("0")
-    assert sp500.points[1].return_pct_cumulative == Decimal("0.1000")  # not the D1-anchored +120%
+    assert sp500.anchor_date == D2
+    assert [p.point_date for p in sp500.points] == [D1, D2, D3]
+    assert sp500.points[1].return_pct_cumulative == Decimal("0.0000")
+    assert sp500.points[2].return_pct_cumulative == Decimal("0.1000")  # not the D1-anchored +120%
 
 
 def test_new_subaccount_with_no_prior_row_excluded_from_pretracking_days_raw_mv(
@@ -697,8 +714,8 @@ def test_new_subaccount_with_no_prior_row_excluded_from_pretracking_days_raw_mv(
 
     sp500 = result.benchmarks[0]
     assert sp500.comparable is True
-    assert [p.point_date for p in sp500.points] == [D2, D3]
-    assert sp500.points[1].return_pct_cumulative == Decimal("0.1000")
+    assert [p.point_date for p in sp500.points] == [D1, D2, D3]
+    assert sp500.points[2].return_pct_cumulative == Decimal("0.1000")
 
 
 def test_benchmark_ending_before_portfolio_still_comparable_over_its_own_extent(
@@ -736,8 +753,12 @@ def test_benchmark_ending_before_portfolio_still_comparable_over_its_own_extent(
     assert result.portfolio.end_date == D3
     sp500 = result.benchmarks[0]
     assert sp500.comparable is True
-    assert [p.point_date for p in sp500.points] == [D1, D2]
+    assert [p.point_date for p in sp500.points] == [D1, D2, D3]
     assert sp500.points[1].return_pct_cumulative == Decimal("0.1000")
+    assert sp500.points[2].return_pct_cumulative == Decimal("0.1000")
+    assert sp500.points[2].carried is True
+    assert sp500.points[2].price_as_of == D2
+    assert sp500.comparison_return_pct == Decimal("0.1000")
 
 
 def test_benchmark_entirely_after_portfolios_real_end_marked_non_comparable(
@@ -770,8 +791,14 @@ def test_benchmark_entirely_after_portfolios_real_end_marked_non_comparable(
     assert result.portfolio.end_date == D2
     sp500 = result.benchmarks[0]
     assert sp500.comparable is False
-    assert sp500.points == []
-    assert sp500.start_date == D3  # still disclosed
+    assert sp500.comparison_status == "anchor_unavailable"
+    assert sp500.displayable is True
+    assert sp500.normalization == "own_start"
+    assert sp500.anchor_date == D3
+    assert [p.point_date for p in sp500.points] == [D3]
+    assert sp500.points[0].return_pct_cumulative == Decimal("0.0000")
+    assert sp500.start_date == D3
+    assert sp500.comparison_return_pct is None
 
 
 # --- review 5563537095/blacktomb42 finding A (issue #367 fix round,

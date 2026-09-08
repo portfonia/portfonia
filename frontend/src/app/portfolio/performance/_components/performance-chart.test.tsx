@@ -60,15 +60,14 @@ function seriesFor(includeApprox: boolean): ChartSeriesSpec[] {
   return series;
 }
 
-function renderChart(rows: ChartSeriesRow[], singlePortfolioPoint: boolean) {
+function renderChart(rows: ChartSeriesRow[], singletonPortfolio = false) {
   const includeApprox = rows.some((row) => row.portfolioApprox !== null);
+  const series = seriesFor(includeApprox).map((spec) =>
+    spec.isPortfolio ? { ...spec, singletonDot: singletonPortfolio } : spec,
+  );
   return render(
     <LocaleProvider>
-      <PerformanceChart
-        rows={rows}
-        series={seriesFor(includeApprox)}
-        singlePortfolioPoint={singlePortfolioPoint}
-      />
+      <PerformanceChart rows={rows} series={series} pointMeta={{}} anchorDate={null} />
     </LocaleProvider>,
   );
 }
@@ -80,7 +79,7 @@ describe("PerformanceChart", () => {
       { date: "2026-08-04", portfolio: 0.1, portfolioApprox: null, sp500: 0.02 },
       { date: "2026-08-05", portfolio: 0.05, portfolioApprox: null, sp500: 0.01 },
     ];
-    const { container } = renderChart(rows, false);
+    const { container } = renderChart(rows);
 
     const curves = [...container.querySelectorAll("path.recharts-line-curve")];
     const portfolioCurve = curves.find((path) => path.getAttribute("stroke-width") === "2.5");
@@ -97,7 +96,7 @@ describe("PerformanceChart", () => {
       { date: "2026-08-04", portfolio: null, portfolioApprox: 0.1, sp500: 0.02 },
       { date: "2026-08-05", portfolio: null, portfolioApprox: 0.15, sp500: 0.01 },
     ];
-    const { container } = renderChart(rows, false);
+    const { container } = renderChart(rows);
 
     expect(container.querySelector('path[stroke-dasharray="5 4"]')).not.toBeNull();
   });

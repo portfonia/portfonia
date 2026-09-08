@@ -1,12 +1,15 @@
-# Portfolio Performance — Phase 1 (backend only) + issue #366 correction
+# Portfolio Performance — Phase 1 + #366 correction + #377 holiday history
 
 Issue #360 (Phase 1) and issue #366 (tracking-start fix + composition-replay
-removal, 2026-09-07 design amendment). Governing decisions: #360's Decisions
-comment + the 2026-09-06 amendment comment + the Implementation design
-comment, and #366's Design + Implementation-contract comments (read those
-before this file — this is an implementation summary, not the spec itself).
-Paired Chinese-language design doc: Obsidian
-`Hermes/Portfonia/Docs/Portfolio_Pfmc.md` §2 (D2/D5/D7) + §6.
+removal, 2026-09-07 design amendment). Issue #377 (2026-09-08) keeps selected
+benchmark history when the first real snapshot falls on a non-trading day
+and separates display eligibility from comparison eligibility. Governing
+decisions: #360's Decisions comment + the 2026-09-06 amendment comment + the
+Implementation design comment, #366's Design + Implementation-contract
+comments, and #377's five contract comments (read those before this file —
+this is an implementation summary, not the spec itself). Paired
+Chinese-language design doc: Obsidian
+`Hermes/Portfonia/Docs/Portfolio_Pfmc.md` §2 (D2/D5/D7/D9) + §6 + §7.
 
 **#366 in one line**: Phase 1's one-off portfolio backfill derived a
 position's chart start date from "earliest ticker price we happen to have"
@@ -232,43 +235,60 @@ different questions**, not two measurements of the same thing to reconcile
 price 110 is simultaneously "+120% vs cost" and "+10% since tracking," both
 correct). No product path should fake-align them.
 
-## Common compare window (issue #366 D7)
+## Common compare window (issue #366 D7, amended by #377)
 
 Comparing a portfolio's cumulative % against a benchmark's is only
-meaningful when both are measured over the **same** window. Phase 1
-normalized the portfolio and each benchmark independently, each to 0% at
-its own first available point over the FULL requested range — correct when
-the portfolio's own data already spans that whole range, wrong the moment
-`tracking_start` (or a dimension filter — see below) makes the portfolio's
-real first point land later than a long-lived benchmark's.
+meaningful when both are measured over the **same** window. #366 correctly
+banned unequal-window *comparison*, but the first implementation clipped
+benchmark `points` to `[portfolio.start, portfolio.end]` and cleared the
+series when no source date fell inside that window. That conflicted with
+§1.4: selected indexes may keep their available history across the
+requested range even when the portfolio line is a single real snapshot.
 
-`compare_start = max(range_start, tracking_start, first_portfolio_point_in_
-filtered_series)`. In this implementation the last term always dominates
-the other two once the portfolio series is non-empty: `_complete_batch_
-dates` already bounds every candidate day to `range_start`, and a real
-(non-backfilled) row can never predate `tracking_start` by construction —
-so `compare_start` reduces in code to simply `portfolio_series.start_date`
-(`compute_portfolio_performance`). The three-term form in the design doc
-documents WHY that point ends up where it does, not a separate computation.
-This equivalence depends on `portfolio_series.start_date` itself being
-correct — see finding 1 below for a case where it originally wasn't.
+**#377 rule:** keep display history; separate `displayable` from
+`comparable`. If the first displayed portfolio day `P0` has a usable
+as-of index valuation `B(P0)`, the entire displayed index history is
+`R(d) = B(d) / B(P0) - 1` (including `d < P0`). If `P0` cannot be valued,
+the index still draws from its own first usable day (`normalization=
+own_start`) and is marked not comparable. Ratios are computed from raw
+Decimal valuations, never from already-rounded cumulative percentages.
 
-`_rebase_benchmark_to_window` re-anchors each benchmark's already-computed,
-independently-normalized series to `[compare_start, compare_end]`:
-`new_pct(t) = (1 + old_pct(t)) / (1 + old_pct(compare_start)) - 1`,
-algebraically exact since `old_pct(t) = price(t)/price(base) - 1`. This
-clips `points` to that window while preserving the benchmark's own true
-`start_date` for disclosure — the API still reports where each series' real
-data begins, it just never presents an unequal window as head-to-head
-outperformance. A benchmark with zero points inside the compare window
-(e.g., its only data predates `tracking_start` entirely, or falls entirely
-after the portfolio's own real history ends) comes back `comparable=False`
-with an empty `points` list rather than a silently cross-window percentage.
+`compare_start` is still the portfolio series' own `start_date` when the
+series is non-empty. Comparison bounds never extend past `P1`. Points
+after `P1` remain as market context and do not enter
+`comparison_return_pct`. Unequal observed extents that would require
+moving the portfolio/header anchor are still #368's problem — this path
+uses the conservative `incomplete_window` / `anchor_unavailable`
+classification instead of rebasing the portfolio.
 
-When the portfolio series is `empty` (no matching history in range at all),
-benchmarks stay self-normalized over the full requested range — there is no
-comparison target to co-normalize against, and the line must still draw
-per the original Phase 1 requirement (§1.5).
+When the portfolio series is `empty`, benchmarks self-normalize over the
+requested range (`comparison_status=no_portfolio`, `comparable=false`)
+and still draw.
+
+## Bounded as-of index/FX valuation (issue #377)
+
+`GET /portfolio/performance` bulk-loads index closes and required FX from
+`range_start - 10` calendar days through `range_end`, plus one predecessor
+row per index/pair to distinguish missing from stale. Evaluation for
+calendar day `d`:
+
+- latest `source_date <= d` with `d - source_date <= 10` (inclusive) and
+  `close > 0`
+- FX via the existing USD-pivot `to_base` formula; every pair used must
+  itself be `<= d`, `<= 10` days old, and `> 0`
+- `B(d) = close(s) * FX(d)`; an unchanged close can still move in the
+  display currency when FX moves
+- never future prices, request-time FX, interpolation, zero-fill, or
+  unbounded carry-forward
+- `price_as_of`, all `fx_as_of` pair dates, `carried`, and
+  `unavailable_reason` are returned; `carried` means a source predates
+  `d`, not that the market was closed
+- interior/trailing gaps stay null; leading unavailable days are trimmed;
+  GET does not fetch market data or write rows
+
+Query count is independent of the number of calendar days (two index
+queries + two FX queries when conversion is needed, plus the existing
+portfolio reads).
 
 **Review round fixes (issue #367, blacktomb42, review 5563537095) — both
 required changes before merge:**
@@ -289,15 +309,14 @@ required changes before merge:**
   stays intact; a date strictly BEFORE first appearance is excluded from
   the series entirely, not zero-valued).
 - **Finding 2 — `comparable=True` didn't require actual overlap with the
-  portfolio's real history.** `_rebase_benchmark_to_window` originally
-  capped its window at the raw REQUESTED range end, not the portfolio's
-  own real last day — a benchmark point that existed only AFTER the
-  portfolio's tracked history stopped (e.g. the portfolio's last batch was
-  several days ago, but the requested range and a benchmark both extend
-  further) fell inside `[compare_start, range_end]` and came back
-  `comparable=True` with zero portfolio data to compare it against. Fixed
-  by capping the window's end at `min(range_end, portfolio_series.
-  end_date)` in `compute_portfolio_performance` before calling the rebase.
+  portfolio's real history.** The #366 clip originally capped its window at
+  the raw REQUESTED range end, not the portfolio's own real last day — a
+  benchmark point that existed only AFTER the portfolio's tracked history
+  stopped fell inside `[compare_start, range_end]` and came back
+  `comparable=True` with zero portfolio data to compare it against. #377
+  keeps those later points as display context and sets
+  `comparison_end = P1` with `comparison_return_pct` measured at P1, or
+  `anchor_unavailable` / `incomplete_window` when P0/P1 cannot be valued.
 
 ## Production cleanup (one-off, issue #366)
 

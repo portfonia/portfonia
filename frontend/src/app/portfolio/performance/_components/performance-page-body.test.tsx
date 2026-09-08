@@ -115,11 +115,41 @@ function response(overrides: Partial<PortfolioPerformanceResponse> = {}): Portfo
         name: "S&P 500",
         start_date: "2026-08-03",
         points: [
-          { date: "2026-08-03", return_pct_cumulative: "0" },
-          { date: "2026-08-04", return_pct_cumulative: "0.01" },
-          { date: "2026-08-05", return_pct_cumulative: "0.03" },
+          {
+            date: "2026-08-03",
+            return_pct_cumulative: "0",
+            price_as_of: "2026-08-03",
+            fx_as_of: {},
+            carried: false,
+            unavailable_reason: null,
+          },
+          {
+            date: "2026-08-04",
+            return_pct_cumulative: "0.01",
+            price_as_of: "2026-08-04",
+            fx_as_of: {},
+            carried: false,
+            unavailable_reason: null,
+          },
+          {
+            date: "2026-08-05",
+            return_pct_cumulative: "0.03",
+            price_as_of: "2026-08-05",
+            fx_as_of: {},
+            carried: false,
+            unavailable_reason: null,
+          },
         ],
         comparable: true,
+        displayable: true,
+        normalization: "portfolio_start",
+        anchor_date: "2026-08-03",
+        display_start_date: "2026-08-03",
+        display_end_date: "2026-08-05",
+        comparison_start: "2026-08-03",
+        comparison_end: "2026-08-05",
+        comparison_status: "available",
+        comparison_return_pct: "0.03",
       },
       {
         index_code: "nasdaq",
@@ -127,6 +157,15 @@ function response(overrides: Partial<PortfolioPerformanceResponse> = {}): Portfo
         start_date: "2026-08-03",
         points: [],
         comparable: false,
+        displayable: false,
+        normalization: "unavailable",
+        anchor_date: null,
+        display_start_date: null,
+        display_end_date: null,
+        comparison_start: "2026-08-03",
+        comparison_end: "2026-08-05",
+        comparison_status: "anchor_unavailable",
+        comparison_return_pct: null,
       },
     ],
     header: {
@@ -179,17 +218,14 @@ describe("PerformancePageBody", () => {
     expect(screen.getByText(/Approx\. TWR since/)).toBeInTheDocument();
     expect(screen.getByText("+21.00%")).toBeInTheDocument();
     expect(screen.queryByTestId("portfolio-empty-state")).not.toBeInTheDocument();
-    // With a tracked portfolio, comparable benchmarks are co-anchored to the
-    // portfolio window — the description says so (review finding 3).
-    expect(screen.getByText(/co-anchored to that same window/)).toBeInTheDocument();
-    // Legend shows portfolio + drawn benchmark; Nasdaq has no overlap and is
-    // reported as not drawn instead.
+    expect(screen.getByText(/selected indexes keep their available history/i)).toBeInTheDocument();
     const legend = screen.getByTestId("chart-legend");
     expect(within(legend).getByText("Portfolio")).toBeInTheDocument();
     expect(within(legend).getByText("S&P 500")).toBeInTheDocument();
     expect(
-      screen.getByText(/Nasdaq Composite has no data inside your tracked window/),
+      screen.getByText(/Nasdaq Composite has no usable index history in this range/),
     ).toBeInTheDocument();
+    expect(screen.getByText(/Index history is relative to Aug 3, 2026/)).toBeInTheDocument();
   });
 
   it("shows tracking-since copy with the tracking start date", async () => {
@@ -437,5 +473,93 @@ describe("PerformancePageBody", () => {
 
     await waitFor(() => expect(getPerformanceMock).toHaveBeenCalledTimes(2));
     expect(getPerformanceMock.mock.calls[1][0].baseCurrency).toBe("CNY");
+  });
+
+  it("draws non-comparable displayable history and explains the own baseline", async () => {
+    getPerformanceMock.mockResolvedValue(
+      response({
+        benchmarks: [
+          {
+            index_code: "sp500",
+            name: "S&P 500",
+            start_date: "2026-08-04",
+            points: [
+              {
+                date: "2026-08-04",
+                return_pct_cumulative: "0",
+                price_as_of: "2026-08-04",
+                fx_as_of: {},
+                carried: false,
+                unavailable_reason: null,
+              },
+            ],
+            comparable: false,
+            displayable: true,
+            normalization: "own_start",
+            anchor_date: "2026-08-04",
+            display_start_date: "2026-08-04",
+            display_end_date: "2026-08-04",
+            comparison_start: "2026-08-03",
+            comparison_end: "2026-08-05",
+            comparison_status: "anchor_unavailable",
+            comparison_return_pct: null,
+          },
+        ],
+      }),
+    );
+    renderBody();
+    await waitForChart();
+    expect(screen.getByTestId("chart-legend")).toHaveTextContent("S&P 500");
+    expect(screen.getByText(/cannot be valued on the portfolio's first tracked day/)).toBeInTheDocument();
+    expect(screen.queryByText(/has no usable index history/)).not.toBeInTheDocument();
+  });
+
+  it("explains a first-snapshot 0% baseline without hiding the index", async () => {
+    getPerformanceMock.mockResolvedValue(
+      response({
+        portfolio: portfolioSeries([
+          { date: "2026-09-07", value_base: "1000", return_pct_cumulative: "0", is_approximate: false },
+        ]),
+        benchmarks: [
+          {
+            index_code: "sp500",
+            name: "S&P 500",
+            start_date: "2026-09-03",
+            points: [
+              {
+                date: "2026-09-03",
+                return_pct_cumulative: "-0.0909",
+                price_as_of: "2026-09-03",
+                fx_as_of: {},
+                carried: false,
+                unavailable_reason: null,
+              },
+              {
+                date: "2026-09-07",
+                return_pct_cumulative: "0",
+                price_as_of: "2026-09-04",
+                fx_as_of: {},
+                carried: true,
+                unavailable_reason: null,
+              },
+            ],
+            comparable: true,
+            displayable: true,
+            normalization: "portfolio_start",
+            anchor_date: "2026-09-07",
+            display_start_date: "2026-09-03",
+            display_end_date: "2026-09-07",
+            comparison_start: "2026-09-07",
+            comparison_end: "2026-09-07",
+            comparison_status: "baseline_only",
+            comparison_return_pct: "0.0000",
+          },
+        ],
+      }),
+    );
+    renderBody();
+    await waitForChart();
+    expect(screen.getByText(/first tracked snapshot; change starts at 0%/)).toBeInTheDocument();
+    expect(screen.getByTestId("chart-legend")).toHaveTextContent("S&P 500");
   });
 });

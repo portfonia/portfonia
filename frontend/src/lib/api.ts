@@ -577,9 +577,30 @@ export interface PortfolioPerformanceSeries {
   quality_flags: string[];
 }
 
+export type BenchmarkUnavailableReason =
+  | "missing_price"
+  | "stale_price"
+  | "invalid_price"
+  | "missing_fx"
+  | "stale_fx"
+  | "invalid_fx";
+
+export type BenchmarkNormalization = "portfolio_start" | "own_start" | "unavailable";
+
+export type BenchmarkComparisonStatus =
+  | "available"
+  | "baseline_only"
+  | "no_portfolio"
+  | "anchor_unavailable"
+  | "incomplete_window";
+
 export interface BenchmarkPoint {
   date: string;
-  return_pct_cumulative: string;
+  return_pct_cumulative: string | null;
+  price_as_of: string | null;
+  fx_as_of: Record<string, string>;
+  carried: boolean;
+  unavailable_reason: BenchmarkUnavailableReason | null;
 }
 
 export interface BenchmarkPerformanceSeries {
@@ -587,10 +608,17 @@ export interface BenchmarkPerformanceSeries {
   name: string;
   start_date: string | null;
   points: BenchmarkPoint[];
-  // False when this benchmark has no point inside the common compare
-  // window (issue #366 D7) — its cumulative % must not be read against the
-  // portfolio's window, and the UI must not draw it as a comparison line.
+  // Comparison eligibility (issue #377). Display uses `displayable`, not this.
   comparable: boolean;
+  displayable: boolean;
+  normalization: BenchmarkNormalization;
+  anchor_date: string | null;
+  display_start_date: string | null;
+  display_end_date: string | null;
+  comparison_start: string | null;
+  comparison_end: string | null;
+  comparison_status: BenchmarkComparisonStatus;
+  comparison_return_pct: string | null;
 }
 
 export interface PortfolioPerformanceHeader {

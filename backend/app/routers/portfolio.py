@@ -227,14 +227,14 @@ def get_portfolio_performance(
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
 ) -> PortfolioPerformanceResponse:
-    """Issue #360 Phase 1 — backend only, no UI consumes this yet.
+    """Issue #360 / #366 / #377 — portfolio series plus selected indexes.
 
-    Reads pre-computed `portfolio_value_snapshots`/`benchmark_prices` rows;
-    never re-prices a holding or re-derives FX for an individual row (see
-    `app/services/portfolio_performance.py` module docstring). Filters are
-    AND'd across dimensions and apply to each day's own snapshot-time
-    labels (D8) — a sold lot or a renamed account/broker still shows up in
-    the days before the change.
+    Portfolio points come from stored snapshots. Index points are valued
+    at request time from `benchmark_prices` and historical FX with a
+    10-calendar-day as-of bound (issue #377); the handler itself does not
+    fetch market data or write rows. Filters are AND'd across dimensions
+    and apply to each day's own snapshot-time labels (D8) — a sold lot or
+    a renamed account/broker still shows up in the days before the change.
     """
     result = compute_portfolio_performance(
         session,
@@ -273,11 +273,25 @@ def get_portfolio_performance(
                 start_date=b.start_date,
                 points=[
                     BenchmarkPointOut(
-                        date=p.point_date, return_pct_cumulative=p.return_pct_cumulative
+                        date=p.point_date,
+                        return_pct_cumulative=p.return_pct_cumulative,
+                        price_as_of=p.price_as_of,
+                        fx_as_of=p.fx_as_of,
+                        carried=p.carried,
+                        unavailable_reason=p.unavailable_reason,
                     )
                     for p in b.points
                 ],
                 comparable=b.comparable,
+                displayable=b.displayable,
+                normalization=b.normalization,
+                anchor_date=b.anchor_date,
+                display_start_date=b.display_start_date,
+                display_end_date=b.display_end_date,
+                comparison_start=b.comparison_start,
+                comparison_end=b.comparison_end,
+                comparison_status=b.comparison_status,
+                comparison_return_pct=b.comparison_return_pct,
             )
             for b in result.benchmarks
         ],

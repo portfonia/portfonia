@@ -43,7 +43,13 @@ import { CurrencySwitcher } from "../../_components/currency-switcher";
 import { DEFAULT_BASE_CURRENCY, type BaseCurrency } from "../../_components/currencies";
 import { MultiSelectMenu } from "./multi-select-menu";
 import { PerformanceChart, type ChartSeriesSpec } from "./performance-chart";
-import { PORTFOLIO_APPROX_KEY, PORTFOLIO_KEY, buildChartData, hasApproximateSegment } from "./performance-data";
+import {
+  PORTFOLIO_APPROX_KEY,
+  PORTFOLIO_KEY,
+  buildChartData,
+  hasApproximateSegment,
+  seriesHasSingleValue,
+} from "./performance-data";
 import { formatFullDate, formatSignedPct, toRatio } from "./performance-format";
 import { RangeTabs } from "./range-tabs";
 
@@ -203,8 +209,6 @@ export function PerformancePageBody({
   const portfolioEmpty = !response || response.portfolio.empty;
   const qualityFlags = response?.portfolio.quality_flags ?? [];
   const filterActive = filtersActive(filters);
-  const singlePortfolioPoint =
-    !portfolioEmpty && response!.portfolio.points.length === 1;
 
   const chartSeries: ChartSeriesSpec[] = useMemo(() => {
     const names = t.raw("performance.benchmarkNames");
@@ -215,6 +219,7 @@ export function PerformancePageBody({
         label: t("performance.chartPortfolioLabel"),
         color: PORTFOLIO_COLOR,
         isPortfolio: true,
+        singletonDot: seriesHasSingleValue(chartData.rows, PORTFOLIO_KEY),
       });
       if (hasApprox) {
         series.push({
@@ -223,18 +228,28 @@ export function PerformancePageBody({
           color: PORTFOLIO_COLOR,
           dashed: true,
           isPortfolio: true,
+          singletonDot: seriesHasSingleValue(chartData.rows, PORTFOLIO_APPROX_KEY),
         });
       }
     }
     for (const benchmark of chartData.drawnBenchmarks) {
+      const ownBaseline =
+        benchmark.normalization === "own_start" && benchmark.anchor_date
+          ? t("performance.comparisonOwnBaseline", {
+              date: formatFullDate(benchmark.anchor_date, locale),
+            })
+          : null;
       series.push({
         key: benchmark.index_code,
-        label: names[benchmark.index_code],
+        label: ownBaseline
+          ? `${names[benchmark.index_code]} — ${ownBaseline}`
+          : names[benchmark.index_code],
         color: BENCHMARK_COLORS[benchmark.index_code],
+        singletonDot: seriesHasSingleValue(chartData.rows, benchmark.index_code),
       });
     }
     return series;
-  }, [response, chartData, hasApprox, t]);
+  }, [response, chartData, hasApprox, t, locale]);
 
   // Legend mirrors the drawn lines, collapsing the portfolio's solid+dashed
   // pair back into one entry (the dashed hint line explains the second
@@ -242,8 +257,22 @@ export function PerformancePageBody({
   const legendSeries = chartSeries.filter((spec) => spec.key !== PORTFOLIO_APPROX_KEY);
 
   const benchmarkNames = t.raw("performance.benchmarkNames");
-  const notComparableBenchmarks =
-    response?.benchmarks.filter((benchmark) => !benchmark.comparable || benchmark.points.length === 0) ?? [];
+  const unavailableBenchmarks =
+    response?.benchmarks.filter((benchmark) => !benchmark.displayable) ?? [];
+  const comparisonNotices =
+    response?.benchmarks.filter(
+      (benchmark) =>
+        benchmark.displayable &&
+        (benchmark.comparison_status === "baseline_only" ||
+          benchmark.comparison_status === "anchor_unavailable" ||
+          benchmark.comparison_status === "incomplete_window" ||
+          benchmark.normalization === "own_start"),
+    ) ?? [];
+  const sharedAnchor =
+    response?.benchmarks.find((benchmark) => benchmark.normalization === "portfolio_start")
+      ?.anchor_date ??
+    response?.portfolio.start_date ??
+    null;
 
   const changeRange = (next: PerformanceRange) => {
     setRange(next);
@@ -506,7 +535,8 @@ export function PerformancePageBody({
               <PerformanceChart
                 rows={chartData.rows}
                 series={chartSeries}
-                singlePortfolioPoint={singlePortfolioPoint}
+                pointMeta={chartData.pointMeta}
+                anchorDate={!portfolioEmpty ? sharedAnchor : null}
               />
               <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm" data-testid="chart-legend">
                 {legendSeries.map((spec) => (
@@ -533,9 +563,50 @@ export function PerformancePageBody({
                   </li>
                 )}
               </ul>
-              {notComparableBenchmarks.map((benchmark) => (
+              {!portfolioEmpty && sharedAnchor ? (
+                <p className="text-xs text-muted-foreground">
+                  {t("performance.indexHistoryRelativeTo", {
+                    date: formatFullDate(sharedAnchor, locale),
+                  })}
+                </p>
+              ) : null}
+              {comparisonNotices.map((benchmark) => {
+                const name = benchmarkNames[benchmark.index_code];
+                if (benchmark.comparison_status === "baseline_only") {
+                  return (
+                    <p key={benchmark.index_code} className="text-xs text-muted-foreground">
+                      {t("performance.comparisonBaselineOnly", { name })}
+                    </p>
+                  );
+                }
+                if (benchmark.comparison_status === "anchor_unavailable") {
+                  return (
+                    <p key={benchmark.index_code} className="text-xs text-muted-foreground">
+                      {t("performance.comparisonAnchorUnavailable", { name })}
+                    </p>
+                  );
+                }
+                if (benchmark.comparison_status === "incomplete_window") {
+                  return (
+                    <p key={benchmark.index_code} className="text-xs text-muted-foreground">
+                      {t("performance.comparisonIncompleteWindow", { name })}
+                    </p>
+                  );
+                }
+                if (benchmark.normalization === "own_start" && benchmark.anchor_date) {
+                  return (
+                    <p key={benchmark.index_code} className="text-xs text-muted-foreground">
+                      {t("performance.comparisonOwnBaseline", {
+                        date: formatFullDate(benchmark.anchor_date, locale),
+                      })}
+                    </p>
+                  );
+                }
+                return null;
+              })}
+              {unavailableBenchmarks.map((benchmark) => (
                 <p key={benchmark.index_code} className="text-xs text-muted-foreground">
-                  {t("performance.benchmarkNotOverlapping", {
+                  {t("performance.benchmarkNoUsableHistory", {
                     name: benchmarkNames[benchmark.index_code],
                   })}
                 </p>

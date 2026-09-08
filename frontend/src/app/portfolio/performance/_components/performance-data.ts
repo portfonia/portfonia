@@ -1,11 +1,11 @@
-// Chart row/domain building for the performance chart (issue #360 Phase 2).
-// Kept separate from the recharts component so the merge logic (approximate
-// segment splitting, common-window benchmark inclusion) is unit-testable
-// without rendering.
+// Chart row/domain building for the performance chart (issue #360 Phase 2,
+// issue #377 displayable history). Kept separate from the recharts component
+// so merge logic is unit-testable without rendering.
 
 import type {
   BenchmarkCode,
   BenchmarkPerformanceSeries,
+  BenchmarkUnavailableReason,
   PortfolioPerformanceSeries,
 } from "@/lib/api";
 import { toRatio } from "./performance-format";
@@ -17,21 +17,18 @@ export interface ChartSeriesRow {
   date: string;
   portfolio: number | null;
   portfolioApprox: number | null;
-  // Benchmark cumulative % ratio columns, keyed by index_code.
+  // Benchmark cumulative % ratio columns, keyed by index_code. Null stays
+  // null so the chart cannot bridge an unavailable span.
   [indexCode: string]: string | number | null;
 }
 
-// The portfolio line is drawn as two columns over the same dates so an
-// approximate stretch can be dashed while the rest stays solid (issue #360
-// requirement 6: approximate segments disclosed). Splitting on each point's
-// own `is_approximate` flag means the boundary days of an approximate run
-// are each drawn by exactly one column — a solid point never lands in the
-// dashed column or vice versa — at the cost of a one-trading-day visual gap
-// at the two transition points of a run. That is acceptable: approximate
-// stretches (FX-fallback etc.) are contiguous and usually long, and the
-// alternative — duplicating transition points into both columns — makes
-// recharts draw a solid connector across an approximate day (double-drawn
-// segments, style fights on the shared points).
+export interface BenchmarkPointMeta {
+  priceAsOf: string | null;
+  fxAsOf: Record<string, string>;
+  carried: boolean;
+  unavailableReason: BenchmarkUnavailableReason | null;
+}
+
 function splitPortfolioColumns(
   portfolio: PortfolioPerformanceSeries,
 ): Map<string, { solid: number | null; approx: number | null }> {
@@ -48,10 +45,8 @@ function splitPortfolioColumns(
 
 export interface BuiltChartData {
   rows: ChartSeriesRow[];
-  // Benchmarks that actually contribute a line (comparable AND non-empty
-  // points) — the chart legend mirrors this, and a requested benchmark that
-  // is NOT here is reported to the user as not comparable instead of drawn.
   drawnBenchmarks: BenchmarkPerformanceSeries[];
+  pointMeta: Record<string, Partial<Record<BenchmarkCode, BenchmarkPointMeta>>>;
 }
 
 export function buildChartData(
@@ -59,12 +54,13 @@ export function buildChartData(
   benchmarks: BenchmarkPerformanceSeries[],
 ): BuiltChartData {
   const drawnBenchmarks = benchmarks.filter(
-    (benchmark) => benchmark.comparable && benchmark.points.length > 0,
+    (benchmark) => benchmark.displayable && benchmark.points.some((point) => point.return_pct_cumulative !== null),
   );
 
   const portfolioColumns = portfolio && !portfolio.empty ? splitPortfolioColumns(portfolio) : null;
 
   const byDate = new Map<string, ChartSeriesRow>();
+  const pointMeta: BuiltChartData["pointMeta"] = {};
   const ensureRow = (date: string): ChartSeriesRow => {
     let row = byDate.get(date);
     if (!row) {
@@ -83,15 +79,25 @@ export function buildChartData(
   }
 
   for (const benchmark of drawnBenchmarks) {
-    const code = benchmark.index_code as BenchmarkCode;
+    const code = benchmark.index_code;
     for (const point of benchmark.points) {
-      ensureRow(point.date)[code] = toRatio(point.return_pct_cumulative);
+      const row = ensureRow(point.date);
+      row[code] = toRatio(point.return_pct_cumulative);
+      const metaForDate = pointMeta[point.date] ?? {};
+      metaForDate[code] = {
+        priceAsOf: point.price_as_of,
+        fxAsOf: point.fx_as_of,
+        carried: point.carried,
+        unavailableReason: point.unavailable_reason,
+      };
+      pointMeta[point.date] = metaForDate;
     }
   }
 
   return {
     rows: [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)),
     drawnBenchmarks,
+    pointMeta,
   };
 }
 
@@ -101,4 +107,14 @@ export function hasApproximateSegment(portfolio: PortfolioPerformanceSeries | nu
     !portfolio.empty &&
     portfolio.points.some((point) => point.is_approximate)
   );
+}
+
+export function seriesHasSingleValue(rows: readonly ChartSeriesRow[], key: string): boolean {
+  let count = 0;
+  for (const row of rows) {
+    const value = row[key];
+    if (typeof value === "number" && Number.isFinite(value)) count += 1;
+    if (count > 1) return false;
+  }
+  return count === 1;
 }

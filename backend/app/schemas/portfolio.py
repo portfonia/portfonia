@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
@@ -94,8 +95,12 @@ class PortfolioSeriesOut(BaseModel):
 
 
 class BenchmarkPointOut(BaseModel):
-    date: date
-    return_pct_cumulative: Decimal
+    date: dt.date
+    return_pct_cumulative: Decimal | None
+    price_as_of: dt.date | None
+    fx_as_of: dict[str, dt.date]
+    carried: bool
+    unavailable_reason: str | None
 
 
 class BenchmarkSeriesOut(BaseModel):
@@ -103,10 +108,18 @@ class BenchmarkSeriesOut(BaseModel):
     name: str
     start_date: date | None
     points: list[BenchmarkPointOut]
-    # False when this benchmark has no data point inside the common compare
-    # window (issue #366 D7) — `points` is then empty and its cumulative %
-    # must NOT be read against the portfolio's window.
+    # Comparison eligibility (issue #377). History may still be displayable
+    # when this is false; do not treat the series as a head-to-head return.
     comparable: bool
+    displayable: bool
+    normalization: str
+    anchor_date: date | None
+    display_start_date: date | None
+    display_end_date: date | None
+    comparison_start: date | None
+    comparison_end: date | None
+    comparison_status: str
+    comparison_return_pct: Decimal | None
 
 
 class PerformanceHeaderOut(BaseModel):
@@ -124,8 +137,7 @@ class PerformanceMetaOut(BaseModel):
 
 
 class PortfolioPerformanceResponse(BaseModel):
-    """GET /portfolio/performance (issue #360 Phase 1) — backend contract
-    only, no UI consumes this yet (Phase 2)."""
+    """GET /portfolio/performance (issues #360 / #366 / #377)."""
 
     portfolio: PortfolioSeriesOut
     benchmarks: list[BenchmarkSeriesOut]
