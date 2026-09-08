@@ -130,16 +130,17 @@ the threat is DB-dump/backup theft, which disk encryption alone doesn't stop.
   numeric literal. Both directions verified against real local dev data
   (22 holdings, including a Chinese fund name) — round-trips exactly,
   including `upgrade → downgrade → upgrade`.
-- **Side effect discovered 2026-08-09 (issue #25/#113): a DB-level `>= 0`
-  CHECK on `shares`/`avg_cost`/`current_value` is no longer possible.** These
-  columns are now Fernet ciphertext (`impl = Text`), so the database never
-  sees the plaintext number — only `ParsedRow`'s `Field(ge=0)` in
-  `app/schemas/holdings.py` guards this now, and only for writes going
-  through `POST /holdings/confirm` (the only user-writable entry point for
-  these fields). This tradeoff wasn't called out when the encryption
-  decision was made — see issue #113 for the full writeup. Treat this as a
-  standing lesson: framing a change as "must do" doesn't mean it has no
-  costs elsewhere — say what breaks, not just what it fixes.
+- **Encrypted amount constraints (#25/#113):** shares/avg_cost/current_value
+  are Fernet ciphertext in Text columns, so PostgreSQL cannot apply a numeric
+  CHECK. Current application validation uses `Field(ge=0)` in `ParsedRow`
+  and `HoldingPatch`, covering create, confirm and PATCH. The proposed #113
+  fix adds finite-value validation and a binding guard for only these three
+  Holding fields, preserving encryption, reads, PATCH precision and atomic
+  writes. It is an application guarantee, not a restored DB CHECK; raw SQL
+  can bypass it. Audit tooling, historical-data processing, market-price work
+  and broad logging/error redesign are outside this fix. See the current
+  issue comments for the implementation contract; this paragraph does not
+  claim the proposed fix has shipped.
 - **Not yet covered**: `Report.report_inputs` and rendered report bodies
   still carry holdings-derived plaintext (ticker, shares, values quoted in
   prose/tables) — issue #31 is scoped to the `holdings` table only. Worth a
@@ -203,8 +204,8 @@ bypassing the API (a script, a manual `UPDATE`) had no guard at all.
 - **`shares`/`avg_cost`/`current_value` `>= 0` is explicitly OUT of scope
   here** — see the "Side effect discovered 2026-08-09" bullet in the
   encryption section above and issue #113. Handled instead via
-  `Field(ge=0)` on `ParsedRow` (app-layer only, DB can't enforce this
-  anymore).
+  `Field(ge=0)` on `ParsedRow` and `HoldingPatch` (application layer);
+  the narrowly scoped follow-up is #113, not an audit or migration project.
 - **Naming-convention gotcha** (cost real debugging time — worth remembering
   for the next CHECK constraint added anywhere in this codebase): `Base`'s
   `naming_convention` (`app/models/base.py`, `"ck":
