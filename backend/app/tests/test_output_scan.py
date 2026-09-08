@@ -43,6 +43,43 @@ def test_scan_flags_advisory_action_language() -> None:
         )
 
 
+def test_scan_en_recommend_flags_user_directed_advisory() -> None:
+    # Bare EN recommend* used to match any inflection (#375 production hold
+    # 2bff4c7e). The scan now only fires on first-person / product-to-user
+    # framing, or a sentence-initial "recommend buying/selling/holding/reducing"
+    # directed at the reader. Prompt-side PROMPT_VOCAB_STRING still lists
+    # "recommend"; this is the output backstop only.
+    for phrase in (
+        "We recommend reducing exposure.",
+        "I recommend you sell AAPL.",
+        "Portfonia recommends a smaller allocation to the name.",
+        "Recommend buying AAPL.",
+        "It is recommended that you hold the position.",
+    ):
+        assert scan._scan_forbidden_output(phrase) != [], (
+            f"expected scan to flag user-directed recommend: {phrase!r}"
+        )
+
+
+def test_scan_en_recommend_allows_third_party_attribution() -> None:
+    # Layer-1/2 quotation of a named house view / bank / desk is not a
+    # directive to the Portfonia user. Incident sentence from report
+    # 2bff4c7e-99ec-4f6b-98bf-4a7c9876cc47 (issue #375) is the allow fixture.
+    # Accepted residual: a user-directed recommend that mimics third-party
+    # syntax in the same clause may slip — prefer that over holding bank-view
+    # attribution.
+    for phrase in (
+        "The UBS house view material explicitly recommends building exposure "
+        "in high-quality bonds with maturities of two to five years.",
+        "The bank recommends a shorter duration sleeve in its published outlook.",
+        "Analysts recommend watching the 2-year/10-year spread as the next observable.",
+        "The filing restates the board's proxy recommendations for the AGM.",
+    ):
+        assert scan._scan_forbidden_output(phrase) == [], (
+            f"scan should not flag third-party attribution: {phrase!r}"
+        )
+
+
 def test_scan_zh_stoploss_flags_advisory_directive() -> None:
     # Bare literal "止损" was too broad — it flagged reports that merely
     # describe OTHER market participants' stop-loss orders triggering a

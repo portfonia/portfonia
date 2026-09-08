@@ -5,11 +5,13 @@ blacklist (PROMPT_VOCAB_STRING) are derived from this module. Keeping them
 co-located prevents drift where the prompt forbids a term the scan misses or
 vice versa.
 
-Adding a term propagates automatically to both the scan and the prompt — edit
-``config/compliance_vocab.yml`` (issue #90: the Chinese-language term/pattern
-data lives there now, out of this module's source; this file is the loading +
-compilation logic and its public API is unchanged). Run the compliance-scan
-regression tests (``pytest app/tests/test_output_scan.py``)
+Adding a Chinese term propagates automatically to both the scan and the
+prompt — edit ``config/compliance_vocab.yml`` (issue #90: the Chinese-language
+term/pattern data lives there now, out of this module's source; this file is
+the loading + compilation logic and its public API is unchanged). English
+patterns stay in ``_EN_REGEX_PATTERNS`` here; ``recommend*`` is context-aware
+(issue #375) so third-party house-view attribution does not hold a report.
+Run the compliance-scan regression tests (``pytest app/tests/test_output_scan.py``)
 before promoting new terms to production.
 """
 
@@ -31,9 +33,29 @@ _DEFAULT_VOCAB_FILE = _BACKEND_DIR / "config" / "compliance_vocab.yml"
 # English patterns (regex strings compiled at module load).
 # Deliberately high-precision: bare "buy"/"sell"/"hold" are excluded to avoid
 # false positives on factual prose ("buyback", "Holdings", "threshold").
+#
+# EN recommend* is context-aware (issue #375), same class as ZH 目标价/增持
+# (#65, prompt-only) and 止损/清仓 (#74 / #205, scan_regex_patterns):
+# first-person / product-to-user / "recommend you" / sentence-initial
+# "recommend buying|selling|holding|reducing" still hold the report.
+# Third-party house-view attribution ("UBS … recommends", "the bank
+# recommends", "analysts recommend") does not. Prompt-side _EN_PROMPT_TERMS
+# still lists "recommend". Accepted residual: a user-directed recommend that
+# mimics third-party syntax in the same clause may slip — prefer that over
+# holding bank-view attribution.
 # ---------------------------------------------------------------------------
 _EN_REGEX_PATTERNS: tuple[str, ...] = (
-    r"\brecommend(?:s|ed|ing)?\b",
+    (
+        r"(?:(?<=\bwe\s)|(?<=\bwe\swould\s)|(?<=\bwe\sstrongly\s)"
+        r"|(?<=\bi\s)|(?<=\bi\swould\s)|(?<=\bi\sstrongly\s)"
+        r"|(?<=\bportfonia\s)|(?<=\bthis\sreport\s))"
+        r"recommend(?:s|ed|ing)?\b"
+        r"|"
+        r"\brecommend(?:s|ed|ing)?(?=\s+(?:that\s+)?you\b)"
+        r"|"
+        r"(?:(?<=^)|(?<=\n)|(?<=[.!?]\s))"
+        r"recommend(?:s|ed|ing)?(?=\s+(?:buying|selling|holding|reducing)\b)"
+    ),
     r"\bshould\s+(buy|sell|hold)\b",
     r"\breduce\s+exposure\b",
     r"\bincrease\s+(your\s+)?position\b",
@@ -50,6 +72,8 @@ _EN_REGEX_PATTERNS: tuple[str, ...] = (
 # Human-readable EN terms for injection into the LLM system prompt.
 # Mirrors the intent of _EN_REGEX_PATTERNS; also covers "exit" and "hold"
 # which the scan intentionally omits to avoid bare-word false positives.
+# "recommend" stays on the prompt list even though the scan is context-aware
+# (#375): the model is still told not to emit the verb.
 _EN_PROMPT_TERMS: tuple[str, ...] = (
     "recommend",
     "should buy",
