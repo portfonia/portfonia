@@ -33,4 +33,3 @@ Distinguish confirmed product decisions, the authored implementation design, unr
 For documentation updates, maintain this AGENTS.md, shared CLAUDE.md where applicable, the relevant feature note, and Obsidian `Hermes/Portfonia/Codex开发配置文档.md` / `Hermes/Portfonia/Codex设计文档.md`. Update governing sections in place when a rule changes; append incident evidence without leaving contradictory active rules.
 
 Use the configured Obsidian MCP first. Keep credentials out of repository files, notes, and memory. These issue/design rules are project-wide; do not silently promote them to all projects.
-
