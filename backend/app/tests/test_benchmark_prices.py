@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -72,6 +72,42 @@ def test_db_rejects_unknown_index_code(db_session: Session) -> None:
     )
     with pytest.raises(IntegrityError, match="ck_benchmark_prices_index_code"):
         db_session.commit()
+
+
+# Benchmark rows bind 4 parameters each. PostgreSQL/psycopg hard-cap a
+# single query at 65535 parameters, so 16384+ rows in one INSERT overflows
+# (same class of bug as issue #194's price_capture.py precedent).
+# 17000 rows = 68000 params, past that cap with margin.
+_PARAM_OVERFLOW_ROW_COUNT = 17000
+
+
+def test_upsert_chunks_past_postgres_parameter_limit(db_session: Session) -> None:
+    """A batch that would exceed psycopg's 65535-param cap must still write.
+
+    Mirrors test_price_capture.py::test_upsert_chunks_past_postgres_parameter_limit
+    (issue #194) — benchmark_prices.py's _upsert never picked up that fix.
+    """
+    start = date(2000, 1, 1)
+    rows: list[dict[str, object]] = [
+        {
+            "index_code": "sp500",
+            "price_date": start + timedelta(days=i),
+            "close_price": Decimal("1.0"),
+            "currency": "USD",
+        }
+        for i in range(_PARAM_OVERFLOW_ROW_COUNT)
+    ]
+    # Rows bind one param per dict key. Lock the chunk math the source
+    # comment states, derived from this row shape not a frozen 10.
+    assert benchmark_prices._UPSERT_CHUNK_SIZE * len(rows[0]) <= 65_535
+
+    written = benchmark_prices._upsert(db_session, rows)
+
+    assert written == _PARAM_OVERFLOW_ROW_COUNT
+    count = db_session.execute(
+        select(func.count()).select_from(BenchmarkPrice).where(BenchmarkPrice.index_code == "sp500")
+    ).scalar_one()
+    assert count == _PARAM_OVERFLOW_ROW_COUNT
 
 
 def test_historical_benchmark_price_finds_latest_at_or_before(db_session: Session) -> None:
