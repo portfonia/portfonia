@@ -135,9 +135,18 @@ for the full before/after and decision rationale.
   `has_questionnaire`/`has_holdings`/`tos_accepted_at` were unused — #221
   (below) is what reads `missing` for the gap card; `has_questionnaire`/
   `has_holdings`/`tos_accepted_at` still have no frontend reader.
-- **Profile redesign (issue #269, 2026-08-30):** section order is now gap
+- **Profile redesign (issue #269, 2026-08-30):** section order was gap
   card → Email Verification → Account → Investment style → Delivery email →
-  placeholders → Change password → Delete account. Email Verification is
+  placeholders → Change password → Delete account. **Issue #390 (layout
+  only, 2026-09-09):** Investment style + Portfolio overview collapse into
+  one **Holdings** card (four nav buttons: `/portfolio`,
+  `/portfolio/performance`, `/holdings`, `/questionnaire`); Report
+  language & currency + Report schedule + Report delivery email collapse
+  into one **Report management** card (row 1: language/currency/cadence
+  selects; row 2: delivery-email display/resend/fallback). Cadence,
+  invite, and delete stay unfinished placeholders. Current order: gap
+  card → Email Verification → Account → Holdings → Report management →
+  Invite → Change password → Delete account. Email Verification is
   the second section (right after the gap card slot, whether or not that
   slot renders) and its render condition widened to "actionable
   pending/undeliverable records exist" OR "no verified receiving address at
@@ -171,7 +180,10 @@ for the full before/after and decision rationale.
   these stay visible placeholders, not silently absent or falsely
   interactive. Portfolio overview shipped in issue #320/PR #322 — it is a
   real link into `/portfolio`, no longer in this placeholder set (see
-  `docs/mechanisms/holdings-pipeline.md`'s C2 section).
+  `docs/mechanisms/holdings-pipeline.md`'s C2 section). Issue #390 moved
+  that link into the Holdings nav row (with Performance, Holdings
+  management, and Investment style) and moved the cadence placeholder
+  into Report management; the cadence select is still disabled.
 
 ### Post-signup onboarding: ToS gate, questionnaire → holdings → welcome, Profile gap card (issue #221, 2026-08-27)
 

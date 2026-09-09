@@ -207,150 +207,147 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
         </CardContent>
       </Card>
 
+      {/* Issue #390: one Holdings card replaces the standalone Investment
+          style + Portfolio overview cards. Four existing-page links; wrap
+          on narrow viewports is allowed. */}
       <Card>
         <CardHeader>
-          <CardTitle>{t("investmentStyleHeading")}</CardTitle>
-          <CardDescription>{t("investmentStyleBody")}</CardDescription>
+          <CardTitle>{t("holdingsHeading")}</CardTitle>
         </CardHeader>
-        <CardContent className="px-4">
-          <Button variant="outline" render={<Link href="/questionnaire" />}>
-            {t("investmentStyleButton")}
+        <CardContent className="grid grid-cols-2 gap-2 px-4 sm:grid-cols-4">
+          <Button className="w-full" variant="outline" render={<Link href="/portfolio" />}>
+            {t("holdingsNavOverview")}
+          </Button>
+          <Button
+            className="w-full"
+            variant="outline"
+            render={<Link href="/portfolio/performance" />}
+          >
+            {t("holdingsNavPerformance")}
+          </Button>
+          <Button className="w-full" variant="outline" render={<Link href="/holdings" />}>
+            {t("holdingsNavManagement")}
+          </Button>
+          <Button className="w-full" variant="outline" render={<Link href="/questionnaire" />}>
+            {t("holdingsNavInvestmentStyle")}
           </Button>
         </CardContent>
       </Card>
 
-      {/* Issue #308: this card sits above Report delivery email (was below
-          it). Issue #320: no longer a placeholder — links into the real
-          /portfolio dashboard. Remaining not-yet-implemented placeholders
-          (issue #220 §2 requirements 5/7) are further below, at Report
-          schedule. */}
-
+      {/* Issue #390: language (#308) + currency (#350) + cadence placeholder
+          + delivery email (#269 §6) share one Report management card.
+          Cadence stays disabled. Delivery-email unverified treatment is
+          unchanged: gray italic + note + inline Resend when a matching
+          record exists. Overlap with the Email Verification list is still
+          intentional. */}
       <Card>
         <CardHeader>
-          <CardTitle>{t("portfolioOverviewHeading")}</CardTitle>
-          <CardDescription>{t("portfolioOverviewBody")}</CardDescription>
+          <CardTitle>{t("reportManagementHeading")}</CardTitle>
         </CardHeader>
-        <CardContent className="px-4">
-          <Button variant="outline" render={<Link href="/portfolio" />}>
-            {t("portfolioOverviewButton")}
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* Issue #269 §6: an unverified shown address renders gray italic with
-          a note and, when a resendable record exists for it, an inline
-          Resend button. Known overlap with the top Email Verification
-          section's list is intentional (global cue vs. in-place action). */}
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("deliveryEmailHeading")}</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-1.5 px-4">
-          <div className="flex items-center justify-between gap-3">
-            <span
-              className={
-                deliveryEmailUnverified
-                  ? "text-sm italic text-muted-foreground"
-                  : "text-sm"
-              }
-            >
-              {deliveryEmailDisplay}
-            </span>
-            {deliveryEmailUnverified && deliveryResendTarget && (
-              <Button
-                variant="outline"
-                disabled={resend.pendingId !== null}
-                onClick={() => void resend.handleResend(deliveryResendTarget.id)}
+        <CardContent className="flex flex-col gap-4 px-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="flex flex-col gap-1.5">
+              <select
+                aria-label={t("reportLanguageLabel")}
+                className="w-full rounded-md border border-white/10 bg-transparent px-2 py-1.5 text-sm"
+                value={me.report_language}
+                disabled={reportLanguage.pending}
+                onChange={(e) =>
+                  void reportLanguage.handleChange(e.target.value as ReportLanguage)
+                }
               >
-                {resend.pendingId === deliveryResendTarget.id
-                  ? t("emailVerificationResending")
-                  : t("emailVerificationResendButton")}
-              </Button>
+                {REPORT_LANGUAGES.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              {reportLanguage.error && (
+                <p className="text-sm text-destructive" role="alert">
+                  {reportLanguage.error}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <select
+                aria-label={t("reportCurrencyLabel")}
+                className="w-full rounded-md border border-white/10 bg-transparent px-2 py-1.5 text-sm"
+                value={me.report_currency}
+                disabled={reportCurrency.pending}
+                onChange={(e) =>
+                  void reportCurrency.handleChange(e.target.value as BaseCurrency)
+                }
+              >
+                {BASE_CURRENCIES.map((code) => (
+                  <option key={code} value={code}>
+                    {code}
+                  </option>
+                ))}
+              </select>
+              {reportCurrency.error && (
+                <p className="text-sm text-destructive" role="alert">
+                  {reportCurrency.error}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <select
+                disabled
+                aria-label={t("reportScheduleHeading")}
+                className="w-full rounded-md border border-white/10 bg-transparent px-2 py-1.5 text-sm text-foreground/60"
+                defaultValue="weekly"
+              >
+                <option value="weekly">{t("reportScheduleOptions.weekly")}</option>
+                <option value="everyOtherDay">{t("reportScheduleOptions.everyOtherDay")}</option>
+                <option value="morning">{t("reportScheduleOptions.morning")}</option>
+                <option value="evening">{t("reportScheduleOptions.evening")}</option>
+                <option value="morningAndEvening">
+                  {t("reportScheduleOptions.morningAndEvening")}
+                </option>
+              </select>
+              <p className="text-sm text-muted-foreground">{t("reportSchedulePlaceholder")}</p>
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm text-foreground/80">{t("deliveryEmailHeading")}</span>
+            <div className="flex items-center justify-between gap-3">
+              <span
+                className={
+                  deliveryEmailUnverified
+                    ? "text-sm italic text-muted-foreground"
+                    : "text-sm"
+                }
+              >
+                {deliveryEmailDisplay}
+              </span>
+              {deliveryEmailUnverified && deliveryResendTarget && (
+                <Button
+                  variant="outline"
+                  disabled={resend.pendingId !== null}
+                  onClick={() => void resend.handleResend(deliveryResendTarget.id)}
+                >
+                  {resend.pendingId === deliveryResendTarget.id
+                    ? t("emailVerificationResending")
+                    : t("emailVerificationResendButton")}
+                </Button>
+              )}
+            </div>
+            {deliveryEmailUnverified && (
+              <span className="text-xs text-muted-foreground">
+                {t("deliveryEmailUnverifiedNote")}
+              </span>
+            )}
+            {!me.delivery_email && (
+              <span className="text-xs text-muted-foreground">
+                {t("deliveryEmailFallbackNote")}
+              </span>
+            )}
+            {resend.error && (
+              <p className="text-sm text-destructive" role="alert">
+                {resend.error}
+              </p>
             )}
           </div>
-          {deliveryEmailUnverified && (
-            <span className="text-xs text-muted-foreground">{t("deliveryEmailUnverifiedNote")}</span>
-          )}
-          {!me.delivery_email && (
-            <span className="text-xs text-muted-foreground">{t("deliveryEmailFallbackNote")}</span>
-          )}
-          {resend.error && (
-            <p className="text-sm text-destructive" role="alert">
-              {resend.error}
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Issue #308: new, fully-wired control — unlike the placeholder
-          Report schedule select just below, this one is real and saves
-          immediately on change. Issue #350 item 1 adds the Report Currency
-          select to the same card. */}
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("reportLanguageHeading")}</CardTitle>
-          <CardDescription>{t("reportLanguageBody")}</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3 px-4">
-          <select
-            aria-label={t("reportLanguageHeading")}
-            className="w-fit rounded-md border border-white/10 bg-transparent px-2 py-1.5 text-sm"
-            value={me.report_language}
-            disabled={reportLanguage.pending}
-            onChange={(e) => void reportLanguage.handleChange(e.target.value as ReportLanguage)}
-          >
-            {REPORT_LANGUAGES.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          {reportLanguage.error && (
-            <p className="text-sm text-destructive" role="alert">
-              {reportLanguage.error}
-            </p>
-          )}
-          <select
-            aria-label={t("reportCurrencyLabel")}
-            className="w-fit rounded-md border border-white/10 bg-transparent px-2 py-1.5 text-sm"
-            value={me.report_currency}
-            disabled={reportCurrency.pending}
-            onChange={(e) => void reportCurrency.handleChange(e.target.value as BaseCurrency)}
-          >
-            {BASE_CURRENCIES.map((code) => (
-              <option key={code} value={code}>
-                {code}
-              </option>
-            ))}
-          </select>
-          {reportCurrency.error && (
-            <p className="text-sm text-destructive" role="alert">
-              {reportCurrency.error}
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("reportScheduleHeading")}</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-2 px-4">
-          <select
-            disabled
-            aria-label={t("reportScheduleHeading")}
-            className="w-fit rounded-md border border-white/10 bg-transparent px-2 py-1.5 text-sm text-foreground/60"
-            defaultValue="weekly"
-          >
-            <option value="weekly">{t("reportScheduleOptions.weekly")}</option>
-            <option value="everyOtherDay">{t("reportScheduleOptions.everyOtherDay")}</option>
-            <option value="morning">{t("reportScheduleOptions.morning")}</option>
-            <option value="evening">{t("reportScheduleOptions.evening")}</option>
-            <option value="morningAndEvening">
-              {t("reportScheduleOptions.morningAndEvening")}
-            </option>
-          </select>
-          <p className="text-sm text-muted-foreground">{t("reportSchedulePlaceholder")}</p>
         </CardContent>
       </Card>
 

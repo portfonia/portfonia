@@ -63,18 +63,23 @@ function sectionTitles(): string[] {
   );
 }
 
-function deliveryCard(): HTMLElement {
-  // Issue #289: the noVerifiedRecipient gap card now also renders a
-  // "Report delivery email" purpose label (a span), so the title text is
-  // no longer unique on the page — pick the element inside a card-title
-  // slot, which only the CardTitle has.
+function reportManagementCard(): HTMLElement {
+  // Issue #390: delivery email lives inside Report management, whose
+  // CardTitle is unique. The gap card still renders a "Report delivery
+  // email" purpose label (a span), so that string is not unique.
   const title = screen
-    .getAllByText("Report delivery email")
+    .getAllByText("Report management")
     .find((el) => el.closest('[data-slot="card-title"]') !== null);
-  if (!title) throw new Error("delivery-email card title not found");
+  if (!title) throw new Error("report-management card title not found");
   const card = title.closest('[data-slot="card"]');
-  if (!(card instanceof HTMLElement)) throw new Error("delivery-email card not found");
+  if (!(card instanceof HTMLElement)) {
+    throw new Error("report-management card not found");
+  }
   return card;
+}
+
+function deliveryCard(): HTMLElement {
+  return reportManagementCard();
 }
 
 const PENDING: PendingEmailVerification = {
@@ -143,10 +148,10 @@ describe("ProfilePageBody", () => {
     expect(screen.queryByText(/no separate delivery address set/i)).not.toBeInTheDocument();
   });
 
-  it("links the investment style button to /questionnaire in default mode (no onboarding query)", () => {
+  it("links the Holdings investment-style control to /questionnaire in default mode (no onboarding query)", () => {
     renderBody(BASE_ME);
 
-    expect(screen.getByRole("link", { name: /update investment style/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /^investment style$/i })).toHaveAttribute(
       "href",
       "/questionnaire",
     );
@@ -160,13 +165,42 @@ describe("ProfilePageBody", () => {
     expect(screen.getAllByText(/not implemented yet/i).length).toBeGreaterThanOrEqual(1);
   });
 
-  it("links the portfolio overview card to /portfolio (issue #320: no longer a placeholder)", () => {
+  it("renders the Holdings section with four existing-page links (issue #390)", () => {
     renderBody(BASE_ME);
 
-    expect(screen.getByRole("link", { name: /view portfolio overview/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /^portfolio overview$/i })).toHaveAttribute(
       "href",
       "/portfolio",
     );
+    expect(screen.getByRole("link", { name: /^performance$/i })).toHaveAttribute(
+      "href",
+      "/portfolio/performance",
+    );
+    expect(screen.getByRole("link", { name: /^holdings management$/i })).toHaveAttribute(
+      "href",
+      "/holdings",
+    );
+    expect(screen.getByRole("link", { name: /^investment style$/i })).toHaveAttribute(
+      "href",
+      "/questionnaire",
+    );
+    expect(
+      screen.queryByText(/see your total value, p&l, and breakdowns/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/update the preferences that shape which facts/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("puts language, currency, cadence, and delivery email in Report management (issue #390)", () => {
+    renderBody(BASE_ME);
+
+    const card = reportManagementCard();
+    expect(within(card).getByRole("combobox", { name: /report language/i })).toBeEnabled();
+    expect(within(card).getByRole("combobox", { name: /report currency/i })).toBeEnabled();
+    expect(within(card).getByRole("combobox", { name: /report schedule/i })).toBeDisabled();
+    expect(within(card).getByText(/not wired up yet/i)).toBeInTheDocument();
+    expect(within(card).getByText(/no separate delivery address set/i)).toBeInTheDocument();
   });
 
   it("renders the Change password form", () => {
@@ -204,13 +238,13 @@ describe("ProfilePageBody", () => {
     expect(screen.queryByRole("link", { name: /add your holdings/i })).not.toBeInTheDocument();
     // The rest of the page still renders — an empty `missing` doesn't hide
     // anything else.
-    expect(screen.getByRole("link", { name: /view portfolio overview/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^portfolio overview$/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete account" })).toBeDisabled();
   });
 });
 
 describe("Section order (issue #269 §1/§4, issue #308)", () => {
-  it("orders Portfolio overview before Report delivery email, Report language before Report schedule, and Change password before Delete account", () => {
+  it("orders Holdings before Report management, and Change password before Delete account", () => {
     renderBody({ ...BASE_ME, pending_email_verifications: [PENDING] });
 
     const titles = sectionTitles();
@@ -218,11 +252,8 @@ describe("Section order (issue #269 §1/§4, issue #308)", () => {
       "Finish setting up your account",
       "Email verification",
       "Account",
-      "Investment style",
-      "Portfolio overview",
-      "Report delivery email",
-      "Report language & currency",
-      "Report schedule",
+      "Holdings",
+      "Report management",
       "Invite someone",
       "Change password",
       "Delete account",
