@@ -3,13 +3,16 @@
 Issue #360 (Phase 1) and issue #366 (tracking-start fix + composition-replay
 removal, 2026-09-07 design amendment). Issue #377 (2026-09-08) keeps selected
 benchmark history when the first real snapshot falls on a non-trading day
-and separates display eligibility from comparison eligibility. Governing
-decisions: #360's Decisions comment + the 2026-09-06 amendment comment + the
-Implementation design comment, #366's Design + Implementation-contract
-comments, and #377's five contract comments (read those before this file —
-this is an implementation summary, not the spec itself). Paired
-Chinese-language design doc: Obsidian
-`Hermes/Portfonia/Docs/Portfolio_Pfmc.md` §2 (D2/D5/D7/D9) + §6 + §7.
+and separates display eligibility from comparison eligibility. Issue #382
+is the Phase 2 UI-defaults follow-up: first visit is range `1M` and
+benchmarks `[sp500]`, with multi-select over the existing three codes.
+Governing decisions: #360's Decisions comment + the 2026-09-06 amendment
+comment + the Implementation design comment, #366's Design +
+Implementation-contract comments, #377's five contract comments, and
+#382's five contract comments (read those before this file — this is an
+implementation summary, not the spec itself). Paired Chinese-language
+design doc: Obsidian `Hermes/Portfonia/Docs/Portfolio_Pfmc.md` §1.2–1.3,
+§2 D9, §3.3.
 
 **#366 in one line**: Phase 1's one-off portfolio backfill derived a
 position's chart start date from "earliest ticker price we happen to have"
@@ -387,6 +390,21 @@ review follow-up issuecomment-5556912227)
   never "return"); Phase 2's UI copy needs to make the distinction between
   the $ figure and the % figure clear to the user, not something this API
   response can resolve on its own.
+
+## UI defaults (issue #382)
+
+Phase 2 first paint originally used range `1Y` and all three US indexes.
+`/portfolio/performance` now starts at range `1M` and benchmarks
+`[sp500]`. The user can independently toggle `dow30` / `nasdaq`. Clearing
+every chip still draws the portfolio series; comparable % copy only
+applies to selected comparable indexes. The GET handler already treats
+omitted/empty `benchmarks` as zero series (not all three). The client
+always passes the chip list; an empty list appends no `benchmarks` keys
+(same as omit → none). Backend `range` default remains `1Y` when the
+param is omitted — the UI always sends `range` explicitly. No new
+`index_code`s (#383), no #368 co-anchor, no TWR / `tracking_start` / D8
+changes. Optional localStorage of last range/benchmarks is not
+implemented.
 
 ## Explicitly out of Phase 1
 

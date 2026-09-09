@@ -557,6 +557,10 @@ export type BenchmarkCode = "sp500" | "dow30" | "nasdaq";
 
 export const PERFORMANCE_RANGES = ["1M", "6M", "YTD", "1Y", "5Y", "ALL"] as const satisfies readonly PerformanceRange[];
 export const BENCHMARK_CODES = ["sp500", "dow30", "nasdaq"] as const satisfies readonly BenchmarkCode[];
+// Issue #382 first-visit UI state. The GET handler still defaults `range`
+// to "1Y" when the param is omitted; the page always sends these values.
+export const DEFAULT_PERFORMANCE_RANGE: PerformanceRange = "1M";
+export const DEFAULT_BENCHMARKS: readonly BenchmarkCode[] = ["sp500"];
 
 export interface PerformancePoint {
   date: string;
@@ -661,6 +665,10 @@ export interface PortfolioPerformanceQuery {
 // figures are consistent with what the /portfolio overview shows. Omitting a
 // dimension sends no param for it = "no filter" (ALL), matching the backend's
 // default; the backend ANDs the dimensions that ARE present.
+//
+// `benchmarks` is not a dimension filter: an empty list appends no keys,
+// FastAPI reads that as None, and the router expands it to zero series
+// (portfolio-only). Issue #382: do not treat empty as "all three".
 export async function getPortfolioPerformance(
   query: PortfolioPerformanceQuery,
 ): Promise<PortfolioPerformanceResponse> {

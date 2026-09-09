@@ -194,24 +194,42 @@ async function waitForChart() {
 describe("PerformancePageBody", () => {
   beforeEach(() => {
     getPerformanceMock.mockReset();
-    getPerformanceMock.mockResolvedValue(response());
+    // Return only the requested indexes so empty chips are not silently
+    // expanded to the full catalog (issue #382).
+    getPerformanceMock.mockImplementation(async (query) => {
+      const full = response();
+      return {
+        ...full,
+        benchmarks: full.benchmarks.filter((benchmark) =>
+          query.benchmarks.includes(benchmark.index_code),
+        ),
+        meta: {
+          ...full.meta,
+          range: query.range,
+          twr: query.twr,
+          base_currency: query.baseCurrency,
+        },
+      };
+    });
   });
 
-  it("fetches with defaults (1Y, TWR on, all benchmarks, user currency) and draws chart + metrics", async () => {
+  it("fetches with defaults (1M, TWR on, S&P 500 only, user currency) and draws chart + metrics", async () => {
     renderBody();
     await waitForChart();
 
     expect(getPerformanceMock).toHaveBeenCalledTimes(1);
     expect(getPerformanceMock).toHaveBeenCalledWith({
-      range: "1Y",
+      range: "1M",
       twr: true,
-      benchmarks: ["sp500", "dow30", "nasdaq"],
+      benchmarks: ["sp500"],
       markets: [],
       groups: [],
       brokers: [],
       accounts: [],
       baseCurrency: "USD",
     });
+    expect(screen.getByRole("button", { name: "1M" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /Benchmarks/ })).toHaveTextContent("1 selected");
     // Metrics card: end value, market-value-change $, and the TWR % label.
     expect(screen.getByText("Value at end of period")).toBeInTheDocument();
     expect(screen.getByText("Market value change")).toBeInTheDocument();
@@ -222,9 +240,11 @@ describe("PerformancePageBody", () => {
     const legend = screen.getByTestId("chart-legend");
     expect(within(legend).getByText("Portfolio")).toBeInTheDocument();
     expect(within(legend).getByText("S&P 500")).toBeInTheDocument();
+    expect(within(legend).queryByText("Dow 30")).not.toBeInTheDocument();
+    expect(within(legend).queryByText("Nasdaq Composite")).not.toBeInTheDocument();
     expect(
-      screen.getByText(/Nasdaq Composite has no usable index history in this range/),
-    ).toBeInTheDocument();
+      screen.queryByText(/Nasdaq Composite has no usable index history in this range/),
+    ).not.toBeInTheDocument();
     expect(screen.getByText(/Index history is relative to Aug 3, 2026/)).toBeInTheDocument();
   });
 
@@ -262,7 +282,35 @@ describe("PerformancePageBody", () => {
     ).toBeInTheDocument();
   });
 
+  it("adds Dow 30 to the request when checked", async () => {
+    const user = userEvent.setup();
+    renderBody();
+    await waitForChart();
+
+    await user.click(screen.getByRole("button", { name: /Benchmarks/ }));
+    await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument());
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "Dow 30" }));
+
+    await waitFor(() => expect(getPerformanceMock).toHaveBeenCalledTimes(2));
+    expect(getPerformanceMock.mock.calls[1][0].benchmarks).toEqual(["sp500", "dow30"]);
+  });
+
   it("removes a benchmark from the request when unchecked", async () => {
+    const user = userEvent.setup();
+    renderBody();
+    await waitForChart();
+
+    await user.click(screen.getByRole("button", { name: /Benchmarks/ }));
+    await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument());
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "Dow 30" }));
+    await waitFor(() => expect(getPerformanceMock).toHaveBeenCalledTimes(2));
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "S&P 500" }));
+
+    await waitFor(() => expect(getPerformanceMock).toHaveBeenCalledTimes(3));
+    expect(getPerformanceMock.mock.calls[2][0].benchmarks).toEqual(["dow30"]);
+  });
+
+  it("keeps the portfolio series when every benchmark is unchecked", async () => {
     const user = userEvent.setup();
     renderBody();
     await waitForChart();
@@ -272,55 +320,46 @@ describe("PerformancePageBody", () => {
     await user.click(screen.getByRole("menuitemcheckbox", { name: "S&P 500" }));
 
     await waitFor(() => expect(getPerformanceMock).toHaveBeenCalledTimes(2));
-    expect(getPerformanceMock.mock.calls[1][0].benchmarks).toEqual(["dow30", "nasdaq"]);
+    expect(getPerformanceMock.mock.calls[1][0].benchmarks).toEqual([]);
+    expect(await screen.findByTestId("performance-chart")).toBeInTheDocument();
+    const legend = screen.getByTestId("chart-legend");
+    expect(within(legend).getByText("Portfolio")).toBeInTheDocument();
+    expect(within(legend).queryByText("S&P 500")).not.toBeInTheDocument();
   });
 
-  it("Benchmarks All reselects every code and never sends an empty benchmark list (review finding 1)", async () => {
+  it("Benchmarks All selects every code from the S&P-only default", async () => {
     const user = userEvent.setup();
     renderBody();
     await waitForChart();
-    // Initial request carries all three codes (default state).
-    expect(getPerformanceMock.mock.calls[0][0].benchmarks).toEqual([
-      "sp500",
-      "dow30",
-      "nasdaq",
-    ]);
+    expect(getPerformanceMock.mock.calls[0][0].benchmarks).toEqual(["sp500"]);
 
-    // Drop two benchmarks so All is no longer the active state.
     await user.click(screen.getByRole("button", { name: /Benchmarks/ }));
     await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument());
-    await user.click(screen.getByRole("menuitemcheckbox", { name: "S&P 500" }));
-    await user.click(screen.getByRole("menuitemcheckbox", { name: "Dow 30" }));
-    await waitFor(() => expect(getPerformanceMock).toHaveBeenCalledTimes(3));
-
-    // Clicking All restores every code — never [].
     await user.click(screen.getByRole("menuitemcheckbox", { name: "All" }));
-    await waitFor(() => expect(getPerformanceMock).toHaveBeenCalledTimes(4));
-    expect(getPerformanceMock.mock.calls[3][0].benchmarks).toEqual([
+    await waitFor(() => expect(getPerformanceMock).toHaveBeenCalledTimes(2));
+    expect(getPerformanceMock.mock.calls[1][0].benchmarks).toEqual([
       "sp500",
       "dow30",
       "nasdaq",
     ]);
-    for (const call of getPerformanceMock.mock.calls) {
-      expect(call[0].benchmarks.length).toBeGreaterThan(0);
-    }
   });
 
   it("Benchmarks All while every code is already selected does not refetch", async () => {
     const user = userEvent.setup();
     renderBody();
     await waitForChart();
-    expect(getPerformanceMock).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole("button", { name: /Benchmarks/ }));
     await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument());
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "All" }));
+    await waitFor(() => expect(getPerformanceMock).toHaveBeenCalledTimes(2));
     expect(screen.getByRole("menuitemcheckbox", { name: "All" })).toHaveAttribute(
       "aria-checked",
       "true",
     );
     await user.click(screen.getByRole("menuitemcheckbox", { name: "All" }));
 
-    expect(getPerformanceMock).toHaveBeenCalledTimes(1);
+    expect(getPerformanceMock).toHaveBeenCalledTimes(2);
   });
 
   it("dimension-menu All still means omit (empty selection = no filter)", async () => {
@@ -473,6 +512,61 @@ describe("PerformancePageBody", () => {
 
     await waitFor(() => expect(getPerformanceMock).toHaveBeenCalledTimes(2));
     expect(getPerformanceMock.mock.calls[1][0].baseCurrency).toBe("CNY");
+  });
+
+  it("explains an unavailable selected index without drawing it", async () => {
+    getPerformanceMock.mockResolvedValue(
+      response({
+        benchmarks: [
+          {
+            index_code: "sp500",
+            name: "S&P 500",
+            start_date: "2026-08-03",
+            points: [
+              {
+                date: "2026-08-03",
+                return_pct_cumulative: "0",
+                price_as_of: "2026-08-03",
+                fx_as_of: {},
+                carried: false,
+                unavailable_reason: null,
+              },
+            ],
+            comparable: true,
+            displayable: true,
+            normalization: "portfolio_start",
+            anchor_date: "2026-08-03",
+            display_start_date: "2026-08-03",
+            display_end_date: "2026-08-03",
+            comparison_start: "2026-08-03",
+            comparison_end: "2026-08-03",
+            comparison_status: "available",
+            comparison_return_pct: "0",
+          },
+          {
+            index_code: "nasdaq",
+            name: "Nasdaq Composite",
+            start_date: "2026-08-03",
+            points: [],
+            comparable: false,
+            displayable: false,
+            normalization: "unavailable",
+            anchor_date: null,
+            display_start_date: null,
+            display_end_date: null,
+            comparison_start: "2026-08-03",
+            comparison_end: "2026-08-05",
+            comparison_status: "anchor_unavailable",
+            comparison_return_pct: null,
+          },
+        ],
+      }),
+    );
+    renderBody();
+    await waitForChart();
+    expect(
+      screen.getByText(/Nasdaq Composite has no usable index history in this range/),
+    ).toBeInTheDocument();
   });
 
   it("draws non-comparable displayable history and explains the own baseline", async () => {

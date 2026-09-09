@@ -1,10 +1,11 @@
 "use client";
 
-// Portfolio Performance page body (issue #360 Phase 2). Owns the fetch state
-// for GET /portfolio/performance (range/twr/benchmarks/filters/currency) and
-// renders: range tabs, benchmark + dataset-dimension multi-selects, the TWR
-// mode toggle, the header metric card, and the chart card with its
-// empty/short-history/approximate-data handling.
+// Portfolio Performance page body (issue #360 Phase 2, UI defaults #382).
+// Owns the fetch state for GET /portfolio/performance
+// (range/twr/benchmarks/filters/currency) and renders: range tabs, benchmark
+// + dataset-dimension multi-selects, the TWR mode toggle, the header metric
+// card, and the chart card with its empty/short-history/approximate-data
+// handling. First visit: range 1M, benchmarks [sp500].
 //
 // Wording rules enforced here (design doc §1/§2 D5/D7):
 // - The header dollar figure is always labeled "market value change", never
@@ -31,6 +32,8 @@ import {
 } from "@/components/ui/card";
 import {
   BENCHMARK_CODES,
+  DEFAULT_BENCHMARKS,
+  DEFAULT_PERFORMANCE_RANGE,
   type BenchmarkCode,
   type PerformanceRange,
   type PortfolioPerformanceQuery,
@@ -127,9 +130,9 @@ export function PerformancePageBody({
   const [currency, setCurrency] = useState<BaseCurrency>(
     (initialSummary?.base_currency as BaseCurrency | undefined) ?? DEFAULT_BASE_CURRENCY,
   );
-  const [range, setRange] = useState<PerformanceRange>("1Y");
+  const [range, setRange] = useState<PerformanceRange>(DEFAULT_PERFORMANCE_RANGE);
   const [twr, setTwr] = useState(true);
-  const [benchmarks, setBenchmarks] = useState<BenchmarkCode[]>([...BENCHMARK_CODES]);
+  const [benchmarks, setBenchmarks] = useState<BenchmarkCode[]>([...DEFAULT_BENCHMARKS]);
   const [filters, setFilters] = useState<DatasetFilters>(EMPTY_FILTERS);
   const [response, setResponse] = useState<PortfolioPerformanceResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -349,9 +352,10 @@ export function PerformancePageBody({
               }))}
               selected={benchmarks}
               onChange={(next) => changeBenchmarks(next as BenchmarkCode[])}
-              // Benchmarks are NOT an omit-param filter: the router treats
-              // absent benchmarks as zero series, so "All" must mean every
-              // code selected, never empty (review 5128075545 finding 1).
+              // Benchmarks are NOT an omit-param filter: absent/empty
+              // means zero series (portfolio-only, issue #382), so "All"
+              // must mean every code selected. Clearing the last chip is
+              // allowed; do not expand [] back to all three.
               allMode="all-options"
             />
             {DIMENSION_META.map(({ id, labelKey, field }) => (
