@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
+import yfinance as yf
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
@@ -15,7 +16,7 @@ from app.core.alert_dedup import already_alerted, mark_alerted
 from app.core.config import get_settings
 from app.core.timezones import ET
 from app.models.fx_rate import FxRate
-from app.services._yfinance import fetch_last_close
+from app.services._yfinance import _quiet_yfinance_logs, fetch_last_close
 from app.services.email_sender import send_ops_alert
 
 logger = logging.getLogger(__name__)
@@ -224,3 +225,88 @@ def update_fx_rates(session: Session) -> FxFetchResult:
     _warn_failed_pairs(result.failed, today_et)
     _check_fx_staleness(session, today_et)
     return result
+
+
+def _fetch_rate_history(
+    pairs: dict[str, str], period: str
+) -> dict[str, list[tuple[date, Decimal]]]:
+    """{pair_name: [(rate_date, rate), ...]} oldest -> newest.
+
+    `period` is passed straight to `yf.download` — the multi-year seed uses
+    `Ny` (issue #398 / same lesson as `backfill_benchmark_prices`, review
+    5124107298 finding 2). Callers must not hand this a huge `Nd` window.
+    """
+    yf_tickers = list(pairs.values())
+    if not yf_tickers:
+        return {}
+    try:
+        with _quiet_yfinance_logs():
+            hist = yf.download(
+                tickers=" ".join(yf_tickers), period=period, auto_adjust=True, progress=False
+            )
+    except Exception:
+        logger.exception("fx_fetcher: yfinance history download failed for %s", yf_tickers)
+        return {}
+    if hist.empty:
+        return {}
+
+    close = hist["Close"]
+    yf_to_pair = {yf_ticker: pair_name for pair_name, yf_ticker in pairs.items()}
+    out: dict[str, list[tuple[date, Decimal]]] = {}
+    for yf_ticker in yf_tickers:
+        try:
+            series = close[yf_ticker] if len(yf_tickers) > 1 else close
+        except KeyError:
+            continue
+        rows: list[tuple[date, Decimal]] = []
+        for ts, value in series.items():
+            if value != value:  # NaN
+                continue
+            rows.append((ts.date(), Decimal(str(float(value)))))
+        if rows:
+            out[yf_to_pair[yf_ticker]] = rows
+    return out
+
+
+def _upsert_fx_history(session: Session, rows: list[dict[str, object]]) -> int:
+    if not rows:
+        return 0
+    base = insert(FxRate).values(rows)
+    stmt = base.on_conflict_do_update(
+        constraint="uq_fx_rates_pair_rate_date",
+        set_={"rate": base.excluded.rate, "fetched_at": base.excluded.fetched_at},
+    ).returning(FxRate.id)
+    return len(session.execute(stmt).fetchall())
+
+
+def backfill_fx_rates(session: Session, years: int = 5) -> int:
+    """One-off ~`years` daily-close seed for every `_PAIRS` entry.
+
+    Observed FX, not portfolio replay — no `is_backfilled`. Safe to re-run
+    (idempotent upsert on `(pair, rate_date)`). Does not loosen the 10-day
+    as-of bound and does not invent rates on gaps. Daily `update_fx_rates`
+    remains the freshness path.
+    """
+    fetched_at = datetime.now(tz=UTC)
+    fetched = _fetch_rate_history(_PAIRS, period=f"{max(years, 1)}y")
+    rows: list[dict[str, object]] = []
+    for pair_name, points in fetched.items():
+        for rate_date, rate in points:
+            rows.append(
+                {
+                    "pair": pair_name,
+                    "rate": rate,
+                    "rate_date": rate_date,
+                    "source": "yfinance",
+                    "fetched_at": fetched_at,
+                }
+            )
+    written = _upsert_fx_history(session, rows)
+    missing = [pair_name for pair_name in _PAIRS if pair_name not in fetched]
+    if missing:
+        logger.warning("backfill_fx_rates: no history for %s", ", ".join(sorted(missing)))
+    print(
+        f"[OK] backfilled {written} fx_rates row(s) across {len(fetched)} pair(s)"
+        + (f" (missing: {', '.join(sorted(missing))})" if missing else "")
+    )
+    return written

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import importlib
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -977,6 +977,109 @@ def test_csi300_series_converts_cny_close_to_usd(db_session: Session) -> None:
     assert by_date[D1].return_pct_cumulative == Decimal("0.0000")
     assert by_date[D2].return_pct_cumulative == Decimal("0.1000")
     assert by_date[D2].fx_as_of == {"USDCNY": D2}
+
+
+def _seed_year_of_sp500(session: Session, start: date, end: date, *, fx_from: date | None) -> None:
+    cursor = start
+    while cursor <= end:
+        session.add(
+            BenchmarkPrice(
+                index_code="sp500",
+                price_date=cursor,
+                close_price=Decimal("5000"),
+                currency="USD",
+            )
+        )
+        if fx_from is not None and cursor >= fx_from:
+            session.add(FxRate(pair="USDCNY", rate_date=cursor, rate=Decimal("7.2")))
+        cursor += timedelta(days=1)
+
+
+def test_deep_fx_gives_non_usd_benchmark_the_full_selected_span(db_session: Session) -> None:
+    """Issue #398: with FX history covering the selected range, CNY must not
+    collapse displayable benchmark span relative to USD (LOOKBACK_DAYS stays
+    10; this is seeded depth, not a loosened as-of bound)."""
+    today = date(2026, 9, 7)
+    range_start = today - timedelta(days=365)
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    holding_id = uuid.uuid4()
+    _mark_complete(db_session, user_id, today)
+    _row(
+        db_session,
+        user_id,
+        today,
+        holding_id,
+        shares=Decimal("1"),
+        market_value_base=Decimal("100"),
+    )
+    _seed_year_of_sp500(db_session, range_start, today, fx_from=range_start)
+    db_session.flush()
+
+    usd = compute_portfolio_performance(
+        db_session,
+        user_id,
+        range_key="1Y",
+        benchmark_codes=["sp500"],
+        base_currency="USD",
+        today=today,
+    )
+    cny = compute_portfolio_performance(
+        db_session,
+        user_id,
+        range_key="1Y",
+        benchmark_codes=["sp500"],
+        base_currency="CNY",
+        today=today,
+    )
+    usd_series = usd.benchmarks[0]
+    cny_series = cny.benchmarks[0]
+    assert usd_series.display_start_date == range_start
+    assert cny_series.display_start_date == usd_series.display_start_date
+    assert cny_series.display_end_date == usd_series.display_end_date
+    assert cny_series.displayable is True
+
+
+def test_shallow_fx_still_truncates_non_usd_benchmark_span(db_session: Session) -> None:
+    """Honesty contract: missing/stale FX still drops early days. Seeding
+    does not invent rates; LOOKBACK_DAYS is unchanged."""
+    today = date(2026, 9, 7)
+    range_start = today - timedelta(days=365)
+    fx_from = date(2026, 8, 8)
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    holding_id = uuid.uuid4()
+    _mark_complete(db_session, user_id, today)
+    _row(
+        db_session,
+        user_id,
+        today,
+        holding_id,
+        shares=Decimal("1"),
+        market_value_base=Decimal("100"),
+    )
+    _seed_year_of_sp500(db_session, range_start, today, fx_from=fx_from)
+    db_session.flush()
+
+    usd = compute_portfolio_performance(
+        db_session,
+        user_id,
+        range_key="1Y",
+        benchmark_codes=["sp500"],
+        base_currency="USD",
+        today=today,
+    )
+    cny = compute_portfolio_performance(
+        db_session,
+        user_id,
+        range_key="1Y",
+        benchmark_codes=["sp500"],
+        base_currency="CNY",
+        today=today,
+    )
+    assert usd.benchmarks[0].display_start_date == range_start
+    assert cny.benchmarks[0].display_start_date == fx_from
+    assert cny.benchmarks[0].display_start_date > usd.benchmarks[0].display_start_date
 
 
 # --- issue #371: D8 current attribution for group/account ---
