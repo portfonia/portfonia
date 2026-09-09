@@ -1,4 +1,4 @@
-# Portfolio Performance — Phase 1 + #366 correction + #377 holiday history + #383 catalog
+# Portfolio Performance — Phase 1 + #366 correction + #377 holiday history + #383 catalog + #398 FX seed
 
 Issue #360 (Phase 1) and issue #366 (tracking-start fix + composition-replay
 removal, 2026-09-07 design amendment). Issue #377 (2026-09-08) keeps selected
@@ -7,14 +7,18 @@ and separates display eligibility from comparison eligibility. Issue #382
 is the Phase 2 UI-defaults follow-up: first visit is range `1M` and
 benchmarks `[sp500]`, with multi-select over the catalog. Issue #383 shipped
 `csi300` as an optional chip (PR #385). China A50 is **shelved** — not on
-the near-term agenda; #383 is closed.
+the near-term agenda; #383 is closed. Issue #398 seeds multi-year `fx_rates`
+for every `fx_fetcher._PAIRS` entry so non-USD report currencies can draw
+full selected-range benchmark lines (supersedes #365's not_planned close,
+which assumed FX was only needed on portfolio-snapshot days).
 Governing decisions: #360's Decisions comment + the 2026-09-06 amendment
 comment + the Implementation design comment, #366's Design +
 Implementation-contract comments, #377's five contract comments,
-#382's five contract comments, and #383's five contract comments (read
-those before this file — this is an implementation summary, not the spec
-itself). Paired Chinese-language design doc: Obsidian
-`Hermes/Portfonia/Docs/Portfolio_Pfmc.md` §1.2–1.3, §2 D9, §3.3.
+#382's five contract comments, #383's five contract comments, and #398's
+five contract comments (read those before this file — this is an
+implementation summary, not the spec itself). Paired Chinese-language
+design doc: Obsidian `Hermes/Portfonia/Docs/Portfolio_Pfmc.md` §1.2–1.3,
+§2 D9, §3.3.
 
 **#366 in one line**: Phase 1's one-off portfolio backfill derived a
 position's chart start date from "earliest ticker price we happen to have"
@@ -31,14 +35,15 @@ below.
 ## Scope
 
 Phase 1 ships schema + two daily Celery tasks + `GET /portfolio/
-performance` + one one-off backfill script (`backfill_benchmark_prices.py`
-— benchmark index history only; the per-user portfolio composition-replay
-backfill from Phase 1 was retired by #366, see below). No frontend, no
-chart — Phase 2 is a separate follow-up PR against this frozen response
-contract. Deliberately does not touch `/portfolio/summary` or
-`compute_portfolio`'s `capture_supported=False` exclusion (D5 amendment:
-Performance computes its own value rules independently — aligning the two
-is explicitly out of scope for this phase, and #366 does not revisit this).
+performance` + one-off market-data seeds (`backfill_benchmark_prices.py`
+for index closes; `backfill_fx_rates.py` for every `_PAIRS` FX pair,
+issue #398). The per-user portfolio composition-replay backfill from
+Phase 1 was retired by #366, see below. No frontend, no chart — Phase 2
+is a separate follow-up PR against this frozen response contract.
+Deliberately does not touch `/portfolio/summary` or `compute_portfolio`'s
+`capture_supported=False` exclusion (D5 amendment: Performance computes
+its own value rules independently — aligning the two is explicitly out of
+scope for this phase, and #366 does not revisit this).
 
 ## Schema
 
@@ -244,9 +249,10 @@ directly (~35,605 rows, starts in 2024-11/12, for a product live since
 
 **Retired outright, not deprecated behind a flag**: the script, its
 dedicated test file, and every doc/comment instructing it as a product step
-are deleted. `backfill_benchmark_prices.py` is unaffected — index closes are
-market data, not a claim about the user's holdings, and can be backfilled
-freely.
+are deleted. `backfill_benchmark_prices.py` and `backfill_fx_rates.py`
+(issue #398) are unaffected — index closes and FX daily rates are market
+data, not a claim about the user's holdings, and can be backfilled freely.
+Do not revive composition-replay / fake portfolio history (#366/#367).
 
 **`tracking_start`** (`GET /portfolio/performance`'s `portfolio.
 tracking_start`) is now the evidence-based replacement: the earliest
@@ -381,24 +387,48 @@ legacy-safety net, not a substitute for actually removing known-bad data).
 See the PR description for the exact one-shot SQL/script, dry-run output,
 and row counts actually deleted.
 
-## Backfill (benchmark only)
+## Backfill (benchmark indexes + FX rates)
 
-`app/scripts/backfill_benchmark_prices.py` is a plain ~5-year history seed,
-no approximation, safe to re-run (idempotent upsert). Uses yfinance's `Ny`
-period form (`f"{years}y"`), NOT an arbitrary `Nd` day count (review
-5124107298 finding 2, PR #363) — empirically verified against the
-installed yfinance 1.3.0 that `Nd` for a large N does not error or return
-empty (it returns N trading-day ROWS, which for large N spans MORE
-calendar time than N days: `1825d` returned 1825 rows spanning ~7.25
-calendar years, not 5), so the original code was not actually broken, but
-that row-count-not-calendar-days semantic is surprising and unrelated to
-what `--years` means — `Ny` is the correct, unambiguous form for this
-path. The short daily catch-up window keeps `Nd` (e.g. `7d`), matching
-existing precedent elsewhere in this codebase
+`app/scripts/backfill_benchmark_prices.py` is a plain ~5-year history seed
+for catalog index closes, no approximation, safe to re-run (idempotent
+upsert). Uses yfinance's `Ny` period form (`f"{years}y"`), NOT an
+arbitrary `Nd` day count (review 5124107298 finding 2, PR #363) —
+empirically verified against the installed yfinance 1.3.0 that `Nd` for a
+large N does not error or return empty (it returns N trading-day ROWS,
+which for large N spans MORE calendar time than N days: `1825d` returned
+1825 rows spanning ~7.25 calendar years, not 5), so the original code was
+not actually broken, but that row-count-not-calendar-days semantic is
+surprising and unrelated to what `--years` means — `Ny` is the correct,
+unambiguous form for this path. The short daily catch-up window keeps
+`Nd` (e.g. `7d`), matching existing precedent elsewhere in this codebase
 (`_yfinance.fetch_ohlcv_range`). After a catalog expansion, ops re-runs
 this script so new codes (`csi300` as of #383) get the same multi-year
 span; daily Beat then keeps them current. All catalog indexes are **price
 indexes** (no dividend reinvestment), not total-return variants.
+
+`app/scripts/backfill_fx_rates.py` (issue #398) is the FX sibling: same
+`Ny` period, default `--years 5`, idempotent upsert on
+`(pair, rate_date)`. It seeds **every** pair in `fx_fetcher._PAIRS`
+(USDCNY, USDHKD, USDCNH, USDGBP, USDEUR, USDJPY, USDSGD, USDAUD, USDCAD,
+USDCHF, USDKRW, USDTWD, USDMOP, USDNZD) — not a CNY/HKD-only subset.
+Historical FX is observed market data: do **not** add `is_backfilled`.
+Do **not** loosen `benchmark_valuation.LOOKBACK_DAYS` (10 calendar days)
+or invent rates on gaps; missing/stale days stay `missing_fx` /
+`stale_fx`. Daily `capture_fx_task` / `update_fx_rates` remains the
+ongoing freshness path (today-only upsert). #365's not_planned close
+assumed Performance only needed FX on real portfolio-snapshot days;
+after #377, displayable index history spans the **selected range**, so
+non-USD `base_currency` needs FX depth aligned with the benchmark seed.
+
+**Ops (one-off after merge, production):** run
+`python -m app.scripts.backfill_fx_rates` (default 5 years; `--years`
+override allowed) once against the production database, then confirm
+`min(rate_date)` / `count(*)` per pair and smoke
+`GET /portfolio/performance?range=1Y&benchmarks=sp500` for USD vs CNY vs
+HKD (plus one other `_PAIRS` currency, e.g. EUR). Comparable benchmark
+`display_start_date` / `display_end_date` — not truncated to FX-capture
+depth. Remote paths and host identifiers stay in the private ops vault,
+not this file.
 
 ## Beat schedule
 
@@ -487,8 +517,9 @@ Locked in this change:
 Do not use `399300.SZ` (same index name; yfinance returns only the latest
 session). Capture and backfill stamp `currency` on every upsert rather
 than inheriting the column's USD server_default. The read path converts
-via existing daily `fx_rates` and #377 as-of rules; there is no multi-year
-FX seed (#365).
+via `fx_rates` and #377 as-of rules (10-day bound unchanged). Multi-year
+FX history is seeded by `backfill_fx_rates.py` (#398; #365's "no
+multi-year FX" note is reversed under this motive).
 
 **China A50 shelved (2026-09-09).** Not on the near-term agenda. #383 is
 closed after PR #385 shipped `csi300` only. Same-path yfinance research
