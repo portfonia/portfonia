@@ -967,6 +967,10 @@ endpoint, and the scheduled fan-out (`_Recipient` gains `base_currency`).
 this preference when omitted rather than a hardcoded `"USD"` — this is
 what seeds the frontend `CurrencySwitcher`'s initial value on first page
 load (the switcher itself stays freely changeable per-view, unaffected).
+Issue #372 slice A adds an append-only `report_currency_changes` log on
+every real change of this preference (self-service and the ops sibling);
+it does **not** rewrite historical snapshot `base_currency`. See
+`docs/mechanisms/portfolio-performance.md`.
 
 **Item 2 — unified by-currency card**: the three-mode (native/normalized/
 percentage) dropdown is gone. One row per currency, format confirmed with

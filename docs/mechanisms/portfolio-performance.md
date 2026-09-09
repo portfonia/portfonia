@@ -206,6 +206,25 @@ market_value_base` and never touches `prev_row`'s stored value directly —
 the bug was entirely in how the aggregate day-values were compared, not in
 that fast path).
 
+**Report-currency change audit (issue #372 slice A)**: every successful
+preference change (`PATCH /me/report-currency` or ops
+`POST /admin/users/by-email/report-currency`) appends one
+`report_currency_changes` row (`user_id`, `old_currency`, `new_currency`,
+`changed_at`, `source` `self|admin`, optional `actor_user_id`). A no-op
+same-currency write does not insert. The writer never rewrites historical
+`portfolio_value_snapshots.base_currency`. Ops read:
+`GET /admin/users/{user_id}/report-currency-audit` (newest first) or
+
+```sql
+SELECT old_currency, new_currency, changed_at, source, actor_user_id
+FROM report_currency_changes
+WHERE user_id = '<uuid>'
+ORDER BY changed_at;
+```
+
+`user_id` is `ON DELETE CASCADE` (purge is not blocked; same class as
+snapshots). Capture-health alerts and sector denorm are later #372 slices.
+
 ## Since-tracking start, not composition-replay (issue #366, supersedes D2)
 
 Phase 1's `backfill_portfolio_value_history.py` picked a position's chart

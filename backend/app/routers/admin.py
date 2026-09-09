@@ -47,6 +47,7 @@ from app.models.email_verification import EmailVerification
 from app.models.holding import Holding
 from app.models.invite import Invite
 from app.models.report import Report
+from app.models.report_currency_change import ReportCurrencyChange
 from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
 from app.schemas.holdings import VALID_CURRENCIES
@@ -74,6 +75,7 @@ from app.services.invites import (
     revoke_invite,
 )
 from app.services.llm_errors import LLMEmptyResponseError
+from app.services.report_currency import apply_report_currency_change
 from app.services.report_generator import generate_report, regenerate_report
 from app.services.ticker_leverage import (
     LeverageOverride,
@@ -945,17 +947,64 @@ def update_report_currency_by_email(
     the report-currency sibling of update_report_language_by_email above,
     same grouping (by-email URL shape) and same lighter-weight shape (no
     re-typed-email confirmation ceremony — a single-field, reversible
-    write with no data-loss risk)."""
+    write with no data-loss risk).
+
+    A real change also appends `report_currency_changes` with source=admin
+    (issue #372). Historical snapshot `base_currency` is not rewritten.
+    """
     normalized_email = _normalize_email(email)
     if normalized_email is None:
         raise HTTPException(status_code=422, detail="email query param is required")
     user = session.execute(select(User).where(User.email == normalized_email)).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="user not found")
-    user.base_currency = body.report_currency
+    apply_report_currency_change(
+        session,
+        user,
+        body.report_currency,
+        source="admin",
+        actor_user_id=None,
+    )
     session.commit()
     return UpdateReportCurrencyByEmailOut(
         user_id=user.id, email=user.email, report_currency=user.base_currency
+    )
+
+
+class ReportCurrencyChangeOut(BaseModel):
+    id: UUID
+    user_id: UUID
+    old_currency: str
+    new_currency: str
+    changed_at: datetime
+    source: str
+    actor_user_id: UUID | None
+
+
+@router.get(
+    "/users/{user_id}/report-currency-audit",
+    response_model=list[ReportCurrencyChangeOut],
+)
+def list_report_currency_audit(
+    user_id: UUID,
+    session: Session = Depends(get_session),
+) -> list[ReportCurrencyChange]:
+    """Ops read of one user's report-currency change log (issue #372).
+
+    Newest first. Product UI is out of scope; this is the documented
+    admin read path so operators do not need SSH+psql to check whether
+    a mid-life preference change explains snapshot `base_currency`
+    mismatch. Does not rewrite snapshots.
+    """
+    user = session.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    return list(
+        session.scalars(
+            select(ReportCurrencyChange)
+            .where(ReportCurrencyChange.user_id == user_id)
+            .order_by(ReportCurrencyChange.changed_at.desc(), ReportCurrencyChange.id.desc())
+        ).all()
     )
 
 

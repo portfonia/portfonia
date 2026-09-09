@@ -38,6 +38,16 @@ capability existing.
   iterates `app.routes` and asserts every `/admin`-prefixed route's
   dependant chain includes `require_ops_token`, so a future endpoint that
   forgets to opt in fails CI rather than shipping unauthenticated.
+- **Report-currency change audit** (issue #372 slice A):
+  `GET /admin/users/{user_id}/report-currency-audit` is the ops read of
+  `report_currency_changes` (newest first; 404 if the user is missing;
+  empty list if they never changed currency). The write paths are the
+  existing `PATCH /me/report-currency` and
+  `POST /admin/users/by-email/report-currency` — a real change appends
+  one row (`source=self` with `actor_user_id` set, or `source=admin`
+  with `actor_user_id` null). Same-currency writes are 200 with no row.
+  No product UI. Does not rewrite `portfolio_value_snapshots`. SQL
+  equivalent is in `docs/mechanisms/portfolio-performance.md`.
 - **Cadence change** (issue #191): `POST /admin/users/{user_id}/cadence`
   sets `users.report_cadence`, same body/response/404 shape as
   `bind-subject`. `report_cadence: Literal["mwf", "weekly"]` on the request

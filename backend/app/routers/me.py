@@ -15,6 +15,7 @@ from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
 from app.schemas.holdings import VALID_CURRENCIES
 from app.schemas.me import MeOut, PendingVerificationOut
+from app.services.report_currency import apply_report_currency_change
 
 router = APIRouter()
 
@@ -152,9 +153,19 @@ def update_report_currency(
 ) -> UpdateReportCurrencyOut:
     """Self-service write of the caller's own report/base currency (issue
     #350 item 1) — same shape as update_report_language above: writes
-    users.base_currency for the caller's own row only, no rate limiting."""
+    users.base_currency for the caller's own row only, no rate limiting.
+
+    A real change also appends `report_currency_changes` (issue #372).
+    Historical `portfolio_value_snapshots.base_currency` is not rewritten.
+    """
     user = session.get(User, principal.user_id)
     assert user is not None  # current_principal already required this row
-    user.base_currency = body.report_currency
+    apply_report_currency_change(
+        session,
+        user,
+        body.report_currency,
+        source="self",
+        actor_user_id=user.id,
+    )
     session.commit()
     return UpdateReportCurrencyOut(report_currency=user.base_currency)
