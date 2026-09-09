@@ -1,7 +1,9 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, currentAccessToken } from "@/lib/supabase/server";
 import { catalogs, DEFAULT_LOCALE, isLocale } from "@/locales";
+
+const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
 export interface ChangePasswordState {
   error: string | null;
@@ -15,11 +17,28 @@ function resolveLocale(formData: FormData) {
   return isLocale(raw) ? raw : DEFAULT_LOCALE;
 }
 
+async function verifyChangePasswordAltcha(payload: string): Promise<boolean> {
+  const token = await currentAccessToken();
+  if (!token) return false;
+  try {
+    const res = await fetch(`${BACKEND_URL}/me/change-password/altcha-verify`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ altcha: payload }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 // Ring 1-Profile Page.md decision 2: signInWithPassword(email, current
 // password) IS the current-password check, then updateUser({ password })
-// changes it. No backend/Bearer involvement — this project's own Postgres
-// `users` table is untouched, and Supabase revokes other sessions after a
-// successful change (accepted side effect).
+// changes it. Issue #393: Altcha PoW is verified against the backend
+// first; a missing/invalid payload never reaches the Auth provider.
 export async function changePassword(
   _prevState: ChangePasswordState | undefined,
   formData: FormData,
@@ -27,6 +46,7 @@ export async function changePassword(
   const currentPassword = String(formData.get("currentPassword") ?? "");
   const newPassword = String(formData.get("newPassword") ?? "");
   const confirmNewPassword = String(formData.get("confirmNewPassword") ?? "");
+  const altchaPayload = String(formData.get("altcha") ?? "");
   const t = catalogs[resolveLocale(formData)].profile;
 
   if (!currentPassword || !newPassword || !confirmNewPassword) {
@@ -37,6 +57,12 @@ export async function changePassword(
   }
   if (newPassword !== confirmNewPassword) {
     return { error: t.passwordMismatch, success: false };
+  }
+  if (!altchaPayload) {
+    return { error: t.errorCaptchaRequired, success: false };
+  }
+  if (!(await verifyChangePasswordAltcha(altchaPayload))) {
+    return { error: t.errorCaptchaRequired, success: false };
   }
 
   const supabase = await createClient();

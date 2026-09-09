@@ -11,7 +11,11 @@ from altcha.v1 import AlgoType
 
 from app.core.config import get_settings
 from app.services.altcha_challenge import (
+    create_change_password_challenge,
+    create_email_verification_challenge,
     create_forgot_password_challenge,
+    verify_change_password_solution,
+    verify_email_verification_solution,
     verify_forgot_password_solution,
 )
 
@@ -70,3 +74,34 @@ def test_expired_challenge_fails_verification() -> None:
 @pytest.mark.parametrize("garbage", ["", "not-base64-json", "eyJub3QiOiJhIHNvbHV0aW9uIn0="])
 def test_malformed_payload_never_raises(garbage: str) -> None:
     assert verify_forgot_password_solution(garbage) is False
+
+
+def test_change_password_challenge_shape_matches_the_pinned_widget_protocol() -> None:
+    challenge = create_change_password_challenge()
+    assert set(challenge) == {"algorithm", "challenge", "maxNumber", "salt", "signature"}
+    assert challenge["algorithm"] == "SHA-256"
+
+
+def test_change_password_valid_solution_verifies() -> None:
+    payload = _solve(create_change_password_challenge())
+    assert verify_change_password_solution(payload) is True
+
+
+def test_change_password_malformed_payload_never_raises() -> None:
+    assert verify_change_password_solution("") is False
+    assert verify_change_password_solution("not-a-solution") is False
+
+
+def test_change_password_hmac_is_distinct_from_other_purposes() -> None:
+    """A solved forgot-password or email-verification challenge must not
+    satisfy the change-password verifier (issue #393 — distinct purpose,
+    not a silent reuse of the other flows' HMAC)."""
+    forgot_payload = _solve(create_forgot_password_challenge())
+    email_payload = _solve(create_email_verification_challenge())
+    change_payload = _solve(create_change_password_challenge())
+
+    assert verify_change_password_solution(forgot_payload) is False
+    assert verify_change_password_solution(email_payload) is False
+    assert verify_forgot_password_solution(change_payload) is False
+    assert verify_email_verification_solution(change_payload) is False
+    assert verify_change_password_solution(change_payload) is True

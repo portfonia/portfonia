@@ -7,10 +7,6 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/profile",
   useRouter: () => ({ refresh: routerRefresh }),
 }));
-// Server Action import would drag in lib/supabase/server.ts's `server-only`
-// guard under vitest (no Next compiler pass to stub it) — mock like the
-// other suites do (see get-started-menu.test.tsx's identical comment).
-vi.mock("@/app/profile/actions", () => ({ changePassword: vi.fn() }));
 // ProfilePageBody now (indirectly) imports lib/api.ts's resendEmailVerification
 // (issue #262), whose module pulls logout() from the server-only-guarded
 // Supabase server client — mock it like holdings-manager.test.tsx does.
@@ -203,12 +199,16 @@ describe("ProfilePageBody", () => {
     expect(within(card).getByText(/no separate delivery address set/i)).toBeInTheDocument();
   });
 
-  it("renders the Change password form", () => {
+  it("renders a Change password link and no inline password fields (issue #393)", () => {
     renderBody(BASE_ME);
 
-    expect(screen.getByLabelText(/current password/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/^new password$/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/confirm new password/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^change password$/i })).toHaveAttribute(
+      "href",
+      "/profile/change-password",
+    );
+    expect(screen.queryByLabelText(/current password/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^new password$/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/confirm new password/i)).not.toBeInTheDocument();
   });
 
   it("renders a gap card with a button per missing item, neither carrying ?onboarding=1 (issue #221 §2.6)", () => {

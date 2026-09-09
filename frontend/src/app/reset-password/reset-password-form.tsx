@@ -51,7 +51,7 @@ export function ResetPasswordForm() {
     }
     setSuccess(true);
     // Supabase revokes other sessions after a password change (same
-    // accepted side effect as profile/actions.ts's changePassword) — send
+    // accepted side effect as change-password/actions.ts's changePassword) — send
     // the user to log back in with the new password rather than pretending
     // this page can carry them straight into an authenticated route.
     setTimeout(() => router.push("/login"), 2000);
