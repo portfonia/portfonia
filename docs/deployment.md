@@ -195,11 +195,22 @@ to the production server:
    single deploy (confirmed 2026-09-07: a backend-only code change still
    re-ran the full `pip install`/`bun run build` chain end to end, purely
    because the prior deploy's `-af` had already erased anything
-   reusable). **Check `docker system df`'s Build Cache total after this
-   step anyway** — if it exceeds **10GB**, run `docker builder prune -af`
-   once as a manual reset (same safety profile as above, confirmed with
-   `docker compose ps` afterward) rather than waiting for the script's
-   own high-water trigger.
+   reusable).
+
+   **Retired 2026-09-09 (issue #399): do not run a manual `docker builder
+   prune -af` "reset" at any cache-size threshold.** An earlier version of
+   this step said to check `docker system df`'s Build Cache total and run
+   `-af` once it exceeded 10GB, written 2026-09-07 before the disk-pressure
+   script above existed. That instruction is strictly worse than letting
+   the script handle it: `-af` wipes every build-cache entry unconditionally,
+   which forces the next deploy back to a fully cold build — recreating the
+   exact regression #396 fixed, just recurring every few deploys instead of
+   every single one, since build cache (confirmed 2026-09-09: ~6GB after a
+   normal deploy, the largest single disk consumer on the host) routinely
+   crosses 10GB well before disk usage nears the 75% trigger above. The
+   disk-pressure script's oldest-first, age-based pruning is now the only
+   sanctioned cache-cleanup mechanism for production deploys — no
+   size-based manual check runs alongside it.
 7. Report success (what changed) or failure (which step, what the logs
    showed) — don't declare done without step 5 passing.
 
