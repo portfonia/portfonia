@@ -490,7 +490,8 @@
       "benchmarkNames": {
         "sp500": "S&P 500",
         "dow30": "道琼斯 30",
-        "nasdaq": "纳斯达克综合指数"
+        "nasdaq": "纳斯达克综合指数",
+        "csi300": "沪深300"
       },
       "metricsTitle": "区间概览",
       "metricsScope": "仅覆盖所选区间内实际被追踪的时段，不代表完整投资历史。",

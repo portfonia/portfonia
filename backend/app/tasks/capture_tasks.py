@@ -412,8 +412,8 @@ def capture_portfolio_value_snapshot_task(self: Any) -> dict[str, int]:
     default_retry_delay=300,
 )
 def capture_benchmark_index_prices_task(self: Any) -> dict[str, int]:
-    """Daily close capture for the sp500/dow30/nasdaq benchmark indexes
-    (issue #360 Phase 1, D9)."""
+    """Daily close capture for the catalog benchmark indexes
+    (issue #360 Phase 1, D9; CSI 300 added in issue #383)."""
     from app.core.database import SessionLocal
     from app.services.benchmark_prices import capture_benchmark_index_prices
 

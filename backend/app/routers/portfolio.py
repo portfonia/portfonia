@@ -66,7 +66,7 @@ BaseCurrency = Literal[
 
 
 RangeKey = Literal["1M", "6M", "YTD", "1Y", "5Y", "ALL"]
-BenchmarkCode = Literal["sp500", "dow30", "nasdaq"]
+BenchmarkCode = Literal["sp500", "dow30", "nasdaq", "csi300"]
 
 
 def _export_locale(session: Session, user_id: UUID) -> str:

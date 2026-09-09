@@ -1,9 +1,10 @@
-"""One-off ~5-year history seed for the three Portfolio Performance
-benchmark indexes (issue #360 Phase 1). Unlike per-user portfolio value
-snapshots (issue #366 retired the composition-replay backfill that once
-covered those — see `app/services/portfolio_history.py`), this is a normal
-historical time series fetch — no approximation, no per-user scope, safe to
-re-run (idempotent upsert on `(index_code, price_date)`).
+"""One-off ~5-year history seed for Portfolio Performance benchmark
+indexes (issue #360 Phase 1; CSI 300 added in issue #383). Unlike per-user
+portfolio value snapshots (issue #366 retired the composition-replay
+backfill that once covered those — see `app/services/portfolio_history.py`),
+this is a normal historical time series fetch — no approximation, no
+per-user scope, safe to re-run (idempotent upsert on
+`(index_code, price_date)`).
 
     python -m app.scripts.backfill_benchmark_prices            # 5 years (default)
     python -m app.scripts.backfill_benchmark_prices --years 3

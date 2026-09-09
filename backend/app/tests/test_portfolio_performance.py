@@ -898,3 +898,51 @@ def test_backfill_portfolio_value_history_script_removed() -> None:
     agents to accidentally resurrect it as a product step."""
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module("app.scripts.backfill_portfolio_value_history")
+
+
+def test_csi300_series_converts_cny_close_to_usd(db_session: Session) -> None:
+    """Issue #383: CSI 300 is a CNY price index; the read path FX-converts
+    the same way as the USD indexes (no multi-year FX seed, no A50)."""
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    holding_id = uuid.uuid4()
+    _mark_complete(db_session, user_id, D1)
+    _mark_complete(db_session, user_id, D2)
+    _row(db_session, user_id, D1, holding_id, shares=Decimal("1"), market_value_base=Decimal("100"))
+    _row(db_session, user_id, D2, holding_id, shares=Decimal("1"), market_value_base=Decimal("110"))
+    db_session.add_all(
+        [
+            BenchmarkPrice(
+                index_code="csi300",
+                price_date=D1,
+                close_price=Decimal("7000"),
+                currency="CNY",
+            ),
+            BenchmarkPrice(
+                index_code="csi300",
+                price_date=D2,
+                close_price=Decimal("7700"),
+                currency="CNY",
+            ),
+            FxRate(pair="USDCNY", rate_date=D1, rate=Decimal("7.0")),
+            FxRate(pair="USDCNY", rate_date=D2, rate=Decimal("7.0")),
+        ]
+    )
+    db_session.flush()
+
+    result = compute_portfolio_performance(
+        db_session,
+        user_id,
+        range_key="ALL",
+        benchmark_codes=["csi300"],
+        base_currency="USD",
+        today=D2,
+    )
+    assert [b.index_code for b in result.benchmarks] == ["csi300"]
+    series = result.benchmarks[0]
+    assert series.displayable is True
+    assert series.comparable is True
+    by_date = {p.point_date: p for p in series.points}
+    assert by_date[D1].return_pct_cumulative == Decimal("0.0000")
+    assert by_date[D2].return_pct_cumulative == Decimal("0.1000")
+    assert by_date[D2].fx_as_of == {"USDCNY": D2}

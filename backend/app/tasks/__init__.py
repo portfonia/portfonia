@@ -243,9 +243,9 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "schedule": crontab(hour=20, minute=30, day_of_week="mon-fri"),
     },
     # Same cadence as the snapshot task above — benchmark closes (sp500/
-    # dow30/nasdaq, D9) are independent of holdings/FX and could run
-    # earlier, but sharing one fixed time keeps the schedule easy to reason
-    # about; both tasks are idempotent upserts either way.
+    # dow30/nasdaq/csi300, D9 + #383) are independent of holdings/FX and
+    # could run earlier, but sharing one fixed time keeps the schedule easy
+    # to reason about; both tasks are idempotent upserts either way.
     "capture-benchmark-index-prices-daily": {
         "task": "app.tasks.capture_tasks.capture_benchmark_index_prices_task",
         "schedule": crontab(hour=20, minute=30, day_of_week="mon-fri"),

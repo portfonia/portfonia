@@ -20,16 +20,20 @@ def test_backfill_benchmark_prices_writes_history(db_session: Session) -> None:
         "^GSPC": [(date(2021, 1, 4), Decimal("3700"))],
         "^DJI": [(date(2021, 1, 4), Decimal("30000"))],
         "^IXIC": [(date(2021, 1, 4), Decimal("12800"))],
+        "000300.SS": [(date(2021, 1, 4), Decimal("5200"))],
     }
     with patch.object(benchmark_prices, "_fetch_index_closes", return_value=fake) as mock_fetch:
         written = backfill_benchmark_prices(db_session, years=5)
-    assert written == 3
+    assert written == 4
     # Review 5124107298 finding 2: a multi-year backfill must use yfinance's
     # `Ny` period form, not an arbitrary `Nd` day count.
     assert mock_fetch.call_args.kwargs["period"] == "5y"
 
     rows = db_session.execute(select(BenchmarkPrice)).scalars().all()
-    assert len(rows) == 3
+    assert len(rows) == 4
+    csi = next(row for row in rows if row.index_code == "csi300")
+    assert csi.currency == "CNY"
+    assert csi.close_price == Decimal("5200")
 
 
 def test_capture_benchmark_index_prices_uses_short_day_period(db_session: Session) -> None:

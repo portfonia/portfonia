@@ -64,6 +64,7 @@ BENCHMARK_NAMES: dict[str, str] = {
     "sp500": "S&P 500",
     "dow30": "Dow 30",
     "nasdaq": "Nasdaq Composite",
+    "csi300": "CSI 300",
 }
 
 _ALL_RANGE_SENTINEL = date(2000, 1, 1)

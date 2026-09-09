@@ -1,13 +1,14 @@
-"""Daily close capture for the three Portfolio Performance benchmark indexes
-(issue #360 Phase 1, D9): S&P 500, Dow 30, Nasdaq Composite.
+"""Daily close capture for Portfolio Performance benchmark indexes
+(issue #360 Phase 1, D9; catalog expansion issue #383): S&P 500, Dow 30,
+Nasdaq Composite, CSI 300.
 
 Deliberately does NOT go through `app.services._yfinance.fetch_ohlcv_range` —
 that helper's ticker-suffix classification (`_market_key_for_ticker`,
 `_fetched_currency`, `_safe_scaled_price`'s GBX detection) exists to resolve
 ambiguity across the 7 equity capture markets, none of which applies to a
-literal index ticker like `^GSPC`. A small, self-contained `yf.download`
-call here avoids feeding an index ticker through machinery built for a
-different problem.
+literal index ticker like `^GSPC` or `000300.SS`. A small, self-contained
+`yf.download` call here avoids feeding an index ticker through machinery
+built for a different problem.
 """
 
 from __future__ import annotations
@@ -27,12 +28,26 @@ from app.services._yfinance import _quiet_yfinance_logs
 logger = logging.getLogger(__name__)
 
 # nasdaq = Nasdaq COMPOSITE (^IXIC), not the Nasdaq-100 (^NDX) — D9, explicit
-# because both are common "Nasdaq" shorthands. All three are USD-denominated
-# price indexes (no dividend reinvestment).
+# because both are common "Nasdaq" shorthands. csi300 = CSI 300 via the SSE
+# listing `000300.SS` (issue #383); do not use `399300.SZ` (same name, no
+# multi-year yfinance history). All entries are price indexes (no dividend
+# reinvestment). China A50 is deliberately absent — yfinance has no durable
+# FTSE China A50 history (see #383 Design).
 INDEX_YF_TICKERS: dict[str, str] = {
     "sp500": "^GSPC",
     "dow30": "^DJI",
     "nasdaq": "^IXIC",
+    "csi300": "000300.SS",
+}
+
+# Quote currency of the vendor close, stamped on every upsert. The column's
+# USD server_default is only a legacy default for pre-#383 US rows — a CNY
+# index must never inherit it.
+INDEX_CURRENCIES: dict[str, str] = {
+    "sp500": "USD",
+    "dow30": "USD",
+    "nasdaq": "USD",
+    "csi300": "CNY",
 }
 
 
@@ -106,8 +121,16 @@ def capture_benchmark_index_prices(session: Session, lookback_days: int = 7) -> 
     rows: list[dict[str, object]] = []
     for yf_ticker, points in fetched.items():
         code = yf_to_code[yf_ticker]
+        currency = INDEX_CURRENCIES[code]
         for price_date, close in points:
-            rows.append({"index_code": code, "price_date": price_date, "close_price": close})
+            rows.append(
+                {
+                    "index_code": code,
+                    "price_date": price_date,
+                    "close_price": close,
+                    "currency": currency,
+                }
+            )
     written = _upsert(session, rows)
     logger.info(
         "capture_benchmark_index_prices: indexes=%d written=%d", len(INDEX_YF_TICKERS), written
@@ -124,8 +147,16 @@ def backfill_benchmark_prices(session: Session, years: int = 5) -> int:
     rows: list[dict[str, object]] = []
     for yf_ticker, points in fetched.items():
         code = yf_to_code[yf_ticker]
+        currency = INDEX_CURRENCIES[code]
         for price_date, close in points:
-            rows.append({"index_code": code, "price_date": price_date, "close_price": close})
+            rows.append(
+                {
+                    "index_code": code,
+                    "price_date": price_date,
+                    "close_price": close,
+                    "currency": currency,
+                }
+            )
     written = _upsert(session, rows)
     print(f"[OK] backfilled {written} benchmark price row(s) across {len(fetched)} index(es)")
     return written
