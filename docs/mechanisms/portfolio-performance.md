@@ -206,6 +206,29 @@ market_value_base` and never touches `prev_row`'s stored value directly —
 the bug was entirely in how the aggregate day-values were compared, not in
 that fast path).
 
+**Report-currency change audit (issue #372 slice A)**: every successful
+preference change (`PATCH /me/report-currency` or ops
+`POST /admin/users/by-email/report-currency`) appends one
+`report_currency_changes` row (`user_id`, `old_currency`, `new_currency`,
+`changed_at`, `source` `self|admin`, `actor_user_id`). Self-service sets
+`actor_user_id` to the caller. Ops-token writes have no JWT principal —
+`actor_user_id` is `Settings.DEV_USER_ID` when that users row exists
+(same stand-in as ticker-leverage `created_by`), else null. A no-op
+same-currency write does not insert. The writer never rewrites historical
+`portfolio_value_snapshots.base_currency`. Ops read:
+`GET /admin/users/{user_id}/report-currency-audit` (newest first) or
+
+```sql
+SELECT old_currency, new_currency, changed_at, source, actor_user_id
+FROM report_currency_changes
+WHERE user_id = '<uuid>'
+ORDER BY changed_at;
+```
+
+`user_id` is `ON DELETE CASCADE` (purge is not blocked; same class as
+snapshots). Capture health is slice B in the same issue (see Beat
+schedule below). Sector denorm is deferred (no product ask).
+
 ## Since-tracking start, not composition-replay (issue #366, supersedes D2)
 
 Phase 1's `backfill_portfolio_value_history.py` picked a position's chart
@@ -387,6 +410,22 @@ ordering: no other daily entry in that file fires between 17:15 ET and
 day's price-capture and FX-fetch tasks have had their scheduled chance to
 run (not a guarantee they *succeeded* — that's what `skipped_deps` and the
 daily task's own idempotent re-run cover).
+
+**Capture health (issue #372 slice B)**: `check-capture-health-daily` at
+21:30 ET Mon–Fri. One probe after that window, not checks sprinkled into
+every capture function. **Alert rule:** expected date = that ET weekday;
+a pipeline is stale if it has no success evidence dated on that day
+(`price_snapshots` close `trade_date` — any listed or fund close bar
+clears the whole price pipeline, intentional v1 coarseness;
+`fx_rates.rate_date`, `portfolio_snapshot_batches` `status=complete`
+`snapshot_date`, `benchmark_prices.price_date`). Portfolio also alerts when that date has
+`skipped_deps` or `pending` rows. One aggregated `send_ops_alert` +
+`alert_dedup`, production-gated. Hard-fail retries stay on
+`capture_tasks._capture_failed`. Not a 36h wall-clock rule (Monday vs
+Friday would false-positive). No admin UI. Does not write or replay
+(#373). Silence: `APP_ENV != production`, or a later weekday success
+(new dedup key). Verify: `GET` is not provided; read the ops email /
+`capture_health:` INFO log.
 
 **Full-exit fan-out (issue #367 review finding B, blacktomb42, review
 5563537095)**: `capture_portfolio_value_snapshot`'s user selection

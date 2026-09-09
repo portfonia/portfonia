@@ -250,6 +250,11 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "task": "app.tasks.capture_tasks.capture_benchmark_index_prices_task",
         "schedule": crontab(hour=20, minute=30, day_of_week="mon-fri"),
     },
+    # Issue #372 slice B: lag/skipped_deps probe after the 20:30 ET window.
+    "check-capture-health-daily": {
+        "task": "app.tasks.capture_tasks.check_capture_health_task",
+        "schedule": crontab(hour=21, minute=30, day_of_week="mon-fri"),
+    },
 }
 _beat_schedule.update(_build_report_schedule())
 _beat_schedule.update(_build_capture_schedule())

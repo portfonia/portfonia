@@ -104,6 +104,8 @@ _EXTERNAL_NOTIFY_MODULES = (
     # test_fx_fetcher.py fixtures (all-pairs-failed, partial-failure) would
     # otherwise hit the real Resend API.
     "app.services.fx_fetcher",
+    # issue #372: weekday capture-health probe.
+    "app.services.capture_health",
 )
 
 
