@@ -958,12 +958,13 @@ def update_report_currency_by_email(
     user = session.execute(select(User).where(User.email == normalized_email)).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="user not found")
+    ops_id = UUID(get_settings().DEV_USER_ID)
     apply_report_currency_change(
         session,
         user,
         body.report_currency,
         source="admin",
-        actor_user_id=None,
+        actor_user_id=ops_id if session.get(User, ops_id) is not None else None,
     )
     session.commit()
     return UpdateReportCurrencyByEmailOut(

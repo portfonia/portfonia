@@ -80,6 +80,9 @@ def _max_date(session: Session, column: object) -> date | None:
 
 def evaluate_capture_health(session: Session, as_of: date | None = None) -> CaptureHealthReport:
     expected = expected_capture_date(as_of or datetime.now(tz=ET).date())
+    # Any close bar (listed market or fund NAV) dated expected clears this
+    # pipeline. Intentional v1 coarseness: "price" absent from the alert
+    # means at least one close exists that day, not every venue is healthy.
     price_last = session.execute(
         select(func.max(PriceSnapshot.trade_date)).where(PriceSnapshot.session_node == "close")
     ).scalar_one()

@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
 from app.models.report_currency_change import ReportCurrencyChange
 from app.models.user import User
@@ -128,6 +129,9 @@ def test_admin_change_appends_audit_with_admin_source(
     app_client: TestClient, db_session: Session
 ) -> None:
     db_session.add(_user(_ADMIN_UID, "audit-currency@example.com"))
+    ops_id = uuid.UUID(get_settings().DEV_USER_ID)
+    if ops_id != _ADMIN_UID:
+        db_session.add(_user(ops_id, "ops-actor@example.com"))
     db_session.flush()
 
     resp = app_client.post(
@@ -144,7 +148,7 @@ def test_admin_change_appends_audit_with_admin_source(
     assert rows[0].old_currency == "USD"
     assert rows[0].new_currency == "EUR"
     assert rows[0].source == "admin"
-    assert rows[0].actor_user_id is None
+    assert rows[0].actor_user_id == ops_id
 
 
 def test_admin_same_currency_does_not_append(app_client: TestClient, db_session: Session) -> None:

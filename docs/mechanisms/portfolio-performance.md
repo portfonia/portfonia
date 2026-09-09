@@ -210,7 +210,10 @@ that fast path).
 preference change (`PATCH /me/report-currency` or ops
 `POST /admin/users/by-email/report-currency`) appends one
 `report_currency_changes` row (`user_id`, `old_currency`, `new_currency`,
-`changed_at`, `source` `self|admin`, optional `actor_user_id`). A no-op
+`changed_at`, `source` `self|admin`, `actor_user_id`). Self-service sets
+`actor_user_id` to the caller. Ops-token writes have no JWT principal —
+`actor_user_id` is `Settings.DEV_USER_ID` when that users row exists
+(same stand-in as ticker-leverage `created_by`), else null. A no-op
 same-currency write does not insert. The writer never rewrites historical
 `portfolio_value_snapshots.base_currency`. Ops read:
 `GET /admin/users/{user_id}/report-currency-audit` (newest first) or
@@ -223,7 +226,8 @@ ORDER BY changed_at;
 ```
 
 `user_id` is `ON DELETE CASCADE` (purge is not blocked; same class as
-snapshots). Capture-health alerts and sector denorm are later #372 slices.
+snapshots). Capture health is slice B in the same issue (see Beat
+schedule below). Sector denorm is deferred (no product ask).
 
 ## Since-tracking start, not composition-replay (issue #366, supersedes D2)
 
@@ -411,9 +415,10 @@ daily task's own idempotent re-run cover).
 21:30 ET Mon–Fri. One probe after that window, not checks sprinkled into
 every capture function. **Alert rule:** expected date = that ET weekday;
 a pipeline is stale if it has no success evidence dated on that day
-(`price_snapshots` close `trade_date`, `fx_rates.rate_date`,
-`portfolio_snapshot_batches` `status=complete` `snapshot_date`,
-`benchmark_prices.price_date`). Portfolio also alerts when that date has
+(`price_snapshots` close `trade_date` — any listed or fund close bar
+clears the whole price pipeline, intentional v1 coarseness;
+`fx_rates.rate_date`, `portfolio_snapshot_batches` `status=complete`
+`snapshot_date`, `benchmark_prices.price_date`). Portfolio also alerts when that date has
 `skipped_deps` or `pending` rows. One aggregated `send_ops_alert` +
 `alert_dedup`, production-gated. Hard-fail retries stay on
 `capture_tasks._capture_failed`. Not a 36h wall-clock rule (Monday vs

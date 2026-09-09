@@ -44,8 +44,10 @@ capability existing.
   empty list if they never changed currency). The write paths are the
   existing `PATCH /me/report-currency` and
   `POST /admin/users/by-email/report-currency` — a real change appends
-  one row (`source=self` with `actor_user_id` set, or `source=admin`
-  with `actor_user_id` null). Same-currency writes are 200 with no row.
+  one row (`source=self` with `actor_user_id` = caller, or `source=admin`
+  with `actor_user_id` = `Settings.DEV_USER_ID` when that users row
+  exists — ops token has no JWT principal, same stand-in as
+  ticker-leverage `created_by`). Same-currency writes are 200 with no row.
   No product UI. Does not rewrite `portfolio_value_snapshots`. SQL
   equivalent is in `docs/mechanisms/portfolio-performance.md`.
 - **Cadence change** (issue #191): `POST /admin/users/{user_id}/cadence`
