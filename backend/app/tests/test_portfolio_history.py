@@ -75,6 +75,7 @@ def test_write_snapshot_is_idempotent_and_upserts_on_rerun(db_session: Session) 
         .all()
     )
     assert len(rows) == 1
+    assert rows[0].holding_id == holding.id
     assert rows[0].market_value_base == Decimal("1000.00")
 
 

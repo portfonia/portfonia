@@ -233,8 +233,9 @@ def get_portfolio_performance(
     at request time from `benchmark_prices` and historical FX with a
     10-calendar-day as-of bound (issue #377); the handler itself does not
     fetch market data or write rows. Filters are AND'd across dimensions
-    and apply to each day's own snapshot-time labels (D8) — a sold lot or
-    a renamed account/broker still shows up in the days before the change.
+    (D8, issue #371): `groups`/`accounts` use current live labels via soft
+    `holding_id` (cleared holdings fall back to that id's last snapshot
+    tag); `markets`/`brokers` stay each day's snapshot denorm.
     """
     result = compute_portfolio_performance(
         session,

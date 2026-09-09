@@ -68,8 +68,11 @@ class PortfolioValueSnapshot(Base):
     # Soft reference — NOT a ForeignKey (see module docstring).
     holding_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
 
-    # Denormalized snapshot-time labels (issue #360 D8) — encrypted at rest,
-    # same columns/encryption choice as Holding (issue #31).
+    # Denormalized snapshot-time labels — encrypted at rest, same
+    # columns/encryption choice as Holding (issue #31). market/broker are
+    # Performance D8 filter keys (point-in-time). portfolio/account are
+    # written daily for audit and cleared-holding fallback; the read path
+    # matches those two dims on live holdings (issue #371).
     ticker: Mapped[str | None] = mapped_column(EncryptedString)
     fund_code: Mapped[str | None] = mapped_column(EncryptedString)
     market: Mapped[str | None] = mapped_column(Text)

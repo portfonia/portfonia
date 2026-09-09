@@ -9,6 +9,7 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.benchmark_price import BenchmarkPrice
@@ -31,16 +32,44 @@ def _mark_complete(session: Session, user_id: uuid.UUID, d: date) -> None:
     session.add(PortfolioSnapshotBatch(user_id=user_id, snapshot_date=d, status="complete"))
 
 
+def _live_holding(
+    session: Session,
+    user_id: uuid.UUID,
+    holding_id: uuid.UUID,
+    *,
+    portfolio: str | None = None,
+    account: str | None = None,
+    market: str | None = "US",
+) -> Holding:
+    holding = Holding(
+        id=holding_id,
+        user_id=user_id,
+        name="Fixture",
+        ticker="AAPL",
+        currency="USD",
+        pricing_mode="auto",
+        shares=Decimal("10"),
+        asset_class="STOCK",
+        market=market,
+        portfolio=portfolio,
+        account=account,
+    )
+    session.add(holding)
+    return holding
+
+
 def _row(
     session: Session,
     user_id: uuid.UUID,
     d: date,
-    holding_id: uuid.UUID,
+    holding_id: uuid.UUID | None,
     *,
     shares: Decimal | None = None,
     current_value: Decimal | None = None,
     market_value_base: Decimal | None,
     account: str | None = None,
+    portfolio: str | None = None,
+    broker: str | None = None,
     market: str | None = "US",
     data_quality: str = "ok",
     ticker: str | None = None,
@@ -60,6 +89,8 @@ def _row(
             current_value=current_value,
             market_value_base=market_value_base,
             account=account,
+            portfolio=portfolio,
+            broker=broker,
             market=market,
             data_quality=data_quality,
             is_backfilled=is_backfilled,
@@ -946,3 +977,199 @@ def test_csi300_series_converts_cny_close_to_usd(db_session: Session) -> None:
     assert by_date[D1].return_pct_cumulative == Decimal("0.0000")
     assert by_date[D2].return_pct_cumulative == Decimal("0.1000")
     assert by_date[D2].fx_as_of == {"USDCNY": D2}
+
+
+# --- issue #371: D8 current attribution for group/account ---
+
+
+def test_regrouped_holding_filter_uses_current_group_for_whole_history(
+    db_session: Session,
+) -> None:
+    """Live regroup: historical snapshot denorm stays OldGroup, but filter
+    by the current NewGroup includes every tracking day for that
+    holding_id. The old label no longer splits the series, and snapshot
+    rows are not rewritten (issue #371 / vault D8)."""
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    holding_id = uuid.uuid4()
+    _live_holding(db_session, user_id, holding_id, portfolio="NewGroup")
+    for d, value in ((D1, Decimal("1000")), (D2, Decimal("1100")), (D3, Decimal("1210"))):
+        _mark_complete(db_session, user_id, d)
+        _row(
+            db_session,
+            user_id,
+            d,
+            holding_id,
+            shares=Decimal("10"),
+            market_value_base=value,
+            portfolio="OldGroup",
+        )
+    db_session.flush()
+
+    new_group = compute_portfolio_performance(
+        db_session,
+        user_id,
+        range_key="ALL",
+        benchmark_codes=[],
+        groups=["NewGroup"],
+        today=D3,
+    )
+    assert new_group.portfolio.empty is False
+    assert [p.point_date for p in new_group.portfolio.points] == [D1, D2, D3]
+    assert new_group.portfolio.points[0].value_base == Decimal("1000.00")
+    assert new_group.portfolio.points[-1].value_base == Decimal("1210.00")
+    assert new_group.portfolio.points[-1].return_pct_cumulative == Decimal("0.2100")
+
+    old_group = compute_portfolio_performance(
+        db_session,
+        user_id,
+        range_key="ALL",
+        benchmark_codes=[],
+        groups=["OldGroup"],
+        today=D3,
+    )
+    assert old_group.portfolio.empty is True
+
+    frozen = db_session.execute(
+        select(PortfolioValueSnapshot.portfolio).where(
+            PortfolioValueSnapshot.user_id == user_id,
+            PortfolioValueSnapshot.holding_id == holding_id,
+        )
+    ).scalars()
+    assert set(frozen) == {"OldGroup"}
+
+
+def test_market_filter_still_uses_snapshot_day_market(db_session: Session) -> None:
+    """Market stays point-in-time: a holding whose snapshot market flips
+    US -> HK is in the US filter only on the US day, even if the live
+    holding is still labeled US (issue #371)."""
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    holding_id = uuid.uuid4()
+    _live_holding(db_session, user_id, holding_id, market="US", portfolio="Core")
+    _mark_complete(db_session, user_id, D1)
+    _mark_complete(db_session, user_id, D2)
+    _row(
+        db_session,
+        user_id,
+        D1,
+        holding_id,
+        shares=Decimal("10"),
+        market_value_base=Decimal("1000"),
+        market="US",
+        portfolio="Core",
+    )
+    _row(
+        db_session,
+        user_id,
+        D2,
+        holding_id,
+        shares=Decimal("10"),
+        market_value_base=Decimal("1100"),
+        market="HK",
+        portfolio="Core",
+    )
+    db_session.flush()
+
+    result = compute_portfolio_performance(
+        db_session,
+        user_id,
+        range_key="ALL",
+        benchmark_codes=[],
+        markets=["US"],
+        today=D2,
+    )
+    assert [p.point_date for p in result.portfolio.points] == [D1, D2]
+    assert result.portfolio.points[0].value_base == Decimal("1000.00")
+    assert result.portfolio.points[1].value_base == Decimal("0.00")
+
+
+def test_cleared_holding_group_filter_uses_last_snapshot_tag(db_session: Session) -> None:
+    """No live row: group membership falls back to that holding_id's last
+    snapshot tag, so a mid-history regroup still draws the whole history
+    under the final label (issue #371)."""
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    holding_id = uuid.uuid4()
+    _mark_complete(db_session, user_id, D1)
+    _mark_complete(db_session, user_id, D2)
+    _row(
+        db_session,
+        user_id,
+        D1,
+        holding_id,
+        shares=Decimal("10"),
+        market_value_base=Decimal("1000"),
+        portfolio="OldGroup",
+    )
+    _row(
+        db_session,
+        user_id,
+        D2,
+        holding_id,
+        shares=Decimal("10"),
+        market_value_base=Decimal("1100"),
+        portfolio="NewGroup",
+    )
+    db_session.flush()
+
+    new_group = compute_portfolio_performance(
+        db_session,
+        user_id,
+        range_key="ALL",
+        benchmark_codes=[],
+        groups=["NewGroup"],
+        today=D2,
+    )
+    assert [p.point_date for p in new_group.portfolio.points] == [D1, D2]
+    assert new_group.portfolio.points[0].value_base == Decimal("1000.00")
+    assert new_group.portfolio.points[1].value_base == Decimal("1100.00")
+
+    old_group = compute_portfolio_performance(
+        db_session,
+        user_id,
+        range_key="ALL",
+        benchmark_codes=[],
+        groups=["OldGroup"],
+        today=D2,
+    )
+    assert old_group.portfolio.empty is True
+
+
+def test_null_holding_id_falls_back_to_snapshot_denorm_group(db_session: Session) -> None:
+    """Legacy/anomaly rows with no holding_id still match group via the
+    snapshot denorm so they are not silently dropped (issue #371)."""
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    _mark_complete(db_session, user_id, D1)
+    _row(
+        db_session,
+        user_id,
+        D1,
+        None,
+        shares=Decimal("10"),
+        market_value_base=Decimal("1000"),
+        portfolio="LegacyGroup",
+    )
+    db_session.flush()
+
+    matched = compute_portfolio_performance(
+        db_session,
+        user_id,
+        range_key="ALL",
+        benchmark_codes=[],
+        groups=["LegacyGroup"],
+        today=D1,
+    )
+    assert matched.portfolio.empty is False
+    assert matched.portfolio.points[0].value_base == Decimal("1000.00")
+
+    missed = compute_portfolio_performance(
+        db_session,
+        user_id,
+        range_key="ALL",
+        benchmark_codes=[],
+        groups=["OtherGroup"],
+        today=D1,
+    )
+    assert missed.portfolio.empty is True

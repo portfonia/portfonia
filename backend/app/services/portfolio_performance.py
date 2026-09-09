@@ -21,8 +21,10 @@ applies instead.
 Approximate EOD TWR (D3 amendment): day t's return marks yesterday's
 *filtered* holdings at today's price/FX for the SAME `holding_id` —
 quantity changes, new lots, exits, and a holding dropping out of the
-current filter are all treated identically as an end-of-day cash flow, not
-a return.
+current filter (market/broker snapshot-time D8) are all treated identically
+as an end-of-day cash flow, not a return. Group/account regroup is current
+attribution (issue #371): the holding stays in the filtered set for its
+whole tracking history, so it is not an outflow.
 """
 
 from __future__ import annotations
@@ -32,9 +34,10 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
+from app.models.holding import Holding
 from app.models.portfolio_snapshot_batch import PortfolioSnapshotBatch
 from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
 from app.services.benchmark_prices import INDEX_YF_TICKERS
@@ -70,12 +73,35 @@ BENCHMARK_NAMES: dict[str, str] = {
 _ALL_RANGE_SENTINEL = date(2000, 1, 1)
 
 
+@dataclass(frozen=True)
+class _OrgLabels:
+    portfolio: str | None
+    account: str | None
+
+
 @dataclass
 class Filters:
     markets: frozenset[str] | None = None
     groups: frozenset[str] | None = None
     brokers: frozenset[str] | None = None
     accounts: frozenset[str] | None = None
+    # Issue #371 / vault D8: group/account match live holdings (or the
+    # last-snapshot fallback for a cleared holding_id), not each row's
+    # denorm. Populated by `_attach_org_attribution` when either dim is
+    # filtered; unused when both are None.
+    live_labels: dict[uuid.UUID, _OrgLabels] = field(default_factory=dict)
+    last_snapshot_labels: dict[uuid.UUID, _OrgLabels] = field(default_factory=dict)
+
+    def _org_labels(self, row: PortfolioValueSnapshot) -> _OrgLabels:
+        hid = row.holding_id
+        if hid is not None:
+            live = self.live_labels.get(hid)
+            if live is not None:
+                return live
+            last = self.last_snapshot_labels.get(hid)
+            if last is not None:
+                return last
+        return _OrgLabels(portfolio=row.portfolio, account=row.account)
 
     def matches(self, row: PortfolioValueSnapshot) -> bool:
         # is_backfilled rows are legacy/known-bad history (issue #366 —
@@ -87,11 +113,12 @@ class Filters:
             return False
         if self.markets is not None and row.market not in self.markets:
             return False
-        if self.groups is not None and row.portfolio not in self.groups:
-            return False
         if self.brokers is not None and row.broker not in self.brokers:
             return False
-        return not (self.accounts is not None and row.account not in self.accounts)
+        org = self._org_labels(row)
+        if self.groups is not None and org.portfolio not in self.groups:
+            return False
+        return not (self.accounts is not None and org.account not in self.accounts)
 
 
 @dataclass
@@ -218,6 +245,72 @@ def _tracking_start(session: Session, user_id: uuid.UUID) -> date | None:
     ).scalar_one_or_none()
 
 
+def _live_org_labels(session: Session, user_id: uuid.UUID) -> dict[uuid.UUID, _OrgLabels]:
+    holdings = session.execute(select(Holding).where(Holding.user_id == user_id)).scalars()
+    return {h.id: _OrgLabels(portfolio=h.portfolio, account=h.account) for h in holdings}
+
+
+def _last_snapshot_org_labels(
+    session: Session, user_id: uuid.UUID, holding_ids: set[uuid.UUID]
+) -> dict[uuid.UUID, _OrgLabels]:
+    if not holding_ids:
+        return {}
+    latest = (
+        select(
+            PortfolioValueSnapshot.holding_id.label("holding_id"),
+            func.max(PortfolioValueSnapshot.snapshot_date).label("max_date"),
+        )
+        .where(
+            PortfolioValueSnapshot.user_id == user_id,
+            PortfolioValueSnapshot.holding_id.in_(holding_ids),
+            PortfolioValueSnapshot.is_backfilled.is_(False),
+        )
+        .group_by(PortfolioValueSnapshot.holding_id)
+        .subquery()
+    )
+    rows = session.execute(
+        select(PortfolioValueSnapshot)
+        .join(
+            latest,
+            and_(
+                PortfolioValueSnapshot.holding_id == latest.c.holding_id,
+                PortfolioValueSnapshot.snapshot_date == latest.c.max_date,
+                PortfolioValueSnapshot.user_id == user_id,
+            ),
+        )
+        .where(PortfolioValueSnapshot.is_backfilled.is_(False))
+    ).scalars()
+    return {
+        row.holding_id: _OrgLabels(portfolio=row.portfolio, account=row.account)
+        for row in rows
+        if row.holding_id is not None
+    }
+
+
+def _attach_org_attribution(
+    session: Session,
+    user_id: uuid.UUID,
+    filters: Filters,
+    rows_by_date: dict[date, list[PortfolioValueSnapshot]],
+) -> None:
+    """Load current group/account labels when those dims are filtered.
+
+    Live `holdings` win; missing live row (cleared/deleted) uses that
+    holding_id's latest non-backfilled snapshot tags; null holding_id
+    stays on the row denorm inside `Filters._org_labels`.
+    """
+    if filters.groups is None and filters.accounts is None:
+        return
+    filters.live_labels = _live_org_labels(session, user_id)
+    missing: set[uuid.UUID] = set()
+    for rows in rows_by_date.values():
+        for row in rows:
+            hid = row.holding_id
+            if hid is not None and hid not in filters.live_labels:
+                missing.add(hid)
+    filters.last_snapshot_labels = _last_snapshot_org_labels(session, user_id, missing)
+
+
 def _rows_for_dates(
     session: Session, user_id: uuid.UUID, dates: list[date]
 ) -> dict[date, list[PortfolioValueSnapshot]]:
@@ -317,17 +410,19 @@ def _contribution(
     amendment): "yesterday's quantity/local-value at today's price/FX".
 
     `curr_row` is the day-t row for the SAME `holding_id`, regardless of
-    whether it currently passes the active filter (a holding relabeled out
-    of the current sub-portfolio view is D8's "shows up as an outflow", not
-    a price move — its own stored day-t row is still the right mark). This
-    falls back to repricing directly from `price_snapshots`/`fx_rates`
-    (`_reprice_from_source`) in two cases: NO day-t row exists at all (full
-    exit, or the holding row itself was deleted/replaced — review
-    5124107298 finding 1), or a day-t row exists but carries `shares == 0`
-    (re-review leftover: a degenerate zero-share row has no usable
-    per-share price to derive a mark from, the same unpriceable situation
-    as no row at all — never simply excluded, which is what let finding 1
-    happen in the first place).
+    whether it currently passes the active filter. A market/broker change
+    that drops the row from the current view is D8 snapshot-time outflow
+    (not a price move — its stored day-t row is still the right mark). A
+    group/account regroup does not drop the holding: current attribution
+    (issue #371) follows the live or last-snapshot label for the whole
+    tracking history. This falls back to repricing directly from
+    `price_snapshots`/`fx_rates` (`_reprice_from_source`) in two cases: NO
+    day-t row exists at all (full exit, or the holding row itself was
+    deleted/replaced — review 5124107298 finding 1), or a day-t row exists
+    but carries `shares == 0` (re-review leftover: a degenerate zero-share
+    row has no usable per-share price to derive a mark from, the same
+    unpriceable situation as no row at all — never simply excluded, which
+    is what let finding 1 happen in the first place).
     """
     if curr_row is None:
         return _reprice_from_source(session, prev_row, day_t, canonical_currency)
@@ -392,6 +487,7 @@ def _build_portfolio_series(
 ) -> tuple[PortfolioSeries, Decimal, Decimal]:
     dates = _complete_batch_dates(session, user_id, start_date, end_date)
     rows_by_date = _rows_for_dates(session, user_id, dates)
+    _attach_org_attribution(session, user_id, filters, rows_by_date)
 
     # Drop days whose ONLY rows are `is_backfilled` (issue #366 legacy-safety
     # path — production purge should remove these outright, but the read
@@ -408,13 +504,16 @@ def _build_portfolio_series(
     # the filtered dimension's own first real appearance must be excluded
     # from the series entirely, not read as a legitimate $0 — that reading
     # is reserved for a date AT OR AFTER the filter's first real match
-    # where that day's rows happen not to match (D8's "sold lot"/renamed
-    # case, `test_filter_on_historical_account_keeps_sold_lot`). Without
-    # this, a newly added sub-account (or any dimension value that starts
-    # existing partway through `tracking_start`..`range_end`) inherited an
-    # unrelated OTHER account's earlier start date via `_day_value([])`'s
-    # "empty filtered set = $0" rule, which in turn gave the common-window
-    # benchmark rebase (issue #366 D7) the wrong anchor.
+    # where that day's rows happen not to match (sold lot, or market/broker
+    # snapshot-time drop). Group/account regroup uses the current-attribution
+    # predicate (issue #371), so a holding newly tagged into a group still
+    # contributes its earlier tracking days; this gate is the first day
+    # that predicate matches, not the first day the denorm label appears.
+    # Without this, a newly added sub-account (a new holding_id with no
+    # prior row) inherited an unrelated OTHER account's earlier start date
+    # via `_day_value([])`'s "empty filtered set = $0" rule, which in turn
+    # gave the common-window benchmark rebase (issue #366 D7) the wrong
+    # anchor.
     matched_dates = [d for d in dates if any(filters.matches(r) for r in rows_by_date.get(d, []))]
     any_match_in_range = bool(matched_dates)
     if any_match_in_range:
@@ -425,13 +524,14 @@ def _build_portfolio_series(
     for d in dates:
         filtered_by_date[d] = [r for r in rows_by_date[d] if filters.matches(r)]
         # ALL of that day's rows keyed by holding_id, regardless of dimension
-        # filter — the TWR mark for a holding relabeled out of the current
-        # filter still uses its own stored day-t row (D8: a relabel is an
-        # outflow from this view, not a price move); only a holding with no
-        # day-t row at all falls back to repricing from source (see
-        # `_contribution`/`_reprice_from_source`). `is_backfilled` rows are
-        # excluded here too (issue #366) — known-bad history must never
-        # supply a TWR mark, even as a fallback.
+        # filter — the TWR mark for a holding that drops out of the current
+        # view (market/broker snapshot-time D8) still uses its own stored
+        # day-t row (outflow from this view, not a price move). Group/account
+        # regroup does not drop the holding (issue #371 current attribution).
+        # Only a holding with no day-t row at all falls back to repricing
+        # from source (see `_contribution`/`_reprice_from_source`).
+        # `is_backfilled` rows are excluded here too (issue #366) — known-bad
+        # history must never supply a TWR mark, even as a fallback.
         all_by_id_by_date[d] = {
             r.holding_id: r
             for r in rows_by_date[d]
