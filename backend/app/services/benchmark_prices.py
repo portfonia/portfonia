@@ -100,9 +100,22 @@ def _fetch_index_closes(
     return out
 
 
+# PostgreSQL/psycopg hard-cap a single query at 65535 bound parameters.
+# Benchmark rows bind 4 params each; 2000 leaves the same safety margin
+# price_capture.py's precedent (issue #194) uses for its 10-column rows.
+_UPSERT_CHUNK_SIZE = 2000
+
+
 def _upsert(session: Session, rows: list[dict[str, object]]) -> int:
     if not rows:
         return 0
+    written = 0
+    for start in range(0, len(rows), _UPSERT_CHUNK_SIZE):
+        written += _upsert_chunk(session, rows[start : start + _UPSERT_CHUNK_SIZE])
+    return written
+
+
+def _upsert_chunk(session: Session, rows: list[dict[str, object]]) -> int:
     base = pg_insert(BenchmarkPrice).values(rows)
     stmt = base.on_conflict_do_update(
         constraint="uq_benchmark_prices_index_date",
