@@ -6,7 +6,13 @@ const { logout } = vi.hoisted(() => ({
 
 vi.mock("@/lib/auth-actions", () => ({ logout }));
 
-import { ApiError, exportHoldings, exportPortfolio, listHoldings } from "./api";
+import {
+  ApiError,
+  exportHoldings,
+  exportPortfolio,
+  getPortfolioPerformance,
+  listHoldings,
+} from "./api";
 
 const originalFetch = global.fetch;
 
@@ -116,6 +122,61 @@ describe("exportPortfolio", () => {
     global.fetch = vi.fn().mockResolvedValue(new Response("", { status: 500 }));
 
     await expect(exportPortfolio("md", "USD")).rejects.toThrow(ApiError);
+  });
+});
+
+describe("getPortfolioPerformance", () => {
+  afterEach(() => {
+    global.fetch = originalFetch;
+    vi.resetAllMocks();
+  });
+
+  function stubOk() {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({}), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    global.fetch = fetchMock;
+    return fetchMock;
+  }
+
+  it("sends the chip list as repeated benchmarks keys (issue #382)", async () => {
+    const fetchMock = stubOk();
+    await getPortfolioPerformance({
+      range: "1M",
+      twr: true,
+      benchmarks: ["sp500", "dow30"],
+      markets: [],
+      groups: [],
+      brokers: [],
+      accounts: [],
+      baseCurrency: "USD",
+    });
+    const calledUrl = fetchMock.mock.calls[0][0] as string;
+    expect(calledUrl).toContain("range=1M");
+    expect(calledUrl).toContain("benchmarks=sp500");
+    expect(calledUrl).toContain("benchmarks=dow30");
+    expect(calledUrl).not.toContain("benchmarks=nasdaq");
+  });
+
+  it("omits benchmarks keys when the chip list is empty (portfolio-only)", async () => {
+    const fetchMock = stubOk();
+    await getPortfolioPerformance({
+      range: "1M",
+      twr: true,
+      benchmarks: [],
+      markets: [],
+      groups: [],
+      brokers: [],
+      accounts: [],
+      baseCurrency: "USD",
+    });
+    const calledUrl = fetchMock.mock.calls[0][0] as string;
+    expect(calledUrl).toContain("/api/portfolio/performance?");
+    expect(calledUrl).toContain("range=1M");
+    expect(calledUrl).not.toContain("benchmarks=");
   });
 });
 

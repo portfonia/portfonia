@@ -25,8 +25,10 @@ export interface MultiSelectOption {
 //   filter param, which the router reads as "no filter". The All row is
 //   checked while nothing is selected.
 // - `allMode="all-options"` (benchmarks): omitting the param means NO
-//   benchmarks (the router expands [] to zero series), so All must mean
-//   "every option selected", never empty. Clicking All selects all options.
+//   benchmarks (the router expands [] to zero series — a valid
+//   portfolio-only view, issue #382). All must mean every option
+//   selected. Clicking All selects all options; unchecking chips can
+//   reach [].
 export function MultiSelectMenu({
   label,
   options,
