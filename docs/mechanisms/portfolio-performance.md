@@ -407,6 +407,21 @@ day's price-capture and FX-fetch tasks have had their scheduled chance to
 run (not a guarantee they *succeeded* — that's what `skipped_deps` and the
 daily task's own idempotent re-run cover).
 
+**Capture health (issue #372 slice B)**: `check-capture-health-daily` at
+21:30 ET Mon–Fri. One probe after that window, not checks sprinkled into
+every capture function. **Alert rule:** expected date = that ET weekday;
+a pipeline is stale if it has no success evidence dated on that day
+(`price_snapshots` close `trade_date`, `fx_rates.rate_date`,
+`portfolio_snapshot_batches` `status=complete` `snapshot_date`,
+`benchmark_prices.price_date`). Portfolio also alerts when that date has
+`skipped_deps` or `pending` rows. One aggregated `send_ops_alert` +
+`alert_dedup`, production-gated. Hard-fail retries stay on
+`capture_tasks._capture_failed`. Not a 36h wall-clock rule (Monday vs
+Friday would false-positive). No admin UI. Does not write or replay
+(#373). Silence: `APP_ENV != production`, or a later weekday success
+(new dedup key). Verify: `GET` is not provided; read the ops email /
+`capture_health:` INFO log.
+
 **Full-exit fan-out (issue #367 review finding B, blacktomb42, review
 5563537095)**: `capture_portfolio_value_snapshot`'s user selection
 originally was `User.id.in_(select(Holding.user_id).distinct())` only —

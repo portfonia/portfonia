@@ -406,6 +406,35 @@ def capture_portfolio_value_snapshot_task(self: Any) -> dict[str, int]:
 
 
 @celery_app.task(  # type: ignore[untyped-decorator]
+    name="app.tasks.capture_tasks.check_capture_health_task",
+    bind=True,
+    max_retries=1,
+    default_retry_delay=300,
+)
+def check_capture_health_task(self: Any) -> dict[str, object]:
+    """21:30 ET Mon-Fri probe (issue #372 slice B). Lag + skipped_deps only."""
+    from app.core.database import SessionLocal
+    from app.services.capture_health import evaluate_capture_health, maybe_alert_capture_health
+
+    session = SessionLocal()
+    try:
+        report = evaluate_capture_health(session)
+        maybe_alert_capture_health(report)
+        return report.as_dict()
+    except Exception as exc:
+        logger.exception("check_capture_health_task: failed")
+        if self.request.retries >= self.max_retries:
+            _capture_failed(
+                "check_capture_health_task",
+                exc,
+                context="Capture-health probe failed; lag may be invisible until the next weekday.",
+            )
+        raise self.retry(exc=exc) from exc
+    finally:
+        session.close()
+
+
+@celery_app.task(  # type: ignore[untyped-decorator]
     name="app.tasks.capture_tasks.capture_benchmark_index_prices_task",
     bind=True,
     max_retries=2,
