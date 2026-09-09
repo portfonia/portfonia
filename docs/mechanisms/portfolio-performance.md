@@ -5,8 +5,9 @@ removal, 2026-09-07 design amendment). Issue #377 (2026-09-08) keeps selected
 benchmark history when the first real snapshot falls on a non-trading day
 and separates display eligibility from comparison eligibility. Issue #382
 is the Phase 2 UI-defaults follow-up: first visit is range `1M` and
-benchmarks `[sp500]`, with multi-select over the catalog. Issue #383 adds
-`csi300` as an optional chip; China A50 is deferred.
+benchmarks `[sp500]`, with multi-select over the catalog. Issue #383 shipped
+`csi300` as an optional chip (PR #385). China A50 is **shelved** — not on
+the near-term agenda; #383 is closed.
 Governing decisions: #360's Decisions comment + the 2026-09-06 amendment
 comment + the Implementation design comment, #366's Design +
 Implementation-contract comments, #377's five contract comments,
@@ -66,7 +67,8 @@ is explicitly out of scope for this phase, and #366 does not revisit this).
   Composite, not the Nasdaq-100 — D9; CSI 300 added in issue #383),
   unrelated to any user's holdings. Quote currency is stamped per row
   (`USD` for the three US indexes, `CNY` for `csi300`). China A50 is not
-  a code — deferred; see "Catalog (issue #383)" below.
+  a code — shelved, not on the near-term agenda; see "Catalog (issue #383)"
+  below.
 
 Migration: `c1d2e3f4a5b6_add_portfolio_performance_tables.py`.
 
@@ -427,11 +429,13 @@ than inheriting the column's USD server_default. The read path converts
 via existing daily `fx_rates` and #377 as-of rules; there is no multi-year
 FX seed (#365).
 
-**China A50 deferred.** Same-path yfinance research (2026-09-08):
-`XIN9.FGI` is named FTSE China A50 Index / CNY / INDEX but has no
-multi-year history (live quote only); `XIN9.L` is delisted; `^XIN9` 404;
-`2823.HK` is an ETF proxy in HKD; `000016.SS` is SSE 50, a different
-index. Do not invent a ticker. Follow-up stays on #383.
+**China A50 shelved (2026-09-09).** Not on the near-term agenda. #383 is
+closed after PR #385 shipped `csi300` only. Same-path yfinance research
+(2026-09-08) is why it did not ship in that PR: `XIN9.FGI` is named FTSE
+China A50 Index / CNY / INDEX but has no multi-year history (live quote
+only); `XIN9.L` is delisted; `^XIN9` 404; `2823.HK` is an ETF proxy in
+HKD; `000016.SS` is SSE 50, a different index. Do not invent a ticker.
+Do not reopen A50 as leftover work on #383.
 
 ## Explicitly out of Phase 1
 
