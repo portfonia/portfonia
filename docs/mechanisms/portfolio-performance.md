@@ -46,7 +46,8 @@ is explicitly out of scope for this phase, and #366 does not revisit this).
   Denormalized, no FK to the live `holdings` row (a later edit/delete must
   not corrupt historical readability — same reasoning as `accounts`'
   broker/account/portfolio text columns). `holding_id` is a soft, nullable
-  UUID (no FK) used only for day-to-day quantity alignment in the TWR calc.
+  UUID (no FK) used for day-to-day quantity alignment in the TWR calc and
+  for D8 current group/account attribution (issue #371).
   `user_id` is `ON DELETE CASCADE` — unlike holdings/reports/accounts
   (`RESTRICT`, issue #129 B7), this is derived time-series data, not an
   audited record, so a user purge needs no new step in
@@ -97,10 +98,12 @@ for the same `holding_id` — `unit_value_base = today.market_value_base /
 today.shares` (auto) or `fx_multiplier = today.market_value_base /
 today.current_value` (cash/manual), multiplied by yesterday's quantity/
 local-value. This fast path applies whether or not today's row for that
-`holding_id` currently passes the active filter — a holding relabeled out
-of the current sub-portfolio view (D8) still has its own stored day-*t*
-row, and using it is what makes a relabel read as an outflow rather than a
-price move.
+`holding_id` currently passes the active filter. A market/broker change
+that drops the row from the current view is D8 snapshot-time outflow (not
+a price move — the stored day-*t* row is still the right mark). A
+group/account regroup does **not** drop the holding: issue #371 current
+attribution follows the live (or last-snapshot) label for the whole
+tracking history.
 
 **Full exit / row deleted entirely** (review 5124107298 finding 1, PR
 #363): when a holding has NO snapshot row at all on day *t* — a full exit,
@@ -130,12 +133,29 @@ regardless of the `twr` toggle (D9 / the issue's requirement 7).
 ## Filters (D8)
 
 `markets`/`groups`(`portfolio`)/`brokers`/`accounts`, each multi-select,
-AND'd across dimensions, applied to each day's own denormalized labels —
-a sold lot or a since-renamed account/broker still appears in the days
-before the change. `portfolio.empty=true` only when literally no snapshot
-row in the selected range matches the filter at all; an empty *current*
-book with matching history still draws that history. `is_backfilled=True`
-rows never match any filter regardless of dimension selection (issue #366).
+AND'd across dimensions (issue #371 layered attribution; vault
+`Portfolio_Pfmc.md` D8 is SoT):
+
+- **`groups` / `accounts` — current attribution.** Membership is the live
+  `holdings` row's `portfolio` / `account` for that soft `holding_id`. After
+  a regroup/reaccount, the entire since-tracking history of that id
+  participates under the **new** label. Historical snapshot denorm for
+  these two fields is **not** rewritten and is **not** the match key.
+  Cleared/deleted holdings (no live row) fall back to that `holding_id`'s
+  latest non-backfilled snapshot tags. Rows with `holding_id` null
+  (legacy/anomaly) fall back to the row's own denorm so they are not
+  silently dropped.
+- **`markets` / `brokers` — snapshot-day facts.** Match each day's
+  denormalized `market` / `broker`. A venue or custodian change is
+  point-in-time; a sold lot still appears on the days it was held.
+
+`portfolio.empty=true` only when literally no snapshot row in the selected
+range matches the filter at all; an empty *current* book with matching
+history still draws that history (cleared holdings via last-snapshot
+group/account fallback). `is_backfilled=True` rows never match any filter
+regardless of dimension selection (issue #366). Phase 2 filter option
+lists seed from the current book's live holdings (`GET /portfolio/summary`
+rows), not orphaned historical names.
 
 ## Currency
 
@@ -314,9 +334,11 @@ required changes before merge:**
   Fixed by computing `matched_dates` (dates where the active filter
   matches at least one row) and restricting the series to dates `>=
   matched_dates[0]` — a $0 point is now only ever produced ON OR AFTER a
-  dimension's own first real match (D8's sold-lot/renamed-account case
-  stays intact; a date strictly BEFORE first appearance is excluded from
-  the series entirely, not zero-valued).
+  dimension's own first real match (sold-lot or market/broker drop;
+  group/account regroup uses the #371 current-attribution predicate, so
+  earlier tracking days of a retagged holding still count as matches). A
+  date strictly BEFORE first appearance is excluded from the series
+  entirely, not zero-valued.
 - **Finding 2 — `comparable=True` didn't require actual overlap with the
   portfolio's real history.** The #366 clip originally capped its window at
   the raw REQUESTED range end, not the portfolio's own real last day — a
