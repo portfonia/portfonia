@@ -148,39 +148,58 @@ to the production server:
    false positive. Distinguishing the two is why this script checks
    `$ssh_exit` before looking at `$unit_state` at all.
 5. `curl https://api.portfonia.com/health` — confirm `{"status":"ok",...}`.
-6. `docker builder prune -f` — reclaim BuildKit's dangling (no-longer-
-   referenced) build-cache layers left behind by this deploy's `--build`
-   (and every prior one). Safe after a successful deploy: prunes only
-   cache, never touches the images just tagged/running, containers, or
-   volumes — verify with `docker compose ps` (all services still Up) if in
-   doubt. **Do this every deploy, not just when disk looks tight**:
-   discovered 2026-09-05 that no pruning had ever been run since the
-   server went live — build cache had silently grown to 29GB (28GB
-   reclaimable), pushing `/` to 80% used, while the actual running images
-   totaled under 3GB. A production host has no local dev workflow to
-   surface this the way Colima's own disk-pressure errors do locally, so
-   skipping this step lets it grow unnoticed until disk actually runs out.
+6. `./scripts/prune_build_cache_if_needed.sh` — **superseded 2026-09-09
+   (issue #396), was unconditional `docker builder prune -f` on every
+   deploy.** That original policy traces back to 2026-09-05: no pruning
+   had ever been run since the server went live, build cache had
+   silently grown to 29GB (28GB reclaimable), pushing `/` to 80% used,
+   while the actual running images totaled under 3GB. A production host
+   has no local dev workflow to surface this the way Colima's own
+   disk-pressure errors do locally, so the fix at the time was "prune
+   every deploy, unconditionally" — a reasonable reaction, but never
+   re-examined for whether "every deploy" was the right trigger.
 
-   **Without `-a`** (relaxed 2026-09-07, was `-af`): plain `prune -f` only
-   removes cache no longer referenced by any image — a layer whose content
-   hash didn't change between deploys (e.g. `requirements.txt`/
-   `package.json` untouched) stays cached and gets reused by the NEXT
-   deploy's `--build`, instead of every deploy reinstalling every
-   dependency from scratch regardless of what actually changed. `-a` wiped
-   that cache too, which is what originally forced a from-scratch rebuild
-   every single deploy (confirmed 2026-09-07: a backend-only code change
-   still re-ran the full `pip install`/`bun run build` chain end to end,
-   purely because the prior deploy's `-af` had already erased anything
-   reusable). Given deploys here are infrequent and manual, this mainly
-   saves a few minutes per deploy — worth doing, but not the disk-safety
-   load-bearing part of this step.
-   **Check `docker system df`'s Build Cache total after this step anyway**
-   — plain `-f`'s dangling-only cleanup is not guaranteed to bound growth
-   as tightly as `-af` did across many deploys with many dependency
-   version bumps. If Build Cache exceeds **10GB**, run `docker builder
-   prune -af` once as a manual reset (same safety profile as above,
-   confirmed with `docker compose ps` afterward) rather than waiting for
-   it to repeat the 2026-09-05 incident.
+   It wasn't. Issue #396's local Colima reproduction confirmed plain
+   `docker builder prune -f` (no `-a` needed — this is not the `-af`
+   distinction the 2026-09-07 fix below addressed) destroys
+   `frontend/Dockerfile`'s `deps`/`builder`-stage cache on every run,
+   because those intermediate stages never appear in the final exported
+   image and so always read as "unreferenced by any image" to `-f`'s
+   dangling-only logic — even immediately after being used to build the
+   image that's now running. This turned a free `node_modules` COPY
+   cache hit into a real ~100-114s copy on every single deploy, for zero
+   disk-safety benefit at normal usage (production sat at 22% used the
+   day this was measured).
+
+   The script only prunes when `/` usage is at or above a high-water
+   mark (default 75%, `PRUNE_HIGH_WATER_PCT`), and when triggered,
+   removes cache oldest-first via increasing `--filter until=<age>`
+   cutoffs until usage drops to a low-water mark (default 40%,
+   `PRUNE_LOW_WATER_PCT`) or there is nothing left to reclaim — in which
+   case it prints a `WARNING` rather than silently declaring success,
+   preserving the exact disk-safety guarantee the original every-deploy
+   policy existed for. At normal usage the script does nothing, and
+   `frontend`/`backend` build-cache hits behave like the 2026-09-05
+   baseline again (`node_modules` COPY = `CACHED`, not a real copy).
+
+   **Historical context that stays true regardless of trigger
+   condition** (2026-09-07 fix, orthogonal to the above): **without `-a`**
+   — plain `prune -f` only removes cache no longer referenced by any
+   *image* (as opposed to intermediate build stages, which #396 showed
+   are a separate case `-f` does not protect either way) — a layer whose
+   content hash didn't change between deploys (e.g. `requirements.txt`
+   untouched) stays cached and gets reused by the NEXT deploy's
+   `--build`, instead of every deploy reinstalling every dependency from
+   scratch regardless of what actually changed. `-a` wiped that cache
+   too, which is what originally forced a from-scratch rebuild every
+   single deploy (confirmed 2026-09-07: a backend-only code change still
+   re-ran the full `pip install`/`bun run build` chain end to end, purely
+   because the prior deploy's `-af` had already erased anything
+   reusable). **Check `docker system df`'s Build Cache total after this
+   step anyway** — if it exceeds **10GB**, run `docker builder prune -af`
+   once as a manual reset (same safety profile as above, confirmed with
+   `docker compose ps` afterward) rather than waiting for the script's
+   own high-water trigger.
 7. Report success (what changed) or failure (which step, what the logs
    showed) — don't declare done without step 5 passing.
 
