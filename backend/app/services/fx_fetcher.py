@@ -268,15 +268,27 @@ def _fetch_rate_history(
     return out
 
 
+# PostgreSQL's hard limit is 65,535 bound parameters per statement. At 5
+# columns/row, 5,000 rows/batch = 25,000 params -- comfortable headroom
+# even as `_PAIRS` or the backfill window grows (issue #402: a single
+# unbatched INSERT over 5 years x 14 pairs produced ~87,850 params and
+# raised `psycopg.OperationalError` before any row was written).
+_UPSERT_BATCH_SIZE = 5000
+
+
 def _upsert_fx_history(session: Session, rows: list[dict[str, object]]) -> int:
     if not rows:
         return 0
-    base = insert(FxRate).values(rows)
-    stmt = base.on_conflict_do_update(
-        constraint="uq_fx_rates_pair_rate_date",
-        set_={"rate": base.excluded.rate, "fetched_at": base.excluded.fetched_at},
-    ).returning(FxRate.id)
-    return len(session.execute(stmt).fetchall())
+    written = 0
+    for start in range(0, len(rows), _UPSERT_BATCH_SIZE):
+        chunk = rows[start : start + _UPSERT_BATCH_SIZE]
+        base = insert(FxRate).values(chunk)
+        stmt = base.on_conflict_do_update(
+            constraint="uq_fx_rates_pair_rate_date",
+            set_={"rate": base.excluded.rate, "fetched_at": base.excluded.fetched_at},
+        ).returning(FxRate.id)
+        written += len(session.execute(stmt).fetchall())
+    return written
 
 
 def backfill_fx_rates(session: Session, years: int = 5) -> int:
