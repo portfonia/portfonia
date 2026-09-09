@@ -37,10 +37,12 @@ services:
   # Hermes/Portfonia/Portfonia Environment Config.md).
   # `docker-compose up -d postgres redis` for dev, `docker-compose up -d`
   # (no service args) brings up everything, for prod. ----
+  # Shared image: only `backend` declares `build:`. Compose Bake (v5)
+  # exports every build target in parallel, so four services tagging the
+  # same image race with "already exists" (buildx#3576 / issue #392).
 
   migrate:
-    build:
-      context: ./backend
+    image: portfonia-backend
     container_name: portfonia-migrate
     env_file: .env
     depends_on:
@@ -50,6 +52,7 @@ services:
     restart: "no"
 
   backend:
+    image: portfonia-backend
     build:
       context: ./backend
     container_name: portfonia-backend
@@ -64,8 +67,7 @@ services:
         condition: service_completed_successfully
 
   celery-worker:
-    build:
-      context: ./backend
+    image: portfonia-backend
     container_name: portfonia-celery-worker
     restart: unless-stopped
     env_file: .env
@@ -79,8 +81,7 @@ services:
         condition: service_completed_successfully
 
   celery-beat:
-    build:
-      context: ./backend
+    image: portfonia-backend
     container_name: portfonia-celery-beat
     restart: unless-stopped
     env_file: .env
