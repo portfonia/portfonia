@@ -335,12 +335,17 @@ describe("PerformancePageBody", () => {
 
     await user.click(screen.getByRole("button", { name: /Benchmarks/ }));
     await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument());
+    expect(screen.getByRole("menuitemcheckbox", { name: "CSI 300" })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
     await user.click(screen.getByRole("menuitemcheckbox", { name: "All" }));
     await waitFor(() => expect(getPerformanceMock).toHaveBeenCalledTimes(2));
     expect(getPerformanceMock.mock.calls[1][0].benchmarks).toEqual([
       "sp500",
       "dow30",
       "nasdaq",
+      "csi300",
     ]);
   });
 

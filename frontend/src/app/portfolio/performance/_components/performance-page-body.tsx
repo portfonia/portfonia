@@ -61,6 +61,7 @@ const BENCHMARK_COLORS: Record<BenchmarkCode, string> = {
   sp500: "var(--chart-2)",
   dow30: "var(--chart-3)",
   nasdaq: "var(--chart-4)",
+  csi300: "var(--chart-5)",
 };
 
 const DIMENSION_META = [
@@ -355,7 +356,7 @@ export function PerformancePageBody({
               // Benchmarks are NOT an omit-param filter: absent/empty
               // means zero series (portfolio-only, issue #382), so "All"
               // must mean every code selected. Clearing the last chip is
-              // allowed; do not expand [] back to all three.
+              // allowed; do not expand [] back to the full catalog.
               allMode="all-options"
             />
             {DIMENSION_META.map(({ id, labelKey, field }) => (

@@ -553,10 +553,10 @@ export async function updateReportCurrency(reportCurrency: string): Promise<void
 // rest of this file. `return_pct_cumulative`/`value_change_pct` are ratios
 // (0.0234 = 2.34%), matching total_unrealized_pnl_pct's convention.
 export type PerformanceRange = "1M" | "6M" | "YTD" | "1Y" | "5Y" | "ALL";
-export type BenchmarkCode = "sp500" | "dow30" | "nasdaq";
+export type BenchmarkCode = "sp500" | "dow30" | "nasdaq" | "csi300";
 
 export const PERFORMANCE_RANGES = ["1M", "6M", "YTD", "1Y", "5Y", "ALL"] as const satisfies readonly PerformanceRange[];
-export const BENCHMARK_CODES = ["sp500", "dow30", "nasdaq"] as const satisfies readonly BenchmarkCode[];
+export const BENCHMARK_CODES = ["sp500", "dow30", "nasdaq", "csi300"] as const satisfies readonly BenchmarkCode[];
 // Issue #382 first-visit UI state. The GET handler still defaults `range`
 // to "1Y" when the param is omitted; the page always sends these values.
 export const DEFAULT_PERFORMANCE_RANGE: PerformanceRange = "1M";
@@ -668,7 +668,7 @@ export interface PortfolioPerformanceQuery {
 //
 // `benchmarks` is not a dimension filter: an empty list appends no keys,
 // FastAPI reads that as None, and the router expands it to zero series
-// (portfolio-only). Issue #382: do not treat empty as "all three".
+// (portfolio-only). Issue #382: do not treat empty as "the full catalog".
 export async function getPortfolioPerformance(
   query: PortfolioPerformanceQuery,
 ): Promise<PortfolioPerformanceResponse> {

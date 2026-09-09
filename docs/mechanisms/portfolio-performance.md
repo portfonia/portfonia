@@ -1,18 +1,19 @@
-# Portfolio Performance — Phase 1 + #366 correction + #377 holiday history
+# Portfolio Performance — Phase 1 + #366 correction + #377 holiday history + #383 catalog
 
 Issue #360 (Phase 1) and issue #366 (tracking-start fix + composition-replay
 removal, 2026-09-07 design amendment). Issue #377 (2026-09-08) keeps selected
 benchmark history when the first real snapshot falls on a non-trading day
 and separates display eligibility from comparison eligibility. Issue #382
 is the Phase 2 UI-defaults follow-up: first visit is range `1M` and
-benchmarks `[sp500]`, with multi-select over the existing three codes.
+benchmarks `[sp500]`, with multi-select over the catalog. Issue #383 adds
+`csi300` as an optional chip; China A50 is deferred.
 Governing decisions: #360's Decisions comment + the 2026-09-06 amendment
 comment + the Implementation design comment, #366's Design +
-Implementation-contract comments, #377's five contract comments, and
-#382's five contract comments (read those before this file — this is an
-implementation summary, not the spec itself). Paired Chinese-language
-design doc: Obsidian `Hermes/Portfonia/Docs/Portfolio_Pfmc.md` §1.2–1.3,
-§2 D9, §3.3.
+Implementation-contract comments, #377's five contract comments,
+#382's five contract comments, and #383's five contract comments (read
+those before this file — this is an implementation summary, not the spec
+itself). Paired Chinese-language design doc: Obsidian
+`Hermes/Portfonia/Docs/Portfolio_Pfmc.md` §1.2–1.3, §2 D9, §3.3.
 
 **#366 in one line**: Phase 1's one-off portfolio backfill derived a
 position's chart start date from "earliest ticker price we happen to have"
@@ -61,8 +62,11 @@ is explicitly out of scope for this phase, and #366 does not revisit this).
   degrades gracefully to `data_quality="insufficient"` on that one row
   instead of blocking the whole batch — see `write_user_snapshot`'s
   docstring for the full reasoning.
-- `benchmark_prices` — daily close for `sp500|dow30|nasdaq` (Nasdaq
-  Composite, not the Nasdaq-100 — D9), unrelated to any user's holdings.
+- `benchmark_prices` — daily close for `sp500|dow30|nasdaq|csi300` (Nasdaq
+  Composite, not the Nasdaq-100 — D9; CSI 300 added in issue #383),
+  unrelated to any user's holdings. Quote currency is stamped per row
+  (`USD` for the three US indexes, `CNY` for `csi300`). China A50 is not
+  a code — deferred; see "Catalog (issue #383)" below.
 
 Migration: `c1d2e3f4a5b6_add_portfolio_performance_tables.py`.
 
@@ -344,7 +348,10 @@ that row-count-not-calendar-days semantic is surprising and unrelated to
 what `--years` means — `Ny` is the correct, unambiguous form for this
 path. The short daily catch-up window keeps `Nd` (e.g. `7d`), matching
 existing precedent elsewhere in this codebase
-(`_yfinance.fetch_ohlcv_range`).
+(`_yfinance.fetch_ohlcv_range`). After a catalog expansion, ops re-runs
+this script so new codes (`csi300` as of #383) get the same multi-year
+span; daily Beat then keeps them current. All catalog indexes are **price
+indexes** (no dividend reinvestment), not total-return variants.
 
 ## Beat schedule
 
@@ -395,16 +402,36 @@ review follow-up issuecomment-5556912227)
 
 Phase 2 first paint originally used range `1Y` and all three US indexes.
 `/portfolio/performance` now starts at range `1M` and benchmarks
-`[sp500]`. The user can independently toggle `dow30` / `nasdaq`. Clearing
-every chip still draws the portfolio series; comparable % copy only
-applies to selected comparable indexes. The GET handler already treats
-omitted/empty `benchmarks` as zero series (not all three). The client
-always passes the chip list; an empty list appends no `benchmarks` keys
-(same as omit → none). Backend `range` default remains `1Y` when the
-param is omitted — the UI always sends `range` explicitly. No new
-`index_code`s (#383), no #368 co-anchor, no TWR / `tracking_start` / D8
+`[sp500]`. The user can independently toggle `dow30` / `nasdaq` / `csi300`
+(issue #383). Clearing every chip still draws the portfolio series;
+comparable % copy only applies to selected comparable indexes. The GET
+handler already treats omitted/empty `benchmarks` as zero series (not the
+full catalog). The client always passes the chip list; an empty list
+appends no `benchmarks` keys (same as omit → none). Backend `range`
+default remains `1Y` when the param is omitted — the UI always sends
+`range` explicitly. No #368 co-anchor, no TWR / `tracking_start` / D8
 changes. Optional localStorage of last range/benchmarks is not
 implemented.
+
+## Catalog (issue #383)
+
+Locked in this change:
+
+| `index_code` | Vendor ticker | Currency | Semantics |
+|---|---|---|---|
+| `csi300` | yfinance `000300.SS` (SSE listing of CSI 300, `quoteType=INDEX`) | CNY | Price index |
+
+Do not use `399300.SZ` (same index name; yfinance returns only the latest
+session). Capture and backfill stamp `currency` on every upsert rather
+than inheriting the column's USD server_default. The read path converts
+via existing daily `fx_rates` and #377 as-of rules; there is no multi-year
+FX seed (#365).
+
+**China A50 deferred.** Same-path yfinance research (2026-09-08):
+`XIN9.FGI` is named FTSE China A50 Index / CNY / INDEX but has no
+multi-year history (live quote only); `XIN9.L` is delisted; `^XIN9` 404;
+`2823.HK` is an ETF proxy in HKD; `000016.SS` is SSE 50, a different
+index. Do not invent a ticker. Follow-up stays on #383.
 
 ## Explicitly out of Phase 1
 

@@ -17,8 +17,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base
 
 # `nasdaq` = Nasdaq Composite, not the Nasdaq-100 (D9 — explicit, since both
-# are common "Nasdaq" shorthands in practice).
-VALID_BENCHMARK_INDEX_CODES = ("sp500", "dow30", "nasdaq")
+# are common "Nasdaq" shorthands in practice). `csi300` = CSI 300 (issue #383).
+# China A50 is not in this tuple — deferred until a durable index series exists.
+VALID_BENCHMARK_INDEX_CODES = ("sp500", "dow30", "nasdaq", "csi300")
 
 
 class BenchmarkPrice(Base):
@@ -33,9 +34,10 @@ class BenchmarkPrice(Base):
     index_code: Mapped[str] = mapped_column(Text, nullable=False)
     price_date: Mapped[date] = mapped_column(Date, nullable=False)
     close_price: Mapped[Decimal] = mapped_column(Numeric, nullable=False)
-    # Source currency of close_price (yfinance's `^GSPC`/`^DJI`/`^IXIC` are
-    # all USD-denominated today; stored rather than assumed so a future
-    # non-USD benchmark source doesn't require a schema change).
+    # Source currency of close_price. US indexes are USD; csi300 is CNY
+    # (issue #383). The USD server_default is a legacy default for rows
+    # written before currency was stamped on upsert — writers must pass the
+    # real quote currency.
     currency: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'USD'"))
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False

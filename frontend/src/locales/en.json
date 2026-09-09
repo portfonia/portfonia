@@ -490,7 +490,8 @@
       "benchmarkNames": {
         "sp500": "S&P 500",
         "dow30": "Dow 30",
-        "nasdaq": "Nasdaq Composite"
+        "nasdaq": "Nasdaq Composite",
+        "csi300": "CSI 300"
       },
       "metricsTitle": "Period summary",
       "metricsScope": "Covers the period actually tracked within the selected range — not your full investment history.",

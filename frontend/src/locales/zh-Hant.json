@@ -490,7 +490,8 @@
       "benchmarkNames": {
         "sp500": "S&P 500",
         "dow30": "道瓊 30",
-        "nasdaq": "那斯達克綜合指數"
+        "nasdaq": "那斯達克綜合指數",
+        "csi300": "滬深300"
       },
       "metricsTitle": "區間概覽",
       "metricsScope": "僅涵蓋所選區間內實際被追蹤的時段，不代表完整投資歷史。",

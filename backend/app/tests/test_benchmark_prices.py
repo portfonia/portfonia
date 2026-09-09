@@ -6,7 +6,9 @@ from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 
+import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.benchmark_price import BenchmarkPrice
@@ -18,21 +20,32 @@ def _fake_closes() -> dict[str, list[tuple[date, Decimal]]]:
         "^GSPC": [(date(2026, 9, 3), Decimal("5500.1234")), (date(2026, 9, 4), Decimal("5510.5"))],
         "^DJI": [(date(2026, 9, 3), Decimal("40000")), (date(2026, 9, 4), Decimal("40100"))],
         "^IXIC": [(date(2026, 9, 3), Decimal("17000")), (date(2026, 9, 4), Decimal("17100"))],
+        "000300.SS": [(date(2026, 9, 3), Decimal("4500")), (date(2026, 9, 4), Decimal("4510"))],
     }
 
 
-def test_capture_benchmark_index_prices_writes_all_three_indexes(db_session: Session) -> None:
+def test_capture_benchmark_index_prices_writes_catalog_indexes(db_session: Session) -> None:
     with patch.object(benchmark_prices, "_fetch_index_closes", return_value=_fake_closes()):
         written = benchmark_prices.capture_benchmark_index_prices(db_session)
-    assert written == 6
+    assert written == 8
 
-    codes = {row.index_code for row in db_session.execute(select(BenchmarkPrice)).scalars()}
-    assert codes == {"sp500", "dow30", "nasdaq"}
+    rows = db_session.execute(select(BenchmarkPrice)).scalars().all()
+    codes = {row.index_code for row in rows}
+    assert codes == {"sp500", "dow30", "nasdaq", "csi300"}
+    by_code = {row.index_code: row.currency for row in rows}
+    assert by_code["sp500"] == "USD"
+    assert by_code["csi300"] == "CNY"
 
 
 def test_nasdaq_index_is_composite_not_ndx() -> None:
     assert benchmark_prices.INDEX_YF_TICKERS["nasdaq"] == "^IXIC"
     assert benchmark_prices.INDEX_YF_TICKERS["nasdaq"] != "^NDX"
+
+
+def test_csi300_is_sse_price_index_in_cny() -> None:
+    assert benchmark_prices.INDEX_YF_TICKERS["csi300"] == "000300.SS"
+    assert benchmark_prices.INDEX_CURRENCIES["csi300"] == "CNY"
+    assert set(benchmark_prices.INDEX_CURRENCIES) == set(benchmark_prices.INDEX_YF_TICKERS)
 
 
 def test_capture_is_idempotent_upsert(db_session: Session) -> None:
@@ -46,6 +59,19 @@ def test_capture_is_idempotent_upsert(db_session: Session) -> None:
         .all()
     )
     assert len(rows) == 2  # two distinct dates, not four
+
+
+def test_db_rejects_unknown_index_code(db_session: Session) -> None:
+    db_session.add(
+        BenchmarkPrice(
+            index_code="a50",
+            price_date=date(2026, 9, 3),
+            close_price=Decimal("1"),
+            currency="CNY",
+        )
+    )
+    with pytest.raises(IntegrityError, match="ck_benchmark_prices_index_code"):
+        db_session.commit()
 
 
 def test_historical_benchmark_price_finds_latest_at_or_before(db_session: Session) -> None:
