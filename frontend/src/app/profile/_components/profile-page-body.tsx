@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Me } from "@/lib/api";
 import { REPORT_LANGUAGES, type ReportLanguage } from "@/locales";
-import { ChangePasswordForm } from "./change-password-form";
 import { PendingVerificationsList } from "./pending-verifications-list";
 import { useReportCurrency } from "./use-report-currency";
 import { useReportLanguage } from "./use-report-language";
@@ -361,14 +360,20 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
         </CardContent>
       </Card>
 
-      {/* Issue #269 §4: Change password moved here, just before Delete
-          account — it is no longer the second section after Account. */}
+      {/* Issue #269 §4: Change password stays just before Delete account.
+          Issue #393: the inline form moved to /profile/change-password;
+          this card keeps only a link. */}
       <Card>
         <CardHeader>
           <CardTitle>{t("passwordHeading")}</CardTitle>
         </CardHeader>
         <CardContent className="px-4">
-          <ChangePasswordForm />
+          <Button
+            variant="outline"
+            render={<Link href="/profile/change-password" />}
+          >
+            {t("changePasswordLink")}
+          </Button>
         </CardContent>
       </Card>
 

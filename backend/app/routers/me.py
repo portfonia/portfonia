@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
@@ -15,6 +15,10 @@ from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
 from app.schemas.holdings import VALID_CURRENCIES
 from app.schemas.me import MeOut, PendingVerificationOut
+from app.services.altcha_challenge import (
+    create_change_password_challenge,
+    verify_change_password_solution,
+)
 from app.services.report_currency import apply_report_currency_change
 
 router = APIRouter()
@@ -169,3 +173,37 @@ def update_report_currency(
     )
     session.commit()
     return UpdateReportCurrencyOut(report_currency=user.base_currency)
+
+
+@router.get("/change-password/altcha-challenge")
+def change_password_altcha_challenge(
+    _principal: Principal = Depends(current_principal),
+) -> dict[str, object]:
+    """Self-hosted Altcha PoW challenge for the authenticated
+    `/profile/change-password` widget (issue #393).
+
+    Authed because the page is session-only; proxy.ts injects the Bearer
+    token on the browser GET through `/api/me/...`. Stateless: the
+    challenge signs its own expiry, same as GET /auth/altcha-challenge.
+    """
+    return create_change_password_challenge()
+
+
+class ChangePasswordAltchaVerifyBody(BaseModel):
+    # Base64-encoded Altcha v1 solution payload, from the widget's own
+    # hidden form field (default field name "altcha").
+    altcha: str
+
+
+@router.post("/change-password/altcha-verify", status_code=status.HTTP_204_NO_CONTENT)
+def verify_change_password_altcha(
+    body: ChangePasswordAltchaVerifyBody,
+    _principal: Principal = Depends(current_principal),
+) -> Response:
+    """Verify a solved change-password PoW payload. The Next.js server
+    action calls this before talking to the Auth provider — a False
+    result must not proceed to `updateUser`.
+    """
+    if not verify_change_password_solution(body.altcha):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid captcha")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

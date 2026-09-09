@@ -98,3 +98,39 @@ def verify_email_verification_solution(payload_b64: str) -> bool:
     except Exception:
         return False
     return ok
+
+
+def _change_password_hmac_key() -> str:
+    # Distinct from forgot-password / email-verification (issue #393): those
+    # two still share APP_SECRET_KEY alone (historical). A solved payload
+    # from either must not verify here, so this purpose is mixed into the
+    # HMAC key rather than silently reusing `_hmac_key()`.
+    return f"{_hmac_key()}:change-password"
+
+
+def create_change_password_challenge() -> dict[str, object]:
+    """Return the JSON shape GET /me/change-password/altcha-challenge hands
+    to the widget (issue #393). Same TTL/stateless design as the other
+    purpose-named factories; HMAC key is purpose-distinct (see
+    `_change_password_hmac_key`).
+    """
+    options = altcha_v1.ChallengeOptions(
+        hmac_key=_change_password_hmac_key(),
+        expires=datetime.now(UTC) + CHALLENGE_TTL,
+    )
+    challenge: altcha_v1.Challenge = altcha_v1.create_challenge(options)
+    return cast(dict[str, object], challenge.to_dict())
+
+
+def verify_change_password_solution(payload_b64: str) -> bool:
+    """Verify the widget's solved-challenge payload for the authenticated
+    change-password flow (issue #393). Never raises."""
+    if not payload_b64:
+        return False
+    try:
+        ok, _err = altcha_v1.verify_solution(
+            payload_b64, _change_password_hmac_key(), check_expires=True
+        )
+    except Exception:
+        return False
+    return ok

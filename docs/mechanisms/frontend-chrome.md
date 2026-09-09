@@ -146,7 +146,9 @@ for the full before/after and decision rationale.
   selects; row 2: delivery-email display/resend/fallback). Cadence,
   invite, and delete stay unfinished placeholders. Current order: gap
   card → Email Verification → Account → Holdings → Report management →
-  Invite → Change password → Delete account. Email Verification is
+  Invite → Change password → Delete account. Issue #393 moved the
+  inline Change password form to `/profile/change-password` (Altcha PoW
+  on that page); `/profile` keeps only a link into it. Email Verification is
   the second section (right after the gap card slot, whether or not that
   slot renders) and its render condition widened to "actionable
   pending/undeliverable records exist" OR "no verified receiving address at
@@ -168,12 +170,14 @@ for the full before/after and decision rationale.
   reports can reach you" register (issue #269's own "mirrors
   `recipient_email()`" phrasing was inaccurate — corrected in the issue
   thread).
-- **Change-password Server Action** (`app/profile/actions.ts`) follows the
-  same `signInWithPassword`-then-`updateUser` pattern as
-  `Ring 1-Profile Page.md` §三 decision 2 — verifies against the caller's
-  own session email (`supabase.auth.getUser()`), never a client-submitted
-  `email` form field, so a forged field can't steer whose password gets
-  checked.
+- **Change-password Server Action** (`app/profile/change-password/actions.ts`,
+  issue #393) still follows the same `signInWithPassword`-then-`updateUser`
+  pattern as `Ring 1-Profile Page.md` §三 decision 2 — verifies against
+  the caller's own session email (`supabase.auth.getUser()`), never a
+  client-submitted `email` form field, so a forged field can't steer whose
+  password gets checked. Altcha PoW is verified against
+  `POST /me/change-password/altcha-verify` first; missing/invalid PoW never
+  reaches the Auth provider. `/profile` itself only links to that page.
 - **Every non-implemented Profile section (report schedule, delivery-email
   change, invite generation, delete account) is rendered with disabled
   controls**, never a submittable form — issue #220's requirement that

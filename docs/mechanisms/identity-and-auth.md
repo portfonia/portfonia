@@ -877,3 +877,18 @@ confirm page, `/verify-email`, is listed in `proxy.ts`'s
 `/reset-password` are — the token itself is the credential, no session
 required. Full record: [docs/mechanisms/email-verification.md](email-verification.md).
 
+### Authenticated change-password reuses this Altcha infrastructure — issue #393
+
+`/profile/change-password` is a session-only page (proxy redirects like
+other profile surfaces). It has its own purpose-named factory pair in
+`altcha_challenge.py` (`create_change_password_challenge` /
+`verify_change_password_solution`) with a **distinct HMAC key**
+(`APP_SECRET_KEY` plus a `change-password` suffix) so a solved
+forgot-password or email-verification payload cannot verify here. The
+widget fetches `GET /me/change-password/altcha-challenge` (authed;
+`proxy.ts` injects Bearer on `/api/*`). The Next.js server action posts
+the solved payload to `POST /me/change-password/altcha-verify` and only
+then runs the existing current-password check + `updateUser`. Missing or
+invalid PoW never reaches the Auth provider. Password update itself stays
+a Next/Supabase action — no new backend change-password API.
+
