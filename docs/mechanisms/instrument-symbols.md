@@ -97,3 +97,49 @@ storage-key migration, no historical-row rewrite, no cache purge. `status`/
 `capture_supported` describe format resolvability, never security
 existence — that is issue #58's scope, tracked separately and not advanced
 by any #57 stage.
+
+### Removal of the PSH ticker-collision override (issue #417)
+
+The `_TICKER_SYMBOL_OVERRIDE` table this section's history above describes
+(`{"PSH": "PSH.L"}`, added by issue #204 to stop a bare "PSH" holding
+resolving to an unrelated US-listed security on yfinance) was deliberately
+removed, along with its read sites in `normalize_legacy_ticker` and
+`_confirmed_market`. Product decision, not a bug fix: a per-ticker
+exception hardcoded into `instrument_symbols.py` doesn't scale (every future
+collision needs its own table entry) and is asymmetric risk (any other
+user genuinely holding the collision security would be silently
+misclassified). It is also inconsistent with how the module already treats
+every *other* dual-listed ADR/ordinary collision (VOD, BP, RIO, ...) —
+issue #313 item 5 deliberately never added those to a table; a bare ticker
+with no declared market/currency defaults to `market_from_ticker`'s
+"no suffix -> US" fallback and is left for the user to notice (via the
+holdings preview/confirm review, or the holdings table afterward) and
+correct, by declaring a market/currency or editing the stored ticker. PSH
+now gets exactly the same treatment, no exception.
+
+**What did not change**: the general currency/market-declared suffix-forcing
+path in `_confirmed_market` (GBP/HKD/CNY/EUR/JPY/KRW -> the matching
+market, then suffix). A holding entered with `currency="GBP"` (or
+`market="UK"`) still resolves to `PSH.L`/UK exactly as before — that path
+never depended on the removed table. **What did change**: a fully bare
+ticker with *neither* market nor currency declared no longer gets rescued;
+`resolve_instrument`'s `key` and its write-fields agree in every case now
+(previously, a holding with `market="US"` explicitly declared kept `PSH`
+as its stored ticker while the internal lookup `key` still silently
+resolved to `PSH.L` — a documented "historical mismatch" row in the frozen
+design that no longer exists as a distinct case).
+
+Considered and declined alternatives (full reasoning, evidence, and the
+production-data audit that ruled out a migration: GitHub issue #417's
+Exploration/Reasons comments): moving the table to a DB row mirroring
+`ticker_leverage_overrides` (issue #87's shipped per-ticker-exception
+precedent) — doesn't address the actual objection, which is "no ticker
+gets special treatment," not "don't hardcode it in Python specifically";
+and adding a forced-confirmation warning for any bare ticker with no
+declared market/currency — would add friction to the common,
+already-correct bare-US-ticker path (AAPL, MSFT, ...).
+
+No production data migration: the one production holding referencing PSH
+was already stored as `PSH.L`/`UK` at the time of this change (created via
+the general currency-declared path, not the removed override), so removal
+has zero effect on existing rows.

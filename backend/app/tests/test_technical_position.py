@@ -63,22 +63,23 @@ def test_compute_technical_position_insufficient_history_returns_nones() -> None
 def test_compute_technical_position_normalizes_known_collision_ticker(
     db_session: Session,
 ) -> None:
-    """issue #204 PR #253 review: capture writes PSH's closes under the
-    normalized 'PSH.L' key, so a query for the raw holding ticker 'PSH'
-    always found zero bars — §4.4 stayed permanently empty for PSH even
-    after capture/valuation were fixed."""
+    """issue #204 PR #253 review: capture writes a raw un-padded HK ticker's
+    closes under the normalized '0700.HK' key, so a query for the raw
+    holding ticker '700.HK' always found zero bars — §4.4 stayed
+    permanently empty for this holding even after capture/valuation were
+    fixed."""
     db_session.add_all(
         [
             PriceSnapshot(
-                ticker="PSH.L",
-                market="US",
+                ticker="0700.HK",
+                market="HK",
                 session_node="close",
                 trade_date=date(2026, 6, 1),
                 close=Decimal("58.00"),
             ),
             PriceSnapshot(
-                ticker="PSH.L",
-                market="US",
+                ticker="0700.HK",
+                market="HK",
                 session_node="close",
                 trade_date=date(2026, 6, 2),
                 close=Decimal("59.00"),
@@ -87,13 +88,11 @@ def test_compute_technical_position_normalizes_known_collision_ticker(
     )
     db_session.flush()
 
-    pos = tp.compute_technical_position(
-        db_session, "PSH", "Pershing Square Holdings", date(2026, 6, 3)
-    )
+    pos = tp.compute_technical_position(db_session, "700.HK", "Tencent", date(2026, 6, 3))
 
     assert pos.bars == 2
     assert pos.last_close == 59.00
-    assert pos.ticker == "PSH.L"
+    assert pos.ticker == "0700.HK"
 
 
 def test_compute_technical_positions_normalizes_known_collision_ticker(
@@ -101,8 +100,8 @@ def test_compute_technical_positions_normalizes_known_collision_ticker(
 ) -> None:
     db_session.add(
         PriceSnapshot(
-            ticker="PSH.L",
-            market="US",
+            ticker="0700.HK",
+            market="HK",
             session_node="close",
             trade_date=date(2026, 6, 1),
             close=Decimal("58.00"),
@@ -112,10 +111,10 @@ def test_compute_technical_positions_normalizes_known_collision_ticker(
 
     positions = tp.compute_technical_positions(
         db_session,
-        [{"ticker": "PSH", "name": "Pershing Square Holdings"}],
+        [{"ticker": "700.HK", "name": "Tencent"}],
         date(2026, 6, 3),
     )
 
     assert len(positions) == 1
     assert positions[0].bars == 1
-    assert positions[0].ticker == "PSH.L"
+    assert positions[0].ticker == "0700.HK"

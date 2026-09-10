@@ -229,17 +229,36 @@ class TestAmbiguityMatrix:
         assert r.ticker == "PSH.L"
         assert r.key == InstrumentKey("ticker", "PSH.L")
 
-    def test_historical_psh_declared_us_keeps_ticker_but_lookup_key_is_lse(self) -> None:
-        """Frozen design section 5's deliberate legacy-mismatch row: the
-        persisted bucket is never repaired here, but the LEGACY LOOKUP key
-        (and its exchange) still reflects the code's real venue."""
-        r = resolve_instrument(_auto(ticker="PSH", market="US", currency="GBP"))
+    def test_bare_psh_with_no_market_or_currency_resolves_as_us_like_any_other_ticker(
+        self,
+    ) -> None:
+        """Issue #417: no ticker gets a hardcoded rescue. A bare "PSH" with
+        no declared market/currency is not economically distinguishable
+        here from any other unenumerated collision (VOD, BP, RIO, ...) —
+        both fall through every `_confirmed_market` branch and land on
+        `market_from_ticker`'s "no suffix -> US" default, byte for byte."""
+        psh = resolve_instrument(_auto(ticker="PSH"))
+        vod = resolve_instrument(_auto(ticker="VOD"))
+        assert psh.status == vod.status == "resolved"
+        assert psh.market == vod.market == "US"
+        assert psh.exchange == vod.exchange is None
+        assert psh.capture_supported is vod.capture_supported is True
+        assert psh.ticker == "PSH"
+        assert psh.key == InstrumentKey("ticker", "PSH")
+
+    def test_psh_with_declared_gbp_currency_resolves_to_lse_via_the_general_path(
+        self,
+    ) -> None:
+        """The general currency->suffix path (unaffected by #417) still
+        gets a GBP-denominated "PSH" to the LSE listing — no ticker-specific
+        knowledge required, just like it would for any other GBP ticker."""
+        r = resolve_instrument(_auto(ticker="PSH", currency="GBP"))
         assert r.status == "resolved"
-        assert r.market == "US"
+        assert r.market == "UK"
         assert r.exchange == "LSE"
         assert r.capture_supported is True
-        assert r.ticker == "PSH"  # proposed write value is NOT rewritten
-        assert r.key == InstrumentKey("ticker", "PSH.L")  # lookup key still uses the override
+        assert r.ticker == "PSH.L"
+        assert r.key == InstrumentKey("ticker", "PSH.L")
 
 
 class TestResolveInstrumentNoNewNoteCodes:
@@ -262,9 +281,9 @@ class TestResolveInstrumentNoNewNoteCodes:
 
 class TestIntelligenceIdentifier:
     def test_uses_legacy_normalization_plus_upper(self) -> None:
-        key = InstrumentKey("ticker", "psh")
-        assert intelligence_identifier(key) == normalize_legacy_ticker("psh").upper()
-        assert intelligence_identifier(key) == "PSH.L"
+        key = InstrumentKey("ticker", "700.hk")
+        assert intelligence_identifier(key) == normalize_legacy_ticker("700.hk").upper()
+        assert intelligence_identifier(key) == "0700.HK"
 
     def test_fund_code_identifier_is_bare_string(self) -> None:
         key = InstrumentKey("fund_code", "005827")

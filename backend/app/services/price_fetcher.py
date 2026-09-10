@@ -85,8 +85,9 @@ def update_holding_prices(session: Session) -> PriceFetchResult:
     # single-ticker retry with a short pause between calls.  Single-ticker
     # requests hit a different Yahoo endpoint path and are more reliable.
     # `points` is keyed by fetch_last_close's normalized ticker (issue #204:
-    # e.g. "PSH.L" for the raw "PSH"), so membership must check the
-    # normalized form or every normalized ticker looks perpetually missing.
+    # e.g. "0700.HK" for a raw, un-padded "700.HK"), so membership must
+    # check the normalized form or every normalized ticker looks
+    # perpetually missing.
     failed_first_pass = [t for t in unique_tickers if normalize_legacy_ticker(t) not in points]
     if failed_first_pass:
         logger.warning(

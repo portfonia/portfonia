@@ -675,14 +675,18 @@ def test_capture_close_non_us_market_does_not_call_massive(db_session: Session) 
 
 
 def test_capture_close_missing_check_uses_normalized_ticker(db_session: Session) -> None:
-    """Issue #351: a ticker fetch_ohlcv_range normalizes (PSH -> PSH.L) must
-    not be misclassified as missing just because the raw selected ticker
-    doesn't match the dict's normalized key — that misclassification wasted
-    a Massive fallback call on every capture, even on a clean yfinance hit.
+    """Issue #351: a ticker fetch_ohlcv_range normalizes (an un-padded HK
+    code like "700.HK" -> the canonical "0700.HK") must not be
+    misclassified as missing just because the raw selected ticker doesn't
+    match the dict's normalized key — that misclassification wasted a
+    Massive fallback call on every capture, even on a clean yfinance hit.
+    A declared `market="US"` still routes this holding into the US node's
+    worklist (declared market wins in `_effective_market`), independent of
+    what the ticker itself normalizes to.
     """
-    db_session.add(_holding("Pershing Square Holdings", "PSH", market="US"))
+    db_session.add(_holding("Tencent", "700.HK", market="US"))
     db_session.flush()
-    ohlcv = {"PSH.L": [(date(2026, 6, 5), 38.0, 39.0, 37.5, 38.5, 1000.0)]}
+    ohlcv = {"0700.HK": [(date(2026, 6, 5), 38.0, 39.0, 37.5, 38.5, 1000.0)]}
 
     with (
         patch(
@@ -697,7 +701,7 @@ def test_capture_close_missing_check_uses_normalized_ticker(db_session: Session)
     mock_massive.assert_not_called()
     assert n == 1
     row = db_session.execute(
-        select(PriceSnapshot).where(PriceSnapshot.ticker == "PSH.L")
+        select(PriceSnapshot).where(PriceSnapshot.ticker == "0700.HK")
     ).scalar_one()
     assert row.close == Decimal("38.5")
 
@@ -705,7 +709,7 @@ def test_capture_close_missing_check_uses_normalized_ticker(db_session: Session)
 def test_capture_spot_missing_check_uses_normalized_ticker(db_session: Session) -> None:
     """Same normalization mismatch as above, for the non-close (spot) branch
     and its Finnhub fallback (issue #351)."""
-    db_session.add(_holding("Pershing Square Holdings", "PSH", market="US"))
+    db_session.add(_holding("Tencent", "700.HK", market="US"))
     db_session.flush()
 
     with (
@@ -713,7 +717,7 @@ def test_capture_spot_missing_check_uses_normalized_ticker(db_session: Session) 
             "app.services.price_capture.get_settings",
             return_value=_settings_with_finnhub_key("k"),
         ),
-        patch("app.services.price_capture.fetch_spot", return_value={"PSH.L": 38.9}),
+        patch("app.services.price_capture.fetch_spot", return_value={"0700.HK": 38.9}),
         patch("app.services.price_capture.fetch_finnhub_quotes") as mock_finnhub,
     ):
         n = capture_prices(db_session, market="US", session_node="open")
@@ -728,17 +732,18 @@ def test_capture_close_missing_fallback_never_sends_non_us_wire_symbol(
     """Issue #351 review follow-up (superseded by issue #57 stage 57-2): a
     genuine miss must still be looked up under the normalized ticker
     internally, but that normalized code must never be SENT to a US-only
-    fallback when it is not itself US wire syntax. The override table maps
-    a raw ticker to a completely different symbol (PSH -> PSH.L); PSH.L is
-    an LSE listing, so a holding declared market=US with raw ticker "PSH"
-    must not have "PSH.L" requested from Massive (frozen design section 4:
-    "Finnhub/Massive reject the non-US lookup code even if the historical
-    declared bucket says US" — explicitly called out for this exact case
-    when 57-2 was scoped). Before this correction, the fallback was called
-    with the raw normalized ticker unconditionally; that regressed the
-    US-only eligibility gate for exactly this historical-mismatch shape.
+    fallback when it is not itself US wire syntax. Normalization can leave
+    a holding's declared bucket and its lookup code's real venue disagreeing
+    (a raw "700.HK" normalizes to the still-HK "0700.HK"); a holding
+    declared market=US with raw ticker "700.HK" must not have "0700.HK"
+    requested from Massive (frozen design section 4: "Finnhub/Massive
+    reject the non-US lookup code even if the historical declared bucket
+    says US" — explicitly called out for this exact shape when 57-2 was
+    scoped). Before this correction, the fallback was called with the raw
+    normalized ticker unconditionally; that regressed the US-only
+    eligibility gate for exactly this declared/actual-venue mismatch shape.
     """
-    db_session.add(_holding("Pershing Square Holdings", "PSH", market="US"))
+    db_session.add(_holding("Tencent", "700.HK", market="US"))
     db_session.flush()
 
     with (
@@ -760,7 +765,7 @@ def test_capture_spot_missing_fallback_never_sends_non_us_wire_symbol(
     db_session: Session,
 ) -> None:
     """Same as above for the spot/Finnhub branch (issue #57 stage 57-2)."""
-    db_session.add(_holding("Pershing Square Holdings", "PSH", market="US"))
+    db_session.add(_holding("Tencent", "700.HK", market="US"))
     db_session.flush()
 
     with (
@@ -779,7 +784,7 @@ def test_capture_spot_missing_fallback_never_sends_non_us_wire_symbol(
 def test_capture_close_missing_fallback_receives_normalized_ticker(db_session: Session) -> None:
     """Issue #351 review follow-up: a genuine miss must still pass the
     fallback the normalized ticker, not the raw stored one, for a code that
-    IS itself US wire syntax post-normalization (unlike the PSH/UK case
+    IS itself US wire syntax post-normalization (unlike the HK case
     above). The override table can map a raw ticker to a different symbol —
     querying Massive with the raw form on a real miss would ask for the
     wrong instrument, the same collision class #204 fixed for the primary

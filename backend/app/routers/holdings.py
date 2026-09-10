@@ -85,9 +85,10 @@ def _tickers_with_sparse_history(
     if not tickers:
         return []
     # price_snapshots is keyed by the normalized ticker (issue #204: e.g.
-    # "PSH.L" for a holding whose raw ticker is "PSH") — querying by the raw
-    # ticker never matches, so every confirm re-enqueued a fresh 420-day
-    # backfill for a ticker that already had a full year of history.
+    # "0700.HK" for a holding whose raw ticker is the un-padded "700.HK")
+    # — querying by the raw ticker never matches, so every confirm
+    # re-enqueued a fresh 420-day backfill for a ticker that already had a
+    # full year of history.
     normalized_to_raw: dict[str, str] = {normalize_legacy_ticker(t): t for t in tickers}
     bar_counts: dict[str, int] = {
         row[0]: row[1]
@@ -274,7 +275,10 @@ def _apply_write_defaults(data: dict[str, Any]) -> dict[str, Any]:
     normalize_ticker_and_currency(data, emit_note=False)
     # Recompute capture support server-side so a client cannot enable
     # speculative yfinance by forging capture_supported=True (issue #311).
-    # Suffix first so PSH -> PSH.L resolves as UK, not as a bare-US ticker.
+    # Suffix first so a declared-UK "VOD" resolves as "VOD.L", not as a
+    # bare-US ticker (declared market/currency, not the ticker string
+    # itself, drives this — issue #417 removed the one ticker-specific
+    # shortcut this module used to have).
     resolved_market, capture_ok = resolve_holding_market(
         ticker=data.get("ticker"),
         declared_market=data.get("market"),

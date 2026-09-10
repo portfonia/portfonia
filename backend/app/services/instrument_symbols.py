@@ -63,45 +63,43 @@ def _normalize_hk_ticker(ticker: str) -> str:
     return f"{digits}.HK"
 
 
-# Bare tickers that silently collide with an unrelated US-listed security on
-# yfinance and need an explicit exchange suffix to resolve to the intended
-# instrument (issue #204: bare "PSH" resolved to an unrelated US ETF instead
-# of Pershing Square Holdings, which trades on the LSE as PSH.L).
-#
 # General bare-ticker suffix-forcing (any bare ticker + a known/confirmed
-# market -> the right exchange suffix, not just this one hardcoded entry) is
-# out of scope here — PR #310 (issue #92, merged) added
+# market -> the right exchange suffix) lives in `_decide_exchange_suffix`/
+# `_confirmed_market` below — PR #310 (issue #92, merged) added
 # `holding_parser.apply_confirmed_exchange_suffix` (now a compatibility
-# wrapper over `_decide_exchange_suffix` below), which forces the suffix at
+# wrapper over `_decide_exchange_suffix`), which forces the suffix at
 # parse/confirm time once a market is user-declared or confidently derived
 # (e.g. currency == "GBP" -> UK), closing issue #313 item 5's "VOD" case for
 # any holding with a declared market or currency hint. A bare ticker with
-# NEITHER (no declared market, no currency hint) is still left unresolved by
-# design ("do not guess a suffix") — Ring-1-C / issue #204 territory, not
-# handled at this yfinance-fetch layer either way.
-_TICKER_SYMBOL_OVERRIDE: dict[str, str] = {
-    "PSH": "PSH.L",
-}
+# NEITHER (no declared market, no currency hint) is left unresolved by design
+# ("do not guess a suffix"): this module never rescues a specific ticker
+# string via a hardcoded lookup table, no matter how confident the collision
+# is known to be — issue #417 removed the one such table that used to exist
+# here (a single "PSH" -> "PSH.L" entry, issue #204) for exactly this reason.
+# A bare ticker that collides with an unrelated security on the price
+# provider is the user's to notice (via the holdings preview/confirm review,
+# or the holdings table afterward) and correct by declaring a market/
+# currency or editing the stored ticker directly — the same recovery path
+# already relied on for every other unenumerated collision (VOD, BP, RIO,
+# ...).
 
 
 def normalize_legacy_ticker(ticker: str) -> str:
     """Canonicalize a ticker to its yfinance-resolvable form.
 
-    Composes the known-collision override table above with HK suffix
-    normalization (issue #64) — the two sets are disjoint today, so order
-    between them doesn't matter.
+    HK suffix normalization (issue #64) only. This is the LEGACY PRICE
+    LOOKUP identity, used verbatim by `intelligence_identifier` and by
+    `resolve_instrument`'s `key` field.
 
-    This is a byte-for-byte extraction of the pre-#57 `_yfinance.
-    _normalize_ticker` body (golden-fixture-verified in
-    `app/tests/fixtures/legacy_ticker_normalization_golden.json`); its
-    behavior is frozen — this is the LEGACY PRICE LOOKUP identity, used
-    verbatim by `intelligence_identifier` and by `resolve_instrument`'s
-    `key` field, and is intentionally independent of `market`/declared-
-    market precedence (see the historical-PSH row in the ambiguity matrix
-    in the module docstring above and in the frozen design comment).
+    Frozen except for one deliberate divergence from the pre-#57 `_yfinance.
+    _normalize_ticker` golden baseline (`app/tests/fixtures/
+    legacy_ticker_normalization_golden.json`): issue #417 removed a
+    hardcoded "PSH" -> "PSH.L" collision-override entry that used to be
+    composed in here. `normalize_legacy_ticker("PSH")` now returns `"PSH"`
+    unchanged, not `"PSH.L"` — see #417 for why no per-ticker override
+    belongs in this module at all.
     """
-    overridden = _TICKER_SYMBOL_OVERRIDE.get(ticker.upper(), ticker)
-    return _normalize_hk_ticker(overridden)
+    return _normalize_hk_ticker(ticker)
 
 
 # ---------------------------------------------------------------------------
@@ -277,13 +275,6 @@ def _known_exchange_suffix(ticker: str) -> str | None:
     return None
 
 
-def _ticker_base(ticker: str) -> str:
-    suf = _known_exchange_suffix(ticker)
-    if suf is None:
-        return ticker
-    return ticker[: -len(suf)]
-
-
 def _a_share_suffix(code: str) -> str | None:
     """Shanghai vs Shenzhen from a 6-digit listed code. None if we cannot tell."""
     digits = code.split(".")[0]
@@ -311,10 +302,6 @@ def _confirmed_market(
             break
     if fund_code:
         return "A-Share"
-    base = _ticker_base(ticker).upper()
-    if base in _TICKER_SYMBOL_OVERRIDE:
-        # Override target is .L (PSH -> PSH.L); UK is a real capture market.
-        return "UK"
     if currency == "HKD":
         return "HK"
     if currency == "CNY":
@@ -554,8 +541,11 @@ class InstrumentKey:
 class SymbolResolution:
     """Result of `resolve_instrument`. `ticker`/`fund_code`/`currency` are
     the PROPOSED WRITE fields (what a caller should persist onto the row);
-    `key` is the separate, possibly-diverging LEGACY LOOKUP identity (see
-    the historical-PSH-declared-US case in the module docstring)."""
+    `key` is the separate, possibly-diverging LEGACY LOOKUP identity — e.g.
+    a declared `market` that wins over suffix-forcing (see `_confirmed_
+    market`) still leaves `key` independently HK zero-pad-normalized via
+    `normalize_legacy_ticker`. This module never rescues a specific ticker
+    string via a hardcoded per-ticker table (issue #417)."""
 
     ticker: str | None
     fund_code: str | None
@@ -569,10 +559,9 @@ class SymbolResolution:
 
 
 # Suffix on the FINAL lookup key's own code, independent of `market` — a
-# historical mismatch row (declared market disagrees with the ticker's
-# actual listing suffix) reports the code's real venue here without
-# "repairing" the persisted market bucket (frozen design section 5, the
-# PSH/declared-US row).
+# mismatch row (declared market disagrees with the ticker's actual listing
+# suffix) reports the code's real venue here without "repairing" the
+# persisted market bucket (frozen design section 5).
 _SUFFIX_TO_EXCHANGE: dict[str, Exchange] = {
     ".HK": "HKEX",
     ".SS": "SSE",

@@ -23,7 +23,8 @@ class TickerLeverageOverride(Base):
     lookups use (``app.services.instrument_symbols.intelligence_identifier``
     — see the issue #204 mechanism note) before it reaches this table; an
     un-normalized PK would silently split one ticker's override across two
-    rows the way PSH/PSH.L once did.
+    rows the way an un-normalized PSH/PSH.L pair once did, before issue
+    #417 removed that ticker-specific override.
 
     Applied at read time only, by ``window_data.py`` (anomaly thresholds
     widened) and ``portfolio_calculator.py`` (§4.1 single-holding

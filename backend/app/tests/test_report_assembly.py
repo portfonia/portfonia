@@ -531,39 +531,40 @@ def test_holdings_listing_prints_the_normalized_identifier_l1_is_keyed_under() -
     assert "(700.HK)" not in holdings_section
 
 
-_PSH_PORTFOLIO: dict[str, Any] = {
-    "base_currency": "GBP",
+_HK_NORMALIZATION_PORTFOLIO: dict[str, Any] = {
+    "base_currency": "HKD",
     "total_base": 59000.0,
     "fx_rates_as_of": {"CNY": "2026-08-28"},
     "holdings": [
         {
-            "name": "Pershing Square Holdings",
-            "ticker": "PSH",  # raw form, as stored on Holding
-            "currency": "GBP",
+            "name": "Tencent",
+            "ticker": "700.HK",  # raw, un-padded form, as stored on Holding
+            "currency": "HKD",
             "market_value": 59000.0,
             "market_value_base": 59000.0,
             "asset_class": "STOCK",
         }
     ],
     "by_asset_class": {"STOCK": 59000.0},
-    "by_currency": {"GBP": 59000.0},
+    "by_currency": {"HKD": 59000.0},
 }
 
 
 def test_holdings_listing_normalizes_known_collision_ticker_to_l1_key() -> None:
-    """issue #204 PR #253 review: PSH must print under 'PSH.L' — the same
-    identifier compute_global_moves/select_user_anomalies and the L1 block
-    key it under — not the raw 'PSH' stored on the holding."""
+    """issue #204 PR #253 review: a raw, un-padded HK ticker ("700.HK") must
+    print under the normalized "0700.HK" — the same identifier
+    compute_global_moves/select_user_anomalies and the L1 block key it
+    under — not the raw form stored on the holding."""
     prompt = ra.build_assembly_prompt(
-        portfolio=_PSH_PORTFOLIO,
+        portfolio=_HK_NORMALIZATION_PORTFOLIO,
         price_anomalies=[],
-        ticker_intel={"PSH.L": "Pershing Square moved on NAV discount news. [Established]"},
+        ticker_intel={"0700.HK": "Tencent moved on regulatory news. [Established]"},
         macro_event_intel={},
         macro_event_exposure={},
     )
     holdings_section = prompt.split("Holdings, largest first")[1].split("===")[0]
-    assert "(PSH.L)" in holdings_section
-    assert "(PSH)" not in holdings_section
+    assert "(0700.HK)" in holdings_section
+    assert "(700.HK)" not in holdings_section
 
 
 # ---------------------------------------------------------------------------
