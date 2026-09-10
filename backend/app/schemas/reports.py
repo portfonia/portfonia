@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
+from typing import Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from app.schemas.holdings import VALID_CURRENCIES
 from app.services.report_types import validate_report_type
@@ -35,6 +36,32 @@ class ReportListItem(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ReportJobOut(BaseModel):
+    """Poll target for an on-demand report generation (issue #193).
+
+    `status` is the JOB's state — "pending" -> a worker still owns it,
+    "success" -> the pipeline ran to a terminal report row, "failed" ->
+    `error` carries the detail (the message that used to be the sync
+    endpoint's 502 body).
+
+    `report_status` is the generated report row's OWN status, read through
+    `report_id`: job success says the pipeline finished, not that the user
+    was sent anything — a compliance hold (`needs_review`) or a quiet-day
+    `skipped` row is still a completed job. Both are null until a run
+    produces a report.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    status: Literal["pending", "success", "failed"]
+    report_id: uuid.UUID | None = None
+    report_status: str | None = None
+    error: str | None = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class GenerateReportRequest(BaseModel):

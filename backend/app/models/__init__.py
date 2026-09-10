@@ -15,6 +15,7 @@ from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
 from app.models.price_snapshot import PriceSnapshot
 from app.models.report import Report
 from app.models.report_currency_change import ReportCurrencyChange
+from app.models.report_job import ReportJob
 from app.models.search_cache import SearchCache
 from app.models.ticker_intel import TickerIntel
 from app.models.upload_job import UploadJob
@@ -39,6 +40,7 @@ __all__ = [
     "PriceSnapshot",
     "Report",
     "ReportCurrencyChange",
+    "ReportJob",
     "SearchCache",
     "TickerIntel",
     "UploadJob",

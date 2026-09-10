@@ -25,8 +25,14 @@ capability existing.
   undistinguishable `InviteRejected` are unchanged). Issue
   #201 (PR #203) added `POST /admin/users/{id}/reports/generate`: ops-token,
   synchronous `generate_report` for one user (`session_node="manual"`),
-  hitting `api.portfonia.com` directly so the Next.js proxy timeout on
-  self-service `POST /reports/generate` (issue #193) is not in the path.
+  hitting `api.portfonia.com` directly, so the Next.js `rewrites()` proxy is
+  not in the path. It stays synchronous by choice — an ops curl/agent caller
+  waits for the full pipeline — and since issue #193 that is a deliberate
+  transport difference, not a workaround: self-service
+  `POST /reports/generate` is now asynchronous too (202 + a pollable
+  `report_jobs` row, see `capture-and-reporting.md`'s "On-demand report
+  generation is async (issue #193)"), so the sync/async split no longer
+  encodes which path is broken.
   404 if the user is missing; 422 if not active (the original no-holdings
   422 was removed by issue #221; `active_user_ids()` itself gained a
   per-cadence holdings gate in issue #191, still required for `mwf`, not
