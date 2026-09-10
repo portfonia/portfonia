@@ -460,6 +460,24 @@ layer** (per-user, incremental).
   `truncate_text` in `github_issues.py`; `_capture_failed` also caps
   `str(exc)` (per-market entries sliced before join so one huge SQL dump
   cannot crowd later markets out of the alert).
+- **Same 65535-param bug recurred twice more (issues #402/#403, 2026-09-09)**:
+  `fx_fetcher.py`'s `_upsert_fx_history` (issue #402, PR #404 — discovered
+  live running `backfill_fx_rates.py` in production: ~5y x 14 pairs x 5
+  columns = ~87,850 params, crashed before any row committed) and
+  `benchmark_prices.py`'s `_upsert` (issue #403, PR #405 — found by
+  inspection while fixing #402, not yet a production incident) both built
+  the same kind of unbounded single-`INSERT` this entry's `_upsert` fix
+  replaced, and neither had picked up the fix. `_upsert_fx_history` now
+  chunks at 5000 rows/batch (`_UPSERT_BATCH_SIZE`, 5-column rows =
+  25,000 params/batch); `benchmark_prices._upsert` chunks at 2000
+  rows/batch (`_UPSERT_CHUNK_SIZE`, matching this entry's original
+  margin for its narrower 4-column rows). Both PRs were reviewed/merged
+  independently and landed within hours of each other (#404 first, #405
+  rebased on top and dropped its own now-redundant `fx_fetcher.py` copy).
+  No shared chunked-upsert helper was introduced across the three call
+  sites — each considered and rejected one as premature for a fix this
+  narrow (see #403's Exploration comment). A fourth bulk-upsert site
+  added later without chunking would be this bug recurring a third time.
 - **Fund NAV confirm-time capture (issue #196)**: `fund_code` holdings
   (no ticker) are not on the OHLCV path, so they used to wait until the
   next `capture-fund-navs-daily` beat (20:00 CST Mon-Fri) — a new user's
