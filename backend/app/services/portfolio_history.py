@@ -35,7 +35,7 @@ from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from functools import partial
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -377,18 +377,43 @@ def stage_user_snapshot(
 def apply_outbox_row(session: Session, outbox_row: PortfolioSnapshotOutbox) -> int:
     """Phase 2 / recovery replay: publish a frozen payload to the live tables.
 
-    Live rows, the `complete` batch status and the outbox `applied` flip are
-    written in one transaction, so a `complete` batch always has exactly the
-    payload's rows behind it — whether they got there from the daily run or
-    from a replay.
+    Delete-replace, not upsert-only (issue #373 Design step 1 "delete/replace of
+    that day's rows" + Contract 4): the day's live rows are made to *equal* the
+    payload — rows whose `holding_id` is absent from it are removed, and an
+    empty payload clears the day. Live rows, the `complete` batch status and
+    the outbox `applied` flip are written in one transaction, so a `complete`
+    batch always has exactly the payload's rows behind it — whether they got
+    there from the daily run or from a replay.
 
     Raises `OutboxPayloadError` if the payload can't be decoded (recovery
     treats that as `failed`; see `app.services.snapshot_recovery`).
     """
     rows = decode_payload(outbox_row.payload, outbox_row.checksum)
+    frozen_holding_ids: set[uuid.UUID] = set()
     for row in rows:
         if row["user_id"] != outbox_row.user_id or row["snapshot_date"] != outbox_row.snapshot_date:
             raise OutboxPayloadError("snapshot outbox payload does not match its own user/date")
+        holding_id = row["holding_id"]
+        if not isinstance(holding_id, uuid.UUID):
+            raise OutboxPayloadError("snapshot outbox payload row is missing its holding_id")
+        frozen_holding_ids.add(holding_id)
+
+    stale_conditions = [
+        PortfolioValueSnapshot.user_id == outbox_row.user_id,
+        PortfolioValueSnapshot.snapshot_date == outbox_row.snapshot_date,
+    ]
+    if frozen_holding_ids:
+        # A NULL holding_id is not a real write path (see the model docstring);
+        # it is swept too, so the live set is exactly the payload.
+        stale_conditions.append(
+            or_(
+                PortfolioValueSnapshot.holding_id.is_(None),
+                PortfolioValueSnapshot.holding_id.not_in(frozen_holding_ids),
+            )
+        )
+    # Empty payload (empty-book exit): every row of that user-day is stale.
+    session.execute(delete(PortfolioValueSnapshot).where(*stale_conditions))
+
     written = _upsert_rows(session, rows)
     batch = get_or_create_batch(session, outbox_row.user_id, outbox_row.snapshot_date)
     batch.status = "complete"

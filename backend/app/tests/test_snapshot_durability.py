@@ -185,6 +185,89 @@ def test_failed_publish_is_replayable_after_the_book_moved(db_session: Session) 
     assert batch.status == "complete"
 
 
+def test_shrinking_book_drops_the_orphan_row_for_that_day(db_session: Session) -> None:
+    """Contract 4 / delete-replace: after a same-day re-capture with one
+    holding sold, the day's live rows must equal the new payload — the sold
+    holding's row must not survive under a `complete` batch."""
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    _seed_auto_holding(db_session, user_id, "AAPL", Decimal("2"))
+    sold = _seed_auto_holding(db_session, user_id, "MSFT", Decimal("3"))
+    _seed_price(db_session, "AAPL", TODAY, Decimal("10"))
+    _seed_price(db_session, "MSFT", TODAY, Decimal("5"))
+    db_session.flush()
+
+    capture_portfolio_value_snapshot(db_session, TODAY)
+    assert {r.ticker for r in _live_rows(db_session)} == {"AAPL", "MSFT"}
+
+    # MSFT is sold, then the same day is captured again (catch-up re-run).
+    db_session.delete(sold)
+    db_session.flush()
+    capture_portfolio_value_snapshot(db_session, TODAY)
+
+    rows = _live_rows(db_session)
+    assert [r.ticker for r in rows] == ["AAPL"]
+    assert rows[0].market_value_base == Decimal("20.00")
+    assert [b.status for b in _batches(db_session)] == ["complete"]
+    outbox_row = get_outbox_row(db_session, user_id, TODAY)
+    assert outbox_row is not None and outbox_row.status == "applied"
+
+
+def test_empty_book_replace_clears_a_day_that_had_rows(db_session: Session) -> None:
+    """The empty-book exit day is a replace too: a payload of zero rows must
+    delete the day's previous live rows before `complete` is set."""
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    holding = _seed_auto_holding(db_session, user_id, "AAPL", Decimal("2"))
+    _seed_price(db_session, "AAPL", TODAY, Decimal("10"))
+    db_session.flush()
+
+    capture_portfolio_value_snapshot(db_session, TODAY)
+    assert len(_live_rows(db_session)) == 1
+
+    # Last holding sold: the exit-day capture freezes an empty payload.
+    db_session.delete(holding)
+    db_session.flush()
+    capture_portfolio_value_snapshot(db_session, TODAY)
+
+    assert _live_rows(db_session) == []
+    assert [b.status for b in _batches(db_session)] == ["complete"]
+    outbox_row = get_outbox_row(db_session, user_id, TODAY)
+    assert outbox_row is not None and outbox_row.status == "applied"
+
+
+def test_replay_replaces_orphan_rows_left_by_an_earlier_partial_state(
+    db_session: Session,
+) -> None:
+    """The recovery path uses the same replace-set apply, so an orphan row
+    cannot survive a replay onto an already-unpublished day."""
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    holding = _seed_auto_holding(db_session, user_id, "AAPL", Decimal("1"))
+    _seed_price(db_session, "AAPL", TODAY, Decimal("10"))
+    db_session.flush()
+    stage_user_snapshot(db_session, user_id, TODAY)
+    db_session.commit()
+
+    # An orphan row for a holding that is not in the frozen payload.
+    orphan = PortfolioValueSnapshot(
+        user_id=user_id,
+        snapshot_date=TODAY,
+        holding_id=uuid.uuid4(),
+        ticker="ORPHAN",
+        currency="USD",
+        base_currency="USD",
+    )
+    db_session.add(orphan)
+    db_session.flush()
+
+    outbox_row = get_outbox_row(db_session, user_id, TODAY)
+    assert outbox_row is not None
+    assert apply_outbox_row(db_session, outbox_row) == 1
+
+    assert [r.holding_id for r in _live_rows(db_session)] == [holding.id]
+
+
 def test_skipped_deps_freezes_no_payload(db_session: Session) -> None:
     """An unpriceable day must stay absent rather than frozen half-complete."""
     user_id = uuid.uuid4()

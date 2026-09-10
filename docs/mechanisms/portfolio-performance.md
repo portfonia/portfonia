@@ -94,11 +94,13 @@ commit in between (`app/services/portfolio_history.py`):
    (Fernet-encrypted JSON payload + sha256; see
    `app/services/snapshot_outbox.py`). The batch row is created `pending` and
    is **not** `complete` yet.
-2. `apply_outbox_row` decodes that payload, upserts it into
-   `portfolio_value_snapshots`, flips the batch to `complete` and the outbox
-   row to `applied` — all in one transaction. A `complete` batch therefore
-   always has exactly the payload's rows behind it (contract constraint 4 of
-   #373).
+2. `apply_outbox_row` decodes that payload and **replaces** that user-day's
+   live rows with it (rows whose `holding_id` is absent from the payload are
+   deleted first; an empty payload clears the day), then flips the batch to
+   `complete` and the outbox row to `applied` — all in one transaction. A
+   `complete` batch therefore always has exactly the payload's rows behind it,
+   with no orphan rows from a previous, larger book (contract constraint 4 of
+   #373, and Design step 1's "delete/replace of that day's rows").
 
 `capture_portfolio_value_snapshot` commits the freeze for the whole fan-out
 before publishing any of it, so a failure during publishing leaves the day
@@ -150,9 +152,13 @@ database product or a second copy of the outbox.
 **Scenario 1 hardening evidence**: `test_mid_write_failure_never_leaves_a_partial_complete_batch`
 (simulated exception mid-publish) plus the existing `db_session` rollback
 semantics; the write path's own `session.commit()` sits between the freeze and
-the publish. Note the intended side effect: a failed publish leaves `pending`
-batch rows for that day, which `capture_health` already reports (#372), so the
-failure is visible rather than silent.
+the publish. The replace-set half of the same contract is locked by
+`test_shrinking_book_drops_the_orphan_row_for_that_day` and
+`test_empty_book_replace_clears_a_day_that_had_rows` (a sold holding or a full
+exit must not leave a live row under `complete`). Note the intended side
+effect: a failed publish leaves `pending` batch rows for that day, which
+`capture_health` already reports (#372), so the failure is visible rather than
+silent.
 
 Migrations: `9d2f4b7c1e05_add_portfolio_snapshot_outbox.py`. Related:
 #367 (write path), #372 (detection, not recovery), vault
