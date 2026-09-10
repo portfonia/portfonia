@@ -55,6 +55,15 @@ governing document and issue before dependent implementation. Distinguish
 the owner's confirmed decisions from a newly authored proposal; drafting a
 proposal does not establish owner approval.
 
+An implementation issue is not ready while its Design or Contract
+constraints contains an unresolved substantive decision. Before starting
+implementation, obtain the owner's explicit resolution of approach,
+failure behavior, thresholds/policy, and data-model choices, and record it
+in the existing governing comments. A future decision may remain deferred
+only when the current scope has no dependency on its outcome. This is the
+implementation-entry rule in AGENTS.md, preserved from PR #422; an authored
+design with open choices is not an implementation-ready contract.
+
 These dimensions are not a mandate to add subsystems or exhaustive tests.
 Keep the contract proportionate to the authorized problem. When more scope
 is proposed, present its value, impact/cost, and reason for owner approval
