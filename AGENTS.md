@@ -28,6 +28,8 @@ Contract constraints must enumerate invariants, non-goals, dependencies, accepta
 
 Distinguish confirmed product decisions, the authored implementation design, unresolved questions, and shipped behavior. Never invent approval. Resolve substantive financial/product ambiguity in the governing design and issue before dependent implementation.
 
+**No open design-stage questions at implementation start (2026-09-10).** An issue is not ready for implementation while its Design or Contract constraints comment still contains an unresolved decision — this has repeatedly let an implementing LLM freelance or silently widen scope to fill the gap itself, rather than surfacing the ambiguity. Before implementation begins: get every substantive design decision (approach choices, failure-mode behavior, thresholds/policy values, data-model shape) explicitly resolved by the product owner and recorded in the relevant comment, editing it in place rather than appending a competing version. An issue may still note a deliberately deferred *future* decision (e.g. "escalate later if data warrants it") as long as the issue's own current scope has no dependency on that future decision's outcome — that is not the same as leaving today's implementation with a choice to make on its own.
+
 ## Documentation surfaces
 
 For documentation updates, maintain this AGENTS.md, shared CLAUDE.md where applicable, the relevant feature note, and Obsidian `Hermes/Portfonia/Codex开发配置文档.md` / `Hermes/Portfonia/Codex设计文档.md`. Update governing sections in place when a rule changes; append incident evidence without leaving contradictory active rules.
