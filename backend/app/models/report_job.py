@@ -34,6 +34,9 @@ class ReportJob(Base):
     """
 
     __tablename__ = "report_jobs"
+    # Raw name: Base's naming convention expands this to
+    # `ck_report_jobs_status`, which is the name the migration creates. Passing
+    # the expanded name here would double the prefix.
     __table_args__ = (CheckConstraint("status IN ('pending', 'success', 'failed')", name="status"),)
 
     id: Mapped[uuid.UUID] = mapped_column(

@@ -98,6 +98,10 @@ def get_report_job(
 
     Owner-scoped: another user's job id is a 404, not a 403, so a guessed id
     is indistinguishable from a non-existent one.
+
+    A job still `pending` when the caller's own poll deadline expires is
+    unknown, not failed — see `ReportJobOut` for why the row can stay pending
+    after a worker kill, and for how a caller resolves that.
     """
     job = session.get(ReportJob, job_id)
     if job is None or job.user_id != principal.user_id:

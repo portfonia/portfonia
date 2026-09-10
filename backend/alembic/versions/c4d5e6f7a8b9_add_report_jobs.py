@@ -57,8 +57,13 @@ def upgrade() -> None:
             server_default=sa.func.now(),
             nullable=False,
         ),
+        # Raw name, not the expanded `ck_report_jobs_status`: Alembic compiles
+        # this table through `Base`'s naming convention, so `name="ck_..."`
+        # here would expand to `ck_report_jobs_ck_report_jobs_status`. Passing
+        # the raw name (the `reports.recipient_purpose` CHECK's own pattern,
+        # d3e4f5a6b7c8) produces the same name the ORM metadata resolves to.
         sa.CheckConstraint(
-            "status IN ('pending', 'success', 'failed')", name="ck_report_jobs_status"
+            "status IN ('pending', 'success', 'failed')", name="status"
         ),
     )
     op.create_foreign_key(

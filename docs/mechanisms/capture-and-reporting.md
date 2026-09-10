@@ -40,10 +40,14 @@ so issues #308/#350 keep their per-user semantics on the worker side.
 and no Celery `time_limit` for this task. Those exist for the upload parse's
 45s SLA; report generation has no bounded runtime to sweep against, so a
 worker hard-killed mid-run leaves a `pending` row (the report row it was
-writing is likewise mid-flight) instead of being falsely failed. A caller's
-poll deadline reports that honestly. `POST
-/admin/users/{user_id}/reports/generate` stays synchronous on purpose —
-`/admin/*` is not proxied, so an ops caller can wait (see
+writing is likewise mid-flight) instead of being falsely failed. The caller
+rule that makes this honest without either mechanism is stated on
+`ReportJobOut`: a job still `pending` at the caller's own poll deadline is
+*unknown*, not failed — `GET /reports/` shows whether a report for the
+requested day landed. A sweeper or a task limit would instead mark a
+still-running generation failed, which is the same class of lie #193 exists to
+remove. `POST /admin/users/{user_id}/reports/generate` stays synchronous on
+purpose — `/admin/*` is not proxied, so an ops caller can wait (see
 `admin-surface.md`).
 
 **Frontend**: `frontend/src/lib/api.ts` had no `/api/reports/generate` caller

@@ -51,6 +51,13 @@ class ReportJobOut(BaseModel):
     was sent anything — a compliance hold (`needs_review`) or a quiet-day
     `skipped` row is still a completed job. Both are null until a run
     produces a report.
+
+    A row can also stay `pending` indefinitely if its worker process was
+    killed (issue #85's class of hard kill — nothing of this task's own
+    exception handling runs). The row is the durable record precisely so the
+    caller can tell that apart from a failure: a poll deadline must be
+    reported as "unknown, may still finish", never as failure, and
+    `GET /reports/` shows whether a report for the requested day landed.
     """
 
     model_config = ConfigDict(from_attributes=True)
