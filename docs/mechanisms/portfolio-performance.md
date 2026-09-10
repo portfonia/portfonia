@@ -60,15 +60,20 @@ scope for this phase, and #366 does not revisit this).
 - `portfolio_snapshot_batches` — per-(user, day) `pending|complete|
   skipped_deps` marker. The read API only ever considers `complete` days;
   `skipped_deps` means the day's FX dependency wasn't resolvable at write
-  time and the day is silently retried on the next run rather than exposed
-  half-computed. **This gate is FX-only, not FX-AND-price** (review
+  time; since issue #373 the day is retried by the bounded catch-up pass
+  (previously the next run captured a *different* date, so a skipped day was
+  effectively lost) rather than exposed half-computed. **This gate is FX-only,
+  not FX-AND-price** (review
   5124107298 finding 3, PR #363) — deliberately: this codebase has no real
   market holiday calendar, so a symmetric "did today's price capture
   produce anything yet" check would misfire as `skipped_deps` on every
   market holiday for a single-market book. A per-holding price gap already
   degrades gracefully to `data_quality="insufficient"` on that one row
-  instead of blocking the whole batch — see `write_user_snapshot`'s
+  instead of blocking the whole batch — see `stage_user_snapshot`'s
   docstring for the full reasoning.
+- `portfolio_snapshot_outbox` — per-(user, day) capture outbox (issue #373):
+  `computed|applied|failed` + the Fernet-encrypted intended payload and its
+  sha256. See "Capture durability (issue #373)" below.
 - `benchmark_prices` — daily close for `sp500|dow30|nasdaq|csi300` (Nasdaq
   Composite, not the Nasdaq-100 — D9; CSI 300 added in issue #383),
   unrelated to any user's holdings. Quote currency is stamped per row
@@ -77,6 +82,81 @@ scope for this phase, and #366 does not revisit this).
   below.
 
 Migration: `c1d2e3f4a5b6_add_portfolio_performance_tables.py`.
+
+## Capture durability (issue #373)
+
+Since-tracking means a missed day cannot be honestly invented later, so the
+daily capture was split into a freeze phase and a publish phase, with a
+commit in between (`app/services/portfolio_history.py`):
+
+1. `stage_user_snapshot` resolves holdings/prices/FX for one (user, day) and
+   writes the intended rows into `portfolio_snapshot_outbox` as `computed`
+   (Fernet-encrypted JSON payload + sha256; see
+   `app/services/snapshot_outbox.py`). The batch row is created `pending` and
+   is **not** `complete` yet.
+2. `apply_outbox_row` decodes that payload, upserts it into
+   `portfolio_value_snapshots`, flips the batch to `complete` and the outbox
+   row to `applied` — all in one transaction. A `complete` batch therefore
+   always has exactly the payload's rows behind it (contract constraint 4 of
+   #373).
+
+`capture_portfolio_value_snapshot` commits the freeze for the whole fan-out
+before publishing any of it, so a failure during publishing leaves the day
+recoverable by replay instead of lost.
+
+**Transaction boundary: batch-level, not per-user (decision made while
+implementing #373).** Design step 1 of the issue assumed one transaction per
+`(user_id, snapshot_date)`; the pre-implementation note on the issue recorded
+that the real commit boundary is one transaction for the whole fan-out. That
+is what shipped, and it is what the Requirements allow: for a given
+`(user_id, snapshot_date)` the rows and the batch status still commit
+together (never a `complete` batch with missing rows, never rows without a
+batch), and a failure leaves the day `pending`/`skipped_deps` — retryable and
+now replayable. The accepted cost is blast radius: an exception anywhere in
+the publish loop rolls back every user's rows for that day, and the retry is
+a whole-batch run. Per-user boundaries would buy isolation this write path
+has no per-user failure mode to need, at the cost of a partial-fan-out state
+after any transient failure; the freeze phase is what makes the whole-day
+rollback cheap to recover. Revisit if a per-user failure mode appears.
+
+**Recovery (`app/services/snapshot_recovery.py`)**, exposed as
+`POST /admin/portfolio/snapshots/recover` and as a bounded catch-up pass at
+the end of the daily task:
+
+- A day with an outbox row is **replayed** (from the payload, never recomputed
+  from current holdings), whatever its age. `applied` rows whose live rows
+  have gone missing are re-applied the same way.
+- A day with **no** payload is recomputed from live holdings only when both
+  (a) it is within `CATCHUP_LOOKBACK_DAYS` (7) and (b) the live book's
+  composition fingerprint equals the newest frozen evidence before that day —
+  i.e. the book provably has not moved since the last `complete` snapshot.
+  A change-and-revert inside that window is undetectable without a holdings
+  CDC (out of scope for #373); that residual is why the window is short.
+- Anything else is skipped with a structured WARNING and left not-`complete`;
+  `skipped_deps` days stay eligible for a later catch-up once FX lands.
+- An undecodable payload is marked `failed` (logged, visible) and not retried.
+
+**Retention**: `computed`/`failed` rows are never pruned (they are pending
+recovery evidence). `applied` rows are redundant once the live rows exist —
+that is the durable copy, with Postgres backups behind it — and are deleted
+after `OUTBOX_APPLIED_RETENTION_DAYS` (90) by a bounded delete at the end of
+the daily capture.
+
+**Disk / whole-database loss** stays with the existing Postgres backup
+practice (daily `pg_dump` to OCI Object Storage, plus the restore drills in
+`docs/mechanisms/backup-and-ops.md`); #373 deliberately does not add a second
+database product or a second copy of the outbox.
+
+**Scenario 1 hardening evidence**: `test_mid_write_failure_never_leaves_a_partial_complete_batch`
+(simulated exception mid-publish) plus the existing `db_session` rollback
+semantics; the write path's own `session.commit()` sits between the freeze and
+the publish. Note the intended side effect: a failed publish leaves `pending`
+batch rows for that day, which `capture_health` already reports (#372), so the
+failure is visible rather than silent.
+
+Migrations: `9d2f4b7c1e05_add_portfolio_snapshot_outbox.py`. Related:
+#367 (write path), #372 (detection, not recovery), vault
+`Docs/Portfolio_Data_Retention.md` §2.4.
 
 ## Valuation rules (D5 amendment)
 
@@ -200,7 +280,7 @@ reader read the jump as +600% TWR. Migration `d2e3f4a5b6c7` adds the
 column (backfilled from each row's user's CURRENT `base_currency` — the
 best available approximation for pre-existing rows, since no historical
 preference-change log exists and, per the review, no production row so far
-has actually hit this defect). `write_user_snapshot` now records it
+has actually hit this defect). `stage_user_snapshot` now records it
 per-day; `_day_currency` in `portfolio_performance.py` reads it back **per
 day** (never once per request) for both the raw-MV `_convert_amount` call
 and the TWR chain, converting `v_prev` into DAY T's own currency before
@@ -470,8 +550,10 @@ US `after_close` at 20:00 ET) and the 17:15 ET FX fetch. Confirmed against `app/
 ordering: no other daily entry in that file fires between 17:15 ET and
 20:30 ET on a weekday, so both new tasks always run strictly after that
 day's price-capture and FX-fetch tasks have had their scheduled chance to
-run (not a guarantee they *succeeded* — that's what `skipped_deps` and the
-daily task's own idempotent re-run cover).
+run (not a guarantee they *succeeded* — since issue #373 the snapshot task
+finishes with a bounded catch-up pass that replays frozen-but-unpublished
+days and retries recently missed ones whose book provably hasn't moved; see
+"Capture durability (issue #373)").
 
 **Capture health (issue #372 slice B)**: `check-capture-health-daily` at
 21:30 ET Mon–Fri. One probe after that window, not checks sprinkled into
@@ -492,7 +574,7 @@ Friday would false-positive). No admin UI. Does not write or replay
 **Full-exit fan-out (issue #367 review finding B, blacktomb42, review
 5563537095)**: `capture_portfolio_value_snapshot`'s user selection
 originally was `User.id.in_(select(Holding.user_id).distinct())` only —
-active users currently holding at least one position. `write_user_snapshot`
+active users currently holding at least one position. `stage_user_snapshot`
 already handles zero holdings correctly (marks the batch `complete` with
 zero rows, D5's genuine $0 case), but that code path only runs if this
 function calls it at all: a user whose LAST holding was deleted dropped out

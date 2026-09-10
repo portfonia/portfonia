@@ -14,12 +14,9 @@ from app.models.holding import Holding
 from app.models.portfolio_snapshot_batch import PortfolioSnapshotBatch
 from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
 from app.models.price_snapshot import PriceSnapshot
-from app.services.portfolio_history import (
-    capture_portfolio_value_snapshot,
-    write_user_snapshot,
-)
+from app.services.portfolio_history import capture_portfolio_value_snapshot
 from app.services.user_purge import purge_user
-from app.tests.conftest import seed_user
+from app.tests.conftest import capture_user_day, seed_user
 
 TODAY = date(2026, 9, 5)
 
@@ -55,12 +52,12 @@ def test_write_snapshot_is_idempotent_and_upserts_on_rerun(db_session: Session) 
     _seed_price(db_session, "AAPL", TODAY, Decimal("100"))
     db_session.flush()
 
-    written1, status1 = write_user_snapshot(db_session, user_id, TODAY)
+    written1, status1 = capture_user_day(db_session, user_id, TODAY)
     assert written1 == 1
     assert status1 == "complete"
 
     # Re-running the same day (catch-up) upserts, not duplicates.
-    written2, status2 = write_user_snapshot(db_session, user_id, TODAY)
+    written2, status2 = capture_user_day(db_session, user_id, TODAY)
     assert written2 == 1
     assert status2 == "complete"
 
@@ -96,7 +93,7 @@ def test_batch_marked_skipped_deps_when_fx_missing(db_session: Session) -> None:
     db_session.flush()
     # No FX rate seeded at all for USDHKD — dependency not ready yet.
 
-    written, status = write_user_snapshot(db_session, user_id, TODAY)
+    written, status = capture_user_day(db_session, user_id, TODAY)
     assert written == 0
     assert status == "skipped_deps"
 
@@ -135,8 +132,8 @@ def test_cash_holding_local_value_flat_but_base_moves_with_fx(db_session: Sessio
     _seed_fx(db_session, "USDHKD", TODAY, Decimal("7.9"))
     db_session.flush()
 
-    _, status_day1 = write_user_snapshot(db_session, user_id, date(2026, 9, 4))
-    _, status_day2 = write_user_snapshot(db_session, user_id, TODAY)
+    _, status_day1 = capture_user_day(db_session, user_id, date(2026, 9, 4))
+    _, status_day2 = capture_user_day(db_session, user_id, TODAY)
     assert status_day1 == "complete"
     assert status_day2 == "complete"
 
@@ -180,10 +177,10 @@ def test_base_currency_column_records_capture_time_preference_not_current(
     _seed_fx(db_session, "USDCNY", day2, Decimal("7"))
     db_session.flush()
 
-    write_user_snapshot(db_session, user_id, day1)
+    capture_user_day(db_session, user_id, day1)
     user.base_currency = "CNY"
     db_session.flush()
-    write_user_snapshot(db_session, user_id, day2)
+    capture_user_day(db_session, user_id, day2)
 
     rows = {
         r.snapshot_date: r
@@ -214,7 +211,7 @@ def test_insufficient_value_omitted_not_zero_padded(db_session: Session) -> None
     # so the batch can still complete even though the price itself is missing.
     db_session.flush()
 
-    written, status = write_user_snapshot(db_session, user_id, TODAY)
+    written, status = capture_user_day(db_session, user_id, TODAY)
     assert written == 1
     assert status == "complete"
 
@@ -264,7 +261,7 @@ def test_capture_portfolio_value_snapshot_writes_for_every_active_user_with_hold
 def test_full_exit_still_captured_after_last_holding_deleted(db_session: Session) -> None:
     """Issue #367 review finding B (blacktomb42, review 5563537095): a user
     whose LAST holding is deleted must still get a (zero-holdings, $0)
-    snapshot batch written on subsequent days — `write_user_snapshot`
+    snapshot batch written on subsequent days — `stage_user_snapshot`
     already handles this correctly (D5's real $0 case), but the daily
     fan-out previously stopped calling it at all once the user dropped out
     of `holdings` entirely, silently freezing their portfolio history at
@@ -320,7 +317,7 @@ def test_user_purge_cascades_snapshot_and_batch_rows(db_session: Session) -> Non
     )
     _seed_price(db_session, "AAPL", TODAY, Decimal("100"))
     db_session.flush()
-    write_user_snapshot(db_session, user_id, TODAY)
+    capture_user_day(db_session, user_id, TODAY)
 
     assert (
         db_session.execute(

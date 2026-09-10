@@ -18,9 +18,8 @@ from app.models.holding import Holding
 from app.models.portfolio_snapshot_batch import PortfolioSnapshotBatch
 from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
 from app.models.price_snapshot import PriceSnapshot
-from app.services.portfolio_history import write_user_snapshot
 from app.services.portfolio_performance import compute_portfolio_performance
-from app.tests.conftest import seed_user
+from app.tests.conftest import capture_user_day, seed_user
 
 D1 = date(2026, 8, 1)
 D2 = date(2026, 8, 2)
@@ -845,7 +844,7 @@ def test_currency_preference_change_between_capture_days_does_not_fake_a_return(
     repro — 100 USD cash, USD/CNY held constant at 7, preference USD on
     day 1 then CNY on day 2 — used to read as +600% (100 -> 700 compared
     naively) instead of the true ~0% (100 USD IS 700 CNY at that rate, no
-    real change). Goes through the REAL writer (`write_user_snapshot`), not
+    real change). Goes through the REAL writer (`capture_user_day`), not
     hand-built fixture rows, since the bug is specifically about what the
     writer records vs. what the reader assumes."""
     user_id = uuid.uuid4()
@@ -864,10 +863,10 @@ def test_currency_preference_change_between_capture_days_does_not_fake_a_return(
     db_session.add(FxRate(pair="USDCNY", rate=Decimal("7"), rate_date=D2))
     db_session.flush()
 
-    write_user_snapshot(db_session, user_id, D1)  # preference still USD
+    capture_user_day(db_session, user_id, D1)  # preference still USD
     user.base_currency = "CNY"
     db_session.flush()
-    write_user_snapshot(db_session, user_id, D2)  # preference now CNY
+    capture_user_day(db_session, user_id, D2)  # preference now CNY
     db_session.flush()
 
     twr_result = compute_portfolio_performance(
@@ -892,7 +891,7 @@ def test_full_exit_via_real_daily_fan_out_reads_as_zero_not_frozen(db_session: S
     zero-row batch, then reads it back through `GET /portfolio/
     performance`'s computation core. Before the fix, the API would still
     report D2 frozen at D1's $100 because the daily fan-out never called
-    `write_user_snapshot` again once the user had zero holdings."""
+    `stage_user_snapshot` again once the user had zero holdings."""
     from app.models.holding import Holding
     from app.services.portfolio_history import capture_portfolio_value_snapshot
 

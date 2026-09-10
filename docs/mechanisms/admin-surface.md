@@ -38,6 +38,17 @@ capability existing.
   iterates `app.routes` and asserts every `/admin`-prefixed route's
   dependant chain includes `require_ops_token`, so a future endpoint that
   forgets to opt in fails CI rather than shipping unauthenticated.
+- **Snapshot recovery** (issue #373):
+  `POST /admin/portfolio/snapshots/recover?start_date=&end_date=` replays
+  Portfolio Performance days that were computed but never published, and
+  rebuilds a recently missed day only when the live book provably has not
+  moved (see `docs/mechanisms/portfolio-performance.md` "Capture durability").
+  Window defaults to the last `CATCHUP_LOOKBACK_DAYS` ending today; a span
+  over `MAX_RECOVERY_WINDOW_DAYS` is 400 (the call runs inline). Response
+  counts each outcome (`replayed`/`recomputed`/`already_complete`/
+  `skipped_unsafe`/`skipped_old`/`skipped_deps`/`failed` + `dates`). No
+  product UI; the daily capture task runs the same pass for a bounded recent
+  window, so this endpoint is for gaps older than that.
 - **Report-currency change audit** (issue #372 slice A):
   `GET /admin/users/{user_id}/report-currency-audit` is the ops read of
   `report_currency_changes` (newest first; 404 if the user is missing;

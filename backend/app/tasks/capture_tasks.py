@@ -668,17 +668,38 @@ def capture_portfolio_value_snapshot_task(self: Any) -> dict[str, int]:
     """Daily Portfolio Performance snapshot (issue #360 Phase 1). Scheduled
     after the day's price-capture and FX-fetch tasks (app/tasks/__init__.py)
     so a user's day almost always resolves its FX dependency on the first
-    try; when it doesn't, that user/day is marked `skipped_deps` and this
-    task's own idempotent write means the next run's catch-up covers it.
+    try; when it doesn't, that user/day is marked `skipped_deps` and the
+    catch-up pass below covers it rather than silently understating today's
+    value.
+
+    Issue #373: the capture freezes each day's payload before publishing it,
+    and a bounded catch-up pass then replays any frozen-but-unpublished day
+    and rebuilds a recently missed one whose book provably hasn't moved. Days
+    it refuses to invent are logged and left non-`complete` for ops (detection
+    is the separate capture-health probe, #372).
     """
+    from datetime import date, timedelta
+
     from app.core.database import SessionLocal
     from app.services.portfolio_history import capture_portfolio_value_snapshot
+    from app.services.snapshot_recovery import CATCHUP_LOOKBACK_DAYS, recover_portfolio_snapshots
 
     session = SessionLocal()
     try:
         result = capture_portfolio_value_snapshot(session)
+        today = date.today()
+        recovery = recover_portfolio_snapshots(
+            session,
+            start_date=today - timedelta(days=CATCHUP_LOOKBACK_DAYS),
+            end_date=today,
+            today=today,
+        )
         session.commit()
-        return result
+        return {
+            **result,
+            "recovered_replayed": recovery.replayed,
+            "recovered_recomputed": recovery.recomputed,
+        }
     except Exception as exc:
         session.rollback()
         logger.exception("capture_portfolio_value_snapshot_task: failed")

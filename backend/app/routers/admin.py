@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable, Coroutine
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -77,6 +77,10 @@ from app.services.invites import (
 from app.services.llm_errors import LLMEmptyResponseError
 from app.services.report_currency import apply_report_currency_change
 from app.services.report_generator import generate_report, regenerate_report
+from app.services.snapshot_recovery import (
+    CATCHUP_LOOKBACK_DAYS,
+    recover_portfolio_snapshots,
+)
 from app.services.ticker_leverage import (
     LeverageOverride,
     LeverageOverrideAlreadyExists,
@@ -199,6 +203,53 @@ def refresh_market_data(session: Session = Depends(get_session)) -> RefreshResul
         funds_failed=funds.failed,
         fx_upserted=fx.upserted,
         fx_failed=fx.failed,
+    )
+
+
+class SnapshotRecoveryResult(BaseModel):
+    replayed: int
+    recomputed: int
+    already_complete: int
+    skipped_unsafe: int
+    skipped_old: int
+    skipped_deps: int
+    failed: int
+    dates: list[str]
+
+
+@router.post("/portfolio/snapshots/recover", response_model=SnapshotRecoveryResult)
+def recover_portfolio_snapshots_endpoint(
+    start_date: date | None = None,
+    end_date: date | None = None,
+    session: Session = Depends(get_session),
+) -> SnapshotRecoveryResult:
+    """Recover Portfolio Performance snapshot days (issue #373).
+
+    Replays every frozen-but-unpublished payload in the window, and rebuilds a
+    missing day from live holdings only when the book provably has not moved
+    since the last frozen evidence and the day is inside the short catch-up
+    window. Days it refuses to invent are reported (`skipped_unsafe` /
+    `skipped_old` / `failed`) and logged — nothing is silently fabricated.
+
+    Window defaults to the last `CATCHUP_LOOKBACK_DAYS` ending today, and is
+    capped at `MAX_RECOVERY_WINDOW_DAYS` per request because it runs inline.
+    """
+    end = end_date or date.today()
+    start = start_date or end - timedelta(days=CATCHUP_LOOKBACK_DAYS)
+    try:
+        report = recover_portfolio_snapshots(session, start, end)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    session.commit()
+    return SnapshotRecoveryResult(
+        replayed=report.replayed,
+        recomputed=report.recomputed,
+        already_complete=report.already_complete,
+        skipped_unsafe=report.skipped_unsafe,
+        skipped_old=report.skipped_old,
+        skipped_deps=report.skipped_deps,
+        failed=report.failed,
+        dates=list(report.dates),
     )
 
 
