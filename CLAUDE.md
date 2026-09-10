@@ -28,6 +28,11 @@ This file holds **conventions and mechanisms**, not a project status board.
   gets an issue first).
 - **Ring stage, recent session summaries, running progress**: Obsidian
   `Hermes/Portfonia/` project log.
+- **Vigil product and Ring 0 contracts**: Obsidian
+  `Hermes/Portfonia/Vigil Concept & Design.md` and
+  `Hermes/Portfonia/Vigil_R0_Dev.md`. Track reusable Portfonia capabilities
+  separately from Vigil implementation and acceptance evidence; follow
+  `AGENTS.md` for documentation boundaries.
 - **Build/test status, HEAD commit**: `git log`, `pytest -q`, `mypy .` —
   always run these rather than trusting a written-down snapshot.
 

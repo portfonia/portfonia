@@ -32,6 +32,18 @@ Distinguish confirmed product decisions, the authored implementation design, unr
 
 ## Documentation surfaces
 
+### Vigil documentation
+
+Vigil product requirements and decisions live in Obsidian
+`Hermes/Portfonia/Vigil Concept & Design.md`; Ring 0 phase contracts,
+dependencies, acceptance evidence, and implementation tracking live in
+`Hermes/Portfonia/Vigil_R0_Dev.md`. Maintain the governing sections in place.
+Distinguish existing Portfonia capabilities from Vigil integration, authored
+design from owner-approved decisions, and merged code from deployment or
+real delivery evidence. Do not count reusable modules as completed Vigil
+stages or treat a documentation update as authorization to implement,
+deploy, or release entrusted files.
+
 For documentation updates, maintain this AGENTS.md, shared CLAUDE.md where applicable, the relevant feature note, and Obsidian `Hermes/Portfonia/Codex开发配置文档.md` / `Hermes/Portfonia/Codex设计文档.md`. Update governing sections in place when a rule changes; append incident evidence without leaving contradictory active rules.
 
 Use the configured Obsidian MCP first. Keep credentials out of repository files, notes, and memory. These issue/design rules are project-wide; do not silently promote them to all projects.
