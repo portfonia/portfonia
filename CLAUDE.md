@@ -353,6 +353,15 @@ is the only auto-fixing step. A prior version of this table listed a
 2026-08-28 rather than left to drift further (see issue #227's frontend
 Dockerfile fix for the sibling doc/reality gap this was found alongside).
 
+**A docs-only diff skips this suite** (product owner, 2026-09-10). When the
+diff touches no code — markdown under `docs/`, `CLAUDE.md`, `AGENTS.md`, a
+vault note — none of the four backend or three frontend steps can be affected
+by it, so running them is latency with no signal (a session burned ~10 minutes
+doing exactly that for a one-line status note, which is what this rule
+prevents). Say `docs-only` in the PR body instead, so the reviewer sees the
+gate was skipped deliberately rather than forgotten. A PR that mixes docs with
+any code change runs the full suite as usual.
+
 Final gates (enforced by the local quality gate above, not CI — see CI-First Protocol):
 
 - Type check passes (mypy strict, tsc strict).
