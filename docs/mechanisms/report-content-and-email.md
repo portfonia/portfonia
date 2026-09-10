@@ -102,6 +102,106 @@ inline via BeautifulSoup.
 
 
 
+### §3 proportionality check: log-only length-vs-(weight, evidence) (issue #173)
+
+Issue #128's Ring 1 stage B / B1 follow-up asked for an explicit,
+code-level check: "if a holding's analysis length is clearly out of step
+with its weight-and-evidence-strength pairing, reject and reallocate."
+`config/analysis_framework.yml` item 3 (PORTFOLIO SHAPE — WEIGHTED, NOT
+FLATTENED) shipped only the prompt-level self-audit half of that ask —
+issue #173 adds the code-level CHECK (not yet the reject/reallocate
+action — see below).
+
+**Module**: `app/services/section3_proportionality.py`, self-contained
+(no DB/Session dependency), exposing:
+- `score_evidence_strength(material_text) -> int` (0-5) — keyword/regex
+  match count against `EVIDENCE_CATEGORIES`, mirroring
+  `analysis_framework.yml` item 2's five structural-evidence categories
+  (third-party reliance, sustained capital commitment, insider buying,
+  milestone confirmation, competitive-landscape change). Counts
+  CATEGORIES matched, never raw term occurrences or price-move magnitude.
+- `extract_section3` / `segment_section3_by_holding` — §3 has **no
+  per-holding markdown heading** (verified against
+  `report_prompts.py`/`report_assembly.py` at implementation time — both
+  write §3 as one flowing prose block naming holdings inline; an earlier
+  draft of this issue's Design comment assumed a heading convention that
+  does not exist, corrected on the issue before implementation per
+  AGENTS.md's no-open-questions rule). Segmentation is therefore
+  paragraph + identifier-match (product owner decision, 2026-09-10):
+  split §3 on blank lines, attribute a paragraph naming exactly one
+  holding's identifier/alias terms to that holding in full, exclude a
+  paragraph naming multiple holdings from any single holding's length
+  (logged as "mixed" for observability, never silently misattributed),
+  ignore a paragraph naming no known holding. **Alias terms are NOT only
+  `holding_news.load_entity_aliases()`'s table** (PR #423 review,
+  blacktomb42 — an earlier version under-matched real §3 prose): they are
+  the holding's ticker/fund-code identifier, any configured
+  `entity_aliases` row, its own portfolio `name` field, AND that name
+  with a trailing legal-entity suffix stripped (`_core_name` in
+  `report_generator.py` — "Apple Inc." -> "Apple", "腾讯控股" -> "腾讯").
+  `entity_aliases` alone left most holdings unmatched (AAPL has no
+  configured row at all), and the full display name alone still missed
+  ordinary prose that drops the legal suffix — §3 says "Apple", never
+  "Apple Inc.". `load_entity_aliases()` remains in the mix as a
+  supplementary source (the same table `cross_name_intel` uses to ask
+  "does this prose NAME an identifier" — narrower than
+  `load_holding_keywords()`'s broad recall terms, which would false-match
+  theme words like "gold"), not the sole source.
+- `expected_length_range(weight, evidence_score) -> (min_chars, max_chars)`
+  — first-pass heuristic constants, explicitly NOT a calibrated
+  enforcement threshold; meant to be tuned against real report data once
+  the log-only signal accumulates. `min_chars` has **no unconditional
+  floor** (PR #423 review: an earlier version added a flat 80-char floor
+  regardless of weight/evidence, so a holding with negligible weight and
+  no evidence that §3 legitimately never mentions — the correct default
+  per `analysis_framework.yml` item 5 — still warned on every report;
+  `min_chars` now scales purely from weight/evidence, `math.floor`'d to 0
+  at the low end, so a genuinely immaterial, unevidenced absence is
+  in-range rather than noise). `max_chars` keeps its base — the ceiling
+  problem is unrelated to this fix.
+- `HoldingCheckInput.weight` is an **explicit dataclass field**, never
+  read internally off a holding's real position (issue #173 Design item
+  4) — this is the interface issue #421's watched/zero-holding entries
+  are meant to feed a config-driven target weight into, at the call site
+  below, not inside the checker itself.
+- `check_section3_proportionality(report_id, full_body_markdown, holdings)`
+  — logs one `WARNING` per out-of-range holding (identifier, weight,
+  evidence score, actual length, expected range) plus one `INFO` line for
+  mixed-paragraph count. Returns an int (mismatch count) for
+  tests/metrics only — callers must not branch on it.
+
+**Wiring** (`report_generator.py`): a single integration point,
+`_render_full_md` (already the one function both the Pass 2 and
+assembly-generation shapes, plus `regenerate_report`'s render/analyze
+modes, converge through — Requirements item 3's "both shapes" falls out
+of this for free). New optional params `report_id`/`holding_news`
+default to `None`; the check only runs when both are supplied. The
+quiet-day canned-body path passes neither (nothing to check — no real
+per-holding analysis exists on a quiet day). `_build_holding_check_inputs`
+assembles each holding's `HoldingCheckInput` from already-gathered,
+Pass-2-stage data: real weight via `report_assembly._weight`/`_identifier`,
+material text from `ctx.holding_news` (issue #30/R-3's per-holding news
+recall) plus that holding's own anomaly record's trigger/theme text — no
+new fetch, no LLM call, no search-result text (not available at this
+integration point without a larger signature refactor; out of this
+issue's scope — see the issue's Exclusion). The whole check call is
+wrapped in `try/except Exception` — a bug in the check must never break
+report rendering (log-only invariant).
+
+**Invariants verified**: `check_section3_proportionality` never mutates
+`full_body_markdown`, has no return path back into `report.status`/email,
+and runs independent of `_scan_forbidden_output` (no shared state,
+separate call). Two-pass isolation untouched — nothing here reads or
+writes `_build_pass1_prompt`; regression tests
+`test_pass1_prompt_excludes_holdings_derived_anomalies` and
+`test_generate_report_pass1_call_has_no_holdings` stay green.
+
+**Not built here** (deliberately, per Design item 3): re-prompt,
+truncate, or any other enforcement of the check's verdict. This is the
+observability step; escalating to enforcement is a future decision once
+the log data from real reports says whether it's warranted.
+
+
 ### Report footer disclaimer: single-language, not always bilingual (issue #350 item 3)
 
 `report_sections._build_footer` unconditionally emitted both English and

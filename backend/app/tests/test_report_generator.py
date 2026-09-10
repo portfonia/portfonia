@@ -19,6 +19,7 @@ and test_report_context.py respectively.
 from __future__ import annotations
 
 import contextlib
+import logging
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -33,6 +34,7 @@ from app.core.config import get_settings
 from app.models.forward_event import ForwardEvent
 from app.models.report import Report
 from app.services import report_generator as rg
+from app.services import section3_proportionality as s3p
 from app.services.macro_detector import MacroSignals, ThemeHit
 from app.services.news_fetcher import NewsItem
 from app.services.portfolio_calculator import (
@@ -3359,3 +3361,162 @@ def test_regenerate_analyze_refreshes_investor_preferences(db_session: Session) 
     assert "individual-holding fundamentals" in captured["pass2_user"]
     assert out.report_inputs is not None
     assert out.report_inputs["investor_questionnaire_snapshot"]["intel_focus"] == "FUNDAMENTALS"
+
+
+# ---------------------------------------------------------------------------
+# Tests: issue #173 — §3 proportionality check wiring (log-only)
+# ---------------------------------------------------------------------------
+
+_S3_CHECK_PORTFOLIO: dict[str, Any] = {
+    "holdings": [
+        {"ticker": "AAPL", "name": "Apple Inc.", "market_value_base": 900.0, "position": 0}
+    ],
+    "total_base": 1000.0,
+}
+_S3_CHECK_RAW_BODY = (
+    "## §2 Macro Signals\n\nNothing notable this period.\n\n"
+    "## §3 Holdings Analysis\n\nAAPL had a quiet day.\n\n"
+    "## §4 Risk Radar\n\nNothing notable."
+)
+
+
+def test_render_full_md_section3_check_is_log_only() -> None:
+    """Contract constraints acceptance test 5: report content is
+    byte-for-byte unaffected by whether the check logs a mismatch."""
+    with_check = rg._render_full_md(
+        "2026-09-10",
+        _S3_CHECK_PORTFOLIO,
+        [],
+        _S3_CHECK_RAW_BODY,
+        "en",
+        report_id=uuid.uuid4(),
+        holding_news={},
+    )
+    without_check = rg._render_full_md(
+        "2026-09-10",
+        _S3_CHECK_PORTFOLIO,
+        [],
+        _S3_CHECK_RAW_BODY,
+        "en",
+    )
+    assert with_check == without_check
+
+
+def test_render_full_md_wires_section3_check_and_logs_mismatch(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """AAPL is 90% of the portfolio but §3 gives it one short sentence with
+    no structural evidence — this must surface as a logged mismatch once
+    `_render_full_md` is given report_id + holding_news (issue #173
+    Requirements item 3: the check runs from real report-generation
+    wiring, not only as a standalone module)."""
+    # docs/playbooks/testing-notes.md: alembic's session migrate disables
+    # already-imported module loggers, so caplog would see nothing.
+    logging.getLogger("app.services.section3_proportionality").disabled = False
+    with caplog.at_level(logging.WARNING, logger="app.services.section3_proportionality"):
+        rg._render_full_md(
+            "2026-09-10",
+            _S3_CHECK_PORTFOLIO,
+            [],
+            _S3_CHECK_RAW_BODY,
+            "en",
+            report_id=uuid.uuid4(),
+            holding_news={},
+        )
+    assert "AAPL" in caplog.text
+    assert "proportionality mismatch" in caplog.text
+
+
+def test_render_full_md_without_report_id_skips_section3_check(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The quiet-day render path passes neither report_id nor holding_news
+    — confirms that omission opts out of the check entirely rather than
+    erroring."""
+    with caplog.at_level(logging.WARNING, logger="app.services.section3_proportionality"):
+        rg._render_full_md(
+            "2026-09-10",
+            _S3_CHECK_PORTFOLIO,
+            [],
+            _S3_CHECK_RAW_BODY,
+            "en",
+        )
+    assert caplog.text == ""
+
+
+def test_render_full_md_section3_check_failure_does_not_break_render(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The check must never take the report render down with it — a bug in
+    the check itself is caught and logged, not propagated."""
+
+    def _boom(*_args: object, **_kwargs: object) -> int:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(rg, "check_section3_proportionality", _boom)
+    # docs/playbooks/testing-notes.md: alembic's session migrate disables
+    # already-imported module loggers, so caplog would see nothing.
+    logging.getLogger("app.services.report_generator").disabled = False
+    with caplog.at_level(logging.ERROR, logger="app.services.report_generator"):
+        full_md, _violations, _translated_body = rg._render_full_md(
+            "2026-09-10",
+            _S3_CHECK_PORTFOLIO,
+            [],
+            _S3_CHECK_RAW_BODY,
+            "en",
+            report_id=uuid.uuid4(),
+            holding_news={},
+        )
+    assert full_md  # rendering still completed despite the check raising
+    assert "§3 proportionality check raised" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Tests: PR #423 review (blacktomb42) — holding display `name` must be a
+# matchable §3 identifier, not just ticker + configured entity_aliases.
+# ---------------------------------------------------------------------------
+
+
+def test_build_holding_check_inputs_includes_holding_display_name_in_alias_terms() -> None:
+    """AAPL has no `entity_aliases` row in holding_news_keywords.yml, and §3
+    routinely says "Apple" rather than repeating the ticker — alias_terms
+    must include the holding's own `name` field so that prose still
+    attributes correctly."""
+    portfolio: dict[str, Any] = {
+        "holdings": [
+            {"ticker": "AAPL", "name": "Apple Inc.", "market_value_base": 900.0, "position": 0}
+        ],
+        "total_base": 1000.0,
+    }
+    check_inputs = rg._build_holding_check_inputs(portfolio, holding_news={}, anomalies=[])
+    assert len(check_inputs) == 1
+    holding = check_inputs[0]
+    assert "AAPL" in holding.alias_terms
+    assert "Apple Inc." in holding.alias_terms
+
+
+def test_prose_naming_holding_by_display_name_gets_nonzero_attributed_length() -> None:
+    """End-to-end (via the real alias_terms `_build_holding_check_inputs`
+    assembles): §3 prose naming a holding by its English company name, or
+    by a Chinese name with no ticker mentioned at all, must attribute
+    nonzero paragraph length — not silently fall to `actual_len=0` because
+    only the ticker/fund_code was ever matchable."""
+    portfolio: dict[str, Any] = {
+        "holdings": [
+            {"ticker": "AAPL", "name": "Apple Inc.", "market_value_base": 100.0, "position": 0},
+            {"fund_code": "00700", "name": "腾讯控股", "market_value_base": 50.0, "position": 1},
+        ],
+        "total_base": 1000.0,
+    }
+    check_inputs = rg._build_holding_check_inputs(portfolio, holding_news={}, anomalies=[])
+    identifier_terms = {c.identifier: c.alias_terms for c in check_inputs}
+    apple_ident = next(c.identifier for c in check_inputs if "AAPL" in c.alias_terms)
+    tencent_ident = next(c.identifier for c in check_inputs if c.identifier != apple_ident)
+
+    section3_body = (
+        "Apple's supplier base grew this quarter, a filed contract confirms the relationship.\n\n"
+        "腾讯控股本季度与主要合作伙伴续签协议，客户基础进一步扩大。"  # noqa: RUF001
+    )
+    segments = s3p.segment_section3_by_holding(section3_body, identifier_terms)
+    assert len(segments.by_identifier[apple_ident]) > 0
+    assert len(segments.by_identifier[tencent_ident]) > 0
