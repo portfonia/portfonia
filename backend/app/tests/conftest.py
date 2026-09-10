@@ -85,9 +85,7 @@ def seed_user(session: Session, user_id: uuid.UUID, email: str | None = None) ->
     return row
 
 
-def capture_user_day(
-    session: Session, user_id: uuid.UUID, snapshot_date: date
-) -> tuple[int, str]:
+def capture_user_day(session: Session, user_id: uuid.UUID, snapshot_date: date) -> tuple[int, str]:
     """Stage + apply one user-day the way the daily task does (issue #373).
 
     Returns the writer's `(rows_written, status)` pair — `"complete"` once the
