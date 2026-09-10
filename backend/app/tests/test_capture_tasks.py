@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -385,6 +386,39 @@ def test_nav_task_terminal_miss_does_not_call_capture_failed(
         mock_emit.assert_called_once()
     finally:
         capture_fund_navs_task.pop_request()
+
+
+@patch("app.core.database.SessionLocal")
+@patch("app.services.price_capture.capture_prices_attempt")
+@patch("app.services.price_capture.emit_etf_terminal_diagnostics")
+def test_etf_total_miss_alerts_without_capture_failed(
+    mock_emit: MagicMock, mock_cap: MagicMock, mock_session_cls: MagicMock
+) -> None:
+    from app.services.capture_results import CaptureDataMiss, CaptureOutcome, CaptureTarget
+    from app.tasks.capture_tasks import capture_prices_task
+
+    session = MagicMock()
+    mock_session_cls.return_value = session
+    target = CaptureTarget(
+        key="513500.SS",
+        market="A-Share",
+        kind="etf_close",
+        reason="missing",
+        missing_dates=(),
+        window_end=date(2026, 9, 8),
+    )
+    mock_cap.return_value = (CaptureOutcome(0, (target,), (), {}), {})
+    capture_prices_task.push_request(retries=2)
+    try:
+        with (
+            patch("app.tasks.capture_tasks._capture_failed") as failed,
+            pytest.raises(CaptureDataMiss),
+        ):
+            capture_prices_task.run("A-Share", "close")
+        failed.assert_not_called()
+        mock_emit.assert_called_once_with((target,))
+    finally:
+        capture_prices_task.pop_request()
 
 
 def test_backfill_sectors_task_no_ids_is_noop() -> None:

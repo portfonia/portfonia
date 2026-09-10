@@ -450,8 +450,12 @@ failures) for initial + 2 attempts, 300s apart, then:
 Fallback upserts are insert-or-fill-unusable-close only (atomic PostgreSQL
 `ON CONFLICT ... WHERE`); a valid existing close is never overwritten.
 Handled data misses raise `CaptureDataMiss` without `_capture_failed`
-(no duplicate GitHub auto-issue). Confirm-time OHLCV backfill and Beat
-entries are unchanged. Separate from #406 (USDCNH) and #407 (csi300).
+(no duplicate GitHub auto-issue). Per-date ETF gaps alert
+`ops-etf-close-missing-{ticker}-{date}`; a total Yahoo+DB miss (empty
+`missing_dates`, no Tencent write without an anchor) still sends one
+deduped `ops-etf-close-missing-{ticker}-window-{window_end}` alert.
+Confirm-time OHLCV backfill and Beat entries are unchanged. Separate
+from #406 (USDCNH) and #407 (csi300).
 
 
 ### Capture layer + incremental reporting (ADR-002)

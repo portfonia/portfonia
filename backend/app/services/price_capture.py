@@ -503,22 +503,41 @@ def emit_etf_terminal_diagnostics(targets: tuple[CaptureTarget, ...]) -> None:
     for target in targets:
         if target.kind != "etf_close":
             continue
-        for missing in target.missing_dates:
-            dedup_key = f"ops-etf-close-missing-{target.key}-{missing.isoformat()}"
-            logger.warning(
-                "capture_prices: ETF %s missing close %s after Yahoo retry and Tencent fallback",
-                target.key,
-                missing.isoformat(),
-            )
-            _send_nav_alert(
-                subject=f"[Portfonia] ETF close missing — {target.key} {missing.isoformat()}",
-                body=(
-                    f"A-Share ETF {target.key} is missing a China-session close on "
-                    f"{missing.isoformat()} after bounded Yahoo retry and Tencent daily "
-                    f"fallback (reason={target.reason}). Existing rows were preserved."
-                ),
-                dedup_key=dedup_key,
-            )
+        if target.missing_dates:
+            for missing in target.missing_dates:
+                _emit_etf_missing_alert(
+                    target,
+                    suffix=missing.isoformat(),
+                    detail=(
+                        f"A-Share ETF {target.key} is missing a China-session close on "
+                        f"{missing.isoformat()} after bounded Yahoo retry and Tencent daily "
+                        f"fallback (reason={target.reason}). Existing rows were preserved."
+                    ),
+                )
+            continue
+        window_end = target.window_end.isoformat() if target.window_end else "window"
+        _emit_etf_missing_alert(
+            target,
+            suffix=f"window-{window_end}",
+            detail=(
+                f"A-Share ETF {target.key} has no usable close after bounded Yahoo retry "
+                f"(reason={target.reason}). Tencent was not written: no same-chain Yahoo "
+                f"anchor. Existing rows were preserved."
+            ),
+        )
+
+
+def _emit_etf_missing_alert(target: CaptureTarget, suffix: str, detail: str) -> None:
+    logger.warning(
+        "capture_prices: ETF %s unresolved after Yahoo retry and Tencent fallback (%s)",
+        target.key,
+        suffix,
+    )
+    _send_nav_alert(
+        subject=f"[Portfonia] ETF close missing — {target.key}",
+        body=detail,
+        dedup_key=f"ops-etf-close-missing-{target.key}-{suffix}",
+    )
 
 
 def _fund_currency_sets(session: Session) -> dict[str, set[str]]:

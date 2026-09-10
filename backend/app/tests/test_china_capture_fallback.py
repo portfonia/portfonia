@@ -24,6 +24,7 @@ from app.services.price_capture import (
     capture_fund_navs_attempt,
     capture_prices,
     capture_prices_attempt,
+    emit_etf_terminal_diagnostics,
     emit_nav_terminal_diagnostics,
 )
 from app.tests.conftest import seed_user
@@ -389,6 +390,55 @@ def test_removed_holding_is_not_resurrected_on_retry(db_session: Session) -> Non
     )
     assert outcome.written == 0
     assert outcome.unresolved == ()
+
+
+def test_etf_total_miss_stays_unresolved_without_inventing_dates(
+    db_session: Session,
+) -> None:
+    db_session.add(_etf())
+    db_session.flush()
+    window = freeze_capture_window(
+        datetime(2026, 9, 8, 20, 0, tzinfo=CST), lookback_days=7, max_lag_sessions=2
+    )
+    with (
+        patch("app.services.price_capture.fetch_ohlcv_range_bounded", return_value={}),
+        patch("app.services.price_capture.fetch_tencent_daily_bars") as tencent,
+    ):
+        outcome, _anchors = capture_prices_attempt(
+            db_session,
+            "A-Share",
+            "close",
+            window=window,
+            lookback_days=7,
+            allow_fallback=True,
+        )
+    tencent.assert_not_called()
+    assert len(outcome.unresolved) == 1
+    target = outcome.unresolved[0]
+    assert target.key == "513500.SS"
+    assert target.kind == "etf_close"
+    assert target.reason == "missing"
+    assert target.missing_dates == ()
+
+
+def test_emit_etf_terminal_alerts_when_missing_dates_empty(db_session: Session) -> None:
+    logging.getLogger("app.services.price_capture").disabled = False
+    target = CaptureTarget(
+        key="513500.SS",
+        market="A-Share",
+        kind="etf_close",
+        reason="missing",
+        missing_dates=(),
+        window_start=date(2026, 9, 1),
+        window_end=date(2026, 9, 8),
+    )
+    with patch("app.services.price_capture.send_ops_alert", return_value=True) as alert:
+        emit_etf_terminal_diagnostics((target,))
+        emit_etf_terminal_diagnostics((target,))
+    alert.assert_called_once()
+    assert alert.call_args.kwargs["idempotency_key"] == (
+        "ops-etf-close-missing-513500.SS-window-2026-09-08"
+    )
 
 
 def test_emit_nav_terminal_uses_existing_dedup_not_capture_failed(
