@@ -19,6 +19,7 @@ and test_report_context.py respectively.
 from __future__ import annotations
 
 import contextlib
+import logging
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -3359,3 +3360,111 @@ def test_regenerate_analyze_refreshes_investor_preferences(db_session: Session) 
     assert "individual-holding fundamentals" in captured["pass2_user"]
     assert out.report_inputs is not None
     assert out.report_inputs["investor_questionnaire_snapshot"]["intel_focus"] == "FUNDAMENTALS"
+
+
+# ---------------------------------------------------------------------------
+# Tests: issue #173 — §3 proportionality check wiring (log-only)
+# ---------------------------------------------------------------------------
+
+_S3_CHECK_PORTFOLIO: dict[str, Any] = {
+    "holdings": [
+        {"ticker": "AAPL", "name": "Apple Inc.", "market_value_base": 900.0, "position": 0}
+    ],
+    "total_base": 1000.0,
+}
+_S3_CHECK_RAW_BODY = (
+    "## §2 Macro Signals\n\nNothing notable this period.\n\n"
+    "## §3 Holdings Analysis\n\nAAPL had a quiet day.\n\n"
+    "## §4 Risk Radar\n\nNothing notable."
+)
+
+
+def test_render_full_md_section3_check_is_log_only() -> None:
+    """Contract constraints acceptance test 5: report content is
+    byte-for-byte unaffected by whether the check logs a mismatch."""
+    with_check = rg._render_full_md(
+        "2026-09-10",
+        _S3_CHECK_PORTFOLIO,
+        [],
+        _S3_CHECK_RAW_BODY,
+        "en",
+        report_id=uuid.uuid4(),
+        holding_news={},
+    )
+    without_check = rg._render_full_md(
+        "2026-09-10",
+        _S3_CHECK_PORTFOLIO,
+        [],
+        _S3_CHECK_RAW_BODY,
+        "en",
+    )
+    assert with_check == without_check
+
+
+def test_render_full_md_wires_section3_check_and_logs_mismatch(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """AAPL is 90% of the portfolio but §3 gives it one short sentence with
+    no structural evidence — this must surface as a logged mismatch once
+    `_render_full_md` is given report_id + holding_news (issue #173
+    Requirements item 3: the check runs from real report-generation
+    wiring, not only as a standalone module)."""
+    # docs/playbooks/testing-notes.md: alembic's session migrate disables
+    # already-imported module loggers, so caplog would see nothing.
+    logging.getLogger("app.services.section3_proportionality").disabled = False
+    with caplog.at_level(logging.WARNING, logger="app.services.section3_proportionality"):
+        rg._render_full_md(
+            "2026-09-10",
+            _S3_CHECK_PORTFOLIO,
+            [],
+            _S3_CHECK_RAW_BODY,
+            "en",
+            report_id=uuid.uuid4(),
+            holding_news={},
+        )
+    assert "AAPL" in caplog.text
+    assert "proportionality mismatch" in caplog.text
+
+
+def test_render_full_md_without_report_id_skips_section3_check(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The quiet-day render path passes neither report_id nor holding_news
+    — confirms that omission opts out of the check entirely rather than
+    erroring."""
+    with caplog.at_level(logging.WARNING, logger="app.services.section3_proportionality"):
+        rg._render_full_md(
+            "2026-09-10",
+            _S3_CHECK_PORTFOLIO,
+            [],
+            _S3_CHECK_RAW_BODY,
+            "en",
+        )
+    assert caplog.text == ""
+
+
+def test_render_full_md_section3_check_failure_does_not_break_render(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The check must never take the report render down with it — a bug in
+    the check itself is caught and logged, not propagated."""
+
+    def _boom(*_args: object, **_kwargs: object) -> int:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(rg, "check_section3_proportionality", _boom)
+    # docs/playbooks/testing-notes.md: alembic's session migrate disables
+    # already-imported module loggers, so caplog would see nothing.
+    logging.getLogger("app.services.report_generator").disabled = False
+    with caplog.at_level(logging.ERROR, logger="app.services.report_generator"):
+        full_md, _violations, _translated_body = rg._render_full_md(
+            "2026-09-10",
+            _S3_CHECK_PORTFOLIO,
+            [],
+            _S3_CHECK_RAW_BODY,
+            "en",
+            report_id=uuid.uuid4(),
+            holding_news={},
+        )
+    assert full_md  # rendering still completed despite the check raising
+    assert "§3 proportionality check raised" in caplog.text

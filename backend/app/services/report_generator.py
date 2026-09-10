@@ -58,7 +58,7 @@ from app.services.cross_name_intel import (
 from app.services.email_sender import send_ops_alert, send_report_email
 from app.services.forward_events import FORWARD_WINDOW_DAYS, load_forward_events
 from app.services.github_issues import create_bug_report
-from app.services.holding_news import recall_holding_news
+from app.services.holding_news import load_entity_aliases, recall_holding_news
 from app.services.investment_context import InvestorPreferences, load_investor_preferences
 from app.services.macro_detector import detect_macro_signals
 from app.services.macro_event_intel import (
@@ -72,6 +72,8 @@ from app.services.portfolio_calculator import compute_portfolio
 from app.services.price_anomaly_detector import PriceAnomaly
 from app.services.report_assembly import (
     ASSEMBLY_PROMPT_VERSION,
+    _identifier,
+    _weight,
     build_assembly_prompt,
     parse_shadow_models,
     portfolio_identifiers,
@@ -118,6 +120,10 @@ from app.services.report_serializers import (
 )
 from app.services.report_translation import _translate_md
 from app.services.report_types import validate_report_type
+from app.services.section3_proportionality import (
+    HoldingCheckInput,
+    check_section3_proportionality,
+)
 from app.services.shared_budget import fair_share_budget
 from app.services.technical_position import compute_technical_positions
 from app.services.ticker_intel import (
@@ -184,6 +190,57 @@ _MAX_WEIGHT_TARGETED_SEARCHES = 5
 # ---------------------------------------------------------------------------
 
 
+def _build_holding_check_inputs(
+    portfolio: dict[str, Any],
+    holding_news: dict[str, list[dict[str, Any]]],
+    anomalies: list[dict[str, Any]],
+) -> list[HoldingCheckInput]:
+    """Assemble issue #173's per-holding check inputs from this report's
+    already-gathered data — no new fetch, no LLM call.
+
+    `weight` is computed HERE, once, from the real portfolio (`_weight`,
+    `report_assembly.py`) and handed to `HoldingCheckInput` as an explicit
+    value; `check_section3_proportionality` itself never reads a holding's
+    real position (issue #173 Design item 4). Issue #421's watched-holding
+    wiring is expected to substitute a config-driven target weight for this
+    same field at this same call site, not inside the checker.
+
+    `material_text` is built from `ctx.holding_news` (the code-level recall
+    already scoped to this holding, issue #30/R-3) plus this holding's own
+    anomaly record's trigger/theme text — both already Pass 2/assembly-stage,
+    holdings-derived data, never Pass 1 input.
+    """
+    total = float(portfolio.get("total_base", 0) or 0)
+    entity_aliases = load_entity_aliases()
+    anomalies_by_identifier: dict[str, list[dict[str, Any]]] = {}
+    for anomaly in anomalies:
+        ident = anomaly.get("identifier")
+        if ident:
+            anomalies_by_identifier.setdefault(ident, []).append(anomaly)
+
+    inputs: list[HoldingCheckInput] = []
+    for holding in portfolio.get("holdings", []):
+        ident = _identifier(holding)
+        if not ident:
+            continue
+        material_parts: list[str] = []
+        for item in holding_news.get(ident, []):
+            material_parts.append(str(item.get("title") or ""))
+            material_parts.append(str(item.get("summary") or ""))
+        for anomaly in anomalies_by_identifier.get(ident, []):
+            material_parts.append(str(anomaly.get("trigger") or ""))
+            material_parts.append(str(anomaly.get("theme_label_en") or ""))
+        inputs.append(
+            HoldingCheckInput(
+                identifier=ident,
+                alias_terms=[ident, *entity_aliases.get(ident, [])],
+                weight=_weight(holding, total),
+                material_text="\n".join(part for part in material_parts if part),
+            )
+        )
+    return inputs
+
+
 def _render_full_md(
     report_date_str: str,
     portfolio: dict[str, Any],
@@ -197,14 +254,35 @@ def _render_full_md(
     technical: list[dict[str, Any]] | None = None,
     forward_events: list[dict[str, Any]] | None = None,
     price_data_through: str = "",
+    report_id: uuid.UUID | None = None,
+    holding_news: dict[str, list[dict[str, Any]]] | None = None,
 ) -> tuple[str, list[str], str]:
     """Annotate, assemble, language-render, and compliance-scan a report.
 
     Returns (full_markdown, violations, translated_body). The third element is
     the translated dynamic section (pre-footer) for compliance audit traceability.
     Pure function of its inputs — this is what makes #6 re-render possible.
+
+    `report_id`/`holding_news` (issue #173): when both are supplied, this
+    also runs the log-only §3 proportionality check against the model's
+    raw §3 output (before any code-built injection below, and independent
+    of the compliance scan further down — see Contract constraints). Both
+    default to None so the quiet-day canned body (no real per-holding
+    analysis to check) and any other caller can opt out simply by not
+    passing them.
     """
     cleaned = _strip_markers(raw_body)
+    if report_id is not None and holding_news is not None:
+        # Log-only, must never break report generation — issue #173 Design
+        # item 3 / Contract constraints invariant.
+        try:
+            check_inputs = _build_holding_check_inputs(portfolio, holding_news, anomalies or [])
+            check_section3_proportionality(str(report_id), cleaned, check_inputs)
+        except Exception:
+            logger.exception(
+                "report %s: §3 proportionality check raised — continuing (log-only, non-fatal)",
+                report_id,
+            )
     # §2.5 forward calendar is code-built from stored events + holdings (#1) and
     # inserted before §3: calendar facts mapped to exposed holdings, no forecast.
     if forward_events:
@@ -452,6 +530,8 @@ def _finish_report(
         ctx.technical_positions,
         ctx.forward_events,
         ctx.price_data_through,
+        report_id=report.id,
+        holding_news=ctx.holding_news,
     )
     ctx.pass2_translated = translated_body
     logger.info("report %s: assembled + rendered (lang=%s)", report.id, output_lang)
@@ -1851,6 +1931,8 @@ def regenerate_report(
         technical_positions,
         inputs.get("forward_events", []),
         str(inputs.get("price_data_through", "")),
+        report_id=report.id,
+        holding_news=inputs.get("holding_news", {}),
     )
     report.status = "needs_review" if violations else "success"
     report.report_md = full_md
