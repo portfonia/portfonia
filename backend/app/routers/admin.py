@@ -492,14 +492,16 @@ def generate_report_for_user(user_id: UUID, session: Session = Depends(get_sessi
     """Manually trigger report generation for one user (issue #201).
 
     Synchronous by design: /admin/* hits api.portfonia.com directly, never
-    the frontend Next.js proxy that times out around 30s (issue #193). A
-    curl or agent caller waits for the full pipeline. The handler is a
+    the frontend Next.js proxy, so an ops curl or agent caller waits for
+    the full pipeline. Since issue #193 that is a transport choice, not a
+    workaround — self-service POST /reports/generate is asynchronous (202 +
+    a pollable report_jobs row) because the browser path *is* proxied; this
+    endpoint is not, and an ops caller can afford to wait. The handler is a
     sync def, so Starlette runs it in the threadpool — it occupies a
-    threadpool worker and a pooled DB connection for the full duration,
-    the same cost POST /reports/generate already pays. Acceptable because
-    this is a rare ops action. Do not invoke concurrently for the same
-    user; a second POST while the first is still running can race the
-    report dedup key.
+    threadpool worker and a pooled DB connection for the full duration.
+    Acceptable because this is a rare ops action. Do not invoke concurrently
+    for the same user; a second POST while the first is still running can
+    race the report dedup key.
 
     session_node is always "manual", matching the self-service default, so
     a same-day scheduled after_close run still gets its own row. Currency
@@ -526,8 +528,9 @@ def generate_report_for_user(user_id: UUID, session: Session = Depends(get_sessi
     the no-verified-recipient ops alert fires. needs_review does not
     email. Quiet-day heartbeats email unless the short-manual-window
     suppression applies. A repeat same-day call on an already-complete
-    report is an idempotent no-op (still 201, matching POST
-    /reports/generate) and does not re-send.
+    report is an idempotent no-op (still 201 — generate_report returns the
+    existing row rather than re-sending; self-service's async accept
+    resolves to that same row) and does not re-send.
     """
     user = session.get(User, user_id)
     if user is None:

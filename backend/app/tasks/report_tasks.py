@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any, NamedTuple
 
+from app.core.config import get_settings
 from app.core.timezones import ET
 from app.services.email_sender import send_ops_alert
 from app.services.github_issues import create_bug_report
@@ -284,5 +285,102 @@ def generate_incremental_report(
                 labels=["bug", "ops", "report"],
             )
         raise self.retry(exc=exc) from exc
+    finally:
+        session.close()
+
+
+@celery_app.task(name="app.tasks.report_tasks.generate_report_job")  # type: ignore[untyped-decorator]
+def generate_report_job(
+    job_id: str,
+    report_type: str = "incremental",
+    report_date: str | None = None,
+    base_currency: str | None = None,
+    session_node: str = "manual",
+) -> dict[str, str | None]:
+    """Run one accepted on-demand generation and write the outcome onto the
+    `report_jobs` row the client is polling (issue #193).
+
+    Calls the existing `generate_report(...)` — no second pipeline, and the
+    same per-user report language / base currency resolution the synchronous
+    endpoint used to do (issues #308/#350), read from the job's own user,
+    since a Celery process has no request principal.
+
+    The accepted request rides along as task arguments rather than on the
+    row: unlike a holdings file, none of it is sensitive content, and a
+    redelivery replays identical values. Failure detail mirrors what the
+    sync endpoint translated into its 502 body, so a polling client sees the
+    same diagnosis it used to get in the response.
+
+    No Celery-level retry: `generate_report`'s own LLM calls already retry
+    internally (and resume from a stored failed row's inputs, #61), and
+    stacking task retries on an interactive trigger would only add latency.
+    A redelivered message for an already-terminal job is a no-op, the same
+    protection the holdings upload task has (task_acks_late=True).
+    """
+    from app.core.database import SessionLocal
+    from app.models.report_job import ReportJob
+    from app.services.llm_errors import LLMEmptyResponseError
+    from app.services.report_generator import generate_report
+    from app.services.user_scope import report_currency_for, report_language_for
+
+    session = SessionLocal()
+    try:
+        job = session.get(ReportJob, uuid.UUID(job_id))
+        if job is None:
+            logger.error("generate_report_job: job %s not found", job_id)
+            return {"status": "job_not_found"}
+        if job.status != "pending":
+            logger.info(
+                "generate_report_job: job %s already %s — redelivery, skipping",
+                job_id,
+                job.status,
+            )
+            return {
+                "job_id": job_id,
+                "status": job.status,
+                "report_id": str(job.report_id) if job.report_id else None,
+            }
+        try:
+            report = generate_report(
+                session,
+                user_id=job.user_id,
+                report_date=date.fromisoformat(report_date) if report_date else None,
+                report_type=report_type,
+                # Issue #350 item 1: an explicit base_currency in the accepted
+                # request wins, else the owning user's own preference.
+                base_currency=base_currency or report_currency_for(session, job.user_id, "USD"),
+                # Issue #308: the owning user's own report language, not the
+                # global Settings.OUTPUT_LANG default.
+                output_lang=report_language_for(session, job.user_id, get_settings().OUTPUT_LANG),
+                session_node=session_node,
+            )
+        except LLMEmptyResponseError as exc:
+            session.rollback()
+            logger.warning("generate_report_job: job %s empty LLM response: %s", job_id, exc)
+            job.status = "failed"
+            job.error = f"LLM returned an empty response: {exc}"
+        except RuntimeError as exc:
+            session.rollback()
+            logger.warning("generate_report_job: job %s generation failed: %s", job_id, exc)
+            job.status = "failed"
+            job.error = f"Report generation failed: {exc}"
+        except Exception as exc:
+            # A failure raised before generate_report's own try block (e.g.
+            # the idempotency lookup itself, or an unparseable report_date)
+            # leaves the session's transaction unusable — roll back before
+            # writing this row, or the job would sit pending forever.
+            session.rollback()
+            logger.exception("generate_report_job: job %s unexpected error", job_id)
+            job.status = "failed"
+            job.error = f"Report generation error: {type(exc).__name__}: {exc}"
+        else:
+            job.status = "success"
+            job.report_id = report.id
+        session.commit()
+        return {
+            "job_id": job_id,
+            "status": job.status,
+            "report_id": str(job.report_id) if job.report_id else None,
+        }
     finally:
         session.close()

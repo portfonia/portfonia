@@ -8,7 +8,9 @@ These tests prove the fix (current_principal is wired as a real dependency
 and app_client's override actually reaches these routes) and lock
 cross-user isolation on every endpoint that scopes a lookup by user_id,
 including the two write paths (regenerate, send) added in the PR #181
-review round.
+review round. `POST /generate` is covered on the accept side only: since
+issue #193 the pipeline runs in a Celery task against a `report_jobs` row
+(see test_report_jobs.py for the job contract).
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from app.core.database import get_session
 from app.core.deps import Principal, current_principal
 from app.main import app
 from app.models.report import Report
+from app.models.report_job import ReportJob
 from app.models.user import User
 from app.tests.conftest import TEST_USER_ID, seed_user
 
@@ -57,75 +60,28 @@ def _make_report(
 
 # ---------------------------------------------------------------------------
 # POST /reports/generate — identity flows from Depends(current_principal)
+#
+# Since issue #193 the route only ACCEPTS the request (202 + a report_jobs
+# row); the pipeline runs in a Celery task, so the per-user report language /
+# base currency resolution that used to be asserted here now happens in the
+# worker and is covered by test_report_jobs.py.
 # ---------------------------------------------------------------------------
 
 
-def test_generate_report_uses_principal_user_id(
+def test_generate_accepts_a_job_owned_by_the_principal(
     app_client: TestClient, db_session: Session
 ) -> None:
-    fake_report = _make_report(db_session, user_id=TEST_USER_ID)
-    with patch("app.routers.reports.generate_report", return_value=fake_report) as mock_gen:
+    user = db_session.get(User, TEST_USER_ID)
+    if user is None:
+        seed_user(db_session, TEST_USER_ID)
+    with patch("app.routers.reports.generate_report_job.delay") as mock_delay:
         resp = app_client.post("/reports/generate", json={"report_type": "incremental"})
 
-    assert resp.status_code == 201
-    assert mock_gen.call_args.kwargs["user_id"] == TEST_USER_ID
-
-
-def test_generate_report_uses_principals_own_report_language(
-    app_client: TestClient, db_session: Session
-) -> None:
-    """Issue #308: self-service generate reads the caller's own
-    users.locale instead of the global Settings.OUTPUT_LANG default."""
-    fake_report = _make_report(db_session, user_id=TEST_USER_ID)
-    user = db_session.get(User, TEST_USER_ID)
-    assert user is not None
-    user.locale = "en"
-    db_session.flush()
-
-    with patch("app.routers.reports.generate_report", return_value=fake_report) as mock_gen:
-        resp = app_client.post("/reports/generate", json={"report_type": "incremental"})
-
-    assert resp.status_code == 201
-    assert mock_gen.call_args.kwargs["output_lang"] == "en"
-
-
-def test_generate_report_uses_principals_own_report_currency(
-    app_client: TestClient, db_session: Session
-) -> None:
-    """Issue #350 item 1: self-service generate reads the caller's own
-    users.base_currency instead of a hardcoded "USD" default."""
-    fake_report = _make_report(db_session, user_id=TEST_USER_ID)
-    user = db_session.get(User, TEST_USER_ID)
-    assert user is not None
-    user.base_currency = "CNY"
-    db_session.flush()
-
-    with patch("app.routers.reports.generate_report", return_value=fake_report) as mock_gen:
-        resp = app_client.post("/reports/generate", json={"report_type": "incremental"})
-
-    assert resp.status_code == 201
-    assert mock_gen.call_args.kwargs["base_currency"] == "CNY"
-
-
-def test_generate_report_explicit_base_currency_overrides_principals_preference(
-    app_client: TestClient, db_session: Session
-) -> None:
-    """An explicit base_currency in the request body still overrides the
-    caller's own preference for this one call (untouched escape hatch)."""
-    fake_report = _make_report(db_session, user_id=TEST_USER_ID)
-    user = db_session.get(User, TEST_USER_ID)
-    assert user is not None
-    user.base_currency = "CNY"
-    db_session.flush()
-
-    with patch("app.routers.reports.generate_report", return_value=fake_report) as mock_gen:
-        resp = app_client.post(
-            "/reports/generate",
-            json={"report_type": "incremental", "base_currency": "HKD"},
-        )
-
-    assert resp.status_code == 201
-    assert mock_gen.call_args.kwargs["base_currency"] == "HKD"
+    assert resp.status_code == 202
+    job = db_session.get(ReportJob, uuid.UUID(resp.json()["id"]))
+    assert job is not None
+    assert job.user_id == TEST_USER_ID
+    assert mock_delay.call_args.args == (str(job.id),)
 
 
 # ---------------------------------------------------------------------------

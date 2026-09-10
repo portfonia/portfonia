@@ -539,7 +539,8 @@ def generate_report(
     when a report for the same date+type+session_node already exists).
 
     `user_id` (issue #129 B3): required, no ambient fallback — every caller
-    (the `/reports/generate` router via `Depends(current_principal)`,
+    (the on-demand `generate_report_job` task, which resolves it from the
+    `report_jobs` row it was accepted as,
     `generate_incremental_report`'s multi-user fan-out, scripts) must
     resolve identity itself and pass it in explicitly.
 

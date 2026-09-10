@@ -83,6 +83,7 @@ area of the code, not just the one-line summary here.
 - [Capture layer + incremental reporting](docs/mechanisms/capture-and-reporting.md) — ADR-002: capture nodes, report window, multi-user fan-out (Ring 1 A1).
 - [Per-user report cadence (mwf/weekly)](docs/mechanisms/capture-and-reporting.md) — issue #191: per-cadence Beat rows + `active_user_ids()` fan-out, `users.report_cadence` CheckConstraint, Ops cadence endpoint.
 - [Per-user report language](docs/mechanisms/capture-and-reporting.md) — issue #308: `users.locale` CheckConstraint drives `output_lang` for self-service + scheduled fan-out; `Settings.OUTPUT_LANG` now fallback-only.
+- [On-demand report generation is async](docs/mechanisms/capture-and-reporting.md) — issue #193: `POST /reports/generate` returns 202 + a pollable `report_jobs` row (`GET /reports/jobs/{job_id}`); Celery `generate_report_job` calls the existing pipeline; `/admin/.../reports/generate` stays synchronous.
 - [L2 shared macro-event cache](docs/mechanisms/capture-and-reporting.md) — Ring 1 stage A3, issue #128: per-event-key cache, two daily budgets.
 - [Personalized assembly + fan-out budget fairness](docs/mechanisms/capture-and-reporting.md) — Ring 1 stage A4, issue #128: `report_assembly.py`, `shared_budget.py` fair-share allocation.
 - [L3 day-level cross-name synthesis](docs/mechanisms/capture-and-reporting.md) — Ring 1 quality gate, issue #128/PR #167: cross-name mechanism clusters, leak-prevention shape.

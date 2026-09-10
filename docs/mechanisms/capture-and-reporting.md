@@ -1,5 +1,62 @@
 # Capture layer, incremental reporting, and shared-compute stages (ADR-002, Ring 1 A1-A4)
 
+### On-demand report generation is async (issue #193)
+
+**Trigger**: production false failure (2026-08-25, Ring 1-B UAT). Report
+`d30739a1` — request at 02:19:04, frontend proxy `ECONNRESET` at ~29.8s with a
+plain-text 500 (`Failed to proxy http://backend:8000/reports/generate`), while
+the backend's `report.generate.end status=success` and the email landed at
+02:24:24 (~5m21s). Pass 2 alone routinely runs minutes, so any realistic book
+through the proxied path hits it; the client's `.json()` then threw a
+`SyntaxError` on the proxy's body, compounding the lie. Not a B4/B5
+regression — a Ring 0 synchronous-long-request gap.
+
+**Current contract** — the holdings-upload shape (issue #77), not a second
+pipeline:
+
+| | |
+| --- | --- |
+| `POST /reports/generate` | **202** + a `ReportJobOut` (`pending`, no `report_id` yet). Body unchanged (`GenerateReportRequest`: `report_date`, `report_type`, optional `base_currency`, `session_node`). Enqueues `app.tasks.report_tasks.generate_report_job` with that body as task arguments — none of it is sensitive content, and a redelivery replays identical values. An enqueue failure marks the job `failed` and returns **503** rather than leaving a pending row no worker will pick up. |
+| `GET /reports/jobs/{job_id}` | Owner-scoped poll (another user's id is 404, not 403). Returns the job's own `status` (`pending` / `success` / `failed`) plus `report_id`, the linked report's own `report_status`, and `error`. |
+| `report_jobs` table | One row per accepted trigger: `user_id`, `status`, `error`, nullable `report_id`, timestamps. Both FKs are `ON DELETE CASCADE` — a job row is a dependent operational record, so a user purge collects it without a new step in `purge_user`. |
+| Worker | Calls the existing `generate_report(...)` for the job's own `user_id` and writes the outcome onto the row. `LLMEmptyResponseError` → `"LLM returned an empty response: …"`, `RuntimeError` → `"Report generation failed: …"` — the same detail strings the synchronous response carried as a 502 — plus a catch-all `"Report generation error: <Type>: <msg>"` so no failure mode leaves the client polling a pending row. |
+
+**Semantics deliberately unchanged**: `generate_report` owns everything about
+the report itself — the same-day dedup key `(user_id, report_date,
+report_type, session_node)`, the reuse of an existing `success`/`skipped` row,
+the "success but never emailed" resend-only path, compliance
+`needs_review`, the email/Layer gates, and the scheduled fan-out's own
+`generate_incremental_report` (Beat, multi-user, untouched). A repeat trigger
+therefore still resolves to the day's existing row and does not re-send. Job
+`success` means *the pipeline ran to a terminal report row*, not "the user was
+mailed" — which is why the poll also carries `report_status`.
+
+**Identity resolution moved with the call**: the async accept no longer reads
+the principal's own `users.locale` / `users.base_currency`; the worker resolves
+both from the job's user (an explicit `base_currency` in the body still wins),
+so issues #308/#350 keep their per-user semantics on the worker side.
+
+**Residual, deliberately not solved here**: there is no stale-pending sweeper
+and no Celery `time_limit` for this task. Those exist for the upload parse's
+45s SLA; report generation has no bounded runtime to sweep against, so a
+worker hard-killed mid-run leaves a `pending` row (the report row it was
+writing is likewise mid-flight) instead of being falsely failed. The caller
+rule that makes this honest without either mechanism is stated on
+`ReportJobOut`: a job still `pending` at the caller's own poll deadline is
+*unknown*, not failed — `GET /reports/` shows whether a report for the
+requested day landed. A sweeper or a task limit would instead mark a
+still-running generation failed, which is the same class of lie #193 exists to
+remove. `POST /admin/users/{user_id}/reports/generate` stays synchronous on
+purpose — `/admin/*` is not proxied, so an ops caller can wait (see
+`admin-surface.md`).
+
+**Frontend**: `frontend/src/lib/api.ts` had no `/api/reports/generate` caller
+before this change (grepped: none — the trigger is console/ops-side today),
+so nothing needed migrating; the first Reports-UI consumer must use this
+accept+poll shape rather than the removed JSON-201 response. The helpers
+themselves were not added ahead of a caller, since this repo forbids unused
+exports.
+
 ### FX currency coverage + ticker-normalization consistency (issue #204, PR #253)
 
 **Trigger**: PSH (Pershing Square Holdings) silently excluded from §1/totals
