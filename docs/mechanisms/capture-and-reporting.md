@@ -57,6 +57,16 @@ accept+poll shape rather than the removed JSON-201 response. The helpers
 themselves were not added ahead of a caller, since this repo forbids unused
 exports.
 
+**Production status (2026-09-10)**: deployed — prod `main` is `cb78eb9`
+(contains #416's `9fd7b0d`), migration `c4d5e6f7a8b9` is applied
+(`report_jobs` present, with the `ck_report_jobs_status` CHECK and both
+CASCADE foreign keys), the worker has `generate_report_job` registered, and
+`GET /api/reports/jobs/{job_id}` is reachable through the frontend proxy (401
+with no or a forged token, against 404 for an unknown path — so the route
+exists in the deployed build and its auth is enforced). The end-to-end
+proxied acceptance run on a real multi-minute book (issue #193 requirement 7)
+had not been done as of that date, which is why the issue stays open.
+
 ### FX currency coverage + ticker-normalization consistency (issue #204, PR #253)
 
 **Trigger**: PSH (Pershing Square Holdings) silently excluded from §1/totals
