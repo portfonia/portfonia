@@ -16,11 +16,13 @@ from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
 from app.services._finnhub import FinnhubQuote
 from app.services._yfinance import OhlcvPoint
+from app.services.capture_results import CaptureTarget, NavHistoryOutcome, NavPoint
 from app.services.price_capture import (
     _UPSERT_CHUNK_SIZE,
     _upsert,
     capture_fund_navs,
     capture_prices,
+    emit_nav_terminal_diagnostics,
 )
 from app.tests.conftest import seed_user
 
@@ -278,13 +280,17 @@ def _fund_holding(name: str, fund_code: str) -> Holding:
     )
 
 
+def _nav_out(history: list[tuple[date, Decimal]]) -> NavHistoryOutcome:
+    return NavHistoryOutcome(points=tuple(NavPoint(day, nav, "eastmoney") for day, nav in history))
+
+
 def test_capture_fund_navs_stores_close_under_fund_code(db_session: Session) -> None:
     db_session.add(_fund_holding("Huaxia SSE 50 ETF", "513100"))
     db_session.flush()
     history = [(date(2026, 8, 22), Decimal("1.23"))]
-    with (
-        patch("app.services.price_capture._cst_today", return_value=date(2026, 8, 22)),
-        patch("app.services.fund_nav_fetcher.fetch_nav_history", return_value=history),
+    with patch(
+        "app.services.price_capture.fetch_nav_history_outcome",
+        return_value=_nav_out(history),
     ):
         n = capture_fund_navs(db_session)
 
@@ -296,6 +302,7 @@ def test_capture_fund_navs_stores_close_under_fund_code(db_session: Session) -> 
     assert row.session_node == "close"
     assert row.market == "A-Share"
     assert row.trade_date == date(2026, 8, 22)
+    assert row.source == "eastmoney"
 
 
 def test_capture_fund_navs_fund_codes_filter_restricts_fetch(db_session: Session) -> None:
@@ -308,10 +315,10 @@ def test_capture_fund_navs_fund_codes_filter_restricts_fetch(db_session: Session
     )
     db_session.flush()
     history = [(date(2026, 8, 22), Decimal("1.23"))]
-    with (
-        patch("app.services.price_capture._cst_today", return_value=date(2026, 8, 22)),
-        patch("app.services.fund_nav_fetcher.fetch_nav_history", return_value=history) as fetch,
-    ):
+    with patch(
+        "app.services.price_capture.fetch_nav_history_outcome",
+        return_value=_nav_out(history),
+    ) as fetch:
         n = capture_fund_navs(db_session, fund_codes=["513100"])
 
     fetch.assert_called_once()
@@ -330,7 +337,7 @@ def test_capture_fund_navs_empty_fund_codes_filter_fetches_nothing(
 ) -> None:
     db_session.add(_fund_holding("Huaxia SSE 50 ETF", "513100"))
     db_session.flush()
-    with patch("app.services.fund_nav_fetcher.fetch_nav_history") as fetch:
+    with patch("app.services.price_capture.fetch_nav_history_outcome") as fetch:
         n = capture_fund_navs(db_session, fund_codes=[])
     assert n == 0
     fetch.assert_not_called()
@@ -358,10 +365,10 @@ def test_capture_fund_navs_dedupes_same_fund_code_across_holdings(
     )
     db_session.flush()
     history = [(date(2026, 8, 22), Decimal("1.23"))]
-    with (
-        patch("app.services.price_capture._cst_today", return_value=date(2026, 8, 22)),
-        patch("app.services.fund_nav_fetcher.fetch_nav_history", return_value=history) as fetch,
-    ):
+    with patch(
+        "app.services.price_capture.fetch_nav_history_outcome",
+        return_value=_nav_out(history),
+    ) as fetch:
         n = capture_fund_navs(db_session)
     fetch.assert_called_once()
     assert n == 1
@@ -397,9 +404,9 @@ def test_capture_fund_navs_prefers_declared_market_over_null_default(
     )
     db_session.flush()
     history = [(date(2026, 8, 22), Decimal("1.23"))]
-    with (
-        patch("app.services.price_capture._cst_today", return_value=date(2026, 8, 22)),
-        patch("app.services.fund_nav_fetcher.fetch_nav_history", return_value=history),
+    with patch(
+        "app.services.price_capture.fetch_nav_history_outcome",
+        return_value=_nav_out(history),
     ):
         n = capture_fund_navs(db_session)
     assert n == 1
@@ -409,142 +416,84 @@ def test_capture_fund_navs_prefers_declared_market_over_null_default(
     assert row.market == "HK"
 
 
-def test_capture_fund_navs_warns_and_alerts_when_nav_stale(
+def _stale_target(code: str, nav_date: date) -> CaptureTarget:
+    return CaptureTarget(
+        key=code,
+        market="A-Share",
+        kind="nav",
+        reason="lag_exceeded",
+        latest_date=nav_date,
+    )
+
+
+def _missing_target(code: str) -> CaptureTarget:
+    return CaptureTarget(key=code, market="A-Share", kind="nav", reason="missing")
+
+
+def test_terminal_nav_stale_alert_is_keyed_by_nav_date(
     db_session: Session, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Thursday NAV on a Monday (513500's 2026-08-27 shape) is 2 trading
-    sessions behind -> per-fund WARNING + ops alert keyed fund_code + NAV date."""
-    db_session.add(_fund_holding("CSI 500 ETF", "513500"))
-    db_session.flush()
-
-    # db_session (above) runs `alembic upgrade` via Config().fileConfig(), which
-    # defaults disable_existing_loggers=True and silently disables this
-    # already-imported module's logger — re-enable so caplog can see it.
     logging.getLogger("app.services.price_capture").disabled = False
     with (
         caplog.at_level(logging.WARNING, logger="app.services.price_capture"),
-        patch("app.services.price_capture._cst_today", return_value=date(2026, 8, 31)),
-        patch(
-            "app.services.fund_nav_fetcher.fetch_nav_history",
-            return_value=[(date(2026, 8, 27), Decimal("2.4652"))],
-        ),
         patch("app.services.price_capture.send_ops_alert") as alert,
     ):
-        n = capture_fund_navs(db_session)
-
-    assert n == 1
+        emit_nav_terminal_diagnostics(
+            (_stale_target("513500", date(2026, 8, 27)),),
+            as_of_date=date(2026, 9, 8),
+            max_lag_sessions=2,
+        )
     alert.assert_called_once()
     assert alert.call_args.kwargs["idempotency_key"] == "ops-fund-nav-stale-513500-2026-08-27"
     assert "513500" in alert.call_args.kwargs["subject"]
-    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
-    assert len(warnings) == 1
-    message = warnings[0].getMessage()
-    assert "513500" in message
-    assert "2026-08-27" in message
+    assert any("2026-08-27" in r.getMessage() for r in caplog.records)
 
 
-@pytest.mark.parametrize(
-    "today, latest_nav_date",
-    [
-        (date(2026, 8, 31), date(2026, 8, 28)),  # Monday beat, Friday NAV: 1 session, expected
-        (date(2026, 9, 1), date(2026, 8, 31)),  # Tuesday beat, Monday NAV: 1 session
-        (date(2026, 9, 1), date(2026, 9, 1)),  # same-day NAV: 0 sessions
-    ],
-)
-def test_capture_fund_navs_no_warning_within_one_session_lag(
+def test_capture_fund_navs_wrapper_does_not_send_terminal_alerts(
     db_session: Session,
-    caplog: pytest.LogCaptureFixture,
-    today: date,
-    latest_nav_date: date,
 ) -> None:
-    """A same-evening or 1-session-late publish is the healthy shape (#298)."""
     db_session.add(_fund_holding("CSI 500 ETF", "513500"))
     db_session.flush()
-
-    logging.getLogger("app.services.price_capture").disabled = False
     with (
-        caplog.at_level(logging.WARNING, logger="app.services.price_capture"),
-        patch("app.services.price_capture._cst_today", return_value=today),
         patch(
-            "app.services.fund_nav_fetcher.fetch_nav_history",
-            return_value=[(latest_nav_date, Decimal("2.4652"))],
+            "app.services.price_capture.fetch_nav_history_outcome",
+            return_value=_nav_out([]),
         ),
         patch("app.services.price_capture.send_ops_alert") as alert,
     ):
         n = capture_fund_navs(db_session)
-
-    assert n == 1
+    assert n == 0
     alert.assert_not_called()
-    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
-def test_capture_fund_navs_dedupes_alert_for_same_nav_date(db_session: Session) -> None:
-    """A stuck NAV date emails once: the second run (next beat, 24h apart)
-    must not call send_ops_alert again for the same (fund_code, NAV date)."""
-    db_session.add(_fund_holding("CSI 500 ETF", "513500"))
-    db_session.flush()
-    with (
-        patch("app.services.price_capture._cst_today", return_value=date(2026, 8, 31)),
-        patch(
-            "app.services.fund_nav_fetcher.fetch_nav_history",
-            return_value=[(date(2026, 8, 27), Decimal("2.4652"))],
-        ),
-        patch("app.services.price_capture.send_ops_alert") as alert,
-    ):
-        capture_fund_navs(db_session)
-        capture_fund_navs(db_session)
-
+def test_terminal_nav_alert_dedupes_same_nav_date(db_session: Session) -> None:
+    targets = (_stale_target("513500", date(2026, 8, 27)),)
+    with patch("app.services.price_capture.send_ops_alert") as alert:
+        emit_nav_terminal_diagnostics(targets, date(2026, 9, 8), 2)
+        emit_nav_terminal_diagnostics(targets, date(2026, 9, 8), 2)
     alert.assert_called_once()
-    assert alert.call_args.kwargs["idempotency_key"] == "ops-fund-nav-stale-513500-2026-08-27"
 
 
-def test_capture_fund_navs_alerts_stale_fund_only(db_session: Session) -> None:
-    """Two funds in one run: only the lagging one alerts, keyed to its own code."""
-    db_session.add_all(
-        [
-            _fund_holding("CSI 500 ETF", "513500"),
-            _fund_holding("Huaxia SSE 50 ETF", "513100"),
-        ]
-    )
-    db_session.flush()
-    histories = {
-        "513500": [(date(2026, 8, 28), Decimal("2.4652"))],  # Tue, Fri NAV: 2 sessions -> stale
-        "513100": [(date(2026, 8, 31), Decimal("1.23"))],  # Tue, Mon NAV: 1 session -> fresh
-    }
-    with (
-        patch("app.services.price_capture._cst_today", return_value=date(2026, 9, 1)),
-        patch(
-            "app.services.fund_nav_fetcher.fetch_nav_history",
-            side_effect=lambda code, client, lookback_days=30: histories[code],
-        ),
-        patch("app.services.price_capture.send_ops_alert") as alert,
-    ):
-        n = capture_fund_navs(db_session)
-
-    assert n == 2
+def test_terminal_nav_alerts_stale_fund_only(db_session: Session) -> None:
+    with patch("app.services.price_capture.send_ops_alert") as alert:
+        emit_nav_terminal_diagnostics(
+            (_stale_target("513500", date(2026, 8, 28)),),
+            date(2026, 9, 8),
+            2,
+        )
     alert.assert_called_once()
     assert alert.call_args.kwargs["idempotency_key"] == "ops-fund-nav-stale-513500-2026-08-28"
 
 
-def test_capture_fund_navs_empty_history_warns_and_alerts(
+def test_terminal_empty_nav_warns_and_alerts(
     db_session: Session, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """fetch_nav_history returning [] is a per-fund miss, not silence: WARNING
-    + alert keyed per (fund_code, CST date) so a persistent miss re-surfaces
-    daily (#298 review)."""
-    db_session.add(_fund_holding("CSI 500 ETF", "513500"))
-    db_session.flush()
-
     logging.getLogger("app.services.price_capture").disabled = False
     with (
         caplog.at_level(logging.WARNING, logger="app.services.price_capture"),
-        patch("app.services.price_capture._cst_today", return_value=date(2026, 9, 1)),
-        patch("app.services.fund_nav_fetcher.fetch_nav_history", return_value=[]),
         patch("app.services.price_capture.send_ops_alert") as alert,
     ):
-        n = capture_fund_navs(db_session)
-
-    assert n == 0
+        emit_nav_terminal_diagnostics((_missing_target("513500"),), date(2026, 9, 1), 2)
     alert.assert_called_once()
     assert alert.call_args.kwargs["idempotency_key"] == "ops-fund-nav-empty-513500-2026-09-01"
     assert any(
@@ -554,117 +503,42 @@ def test_capture_fund_navs_empty_history_warns_and_alerts(
     )
 
 
-def test_capture_fund_navs_empty_history_dedupes_same_day(db_session: Session) -> None:
-    """Two runs on the same CST date with an empty history share one alert."""
-    db_session.add(_fund_holding("CSI 500 ETF", "513500"))
-    db_session.flush()
-    with (
-        patch("app.services.price_capture._cst_today", return_value=date(2026, 9, 1)),
-        patch("app.services.fund_nav_fetcher.fetch_nav_history", return_value=[]),
-        patch("app.services.price_capture.send_ops_alert") as alert,
-    ):
-        capture_fund_navs(db_session)
-        capture_fund_navs(db_session)
-
+def test_terminal_empty_nav_dedupes_same_day(db_session: Session) -> None:
+    with patch("app.services.price_capture.send_ops_alert") as alert:
+        emit_nav_terminal_diagnostics((_missing_target("513500"),), date(2026, 9, 1), 2)
+        emit_nav_terminal_diagnostics((_missing_target("513500"),), date(2026, 9, 1), 2)
     alert.assert_called_once()
 
 
-def test_capture_fund_navs_does_not_dedup_failed_delivery(db_session: Session) -> None:
-    """send_ops_alert returning False (delivery failed; it never raises) must
-    not suppress the next beat for the same NAV date — a failed send leaves
-    the state un-deduped (round-2 review)."""
-    db_session.add(_fund_holding("CSI 500 ETF", "513500"))
-    db_session.flush()
-    with (
-        patch("app.services.price_capture._cst_today", return_value=date(2026, 8, 31)),
-        patch(
-            "app.services.fund_nav_fetcher.fetch_nav_history",
-            return_value=[(date(2026, 8, 27), Decimal("2.4652"))],
-        ),
-        patch("app.services.price_capture.send_ops_alert", return_value=False) as alert,
-    ):
-        capture_fund_navs(db_session)
-        capture_fund_navs(db_session)
-
+def test_terminal_nav_does_not_dedup_failed_delivery(db_session: Session) -> None:
+    with patch("app.services.price_capture.send_ops_alert", return_value=False) as alert:
+        emit_nav_terminal_diagnostics(
+            (_stale_target("513500", date(2026, 8, 27)),), date(2026, 9, 8), 2
+        )
+        emit_nav_terminal_diagnostics(
+            (_stale_target("513500", date(2026, 8, 27)),), date(2026, 9, 8), 2
+        )
     assert alert.call_count == 2
 
 
-@pytest.mark.parametrize(
-    "latest_nav_date, should_alert",
-    [
-        (date(2026, 8, 28), False),  # Friday NAV on Saturday: last session, OK
-        (date(2026, 8, 27), True),  # Thursday NAV on Saturday: Friday session missed
-    ],
-)
-def test_capture_fund_navs_weekend_backfill_measures_against_last_session(
-    db_session: Session,
-    latest_nav_date: date,
-    should_alert: bool,
-) -> None:
-    """Confirm-time backfill on a weekend gets no same-evening slack: the
-    reference is the last completed session (round-2 review)."""
-    db_session.add(_fund_holding("CSI 500 ETF", "513500"))
-    db_session.flush()
-    with (
-        patch("app.services.price_capture._cst_today", return_value=date(2026, 8, 29)),
-        patch(
-            "app.services.fund_nav_fetcher.fetch_nav_history",
-            return_value=[(latest_nav_date, Decimal("2.4652"))],
-        ),
-        patch("app.services.price_capture.send_ops_alert") as alert,
-    ):
-        capture_fund_navs(db_session)
-
-    if should_alert:
-        alert.assert_called_once()
-    else:
-        alert.assert_not_called()
-
-
-def test_capture_fund_navs_reattempts_alert_when_nav_date_changes(
-    db_session: Session,
-) -> None:
-    """Dedup is per (fund_code, NAV date): a new stale date emails again."""
-    db_session.add(_fund_holding("CSI 500 ETF", "513500"))
-    db_session.flush()
-    histories = [
-        [(date(2026, 8, 27), Decimal("2.4652"))],  # Thu NAV, Tue: 3 sessions -> alert
-        [(date(2026, 8, 28), Decimal("2.4652"))],  # Fri NAV, Tue: 2 sessions -> alert
-    ]
-    with (
-        patch("app.services.price_capture._cst_today", return_value=date(2026, 9, 1)),
-        patch("app.services.fund_nav_fetcher.fetch_nav_history", side_effect=histories),
-        patch("app.services.price_capture.send_ops_alert") as alert,
-    ):
-        capture_fund_navs(db_session)
-        capture_fund_navs(db_session)
-
-    assert alert.call_count == 2
+def test_terminal_nav_reattempts_alert_when_nav_date_changes(db_session: Session) -> None:
+    with patch("app.services.price_capture.send_ops_alert") as alert:
+        emit_nav_terminal_diagnostics(
+            (_stale_target("513500", date(2026, 8, 27)),), date(2026, 9, 8), 2
+        )
+        emit_nav_terminal_diagnostics(
+            (_stale_target("513500", date(2026, 8, 28)),), date(2026, 9, 8), 2
+        )
     assert [c.kwargs["idempotency_key"] for c in alert.call_args_list] == [
         "ops-fund-nav-stale-513500-2026-08-27",
         "ops-fund-nav-stale-513500-2026-08-28",
     ]
 
 
-def test_capture_fund_navs_empty_history_reattempts_alert_next_day(
-    db_session: Session,
-) -> None:
-    """Empty-history dedup is per CST date: the next day is a new unresolved
-    state and emails again."""
-    db_session.add(_fund_holding("CSI 500 ETF", "513500"))
-    db_session.flush()
-    with (
-        patch(
-            "app.services.price_capture._cst_today",
-            side_effect=[date(2026, 9, 1), date(2026, 9, 2)],
-        ),
-        patch("app.services.fund_nav_fetcher.fetch_nav_history", return_value=[]),
-        patch("app.services.price_capture.send_ops_alert") as alert,
-    ):
-        capture_fund_navs(db_session)
-        capture_fund_navs(db_session)
-
-    assert alert.call_count == 2
+def test_terminal_empty_nav_reattempts_alert_next_day(db_session: Session) -> None:
+    with patch("app.services.price_capture.send_ops_alert") as alert:
+        emit_nav_terminal_diagnostics((_missing_target("513500"),), date(2026, 9, 1), 2)
+        emit_nav_terminal_diagnostics((_missing_target("513500"),), date(2026, 9, 2), 2)
     assert [c.kwargs["idempotency_key"] for c in alert.call_args_list] == [
         "ops-fund-nav-empty-513500-2026-09-01",
         "ops-fund-nav-empty-513500-2026-09-02",

@@ -18,8 +18,10 @@ fund code as of 2026-08-10, confirmed against real OCI production traffic
 (issue #20) — matches the same block first documented in the sibling
 `portfolio-agent` project's `collector_v2.py` (`_sina_fund_nav`, 2026-07-30),
 whose two-attempt-retry/GBK-decode pattern this fallback is ported from. The
-historical path (path 2, `fetch_nav_history`/lsjz) has no such block and needs
-no fallback — confirmed reachable from the same OCI host.
+historical path (path 2, `fetch_nav_history`/lsjz) keeps the list-returning
+wrapper for existing callers; scoped capture uses `fetch_nav_history_outcome`
+and, after bounded Eastmoney retry, the Sina latest settled unit NAV (issue
+#389). That latest point is not a 30-day history repair.
 """
 
 from __future__ import annotations
@@ -37,6 +39,12 @@ from sqlalchemy.orm import Session
 
 from app.core.timezones import CST
 from app.models.holding import Holding
+from app.services.capture_results import (
+    NavFetchError,
+    NavHistoryOutcome,
+    NavPoint,
+    is_positive_finite,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -241,58 +249,140 @@ def _fetch_nav(fund_code: str, client: httpx.Client) -> tuple[Decimal, datetime]
     return result
 
 
+def _empty_nav_outcome(error: NavFetchError | None) -> NavHistoryOutcome:
+    return NavHistoryOutcome(points=(), error=error)
+
+
+def _parse_unit_nav(raw: object) -> Decimal | None:
+    if raw is None or raw == "":
+        return None
+    try:
+        nav = Decimal(str(raw).strip())
+    except Exception:
+        return None
+    if not is_positive_finite(nav):
+        return None
+    return nav
+
+
+def fetch_nav_history_outcome(
+    fund_code: str,
+    client: httpx.Client,
+    start_date: date,
+    end_date: date,
+    as_of_date: date | None = None,
+) -> NavHistoryOutcome:
+    """Fetch settled unit NAV history with an explicit typed outcome.
+
+    Empty-but-valid history is ``points=(), error=None``. Transport / HTTP /
+    parse / provider failures are distinct ``error`` codes, not exceptions.
+    """
+    if not re.fullmatch(r"\d{6}", fund_code):
+        logger.warning("skipping NAV history for invalid fund_code %r", fund_code)
+        return _empty_nav_outcome("parse")
+    as_of = as_of_date if as_of_date is not None else datetime.now(tz=CST).date()
+    lookback_days = max((end_date - start_date).days, 0)
+    url = _LSJZ_URL.format(
+        fund_code=fund_code,
+        page_size=lookback_days + 5,
+        start=start_date.strftime("%Y-%m-%d"),
+        end=end_date.strftime("%Y-%m-%d"),
+    )
+    try:
+        resp = client.get(url, headers=_LSJZ_HEADERS, timeout=10)
+        resp.raise_for_status()
+    except httpx.HTTPStatusError:
+        logger.exception("HTTP error fetching NAV history for fund %s", fund_code)
+        return _empty_nav_outcome("http")
+    except httpx.HTTPError:
+        logger.exception("HTTP error fetching NAV history for fund %s", fund_code)
+        return _empty_nav_outcome("transport")
+
+    try:
+        payload = resp.json()
+    except Exception:
+        logger.exception("JSON parse error for fund %s history", fund_code)
+        return _empty_nav_outcome("parse")
+
+    if not isinstance(payload, dict):
+        return _empty_nav_outcome("parse")
+    if payload.get("ErrCode") != 0:
+        logger.error("LSJZ API error for fund %s: ErrCode=%s", fund_code, payload.get("ErrCode"))
+        return _empty_nav_outcome("provider_error")
+
+    rows = (payload.get("Data") or {}).get("LSJZList") or []
+    if not isinstance(rows, list):
+        return _empty_nav_outcome("parse")
+
+    by_date: dict[date, Decimal | None] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        fsrq = row.get("FSRQ")
+        dwjz = row.get("DWJZ")
+        if not fsrq or dwjz is None or dwjz == "":
+            continue
+        try:
+            nav_date = datetime.strptime(str(fsrq), "%Y-%m-%d").date()
+        except Exception:
+            logger.warning("skipping unparseable row for fund %s: %r", fund_code, row)
+            continue
+        if nav_date < start_date or nav_date > end_date or nav_date > as_of:
+            continue
+        nav = _parse_unit_nav(dwjz)
+        if nav is None:
+            continue
+        if nav_date in by_date:
+            previous = by_date[nav_date]
+            if previous is None or previous != nav:
+                by_date[nav_date] = None
+            continue
+        by_date[nav_date] = nav
+
+    points = tuple(
+        NavPoint(nav_date=day, unit_nav=nav, source="eastmoney")
+        for day, nav in sorted(by_date.items())
+        if nav is not None
+    )
+    return NavHistoryOutcome(points=points, error=None)
+
+
 def fetch_nav_history(
     fund_code: str, client: httpx.Client, lookback_days: int = 30
 ) -> list[tuple[date, Decimal]]:
     """Fetch settled NAV history from the lsjz endpoint.
 
     Returns list of (nav_date, nav) sorted date ascending. Empty on any error.
+    Compatibility wrapper around :func:`fetch_nav_history_outcome`.
     """
-    if not re.fullmatch(r"\d{6}", fund_code):
-        logger.warning("skipping NAV history for invalid fund_code %r", fund_code)
-        return []
-    end = date.today()
+    end = datetime.now(tz=CST).date()
     start = end - timedelta(days=lookback_days)
-    url = _LSJZ_URL.format(
-        fund_code=fund_code,
-        page_size=lookback_days + 5,
-        start=start.strftime("%Y-%m-%d"),
-        end=end.strftime("%Y-%m-%d"),
+    outcome = fetch_nav_history_outcome(
+        fund_code, client, start_date=start, end_date=end, as_of_date=end
     )
-    try:
-        resp = client.get(url, headers=_LSJZ_HEADERS, timeout=10)
-        resp.raise_for_status()
-    except httpx.HTTPError:
-        logger.exception("HTTP error fetching NAV history for fund %s", fund_code)
-        return []
+    return [(point.nav_date, point.unit_nav) for point in outcome.points]
 
-    try:
-        payload = resp.json()
-    except Exception:
-        logger.exception("JSON parse error for fund %s history", fund_code)
-        return []
 
-    if payload.get("ErrCode") != 0:
-        logger.error("LSJZ API error for fund %s: ErrCode=%s", fund_code, payload.get("ErrCode"))
-        return []
-
-    rows = (payload.get("Data") or {}).get("LSJZList") or []
-    result: list[tuple[date, Decimal]] = []
-    for row in rows:
-        fsrq = row.get("FSRQ")
-        dwjz = row.get("DWJZ")
-        if not fsrq or not dwjz:
-            continue
-        try:
-            nav_date = datetime.strptime(fsrq, "%Y-%m-%d").date()
-            nav = Decimal(str(dwjz))
-        except Exception:
-            logger.warning("skipping unparseable row for fund %s: %r", fund_code, row)
-            continue
-        result.append((nav_date, nav))
-
-    result.sort(key=lambda t: t[0])
-    return result
+def sina_latest_nav_point(
+    fund_code: str, client: httpx.Client, as_of_date: date
+) -> NavPoint | None:
+    """Capture-boundary Sina latest settled unit NAV. Persists the date only."""
+    result = _sina_fund_nav(fund_code, client)
+    if result is None:
+        return None
+    nav, price_as_of = result
+    if not is_positive_finite(nav):
+        return None
+    nav_date = price_as_of.date()
+    if nav_date > as_of_date:
+        logger.warning(
+            "rejecting future Sina NAV date %s for fund %s (as_of=%s)",
+            nav_date.isoformat(),
+            fund_code,
+            as_of_date.isoformat(),
+        )
+        return None
+    return NavPoint(nav_date=nav_date, unit_nav=nav, source="sina")
 
 
 def update_fund_navs(session: Session) -> FundNavFetchResult:

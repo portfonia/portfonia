@@ -330,17 +330,9 @@ def _ohlcv_rows_for_ticker(
         return []
 
 
-def fetch_ohlcv_range(tickers: list[str], lookback_days: int = 7) -> dict[str, list[OhlcvPoint]]:
-    """Daily OHLCV bars over the last `lookback_days` per ticker (oldest→newest).
-
-    Returning a range (not just the latest bar) is what lets the `close` capture
-    node backfill missed trading days: each bar is upserted by its own
-    trade_date. ~7 calendar days covers ~5 trading days of catch-up.
-    """
-    if not tickers:
-        return {}
-    tickers = [normalize_legacy_ticker(t) for t in tickers]
-    period = f"{max(lookback_days, 2)}d"
+def _download_ohlcv_batches(
+    tickers: list[str], download_kwargs: dict[str, object]
+) -> dict[str, list[OhlcvPoint]]:
     by_market: dict[str, list[str]] = {}
     for t in tickers:
         by_market.setdefault(_market_key_for_ticker(t), []).append(t)
@@ -353,22 +345,25 @@ def fetch_ohlcv_range(tickers: list[str], lookback_days: int = 7) -> dict[str, l
     for i, batch in enumerate(batches):
         if i > 0:
             time.sleep(_INTER_BATCH_DELAY)
-        start = time.monotonic()
+        started = time.monotonic()
         try:
             with _quiet_yfinance_logs():
                 hist = yf.download(
-                    tickers=" ".join(batch), period=period, auto_adjust=True, progress=False
+                    tickers=" ".join(batch),
+                    auto_adjust=True,
+                    progress=False,
+                    **download_kwargs,
                 )
         except Exception as exc:
             logger.exception("yfinance OHLCV download failed for %s", batch)
             _log_fetch_telemetry(
                 "yfinance",
                 len(batch),
-                (time.monotonic() - start) * 1000,
+                (time.monotonic() - started) * 1000,
                 error_type=classify_exception(exc).value,
             )
             continue
-        latency_ms = (time.monotonic() - start) * 1000
+        latency_ms = (time.monotonic() - started) * 1000
         if hist.empty:
             _log_fetch_telemetry("yfinance", len(batch), latency_ms, error_type="no_data")
             continue
@@ -377,6 +372,42 @@ def fetch_ohlcv_range(tickers: list[str], lookback_days: int = 7) -> dict[str, l
             rows = _ohlcv_rows_for_ticker(hist, t, currency=_fetched_currency(t))
             if rows:
                 out[t] = rows
+    return out
+
+
+def fetch_ohlcv_range(tickers: list[str], lookback_days: int = 7) -> dict[str, list[OhlcvPoint]]:
+    """Daily OHLCV bars over the last `lookback_days` per ticker (oldest→newest).
+
+    Returning a range (not just the latest bar) is what lets the `close` capture
+    node backfill missed trading days: each bar is upserted by its own
+    trade_date. ~7 calendar days covers ~5 trading days of catch-up.
+    """
+    if not tickers:
+        return {}
+    tickers = [normalize_legacy_ticker(t) for t in tickers]
+    period = f"{max(lookback_days, 2)}d"
+    return _download_ohlcv_batches(tickers, {"period": period})
+
+
+def fetch_ohlcv_range_bounded(
+    tickers: list[str], start: date, end_exclusive: date
+) -> dict[str, list[OhlcvPoint]]:
+    """Daily OHLCV with frozen ``[start, end_exclusive)`` bounds (issue #389).
+
+    Keeps ``auto_adjust=True``. Period-based :func:`fetch_ohlcv_range` is
+    unchanged for other callers. Bars outside the frozen window are dropped.
+    """
+    if not tickers or end_exclusive <= start:
+        return {}
+    tickers = [normalize_legacy_ticker(t) for t in tickers]
+    fetched = _download_ohlcv_batches(
+        tickers, {"start": start.isoformat(), "end": end_exclusive.isoformat()}
+    )
+    out: dict[str, list[OhlcvPoint]] = {}
+    for ticker, rows in fetched.items():
+        kept = [row for row in rows if start <= row[0] < end_exclusive]
+        if kept:
+            out[ticker] = kept
     return out
 
 

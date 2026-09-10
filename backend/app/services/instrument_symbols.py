@@ -501,7 +501,7 @@ Market = Literal["US", "HK", "A-Share", "UK", "Europe", "Japan", "Korea", "Other
 AssetType = Literal["stock", "etf", "fund", "cash", "wmf", "other"]
 PricingMode = Literal["auto", "manual"]
 IdentifierKind = Literal["ticker", "fund_code"]
-Provider = Literal["yfinance", "finnhub", "massive"]
+Provider = Literal["yfinance", "finnhub", "massive", "tencent"]
 ResolutionStatus = Literal["resolved", "ambiguous", "not_applicable", "unsupported"]
 Exchange = Literal[
     "HKEX",
@@ -707,9 +707,10 @@ def to_provider_symbol(provider: Provider, key: InstrumentKey) -> str | None:
     Freezes current wire behavior (frozen design section 4): yfinance
     accepts any legacy-normalized ticker unchanged; Finnhub/Massive accept
     only a ticker that resolves to US syntax, preserved unchanged as the
-    wire symbol. `fund_code` keys and unsupported syntax return None (zero
-    network calls) for every provider — fund NAV requests stay on the
-    existing NAV path, outside these three adapters.
+    wire symbol. Tencent maps a six-digit `.SS`/`.SZ` ticker to `sh`/`sz`
+    plus the digits (issue #389). `fund_code` keys and unsupported syntax
+    return None (zero network calls) — fund NAV requests stay on the
+    existing NAV path, outside these adapters.
     """
     if key.kind != "ticker":
         return None
@@ -718,6 +719,17 @@ def to_provider_symbol(provider: Provider, key: InstrumentKey) -> str | None:
         return code
     if provider in ("finnhub", "massive"):
         return code if market_from_ticker(code) == "US" else None
+    if provider == "tencent":
+        return _tencent_wire_symbol(code)
+    return None
+
+
+def _tencent_wire_symbol(code: str) -> str | None:
+    upper = code.upper()
+    if len(upper) == 9 and upper.endswith(".SS") and upper[:6].isdigit():
+        return "sh" + upper[:6]
+    if len(upper) == 9 and upper.endswith(".SZ") and upper[:6].isdigit():
+        return "sz" + upper[:6]
     return None
 
 
