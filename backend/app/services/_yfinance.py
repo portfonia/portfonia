@@ -420,9 +420,15 @@ def fetch_spot(tickers: list[str]) -> dict[str, float]:
 
     Tickers are normalized the same way as fetch_last_close/fetch_ohlcv_range
     (issue #204: this used to query yfinance with the raw, un-normalized
-    ticker, so a bare "PSH" would query the wrong instrument here even after
-    the close-node path was fixed to query "PSH.L") — the returned dict is
-    keyed by the normalized ticker so it lines up with the close-node keys.
+    ticker, so a raw un-padded HK ticker like "700.HK" would query the
+    wrong key here even after the close-node path was fixed to query the
+    canonical "0700.HK" form) — the returned dict is keyed by the
+    normalized ticker so it lines up with the close-node keys. HK
+    zero-pad canonicalization is the only rewrite `normalize_legacy_ticker`
+    still performs; issue #417 removed the one hardcoded per-ticker
+    collision rescue (a bare "PSH" is no longer rewritten to "PSH.L" here
+    or anywhere else in this module — it queries as-is, like any other
+    bare ticker).
     """
     out: dict[str, float] = {}
     for raw in tickers:
