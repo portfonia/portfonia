@@ -25,7 +25,10 @@ def _fake_closes() -> dict[str, list[tuple[date, Decimal]]]:
 
 
 def test_capture_benchmark_index_prices_writes_catalog_indexes(db_session: Session) -> None:
-    with patch.object(benchmark_prices, "_fetch_index_closes", return_value=_fake_closes()):
+    with (
+        patch.object(benchmark_prices, "_fetch_index_closes", return_value=_fake_closes()),
+        patch.object(benchmark_prices, "_fetch_tencent_csi300_closes", return_value={}),
+    ):
         written = benchmark_prices.capture_benchmark_index_prices(db_session)
     assert written == 8
 
@@ -49,7 +52,10 @@ def test_csi300_is_sse_price_index_in_cny() -> None:
 
 
 def test_capture_is_idempotent_upsert(db_session: Session) -> None:
-    with patch.object(benchmark_prices, "_fetch_index_closes", return_value=_fake_closes()):
+    with (
+        patch.object(benchmark_prices, "_fetch_index_closes", return_value=_fake_closes()),
+        patch.object(benchmark_prices, "_fetch_tencent_csi300_closes", return_value={}),
+    ):
         benchmark_prices.capture_benchmark_index_prices(db_session)
         benchmark_prices.capture_benchmark_index_prices(db_session)
 
@@ -111,7 +117,10 @@ def test_upsert_chunks_past_postgres_parameter_limit(db_session: Session) -> Non
 
 
 def test_historical_benchmark_price_finds_latest_at_or_before(db_session: Session) -> None:
-    with patch.object(benchmark_prices, "_fetch_index_closes", return_value=_fake_closes()):
+    with (
+        patch.object(benchmark_prices, "_fetch_index_closes", return_value=_fake_closes()),
+        patch.object(benchmark_prices, "_fetch_tencent_csi300_closes", return_value={}),
+    ):
         benchmark_prices.capture_benchmark_index_prices(db_session)
 
     result = benchmark_prices.historical_benchmark_price(db_session, "sp500", date(2026, 9, 5))

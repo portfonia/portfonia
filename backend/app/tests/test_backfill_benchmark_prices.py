@@ -22,7 +22,10 @@ def test_backfill_benchmark_prices_writes_history(db_session: Session) -> None:
         "^IXIC": [(date(2021, 1, 4), Decimal("12800"))],
         "000300.SS": [(date(2021, 1, 4), Decimal("5200"))],
     }
-    with patch.object(benchmark_prices, "_fetch_index_closes", return_value=fake) as mock_fetch:
+    with (
+        patch.object(benchmark_prices, "_fetch_index_closes", return_value=fake) as mock_fetch,
+        patch.object(benchmark_prices, "_fetch_tencent_csi300_closes", return_value={}),
+    ):
         written = backfill_benchmark_prices(db_session, years=5)
     assert written == 4
     # Review 5124107298 finding 2: a multi-year backfill must use yfinance's
@@ -39,7 +42,10 @@ def test_backfill_benchmark_prices_writes_history(db_session: Session) -> None:
 def test_capture_benchmark_index_prices_uses_short_day_period(db_session: Session) -> None:
     """The daily catch-up path keeps the short `Nd` form — only the
     multi-year backfill needed to change (finding 2)."""
-    with patch.object(benchmark_prices, "_fetch_index_closes", return_value={}) as mock_fetch:
+    with (
+        patch.object(benchmark_prices, "_fetch_index_closes", return_value={}) as mock_fetch,
+        patch.object(benchmark_prices, "_fetch_tencent_csi300_closes", return_value={}),
+    ):
         benchmark_prices.capture_benchmark_index_prices(db_session, lookback_days=7)
     assert mock_fetch.call_args.kwargs["period"] == "7d"
 

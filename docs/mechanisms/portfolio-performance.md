@@ -453,34 +453,14 @@ verifying #402/#403's fix in production, different outcomes**: running the
 now-fixed `backfill_fx_rates`/`backfill_benchmark_prices` at real volume
 surfaced two separate vendor-data problems, not code bugs.
 
-- **#406, open**: `USDCNH` only has ~1 month of yfinance history
-  (`period="5y"` returns 1 row single-ticker, `period="max"` is rejected
-  outright — "must be one of: 1d, 5d") regardless of fetch strategy, vs.
-  the other 13 `_PAIRS` entries' full 5-year depth. Live-tested candidate
-  fallbacks: Sina's historical forex kline API is broken server-side for
-  *any* pair (confirmed against `USDCNY` too, not CNH-specific); Sina's
-  realtime quote works (`fx_susdcnh`, matches yfinance to 4 sig figs) but
-  can't backfill history; Tencent's forex quote symbol wasn't found;
-  Finnhub isn't provisioned (`FINNHUB_API_KEY` unset in production). No
-  working historical fallback exists yet — issue left open for a
-  product-owner decision (accept as documented limitation vs. scope a new
-  provider).
-- **#407, open**: `csi300` (`000300.SS`) had a genuine ~2-month yfinance
-  gap (2026-07-18 to 09-08), confirmed at the source (`yf.download` with
-  explicit `start`/`end` reproduces the identical hole) — this is why a
-  portfolio whose `tracking_start` falls in that window showed
-  "cannot value on tracking start, not comparable" for csi300, not a
-  freshness-timing issue. Unlike #406, a working fallback was found and
-  verified: Tencent's kline endpoint (`sh000300`, same endpoint/shape
-  #389 already validated for China ETF daily bars) returned complete
-  data across the gap, cross-checked against Yahoo at both edges
-  (agreement to within 0.0004). The 37 missing days were manually
-  back-filled into production via the existing `benchmark_prices._upsert`
-  (not raw SQL) after that verification — this is a one-off data patch,
-  not a fix; the gap is a standing, recurring yfinance reliability risk
-  for the *daily* capture path too, not just historical backfill, so the
-  issue stays open for wiring the verified Tencent fallback into both
-  `backfill_benchmark_prices.py` and `capture_benchmark_index_prices`.
+- **#406, closed**: `USDCNH` yfinance history is shallow; the one-off
+  Twelve Data fill is issue #411. No Tencent/Sina historical fallback.
+- **#407**: `csi300` (`000300.SS`) weekday holes after the Yahoo fetch
+  are filled from Tencent kline (`sh000300`) when a same-chain Yahoo
+  bar adjacent to the hole agrees
+  (`abs(x-y) <= max(0.01, abs(y)*0.0001)`). No anchor or a disagreement
+  writes nothing. Wired into `capture_benchmark_index_prices` and
+  `backfill_benchmark_prices`. sp500/dow30/nasdaq unchanged.
 
 ## Beat schedule
 
