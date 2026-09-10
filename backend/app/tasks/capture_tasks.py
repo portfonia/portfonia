@@ -11,9 +11,14 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any
 
+from celery.exceptions import Retry  # type: ignore[import-untyped]
+
+from app.services.capture_results import CaptureDataMiss, CaptureOutcome
+from app.services.china_session_calendar import ChinaSessionWindow
 from app.services.email_sender import send_ops_alert
 from app.services.github_issues import create_bug_report, truncate_text
 from app.tasks import celery_app
@@ -53,6 +58,162 @@ def _market_failure_entry(market: str, exc: BaseException) -> str:
         mark=_EXC_TRUNCATION_MARK,
     )
     return f"{market}: {detail}"
+
+
+def _window_from_context(
+    ctx: dict[str, Any], lookback_days: int, max_lag: int
+) -> ChinaSessionWindow:
+    as_of = datetime.fromisoformat(str(ctx["as_of_utc"]))
+    return ChinaSessionWindow(
+        as_of_utc=as_of,
+        window_start=date.fromisoformat(str(ctx["window_start"])),
+        window_end=date.fromisoformat(str(ctx["window_end"])),
+        latest_session=(
+            date.fromisoformat(str(ctx["latest_session"])) if ctx.get("latest_session") else None
+        ),
+        cutoff=date.fromisoformat(str(ctx["cutoff"])) if ctx.get("cutoff") else None,
+        calendar_status="ok" if ctx.get("calendar_status") == "ok" else "calendar_unknown",
+    )
+
+
+def _dump_window(window: ChinaSessionWindow) -> dict[str, Any]:
+    return {
+        "v": 1,
+        "as_of_utc": window.as_of_utc.isoformat(),
+        "window_start": window.window_start.isoformat(),
+        "window_end": window.window_end.isoformat(),
+        "latest_session": window.latest_session.isoformat() if window.latest_session else None,
+        "cutoff": window.cutoff.isoformat() if window.cutoff else None,
+        "calendar_status": window.calendar_status,
+    }
+
+
+def _load_nav_retry(
+    retry_context: dict[str, Any] | None,
+    lookback_days: int,
+    max_lag: int,
+    default_fund_codes: list[str] | None = None,
+) -> tuple[ChinaSessionWindow, tuple[str, ...] | None, int, list[str] | None]:
+    from app.services.china_session_calendar import freeze_capture_window
+
+    if not retry_context:
+        window = freeze_capture_window(datetime.now(tz=UTC), lookback_days, max_lag)
+        return window, None, 0, default_fund_codes
+    window = _window_from_context(retry_context, lookback_days, max_lag)
+    unresolved = retry_context.get("unresolved") or []
+    only_keys = tuple(str(k) for k in unresolved) if unresolved else None
+    written = int(retry_context.get("written") or 0)
+    codes = retry_context.get("fund_codes")
+    fund_codes = [str(c) for c in codes] if isinstance(codes, list) else default_fund_codes
+    return window, only_keys, written, fund_codes
+
+
+def _finish_nav_task(
+    task: Any,
+    outcome: CaptureOutcome,
+    window: ChinaSessionWindow,
+    prior_written: int,
+    fund_codes: list[str] | None,
+    lookback_days: int,
+    max_lag: int,
+    task_name: str,
+) -> dict[str, Any]:
+    from app.services.price_capture import emit_nav_terminal_diagnostics
+
+    total_written = prior_written + outcome.written
+    if outcome.unresolved and task.request.retries < task.max_retries:
+        raise task.retry(
+            kwargs={
+                "retry_context": {
+                    **_dump_window(window),
+                    "lookback_days": lookback_days,
+                    "fund_codes": fund_codes,
+                    "written": total_written,
+                    "unresolved": [t.key for t in outcome.unresolved],
+                }
+            },
+            countdown=task.default_retry_delay,
+        )
+    if outcome.unresolved:
+        emit_nav_terminal_diagnostics(
+            outcome.unresolved, as_of_date=window.window_end, max_lag_sessions=max_lag
+        )
+        raise CaptureDataMiss(
+            f"{task_name} exhausted retry/fallback with unresolved NAV keys",
+            CaptureOutcome(
+                written=total_written,
+                unresolved=outcome.unresolved,
+                recovered=outcome.recovered,
+                history_coverage=outcome.history_coverage,
+            ),
+        )
+    logger.info("%s: complete written=%d", task_name, total_written)
+    return {
+        "written": total_written,
+        "recovered": list(outcome.recovered),
+        "unresolved": [],
+        "history_coverage": outcome.history_coverage,
+    }
+
+
+def _load_price_retry(
+    retry_context: dict[str, Any] | None,
+    lookback_days: int,
+    max_lag: int,
+) -> tuple[ChinaSessionWindow, tuple[str, ...] | None, int, dict[str, dict[date, Any]]]:
+    from app.services._tencent import OhlcBar
+    from app.services.china_session_calendar import freeze_capture_window
+
+    if not retry_context:
+        window = freeze_capture_window(datetime.now(tz=UTC), lookback_days, max_lag)
+        return window, None, 0, {}
+    window = _window_from_context(retry_context, lookback_days, max_lag)
+    unresolved = retry_context.get("unresolved") or []
+    only_tickers = tuple(str(k) for k in unresolved) if unresolved else None
+    written = int(retry_context.get("written") or 0)
+    anchors: dict[str, dict[date, OhlcBar]] = {}
+    raw_anchors = retry_context.get("yahoo_ohlc") or {}
+    if isinstance(raw_anchors, dict):
+        for ticker, by_day in raw_anchors.items():
+            if not isinstance(by_day, dict):
+                continue
+            bars: dict[date, OhlcBar] = {}
+            for day_s, parts in by_day.items():
+                if not isinstance(parts, list) or len(parts) < 4:
+                    continue
+                day = date.fromisoformat(str(day_s))
+                bars[day] = OhlcBar(
+                    day,
+                    Decimal(str(parts[0])),
+                    Decimal(str(parts[1])),
+                    Decimal(str(parts[2])),
+                    Decimal(str(parts[3])),
+                )
+            if bars:
+                anchors[str(ticker)] = bars
+    return window, only_tickers, written, anchors
+
+
+def _dump_price_retry(
+    window: ChinaSessionWindow,
+    outcome: CaptureOutcome,
+    written: int,
+    retained: dict[str, dict[date, Any]],
+    lookback_days: int,
+) -> dict[str, Any]:
+    yahoo_ohlc: dict[str, dict[str, list[str]]] = {}
+    for ticker, bars in retained.items():
+        yahoo_ohlc[ticker] = {
+            day.isoformat(): [str(bar.open), str(bar.high), str(bar.low), str(bar.close)]
+            for day, bar in bars.items()
+        }
+    return {
+        **_dump_window(window),
+        "lookback_days": lookback_days,
+        "written": written,
+        "unresolved": [t.key for t in outcome.unresolved],
+        "yahoo_ohlc": yahoo_ohlc,
+    }
 
 
 def _capture_failed(task_name: str, exc: BaseException, context: str = "") -> None:
@@ -114,20 +275,97 @@ def capture_news_task(self: Any) -> dict[str, int]:
     max_retries=2,
     default_retry_delay=300,
 )
-def capture_prices_task(self: Any, market: str, session_node: str) -> dict[str, Any]:
+def capture_prices_task(
+    self: Any,
+    market: str,
+    session_node: str,
+    retry_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Capture one (market, session_node) into price_snapshots."""
+    from app.core.config import get_settings
     from app.core.database import SessionLocal
-    from app.services.price_capture import capture_prices
+    from app.services.price_capture import (
+        capture_prices,
+        capture_prices_attempt,
+        emit_etf_terminal_diagnostics,
+    )
 
+    if market != "A-Share" or session_node != "close":
+        session = SessionLocal()
+        try:
+            written = capture_prices(session, market, session_node)
+            return {"market": market, "session_node": session_node, "written": written}
+        except Retry:
+            raise
+        except Exception as exc:
+            logger.exception("capture_prices_task: failed for %s/%s", market, session_node)
+            if self.request.retries >= self.max_retries:
+                _capture_failed(
+                    "capture_prices_task",
+                    exc,
+                    context=f"market={market} session_node={session_node}",
+                )
+            raise self.retry(exc=exc) from exc
+        finally:
+            session.close()
+
+    settings = get_settings()
+    lookback_days = 7
     session = SessionLocal()
     try:
-        written = capture_prices(session, market, session_node)
-        return {"market": market, "session_node": session_node, "written": written}
+        window, only_tickers, prior_written, anchors = _load_price_retry(
+            retry_context, lookback_days, settings.FUND_NAV_MAX_LAG_SESSIONS
+        )
+        allow_fallback = self.request.retries >= self.max_retries
+        outcome, retained = capture_prices_attempt(
+            session,
+            market,
+            session_node,
+            window=window,
+            lookback_days=lookback_days,
+            only_tickers=only_tickers,
+            allow_fallback=allow_fallback,
+            yahoo_anchors=anchors,
+        )
+        total_written = prior_written + outcome.written
+        if outcome.unresolved and self.request.retries < self.max_retries:
+            raise self.retry(
+                kwargs={
+                    "retry_context": _dump_price_retry(
+                        window, outcome, total_written, retained, lookback_days
+                    )
+                },
+                countdown=self.default_retry_delay,
+            )
+        if outcome.unresolved:
+            emit_etf_terminal_diagnostics(outcome.unresolved)
+            raise CaptureDataMiss(
+                "A-Share ETF close capture exhausted retry/fallback with unresolved dates",
+                CaptureOutcome(
+                    written=total_written,
+                    unresolved=outcome.unresolved,
+                    recovered=outcome.recovered,
+                    history_coverage=outcome.history_coverage,
+                ),
+            )
+        return {
+            "market": market,
+            "session_node": session_node,
+            "written": total_written,
+            "recovered": list(outcome.recovered),
+            "unresolved": [],
+        }
+    except Retry:
+        raise
+    except CaptureDataMiss:
+        raise
     except Exception as exc:
         logger.exception("capture_prices_task: failed for %s/%s", market, session_node)
         if self.request.retries >= self.max_retries:
             _capture_failed(
-                "capture_prices_task", exc, context=f"market={market} session_node={session_node}"
+                "capture_prices_task",
+                exc,
+                context=f"market={market} session_node={session_node}",
             )
         raise self.retry(exc=exc) from exc
     finally:
@@ -242,15 +480,44 @@ def capture_fx_task(self: Any) -> dict[str, Any]:
     max_retries=2,
     default_retry_delay=300,
 )
-def capture_fund_navs_task(self: Any) -> dict[str, int]:
+def capture_fund_navs_task(
+    self: Any, retry_context: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Fetch settled NAV history from Tiantian Fund for fund_code holdings into price_snapshots."""
+    from app.core.config import get_settings
     from app.core.database import SessionLocal
-    from app.services.price_capture import capture_fund_navs
+    from app.services.price_capture import capture_fund_navs_attempt
 
+    settings = get_settings()
+    lookback_days = 30
     session = SessionLocal()
     try:
-        written = capture_fund_navs(session)
-        return {"written": written}
+        window, only_keys, prior_written, fund_codes = _load_nav_retry(
+            retry_context, lookback_days, settings.FUND_NAV_MAX_LAG_SESSIONS
+        )
+        allow_fallback = self.request.retries >= self.max_retries
+        outcome = capture_fund_navs_attempt(
+            session,
+            window=window,
+            lookback_days=lookback_days,
+            fund_codes=fund_codes,
+            only_keys=only_keys,
+            allow_fallback=allow_fallback,
+        )
+        return _finish_nav_task(
+            self,
+            outcome,
+            window,
+            prior_written,
+            fund_codes,
+            lookback_days,
+            settings.FUND_NAV_MAX_LAG_SESSIONS,
+            task_name="capture_fund_navs_task",
+        )
+    except Retry:
+        raise
+    except CaptureDataMiss:
+        raise
     except Exception as exc:
         logger.exception("capture_fund_navs_task: failed")
         if self.request.retries >= self.max_retries:
@@ -270,7 +537,11 @@ def capture_fund_navs_task(self: Any) -> dict[str, int]:
     max_retries=1,
     default_retry_delay=60,
 )
-def backfill_fund_navs_task(self: Any, fund_codes: list[str] | None = None) -> dict[str, Any]:
+def backfill_fund_navs_task(
+    self: Any,
+    fund_codes: list[str] | None = None,
+    retry_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Fetch settled NAV history for the given fund_codes.
 
     Dispatched by confirm_holdings for this user's auto-priced funds that have
@@ -280,30 +551,47 @@ def backfill_fund_navs_task(self: Any, fund_codes: list[str] | None = None) -> d
     (compute_technical_positions skips no-ticker holdings), so this is a
     valuation/anomaly cold-start, not a 420-day OHLCV seed.
     """
+    from app.core.config import get_settings
     from app.core.database import SessionLocal
-    from app.services.price_capture import capture_fund_navs
+    from app.services.price_capture import capture_fund_navs_attempt
 
-    if not fund_codes:
+    if not fund_codes and retry_context is None:
         logger.info("backfill_fund_navs_task: no fund_codes requested")
         return {"written": 0}
 
-    _LOOKBACK_DAYS = 30
+    settings = get_settings()
+    lookback_days = 30
     session = SessionLocal()
     try:
-        written = capture_fund_navs(session, lookback_days=_LOOKBACK_DAYS, fund_codes=fund_codes)
-        if written == 0:
-            # fetch_nav_history swallows HTTP/parse errors as []. A total miss
-            # here is the #196 incident with no signal: the daily beat will
-            # retry tomorrow, but this one-shot would otherwise SUCCESS.
-            logger.warning(
-                "backfill_fund_navs_task: wrote 0 bars for %d requested fund_code(s)",
-                len(fund_codes),
-            )
-            raise RuntimeError(
-                f"NAV capture wrote 0 bars for {len(fund_codes)} requested fund_code(s)"
-            )
-        logger.info("backfill_fund_navs_task: complete — %d bars total", written)
-        return {"written": written}
+        window, only_keys, prior_written, codes = _load_nav_retry(
+            retry_context,
+            lookback_days,
+            settings.FUND_NAV_MAX_LAG_SESSIONS,
+            default_fund_codes=fund_codes,
+        )
+        allow_fallback = self.request.retries >= self.max_retries
+        outcome = capture_fund_navs_attempt(
+            session,
+            window=window,
+            lookback_days=lookback_days,
+            fund_codes=codes,
+            only_keys=only_keys,
+            allow_fallback=allow_fallback,
+        )
+        return _finish_nav_task(
+            self,
+            outcome,
+            window,
+            prior_written,
+            codes,
+            lookback_days,
+            settings.FUND_NAV_MAX_LAG_SESSIONS,
+            task_name="backfill_fund_navs_task",
+        )
+    except Retry:
+        raise
+    except CaptureDataMiss:
+        raise
     except Exception as exc:
         logger.exception("backfill_fund_navs_task: failed")
         if self.request.retries >= self.max_retries:

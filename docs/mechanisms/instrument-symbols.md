@@ -26,7 +26,7 @@ reviewed PRs — no combined implementation, no reordering:
   the holdings write path and price consumers (`price_capture`,
   `price_fetcher`, `portfolio_calculator`, `technical_position`,
   `routers.holdings` sparse-history, the yfinance/Finnhub/Massive provider
-  boundaries) plus the market/suffix classification tables that used to live
+  boundaries, plus Tencent `sh`/`sz` ticker adaptation in issue #389) plus the market/suffix classification tables that used to live
   separately in `app.services.markets` and `holding_parser.py`. Left a
   checked-in allowlist of five still-pending intelligence/report consumers.
 - **57-3** (this stage): migrated the remaining five consumers

@@ -358,8 +358,9 @@ the sibling `portfolio-agent` project's `collector_v2.py::_sina_fund_nav`,
 which hit and solved this same block on 2026-07-30 and cross-validated Sina's
 numbers against Tencent's `qt.gtimg.cn/q=jj{code}` as a second source.
 
-- **Scope**: only the realtime path. `fetch_nav_history`/`capture_fund_navs`
-  (lsjz) needed no fallback — confirmed working, left unchanged.
+- **Scope of #20**: only the realtime path. Historical lsjz later gained a
+  bounded Sina latest-NAV fallback after primary retry (issue #389); that is
+  a separate capture-path change and does not alter this realtime helper.
 - **Verification**: production `curl` (two fund codes, two Eastmoney block
   hits, one Sina success matching the expected `name,nav,nav,cum_nav,date,...`
   shape) before writing any code; TDD red→green in the worktree afterward.
@@ -373,7 +374,12 @@ numbers against Tencent's `qt.gtimg.cn/q=jj{code}` as a second source.
   green (499 passed).
 - **Test-infra gotcha hit while adding the log-level tests**: see "Tests"
   section below (`caplog` + alembic `fileConfig`).
-- **Separate finding, not fixed by this change, tracked as issue #135**:
+- **Separate finding, later extracted to issue #389**: the original
+  scheduler/restart question remains unconfirmed. Recovery work (swallowed
+  empty results, bounded Sina/Tencent fallback) lives in #389; closing #135
+  is administrative consolidation, not a root-cause claim.
+
+- **Historical note (issue #135, 2026-08-13)**:
   while investigating, 3 production holdings (fund_codes
   019547/110011/008142, `pricing_mode=auto`) were found with 0
   `price_snapshots` rows despite `lsjz` being reachable and
@@ -395,22 +401,19 @@ mixed run writes rows for every fund but different funds land at different
 stale trade_dates, and the logs that would explain why keep getting wiped by
 unrelated deploys):
 
-- **Stale latest NAV**: freshest returned `nav_date` more than one A-share
-  trading session behind the freshest completed session → per-fund WARNING +
-  ops alert `ops-fund-nav-stale-{fund_code}-{nav_date}`. Sessions are
-  approximated as weekdays (no China holiday table in the codebase — weekends
-  handled correctly, long holiday weeks can over-count; swap in a real XSHG
-  calendar if logs ever show false positives). The same-evening slack (+1
-  session) applies only when `today` itself is a trading day: Friday NAV on
-  Monday before the Monday-evening publish is the expected 1-session lag and
-  stays silent, Thursday NAV on Monday (the 513500 shape) alerts; a weekend
-  `today` (confirm-time backfill) has no pending same-evening publish, so the
-  reference is the last completed session — Friday NAV on Saturday is fine,
-  Thursday NAV on Saturday means the Friday session was missed and alerts.
-- **Missing NAV history**: `fetch_nav_history` returning `[]` for a fund
-  (HTTP/parse miss, or no rows in the lookback window) → per-fund WARNING +
-  ops alert `ops-fund-nav-empty-{fund_code}-{cst_date}`, re-surfacing daily
-  while the miss persists.
+- **Stale latest NAV** (updated by issue #389): freshest NAV older than
+  `FUND_NAV_MAX_LAG_SESSIONS` (default 2) completed XSHG sessions behind the
+  latest session whose close is `<= as_of_utc` → per-fund WARNING + ops
+  alert `ops-fund-nav-stale-{fund_code}-{nav_date}` after bounded primary
+  retry and Sina fallback. Closed sessions (weekends/holidays) do not add
+  lag; calendar coverage outside XSHG range is `calendar_unknown`, never a
+  weekday guess. This is an operational capture/alert threshold, not a
+  disclosure deadline.
+- **Missing NAV history**: empty or invalid Eastmoney history after retry +
+  Sina latest-NAV fallback → per-fund WARNING + ops alert
+  `ops-fund-nav-empty-{fund_code}-{frozen_as_of_date}`. A positive aggregate
+  write count cannot hide one unresolved fund. Terminal alerts run after
+  retry/fallback, not from the integer `capture_fund_navs` wrapper.
 - **Durable dedup** (`app/core/alert_dedup.py`, same swappable-backend shape
   as `idle_activity.py`): Resend's 24h Idempotency-Key only collapses
   same-task retries, which is not enough for a 24h-apart weekday beat — the
@@ -422,11 +425,33 @@ unrelated deploys):
   (deliberately opposite `rate_limit.py`'s fail-closed convention): losing
   the dedup is better than losing the alert.
 
-Observability only: capture behavior and the `capture-fund-navs-daily` beat
-(20:00 CST Mon-Fri) are untouched. The check lives inside
-`capture_fund_navs`, so the confirm-time `backfill_fund_navs_task` path gets
-the same signals. Cross-ref: issue #135 (same symptom, root cause still
-unconfirmed — this is the instrumentation for it, not a fix).
+Issue #389 keeps the #298 dedup keys and moves the terminal send after
+retry/fallback. Confirm-time `backfill_fund_navs_task` uses the same
+per-code outcome with initial + one retry at 60s. Cross-ref: issue #135
+(historical scheduler question, still unconfirmed) and issue #389 (bounded
+fallback + swallowed-empty retry).
+
+### Bounded China NAV/ETF fallback (issue #389)
+
+Daily `capture_fund_navs_task` / A-Share `capture_prices_task(..., "close")`
+retry unresolved instruments (including valid empty and partial-batch
+failures) for initial + 2 attempts, 300s apart, then:
+
+- Funds: Eastmoney lsjz history → Sina latest settled unit NAV (`DWJZ` /
+  field 1, never accumulated NAV). Latest-only recovery is not a 30-day
+  history repair.
+- Eligible A-Share CNY ETFs: Yahoo adjusted daily bars → Tencent raw daily
+  bars, admitted only when a same-chain Yahoo OHLC anchor agrees with
+  Tencent raw and Tencent raw/qfq agree across every completed session in
+  the interval (`abs(x-y) <= max(1e-6, abs(y)*1e-6)`). No Yahoo anchor,
+  dividend/split disagreement, or missing qfq bar is `unsupported_adjustment`
+  with no write.
+
+Fallback upserts are insert-or-fill-unusable-close only (atomic PostgreSQL
+`ON CONFLICT ... WHERE`); a valid existing close is never overwritten.
+Handled data misses raise `CaptureDataMiss` without `_capture_failed`
+(no duplicate GitHub auto-issue). Confirm-time OHLCV backfill and Beat
+entries are unchanged. Separate from #406 (USDCNH) and #407 (csi300).
 
 
 ### Capture layer + incremental reporting (ADR-002)

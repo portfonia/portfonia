@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+from celery.exceptions import Retry  # type: ignore[import-untyped]
 
 from app.core.timezones import ET, HKT
 from app.tasks import celery_app
@@ -241,23 +242,25 @@ def test_capture_fx_task(mock_update: MagicMock, mock_session_cls: MagicMock) ->
 
 
 @patch("app.core.database.SessionLocal")
-@patch("app.services.price_capture.capture_fund_navs", return_value=8)
+@patch("app.services.price_capture.capture_fund_navs_attempt")
 def test_capture_fund_navs_task_is_full_universe(
     mock_cap: MagicMock, mock_session_cls: MagicMock
 ) -> None:
     """Daily beat path stays unscoped — no fund_codes filter (#196)."""
+    from app.services.capture_results import CaptureOutcome
     from app.tasks.capture_tasks import capture_fund_navs_task
 
     session = MagicMock()
     mock_session_cls.return_value = session
+    mock_cap.return_value = CaptureOutcome(8, (), (), {})
     result = capture_fund_navs_task.run()
-    assert result == {"written": 8}
-    mock_cap.assert_called_once_with(session)
+    assert result["written"] == 8
+    assert mock_cap.call_args.kwargs["fund_codes"] is None
     session.close.assert_called_once()
 
 
 @patch("app.core.database.SessionLocal")
-@patch("app.services.price_capture.capture_fund_navs", return_value=8)
+@patch("app.services.price_capture.capture_fund_navs_attempt")
 def test_backfill_fund_navs_task_no_codes_is_noop(
     mock_cap: MagicMock, mock_session_cls: MagicMock
 ) -> None:
@@ -269,35 +272,119 @@ def test_backfill_fund_navs_task_no_codes_is_noop(
 
 
 @patch("app.core.database.SessionLocal")
-@patch("app.services.price_capture.capture_fund_navs", return_value=8)
+@patch("app.services.price_capture.capture_fund_navs_attempt")
 def test_backfill_fund_navs_task_passes_codes_and_scheduled_lookback(
     mock_cap: MagicMock, mock_session_cls: MagicMock
 ) -> None:
     """Confirm-time NAV pull is 30 days, not the ticker path's 420 (#196)."""
+    from app.services.capture_results import CaptureOutcome
     from app.tasks.capture_tasks import backfill_fund_navs_task
 
     session = MagicMock()
     mock_session_cls.return_value = session
+    mock_cap.return_value = CaptureOutcome(8, (), (), {})
     result = backfill_fund_navs_task.run(["513100"])
-    assert result == {"written": 8}
-    mock_cap.assert_called_once_with(session, lookback_days=30, fund_codes=["513100"])
+    assert result["written"] == 8
+    assert mock_cap.call_args.kwargs["lookback_days"] == 30
+    assert mock_cap.call_args.kwargs["fund_codes"] == ["513100"]
     session.close.assert_called_once()
 
 
 @patch("app.core.database.SessionLocal")
-@patch("app.services.price_capture.capture_fund_navs", return_value=0)
-def test_backfill_fund_navs_task_zero_writes_is_retryable(
+@patch("app.services.price_capture.capture_fund_navs_attempt")
+def test_backfill_fund_navs_task_unresolved_is_retryable(
     mock_cap: MagicMock, mock_session_cls: MagicMock
 ) -> None:
-    """lsjz swallowing every error used to SUCCESS with written=0 and no alert."""
+    """A swallowed empty history must retry, not SUCCESS on written=0."""
+    from app.services.capture_results import CaptureOutcome, CaptureTarget
     from app.tasks.capture_tasks import backfill_fund_navs_task
 
     session = MagicMock()
     mock_session_cls.return_value = session
-    with pytest.raises(RuntimeError, match="0 bars"):
+    mock_cap.return_value = CaptureOutcome(
+        0,
+        (CaptureTarget(key="513100", market="A-Share", kind="nav", reason="missing"),),
+        (),
+        {},
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_retry(**kwargs: object) -> None:
+        captured.update(kwargs)
+        raise Retry("retry")
+
+    with (
+        patch.object(backfill_fund_navs_task, "retry", side_effect=fake_retry),
+        pytest.raises(Retry),
+    ):
         backfill_fund_navs_task.run(["513100"])
-    mock_cap.assert_called_once()
+    assert captured.get("countdown") == 60
     session.close.assert_called_once()
+
+
+@patch("app.core.database.SessionLocal")
+@patch("app.services.price_capture.capture_fund_navs_attempt")
+def test_capture_fund_navs_task_retries_unresolved_after_300s(
+    mock_cap: MagicMock, mock_session_cls: MagicMock
+) -> None:
+    from app.services.capture_results import CaptureOutcome, CaptureTarget
+    from app.tasks.capture_tasks import capture_fund_navs_task
+
+    session = MagicMock()
+    mock_session_cls.return_value = session
+    mock_cap.return_value = CaptureOutcome(
+        4,
+        (CaptureTarget(key="019547", market="A-Share", kind="nav", reason="transport"),),
+        (),
+        {"008142": "primary_window"},
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_retry(**kwargs: object) -> None:
+        captured.update(kwargs)
+        raise Retry("retry")
+
+    with (
+        patch.object(capture_fund_navs_task, "retry", side_effect=fake_retry),
+        pytest.raises(Retry),
+    ):
+        capture_fund_navs_task.run()
+    assert captured.get("countdown") == 300
+    ctx = captured["kwargs"]["retry_context"]  # type: ignore[index]
+    assert ctx["unresolved"] == ["019547"]
+    assert ctx["written"] == 4
+
+
+@patch("app.core.database.SessionLocal")
+@patch("app.services.price_capture.capture_fund_navs_attempt")
+@patch("app.services.price_capture.emit_nav_terminal_diagnostics")
+def test_nav_task_terminal_miss_does_not_call_capture_failed(
+    mock_emit: MagicMock, mock_cap: MagicMock, mock_session_cls: MagicMock
+) -> None:
+    from app.services.capture_results import CaptureDataMiss, CaptureOutcome, CaptureTarget
+    from app.tasks.capture_tasks import capture_fund_navs_task
+
+    session = MagicMock()
+    mock_session_cls.return_value = session
+    mock_cap.return_value = CaptureOutcome(
+        0,
+        (CaptureTarget(key="019547", market="A-Share", kind="nav", reason="missing"),),
+        (),
+        {},
+    )
+    capture_fund_navs_task.push_request(retries=2)
+    try:
+        with (
+            patch("app.tasks.capture_tasks._capture_failed") as failed,
+            pytest.raises(CaptureDataMiss),
+        ):
+            capture_fund_navs_task.run()
+        failed.assert_not_called()
+        mock_emit.assert_called_once()
+    finally:
+        capture_fund_navs_task.pop_request()
 
 
 def test_backfill_sectors_task_no_ids_is_noop() -> None:

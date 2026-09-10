@@ -182,6 +182,18 @@ class Settings(BaseSettings):
     # (T-1 onward), no same-day data. Used as a close-node OHLCV fallback.
     MASSIVE_API_KEY: SecretStr | None = None
 
+    # Operational China fund-NAV lag tolerance (issue #389). Count of
+    # completed XSHG sessions behind the latest closed session that still
+    # count as fresh. Capture/alert policy, not a disclosure deadline.
+    FUND_NAV_MAX_LAG_SESSIONS: int = 2
+
+    @field_validator("FUND_NAV_MAX_LAG_SESSIONS")
+    @classmethod
+    def _validate_fund_nav_max_lag_sessions(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError("FUND_NAV_MAX_LAG_SESSIONS must be >= 0")
+        return v
+
     # Twelve Data (issue #406): yfinance only returns ~1 month of USDCNH
     # history (Yahoo classifies this specific cross as a limited-history
     # quote type), unlike every other _PAIRS entry. Confirmed live that

@@ -295,6 +295,15 @@ class TestToProviderSymbol:
     def test_us_fallbacks_reject_fund_code(self, provider: str) -> None:
         assert to_provider_symbol(provider, InstrumentKey("fund_code", "005827")) is None  # type: ignore[arg-type]
 
+    def test_tencent_maps_ss_sz_six_digit_tickers(self) -> None:
+        assert to_provider_symbol("tencent", InstrumentKey("ticker", "513500.SS")) == "sh513500"
+        assert to_provider_symbol("tencent", InstrumentKey("ticker", "159915.SZ")) == "sz159915"
+
+    def test_tencent_rejects_non_ashare_and_fund_code(self) -> None:
+        assert to_provider_symbol("tencent", InstrumentKey("ticker", "AAPL")) is None
+        assert to_provider_symbol("tencent", InstrumentKey("ticker", "0700.HK")) is None
+        assert to_provider_symbol("tencent", InstrumentKey("fund_code", "019547")) is None
+
 
 class TestBuildProviderRequestPlan:
     def test_forward_and_inverse_map_agree(self) -> None:

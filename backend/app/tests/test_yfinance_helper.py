@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from unittest.mock import patch
 
 import pandas as pd
@@ -23,6 +23,7 @@ from app.services._yfinance import (
     _scale_price,
     fetch_last_close,
     fetch_ohlcv_range,
+    fetch_ohlcv_range_bounded,
     fetch_spot,
 )
 
@@ -456,6 +457,37 @@ def test_fetch_ohlcv_range_logs_telemetry(caplog: pytest.LogCaptureFixture) -> N
     telemetry = [r for r in caplog.records if "source=yfinance" in r.getMessage()]
     assert len(telemetry) == 1
     assert "ticker_count=1" in telemetry[0].getMessage()
+
+
+def test_fetch_ohlcv_range_bounded_passes_start_and_exclusive_end() -> None:
+    captured: dict[str, object] = {}
+
+    def fake_download(**kwargs: object) -> pd.DataFrame:
+        captured.update(kwargs)
+        return pd.DataFrame()
+
+    with patch("app.services._yfinance.yf.download", side_effect=fake_download):
+        fetch_ohlcv_range_bounded(["513500.SS"], date(2026, 9, 1), date(2026, 9, 9))
+
+    assert captured["start"] == "2026-09-01"
+    assert captured["end"] == "2026-09-09"
+    assert captured["auto_adjust"] is True
+    assert "period" not in captured
+
+
+def test_fetch_ohlcv_range_period_path_does_not_pass_start_end() -> None:
+    captured: dict[str, object] = {}
+
+    def fake_download(**kwargs: object) -> pd.DataFrame:
+        captured.update(kwargs)
+        return pd.DataFrame()
+
+    with patch("app.services._yfinance.yf.download", side_effect=fake_download):
+        fetch_ohlcv_range(["AAPL"], lookback_days=7)
+
+    assert captured["period"] == "7d"
+    assert "start" not in captured
+    assert "end" not in captured
 
 
 def test_fetch_spot_logs_telemetry(caplog: pytest.LogCaptureFixture) -> None:
