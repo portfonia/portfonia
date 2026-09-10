@@ -430,6 +430,24 @@ HKD (plus one other `_PAIRS` currency, e.g. EUR). Comparable benchmark
 depth. Remote paths and host identifiers stay in the private ops vault,
 not this file.
 
+**Issues #402/#403 (2026-09-09) — both one-off seed scripts hit the #194
+param-limit bug**: `backfill_fx_rates.py`'s bulk `fx_fetcher._upsert_fx_history`
+(issue #402, PR #404 — reproduced live in production: ~5y x 14 pairs x 5
+columns ~= 87,850 bound params, over PostgreSQL's 65535-per-statement cap)
+and `backfill_benchmark_prices.py`'s bulk `benchmark_prices._upsert` (issue
+#403, PR #405 — found by inspection, not yet a production incident) each
+built one unbounded `INSERT` — the same bug class `price_capture.py`'s
+`_upsert` was fixed for in issue #194 (see `capture-and-reporting.md`'s
+OHLCV upsert entry for #194's original fix). `_upsert_fx_history` now
+chunks at 5000 rows/batch
+(`_UPSERT_BATCH_SIZE`); `benchmark_prices._upsert` chunks at 2000
+rows/batch (`_UPSERT_CHUNK_SIZE`, matching #194's original margin for its
+narrower 4-column rows). Both PRs landed independently within hours of
+each other (#404 first; #405 was rebased on top and dropped its own
+now-redundant copy of the `fx_fetcher.py` fix). Full incident detail and
+the "why not a shared chunked-upsert helper" call: `capture-and-reporting.md`'s
+"Same 65535-param bug recurred twice more" entry.
+
 ## Beat schedule
 
 `capture-portfolio-value-snapshot-daily` / `capture-benchmark-index-prices-

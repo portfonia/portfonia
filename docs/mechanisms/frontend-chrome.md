@@ -372,4 +372,19 @@ switcher itself is home-only", and the `npm run test` reference) describe the
   `[Established]`/`[Probable]`/`[Speculative]`) against
   `backend/config/i18n_glossary.yml`.
 
+### LocaleSwitcher rebuild on MenuDropdown + flag-icons (issue #350 item 4)
+
+`components/locale-switcher.tsx` was a plain native `<select>` — rebuilt on
+the same `MenuDropdown`/Base UI `Menu` primitives `GetStartedMenu` already
+used, for a consistent dropdown affordance across the header. Adds
+`flag-icons` (MIT-licensed, SVG, ISO 3166-1-alpha-2 codes) as a per-locale
+flag: English → `us`, Simplified Chinese → `cn`, Traditional Chinese →
+`tw`. Same change lifted `zh-Hant`'s `UNREVIEWED_LOCALES` gate (see
+"Global message catalog" above and `frontend/src/locales/README.md`'s
+"zh-Hant review status" for that gate's full history) — the product owner
+chose to ship the LLM-drafted catalog without native-speaker review rather
+than wait, a deliberate logged decision, not an oversight. `currency-
+switcher.tsx` (issue #354) was later rebuilt on the same primitives —
+see `capture-and-reporting.md`'s per-pair FX entry.
+
 
