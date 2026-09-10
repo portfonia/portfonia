@@ -343,7 +343,7 @@ def _day_value(rows: list[PortfolioValueSnapshot]) -> Decimal | None:
 def _day_currency(rows: list[PortfolioValueSnapshot]) -> str | None:
     """The currency `market_value_base` is actually denominated in for one
     (user, day)'s rows. All of a day's rows share exactly one value — one
-    `write_user_snapshot` call resolves `report_currency_for` ONCE per day
+    `stage_user_snapshot` call resolves `report_currency_for` ONCE per day
     (issue #367 review finding A, blacktomb42): a user's `users.
     base_currency` preference can change BETWEEN two capture days
     (`PATCH /me/report-currency`), so a single global "canonical currency"

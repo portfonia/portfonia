@@ -2,11 +2,22 @@
 `app/tasks/capture_tasks.py` (daily beat task) and read by
 `app/services/portfolio_performance.py`.
 
-The `is_backfilled`/`upsert=False` write path and the run-time FX fallback
-below exist only for legacy-safety (issue #366 retired the composition-
-replay backfill script that was their sole caller — no product path writes
-`is_backfilled=True` rows anymore; `portfolio_performance.py`'s read path
-excludes any that still exist).
+Writing a day is two-phase since issue #373 (Scenario 2), so that a computed
+day survives a failure to publish it:
+
+1. `stage_user_snapshot` resolves holdings/prices/FX for one (user, day) and
+   freezes the intended rows in `portfolio_snapshot_outbox` (`computed`).
+   The caller commits.
+2. `apply_outbox_row` publishes that frozen payload to
+   `portfolio_value_snapshots`, flips the batch to `complete` and the outbox
+   row to `applied`, all in one transaction. `snapshot_recovery` replays the
+   same path for a day whose apply never landed.
+
+The daily fan-out's commit boundary stays batch-level (one transaction for
+every user's apply), not per-user — decided while implementing #373 and
+documented in `docs/mechanisms/portfolio-performance.md`; the freeze-then-
+apply split is what makes a whole-day rollback recoverable, so a per-user
+boundary buys isolation this write path has no per-user failure mode to need.
 
 Valuation here deliberately does NOT call `compute_portfolio`/
 `portfolio_calculator` (CLAUDE.md: do not change summary's
@@ -24,19 +35,27 @@ from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from functools import partial
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.models.fx_rate import FxRate
 from app.models.holding import Holding
 from app.models.portfolio_snapshot_batch import PortfolioSnapshotBatch
+from app.models.portfolio_snapshot_outbox import PortfolioSnapshotOutbox
 from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
 from app.models.price_snapshot import PriceSnapshot
 from app.models.user import User
 from app.services.fx_conversion import CURRENCY_TO_FX_PAIR, fx_multiplier, to_base
 from app.services.instrument_symbols import normalize_legacy_ticker
 from app.services.markets import is_capture_supported
+from app.services.snapshot_outbox import (
+    OutboxPayloadError,
+    decode_payload,
+    mark_outbox_applied,
+    prune_applied_outbox,
+    upsert_computed_outbox_row,
+)
 from app.services.user_scope import report_currency_for
 
 logger = logging.getLogger(__name__)
@@ -272,19 +291,6 @@ def _upsert_rows(session: Session, rows: list[dict[str, object]]) -> int:
     return len(session.execute(result).fetchall())
 
 
-def _insert_rows_skip_existing(session: Session, rows: list[dict[str, object]]) -> int:
-    """Backfill write mode: never overwrite an existing row (D2 amendment)."""
-    if not rows:
-        return 0
-    stmt = (
-        pg_insert(PortfolioValueSnapshot)
-        .values(rows)
-        .on_conflict_do_nothing(constraint="uq_portfolio_value_snapshots_holding")
-        .returning(PortfolioValueSnapshot.id)
-    )
-    return len(session.execute(stmt).fetchall())
-
-
 def get_or_create_batch(
     session: Session, user_id: uuid.UUID, snapshot_date: date
 ) -> PortfolioSnapshotBatch:
@@ -303,26 +309,21 @@ def get_or_create_batch(
     return batch
 
 
-def write_user_snapshot(
-    session: Session,
-    user_id: uuid.UUID,
-    snapshot_date: date,
-    *,
-    is_backfilled: bool = False,
-    upsert: bool = True,
-    run_time_fx_rates: dict[str, Decimal] | None = None,
+def stage_user_snapshot(
+    session: Session, user_id: uuid.UUID, snapshot_date: date
 ) -> tuple[int, str]:
-    """Write every holding's row for one user/day. Returns (rows_written, batch_status).
+    """Phase 1 of the write path: freeze one user/day's intended rows.
 
-    `upsert=True` (daily task / catch-up): refresh existing rows for the
-    same key. `upsert=False` (backfill): never overwrite an existing row.
+    Returns `(rows_frozen, status)` with status `"computed"` (payload frozen
+    in the outbox, batch left `pending`) or `"skipped_deps"`. Commits nothing:
+    the caller commits the freeze *before* applying it, which is what makes a
+    computed-but-unpublished day replayable (issue #373).
 
-    Batch dependency check (design "Batch completeness"): if the user has
-    at least one holding whose currency needs an FX pair this render can't
-    resolve for `snapshot_date` at all, and no run-time fallback was
-    supplied, the whole day is marked `skipped_deps` and NO rows are
-    written — the daily task's next catch-up run covers it instead of
-    silently writing a partial day.
+    Batch dependency check (design "Batch completeness"): if the user has at
+    least one holding whose currency needs an FX pair this render can't
+    resolve for `snapshot_date` at all, the whole day is marked `skipped_deps`
+    and NO payload is frozen — the day is left for the catch-up run instead of
+    silently freezing a partial one.
 
     This gate is deliberately FX-only, not FX-AND-price (review 5124107298
     finding 3 flagged this asymmetry). A symmetric price-readiness check —
@@ -341,23 +342,20 @@ def write_user_snapshot(
     holdings = list(session.execute(select(Holding).where(Holding.user_id == user_id)).scalars())
     batch = get_or_create_batch(session, user_id, snapshot_date)
     if not holdings:
-        batch.status = "complete"
-        session.flush()
-        return 0, batch.status
+        # Empty book — D5's real $0 case. Both halves matter: the batch stays
+        # not-`complete` until the apply phase publishes it (so `complete`
+        # always implies published rows or a published empty book), and the
+        # empty payload is frozen so a failed exit-day apply is replayable.
+        upsert_computed_outbox_row(session, user_id, snapshot_date, [])
+        return 0, "computed"
 
     base_currency = report_currency_for(session, user_id, "USD")
     fx_rates = historical_fx_rates_asof(session, snapshot_date)
-    needed_pairs = required_fx_pairs(holdings, base_currency)
-    missing_pairs = needed_pairs - set(fx_rates)
-
-    if missing_pairs and (not is_backfilled or run_time_fx_rates is None):
-        # Live daily path: FX capture hasn't finished for this date yet —
-        # never write a partial day, retry on the next catch-up. Backfill
-        # with no run-time fallback rates at all is a caller error (the
-        # backfill script always supplies them, D2/D6) — same outcome.
+    missing_pairs = required_fx_pairs(holdings, base_currency) - set(fx_rates)
+    if missing_pairs:
         batch.status = "skipped_deps"
         session.flush()
-        return 0, batch.status
+        return 0, "skipped_deps"
 
     price_lookup: PriceLookupFn = partial(historical_price, session)
     rows = [
@@ -368,44 +366,94 @@ def write_user_snapshot(
             base_currency,
             fx_rates,
             price_lookup,
-            is_backfilled=is_backfilled,
-            run_time_fx_rates=run_time_fx_rates if missing_pairs else None,
+            is_backfilled=False,
         )
         for h in holdings
     ]
-    written = _upsert_rows(session, rows) if upsert else _insert_rows_skip_existing(session, rows)
-    batch.status = "complete"
-    session.flush()
-    return written, batch.status
+    upsert_computed_outbox_row(session, user_id, snapshot_date, rows)
+    return len(rows), "computed"
 
 
-def capture_portfolio_value_snapshot(
-    session: Session, snapshot_date: date | None = None
-) -> dict[str, int]:
-    """Daily beat entry point: write today's snapshot for every active user
-    with at least one holding, OR who has ever been tracked before (issue
-    #367 review finding B, blacktomb42, review 5563537095). Scheduled
-    after the day's price-capture and FX-fetch tasks (see
-    app/tasks/__init__.py) so `write_user_snapshot`'s dependency check
-    almost always finds today's FX rate already there; when it doesn't (a
-    delayed FX task), that user's day is marked `skipped_deps` and picked
-    up by the next run rather than silently understating today's value.
+def apply_outbox_row(session: Session, outbox_row: PortfolioSnapshotOutbox) -> int:
+    """Phase 2 / recovery replay: publish a frozen payload to the live tables.
 
-    The "ever tracked" half of the OR matters for a genuine full exit:
-    `write_user_snapshot` already handles zero holdings correctly (marks
-    the batch `complete` with zero rows written, D5's real $0 case) — but
-    that only runs if this function calls it at all. Selecting ONLY users
-    currently in `holdings` meant a user whose LAST holding was deleted
-    dropped out of this list permanently, so the exit day's zero-holdings
-    batch never got written, and later `GET /portfolio/performance` calls
-    read the portfolio as frozen at its last real value instead of
-    reflecting the exit. Once a user has any `portfolio_snapshot_batches`
-    row at all, they stay in this daily fan-out for good — correct and
-    cheap, since `write_user_snapshot`'s own zero-holdings branch is a
-    single early-return with no further queries.
+    Delete-replace, not upsert-only (issue #373 Design step 1 "delete/replace of
+    that day's rows" + Contract 4): the day's live rows are made to *equal* the
+    payload — rows whose `holding_id` is absent from it are removed, and an
+    empty payload clears the day. Live rows, the `complete` batch status and
+    the outbox `applied` flip are written in one transaction, so a `complete`
+    batch always has exactly the payload's rows behind it — whether they got
+    there from the daily run or from a replay.
+
+    Raises `OutboxPayloadError` if the payload can't be decoded (recovery
+    treats that as `failed`; see `app.services.snapshot_recovery`).
     """
-    target_date = snapshot_date or date.today()
-    user_ids = list(
+    rows = decode_payload(outbox_row.payload, outbox_row.checksum)
+    frozen_holding_ids: set[uuid.UUID] = set()
+    for row in rows:
+        if row["user_id"] != outbox_row.user_id or row["snapshot_date"] != outbox_row.snapshot_date:
+            raise OutboxPayloadError("snapshot outbox payload does not match its own user/date")
+        holding_id = row["holding_id"]
+        if not isinstance(holding_id, uuid.UUID):
+            raise OutboxPayloadError("snapshot outbox payload row is missing its holding_id")
+        frozen_holding_ids.add(holding_id)
+
+    stale_conditions = [
+        PortfolioValueSnapshot.user_id == outbox_row.user_id,
+        PortfolioValueSnapshot.snapshot_date == outbox_row.snapshot_date,
+    ]
+    if frozen_holding_ids:
+        # A NULL holding_id is not a real write path (see the model docstring);
+        # it is swept too, so the live set is exactly the payload.
+        stale_conditions.append(
+            or_(
+                PortfolioValueSnapshot.holding_id.is_(None),
+                PortfolioValueSnapshot.holding_id.not_in(frozen_holding_ids),
+            )
+        )
+    # Empty payload (empty-book exit): every row of that user-day is stale.
+    session.execute(delete(PortfolioValueSnapshot).where(*stale_conditions))
+
+    written = _upsert_rows(session, rows)
+    batch = get_or_create_batch(session, outbox_row.user_id, outbox_row.snapshot_date)
+    batch.status = "complete"
+    mark_outbox_applied(outbox_row)
+    session.flush()
+    return written
+
+
+def computed_outbox_rows(
+    session: Session,
+    *,
+    start_date: date,
+    end_date: date,
+    user_ids: list[uuid.UUID] | None = None,
+) -> list[PortfolioSnapshotOutbox]:
+    """Frozen-but-unpublished payloads in a date window, oldest first."""
+    query = select(PortfolioSnapshotOutbox).where(
+        PortfolioSnapshotOutbox.status == "computed",
+        PortfolioSnapshotOutbox.snapshot_date >= start_date,
+        PortfolioSnapshotOutbox.snapshot_date <= end_date,
+    )
+    if user_ids is not None:
+        query = query.where(PortfolioSnapshotOutbox.user_id.in_(user_ids))
+    return list(
+        session.execute(query.order_by(PortfolioSnapshotOutbox.snapshot_date.asc())).scalars()
+    )
+
+
+def snapshot_fanout_user_ids(session: Session) -> list[uuid.UUID]:
+    """Active users with a holding, OR ever tracked before (issue #367
+    review finding B): the "ever tracked" half keeps a fully-exited user in
+    the fan-out so their exit day still gets captured.
+
+    `stage_user_snapshot` handles zero holdings correctly, but only if this
+    function calls it at all. Selecting ONLY users currently in `holdings`
+    meant a user whose LAST holding was deleted dropped out permanently, so
+    the exit day's zero-holdings batch never got written and later
+    `GET /portfolio/performance` calls read the portfolio as frozen at its
+    last real value instead of reflecting the exit."""
+    return list(
         session.execute(
             select(User.id).where(
                 User.status == "active",
@@ -416,23 +464,63 @@ def capture_portfolio_value_snapshot(
             )
         ).scalars()
     )
-    written_total = 0
-    complete = 0
+
+
+def capture_portfolio_value_snapshot(
+    session: Session, snapshot_date: date | None = None
+) -> dict[str, int]:
+    """Daily beat entry point: capture today for the whole fan-out.
+
+    Scheduled after the day's price-capture and FX-fetch tasks (see
+    app/tasks/__init__.py) so the FX dependency check almost always finds
+    today's rate already there; when it doesn't (a delayed FX task), that
+    user's day is marked `skipped_deps` and the catch-up pass covers it rather
+    than silently understating today's value.
+
+    Two phases with a commit in between (issue #373): every staged payload is
+    durable *before* any of it is published, so a failure while publishing
+    leaves the day recoverable by replay instead of unrecoverable. Committing
+    here (rather than leaving it to the caller) is the whole point — the
+    durability boundary has to sit between the two loops.
+
+    The publish phase is one transaction for the whole fan-out (decided in
+    #373; see the module docstring).
+    """
+    target_date = snapshot_date or date.today()
+    user_ids = snapshot_fanout_user_ids(session)
+
     skipped = 0
+    staged = 0
     for user_id in user_ids:
-        written, status = write_user_snapshot(session, user_id, target_date, is_backfilled=False)
-        written_total += written
-        if status == "complete":
-            complete += 1
+        _rows_frozen, status = stage_user_snapshot(session, user_id, target_date)
+        if status == "computed":
+            staged += 1
         else:
             skipped += 1
+    pruned = prune_applied_outbox(session, today=target_date)
     logger.info(
-        "capture_portfolio_value_snapshot: date=%s users=%d written=%d complete=%d skipped_deps=%d",
+        "capture_portfolio_value_snapshot: date=%s users=%d staged=%d skipped_deps=%d pruned=%d",
         target_date,
         len(user_ids),
-        written_total,
-        complete,
+        staged,
         skipped,
+        pruned,
+    )
+    session.commit()
+
+    written_total = 0
+    complete = 0
+    for outbox_row in computed_outbox_rows(
+        session, start_date=target_date, end_date=target_date, user_ids=user_ids
+    ):
+        written_total += apply_outbox_row(session, outbox_row)
+        complete += 1
+    session.commit()
+    logger.info(
+        "capture_portfolio_value_snapshot: date=%s applied=%d written=%d",
+        target_date,
+        complete,
+        written_total,
     )
     return {
         "users": len(user_ids),

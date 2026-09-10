@@ -10,6 +10,7 @@ from app.models.macro_event_intel import MacroEventIntel
 from app.models.news import News
 from app.models.news_surfaced import NewsSurfaced
 from app.models.portfolio_snapshot_batch import PortfolioSnapshotBatch
+from app.models.portfolio_snapshot_outbox import PortfolioSnapshotOutbox
 from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
 from app.models.price_snapshot import PriceSnapshot
 from app.models.report import Report
@@ -33,6 +34,7 @@ __all__ = [
     "News",
     "NewsSurfaced",
     "PortfolioSnapshotBatch",
+    "PortfolioSnapshotOutbox",
     "PortfolioValueSnapshot",
     "PriceSnapshot",
     "Report",

@@ -85,6 +85,24 @@ def seed_user(session: Session, user_id: uuid.UUID, email: str | None = None) ->
     return row
 
 
+def capture_user_day(session: Session, user_id: uuid.UUID, snapshot_date: date) -> tuple[int, str]:
+    """Stage + apply one user-day the way the daily task does (issue #373).
+
+    Returns the writer's `(rows_written, status)` pair — `"complete"` once the
+    frozen payload has been published, `"skipped_deps"` when a dependency was
+    missing and nothing was frozen.
+    """
+    from app.services.portfolio_history import apply_outbox_row, stage_user_snapshot
+    from app.services.snapshot_outbox import get_outbox_row
+
+    written, status = stage_user_snapshot(session, user_id, snapshot_date)
+    if status != "computed":
+        return written, status
+    outbox_row = get_outbox_row(session, user_id, snapshot_date)
+    assert outbox_row is not None
+    return apply_outbox_row(session, outbox_row), "complete"
+
+
 # Modules that import these by name (`from x import y`), each needing its own patch.
 _EXTERNAL_NOTIFY_MODULES = (
     "app.routers.auth",
