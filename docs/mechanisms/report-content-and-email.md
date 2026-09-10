@@ -132,16 +132,33 @@ action — see below).
   holding's identifier/alias terms to that holding in full, exclude a
   paragraph naming multiple holdings from any single holding's length
   (logged as "mixed" for observability, never silently misattributed),
-  ignore a paragraph naming no known holding. Alias terms come from
-  `holding_news.load_entity_aliases()` — the same table
-  `cross_name_intel` already uses to ask "does this prose NAME an
-  identifier" (a different, narrower table than
+  ignore a paragraph naming no known holding. **Alias terms are NOT only
+  `holding_news.load_entity_aliases()`'s table** (PR #423 review,
+  blacktomb42 — an earlier version under-matched real §3 prose): they are
+  the holding's ticker/fund-code identifier, any configured
+  `entity_aliases` row, its own portfolio `name` field, AND that name
+  with a trailing legal-entity suffix stripped (`_core_name` in
+  `report_generator.py` — "Apple Inc." -> "Apple", "腾讯控股" -> "腾讯").
+  `entity_aliases` alone left most holdings unmatched (AAPL has no
+  configured row at all), and the full display name alone still missed
+  ordinary prose that drops the legal suffix — §3 says "Apple", never
+  "Apple Inc.". `load_entity_aliases()` remains in the mix as a
+  supplementary source (the same table `cross_name_intel` uses to ask
+  "does this prose NAME an identifier" — narrower than
   `load_holding_keywords()`'s broad recall terms, which would false-match
-  theme words like "gold").
+  theme words like "gold"), not the sole source.
 - `expected_length_range(weight, evidence_score) -> (min_chars, max_chars)`
-  — first-pass heuristic constants (`_BASE_MIN_CHARS` etc.), explicitly
-  NOT a calibrated enforcement threshold; meant to be tuned against real
-  report data once the log-only signal accumulates.
+  — first-pass heuristic constants, explicitly NOT a calibrated
+  enforcement threshold; meant to be tuned against real report data once
+  the log-only signal accumulates. `min_chars` has **no unconditional
+  floor** (PR #423 review: an earlier version added a flat 80-char floor
+  regardless of weight/evidence, so a holding with negligible weight and
+  no evidence that §3 legitimately never mentions — the correct default
+  per `analysis_framework.yml` item 5 — still warned on every report;
+  `min_chars` now scales purely from weight/evidence, `math.floor`'d to 0
+  at the low end, so a genuinely immaterial, unevidenced absence is
+  in-range rather than noise). `max_chars` keeps its base — the ceiling
+  problem is unrelated to this fix.
 - `HoldingCheckInput.weight` is an **explicit dataclass field**, never
   read internally off a holding's real position (issue #173 Design item
   4) — this is the interface issue #421's watched/zero-holding entries

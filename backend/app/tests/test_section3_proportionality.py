@@ -282,3 +282,46 @@ def test_mixed_paragraph_excluded_holding_gets_zero_length_and_can_mismatch() ->
     )
     mismatches = check_section3_proportionality("report-5", _full_body(section3), [holding])
     assert mismatches == 1  # zero attributed length for a real, evidenced holding
+
+
+# ---------------------------------------------------------------------------
+# PR #423 review (blacktomb42): min_chars must not flood WARNINGs on
+# holdings §3 legitimately never mentions.
+# ---------------------------------------------------------------------------
+
+
+def test_expected_length_range_min_is_zero_at_zero_weight_and_evidence() -> None:
+    exp_min, _exp_max = expected_length_range(0.0, 0)
+    assert exp_min == 0
+
+
+def test_immaterial_unmentioned_holding_produces_no_mismatch() -> None:
+    """A holding with negligible weight and no supplied evidence that §3
+    simply never discusses (actual_len=0) must NOT warn — that is the
+    correct default per analysis_framework.yml item 5 ("a theme with no
+    direct, concrete mapping ... does not earn its own paragraph"), not a
+    proportionality failure."""
+    section3 = "A completely different holding had a busy period."
+    holding = HoldingCheckInput(
+        identifier="OBSCURE",
+        alias_terms=["OBSCURE"],
+        weight=0.0005,  # negligible
+        material_text="",  # no evidence supplied
+    )
+    mismatches = check_section3_proportionality("report-6", _full_body(section3), [holding])
+    assert mismatches == 0
+
+
+def test_material_unmentioned_holding_still_mismatches() -> None:
+    """The zero-floor fix must not silently swallow a REAL absence: a
+    holding with meaningful weight that §3 never discusses is still a
+    genuine mismatch."""
+    section3 = "A completely different holding had a busy period."
+    holding = HoldingCheckInput(
+        identifier="REALPOSITION",
+        alias_terms=["REALPOSITION"],
+        weight=0.15,
+        material_text="",
+    )
+    mismatches = check_section3_proportionality("report-7", _full_body(section3), [holding])
+    assert mismatches == 1

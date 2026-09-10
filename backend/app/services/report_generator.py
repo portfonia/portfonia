@@ -190,6 +190,51 @@ _MAX_WEIGHT_TARGETED_SEARCHES = 5
 # ---------------------------------------------------------------------------
 
 
+# PR #423 review (blacktomb42): §3 prose almost never repeats a holding's
+# full legal name ("Apple Inc.") — it says "Apple". A literal-phrase match
+# on `holding.name` alone would still leave most real holdings unmatched.
+# Stripping a common trailing legal-entity suffix (repeatedly, so
+# "X Holdings Group" also reduces) gives a second, shorter alias term
+# alongside the full name — not a replacement for it, since some display
+# names ARE already the short form and stripping nothing is correct there.
+_LEGAL_NAME_SUFFIXES = (
+    " Incorporated",
+    " Corporation",
+    " Inc.",
+    " Inc",
+    " Corp.",
+    " Corp",
+    " Co., Ltd.",
+    " Co Ltd",
+    " Ltd.",
+    " Ltd",
+    " PLC",
+    " plc",
+    " Holdings",
+    " Holding",
+    " Group",
+    "股份有限公司",
+    "有限公司",
+    "控股",
+    "集团",
+)
+
+
+def _core_name(display_name: str) -> str:
+    """`display_name` with one or more trailing legal-entity suffixes
+    stripped — "Apple Inc." -> "Apple", "腾讯控股" -> "腾讯". Returns
+    `display_name` unchanged when no known suffix matches."""
+    core = display_name
+    stripped = True
+    while stripped:
+        stripped = False
+        for suffix in _LEGAL_NAME_SUFFIXES:
+            if core.endswith(suffix):
+                core = core[: -len(suffix)].rstrip(" ,.")
+                stripped = True
+    return core
+
+
 def _build_holding_check_inputs(
     portfolio: dict[str, Any],
     holding_news: dict[str, list[dict[str, Any]]],
@@ -230,10 +275,26 @@ def _build_holding_check_inputs(
         for anomaly in anomalies_by_identifier.get(ident, []):
             material_parts.append(str(anomaly.get("trigger") or ""))
             material_parts.append(str(anomaly.get("theme_label_en") or ""))
+        display_name = str(holding.get("name") or "").strip()
+        alias_terms = [ident, *entity_aliases.get(ident, [])]
+        if display_name:
+            # PR #423 review (blacktomb42): §3 is flowing prose and
+            # routinely names a company without repeating its ticker;
+            # AAPL, for example, has no `entity_aliases` row in
+            # holding_news_keywords.yml. Without the holding's own display
+            # name as a matchable term, that prose silently attributes
+            # zero length to a holding it actually did discuss. Both the
+            # full name and its suffix-stripped core are added — real §3
+            # prose almost always uses the short form ("Apple", not
+            # "Apple Inc.").
+            alias_terms.append(display_name)
+            core = _core_name(display_name)
+            if core and core != display_name:
+                alias_terms.append(core)
         inputs.append(
             HoldingCheckInput(
                 identifier=ident,
-                alias_terms=[ident, *entity_aliases.get(ident, [])],
+                alias_terms=alias_terms,
                 weight=_weight(holding, total),
                 material_text="\n".join(part for part in material_parts if part),
             )

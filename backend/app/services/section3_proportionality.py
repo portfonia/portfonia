@@ -57,6 +57,7 @@ is wired into `_build_pass1_prompt`.
 from __future__ import annotations
 
 import logging
+import math
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -231,7 +232,17 @@ def segment_section3_by_holding(
 # calibrated threshold). Both weight (0-1 fraction) and evidence_score
 # (0-5) push the range wider, matching analysis_framework.yml item 3's
 # "weight AND evidence strength together decide depth" rule.
-_BASE_MIN_CHARS = 80
+#
+# `min_chars` has NO unconditional base (PR #423 review, blacktomb42): an
+# earlier version added a flat _BASE_MIN_CHARS=80 floor regardless of
+# weight/evidence, so a holding with near-zero weight and no evidence that
+# §3 legitimately never mentions — analysis_framework.yml item 5: "a theme
+# with no direct, concrete mapping to an identifier ... does not earn its
+# own paragraph" — still warned every time. min_chars now scales purely
+# from weight/evidence, floored (not rounded) to 0 at the low end, so an
+# immaterial, unevidenced holding's honest absence from §3 is in-range,
+# not noise. `max_chars` keeps its base — the ceiling problem (an
+# over-long paragraph on a small position) is unrelated to this fix.
 _BASE_MAX_CHARS = 250
 _WEIGHT_MIN_SCALE = 800
 _WEIGHT_MAX_SCALE = 1600
@@ -244,9 +255,9 @@ def expected_length_range(weight: float, evidence_score: int) -> tuple[int, int]
     (weight, evidence_score) pairing. `weight` is whatever the caller
     passed in (see module docstring point 4) — this function has no
     concept of a holding's "real" weight."""
-    min_chars = _BASE_MIN_CHARS + weight * _WEIGHT_MIN_SCALE + evidence_score * _EVIDENCE_MIN_SCALE
+    min_chars = weight * _WEIGHT_MIN_SCALE + evidence_score * _EVIDENCE_MIN_SCALE
     max_chars = _BASE_MAX_CHARS + weight * _WEIGHT_MAX_SCALE + evidence_score * _EVIDENCE_MAX_SCALE
-    return (round(min_chars), round(max_chars))
+    return (math.floor(min_chars), round(max_chars))
 
 
 # ---------------------------------------------------------------------------

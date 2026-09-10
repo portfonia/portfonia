@@ -34,6 +34,7 @@ from app.core.config import get_settings
 from app.models.forward_event import ForwardEvent
 from app.models.report import Report
 from app.services import report_generator as rg
+from app.services import section3_proportionality as s3p
 from app.services.macro_detector import MacroSignals, ThemeHit
 from app.services.news_fetcher import NewsItem
 from app.services.portfolio_calculator import (
@@ -3468,3 +3469,54 @@ def test_render_full_md_section3_check_failure_does_not_break_render(
         )
     assert full_md  # rendering still completed despite the check raising
     assert "§3 proportionality check raised" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Tests: PR #423 review (blacktomb42) — holding display `name` must be a
+# matchable §3 identifier, not just ticker + configured entity_aliases.
+# ---------------------------------------------------------------------------
+
+
+def test_build_holding_check_inputs_includes_holding_display_name_in_alias_terms() -> None:
+    """AAPL has no `entity_aliases` row in holding_news_keywords.yml, and §3
+    routinely says "Apple" rather than repeating the ticker — alias_terms
+    must include the holding's own `name` field so that prose still
+    attributes correctly."""
+    portfolio: dict[str, Any] = {
+        "holdings": [
+            {"ticker": "AAPL", "name": "Apple Inc.", "market_value_base": 900.0, "position": 0}
+        ],
+        "total_base": 1000.0,
+    }
+    check_inputs = rg._build_holding_check_inputs(portfolio, holding_news={}, anomalies=[])
+    assert len(check_inputs) == 1
+    holding = check_inputs[0]
+    assert "AAPL" in holding.alias_terms
+    assert "Apple Inc." in holding.alias_terms
+
+
+def test_prose_naming_holding_by_display_name_gets_nonzero_attributed_length() -> None:
+    """End-to-end (via the real alias_terms `_build_holding_check_inputs`
+    assembles): §3 prose naming a holding by its English company name, or
+    by a Chinese name with no ticker mentioned at all, must attribute
+    nonzero paragraph length — not silently fall to `actual_len=0` because
+    only the ticker/fund_code was ever matchable."""
+    portfolio: dict[str, Any] = {
+        "holdings": [
+            {"ticker": "AAPL", "name": "Apple Inc.", "market_value_base": 100.0, "position": 0},
+            {"fund_code": "00700", "name": "腾讯控股", "market_value_base": 50.0, "position": 1},
+        ],
+        "total_base": 1000.0,
+    }
+    check_inputs = rg._build_holding_check_inputs(portfolio, holding_news={}, anomalies=[])
+    identifier_terms = {c.identifier: c.alias_terms for c in check_inputs}
+    apple_ident = next(c.identifier for c in check_inputs if "AAPL" in c.alias_terms)
+    tencent_ident = next(c.identifier for c in check_inputs if c.identifier != apple_ident)
+
+    section3_body = (
+        "Apple's supplier base grew this quarter, a filed contract confirms the relationship.\n\n"
+        "腾讯控股本季度与主要合作伙伴续签协议，客户基础进一步扩大。"  # noqa: RUF001
+    )
+    segments = s3p.segment_section3_by_holding(section3_body, identifier_terms)
+    assert len(segments.by_identifier[apple_ident]) > 0
+    assert len(segments.by_identifier[tencent_ident]) > 0
