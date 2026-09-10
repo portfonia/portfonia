@@ -68,6 +68,15 @@ def fetch_daily_history(
             close = Decimal(str(point["close"]))
         except (KeyError, ValueError, InvalidOperation) as exc:
             raise ValueError(f"twelvedata time_series malformed point: {point!r}") from exc
+        # Decimal() parses "NaN"/"Infinity" without raising InvalidOperation
+        # (confirmed live) -- a malformed upstream close would otherwise
+        # write straight into fx_rates and only fail later, at read time,
+        # when a Decimal comparison against NaN raises InvalidOperation
+        # deep inside a reader that has no reason to expect it (PR #411
+        # review). An FX rate is a real price: reject non-finite and
+        # non-positive values at this fetch boundary instead.
+        if not close.is_finite() or close <= 0:
+            raise ValueError(f"twelvedata time_series non-finite/non-positive close: {point!r}")
         out.append((rate_date, close))
     out.sort(key=lambda pair: pair[0])
     return out

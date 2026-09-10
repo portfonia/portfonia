@@ -40,8 +40,19 @@ _SYMBOL = "USD/CNH"
 
 
 def _existing_earliest_date(session: Session) -> date | None:
+    """Earliest `USDCNH` row NOT written by this script.
+
+    Excludes `source == "twelvedata"` deliberately (PR #411 review): without
+    this exclusion, a rerun sees this script's own first-run output as the
+    new "earliest existing row" and shifts the entire target window another
+    `years` further into the past every time it runs, expanding forever
+    instead of idempotently re-filling the same fixed gap. Only the
+    pre-existing (yfinance-sourced) boundary may ever determine the window.
+    """
     return session.execute(
-        select(func.min(FxRate.rate_date)).where(FxRate.pair == _PAIR)
+        select(func.min(FxRate.rate_date)).where(
+            FxRate.pair == _PAIR, FxRate.source != "twelvedata"
+        )
     ).scalar_one_or_none()
 
 

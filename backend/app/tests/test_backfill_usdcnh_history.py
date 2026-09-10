@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
 from pydantic import SecretStr
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -93,6 +93,49 @@ def test_apply_is_idempotent(db_session: Session) -> None:
 
     rows = db_session.execute(select(FxRate)).scalars().all()
     assert len(rows) == 1
+
+
+def _request_aware_fetch(
+    symbol: str, start_date: date, end_date: date, api_key: str
+) -> list[tuple[date, Decimal]]:
+    """Stub that actually respects the requested window, unlike a fixed
+    fake -- needed to catch a bug where the requested window itself drifts
+    across reruns (a fixed-point fake returns the same thing regardless of
+    what was asked, which cannot expose that)."""
+    days = (end_date - start_date).days
+    return [(start_date + timedelta(days=i), Decimal("6.50")) for i in range(days + 1)]
+
+
+def test_rerun_targets_the_same_window_not_an_expanding_one(db_session: Session) -> None:
+    """PR #411 review (blacktomb42): `_existing_earliest_date` includes rows
+    this script itself already wrote, so a second run sees its own
+    first-run output as the new "earliest existing row" and shifts the
+    entire 5-year window another 5 years further into the past -- not the
+    documented idempotent gap fill. The pre-existing yfinance row's date
+    must be the only thing that ever determines the target window,
+    independent of what this script has previously inserted."""
+    db_session.add(
+        FxRate(pair="USDCNH", rate=Decimal("6.70"), rate_date=date(2026, 8, 5), source="yfinance")
+    )
+    db_session.flush()
+
+    with (
+        patch.object(script, "fetch_daily_history", side_effect=_request_aware_fetch) as mock_fetch,
+        patch.object(script, "get_settings", return_value=_fake_settings("k")),
+    ):
+        script.backfill_usdcnh_history(db_session, years=5, apply_changes=True)
+        first_run_args = mock_fetch.call_args.args
+        script.backfill_usdcnh_history(db_session, years=5, apply_changes=True)
+        second_run_args = mock_fetch.call_args.args
+
+    assert first_run_args[1:3] == second_run_args[1:3]  # same (start_date, end_date)
+    expected_end_date = date(2026, 8, 5) - timedelta(days=1)
+    expected_start_date = expected_end_date - timedelta(days=365 * 5)
+    assert first_run_args[1:3] == (expected_start_date, expected_end_date)
+    earliest_twelvedata = db_session.execute(
+        select(func.min(FxRate.rate_date)).where(FxRate.source == "twelvedata")
+    ).scalar_one()
+    assert earliest_twelvedata == expected_start_date
 
 
 def test_never_overlaps_existing_yfinance_rows_even_if_source_returns_extra(
