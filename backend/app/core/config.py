@@ -182,6 +182,16 @@ class Settings(BaseSettings):
     # (T-1 onward), no same-day data. Used as a close-node OHLCV fallback.
     MASSIVE_API_KEY: SecretStr | None = None
 
+    # Twelve Data (issue #406): yfinance only returns ~1 month of USDCNH
+    # history (Yahoo classifies this specific cross as a limited-history
+    # quote type), unlike every other _PAIRS entry. Confirmed live that
+    # Twelve Data's free tier has full multi-year USD/CNH daily history.
+    # Used ONLY by the one-off app/scripts/backfill_usdcnh_history.py gap
+    # fill — NOT wired into the daily capture_fx_task/update_fx_rates path,
+    # which stays yfinance-only for every pair (a permanent second FX
+    # provider is a separate, larger decision, not made here).
+    TWELVEDATA_API_KEY: SecretStr | None = None
+
     # Email
     EMAIL_PROVIDER: str = "resend"
     RESEND_API_KEY: SecretStr
