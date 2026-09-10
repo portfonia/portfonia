@@ -338,15 +338,16 @@ def test_global_identifier_universe_normalizes_hk_tickers(db_session: Session) -
 def test_global_identifier_universe_normalizes_known_collision_ticker(
     db_session: Session,
 ) -> None:
-    """issue #204 PR #253 review: a holding declared 'PSH' must land under
-    the same normalized 'PSH.L' key that price_capture now writes closes
-    under — otherwise this universe (and everything built from it, e.g.
-    compute_global_moves) silently queries the wrong/stale price_snapshots
-    row while §1 valuation (which already normalizes) finds the right one."""
+    """issue #204 PR #253 review: a holding declared with a raw, un-padded
+    HK ticker ('700.HK') must land under the same normalized '0700.HK' key
+    that price_capture now writes closes under — otherwise this universe
+    (and everything built from it, e.g. compute_global_moves) silently
+    queries the wrong/stale price_snapshots row while §1 valuation (which
+    already normalizes) finds the right one."""
     db_session.add(_user(_U1, "u1@example.com"))
-    db_session.add(_h(user_id=_U1, name="Pershing Square Holdings", ticker="PSH", currency="GBP"))
+    db_session.add(_h(user_id=_U1, name="Tencent", ticker="700.HK", currency="HKD"))
     db_session.flush()
-    assert set(global_identifier_universe(db_session).keys()) == {"PSH.L"}
+    assert set(global_identifier_universe(db_session).keys()) == {"0700.HK"}
 
 
 def test_global_identifier_universe_uses_fund_code_when_no_ticker(db_session: Session) -> None:

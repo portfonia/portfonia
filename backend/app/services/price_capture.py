@@ -236,8 +236,8 @@ def capture_prices(
         # after_close (structurally cannot serve same-day data) or any
         # non-US market (free tier is US-stocks-only, officially, at every
         # paid tier too).
-        # ohlcv is keyed by fetch_ohlcv_range's normalized ticker (e.g. "PSH"
-        # -> "PSH.L" via the shared override table) — comparing the raw
+        # ohlcv is keyed by fetch_ohlcv_range's normalized ticker (e.g. a raw
+        # un-padded "700.HK" normalizes to "0700.HK") — comparing the raw
         # selected ticker against those keys always misses for any ticker
         # that normalizes, wrongly flagging a clean yfinance hit as missing
         # (issue #351). `missing_keys` itself is built from the normalized
@@ -259,9 +259,9 @@ def capture_prices(
             massive_plan = build_provider_request_plan("massive", missing_keys)
             if massive_plan.unsupported:
                 # A missing code with no US-eligible wire symbol (e.g. a
-                # holding declared market=US whose legacy lookup key is a
-                # non-US suffix, like the historical PSH -> PSH.L alias)
-                # must not be sent to a US-only fallback — issue #57 stage
+                # holding declared market=US whose legacy lookup key
+                # normalizes to a non-US suffix, like an un-padded HK
+                # ticker) must not be sent to a US-only fallback — issue #57 stage
                 # 57-2 correction, matches the frozen provider table.
                 logger.info(
                     "capture_prices: massive fallback skipping unsupported code(s): %s",

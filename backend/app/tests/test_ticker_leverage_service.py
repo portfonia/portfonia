@@ -24,12 +24,15 @@ from app.services.ticker_leverage import (
 _ADMIN = uuid.UUID("00000000-0000-0000-0000-0000000000ad")
 
 
-def test_normalize_leverage_ticker_uppercases_and_applies_collision_override() -> None:
+def test_normalize_leverage_ticker_uppercases_and_normalizes_hk_padding() -> None:
     """Same normalization path as the FX-pair/asset_class lookups (issue
-    #204) — a lowercase or known-collision ticker must resolve to the exact
-    form the anomaly/concentration read-side identifiers use."""
+    #204) — a lowercase or un-padded HK ticker must resolve to the exact
+    form the anomaly/concentration read-side identifiers use. No ticker
+    gets a hardcoded per-ticker rescue (issue #417) — a lowercase collision
+    ticker like "psh" only uppercases, nothing more."""
     assert normalize_leverage_ticker("muu") == "MUU"
-    assert normalize_leverage_ticker("psh") == "PSH.L"  # _TICKER_SYMBOL_OVERRIDE
+    assert normalize_leverage_ticker("psh") == "PSH"
+    assert normalize_leverage_ticker("700.hk") == "0700.HK"
 
 
 def test_load_leverage_map_keys_by_normalized_ticker(db_session: Session) -> None:

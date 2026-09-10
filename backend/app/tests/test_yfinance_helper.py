@@ -120,8 +120,12 @@ def test_fetch_last_close_empty_input() -> None:
     assert fetch_last_close([]) == {}
 
 
-def test_fetch_last_close_normalizes_known_collision_ticker() -> None:
-    """A bare 'PSH' request must be resolved as PSH.L, not the collision ticker."""
+def test_fetch_last_close_does_not_rescue_a_bare_collision_ticker() -> None:
+    """Issue #417: no ticker gets a hardcoded rescue anymore. A bare 'PSH'
+    request queries yfinance as-is, exactly like any other bare US-shaped
+    ticker (e.g. 'VOD') — it is the user's job to declare a market/currency
+    or correct the stored ticker if the bare form resolves to the wrong
+    security on the provider."""
     call_record: list[list[str]] = []
 
     def fake_download(**kwargs: object) -> pd.DataFrame:
@@ -135,8 +139,8 @@ def test_fetch_last_close_normalizes_known_collision_ticker() -> None:
     ):
         result = fetch_last_close(["PSH"])
 
-    assert call_record == [["PSH.L"]]
-    assert set(result.keys()) == {"PSH.L"}
+    assert call_record == [["PSH"]]
+    assert set(result.keys()) == {"PSH"}
 
 
 def test_scale_price_converts_gbx_tickers_to_gbp() -> None:
@@ -164,28 +168,28 @@ def test_fetch_last_close_scales_psh_l_from_pence_to_pounds(
         patch("app.services._yfinance.yf.download", side_effect=fake_download),
         patch("app.services._yfinance.time.sleep"),
     ):
-        result = fetch_last_close(["PSH"])
+        result = fetch_last_close(["PSH.L"])
 
     price, _ = result["PSH.L"]
     assert price == pytest.approx(58.94)
 
 
-def test_fetch_spot_normalizes_and_scales_known_collision_ticker() -> None:
-    """fetch_spot previously queried yfinance with the raw, un-normalized
-    ticker — a bare 'PSH' would hit the wrong instrument here even after the
-    close-node path was fixed. Must normalize to PSH.L and scale GBX→GBP,
-    same as fetch_last_close/fetch_ohlcv_range."""
+def test_fetch_spot_does_not_rescue_a_bare_collision_ticker() -> None:
+    """Issue #417: fetch_spot queries yfinance with a bare 'PSH' unchanged —
+    no hardcoded per-ticker rescue. GBX->GBP scaling still applies whenever
+    the provider reports a GBp-quoted instrument, independent of which
+    ticker string triggered it (issue #204/#311's generic scaling rule)."""
 
     class _FakeTicker:
         def __init__(self, symbol: str) -> None:
-            assert symbol == "PSH.L", f"fetch_spot queried un-normalized ticker {symbol!r}"
+            assert symbol == "PSH", f"fetch_spot queried unexpectedly-normalized ticker {symbol!r}"
             self.fast_info = {"lastPrice": 3930.0, "currency": "GBp"}
 
     with patch("app.services._yfinance.yf.Ticker", side_effect=_FakeTicker):
         result = fetch_spot(["PSH"])
 
-    assert set(result.keys()) == {"PSH.L"}
-    assert result["PSH.L"] == pytest.approx(39.30)
+    assert set(result.keys()) == {"PSH"}
+    assert result["PSH"] == pytest.approx(39.30)
 
 
 def test_fetch_last_close_splits_into_market_batches() -> None:

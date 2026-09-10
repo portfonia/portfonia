@@ -644,12 +644,13 @@ def apply_confirmed_exchange_suffix(row: dict[str, Any], *, emit_note: bool = Tr
     `capture_supported=False` after `resolve_holding_market` runs — a
     still-bare ticker would otherwise fall through `market_from_ticker`'s
     "no suffix = US" default and get speculatively fetched as an unrelated
-    US security under the real holding's identity (the PSH-class silent
-    wrong-security failure; reproduced with a bare EUR/KRW ticker and an
-    unplaceable A-share code — PR #310 round 6 review). Applying `.L`
-    persists UK (PSH.L is a London listing; UK captures). Bare-PSH lookup
-    still uses the shared `_TICKER_SYMBOL_OVERRIDE` PSH -> PSH.L. Cash/wmf
-    have no ticker. Dotted share-class tickers (BRK.B) are left unsuffixed.
+    US security under the real holding's identity (reproduced with a bare
+    EUR/KRW ticker and an unplaceable A-share code — PR #310 round 6
+    review). Applying `.L` persists UK (a London listing; UK captures). A
+    bare ticker with no declared market/currency (PSH included) is left
+    unresolved by design — issue #417 removed the one hardcoded per-ticker
+    rescue this module used to fall back on. Cash/wmf have no ticker.
+    Dotted share-class tickers (BRK.B) are left unsuffixed.
     Idempotent if the suffix is already present. A manual-priced row's
     "ticker" is a free-text label, not a market symbol — capture never reads
     pricing_mode:manual rows (`_market_tickers` only selects "auto"), so

@@ -465,13 +465,14 @@ def test_gbp_holding_converts_to_base(db_session: Session) -> None:
     assert snap.total_base == Decimal("800.00")
 
 
-def test_psh_ticker_resolves_captured_price_via_lse_normalization(db_session: Session) -> None:
-    """issue #204: bare 'PSH' collides with an unrelated US ETF on yfinance.
-    The capture layer stores the real Pershing Square Holdings close under
-    the normalized 'PSH.L' key; lookup must apply the same normalization to
-    the user's stored 'PSH' ticker to find it."""
+def test_lse_stock_resolves_captured_price_via_gbp_fx(db_session: Session) -> None:
+    """A GBP-denominated, already-suffixed LSE holding (e.g. "PSH.L", entered
+    either via a declared UK market/currency at write time, or by the user
+    correcting a bare ticker themselves per issue #417) values correctly at
+    read time — no ticker-specific normalization required, since the stored
+    ticker already carries its real venue."""
     db_session.add(FxRate(pair="USDGBP", rate=Decimal("0.75"), rate_date=_FX_DATE, source="test"))
-    holding = _stock("Pershing Square Holdings", "PSH", "GBP", "10", None)
+    holding = _stock("Pershing Square Holdings", "PSH.L", "GBP", "10", None)
     db_session.add(holding)
     db_session.flush()
 

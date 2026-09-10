@@ -4,7 +4,7 @@
 sharing model as ``ticker_themes``. Every write here normalizes the ticker
 through the same helper the FX-pair/asset_class lookups use
 (``instrument_symbols.intelligence_identifier``) so a caller passing an
-un-normalized ticker (e.g. ``psh`` vs. ``PSH.L``) can never silently create
+un-normalized ticker (e.g. mismatched casing) can never silently create
 a second row for what should be one override — see the issue #204
 mechanism note this mirrors.
 

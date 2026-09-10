@@ -94,10 +94,10 @@ def compute_technical_position(
     session: Session, ticker: str, name: str, today: date
 ) -> TechnicalPosition:
     # issue #204: capture writes closes under the normalized ticker (e.g.
-    # "PSH.L" for a holding whose raw ticker is "PSH") — querying with the
-    # raw ticker here always found zero bars, leaving §4.4 permanently
-    # empty for any normalized ticker regardless of capture/valuation being
-    # otherwise correct.
+    # "0700.HK" for a holding whose raw ticker is the un-padded "700.HK")
+    # — querying with the raw ticker here always found zero bars, leaving
+    # §4.4 permanently empty for any normalized ticker regardless of
+    # capture/valuation being otherwise correct.
     ticker = normalize_legacy_ticker(ticker)
     closes = _load_closes(session, ticker, today - timedelta(days=_LOOKBACK_DAYS))
     last = closes[-1] if closes else None

@@ -1,5 +1,5 @@
 {
-  "_comment": "Byte-for-byte golden outputs captured from the pre-refactor app.services._yfinance._normalize_ticker (issue #57, PR 57-1), before extraction into instrument_symbols.normalize_legacy_ticker. Recorded at HEAD b36a2ba. Do not regenerate from the new implementation.",
+  "_comment": "Byte-for-byte golden outputs captured from the pre-refactor app.services._yfinance._normalize_ticker (issue #57, PR 57-1), before extraction into instrument_symbols.normalize_legacy_ticker. Recorded at HEAD b36a2ba. Do not regenerate from the new implementation. DELIBERATE EXCEPTION (issue #417): the PSH/psh/Psh cases below were updated to reflect the removal of the hardcoded PSH->PSH.L collision override; every other case is still the untouched b36a2ba baseline.",
   "source_head": "b36a2baeeef14361115148160137d2a3ef8be01f",
   "cases": [
     {
@@ -20,15 +20,15 @@
     },
     {
       "input": "PSH",
-      "expected": "PSH.L"
+      "expected": "PSH"
     },
     {
       "input": "psh",
-      "expected": "PSH.L"
+      "expected": "psh"
     },
     {
       "input": "Psh",
-      "expected": "PSH.L"
+      "expected": "Psh"
     },
     {
       "input": "02333.HK",
