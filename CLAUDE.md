@@ -28,6 +28,11 @@ This file holds **conventions and mechanisms**, not a project status board.
   gets an issue first).
 - **Ring stage, recent session summaries, running progress**: Obsidian
   `Hermes/Portfonia/` project log.
+- **Vigil product and Ring 0 contracts**: Obsidian
+  `Hermes/Portfonia/Vigil Concept & Design.md` and
+  `Hermes/Portfonia/Vigil_R0_Dev.md`. Track reusable Portfonia capabilities
+  separately from Vigil implementation and acceptance evidence; follow
+  `AGENTS.md` for documentation boundaries.
 - **Build/test status, HEAD commit**: `git log`, `pytest -q`, `mypy .` —
   always run these rather than trusting a written-down snapshot.
 
@@ -118,6 +123,8 @@ area of the code, not just the one-line summary here.
 
 - **All repository content is English**: code, identifiers, comments, commit
   messages, PR descriptions, issue text, README, `docs/`, ADRs, tests.
+  Repository filenames and documentation indexes must also be English;
+  do not embed Chinese note titles or paths in repository documentation.
 - **In-product strings are i18n-keyed** and shipped through the translation
   layer, never hardcoded in any single language. Runtime UI locales
   exposed to users: English, Simplified Chinese, and Traditional Chinese
@@ -594,6 +601,14 @@ pre-push responsibility documented in the CI-First Protocol.
 
 - `README.md` — short, user-facing intro, install, run.
 - `docs/` — architecture, ADRs, runbook snippets. All English.
+- [Documentation governance](docs/playbooks/documentation-governance.md)
+  holds the project design-authoring and document-maintenance contract;
+  `AGENTS.md` indexes it. Do not mirror this guidance into companion
+  Obsidian configuration/design notes.
+- Creating an Obsidian file requires the user's explicit authorization
+  for that file. Updating documentation does not authorize creating a
+  missing note or automatically synchronizing unrelated notes. Follow
+  the authorized existing-document scope and the AGENTS.md rules.
 - Update docs **in the same PR** as the code change that motivates them.
 - API-level changes update `--help` text / OpenAPI schema / route docs in
   the same PR. Code and docs out of sync is a defect.

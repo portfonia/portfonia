@@ -2,6 +2,19 @@
 
 Read `CLAUDE.md` for the shared repository engineering, security, testing, and Git conventions. This file adds the Codex issue/design documentation contract.
 
+## Documentation index
+
+- [Documentation governance](docs/playbooks/documentation-governance.md): document ownership, Obsidian authorization, executable design contracts, evidence labels, and note-access conventions.
+- [Shared engineering rules](CLAUDE.md): language, security, testing, and deployment conventions.
+- [Git and review identities](docs/playbooks/git-and-review-incidents.md): write/review identity boundaries and workflow history.
+
+## Language and Obsidian authorization (mandatory)
+
+- Repository content and filenames must be English. Do not put Chinese prose, note titles, or filenames in repository instructions, documentation, or indexes.
+- Never create an Obsidian file without the user's explicit authorization to create that file. A request to update documentation, a missing note, a cross-reference, or a standing synchronization rule is not authorization to create one.
+- Update only the relevant existing documents within the authorized scope. If an intended Obsidian target does not exist, stop that write and ask before creating it; continue other authorized work.
+- Keep project development conventions and design-authoring guidance in this index and the repository's `docs/` directory. Do not create or recreate parallel Codex configuration/design notes in Obsidian.
+
 ## Isolated worktrees and review (mandatory)
 
 - Treat the main checkout as read-only for task work. Every repository change, including documentation, instructions, configuration, and small fixes, starts in a separate git worktree on a task branch based on the current main branch.
@@ -32,6 +45,18 @@ Distinguish confirmed product decisions, the authored implementation design, unr
 
 ## Documentation surfaces
 
-For documentation updates, maintain this AGENTS.md, shared CLAUDE.md where applicable, the relevant feature note, and Obsidian `Hermes/Portfonia/Codex开发配置文档.md` / `Hermes/Portfonia/Codex设计文档.md`. Update governing sections in place when a rule changes; append incident evidence without leaving contradictory active rules.
+### Vigil documentation
+
+Vigil product requirements and decisions live in Obsidian
+`Hermes/Portfonia/Vigil Concept & Design.md`; Ring 0 phase contracts,
+dependencies, acceptance evidence, and implementation tracking live in
+`Hermes/Portfonia/Vigil_R0_Dev.md`. Maintain the governing sections in place.
+Distinguish existing Portfonia capabilities from Vigil integration, authored
+design from owner-approved decisions, and merged code from deployment or
+real delivery evidence. Do not count reusable modules as completed Vigil
+stages or treat a documentation update as authorization to implement,
+deploy, or release entrusted files.
+
+For documentation updates, maintain the relevant repository document and its AGENTS.md index entry; update shared CLAUDE.md only when its rules are affected. Edit an existing Obsidian feature note only within the user's authorized scope. Do not automatically create companion notes or synchronize every documentation surface. Update governing sections in place when a rule changes; append incident evidence without leaving contradictory active rules. Detailed contracts and access conventions are in [Documentation governance](docs/playbooks/documentation-governance.md).
 
 Use the configured Obsidian MCP first. Keep credentials out of repository files, notes, and memory. These issue/design rules are project-wide; do not silently promote them to all projects.
