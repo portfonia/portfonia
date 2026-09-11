@@ -19,6 +19,9 @@ export type AssetType = "stock" | "etf" | "fund" | "cash" | "wmf" | "other";
 // investment-style taxonomy (`questionnaire_taxonomy.py`) and is out of
 // scope for #57.
 export type Market = "US" | "HK" | "A-Share" | "UK" | "Europe" | "Japan" | "Korea" | "Other";
+// Issue #421: independent of real position size, drives a config-driven
+// floor on §3 depth. null = not watched.
+export type WatchTier = "watch" | "focus" | "critical";
 export type ConfirmMode = "append" | "replace";
 export type IssueSeverity = "info" | "warning";
 
@@ -44,6 +47,7 @@ export interface ParsedRow {
   account: string | null;
   portfolio: string | null;
   notes: string | null;
+  watch_tier?: WatchTier | null;
   issues: IssueNote[];
   confidence: number;
   capture_supported: boolean;
@@ -102,6 +106,7 @@ export interface HoldingOut {
   account: string | null;
   portfolio: string | null;
   notes: string | null;
+  watch_tier?: WatchTier | null;
   last_manual_update: string | null;
   created_at: string;
   updated_at: string;
@@ -125,6 +130,7 @@ export type HoldingPatch = Partial<{
   account: string | null;
   portfolio: string | null;
   notes: string | null;
+  watch_tier: WatchTier | null;
 }>;
 
 export class ApiError extends Error {

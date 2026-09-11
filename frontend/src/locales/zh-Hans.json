@@ -171,6 +171,7 @@
     "fieldAccount": "账户",
     "fieldPortfolio": "分组",
     "fieldNotes": "备注",
+    "fieldWatchTier": "关注等级",
     "pricingAuto": "自动（市场价格）",
     "pricingManual": "手动",
     "assetTypeStock": "股票",
@@ -200,6 +201,12 @@
       "cleared_residual_shares": "已清除现金/理财行残留的份额/平均成本。当前处理：以当前价值为准。",
       "ticker_no_suffix": "无法为 {ticker}（货币 {currency}）补交易所后缀，因为尚未确定上市地。当前处理：仍按无后缀的 {ticker} 存储。建议：若已知上市地请设置 Market（US / HK / A-Share / UK / Europe / Japan / Korea / Other）。",
       "ticker_suffix_ambiguous": "上市地已确定为 {market}，但无法自动判断 {ticker}（货币 {currency}）的交易所后缀 —— 该市场下 {suffixes} 均为合法后缀。当前处理：仍按无后缀的 {ticker} 存储，且在补上后缀之前不会抓取行情。建议：直接在代码后手动加上正确的后缀。"
+    },
+    "watchTier": {
+      "none": "未关注",
+      "watch": "关注",
+      "focus": "重点关注",
+      "critical": "紧盯"
     }
   },
   "questionnaire": {

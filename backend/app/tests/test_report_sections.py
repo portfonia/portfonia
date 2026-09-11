@@ -581,6 +581,49 @@ def test_build_section1_priced_at_zero_with_zero_total_does_not_crash() -> None:
     assert "[price unavailable]" in unpriced_row
 
 
+def test_build_section1_watched_zero_value_holding_stays_visible() -> None:
+    """Issue #421 Design item 6 / Contract constraints acceptance test 1:
+    a watch_tier="critical" holding with market_value_base=0 must appear
+    in §1 like any other row — §1 has no watch_tier-aware filtering, so
+    this locks that _build_section1 iterates every holding unconditionally
+    regardless of watch_tier."""
+    portfolio = {
+        "base_currency": "USD",
+        "fx_rates_as_of": {"CNY": "2026-06-06"},
+        "total_base": 100.0,
+        "by_market": {"US": 100.0},
+        "by_currency": {},
+        "by_asset_type": {},
+        "holdings": [
+            {
+                "name": "Priced",
+                "broker": "IBKR",
+                "currency": "USD",
+                "market_value": 100,
+                "market_value_base": 100.0,
+                "position": 0,
+                "asset_class": "STOCK",
+            },
+            {
+                "name": "Tracked Startup",
+                "broker": "IBKR",
+                "currency": "USD",
+                "market_value": 0,
+                "market_value_base": 0.0,
+                "position": 1,
+                "asset_class": "STOCK",
+                "watch_tier": "critical",
+            },
+        ],
+    }
+    md = sec._build_section1(portfolio)
+    assert "Tracked Startup" in md
+    watched_row = next(line for line in md.splitlines() if line.startswith("| Tracked Startup"))
+    assert "0.0%" in watched_row
+    # Total value / priced subtotal is unaffected by the watched zero row.
+    assert "**IBKR subtotal** | USD | **100**" in md
+
+
 def test_serialize_portfolio_unpriced_holding_survives_with_none_values() -> None:
     hv = HoldingValue(
         holding_id=uuid.uuid4(),

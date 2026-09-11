@@ -1,0 +1,8 @@
+# Issue #421 Design item 2: target §3 proportionality-check weight for a
+# watched holding, by tier — fixed 5%/10%/15% product decision (2026-09-10),
+# only the numeric representation (fraction 0-1, matching HoldingCheckInput
+# .weight's units) is this file's concern. Hot-reloaded: edits take effect
+# on the next report run, no deploy required.
+watch: 0.05
+focus: 0.10
+critical: 0.15

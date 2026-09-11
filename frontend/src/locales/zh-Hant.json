@@ -171,6 +171,7 @@
     "fieldAccount": "帳戶",
     "fieldPortfolio": "分组",
     "fieldNotes": "備註",
+    "fieldWatchTier": "關注等級",
     "pricingAuto": "自動（市場價格）",
     "pricingManual": "手動",
     "assetTypeStock": "股票",
@@ -200,6 +201,12 @@
       "cleared_residual_shares": "已清除現金/理財列殘留的股數/平均成本。目前處理：以目前價值為準。",
       "ticker_no_suffix": "無法為 {ticker}（貨幣 {currency}）補交易所後綴，因為尚未確定上市地。當前處理：仍按無後綴的 {ticker} 儲存。建議：若已知上市地請設置 Market（US / HK / A-Share / UK / Europe / Japan / Korea / Other）。",
       "ticker_suffix_ambiguous": "上市地已確定為 {market}，但無法自動判斷 {ticker}（貨幣 {currency}）的交易所後綴 —— 該市場下 {suffixes} 均為合法後綴。當前處理：仍按無後綴的 {ticker} 儲存，且在補上後綴之前不會擷取行情。建議：直接在代碼後手動加上正確的後綴。"
+    },
+    "watchTier": {
+      "none": "未關注",
+      "watch": "關注",
+      "focus": "重點關注",
+      "critical": "緊盯"
     }
   },
   "questionnaire": {

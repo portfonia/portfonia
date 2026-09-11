@@ -11,6 +11,7 @@ import {
   type HoldingOut,
   type HoldingPatch,
   type ParsedRow,
+  type WatchTier,
 } from "@/lib/api";
 import { isNextRedirectError } from "@/lib/next-redirect-error";
 import { Button } from "@/components/ui/button";
@@ -46,6 +47,7 @@ const CURRENCIES = [
 
 const ASSET_TYPES = ["stock", "etf", "fund", "cash", "wmf", "other"] as const;
 const MARKETS = ["US", "HK", "A-Share", "UK", "Europe", "Japan", "Korea", "Other"] as const;
+const WATCH_TIERS: readonly WatchTier[] = ["watch", "focus", "critical"];
 
 type FormState = {
   name: string;
@@ -62,6 +64,7 @@ type FormState = {
   account: string;
   portfolio: string;
   notes: string;
+  watch_tier: WatchTier | "";
 };
 
 function emptyToNull(value: string): string | null {
@@ -102,6 +105,7 @@ function fromHolding(h: HoldingOut): FormState {
     account: h.account ?? "",
     portfolio: h.portfolio ?? "",
     notes: h.notes ?? "",
+    watch_tier: h.watch_tier ?? "",
   };
 }
 
@@ -120,6 +124,7 @@ const EMPTY: FormState = {
   account: "",
   portfolio: "",
   notes: "",
+  watch_tier: "",
 };
 
 function Field({
@@ -230,6 +235,7 @@ export function HoldingForm({
       account: emptyToNull(form.account),
       portfolio: emptyToNull(form.portfolio),
       notes: emptyToNull(form.notes),
+      watch_tier: form.watch_tier === "" ? null : form.watch_tier,
     };
     try {
       if (initial) {
@@ -418,6 +424,20 @@ export function HoldingForm({
           </Field>
           <Field label={t("fieldNotes")}>
             <Input value={form.notes} onChange={(e) => set("notes", e.target.value)} />
+          </Field>
+          <Field label={t("fieldWatchTier")}>
+            <select
+              className={selectClass}
+              value={form.watch_tier}
+              onChange={(e) => set("watch_tier", e.target.value as WatchTier | "")}
+            >
+              <option value="">{t("watchTier.none")}</option>
+              {WATCH_TIERS.map((tier) => (
+                <option key={tier} value={tier}>
+                  {t(`watchTier.${tier}`)}
+                </option>
+              ))}
+            </select>
           </Field>
         </div>
         <div className="flex justify-end gap-2 pt-2">
