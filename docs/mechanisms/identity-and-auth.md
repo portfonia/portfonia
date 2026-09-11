@@ -266,16 +266,12 @@ free — no per-router wiring needed.
   enforcement at all would be a worse regression than temporarily reverting
   to that pre-fix (fail-open) state. Both `is_idle` and `touch_activity`
   catch `ActivityStoreUnavailable`, log, and continue.
-- **Absolute session lifetime (hard cap regardless of activity) is
-  explicitly out of scope for this fix.** Confirmed 2026-08-27: Supabase
-  Dashboard → Authentication → Sessions shows "Time-box user sessions" and
-  "Inactivity timeout" both set to 0 (never) — and both are Pro-tier
-  settings. The Portfonia Supabase project is on the **Free plan**, so
-  neither is actually usable regardless of what value is entered; an
-  absolute-lifetime cap will need the same app-level treatment as this
-  fix (a session-start timestamp checked in `current_principal`,
-  independent of `idle_activity.py`'s rolling last-active timestamp), not
-  a Supabase-native setting. Tracked in a separate follow-up issue.
+- **Absolute session lifetime (hard cap regardless of activity) was
+  explicitly out of scope for this fix** — confirmed 2026-08-27 via the
+  Supabase Dashboard and, 2026-08-28, the Management API
+  (`sessions_timebox=0`, Pro-tier only, inert on this project's Free
+  plan). **Implemented 2026-09-11, issue #236 — see that subsection
+  below** for the app-level mechanism this bullet anticipated.
 - **Per-user configurable session length remains B6 scope**, per
   product-owner decision 2026-08-27 — not pulled forward into this fix.
 
@@ -447,6 +443,81 @@ own history.
   `test_auth_provider.py` cases (`test_missing_session_id_claim_is_401`,
   `test_empty_session_id_claim_is_401`) cover the new required-claim
   rejection at the JWT-verification layer itself.
+
+**Absolute session lifetime cap + frontend session-status probe — issue
+#236 (2026-09-11)**, a second, independent control added to this same
+file:
+
+- **8-hour absolute cap, permanent app-level mechanism** (product-owner
+  decision, not a stopgap pending Supabase Pro — see the "explicitly out
+  of scope" bullet above this subsection). `ABSOLUTE_SESSION_LIFETIME_SECONDS`
+  in `idle_activity.py`. Unlike the idle window, this clock never resets
+  on activity — `session_lifetime_expired(user_id, session_id)` writes a
+  `session:lifetime_start:{user_id}:{session_id}` marker only on that
+  session's first call (write-once), and every later call for the same
+  key only ever reads it. `current_principal` (`app/core/deps.py`) checks
+  it right after `is_idle`, before `touch_activity` — a request already
+  rejected as idle never reaches (or writes) the lifetime marker.
+- **Same `(user_id, session_id)` keying as idle, for the same reason**
+  (round-3 review above): a `user_id`-only key would let a re-login's
+  write reset or extend an unrelated session's clock. A fresh login
+  always gets a new `session_id`, so it always starts its own clean
+  8-hour window.
+- **Why the lifetime-start marker's Redis TTL differs from
+  `_GC_TTL_SECONDS`'s reasoning**: `is_idle`'s absence-is-safe logic
+  relies on the key being *rewritten* on every touch, so losing it to GC
+  only ever affects a session that was already idle far longer than the
+  15-minute window anyway. The lifetime-start marker is write-once by
+  design — nothing ever rewrites it — so if its TTL were too short, GC
+  could delete it *before* the 8-hour cap fires, and the next request
+  would read "absent" and silently restart the clock, extending a capped
+  session past 8h. `_LIFETIME_GC_TTL_SECONDS` is set to
+  `ABSOLUTE_SESSION_LIFETIME_SECONDS + 24h` (32h total) specifically to
+  keep that window from ever being reached in practice — same "TTL as GC
+  safety net, timestamp comparison as the real enforcement" pattern as
+  `_GC_TTL_SECONDS`, just re-derived for a write-once marker instead of a
+  rolling one.
+- **Fails open on Redis outage**, same stance and same reasoning as
+  `is_idle`/`touch_activity` above.
+- **New `GET /auth/session-status`** (`app/routers/auth.py`): 204,
+  `current_principal`-gated only, no extra query. Exists because `GET
+  /me` (the Profile page's account-summary endpoint) runs two `EXISTS`
+  queries plus a verification-row query — too heavy for a check meant to
+  run on every frontend `useSession` mount and route change.
+- **Frontend information-disclosure gap this closes**: `useSession()`
+  (`frontend/src/hooks/use-session.ts`) previously trusted a successful
+  Supabase `getUser()` call alone as proof of "authed" — but Supabase has
+  no session-lifetime opinion of its own on this project's Free plan, so
+  a backend-side idle/lifetime rejection left the top-bar menu
+  (`GetStartedMenu`) still rendering the full authenticated entry list
+  (Profile/Holdings/Portfolio/Portfolio Performance/Questionnaire) until
+  the user's next click hit a 401 and self-corrected via the existing
+  `logout("expired")` path in `lib/api.ts`/`lib/server-api.ts`. Product-
+  owner correction during design (2026-09-11): this is not cosmetic — the
+  entry list is a map of the platform's authenticated feature surface,
+  and an unauthenticated or backend-expired party should not see it
+  exists. `verify()` now awaits a `probeBackendSession()` call to
+  `/api/auth/session-status` before setting `authed`, discarding the
+  probe's result the same way any other stale resolution is discarded
+  (the existing `myGeneration`/`cancelled` guards cover the extra
+  `await` for free — no new discard logic needed). A probe failure
+  (401 or network error) renders `guest`, matching the module's existing
+  fail-closed doctrine. `frontend/src/proxy.ts` already injects the
+  `Authorization: Bearer` header for any `/api/*` browser fetch, so no
+  new token-plumbing was needed.
+- Tests: `app/tests/test_idle_activity.py` (six new cases, same
+  `InMemoryBackend` pattern as the idle tests), four new
+  `app/tests/test_auth_deps.py` cases exercising the real HTTP path
+  (including one specifically proving the absolute cap fires even while
+  repeated activity keeps the idle window fresh — the case #235's
+  idle-only enforcement could never catch) plus `GET /auth/session-status`
+  coverage, and five new `frontend/src/hooks/use-session.test.tsx` /
+  `frontend/src/components/get-started-menu.test.tsx` cases (probe
+  rejects, probe network error, no probe call when already guest,
+  SIGNED_OUT discarding a stale in-flight probe). Both frontend test
+  files needed a hoisted `fetchMock` stubbed onto `global.fetch` — neither
+  mocked `fetch` before this change, since `useSession()` had no reason to
+  call it.
 
 
 ### Frontend auth closure — B5 (Ring 1 stage B, issue #129)

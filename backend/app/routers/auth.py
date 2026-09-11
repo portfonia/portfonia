@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_session
+from app.core.deps import Principal, current_principal
 from app.core.rate_limit import (
     UNAVAILABLE_DETAIL,
     guard_known_invite_token,
@@ -237,3 +238,19 @@ def forgot_password(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=UNAVAILABLE_DETAIL
             ) from None
     return ForgotPasswordResponse(account_found=exists)
+
+
+@router.get("/session-status", status_code=status.HTTP_204_NO_CONTENT)
+def session_status(_principal: Principal = Depends(current_principal)) -> None:
+    """Cheap current_principal-gated probe (issue #236). No body, no extra
+    query beyond what current_principal already does on every identity-
+    bearing route (JWT verify, idle check, lifetime check, user lookup).
+
+    Exists so the frontend top-bar menu (`useSession` in use-session.ts)
+    can confirm the backend would still accept this session's token before
+    rendering the authenticated menu, without paying GET /me's account-
+    summary query cost — that check would otherwise run on every mount and
+    route change. current_principal itself raises 401 before this body
+    ever runs; a 204 here means nothing more than "still valid right now".
+    """
+    return None
