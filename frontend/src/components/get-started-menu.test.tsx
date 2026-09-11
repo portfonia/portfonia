@@ -1,11 +1,15 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getUser, onAuthStateChange, logout } = vi.hoisted(() => ({
+const { getUser, onAuthStateChange, logout, fetchMock } = vi.hoisted(() => ({
   getUser: vi.fn(),
   onAuthStateChange: vi.fn(),
   logout: vi.fn(),
+  // issue #236: useSession() now also probes /api/auth/session-status
+  // after a successful getUser() — default it to ok so every existing
+  // "authed" case here still reaches authed without change.
+  fetchMock: vi.fn(),
 }));
 
 // GetStartedMenu itself no longer reads the route (issue #209 unified the
@@ -106,6 +110,12 @@ describe("GetStartedMenu", () => {
     __resetSessionSignalsForTests();
     getUser.mockReturnValue(new Promise(() => {})); // checking by default
     vi.clearAllMocks();
+    fetchMock.mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("renders nothing while the verified session check is in flight", () => {

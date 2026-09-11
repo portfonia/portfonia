@@ -1,4 +1,5 @@
-"""Server-side idle-timeout enforcement (issue #235).
+"""Server-side idle-timeout + absolute session lifetime enforcement
+(issue #235, extended by issue #236).
 
 Backs the 15-minute idle window declared in
 `frontend/src/lib/idle-timeout.ts` (`SESSION_IDLE_TIMEOUT_MS`) with Redis
@@ -9,6 +10,13 @@ the instant the tab/process closed — this module is the actual enforcement;
 the frontend timer remains a convenience/UX layer on top of it, not a
 substitute. Keep `IDLE_TIMEOUT_SECONDS` in sync with the frontend constant
 by hand — no shared config crosses the Python/TypeScript boundary here.
+
+Issue #236 adds a second, independent control in this same file: an
+8-hour absolute session lifetime cap, needed because Supabase's own native
+"Time-box user sessions" setting is Pro-tier-only and inert on this
+project's Free plan (`sessions_timebox=0` regardless of the Dashboard
+value). Unlike the idle window above, this clock never resets on
+activity — see `session_lifetime_expired`.
 """
 
 from __future__ import annotations
@@ -170,3 +178,51 @@ def touch_activity(user_id: UUID, session_id: str, *, now: float | None = None) 
         get_backend().set_timestamp(_activity_key(user_id, session_id), moment, _GC_TTL_SECONDS)
     except ActivityStoreUnavailable:
         logger.exception("idle_activity: store unavailable, activity not recorded")
+
+
+# issue #236: 8 hours, product-owner decision 2026-09-11 — a permanent
+# app-level mechanism (not a stopgap pending a Supabase Pro upgrade, whose
+# native Time-box setting would otherwise cover this).
+ABSOLUTE_SESSION_LIFETIME_SECONDS = 8 * 60 * 60
+
+# Safety-net TTL for the lifetime-start marker below, deliberately far
+# longer than the 8h window it enforces — same "TTL is a GC safety net,
+# never the enforcement mechanism" rationale as _GC_TTL_SECONDS above, but
+# re-derived: this marker is write-once (see session_lifetime_expired), so
+# losing it to GC before the 8h cap fires would silently restart a capped
+# session's clock, which _GC_TTL_SECONDS's own 24h margin over a 15-minute
+# window does not by itself protect against here.
+_LIFETIME_GC_TTL_SECONDS = ABSOLUTE_SESSION_LIFETIME_SECONDS + 24 * 60 * 60
+
+
+def _lifetime_key(user_id: UUID, session_id: str) -> str:
+    return f"session:lifetime_start:{user_id}:{session_id}"
+
+
+def session_lifetime_expired(user_id: UUID, session_id: str, *, now: float | None = None) -> bool:
+    """True only once more than ABSOLUTE_SESSION_LIFETIME_SECONDS have
+    elapsed since this exact (user_id, session_id)'s first call here.
+
+    Write-once, unlike touch_activity's rolling reset: the first call for a
+    session records `now` as that session's start and returns False; every
+    later call for the same session_id only ever reads that same stored
+    value, never overwrites it. A fresh login always gets its own new
+    session_id (Supabase JWT claim), so it always starts a fresh window —
+    same per-session isolation as is_idle, for the same reason (PR #240
+    review round 3): a user_id-only key would let a re-login's write
+    silently reset an unrelated session's clock.
+
+    Fails open on Redis outage, matching is_idle's stance — defense-in-
+    depth on top of JWT verification, not the primary auth boundary.
+    """
+    moment = time.time() if now is None else now
+    key = _lifetime_key(user_id, session_id)
+    try:
+        started = get_backend().get_timestamp(key)
+        if started is None:
+            get_backend().set_timestamp(key, moment, _LIFETIME_GC_TTL_SECONDS)
+            return False
+    except ActivityStoreUnavailable:
+        logger.exception("idle_activity: lifetime store unavailable, failing open")
+        return False
+    return (moment - started) > ABSOLUTE_SESSION_LIFETIME_SECONDS

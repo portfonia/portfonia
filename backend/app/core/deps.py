@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_session
-from app.core.idle_activity import is_idle, touch_activity
+from app.core.idle_activity import is_idle, session_lifetime_expired, touch_activity
 from app.models.user import User
 from app.services.auth_provider import InvalidAccessToken, verify_access_token
 
@@ -47,6 +47,12 @@ def current_principal(request: Request, session: Session = Depends(get_session))
     This is what makes the timeout real — the frontend's own idle timer
     (use-idle-logout.ts) lives only in browser memory and does not survive
     closing the tab, so it cannot revoke anything on its own.
+
+    Also enforces an 8-hour absolute session lifetime cap (issue #236),
+    independent of the idle check above: it never resets on activity, only
+    on a fresh login (new session_id). Needed because Supabase's own
+    session-lifetime control is Pro-tier-only and inert on this project's
+    Free plan.
     """
     token = _request_access_token(request)
     if token is None:
@@ -63,6 +69,8 @@ def current_principal(request: Request, session: Session = Depends(get_session))
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized")
     if is_idle(user.id, session_id=claims.session_id):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized")
+    if session_lifetime_expired(user.id, session_id=claims.session_id):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized")
     touch_activity(user.id, session_id=claims.session_id)
     return Principal(

@@ -8,11 +8,13 @@ import pytest
 
 from app.core import idle_activity
 from app.core.idle_activity import (
+    ABSOLUTE_SESSION_LIFETIME_SECONDS,
     IDLE_TIMEOUT_SECONDS,
     ActivityStoreUnavailable,
     InMemoryBackend,
     RedisBackend,
     is_idle,
+    session_lifetime_expired,
     touch_activity,
 )
 
@@ -125,3 +127,68 @@ def test_touch_activity_fails_open_when_store_unavailable(monkeypatch: pytest.Mo
     idle_activity.set_backend(_BrokenBackend())
     # Must not raise.
     touch_activity(_USER, _SESSION, now=1_000.0)
+
+
+# issue #236: absolute session lifetime cap.
+
+
+def test_first_call_for_session_is_not_expired_and_records_start(
+    backend: InMemoryBackend,
+) -> None:
+    """A session's first-ever call (including a fresh login) must read as
+    not-expired — same absence-is-safe logic as is_idle — and must record
+    that moment as the session's start so later calls have something to
+    compare against."""
+    assert session_lifetime_expired(_USER, _SESSION, now=1_000.0) is False
+    assert backend.get_timestamp(idle_activity._lifetime_key(_USER, _SESSION)) == 1_000.0
+
+
+def test_within_lifetime_window_is_not_expired(backend: InMemoryBackend) -> None:
+    session_lifetime_expired(_USER, _SESSION, now=1_000.0)
+    later = 1_000.0 + ABSOLUTE_SESSION_LIFETIME_SECONDS - 1
+    assert session_lifetime_expired(_USER, _SESSION, now=later) is False
+
+
+def test_past_lifetime_window_is_expired(backend: InMemoryBackend) -> None:
+    session_lifetime_expired(_USER, _SESSION, now=1_000.0)
+    later = 1_000.0 + ABSOLUTE_SESSION_LIFETIME_SECONDS + 1
+    assert session_lifetime_expired(_USER, _SESSION, now=later) is True
+
+
+def test_activity_within_window_does_not_push_out_lifetime_expiry(
+    backend: InMemoryBackend,
+) -> None:
+    """Unlike touch_activity's rolling reset, repeated calls must never
+    move the recorded start forward — the cap is absolute, not idle-style
+    renewable."""
+    session_lifetime_expired(_USER, _SESSION, now=1_000.0)
+    mid = 1_000.0 + ABSOLUTE_SESSION_LIFETIME_SECONDS - 1
+    assert session_lifetime_expired(_USER, _SESSION, now=mid) is False
+    # If this second call had reset the clock, `late` below would read as
+    # not-expired. It must not.
+    late = 1_000.0 + ABSOLUTE_SESSION_LIFETIME_SECONDS + 1
+    assert session_lifetime_expired(_USER, _SESSION, now=late) is True
+
+
+def test_different_session_for_same_user_has_independent_lifetime(
+    backend: InMemoryBackend,
+) -> None:
+    session_lifetime_expired(_USER, "session-old", now=1_000.0)
+    later = 1_000.0 + ABSOLUTE_SESSION_LIFETIME_SECONDS + 1
+    # The old session is expired on its own terms...
+    assert session_lifetime_expired(_USER, "session-old", now=later) is True
+    # ...but a different session_id for the same user, first seen only now,
+    # starts its own fresh window.
+    assert session_lifetime_expired(_USER, "session-new", now=later) is False
+
+
+def test_session_lifetime_expired_fails_open_when_store_unavailable() -> None:
+    class _BrokenBackend:
+        def get_timestamp(self, key: str) -> float | None:
+            raise ActivityStoreUnavailable("redis down")
+
+        def set_timestamp(self, key: str, value: float, ttl_seconds: int) -> None:
+            raise ActivityStoreUnavailable("redis down")
+
+    idle_activity.set_backend(_BrokenBackend())
+    assert session_lifetime_expired(_USER, _SESSION, now=1_000.0) is False

@@ -296,6 +296,169 @@ def test_silent_refresh_of_same_session_does_not_reset_idle_window(
     assert refreshed.status_code == 401
 
 
+def test_active_session_within_lifetime_window_stays_authenticated(
+    raw_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """issue #236: repeated activity that stays within both the idle window
+    and the 8-hour absolute cap keeps succeeding, right up to just under
+    the cap — the lifetime check does not fire early."""
+    from app.core import idle_activity
+
+    sub = "supabase-sub-lifetime-active"
+    _add_user(
+        db_session, user_id=TEST_USER_ID, email="lifetime-active@example.com", auth_subject=sub
+    )
+
+    def _ok(_token: str) -> AccessTokenClaims:
+        return AccessTokenClaims(
+            sub=sub, email="lifetime-active@example.com", session_id="session-lifetime-active"
+        )
+
+    monkeypatch.setattr("app.core.deps.verify_access_token", _ok)
+    clock = {"now": 1_000.0}
+    monkeypatch.setattr("app.core.idle_activity.time.time", lambda: clock["now"])
+
+    first = raw_client.get("/holdings", headers={"Authorization": "Bearer good.token"})
+    assert first.status_code == 200
+
+    # Stay active often enough to never trip the idle check, right up to
+    # just under the absolute cap.
+    step = idle_activity.IDLE_TIMEOUT_SECONDS - 60
+    last_status = first.status_code
+    while clock["now"] < 1_000.0 + idle_activity.ABSOLUTE_SESSION_LIFETIME_SECONDS - step:
+        clock["now"] += step
+        last_status = raw_client.get(
+            "/holdings", headers={"Authorization": "Bearer good.token"}
+        ).status_code
+    assert last_status == 200
+
+
+def test_session_beyond_lifetime_window_is_401_even_when_not_idle(
+    raw_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """issue #236: the absolute cap fires past 8h regardless of activity —
+    the request just before the cap keeps the idle window fresh (well
+    under 15 minutes old), but the cap rejects anyway. This is the case
+    the idle-only enforcement in #235 could never catch."""
+    from app.core import idle_activity
+
+    sub = "supabase-sub-lifetime-expired"
+    _add_user(
+        db_session, user_id=TEST_USER_ID, email="lifetime-expired@example.com", auth_subject=sub
+    )
+
+    def _ok(_token: str) -> AccessTokenClaims:
+        return AccessTokenClaims(
+            sub=sub, email="lifetime-expired@example.com", session_id="session-lifetime-expired"
+        )
+
+    monkeypatch.setattr("app.core.deps.verify_access_token", _ok)
+    clock = {"now": 1_000.0}
+    monkeypatch.setattr("app.core.idle_activity.time.time", lambda: clock["now"])
+
+    first = raw_client.get("/holdings", headers={"Authorization": "Bearer good.token"})
+    assert first.status_code == 200
+
+    # Advance in small steps, each well within the idle window, so the
+    # idle check alone would never reject this — only the absolute cap can.
+    step = idle_activity.IDLE_TIMEOUT_SECONDS - 60
+    while clock["now"] < 1_000.0 + idle_activity.ABSOLUTE_SESSION_LIFETIME_SECONDS:
+        clock["now"] += step
+        raw_client.get("/holdings", headers={"Authorization": "Bearer good.token"})
+
+    clock["now"] += 1
+    beyond_cap = raw_client.get("/holdings", headers={"Authorization": "Bearer good.token"})
+    assert beyond_cap.status_code == 401
+
+
+def test_relogin_after_lifetime_401_succeeds_immediately(
+    raw_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """issue #236: a real re-login (new session_id) is never blocked by a
+    prior session's expired lifetime marker — mirrors #235's equivalent
+    idle test."""
+    from app.core import idle_activity
+
+    sub = "supabase-sub-lifetime-relogin"
+    _add_user(
+        db_session, user_id=TEST_USER_ID, email="lifetime-relogin@example.com", auth_subject=sub
+    )
+
+    def _old_token(_token: str) -> AccessTokenClaims:
+        return AccessTokenClaims(
+            sub=sub, email="lifetime-relogin@example.com", session_id="session-lifetime-old"
+        )
+
+    monkeypatch.setattr("app.core.deps.verify_access_token", _old_token)
+    clock = {"now": 1_000.0}
+    monkeypatch.setattr("app.core.idle_activity.time.time", lambda: clock["now"])
+
+    first = raw_client.get("/holdings", headers={"Authorization": "Bearer old.token"})
+    assert first.status_code == 200
+
+    clock["now"] = 1_000.0 + idle_activity.ABSOLUTE_SESSION_LIFETIME_SECONDS + 1
+    expired = raw_client.get("/holdings", headers={"Authorization": "Bearer old.token"})
+    assert expired.status_code == 401
+
+    def _new_token(_token: str) -> AccessTokenClaims:
+        return AccessTokenClaims(
+            sub=sub, email="lifetime-relogin@example.com", session_id="session-lifetime-new"
+        )
+
+    monkeypatch.setattr("app.core.deps.verify_access_token", _new_token)
+    relogin = raw_client.get("/holdings", headers={"Authorization": "Bearer new.token"})
+    assert relogin.status_code == 200
+
+
+def test_session_status_endpoint(
+    raw_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """issue #236: GET /auth/session-status is a thin current_principal
+    probe — 204 for a valid session, 401 for no token / idle-expired /
+    lifetime-expired, no response body to assert beyond status."""
+    from app.core import idle_activity
+
+    no_token = raw_client.get("/auth/session-status")
+    assert no_token.status_code == 401
+
+    sub = "supabase-sub-session-status"
+    _add_user(
+        db_session, user_id=TEST_USER_ID, email="session-status@example.com", auth_subject=sub
+    )
+
+    def _ok(_token: str) -> AccessTokenClaims:
+        return AccessTokenClaims(
+            sub=sub, email="session-status@example.com", session_id="session-status-ok"
+        )
+
+    monkeypatch.setattr("app.core.deps.verify_access_token", _ok)
+    clock = {"now": 1_000.0}
+    monkeypatch.setattr("app.core.idle_activity.time.time", lambda: clock["now"])
+
+    valid = raw_client.get("/auth/session-status", headers={"Authorization": "Bearer good.token"})
+    assert valid.status_code == 204
+
+    clock["now"] = 1_000.0 + idle_activity.IDLE_TIMEOUT_SECONDS + 1
+    idle_expired = raw_client.get(
+        "/auth/session-status", headers={"Authorization": "Bearer good.token"}
+    )
+    assert idle_expired.status_code == 401
+
+    def _fresh(_token: str) -> AccessTokenClaims:
+        return AccessTokenClaims(
+            sub=sub, email="session-status@example.com", session_id="session-status-lifetime"
+        )
+
+    monkeypatch.setattr("app.core.deps.verify_access_token", _fresh)
+    clock["now"] = 2_000.0
+    raw_client.get("/auth/session-status", headers={"Authorization": "Bearer fresh.token"})
+    clock["now"] = 2_000.0 + idle_activity.ABSOLUTE_SESSION_LIFETIME_SECONDS + 1
+    lifetime_expired = raw_client.get(
+        "/auth/session-status", headers={"Authorization": "Bearer fresh.token"}
+    )
+    assert lifetime_expired.status_code == 401
+
+
 def test_u2_cannot_read_u1_report(
     raw_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

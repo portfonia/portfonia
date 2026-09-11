@@ -1,11 +1,16 @@
 import { render, screen, waitFor, act } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
-const { usePathname, getUser, onAuthStateChange, unsubscribe } = vi.hoisted(() => ({
+const { usePathname, getUser, onAuthStateChange, unsubscribe, fetchMock } = vi.hoisted(() => ({
   usePathname: vi.fn(() => "/"),
   getUser: vi.fn(),
   onAuthStateChange: vi.fn(),
   unsubscribe: vi.fn(),
+  // issue #236: verify() now also calls /api/auth/session-status after a
+  // successful getUser(). Every existing "authed" test relies on this
+  // defaulting to ok — only the tests that specifically exercise the
+  // probe override it.
+  fetchMock: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({ usePathname }));
@@ -61,10 +66,13 @@ describe("useSession", () => {
     vi.clearAllMocks();
     usePathname.mockReturnValue("/");
     vi.spyOn(console, "warn").mockImplementation(() => {});
+    fetchMock.mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     // Unconditional, not just at the end of the fake-timer tests' happy
     // path — an assertion failure there would otherwise leak fake timers
     // into every later test in this file (PR #215 review nit).
@@ -100,6 +108,65 @@ describe("useSession", () => {
 
     expect(await screen.findByTestId("session-state")).toHaveTextContent("guest");
     expect(console.warn).toHaveBeenCalled();
+  });
+
+  it("reports guest when getUser verifies a session but the backend probe rejects it (issue #236)", async () => {
+    // Supabase's own session is live (getUser succeeds), but the backend's
+    // idle-timeout or absolute lifetime cap has already expired it — the
+    // menu must not render the authenticated entry list in that window.
+    getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+    fetchMock.mockResolvedValue({ ok: false });
+    render(<Probe />);
+
+    expect(await screen.findByTestId("session-state")).toHaveTextContent("guest");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/auth/session-status",
+      expect.objectContaining({ cache: "no-store" }),
+    );
+  });
+
+  it("reports guest when the backend probe fetch itself fails (fail closed)", async () => {
+    getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+    fetchMock.mockRejectedValue(new Error("network down"));
+    render(<Probe />);
+
+    expect(await screen.findByTestId("session-state")).toHaveTextContent("guest");
+  });
+
+  it("does not probe the backend at all when getUser reports no session", async () => {
+    getUser.mockResolvedValue({ data: { user: null } });
+    render(<Probe />);
+
+    await screen.findByTestId("session-state");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not let a stale in-flight backend probe override a SIGNED_OUT that arrived while it was pending", async () => {
+    getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
+    let releaseProbe!: (value: unknown) => void;
+    fetchMock.mockReturnValue(
+      new Promise((resolve) => {
+        releaseProbe = resolve;
+      }),
+    );
+    render(<Probe />);
+    // Still in the "checking" gap: getUser() has resolved and the probe is
+    // now in flight, deliberately not yet released.
+
+    act(() => {
+      lastAuthCallback()("SIGNED_OUT", null);
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("session-state")).toHaveTextContent("guest"),
+    );
+
+    // The probe finally resolves as "still valid" — must not resurrect the
+    // authed state the SIGNED_OUT event already settled.
+    act(() => {
+      releaseProbe({ ok: true });
+    });
+
+    expect(screen.getByTestId("session-state")).toHaveTextContent("guest");
   });
 
   it("never trusts an INITIAL_SESSION event carrying a stale local session (D1)", async () => {

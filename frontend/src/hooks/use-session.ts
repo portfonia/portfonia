@@ -124,10 +124,33 @@ async function verifiedGetUser(
   }
 }
 
-// Display truth comes ONLY from a verified getUser() call. The
-// INITIAL_SESSION auth event carries the locally persisted session WITHOUT
-// server verification — trusting it is what let a revoked/expired session
-// keep rendering its email after a refresh (issue #207 D1).
+// issue #236: getUser() above only proves Supabase's own session is live —
+// Supabase has no lifetime opinion of its own on this project's Free plan
+// (sessions_timebox=0, Pro-tier only). It says nothing about the backend's
+// idle-timeout (#235) or absolute 8h lifetime cap (#236), both enforced
+// only in current_principal. Without this probe, a backend-expired session
+// still renders the full authenticated menu — not just an odd first paint,
+// but unauthorized reconnaissance value (the entry list is a map of the
+// platform's authenticated feature surface). `/api/auth/session-status` is
+// a purpose-built, current_principal-gated 204 probe (see
+// backend/app/routers/auth.py) — cheap enough to call on every verify().
+// frontend/src/proxy.ts already injects the Bearer header for any
+// `/api/*` browser fetch, so no token-plumbing is needed here.
+async function probeBackendSession(): Promise<boolean> {
+  try {
+    const res = await fetch("/api/auth/session-status", { cache: "no-store" });
+    return res.ok;
+  } catch {
+    return false; // fail closed, matching this module's existing doctrine
+  }
+}
+
+// Display truth comes ONLY from a verified getUser() call, AND (issue
+// #236) a verified backend probe on top of it — getUser() alone proves
+// Supabase's own session is live, not that the backend would still accept
+// it. The INITIAL_SESSION auth event carries the locally persisted session
+// WITHOUT server verification — trusting it is what let a revoked/expired
+// session keep rendering its email after a refresh (issue #207 D1).
 //
 // Auth-event resolutions are guarded by a generation counter, not a sticky
 // flag: SIGNED_OUT bumps the generation so an in-flight getUser() that
@@ -192,10 +215,21 @@ export function useSession(): SessionState {
       if (inFlight) return;
       const myGeneration = generation;
       inFlight = verifiedGetUser(supabase)
-        .then(({ data }) => {
+        .then(async ({ data }) => {
+          if (cancelled || myGeneration !== generation) return;
+          if (!data.user) {
+            setState({ status: "guest" });
+            return;
+          }
+          // issue #236: Supabase vouching for the session is not enough —
+          // confirm current_principal would still accept it before showing
+          // the authenticated menu. A later SIGNED_OUT/SIGNED_IN during
+          // this await bumps `generation`, and the check below discards
+          // this probe's result exactly like any other stale resolution.
+          const stillValid = await probeBackendSession();
           if (cancelled || myGeneration !== generation) return;
           setState(
-            data.user
+            stillValid
               ? { status: "authed", email: data.user.email ?? "" }
               : { status: "guest" },
           );
