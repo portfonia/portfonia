@@ -57,6 +57,7 @@ class ActivityStoreUnavailable(Exception):
 class ActivityBackend(Protocol):
     def get_timestamp(self, key: str) -> float | None: ...
     def set_timestamp(self, key: str, value: float, ttl_seconds: int) -> None: ...
+    def set_timestamp_if_absent(self, key: str, value: float, ttl_seconds: int) -> None: ...
 
 
 class InMemoryBackend:
@@ -70,6 +71,9 @@ class InMemoryBackend:
 
     def set_timestamp(self, key: str, value: float, ttl_seconds: int) -> None:
         self._data[key] = value
+
+    def set_timestamp_if_absent(self, key: str, value: float, ttl_seconds: int) -> None:
+        self._data.setdefault(key, value)
 
 
 class RedisBackend:
@@ -100,6 +104,19 @@ class RedisBackend:
     def set_timestamp(self, key: str, value: float, ttl_seconds: int) -> None:
         try:
             self._client.set(key, repr(value), ex=ttl_seconds)
+        except RedisError as exc:
+            raise ActivityStoreUnavailable from exc
+
+    def set_timestamp_if_absent(self, key: str, value: float, ttl_seconds: int) -> None:
+        """NX write — PR #432 review (blacktomb42, non-blocking): a plain
+        get-then-set has a race between two concurrent first requests for a
+        brand-new session_id, where the later SET would silently move the
+        recorded lifetime-start forward. Only session_lifetime_expired's
+        write-once path needs this; touch_activity's rolling reset still
+        uses the unconditional set_timestamp above.
+        """
+        try:
+            self._client.set(key, repr(value), ex=ttl_seconds, nx=True)
         except RedisError as exc:
             raise ActivityStoreUnavailable from exc
 
@@ -214,13 +231,23 @@ def session_lifetime_expired(user_id: UUID, session_id: str, *, now: float | Non
 
     Fails open on Redis outage, matching is_idle's stance — defense-in-
     depth on top of JWT verification, not the primary auth boundary.
+
+    The first-touch write uses set_timestamp_if_absent (Redis SET NX), not
+    a plain set_timestamp: two concurrent first requests for a brand-new
+    session_id both reading `started is None` would otherwise race on a
+    plain SET, with whichever write lands second silently moving the
+    recorded start forward (PR #432 review, non-blocking but cheap to
+    close). NX means only the first writer's timestamp ever sticks,
+    regardless of request ordering after that point — this call doesn't
+    need to know which request won, since either way `now` is close enough
+    to the true session start that returning False here is still correct.
     """
     moment = time.time() if now is None else now
     key = _lifetime_key(user_id, session_id)
     try:
         started = get_backend().get_timestamp(key)
         if started is None:
-            get_backend().set_timestamp(key, moment, _LIFETIME_GC_TTL_SECONDS)
+            get_backend().set_timestamp_if_absent(key, moment, _LIFETIME_GC_TTL_SECONDS)
             return False
     except ActivityStoreUnavailable:
         logger.exception("idle_activity: lifetime store unavailable, failing open")

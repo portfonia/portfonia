@@ -94,6 +94,9 @@ def test_is_idle_fails_open_when_store_unavailable(monkeypatch: pytest.MonkeyPat
         def set_timestamp(self, key: str, value: float, ttl_seconds: int) -> None:
             raise ActivityStoreUnavailable("redis down")
 
+        def set_timestamp_if_absent(self, key: str, value: float, ttl_seconds: int) -> None:
+            raise ActivityStoreUnavailable("redis down")
+
     idle_activity.set_backend(_BrokenBackend())
     assert is_idle(_USER, _SESSION, now=1_000.0) is False
 
@@ -124,6 +127,9 @@ def test_touch_activity_fails_open_when_store_unavailable(monkeypatch: pytest.Mo
         def set_timestamp(self, key: str, value: float, ttl_seconds: int) -> None:
             raise ActivityStoreUnavailable("redis down")
 
+        def set_timestamp_if_absent(self, key: str, value: float, ttl_seconds: int) -> None:
+            raise ActivityStoreUnavailable("redis down")
+
     idle_activity.set_backend(_BrokenBackend())
     # Must not raise.
     touch_activity(_USER, _SESSION, now=1_000.0)
@@ -141,6 +147,20 @@ def test_first_call_for_session_is_not_expired_and_records_start(
     compare against."""
     assert session_lifetime_expired(_USER, _SESSION, now=1_000.0) is False
     assert backend.get_timestamp(idle_activity._lifetime_key(_USER, _SESSION)) == 1_000.0
+
+
+def test_set_timestamp_if_absent_does_not_overwrite_an_existing_value(
+    backend: InMemoryBackend,
+) -> None:
+    """PR #432 review (blacktomb42, non-blocking): a plain get-then-set
+    races two concurrent first requests for the same brand-new session_id
+    — whichever SET lands second would silently move the recorded start
+    forward. set_timestamp_if_absent (Redis SET NX) makes only the first
+    writer's value stick, regardless of call order after that."""
+    key = idle_activity._lifetime_key(_USER, _SESSION)
+    backend.set_timestamp_if_absent(key, 1_000.0, 60)
+    backend.set_timestamp_if_absent(key, 2_000.0, 60)  # simulates the racing writer
+    assert backend.get_timestamp(key) == 1_000.0
 
 
 def test_within_lifetime_window_is_not_expired(backend: InMemoryBackend) -> None:
@@ -188,6 +208,9 @@ def test_session_lifetime_expired_fails_open_when_store_unavailable() -> None:
             raise ActivityStoreUnavailable("redis down")
 
         def set_timestamp(self, key: str, value: float, ttl_seconds: int) -> None:
+            raise ActivityStoreUnavailable("redis down")
+
+        def set_timestamp_if_absent(self, key: str, value: float, ttl_seconds: int) -> None:
             raise ActivityStoreUnavailable("redis down")
 
     idle_activity.set_backend(_BrokenBackend())
