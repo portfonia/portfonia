@@ -744,6 +744,50 @@ def check_capture_health_task(self: Any) -> dict[str, object]:
 
 
 @celery_app.task(  # type: ignore[untyped-decorator]
+    name="app.tasks.capture_tasks.capture_fx_catchup_task",
+    bind=True,
+    max_retries=1,
+    default_retry_delay=300,
+)
+def capture_fx_catchup_task(self: Any) -> dict[str, object]:
+    """00:05 ET catch-up for the prior ET weekday's FX rates (issue #426).
+
+    Scheduled `tue-sat` (each run targets the previous ET weekday: tue->mon,
+    ..., sat->fri) so `target_date` has fully closed out and the vendor has
+    had hours past the ~17:00 ET FX rollover to publish, before this retries
+    `update_fx_rates()` once and falls back to Twelve Data per still-missing
+    pair. Detection (the #372 stale alert) is unaffected by this — it only
+    alerts on its own if a pair is still missing after both attempts.
+    """
+    from datetime import timedelta
+
+    from app.core.database import SessionLocal
+    from app.core.timezones import ET
+    from app.services.capture_health import expected_capture_date
+    from app.services.fx_fetcher import fx_catchup
+
+    session = SessionLocal()
+    try:
+        today_et = datetime.now(tz=ET).date()
+        target_date = expected_capture_date(today_et - timedelta(days=1))
+        result = fx_catchup(session, target_date)
+        session.commit()
+        return result.as_dict()
+    except Exception as exc:
+        session.rollback()
+        logger.exception("capture_fx_catchup_task: failed")
+        if self.request.retries >= self.max_retries:
+            _capture_failed(
+                "capture_fx_catchup_task",
+                exc,
+                context="FX catch-up for the prior trading day failed; that day's rate may stay stale.",
+            )
+        raise self.retry(exc=exc) from exc
+    finally:
+        session.close()
+
+
+@celery_app.task(  # type: ignore[untyped-decorator]
     name="app.tasks.capture_tasks.capture_benchmark_index_prices_task",
     bind=True,
     max_retries=2,

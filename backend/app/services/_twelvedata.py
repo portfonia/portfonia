@@ -1,13 +1,19 @@
-"""Twelve Data historical FX fetch — USDCNH gap-fill only (issue #406).
+"""Twelve Data FX fetch (issue #406 historical gap-fill; issue #426 daily fallback).
 
 yfinance classifies `USDCNH=X` as a limited-history quote type (rejects
 `period="max"`, returns ~1 month at most regardless of fetch strategy —
 confirmed live, see issue #406's Exploration). Twelve Data's free tier was
 confirmed live to carry full multi-year USD/CNH daily history. This module
-exists solely to back `app/scripts/backfill_usdcnh_history.py`'s one-off
-gap fill; it is deliberately NOT wired into `fx_fetcher.py`'s daily capture
-path — every pair's ongoing freshness stays yfinance-only (see
-`Settings.TWELVEDATA_API_KEY`'s docstring for why this stays scoped).
+originally existed solely to back `app/scripts/backfill_usdcnh_history.py`'s
+one-off gap fill.
+
+Issue #426 widened its use: `fx_fetcher.fx_catchup()` (the 00:05 ET
+next-day recovery pass for a pair still missing its prior day's rate after
+a retry) now also calls `fetch_daily_history` here, one pair at a time, as
+its fallback source. Every pair's routine daily capture (`update_fx_rates`,
+17:15 ET) stays yfinance-only — this is a fallback for the recovery path
+only, not a general yfinance replacement (see `Settings.TWELVEDATA_API_KEY`'s
+docstring for the current scope).
 """
 
 from __future__ import annotations
