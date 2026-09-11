@@ -26,6 +26,7 @@ class HoldingValueOut(BaseModel):
     broker: str | None
     account: str | None
     portfolio: str | None
+    watch_tier: str | None
     avg_cost: Decimal | None
     shares: Decimal | None
     notes: str | None
