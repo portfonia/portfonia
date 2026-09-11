@@ -53,6 +53,12 @@ AssetTypeValue = Literal["stock", "etf", "fund", "cash", "wmf", "other"]
 VALID_PRICING_MODES: tuple[str, ...] = get_args(PricingMode)
 VALID_ASSET_TYPES: tuple[str, ...] = get_args(AssetTypeValue)
 
+# Issue #421: independent of actual position size, drives §3's
+# config-driven target weight (watch_tier_weights.yml) instead of real
+# position weight. NULL = not watched (unchanged real-weight behavior).
+WatchTier = Literal["watch", "focus", "critical"]
+VALID_WATCH_TIERS: tuple[str, ...] = get_args(WatchTier)
+
 
 class IssueRow(BaseModel):
     raw: str
@@ -121,6 +127,11 @@ class ParsedRow(BaseModel):
     account: str | None = None
     portfolio: str | None = None
     notes: str | None = None
+    # Issue #421: user-declared, independent of real position size. NULL =
+    # not watched — real position weight still drives §3 (unchanged
+    # behavior). Never emitted by the LLM/parser; a user sets it via
+    # POST/PATCH /holdings/{id} only.
+    watch_tier: WatchTier | None = None
     issues: list[IssueNote] = Field(default_factory=list)
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
 
@@ -259,6 +270,7 @@ class HoldingOut(BaseModel):
     account: str | None
     portfolio: str | None
     notes: str | None
+    watch_tier: WatchTier | None = None
     last_manual_update: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -282,6 +294,11 @@ class HoldingPatch(BaseModel):
     account: str | None = None
     portfolio: str | None = None
     notes: str | None = None
+    # Issue #421: explicitly sending `"watch_tier": null` clears it (this
+    # field is read via model_dump(exclude_unset=True) — see
+    # routers/holdings.py's update_holding) without touching the holding
+    # row otherwise (Requirements item 4).
+    watch_tier: WatchTier | None = None
 
     @field_validator("currency")
     @classmethod

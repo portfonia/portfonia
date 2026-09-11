@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.models.holding import Holding
 from app.schemas.holdings import VALID_CURRENCIES, HoldingPatch, ParsedRow
 from app.services.asset_class_config import VALID_ASSET_CLASSES
+from app.services.watch_tier_config import VALID_WATCH_TIERS
 from app.tests.conftest import TEST_USER_ID, seed_user
 
 
@@ -242,3 +243,59 @@ def test_db_allows_new_closed_markets(db_session: Session, market: str) -> None:
     db_session.add(holding)
     db_session.commit()
     assert holding.market == market
+
+
+# --- watch_tier (issue #421) ---
+
+
+def test_parsed_row_rejects_unknown_watch_tier() -> None:
+    with pytest.raises(ValidationError):
+        ParsedRow(name="X", currency="USD", pricing_mode="auto", watch_tier="obsessed")
+
+
+def test_parsed_row_accepts_every_valid_watch_tier() -> None:
+    for tier in VALID_WATCH_TIERS:
+        row = ParsedRow(name="X", currency="USD", pricing_mode="auto", watch_tier=tier)
+        assert row.watch_tier == tier
+
+
+def test_parsed_row_accepts_null_watch_tier() -> None:
+    row = ParsedRow(name="X", currency="USD", pricing_mode="auto", watch_tier=None)
+    assert row.watch_tier is None
+
+
+def test_parsed_row_defaults_watch_tier_to_null() -> None:
+    row = ParsedRow(name="X", currency="USD", pricing_mode="auto")
+    assert row.watch_tier is None
+
+
+def test_holding_patch_rejects_unknown_watch_tier() -> None:
+    with pytest.raises(ValidationError):
+        HoldingPatch(watch_tier="obsessed")
+
+
+def test_holding_patch_accepts_every_valid_watch_tier_and_null() -> None:
+    for tier in VALID_WATCH_TIERS:
+        assert HoldingPatch(watch_tier=tier).watch_tier == tier
+    assert HoldingPatch(watch_tier=None).watch_tier is None
+
+
+def test_db_rejects_unknown_watch_tier(db_session: Session) -> None:
+    db_session.add(_base_holding(watch_tier="obsessed"))
+    with pytest.raises(IntegrityError, match="ck_holdings_watch_tier"):
+        db_session.commit()
+
+
+def test_db_allows_null_watch_tier(db_session: Session) -> None:
+    holding = _base_holding(watch_tier=None)
+    db_session.add(holding)
+    db_session.commit()
+    assert holding.watch_tier is None
+
+
+@pytest.mark.parametrize("tier", ["watch", "focus", "critical"])
+def test_db_allows_every_valid_watch_tier(db_session: Session, tier: str) -> None:
+    holding = _base_holding(watch_tier=tier)
+    db_session.add(holding)
+    db_session.commit()
+    assert holding.watch_tier == tier

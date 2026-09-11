@@ -418,6 +418,7 @@ def _holding_as_row_dict(holding: Holding) -> dict[str, Any]:
         "account": holding.account,
         "portfolio": holding.portfolio,
         "notes": holding.notes,
+        "watch_tier": holding.watch_tier,
     }
 
 

@@ -21,7 +21,12 @@ from app.core.encryption import EncryptedDecimal, EncryptedHoldingAmount, Encryp
 from app.models.account import Account
 from app.models.base import Base
 from app.models.user import User
-from app.schemas.holdings import VALID_ASSET_TYPES, VALID_CURRENCIES, VALID_PRICING_MODES
+from app.schemas.holdings import (
+    VALID_ASSET_TYPES,
+    VALID_CURRENCIES,
+    VALID_PRICING_MODES,
+    VALID_WATCH_TIERS,
+)
 from app.services.asset_class_config import VALID_ASSET_CLASSES
 from app.services.markets import VALID_HOLDING_MARKETS
 
@@ -62,6 +67,14 @@ class Holding(Base):
         CheckConstraint(
             "(market IS NULL) OR " + _in_list_sql("market", tuple(VALID_HOLDING_MARKETS)),
             name="market",
+        ),
+        # Issue #421: NULL means "not watched" — real position weight
+        # unchanged (Contract constraints invariant). Follows the
+        # market CHECK's "(col IS NULL) OR IN (...)" shape, not
+        # capture_supported's boolean pattern (superseded, see Design item 1).
+        CheckConstraint(
+            "(watch_tier IS NULL) OR " + _in_list_sql("watch_tier", tuple(VALID_WATCH_TIERS)),
+            name="watch_tier",
         ),
         # Composite, not a single-column FK on account_id alone (review, PR
         # #247): a single-column FK only guarantees the account exists, not
@@ -118,6 +131,14 @@ class Holding(Base):
     capture_supported: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true"), default=True
     )
+    # User-declared, independent of shares/avg_cost/current_value (issue
+    # #421). NULL = not watched (real position weight drives §3 unchanged).
+    # 'watch'/'focus'/'critical' map to a config-driven target weight
+    # (watch_tier_weights.yml) that report_generator._build_holding_check_
+    # inputs substitutes for the holding's real weight when set — never
+    # read by portfolio_calculator.py, so it cannot affect §1 distribution,
+    # by_asset_class/by_broker/by_currency, P&L%, or §4.1 concentration.
+    watch_tier: Mapped[str | None] = mapped_column(Text)
     # Row order in the uploaded file, so reports can mirror the user's layout.
     position: Mapped[int | None] = mapped_column(Integer)
     broker: Mapped[str | None] = mapped_column(EncryptedString)

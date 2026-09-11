@@ -108,6 +108,11 @@ class HoldingValue:
     notes: str | None = None
     position: int | None = None  # upload order, for report layout
     capture_supported: bool = True  # issue #311; False -> [market not supported]
+    # 'watch'/'focus'/'critical'/None (issue #421) — carried through for
+    # report_generator._build_holding_check_inputs's §3 weight substitution
+    # ONLY. Never read anywhere in this module: real position value alone
+    # drives every aggregate/concentration figure below.
+    watch_tier: str | None = None
     # None (not zero) unless pricing_mode=="auto" and a cost basis + valuation
     # both exist — issue #320 decision 2. Cash/wmf and capture-unsupported
     # holdings always carry None here; the frontend renders "—".
@@ -487,6 +492,7 @@ def compute_portfolio(
                 notes=h.notes,
                 position=h.position,
                 capture_supported=is_capture_supported(h),
+                watch_tier=h.watch_tier,
                 cost_basis_base=cost_basis_base,
                 unrealized_pnl_base=unrealized_pnl_base,
                 unrealized_pnl_pct=unrealized_pnl_pct,

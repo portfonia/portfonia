@@ -132,6 +132,7 @@ from app.services.ticker_intel import (
     l1_identifiers_for_user,
     large_weight_identifiers,
 )
+from app.services.watch_tier_config import load_watch_tier_weights
 from app.services.window_data import (
     L1_LOOKBACK_TRADING_DAYS,
     HoldingMove,
@@ -246,9 +247,11 @@ def _build_holding_check_inputs(
     `weight` is computed HERE, once, from the real portfolio (`_weight`,
     `report_assembly.py`) and handed to `HoldingCheckInput` as an explicit
     value; `check_section3_proportionality` itself never reads a holding's
-    real position (issue #173 Design item 4). Issue #421's watched-holding
-    wiring is expected to substitute a config-driven target weight for this
-    same field at this same call site, not inside the checker.
+    real position (issue #173 Design item 4). Issue #421 Design item 7: a
+    holding with `watch_tier` set substitutes watch_tier_weights.yml's
+    config-driven target weight for that real weight HERE — the only call
+    site, per #173's own docstring point 4 — never inside the checker, and
+    never touching portfolio_calculator.py's real position math.
 
     `material_text` is built from `ctx.holding_news` (the code-level recall
     already scoped to this holding, issue #30/R-3) plus this holding's own
@@ -257,6 +260,7 @@ def _build_holding_check_inputs(
     """
     total = float(portfolio.get("total_base", 0) or 0)
     entity_aliases = load_entity_aliases()
+    watch_tier_weights = load_watch_tier_weights()
     anomalies_by_identifier: dict[str, list[dict[str, Any]]] = {}
     for anomaly in anomalies:
         ident = anomaly.get("identifier")
@@ -291,11 +295,13 @@ def _build_holding_check_inputs(
             core = _core_name(display_name)
             if core and core != display_name:
                 alias_terms.append(core)
+        watch_tier = holding.get("watch_tier")
+        weight = watch_tier_weights[watch_tier] if watch_tier else _weight(holding, total)
         inputs.append(
             HoldingCheckInput(
                 identifier=ident,
                 alias_terms=alias_terms,
-                weight=_weight(holding, total),
+                weight=weight,
                 material_text="\n".join(part for part in material_parts if part),
             )
         )

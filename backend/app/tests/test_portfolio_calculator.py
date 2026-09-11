@@ -882,3 +882,57 @@ def test_unpriced_holding_kept_in_list_but_excluded_from_aggregates(
     assert snap.by_asset_class == {"STOCK": Decimal("3000.00")}
     assert snap.concentration.top_holding_name == "Apple"
     assert snap.concentration.top3_ratio == Decimal("1.0000")
+
+
+def _watched_zero_share_row(**overrides: object) -> Holding:
+    defaults: dict[str, object] = dict(
+        user_id=_USER,
+        name="Tracked Startup",
+        pricing_mode="auto",
+        ticker="TRACK",
+        currency="USD",
+        shares=Decimal("0"),
+        market_price=Decimal("150"),
+        asset_type="stock",
+        asset_class="STOCK",
+        watch_tier="critical",
+    )
+    defaults.update(overrides)
+    return Holding(**defaults)
+
+
+def test_watch_tier_zero_share_holding_contributes_nothing_to_real_math(
+    db_session: Session,
+) -> None:
+    """Issue #421 Contract constraints acceptance test 1: a watched
+    zero-share holding appears in the snapshot with market_value_base=0
+    and contributes exactly 0 to every real aggregate — watch_tier itself
+    is never read by portfolio_calculator.py, so it cannot inflate weight,
+    distribution, or concentration math. Verified against a true baseline
+    (the identical portfolio minus the watched row), not a fixed number,
+    so this doesn't just re-assert Apple's own concentration math."""
+    _seed_fx(db_session)
+    db_session.add(_stock("Apple", "AAPL", "USD", "10", "300", sector="Technology"))
+    db_session.flush()
+    baseline = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    db_session.add(_watched_zero_share_row())
+    db_session.flush()
+    watched_snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    by_name = {hv.name: hv for hv in watched_snap.holdings}
+    watched = by_name["Tracked Startup"]
+    assert watched.watch_tier == "critical"
+    assert watched.market_value_base == Decimal("0.00")
+    assert watched_snap.total_base == baseline.total_base
+    assert watched_snap.by_asset_class == baseline.by_asset_class
+    assert watched_snap.by_currency == baseline.by_currency
+    assert watched_snap.concentration == baseline.concentration
+
+
+def test_unwatched_holding_has_none_watch_tier(db_session: Session) -> None:
+    _seed_fx(db_session)
+    db_session.add(_stock("Apple", "AAPL", "USD", "10", "300"))
+    db_session.flush()
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+    assert snap.holdings[0].watch_tier is None

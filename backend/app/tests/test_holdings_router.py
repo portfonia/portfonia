@@ -1043,6 +1043,55 @@ def test_patch_holding_updates_fields(app_client: TestClient) -> None:
     assert resp.json()["ticker"] == "AAPL"
 
 
+def test_create_holding_with_watch_tier(app_client: TestClient) -> None:
+    """Issue #421 Contract constraints acceptance test 1: a zero-share
+    watched holding is created via the existing single-row entry point —
+    no new endpoint — and its watch_tier round-trips in the response."""
+    row = {**_PARSED_APPLE, "shares": 0, "watch_tier": "critical"}
+    resp = app_client.post("/holdings", json=row)
+    assert resp.status_code == 201
+    assert resp.json()["watch_tier"] == "critical"
+
+
+def test_create_holding_rejects_invalid_watch_tier(app_client: TestClient) -> None:
+    """Contract constraints acceptance test 5, API layer: an out-of-enum
+    watch_tier is rejected with a 422, not silently coerced or persisted."""
+    row = {**_PARSED_APPLE, "watch_tier": "obsessed"}
+    resp = app_client.post("/holdings", json=row)
+    assert resp.status_code == 422
+
+
+def test_patch_holding_sets_watch_tier(app_client: TestClient) -> None:
+    created = app_client.post("/holdings", json=_PARSED_APPLE).json()
+    assert created["watch_tier"] is None
+    resp = app_client.patch(f"/holdings/{created['id']}", json={"watch_tier": "focus"})
+    assert resp.status_code == 200
+    assert resp.json()["watch_tier"] == "focus"
+
+
+def test_patch_holding_clears_watch_tier_without_deleting_row(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """Contract constraints acceptance test 4: setting watch_tier back to
+    null on an existing (zero-value) holding leaves the row intact."""
+    row = {**_PARSED_APPLE, "shares": 0, "watch_tier": "critical"}
+    created = app_client.post("/holdings", json=row).json()
+
+    resp = app_client.patch(f"/holdings/{created['id']}", json={"watch_tier": None})
+    assert resp.status_code == 200
+    assert resp.json()["watch_tier"] is None
+    holding = db_session.get(Holding, uuid.UUID(created["id"]))
+    assert holding is not None
+    assert holding.watch_tier is None
+    assert holding.ticker == "AAPL"  # row untouched, not deleted
+
+
+def test_patch_holding_rejects_invalid_watch_tier(app_client: TestClient) -> None:
+    created = app_client.post("/holdings", json=_PARSED_APPLE).json()
+    resp = app_client.patch(f"/holdings/{created['id']}", json={"watch_tier": "obsessed"})
+    assert resp.status_code == 422
+
+
 def test_patch_holding_reresolves_accounts_on_broker_change(
     app_client: TestClient, db_session: Session
 ) -> None:

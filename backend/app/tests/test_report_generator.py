@@ -3520,3 +3520,65 @@ def test_prose_naming_holding_by_display_name_gets_nonzero_attributed_length() -
     segments = s3p.segment_section3_by_holding(section3_body, identifier_terms)
     assert len(segments.by_identifier[apple_ident]) > 0
     assert len(segments.by_identifier[tencent_ident]) > 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: issue #421 — watch_tier substitutes a config-driven target weight
+# for real position weight in _build_holding_check_inputs (Design item 7).
+# ---------------------------------------------------------------------------
+
+
+def _watched_portfolio(watch_tier: str | None, market_value_base: float = 0.0) -> dict[str, Any]:
+    return {
+        "holdings": [
+            {
+                "ticker": "TRACK",
+                "name": "Tracked Startup",
+                "market_value_base": market_value_base,
+                "position": 0,
+                "watch_tier": watch_tier,
+            }
+        ],
+        "total_base": 1000.0,
+    }
+
+
+def test_watch_tier_critical_uses_configured_weight_not_real_weight() -> None:
+    """Contract constraints acceptance test 2: a watch_tier="critical"
+    holding with real weight 0 (market_value_base=0) must receive
+    weight=0.15 from watch_tier_weights.yml, not its real position weight."""
+    check_inputs = rg._build_holding_check_inputs(
+        _watched_portfolio("critical"), holding_news={}, anomalies=[]
+    )
+    assert len(check_inputs) == 1
+    assert check_inputs[0].weight == pytest.approx(0.15)
+
+
+@pytest.mark.parametrize("tier,expected", [("watch", 0.05), ("focus", 0.10), ("critical", 0.15)])
+def test_watch_tier_weight_comes_from_config_for_every_tier(tier: str, expected: float) -> None:
+    """Contract constraints acceptance test 3: watch/focus/critical each
+    read their weight from watch_tier_weights.yml, not a hardcoded
+    per-call value."""
+    check_inputs = rg._build_holding_check_inputs(
+        _watched_portfolio(tier), holding_news={}, anomalies=[]
+    )
+    assert check_inputs[0].weight == pytest.approx(expected)
+
+
+def test_unwatched_holding_still_uses_real_weight() -> None:
+    """watch_tier absent/None (the pre-#421, still-default case) must be
+    completely unaffected — real position weight, unchanged from #173."""
+    portfolio = _watched_portfolio(None, market_value_base=250.0)
+    check_inputs = rg._build_holding_check_inputs(portfolio, holding_news={}, anomalies=[])
+    assert check_inputs[0].weight == pytest.approx(0.25)  # 250 / 1000
+
+
+def test_watch_tier_cleared_to_null_reverts_to_real_zero_weight() -> None:
+    """Contract constraints acceptance test 4: PATCH watch_tier=null must
+    make the §3 call use the holding's real (zero) position weight again,
+    matching unwatched-holding behavior — not silently keep a stale
+    config-driven weight or drop the holding."""
+    portfolio = _watched_portfolio(None, market_value_base=0.0)
+    check_inputs = rg._build_holding_check_inputs(portfolio, holding_news={}, anomalies=[])
+    assert len(check_inputs) == 1
+    assert check_inputs[0].weight == 0.0

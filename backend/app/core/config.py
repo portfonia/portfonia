@@ -306,6 +306,10 @@ class Settings(BaseSettings):
     # Empty string = use the default path: backend/config/ticker_asset_class.yml
     TICKER_ASSET_CLASS_CONFIG_PATH: str = ""
 
+    # watch_tier -> §3 target-weight mapping (issue #421). Hot-reloadable.
+    # Empty string = use the default path: backend/config/watch_tier_weights.yml
+    WATCH_TIER_WEIGHTS_CONFIG_PATH: str = ""
+
     # Ops API token channel (issue #129 Ring 1 stage B, checkpoint B2) —
     # bearer secret guarding /admin/* routes, deliberately independent of the
     # user auth system (must still work if that system itself is what's
