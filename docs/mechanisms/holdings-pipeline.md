@@ -1056,3 +1056,40 @@ and must keep allowing a client-supplied `watch_tier` (PR #427 review
 inside the shared helper — would have broken that path; verified against
 the actual call graph before implementing, not assumed from the review
 text).
+
+**Watch-tier UI surface + bulk group/account editor (issue #430).** Three
+gaps closed: `HoldingValueOut` (backend/app/schemas/portfolio.py) never
+carried `watch_tier` even though `HoldingValue` (the dataclass `/portfolio/
+summary`'s builder already populates from the ORM row) always had it —
+the router just never passed it through; fixed as a one-line wire-through,
+not a new field. `watch_tier` is deliberately typed as plain `str | None`
+on both `HoldingValue` and `HoldingValueOut` rather than the `WatchTier`
+Literal used in `HoldingOut`/`HoldingPatch` — matches the existing sibling
+fields in those two classes (`pricing_mode`, `asset_type`) which are also
+DB-CHECK-constrained but plain-`str`-typed, rather than introducing a new
+strictness level inconsistent with the rest of the class.
+
+A shared `WatchTierIcon` component (`frontend/src/components/watch-tier-
+icon.tsx`) renders hollow circle/filled circle/filled star next to the
+ticker/fund_code on both `/portfolio` and `/holdings` — nothing for a null
+tier. `/holdings/edit`'s per-row "Delete" text button became icon-only
+(`Trash2`, accessible name preserved via `aria-label` rather than dropped);
+the freed column holds an inline watch-tier `<select>` using the exact
+same optimistic-update/rollback pattern as the pre-existing `pricing_mode`
+cell in that same table. `WATCH_TIERS` (the three-value array) moved from
+a private const in `holding-form.tsx` into `lib/api.ts` so both editors
+share one source of truth.
+
+New page `/holdings/groups` (`holdings-groups-editor.tsx`) lists every
+holding read-only (name, ticker/fund_code, broker, currency, current
+value) plus two inline-editable columns, Group (`portfolio`) and Account
+(`account`) — both free-text fields with no backend enum. Each editable
+cell is a native `<input list>` + `<datalist>` pair (no combobox
+dependency exists in this repo; adding one for a single page was judged
+more surface area than the requirement needed) offering the distinct
+values already present across the user's own holdings, deduped
+client-side — there is no `GET /accounts`/`GET /groups` listing endpoint,
+and this issue deliberately did not add one. Edits PATCH one field at a
+time via the existing `PATCH /holdings/{id}`, same as every other
+inline-editable cell in this app; no new backend surface at all. Entry
+point is a button next to "Add holding" on `/holdings/edit`.
