@@ -194,14 +194,20 @@ class Settings(BaseSettings):
             raise ValueError("FUND_NAV_MAX_LAG_SESSIONS must be >= 0")
         return v
 
-    # Twelve Data (issue #406): yfinance only returns ~1 month of USDCNH
-    # history (Yahoo classifies this specific cross as a limited-history
-    # quote type), unlike every other _PAIRS entry. Confirmed live that
-    # Twelve Data's free tier has full multi-year USD/CNH daily history.
-    # Used ONLY by the one-off app/scripts/backfill_usdcnh_history.py gap
-    # fill — NOT wired into the daily capture_fx_task/update_fx_rates path,
-    # which stays yfinance-only for every pair (a permanent second FX
-    # provider is a separate, larger decision, not made here).
+    # Twelve Data (issue #406, widened by #426): yfinance only returns ~1
+    # month of USDCNH history (Yahoo classifies this specific cross as a
+    # limited-history quote type), unlike every other _PAIRS entry.
+    # Confirmed live that Twelve Data's free tier has full multi-year
+    # USD/CNH daily history. Originally used ONLY by the one-off
+    # app/scripts/backfill_usdcnh_history.py gap fill.
+    #
+    # Issue #426 (2026-09-11, product owner decision): also used by
+    # fx_fetcher.fx_catchup() as the fallback source when a pair still lacks
+    # its prior day's rate after one retry. Routine daily capture
+    # (capture_fx_task/update_fx_rates, 17:15 ET) stays yfinance-only for
+    # every pair — this key backs the 00:05 ET next-day recovery path only,
+    # not a general yfinance replacement. Widening it further than that is a
+    # separate decision, not made here.
     TWELVEDATA_API_KEY: SecretStr | None = None
 
     # Email

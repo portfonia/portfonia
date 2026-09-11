@@ -60,6 +60,14 @@ class CaptureHealthReport:
     issues: tuple[str, ...]
     skipped_deps: int
     pending: int
+    # issue #426: each pipeline's own last-success date, so the alert body
+    # can say how stale a flagged pipeline actually is instead of just
+    # naming it. `evaluate_capture_health` already computes all four; this
+    # carries them past the point they were previously discarded.
+    price_last: date | None = None
+    fx_last: date | None = None
+    bench_last: date | None = None
+    complete_last: date | None = None
 
     def should_alert(self) -> bool:
         return bool(self.issues)
@@ -70,6 +78,10 @@ class CaptureHealthReport:
             "issues": list(self.issues),
             "skipped_deps": self.skipped_deps,
             "pending": self.pending,
+            "price_last": self.price_last.isoformat() if self.price_last else None,
+            "fx_last": self.fx_last.isoformat() if self.fx_last else None,
+            "bench_last": self.bench_last.isoformat() if self.bench_last else None,
+            "complete_last": self.complete_last.isoformat() if self.complete_last else None,
         }
 
 
@@ -123,6 +135,10 @@ def evaluate_capture_health(session: Session, as_of: date | None = None) -> Capt
         issues=tuple(issues),
         skipped_deps=skipped,
         pending=pending,
+        price_last=price_last,
+        fx_last=fx_last,
+        bench_last=bench_last,
+        complete_last=complete_last,
     )
     logger.info(
         "capture_health: expected=%s issues=%s skipped_deps=%d pending=%d",
@@ -132,6 +148,90 @@ def evaluate_capture_health(session: Session, as_of: date | None = None) -> Capt
         pending,
     )
     return report
+
+
+# issue #426: human-facing label + plain-English effect for each issue
+# code, keyed the same as the `issues` tuple built in evaluate_capture_health.
+# Order here also fixes the order issue blocks render in the email body.
+_ISSUE_ORDER = ("price", "fx", "benchmark", "portfolio")
+_ISSUE_LABELS: dict[str, str] = {
+    "price": "Market closing prices",
+    "fx": "FX exchange rates",
+    "benchmark": "Benchmark index prices",
+    "portfolio": "Portfolio value snapshots",
+}
+_ISSUE_EFFECTS: dict[str, str] = {
+    "price": "Reports and valuations for today will be missing a fresh closing price.",
+    "fx": (
+        "Reports and valuations will use the last-known rate above instead of "
+        "today's until a fresher one lands. A follow-up check at 00:05 ET the "
+        "next day retries and falls back to a second data source (issue #426) "
+        "before this needs a human look."
+    ),
+    "benchmark": "Benchmark comparisons on the Portfolio Performance chart will lag by one day.",
+    "portfolio": (
+        "Affected users' Portfolio Performance chart is missing today's data "
+        "point until the catch-up job (issue #373) resolves it."
+    ),
+}
+
+
+def _format_last(d: date | None) -> str:
+    return d.isoformat() if d else "never"
+
+
+def _render_issue_block(code: str, report: CaptureHealthReport) -> list[str]:
+    last_by_code = {
+        "price": report.price_last,
+        "fx": report.fx_last,
+        "benchmark": report.bench_last,
+        "portfolio": report.complete_last,
+    }
+    expected = report.expected_date.isoformat()
+    lines = [
+        f"- {_ISSUE_LABELS[code]}: no success dated {expected} yet. "
+        f"Last confirmed date: {_format_last(last_by_code[code])}."
+    ]
+    if code == "portfolio":
+        lines.append(
+            f"  {report.skipped_deps} user-day(s) waiting on a missing dependency "
+            f"(usually FX), {report.pending} still mid-computation."
+        )
+    lines.append(f"  {_ISSUE_EFFECTS[code]}")
+    lines.append("")
+    return lines
+
+
+def _render_alert_body(report: CaptureHealthReport, fingerprint: str) -> str:
+    expected = report.expected_date.isoformat()
+    lines = [
+        f"Portfonia data capture check — {expected} (expected trading day, US Eastern Time)",
+        "",
+        "ISSUES FOUND:",
+        "",
+    ]
+    for code in _ISSUE_ORDER:
+        if code in report.issues:
+            lines.extend(_render_issue_block(code, report))
+    lines += [
+        "WHAT HAPPENS NEXT:",
+        "No action needed unless this repeats. Each pipeline clears itself "
+        "automatically the next time it captures data dated on or after "
+        f"{expected} — you will not get a repeat alert for the same "
+        "date/issue combination.",
+        "",
+        "If the SAME pipeline is flagged on multiple consecutive trading days, "
+        "that is the signal worth a human look — a single day is very likely "
+        "vendor timing, not a break.",
+        "",
+        "---",
+        "Technical detail:",
+        "  probe: 21:30 ET Mon-Fri, detection only (does not write or retry)",
+        f"  raw issue codes: {fingerprint}",
+        f"  portfolio: skipped_deps={report.skipped_deps} pending={report.pending}",
+        f"  dedup key: ops-capture-health-{expected}-{fingerprint}",
+    ]
+    return "\n".join(lines)
 
 
 def maybe_alert_capture_health(report: CaptureHealthReport) -> None:
@@ -144,20 +244,11 @@ def maybe_alert_capture_health(report: CaptureHealthReport) -> None:
     dedup_key = f"ops-capture-health-{report.expected_date.isoformat()}-{fingerprint}"
     if already_alerted(dedup_key):
         return
-    body = (
-        f"expected capture date: {report.expected_date.isoformat()} (ET weekday)\n"
-        f"stale or non-complete pipelines: {fingerprint}\n"
-        f"portfolio skipped_deps={report.skipped_deps} pending={report.pending}\n"
-        "\nRule: no success evidence dated on the expected ET weekday "
-        "(probe 21:30 ET Mon-Fri). Not a 36h clock — weekend gap would false-fire.\n"
-        "Hard-fail retries still go through capture_tasks._capture_failed.\n"
-        "Visibility only (#372). No snapshot write, no outbox replay (#373).\n"
-        "Silence: APP_ENV != production, or wait for a successful capture "
-        "on a later weekday (new dedup key)."
-    )
+    human_labels = ", ".join(_ISSUE_LABELS[code] for code in _ISSUE_ORDER if code in report.issues)
     if send_ops_alert(
-        subject=f"[Portfonia] capture health — {fingerprint}",
-        body=body,
+        subject=f"[Portfonia] Capture alert: {human_labels} not confirmed for "
+        f"{report.expected_date.isoformat()}",
+        body=_render_alert_body(report, fingerprint),
         idempotency_key=dedup_key,
     ):
         mark_alerted(dedup_key, _ALERT_DEDUP_TTL_SECONDS)

@@ -575,7 +575,45 @@ clears the whole price pipeline, intentional v1 coarseness;
 Friday would false-positive). No admin UI. Does not write or replay
 (#373). Silence: `APP_ENV != production`, or a later weekday success
 (new dedup key). Verify: `GET` is not provided; read the ops email /
-`capture_health:` INFO log.
+`capture_health:` INFO log. `CaptureHealthReport` also carries each
+pipeline's own last-success date (`price_last`/`fx_last`/`bench_last`/
+`complete_last`, issue #426) so the alert body can say how stale a
+flagged pipeline is instead of only naming it.
+
+**Alert body is human-readable, not raw field dumps (issue #426)**: the
+2026-09-10 alert (`stale or non-complete pipelines: fx`) confirmed the
+original body was unreadable without reading this code — comma-joined
+issue codes, `skipped_deps=0 pending=0` with no context. `maybe_alert_
+capture_health` now renders one block per flagged pipeline (human label +
+last-confirmed date + a plain-English effect sentence) followed by a
+"WHAT HAPPENS NEXT" section, with the raw codes/counts kept in a
+"Technical detail" footer for debugging. The template is normative (see
+issue #426's Decided-direction comment) — do not restyle it without
+re-checking that issue.
+
+**FX catch-up: retry + Twelve Data fallback (issue #426)**: root cause of
+the 2026-09-10 alert — `update_fx_rates()` (`fx_fetcher.py`) dates a row by
+the fetched bar's own `as_of` timestamp, not `date.today()`; if yfinance
+hasn't published that ET weekday's FX close bar by the 17:15 ET fetch, the
+task upserts the *prior* day's bar under its own (stale) date and reports
+full success — invisible to the task itself, only caught by the probe
+above. Rejected fix: widening the 17:15 ET buffer — the vendor's publish
+lag is variable jitter, not a fixed offset a bigger constant wait reliably
+absorbs (same lesson as issue #389's fund-NAV/China-ETF bounded
+retry+fallback). Instead, `capture_fx_catchup_task` (beat entry
+`capture-fx-catchup-daily`, `crontab(hour=0, minute=5, day_of_week=
+"tue-sat")`) extends the #372/#373 detection-vs-recovery split to FX: each
+run targets the *previous* ET weekday (tue→mon, ..., sat→fri — one
+attempt per trading day, run once that day has fully closed out) via
+`fx_fetcher.fx_catchup()`, which retries `update_fx_rates()` once and, for
+any pair still missing that date, falls back to Twelve Data
+(`_twelvedata.fetch_daily_history`, one call per still-missing pair,
+`source="twelvedata"` on the written row). `Settings.TWELVEDATA_API_KEY`
+is no longer scoped to the #406 USDCNH historical gap-fill script alone —
+it now also backs this recovery path (decided 2026-09-11, not a default
+assumed by the implementing session). A pair still missing after both the
+retry and the fallback gets its own one-off `_send_fx_alert`, separate
+from and unrelated to the #372 probe's alert.
 
 **Full-exit fan-out (issue #367 review finding B, blacktomb42, review
 5563537095)**: `capture_portfolio_value_snapshot`'s user selection

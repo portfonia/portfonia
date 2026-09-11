@@ -255,6 +255,22 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "task": "app.tasks.capture_tasks.check_capture_health_task",
         "schedule": crontab(hour=21, minute=30, day_of_week="mon-fri"),
     },
+    # FX catch-up (issue #426): capture_fx_task's 17:15 ET fetch can land a
+    # bar dated the *prior* day when yfinance hasn't published that day's FX
+    # close bar yet (confirmed live 2026-09-10 — all 14 pairs landed on
+    # yesterday's date despite the task reporting success). A bigger fixed
+    # buffer doesn't reliably fix this (vendor publish lag is variable, not a
+    # fixed offset — same lesson as issue #389's fund-NAV/China-ETF bounded
+    # retry+fallback), so this mirrors the #372/#373 detection-vs-recovery
+    # split instead: the 21:30 ET probe above stays pure detection, and this
+    # is FX's own separate recovery pass. `tue-sat` at 00:05 ET means each
+    # run targets the *previous* ET weekday (tue->mon, ..., sat->fri) — one
+    # catch-up attempt per trading day, run once that day has fully closed
+    # out.
+    "capture-fx-catchup-daily": {
+        "task": "app.tasks.capture_tasks.capture_fx_catchup_task",
+        "schedule": crontab(hour=0, minute=5, day_of_week="tue-sat"),
+    },
 }
 _beat_schedule.update(_build_report_schedule())
 _beat_schedule.update(_build_capture_schedule())
