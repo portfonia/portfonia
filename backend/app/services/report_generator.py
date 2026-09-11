@@ -45,6 +45,7 @@ from app.compliance.output_scan import (
     _strip_body_disclaimer,
     _strip_markers,
 )
+from app.core.alert_dedup import already_alerted, mark_alerted
 from app.core.config import get_settings
 from app.core.ops_log import log_ops_event
 from app.core.timezones import ET
@@ -236,6 +237,53 @@ def _core_name(display_name: str) -> str:
     return core
 
 
+# Dedup key has no state-varying component beyond the date (issue #421 PR
+# #425 review soft note 2) — there is exactly one config file, so "broken"
+# is a single day-scoped condition, not a per-fingerprint one like fx_
+# fetcher.py's per-pair alerts. TTL is a GC safety net only, same convention
+# as fx_fetcher._ALERT_DEDUP_TTL_SECONDS/price_capture.py (issue #298).
+_WATCH_TIER_CONFIG_ALERT_DEDUP_TTL_SECONDS = 90 * 24 * 60 * 60
+
+
+def _load_watch_tier_weights_or_alert() -> dict[str, float]:
+    """`load_watch_tier_weights()`, but a broken/unreadable config must not
+    disappear into `_render_full_md`'s outer log-only try/except (PR #425
+    review soft note 2) — ops needs to know a watched holding's §3 floor
+    was skipped this run, not just find it in worker.log after the fact.
+
+    Fails soft for the report itself: every watched holding falls back to
+    its real weight for this run (same as `_build_holding_check_inputs`
+    treats watch_tier=None), matching the product decision that report
+    generation must still complete. Mirrors fx_fetcher.py's `_send_fx_alert`
+    exactly: production-gated, durable Redis dedup (`already_alerted`/
+    `mark_alerted`, issue #298) keyed per calendar day (ET) so a persisting
+    break alerts once per day, not once per report."""
+    try:
+        return load_watch_tier_weights()
+    except Exception as exc:
+        logger.exception("watch_tier_weights config failed to load — §3 floor skipped this run")
+        if get_settings().APP_ENV != "production":
+            return {}
+        today_et = datetime.now(tz=ET).date().isoformat()
+        dedup_key = f"ops-watch-tier-weights-config-broken-{today_et}"
+        if already_alerted(dedup_key):
+            return {}
+        if send_ops_alert(
+            subject="[Portfonia] watch_tier_weights config broken",
+            body=(
+                f"watch_tier_weights.yml failed to load: {type(exc).__name__}: {exc}\n\n"
+                "Every watch_tier-tagged holding's §3 proportionality check fell "
+                "back to its real position weight this run — no config floor "
+                "applied — until this is fixed.\n\n"
+                "Config path: backend/config/watch_tier_weights.yml "
+                "(override: Settings.WATCH_TIER_WEIGHTS_CONFIG_PATH)."
+            ),
+            idempotency_key=dedup_key,
+        ):
+            mark_alerted(dedup_key, _WATCH_TIER_CONFIG_ALERT_DEDUP_TTL_SECONDS)
+        return {}
+
+
 def _build_holding_check_inputs(
     portfolio: dict[str, Any],
     holding_news: dict[str, list[dict[str, Any]]],
@@ -247,11 +295,16 @@ def _build_holding_check_inputs(
     `weight` is computed HERE, once, from the real portfolio (`_weight`,
     `report_assembly.py`) and handed to `HoldingCheckInput` as an explicit
     value; `check_section3_proportionality` itself never reads a holding's
-    real position (issue #173 Design item 4). Issue #421 Design item 7: a
-    holding with `watch_tier` set substitutes watch_tier_weights.yml's
-    config-driven target weight for that real weight HERE — the only call
-    site, per #173's own docstring point 4 — never inside the checker, and
-    never touching portfolio_calculator.py's real position math.
+    real position (issue #173 Design item 4). Issue #421 Design item 7,
+    amended per PR #425 review (blacktomb42) blocker 1: a holding with
+    `watch_tier` set gets `max(real_weight, watch_tier_weights.yml's
+    configured weight)` HERE — a FLOOR, never an absolute substitute. The
+    original "always replace" version silently SHRANK §3 depth for a
+    real-sized holding tagged watched (e.g. a 40% position marked
+    "critical" checked as if it were 15%), the opposite of the product
+    intent (lift a near-zero tracked name, never demote a real one). This
+    is still the only call site — never inside the checker, and never
+    touching portfolio_calculator.py's real position math.
 
     `material_text` is built from `ctx.holding_news` (the code-level recall
     already scoped to this holding, issue #30/R-3) plus this holding's own
@@ -260,7 +313,7 @@ def _build_holding_check_inputs(
     """
     total = float(portfolio.get("total_base", 0) or 0)
     entity_aliases = load_entity_aliases()
-    watch_tier_weights = load_watch_tier_weights()
+    watch_tier_weights = _load_watch_tier_weights_or_alert()
     anomalies_by_identifier: dict[str, list[dict[str, Any]]] = {}
     for anomaly in anomalies:
         ident = anomaly.get("identifier")
@@ -296,7 +349,9 @@ def _build_holding_check_inputs(
             if core and core != display_name:
                 alias_terms.append(core)
         watch_tier = holding.get("watch_tier")
-        weight = watch_tier_weights[watch_tier] if watch_tier else _weight(holding, total)
+        real_weight = _weight(holding, total)
+        tier_weight = watch_tier_weights.get(watch_tier) if watch_tier else None
+        weight = max(real_weight, tier_weight) if tier_weight is not None else real_weight
         inputs.append(
             HoldingCheckInput(
                 identifier=ident,

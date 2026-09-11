@@ -171,6 +171,7 @@
     "fieldAccount": "Account",
     "fieldPortfolio": "Group",
     "fieldNotes": "Notes",
+    "fieldWatchTier": "Watch tier",
     "pricingAuto": "Auto (market price)",
     "pricingManual": "Manual",
     "assetTypeStock": "Stock",
@@ -202,6 +203,7 @@
       "ticker_suffix_ambiguous": "Market is confirmed as {market}, but the listing suffix for {ticker} (currency {currency}) could not be determined automatically — {suffixes} are all valid there. Current handling: stored as {ticker} without a suffix, and not captured (no live price) until a suffix is added. Suggestion: append the correct suffix directly to the ticker."
     },
     "watchTier": {
+      "none": "Not watched",
       "watch": "Watch",
       "focus": "Focus",
       "critical": "Critical"

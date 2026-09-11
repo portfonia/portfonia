@@ -196,4 +196,45 @@ describe("HoldingForm", () => {
     expect(other?.label).toMatch(/^other$/i);
     expect(empty?.label).not.toEqual(other?.label);
   });
+
+  // ---------------------------------------------------------------------
+  // Issue #421 Design item 8: watch_tier selector.
+  // ---------------------------------------------------------------------
+
+  it("offers not-watched plus the three tiers, defaulting to not watched on a new holding", () => {
+    renderForm();
+    const select = screen.getByLabelText(/^watch tier$/i) as HTMLSelectElement;
+    const values = [...select.querySelectorAll("option")].map(
+      (o) => (o as HTMLOptionElement).value,
+    );
+    expect(values).toEqual(["", "watch", "focus", "critical"]);
+    expect(select.value).toBe("");
+  });
+
+  it("preselects an existing holding's watch_tier", () => {
+    renderForm({ ...EXISTING, watch_tier: "focus" });
+    const select = screen.getByLabelText(/^watch tier$/i) as HTMLSelectElement;
+    expect(select.value).toBe("focus");
+  });
+
+  it("sends the selected watch_tier on create", async () => {
+    const user = userEvent.setup();
+    renderForm();
+    await user.type(screen.getByLabelText(/^name$/i), "Tracked Startup");
+    await user.selectOptions(screen.getByLabelText(/^watch tier$/i), "critical");
+    await user.click(screen.getByRole("button", { name: /save holding/i }));
+    await waitFor(() => expect(createHolding).toHaveBeenCalled());
+    const payload = createHolding.mock.calls[0][0] as { watch_tier: string | null };
+    expect(payload.watch_tier).toBe("critical");
+  });
+
+  it("clears watch_tier to null when set back to not-watched on an existing holding", async () => {
+    const user = userEvent.setup();
+    renderForm({ ...EXISTING, watch_tier: "critical" });
+    await user.selectOptions(screen.getByLabelText(/^watch tier$/i), "");
+    await user.click(screen.getByRole("button", { name: /save holding/i }));
+    await waitFor(() => expect(updateHolding).toHaveBeenCalled());
+    const patch = updateHolding.mock.calls[0][1] as { watch_tier: string | null };
+    expect(patch.watch_tier).toBeNull();
+  });
 });

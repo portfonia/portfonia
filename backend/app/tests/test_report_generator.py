@@ -21,6 +21,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import uuid
+from collections.abc import Generator
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -3523,8 +3524,11 @@ def test_prose_naming_holding_by_display_name_gets_nonzero_attributed_length() -
 
 
 # ---------------------------------------------------------------------------
-# Tests: issue #421 — watch_tier substitutes a config-driven target weight
-# for real position weight in _build_holding_check_inputs (Design item 7).
+# Tests: issue #421 — watch_tier applies a config-driven FLOOR (not an
+# absolute substitute) to real position weight in _build_holding_check_inputs
+# (Design item 7, amended per PR #425 review blacktomb42 blocker 1: a large
+# real-weight holding tagged watched must never have its §3 depth SHRUNK by
+# a smaller config tier weight — max(real, config), never a replacement).
 # ---------------------------------------------------------------------------
 
 
@@ -3543,10 +3547,11 @@ def _watched_portfolio(watch_tier: str | None, market_value_base: float = 0.0) -
     }
 
 
-def test_watch_tier_critical_uses_configured_weight_not_real_weight() -> None:
+def test_watch_tier_critical_floors_zero_weight_to_configured_weight() -> None:
     """Contract constraints acceptance test 2: a watch_tier="critical"
     holding with real weight 0 (market_value_base=0) must receive
-    weight=0.15 from watch_tier_weights.yml, not its real position weight."""
+    weight=0.15 from watch_tier_weights.yml, not its real position weight —
+    the floor lifts it since 0.15 > 0 real."""
     check_inputs = rg._build_holding_check_inputs(
         _watched_portfolio("critical"), holding_news={}, anomalies=[]
     )
@@ -3555,14 +3560,33 @@ def test_watch_tier_critical_uses_configured_weight_not_real_weight() -> None:
 
 
 @pytest.mark.parametrize("tier,expected", [("watch", 0.05), ("focus", 0.10), ("critical", 0.15)])
-def test_watch_tier_weight_comes_from_config_for_every_tier(tier: str, expected: float) -> None:
+def test_watch_tier_floor_comes_from_config_for_every_tier(tier: str, expected: float) -> None:
     """Contract constraints acceptance test 3: watch/focus/critical each
-    read their weight from watch_tier_weights.yml, not a hardcoded
-    per-call value."""
+    read their floor weight from watch_tier_weights.yml, not a hardcoded
+    per-call value — real weight is 0 here, so the floor is what wins."""
     check_inputs = rg._build_holding_check_inputs(
         _watched_portfolio(tier), holding_news={}, anomalies=[]
     )
     assert check_inputs[0].weight == pytest.approx(expected)
+
+
+def test_watch_tier_never_shrinks_a_larger_real_weight() -> None:
+    """PR #425 review blocker 1: a 40% real-weight holding tagged
+    watch_tier="critical" must be checked at 0.40, NOT shrunk to the
+    config's 0.15 — tagging a large real holding as watched must never
+    reduce its expected §3 depth versus leaving the tier null."""
+    portfolio = _watched_portfolio("critical", market_value_base=400.0)  # 400/1000 = 0.40
+    check_inputs = rg._build_holding_check_inputs(portfolio, holding_news={}, anomalies=[])
+    assert check_inputs[0].weight == pytest.approx(0.40)
+
+
+def test_watch_tier_floor_lifts_a_smaller_real_weight() -> None:
+    """A small-but-nonzero real weight (0.02) tagged watch_tier="watch"
+    still gets lifted to the 0.05 floor — the floor applies whenever real
+    weight is below the tier's configured weight, not only at exactly 0."""
+    portfolio = _watched_portfolio("watch", market_value_base=20.0)  # 20/1000 = 0.02
+    check_inputs = rg._build_holding_check_inputs(portfolio, holding_news={}, anomalies=[])
+    assert check_inputs[0].weight == pytest.approx(0.05)
 
 
 def test_unwatched_holding_still_uses_real_weight() -> None:
@@ -3582,3 +3606,89 @@ def test_watch_tier_cleared_to_null_reverts_to_real_zero_weight() -> None:
     check_inputs = rg._build_holding_check_inputs(portfolio, holding_news={}, anomalies=[])
     assert len(check_inputs) == 1
     assert check_inputs[0].weight == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Tests: PR #425 review soft note 2 — broken/unreadable
+# watch_tier_weights.yml must send a daily-deduped ops alert, not just skip
+# quietly. Report generation still completes (fail-soft for the user-facing
+# report); the floor is skipped (falls back to real weight) for this run.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _production_env() -> Generator[None, None, None]:
+    """Mirrors fx_fetcher.py's test fixture of the same shape (issue #354):
+    ops alerts are gated on APP_ENV=="production" so local/test runs never
+    send real alerts for an expected-broken-in-dev config."""
+    get_settings.cache_clear()
+    with patch.dict("os.environ", {"APP_ENV": "production"}):
+        get_settings.cache_clear()
+        try:
+            yield
+        finally:
+            get_settings.cache_clear()
+
+
+def test_broken_watch_tier_config_falls_back_to_real_weight(tmp_path: Any) -> None:
+    """A broken config must not crash report generation or drop the
+    holding — every watched holding's §3 call falls back to real weight
+    for this run, same as if watch_tier were unset."""
+    broken = tmp_path / "watch_tier_weights.yml"
+    broken.write_text("watch: 0.05\n", encoding="utf-8")  # missing focus/critical
+    with patch.object(get_settings(), "WATCH_TIER_WEIGHTS_CONFIG_PATH", str(broken)):
+        portfolio = _watched_portfolio("critical", market_value_base=0.0)
+        check_inputs = rg._build_holding_check_inputs(portfolio, holding_news={}, anomalies=[])
+    assert len(check_inputs) == 1
+    assert check_inputs[0].weight == 0.0  # real weight, floor skipped
+
+
+def test_broken_watch_tier_config_sends_ops_alert(tmp_path: Any, _production_env: None) -> None:
+    broken = tmp_path / "watch_tier_weights.yml"
+    broken.write_text("watch: 0.05\n", encoding="utf-8")
+    with (
+        patch.object(get_settings(), "WATCH_TIER_WEIGHTS_CONFIG_PATH", str(broken)),
+        patch.object(rg, "send_ops_alert", return_value=True) as mock_alert,
+    ):
+        rg._build_holding_check_inputs(
+            _watched_portfolio("critical"), holding_news={}, anomalies=[]
+        )
+    assert mock_alert.call_count == 1
+    assert "watch_tier_weights" in mock_alert.call_args.kwargs["subject"]
+
+
+def test_broken_watch_tier_config_alert_deduped_same_day(
+    tmp_path: Any, _production_env: None
+) -> None:
+    broken = tmp_path / "watch_tier_weights.yml"
+    broken.write_text("watch: 0.05\n", encoding="utf-8")
+    with (
+        patch.object(get_settings(), "WATCH_TIER_WEIGHTS_CONFIG_PATH", str(broken)),
+        patch.object(rg, "send_ops_alert", return_value=True) as mock_alert,
+    ):
+        rg._build_holding_check_inputs(
+            _watched_portfolio("critical"), holding_news={}, anomalies=[]
+        )
+        rg._build_holding_check_inputs(_watched_portfolio("focus"), holding_news={}, anomalies=[])
+    assert mock_alert.call_count == 1
+
+
+def test_no_watch_tier_config_alert_outside_production(tmp_path: Any) -> None:
+    broken = tmp_path / "watch_tier_weights.yml"
+    broken.write_text("watch: 0.05\n", encoding="utf-8")
+    with (
+        patch.object(get_settings(), "WATCH_TIER_WEIGHTS_CONFIG_PATH", str(broken)),
+        patch.object(rg, "send_ops_alert", return_value=True) as mock_alert,
+    ):
+        rg._build_holding_check_inputs(
+            _watched_portfolio("critical"), holding_news={}, anomalies=[]
+        )
+    assert mock_alert.call_count == 0
+
+
+def test_valid_watch_tier_config_never_alerts(_production_env: None) -> None:
+    with patch.object(rg, "send_ops_alert", return_value=True) as mock_alert:
+        rg._build_holding_check_inputs(
+            _watched_portfolio("critical"), holding_news={}, anomalies=[]
+        )
+    assert mock_alert.call_count == 0
