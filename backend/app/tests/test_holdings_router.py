@@ -502,6 +502,33 @@ def test_confirm_replace_clears_watch_tier_even_for_the_same_ticker(
     assert rows[0]["watch_tier"] is None
 
 
+@pytest.mark.parametrize("mode", ["append", "replace"])
+def test_confirm_cannot_set_watch_tier_via_payload(app_client: TestClient, mode: str) -> None:
+    """Issue #424 Requirements item 1 / PR #427 review 5174404148 blocker:
+    watch_tier is settable ONLY via single-row POST/PATCH /holdings/{id}
+    (or the #421 UI) — never the bulk confirm/re-import dialect. A client
+    smuggling "watch_tier" into a confirm payload must not have it
+    persisted, in either mode."""
+    row = {**_PARSED_APPLE, "watch_tier": "focus"}
+    resp = app_client.post(f"/holdings/confirm?mode={mode}", json=[row])
+    assert resp.status_code == 200
+    rows = resp.json()
+    assert len(rows) == 1
+    assert rows[0]["watch_tier"] is None
+
+
+def test_create_holding_can_still_set_watch_tier_after_confirm_fix(
+    app_client: TestClient,
+) -> None:
+    """Regression guard for the confirm-path fix above: single-row
+    POST /holdings must keep working (it also routes through
+    _insert_from_rows, but NOT through confirm_holdings's payload strip)."""
+    row = {**_PARSED_APPLE, "watch_tier": "critical"}
+    resp = app_client.post("/holdings", json=row)
+    assert resp.status_code == 201
+    assert resp.json()["watch_tier"] == "critical"
+
+
 def test_confirm_sparse_history_log_omits_ticker_list(
     app_client: TestClient, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -1351,8 +1378,11 @@ def test_export_has_no_watch_tier_field_even_for_a_watched_holding(
     created = app_client.post("/holdings", json=_PARSED_APPLE).json()
     app_client.patch(f"/holdings/{created['id']}", json={"watch_tier": "critical"})
     body = app_client.get("/holdings/export").text
+    # "watch_tier" (the dialect key) is the real invariant check — not the
+    # tier value itself, which would be a fixture-brittle substring match
+    # if some unrelated field ever legitimately contained "critical" (PR
+    # #427 review 5174404148 soft note).
     assert "watch_tier" not in body
-    assert "critical" not in body
 
 
 def test_template_has_no_watch_tier_field(app_client: TestClient) -> None:

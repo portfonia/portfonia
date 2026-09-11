@@ -253,8 +253,11 @@ def test_md_has_no_watch_tier_column_even_when_holding_is_watched() -> None:
         watch_tier="critical",
     )
     md = render_portfolio_export_md(_snapshot(holdings=[_HOLDING, watched]), "en")
+    # The dialect key/column is the real invariant — not the tier value
+    # itself, which would be fixture-brittle if any unrelated field ever
+    # legitimately contained "critical" (PR #427 review 5174404148 soft
+    # note).
     assert "watch_tier" not in md
-    assert "critical" not in md
 
 
 def test_xlsx_has_no_watch_tier_column_even_when_holding_is_watched() -> None:
@@ -281,7 +284,6 @@ def test_xlsx_has_no_watch_tier_column_even_when_holding_is_watched() -> None:
         str(c) for row in ws.iter_rows(values_only=True) for c in row if c is not None
     )
     assert "watch_tier" not in all_text
-    assert "critical" not in all_text
 
 
 def test_xlsx_decimal_becomes_numeric_not_string() -> None:
