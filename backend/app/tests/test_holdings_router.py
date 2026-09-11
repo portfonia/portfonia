@@ -482,6 +482,26 @@ def test_confirm_full_replace_on_second_call(app_client: TestClient) -> None:
     assert rows[0]["name"] == "Tencent"
 
 
+def test_confirm_replace_clears_watch_tier_even_for_the_same_ticker(
+    app_client: TestClient,
+) -> None:
+    """Issue #424 Contract constraints acceptance test 2: watch_tier is a
+    manual analysis-weight annotation with no source document field, so
+    mode=replace's existing full-table rebuild must not carry it over —
+    no ticker/fund_code reconciliation, by design (see #421/#424 Reasons).
+    """
+    created = app_client.post("/holdings", json=_PARSED_APPLE).json()
+    app_client.patch(f"/holdings/{created['id']}", json={"watch_tier": "focus"})
+
+    # Re-import a document containing the exact same ticker.
+    resp = app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_APPLE])
+    assert resp.status_code == 200
+    rows = resp.json()
+    assert len(rows) == 1
+    assert rows[0]["ticker"] == "AAPL"
+    assert rows[0]["watch_tier"] is None
+
+
 def test_confirm_sparse_history_log_omits_ticker_list(
     app_client: TestClient, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -1319,6 +1339,25 @@ def test_export_keeps_account_portfolio_notes_tags(app_client: TestClient) -> No
     assert "account:IRA" in line
     assert 'portfolio:"Growth Sleeve"' in line
     assert 'notes:"core holding"' in line
+
+
+def test_export_has_no_watch_tier_field_even_for_a_watched_holding(
+    app_client: TestClient,
+) -> None:
+    """Issue #424 Contract constraints acceptance test 1: watch_tier is
+    settable only via single-row POST/PATCH /holdings/{id} — it must never
+    appear in the export/re-import dialect, which has no way to honor a
+    round-trip for a field the parser can never derive from a document."""
+    created = app_client.post("/holdings", json=_PARSED_APPLE).json()
+    app_client.patch(f"/holdings/{created['id']}", json={"watch_tier": "critical"})
+    body = app_client.get("/holdings/export").text
+    assert "watch_tier" not in body
+    assert "critical" not in body
+
+
+def test_template_has_no_watch_tier_field(app_client: TestClient) -> None:
+    body = app_client.get("/holdings/template").text
+    assert "watch_tier" not in body
 
 
 def test_export_plain_row_no_longer_triggers_the_dialect_fast_path(
