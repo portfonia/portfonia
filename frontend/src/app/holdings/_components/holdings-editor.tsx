@@ -338,7 +338,10 @@ export function HoldingsEditor({
         </div>
       )}
 
-      <div className="mb-4 flex justify-end">
+      <div className="mb-4 flex justify-end gap-2">
+        <Button variant="outline" render={<Link href="/holdings/groups" />}>
+          {t("editGroups")}
+        </Button>
         <Button render={<Link href="/holdings/new" />}>{t("addHolding")}</Button>
       </div>
 

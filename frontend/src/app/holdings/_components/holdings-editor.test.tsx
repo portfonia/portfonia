@@ -91,6 +91,14 @@ describe("HoldingsEditor", () => {
     );
   });
 
+  it("Edit groups links to /holdings/groups (issue #430)", () => {
+    renderEditor();
+    expect(screen.getByRole("link", { name: /edit groups/i })).toHaveAttribute(
+      "href",
+      "/holdings/groups",
+    );
+  });
+
   it("delete asks for confirm then calls deleteHolding", async () => {
     const user = userEvent.setup();
     renderEditor();
