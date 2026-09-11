@@ -529,7 +529,16 @@ def confirm_holdings(
 ) -> list[Holding]:
     """Persist parsed rows. Default mode is append (issue #92) — safer than
     silently replacing the whole book. Frontend always sends mode explicitly.
+
+    Issue #424 Requirements item 1: watch_tier is settable ONLY via
+    single-row POST/PATCH /holdings/{id} (or the #421 UI), never this bulk
+    dialect — stripped here, not inside `_row_to_holding_data`/
+    `_insert_from_rows`, because `create_holding` (single-row POST
+    /holdings) shares those same helpers and must keep allowing a
+    client-supplied watch_tier (PR #427 review 5174404148: the review's
+    suggested fix location would have broken that path).
     """
+    rows = [row.model_copy(update={"watch_tier": None}) for row in rows]
     user_id = principal.user_id
     if mode == "replace":
         session.execute(delete(Holding).where(Holding.user_id == user_id))

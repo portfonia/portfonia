@@ -225,6 +225,67 @@ def test_xlsx_excludes_by_star_aggregates() -> None:
     assert "by_currency" not in all_text
 
 
+# ---------------------------------------------------------------------------
+# Tests: issue #424 Contract constraints acceptance test 3 — watch_tier
+# (issue #421) must never appear in this read-only real-value snapshot
+# export, even when a holding has a tier set.
+# ---------------------------------------------------------------------------
+
+
+def test_export_columns_have_no_watch_tier() -> None:
+    assert "watch_tier" not in EXPORT_COLUMNS
+
+
+def test_md_has_no_watch_tier_column_even_when_holding_is_watched() -> None:
+    watched = HoldingValue(
+        holding_id=uuid.UUID("00000000-0000-0000-0000-0000000000bb"),
+        name="Tracked Startup",
+        ticker="TRACK",
+        fund_code=None,
+        currency="USD",
+        asset_type="stock",
+        asset_class="STOCK",
+        sector=None,
+        market="US",
+        market_value=Decimal("0.00"),
+        market_value_base=Decimal("0.00"),
+        price_as_of=None,
+        watch_tier="critical",
+    )
+    md = render_portfolio_export_md(_snapshot(holdings=[_HOLDING, watched]), "en")
+    # The dialect key/column is the real invariant — not the tier value
+    # itself, which would be fixture-brittle if any unrelated field ever
+    # legitimately contained "critical" (PR #427 review 5174404148 soft
+    # note).
+    assert "watch_tier" not in md
+
+
+def test_xlsx_has_no_watch_tier_column_even_when_holding_is_watched() -> None:
+    watched = HoldingValue(
+        holding_id=uuid.UUID("00000000-0000-0000-0000-0000000000bb"),
+        name="Tracked Startup",
+        ticker="TRACK",
+        fund_code=None,
+        currency="USD",
+        asset_type="stock",
+        asset_class="STOCK",
+        sector=None,
+        market="US",
+        market_value=Decimal("0.00"),
+        market_value_base=Decimal("0.00"),
+        price_as_of=None,
+        watch_tier="critical",
+    )
+    content = render_portfolio_export_xlsx(_snapshot(holdings=[_HOLDING, watched]), "en")
+    wb = load_workbook(BytesIO(content))
+    ws = wb.active
+    assert ws is not None
+    all_text = " ".join(
+        str(c) for row in ws.iter_rows(values_only=True) for c in row if c is not None
+    )
+    assert "watch_tier" not in all_text
+
+
 def test_xlsx_decimal_becomes_numeric_not_string() -> None:
     content = render_portfolio_export_xlsx(_snapshot(), "en")
     wb = load_workbook(BytesIO(content))
