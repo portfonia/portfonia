@@ -156,9 +156,18 @@ def evaluate_capture_health(session: Session, as_of: date | None = None) -> Capt
 _ISSUE_ORDER = ("price", "fx", "benchmark", "portfolio")
 _ISSUE_LABELS: dict[str, str] = {
     "price": "Market closing prices",
-    "fx": "FX exchange rates",
+    "fx": "FX rates",
     "benchmark": "Benchmark index prices",
     "portfolio": "Portfolio value snapshots",
+}
+# issue #426's normative template gives each non-portfolio pipeline its own
+# "no X dated ... yet" phrasing rather than one generic "no success dated"
+# line — literal wording, not paraphrase (per the issue's Contract
+# constraints: "implement as specified, not as inspiration").
+_ISSUE_LEAD: dict[str, str] = {
+    "price": "no closing price dated {expected} yet.",
+    "fx": "no exchange rate dated {expected} yet.",
+    "benchmark": "no price dated {expected} yet.",
 }
 _ISSUE_EFFECTS: dict[str, str] = {
     "price": "Reports and valuations for today will be missing a fresh closing price.",
@@ -181,22 +190,25 @@ def _format_last(d: date | None) -> str:
 
 
 def _render_issue_block(code: str, report: CaptureHealthReport) -> list[str]:
-    last_by_code = {
-        "price": report.price_last,
-        "fx": report.fx_last,
-        "benchmark": report.bench_last,
-        "portfolio": report.complete_last,
-    }
     expected = report.expected_date.isoformat()
-    lines = [
-        f"- {_ISSUE_LABELS[code]}: no success dated {expected} yet. "
-        f"Last confirmed date: {_format_last(last_by_code[code])}."
-    ]
     if code == "portfolio":
-        lines.append(
-            f"  {report.skipped_deps} user-day(s) waiting on a missing dependency "
-            f"(usually FX), {report.pending} still mid-computation."
-        )
+        # No "no X dated ... yet" lead here — the template leads straight
+        # with the skipped/pending counts, unlike the other three pipelines.
+        lines = [
+            f"- {_ISSUE_LABELS[code]}: {report.skipped_deps} user-day(s) waiting on a "
+            f"missing dependency (usually FX), {report.pending} still mid-computation. "
+            f"Last fully completed date: {_format_last(report.complete_last)}."
+        ]
+    else:
+        last_by_code = {
+            "price": report.price_last,
+            "fx": report.fx_last,
+            "benchmark": report.bench_last,
+        }
+        lines = [
+            f"- {_ISSUE_LABELS[code]}: {_ISSUE_LEAD[code].format(expected=expected)} "
+            f"Last confirmed date: {_format_last(last_by_code[code])}."
+        ]
     lines.append(f"  {_ISSUE_EFFECTS[code]}")
     lines.append("")
     return lines
