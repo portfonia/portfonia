@@ -1007,3 +1007,52 @@ markets. Copy-only fix (no schema change): `asOfBanner` now reads
 "Prices as of {date} — each market's own latest close, not one global
 timestamp." across all three locale catalogs; `asOfBannerUnavailable`'s
 copy aligned to the same framing for consistency.
+
+### `watch_tier`: watched holdings with a config-driven §3 floor (issue #421/#424, PR #425/#427)
+
+A user can mark any holding `watch`/`focus`/`critical` (nullable `Holding.
+watch_tier`, DB CHECK `(watch_tier IS NULL) OR IN (...)`, migration
+`d1e2f3a4b5c6` — follows the `market` column's CHECK shape, not
+`capture_supported`'s boolean pattern) independent of its real position
+size, so a zero/near-zero-value tracked name (a thesis, a prospective buy)
+still gets meaningful §3 depth instead of being correctly flattened to
+nothing by #173's weight-proportional enforcement. `backend/config/
+watch_tier_weights.yml` (0.05/0.10/0.15, hot-reloaded via
+`watch_tier_config.py`, mirroring `asset_class_config.py`'s closed-taxonomy
+pattern) supplies the per-tier target weight.
+
+**§3 wiring is a FLOOR, not a substitute** (PR #425 review 5173948454
+blocker — the first revision shipped an absolute replace, which silently
+SHRANK §3 depth for a real-sized holding tagged watched, e.g. a 40%
+position marked `critical` checked as if it were 15%, the opposite of the
+product intent). `report_generator._build_holding_check_inputs` computes
+`max(real_weight, watch_tier_weights.yml's configured weight)` when
+`watch_tier` is set — the sole call site, per #173's own weight-as-
+parameter contract; `check_section3_proportionality` and
+`portfolio_calculator.py` never read `watch_tier` at all, so §1
+distribution, `by_asset_class`/`by_broker`/`by_currency`, P&L%, and §4.1
+concentration stay driven purely by real position value (locked by a
+before/after baseline-snapshot regression test, not just a fixed-number
+assertion). A broken/unreadable `watch_tier_weights.yml` sends a
+production-gated, daily-deduped `send_ops_alert` (`_load_watch_tier_
+weights_or_alert`, mirroring `fx_fetcher.py`'s `_send_fx_alert` exactly)
+instead of failing silently — report generation still completes, falling
+back to real weight for that run.
+
+CRUD is the existing single-row `POST`/`PATCH /holdings/{id}` (issue #92/
+#130 C1) — no new endpoint; `holding-form.tsx` gets a 4-state selector
+(not watched/watch/focus/critical). **`watch_tier` is deliberately excluded
+from the bulk/export dialects** (issue #424): it is a manual analysis-
+intent annotation with no source-document field, so `holdings_export.py`
+(export/template), `GET /portfolio/export` (xlsx/md), and `POST /holdings/
+confirm` (both `append` and `replace`) must never round-trip it.
+`confirm_holdings` (`backend/app/routers/holdings.py`) strips `watch_tier`
+to `None` on every row via `row.model_copy(update={"watch_tier": None})`
+before insert — scoped to that endpoint specifically, NOT inside the
+shared `_row_to_holding_data`/`_insert_from_rows` helpers, because
+`create_holding` (single-row `POST /holdings`) shares those same helpers
+and must keep allowing a client-supplied `watch_tier` (PR #427 review
+5174404148: the review's own suggested fix location — forcing `None`
+inside the shared helper — would have broken that path; verified against
+the actual call graph before implementing, not assumed from the review
+text).
