@@ -447,6 +447,7 @@
     "chartEmpty": "No data yet.",
     "holdingsHeading": "Holdings",
     "holdingsPnlNote": "Cash and wealth-management holdings show \"—\" for P&L — they have no cost basis.",
+    "editHoldingsButton": "Edit holdings",
     "holdingsEmptyState": "No priced holdings yet.",
     "colName": "Name",
     "colTicker": "Ticker",

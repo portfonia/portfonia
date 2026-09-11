@@ -28,6 +28,7 @@ function holding(overrides: Partial<HoldingValueOut>): HoldingValueOut {
     price_as_of: null,
     pricing_mode: "auto",
     capture_supported: true,
+    watch_tier: null,
     broker: null,
     account: null,
     portfolio: null,

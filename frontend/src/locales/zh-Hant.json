@@ -447,6 +447,7 @@
     "chartEmpty": "暫無數據。",
     "holdingsHeading": "持倉明細",
     "holdingsPnlNote": "現金及理財類持倉的損益欄顯示「—」——它們沒有成本基礎。",
+    "editHoldingsButton": "編輯持倉",
     "holdingsEmptyState": "暫無已定價持倉。",
     "colName": "名稱",
     "colTicker": "代碼",

@@ -403,7 +403,7 @@ describe("GetStartedMenu", () => {
       );
 
       await waitFor(() =>
-        expect(screen.getByRole("menuitem", { name: "持仓" })).toBeInTheDocument(),
+        expect(screen.getByRole("menuitem", { name: "持仓管理" })).toBeInTheDocument(),
       );
       expect(screen.queryByRole("menuitem", { name: "Holdings" })).not.toBeInTheDocument();
     });

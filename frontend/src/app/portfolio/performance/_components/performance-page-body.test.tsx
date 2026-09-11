@@ -43,6 +43,7 @@ function holding(overrides: Partial<HoldingValueOut>): HoldingValueOut {
     broker: null,
     account: null,
     portfolio: null,
+    watch_tier: null,
     avg_cost: null,
     shares: null,
     notes: null,

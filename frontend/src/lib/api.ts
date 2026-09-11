@@ -336,6 +336,7 @@ export interface HoldingValueOut {
   broker: string | null;
   account: string | null;
   portfolio: string | null;
+  watch_tier: WatchTier | null;
   avg_cost: string | null;
   shares: string | null;
   notes: string | null;

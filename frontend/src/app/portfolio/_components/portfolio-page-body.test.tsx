@@ -38,6 +38,7 @@ function priced(overrides: Partial<HoldingValueOut>): HoldingValueOut {
     broker: "Fidelity",
     account: null,
     portfolio: "Retirement",
+    watch_tier: null,
     avg_cost: "250",
     shares: "10",
     notes: null,
@@ -101,6 +102,12 @@ describe("PortfolioPageBody", () => {
   it("renders the total assets figure from the initial server-loaded summary", () => {
     renderBody(summary({}));
     expect(totalAssetsValue()).toHaveTextContent("3,000.00 USD");
+  });
+
+  it("links to /holdings/edit from the holdings-detail card (issue #430)", () => {
+    renderBody(summary({}));
+    const link = screen.getByRole("link", { name: "Edit holdings" });
+    expect(link).toHaveAttribute("href", "/holdings/edit");
   });
 
   it("shows no FX banner when the book needed no conversion (empty fx_rates_as_of)", () => {
