@@ -113,6 +113,7 @@
     "colPricingMode": "定价方式",
     "colAssetType": "类型",
     "colBroker": "经纪商",
+    "colWatchTier": "关注等级",
     "colRaw": "原始文本",
     "colReason": "原因",
     "errorUploadFailed": "上传失败",

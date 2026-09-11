@@ -4,15 +4,17 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { ChevronDown, ChevronUp, GripVertical } from "lucide-react";
+import { ChevronDown, ChevronUp, GripVertical, Trash2 } from "lucide-react";
 
 import {
   ApiError,
   deleteHolding,
   reorderHoldings,
   updateHolding,
+  WATCH_TIERS,
   type HoldingOut,
   type HoldingPatch,
+  type WatchTier,
 } from "@/lib/api";
 import { isNextRedirectError } from "@/lib/next-redirect-error";
 import { Button } from "@/components/ui/button";
@@ -188,7 +190,7 @@ export function HoldingsEditor({
   async function patchField(
     id: string,
     patch: HoldingPatch,
-    field: "shares" | "avg_cost" | "current_value" | "pricing_mode",
+    field: "shares" | "avg_cost" | "current_value" | "pricing_mode" | "watch_tier",
     previousValue: string | null,
     optimisticValue: string,
   ) {
@@ -355,6 +357,7 @@ export function HoldingsEditor({
               <TableHead className="text-right">{t("colCurrentValue")}</TableHead>
               <TableHead>{t("colPricingMode")}</TableHead>
               {sortHeader("broker", t("colBroker"))}
+              <TableHead>{t("colWatchTier")}</TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
@@ -488,17 +491,44 @@ export function HoldingsEditor({
                   </TableCell>
                   <TableCell>{cell(h.broker)}</TableCell>
                   <TableCell>
+                    <select
+                      className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm disabled:opacity-50"
+                      value={h.watch_tier ?? ""}
+                      disabled={reordering || savingCells.has(`${h.id}:watch_tier`)}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => {
+                        const previous = h.watch_tier ?? "";
+                        const next = e.target.value;
+                        void patchField(
+                          h.id,
+                          { watch_tier: next === "" ? null : (next as WatchTier) },
+                          "watch_tier",
+                          previous,
+                          next,
+                        );
+                      }}
+                    >
+                      <option value="">{t("watchTier.none")}</option>
+                      {WATCH_TIERS.map((tier) => (
+                        <option key={tier} value={tier}>
+                          {t(`watchTier.${tier}`)}
+                        </option>
+                      ))}
+                    </select>
+                  </TableCell>
+                  <TableCell>
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
+                      aria-label={t("deleteButton")}
                       disabled={deletingId === h.id}
                       onClick={(e) => {
                         e.stopPropagation();
                         setPendingDelete(h);
                       }}
                     >
-                      {t("deleteButton")}
+                      <Trash2 className="size-4" aria-hidden="true" />
                     </Button>
                   </TableCell>
                 </TableRow>

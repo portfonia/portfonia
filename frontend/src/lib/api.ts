@@ -22,6 +22,7 @@ export type Market = "US" | "HK" | "A-Share" | "UK" | "Europe" | "Japan" | "Kore
 // Issue #421: independent of real position size, drives a config-driven
 // floor on §3 depth. null = not watched.
 export type WatchTier = "watch" | "focus" | "critical";
+export const WATCH_TIERS: readonly WatchTier[] = ["watch", "focus", "critical"];
 export type ConfirmMode = "append" | "replace";
 export type IssueSeverity = "info" | "warning";
 

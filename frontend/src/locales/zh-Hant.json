@@ -113,6 +113,7 @@
     "colPricingMode": "定價方式",
     "colAssetType": "類型",
     "colBroker": "經紀商",
+    "colWatchTier": "關注等級",
     "colRaw": "原始文字",
     "colReason": "原因",
     "errorUploadFailed": "上傳失敗",
