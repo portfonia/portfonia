@@ -91,6 +91,14 @@ describe("HoldingsEditor", () => {
     );
   });
 
+  it("Edit groups links to /holdings/groups (issue #430)", () => {
+    renderEditor();
+    expect(screen.getByRole("link", { name: /edit groups/i })).toHaveAttribute(
+      "href",
+      "/holdings/groups",
+    );
+  });
+
   it("delete asks for confirm then calls deleteHolding", async () => {
     const user = userEvent.setup();
     renderEditor();
@@ -102,6 +110,13 @@ describe("HoldingsEditor", () => {
     await user.click(confirms[confirms.length - 1]);
     await waitFor(() => expect(deleteHolding).toHaveBeenCalledWith(AAPL.id));
     expect(screen.queryByText("Apple Inc.")).not.toBeInTheDocument();
+  });
+
+  it("the row delete control is icon-only but keeps an accessible name (issue #430)", () => {
+    renderEditor();
+    const rowDeleteButton = screen.getAllByRole("button", { name: /^delete$/i })[0];
+    expect(rowDeleteButton).not.toHaveTextContent("Delete");
+    expect(rowDeleteButton).toHaveAccessibleName("Delete");
   });
 
   it("reverts order when reorderHoldings fails", async () => {
@@ -277,6 +292,39 @@ describe("HoldingsEditor", () => {
         expect(updateHolding).toHaveBeenCalledWith(AAPL.id, { pricing_mode: "manual" }),
       );
       expect(push).not.toHaveBeenCalled();
+    });
+
+    it("edits watch_tier via a select and saves immediately (issue #430)", async () => {
+      const user = userEvent.setup();
+      updateHolding.mockResolvedValue({ ...AAPL, watch_tier: "critical" });
+      renderEditor();
+
+      const selects = screen.getAllByDisplayValue("Not watched");
+      await user.selectOptions(selects[0], "critical");
+
+      await waitFor(() =>
+        expect(updateHolding).toHaveBeenCalledWith(AAPL.id, { watch_tier: "critical" }),
+      );
+      expect(push).not.toHaveBeenCalled();
+    });
+
+    it("clearing watch_tier back to none sends null, not an empty string", async () => {
+      const user = userEvent.setup();
+      const watched = holding({
+        id: "44444444-4444-4444-4444-444444444444",
+        name: "Tesla",
+        ticker: "TSLA",
+        watch_tier: "watch",
+      });
+      updateHolding.mockResolvedValue({ ...watched, watch_tier: null });
+      renderEditor([watched]);
+
+      const select = screen.getByDisplayValue("Watch");
+      await user.selectOptions(select, "");
+
+      await waitFor(() =>
+        expect(updateHolding).toHaveBeenCalledWith(watched.id, { watch_tier: null }),
+      );
     });
 
     it("renders current_value (not avg_cost) as the editable cell for a cash/wmf row", () => {

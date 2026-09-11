@@ -117,6 +117,7 @@ def get_portfolio_summary(
             broker=hv.broker,
             account=hv.account,
             portfolio=hv.portfolio,
+            watch_tier=hv.watch_tier,
             avg_cost=hv.avg_cost,
             shares=hv.shares,
             notes=hv.notes,

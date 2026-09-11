@@ -10,6 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { WatchTierIcon } from "@/components/watch-tier-icon";
 import type { HoldingValueOut } from "@/lib/api";
 import { fallbackOrValue, formatMoney, formatPercent, pnlColorClass } from "./portfolio-helpers";
 
@@ -54,6 +55,7 @@ export function PortfolioHoldingsTable({
                   {cell(h.ticker ?? h.fund_code)}
                 </span>
               ) : null}
+              <WatchTierIcon tier={h.watch_tier} />
             </TableCell>
             <TableCell>{h.market}</TableCell>
             {/* Same fallback label as the by_group/by_broker chart legend

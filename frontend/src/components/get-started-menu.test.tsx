@@ -403,7 +403,7 @@ describe("GetStartedMenu", () => {
       );
 
       await waitFor(() =>
-        expect(screen.getByRole("menuitem", { name: "持仓" })).toBeInTheDocument(),
+        expect(screen.getByRole("menuitem", { name: "持仓管理" })).toBeInTheDocument(),
       );
       expect(screen.queryByRole("menuitem", { name: "Holdings" })).not.toBeInTheDocument();
     });
@@ -440,7 +440,7 @@ describe("GetStartedMenu", () => {
       await user.click(await screen.findByRole("button", { name: "開始使用" }));
 
       await waitFor(() =>
-        expect(screen.getByRole("menuitem", { name: "持倉" })).toBeInTheDocument(),
+        expect(screen.getByRole("menuitem", { name: "持倉管理" })).toBeInTheDocument(),
       );
       expect(screen.queryByRole("menuitem", { name: "Holdings" })).not.toBeInTheDocument();
     });

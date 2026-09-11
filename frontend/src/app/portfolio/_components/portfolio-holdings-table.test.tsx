@@ -24,6 +24,7 @@ function holding(overrides: Partial<HoldingValueOut>): HoldingValueOut {
     broker: null,
     account: null,
     portfolio: null,
+    watch_tier: null,
     avg_cost: null,
     shares: null,
     notes: null,
@@ -77,5 +78,28 @@ describe("PortfolioHoldingsTable", () => {
 
     const dashes = screen.getAllByText("—");
     expect(dashes.length).toBeGreaterThanOrEqual(2); // P&L amount + P&L %
+  });
+
+  it("shows the watch-tier icon next to the ticker when set (issue #430)", () => {
+    render(
+      <LocaleProvider>
+        <PortfolioHoldingsTable
+          holdings={[holding({ ticker: "AAPL", watch_tier: "critical" })]}
+          baseCurrency="USD"
+        />
+      </LocaleProvider>,
+    );
+
+    expect(screen.getByRole("img", { name: "Critical" })).toBeInTheDocument();
+  });
+
+  it("shows no watch-tier icon when unset", () => {
+    render(
+      <LocaleProvider>
+        <PortfolioHoldingsTable holdings={[holding({ ticker: "AAPL" })]} baseCurrency="USD" />
+      </LocaleProvider>,
+    );
+
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
 });

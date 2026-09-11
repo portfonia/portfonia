@@ -4,7 +4,15 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useTranslations } from "next-intl";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { getPortfolioSummary, type PortfolioSummary } from "@/lib/api";
 import { BreakdownChart } from "./breakdown-chart";
 import { CurrencySwitcher } from "./currency-switcher";
@@ -214,6 +222,11 @@ export function PortfolioPageBody({
         <CardHeader>
           <CardTitle>{t("holdingsHeading")}</CardTitle>
           <CardDescription>{t("holdingsPnlNote")}</CardDescription>
+          <CardAction>
+            <Button variant="outline" size="sm" render={<Link href="/holdings/edit" />}>
+              {t("editHoldingsButton")}
+            </Button>
+          </CardAction>
         </CardHeader>
         <CardContent className="px-4">
           <PortfolioHoldingsTable holdings={priced} baseCurrency={summary.base_currency} />

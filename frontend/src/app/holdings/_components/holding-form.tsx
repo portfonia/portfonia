@@ -8,6 +8,7 @@ import {
   ApiError,
   createHolding,
   updateHolding,
+  WATCH_TIERS,
   type HoldingOut,
   type HoldingPatch,
   type ParsedRow,
@@ -47,7 +48,6 @@ const CURRENCIES = [
 
 const ASSET_TYPES = ["stock", "etf", "fund", "cash", "wmf", "other"] as const;
 const MARKETS = ["US", "HK", "A-Share", "UK", "Europe", "Japan", "Korea", "Other"] as const;
-const WATCH_TIERS: readonly WatchTier[] = ["watch", "focus", "critical"];
 
 type FormState = {
   name: string;

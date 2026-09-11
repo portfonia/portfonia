@@ -2,6 +2,7 @@ import { useTranslations } from "next-intl";
 
 import type { HoldingOut } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
+import { WatchTierIcon } from "@/components/watch-tier-icon";
 import {
   Table,
   TableBody,
@@ -38,7 +39,10 @@ export function HoldingsTable({ holdings }: { holdings: HoldingOut[] }) {
         {holdings.map((h) => (
           <TableRow key={h.id}>
             <TableCell className="font-medium">{h.name}</TableCell>
-            <TableCell>{cell(h.ticker ?? h.fund_code)}</TableCell>
+            <TableCell>
+              {cell(h.ticker ?? h.fund_code)}
+              <WatchTierIcon tier={h.watch_tier} />
+            </TableCell>
             <TableCell>{h.currency}</TableCell>
             <TableCell className="text-right tabular-nums">
               {cell(h.shares)}

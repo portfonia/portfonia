@@ -158,6 +158,39 @@ def test_summary_passes_through_notes(app_client: TestClient, db_session: Sessio
     assert resp.json()["holdings"][0]["notes"] == "No public ticker"
 
 
+def test_summary_passes_through_watch_tier(app_client: TestClient, db_session: Session) -> None:
+    """Issue #430: watch_tier was set on Holding/HoldingValue (#421) but
+    never wired onto HoldingValueOut, leaving /portfolio/summary unable to
+    surface the watch-tier icon the frontend needs."""
+    seed_user(db_session, _USER)
+    db_session.add(
+        Holding(
+            user_id=_USER,
+            name="Apple",
+            pricing_mode="auto",
+            ticker="AAPL",
+            currency="USD",
+            shares=Decimal("10"),
+            market_price=Decimal("300"),
+            asset_type="stock",
+            watch_tier="critical",
+        )
+    )
+    db_session.flush()
+
+    resp = app_client.get("/portfolio/summary")
+
+    assert resp.status_code == 200
+    assert resp.json()["holdings"][0]["watch_tier"] == "critical"
+
+
+def test_summary_watch_tier_defaults_to_none(app_client: TestClient, db_session: Session) -> None:
+    _seed(db_session)
+    resp = app_client.get("/portfolio/summary")
+    assert resp.status_code == 200
+    assert resp.json()["holdings"][0]["watch_tier"] is None
+
+
 # POST /refresh moved to POST /admin/portfolio/refresh (issue #128 Ring 1
 # stage B, checkpoint B2, decision point 8/11) — an ordinary user must not be
 # able to trigger a global market-data refresh. See test_admin_router.py for
