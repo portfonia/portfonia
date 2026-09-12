@@ -167,7 +167,7 @@ def _mock_l2_llm_boundary() -> None:  # type: ignore[misc]
         patch(
             "app.services.macro_event_intel._call_llm",
             return_value='{"analysis": "Nothing notable. [Speculative]", '
-            '"affected_asset_classes": [], "affected_sectors": []}',
+            '"affected_asset_classes": []}',
         ),
     ):
         yield
@@ -227,7 +227,6 @@ def _portfolio_snap() -> PortfolioSnapshot:
         currency="USD",
         asset_type="stock",
         asset_class="STOCK",
-        sector="Technology",
         market="US",
         market_value=Decimal("10000"),
         market_value_base=Decimal("10000"),
@@ -240,7 +239,6 @@ def _portfolio_snap() -> PortfolioSnapshot:
         by_currency={"USD": Decimal("10000")},
         by_asset_type={"stock": Decimal("10000")},
         by_market={"US": Decimal("10000")},
-        by_sector={"Technology": Decimal("10000")},
         by_asset_class={"STOCK": Decimal("10000")},
         concentration=Concentration(
             top_holding_name="Apple Inc.",
@@ -722,7 +720,6 @@ def _mock_l2_llm(*args: object, **kwargs: object) -> str:
         {
             "analysis": f"{_L2_MARKER} rate policy datapoint. [Established]",
             "affected_asset_classes": ["STOCK", "CRYPTO"],
-            "affected_sectors": ["Financials"],
         }
     )
 
@@ -2722,7 +2719,6 @@ def test_regenerate_analyze_recomputes_macro_event_exposure_from_fresh_portfolio
         "theme:x": {
             "analysis": "STALE_EVENT_MARKER touches the STOCK sleeve.",
             "affected_asset_classes": ["STOCK"],
-            "affected_sectors": [],
         }
     }
     stale_inputs["macro_event_exposure"] = {"theme:x": ["STOCK"]}

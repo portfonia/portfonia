@@ -46,7 +46,6 @@ def _stock(
     *,
     asset_type: str = "stock",
     asset_class: str = "STOCK",
-    sector: str | None = None,
     fund_code: str | None = None,
 ) -> Holding:
     return Holding(
@@ -60,7 +59,6 @@ def _stock(
         market_price=Decimal(price) if price is not None else None,
         asset_type=asset_type,
         asset_class=asset_class,
-        sector=sector,
     )
 
 
@@ -80,8 +78,8 @@ def test_full_snapshot_values_and_distributions(db_session: Session) -> None:
     _seed_fx(db_session)
     db_session.add_all(
         [
-            _stock("Apple", "AAPL", "USD", "10", "300", sector="Technology"),
-            _stock("Moutai", "600519.SS", "CNY", "10", "1400", sector="Consumer Staples"),
+            _stock("Apple", "AAPL", "USD", "10", "300"),
+            _stock("Moutai", "600519.SS", "CNY", "10", "1400"),
             _cash("USD Cash", "USD", "5000"),
             _stock("Broken", "BAD", "USD", None, None),  # missing price → stale
         ]
@@ -100,11 +98,6 @@ def test_full_snapshot_values_and_distributions(db_session: Session) -> None:
         "US": Decimal("3000.00"),
         "A-Share": Decimal("2000.00"),
         "Other": Decimal("5000.00"),
-    }
-    # cash is excluded from the equity sector chart
-    assert snap.by_sector == {
-        "Technology": Decimal("3000.00"),
-        "Consumer Staples": Decimal("2000.00"),
     }
     # asset_class has no "Other" fallback — every holding (incl. cash) lands
     # in a real bucket, this is what §1/distribution/§4.1 read.
@@ -136,8 +129,8 @@ def test_concentration_flags(db_session: Session) -> None:
     _seed_fx(db_session)
     db_session.add_all(
         [
-            _stock("Apple", "AAPL", "USD", "10", "300", sector="Technology"),
-            _stock("Moutai", "600519.SS", "CNY", "10", "1400", sector="Consumer Staples"),
+            _stock("Apple", "AAPL", "USD", "10", "300"),
+            _stock("Moutai", "600519.SS", "CNY", "10", "1400"),
             _cash("USD Cash", "USD", "1000"),
         ]
     )
@@ -223,20 +216,9 @@ def test_concentration_single_holding_tightens_for_leveraged_ticker(db_session: 
     assert leveraged_c.single_holding_high is False  # 0.075 <= 2x-tightened high 0.10
 
 
-def test_unclassified_stock_sector_defaults_to_other(db_session: Session) -> None:
-    _seed_fx(db_session)
-    db_session.add(_stock("HK Co", "0700.HK", "HKD", "100", "80", sector=None))
-    db_session.flush()
-
-    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
-
-    assert "Other" in snap.by_sector
-    assert snap.by_sector["Other"] == Decimal("1000.00")  # 100*80 HKD / 8
-
-
 def test_base_currency_cny(db_session: Session) -> None:
     _seed_fx(db_session)
-    db_session.add(_stock("Apple", "AAPL", "USD", "10", "300", sector="Technology"))
+    db_session.add(_stock("Apple", "AAPL", "USD", "10", "300"))
     db_session.flush()
 
     snap = compute_portfolio(db_session, user_id=_USER, base_currency="CNY")
@@ -860,7 +842,7 @@ def test_unpriced_holding_kept_in_list_but_excluded_from_aggregates(
     _seed_fx(db_session)
     db_session.add_all(
         [
-            _stock("Apple", "AAPL", "USD", "10", "300", sector="Technology"),
+            _stock("Apple", "AAPL", "USD", "10", "300"),
             _stock("PSH", "PSH.L", "GBP", None, None),  # no price captured
         ]
     )
@@ -912,7 +894,7 @@ def test_watch_tier_zero_share_holding_contributes_nothing_to_real_math(
     (the identical portfolio minus the watched row), not a fixed number,
     so this doesn't just re-assert Apple's own concentration math."""
     _seed_fx(db_session)
-    db_session.add(_stock("Apple", "AAPL", "USD", "10", "300", sector="Technology"))
+    db_session.add(_stock("Apple", "AAPL", "USD", "10", "300"))
     db_session.flush()
     baseline = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
 

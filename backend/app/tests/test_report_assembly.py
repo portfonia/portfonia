@@ -57,7 +57,6 @@ _MACRO_INTEL = {
     "theme:monetary_policy": {
         "analysis": "The 30-year yield reached 5.31%, pressuring equity valuations.",
         "affected_asset_classes": ["EQUITY_US_BROAD", "BOND_FUND"],
-        "affected_sectors": ["Technology"],
     }
 }
 _EXPOSURE = {"theme:monetary_policy": ["EQUITY_US_BROAD"]}

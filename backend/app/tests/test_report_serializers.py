@@ -45,7 +45,6 @@ def _holding_value(**overrides: object) -> HoldingValue:
         currency="USD",
         asset_type="stock",
         asset_class="STOCK",
-        sector=None,
         market="US",
         market_value=Decimal("0.00"),
         market_value_base=Decimal("0.00"),

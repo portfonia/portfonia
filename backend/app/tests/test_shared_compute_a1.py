@@ -106,7 +106,6 @@ def _empty_portfolio_snap() -> PortfolioSnapshot:
         by_currency={},
         by_asset_type={},
         by_market={},
-        by_sector={},
         by_asset_class={},
         concentration=Concentration(
             top_holding_name="",

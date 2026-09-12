@@ -16,7 +16,6 @@ class HoldingValueOut(BaseModel):
     currency: str
     asset_type: str | None
     asset_class: str | None
-    sector: str | None
     market: str
     market_value: Decimal | None
     market_value_base: Decimal | None
@@ -60,7 +59,6 @@ class PortfolioSummaryResponse(BaseModel):
     by_market: dict[str, Decimal]
     by_currency: dict[str, Decimal]
     by_asset_type: dict[str, Decimal]
-    by_sector: dict[str, Decimal]
     by_asset_class: dict[str, Decimal]
     by_group: dict[str, Decimal]
     by_broker: dict[str, Decimal]

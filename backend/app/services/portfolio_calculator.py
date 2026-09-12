@@ -59,11 +59,6 @@ _CURRENCY_TO_FX_PAIR: dict[str, str] = {
 # (defensive only — the loader's validation should make that impossible).
 _DEFAULT_SINGLE_THRESHOLD = (Decimal("0.15"), Decimal("0.25"))
 
-# Asset types that carry a single equity sector (others excluded from §6.4 chart).
-# Sector is retained only for forward-event holding relevance mapping
-# (rate-sensitive / consumer sectors) — no longer used for §1/distribution/§4.1.
-_SECTOR_ASSET_TYPES = {"stock", "etf"}
-
 
 def _infer_holding_market(holding: Holding) -> str:
     """Infer the exchange/market for a holding from ticker suffix or fund_code.
@@ -91,7 +86,6 @@ class HoldingValue:
     currency: str
     asset_type: str | None
     asset_class: str | None
-    sector: str | None
     market: str
     market_value: Decimal | None  # in holding's own currency; None = no price available
     market_value_base: Decimal | None  # in base_currency; None = no price / no FX rate
@@ -150,7 +144,6 @@ class PortfolioSnapshot:
     by_currency: dict[str, Decimal] = field(default_factory=dict)
     by_asset_type: dict[str, Decimal] = field(default_factory=dict)
     by_market: dict[str, Decimal] = field(default_factory=dict)
-    by_sector: dict[str, Decimal] = field(default_factory=dict)  # equity sectors only, §6.4
     by_asset_class: dict[str, Decimal] = field(default_factory=dict)  # all holdings, §1/§4.1
     by_group: dict[str, Decimal] = field(default_factory=dict)  # Holding.portfolio, C2 dashboard
     by_broker: dict[str, Decimal] = field(default_factory=dict)  # Holding.broker, C2 dashboard
@@ -478,7 +471,6 @@ def compute_portfolio(
                 currency=h.currency,
                 asset_type=h.asset_type,
                 asset_class=h.asset_class,
-                sector=h.sector,
                 market=market,
                 market_value=market_value,
                 market_value_base=market_value_base,
@@ -553,15 +545,6 @@ def compute_portfolio(
         snapshot.by_asset_class[class_key] = (
             snapshot.by_asset_class.get(class_key, _ZERO) + market_value_base
         )
-
-        # Equity sectors only; funds/cash/wmf are shown via by_asset_type instead.
-        # Retained for forward-event holding-relevance mapping only (rate-
-        # sensitive / consumer sectors) — no longer read by §1/distribution/§4.1.
-        if h.asset_type in _SECTOR_ASSET_TYPES:
-            sector_key = h.sector or "Other"
-            snapshot.by_sector[sector_key] = (
-                snapshot.by_sector.get(sector_key, _ZERO) + market_value_base
-            )
 
     if snapshot.total_cost_basis_base > _ZERO:
         snapshot.total_unrealized_pnl_pct = _ratio(

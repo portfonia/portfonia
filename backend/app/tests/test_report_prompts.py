@@ -57,7 +57,6 @@ def _portfolio_snap() -> PortfolioSnapshot:
         currency="USD",
         asset_type="stock",
         asset_class="STOCK",
-        sector="Technology",
         market="US",
         market_value=Decimal("10000"),
         market_value_base=Decimal("10000"),
@@ -70,7 +69,6 @@ def _portfolio_snap() -> PortfolioSnapshot:
         by_currency={"USD": Decimal("10000")},
         by_asset_type={"stock": Decimal("10000")},
         by_market={"US": Decimal("10000")},
-        by_sector={"Technology": Decimal("10000")},
         by_asset_class={"STOCK": Decimal("10000")},
         concentration=Concentration(
             top_holding_name="Apple Inc.",

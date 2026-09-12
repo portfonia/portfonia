@@ -48,7 +48,6 @@ def _seed(db_session: Session) -> None:
                 model="x",
                 analysis="old",
                 affected_asset_classes=[],
-                affected_sectors=[],
                 facts={},
             ),
             MacroEventIntel(
@@ -58,7 +57,6 @@ def _seed(db_session: Session) -> None:
                 model="x",
                 analysis="recent",
                 affected_asset_classes=[],
-                affected_sectors=[],
                 facts={},
             ),
             CrossNameIntel(

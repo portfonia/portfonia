@@ -168,7 +168,7 @@ def _boundary_patches() -> list[object]:
         patch(
             "app.services.macro_event_intel._call_llm",
             return_value='{"analysis": "Policy steady. [Established]", '
-            '"affected_asset_classes": ["EQUITY_US_TECH"], "affected_sectors": []}',
+            '"affected_asset_classes": ["EQUITY_US_TECH"]}',
         ),
         patch("app.services.cross_name_intel._openrouter_client", return_value=MagicMock()),
         patch("app.services.cross_name_intel._call_llm", side_effect=_mock_l3_llm),
