@@ -548,7 +548,30 @@
       "filteredEmptyBody": "该区间内没有与当前筛选匹配的快照。基准线仍保留供参考。可尝试扩大区间或清除筛选。",
       "chartNoData": "所选区间与筛选下没有数据。",
       "chartDescriptionTracked": "组合变化从本区间首个真实快照起算。所选指数保留可用历史；若组合首日可估值，则以该日为共同零点作比较。",
-      "chartDescriptionBenchmarksOnly": "该区间内没有可对比的组合历史——基准按各自数据在所选区间内独立归一化。"
+      "chartDescriptionBenchmarksOnly": "该区间内没有可对比的组合历史——基准按各自数据在所选区间内独立归一化。",
+      "allocationTitle": "资产类别占比历史",
+      "allocationDescription": "所选区间与筛选下,已分类且可估值市值按资产类别的占比。变化可能来自价格、汇率、分类或录入数量的更新——不代表交易记录。",
+      "allocationIncompleteBanner": "本区间内部分日期存在无可用估值或分类的匹配持仓——这些份额已从堆叠中排除,不会显示为收益。",
+      "allocationGapTooltip": "当日没有已分类且可估值的持仓。",
+      "allocationIncompleteTooltip": "{n, plural, other {# 项持仓被排除(无可用估值或分类)}}",
+      "monthlyTitle": "月度表现",
+      "monthlyDescription": "组合近似时间加权月度收益率,与一个基准比较。始终使用近似日末 TWR 方法,不受上方收益方式开关影响。",
+      "monthlyBenchmarkLabel": "对比基准",
+      "monthlyPortfolioLabel": "组合(近似 TWR)",
+      "monthlyApproxNote": "本月包含近似或兜底定价数据。",
+      "monthlyPartialReason": {
+        "range_start": "不完整月份——所选区间从本月中途开始。",
+        "tracking_start": "不完整月份——组合追踪从本月中途开始。",
+        "month_to_date": "月初至今——截至最近一次真实追踪快照,非完整日历月。"
+      },
+      "benchmarkUnavailable": {
+        "missing_price": "该日期无指数价格。",
+        "stale_price": "该日期指数价格过期。",
+        "invalid_price": "该日期指数价格无效。",
+        "missing_fx": "该日期无汇率数据。",
+        "stale_fx": "该日期汇率数据过期。",
+        "invalid_fx": "该日期汇率数据无效。"
+      }
     },
     "assetClasses": {
       "STOCK": "个股",

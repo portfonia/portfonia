@@ -692,3 +692,88 @@ Do not reopen A50 as leftover work on #383.
 Any frontend/chart; changes to `/portfolio/summary`/`compute_portfolio`;
 intraday ranges; a true trade-ledger GIPS TWR; snapshot archival/
 downsampling.
+
+## Allocation history + monthly performance (issue #433)
+
+Additive `GET /portfolio/performance` fields, no migration/new table/new
+dependency/new market-data source. Five contract comments on #433 are the
+spec; this is the implementation summary. Paired Chinese design doc:
+`Hermes/Portfonia/Docs/Portfolio_Pfmc.md` §1 items 8-11, D10-D13.
+
+**Shared read path**: both features reuse `_build_portfolio_series`'s
+already-loaded, already-filtered (D8) `dates`/`filtered_by_date` — no
+per-date/per-month/per-class query. `_SeriesBuild` (a new internal
+dataclass) carries these plus a `daily_links: dict[date, Decimal | None]`
+of the unrounded approximate-TWR day-over-day factor for every displayed
+day, computed **unconditionally** now (previously only under `twr=True`) —
+monthly performance needs this chain even when the cumulative chart's own
+`twr` toggle is off; the toggle still governs only `PortfolioSeries.points[
+].return_pct_cumulative`.
+
+**Allocation** (`_build_allocation`): for each date, sums `market_value_base`
+by that row's own `asset_class`, using the SAME day the cumulative series
+already iterates. A row with no value or no classification is dropped from
+both numerator and denominator and bumps `excluded_holding_count`
+(`is_incomplete=True`); a zero denominator returns `weights={}` +
+`is_incomplete=True` — never a fabricated 100% stack, and never merged into
+an "Other" bucket. `ASSET_CLASS_ORDER` (backend) / `ASSET_CLASS_COLORS`
+(frontend, `allocation-data.ts`) fix a color per taxonomy KEY across the
+whole closed taxonomy, not per array index of one response's filtered
+subset — a class keeps its color whether 2 or all 13 appear in a given
+range. Weights are currency-invariant (same day, same conversion factor for
+every bucket), so no FX conversion happens in this builder at all.
+
+**Monthly performance** (`_build_monthly_performance`): aggregates the SAME
+unrounded `daily_links` into `prod(1 + r_t) - 1` per calendar month
+(`_month_key`), assigning each link to the month containing its own date —
+never differencing already-rounded cumulative percentages. Partial-month
+rules:
+
+- The month containing the series' very first display day is
+  `tracking_start` (that day IS the global tracking anchor) or
+  `range_start` (the range/filters truncated an otherwise-longer history)
+  — UNLESS a bounded one-day lookback (`_prior_complete_date`, at most one
+  extra query + one extra date's rows, only attempted when that first day
+  is the 1st calendar day of its month) finds a real prior tracked day, in
+  which case the month is disclosed as full instead (`partial_reason=None`,
+  `start_date` = that prior day). This lookback never changes the displayed
+  cumulative series or its own first point.
+- The month containing `today` is always `month_to_date` (precedence over
+  tracking_start/range_start — the actual `start_date` still discloses the
+  true anchor).
+- A single-point first month returns an explicit `0.0000` (`partial_reason`
+  set); a month with genuinely no valid link anywhere in it (no fabricated
+  zero) returns `portfolio_return_pct=null`.
+
+The monthly benchmark (`monthly_benchmark` query param, `sp500|dow30|
+nasdaq|csi300`, default `sp500`, independent single-select from the
+cumulative chart's `benchmarks` multi-select) is evaluated with the
+existing `evaluate_index_day` at the portfolio's own disclosed month
+start/end dates, reusing the SAME bulk-loaded `closes`/`fx_by_pair` the
+cumulative benchmarks already loaded — `_build_selected_benchmarks` grew an
+`extra_codes` param so a monthly-only code is bulk-loaded in the same
+`load_index_closes`/`load_fx_series` call rather than issuing its own.
+Either endpoint unavailable → `benchmark_return_pct=null` +
+`benchmark_unavailable_reason` (the existing `UnavailableReason` set); never
+a shifted window or invented value.
+
+**No rebalance/trade marker** (D13): this feature has no transaction
+source, so no code here infers or labels a holdings-record update as a
+confirmed trade — `confirm_holdings(mode=replace)` deletes/recreates rows,
+so row identity/update time is not trade evidence.
+
+**Frontend** (`frontend/src/app/portfolio/performance/_components/`):
+`allocation-data.ts`/`allocation-chart.tsx` (Recharts `AreaChart`
+`stackOffset="expand"`, a gap day is an all-null row, not a zero-filled
+stack) and `monthly-data.ts`/`monthly-performance-chart.tsx` (grouped
+`BarChart`, adaptive tick thinning above 12 months so 5Y/ALL labels don't
+overlap) are new, both under the existing cumulative chart card.
+`benchmark-single-select-menu.tsx` is a new single-choice `MenuDropdown`
+(same primitive `CurrencySwitcher` uses) for `monthly_benchmark`, kept
+separate from `MultiSelectMenu` since it can never reach "none"/"several".
+
+**CSI 300 color (requirement 9)**: `globals.css` gets a dedicated
+`--chart-csi300` token (light `#9c7a2e` / dark `#dcaa4a`) used by BOTH the
+cumulative line and the monthly bar for `csi300`; the shared `--chart-5`
+token (still used by the unrelated `/portfolio` breakdown charts) is
+untouched.

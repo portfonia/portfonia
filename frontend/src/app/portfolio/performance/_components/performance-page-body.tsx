@@ -33,6 +33,7 @@ import {
 import {
   BENCHMARK_CODES,
   DEFAULT_BENCHMARKS,
+  DEFAULT_MONTHLY_BENCHMARK,
   DEFAULT_PERFORMANCE_RANGE,
   type BenchmarkCode,
   type PerformanceRange,
@@ -44,6 +45,11 @@ import {
 import { formatMoney, pnlColorClass } from "../../_components/portfolio-helpers";
 import { CurrencySwitcher } from "../../_components/currency-switcher";
 import { DEFAULT_BASE_CURRENCY, type BaseCurrency } from "../../_components/currencies";
+import { AllocationChart } from "./allocation-chart";
+import { ASSET_CLASS_COLORS, DEFAULT_ASSET_CLASS_COLOR, buildAllocationData } from "./allocation-data";
+import { BenchmarkSingleSelectMenu } from "./benchmark-single-select-menu";
+import { buildMonthlyRows } from "./monthly-data";
+import { MonthlyPerformanceChart } from "./monthly-performance-chart";
 import { MultiSelectMenu } from "./multi-select-menu";
 import { PerformanceChart, type ChartSeriesSpec } from "./performance-chart";
 import {
@@ -57,11 +63,15 @@ import { formatFullDate, formatSignedPct, toRatio } from "./performance-format";
 import { RangeTabs } from "./range-tabs";
 
 const PORTFOLIO_COLOR = "var(--chart-1)";
+// csi300 uses a dedicated Performance-page token (issue #433), not the
+// shared `--chart-5` the /portfolio breakdown charts still use — `--chart-5`
+// is a very dark near-black neutral in the dark theme, effectively
+// invisible against the card background.
 const BENCHMARK_COLORS: Record<BenchmarkCode, string> = {
   sp500: "var(--chart-2)",
   dow30: "var(--chart-3)",
   nasdaq: "var(--chart-4)",
-  csi300: "var(--chart-5)",
+  csi300: "var(--chart-csi300)",
 };
 
 const DIMENSION_META = [
@@ -134,6 +144,9 @@ export function PerformancePageBody({
   const [range, setRange] = useState<PerformanceRange>(DEFAULT_PERFORMANCE_RANGE);
   const [twr, setTwr] = useState(true);
   const [benchmarks, setBenchmarks] = useState<BenchmarkCode[]>([...DEFAULT_BENCHMARKS]);
+  // Issue #433: independent single-select, unrelated to the cumulative
+  // chart's `benchmarks` multi-select above.
+  const [monthlyBenchmark, setMonthlyBenchmark] = useState<BenchmarkCode>(DEFAULT_MONTHLY_BENCHMARK);
   const [filters, setFilters] = useState<DatasetFilters>(EMPTY_FILTERS);
   const [response, setResponse] = useState<PortfolioPerformanceResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -153,6 +166,7 @@ export function PerformancePageBody({
     brokers: filters.brokers,
     accounts: filters.accounts,
     baseCurrency: currency,
+    monthlyBenchmark,
     ...overrides,
   });
 
@@ -209,6 +223,14 @@ export function PerformancePageBody({
     () => buildChartData(response?.portfolio ?? null, response?.benchmarks ?? []),
     [response],
   );
+  const allocationData = useMemo(
+    () => buildAllocationData(response?.allocation ?? null),
+    [response],
+  );
+  const monthlyRows = useMemo(
+    () => buildMonthlyRows(response?.monthly_performance ?? null),
+    [response],
+  );
   const hasApprox = hasApproximateSegment(response?.portfolio ?? null);
   const portfolioEmpty = !response || response.portfolio.empty;
   const qualityFlags = response?.portfolio.quality_flags ?? [];
@@ -261,6 +283,7 @@ export function PerformancePageBody({
   const legendSeries = chartSeries.filter((spec) => spec.key !== PORTFOLIO_APPROX_KEY);
 
   const benchmarkNames = t.raw("performance.benchmarkNames");
+  const assetClassNames = t.raw("assetClasses") as Record<string, string>;
   const unavailableBenchmarks =
     response?.benchmarks.filter((benchmark) => !benchmark.displayable) ?? [];
   const comparisonNotices =
@@ -289,6 +312,10 @@ export function PerformancePageBody({
   const changeBenchmarks = (next: BenchmarkCode[]) => {
     setBenchmarks(next);
     performQuery(paramsFor({ benchmarks: next }));
+  };
+  const changeMonthlyBenchmark = (next: BenchmarkCode) => {
+    setMonthlyBenchmark(next);
+    performQuery(paramsFor({ monthlyBenchmark: next }));
   };
   const changeCurrency = (next: BaseCurrency) => {
     setCurrency(next);
@@ -621,6 +648,74 @@ export function PerformancePageBody({
 
           {chartData.rows.length === 0 && !isLoading && !loadError && (
             <p data-testid="chart-no-data" className="text-sm text-muted-foreground">
+              {t("performance.chartNoData")}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("performance.allocationTitle")}</CardTitle>
+          <CardDescription>{t("performance.allocationDescription")}</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3 px-4">
+          {allocationData.rows.length > 0 ? (
+            <>
+              <AllocationChart
+                rows={allocationData.rows}
+                assetClasses={allocationData.assetClasses}
+                assetClassNames={assetClassNames}
+                pointMeta={allocationData.pointMeta}
+              />
+              <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                {allocationData.assetClasses.map((cls) => (
+                  <li key={cls} className="flex items-center gap-2">
+                    <span
+                      aria-hidden="true"
+                      className="size-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: ASSET_CLASS_COLORS[cls] ?? DEFAULT_ASSET_CLASS_COLOR }}
+                    />
+                    {assetClassNames[cls] ?? cls}
+                  </li>
+                ))}
+              </ul>
+              {allocationData.hasIncomplete && (
+                <p role="status" className="text-xs text-muted-foreground">
+                  {t("performance.allocationIncompleteBanner")}
+                </p>
+              )}
+            </>
+          ) : (
+            <p data-testid="allocation-no-data" className="text-sm text-muted-foreground">
+              {t("performance.chartNoData")}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-start justify-between gap-3">
+          <div>
+            <CardTitle>{t("performance.monthlyTitle")}</CardTitle>
+            <CardDescription>{t("performance.monthlyDescription")}</CardDescription>
+          </div>
+          <BenchmarkSingleSelectMenu
+            label={t("performance.monthlyBenchmarkLabel")}
+            value={monthlyBenchmark}
+            onChange={changeMonthlyBenchmark}
+            disabled={isLoading}
+          />
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3 px-4">
+          {monthlyRows.length > 0 ? (
+            <MonthlyPerformanceChart
+              rows={monthlyRows}
+              benchmarkName={benchmarkNames[monthlyBenchmark]}
+              benchmarkColor={BENCHMARK_COLORS[monthlyBenchmark]}
+            />
+          ) : (
+            <p data-testid="monthly-no-data" className="text-sm text-muted-foreground">
               {t("performance.chartNoData")}
             </p>
           )}

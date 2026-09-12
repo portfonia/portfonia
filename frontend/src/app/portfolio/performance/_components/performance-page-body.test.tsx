@@ -175,6 +175,30 @@ function response(overrides: Partial<PortfolioPerformanceResponse> = {}): Portfo
       value_change_pct: "0.21",
       label: "market_value_change",
     },
+    allocation: {
+      asset_classes: ["STOCK"],
+      points: [
+        { date: "2026-08-03", weights: { STOCK: "1.0000" }, is_incomplete: false, excluded_holding_count: 0 },
+        { date: "2026-08-04", weights: { STOCK: "1.0000" }, is_incomplete: false, excluded_holding_count: 0 },
+        { date: "2026-08-05", weights: { STOCK: "1.0000" }, is_incomplete: false, excluded_holding_count: 0 },
+      ],
+    },
+    monthly_performance: {
+      method: "approx_eod_twr",
+      benchmark_code: "sp500",
+      points: [
+        {
+          month: "2026-08",
+          start_date: "2026-08-03",
+          end_date: "2026-08-05",
+          portfolio_return_pct: "0.21",
+          benchmark_return_pct: "0.03",
+          partial_reason: "tracking_start",
+          is_approximate: false,
+          benchmark_unavailable_reason: null,
+        },
+      ],
+    },
     meta: { range: "1Y", twr: true, base_currency: "USD", filters: {} },
     ...overrides,
   };
@@ -228,6 +252,7 @@ describe("PerformancePageBody", () => {
       brokers: [],
       accounts: [],
       baseCurrency: "USD",
+      monthlyBenchmark: "sp500",
     });
     expect(screen.getByRole("button", { name: "1M" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: /Benchmarks/ })).toHaveTextContent("1 selected");
@@ -661,5 +686,51 @@ describe("PerformancePageBody", () => {
     await waitForChart();
     expect(screen.getByText(/first tracked snapshot; change starts at 0%/)).toBeInTheDocument();
     expect(screen.getByTestId("chart-legend")).toHaveTextContent("S&P 500");
+  });
+
+  it("draws the allocation and monthly performance cards from the default response", async () => {
+    renderBody();
+    await waitForChart();
+    expect(await screen.findByTestId("allocation-chart")).toBeInTheDocument();
+    expect(await screen.findByTestId("monthly-performance-chart")).toBeInTheDocument();
+  });
+
+  it("shows the incomplete-allocation banner when a visible point is incomplete (issue #433)", async () => {
+    getPerformanceMock.mockResolvedValueOnce(
+      response({
+        allocation: {
+          asset_classes: ["STOCK"],
+          points: [
+            {
+              date: "2026-08-03",
+              weights: { STOCK: "1.0000" },
+              is_incomplete: true,
+              excluded_holding_count: 1,
+            },
+          ],
+        },
+      }),
+    );
+    renderBody();
+    await waitForChart();
+    expect(
+      await screen.findByText(/excluded from the stack, not shown as a gain/),
+    ).toBeInTheDocument();
+  });
+
+  it("switches the monthly benchmark independently of the cumulative benchmark selection", async () => {
+    const user = userEvent.setup();
+    renderBody();
+    await waitForChart();
+
+    await user.click(screen.getByRole("button", { name: /Compare against/ }));
+    await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument());
+    await user.click(screen.getByRole("menuitem", { name: "Dow 30" }));
+
+    await waitFor(() => expect(getPerformanceMock).toHaveBeenCalledTimes(2));
+    const lastCall = getPerformanceMock.mock.calls[1][0];
+    expect(lastCall.monthlyBenchmark).toBe("dow30");
+    // The cumulative multi-select is untouched by the monthly single-select.
+    expect(lastCall.benchmarks).toEqual(["sp500"]);
   });
 });

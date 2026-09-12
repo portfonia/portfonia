@@ -137,12 +137,57 @@ class PerformanceMetaOut(BaseModel):
     filters: dict[str, list[str]]
 
 
+class AllocationPointOut(BaseModel):
+    """One date's asset-class weights (issue #433).
+
+    `weights` only ever contains closed-taxonomy keys with a usable,
+    classified value that day — never an "Other" bucket, never zero-filled
+    to sum to 1 when the true denominator is 0 (`is_incomplete=True` and an
+    empty `weights` map instead).
+    """
+
+    date: date
+    weights: dict[str, Decimal]
+    is_incomplete: bool
+    excluded_holding_count: int
+
+
+class AllocationOut(BaseModel):
+    """issue #433 requirement 1/2 — a separate 100%-stacked allocation
+    history, sharing the page's range/D8 filters with the cumulative chart."""
+
+    asset_classes: list[str]
+    points: list[AllocationPointOut]
+
+
+class MonthlyPerformancePointOut(BaseModel):
+    month: str
+    start_date: date
+    end_date: date
+    portfolio_return_pct: Decimal | None
+    benchmark_return_pct: Decimal | None
+    partial_reason: str | None
+    is_approximate: bool
+    benchmark_unavailable_reason: str | None
+
+
+class MonthlyPerformanceOut(BaseModel):
+    """issue #433 requirement 4/5 — always approximate EOD TWR, compared
+    with exactly one independently selected benchmark."""
+
+    method: str
+    benchmark_code: str
+    points: list[MonthlyPerformancePointOut]
+
+
 class PortfolioPerformanceResponse(BaseModel):
-    """GET /portfolio/performance (issues #360 / #366 / #377)."""
+    """GET /portfolio/performance (issues #360 / #366 / #377 / #433)."""
 
     portfolio: PortfolioSeriesOut
     benchmarks: list[BenchmarkSeriesOut]
     header: PerformanceHeaderOut
+    allocation: AllocationOut
+    monthly_performance: MonthlyPerformanceOut
     meta: PerformanceMetaOut
 
 

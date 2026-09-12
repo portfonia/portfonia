@@ -548,7 +548,30 @@
       "filteredEmptyBody": "該區間內沒有與目前篩選相符的快照。基準線仍保留供參考。可嘗試擴大區間或清除篩選。",
       "chartNoData": "所選區間與篩選下沒有資料。",
       "chartDescriptionTracked": "組合變化從本區間首個真實快照起算。所選指數保留可用歷史；若組合首日可估值，則以該日為共同零點作比較。",
-      "chartDescriptionBenchmarksOnly": "該區間內沒有可對比的組合歷史——基準依各自資料在所選區間內獨立歸一化。"
+      "chartDescriptionBenchmarksOnly": "該區間內沒有可對比的組合歷史——基準依各自資料在所選區間內獨立歸一化。",
+      "allocationTitle": "資產類別佔比歷史",
+      "allocationDescription": "所選區間與篩選下，已分類且可估值市值按資產類別的佔比。變化可能來自價格、匯率、分類或錄入數量的更新——不代表交易記錄。",
+      "allocationIncompleteBanner": "本區間內部分日期存在無可用估值或分類的匹配持倉——這些份額已從堆疊中排除，不會顯示為收益。",
+      "allocationGapTooltip": "當日沒有已分類且可估值的持倉。",
+      "allocationIncompleteTooltip": "{n, plural, other {# 項持倉被排除（無可用估值或分類）}}",
+      "monthlyTitle": "月度表現",
+      "monthlyDescription": "組合近似時間加權月度報酬率，與一個基準比較。始終使用近似日末 TWR 方法，不受上方報酬方式開關影響。",
+      "monthlyBenchmarkLabel": "對比基準",
+      "monthlyPortfolioLabel": "組合（近似 TWR）",
+      "monthlyApproxNote": "本月包含近似或後備定價資料。",
+      "monthlyPartialReason": {
+        "range_start": "不完整月份——所選區間從本月中途開始。",
+        "tracking_start": "不完整月份——組合追蹤從本月中途開始。",
+        "month_to_date": "月初至今——截至最近一次真實追蹤快照，非完整日曆月。"
+      },
+      "benchmarkUnavailable": {
+        "missing_price": "該日期無指數價格。",
+        "stale_price": "該日期指數價格過期。",
+        "invalid_price": "該日期指數價格無效。",
+        "missing_fx": "該日期無匯率資料。",
+        "stale_fx": "該日期匯率資料過期。",
+        "invalid_fx": "該日期匯率資料無效。"
+      }
     },
     "assetClasses": {
       "STOCK": "個股",

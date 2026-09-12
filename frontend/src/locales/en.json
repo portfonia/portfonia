@@ -548,7 +548,30 @@
       "filteredEmptyBody": "No snapshot in this range matches the current filters. Benchmarks stay visible for context. Try widening the range or clearing filters.",
       "chartNoData": "No data for the selected range and filters.",
       "chartDescriptionTracked": "Portfolio change is measured from the first real snapshot in this range. Selected indexes keep their available history; a shared zero at the portfolio start is used for comparison when that day can be valued.",
-      "chartDescriptionBenchmarksOnly": "No portfolio history to compare against in this range — benchmarks are normalized over their own data in the selected range."
+      "chartDescriptionBenchmarksOnly": "No portfolio history to compare against in this range — benchmarks are normalized over their own data in the selected range.",
+      "allocationTitle": "Asset-class allocation history",
+      "allocationDescription": "Share of classified, valued market value by asset class over the selected range and filters. A change may come from price, FX, classification, or a recorded quantity update — it is not a record of trades.",
+      "allocationIncompleteBanner": "Some dates in this range have a matching holding with no usable value or classification — those shares are excluded from the stack, not shown as a gain.",
+      "allocationGapTooltip": "No classified, valued holdings this day.",
+      "allocationIncompleteTooltip": "{n, plural, one {# holding excluded (no usable value or classification)} other {# holdings excluded (no usable value or classification)}}",
+      "monthlyTitle": "Monthly performance",
+      "monthlyDescription": "Portfolio approximate time-weighted return per month, compared with one benchmark. Always uses the approximate end-of-day TWR method regardless of the return-method toggle above.",
+      "monthlyBenchmarkLabel": "Compare against",
+      "monthlyPortfolioLabel": "Portfolio (approx. TWR)",
+      "monthlyApproxNote": "This month includes approximate or fallback-priced data.",
+      "monthlyPartialReason": {
+        "range_start": "Partial month — the selected range starts partway through this month.",
+        "tracking_start": "Partial month — portfolio tracking started partway through this month.",
+        "month_to_date": "Month to date — through the latest tracked snapshot, not the full calendar month."
+      },
+      "benchmarkUnavailable": {
+        "missing_price": "No index price for this date.",
+        "stale_price": "Index price is too old for this date.",
+        "invalid_price": "Index price is invalid for this date.",
+        "missing_fx": "No exchange rate for this date.",
+        "stale_fx": "Exchange rate is too old for this date.",
+        "invalid_fx": "Exchange rate is invalid for this date."
+      }
     },
     "assetClasses": {
       "STOCK": "Individual stock",
