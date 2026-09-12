@@ -75,6 +75,7 @@ def _row(
     currency: str = "USD",
     base_currency: str = "USD",
     is_backfilled: bool = False,
+    asset_class: str | None = "STOCK",
 ) -> None:
     session.add(
         PortfolioValueSnapshot(
@@ -93,6 +94,7 @@ def _row(
             market=market,
             data_quality=data_quality,
             is_backfilled=is_backfilled,
+            asset_class=asset_class,
         )
     )
 

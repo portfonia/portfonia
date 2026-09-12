@@ -33,6 +33,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
+from typing import Literal
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
@@ -40,8 +41,10 @@ from sqlalchemy.orm import Session
 from app.models.holding import Holding
 from app.models.portfolio_snapshot_batch import PortfolioSnapshotBatch
 from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
+from app.services.asset_class_config import VALID_ASSET_CLASSES
 from app.services.benchmark_prices import INDEX_YF_TICKERS
 from app.services.benchmark_valuation import (
+    LOOKBACK_DAYS,
     ComparisonStatus,
     DailyValuation,
     Normalization,
@@ -71,6 +74,33 @@ BENCHMARK_NAMES: dict[str, str] = {
 }
 
 _ALL_RANGE_SENTINEL = date(2000, 1, 1)
+
+# Issue #433: fixed display order for the closed asset_class taxonomy, used
+# only to keep the allocation chart's color-per-class mapping stable across
+# dates/ranges (never rank/value-sorted). Must stay a permutation of
+# `VALID_ASSET_CLASSES` — checked once at import time so a taxonomy change
+# in asset_class_config.py fails loudly here too, instead of silently
+# dropping a new class from every allocation response.
+ASSET_CLASS_ORDER: tuple[str, ...] = (
+    "STOCK",
+    "EQUITY_US_BROAD",
+    "EQUITY_US_TECH",
+    "EQUITY_DM",
+    "EQUITY_CN",
+    "EQUITY_EM",
+    "EQUITY_BROAD",
+    "REIT",
+    "PRECIOUS_METALS",
+    "ENERGY",
+    "COMMODITY",
+    "BOND_FUND",
+    "CASH_EQUIV",
+)
+assert set(ASSET_CLASS_ORDER) == VALID_ASSET_CLASSES, (
+    "ASSET_CLASS_ORDER drifted from VALID_ASSET_CLASSES"
+)
+
+MonthlyPartialReason = Literal["range_start", "tracking_start", "month_to_date"]
 
 
 @dataclass(frozen=True)
@@ -182,10 +212,50 @@ class PerformanceHeader:
 
 
 @dataclass
+class AllocationPoint:
+    point_date: date
+    # Only closed-taxonomy keys with a usable, classified value that day —
+    # never "Other", never zero-filled to 100 (issue #433 requirement 3).
+    weights: dict[str, Decimal] = field(default_factory=dict)
+    is_incomplete: bool = False
+    excluded_holding_count: int = 0
+
+
+@dataclass
+class Allocation:
+    # Closed-taxonomy keys that occur anywhere in `points`, in the fixed
+    # `ASSET_CLASS_ORDER` — the frontend colors by this order, never by
+    # per-date rank.
+    asset_classes: list[str] = field(default_factory=list)
+    points: list[AllocationPoint] = field(default_factory=list)
+
+
+@dataclass
+class MonthlyPerformancePoint:
+    month: str  # "YYYY-MM"
+    start_date: date
+    end_date: date
+    portfolio_return_pct: Decimal | None
+    benchmark_return_pct: Decimal | None
+    partial_reason: MonthlyPartialReason | None
+    is_approximate: bool
+    benchmark_unavailable_reason: str | None
+
+
+@dataclass
+class MonthlyPerformance:
+    benchmark_code: str
+    method: str = "approx_eod_twr"
+    points: list[MonthlyPerformancePoint] = field(default_factory=list)
+
+
+@dataclass
 class PerformanceResult:
     portfolio: PortfolioSeries
     benchmarks: list[BenchmarkSeries]
     header: PerformanceHeader
+    allocation: Allocation
+    monthly_performance: MonthlyPerformance
     meta: dict[str, object]
 
 
@@ -241,6 +311,22 @@ def _tracking_start(session: Session, user_id: uuid.UUID) -> date | None:
             PortfolioValueSnapshot.user_id == user_id,
             PortfolioValueSnapshot.is_backfilled.is_(False),
             PortfolioSnapshotBatch.status == "complete",
+        )
+    ).scalar_one_or_none()
+
+
+def _prior_complete_date(session: Session, user_id: uuid.UUID, before: date) -> date | None:
+    """Latest complete-batch `snapshot_date` strictly before `before`, for
+    this user (unfiltered) — one bounded lookup, not a scan. Used only by
+    the monthly-performance opening-boundary lookback (issue #433 design
+    §4): "load at most the bounded preceding complete observation needed
+    for the first displayed month". Never used to extend the displayed
+    portfolio/cumulative series itself."""
+    return session.execute(
+        select(func.max(PortfolioSnapshotBatch.snapshot_date)).where(
+            PortfolioSnapshotBatch.user_id == user_id,
+            PortfolioSnapshotBatch.status == "complete",
+            PortfolioSnapshotBatch.snapshot_date < before,
         )
     ).scalar_one_or_none()
 
@@ -475,6 +561,29 @@ def _convert_amount(
     return to_base(amount, from_currency, to_currency, rates)
 
 
+@dataclass
+class _SeriesBuild:
+    series: PortfolioSeries
+    value_start: Decimal
+    value_end: Decimal
+    # Unrounded daily approximate-TWR link (r_t), keyed by date, for every
+    # displayed day except the series' own first point (which has no prior
+    # day to link against). Computed regardless of the `twr` request
+    # parameter (issue #433 D11/invariant 3: monthly performance never
+    # switches to raw market-value change because the cumulative chart's
+    # toggle is off).
+    daily_links: dict[date, Decimal | None] = field(default_factory=dict)
+    # Dates after the filtered scope's own first real match, is_backfilled-
+    # only days already dropped — the same set the allocation chart draws
+    # from (issue #433 design §3), reused rather than re-queried.
+    dates: list[date] = field(default_factory=list)
+    filtered_by_date: dict[date, list[PortfolioValueSnapshot]] = field(default_factory=dict)
+    all_by_id_by_date: dict[date, dict[uuid.UUID, PortfolioValueSnapshot]] = field(
+        default_factory=dict
+    )
+    day_currency_by_date: dict[date, str] = field(default_factory=dict)
+
+
 def _build_portfolio_series(
     session: Session,
     user_id: uuid.UUID,
@@ -484,7 +593,7 @@ def _build_portfolio_series(
     twr: bool,
     requested_currency: str,
     tracking_start: date | None,
-) -> tuple[PortfolioSeries, Decimal, Decimal]:
+) -> _SeriesBuild:
     dates = _complete_batch_dates(session, user_id, start_date, end_date)
     rows_by_date = _rows_for_dates(session, user_id, dates)
     _attach_org_attribution(session, user_id, filters, rows_by_date)
@@ -557,10 +666,12 @@ def _build_portfolio_series(
         empty_series = PortfolioSeries(
             empty=True, start_date=None, end_date=None, tracking_start=tracking_start
         )
-        return empty_series, Decimal("0"), Decimal("0")
+        return _SeriesBuild(series=empty_series, value_start=Decimal("0"), value_end=Decimal("0"))
 
     quality_flags: set[str] = set()
     points: list[PerformancePoint] = []
+    daily_links: dict[date, Decimal | None] = {}
+    day_currency_by_date: dict[date, str] = {}
     ratio = Decimal("1")
     prev_by_id: dict[uuid.UUID, PortfolioValueSnapshot] | None = None
     prev_value: Decimal | None = None
@@ -571,10 +682,12 @@ def _build_portfolio_series(
         if converted_value is None:
             continue
         converted_value = converted_value.quantize(_CENT, rounding=ROUND_HALF_UP)
+        day_currency_by_date[d] = day_currency
 
+        r_t: Decimal | None = None
         if idx == 0:
             cumulative = Decimal("0")
-        elif twr:
+        else:
             # v_prev was aggregated under YESTERDAY's own currency
             # (`prev_currency`) — issue #367 finding A: `_contribution`'s
             # fast path derives today's per-share value from `curr_row.
@@ -586,6 +699,10 @@ def _build_portfolio_series(
             # it. Re-expressing v_prev in today's currency first keeps the
             # ratio r_t = v_minus/v_prev unit-consistent regardless of
             # whether the user's preference changed between the two days.
+            #
+            # Computed unconditionally (issue #433 D11): monthly
+            # performance always needs this approximate-TWR daily link even
+            # when `twr=False` only turns off the CUMULATIVE display below.
             v_prev_today = _convert_amount(
                 session, prev_value or Decimal("0"), prev_currency or day_currency, day_currency, d
             )
@@ -601,18 +718,20 @@ def _build_portfolio_series(
                 if v_prev_today is not None
                 else None
             )
-            if r_t is not None:
-                ratio = ratio * (Decimal("1") + r_t)
-            cumulative = (ratio - Decimal("1")).quantize(_PCT, rounding=ROUND_HALF_UP)
-        else:
-            first_value = points[0].value_base if points else converted_value
-            cumulative = (
-                (converted_value / first_value - Decimal("1")).quantize(
-                    _PCT, rounding=ROUND_HALF_UP
+            if twr:
+                if r_t is not None:
+                    ratio = ratio * (Decimal("1") + r_t)
+                cumulative = (ratio - Decimal("1")).quantize(_PCT, rounding=ROUND_HALF_UP)
+            else:
+                first_value = points[0].value_base if points else converted_value
+                cumulative = (
+                    (converted_value / first_value - Decimal("1")).quantize(
+                        _PCT, rounding=ROUND_HALF_UP
+                    )
+                    if first_value > 0
+                    else Decimal("0")
                 )
-                if first_value > 0
-                else Decimal("0")
-            )
+        daily_links[d] = r_t
 
         points.append(
             PerformancePoint(
@@ -640,7 +759,244 @@ def _build_portfolio_series(
     )
     value_start = points[0].value_base if points else Decimal("0")
     value_end = points[-1].value_base if points else Decimal("0")
-    return series, value_start, value_end
+    return _SeriesBuild(
+        series=series,
+        value_start=value_start,
+        value_end=value_end,
+        daily_links=daily_links,
+        dates=dates,
+        filtered_by_date=filtered_by_date,
+        all_by_id_by_date=all_by_id_by_date,
+        day_currency_by_date=day_currency_by_date,
+    )
+
+
+def _build_allocation(
+    dates: list[date], filtered_by_date: dict[date, list[PortfolioValueSnapshot]]
+) -> Allocation:
+    """Asset-class allocation history (issue #433 design §3).
+
+    Reuses the exact `dates`/`filtered_by_date` the cumulative series
+    already computed — no extra query per date. A row missing a usable
+    value OR a classification is excluded from both numerator and
+    denominator and bumps `excluded_holding_count`; a zero denominator (no
+    classified, valued row that day) is an explicit incomplete/empty point,
+    never a fabricated 100% stack. Because every bucket on a given day
+    shares that day's own currency, weights are currency-invariant — no
+    conversion is needed here.
+    """
+    points: list[AllocationPoint] = []
+    seen_classes: set[str] = set()
+    for d in dates:
+        rows = filtered_by_date.get(d, [])
+        class_totals: dict[str, Decimal] = {}
+        excluded_count = 0
+        for row in rows:
+            if row.market_value_base is None or row.asset_class is None:
+                excluded_count += 1
+                continue
+            class_totals[row.asset_class] = (
+                class_totals.get(row.asset_class, Decimal("0")) + row.market_value_base
+            )
+        denominator = sum(class_totals.values(), Decimal("0"))
+        if denominator <= 0:
+            points.append(
+                AllocationPoint(
+                    point_date=d,
+                    weights={},
+                    is_incomplete=True,
+                    excluded_holding_count=excluded_count,
+                )
+            )
+            continue
+        weights = {
+            cls: (val / denominator).quantize(_PCT, rounding=ROUND_HALF_UP)
+            for cls, val in class_totals.items()
+        }
+        seen_classes.update(weights.keys())
+        points.append(
+            AllocationPoint(
+                point_date=d,
+                weights=weights,
+                is_incomplete=excluded_count > 0,
+                excluded_holding_count=excluded_count,
+            )
+        )
+    asset_classes = [cls for cls in ASSET_CLASS_ORDER if cls in seen_classes]
+    return Allocation(asset_classes=asset_classes, points=points)
+
+
+def _month_key(d: date) -> str:
+    return f"{d.year:04d}-{d.month:02d}"
+
+
+def _build_monthly_performance(
+    session: Session,
+    user_id: uuid.UUID,
+    filters: Filters,
+    build: _SeriesBuild,
+    tracking_start: date | None,
+    requested_currency: str,
+    monthly_benchmark: str,
+    closes: list[RawClose],
+    fx_by_pair: dict[str, list[tuple[date, Decimal]]],
+    today: date,
+) -> MonthlyPerformance:
+    """Monthly portfolio-vs-benchmark bars (issue #433 D11/D12).
+
+    Always approximate EOD TWR, aggregated from the SAME unrounded daily
+    links `_build_portfolio_series` already computed
+    (`prod(1+r_t for links in month) - 1`), never by subtracting rounded
+    cumulative percentages, and never affected by the request's `twr` flag.
+    The benchmark leg reuses the already bulk-loaded closes/FX and the
+    existing bounded as-of evaluator at the portfolio's own exact monthly
+    start/end dates.
+    """
+    points = build.series.points
+    if not points:
+        return MonthlyPerformance(benchmark_code=monthly_benchmark, points=[])
+
+    all_dates = [p.point_date for p in points]
+    date_to_idx = {d: i for i, d in enumerate(all_dates)}
+    approx_by_date = {p.point_date: p.is_approximate for p in points}
+    first_overall = all_dates[0]
+
+    months_order: list[str] = []
+    dates_by_month: dict[str, list[date]] = {}
+    for d in all_dates:
+        key = _month_key(d)
+        if key not in dates_by_month:
+            dates_by_month[key] = []
+            months_order.append(key)
+        dates_by_month[key].append(d)
+
+    # Bounded one-day lookback (issue #433 design §4 "period boundaries"):
+    # only attempted when the first displayed day is itself the first
+    # calendar day of its month — the one case where real tracked history
+    # may exist just outside the requested/filtered window and this month
+    # can be disclosed as a full month instead of a partial one. At most one
+    # extra date's rows are loaded; this never changes the displayed
+    # cumulative series or its own first point.
+    #
+    # The prior date itself is also bounded to `LOOKBACK_DAYS` (the same
+    # 10-calendar-day staleness bound issue #377's benchmark valuation uses)
+    # — "bounded" means a normal weekend/holiday-sized gap, not "whatever the
+    # last complete batch happens to be" (review 5124107298-successor
+    # feedback on PR #434): a stale, months-old prior day would otherwise
+    # get silently disclosed as a real, unremarkable "full month" open
+    # instead of the honest partial/tracking_start reason.
+    extra_open_link: Decimal | None = None
+    extra_open_date: date | None = None
+    if first_overall.day == 1:
+        prior_date = _prior_complete_date(session, user_id, first_overall)
+        if prior_date is not None and (first_overall - prior_date).days <= LOOKBACK_DAYS:
+            prior_rows_all = _rows_for_dates(session, user_id, [prior_date]).get(prior_date, [])
+            prior_filtered = [r for r in prior_rows_all if filters.matches(r)]
+            prior_value = _day_value(prior_filtered)
+            if prior_value is not None and prior_value > 0:
+                first_currency = build.day_currency_by_date[first_overall]
+                prior_currency = _day_currency(prior_rows_all) or first_currency
+                v_prev_conv = _convert_amount(
+                    session, prior_value, prior_currency, first_currency, first_overall
+                )
+                if v_prev_conv is not None:
+                    prior_by_id = {
+                        r.holding_id: r for r in prior_filtered if r.holding_id is not None
+                    }
+                    r0 = _twr_day_return(
+                        session,
+                        prior_by_id,
+                        build.all_by_id_by_date[first_overall],
+                        v_prev_conv,
+                        first_overall,
+                        first_currency,
+                    )
+                    if r0 is not None:
+                        extra_open_link = r0
+                        extra_open_date = prior_date
+
+    current_month_key = _month_key(today)
+    monthly_points: list[MonthlyPerformancePoint] = []
+
+    for idx, month_key in enumerate(months_order):
+        month_dates = dates_by_month[month_key]
+        is_first_month = idx == 0
+        is_current_month = month_key == current_month_key
+
+        ratio = Decimal("1")
+        any_valid_link = False
+        for d in month_dates:
+            if d == first_overall and not (is_first_month and extra_open_date is not None):
+                continue  # the series' own anchor day has no link
+            r_t = build.daily_links.get(d)
+            if r_t is not None:
+                ratio *= Decimal("1") + r_t
+                any_valid_link = True
+        if is_first_month and extra_open_date is not None and extra_open_link is not None:
+            ratio *= Decimal("1") + extra_open_link
+            any_valid_link = True
+
+        baseline_only_single_point = (
+            is_first_month and len(month_dates) == 1 and extra_open_date is None
+        )
+        portfolio_return: Decimal | None
+        if any_valid_link or baseline_only_single_point:
+            portfolio_return = (ratio - Decimal("1")).quantize(_PCT, rounding=ROUND_HALF_UP)
+        else:
+            portfolio_return = None
+
+        is_approx = any(approx_by_date.get(d, False) for d in month_dates)
+
+        partial_reason: MonthlyPartialReason | None
+        if is_current_month:
+            partial_reason = "month_to_date"
+        elif is_first_month:
+            if extra_open_date is not None:
+                partial_reason = None
+            elif tracking_start is not None and first_overall <= tracking_start:
+                partial_reason = "tracking_start"
+            else:
+                partial_reason = "range_start"
+        else:
+            partial_reason = None
+
+        if is_first_month and extra_open_date is not None:
+            disclosed_start = extra_open_date
+        elif is_first_month:
+            disclosed_start = first_overall
+        else:
+            disclosed_start = all_dates[date_to_idx[month_dates[0]] - 1]
+        disclosed_end = month_dates[-1]
+
+        start_val = evaluate_index_day(disclosed_start, closes, fx_by_pair, requested_currency)
+        end_val = evaluate_index_day(disclosed_end, closes, fx_by_pair, requested_currency)
+        benchmark_return: Decimal | None = None
+        unavailable_reason: str | None = None
+        if start_val.value is None:
+            unavailable_reason = start_val.unavailable_reason
+        elif end_val.value is None:
+            unavailable_reason = end_val.unavailable_reason
+        elif start_val.value <= 0:
+            unavailable_reason = "invalid_price"
+        else:
+            benchmark_return = (end_val.value / start_val.value - Decimal("1")).quantize(
+                _PCT, rounding=ROUND_HALF_UP
+            )
+
+        monthly_points.append(
+            MonthlyPerformancePoint(
+                month=month_key,
+                start_date=disclosed_start,
+                end_date=disclosed_end,
+                portfolio_return_pct=portfolio_return,
+                benchmark_return_pct=benchmark_return,
+                partial_reason=partial_reason,
+                is_approximate=is_approx,
+                benchmark_unavailable_reason=unavailable_reason,
+            )
+        )
+
+    return MonthlyPerformance(benchmark_code=monthly_benchmark, points=monthly_points)
 
 
 def _point_from_valuation(valuation: DailyValuation, return_pct: Decimal | None) -> BenchmarkPoint:
@@ -781,6 +1137,16 @@ def _serialize_benchmark_series(
     )
 
 
+@dataclass
+class _BenchmarkBuild:
+    series: list[BenchmarkSeries] = field(default_factory=list)
+    # Raw closes/FX for every loaded code (cumulative selections plus the
+    # monthly benchmark, issue #433) — reused by the monthly builder so it
+    # never issues its own `load_index_closes`/`load_fx_series` call.
+    closes_by_index: dict[str, list[RawClose]] = field(default_factory=dict)
+    fx_by_pair: dict[str, list[tuple[date, Decimal]]] = field(default_factory=dict)
+
+
 def _build_selected_benchmarks(
     session: Session,
     benchmark_codes: list[str],
@@ -788,11 +1154,21 @@ def _build_selected_benchmarks(
     range_end: date,
     requested_currency: str,
     portfolio: PortfolioSeries,
-) -> list[BenchmarkSeries]:
+    extra_codes: tuple[str, ...] = (),
+) -> _BenchmarkBuild:
+    """Builds the cumulative-chart benchmark series for `benchmark_codes`.
+
+    `extra_codes` (issue #433: the independently single-selected
+    `monthly_benchmark`) are bulk-loaded in the SAME `load_index_closes`/
+    `load_fx_series` calls so a code used only for the monthly card never
+    triggers its own extra query, but do not produce a `BenchmarkSeries` of
+    their own — the monthly card is not part of the cumulative multi-select.
+    """
     codes = [code for code in benchmark_codes if code in INDEX_YF_TICKERS]
-    if not codes:
-        return []
-    closes_by_index = load_index_closes(session, codes, range_start, range_end)
+    load_codes = list(dict.fromkeys([*codes, *(c for c in extra_codes if c in INDEX_YF_TICKERS)]))
+    if not load_codes:
+        return _BenchmarkBuild()
+    closes_by_index = load_index_closes(session, load_codes, range_start, range_end)
     fx_by_pair = load_fx_series(
         session,
         required_pairs_for_closes(closes_by_index, requested_currency),
@@ -813,7 +1189,7 @@ def _build_selected_benchmarks(
         series.append(
             _serialize_benchmark_series(code, range_start, range_end, closes, by_day, portfolio)
         )
-    return series
+    return _BenchmarkBuild(series=series, closes_by_index=closes_by_index, fx_by_pair=fx_by_pair)
 
 
 def compute_portfolio_performance(
@@ -828,6 +1204,7 @@ def compute_portfolio_performance(
     accounts: list[str] | None = None,
     twr: bool = True,
     base_currency: str | None = None,
+    monthly_benchmark: str = "sp500",
     today: date | None = None,
 ) -> PerformanceResult:
     today = today or date.today()
@@ -845,7 +1222,7 @@ def compute_portfolio_performance(
 
     tracking_start = _tracking_start(session, user_id)
 
-    portfolio_series, value_start, value_end = _build_portfolio_series(
+    build = _build_portfolio_series(
         session,
         user_id,
         start_date,
@@ -855,19 +1232,41 @@ def compute_portfolio_performance(
         requested_currency,
         tracking_start,
     )
+    portfolio_series = build.series
+    value_start = build.value_start
+    value_end = build.value_end
 
     # Issue #377: evaluate each selected index across the requested range
     # with bounded as-of prices/FX, then normalize to P0 when that day is
     # valuable. Display history is not clipped to the portfolio window;
     # comparison_status/comparable say whether the shared-anchor return is
     # honest. Do not rebase already-rounded percentages.
-    benchmarks = _build_selected_benchmarks(
+    # Issue #433: the monthly card's single benchmark is loaded in the same
+    # bulk call even when it is not among the cumulative multi-select.
+    benchmark_build = _build_selected_benchmarks(
         session,
         benchmark_codes,
         start_date,
         end_date,
         requested_currency,
         portfolio_series,
+        extra_codes=(monthly_benchmark,),
+    )
+    benchmarks = benchmark_build.series
+
+    allocation = _build_allocation(build.dates, build.filtered_by_date)
+
+    monthly_performance = _build_monthly_performance(
+        session,
+        user_id,
+        filters,
+        build,
+        tracking_start,
+        requested_currency,
+        monthly_benchmark,
+        benchmark_build.closes_by_index.get(monthly_benchmark, []),
+        benchmark_build.fx_by_pair,
+        today,
     )
 
     value_change = value_end - value_start
@@ -900,5 +1299,10 @@ def compute_portfolio_performance(
     }
 
     return PerformanceResult(
-        portfolio=portfolio_series, benchmarks=benchmarks, header=header, meta=meta
+        portfolio=portfolio_series,
+        benchmarks=benchmarks,
+        header=header,
+        allocation=allocation,
+        monthly_performance=monthly_performance,
+        meta=meta,
     )

@@ -15,10 +15,14 @@ from app.core.rate_limit import (
     release_portfolio_overview_cooldown,
 )
 from app.schemas.portfolio import (
+    AllocationOut,
+    AllocationPointOut,
     BenchmarkPointOut,
     BenchmarkSeriesOut,
     ConcentrationOut,
     HoldingValueOut,
+    MonthlyPerformanceOut,
+    MonthlyPerformancePointOut,
     PerformanceHeaderOut,
     PerformanceMetaOut,
     PerformancePointOut,
@@ -225,10 +229,12 @@ def get_portfolio_performance(
     accounts: Annotated[list[str] | None, Query()] = None,
     twr: Annotated[bool, Query()] = True,
     base_currency: Annotated[BaseCurrency | None, Query()] = None,
+    monthly_benchmark: Annotated[BenchmarkCode, Query()] = "sp500",
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
 ) -> PortfolioPerformanceResponse:
-    """Issue #360 / #366 / #377 — portfolio series plus selected indexes.
+    """Issue #360 / #366 / #377 / #433 — portfolio series plus selected
+    indexes, asset-class allocation history, and monthly performance.
 
     Portfolio points come from stored snapshots. Index points are valued
     at request time from `benchmark_prices` and historical FX with a
@@ -237,6 +243,11 @@ def get_portfolio_performance(
     (D8, issue #371): `groups`/`accounts` use current live labels via soft
     `holding_id` (cleared holdings fall back to that id's last snapshot
     tag); `markets`/`brokers` stay each day's snapshot denorm.
+
+    `monthly_benchmark` (issue #433) is independent of the `benchmarks`
+    multi-select: it drives only `monthly_performance`, always compares
+    exactly one index, and defaults to `sp500`. Monthly portfolio returns
+    are always approximate EOD TWR regardless of `twr`.
     """
     result = compute_portfolio_performance(
         session,
@@ -249,6 +260,7 @@ def get_portfolio_performance(
         accounts=accounts,
         twr=twr,
         base_currency=base_currency,
+        monthly_benchmark=monthly_benchmark,
     )
 
     return PortfolioPerformanceResponse(
@@ -302,6 +314,35 @@ def get_portfolio_performance(
             value_change_base=result.header.value_change_base,
             value_change_pct=result.header.value_change_pct,
             label=result.header.label,
+        ),
+        allocation=AllocationOut(
+            asset_classes=result.allocation.asset_classes,
+            points=[
+                AllocationPointOut(
+                    date=p.point_date,
+                    weights=p.weights,
+                    is_incomplete=p.is_incomplete,
+                    excluded_holding_count=p.excluded_holding_count,
+                )
+                for p in result.allocation.points
+            ],
+        ),
+        monthly_performance=MonthlyPerformanceOut(
+            method=result.monthly_performance.method,
+            benchmark_code=result.monthly_performance.benchmark_code,
+            points=[
+                MonthlyPerformancePointOut(
+                    month=p.month,
+                    start_date=p.start_date,
+                    end_date=p.end_date,
+                    portfolio_return_pct=p.portfolio_return_pct,
+                    benchmark_return_pct=p.benchmark_return_pct,
+                    partial_reason=p.partial_reason,
+                    is_approximate=p.is_approximate,
+                    benchmark_unavailable_reason=p.benchmark_unavailable_reason,
+                )
+                for p in result.monthly_performance.points
+            ],
         ),
         meta=PerformanceMetaOut(**result.meta),
     )

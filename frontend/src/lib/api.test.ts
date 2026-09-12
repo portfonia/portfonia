@@ -153,6 +153,7 @@ describe("getPortfolioPerformance", () => {
       brokers: [],
       accounts: [],
       baseCurrency: "USD",
+      monthlyBenchmark: "sp500",
     });
     const calledUrl = fetchMock.mock.calls[0][0] as string;
     expect(calledUrl).toContain("range=1M");
@@ -172,11 +173,31 @@ describe("getPortfolioPerformance", () => {
       brokers: [],
       accounts: [],
       baseCurrency: "USD",
+      monthlyBenchmark: "sp500",
     });
     const calledUrl = fetchMock.mock.calls[0][0] as string;
     expect(calledUrl).toContain("/api/portfolio/performance?");
     expect(calledUrl).toContain("range=1M");
     expect(calledUrl).not.toContain("benchmarks=");
+  });
+
+  it("sends monthly_benchmark independently of the benchmarks chip list (issue #433)", async () => {
+    const fetchMock = stubOk();
+    await getPortfolioPerformance({
+      range: "1M",
+      twr: true,
+      benchmarks: ["sp500", "nasdaq"],
+      markets: [],
+      groups: [],
+      brokers: [],
+      accounts: [],
+      baseCurrency: "USD",
+      monthlyBenchmark: "csi300",
+    });
+    const calledUrl = fetchMock.mock.calls[0][0] as string;
+    expect(calledUrl).toContain("monthly_benchmark=csi300");
+    expect(calledUrl).toContain("benchmarks=sp500");
+    expect(calledUrl).toContain("benchmarks=nasdaq");
   });
 });
 

@@ -649,12 +649,54 @@ export interface PortfolioPerformanceMeta {
   filters: Record<string, string[]>;
 }
 
+// Issue #433: asset-class allocation history. `weights` only ever carries
+// closed-taxonomy keys with a usable, classified value that day — an empty
+// map (with `is_incomplete=true`) is a real gap day, never a zero-filled
+// 100% stack.
+export interface AllocationPoint {
+  date: string;
+  weights: Record<string, string>;
+  is_incomplete: boolean;
+  excluded_holding_count: number;
+}
+
+export interface Allocation {
+  // Closed-taxonomy keys that occur anywhere in `points`, already in the
+  // backend's fixed display order — color by this order, never by
+  // per-date rank.
+  asset_classes: string[];
+  points: AllocationPoint[];
+}
+
+export type MonthlyPartialReason = "range_start" | "tracking_start" | "month_to_date";
+
+export interface MonthlyPerformancePoint {
+  month: string; // "YYYY-MM"
+  start_date: string;
+  end_date: string;
+  portfolio_return_pct: string | null;
+  benchmark_return_pct: string | null;
+  partial_reason: MonthlyPartialReason | null;
+  is_approximate: boolean;
+  benchmark_unavailable_reason: BenchmarkUnavailableReason | null;
+}
+
+export interface MonthlyPerformance {
+  method: string;
+  benchmark_code: BenchmarkCode;
+  points: MonthlyPerformancePoint[];
+}
+
 export interface PortfolioPerformanceResponse {
   portfolio: PortfolioPerformanceSeries;
   benchmarks: BenchmarkPerformanceSeries[];
   header: PortfolioPerformanceHeader;
+  allocation: Allocation;
+  monthly_performance: MonthlyPerformance;
   meta: PortfolioPerformanceMeta;
 }
+
+export const DEFAULT_MONTHLY_BENCHMARK: BenchmarkCode = "sp500";
 
 export interface PortfolioPerformanceQuery {
   range: PerformanceRange;
@@ -665,6 +707,9 @@ export interface PortfolioPerformanceQuery {
   accounts: string[];
   twr: boolean;
   baseCurrency: string;
+  // Issue #433: single-select, independent of the cumulative `benchmarks`
+  // multi-select — drives only `monthly_performance`.
+  monthlyBenchmark: BenchmarkCode;
 }
 
 // GET /portfolio/performance (issue #360 Phase 2). `baseCurrency` is always
@@ -680,7 +725,11 @@ export interface PortfolioPerformanceQuery {
 export async function getPortfolioPerformance(
   query: PortfolioPerformanceQuery,
 ): Promise<PortfolioPerformanceResponse> {
-  const params = new URLSearchParams({ range: query.range, twr: String(query.twr) });
+  const params = new URLSearchParams({
+    range: query.range,
+    twr: String(query.twr),
+    monthly_benchmark: query.monthlyBenchmark,
+  });
   const dimensions = [
     ["benchmarks", query.benchmarks],
     ["markets", query.markets],

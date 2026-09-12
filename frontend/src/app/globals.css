@@ -30,6 +30,9 @@
   --color-chart-3: var(--chart-3);
   --color-chart-2: var(--chart-2);
   --color-chart-1: var(--chart-1);
+  /* Performance-page-only CSI 300 color (issue #433) — see the `:root`/
+     `.dark` definitions below for why this is not `--chart-5`. */
+  --color-chart-csi300: var(--chart-csi300);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -93,6 +96,13 @@
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
+  /* Issue #433: CSI 300's Performance-page line/bar used `--chart-5`, which
+     in the dark theme (see `.dark` below) is a very dark near-black neutral
+     — nearly invisible against the `--card` ground. `--chart-5` is also
+     shared by the unrelated /portfolio breakdown charts, so it cannot be
+     retuned globally without moving those too. This token is scoped to
+     Performance's own CSI 300 series (cumulative line + monthly bar) only. */
+  --chart-csi300: #9c7a2e;
   /* 0.75rem (not shadcn's 0.625rem default) is the approved homepage value
      (issue #94), promoted to the shared default in PR B once the whole app
      went dark — no longer scoped locally via HomeShell's inline override. */
@@ -140,6 +150,8 @@
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
+  /* Issue #433 — see the light-mode `--chart-csi300` comment above. */
+  --chart-csi300: #dcaa4a;
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
