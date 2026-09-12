@@ -44,6 +44,7 @@ from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
 from app.services.asset_class_config import VALID_ASSET_CLASSES
 from app.services.benchmark_prices import INDEX_YF_TICKERS
 from app.services.benchmark_valuation import (
+    LOOKBACK_DAYS,
     ComparisonStatus,
     DailyValuation,
     Normalization,
@@ -876,11 +877,19 @@ def _build_monthly_performance(
     # can be disclosed as a full month instead of a partial one. At most one
     # extra date's rows are loaded; this never changes the displayed
     # cumulative series or its own first point.
+    #
+    # The prior date itself is also bounded to `LOOKBACK_DAYS` (the same
+    # 10-calendar-day staleness bound issue #377's benchmark valuation uses)
+    # — "bounded" means a normal weekend/holiday-sized gap, not "whatever the
+    # last complete batch happens to be" (review 5124107298-successor
+    # feedback on PR #434): a stale, months-old prior day would otherwise
+    # get silently disclosed as a real, unremarkable "full month" open
+    # instead of the honest partial/tracking_start reason.
     extra_open_link: Decimal | None = None
     extra_open_date: date | None = None
     if first_overall.day == 1:
         prior_date = _prior_complete_date(session, user_id, first_overall)
-        if prior_date is not None:
+        if prior_date is not None and (first_overall - prior_date).days <= LOOKBACK_DAYS:
             prior_rows_all = _rows_for_dates(session, user_id, [prior_date]).get(prior_date, [])
             prior_filtered = [r for r in prior_rows_all if filters.matches(r)]
             prior_value = _day_value(prior_filtered)

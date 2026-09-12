@@ -478,3 +478,107 @@ def test_query_count_does_not_grow_with_range_length(db_session: Session) -> Non
     short = _count("1M", base + timedelta(days=40))
     long = _count("ALL", base + timedelta(days=199))
     assert short == long
+
+
+# ---------------------------------------------------------------------------
+# Bounded one-day opening-lookback (review 5124107298-successor feedback on
+# PR #434, addressing a leftover flagged in review of that PR): the first
+# displayed month is only promoted from partial to full when the prior
+# tracked day found is within LOOKBACK_DAYS (10 calendar days) of it — a
+# stale, much-older prior day must not be silently disclosed as a normal
+# "full month" open.
+# ---------------------------------------------------------------------------
+
+
+def test_monthly_first_month_promoted_to_full_when_prior_day_within_lookback_bound(
+    db_session: Session,
+) -> None:
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    holding_id = uuid.uuid4()
+    prior_date = date(2025, 12, 30)  # 2 days before range start, within bound
+    range_start = date(2026, 1, 1)
+    last_point = date(2026, 1, 15)
+    for d in (prior_date, range_start, last_point):
+        _mark_complete(db_session, user_id, d)
+    _row(
+        db_session,
+        user_id,
+        prior_date,
+        holding_id,
+        shares=Decimal("10"),
+        market_value_base=Decimal("1000"),
+    )
+    _row(
+        db_session,
+        user_id,
+        range_start,
+        holding_id,
+        shares=Decimal("10"),
+        market_value_base=Decimal("1010"),
+    )
+    _row(
+        db_session,
+        user_id,
+        last_point,
+        holding_id,
+        shares=Decimal("10"),
+        market_value_base=Decimal("1020"),
+    )
+    db_session.flush()
+
+    # "today" is in February so January is not also the current month
+    # (month_to_date would otherwise take precedence over this assertion).
+    result = compute_portfolio_performance(
+        db_session, user_id, range_key="YTD", benchmark_codes=[], today=date(2026, 2, 1)
+    )
+    january = next(p for p in result.monthly_performance.points if p.month == "2026-01")
+    assert january.partial_reason is None
+    assert january.start_date == prior_date
+    assert january.end_date == last_point
+
+
+def test_monthly_first_month_stays_partial_when_prior_day_beyond_lookback_bound(
+    db_session: Session,
+) -> None:
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    holding_id = uuid.uuid4()
+    prior_date = date(2025, 12, 1)  # 31 days before range start, beyond the 10-day bound
+    range_start = date(2026, 1, 1)
+    last_point = date(2026, 1, 15)
+    for d in (prior_date, range_start, last_point):
+        _mark_complete(db_session, user_id, d)
+    _row(
+        db_session,
+        user_id,
+        prior_date,
+        holding_id,
+        shares=Decimal("10"),
+        market_value_base=Decimal("1000"),
+    )
+    _row(
+        db_session,
+        user_id,
+        range_start,
+        holding_id,
+        shares=Decimal("10"),
+        market_value_base=Decimal("1010"),
+    )
+    _row(
+        db_session,
+        user_id,
+        last_point,
+        holding_id,
+        shares=Decimal("10"),
+        market_value_base=Decimal("1020"),
+    )
+    db_session.flush()
+
+    result = compute_portfolio_performance(
+        db_session, user_id, range_key="YTD", benchmark_codes=[], today=date(2026, 2, 1)
+    )
+    january = next(p for p in result.monthly_performance.points if p.month == "2026-01")
+    assert january.partial_reason == "range_start"
+    assert january.start_date == range_start
+    assert january.end_date == last_point

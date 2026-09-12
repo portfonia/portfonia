@@ -734,10 +734,15 @@ rules:
   `range_start` (the range/filters truncated an otherwise-longer history)
   — UNLESS a bounded one-day lookback (`_prior_complete_date`, at most one
   extra query + one extra date's rows, only attempted when that first day
-  is the 1st calendar day of its month) finds a real prior tracked day, in
+  is the 1st calendar day of its month) finds a real prior tracked day
+  WITHIN `benchmark_valuation.LOOKBACK_DAYS` (10 calendar days) of it, in
   which case the month is disclosed as full instead (`partial_reason=None`,
-  `start_date` = that prior day). This lookback never changes the displayed
-  cumulative series or its own first point.
+  `start_date` = that prior day). A prior day found but older than that
+  bound is discarded (PR #434 review leftover: "bounded" must mean a
+  normal weekend/holiday-sized gap, not silently disclosing a months-old
+  capture gap as an unremarkable full month) — the month keeps its
+  `tracking_start`/`range_start` reason in that case. This lookback never
+  changes the displayed cumulative series or its own first point.
 - The month containing `today` is always `month_to_date` (precedence over
   tracking_start/range_start — the actual `start_date` still discloses the
   true anchor).
