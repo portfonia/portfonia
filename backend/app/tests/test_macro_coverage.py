@@ -117,6 +117,22 @@ def test_extract_macro_sidecar_drops_items_with_invalid_enum_values() -> None:
     assert [i.development_key for i in items] == ["c"]
 
 
+def test_extract_macro_sidecar_strips_a_stray_second_block() -> None:
+    """PR #441 review (blacktomb42): the prompt asks for exactly one sidecar
+    block, but a model that emits a stray second one must not have it
+    survive into the rendered report either — every delimited block is
+    stripped, even though only the first is parsed for items."""
+    body = (
+        "## §2 Macro Signals\n\nProse.\n\n"
+        + _sidecar([_raw_item(development_key="first")])
+        + "\n"
+        + _sidecar([_raw_item(development_key="stray-second")])
+    )
+    visible, items = mc.extract_macro_sidecar(body)
+    assert "MACRO_COVERAGE" not in visible
+    assert [i.development_key for i in items] == ["first"]
+
+
 def test_extract_macro_sidecar_empty_items_list_is_valid() -> None:
     body = _sidecar([])
     visible, items = mc.extract_macro_sidecar(body)

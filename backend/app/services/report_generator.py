@@ -1178,9 +1178,19 @@ def generate_report(
         )
         if not has_macro_material and not anomalies:
             logger.info("report %s: quiet day — no signals, no anomalies", report.id)
+            # issue #440 (PR #441 review, blacktomb42): this branch now only
+            # fires when there is genuinely nothing to work with — no
+            # keyword hit, no window news, no eligible prior coverage to
+            # revisit, AND no anomaly. The old "no macro keyword themes
+            # triggered" copy was misleading framing once the gate stopped
+            # meaning "quiet macro world"; say plainly that this window had
+            # nothing at all to report from, not just that a keyword table
+            # missed.
             quiet_body = (
                 "## §2 Macro Signals\n\n"
-                "No macro keyword themes triggered in this report period.\n\n"
+                "No macro developments to report this period: no keyword theme "
+                "matched, no window news was captured, and no continuing topic "
+                "was due for revisit.\n\n"
                 "## §3 Holdings Analysis\n\n"
                 "No significant market developments detected for monitored holdings.\n\n"
                 "## §4 Risk Radar\n\n"

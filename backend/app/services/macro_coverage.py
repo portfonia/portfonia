@@ -321,19 +321,24 @@ def _parse_sidecar_item(raw: Any) -> MacroCoverageItem | None:
 def extract_macro_sidecar(raw_body: str) -> tuple[str, list[MacroCoverageItem]]:
     """Split `raw_body` into (visible_body, parsed_items).
 
-    `visible_body` has the sidecar block removed regardless of whether it
-    parsed — a malformed sidecar must never leak into the rendered report.
+    `visible_body` has EVERY sidecar-delimited block removed regardless of
+    whether it parsed — a malformed sidecar must never leak into the
+    rendered report, and the prompt asks for exactly one block, but a model
+    that emits a stray second one must not have it survive into the
+    reader-facing output either (PR #441 review, blacktomb42: the previous
+    `re.search`-only strip left a second block in place). Only the FIRST
+    block is parsed for items — the contract is one sidecar per body.
     A missing sidecar (older prompt version, or a model that ignored the
     instruction) returns the body unchanged and `[]` — log-only, never
     raises: this is enrichment, not a report-generation dependency, the
     same non-fatal posture as the §3 proportionality check
     (report_generator._render_full_md).
     """
-    match = _SIDECAR_RE.search(raw_body)
-    if not match:
+    matches = list(_SIDECAR_RE.finditer(raw_body))
+    if not matches:
         return raw_body, []
-    visible = (raw_body[: match.start()] + raw_body[match.end() :]).rstrip()
-    payload = match.group(1).strip()
+    visible = _SIDECAR_RE.sub("", raw_body).rstrip()
+    payload = matches[0].group(1).strip()
     # Models sometimes wrap the JSON in a markdown fence despite the exact
     # form requested — same defensive strip as Pass 1's query parsing
     # (report_generator.py).
