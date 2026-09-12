@@ -16,14 +16,16 @@ Throttle mitigation strategy (D6):
 from __future__ import annotations
 
 import logging
+import random
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime
 
 import pandas as pd
 import yfinance as yf
 
+from app.core.config import get_settings
 from app.services.instrument_symbols import normalize_legacy_ticker
 from app.services.markets import yf_batch_key
 from app.services.price_errors import classify_exception
@@ -154,8 +156,38 @@ OhlcvPoint = tuple[date, float, float, float, float, float | None]
 # trigger silent partial rejection; keeping this at 8 avoids the threshold.
 _MAX_BATCH_SIZE = 8
 
-# Pause between consecutive yf.download() calls to reduce throttle risk.
-_INTER_BATCH_DELAY = 0.5  # seconds
+# Exponential backoff for a single yf.download() call (Concept & Design
+# §6.8, issue #132): fixed values from the spec, not env-tunable — only the
+# jitter delay ranges below are. Retried on exception only, never on a
+# successful-but-empty result (a real trading-calendar gap looks the same
+# as a transient miss and retrying it would just waste up to 15s per ticker
+# in backfill scripts — see Ring 1-F design §2.3).
+_BACKOFF_INITIAL_DELAY = 5.0
+_BACKOFF_FACTOR = 2
+_BACKOFF_MAX_ATTEMPTS = 3
+_BACKOFF_CAP = 60.0
+
+
+def _retry_with_backoff[T](fn: Callable[[], T]) -> T:
+    """Retry `fn` on exception with exponential backoff (§6.8).
+
+    Re-raises the final exception unchanged so callers keep their existing
+    except-Exception fail-open handling — this only changes *when* that
+    path is reached, not the contract. `fn` is a zero-arg callable (the
+    caller wraps its own `yf.download(...)` call in a lambda) rather than
+    this function calling `yf.download` itself, so each caller's own
+    module-level `yf` reference stays the thing tests patch.
+    """
+    delay = _BACKOFF_INITIAL_DELAY
+    for attempt in range(_BACKOFF_MAX_ATTEMPTS):
+        try:
+            return fn()
+        except Exception:
+            if attempt == _BACKOFF_MAX_ATTEMPTS - 1:
+                raise
+            time.sleep(min(delay, _BACKOFF_CAP))
+            delay *= _BACKOFF_FACTOR
+    raise AssertionError("unreachable")  # loop always returns or raises
 
 
 def _market_key_for_ticker(ticker: str) -> str:
@@ -171,6 +203,40 @@ def _market_key_for_ticker(ticker: str) -> str:
 def _chunk(items: list[str], size: int) -> list[list[str]]:
     """Split a list into sub-lists of at most `size` items."""
     return [items[i : i + size] for i in range(0, len(items), size)]
+
+
+def _market_batches(tickers: list[str]) -> list[tuple[str, list[str]]]:
+    """Group tickers by market, then chunk each group to `_MAX_BATCH_SIZE`.
+
+    Unlike a plain `_chunk` over a flattened ticker list, this keeps each
+    batch's market key alongside it so the inter-batch jitter delay (§6.8)
+    can pick the right range (HK gets a longer pause) for the batch that
+    was just fetched.
+    """
+    by_market: dict[str, list[str]] = {}
+    for t in tickers:
+        by_market.setdefault(_market_key_for_ticker(t), []).append(t)
+    batches: list[tuple[str, list[str]]] = []
+    for market, market_tickers in by_market.items():
+        if market_tickers:
+            batches.extend((market, chunk) for chunk in _chunk(market_tickers, _MAX_BATCH_SIZE))
+    return batches
+
+
+def _inter_batch_sleep(market_key: str) -> None:
+    """Random jitter pause between consecutive yf.download() calls (§6.8).
+
+    HK gets its own (longer) range via `YFINANCE_HK_DELAY_MIN/MAX`; every
+    other market uses `YFINANCE_DELAY_MIN/MAX`. `market_key` is the market
+    of the batch that was just fetched, matching the spec's "after a US
+    batch / after an HK batch" ordering.
+    """
+    settings = get_settings()
+    if market_key == "hk":
+        lo, hi = settings.YFINANCE_HK_DELAY_MIN, settings.YFINANCE_HK_DELAY_MAX
+    else:
+        lo, hi = settings.YFINANCE_DELAY_MIN, settings.YFINANCE_DELAY_MAX
+    time.sleep(random.uniform(lo, hi))
 
 
 def _extract_close_points(series: pd.Series, n: int) -> list[ClosePoint]:
@@ -197,11 +263,13 @@ def _raw_download(tickers: list[str]) -> pd.DataFrame:
     start = time.monotonic()
     try:
         with _quiet_yfinance_logs():
-            hist = yf.download(
-                tickers=ticker_str,
-                period="5d",
-                auto_adjust=True,
-                progress=False,
+            hist = _retry_with_backoff(
+                lambda: yf.download(
+                    tickers=ticker_str,
+                    period="5d",
+                    auto_adjust=True,
+                    progress=False,
+                )
             )
     except Exception as exc:
         logger.exception("yfinance download failed for %s", ticker_str)
@@ -265,22 +333,12 @@ def fetch_last_close(tickers: list[str]) -> dict[str, ClosePoint]:
         return {}
 
     tickers = [normalize_legacy_ticker(t) for t in tickers]
-
-    # Group by market, preserving insertion order within each group.
-    by_market: dict[str, list[str]] = {}
-    for t in tickers:
-        by_market.setdefault(_market_key_for_ticker(t), []).append(t)
-
-    # Build ordered list of sub-batches, each <= _MAX_BATCH_SIZE tickers.
-    batches: list[list[str]] = []
-    for market_tickers in by_market.values():
-        if market_tickers:
-            batches.extend(_chunk(market_tickers, _MAX_BATCH_SIZE))
+    batches = _market_batches(tickers)
 
     out: dict[str, ClosePoint] = {}
-    for i, batch in enumerate(batches):
+    for i, (_market, batch) in enumerate(batches):
         if i > 0:
-            time.sleep(_INTER_BATCH_DELAY)
+            _inter_batch_sleep(batches[i - 1][0])
         out.update(_download_batch(batch))
 
     return out
@@ -333,27 +391,25 @@ def _ohlcv_rows_for_ticker(
 def _download_ohlcv_batches(
     tickers: list[str], download_kwargs: dict[str, object]
 ) -> dict[str, list[OhlcvPoint]]:
-    by_market: dict[str, list[str]] = {}
-    for t in tickers:
-        by_market.setdefault(_market_key_for_ticker(t), []).append(t)
-    batches: list[list[str]] = []
-    for market_tickers in by_market.values():
-        if market_tickers:
-            batches.extend(_chunk(market_tickers, _MAX_BATCH_SIZE))
+    batches = _market_batches(tickers)
 
     out: dict[str, list[OhlcvPoint]] = {}
-    for i, batch in enumerate(batches):
+    for i, (_market, batch) in enumerate(batches):
         if i > 0:
-            time.sleep(_INTER_BATCH_DELAY)
+            _inter_batch_sleep(batches[i - 1][0])
         started = time.monotonic()
+
+        def _download(batch: list[str] = batch) -> pd.DataFrame:
+            return yf.download(
+                tickers=" ".join(batch),
+                auto_adjust=True,
+                progress=False,
+                **download_kwargs,
+            )
+
         try:
             with _quiet_yfinance_logs():
-                hist = yf.download(
-                    tickers=" ".join(batch),
-                    auto_adjust=True,
-                    progress=False,
-                    **download_kwargs,
-                )
+                hist = _retry_with_backoff(_download)
         except Exception as exc:
             logger.exception("yfinance OHLCV download failed for %s", batch)
             _log_fetch_telemetry(

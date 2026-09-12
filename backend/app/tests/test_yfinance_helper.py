@@ -17,9 +17,12 @@ from app.services._yfinance import (
     _MAX_BATCH_SIZE,
     _chunk,
     _download_batch,
+    _inter_batch_sleep,
+    _market_batches,
     _market_key_for_ticker,
     _quiet_yfinance_logs,
     _raw_download,
+    _retry_with_backoff,
     _scale_price,
     fetch_last_close,
     fetch_ohlcv_range,
@@ -442,6 +445,7 @@ def test_raw_download_logs_telemetry_with_error_type_on_failure(
 
     with (
         patch("app.services._yfinance.yf.download", side_effect=fake_download),
+        patch("app.services._yfinance.time.sleep"),  # skip backoff delay
         caplog.at_level(logging.INFO, logger="app.services._yfinance"),
     ):
         _raw_download(["AAPL"])
@@ -508,3 +512,163 @@ def test_fetch_spot_logs_telemetry(caplog: pytest.LogCaptureFixture) -> None:
     telemetry = [r for r in caplog.records if "source=yfinance" in r.getMessage()]
     assert len(telemetry) == 1
     assert "ticker_count=1" in telemetry[0].getMessage()
+
+
+# ---------------------------------------------------------------------------
+# _market_batches / _inter_batch_sleep — jitter (issue #132, §6.8)
+# ---------------------------------------------------------------------------
+
+
+def test_market_batches_keeps_market_key_per_batch() -> None:
+    result = _market_batches(["AAPL", "0700.HK", "MSFT"])
+    assert result == [("us", ["AAPL", "MSFT"]), ("hk", ["0700.HK"])]
+
+
+def test_market_batches_respects_max_batch_size() -> None:
+    tickers = [f"T{i}" for i in range(_MAX_BATCH_SIZE + 2)]
+    result = _market_batches(tickers)
+    assert [market for market, _ in result] == ["us", "us"]
+    assert len(result[0][1]) == _MAX_BATCH_SIZE
+    assert len(result[1][1]) == 2
+
+
+def test_inter_batch_sleep_uses_default_range_for_non_hk() -> None:
+    with (
+        patch("app.services._yfinance.random.uniform", return_value=1.5) as mock_uniform,
+        patch("app.services._yfinance.time.sleep") as mock_sleep,
+    ):
+        _inter_batch_sleep("us")
+
+    mock_uniform.assert_called_once_with(1.0, 3.0)
+    mock_sleep.assert_called_once_with(1.5)
+
+
+def test_inter_batch_sleep_uses_longer_range_for_hk() -> None:
+    with (
+        patch("app.services._yfinance.random.uniform", return_value=2.5) as mock_uniform,
+        patch("app.services._yfinance.time.sleep") as mock_sleep,
+    ):
+        _inter_batch_sleep("hk")
+
+    mock_uniform.assert_called_once_with(2.0, 4.0)
+    mock_sleep.assert_called_once_with(2.5)
+
+
+def test_fetch_last_close_delay_keys_off_the_batch_just_fetched() -> None:
+    """Delay before the 2nd batch must use the 1st (just-fetched) batch's
+    market, not the 2nd batch's — matches §6.8's "after a US/HK batch"."""
+    tickers = ["AAPL", "0700.HK"]  # batch order: us, then hk
+
+    def fake_download(**kwargs: object) -> pd.DataFrame:
+        t = str(kwargs["tickers"]).split()[0]
+        return _make_hist(t, 1.0)
+
+    with (
+        patch("app.services._yfinance.yf.download", side_effect=fake_download),
+        patch("app.services._yfinance.random.uniform", return_value=0.0) as mock_uniform,
+        patch("app.services._yfinance.time.sleep"),
+    ):
+        fetch_last_close(tickers)
+
+    # One delay, sized by the "us" batch (the one fetched first), not "hk".
+    mock_uniform.assert_called_once_with(1.0, 3.0)
+
+
+# ---------------------------------------------------------------------------
+# _retry_with_backoff — exponential backoff on exception (issue #132, §6.8)
+# ---------------------------------------------------------------------------
+
+
+def test_retry_with_backoff_returns_immediately_on_success() -> None:
+    with patch("app.services._yfinance.time.sleep") as mock_sleep:
+        result = _retry_with_backoff(lambda: 42)
+
+    assert result == 42
+    mock_sleep.assert_not_called()
+
+
+def test_retry_with_backoff_retries_then_succeeds() -> None:
+    calls = {"n": 0}
+
+    def flaky() -> int:
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise OSError("network error")
+        return 7
+
+    with patch("app.services._yfinance.time.sleep") as mock_sleep:
+        result = _retry_with_backoff(flaky)
+
+    assert result == 7
+    assert calls["n"] == 3
+    # Two waits between three attempts, following the 5s/factor=2 schedule.
+    assert mock_sleep.call_args_list == [((5.0,),), ((10.0,),)]
+
+
+def test_retry_with_backoff_exhausts_all_attempts_then_raises() -> None:
+    def always_fails() -> int:
+        raise OSError("network error")
+
+    with (
+        patch("app.services._yfinance.time.sleep") as mock_sleep,
+        pytest.raises(OSError, match="network error"),
+    ):
+        _retry_with_backoff(always_fails)
+
+    assert mock_sleep.call_count == 2  # 3 attempts total, 2 gaps between them
+
+
+def test_retry_with_backoff_caps_delay_at_60s() -> None:
+    """factor=2 from a 5s start would reach 20s on the 3rd gap in a longer
+    run; verify the cap is actually applied, not just present in the code."""
+
+    def always_fails() -> int:
+        raise OSError("network error")
+
+    with (
+        patch("app.services._yfinance._BACKOFF_MAX_ATTEMPTS", 5),
+        patch("app.services._yfinance.time.sleep") as mock_sleep,
+        pytest.raises(OSError),
+    ):
+        _retry_with_backoff(always_fails)
+
+    # 5s, 10s, 20s, 40s — never exceeding the 60s cap within this run.
+    assert mock_sleep.call_args_list == [((5.0,),), ((10.0,),), ((20.0,),), ((40.0,),)]
+
+
+def test_raw_download_does_not_retry_on_empty_result_without_exception() -> None:
+    """A successful call with no data (real gap, no throttle) is not retried."""
+    call_count = {"n": 0}
+
+    def fake_download(**kwargs: object) -> pd.DataFrame:
+        call_count["n"] += 1
+        return pd.DataFrame()
+
+    with (
+        patch("app.services._yfinance.yf.download", side_effect=fake_download),
+        patch("app.services._yfinance.time.sleep") as mock_sleep,
+    ):
+        result = _raw_download(["AAPL"])
+
+    assert result.empty
+    assert call_count["n"] == 1
+    mock_sleep.assert_not_called()
+
+
+def test_raw_download_retries_on_exception_and_recovers() -> None:
+    call_count = {"n": 0}
+
+    def fake_download(**kwargs: object) -> pd.DataFrame:
+        call_count["n"] += 1
+        if call_count["n"] < 2:
+            raise OSError("network error")
+        return _make_hist("AAPL", 310.0)
+
+    with (
+        patch("app.services._yfinance.yf.download", side_effect=fake_download),
+        patch("app.services._yfinance.time.sleep"),
+    ):
+        result = _raw_download(["AAPL"])
+
+    assert not result.empty
+    assert call_count["n"] == 2

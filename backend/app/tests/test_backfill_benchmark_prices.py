@@ -58,3 +58,40 @@ def test_fetch_index_closes_period_reaches_yfinance_download_verbatim() -> None:
     with patch("app.services.benchmark_prices.yf.download", return_value=pd.DataFrame()) as mock_dl:
         benchmark_prices._fetch_index_closes(["^GSPC"], "5y")
     assert mock_dl.call_args.kwargs["period"] == "5y"
+
+
+def test_fetch_index_closes_retries_on_exception_via_shared_backoff() -> None:
+    """issue #132/§6.8: benchmark_prices had zero retry logic before this
+    change — confirm it now goes through the same backoff as price/FX."""
+    call_count = {"n": 0}
+
+    def fake_download(**kwargs: object) -> pd.DataFrame:
+        call_count["n"] += 1
+        if call_count["n"] < 2:
+            raise OSError("network error")
+        return pd.DataFrame()
+
+    with (
+        patch("app.services.benchmark_prices.yf.download", side_effect=fake_download),
+        patch("app.services._yfinance.time.sleep") as mock_sleep,
+    ):
+        benchmark_prices._fetch_index_closes(["^GSPC"], "5y")
+
+    assert call_count["n"] == 2
+    mock_sleep.assert_called_once_with(5.0)
+
+
+def test_fetch_index_closes_still_fails_open_after_exhausting_retries() -> None:
+    """Existing contract (never raise past this function) must survive
+    the retry wrapper — final exception still becomes an empty dict."""
+
+    def always_fails(**kwargs: object) -> pd.DataFrame:
+        raise OSError("network error")
+
+    with (
+        patch("app.services.benchmark_prices.yf.download", side_effect=always_fails),
+        patch("app.services._yfinance.time.sleep"),
+    ):
+        result = benchmark_prices._fetch_index_closes(["^GSPC"], "5y")
+
+    assert result == {}
