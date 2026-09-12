@@ -24,7 +24,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.models.benchmark_price import BenchmarkPrice
-from app.services._yfinance import _quiet_yfinance_logs
+from app.services._yfinance import _quiet_yfinance_logs, _retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -88,8 +88,10 @@ def _fetch_index_closes(
         return {}
     try:
         with _quiet_yfinance_logs():
-            hist = yf.download(
-                tickers=" ".join(yf_tickers), period=period, auto_adjust=True, progress=False
+            hist = _retry_with_backoff(
+                lambda: yf.download(
+                    tickers=" ".join(yf_tickers), period=period, auto_adjust=True, progress=False
+                )
             )
     except Exception:
         logger.exception("benchmark_prices: yfinance download failed for %s", yf_tickers)

@@ -187,6 +187,15 @@ class Settings(BaseSettings):
     # count as fresh. Capture/alert policy, not a disclosure deadline.
     FUND_NAV_MAX_LAG_SESSIONS: int = 2
 
+    # yfinance rate-limit jitter (Concept & Design §6.8, issue #132): random
+    # inter-batch pause between consecutive yf.download() calls in
+    # app/services/_yfinance.py. HK gets its own (longer) range because it
+    # throttles more readily than other markets.
+    YFINANCE_DELAY_MIN: float = 1.0
+    YFINANCE_DELAY_MAX: float = 3.0
+    YFINANCE_HK_DELAY_MIN: float = 2.0
+    YFINANCE_HK_DELAY_MAX: float = 4.0
+
     @field_validator("FUND_NAV_MAX_LAG_SESSIONS")
     @classmethod
     def _validate_fund_nav_max_lag_sessions(cls, v: int) -> int:
