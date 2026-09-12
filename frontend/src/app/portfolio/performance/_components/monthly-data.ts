@@ -30,6 +30,15 @@ export function buildMonthlyRows(monthly: MonthlyPerformance | null): MonthlyBar
   }));
 }
 
+// Recharts' BarChart draws a default Tooltip `cursor` — an unstyled,
+// full-plot-height Rectangle behind the hovered month — whenever `<Tooltip>`
+// doesn't set an explicit `cursor`. That default has no theme-aware fill,
+// so on this app's dark card it renders as a stark, near-white wash over
+// the hovered bars (reported after #433 shipped; see issue #437). A
+// subtle, theme-consistent highlight replaces it instead of disabling the
+// cursor outright, so hovering still shows which month is active.
+export const MONTHLY_CHART_CURSOR = { fill: "var(--muted-foreground)", fillOpacity: 0.12 } as const;
+
 // Issue #433 requirement 8: 5Y/ALL ranges must not overlap month labels. Show
 // every month up to a comfortable count, otherwise thin evenly so the first
 // and last month always remain labeled.

@@ -22,7 +22,7 @@ import {
 } from "recharts";
 import { useMemo } from "react";
 import { formatFullDate, formatSignedPct, formatTickPct } from "./performance-format";
-import { adaptiveMonthTicks, type MonthlyBarRow } from "./monthly-data";
+import { MONTHLY_CHART_CURSOR, adaptiveMonthTicks, type MonthlyBarRow } from "./monthly-data";
 
 function monthLabel(month: string, locale: string): string {
   const [year, m] = month.split("-").map(Number);
@@ -118,7 +118,7 @@ export function MonthlyPerformanceChart({
             width={48}
           />
           <ReferenceLine y={0} stroke="var(--muted-foreground)" />
-          <Tooltip content={tooltipContent} />
+          <Tooltip content={tooltipContent} cursor={MONTHLY_CHART_CURSOR} />
           <Bar
             dataKey="portfolio"
             name={t("monthlyPortfolioLabel")}

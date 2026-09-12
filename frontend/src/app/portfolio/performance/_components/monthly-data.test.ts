@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { MonthlyPerformance } from "@/lib/api";
-import { adaptiveMonthTicks, buildMonthlyRows } from "./monthly-data";
+import { MONTHLY_CHART_CURSOR, adaptiveMonthTicks, buildMonthlyRows } from "./monthly-data";
 
 function monthlyPoint(
   month: string,
@@ -81,5 +81,20 @@ describe("adaptiveMonthTicks", () => {
     expect(ticks.length).toBeLessThanOrEqual(13);
     expect(ticks[0]).toBe(months[0]);
     expect(ticks[ticks.length - 1]).toBe(months[months.length - 1]);
+  });
+});
+
+describe("MONTHLY_CHART_CURSOR", () => {
+  // Regression for issue #437: hovering the monthly bar chart used
+  // recharts' default (unstyled) Tooltip cursor — an undstyled full-height
+  // Rectangle with no fill of its own — which read as a stark, near-white
+  // wash over the bars on this app's dark card. The fix is an explicit,
+  // theme-aware cursor fill; pin its shape so a future edit can't
+  // accidentally drop it back to recharts' default (an absent `cursor`
+  // prop, or `cursor={true}`).
+  it("sets an explicit, theme-aware, low-opacity fill instead of leaving recharts' default", () => {
+    expect(MONTHLY_CHART_CURSOR.fill).toBe("var(--muted-foreground)");
+    expect(MONTHLY_CHART_CURSOR.fillOpacity).toBeGreaterThan(0);
+    expect(MONTHLY_CHART_CURSOR.fillOpacity).toBeLessThan(1);
   });
 });
