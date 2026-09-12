@@ -169,27 +169,39 @@ def test_pass2_prompt_enabled_sections_restricts_instructions() -> None:
 
 
 def test_section2_instructs_selection_not_mechanical_coverage() -> None:
-    """2026-08-21 §2 rewrite (issue #128 Ring 1 stage B / B1 PR follow-up):
-    the model must SELECT a handful of themes with genuine change, not
-    mechanically write up every triggered theme — that was the "呆板、冗长"
-    complaint driving this change."""
-    assert "2 to 4" in rp._SECTION2_INSTRUCTIONS
+    """issue #440 §2 rewrite: still must SELECT — one deep anchor plus a few
+    short updates for genuinely, distinctly changed themes — not mechanical
+    coverage of every candidate. Supersedes the #128-era "typically 2 to 4
+    paragraphs" contract (that literal count no longer appears — see
+    test_section2_eligibility_independent_of_direct_holdings_match for the
+    #440 replacement of the accompanying "no direct mapping" gate)."""
     assert "genuine" in rp._SECTION2_INSTRUCTIONS.lower()
-    assert "does not need its own paragraph" in rp._SECTION2_INSTRUCTIONS
+    assert "ONE deep anchor" in rp._SECTION2_INSTRUCTIONS
+    assert "0-2 short independent updates" in rp._SECTION2_INSTRUCTIONS
+    assert "do not warrant anchor-length treatment" in rp._SECTION2_INSTRUCTIONS
 
 
-def test_section2_no_direct_holding_mapping_means_no_standalone_paragraph() -> None:
-    """2026-08-22 overlay-driven tightening: the 2026-08-21 comparison still
-    showed §2 giving standalone space to a theme with no concrete tie to any
-    held identifier. §5's relevance rule already covered this in the
-    framework text; §2's own task instruction is tightened to match — no
-    direct, concrete mapping to a holding means no standalone §2 paragraph
-    BY DEFAULT, regardless of how much genuine change the theme shows
-    elsewhere. At most an aside inside the relevant holding's §3 analysis."""
+def test_section2_eligibility_independent_of_direct_holdings_match() -> None:
+    """issue #440 (Requirements point: "give macro developments eligibility
+    independently of a direct held-identifier match"): supersedes the
+    2026-08-22 "no direct, concrete mapping to a holding means no standalone
+    §2 paragraph BY DEFAULT" gate this test used to lock — that gate is
+    exactly the narrow #171-era contract #440 replaces. A holdings-quiet
+    period must not, by itself, read as "no macro developments"."""
     text = " ".join(rp._SECTION2_INSTRUCTIONS.split())
-    assert "no direct, concrete mapping to an identifier actually held" in text
-    assert "does not earn its own §2 paragraph by default" in text
-    assert "aside" in text
+    assert "not gated on a direct holdings match" in text
+    assert "no direct, concrete mapping to an identifier actually held" not in text
+    assert "never by itself grounds to declare macro developments absent" in text
+
+
+def test_section2_continuing_topic_stays_eligible_with_no_cooldown() -> None:
+    """issue #440 Contract constraints: "Repeated theme with a material
+    development: It remains eligible" and no whole-theme cooldown. The same
+    anchor may recur; the instruction must say to connect new evidence to
+    the prior analysis rather than silently dropping or repeating it."""
+    text = rp._SECTION2_INSTRUCTIONS
+    assert "The SAME anchor may recur across reports" in text
+    assert "may still be the anchor if your own evidence confirms" in text
 
 
 def test_section2_forbids_the_rigid_subheaded_time_tiers() -> None:

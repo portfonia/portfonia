@@ -87,6 +87,13 @@ class ReportInputsDict(TypedDict, total=False):
     # InvestorPreferences docstring) — report_inputs is unencrypted JSONB.
     investor_questionnaire_snapshot: dict[str, Any] | None
     investor_questionnaire_version: str | None
+    # issue #440: the MACRO COVERAGE CONTINUITY candidates actually offered
+    # to this report's §2-writing prompt (see macro_coverage.py). Audit/
+    # reproducibility snapshot, same rationale as
+    # investor_questionnaire_snapshot above — read live from `macro_coverage`
+    # on every generate/regenerate(analyze) call, not replayed from a prior
+    # report's stored value.
+    macro_continuity_snapshot: list[dict[str, Any]]
 
 
 @dataclass
@@ -202,6 +209,8 @@ class ReportContext:
     # See ReportInputsDict above for the field-by-field rationale.
     investor_questionnaire_snapshot: dict[str, Any] | None = None
     investor_questionnaire_version: str | None = None
+    # See ReportInputsDict above for the field-by-field rationale.
+    macro_continuity_snapshot: list[dict[str, Any]] = field(default_factory=list)
 
     def to_jsonb(self) -> dict[str, Any]:
         """Return the write-side dict for the `report_inputs` JSONB column.

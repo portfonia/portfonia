@@ -6,6 +6,7 @@ from app.models.forward_event import ForwardEvent
 from app.models.fx_rate import FxRate
 from app.models.holding import Holding
 from app.models.invite import Invite
+from app.models.macro_coverage import MacroCoverage
 from app.models.macro_event_intel import MacroEventIntel
 from app.models.news import News
 from app.models.news_surfaced import NewsSurfaced
@@ -31,6 +32,7 @@ __all__ = [
     "FxRate",
     "Holding",
     "Invite",
+    "MacroCoverage",
     "MacroEventIntel",
     "News",
     "NewsSurfaced",

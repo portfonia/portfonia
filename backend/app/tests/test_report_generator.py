@@ -353,6 +353,72 @@ def test_generate_report_normal_path(db_session: Session) -> None:
     assert len(report.report_inputs["search_results"]) == 2
 
 
+def test_generate_report_macro_sidecar_stripped_and_coverage_persisted(
+    db_session: Session,
+) -> None:
+    """issue #440: the macro-coverage sidecar the §2-writing pass appends
+    must never reach the rendered report_md, and its parsed items must be
+    persisted to `macro_coverage`, keyed by this report's id."""
+    from sqlalchemy import select as sa_select
+
+    from app.models.macro_coverage import MacroCoverage
+    from app.services import macro_coverage as mc
+
+    sidecar = (
+        f"{mc._SIDECAR_START}\n"
+        '{"items": [{"development_key": "Fed Rate Path", "coverage_mode": "NEW", '
+        '"depth_tier": "anchor", "open_questions": ["will cuts continue?"], '
+        '"affected_identifiers": ["AAPL"]}]}'
+        f"\n{mc._SIDECAR_END}"
+    )
+
+    def _mock_llm_with_sidecar(
+        client: object,
+        model: str,
+        system: str,
+        user: str,
+        *,
+        with_holdings: bool = False,
+        **kwargs: object,
+    ) -> str:
+        if with_holdings:
+            return _FAKE_LLM_PASS2 + sidecar
+        return _FAKE_LLM_PASS1
+
+    with (
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch(
+            "app.services.report_generator.load_news_window",
+            return_value=[_news_item("Fed raises rates")],
+        ),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+        patch(
+            "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
+        ),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_mock_llm_with_sidecar),
+        patch(
+            "app.services.report_generator._run_tavily_search", return_value=_FAKE_TAVILY_RESULTS
+        ),
+    ):
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+
+    assert report.status == "success"
+    assert report.report_md is not None
+    assert "MACRO_COVERAGE" not in report.report_md
+    assert "development_key" not in report.report_md
+
+    rows = (
+        db_session.execute(sa_select(MacroCoverage).where(MacroCoverage.report_id == report.id))
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 1
+    assert rows[0].development_key == "fed rate path"
+    assert rows[0].depth_tier == "anchor"
+    assert rows[0].user_id == _USER
+
+
 def test_generate_report_empty_book_content_contract(db_session: Session) -> None:
     """issue #221 §2.7 (Ring 1-Onboarding.md): a user with no
     user_investment_context row and no holdings still gets a completed
@@ -1522,7 +1588,9 @@ def test_generate_report_retry_of_unsent_success_only_resends_email(
 
 
 def test_generate_report_quiet_day_returns_skipped(db_session: Session) -> None:
-    """No signals and no anomalies → status=skipped, no LLM call."""
+    """No signals, no anomalies, no window news, no prior coverage → the only
+    remaining reason to take the quiet shortcut (issue #440 narrowing) —
+    status=skipped, no LLM call."""
     with (
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch("app.services.report_generator.load_news_window", return_value=[]),
@@ -1536,6 +1604,82 @@ def test_generate_report_quiet_day_returns_skipped(db_session: Session) -> None:
     mock_llm.assert_not_called()
     assert report.report_md is not None
     assert "§1 Portfolio Snapshot" in report.report_md
+
+
+def test_generate_report_no_keyword_hit_but_news_present_runs_full_pipeline(
+    db_session: Session,
+) -> None:
+    """issue #440 (owner decision 2026-09-12, "narrow/retire the quiet-path
+    shortcut"): a zero-keyword-hit report period is no longer, by itself,
+    grounds to take the canned quiet path — Requirements point 1 ("a zero-
+    theme result... does not establish that the world has no macro
+    developments"). With window news present (even though no macro keyword
+    matched it) the full pipeline must run instead of short-circuiting."""
+    with (
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch(
+            "app.services.report_generator.load_news_window",
+            return_value=[_news_item("Some unrelated headline")],
+        ),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_quiet_signals()),
+        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 0)),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_mock_llm) as mock_llm,
+        patch("app.services.report_generator._run_tavily_search", return_value=[]),
+    ):
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+
+    assert report.status == "success"
+    mock_llm.assert_called()
+
+
+def test_generate_report_prior_success_coverage_alone_runs_full_pipeline(
+    db_session: Session,
+) -> None:
+    """issue #440: eligible prior coverage (a continuing question this
+    reader is owed an update on) is itself grounds to skip the quiet
+    shortcut, even with zero keyword hits, zero anomalies, and zero window
+    news this period."""
+    from app.services import macro_coverage as mc
+
+    earlier = Report(
+        user_id=_USER,
+        report_date=_TODAY - timedelta(days=2),
+        report_type="incremental",
+        session_node="manual",
+        status="success",
+        period_start=_NOW - timedelta(days=4),
+        period_end=_NOW - timedelta(days=2),
+    )
+    db_session.add(earlier)
+    db_session.flush()
+    mc.persist_macro_coverage(
+        db_session,
+        report_id=earlier.id,
+        user_id=_USER,
+        as_of=earlier.period_end or _NOW,
+        items=mc.extract_macro_sidecar(
+            f"{mc._SIDECAR_START}\n"
+            '{"items": [{"development_key": "fed-path", "coverage_mode": "NEW", '
+            '"depth_tier": "anchor", "open_questions": ["will cuts continue?"]}]}'
+            f"\n{mc._SIDECAR_END}"
+        )[1],
+    )
+    db_session.commit()
+
+    with (
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch("app.services.report_generator.load_news_window", return_value=[]),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_quiet_signals()),
+        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 0)),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_mock_llm) as mock_llm,
+        patch("app.services.report_generator._run_tavily_search", return_value=[]),
+    ):
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+
+    assert report.status == "success"
+    mock_llm.assert_called()
 
 
 def test_generate_report_quiet_day_unsent_email_does_not_log_sent(
@@ -1971,6 +2115,139 @@ def test_regenerate_analyze_reruns_pass2_from_stored_intel(db_session: Session) 
     assert "Reanalyzed view" in out.report_md
     assert out.report_inputs is not None
     assert "Reanalyzed view" in out.report_inputs["pass2_raw"]
+
+
+def test_regenerate_analyze_replaces_macro_coverage_dropping_removed_topics(
+    db_session: Session,
+) -> None:
+    """issue #440 Contract constraints "Regenerate after a topic was
+    removed: No stale coverage for that report" — analyze mode's freshly
+    extracted sidecar must REPLACE this report's coverage rows, not upsert
+    on top of them, and the sidecar itself must never reach report_md."""
+    from sqlalchemy import select as sa_select
+
+    from app.models.macro_coverage import MacroCoverage
+    from app.services import macro_coverage as mc
+
+    first_sidecar = (
+        f"{mc._SIDECAR_START}\n"
+        '{"items": [{"development_key": "topic-a", "coverage_mode": "NEW", '
+        '"depth_tier": "anchor"}, {"development_key": "topic-b", "coverage_mode": "NEW", '
+        '"depth_tier": "context"}]}'
+        f"\n{mc._SIDECAR_END}"
+    )
+
+    def _mock_llm_first(
+        client: object,
+        model: str,
+        system: str,
+        user: str,
+        *,
+        with_holdings: bool = False,
+        **kwargs: object,
+    ) -> str:
+        if with_holdings:
+            return _FAKE_LLM_PASS2 + first_sidecar
+        return _FAKE_LLM_PASS1
+
+    with contextlib.ExitStack() as stack:
+        for p in _normal_path_patches():
+            stack.enter_context(p)  # type: ignore[arg-type]
+        stack.enter_context(
+            patch("app.services.report_generator._call_llm", side_effect=_mock_llm_first)
+        )
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+    rid = report.id
+
+    rows = (
+        db_session.execute(sa_select(MacroCoverage).where(MacroCoverage.report_id == rid))
+        .scalars()
+        .all()
+    )
+    assert {r.development_key for r in rows} == {"topic-a", "topic-b"}
+
+    second_sidecar = (
+        f"{mc._SIDECAR_START}\n"
+        '{"items": [{"development_key": "topic-a", "coverage_mode": "UPDATE", '
+        '"depth_tier": "anchor"}]}'
+        f"\n{mc._SIDECAR_END}"
+    )
+    new_body = (
+        "## §2 Macro Signals\n\nReanalyzed view. [For information only — not investment advice]\n\n"
+        "## §3 Holdings Intelligence\n\nNVIDIA up 9%. [For information only — not investment advice]\n\n"
+        "## §4 Risk Radar\n\nConcentration watch. [For information only — not investment advice]\n\n"
+        + _PASS2_FILLER
+        + second_sidecar
+    )
+    with (
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", return_value=new_body),
+        patch(
+            "app.services.report_generator.load_news_window",
+            side_effect=AssertionError("analyze must not re-fetch news"),
+        ),
+    ):
+        out = rg.regenerate_report(db_session, rid, user_id=_USER, mode="analyze", output_lang="en")
+
+    assert out.report_md is not None
+    assert "MACRO_COVERAGE" not in out.report_md
+    rows = (
+        db_session.execute(sa_select(MacroCoverage).where(MacroCoverage.report_id == rid))
+        .scalars()
+        .all()
+    )
+    assert {r.development_key for r in rows} == {"topic-a"}
+    assert next(r for r in rows if r.development_key == "topic-a").coverage_mode == "UPDATE"
+
+
+def test_regenerate_render_does_not_touch_macro_coverage(db_session: Session) -> None:
+    """Design §5: "Render regeneration preserves its existing non-fetching/
+    non-analysis behavior" — mode=render must not re-derive or replace this
+    report's coverage rows, and must still strip any sidecar present in the
+    stored body from the re-rendered output."""
+    from sqlalchemy import select as sa_select
+
+    from app.models.macro_coverage import MacroCoverage
+    from app.services import macro_coverage as mc
+
+    sidecar = (
+        f"{mc._SIDECAR_START}\n"
+        '{"items": [{"development_key": "topic-a", "coverage_mode": "NEW", '
+        '"depth_tier": "anchor"}]}'
+        f"\n{mc._SIDECAR_END}"
+    )
+
+    def _mock_llm_with_sidecar(
+        client: object,
+        model: str,
+        system: str,
+        user: str,
+        *,
+        with_holdings: bool = False,
+        **kwargs: object,
+    ) -> str:
+        if with_holdings:
+            return _FAKE_LLM_PASS2 + sidecar
+        return _FAKE_LLM_PASS1
+
+    with contextlib.ExitStack() as stack:
+        for p in _normal_path_patches():
+            stack.enter_context(p)  # type: ignore[arg-type]
+        stack.enter_context(
+            patch("app.services.report_generator._call_llm", side_effect=_mock_llm_with_sidecar)
+        )
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+    rid = report.id
+
+    out = rg.regenerate_report(db_session, rid, user_id=_USER, mode="render", output_lang="en")
+    assert out.report_md is not None
+    assert "MACRO_COVERAGE" not in out.report_md
+    rows = (
+        db_session.execute(sa_select(MacroCoverage).where(MacroCoverage.report_id == rid))
+        .scalars()
+        .all()
+    )
+    assert {r.development_key for r in rows} == {"topic-a"}
 
 
 # --- R-7: short manual quiet-window email suppression ----------------------
