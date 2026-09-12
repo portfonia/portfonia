@@ -618,22 +618,24 @@ def test_retry_with_backoff_exhausts_all_attempts_then_raises() -> None:
     assert mock_sleep.call_count == 2  # 3 attempts total, 2 gaps between them
 
 
-def test_retry_with_backoff_caps_delay_at_60s() -> None:
-    """factor=2 from a 5s start would reach 20s on the 3rd gap in a longer
-    run; verify the cap is actually applied, not just present in the code."""
+def test_retry_with_backoff_caps_delay() -> None:
+    """Patch the cap well below where factor=2 would naturally reach, so
+    the delay sequence only matches if `min(delay, cap)` actually clamps —
+    at the real 60s cap, 3 attempts never get there, which proved nothing."""
 
     def always_fails() -> int:
         raise OSError("network error")
 
     with (
-        patch("app.services._yfinance._BACKOFF_MAX_ATTEMPTS", 5),
+        patch("app.services._yfinance._BACKOFF_MAX_ATTEMPTS", 4),
+        patch("app.services._yfinance._BACKOFF_CAP", 8.0),
         patch("app.services._yfinance.time.sleep") as mock_sleep,
         pytest.raises(OSError),
     ):
         _retry_with_backoff(always_fails)
 
-    # 5s, 10s, 20s, 40s — never exceeding the 60s cap within this run.
-    assert mock_sleep.call_args_list == [((5.0,),), ((10.0,),), ((20.0,),), ((40.0,),)]
+    # Uncapped this would be 5s, 10s, 20s — the 2nd and 3rd gaps must clamp to 8s.
+    assert mock_sleep.call_args_list == [((5.0,),), ((8.0,),), ((8.0,),)]
 
 
 def test_raw_download_does_not_retry_on_empty_result_without_exception() -> None:

@@ -10,7 +10,11 @@ Throttle mitigation strategy (D6):
   2. Each market group is further chunked to at most _MAX_BATCH_SIZE tickers per
      yf.download() call.  Yahoo Finance silently drops tickers from large batches;
      smaller homogeneous batches avoid the silent rejection.
-  3. A short pause (_INTER_BATCH_DELAY) is inserted between consecutive calls.
+  3. A random jitter pause (`_inter_batch_sleep`, market-aware — HK gets a
+     longer range) is inserted between consecutive calls, and the
+     `yf.download()` call itself retries with exponential backoff on
+     exception (`_retry_with_backoff`) before falling back to the
+     existing fail-open handling (issue #132, Concept & Design §6.8).
 """
 
 from __future__ import annotations
