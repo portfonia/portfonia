@@ -95,6 +95,7 @@ area of the code, not just the one-line summary here.
 - [Personalized assembly + fan-out budget fairness](docs/mechanisms/capture-and-reporting.md) — Ring 1 stage A4, issue #128: `report_assembly.py`, `shared_budget.py` fair-share allocation.
 - [L3 day-level cross-name synthesis](docs/mechanisms/capture-and-reporting.md) — Ring 1 quality gate, issue #128/PR #167: cross-name mechanism clusters, leak-prevention shape.
 - [Narrative-layer redesign: Pass 2 material widening](docs/mechanisms/capture-and-reporting.md) — Ring 1 quality gate, issue #128/PR #168: material sharing not narrative sharing.
+- [Macro coverage: eligibility, composition, cross-report continuity](docs/mechanisms/macro-coverage-continuity.md) — issue #440/PR #441, supersedes #171: §2 eligibility independent of direct holdings match, overview+anchor+updates composition, `macro_coverage` table + structured sidecar, quiet-path narrowing, `analyze`/`render` regenerate semantics.
 - [System default analysis framework — B1](docs/mechanisms/identity-and-auth.md) — Ring 1 stage B, issue #129/PR #172: `config/analysis_framework.yml`, injection order, §2 rewrite.
 - [Identity seam: current_principal + explicit user_id — B3](docs/mechanisms/identity-and-auth.md) — Ring 1 stage B, issue #129/PR #181.
 - [Users, invites, and JWKS auth — B4](docs/mechanisms/identity-and-auth.md) — Ring 1 stage B, issue #129/PR #183: JWKS verification, no `JWT_SECRET`, invite redeem.
