@@ -118,7 +118,6 @@ def _serialize_portfolio(snap: PortfolioSnapshot) -> dict[str, Any]:
             "currency": hv.currency,
             "asset_type": hv.asset_type,
             "asset_class": hv.asset_class,
-            "sector": hv.sector,
             "market": hv.market,
             "broker": hv.broker,
             "market_value": float(hv.market_value) if hv.market_value is not None else None,
@@ -139,7 +138,6 @@ def _serialize_portfolio(snap: PortfolioSnapshot) -> dict[str, Any]:
         "by_market": {k: float(v) for k, v in snap.by_market.items()},
         "by_currency": {k: float(v) for k, v in snap.by_currency.items()},
         "by_asset_type": {k: float(v) for k, v in snap.by_asset_type.items()},
-        "by_sector": {k: float(v) for k, v in snap.by_sector.items()},
         "by_asset_class": {k: float(v) for k, v in snap.by_asset_class.items()},
         "concentration": {
             "top_holding_name": snap.concentration.top_holding_name,

@@ -327,7 +327,6 @@ export interface HoldingValueOut {
   currency: string;
   asset_type: string | null;
   asset_class: string | null;
-  sector: string | null;
   market: string;
   market_value: string | null;
   market_value_base: string | null;
@@ -358,7 +357,6 @@ export interface PortfolioSummary {
   by_market: Record<string, string>;
   by_currency: Record<string, string>;
   by_asset_type: Record<string, string>;
-  by_sector: Record<string, string>;
   by_asset_class: Record<string, string>;
   by_group: Record<string, string>;
   by_broker: Record<string, string>;

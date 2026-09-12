@@ -13,7 +13,6 @@ function summary(overrides: Partial<PortfolioSummary>): PortfolioSummary {
     by_market: {},
     by_currency: {},
     by_asset_type: {},
-    by_sector: {},
     by_asset_class: {},
     by_group: {},
     by_broker: {},

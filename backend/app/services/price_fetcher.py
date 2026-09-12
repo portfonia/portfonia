@@ -1,15 +1,13 @@
-"""Fetch latest close prices and sector metadata from yfinance."""
+"""Fetch latest close prices from yfinance."""
 
 from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 
-import yfinance as yf
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -17,29 +15,14 @@ from app.models.holding import Holding
 from app.services._yfinance import fetch_last_close
 from app.services.instrument_symbols import normalize_legacy_ticker
 from app.services.markets import is_capture_supported
-from app.services.sector_taxonomy import map_yf_sector
 
 logger = logging.getLogger(__name__)
-
-# Asset types we attempt to classify by sector (funds/cash/wmf have no single sector).
-_SECTOR_ASSET_TYPES = {"stock", "etf"}
 
 
 @dataclass
 class PriceFetchResult:
     updated: int = 0
     failed: list[str] = field(default_factory=list)
-
-
-def _fetch_yf_sector(ticker: str) -> str | None:
-    """Best-effort single-ticker sector lookup. Returns None on any failure."""
-    try:
-        info = yf.Ticker(ticker).info
-    except Exception:
-        logger.warning("sector lookup failed for %s", ticker)
-        return None
-    sector = info.get("sector") if isinstance(info, dict) else None
-    return sector if isinstance(sector, str) else None
 
 
 def update_holding_prices(session: Session) -> PriceFetchResult:
@@ -124,43 +107,3 @@ def update_holding_prices(session: Session) -> PriceFetchResult:
     result.failed = sorted(set(result.failed))
     session.flush()
     return result
-
-
-def backfill_sectors(session: Session, holdings: Sequence[Holding] | None = None) -> int:
-    """
-    Populate the sector column for stock/etf holdings that lack one.
-
-    Sector rarely changes, so we only look it up when missing — this is a
-    one-time backfill per holding, not part of every price refresh.
-    A-share / HK tickers that yfinance cannot classify resolve to "Other"
-    via the taxonomy (design §6.4 Ring 0 strategy). Returns rows updated.
-
-    `holdings`, when given, scopes the fill to those rows (issue #92
-    single-row POST should not scan the whole book).
-    """
-    if holdings is None:
-        rows = list(
-            session.execute(
-                select(Holding).where(
-                    Holding.ticker.isnot(None),
-                    Holding.sector.is_(None),
-                    Holding.asset_type.in_(_SECTOR_ASSET_TYPES),
-                )
-            ).scalars()
-        )
-    else:
-        rows = [
-            h
-            for h in holdings
-            if h.ticker is not None and h.sector is None and h.asset_type in _SECTOR_ASSET_TYPES
-        ]
-    rows = [r for r in rows if is_capture_supported(r)]
-
-    updated = 0
-    for row in rows:
-        assert row.ticker is not None
-        row.sector = map_yf_sector(_fetch_yf_sector(row.ticker))
-        updated += 1
-
-    session.flush()
-    return updated

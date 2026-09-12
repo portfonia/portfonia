@@ -1498,36 +1498,6 @@ def test_export_cash_row_with_surviving_tag_still_round_trips_via_dialect_path(
     assert parsed["pricing_mode"] == "manual"
 
 
-def test_create_holding_enqueues_sector_backfill_not_sync_yfinance(
-    app_client: TestClient,
-) -> None:
-    with (
-        patch("app.tasks.capture_tasks.backfill_sectors_task") as mock_sector,
-        patch("app.services.price_fetcher.backfill_sectors") as mock_sync,
-        patch("app.tasks.capture_tasks.backfill_ohlcv_task"),
-    ):
-        resp = app_client.post("/holdings", json=_PARSED_APPLE)
-    assert resp.status_code == 201
-    mock_sync.assert_not_called()
-    mock_sector.delay.assert_called_once_with([resp.json()["id"]], str(TEST_USER_ID))
-
-
-def test_confirm_replace_enqueues_sector_backfill_for_inserted_rows(
-    app_client: TestClient,
-) -> None:
-    with (
-        patch("app.tasks.capture_tasks.backfill_sectors_task") as mock_sector,
-        patch("app.tasks.capture_tasks.backfill_ohlcv_task"),
-    ):
-        resp = app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_APPLE, _PARSED_CASH])
-    assert resp.status_code == 200
-    ids = [r["id"] for r in resp.json()]
-    mock_sector.delay.assert_called_once()
-    enqueued = mock_sector.delay.call_args[0][0]
-    assert set(enqueued) == set(ids)
-    assert mock_sector.delay.call_args[0][1] == str(TEST_USER_ID)
-
-
 def test_patch_holding_locks_the_row_before_reading_it(app_client: TestClient) -> None:
     """PR #321 review round 3: update_holding's read-modify-write was
     unlocked while create/confirm/reorder all lock — two overlapping
@@ -1549,29 +1519,23 @@ def test_patch_holding_locks_the_row_before_reading_it(app_client: TestClient) -
     mock_own.assert_called_once_with(ANY, TEST_USER_ID, uuid.UUID(created["id"]), for_update=True)
 
 
-def test_patch_ticker_clears_stale_price_and_sector(
-    app_client: TestClient, db_session: Session
-) -> None:
+def test_patch_ticker_clears_stale_price(app_client: TestClient, db_session: Session) -> None:
     created = app_client.post("/holdings", json=_PARSED_APPLE).json()
     holding = db_session.get(Holding, uuid.UUID(created["id"]))
     assert holding is not None
-    holding.sector = "Technology"
     holding.market_price = Decimal("180")
     holding.price_as_of = datetime(2026, 1, 2, tzinfo=UTC)
     holding.price_fetched_at = holding.price_as_of
     db_session.commit()
-    with patch("app.tasks.capture_tasks.backfill_sectors_task") as mock_sector:
-        resp = app_client.patch(f"/holdings/{created['id']}", json={"ticker": "MSFT"})
+    resp = app_client.patch(f"/holdings/{created['id']}", json={"ticker": "MSFT"})
     assert resp.status_code == 200
     db_session.expire_all()
     holding = db_session.get(Holding, uuid.UUID(created["id"]))
     assert holding is not None
     assert holding.ticker == "MSFT"
-    assert holding.sector is None
     assert holding.market_price is None
     assert holding.price_as_of is None
     assert holding.price_fetched_at is None
-    mock_sector.delay.assert_called_once_with([created["id"]], str(TEST_USER_ID))
 
 
 def test_patch_notes_preserves_untouched_encrypted_decimal_shares(
@@ -1802,33 +1766,28 @@ def test_patch_notes_only_still_clears_stale_price_when_write_defaults_rewrites_
     mentions `ticker`), not just whether the client's PATCH body included a
     `ticker` key. A legacy unsuffixed row (stored before force-suffix
     existed) whose first-ever PATCH only touches `notes` must still get its
-    stale sector/price cleared and a backfill enqueued — otherwise this is
-    the round-1 regression (stale price survives a ticker change) reopened
-    through a different door."""
+    stale price cleared — otherwise this is the round-1 regression (stale
+    price survives a ticker change) reopened through a different door."""
     created = app_client.post("/holdings", json=_PARSED_APPLE).json()
     holding = db_session.get(Holding, uuid.UUID(created["id"]))
     assert holding is not None
     holding.ticker = "0700"
     holding.currency = "HKD"
     holding.market = "HK"
-    holding.sector = "Technology"
     holding.market_price = Decimal("380")
     holding.price_as_of = datetime(2026, 1, 2, tzinfo=UTC)
     holding.price_fetched_at = holding.price_as_of
     db_session.commit()
-    with patch("app.tasks.capture_tasks.backfill_sectors_task") as mock_sector:
-        resp = app_client.patch(f"/holdings/{created['id']}", json={"notes": "annual review"})
+    resp = app_client.patch(f"/holdings/{created['id']}", json={"notes": "annual review"})
     assert resp.status_code == 200
     assert resp.json()["ticker"] == "0700.HK"
     db_session.expire_all()
     holding = db_session.get(Holding, uuid.UUID(created["id"]))
     assert holding is not None
     assert holding.ticker == "0700.HK"
-    assert holding.sector is None
     assert holding.market_price is None
     assert holding.price_as_of is None
     assert holding.price_fetched_at is None
-    mock_sector.delay.assert_called_once_with([created["id"]], str(TEST_USER_ID))
 
 
 def test_reorder_locks_before_assigning_position(app_client: TestClient) -> None:
@@ -1943,12 +1902,10 @@ def test_confirm_replace_persistence_failure_rolls_back_and_does_not_enqueue(
             "app.routers.holdings._insert_from_rows",
             side_effect=RuntimeError("persist failed"),
         ),
-        patch("app.tasks.capture_tasks.backfill_sectors_task") as mock_sector,
         patch("app.tasks.capture_tasks.backfill_ohlcv_task") as mock_ohlcv,
         pytest.raises(RuntimeError, match="persist failed"),
     ):
         app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_CASH])
-    mock_sector.delay.assert_not_called()
     mock_ohlcv.delay.assert_not_called()
     db_session.rollback()
     remaining = db_session.get(Holding, uuid.UUID(created["id"]))

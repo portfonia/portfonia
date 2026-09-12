@@ -3,7 +3,7 @@
 
 What this adds: one LLM inference per (event_key, trade_date,
 prompt_version) answering "what is this macro event, and which asset
-classes / sectors does it bear on", cached and reused across every user
+classes does it bear on", cached and reused across every user
 whose report touches that event that day. The per-user half is then pure
 set arithmetic — `user_event_exposure` intersects the cached
 `affected_asset_classes` with the user's own `portfolio.by_asset_class`
@@ -90,7 +90,6 @@ from app.services.llm_errors import is_retryable
 from app.services.macro_detector import detect_macro_signals
 from app.services.report_llm import _call_llm, _openrouter_client
 from app.services.report_prompts import _COMPLIANCE_SYSTEM_PREFIX
-from app.services.sector_taxonomy import OTHER, VALID_SECTORS
 from app.services.shared_budget import fair_share_budget
 from app.services.window_data import load_day_news
 
@@ -139,12 +138,6 @@ _MAX_L2_FORWARD_ANALYSES_PER_DAY = 15
 # fan-out. Keep the two in step; they are one mechanism applied twice.
 _MAX_ATTEMPTS_PER_KEY = 3
 
-# `OTHER` is the bucket an UNCLASSIFIABLE holding falls into (see
-# sector_taxonomy.map_yf_sector), not a sector an event can meaningfully bear
-# on. Accepting it from the model would sweep every holding with an unknown
-# sector into that event's exposure.
-_ASSIGNABLE_SECTORS: frozenset[str] = VALID_SECTORS - {OTHER}
-
 _L2_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + (
     "\nYou are classifying ONE macro event for an internal SHARED cache. Your "
     "output is reused verbatim for every user in the system whose portfolio "
@@ -160,13 +153,10 @@ _L2_SYSTEM = _COMPLIANCE_SYSTEM_PREFIX + (
     "citations, no disclaimer.\n"
     '  "affected_asset_classes": a list drawn ONLY from this closed set, '
     "possibly empty: {asset_classes}\n"
-    '  "affected_sectors": a list drawn ONLY from this closed set, possibly '
-    "empty: {sectors}\n"
-    "Never invent a category outside those sets; if none fits, return an empty "
+    "Never invent a category outside that set; if none fits, return an empty "
     "list."
 ).format(
     asset_classes=", ".join(sorted(VALID_ASSET_CLASSES)),
-    sectors=", ".join(sorted(_ASSIGNABLE_SECTORS)),
 )
 
 
@@ -279,7 +269,7 @@ def _loads_or_none(text: str) -> dict[str, Any] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
-def _parse_l2_response(event_key: str, raw: str) -> tuple[str, list[str], list[str]] | None:
+def _parse_l2_response(event_key: str, raw: str) -> tuple[str, list[str]] | None:
     """Parse + taxonomy-validate the model's JSON. None means "unusable".
 
     A model that answers in prose instead of JSON, or omits the analysis,
@@ -311,10 +301,7 @@ def _parse_l2_response(event_key: str, raw: str) -> tuple[str, list[str], list[s
     classes = _filter_to_taxonomy(
         parsed.get("affected_asset_classes", []), VALID_ASSET_CLASSES, event_key, "asset_class"
     )
-    sectors = _filter_to_taxonomy(
-        parsed.get("affected_sectors", []), _ASSIGNABLE_SECTORS, event_key, "sector"
-    )
-    return analysis.strip(), classes, sectors
+    return analysis.strip(), classes
 
 
 # ---------------------------------------------------------------------------
@@ -490,7 +477,6 @@ def _write_cache(
     model: str,
     analysis: str | None,
     classes: list[str],
-    sectors: list[str],
     facts: L2Facts,
     attempt_count: int,
 ) -> None:
@@ -506,7 +492,6 @@ def _write_cache(
         model=model,
         analysis=analysis,
         affected_asset_classes=classes,
-        affected_sectors=sectors,
         facts=facts.to_jsonb(),
         attempt_count=attempt_count,
     )
@@ -517,7 +502,6 @@ def _write_cache(
                 "model": stmt.excluded.model,
                 "analysis": stmt.excluded.analysis,
                 "affected_asset_classes": stmt.excluded.affected_asset_classes,
-                "affected_sectors": stmt.excluded.affected_sectors,
                 "facts": stmt.excluded.facts,
                 "attempt_count": stmt.excluded.attempt_count,
             },
@@ -586,14 +570,14 @@ def _generate(
             _MAX_ATTEMPTS_PER_KEY,
         )
         recorded = this_attempt if is_retryable(exc) else _MAX_ATTEMPTS_PER_KEY
-        _write_cache(session, event_key, trade_date, model, None, [], [], facts, recorded)
+        _write_cache(session, event_key, trade_date, model, None, [], facts, recorded)
         return None, recorded - attempts_so_far
 
     parsed = _parse_l2_response(event_key, raw)
     if parsed is None:
-        _write_cache(session, event_key, trade_date, model, None, [], [], facts, this_attempt)
+        _write_cache(session, event_key, trade_date, model, None, [], facts, this_attempt)
         return None, this_attempt - attempts_so_far
-    analysis, classes, sectors = parsed
+    analysis, classes = parsed
 
     # Strip stray citation/provenance/disclaimer noise BEFORE scanning, same
     # as Pass 2's `cleaned = _strip_markers(raw_body)`: a disclaimer line the
@@ -625,18 +609,13 @@ def _generate(
             idempotency_key=f"ops-l2-blocked-{event_key}-{trade_date}",
         )
         # Locked on the spot, not retried — see `_generate`'s docstring.
-        _write_cache(
-            session, event_key, trade_date, model, None, [], [], facts, _MAX_ATTEMPTS_PER_KEY
-        )
+        _write_cache(session, event_key, trade_date, model, None, [], facts, _MAX_ATTEMPTS_PER_KEY)
         return None, _MAX_ATTEMPTS_PER_KEY - attempts_so_far
 
-    _write_cache(
-        session, event_key, trade_date, model, cleaned, classes, sectors, facts, this_attempt
-    )
+    _write_cache(session, event_key, trade_date, model, cleaned, classes, facts, this_attempt)
     return {
         "analysis": cleaned,
         "affected_asset_classes": classes,
-        "affected_sectors": sectors,
     }, this_attempt - attempts_so_far
 
 
@@ -702,7 +681,6 @@ def get_l2_intel_batch(
                 result[event_key] = {
                     "analysis": cached.analysis,
                     "affected_asset_classes": list(cached.affected_asset_classes),
-                    "affected_sectors": list(cached.affected_sectors),
                 }
                 continue
             attempts_so_far = cached.attempt_count
@@ -742,12 +720,6 @@ def user_event_exposure(
     This is the whole per-user half of L2 and it makes no LLM call — the
     expensive judgment ("what does this event bear on") was made once,
     globally; personalization is set membership.
-
-    Reads `affected_asset_classes` ONLY. `affected_sectors` is stored for the
-    forward-event holding-relevance mapping that already runs on `sector`
-    (`report_sections._forward_exposure`) — CLAUDE.md's single sanctioned use
-    of that column — and A3 deliberately does not widen it into a second
-    exposure dimension here.
 
     An event with no overlap is omitted rather than carried as an empty
     entry: the caller's "which events touch me" question is answered by key

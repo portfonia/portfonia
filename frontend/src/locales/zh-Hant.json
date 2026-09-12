@@ -448,8 +448,6 @@
     "chartByCustodian": "按託管機構",
     "chartByAccount": "按帳戶",
     "chartByAssetClass": "按資產類別",
-    "chartBySector": "按行業",
-    "chartBySectorScope": "僅統計個股與ETF。",
     "chartByCurrency": "按幣種",
     "chartEmpty": "暫無數據。",
     "holdingsHeading": "持倉明細",

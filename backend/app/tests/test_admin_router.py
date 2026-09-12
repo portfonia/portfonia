@@ -50,7 +50,6 @@ def _patched_fetchers_noop() -> Iterator[None]:
             "app.routers.admin.price_fetcher.update_holding_prices",
             return_value=PriceFetchResult(updated=0, failed=[]),
         ),
-        patch("app.routers.admin.price_fetcher.backfill_sectors", return_value=0),
         patch(
             "app.routers.admin.update_fund_navs",
             return_value=FundNavFetchResult(updated=0, failed=[]),
@@ -110,7 +109,6 @@ def test_refresh_accepts_correct_token(app_client: TestClient, db_session: Sessi
             "app.routers.admin.price_fetcher.update_holding_prices",
             return_value=PriceFetchResult(updated=1, failed=[]),
         ),
-        patch("app.routers.admin.price_fetcher.backfill_sectors", return_value=2),
         patch(
             "app.routers.admin.update_fund_navs",
             return_value=FundNavFetchResult(updated=1, failed=["999"]),
@@ -127,7 +125,6 @@ def test_refresh_accepts_correct_token(app_client: TestClient, db_session: Sessi
     assert body == {
         "prices_updated": 1,
         "prices_failed": [],
-        "sectors_backfilled": 2,
         "funds_updated": 1,
         "funds_failed": ["999"],
         "fx_upserted": 2,

@@ -101,7 +101,7 @@ class Holding(Base):
     # Encrypted at rest (issue #31) — identity/amount fields that reveal what
     # the user holds and how much. See app/core/encryption.py for the key
     # scope decision (system-wide key, not per-user). NOT encrypted:
-    # asset_type/asset_class/sector/market/currency/pricing_mode/position —
+    # asset_type/asset_class/market/currency/pricing_mode/position —
     # classification buckets, not individually identifying, and needed
     # queryable for SQL-level NULL/equality filters elsewhere in this file's
     # callers (see EncryptedString docstring).
@@ -118,10 +118,8 @@ class Holding(Base):
     # EQUITY_US_TECH / EQUITY_DM / EQUITY_CN / EQUITY_EM / EQUITY_BROAD /
     # COMMODITY / BOND_FUND / CASH_EQUIV). Set by the upload parser from a ticker
     # lookup table; asset_type retains the LLM-parsed product-form value. This is
-    # the primary classification dimension for §1/distribution/§4.1 in reports —
-    # sector below is retained only for forward-event holding-relevance mapping.
+    # the primary classification dimension for §1/distribution/§4.1 in reports.
     asset_class: Mapped[str] = mapped_column(Text, nullable=False, server_default="STOCK")
-    sector: Mapped[str | None] = mapped_column(Text)  # GICS-style; forward-event mapping only
     # User-declared market bucket (closed set — see VALID_HOLDING_MARKETS).
     # NULL = not declared → derived from ticker at compute time.
     market: Mapped[str | None] = mapped_column(Text)

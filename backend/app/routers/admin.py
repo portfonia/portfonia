@@ -175,7 +175,6 @@ router = APIRouter(route_class=AdminLoggingRoute, dependencies=[Depends(require_
 class RefreshResult(BaseModel):
     prices_updated: int
     prices_failed: list[str]
-    sectors_backfilled: int
     funds_updated: int
     funds_failed: list[str]
     fx_upserted: int
@@ -184,21 +183,19 @@ class RefreshResult(BaseModel):
 
 @router.post("/portfolio/refresh", response_model=RefreshResult)
 def refresh_market_data(session: Session = Depends(get_session)) -> RefreshResult:
-    """Manually trigger price / sector / NAV / FX refresh.
+    """Manually trigger price / NAV / FX refresh.
 
     Moved from POST /portfolio/refresh (decision point 8/11): this pulls
     fresh market data for every user's holdings at once, so it's an ops
     action, not something an individual user should be able to trigger.
     """
     prices = price_fetcher.update_holding_prices(session)
-    sectors = price_fetcher.backfill_sectors(session)
     funds = update_fund_navs(session)
     fx = fx_fetcher.update_fx_rates(session)
     session.commit()
     return RefreshResult(
         prices_updated=prices.updated,
         prices_failed=prices.failed,
-        sectors_backfilled=sectors,
         funds_updated=funds.updated,
         funds_failed=funds.failed,
         fx_upserted=fx.upserted,

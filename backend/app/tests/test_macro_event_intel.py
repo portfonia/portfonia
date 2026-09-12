@@ -87,7 +87,6 @@ def _macro_signals(*themes: str) -> dict[str, Any]:
 def _llm_json(
     analysis: str = "The Fed held rates steady, a policy-path datapoint. [Established]",
     classes: list[str] | None = None,
-    sectors: list[str] | None = None,
 ) -> str:
     import json
 
@@ -95,7 +94,6 @@ def _llm_json(
         {
             "analysis": analysis,
             "affected_asset_classes": ["EQUITY_US_BROAD"] if classes is None else classes,
-            "affected_sectors": ["Financials"] if sectors is None else sectors,
         }
     )
 
@@ -260,7 +258,6 @@ def test_cached_row_carries_the_validated_structured_output(db_session: Session)
         result = l2.get_l2_intel_batch(db_session, keys, _DATE, facts)
 
     assert result["theme:货币政策"]["affected_asset_classes"] == ["EQUITY_US_BROAD"]
-    assert result["theme:货币政策"]["affected_sectors"] == ["Financials"]
     row = db_session.execute(select(MacroEventIntel)).scalars().one()
     assert row.affected_asset_classes == ["EQUITY_US_BROAD"]
     assert row.analysis is not None
@@ -395,24 +392,6 @@ def test_out_of_taxonomy_asset_class_is_dropped_and_never_reaches_the_mapping(
 
     exposure = l2.user_event_exposure(result, {"EQUITY_US_BROAD": 100.0, "CRYPTO": 50.0})
     assert exposure == {"theme:货币政策": ["EQUITY_US_BROAD"]}
-
-
-def test_out_of_taxonomy_sector_is_dropped(db_session: Session) -> None:
-    _seed_day_news(db_session)
-    keys = ["theme:货币政策"]
-    facts = l2.build_l2_facts(db_session, keys, _DATE)
-
-    def _bogus(*args: object, **kwargs: object) -> str:
-        return _llm_json(sectors=["Financials", "Semiconductors", "Other"])
-
-    client_patch, call_patch = _patched_llm(_bogus)
-    with client_patch, call_patch:
-        result = l2.get_l2_intel_batch(db_session, keys, _DATE, facts)
-
-    # "Other" is the unknown-bucket a HOLDING falls into, never a meaningful
-    # affected sector for an event — accepting it would map every
-    # unclassified holding into the event's exposure.
-    assert result["theme:货币政策"]["affected_sectors"] == ["Financials"]
 
 
 def test_prose_wrapped_json_is_still_parsed(db_session: Session) -> None:
@@ -681,12 +660,10 @@ def test_user_event_exposure_is_a_pure_intersection_with_no_llm_call() -> None:
         "theme:货币政策": {
             "analysis": "x",
             "affected_asset_classes": ["EQUITY_US_BROAD", "BOND_FUND"],
-            "affected_sectors": ["Financials"],
         },
         "fwd:1": {
             "analysis": "y",
             "affected_asset_classes": ["PRECIOUS_METALS"],
-            "affected_sectors": [],
         },
     }
     with patch("app.services.macro_event_intel._call_llm") as mock_call:
@@ -696,20 +673,6 @@ def test_user_event_exposure_is_a_pure_intersection_with_no_llm_call() -> None:
     # Only the classes this user actually holds survive; an event with no
     # overlap is omitted entirely rather than carried as an empty entry.
     assert exposure == {"theme:货币政策": ["EQUITY_US_BROAD"]}
-
-
-def test_user_event_exposure_never_reads_sector() -> None:
-    """CLAUDE.md keeps `sector` scoped to the forward-event holding-relevance
-    mapping; A3 stores it for that consumer but must not widen its use into
-    a second exposure dimension."""
-    intel = {
-        "theme:x": {
-            "analysis": "x",
-            "affected_asset_classes": [],
-            "affected_sectors": ["Financials"],
-        }
-    }
-    assert l2.user_event_exposure(intel, {"EQUITY_US_BROAD": 10.0}) == {}
 
 
 # ---------------------------------------------------------------------------

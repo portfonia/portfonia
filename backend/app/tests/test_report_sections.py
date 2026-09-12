@@ -26,7 +26,6 @@ def _portfolio_snap() -> PortfolioSnapshot:
         currency="USD",
         asset_type="stock",
         asset_class="STOCK",
-        sector="Technology",
         market="US",
         market_value=Decimal("10000"),
         market_value_base=Decimal("10000"),
@@ -39,7 +38,6 @@ def _portfolio_snap() -> PortfolioSnapshot:
         by_currency={"USD": Decimal("10000")},
         by_asset_type={"stock": Decimal("10000")},
         by_market={"US": Decimal("10000")},
-        by_sector={"Technology": Decimal("10000")},
         by_asset_class={"STOCK": Decimal("10000")},
         concentration=Concentration(
             top_holding_name="Apple Inc.",
@@ -268,38 +266,44 @@ def _fwd_holdings() -> list[dict[str, object]]:
             "ticker": "NVDA",
             "market": "US",
             "asset_type": "stock",
-            "sector": "Technology",
         },
         {
             "name": "SPDR Gold",
             "ticker": "GLD",
             "market": "US",
             "asset_type": "etf",
-            "sector": "Other",
         },
         {
             "name": "Costco",
             "ticker": "COST",
             "market": "US",
             "asset_type": "stock",
-            "sector": "Consumer Staples",
         },
         {
             "name": "Tencent",
             "ticker": "0700.HK",
             "market": "HK",
             "asset_type": "stock",
-            "sector": "Technology",
+        },
+        {
+            "name": "Cash",
+            "ticker": None,
+            "market": "US",
+            "asset_type": "cash",
         },
     ]
 
 
-def test_forward_exposure_cpi_maps_rate_sensitive_and_gold() -> None:
+def test_forward_exposure_cpi_maps_all_us_equity_and_gold() -> None:
+    """Issue #435: sector-based rate-sensitive narrowing was removed — every
+    US-listed stock/ETF is now flagged for FOMC/CPI events, plus any
+    gold-detected holding (ticker/name heuristic, independent of sector)."""
     exposed, watch = sec._forward_exposure(
         {"event_type": "macro", "name": "Consumer Price Index (CPI)"}, _fwd_holdings()
     )
-    assert "NVIDIA" in exposed and "SPDR Gold" in exposed  # tech + gold
+    assert set(exposed) == {"NVIDIA", "SPDR Gold", "Costco"}
     assert "Tencent" not in exposed  # non-US excluded
+    assert "Cash" not in exposed  # non-equity excluded
     assert "inflation" in watch and "rise" not in watch  # observation, not forecast
 
 
@@ -310,11 +314,15 @@ def test_forward_exposure_earnings_maps_exact_ticker() -> None:
     assert exposed == ["NVIDIA"]
 
 
-def test_forward_exposure_retail_maps_consumer_only() -> None:
+def test_forward_exposure_retail_maps_all_us_equity() -> None:
+    """Issue #435: sector-based consumer-only narrowing was removed — every
+    US-listed stock/ETF is now flagged for retail/sentiment events."""
     exposed, _ = sec._forward_exposure(
         {"event_type": "macro", "name": "Retail Sales"}, _fwd_holdings()
     )
-    assert exposed == ["Costco"]
+    assert set(exposed) == {"NVIDIA", "SPDR Gold", "Costco"}
+    assert "Tencent" not in exposed
+    assert "Cash" not in exposed
 
 
 def test_forward_delay_risk_detects_funding_lapse() -> None:
@@ -633,7 +641,6 @@ def test_serialize_portfolio_unpriced_holding_survives_with_none_values() -> Non
         currency="GBP",
         asset_type="stock",
         asset_class="STOCK",
-        sector=None,
         market="Other",
         market_value=None,
         market_value_base=None,

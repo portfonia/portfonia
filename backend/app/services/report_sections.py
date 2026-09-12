@@ -298,13 +298,6 @@ def _build_section44_technical(positions: list[dict[str, Any]]) -> str:
 # body — not part of the prompt itself)
 # ---------------------------------------------------------------------------
 
-_RATE_SENSITIVE_SECTORS = {
-    "Technology",
-    "Consumer Discretionary",
-    "Communication Services",
-    "Real Estate",
-}
-_CONSUMER_SECTORS = {"Consumer Discretionary", "Consumer Staples"}
 _GOLD_TICKERS = {"GLD", "IAU", "GLDM", "SGOL", "GLDX"}
 # RSS-derived delay caveat triggers (#1): a funding lapse can suspend BLS/BEA
 # releases. zh-Hans terms load from i18n_glossary.yml's release_delay_terms_zh
@@ -346,20 +339,12 @@ def _forward_exposure(
     low = event.get("name", "").lower()
     if "fomc" in low:
         return (
-            [
-                h["name"]
-                for h in holdings
-                if _us_equity(h) and (h.get("sector") in _RATE_SENSITIVE_SECTORS or _is_gold(h))
-            ],
+            [h["name"] for h in holdings if _us_equity(h) or _is_gold(h)],
             "policy-rate decision and statement tone",
         )
     if any(k in low for k in ("cpi", "ppi", "pce", "personal income")):
         return (
-            [
-                h["name"]
-                for h in holdings
-                if _us_equity(h) and (h.get("sector") in _RATE_SENSITIVE_SECTORS or _is_gold(h))
-            ],
+            [h["name"] for h in holdings if _us_equity(h) or _is_gold(h)],
             "inflation reading vs consensus; rate-path implications",
         )
     if "payroll" in low or "employment" in low:
@@ -369,12 +354,12 @@ def _forward_exposure(
         )
     if "retail" in low:
         return (
-            [h["name"] for h in holdings if h.get("sector") in _CONSUMER_SECTORS],
+            [h["name"] for h in holdings if _us_equity(h)],
             "consumer-spending momentum",
         )
     if "sentiment" in low:
         return (
-            [h["name"] for h in holdings if h.get("sector") in _CONSUMER_SECTORS],
+            [h["name"] for h in holdings if _us_equity(h)],
             "household-sentiment trend",
         )
     if "gross domestic" in low or "gdp" in low:

@@ -21,7 +21,6 @@ function holding(overrides: Partial<HoldingValueOut>): HoldingValueOut {
     currency: "USD",
     asset_type: "stock",
     asset_class: "STOCK",
-    sector: "Technology",
     market: "US",
     market_value: "3000.00",
     market_value_base: "3000.00",

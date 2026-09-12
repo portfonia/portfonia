@@ -372,30 +372,6 @@ def _enqueue_sparse_for(
             )
 
 
-def _enqueue_sector_backfill(
-    user_id: UUID, holdings: Sequence[Holding], *, log_prefix: str
-) -> None:
-    """Fire-and-forget sector fill so POST/PATCH/confirm do not wait on yfinance.
-
-    The task opens its own session and commits — a request-scoped
-    sector flush after session.commit() is rolled back when
-    get_session() closes (PR #310).
-    """
-    ids = [str(h.id) for h in holdings]
-    if not ids:
-        return
-    from app.tasks.capture_tasks import backfill_sectors_task
-
-    _enqueue_confirm_capture(
-        backfill_sectors_task,
-        ids,
-        str(user_id),
-        label="sector backfill",
-        user_id=user_id,
-        log_prefix=log_prefix,
-    )
-
-
 _MONEY_FIELDS = ("shares", "avg_cost", "current_value")
 
 
@@ -556,7 +532,6 @@ def confirm_holdings(
         archive_unreferenced=archive,
     )
     session.commit()
-    _enqueue_sector_backfill(user_id, inserted, log_prefix="confirm_holdings")
     if mode == "replace":
         tickers_needing_backfill = _tickers_with_sparse_history(session, user_id)
         if tickers_needing_backfill:
@@ -615,7 +590,6 @@ def create_holding(
         archive_unreferenced=False,
     )
     session.commit()
-    _enqueue_sector_backfill(user_id, inserted, log_prefix="create_holding")
     _enqueue_sparse_for(session, user_id, inserted, log_prefix="create_holding")
     holding = inserted[0]
     session.refresh(holding)
@@ -710,9 +684,9 @@ def update_holding(
     # whether the client's PATCH body mentioned "ticker": it force-suffixes
     # a ticker (apply_confirmed_exchange_suffix) even on a patch that never
     # touches the field, e.g. a notes-only edit on a legacy unsuffixed row.
-    # Comparing `updates["ticker"]` missed that case entirely — stale
-    # sector/price survived and no backfill was enqueued, the round-1
-    # regression reopened through a different door (PR #310 round 5 review).
+    # Comparing `updates["ticker"]` missed that case entirely — stale price
+    # survived, the round-1 regression reopened through a different door
+    # (PR #310 round 5 review; that round's backfill enqueue is gone, #435).
     ticker_changed = data.get("ticker") != holding.ticker
     fund_changed = data.get("fund_code") != holding.fund_code
     for field, value in data.items():
@@ -728,7 +702,6 @@ def update_holding(
     if data["pricing_mode"] == "manual":
         holding.last_manual_update = datetime.now(tz=UTC)
     if ticker_changed or fund_changed:
-        holding.sector = None
         holding.market_price = None
         holding.price_as_of = None
         holding.price_fetched_at = None
@@ -742,7 +715,6 @@ def update_holding(
         holding.account_id = account_ids[0]
     session.commit()
     if ticker_changed or fund_changed:
-        _enqueue_sector_backfill(principal.user_id, [holding], log_prefix="update_holding")
         _enqueue_sparse_for(session, principal.user_id, [holding], log_prefix="update_holding")
     session.refresh(holding)
     return holding

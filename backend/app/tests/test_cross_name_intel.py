@@ -95,7 +95,6 @@ def _seed_l2(
         analysis=analysis,
         attempt_count=1,
         affected_asset_classes=["EQUITY_US_TECH"],
-        affected_sectors=[],
         facts={},
     )
     session.add(row)

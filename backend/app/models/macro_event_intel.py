@@ -43,17 +43,15 @@ class MacroEventIntel(Base):
     non-deterministic even at temperature 0, so an identical call is the
     primary remedy.
 
-    `affected_asset_classes` / `affected_sectors` hold the STRUCTURED half of
-    the inference, already filtered to the closed taxonomies
-    (`asset_class_config.VALID_ASSET_CLASSES` /
-    `sector_taxonomy.VALID_SECTORS`) — an out-of-taxonomy label the model
-    invented never reaches this table, so nothing downstream has to
-    re-validate before intersecting it with a user's portfolio.
-    `affected_sectors` exists for the forward-event holding-relevance
-    mapping that already runs on `sector` (`report_sections._forward_exposure`)
-    — this is CLAUDE.md's one sanctioned use of `sector`, and A3 does not
-    widen it: the per-user exposure mapping added here reads asset_class
-    only.
+    `affected_asset_classes` holds the STRUCTURED half of the inference,
+    already filtered to the closed taxonomy
+    (`asset_class_config.VALID_ASSET_CLASSES`) — an out-of-taxonomy label the
+    model invented never reaches this table, so nothing downstream has to
+    re-validate before intersecting it with a user's portfolio. The per-user
+    exposure mapping added by A3 reads asset_class only (issue #435 removed
+    the sibling `affected_sectors` column, which existed only to feed
+    `report_sections._forward_exposure`'s sector-based holding-relevance
+    filter — that filter itself was removed).
 
     Contents are safe unencrypted for the same reason `ticker_intel`'s are:
     the analysis is built ONLY from public macro-theme headlines and
@@ -85,7 +83,6 @@ class MacroEventIntel(Base):
     analysis: Mapped[str | None] = mapped_column(Text, nullable=True)
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
     affected_asset_classes: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
-    affected_sectors: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
     facts: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False

@@ -448,8 +448,6 @@
     "chartByCustodian": "By custodian",
     "chartByAccount": "By account",
     "chartByAssetClass": "By asset class",
-    "chartBySector": "By sector",
-    "chartBySectorScope": "Stocks and ETFs only.",
     "chartByCurrency": "By currency",
     "chartEmpty": "No data yet.",
     "holdingsHeading": "Holdings",

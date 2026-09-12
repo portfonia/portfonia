@@ -113,7 +113,6 @@ def _empty_portfolio_snap() -> PortfolioSnapshot:
         by_currency={},
         by_asset_type={},
         by_market={},
-        by_sector={},
         by_asset_class={"EQUITY_US_BROAD": Decimal("100")},
         concentration=Concentration(
             top_holding_name="",
@@ -153,7 +152,6 @@ def _mock_l2_llm(*args: object, **kwargs: object) -> str:
         {
             "analysis": f"{_L2_MARKER} the policy meeting left rates unchanged. [Established]",
             "affected_asset_classes": ["EQUITY_US_BROAD", "NOT_A_REAL_CLASS"],
-            "affected_sectors": ["Financials"],
         }
     )
 
