@@ -221,25 +221,27 @@ def test_assembly_system_prompt_never_mentions_large_holdings_window_price() -> 
 
 
 def test_assembly_prompt_section2_instructs_selection_not_mechanical_coverage() -> None:
-    """2026-08-21 §2 rewrite, assembly's own inline instruction block (issue
-    #128 Ring 1 stage B / B1 PR follow-up) — same rewrite as Pass 2's
-    report_prompts._SECTION2_INSTRUCTIONS: select a few genuinely-changed
-    events into flowing paragraphs, not mechanical bulleted coverage of
-    every supplied one."""
+    """issue #440 §2 rewrite, assembly's own inline instruction block — same
+    rewrite as Pass 2's report_prompts._SECTION2_INSTRUCTIONS (Contract
+    constraints "Pass 2 and assembly receive equivalent macro plan"):
+    overview + one deep anchor + short updates, not mechanical
+    one-paragraph-per-event coverage. Supersedes the #128-era "typically 2
+    to 4" / rigid time-tier contract."""
     prompt = _prompt()
-    assert "2 to 4" in prompt
+    assert "ONE deep anchor" in prompt
     assert "Impact on this portfolio" not in prompt
     for label in ("short-term (this period", "medium-term (weeks to a quarter)"):
         assert label not in prompt
 
 
-def test_assembly_prompt_section2_no_mapping_means_no_standalone_paragraph() -> None:
-    """Same 2026-08-22 tightening as report_prompts._SECTION2_INSTRUCTIONS —
-    assembly's own inline §2 block gets the matching no-direct-mapping
-    rule."""
+def test_assembly_prompt_section2_eligibility_independent_of_direct_holdings_match() -> None:
+    """issue #440: supersedes the 2026-08-22 "no direct, concrete mapping to
+    a holding means no standalone paragraph" gate this test used to lock —
+    assembly's §2 must not require a direct holdings mapping any more than
+    Pass 2's does (see test_report_prompts.py's sibling test)."""
     prompt = " ".join(_prompt().split())
-    assert "no direct, concrete mapping to a holding" in prompt
-    assert "does not earn its own paragraph by default" in prompt
+    assert "not gated on a direct holdings match" in prompt
+    assert "no direct, concrete mapping to a holding" not in prompt
 
 
 def test_assembly_prompt_requests_the_same_section_markers_pass2_emits() -> None:

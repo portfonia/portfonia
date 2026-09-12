@@ -61,6 +61,11 @@ from app.services.forward_events import FORWARD_WINDOW_DAYS, load_forward_events
 from app.services.github_issues import create_bug_report
 from app.services.holding_news import load_entity_aliases, recall_holding_news
 from app.services.investment_context import InvestorPreferences, load_investor_preferences
+from app.services.macro_coverage import (
+    extract_macro_sidecar,
+    load_recent_macro_coverage,
+    persist_macro_coverage,
+)
 from app.services.macro_detector import detect_macro_signals
 from app.services.macro_event_intel import (
     build_l2_facts,
@@ -158,7 +163,7 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_PROMPT_VERSION = "f2-v9"  # f2-v9: INVESTOR PREFERENCES block widened to all 8 questionnaire dimensions plus free_text (issue #129 checkpoint B6, decision point 6 corrected 2026-08-25 — the original locale/intel_focus-only scope was a misreading of the product owner's intent; risk_appetite/objective now carry a per-field SCOPE guardrail instead of being withheld, and the boundary is additionally held by the _scan_forbidden_output backstop); f2-v8: INVESTOR PREFERENCES block added to the Pass 2 user-turn prompt (issue #129 checkpoint B6, decision point 6 — only locale/intel_focus, scope-guarded, see _build_investor_preferences_block in report_prompts.py); f2-v7: analysis framework basis injected into _PASS2_SYSTEM (issue #128 Ring 1 stage B, checkpoint B1 — config/analysis_framework.yml, reloaded fresh via _build_pass2_system, its own `version` recorded separately in report_inputs.analysis_framework_version); f2-v6 was itself under-documented — besides its own §4.2/HOLDING-RELEVANT NEWS change, PR #168's narrative-layer redesign rewrote NAMING IS NOT ANALYSIS and parameterized the LARGE HOLDINGS references without bumping this constant (design doc §2.8, PR #167 round 3 caught the same gap on ASSEMBLY_PROMPT_VERSION); f2-v5 = direction-requires-evidence + divergence-is-the-signal (no price-direction claims without window data); f2-v4 = §4.2 code table + driver-only, evidence confidence labels, §4.4 technical position
+_PROMPT_VERSION = "f2-v10"  # f2-v10: issue #440 macro-section redesign — §2 eligibility no longer gated on a direct holdings match, composition changed from N interchangeable theme paragraphs to overview + one question-led deep anchor + 0-2 short updates, MACRO COVERAGE CONTINUITY block added (report_prompts._build_pass2_prompt's new macro_continuity param, report_assembly.build_assembly_prompt's ASSEMBLY_PROMPT_VERSION a4-v6 in lockstep — see that constant's own changelog), and a structured macro-coverage sidecar is now required at the end of every §2-writing call (app/services/macro_coverage.py) so the actually-rendered coverage can be persisted and read back by a later report; f2-v9: INVESTOR PREFERENCES block widened to all 8 questionnaire dimensions plus free_text (issue #129 checkpoint B6, decision point 6 corrected 2026-08-25 — the original locale/intel_focus-only scope was a misreading of the product owner's intent; risk_appetite/objective now carry a per-field SCOPE guardrail instead of being withheld, and the boundary is additionally held by the _scan_forbidden_output backstop); f2-v8: INVESTOR PREFERENCES block added to the Pass 2 user-turn prompt (issue #129 checkpoint B6, decision point 6 — only locale/intel_focus, scope-guarded, see _build_investor_preferences_block in report_prompts.py); f2-v7: analysis framework basis injected into _PASS2_SYSTEM (issue #128 Ring 1 stage B, checkpoint B1 — config/analysis_framework.yml, reloaded fresh via _build_pass2_system, its own `version` recorded separately in report_inputs.analysis_framework_version); f2-v6 was itself under-documented — besides its own §4.2/HOLDING-RELEVANT NEWS change, PR #168's narrative-layer redesign rewrote NAMING IS NOT ANALYSIS and parameterized the LARGE HOLDINGS references without bumping this constant (design doc §2.8, PR #167 round 3 caught the same gap on ASSEMBLY_PROMPT_VERSION); f2-v5 = direction-requires-evidence + divergence-is-the-signal (no price-direction claims without window data); f2-v4 = §4.2 code table + driver-only, evidence confidence labels, §4.4 technical position
 _DISCLAIMER_VERSION = "f3-bilingual-v2"
 
 # L1 leftover-budget top-up (issue #128 quality gate, design doc §6.7 item 3).
@@ -487,6 +492,8 @@ def _assembly_prompt_from_ctx(ctx: ReportContext, investor_prefs: InvestorPrefer
         investor_locale=investor_prefs.locale,
         investor_questionnaire=investor_prefs.questionnaire,
         investor_free_text=investor_prefs.free_text,
+        macro_signals=ctx.macro_signals,
+        macro_continuity=ctx.macro_continuity_snapshot,
     )
 
 
@@ -637,13 +644,22 @@ def _finish_report(
     have to thread a "skip email/mark" flag through every caller or silently
     change its no-side-effects contract — its own small persist block at the
     end stays separate on purpose.
+
+    `raw_body` (issue #440): still carries the macro-coverage sidecar the
+    §2-writing pass appended (`ctx.pass2_raw`/`ctx.assembly_raw` store it
+    verbatim, sidecar included, for audit). Extracted HERE — the single
+    render point for both the live pipeline and the #61 resume path — so a
+    malformed or missing sidecar can never leak into the rendered report,
+    and so a resume re-derives coverage from the SAME stored raw body rather
+    than needing it re-persisted at generation time.
     """
+    visible_body, coverage_items = extract_macro_sidecar(raw_body)
     report_date_str = eff_date.strftime("%Y-%m-%d")
     full_md, violations, translated_body = _render_full_md(
         report_date_str,
         ctx.portfolio_summary,
         ctx.news_items,
-        raw_body,
+        visible_body,
         output_lang,
         ctx.period_start,
         ctx.period_end,
@@ -668,6 +684,20 @@ def _finish_report(
     report.report_md = full_md
     report.report_inputs = ctx.to_jsonb()
     report.generated_at = datetime.now(tz=UTC)
+    # issue #440: atomic with the status/body commit below (Contract
+    # constraints "Generate/retry transaction failure: No finalized
+    # report/coverage half-commit"). `as_of` is the report's own evidence
+    # cutoff (period_end), never generated_at — Design §4. Persisted
+    # regardless of `final_status` (write-time is uniform; eligibility for a
+    # LATER report's continuity read is the gate — success-only, see
+    # `load_recent_macro_coverage`).
+    persist_macro_coverage(
+        session,
+        report_id=report.id,
+        user_id=user_id,
+        as_of=datetime.fromisoformat(ctx.period_end) if ctx.period_end else datetime.now(tz=UTC),
+        items=coverage_items,
+    )
     # H-DEBT-3 (#30): mark this window's news as surfaced in the same
     # transaction as the status commit, so the two can never diverge.
     url_hashes = (
@@ -1122,7 +1152,31 @@ def generate_report(
         # ------------------------------------------------------------------
         # 2. Skip check
         # ------------------------------------------------------------------
-        if not macro_signals.has_any_hit and not anomalies:
+        # issue #440 (owner decision 2026-09-12, "narrow/retire the quiet-path
+        # shortcut"): a zero-keyword-hit report period is no longer, by
+        # itself, treated as "no macro developments" — Requirements point 1.
+        # This bypass now only fires when there is genuinely nothing to write
+        # even a substantive overview from: no keyword theme hit, no price
+        # anomaly, no window news at all (so no bounded-recovery candidate
+        # exists either — Design §2 step 5's "collection/recall/filter check"
+        # has nothing to work with), AND no eligible prior coverage this
+        # reader is owed continuity on. In practice this condition is nearly
+        # unreachable outside a genuinely empty capture window (news_items
+        # empty is itself an ops-alertable capture-layer symptom elsewhere in
+        # this pipeline) — that is the intended effect, not a bug: macro
+        # coverage should almost never take the canned quiet path anymore.
+        # Self-excluded (Contract constraints "no self/future-reference"): a
+        # retry of this same report_id (needs_review always takes the full
+        # reset path, never resume — see the retry branch above) may already
+        # have its own prior coverage rows persisted from the attempt being
+        # redone; those must never feed back into its own new prompt.
+        ctx.macro_continuity_snapshot = load_recent_macro_coverage(
+            session, user_id, exclude_report_id=report.id
+        )
+        has_macro_material = bool(
+            macro_signals.has_any_hit or news_items or ctx.macro_continuity_snapshot
+        )
+        if not has_macro_material and not anomalies:
             logger.info("report %s: quiet day — no signals, no anomalies", report.id)
             quiet_body = (
                 "## §2 Macro Signals\n\n"
@@ -1726,6 +1780,7 @@ def generate_report(
                 investor_locale=investor_prefs.locale,
                 investor_questionnaire=investor_prefs.questionnaire,
                 investor_free_text=investor_prefs.free_text,
+                macro_continuity=ctx.macro_continuity_snapshot,
             )
 
             ctx.pass2_model = primary_model
@@ -1878,6 +1933,13 @@ def regenerate_report(
         # regenerate's snapshot stale/absent).
         investor_prefs = load_investor_preferences(session, user_id)
 
+        # issue #440: re-fetched live like investor_prefs above, self-
+        # excluding THIS report_id (Design §5 "Analyze regeneration excludes
+        # the current report from historical context") — this report's own
+        # PRIOR coverage rows (from the attempt being redone) must not feed
+        # back into the prompt regenerating it.
+        macro_continuity = load_recent_macro_coverage(session, user_id, exclude_report_id=report.id)
+
         # A4: re-run the pass that WROTE this body, not always Pass 2. Beyond
         # being the wrong pass for an assembled report, re-running Pass 2 here
         # would write `pass2_raw` while leaving the superseded `assembly_raw`
@@ -1949,6 +2011,8 @@ def regenerate_report(
                 investor_locale=investor_prefs.locale,
                 investor_questionnaire=investor_prefs.questionnaire,
                 investor_free_text=investor_prefs.free_text,
+                macro_signals=inputs.get("macro_signals", {}),
+                macro_continuity=macro_continuity,
             )
             raw_body = run_assembly_pass(
                 _openrouter_client(), assembly_model, assembly_user, usage_sink=regen_calls
@@ -1976,6 +2040,7 @@ def regenerate_report(
                 "cross_name_intel": fresh_clusters,
                 "investor_questionnaire_snapshot": investor_prefs.questionnaire,
                 "investor_questionnaire_version": investor_prefs.questionnaire_version,
+                "macro_continuity_snapshot": macro_continuity,
             }
         else:
             pass2_user = _build_pass2_prompt(
@@ -1991,6 +2056,7 @@ def regenerate_report(
                 investor_locale=investor_prefs.locale,
                 investor_questionnaire=investor_prefs.questionnaire,
                 investor_free_text=investor_prefs.free_text,
+                macro_continuity=macro_continuity,
             )
             raw_body = _call_llm(
                 _openrouter_client(),
@@ -2011,6 +2077,7 @@ def regenerate_report(
                 "analysis_framework_version": load_analysis_framework().version,
                 "investor_questionnaire_snapshot": investor_prefs.questionnaire,
                 "investor_questionnaire_version": investor_prefs.questionnaire_version,
+                "macro_continuity_snapshot": macro_continuity,
             }
 
         # Recompute technical positions from the live DB so a backfill run
@@ -2039,12 +2106,19 @@ def regenerate_report(
     # email or call `mark_news_surfaced`, and merges into the row's existing
     # `report_inputs` rather than a fresh `ctx.to_jsonb()`. See
     # `_finish_report`'s docstring for the full reasoning.
+    #
+    # issue #440: `raw_body` may carry the macro-coverage sidecar (present on
+    # any body written under prompt f2-v10/a4-v6 or later; absent, and
+    # harmlessly a no-op, on an older stored row — see extract_macro_sidecar's
+    # docstring). Stripped here so it never reaches the rendered report under
+    # EITHER mode.
+    visible_body, coverage_items = extract_macro_sidecar(raw_body)
     report_date_str = report.report_date.strftime("%Y-%m-%d")
     full_md, violations, translated_body = _render_full_md(
         report_date_str,
         portfolio,
         news_items,
-        raw_body,
+        visible_body,
         output_lang,
         report.period_start.isoformat() if report.period_start else "",
         report.period_end.isoformat() if report.period_end else "",
@@ -2062,6 +2136,19 @@ def regenerate_report(
     if report.report_inputs is not None:
         report.report_inputs = {**report.report_inputs, "pass2_translated": translated_body}
     report.generated_at = datetime.now(tz=UTC)
+    if mode == "analyze":
+        # Render-only regeneration re-runs no analysis (Design §5) and must
+        # not touch this report's existing coverage rows — only `analyze`,
+        # which just re-derived `coverage_items` from a FRESH body pass,
+        # replaces them (delete-then-insert: Contract constraints
+        # "Regenerate after a topic was removed: No stale coverage").
+        persist_macro_coverage(
+            session,
+            report_id=report.id,
+            user_id=user_id,
+            as_of=report.period_end or datetime.now(tz=UTC),
+            items=coverage_items,
+        )
     session.commit()
     logger.info("report %s: regenerated (mode=%s, lang=%s)", report.id, mode, output_lang)
     return report

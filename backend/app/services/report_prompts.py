@@ -15,6 +15,10 @@ from app.compliance.forbidden_vocab import PROMPT_VOCAB_STRING as _FORBIDDEN_PRO
 from app.core.timezones import ET
 from app.services.analysis_framework import load_analysis_framework
 from app.services.i18n_glossary import load_i18n_glossary
+from app.services.macro_coverage import (
+    build_macro_sidecar_instruction,
+    render_macro_continuity_block,
+)
 from app.services.macro_detector import MacroSignals
 from app.services.news_fetcher import NewsItem
 from app.services.portfolio_calculator import format_fx_rates_as_of
@@ -289,31 +293,77 @@ def body_is_incomplete(body: str) -> bool:
 # asked for a subset. generate_report() always requests ALL_NARRATIVE_SECTIONS
 # today — no caller picks a subset yet, that mapping (which report_type gets
 # which sections) is a Ring 1 decision, not built here.
+# Rewritten for issue #440 (owner decision 2026-09-12, proceeding from the
+# authored Design/Contract with design-review default leanings on open
+# knobs). Replaces the narrower #171-era "2-4 direct-holdings-linked
+# paragraphs" contract: macro eligibility is now independent of a direct
+# holdings match, a continuing condition stays eligible with no headline
+# requirement, and the section's shape is overview + one deep anchor + a
+# few short updates rather than N interchangeable paragraphs. See Design
+# §1/§3 and Requirements for the full rationale this codifies.
 _SECTION2_INSTRUCTIONS = (
     "## §2 Macro Signals\n"
-    "From the macro themes and signals supplied above, select the ones — typically "
-    "2 to 4 — that show a genuine, evidenced change THIS report period; apply the "
-    "analysis framework's own judgment (see ANALYSIS FRAMEWORK above) for how much "
-    "space each earns and how its time horizon is framed. Write each selected theme "
-    "as ONE flowing paragraph, not a bulleted or sub-headed structure: describe what "
-    "is happening, do NOT stop at naming exposed tickers — trace the transmission "
-    "mechanism (signal -> channel -> the specific holding) — and let the near-term "
-    "channel, the medium-term development, and any structural/multi-year "
-    "significance appear in whatever order and proportion the evidence actually "
-    "supports. Do not label them 'short-term'/'medium-term'/'long-term' and do not "
-    "add a sub-heading before naming holdings. A theme that triggered but shows no "
-    "material change this period does not need its own paragraph — say so in one "
-    "line, or omit it, rather than restating it at the same length report after "
-    "report. A theme with no direct, concrete mapping to an identifier actually "
-    "held does not earn its own §2 paragraph by default, regardless of how much "
-    "genuine change it shows elsewhere — at most, mention it as one aside sentence "
-    "inside the relevant holding's §3 analysis, not as a standalone §2 paragraph. "
-    "If nothing shows genuine change this period, say so plainly rather "
-    "than padding coverage. Stay descriptive: report what to WATCH, never what to "
-    "DO (no buy/sell/hold/hedge/trim language). Any near-term read describes a "
-    "CHANNEL ('X would transmit via Y'), not an observed move — see DIRECTION "
-    "REQUIRES EVIDENCE / DIVERGENCE IS THE SIGNAL above; check PRICE ANOMALIES "
-    "before stating a holding already moved a given direction.\n\n"
+    "Macro coverage is not gated on a direct holdings match — a systemically "
+    "important development earns space on its own merits; explicit holdings, "
+    "watched instruments, and the reader's own stated interests (see any "
+    "investor-preference or coverage-continuity context supplied below, when "
+    "present) affect WHICH "
+    "questions you research and select, how deep the analysis goes, and what "
+    "personalized implications you draw — not whether the topic is eligible at "
+    "all. A zero-keyword-hit or holdings-quiet period is never by itself grounds "
+    "to declare macro developments absent; if the supplied material is genuinely "
+    "thin, say so as a specific evidence gap (what is missing, as of what cutoff) "
+    "rather than asserting nothing is happening in the world.\n\n"
+    "Compose §2 as:\n"
+    "  (a) a brief current-state overview (2-3 sentences) of what is happening in "
+    "the broader environment this report period;\n"
+    "  (b) ONE deep anchor: pick the single most important macro question this "
+    "period — by systemic significance, by the reader's own stated focus/holdings, "
+    "or (per MACRO COVERAGE CONTINUITY) a continuing question this reader is owed "
+    "an update on — and analyze it in 3-5 flowing paragraphs covering: what "
+    "changed and against what baseline; the transmission mechanism, "
+    "explanation, and its evidence; "
+    "countervailing forces or alternative explanations the material supports; "
+    "what remains genuinely uncertain; a concrete, checkable observable to watch; "
+    "and what it conditionally implies for THIS reader's style, watched "
+    "instruments, and major holdings (roughly two-thirds of the anchor analyzes "
+    "the macro condition itself, roughly one-third evaluates reader implications "
+    "— never invent a holding or a preference to fill this out; a reader with no "
+    "holdings still gets the macro analysis, without a fabricated position to "
+    "hang it on);\n"
+    "  (c) 0-2 short independent updates (a couple of sentences each) for other "
+    "themes that show real, distinct, evidenced change this period but do not "
+    "warrant anchor-length treatment.\n"
+    "These are editorial proportions to aim for, not hard limits — never pad "
+    "toward a length or truncate genuine substance to fit one; density means more "
+    "facts, mechanisms, counterevidence, and personalized implications, not more "
+    "characters. A weekly report synthesizes the week's evolution of the anchor "
+    "rather than concatenating each day's separate story.\n\n"
+    "Several related headlines that form one causal chain (e.g. oil, inflation, "
+    "and sovereign-bond moves driven by the same shock) are ONE argument, not one "
+    "paragraph per headline — merge them. §3 contributes only the incremental, "
+    "company-specific detail beyond what §2 already established; do not restate "
+    "§2's mechanism inside a holding's §3 analysis. The SAME anchor may recur "
+    "across reports: when it does, explicitly say what new evidence confirmed, "
+    "weakened, changed, or left unresolved about the prior analysis — see MACRO "
+    "COVERAGE CONTINUITY below when supplied. A continuing condition with no new "
+    "headline this period may still be the anchor if your own evidence confirms "
+    "it remains live; label it as a state-of-play confirmation, not a new "
+    "occurrence, and do not restate its full original background at the same "
+    "depth for a reader who has already had it (first-time readers, and any "
+    "necessary background a returning reader would need, still get it).\n\n"
+    "Distinguish plainly, in your own wording, between: an observation (what the "
+    "material states happened), a supported conditional implication (what it "
+    "means for this reader's style/holdings/watches IF the stated condition "
+    "holds — never a forecast, a probability, or an instruction), and a named "
+    "unknown (what the material does not yet establish). Missing price data is "
+    "never itself evidence of a divergence; two holdings' prices moving the same "
+    "direction is never itself evidence of a shared cause — state the mechanism "
+    "the material actually supports. Stay descriptive: report what to WATCH, "
+    "never what to DO (no buy/sell/hold/hedge/trim language). Any near-term read "
+    "describes a CHANNEL ('X would transmit via Y'), not an observed move — see "
+    "DIRECTION REQUIRES EVIDENCE / DIVERGENCE IS THE SIGNAL above; check PRICE "
+    "ANOMALIES before stating a holding already moved a given direction.\n\n"
 )
 _SECTION3_INSTRUCTIONS = (
     "## §3 Holdings Analysis\n"
@@ -643,6 +693,34 @@ def _build_investor_preferences_block(
     return "\n".join(lines)
 
 
+def _build_macro_signal_themes_block(macro: dict[str, Any]) -> str:
+    """Render the MACRO SIGNAL THEMES block — the keyword-recalled candidate
+    pool (macro_detector.py), independent of any holdings match. Shared by
+    Pass 2's own prompt and, since issue #440, by the A4 assembly prompt too
+    (`report_assembly.build_assembly_prompt`): assembly previously had NO
+    holdings-independent macro material at all, only the L2 shared-event
+    cache's exposure-filtered subset — see that module's docstring note on
+    why this block closes that gap rather than widening L2 eligibility
+    itself (a shared, cross-user cache, out of this issue's scope).
+    """
+    lines = ["=== MACRO SIGNAL THEMES ==="]
+    if macro.get("has_any_hit"):
+        for hit in macro.get("hits", []):
+            lines.append(
+                f"Theme: {hit['theme']} — keywords: {', '.join(hit.get('keywords_found', []))}"
+            )
+            for art in hit.get("top_articles", []):
+                lines.append(f"  [{art['source']}] {art['title']}")
+    else:
+        lines.append(
+            "(no keyword theme triggered this window — this is recall material, "
+            "not an exhaustive statement of what is happening; do not treat it as "
+            "proof macro conditions are quiet, and use MACRO COVERAGE CONTINUITY "
+            "and BACKGROUND RESEARCH below for what to cover)"
+        )
+    return "\n".join(lines)
+
+
 def _build_pass2_prompt(
     portfolio: dict[str, Any],
     macro: dict[str, Any],
@@ -657,6 +735,7 @@ def _build_pass2_prompt(
     investor_locale: str | None = None,
     investor_questionnaire: dict[str, Any] | None = None,
     investor_free_text: str | None = None,
+    macro_continuity: list[dict[str, Any]] | None = None,
 ) -> str:
     lines: list[str] = []
 
@@ -745,16 +824,7 @@ def _build_pass2_prompt(
 
     # Macro signals
     lines.append("")
-    lines.append("=== MACRO SIGNAL THEMES ===")
-    if macro.get("has_any_hit"):
-        for hit in macro.get("hits", []):
-            lines.append(
-                f"Theme: {hit['theme']} — keywords: {', '.join(hit.get('keywords_found', []))}"
-            )
-            for art in hit.get("top_articles", []):
-                lines.append(f"  [{art['source']}] {art['title']}")
-    else:
-        lines.append("(quiet day — no macro themes triggered)")
+    lines.append(_build_macro_signal_themes_block(macro))
 
     # Price anomalies (window net + worst single day + latest-day session arc)
     lines.append("")
@@ -797,6 +867,13 @@ def _build_pass2_prompt(
     if preferences_block:
         lines.append(preferences_block)
 
+    # Macro coverage continuity (issue #440) — placed last among context
+    # blocks, same reasoning as investor preferences: reads as "given all of
+    # this, here is what this reader has already been told".
+    continuity_block = render_macro_continuity_block(macro_continuity or [])
+    if continuity_block:
+        lines.append(continuity_block)
+
     # Instructions
     ordered_sections = [s for s in ("§2", "§3", "§4") if s in enabled_sections]
     lines.append("")
@@ -804,4 +881,6 @@ def _build_pass2_prompt(
         sections_clause=_section_list_clause(ordered_sections)
     ) + "".join(_NARRATIVE_SECTION_BLOCKS[s] for s in ordered_sections)
     lines.append(instructions)
+    if "§2" in ordered_sections:
+        lines.append(build_macro_sidecar_instruction())
     return "\n".join(lines)

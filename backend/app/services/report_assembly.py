@@ -57,6 +57,10 @@ from app.core.timezones import ET
 from app.services.analysis_framework import load_analysis_framework
 from app.services.i18n_glossary import load_i18n_glossary
 from app.services.instrument_symbols import InstrumentKey, intelligence_identifier
+from app.services.macro_coverage import (
+    build_macro_sidecar_instruction,
+    render_macro_continuity_block,
+)
 from app.services.portfolio_calculator import format_fx_rates_as_of
 from app.services.report_llm import _call_llm
 from app.services.report_prompts import (
@@ -65,6 +69,7 @@ from app.services.report_prompts import (
     _RULE_TIME_REFERENCES,
     _SHARED_BODY_RULES_NO_LARGE_HOLDINGS,
     _build_investor_preferences_block,
+    _build_macro_signal_themes_block,
     _stale_ticker_hint,
 )
 from app.services.transmission_taxonomy import transmissions_for_classes
@@ -85,13 +90,22 @@ logger = logging.getLogger(__name__)
 # same investor_locale/investor_questionnaire/investor_free_text params as
 # _build_pass2_prompt and renders the same _build_investor_preferences_block.
 #
+# a4-v5 -> a4-v6 (issue #440): the assembly prompt gains a holdings-
+# independent MACRO SIGNAL THEMES block (assembly previously had ONLY the
+# L2 shared-event cache's exposure-filtered subset — no way to discuss a
+# macro development with no overlap to a held asset class at all) and a
+# MACRO COVERAGE CONTINUITY block, plus the §2 sidecar/composition contract
+# — see report_prompts.py's own _PROMPT_VERSION f2-v10 entry for the full
+# rationale, shared verbatim by both passes per Contract constraints "both
+# generation paths satisfy the same macro content contract".
+#
 # a4-v2 -> a4-v3 (issue #128 Ring 1 stage B / B1 PR, Grok review PR #172):
 # _build_assembly_system() now injects the analysis framework basis and the
 # §2 "no direct holding mapping -> no standalone paragraph" tightening — a
 # real system-prompt contract change caught by review for not bumping this
 # constant, the same class of gap _PROMPT_VERSION's own f2-v6 comment
 # documents on the Pass 2 side.
-ASSEMBLY_PROMPT_VERSION = "a4-v5"
+ASSEMBLY_PROMPT_VERSION = "a4-v6"
 
 
 def _build_assembly_system() -> str:
@@ -291,6 +305,8 @@ def build_assembly_prompt(
     investor_locale: str | None = None,
     investor_questionnaire: dict[str, Any] | None = None,
     investor_free_text: str | None = None,
+    macro_signals: dict[str, Any] | None = None,
+    macro_continuity: list[dict[str, Any]] | None = None,
 ) -> str:
     """Assemble the user-turn prompt. Takes no `Session` by design — see the
     module docstring's type-boundary note; every value here arrives already
@@ -404,6 +420,16 @@ def build_assembly_prompt(
                 f"  Top asset class ({conc.get('top_asset_class_name')}) = "
                 f"{conc.get('top_asset_class_ratio', 0):.1%} (>50% watch)"
             )
+
+    # Holdings-independent macro candidate pool (issue #440): before this,
+    # assembly's ONLY macro material was the L2 shared-event cache, already
+    # filtered to events overlapping a held asset class
+    # (`macro_event_exposure`) — a systemically important development with
+    # no such overlap had literally no path into this prompt. This is the
+    # SAME keyword-recalled pool Pass 2 sees (`ctx.macro_signals`,
+    # macro_detector.py), independent of any holdings match.
+    lines.append("")
+    lines.append(_build_macro_signal_themes_block(macro_signals or {}))
 
     # L1: the per-identifier "what happened" analysis, already inferred once
     # for every user holding it. Ordered by this user's own weight so the
@@ -533,6 +559,13 @@ def build_assembly_prompt(
     if preferences_block:
         lines.append(preferences_block)
 
+    # Macro coverage continuity (issue #440) — same block and placement as
+    # Pass 2's (report_prompts._build_pass2_prompt), so both paths satisfy
+    # the identical macro content contract.
+    continuity_block = render_macro_continuity_block(macro_continuity or [])
+    if continuity_block:
+        lines.append(continuity_block)
+
     lines.append("")
     lines.append(
         "Write sections §2, §3 and §4 of the financial analysis briefing in Markdown, "
@@ -550,20 +583,29 @@ def build_assembly_prompt(
         + _RULE_TIME_REFERENCES
         + _RULE_CONFIDENCE_LABELS
         + "## §2 Macro Signals\n"
-        "From the supplied macro events, select the ones — typically 2 to 4 — "
-        "that the supplied intel shows a genuine, evidenced change in this period; "
-        "apply the analysis framework's own judgment (see ANALYSIS FRAMEWORK above) "
-        "for how much space each earns. Write each selected event as ONE flowing "
-        "paragraph, not a bulleted or sub-headed structure: restate what it is and "
-        "trace the transmission mechanism to the named holdings it reaches through "
-        "the stated exposure, letting near-term, medium-term and structural "
-        "significance appear in whatever order and proportion the supplied intel "
-        "supports — do not label them and do not add a sub-heading before naming "
-        "holdings. An event with no material change this period does not need its "
-        "own paragraph. An event with no direct, concrete mapping to a holding "
-        "does not earn its own paragraph by default, regardless of how much change "
-        "it shows elsewhere — at most, mention it as one aside inside the relevant "
-        "holding's §3 analysis. Report what to WATCH, never what to DO.\n\n"
+        "Macro coverage is not gated on a direct holdings match — a systemically "
+        "important development in MACRO SIGNAL THEMES or SHARED MACRO EVENT INTEL "
+        "earns space on its own merits; holdings/watches/preferences shape depth "
+        "and personalization, not eligibility. Compose §2 as: (a) a brief "
+        "current-state overview (2-3 sentences); (b) ONE deep anchor — the single "
+        "most important macro question this period, or (per MACRO COVERAGE "
+        "CONTINUITY, when supplied) a continuing question this reader is owed an "
+        "update on — restated and connected across 3-5 paragraphs: what changed "
+        "against what baseline, the supplied explanation and evidence, "
+        "countervailing points the supplied material carries, remaining "
+        "uncertainty, a concrete observable, and conditional implications for THIS "
+        "portfolio's holdings/watches/style (never invent a holding or preference "
+        "to fill this out — a reader with no holdings still gets the macro "
+        "analysis); (c) 0-2 short independent updates for other events showing "
+        "real, distinct change that do not warrant anchor-length treatment. These "
+        "are editorial proportions, not hard limits — do not pad or truncate to "
+        "fit them. Merge events that form one causal chain into ONE argument "
+        "rather than one paragraph each. If MACRO COVERAGE CONTINUITY names the "
+        "anchor's earlier treatment, say plainly what confirmed, changed, or "
+        "remains unresolved since then rather than repeating its background at "
+        "the same depth. Do not label paragraphs 'short/medium/long-term' and do "
+        "not add a sub-heading before naming holdings. Report what to WATCH, "
+        "never what to DO.\n\n"
         "## §3 Holdings Analysis\n"
         "Take the holdings the supplied intel actually covers, heaviest weight "
         "first. For each: why it surfaced, the mechanism linking the development to "
@@ -586,6 +628,7 @@ def build_assembly_prompt(
         "plainly for this window — do NOT phrase it as 'today'.\n"
         "### 4.3 FX exposure — state currency exposures and any FX note.\n"
         "Throughout §4: state the numbers; never editorialize about what to do."
+        + build_macro_sidecar_instruction()
     )
     return "\n".join(lines)
 
