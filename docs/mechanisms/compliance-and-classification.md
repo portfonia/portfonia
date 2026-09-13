@@ -123,6 +123,39 @@ round 5, including a dedicated regression test documenting the accepted
 read it alongside `forbidden_vocab.py`'s module docstring before touching
 this scan again.
 
+**Process note (product owner, 2026-09-13)**: round 5's fix was merged
+directly on explicit product-owner instruction once the full suite passed,
+waiving this repo's standing "any bug found in review → re-run the full
+review round before merge" convention for this PR specifically. Not a
+precedent — future bug-fix commits still get re-reviewed by default unless
+told otherwise in that session.
+
+**Known limitation — read this before opening a new issue for the next
+false positive/negative on this scan.** The own-voice vs. third-party-
+attribution classification here is a regex/string-pattern heuristic over
+natural-language structure. Five review rounds each found and fixed a
+genuine defect, and each fix converged toward a more principled design
+(round 5 replaced a non-convergent word-blacklist with a positive
+structural signal — a `that`-clause or `according to X,` frame — instead of
+enumerating words that aren't evidence of a third party). But the
+underlying task has no closed-form, 100%-accurate solution this way:
+natural language is too unconstrained for a pattern-matching backstop to
+fully solve, and further iteration narrows the residual without
+eliminating it — `_THIRD_PARTY_POSSESSIVE`'s own docstring already
+documents one specific accepted gap (a source's possessive rating vs. the
+instrument's own, e.g. "UBS's rating" vs. "NVDA's rating", which needs
+portfolio-holdings context this pure-text scanner doesn't have).
+Researching industry-standard approaches to this class of problem (a
+lightweight secondary classifier, an LLM-based verification pass, real
+syntactic parsing) is real, deferred future work — not scheduled, not
+attempted here. **Before treating a new report against this scan as a
+fresh bug**: re-read `forbidden_vocab.py`'s module docstring (the full
+round-by-round narrative) and `test_output_scan.py`'s fixture history —
+it is very likely another instance of this same structural limit, not a
+regression, and the fix should extend this same architecture rather than
+bolt on another one-off pattern. See issue #443 / PR #444 for the full
+incident history.
+
 ### Asset classification + fund NAV capture
 
 `asset_class` is the economic-exposure dimension (distinct from the
