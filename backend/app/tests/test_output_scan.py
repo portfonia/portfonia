@@ -87,6 +87,11 @@ def test_scan_en_reduce_exposure_flags_advisory_directive() -> None:
         "You must reduce exposure to the name immediately.",
         "Reduce exposure to the sector before the print.",
         "Consider reducing exposure ahead of the event.",
+        # blacktomb42 PR #444 review: a natural possessive pronoun ("your
+        # exposure") differs from the fixture above only by that pronoun and
+        # was returning [] on the prior HEAD — a real backstop miss, not
+        # cosmetic regex coverage.
+        "You should reduce your exposure to NVDA now.",
     ):
         assert scan._scan_forbidden_output(phrase) != [], f"expected scan to flag: {phrase!r}"
 
@@ -112,6 +117,9 @@ def test_scan_en_increase_position_flags_advisory_directive() -> None:
         "You must increase your position before the announcement.",
         "Increase your position in the name before the print.",
         "Consider increasing your position ahead of the event.",
+        # blacktomb42 PR #444 review: possessive "their position" (vs. "your
+        # position" in the fixture above) was returning [] on the prior HEAD.
+        "Investors should increase their position in NVDA.",
     ):
         assert scan._scan_forbidden_output(phrase) != [], f"expected scan to flag: {phrase!r}"
 
@@ -138,6 +146,11 @@ def test_scan_en_stoploss_flags_advisory_directive() -> None:
         "You should set a stop-loss at $50.",
         "Consider setting a stop-loss below support.",
         "Investors must set a stop-loss before the open.",
+        # blacktomb42 PR #444 review: a nested modal ("should consider
+        # setting") was returning [] on the prior HEAD — the modal-anchored
+        # branch only recognized exactly one modal token immediately before
+        # the verb, not "should" followed by "consider".
+        "Investors should consider setting a stop-loss below support.",
     ):
         assert scan._scan_forbidden_output(phrase) != [], f"expected scan to flag: {phrase!r}"
 
@@ -189,6 +202,16 @@ def test_scan_en_strong_buy_and_rating_flags_first_person_assertion() -> None:
         "This is a strong buy given the setup.",
         "Portfonia views the name with a bullish rating.",
         "This carries a bearish rating in our view.",
+        # blacktomb42 PR #444 review: the prior HEAD used a bare "we/i/
+        # portfonia" token as a proxy for "this is the grammatical subject
+        # of the rating" — the possessive "our" (no bare "we"/"i" token) was
+        # returning [] even though it is clearly the model's own voice.
+        "In our view, this is a strong buy.",
+        "Our base case is a bullish rating on the name.",
+        # A Markdown list item is still a sentence for scanning purposes —
+        # the prior HEAD's sentence-start anchor didn't recognize a leading
+        # "- " bullet marker.
+        "- This is a strong buy given the setup.",
     ):
         assert scan._scan_forbidden_output(phrase) != [], f"expected scan to flag: {phrase!r}"
 
@@ -203,6 +226,12 @@ def test_scan_en_strong_buy_and_rating_allows_third_party_attribution() -> None:
         "Analysts maintain a strong buy rating heading into the print.",
         "Morgan Stanley's bullish rating on the name reflects its AI capex thesis.",
         "The desk's bearish rating on the sector predates the guidance cut.",
+        # blacktomb42 PR #444 review: the prior HEAD's window treated any
+        # "we"/"i"/"portfonia" occurrence as if it were the rating's
+        # grammatical subject, regardless of what verb immediately follows —
+        # "we note/report that X" introduces third-party content and must
+        # not hold the report just because "we" appears nearby.
+        "We note that UBS has a strong buy rating on NVDA.",
     ):
         assert scan._scan_forbidden_output(phrase) == [], (
             f"scan should not flag third-party attribution: {phrase!r}"
@@ -215,6 +244,11 @@ def test_scan_en_price_forecast_flags_unattributed_assertion() -> None:
     for phrase in (
         "This will rise to $200 by year-end.",
         "We expect it will fall to $80 on weaker guidance.",
+        # blacktomb42 PR #444 review: possessive "our" (no bare "we"/"i")
+        # returned [] on the prior HEAD despite being the model's own claim.
+        "Our base case is that the stock will rise to $200.",
+        # Markdown list item — see the same fixture on the rating test above.
+        "- The stock will fall to $80.",
     ):
         assert scan._scan_forbidden_output(phrase) != [], f"expected scan to flag: {phrase!r}"
 
@@ -223,6 +257,9 @@ def test_scan_en_price_forecast_allows_third_party_attribution() -> None:
     for phrase in (
         "UBS expects the stock will rise to $200 by year-end.",
         "Analysts believe the name will fall to $80 on weaker guidance.",
+        # blacktomb42 PR #444 review: reporting-verb exclusion (see the
+        # rating test above) applied to the forecast pattern too.
+        "We report that UBS expects the stock will rise to $200.",
     ):
         assert scan._scan_forbidden_output(phrase) == [], (
             f"scan should not flag third-party attribution: {phrase!r}"
@@ -241,6 +278,15 @@ def test_scan_en_recommend_flags_user_directed_advisory() -> None:
         "Portfonia recommends a smaller allocation to the name.",
         "Recommend buying AAPL.",
         "It is recommended that you hold the position.",
+        # Cross-family regression (blacktomb42 PR #444 review round 2): a
+        # Markdown list item is still a sentence for scanning purposes.
+        # recommend*'s sentence-initial branch shares `_SENTENCE_START` with
+        # the action-directive and rating/forecast patterns below — this
+        # fixture and the "- This is a strong buy..."/"- The stock will fall
+        # to $80." fixtures on those tests exercise the SAME shared
+        # primitive so a future regression there fails all three families
+        # together, not silently in just one.
+        "- Recommend buying AAPL before the print.",
     ):
         assert scan._scan_forbidden_output(phrase) != [], (
             f"expected scan to flag user-directed recommend: {phrase!r}"

@@ -90,7 +90,120 @@ _DEFAULT_VOCAB_FILE = _BACKEND_DIR / "config" / "compliance_vocab.yml"
 # Accepted residual, same class as recommend*'s: an unattributed claim
 # buried mid-sentence after an intervening clause may slip — prefer that
 # over holding third-party attribution.
+#
+# blacktomb42 PR #444 review round 2: the FIRST cut of the patterns below
+# encoded one narrow surface form per term instead of the underlying
+# directive/own-voice MEANING, and each family (action-directive vs.
+# rating/forecast) had its own bespoke, non-reusable regex. Concretely, that
+# first cut (a) missed natural possessive pronouns ("your exposure", "their
+# position") and a nested modal ("should consider setting"), because each
+# action pattern spelled out exactly one modal token and exactly one object
+# form; and (b) used a bare "we"/"i"/"portfonia" token as a stand-in for
+# "this IS the rating/forecast's grammatical subject", which is wrong in
+# both directions — it missed the possessive "our" (no bare "we"/"i" token:
+# "In our view, this is a strong buy"), and it falsely fired when a
+# reporting verb put a NAMED THIRD PARTY between the pronoun and the claim
+# ("We note that UBS has a strong buy rating..." — "we" reports what UBS
+# said, it isn't the subject of "has a ... rating"). Fixed here by building
+# every action-directive pattern from `_directive_pattern()` (one modal
+# vocabulary, one possessive-aware object grammar, reused per verb) and every
+# rating/forecast pattern from `_own_voice_or_bare_assertion()` (one
+# `_OWN_VOICE_ANCHOR` — which excludes a pronoun immediately followed by a
+# reporting verb — and one `_SENTENCE_START`, which now also recognizes a
+# Markdown list-item marker). Adding a new modal, pronoun, or reporting verb
+# in the future means editing one constant, not re-deriving five regexes.
 # ---------------------------------------------------------------------------
+
+# Zero-width "start of a sentence, OR start of a Markdown list item" anchor.
+# Shared by every sentence-initial bare-declarative/imperative branch below
+# (recommend*, the three action-directive patterns, and the two own-voice
+# rating/forecast patterns) so a fix to this primitive (like the Markdown
+# bullet case blacktomb42's review caught: "- This is a strong buy." was
+# unscanned because "This" isn't at position 0 or right after ". ") applies
+# everywhere at once instead of drifting between five separately-maintained
+# copies.
+_SENTENCE_START = (
+    r"(?:(?<=^)|(?<=\n)|(?<=[.!?]\s)"
+    r"|(?<=^[-*+]\s)|(?<=\n[-*+]\s)"
+    r"|(?<=^\d\.\s)|(?<=\n\d\.\s))"
+)
+
+# Reporting verbs that introduce THIRD-PARTY content even when the sentence's
+# own subject is first-person ("we NOTE that UBS has a strong buy rating..."
+# is Portfonia reporting what UBS said, not Portfonia's own rating). Used
+# only to gate _OWN_VOICE_ANCHOR below — expand this list, not the anchor
+# logic itself, if another reporting verb turns up in production.
+_REPORTING_VERBS = (
+    r"note|notes|noted"
+    r"|report|reports|reported"
+    r"|mention|mentions|mentioned"
+    r"|observe|observes|observed"
+    r"|highlight|highlights|highlighted"
+    r"|flag|flags|flagged"
+)
+
+# First-person/product-voice subject anchor shared by every "own-voice
+# assertion" pattern below (ratings, price forecasts). Includes the
+# possessive "our" (not just bare "we"/"i") since "In our view, ..." /
+# "Our base case is ..." carry the model's own voice with no bare "we"/"i"
+# token present. Excludes an anchor immediately followed by a _REPORTING_VERB
+# — that shape introduces third-party content, not the model's own claim.
+_OWN_VOICE_ANCHOR = rf"\b(?:we|i|our|portfonia)\b(?!\s+(?:{_REPORTING_VERBS})\b)"
+
+
+def _own_voice_or_bare_assertion(phrase: str, bare_subject_and_verb: str, *, gap: int = 40) -> str:
+    """Scan pattern for a RATING/FORECAST noun phrase (not a verb — see
+    `recommend*` above for the verb-adjacency equivalent, which doesn't need
+    this: a verb's own subject sits immediately before it).
+
+    Blocks: (a) `phrase` within `gap` characters of `_OWN_VOICE_ANCHOR` (the
+    model's own voice, however it phrases the assertion), or (b) a bare
+    sentence-initial declarative naming the phrase directly
+    (`bare_subject_and_verb` supplies the subject+copula, e.g.
+    ``"this\\s+is\\s+a"``). Allows third-party attribution ("the bank has a
+    strong buy rating...", "analysts expect it will rise to $200...") by
+    construction: it matches neither anchor.
+    """
+    return (
+        rf"{_OWN_VOICE_ANCHOR}[^.\n]{{0,{gap}}}?\b(?:{phrase})\b"
+        r"|"
+        rf"{_SENTENCE_START}{bare_subject_and_verb}\s+(?:{phrase})\b"
+    )
+
+
+# Modal vocabulary shared by every action-directive pattern below. `{1,2}`
+# repetitions in `_directive_pattern` lets a nested modal ("should consider
+# setting...") match without a bespoke alternative per combination.
+_DIRECTIVE_MODAL = r"(?:should|must|need\s+to|ought\s+to|consider)"
+
+# Determiner an object noun commonly carries in a directive ("reduce YOUR
+# exposure", "increase THEIR position", "set A stop-loss") — shared so
+# adding one (or dropping one) is a one-line change applied to every
+# directive pattern built from this helper, not a per-pattern hunt-and-fix.
+_DIRECTIVE_DETERMINER = r"(?:a\s+|your\s+|their\s+|its\s+)?"
+
+
+def _directive_pattern(verb: str, object_noun: str, *, imperative_verb: str) -> str:
+    """Scan pattern for a directive ACTION verb + object (reduce exposure,
+    increase position, set a stop-loss).
+
+    Blocks: (a) 1-2 `_DIRECTIVE_MODAL` tokens immediately before `verb`
+    (covers "should reduce", "consider reducing", and the nested "should
+    consider setting"), or (b) a bare sentence-initial imperative
+    (`imperative_verb`, always the plain infinitive — "reduce"/"increase"/
+    "set", never the gerund, so a gerund-subject sentence like "Reducing
+    exposure to tech in Q3 helped the fund limit losses." stays a Layer-1/2
+    description, not a directive). Allows third-party/factual narration
+    (past tense, no modal, no reader-directed imperative) by construction.
+    """
+    object_pattern = rf"{_DIRECTIVE_DETERMINER}{object_noun}"
+    return (
+        rf"\b(?:{_DIRECTIVE_MODAL}\s+){{1,2}}{verb}\s+{object_pattern}\b"
+        r"|"
+        rf"{_SENTENCE_START}{imperative_verb}\s+{object_pattern}\b"
+    )
+
+
 _EN_REGEX_PATTERNS: tuple[str, ...] = (
     (
         r"(?:(?<=\bwe\s)|(?<=\bwe\swould\s)|(?<=\bwe\sstrongly\s)"
@@ -100,39 +213,20 @@ _EN_REGEX_PATTERNS: tuple[str, ...] = (
         r"|"
         r"\brecommend(?:s|ed|ing)?(?=\s+(?:that\s+)?you\b)"
         r"|"
-        r"(?:(?<=^)|(?<=\n)|(?<=[.!?]\s))"
+        rf"{_SENTENCE_START}"
         r"recommend(?:s|ed|ing)?(?=\s+(?:buying|selling|holding|reducing)\b)"
     ),
     r"\bshould\s+(buy|sell|hold)\b",
-    (
-        r"\b(?:should|must|need\s+to|ought\s+to|consider)\s+reduc(?:e|ing)\s+exposure\b"
-        r"|"
-        r"(?:(?<=^)|(?<=\n)|(?<=[.!?]\s))reduce\s+exposure\b"
+    _directive_pattern(r"reduc(?:e|ing)", "exposure", imperative_verb="reduce"),
+    _directive_pattern(r"increas(?:e|ing)", "position", imperative_verb="increase"),
+    _directive_pattern(r"set(?:ting)?", r"stop[-\s]?loss", imperative_verb="set"),
+    _own_voice_or_bare_assertion(
+        r"strong\s+buy|(?:bullish|bearish)\s+rating",
+        r"this\s+(?:is|was|remains|carries|looks\s+like)\s+a",
     ),
-    (
-        r"\b(?:should|must|need\s+to|ought\s+to|consider)\s+increas(?:e|ing)\s+"
-        r"(?:your\s+)?position\b"
-        r"|"
-        r"(?:(?<=^)|(?<=\n)|(?<=[.!?]\s))increase\s+(?:your\s+)?position\b"
-    ),
-    (
-        r"\b(?:should|must|need\s+to|ought\s+to)\s+set\s+(?:a\s+|your\s+)?stop[-\s]?loss\b"
-        r"|"
-        r"(?:(?<=^)|(?<=\n)|(?<=[.!?]\s))(?:consider\s+)?set(?:ting)?\s+"
-        r"(?:a\s+|your\s+)?stop[-\s]?loss\b"
-    ),
-    (
-        r"\b(?:we|i|portfonia)\b[^.\n]{0,40}?\b(?:strong\s+buy|(?:bullish|bearish)\s+rating)\b"
-        r"|"
-        r"(?:(?<=^)|(?<=\n)|(?<=[.!?]\s))"
-        r"this\s+(?:is|was|remains|carries|looks\s+like)\s+a\s+"
-        r"(?:strong\s+buy|(?:bullish|bearish)\s+rating)\b"
-    ),
-    (
-        r"\b(?:we|i|portfonia)\b[^.\n]{0,40}?\bwill\s+(?:rise|fall)\s+to\b"
-        r"|"
-        r"(?:(?<=^)|(?<=\n)|(?<=[.!?]\s))"
-        r"(?:this|it|the\s+stock|the\s+name|shares?|the\s+price)\s+will\s+(?:rise|fall)\s+to\b"
+    _own_voice_or_bare_assertion(
+        r"will\s+(?:rise|fall)\s+to",
+        r"(?:this|it|the\s+stock|the\s+name|shares?|the\s+price)",
     ),
 )
 
