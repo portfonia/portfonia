@@ -34,12 +34,118 @@ def test_scan_forbidden_output_no_false_positives() -> None:
 def test_scan_flags_advisory_action_language() -> None:
     # Unambiguously direct advisory/action terms must trip the scan backstop.
     # "target price" / "entry point" / "目标价" / "增持" / "减持" / "入场" are
-    # prompt-only (high FP risk in factual news context) — not scanned (issue #65).
-    # "止损" / "清仓" are context-scanned (see test_scan_zh_stoploss_* and
-    # test_scan_zh_qingcang_* below), not bare literals.
+    # prompt-only (high FP risk in factual news context) — not scanned (issue #65
+    # for zh; issue #443 brought EN target price/entry point in line with it).
+    # "止损" / "清仓" / EN "stop-loss" / "reduce exposure" / "increase position"
+    # are context-scanned (see test_scan_zh_stoploss_*, test_scan_zh_qingcang_*,
+    # test_scan_en_stoploss_*, test_scan_en_reduce_exposure_*, and
+    # test_scan_en_increase_position_* below), not bare literals — "set a
+    # stop-loss" is still a directive, sentence-initial imperative shape.
     for phrase in ("stop-loss", "strong buy", "强烈买入", "投资建议"):
         assert scan._scan_forbidden_output(f"set a {phrase} near 100") != [], (
             f"expected scan to flag: {phrase!r}"
+        )
+
+
+def test_scan_en_entry_point_allows_general_valuation_concept() -> None:
+    # Production hold 73d54b62-ac48-4c76-8900-4d6b26898201 (issue #443): the
+    # user held 100% cash, and this sentence discusses how the rate
+    # environment affects the general concept of a future valuation entry
+    # point — no security, price, or timing is named, and nothing directs
+    # the reader. Layer-3 observation, not a Layer-4 directive. "entry point"
+    # dropped to prompt-only (mirrors zh 入场, issue #65) so this no longer
+    # holds the report.
+    body = (
+        "For an investor sitting in cash, the yield environment is a direct "
+        "input to the opportunity cost of capital and the valuation entry "
+        "point for any future technology-sector commitments."
+    )
+    assert scan._scan_forbidden_output(body) == []
+
+
+def test_scan_en_target_price_allows_factual_third_party_mention() -> None:
+    # Mirrors zh 目标价 (issue #65): a bank's published target price is
+    # Layer-1/2 factual news, not a directive to the reader.
+    body = "The bank lowered its target price for the name to $150 after earnings."
+    assert scan._scan_forbidden_output(body) == []
+
+
+def test_scan_en_reduce_exposure_flags_advisory_directive() -> None:
+    # "reduce exposure" moved off the bare-literal list to a directive-context
+    # regex (issue #443), mirroring stop-loss/止损 rather than the prompt-only
+    # demotion given to target price/entry point — a modal-anchored directive
+    # naming urgency ("...should reduce exposure to NVDA now") is a
+    # materially specific Layer-4 instruction, same reasoning as #74's 止损.
+    for phrase in (
+        "Investors should reduce exposure to NVDA now.",
+        "You must reduce exposure to the name immediately.",
+        "Reduce exposure to the sector before the print.",
+        "Consider reducing exposure ahead of the event.",
+    ):
+        assert scan._scan_forbidden_output(phrase) != [], f"expected scan to flag: {phrase!r}"
+
+
+def test_scan_en_reduce_exposure_allows_third_party_description() -> None:
+    # Layer-1/2 factual description of what other market participants did,
+    # not a directive to the reader.
+    for phrase in (
+        "Hedge funds reduced exposure to tech stocks after the rally.",
+        "Institutional investors are reducing exposure to growth names amid the pullback.",
+        "Reducing exposure to tech in Q3 helped the fund limit losses.",
+    ):
+        assert scan._scan_forbidden_output(phrase) == [], (
+            f"scan should not flag descriptive use: {phrase!r}"
+        )
+
+
+def test_scan_en_increase_position_flags_advisory_directive() -> None:
+    # Symmetric with reduce exposure (issue #443) — same directive shape,
+    # opposite direction.
+    for phrase in (
+        "Investors should increase position in the name ahead of earnings.",
+        "You must increase your position before the announcement.",
+        "Increase your position in the name before the print.",
+        "Consider increasing your position ahead of the event.",
+    ):
+        assert scan._scan_forbidden_output(phrase) != [], f"expected scan to flag: {phrase!r}"
+
+
+def test_scan_en_increase_position_allows_third_party_description() -> None:
+    for phrase in (
+        "Several funds increased their position in the name after earnings.",
+        "Institutional buyers are increasing their position across semiconductor names.",
+        "Increasing their position ahead of the print paid off for early buyers.",
+    ):
+        assert scan._scan_forbidden_output(phrase) == [], (
+            f"scan should not flag descriptive use: {phrase!r}"
+        )
+
+
+def test_scan_en_stoploss_flags_advisory_directive() -> None:
+    # EN counterpart of test_scan_zh_stoploss_flags_advisory_directive
+    # (issue #443) — a directive naming an exact exit mechanism is a more
+    # specific Layer-4 instruction than a vague position-size directive, so
+    # stop-loss keeps a scan (context-aware), same class as reduce exposure/
+    # increase position above, not a prompt-only demotion.
+    for phrase in (
+        "Set a stop-loss near 100.",
+        "You should set a stop-loss at $50.",
+        "Consider setting a stop-loss below support.",
+        "Investors must set a stop-loss before the open.",
+    ):
+        assert scan._scan_forbidden_output(phrase) != [], f"expected scan to flag: {phrase!r}"
+
+
+def test_scan_en_stoploss_allows_market_mechanism_description() -> None:
+    # Layer-1/2 factual description of third-party stop-loss mechanics
+    # triggering, not a directive to the reader.
+    for phrase in (
+        "Stop-loss orders triggered a broad sell-off.",
+        "The fund's stop-loss levels were hit, forcing liquidation.",
+        "Analysts noted heavy stop-loss selling below the 50-day average.",
+    ):
+        assert scan._scan_forbidden_output(phrase) == [], (
+            f"scan should not flag descriptive use: {phrase!r}"
         )
 
 

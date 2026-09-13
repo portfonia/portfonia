@@ -11,6 +11,11 @@ term/pattern data lives there now, out of this module's source; this file is
 the loading + compilation logic and its public API is unchanged). English
 patterns stay in ``_EN_REGEX_PATTERNS`` here; ``recommend*`` is context-aware
 (issue #375) so third-party house-view attribution does not hold a report.
+Issue #443 brought the remaining bare EN literals in line with the ZH
+treatment: ``entry point``/``target price`` dropped to prompt-only (mirrors
+入场/目标价, #65); ``reduce exposure``/``increase position``/``stop-loss``
+kept a directive-context scan (mirrors 止损/清仓, #74/#205) — see the comment
+block above ``_EN_REGEX_PATTERNS`` for the per-term reasoning.
 Run the compliance-scan regression tests (``pytest app/tests/test_output_scan.py``)
 before promoting new terms to production.
 """
@@ -43,6 +48,24 @@ _DEFAULT_VOCAB_FILE = _BACKEND_DIR / "config" / "compliance_vocab.yml"
 # still lists "recommend". Accepted residual: a user-directed recommend that
 # mimics third-party syntax in the same clause may slip — prefer that over
 # holding bank-view attribution.
+#
+# entry point / target price are DROPPED from this scan entirely (issue
+# #443, production hold 73d54b62): they are the direct EN counterparts of ZH
+# 入场/目标价, which #65 already moved to prompt_only for the identical
+# reason — both appear constantly in factual/analytical prose ("the
+# valuation entry point for future commitments", "the bank's target price")
+# that names no security/price/timing and directs nobody. They stay in
+# _EN_PROMPT_TERMS below so the model is still told to avoid them.
+#
+# reduce exposure / increase position / stop-loss keep a scan, unlike entry
+# point/target price, because a modal-anchored directive with urgency
+# ("investors should reduce exposure to NVDA now", "set a stop-loss at $50")
+# is a materially more specific Layer-4 instruction — same reasoning ZH
+# used to keep 止损/清仓 as context-aware scan_regex_patterns instead of
+# demoting them like 目标价/增持/减持 (#74/#205). Each pattern below allows
+# third-party/factual narration (past tense, no modal, no reader-directed
+# imperative) and blocks: modal directive ("should/must/need to/ought
+# to/consider" + the verb), or a bare sentence-initial imperative.
 # ---------------------------------------------------------------------------
 _EN_REGEX_PATTERNS: tuple[str, ...] = (
     (
@@ -57,11 +80,23 @@ _EN_REGEX_PATTERNS: tuple[str, ...] = (
         r"recommend(?:s|ed|ing)?(?=\s+(?:buying|selling|holding|reducing)\b)"
     ),
     r"\bshould\s+(buy|sell|hold)\b",
-    r"\breduce\s+exposure\b",
-    r"\bincrease\s+(your\s+)?position\b",
-    r"\bstop[-\s]?loss\b",
-    r"\btarget\s+price\b",
-    r"\bentry\s+point\b",
+    (
+        r"\b(?:should|must|need\s+to|ought\s+to|consider)\s+reduc(?:e|ing)\s+exposure\b"
+        r"|"
+        r"(?:(?<=^)|(?<=\n)|(?<=[.!?]\s))reduce\s+exposure\b"
+    ),
+    (
+        r"\b(?:should|must|need\s+to|ought\s+to|consider)\s+increas(?:e|ing)\s+"
+        r"(?:your\s+)?position\b"
+        r"|"
+        r"(?:(?<=^)|(?<=\n)|(?<=[.!?]\s))increase\s+(?:your\s+)?position\b"
+    ),
+    (
+        r"\b(?:should|must|need\s+to|ought\s+to)\s+set\s+(?:a\s+|your\s+)?stop[-\s]?loss\b"
+        r"|"
+        r"(?:(?<=^)|(?<=\n)|(?<=[.!?]\s))(?:consider\s+)?set(?:ting)?\s+"
+        r"(?:a\s+|your\s+)?stop[-\s]?loss\b"
+    ),
     r"\boversold\b",
     r"\boverbought\b",
     r"\bstrong\s+buy\b",
