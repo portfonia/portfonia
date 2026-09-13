@@ -226,6 +226,14 @@ def test_scan_en_strong_buy_and_rating_flags_first_person_assertion() -> None:
         # Nested/indented Markdown list item (0-3 leading spaces is the
         # common nesting range).
         "  - This is a strong buy.",
+        # blacktomb42 PR #444 re-review (round 4): "at least one intervening
+        # word" is not proof of a subject change — an adverb between the
+        # pronoun and the attribution verb ("we STRONGLY expect", "Portfonia
+        # CURRENTLY gives") still leaves the pronoun as that verb's own
+        # subject. Likewise "our TEAM believes"/"our ANALYSIS says" are
+        # still Portfonia's own team/analysis, not a separate third party.
+        "We currently maintain a strong buy rating on NVDA.",
+        "Portfonia currently gives NVDA a strong buy rating.",
     ):
         assert scan._scan_forbidden_output(phrase) != [], f"expected scan to flag: {phrase!r}"
 
@@ -252,6 +260,12 @@ def test_scan_en_strong_buy_and_rating_allows_third_party_attribution() -> None:
         # appearing before the phrase, not on a specific reporting-verb
         # wrapper.
         "According to our source, UBS has a strong buy rating on NVDA.",
+        # blacktomb42 PR #444 re-review (round 4): an explicit third-party
+        # possessive rating/view must not be recreated as a false hold via
+        # the sentence-initial branch — "X's rating IS a strong buy" names
+        # X as the party HOLDING the rating, not the model's own claim.
+        "UBS's rating remains a strong buy.",
+        "Morningstar's view is a strong buy.",
     ):
         assert scan._scan_forbidden_output(phrase) == [], (
             f"scan should not flag third-party attribution: {phrase!r}"
@@ -275,6 +289,12 @@ def test_scan_en_price_forecast_flags_unattributed_assertion() -> None:
         # Named instrument, no third-party attribution.
         "NVDA will rise to $200.",
         "- NVDA will fall to $80.",
+        # blacktomb42 PR #444 re-review (round 4): adverb/self-referent-noun
+        # gap — see the rating test's equivalent fixtures.
+        "We strongly expect it will fall to $80.",
+        "We now believe NVDA will rise to $200.",
+        "Our team believes NVDA will rise to $200.",
+        "Our analysis says NVDA will rise to $200.",
     ):
         assert scan._scan_forbidden_output(phrase) != [], f"expected scan to flag: {phrase!r}"
 

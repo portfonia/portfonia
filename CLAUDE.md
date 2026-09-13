@@ -117,7 +117,7 @@ area of the code, not just the one-line summary here.
 - [LLM failure taxonomy](docs/mechanisms/llm-reliability.md) — issue #55: `LLMErrorCode`/`ErrorPolicy`, classification by HTTP status, five real defects fixed.
 - [Bounded retry for shared intel caches](docs/mechanisms/llm-reliability.md) — issue #160: `attempt_count` bounds L1/L2 retries instead of a permanent null-marker lock.
 - [Reliability mechanisms (window/dedup/LLM-call correctness)](docs/mechanisms/llm-reliability.md) — same-day windows, Pass 2 completeness guard, `_call_llm` retry/backoff; issue #61 resumable retry from stored raw LLM output.
-- [Compliance + ops alerting](docs/mechanisms/compliance-and-classification.md) — forbidden-vocab scan, disclaimer, `send_ops_alert`, GitHub issue auto-creation.
+- [Compliance + ops alerting](docs/mechanisms/compliance-and-classification.md) — forbidden-vocab scan, disclaimer, `send_ops_alert`, GitHub issue auto-creation; issue #443/PR #444 EN scan directive/own-voice shared builders, four review rounds.
 - [Asset classification + fund NAV capture](docs/mechanisms/compliance-and-classification.md) — `asset_class` economic-exposure dimension, `ticker_themes`, fund NAV via lsjz.
 - [§1 / distribution / §4.1 read `asset_class`, not sector](docs/mechanisms/compliance-and-classification.md) — 2026-06-19: switched from `sector`/`asset_type`, concentration threshold rules.
 - [Asset_class thresholds are admin-configurable](docs/mechanisms/compliance-and-classification.md) — issue #35: `config/asset_class_thresholds.yml`, hot-reloaded, closed taxonomy.
@@ -239,30 +239,15 @@ entirely as Layer-3 observation vocabulary.
   third-party-attribution-aware scan (mirror `recommend*` itself, #375).
   Every one of these terms stays in the prompt blacklist regardless of scan
   treatment — the model's own voice is still told to avoid all of them.
-  Two rounds of review (blacktomb42, PR #444) hardened these patterns.
-  Round 2 found the first cut encoded one narrow surface form per term
-  (missing natural possessive pronouns and a nested modal) and used a bare
-  `we`/`i`/`portfonia` token as an imprecise proxy for "grammatical
-  subject" (missed possessive `our`; falsely fired on any reporting-verb
-  frame regardless of what followed). Round 3 found that reporting-verb fix
-  was still not real evidence of a third party — "We EXPECT it will fall"
-  has "we" as the direct subject of an attribution-shaped verb (own voice),
-  while "We report that UBS EXPECTS ..." has a different, later subject
-  governing that verb (real attribution); it also found the sentence-initial
-  branch missed a named instrument ("NVDA is a strong buy.") and that the
-  Markdown-list anchor missed common indentation. Fixed by two reusable
-  builders in `forbidden_vocab.py` — `_directive_pattern()` for
-  action-directive terms and `_own_voice_or_bare_assertion()` for
-  rating/forecast terms — built on shared primitives: `_own_voice_anchor()`
-  (requires an `_ATTRIBUTION_VERBS` token after at least one intervening
-  word past the pronoun, proving it belongs to a later subject, not the
-  pronoun itself), a generic `_BARE_SUBJECT` (not an enumerated pronoun
-  list), and `_SENTENCE_START` (generated for a 0-3-space Markdown
-  list-item indent, since a Python lookbehind must be fixed-width).
-  Adding/removing a modal, determiner, pronoun, or attribution verb going
-  forward is a one-line change to one shared constant, not a per-pattern
-  hunt across five regexes. See `forbidden_vocab.py`'s module docstring for
-  the per-term reasoning.
+  Built on two reusable builders in `forbidden_vocab.py` —
+  `_directive_pattern()` for action-directive terms and
+  `_own_voice_or_bare_assertion()` for rating/forecast terms — so
+  adding/removing a modal, determiner, pronoun, or attribution verb is a
+  one-line change to a shared constant, not a per-pattern hunt. *Four
+  rounds of review (blacktomb42, PR #444) hardened this mechanism against
+  real false-negative/false-positive pairs — full incident history:
+  playbook `docs/mechanisms/compliance-and-classification.md` ("EN scan
+  patterns: shared directive/own-voice builders").*
 - **Single footer disclaimer, no inline markers** (2026-06-08; single-language
   since issue #350 item 3): the compliance base is the one disclaimer in the
   footer, rendered in the report's own language. The body carries NO
