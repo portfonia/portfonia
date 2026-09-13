@@ -132,8 +132,10 @@ _GOLDEN_SCAN_REGEX_PATTERNS = (
 _GOLDEN_PROMPT_ONLY_TERMS = ("目标价", "增持", "减持", "入场")
 _GOLDEN_CONTEXT_SCAN_TERMS = ("止损", "清仓")
 
-_EN_REGEX_PATTERN_COUNT = 10  # forbidden_vocab._EN_REGEX_PATTERNS (issue #443: entry
-# point/target price dropped as separate scan entries, -2 from the prior 12)
+_EN_REGEX_PATTERN_COUNT = 7  # forbidden_vocab._EN_REGEX_PATTERNS (issue #443: entry
+# point/target price/oversold/overbought dropped as separate scan entries;
+# strong buy + bullish/bearish rating collapsed into one combined pattern,
+# will rise/fall to kept as one — down from the prior 12)
 
 
 def test_default_config_matches_golden_vocab() -> None:

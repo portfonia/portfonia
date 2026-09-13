@@ -197,7 +197,11 @@ Layer 4  What you should do                  (FORBIDDEN — never emit)
 `recommend`, `should`, `buy`, `sell`, `hold`, `reduce`, `increase`, `exit`,
 `stop-loss`, `target price`, `will rise/fall to`, `entry point`, `oversold`,
 `overbought`, `strong buy`, `bullish/bearish rating` — and their equivalents
-in any other language.
+in any other language. This is the prompt-side rule (the model's own voice
+must never use them); the output-side scan backstop below is narrower for
+several of these — see "Output-side backstop" for which ones stay a bare
+block vs. a context-aware/third-party-attribution-aware scan vs. dropped
+entirely as Layer-3 observation vocabulary.
 
 ### Compliance scaffolding
 
@@ -221,13 +225,21 @@ in any other language.
   "the bank recommends", "analysts recommend") does not. Prompt blacklist
   still includes `recommend`. Residual: a user-directed recommend that
   mimics third-party syntax in the same clause may slip. Issue #443 applied
-  the same de-bluntening to the remaining bare EN literals: `entry point`/
-  `target price` dropped to prompt-only (mirror ZH 入场/目标价, #65);
-  `reduce exposure`/`increase position`/`stop-loss` kept a directive-context
-  scan (mirror ZH 止损/清仓, #74/#205) — see `forbidden_vocab.py`'s module
-  docstring for the per-term reasoning. `oversold`/`overbought`/
-  `strong buy`/`bullish/bearish rating`/`will rise/fall to` are unchanged
-  (no incident; mirror ZH 超买/超卖/强烈买入 staying unconditional).
+  the same de-bluntening to every remaining bare EN literal (product-owner
+  direction: a cited third-party article routinely carries this vocabulary
+  as factual background, and a bare-word scan can't tell that apart from
+  the model's own advice): `entry point`/`target price` dropped to
+  prompt-only (mirror ZH 入场/目标价, #65); `reduce exposure`/
+  `increase position`/`stop-loss` kept a directive-context scan (mirror ZH
+  止损/清仓, #74/#205); `oversold`/`overbought` dropped from the scan
+  entirely — an objective TA state has no directive-shaped use to preserve,
+  so they join the already-unscanned `support level`/`resistance level`/
+  `golden cross`/`breakout` observation vocabulary; `strong buy`/
+  `bullish rating`/`bearish rating`/`will rise to`/`will fall to` kept a
+  third-party-attribution-aware scan (mirror `recommend*` itself, #375).
+  Every one of these terms stays in the prompt blacklist regardless of scan
+  treatment — the model's own voice is still told to avoid all of them. See
+  `forbidden_vocab.py`'s module docstring for the per-term reasoning.
 - **Single footer disclaimer, no inline markers** (2026-06-08; single-language
   since issue #350 item 3): the compliance base is the one disclaimer in the
   footer, rendered in the report's own language. The body carries NO

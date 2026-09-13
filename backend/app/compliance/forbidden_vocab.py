@@ -14,8 +14,12 @@ patterns stay in ``_EN_REGEX_PATTERNS`` here; ``recommend*`` is context-aware
 Issue #443 brought the remaining bare EN literals in line with the ZH
 treatment: ``entry point``/``target price`` dropped to prompt-only (mirrors
 入场/目标价, #65); ``reduce exposure``/``increase position``/``stop-loss``
-kept a directive-context scan (mirrors 止损/清仓, #74/#205) — see the comment
-block above ``_EN_REGEX_PATTERNS`` for the per-term reasoning.
+kept a directive-context scan (mirrors 止损/清仓, #74/#205); ``oversold``/
+``overbought`` dropped from the scan entirely (join the unscanned TA
+observation vocabulary); ``strong buy``/``bullish rating``/``bearish
+rating``/``will rise to``/``will fall to`` kept a third-party-attribution-
+aware scan (mirrors ``recommend*``, #375) — see the comment block above
+``_EN_REGEX_PATTERNS`` for the per-term reasoning.
 Run the compliance-scan regression tests (``pytest app/tests/test_output_scan.py``)
 before promoting new terms to production.
 """
@@ -66,6 +70,26 @@ _DEFAULT_VOCAB_FILE = _BACKEND_DIR / "config" / "compliance_vocab.yml"
 # third-party/factual narration (past tense, no modal, no reader-directed
 # imperative) and blocks: modal directive ("should/must/need to/ought
 # to/consider" + the verb), or a bare sentence-initial imperative.
+#
+# issue #443 scope revision (product-owner direction, 2026-09-12): a cited/
+# quoted third-party article routinely carries oversold/overbought/strong
+# buy/bullish-bearish rating/price-forecast vocabulary as factual background
+# — the same false-positive shape #375 fixed for recommend*, just not yet
+# extended past it. oversold/overbought are DROPPED from the scan entirely:
+# unlike a verb, a bare state adjective ("the stock is oversold") has no
+# directive-shaped use to preserve — they join support/resistance level/
+# golden cross/breakout as fully-unscanned Layer-3 TA observation vocabulary
+# (see test_scan_allows_ta_observation_vocabulary), while staying in
+# _EN_PROMPT_TERMS so the model's own voice is still discouraged from using
+# them. strong buy/bullish rating/bearish rating and will rise/fall to are
+# ratings/forecasts, not states — closer to recommend* — so they keep the
+# same third-party-attribution-aware technique: block only the model's own
+# first-person/product voice or a bare sentence-initial declarative; a named
+# third party (bank/analyst/desk) holding or citing the rating/forecast is
+# not scanned, by construction (it does not match the narrow block anchors).
+# Accepted residual, same class as recommend*'s: an unattributed claim
+# buried mid-sentence after an intervening clause may slip — prefer that
+# over holding third-party attribution.
 # ---------------------------------------------------------------------------
 _EN_REGEX_PATTERNS: tuple[str, ...] = (
     (
@@ -97,11 +121,19 @@ _EN_REGEX_PATTERNS: tuple[str, ...] = (
         r"(?:(?<=^)|(?<=\n)|(?<=[.!?]\s))(?:consider\s+)?set(?:ting)?\s+"
         r"(?:a\s+|your\s+)?stop[-\s]?loss\b"
     ),
-    r"\boversold\b",
-    r"\boverbought\b",
-    r"\bstrong\s+buy\b",
-    r"\b(bullish|bearish)\s+rating\b",
-    r"\bwill\s+(rise|fall)\s+to\b",
+    (
+        r"\b(?:we|i|portfonia)\b[^.\n]{0,40}?\b(?:strong\s+buy|(?:bullish|bearish)\s+rating)\b"
+        r"|"
+        r"(?:(?<=^)|(?<=\n)|(?<=[.!?]\s))"
+        r"this\s+(?:is|was|remains|carries|looks\s+like)\s+a\s+"
+        r"(?:strong\s+buy|(?:bullish|bearish)\s+rating)\b"
+    ),
+    (
+        r"\b(?:we|i|portfonia)\b[^.\n]{0,40}?\bwill\s+(?:rise|fall)\s+to\b"
+        r"|"
+        r"(?:(?<=^)|(?<=\n)|(?<=[.!?]\s))"
+        r"(?:this|it|the\s+stock|the\s+name|shares?|the\s+price)\s+will\s+(?:rise|fall)\s+to\b"
+    ),
 )
 
 # Human-readable EN terms for injection into the LLM system prompt.

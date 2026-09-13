@@ -36,12 +36,18 @@ def test_scan_flags_advisory_action_language() -> None:
     # "target price" / "entry point" / "目标价" / "增持" / "减持" / "入场" are
     # prompt-only (high FP risk in factual news context) — not scanned (issue #65
     # for zh; issue #443 brought EN target price/entry point in line with it).
-    # "止损" / "清仓" / EN "stop-loss" / "reduce exposure" / "increase position"
-    # are context-scanned (see test_scan_zh_stoploss_*, test_scan_zh_qingcang_*,
-    # test_scan_en_stoploss_*, test_scan_en_reduce_exposure_*, and
-    # test_scan_en_increase_position_* below), not bare literals — "set a
-    # stop-loss" is still a directive, sentence-initial imperative shape.
-    for phrase in ("stop-loss", "strong buy", "强烈买入", "投资建议"):
+    # "止损" / "清仓" / EN "stop-loss" / "reduce exposure" / "increase position" /
+    # "strong buy" / "bullish/bearish rating" / "will rise/fall to" are
+    # context-scanned (see test_scan_zh_stoploss_*, test_scan_zh_qingcang_*,
+    # test_scan_en_stoploss_*, test_scan_en_reduce_exposure_*,
+    # test_scan_en_increase_position_*, test_scan_en_strong_buy_*,
+    # test_scan_en_rating_*, and test_scan_en_price_forecast_* below), not
+    # bare literals. "oversold"/"overbought" are dropped from the scan
+    # entirely (issue #443 — objective TA states, same class as the already-
+    # unscanned support/resistance level below), so they are intentionally
+    # absent from this list. "set a stop-loss" is still a directive,
+    # sentence-initial imperative shape.
+    for phrase in ("stop-loss", "强烈买入", "投资建议"):
         assert scan._scan_forbidden_output(f"set a {phrase} near 100") != [], (
             f"expected scan to flag: {phrase!r}"
         )
@@ -146,6 +152,80 @@ def test_scan_en_stoploss_allows_market_mechanism_description() -> None:
     ):
         assert scan._scan_forbidden_output(phrase) == [], (
             f"scan should not flag descriptive use: {phrase!r}"
+        )
+
+
+def test_scan_en_oversold_overbought_never_scanned() -> None:
+    # Issue #443 scope revision: oversold/overbought are objective TA states
+    # (an RSI or similar indicator reading), not actions — the same class of
+    # Layer-3 "signal worth watching" vocabulary as support/resistance level,
+    # which this scan already never flags (see
+    # test_scan_allows_ta_observation_vocabulary below). A cited article's
+    # own TA read ("the technical desk views the name as oversold") is
+    # exactly the false-positive shape this issue exists to fix, so both
+    # terms are dropped from the scan entirely — dropped, not
+    # context-narrowed, since there is no directive-shaped use of a bare
+    # state adjective the way there is for a verb like "recommend" or
+    # "reduce exposure". They remain in the prompt blacklist (the model is
+    # still told not to use them in its own voice).
+    for phrase in (
+        "The stock is deeply oversold after the pullback.",
+        "RSI shows the name is overbought at these levels.",
+        "Analysts view the sector as oversold heading into earnings.",
+        "You should buy — it's oversold.",  # "should buy" still holds this
+    ):
+        result = scan._scan_forbidden_output(phrase)
+        assert "oversold" not in [r.lower() for r in result]
+        assert "overbought" not in [r.lower() for r in result]
+
+
+def test_scan_en_strong_buy_and_rating_flags_first_person_assertion() -> None:
+    # Issue #443: "strong buy"/"bullish rating"/"bearish rating" are ratings,
+    # not states — closer to recommend* (#375) than to oversold/overbought.
+    # Block only the model's own first-person/product voice or a bare
+    # sentence-initial declarative.
+    for phrase in (
+        "We rate this a strong buy.",
+        "This is a strong buy given the setup.",
+        "Portfonia views the name with a bullish rating.",
+        "This carries a bearish rating in our view.",
+    ):
+        assert scan._scan_forbidden_output(phrase) != [], f"expected scan to flag: {phrase!r}"
+
+
+def test_scan_en_strong_buy_and_rating_allows_third_party_attribution() -> None:
+    # A cited article's report of a bank/analyst rating is Layer-1/2
+    # quotation, not the model's own advice — this is the exact
+    # false-positive shape reported by the product owner (2026-09-12): cited
+    # articles routinely carry this vocabulary as background.
+    for phrase in (
+        "The bank has a strong buy rating on the stock.",
+        "Analysts maintain a strong buy rating heading into the print.",
+        "Morgan Stanley's bullish rating on the name reflects its AI capex thesis.",
+        "The desk's bearish rating on the sector predates the guidance cut.",
+    ):
+        assert scan._scan_forbidden_output(phrase) == [], (
+            f"scan should not flag third-party attribution: {phrase!r}"
+        )
+
+
+def test_scan_en_price_forecast_flags_unattributed_assertion() -> None:
+    # Issue #443: same third-party-attribution technique as recommend*/strong
+    # buy above, applied to "will rise/fall to".
+    for phrase in (
+        "This will rise to $200 by year-end.",
+        "We expect it will fall to $80 on weaker guidance.",
+    ):
+        assert scan._scan_forbidden_output(phrase) != [], f"expected scan to flag: {phrase!r}"
+
+
+def test_scan_en_price_forecast_allows_third_party_attribution() -> None:
+    for phrase in (
+        "UBS expects the stock will rise to $200 by year-end.",
+        "Analysts believe the name will fall to $80 on weaker guidance.",
+    ):
+        assert scan._scan_forbidden_output(phrase) == [], (
+            f"scan should not flag third-party attribution: {phrase!r}"
         )
 
 
