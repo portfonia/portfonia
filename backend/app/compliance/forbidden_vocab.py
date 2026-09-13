@@ -91,83 +91,140 @@ _DEFAULT_VOCAB_FILE = _BACKEND_DIR / "config" / "compliance_vocab.yml"
 # buried mid-sentence after an intervening clause may slip — prefer that
 # over holding third-party attribution.
 #
-# blacktomb42 PR #444 review round 2: the FIRST cut of the patterns below
-# encoded one narrow surface form per term instead of the underlying
-# directive/own-voice MEANING, and each family (action-directive vs.
-# rating/forecast) had its own bespoke, non-reusable regex. Concretely, that
-# first cut (a) missed natural possessive pronouns ("your exposure", "their
-# position") and a nested modal ("should consider setting"), because each
-# action pattern spelled out exactly one modal token and exactly one object
-# form; and (b) used a bare "we"/"i"/"portfonia" token as a stand-in for
-# "this IS the rating/forecast's grammatical subject", which is wrong in
-# both directions — it missed the possessive "our" (no bare "we"/"i" token:
-# "In our view, this is a strong buy"), and it falsely fired when a
-# reporting verb put a NAMED THIRD PARTY between the pronoun and the claim
-# ("We note that UBS has a strong buy rating..." — "we" reports what UBS
-# said, it isn't the subject of "has a ... rating"). Fixed here by building
-# every action-directive pattern from `_directive_pattern()` (one modal
-# vocabulary, one possessive-aware object grammar, reused per verb) and every
-# rating/forecast pattern from `_own_voice_or_bare_assertion()` (one
-# `_OWN_VOICE_ANCHOR` — which excludes a pronoun immediately followed by a
-# reporting verb — and one `_SENTENCE_START`, which now also recognizes a
-# Markdown list-item marker). Adding a new modal, pronoun, or reporting verb
-# in the future means editing one constant, not re-deriving five regexes.
+# blacktomb42 PR #444 review, two rounds, both CHANGES_REQUESTED:
+#
+# Round 2 found the FIRST cut of the patterns below encoded one narrow
+# surface form per term instead of the underlying directive/own-voice
+# MEANING, with each family (action-directive vs. rating/forecast) using its
+# own bespoke, non-reusable regex: it missed natural possessive pronouns
+# ("your exposure", "their position") and a nested modal ("should consider
+# setting"), and it used a bare "we"/"i"/"portfonia" token as a stand-in for
+# "grammatical subject", missing the possessive "our" ("In our view, this is
+# a strong buy") and falsely firing on any pronoun immediately followed by a
+# reporting verb regardless of what came after it.
+#
+# Round 3 found that round 2's reporting-verb-adjacency fix was still not
+# evidence of a genuine third party: "We EXPECT it will fall to $80" has
+# "we" as the direct subject of an attribution-shaped verb (own voice), while
+# "We report that UBS EXPECTS ..." has a different, later subject governing
+# that same verb (real attribution) — a reporting verb (or none at all, e.g.
+# "According to our source, ...") immediately after the pronoun proves
+# nothing on its own. It also found the rating/forecast sentence-initial
+# branch only recognized a closed pronoun set, missing a named instrument
+# ("NVDA is a strong buy."), and that `_SENTENCE_START` only recognized an
+# unindented Markdown bullet, missing common list nesting ("  - This is...").
+#
+# Fixed by building every action-directive pattern from `_directive_pattern()`
+# (one modal vocabulary, one determiner grammar, reused per verb) and every
+# rating/forecast pattern from `_own_voice_or_bare_assertion()`, itself built
+# on: `_own_voice_anchor()` (requires an `_ATTRIBUTION_VERBS` token to appear
+# after AT LEAST ONE intervening word past the pronoun — proving the verb
+# belongs to a later, different subject, not the pronoun itself); a generic
+# `_BARE_SUBJECT` (any short subject, not an enumerated pronoun list, so a
+# named instrument is covered); and `_SENTENCE_START` (now generated for a
+# 0-3-space Markdown list-item indent, since a Python lookbehind must be
+# fixed-width and can't express `{0,3}` directly). Adding a new modal,
+# determiner, pronoun, or attribution verb going forward is a one-line change
+# to one shared constant, not a per-pattern hunt across five regexes.
 # ---------------------------------------------------------------------------
+
 
 # Zero-width "start of a sentence, OR start of a Markdown list item" anchor.
 # Shared by every sentence-initial bare-declarative/imperative branch below
 # (recommend*, the three action-directive patterns, and the two own-voice
 # rating/forecast patterns) so a fix to this primitive (like the Markdown
-# bullet case blacktomb42's review caught: "- This is a strong buy." was
-# unscanned because "This" isn't at position 0 or right after ". ") applies
-# everywhere at once instead of drifting between five separately-maintained
-# copies.
-_SENTENCE_START = (
-    r"(?:(?<=^)|(?<=\n)|(?<=[.!?]\s)"
-    r"|(?<=^[-*+]\s)|(?<=\n[-*+]\s)"
-    r"|(?<=^\d\.\s)|(?<=\n\d\.\s))"
-)
-
-# Reporting verbs that introduce THIRD-PARTY content even when the sentence's
-# own subject is first-person ("we NOTE that UBS has a strong buy rating..."
-# is Portfonia reporting what UBS said, not Portfonia's own rating). Used
-# only to gate _OWN_VOICE_ANCHOR below — expand this list, not the anchor
-# logic itself, if another reporting verb turns up in production.
-_REPORTING_VERBS = (
-    r"note|notes|noted"
-    r"|report|reports|reported"
-    r"|mention|mentions|mentioned"
-    r"|observe|observes|observed"
-    r"|highlight|highlights|highlighted"
-    r"|flag|flags|flagged"
-)
-
-# First-person/product-voice subject anchor shared by every "own-voice
-# assertion" pattern below (ratings, price forecasts). Includes the
-# possessive "our" (not just bare "we"/"i") since "In our view, ..." /
-# "Our base case is ..." carry the model's own voice with no bare "we"/"i"
-# token present. Excludes an anchor immediately followed by a _REPORTING_VERB
-# — that shape introduces third-party content, not the model's own claim.
-_OWN_VOICE_ANCHOR = rf"\b(?:we|i|our|portfonia)\b(?!\s+(?:{_REPORTING_VERBS})\b)"
+# bullet case blacktomb42's round-2 review caught: "- This is a strong buy."
+# was unscanned because "This" isn't at position 0 or right after ". ")
+# applies everywhere at once instead of drifting between five
+# separately-maintained copies. A Python lookbehind must be fixed-width, so
+# a {0,3}-space indent (round-3 review: "  - This is..." still bypassed the
+# unindented-only version) is spelled out as one fixed-width alternative per
+# depth rather than a single variable-width lookbehind.
+def _sentence_start() -> str:
+    parts = [r"(?<=^)", r"(?<=\n)", r"(?<=[.!?]\s)"]
+    for line_start in (r"^", r"\n"):
+        for indent in range(4):  # 0-3 leading spaces: common list-nesting range
+            spaces = " " * indent
+            parts.append(rf"(?<={line_start}{spaces}[-*+]\s)")
+            parts.append(rf"(?<={line_start}{spaces}\d\.\s)")
+    return "(?:" + "|".join(parts) + ")"
 
 
-def _own_voice_or_bare_assertion(phrase: str, bare_subject_and_verb: str, *, gap: int = 40) -> str:
-    """Scan pattern for a RATING/FORECAST noun phrase (not a verb — see
-    `recommend*` above for the verb-adjacency equivalent, which doesn't need
-    this: a verb's own subject sits immediately before it).
+_SENTENCE_START = _sentence_start()
 
-    Blocks: (a) `phrase` within `gap` characters of `_OWN_VOICE_ANCHOR` (the
-    model's own voice, however it phrases the assertion), or (b) a bare
-    sentence-initial declarative naming the phrase directly
-    (`bare_subject_and_verb` supplies the subject+copula, e.g.
-    ``"this\\s+is\\s+a"``). Allows third-party attribution ("the bank has a
-    strong buy rating...", "analysts expect it will rise to $200...") by
-    construction: it matches neither anchor.
+# Verbs that describe what a THIRD PARTY does with a rating/forecast (a bank
+# HAS a rating, an analyst EXPECTS a price, a desk MAINTAINS a rating) — as
+# opposed to a bare copula/"will" that the model itself uses to assert the
+# claim directly ("NVDA IS a strong buy", "it WILL rise to $200"). This is
+# the actual evidence of third-party content _own_voice_anchor looks for;
+# deliberately excludes "rate(s)"/"view(s)"/"carrie(s)" even though a bank
+# could grammatically take them too ("we RATE this a strong buy" /
+# "Portfonia VIEWS the name with a bullish rating" must stay the model's own
+# voice — those are exactly the verbs the model uses to phrase its own
+# claim, so treating them as third-party evidence would open the same hole
+# this fixes).
+_ATTRIBUTION_VERBS = r"has|have|expects?|believes?|maintains?|says?|holds?|sets?|gives?"
+
+
+def _own_voice_anchor(phrase: str, *, gap: int) -> str:
+    """First-person/product-voice subject anchor for a specific rating/
+    forecast `phrase` (ratings, price forecasts — a noun phrase, not a verb;
+    see `recommend*` above for the verb-adjacency equivalent, which doesn't
+    need this since a verb's own subject sits immediately before it).
+
+    Matches "we"/"i"/"our"/"portfonia" (the possessive "our" catches "In our
+    view, ..." / "Our base case is ..." with no bare "we"/"i" token present)
+    UNLESS an `_ATTRIBUTION_VERBS` token appears AFTER AT LEAST ONE OTHER
+    WORD between the pronoun and `phrase` — that shape ("we note THAT UBS
+    HAS a strong buy rating...", "according to our source, UBS HAS...")
+    means some OTHER, later subject governs the attribution verb, so the
+    pronoun only introduces/frames third-party content. The mandatory
+    intervening word is load-bearing, not cosmetic: without it, "We EXPECT
+    it will fall to $80" would also read as third-party evidence (`expect`
+    is in `_ATTRIBUTION_VERBS`) and wrongly escape the block — but there
+    "we" is itself the immediate, direct subject of "expect", making this
+    the model's own forecast, not a nested attribution. A reporting-verb
+    frame ALONE is also not sufficient evidence (blacktomb42 PR #444
+    round-3 review): "we report that the stock WILL rise..." has no
+    attribution verb anywhere before the phrase, so it still counts as the
+    model's own claim despite the "report that" wrapper.
     """
     return (
-        rf"{_OWN_VOICE_ANCHOR}[^.\n]{{0,{gap}}}?\b(?:{phrase})\b"
+        rf"\b(?:we|i|our|portfonia)\b"
+        rf"(?!\s+\S+[^.\n]{{0,{gap}}}?\b(?:{_ATTRIBUTION_VERBS})\b[^.\n]{{0,{gap}}}?\b(?:{phrase})\b)"
+    )
+
+
+# Generic sentence-initial subject for a bare, unattributed rating/forecast
+# declarative — 1-2 words so it covers a named instrument ("NVDA is a strong
+# buy.") as well as the closed pronoun set ("This is...", "The stock will
+# rise..."), without so wide a span that it swallows an attribution clause
+# ahead of the phrase ("UBS expects the" is 3 words — capped at 2 so it
+# cannot absorb "UBS expects" as if it were the "subject" of "will rise to").
+_BARE_SUBJECT = r"[A-Za-z][\w.&'-]*(?:\s+[A-Za-z][\w.&'-]*)?"
+
+
+def _own_voice_or_bare_assertion(phrase: str, bare_verb: str = "", *, gap: int = 40) -> str:
+    """Scan pattern for a RATING/FORECAST noun phrase.
+
+    Blocks: (a) `phrase` within `gap` characters of `_own_voice_anchor`, or
+    (b) a bare sentence-initial declarative — any short subject (`
+    _BARE_SUBJECT`, so "This"/"It"/"NVDA"/"Apple" are all covered) plus
+    `bare_verb` (empty for forecasts, whose `phrase` already starts with
+    "will"; a copula clause like ``"is\\s+a"`` for ratings) plus `phrase`.
+    Allows third-party attribution ("the bank has a strong buy rating...",
+    "analysts expect it will rise to $200...") by construction: the
+    attribution verb ("has"/"expects"/...) is not itself a copula/"will",
+    and its subject ("the bank"/"analysts") does not match `_BARE_SUBJECT`
+    immediately-followed-by-`bare_verb`+`phrase` (the verb between them
+    isn't `bare_verb`).
+    """
+    anchor = _own_voice_anchor(phrase, gap=gap)
+    verb_gap = rf"{bare_verb}\s+" if bare_verb else ""
+    return (
+        rf"{anchor}[^.\n]{{0,{gap}}}?\b(?:{phrase})\b"
         r"|"
-        rf"{_SENTENCE_START}{bare_subject_and_verb}\s+(?:{phrase})\b"
+        rf"{_SENTENCE_START}{_BARE_SUBJECT}\s+{verb_gap}(?:{phrase})\b"
     )
 
 
@@ -222,12 +279,9 @@ _EN_REGEX_PATTERNS: tuple[str, ...] = (
     _directive_pattern(r"set(?:ting)?", r"stop[-\s]?loss", imperative_verb="set"),
     _own_voice_or_bare_assertion(
         r"strong\s+buy|(?:bullish|bearish)\s+rating",
-        r"this\s+(?:is|was|remains|carries|looks\s+like)\s+a",
+        r"(?:is|was|remains|carries|looks\s+like)\s+a",
     ),
-    _own_voice_or_bare_assertion(
-        r"will\s+(?:rise|fall)\s+to",
-        r"(?:this|it|the\s+stock|the\s+name|shares?|the\s+price)",
-    ),
+    _own_voice_or_bare_assertion(r"will\s+(?:rise|fall)\s+to"),
 )
 
 # Human-readable EN terms for injection into the LLM system prompt.

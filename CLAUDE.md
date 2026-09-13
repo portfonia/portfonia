@@ -239,21 +239,30 @@ entirely as Layer-3 observation vocabulary.
   third-party-attribution-aware scan (mirror `recommend*` itself, #375).
   Every one of these terms stays in the prompt blacklist regardless of scan
   treatment — the model's own voice is still told to avoid all of them.
-  Review round 2 (blacktomb42, PR #444) found the first cut of these
-  patterns encoded one narrow surface form per term (missing natural
-  possessive pronouns and a nested modal) and used a bare `we`/`i`/
-  `portfonia` token as an imprecise proxy for "grammatical subject" (missed
-  possessive `our`; falsely fired when a reporting verb — "we NOTE/REPORT
-  that UBS...") put a named third party between the pronoun and the claim).
-  Fixed by extracting two reusable builders in `forbidden_vocab.py` —
-  `_directive_pattern()` for action-directive terms and
-  `_own_voice_or_bare_assertion()` for rating/forecast terms — plus two
-  shared primitives, `_SENTENCE_START` (now also recognizes a Markdown
-  list-item marker) and `_OWN_VOICE_ANCHOR` (excludes a pronoun immediately
-  followed by a reporting verb). Adding/removing a modal, pronoun, or
-  reporting verb going forward is a one-line change to one of these shared
-  constants, not a per-pattern hunt across five regexes. See
-  `forbidden_vocab.py`'s module docstring for the per-term reasoning.
+  Two rounds of review (blacktomb42, PR #444) hardened these patterns.
+  Round 2 found the first cut encoded one narrow surface form per term
+  (missing natural possessive pronouns and a nested modal) and used a bare
+  `we`/`i`/`portfonia` token as an imprecise proxy for "grammatical
+  subject" (missed possessive `our`; falsely fired on any reporting-verb
+  frame regardless of what followed). Round 3 found that reporting-verb fix
+  was still not real evidence of a third party — "We EXPECT it will fall"
+  has "we" as the direct subject of an attribution-shaped verb (own voice),
+  while "We report that UBS EXPECTS ..." has a different, later subject
+  governing that verb (real attribution); it also found the sentence-initial
+  branch missed a named instrument ("NVDA is a strong buy.") and that the
+  Markdown-list anchor missed common indentation. Fixed by two reusable
+  builders in `forbidden_vocab.py` — `_directive_pattern()` for
+  action-directive terms and `_own_voice_or_bare_assertion()` for
+  rating/forecast terms — built on shared primitives: `_own_voice_anchor()`
+  (requires an `_ATTRIBUTION_VERBS` token after at least one intervening
+  word past the pronoun, proving it belongs to a later subject, not the
+  pronoun itself), a generic `_BARE_SUBJECT` (not an enumerated pronoun
+  list), and `_SENTENCE_START` (generated for a 0-3-space Markdown
+  list-item indent, since a Python lookbehind must be fixed-width).
+  Adding/removing a modal, determiner, pronoun, or attribution verb going
+  forward is a one-line change to one shared constant, not a per-pattern
+  hunt across five regexes. See `forbidden_vocab.py`'s module docstring for
+  the per-term reasoning.
 - **Single footer disclaimer, no inline markers** (2026-06-08; single-language
   since issue #350 item 3): the compliance base is the one disclaimer in the
   footer, rendered in the report's own language. The body carries NO

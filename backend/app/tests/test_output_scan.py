@@ -212,6 +212,20 @@ def test_scan_en_strong_buy_and_rating_flags_first_person_assertion() -> None:
         # the prior HEAD's sentence-start anchor didn't recognize a leading
         # "- " bullet marker.
         "- This is a strong buy given the setup.",
+        # blacktomb42 PR #444 re-review (round 3): a reporting-verb frame is
+        # not itself proof of third-party content — "we note/report THAT"
+        # can just as easily wrap the model's own unattributed claim about
+        # the instrument. Only an ATTRIBUTION_VERB (has/expects/believes/
+        # maintains/says/holds/sets/gives) applied to some OTHER subject
+        # before the phrase is real evidence of a third party.
+        "We note that NVDA is a strong buy.",
+        # A named instrument (not just "this"/"it"/"the stock") is still a
+        # bare, unattributed sentence-initial declarative.
+        "NVDA is a strong buy.",
+        "NVDA carries a bullish rating.",
+        # Nested/indented Markdown list item (0-3 leading spaces is the
+        # common nesting range).
+        "  - This is a strong buy.",
     ):
         assert scan._scan_forbidden_output(phrase) != [], f"expected scan to flag: {phrase!r}"
 
@@ -232,6 +246,12 @@ def test_scan_en_strong_buy_and_rating_allows_third_party_attribution() -> None:
         # "we note/report that X" introduces third-party content and must
         # not hold the report just because "we" appears nearby.
         "We note that UBS has a strong buy rating on NVDA.",
+        # blacktomb42 PR #444 re-review (round 3): "According to X, ..." is
+        # third-party attribution even with no "note"/"report" reporting
+        # verb at all — the anchor exclusion must key on an ATTRIBUTION_VERB
+        # appearing before the phrase, not on a specific reporting-verb
+        # wrapper.
+        "According to our source, UBS has a strong buy rating on NVDA.",
     ):
         assert scan._scan_forbidden_output(phrase) == [], (
             f"scan should not flag third-party attribution: {phrase!r}"
@@ -249,6 +269,12 @@ def test_scan_en_price_forecast_flags_unattributed_assertion() -> None:
         "Our base case is that the stock will rise to $200.",
         # Markdown list item — see the same fixture on the rating test above.
         "- The stock will fall to $80.",
+        # blacktomb42 PR #444 re-review (round 3): reporting-verb frame with
+        # no attribution verb — see the rating test's equivalent fixture.
+        "We report that the stock will rise to $200.",
+        # Named instrument, no third-party attribution.
+        "NVDA will rise to $200.",
+        "- NVDA will fall to $80.",
     ):
         assert scan._scan_forbidden_output(phrase) != [], f"expected scan to flag: {phrase!r}"
 
