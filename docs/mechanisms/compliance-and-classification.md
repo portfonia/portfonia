@@ -35,6 +35,93 @@
   daily — Resend's Idempotency-Key window alone cannot. See
   `capture-and-reporting.md` "Fund NAV staleness observability".
 
+### EN scan patterns: shared directive/own-voice builders (issue #443, PR #444)
+
+Production hold `73d54b62-ac48-4c76-8900-4d6b26898201` (2026-09-12) blocked a
+compliant report over "entry point" used in general valuation-concept prose
+for a 100%-cash user, not a directive. The fix widened into every bare-literal
+English pattern in `forbidden_vocab.py`, per product-owner direction: a cited
+third-party article routinely carries this vocabulary as factual background
+(an analyst's TA read, a bank's published rating, a price forecast), and a
+bare-word scan can't tell that apart from the model's own advice.
+
+Final treatment: `entry point`/`target price` dropped to prompt-only (mirror
+ZH 入场/目标价, #65); `reduce exposure`/`increase position`/`stop-loss` kept a
+directive-context scan (mirror ZH 止损/清仓, #74/#205); `oversold`/`overbought`
+dropped from the scan entirely (join `support level`/`resistance level` as
+unscanned TA observation vocabulary); `strong buy`/`bullish rating`/
+`bearish rating`/`will rise to`/`will fall to` kept a third-party-attribution-
+aware scan (mirror `recommend*`, #375). Every term stays in `_EN_PROMPT_TERMS`
+regardless of scan treatment — the model's own voice is still told to avoid
+all of them.
+
+**Shared builders** (not bespoke per-term regex): `_directive_pattern()` for
+action-directive terms (one modal vocabulary + determiner grammar, reused
+per verb) and `_own_voice_or_bare_assertion()` for rating/forecast terms,
+built on `_own_voice_anchor()`, a generic `_BARE_SUBJECT`, and
+`_SENTENCE_START`. Adding/removing a modal, determiner, pronoun,
+self-referent filler, or attribution verb/noun is a one-line change to a
+shared constant, not a per-pattern hunt. See `forbidden_vocab.py`'s module
+docstring for the exact composition.
+
+**Review history (blacktomb42, PR #444) — five rounds, each
+CHANGES_REQUESTED, each catching a real defect verified independently
+before fixing:**
+
+- **Round 2**: the first cut encoded one narrow surface form per term
+  instead of the underlying directive/own-voice meaning — missed natural
+  possessive pronouns ("your exposure"), a nested modal ("should consider
+  setting"), and used a bare `we`/`i`/`portfonia` token as a stand-in for
+  "grammatical subject" (missed possessive `our`; falsely fired on any
+  reporting-verb frame regardless of what followed).
+- **Round 3**: the reporting-verb-adjacency fix was still not evidence of a
+  genuine third party — "We EXPECT it will fall to $80" has "we" as the
+  direct subject of an attribution-shaped verb (own voice), while "We
+  report that UBS EXPECTS ..." has a different, later subject governing
+  that verb (real attribution); a reporting verb, or none at all ("According
+  to our source, ..."), immediately after the pronoun proves nothing on its
+  own. Also found the sentence-initial branch missed a named instrument
+  ("NVDA is a strong buy.") and the Markdown-list anchor missed indentation.
+- **Round 4**: round 3's "at least one intervening word proves a subject
+  change" rule was itself too loose — "We STRONGLY expect it will fall to
+  $80" and "Our TEAM believes NVDA will rise to $200" both have an
+  intervening word before the attribution verb, but neither is a genuine
+  third party (an adverb modifying the same verb the pronoun governs, or a
+  generic noun still Portfonia's own referent after "our"/"my"). Also found
+  the sentence-initial branch recreated the original false-positive class:
+  "UBS's rating remains a strong buy" (real third-party possessive) matched
+  the same generic-subject pattern as "NVDA is a strong buy" (real own-voice
+  claim). Fixed (round 4) by `_SELF_REFERENT_WORDS` (an enumerable closed
+  set, not "any word") gating the attribution-verb evidence, and
+  `_THIRD_PARTY_POSSESSIVE` excluding "X's rating/view/..." from the bare
+  sentence-initial match.
+- **Round 5**: round 4's `_SELF_REFERENT_WORDS` word-blacklist was itself
+  non-convergent — "We CAUTIOUSLY/FULLY/PERSONALLY expect...", "We WOULD
+  expect..." (a modal auxiliary, not an adverb), "Our RESEARCH/COMMITTEE
+  believes...", and bare "my"/"this report" (never even in the anchor's
+  pronoun set) all slipped through, each new example only growing the list
+  further. Also found `_THIRD_PARTY_POSSESSIVE` required a literal `'s`
+  ("UBS rating..." without it still false-held) and couldn't distinguish a
+  genuine source ("UBS's rating...") from the instrument phrased
+  possessively ("NVDA's rating...", the model's own claim) — the reviewer's
+  own suggested resolution for that specific gap was to document it as an
+  accepted residual rather than claim to solve it, since a real fix needs
+  portfolio-holdings context this pure-text scanner doesn't have. Fixed by
+  replacing the word-blacklist in `_own_voice_anchor()` with a POSITIVE
+  structural signal — a `that`-clause or an `according to our/my <source>,`
+  frame proves a genuine clause boundary opened, rather than enumerating
+  every word that ISN'T evidence of one — and widening `_THIRD_PARTY_
+  POSSESSIVE` (optional `'s`, added recommendation/call).
+
+Every round's fixtures were re-verified independently (a standalone script
+re-running every prior round's counterexamples, not just the growing test
+suite) before extending scope further — 39 cumulative cases green as of
+round 5, including a dedicated regression test documenting the accepted
+`NVDA's rating` residual
+(`test_scan_third_party_possessive_residual_does_not_distinguish_instrument`).
+`pytest app/tests/test_output_scan.py` carries the full fixture history;
+read it alongside `forbidden_vocab.py`'s module docstring before touching
+this scan again.
 
 ### Asset classification + fund NAV capture
 

@@ -34,12 +34,317 @@ def test_scan_forbidden_output_no_false_positives() -> None:
 def test_scan_flags_advisory_action_language() -> None:
     # Unambiguously direct advisory/action terms must trip the scan backstop.
     # "target price" / "entry point" / "目标价" / "增持" / "减持" / "入场" are
-    # prompt-only (high FP risk in factual news context) — not scanned (issue #65).
-    # "止损" / "清仓" are context-scanned (see test_scan_zh_stoploss_* and
-    # test_scan_zh_qingcang_* below), not bare literals.
-    for phrase in ("stop-loss", "strong buy", "强烈买入", "投资建议"):
+    # prompt-only (high FP risk in factual news context) — not scanned (issue #65
+    # for zh; issue #443 brought EN target price/entry point in line with it).
+    # "止损" / "清仓" / EN "stop-loss" / "reduce exposure" / "increase position" /
+    # "strong buy" / "bullish/bearish rating" / "will rise/fall to" are
+    # context-scanned (see test_scan_zh_stoploss_*, test_scan_zh_qingcang_*,
+    # test_scan_en_stoploss_*, test_scan_en_reduce_exposure_*,
+    # test_scan_en_increase_position_*, test_scan_en_strong_buy_*,
+    # test_scan_en_rating_*, and test_scan_en_price_forecast_* below), not
+    # bare literals. "oversold"/"overbought" are dropped from the scan
+    # entirely (issue #443 — objective TA states, same class as the already-
+    # unscanned support/resistance level below), so they are intentionally
+    # absent from this list. "set a stop-loss" is still a directive,
+    # sentence-initial imperative shape.
+    for phrase in ("stop-loss", "强烈买入", "投资建议"):
         assert scan._scan_forbidden_output(f"set a {phrase} near 100") != [], (
             f"expected scan to flag: {phrase!r}"
+        )
+
+
+def test_scan_en_entry_point_allows_general_valuation_concept() -> None:
+    # Production hold 73d54b62-ac48-4c76-8900-4d6b26898201 (issue #443): the
+    # user held 100% cash, and this sentence discusses how the rate
+    # environment affects the general concept of a future valuation entry
+    # point — no security, price, or timing is named, and nothing directs
+    # the reader. Layer-3 observation, not a Layer-4 directive. "entry point"
+    # dropped to prompt-only (mirrors zh 入场, issue #65) so this no longer
+    # holds the report.
+    body = (
+        "For an investor sitting in cash, the yield environment is a direct "
+        "input to the opportunity cost of capital and the valuation entry "
+        "point for any future technology-sector commitments."
+    )
+    assert scan._scan_forbidden_output(body) == []
+
+
+def test_scan_en_target_price_allows_factual_third_party_mention() -> None:
+    # Mirrors zh 目标价 (issue #65): a bank's published target price is
+    # Layer-1/2 factual news, not a directive to the reader.
+    body = "The bank lowered its target price for the name to $150 after earnings."
+    assert scan._scan_forbidden_output(body) == []
+
+
+def test_scan_en_reduce_exposure_flags_advisory_directive() -> None:
+    # "reduce exposure" moved off the bare-literal list to a directive-context
+    # regex (issue #443), mirroring stop-loss/止损 rather than the prompt-only
+    # demotion given to target price/entry point — a modal-anchored directive
+    # naming urgency ("...should reduce exposure to NVDA now") is a
+    # materially specific Layer-4 instruction, same reasoning as #74's 止损.
+    for phrase in (
+        "Investors should reduce exposure to NVDA now.",
+        "You must reduce exposure to the name immediately.",
+        "Reduce exposure to the sector before the print.",
+        "Consider reducing exposure ahead of the event.",
+        # blacktomb42 PR #444 review: a natural possessive pronoun ("your
+        # exposure") differs from the fixture above only by that pronoun and
+        # was returning [] on the prior HEAD — a real backstop miss, not
+        # cosmetic regex coverage.
+        "You should reduce your exposure to NVDA now.",
+    ):
+        assert scan._scan_forbidden_output(phrase) != [], f"expected scan to flag: {phrase!r}"
+
+
+def test_scan_en_reduce_exposure_allows_third_party_description() -> None:
+    # Layer-1/2 factual description of what other market participants did,
+    # not a directive to the reader.
+    for phrase in (
+        "Hedge funds reduced exposure to tech stocks after the rally.",
+        "Institutional investors are reducing exposure to growth names amid the pullback.",
+        "Reducing exposure to tech in Q3 helped the fund limit losses.",
+    ):
+        assert scan._scan_forbidden_output(phrase) == [], (
+            f"scan should not flag descriptive use: {phrase!r}"
+        )
+
+
+def test_scan_en_increase_position_flags_advisory_directive() -> None:
+    # Symmetric with reduce exposure (issue #443) — same directive shape,
+    # opposite direction.
+    for phrase in (
+        "Investors should increase position in the name ahead of earnings.",
+        "You must increase your position before the announcement.",
+        "Increase your position in the name before the print.",
+        "Consider increasing your position ahead of the event.",
+        # blacktomb42 PR #444 review: possessive "their position" (vs. "your
+        # position" in the fixture above) was returning [] on the prior HEAD.
+        "Investors should increase their position in NVDA.",
+    ):
+        assert scan._scan_forbidden_output(phrase) != [], f"expected scan to flag: {phrase!r}"
+
+
+def test_scan_en_increase_position_allows_third_party_description() -> None:
+    for phrase in (
+        "Several funds increased their position in the name after earnings.",
+        "Institutional buyers are increasing their position across semiconductor names.",
+        "Increasing their position ahead of the print paid off for early buyers.",
+    ):
+        assert scan._scan_forbidden_output(phrase) == [], (
+            f"scan should not flag descriptive use: {phrase!r}"
+        )
+
+
+def test_scan_en_stoploss_flags_advisory_directive() -> None:
+    # EN counterpart of test_scan_zh_stoploss_flags_advisory_directive
+    # (issue #443) — a directive naming an exact exit mechanism is a more
+    # specific Layer-4 instruction than a vague position-size directive, so
+    # stop-loss keeps a scan (context-aware), same class as reduce exposure/
+    # increase position above, not a prompt-only demotion.
+    for phrase in (
+        "Set a stop-loss near 100.",
+        "You should set a stop-loss at $50.",
+        "Consider setting a stop-loss below support.",
+        "Investors must set a stop-loss before the open.",
+        # blacktomb42 PR #444 review: a nested modal ("should consider
+        # setting") was returning [] on the prior HEAD — the modal-anchored
+        # branch only recognized exactly one modal token immediately before
+        # the verb, not "should" followed by "consider".
+        "Investors should consider setting a stop-loss below support.",
+    ):
+        assert scan._scan_forbidden_output(phrase) != [], f"expected scan to flag: {phrase!r}"
+
+
+def test_scan_en_stoploss_allows_market_mechanism_description() -> None:
+    # Layer-1/2 factual description of third-party stop-loss mechanics
+    # triggering, not a directive to the reader.
+    for phrase in (
+        "Stop-loss orders triggered a broad sell-off.",
+        "The fund's stop-loss levels were hit, forcing liquidation.",
+        "Analysts noted heavy stop-loss selling below the 50-day average.",
+    ):
+        assert scan._scan_forbidden_output(phrase) == [], (
+            f"scan should not flag descriptive use: {phrase!r}"
+        )
+
+
+def test_scan_en_oversold_overbought_never_scanned() -> None:
+    # Issue #443 scope revision: oversold/overbought are objective TA states
+    # (an RSI or similar indicator reading), not actions — the same class of
+    # Layer-3 "signal worth watching" vocabulary as support/resistance level,
+    # which this scan already never flags (see
+    # test_scan_allows_ta_observation_vocabulary below). A cited article's
+    # own TA read ("the technical desk views the name as oversold") is
+    # exactly the false-positive shape this issue exists to fix, so both
+    # terms are dropped from the scan entirely — dropped, not
+    # context-narrowed, since there is no directive-shaped use of a bare
+    # state adjective the way there is for a verb like "recommend" or
+    # "reduce exposure". They remain in the prompt blacklist (the model is
+    # still told not to use them in its own voice).
+    for phrase in (
+        "The stock is deeply oversold after the pullback.",
+        "RSI shows the name is overbought at these levels.",
+        "Analysts view the sector as oversold heading into earnings.",
+        "You should buy — it's oversold.",  # "should buy" still holds this
+    ):
+        result = scan._scan_forbidden_output(phrase)
+        assert "oversold" not in [r.lower() for r in result]
+        assert "overbought" not in [r.lower() for r in result]
+
+
+def test_scan_en_strong_buy_and_rating_flags_first_person_assertion() -> None:
+    # Issue #443: "strong buy"/"bullish rating"/"bearish rating" are ratings,
+    # not states — closer to recommend* (#375) than to oversold/overbought.
+    # Block only the model's own first-person/product voice or a bare
+    # sentence-initial declarative.
+    for phrase in (
+        "We rate this a strong buy.",
+        "This is a strong buy given the setup.",
+        "Portfonia views the name with a bullish rating.",
+        "This carries a bearish rating in our view.",
+        # blacktomb42 PR #444 review: the prior HEAD used a bare "we/i/
+        # portfonia" token as a proxy for "this is the grammatical subject
+        # of the rating" — the possessive "our" (no bare "we"/"i" token) was
+        # returning [] even though it is clearly the model's own voice.
+        "In our view, this is a strong buy.",
+        "Our base case is a bullish rating on the name.",
+        # A Markdown list item is still a sentence for scanning purposes —
+        # the prior HEAD's sentence-start anchor didn't recognize a leading
+        # "- " bullet marker.
+        "- This is a strong buy given the setup.",
+        # blacktomb42 PR #444 re-review (round 3): a reporting-verb frame is
+        # not itself proof of third-party content — "we note/report THAT"
+        # can just as easily wrap the model's own unattributed claim about
+        # the instrument. Only an ATTRIBUTION_VERB (has/expects/believes/
+        # maintains/says/holds/sets/gives) applied to some OTHER subject
+        # before the phrase is real evidence of a third party.
+        "We note that NVDA is a strong buy.",
+        # A named instrument (not just "this"/"it"/"the stock") is still a
+        # bare, unattributed sentence-initial declarative.
+        "NVDA is a strong buy.",
+        "NVDA carries a bullish rating.",
+        # Nested/indented Markdown list item (0-3 leading spaces is the
+        # common nesting range).
+        "  - This is a strong buy.",
+        # blacktomb42 PR #444 re-review (round 4): "at least one intervening
+        # word" is not proof of a subject change — an adverb between the
+        # pronoun and the attribution verb ("we STRONGLY expect", "Portfonia
+        # CURRENTLY gives") still leaves the pronoun as that verb's own
+        # subject. Likewise "our TEAM believes"/"our ANALYSIS says" are
+        # still Portfonia's own team/analysis, not a separate third party.
+        "We currently maintain a strong buy rating on NVDA.",
+        "Portfonia currently gives NVDA a strong buy rating.",
+        # blacktomb42 PR #444 re-review (round 5): round 4's closed
+        # "_SELF_REFERENT_WORDS" blacklist can never enumerate every
+        # modifier/own-referent noun — replaced with a positive structural
+        # signal (a "that"-clause or "according to X," frame) instead of
+        # trying to list every non-third-party filler word.
+        "We cautiously maintain a strong buy rating on NVDA.",
+        "My analysis says NVDA carries a bullish rating.",
+        "This report says NVDA carries a bullish rating.",
+    ):
+        assert scan._scan_forbidden_output(phrase) != [], f"expected scan to flag: {phrase!r}"
+
+
+def test_scan_en_strong_buy_and_rating_allows_third_party_attribution() -> None:
+    # A cited article's report of a bank/analyst rating is Layer-1/2
+    # quotation, not the model's own advice — this is the exact
+    # false-positive shape reported by the product owner (2026-09-12): cited
+    # articles routinely carry this vocabulary as background.
+    for phrase in (
+        "The bank has a strong buy rating on the stock.",
+        "Analysts maintain a strong buy rating heading into the print.",
+        "Morgan Stanley's bullish rating on the name reflects its AI capex thesis.",
+        "The desk's bearish rating on the sector predates the guidance cut.",
+        # blacktomb42 PR #444 review: the prior HEAD's window treated any
+        # "we"/"i"/"portfonia" occurrence as if it were the rating's
+        # grammatical subject, regardless of what verb immediately follows —
+        # "we note/report that X" introduces third-party content and must
+        # not hold the report just because "we" appears nearby.
+        "We note that UBS has a strong buy rating on NVDA.",
+        # blacktomb42 PR #444 re-review (round 3): "According to X, ..." is
+        # third-party attribution even with no "note"/"report" reporting
+        # verb at all — the anchor exclusion must key on an ATTRIBUTION_VERB
+        # appearing before the phrase, not on a specific reporting-verb
+        # wrapper.
+        "According to our source, UBS has a strong buy rating on NVDA.",
+        # blacktomb42 PR #444 re-review (round 4): an explicit third-party
+        # possessive rating/view must not be recreated as a false hold via
+        # the sentence-initial branch — "X's rating IS a strong buy" names
+        # X as the party HOLDING the rating, not the model's own claim.
+        "UBS's rating remains a strong buy.",
+        "Morningstar's view is a strong buy.",
+        # blacktomb42 PR #444 re-review (round 5): the possessive "'s" is
+        # not required for a third-party attribution noun phrase, and the
+        # attribution-noun vocabulary was too narrow (missing
+        # recommendation/call). ACCEPTED RESIDUAL (documented, matches the
+        # reviewer's own suggested fallback): this cannot distinguish "UBS's
+        # rating" (a source) from "NVDA's rating" (the instrument itself)
+        # without portfolio context this pure-text scanner doesn't have —
+        # both read as third-party-shaped and are allowed. See
+        # forbidden_vocab.py's `_THIRD_PARTY_POSSESSIVE` docstring.
+        "UBS rating remains a strong buy.",
+        "UBS view is a strong buy.",
+        "UBS's recommendation remains a strong buy.",
+        "UBS's call remains a strong buy.",
+    ):
+        assert scan._scan_forbidden_output(phrase) == [], (
+            f"scan should not flag third-party attribution: {phrase!r}"
+        )
+
+
+def test_scan_en_price_forecast_flags_unattributed_assertion() -> None:
+    # Issue #443: same third-party-attribution technique as recommend*/strong
+    # buy above, applied to "will rise/fall to".
+    for phrase in (
+        "This will rise to $200 by year-end.",
+        "We expect it will fall to $80 on weaker guidance.",
+        # blacktomb42 PR #444 review: possessive "our" (no bare "we"/"i")
+        # returned [] on the prior HEAD despite being the model's own claim.
+        "Our base case is that the stock will rise to $200.",
+        # Markdown list item — see the same fixture on the rating test above.
+        "- The stock will fall to $80.",
+        # blacktomb42 PR #444 re-review (round 3): reporting-verb frame with
+        # no attribution verb — see the rating test's equivalent fixture.
+        "We report that the stock will rise to $200.",
+        # Named instrument, no third-party attribution.
+        "NVDA will rise to $200.",
+        "- NVDA will fall to $80.",
+        # blacktomb42 PR #444 re-review (round 4): adverb/self-referent-noun
+        # gap — see the rating test's equivalent fixtures.
+        "We strongly expect it will fall to $80.",
+        "We now believe NVDA will rise to $200.",
+        "Our team believes NVDA will rise to $200.",
+        "Our analysis says NVDA will rise to $200.",
+        # blacktomb42 PR #444 re-review (round 5): every one of these is a
+        # direct first-person/product assertion with no third party named
+        # anywhere — round 4's closed adverb/noun blacklist couldn't
+        # enumerate all of them ("cautiously"/"fully"/"would" (a modal
+        # auxiliary, not even an adverb)/"personally"/"research"/
+        # "committee"), and "my"/"this report" weren't even recognized as
+        # anchors at all.
+        "We cautiously expect NVDA will rise to $200.",
+        "We fully expect NVDA will rise to $200.",
+        "We would expect NVDA will rise to $200.",
+        "I personally believe NVDA will rise to $200.",
+        "Our research believes NVDA will rise to $200.",
+        "Our committee believes NVDA will rise to $200.",
+        "My analysis says NVDA will rise to $200.",
+        "This report says NVDA will rise to $200.",
+    ):
+        assert scan._scan_forbidden_output(phrase) != [], f"expected scan to flag: {phrase!r}"
+
+
+def test_scan_en_price_forecast_allows_third_party_attribution() -> None:
+    for phrase in (
+        "UBS expects the stock will rise to $200 by year-end.",
+        "Analysts believe the name will fall to $80 on weaker guidance.",
+        # blacktomb42 PR #444 review: reporting-verb exclusion (see the
+        # rating test above) applied to the forecast pattern too.
+        "We report that UBS expects the stock will rise to $200.",
+    ):
+        assert scan._scan_forbidden_output(phrase) == [], (
+            f"scan should not flag third-party attribution: {phrase!r}"
         )
 
 
@@ -55,6 +360,15 @@ def test_scan_en_recommend_flags_user_directed_advisory() -> None:
         "Portfonia recommends a smaller allocation to the name.",
         "Recommend buying AAPL.",
         "It is recommended that you hold the position.",
+        # Cross-family regression (blacktomb42 PR #444 review round 2): a
+        # Markdown list item is still a sentence for scanning purposes.
+        # recommend*'s sentence-initial branch shares `_SENTENCE_START` with
+        # the action-directive and rating/forecast patterns below — this
+        # fixture and the "- This is a strong buy..."/"- The stock will fall
+        # to $80." fixtures on those tests exercise the SAME shared
+        # primitive so a future regression there fails all three families
+        # together, not silently in just one.
+        "- Recommend buying AAPL before the print.",
     ):
         assert scan._scan_forbidden_output(phrase) != [], (
             f"expected scan to flag user-directed recommend: {phrase!r}"
@@ -248,6 +562,17 @@ def test_scan_allows_descriptive_price_structure() -> None:
         "of its 52-week range; 20-day annualized volatility is 42%."
     )
     assert scan._scan_forbidden_output(body) == []
+
+
+def test_scan_third_party_possessive_residual_does_not_distinguish_instrument() -> None:
+    """Documented accepted residual (blacktomb42 PR #444 round-5 review): a
+    pure-text scanner cannot tell "UBS's rating" (a source) from "NVDA's
+    rating" (the instrument itself, i.e. the model's own claim) apart
+    without knowing which names are portfolio holdings — that requires
+    integrating this scan with the report's holdings list, out of scope for
+    this fix. Both are treated as third-party-shaped and allowed; see
+    `forbidden_vocab.py`'s `_THIRD_PARTY_POSSESSIVE` docstring."""
+    assert scan._scan_forbidden_output("NVDA's rating remains a strong buy.") == []
 
 
 # ---------------------------------------------------------------------------

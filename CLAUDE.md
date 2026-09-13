@@ -117,7 +117,7 @@ area of the code, not just the one-line summary here.
 - [LLM failure taxonomy](docs/mechanisms/llm-reliability.md) — issue #55: `LLMErrorCode`/`ErrorPolicy`, classification by HTTP status, five real defects fixed.
 - [Bounded retry for shared intel caches](docs/mechanisms/llm-reliability.md) — issue #160: `attempt_count` bounds L1/L2 retries instead of a permanent null-marker lock.
 - [Reliability mechanisms (window/dedup/LLM-call correctness)](docs/mechanisms/llm-reliability.md) — same-day windows, Pass 2 completeness guard, `_call_llm` retry/backoff; issue #61 resumable retry from stored raw LLM output.
-- [Compliance + ops alerting](docs/mechanisms/compliance-and-classification.md) — forbidden-vocab scan, disclaimer, `send_ops_alert`, GitHub issue auto-creation.
+- [Compliance + ops alerting](docs/mechanisms/compliance-and-classification.md) — forbidden-vocab scan, disclaimer, `send_ops_alert`, GitHub issue auto-creation; issue #443/PR #444 EN scan directive/own-voice shared builders, five review rounds.
 - [Asset classification + fund NAV capture](docs/mechanisms/compliance-and-classification.md) — `asset_class` economic-exposure dimension, `ticker_themes`, fund NAV via lsjz.
 - [§1 / distribution / §4.1 read `asset_class`, not sector](docs/mechanisms/compliance-and-classification.md) — 2026-06-19: switched from `sector`/`asset_type`, concentration threshold rules.
 - [Asset_class thresholds are admin-configurable](docs/mechanisms/compliance-and-classification.md) — issue #35: `config/asset_class_thresholds.yml`, hot-reloaded, closed taxonomy.
@@ -197,7 +197,11 @@ Layer 4  What you should do                  (FORBIDDEN — never emit)
 `recommend`, `should`, `buy`, `sell`, `hold`, `reduce`, `increase`, `exit`,
 `stop-loss`, `target price`, `will rise/fall to`, `entry point`, `oversold`,
 `overbought`, `strong buy`, `bullish/bearish rating` — and their equivalents
-in any other language.
+in any other language. This is the prompt-side rule (the model's own voice
+must never use them); the output-side scan backstop below is narrower for
+several of these — see "Output-side backstop" for which ones stay a bare
+block vs. a context-aware/third-party-attribution-aware scan vs. dropped
+entirely as Layer-3 observation vocabulary.
 
 ### Compliance scaffolding
 
@@ -220,7 +224,30 @@ in any other language.
   still hold; third-party house-view attribution ("UBS … recommends",
   "the bank recommends", "analysts recommend") does not. Prompt blacklist
   still includes `recommend`. Residual: a user-directed recommend that
-  mimics third-party syntax in the same clause may slip.
+  mimics third-party syntax in the same clause may slip. Issue #443 applied
+  the same de-bluntening to every remaining bare EN literal (product-owner
+  direction: a cited third-party article routinely carries this vocabulary
+  as factual background, and a bare-word scan can't tell that apart from
+  the model's own advice): `entry point`/`target price` dropped to
+  prompt-only (mirror ZH 入场/目标价, #65); `reduce exposure`/
+  `increase position`/`stop-loss` kept a directive-context scan (mirror ZH
+  止损/清仓, #74/#205); `oversold`/`overbought` dropped from the scan
+  entirely — an objective TA state has no directive-shaped use to preserve,
+  so they join the already-unscanned `support level`/`resistance level`/
+  `golden cross`/`breakout` observation vocabulary; `strong buy`/
+  `bullish rating`/`bearish rating`/`will rise to`/`will fall to` kept a
+  third-party-attribution-aware scan (mirror `recommend*` itself, #375).
+  Every one of these terms stays in the prompt blacklist regardless of scan
+  treatment — the model's own voice is still told to avoid all of them.
+  Built on two reusable builders in `forbidden_vocab.py` —
+  `_directive_pattern()` for action-directive terms and
+  `_own_voice_or_bare_assertion()` for rating/forecast terms — so
+  adding/removing a modal, determiner, pronoun, or attribution verb is a
+  one-line change to a shared constant, not a per-pattern hunt. *Five
+  rounds of review (blacktomb42, PR #444) hardened this mechanism against
+  real false-negative/false-positive pairs — full incident history:
+  playbook `docs/mechanisms/compliance-and-classification.md` ("EN scan
+  patterns: shared directive/own-voice builders").*
 - **Single footer disclaimer, no inline markers** (2026-06-08; single-language
   since issue #350 item 3): the compliance base is the one disclaimer in the
   footer, rendered in the report's own language. The body carries NO
