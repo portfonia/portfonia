@@ -64,7 +64,7 @@ self-referent filler, or attribution verb/noun is a one-line change to a
 shared constant, not a per-pattern hunt. See `forbidden_vocab.py`'s module
 docstring for the exact composition.
 
-**Review history (blacktomb42, PR #444) — four rounds, each
+**Review history (blacktomb42, PR #444) — five rounds, each
 CHANGES_REQUESTED, each catching a real defect verified independently
 before fixing:**
 
@@ -91,17 +91,37 @@ before fixing:**
   the sentence-initial branch recreated the original false-positive class:
   "UBS's rating remains a strong buy" (real third-party possessive) matched
   the same generic-subject pattern as "NVDA is a strong buy" (real own-voice
-  claim). Fixed by `_SELF_REFERENT_WORDS` (an enumerable closed set, not
-  "any word") gating the attribution-verb evidence, and
+  claim). Fixed (round 4) by `_SELF_REFERENT_WORDS` (an enumerable closed
+  set, not "any word") gating the attribution-verb evidence, and
   `_THIRD_PARTY_POSSESSIVE` excluding "X's rating/view/..." from the bare
   sentence-initial match.
+- **Round 5**: round 4's `_SELF_REFERENT_WORDS` word-blacklist was itself
+  non-convergent — "We CAUTIOUSLY/FULLY/PERSONALLY expect...", "We WOULD
+  expect..." (a modal auxiliary, not an adverb), "Our RESEARCH/COMMITTEE
+  believes...", and bare "my"/"this report" (never even in the anchor's
+  pronoun set) all slipped through, each new example only growing the list
+  further. Also found `_THIRD_PARTY_POSSESSIVE` required a literal `'s`
+  ("UBS rating..." without it still false-held) and couldn't distinguish a
+  genuine source ("UBS's rating...") from the instrument phrased
+  possessively ("NVDA's rating...", the model's own claim) — the reviewer's
+  own suggested resolution for that specific gap was to document it as an
+  accepted residual rather than claim to solve it, since a real fix needs
+  portfolio-holdings context this pure-text scanner doesn't have. Fixed by
+  replacing the word-blacklist in `_own_voice_anchor()` with a POSITIVE
+  structural signal — a `that`-clause or an `according to our/my <source>,`
+  frame proves a genuine clause boundary opened, rather than enumerating
+  every word that ISN'T evidence of one — and widening `_THIRD_PARTY_
+  POSSESSIVE` (optional `'s`, added recommendation/call).
 
 Every round's fixtures were re-verified independently (a standalone script
 re-running every prior round's counterexamples, not just the growing test
-suite) before extending scope further — 34 cumulative cases green as of
-round 4. `pytest app/tests/test_output_scan.py` carries the full fixture
-history; read it alongside `forbidden_vocab.py`'s module docstring before
-touching this scan again.
+suite) before extending scope further — 39 cumulative cases green as of
+round 5, including a dedicated regression test documenting the accepted
+`NVDA's rating` residual
+(`test_scan_third_party_possessive_residual_does_not_distinguish_instrument`).
+`pytest app/tests/test_output_scan.py` carries the full fixture history;
+read it alongside `forbidden_vocab.py`'s module docstring before touching
+this scan again.
 
 ### Asset classification + fund NAV capture
 

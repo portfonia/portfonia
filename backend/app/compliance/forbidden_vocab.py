@@ -91,7 +91,7 @@ _DEFAULT_VOCAB_FILE = _BACKEND_DIR / "config" / "compliance_vocab.yml"
 # buried mid-sentence after an intervening clause may slip — prefer that
 # over holding third-party attribution.
 #
-# blacktomb42 PR #444 review, four rounds, each CHANGES_REQUESTED, each
+# blacktomb42 PR #444 review, five rounds, each CHANGES_REQUESTED, each
 # found a real defect verified independently before fixing:
 #
 # Round 2: the FIRST cut encoded one narrow surface form per term instead of
@@ -120,20 +120,36 @@ _DEFAULT_VOCAB_FILE = _BACKEND_DIR / "config" / "compliance_vocab.yml"
 # buy" (a real third-party possessive) matched the same generic-subject
 # pattern as "NVDA is a strong buy" (a real own-voice claim).
 #
+# Round 5: round 4's closed `_SELF_REFERENT_WORDS` word-blacklist was itself
+# non-convergent — "We CAUTIOUSLY/FULLY/PERSONALLY expect...", "We WOULD
+# expect..." (a modal auxiliary, not even an adverb), "Our RESEARCH/
+# COMMITTEE believes...", and bare "my"/"this report" (never even in the
+# anchor's pronoun set) all slipped through, and each new example only grows
+# the list further rather than converging. Also found `_THIRD_PARTY_
+# POSSESSIVE` required a literal `'s` ("UBS rating..." without it still
+# false-held) and couldn't tell a genuine source ("UBS's rating...") from
+# the instrument itself phrased possessively ("NVDA's rating...", the
+# model's own claim) — the latter is a documented ACCEPTED RESIDUAL (see
+# `_THIRD_PARTY_POSSESSIVE`'s own docstring), not something this fix claims
+# to solve: that distinction needs portfolio-holdings context this pure-text
+# scanner doesn't have.
+#
 # Fixed by building every action-directive pattern from `_directive_pattern()`
-# (one modal vocabulary, one determiner grammar, reused per verb) and every
-# rating/forecast pattern from `_own_voice_or_bare_assertion()`, itself built
-# on: `_own_voice_anchor()` (requires a word NOT in the enumerable, closed
-# `_SELF_REFERENT_WORDS` set — not just "any word" — to sit directly before
-# an `_ATTRIBUTION_VERBS` token, proving that verb's subject is a genuinely
-# different, named party); a generic `_BARE_SUBJECT` guarded by
-# `_THIRD_PARTY_POSSESSIVE` (excludes "X's rating/view/..." from the bare-
-# assertion match); and `_SENTENCE_START` (generated for a 0-3-space
-# Markdown list-item indent, since a Python lookbehind must be fixed-width
-# and can't express `{0,3}` directly). Adding a new modal, determiner,
-# pronoun, self-referent filler, or attribution verb/noun going forward is a
-# one-line change to one shared constant, not a per-pattern hunt across five
-# regexes.
+# (one modal vocabulary, one determiner grammar, reused per verb, UNCHANGED
+# since round 2 — this family was never the problem) and every rating/
+# forecast pattern from `_own_voice_or_bare_assertion()`, itself built on:
+# `_own_voice_anchor()` — replaced the word-blacklist with a POSITIVE
+# structural signal (a `that`-clause, or an `according to our/my <source>,`
+# frame) that proves a genuine clause boundary opened before the attribution
+# verb, rather than trying to enumerate every word that ISN'T evidence of
+# one; a generic `_BARE_SUBJECT` guarded by `_THIRD_PARTY_POSSESSIVE`
+# (excludes "X('s) rating/view/.../recommendation/call..." from the bare-
+# assertion match, `'s` now optional); and `_SENTENCE_START` (generated for
+# a 0-3-space Markdown list-item indent, since a Python lookbehind must be
+# fixed-width and can't express `{0,3}` directly). Adding a new modal,
+# determiner, pronoun, clause-boundary frame, or attribution verb/noun going
+# forward is a one-line change to one shared constant, not a per-pattern
+# hunt across five regexes.
 # ---------------------------------------------------------------------------
 
 
@@ -163,32 +179,14 @@ _SENTENCE_START = _sentence_start()
 # Verbs that describe what a THIRD PARTY does with a rating/forecast (a bank
 # HAS a rating, an analyst EXPECTS a price, a desk MAINTAINS a rating) — as
 # opposed to a bare copula/"will" that the model itself uses to assert the
-# claim directly ("NVDA IS a strong buy", "it WILL rise to $200"). Evidence
-# of third-party content requires one of these immediately after a subject
-# that ISN'T self-referential (`_SELF_REFERENT_WORDS` below) — deliberately
-# excludes "rate(s)"/"view(s)"/"carrie(s)" even though a bank could
-# grammatically take them too ("we RATE this a strong buy" / "Portfonia
-# VIEWS the name with a bullish rating" must stay the model's own voice —
-# those are exactly the verbs the model uses to phrase its own claim, so
-# treating them as third-party evidence would open the same hole this
-# fixes).
+# claim directly ("NVDA IS a strong buy", "it WILL rise to $200").
+# Deliberately excludes "rate(s)"/"view(s)"/"carrie(s)" even though a bank
+# could grammatically take them too ("we RATE this a strong buy" /
+# "Portfonia VIEWS the name with a bullish rating" must stay the model's own
+# voice — those are exactly the verbs the model uses to phrase its own
+# claim, so treating them as third-party evidence would open the same hole
+# this fixes).
 _ATTRIBUTION_VERBS = r"has|have|expects?|believes?|maintains?|says?|holds?|sets?|gives?"
-
-# Words that can sit between the pronoun and an `_ATTRIBUTION_VERBS` token
-# WITHOUT being a genuine third-party subject — either they're common
-# adverbs modifying the SAME verb the pronoun governs ("we STRONGLY
-# expect"), or they're a generic noun that's still Portfonia's own referent
-# when it follows "our"/"my" ("our TEAM believes", "our ANALYSIS says").
-# blacktomb42 PR #444 round-4 review: round 3's "at least one intervening
-# word" rule treated ANY word here as proof of a subject change, which these
-# adverbs/nouns falsify — a real third-party subject is a NAME, not one of
-# these closed, enumerable self-referential fillers.
-_SELF_REFERENT_WORDS = (
-    r"we|i|our|my|portfonia"
-    r"|now|currently|still|already|also|strongly|really|clearly|firmly|confidently"
-    r"|actively|recently|generally|typically"
-    r"|team|analysis|source|view|opinion|take|read|model|assessment|outlook|estimate|case"
-)
 
 
 def _own_voice_anchor(phrase: str, *, gap: int) -> str:
@@ -197,28 +195,47 @@ def _own_voice_anchor(phrase: str, *, gap: int) -> str:
     see `recommend*` above for the verb-adjacency equivalent, which doesn't
     need this since a verb's own subject sits immediately before it).
 
-    Matches "we"/"i"/"our"/"portfonia" (the possessive "our" catches "In our
-    view, ..." / "Our base case is ..." with no bare "we"/"i" token present)
-    UNLESS a word that is NOT in `_SELF_REFERENT_WORDS` sits directly before
-    an `_ATTRIBUTION_VERBS` token, itself before `phrase` — that shape ("we
-    note that UBS HAS a strong buy rating...", "according to our source,
-    UBS HAS...") means a genuinely different, named subject governs the
-    attribution verb, so the pronoun only introduces/frames third-party
-    content. Requiring that word to be non-self-referential (not an adverb,
-    not a generic own-referent noun) is load-bearing: "we STRONGLY expect it
-    will fall" and "our TEAM believes NVDA will rise" both have a word
-    between the pronoun and the attribution verb, but neither is a genuine
-    subject change — "strongly" modifies "we expect" itself, and "team" is
-    still Portfonia's own team. Only a real name ("UBS", "Morningstar")
-    passes the exclusion, exactly as intended.
+    blacktomb42 PR #444 round-4 review tried excluding the pronoun whenever
+    a NON-self-referential word preceded an `_ATTRIBUTION_VERBS` token —
+    but that requires enumerating every adverb/modal/own-referent noun that
+    ISN'T evidence of a third party ("cautiously"/"fully"/"would" (a modal
+    auxiliary)/"personally"/"research"/"committee" all slipped through
+    round 4's list; round 5 review). A closed blacklist of fillers can never
+    converge — this replaces it with a POSITIVE structural signal instead:
+    the pronoun is excluded only when a genuine clause boundary appears
+    before the attribution verb, via one of two bounded frames, not an
+    open-ended word list:
+
+    - `that`-clause: "we NOTE THAT UBS has a strong buy rating..." — the
+      subordinating conjunction marks a new embedded clause with its own
+      subject. A bare intensifier/modal ("we cautiously/fully/would
+      expect...") never introduces one, so it can't slip through this way.
+    - `according to OUR/MY <source>,` frame: "According to our source, UBS
+      has..." — no "that" here, so this is a second, equally bounded frame
+      recognized via a fixed-width lookbehind for the literal phrase
+      "according to " immediately before "our"/"my".
+
+    Neither frame requires a word list of "what a third party is" — it only
+    requires a grammatical marker that a NEW clause/source has been opened.
+    If what follows the marker is STILL self-referential ("we note that WE
+    believe..."), that inner "we" is caught by its own, independent match of
+    this same anchor (`_scan_forbidden_output` finds every anchor
+    occurrence, not just the first), so this doesn't need to also verify who
+    the later subject is.
     """
-    third_party_subject = (
-        rf"\b(?!(?:{_SELF_REFERENT_WORDS})\b)[A-Za-z][\w.&'-]*(?:'s)?"
-        rf"\s+(?:{_ATTRIBUTION_VERBS})\b"
+    that_frame = (
+        rf"\bthat\b[^.\n]{{0,{gap}}}?\b(?:{_ATTRIBUTION_VERBS})\b"
+        rf"[^.\n]{{0,{gap}}}?\b(?:{phrase})\b"
+    )
+    according_to_frame = (
+        rf"[^,\n]{{0,20}},[^.\n]{{0,{gap}}}?\b(?:{_ATTRIBUTION_VERBS})\b"
+        rf"[^.\n]{{0,{gap}}}?\b(?:{phrase})\b"
     )
     return (
-        rf"\b(?:we|i|our|portfonia)\b"
-        rf"(?![^.\n]{{0,{gap}}}?{third_party_subject}[^.\n]{{0,{gap}}}?\b(?:{phrase})\b)"
+        rf"(?<!according to )\b(?:we|i|my|our|portfonia|this\s+report)\b"
+        rf"(?![^.\n]{{0,{gap}}}?{that_frame})"
+        r"|"
+        rf"(?<=according to )\b(?:our|my)\b(?![^.\n]{{0,{gap}}}?{according_to_frame})"
     )
 
 
@@ -230,16 +247,29 @@ def _own_voice_anchor(phrase: str, *, gap: int) -> str:
 # cannot absorb "UBS expects" as if it were the "subject" of "will rise to").
 _BARE_SUBJECT = r"[A-Za-z][\w.&'-]*(?:\s+[A-Za-z][\w.&'-]*)?"
 
-# A named third party's own possessive rating/view/forecast ("UBS's rating
-# remains a strong buy", "Morningstar's view is a strong buy") is Layer-1/2
-# attribution — X holds the rating, it isn't the model's own claim about the
-# instrument. blacktomb42 PR #444 round-4 review: `_BARE_SUBJECT` alone
-# can't tell "NVDA is a strong buy" (bare instrument, block) from "UBS'S
-# RATING is a strong buy" (third-party possessive, allow) since both are
-# "1-2 words + copula + phrase" — this pattern names the specific shape to
-# exclude from the sentence-initial branch.
-_ATTRIBUTION_NOUN = r"rating|view|forecast|outlook|estimate|opinion|target"
-_THIRD_PARTY_POSSESSIVE = rf"[A-Za-z][\w.&'-]*'s\s+(?:{_ATTRIBUTION_NOUN})\s+"
+# A named third party's own rating/view/forecast ("UBS's rating remains a
+# strong buy", "UBS rating remains a strong buy", "Morningstar's view is a
+# strong buy") is Layer-1/2 attribution — X holds the rating, it isn't the
+# model's own claim about the instrument. `_BARE_SUBJECT` alone can't tell
+# "NVDA is a strong buy" (bare instrument, block) from "UBS('s) RATING is a
+# strong buy" (third-party attribution, allow) since both are "1-2 words +
+# copula + phrase" — this pattern names the specific shape to exclude from
+# the sentence-initial branch. The possessive `'s` is OPTIONAL (blacktomb42
+# PR #444 round-5 review: "UBS rating..." without it is just as much a
+# third-party attribution as "UBS's rating...").
+#
+# ACCEPTED RESIDUAL (round-5 review's own suggested resolution, not
+# something this fix claims to solve): this pattern cannot distinguish a
+# genuine third-party SOURCE ("UBS's rating...") from the INSTRUMENT itself
+# phrased possessively ("NVDA's rating remains a strong buy." — the model's
+# own claim, dressed as a possessive) — that requires knowing which names
+# are the report's own holdings, i.e. passing portfolio context into this
+# pure-text scanner, out of scope for this fix. Both read as third-party-
+# shaped and are allowed; documented and regression-locked in
+# `test_scan_third_party_possessive_residual_does_not_distinguish_instrument`
+# rather than silently claimed to be handled.
+_ATTRIBUTION_NOUN = r"rating|view|forecast|outlook|estimate|opinion|target|recommendation|call"
+_THIRD_PARTY_POSSESSIVE = rf"[A-Za-z][\w.&'-]*(?:'s)?\s+(?:{_ATTRIBUTION_NOUN})\s+"
 
 
 def _own_voice_or_bare_assertion(phrase: str, bare_verb: str = "", *, gap: int = 40) -> str:
@@ -255,10 +285,14 @@ def _own_voice_or_bare_assertion(phrase: str, bare_verb: str = "", *, gap: int =
     "analysts expect it will rise to $200...", "UBS's rating remains a
     strong buy...") by construction.
     """
+    # `anchor` now has its own top-level `|` (two exclusion frames), so it
+    # MUST be wrapped in a non-capturing group here — appending text after
+    # an unwrapped `alt1|alt2` only extends alt2 (regex `|` has the lowest
+    # precedence), silently dropping the `phrase` requirement from alt1.
     anchor = _own_voice_anchor(phrase, gap=gap)
     verb_gap = rf"{bare_verb}\s+" if bare_verb else ""
     return (
-        rf"{anchor}[^.\n]{{0,{gap}}}?\b(?:{phrase})\b"
+        rf"(?:{anchor})[^.\n]{{0,{gap}}}?\b(?:{phrase})\b"
         r"|"
         rf"{_SENTENCE_START}(?!{_THIRD_PARTY_POSSESSIVE}){_BARE_SUBJECT}\s+{verb_gap}(?:{phrase})\b"
     )

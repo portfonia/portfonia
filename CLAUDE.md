@@ -117,7 +117,7 @@ area of the code, not just the one-line summary here.
 - [LLM failure taxonomy](docs/mechanisms/llm-reliability.md) — issue #55: `LLMErrorCode`/`ErrorPolicy`, classification by HTTP status, five real defects fixed.
 - [Bounded retry for shared intel caches](docs/mechanisms/llm-reliability.md) — issue #160: `attempt_count` bounds L1/L2 retries instead of a permanent null-marker lock.
 - [Reliability mechanisms (window/dedup/LLM-call correctness)](docs/mechanisms/llm-reliability.md) — same-day windows, Pass 2 completeness guard, `_call_llm` retry/backoff; issue #61 resumable retry from stored raw LLM output.
-- [Compliance + ops alerting](docs/mechanisms/compliance-and-classification.md) — forbidden-vocab scan, disclaimer, `send_ops_alert`, GitHub issue auto-creation; issue #443/PR #444 EN scan directive/own-voice shared builders, four review rounds.
+- [Compliance + ops alerting](docs/mechanisms/compliance-and-classification.md) — forbidden-vocab scan, disclaimer, `send_ops_alert`, GitHub issue auto-creation; issue #443/PR #444 EN scan directive/own-voice shared builders, five review rounds.
 - [Asset classification + fund NAV capture](docs/mechanisms/compliance-and-classification.md) — `asset_class` economic-exposure dimension, `ticker_themes`, fund NAV via lsjz.
 - [§1 / distribution / §4.1 read `asset_class`, not sector](docs/mechanisms/compliance-and-classification.md) — 2026-06-19: switched from `sector`/`asset_type`, concentration threshold rules.
 - [Asset_class thresholds are admin-configurable](docs/mechanisms/compliance-and-classification.md) — issue #35: `config/asset_class_thresholds.yml`, hot-reloaded, closed taxonomy.
@@ -243,7 +243,7 @@ entirely as Layer-3 observation vocabulary.
   `_directive_pattern()` for action-directive terms and
   `_own_voice_or_bare_assertion()` for rating/forecast terms — so
   adding/removing a modal, determiner, pronoun, or attribution verb is a
-  one-line change to a shared constant, not a per-pattern hunt. *Four
+  one-line change to a shared constant, not a per-pattern hunt. *Five
   rounds of review (blacktomb42, PR #444) hardened this mechanism against
   real false-negative/false-positive pairs — full incident history:
   playbook `docs/mechanisms/compliance-and-classification.md` ("EN scan

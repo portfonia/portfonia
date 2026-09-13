@@ -234,6 +234,14 @@ def test_scan_en_strong_buy_and_rating_flags_first_person_assertion() -> None:
         # still Portfonia's own team/analysis, not a separate third party.
         "We currently maintain a strong buy rating on NVDA.",
         "Portfonia currently gives NVDA a strong buy rating.",
+        # blacktomb42 PR #444 re-review (round 5): round 4's closed
+        # "_SELF_REFERENT_WORDS" blacklist can never enumerate every
+        # modifier/own-referent noun — replaced with a positive structural
+        # signal (a "that"-clause or "according to X," frame) instead of
+        # trying to list every non-third-party filler word.
+        "We cautiously maintain a strong buy rating on NVDA.",
+        "My analysis says NVDA carries a bullish rating.",
+        "This report says NVDA carries a bullish rating.",
     ):
         assert scan._scan_forbidden_output(phrase) != [], f"expected scan to flag: {phrase!r}"
 
@@ -266,6 +274,19 @@ def test_scan_en_strong_buy_and_rating_allows_third_party_attribution() -> None:
         # X as the party HOLDING the rating, not the model's own claim.
         "UBS's rating remains a strong buy.",
         "Morningstar's view is a strong buy.",
+        # blacktomb42 PR #444 re-review (round 5): the possessive "'s" is
+        # not required for a third-party attribution noun phrase, and the
+        # attribution-noun vocabulary was too narrow (missing
+        # recommendation/call). ACCEPTED RESIDUAL (documented, matches the
+        # reviewer's own suggested fallback): this cannot distinguish "UBS's
+        # rating" (a source) from "NVDA's rating" (the instrument itself)
+        # without portfolio context this pure-text scanner doesn't have —
+        # both read as third-party-shaped and are allowed. See
+        # forbidden_vocab.py's `_THIRD_PARTY_POSSESSIVE` docstring.
+        "UBS rating remains a strong buy.",
+        "UBS view is a strong buy.",
+        "UBS's recommendation remains a strong buy.",
+        "UBS's call remains a strong buy.",
     ):
         assert scan._scan_forbidden_output(phrase) == [], (
             f"scan should not flag third-party attribution: {phrase!r}"
@@ -295,6 +316,21 @@ def test_scan_en_price_forecast_flags_unattributed_assertion() -> None:
         "We now believe NVDA will rise to $200.",
         "Our team believes NVDA will rise to $200.",
         "Our analysis says NVDA will rise to $200.",
+        # blacktomb42 PR #444 re-review (round 5): every one of these is a
+        # direct first-person/product assertion with no third party named
+        # anywhere — round 4's closed adverb/noun blacklist couldn't
+        # enumerate all of them ("cautiously"/"fully"/"would" (a modal
+        # auxiliary, not even an adverb)/"personally"/"research"/
+        # "committee"), and "my"/"this report" weren't even recognized as
+        # anchors at all.
+        "We cautiously expect NVDA will rise to $200.",
+        "We fully expect NVDA will rise to $200.",
+        "We would expect NVDA will rise to $200.",
+        "I personally believe NVDA will rise to $200.",
+        "Our research believes NVDA will rise to $200.",
+        "Our committee believes NVDA will rise to $200.",
+        "My analysis says NVDA will rise to $200.",
+        "This report says NVDA will rise to $200.",
     ):
         assert scan._scan_forbidden_output(phrase) != [], f"expected scan to flag: {phrase!r}"
 
@@ -526,6 +562,17 @@ def test_scan_allows_descriptive_price_structure() -> None:
         "of its 52-week range; 20-day annualized volatility is 42%."
     )
     assert scan._scan_forbidden_output(body) == []
+
+
+def test_scan_third_party_possessive_residual_does_not_distinguish_instrument() -> None:
+    """Documented accepted residual (blacktomb42 PR #444 round-5 review): a
+    pure-text scanner cannot tell "UBS's rating" (a source) from "NVDA's
+    rating" (the instrument itself, i.e. the model's own claim) apart
+    without knowing which names are portfolio holdings — that requires
+    integrating this scan with the report's holdings list, out of scope for
+    this fix. Both are treated as third-party-shaped and allowed; see
+    `forbidden_vocab.py`'s `_THIRD_PARTY_POSSESSIVE` docstring."""
+    assert scan._scan_forbidden_output("NVDA's rating remains a strong buy.") == []
 
 
 # ---------------------------------------------------------------------------
