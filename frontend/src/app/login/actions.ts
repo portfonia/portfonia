@@ -4,10 +4,18 @@ import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
 import { catalogs, DEFAULT_LOCALE, isLocale } from "@/locales";
-import { resolveLoginNext } from "./login-next";
 
 export interface LoginState {
   error: string | null;
+}
+
+export const LOGIN_NEXT_PROFILE = "/profile";
+export const LOGIN_NEXT_VIGIL = "/auth/vigil";
+
+// Exact-path allowlist only. Prefix, substring, absolute, and encoded
+// values all fall through to the default /profile landing.
+export function resolveLoginNext(raw: unknown): "/profile" | "/auth/vigil" {
+  return raw === LOGIN_NEXT_VIGIL ? LOGIN_NEXT_VIGIL : LOGIN_NEXT_PROFILE;
 }
 
 // Server Actions have no request-scoped locale (no URL-based i18n routing —

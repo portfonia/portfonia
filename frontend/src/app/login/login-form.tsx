@@ -9,8 +9,7 @@ import { Input } from "@/components/ui/input";
 import { useLocale } from "@/app/_components/locale-provider";
 import { markPendingLogin } from "@/hooks/use-session";
 import { settleAuthAction } from "@/lib/settle-auth-action";
-import { login, type LoginState } from "./actions";
-import { LOGIN_NEXT_VIGIL } from "./login-next";
+import { LOGIN_NEXT_VIGIL, login, type LoginState } from "./actions";
 
 export function LoginForm({ next }: { next?: string }) {
   const t = useTranslations("auth");
