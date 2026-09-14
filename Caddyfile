@@ -22,3 +22,12 @@ auth.portfonia.com {
 		Cache-Control "no-store"
 	}
 }
+
+# Vigil frontend (issue #453 handoff follow-up). Reaches vigil-frontend
+# over the portfonia-vigil-public network — a separate, narrowly scoped
+# external network from portfonia-vigil-internal (issue #452), which is
+# reserved for the backend-to-backend identity-check hop and stays off
+# this one. Only caddy (here) and vigil-frontend attach to this network.
+vigil.portfonia.com {
+	reverse_proxy vigil-frontend:3000
+}
