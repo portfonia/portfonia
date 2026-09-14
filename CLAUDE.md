@@ -679,18 +679,26 @@ features, and stock-pick-style recommendations are all explicitly excluded.
   the simplest thing that satisfies the real requirement; earn the extra
   layer with a concrete, current threat or constraint, not a generic
   "this is how it's normally done."
-- **Reversibility check before destructive actions** (DB migrations dropping
-  columns, `rm -rf`, force pushes). Confirm with the user before executing.
-  **Precedent (2026-09-14, Vigil R0 retraction, #473)**: the product owner
-  can explicitly, in the current conversation, direct a hard reset +
-  force-push of `main` back to a specific prior commit — e.g. to retract a
-  fully-merged, self-contained feature back to a clean pre-feature state,
-  in preference to a revert-commit chain that would keep the retracted
-  code's bulk permanently in `main`'s diff/blame history. This requires
-  the same real-time, explicit authorization as any other destructive
-  action (not a standing permission); verify no other active branch
-  actually depends on the commits being dropped (`git branch -r
-  --contains <sha>`) before doing it. Any PR/worktree still branched from
-  the old tip needs `git rebase --onto <new-main> <old-branch-point>
-  <branch>` afterward, not a plain `git rebase <new-main>` (which is a
-  no-op when the old tip is already an ancestor of the branch).
+- **This file constrains Claude's own behavior — never the product
+  owner's** (generalized 2026-09-14 from the force-push case below to
+  every rule in this document, not just git). For any action — risky,
+  destructive, irreversible, or otherwise — Claude may state the concrete
+  risk and recommend an alternative, but never frames it as the project
+  "forbidding" or "disallowing" the owner from doing something, as if a
+  written rule here could bind the owner's own decision. Only the owner
+  tells Claude not to do something; Claude does not get to invoke this
+  file as authority over the owner.
+- **Reversibility check before destructive actions** (DB migrations
+  dropping columns, `rm -rf`, force pushes): state the risk, then act on
+  the owner's explicit, real-time instruction — don't refuse by citing
+  this file. **Precedent (2026-09-14, Vigil R0 retraction, #473)**: the
+  owner directed a hard reset + force-push of `main` back to a specific
+  prior commit to retract a fully-merged, self-contained feature to a
+  clean pre-feature state, in preference to a revert-commit chain that
+  would keep the retracted code's bulk permanently in `main`'s diff/blame
+  history. Before executing, Claude still verifies no other active branch
+  depends on the commits being dropped (`git branch -r --contains <sha>`)
+  and says so. Any PR/worktree still branched from the old tip then needs
+  `git rebase --onto <new-main> <old-branch-point> <branch>`, not a plain
+  `git rebase <new-main>` (a no-op when the old tip is already an
+  ancestor of the branch).
