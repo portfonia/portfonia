@@ -34,6 +34,7 @@ def _only_service_on_network(text: str, network: str, expected_service: str) -> 
     services = (
         "postgres:",
         "redis:",
+        "migrate:",
         "backend:",
         "frontend:",
         "caddy:",
@@ -67,8 +68,16 @@ def test_compose_attaches_only_caddy_to_vigil_public_network() -> None:
 
 def test_vigil_compose_attaches_only_frontend_to_vigil_public_network() -> None:
     text = (_REPO_ROOT / "vigil" / "compose.yml").read_text()
-    assert "portfonia-vigil-public" in text
-    services = ("vigil-postgres:", "vigil-redis:", "vigil-backend:", "vigil-celery-worker:")
+    networks_block = text[: text.index("volumes:")]
+    assert "portfonia-vigil-public" in networks_block and "external: true" in networks_block
+    services = (
+        "vigil-postgres:",
+        "vigil-redis:",
+        "vigil-migrate:",
+        "vigil-backend:",
+        "vigil-celery-worker:",
+        "vigil-celery-beat:",
+    )
     for service in services:
         block = _service_block(text, service)
         assert "portfonia-vigil-public" not in block, f"{service} must not attach to public net"
