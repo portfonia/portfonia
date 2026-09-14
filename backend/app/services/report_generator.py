@@ -45,6 +45,7 @@ from app.compliance.output_scan import (
     _strip_body_disclaimer,
     _strip_markers,
 )
+from app.core import operational_events as oe
 from app.core.alert_dedup import already_alerted, mark_alerted
 from app.core.config import get_settings
 from app.core.ops_log import log_ops_event
@@ -623,10 +624,20 @@ def _finish_report(
     output_lang: str,
     raw_body: str,
     news_items: list[NewsItem] | None,
+    *,
+    stage_state: dict[str, str] | None = None,
 ) -> Report:
     """Render, persist, mark news surfaced, and email — generate_report's
     common tail (steps 7/8/9/10), shared by the full pipeline and the
     stage-skip-on-retry path (#61).
+
+    `stage_state` (issue #446): the caller's compact stage-completion map,
+    mutated in place as render_and_compliance/persist_report/email_send are
+    entered — both `generate_report` call sites pass their own dict.
+    `regenerate_report` never calls this function at all (see its own
+    docstring above), so no operational-event participation is needed for
+    a `None` case here in practice; kept optional only so a future direct
+    test of this function does not need to fabricate one.
 
     `news_items` is the NewsItem list `mark_news_surfaced` needs (it reads
     `.url_hash`). The full pipeline has it from `load_news_window`; the
@@ -653,6 +664,7 @@ def _finish_report(
     and so a resume re-derives coverage from the SAME stored raw body rather
     than needing it re-persisted at generation time.
     """
+    _render_span = oe.start_span("render_and_compliance")
     visible_body, coverage_items = extract_macro_sidecar(raw_body)
     report_date_str = eff_date.strftime("%Y-%m-%d")
     full_md, violations, translated_body = _render_full_md(
@@ -673,12 +685,20 @@ def _finish_report(
     )
     ctx.pass2_translated = translated_body
     logger.info("report %s: assembled + rendered (lang=%s)", report.id, output_lang)
+    if stage_state is not None:
+        stage_state["render_and_compliance"] = "degraded" if violations else "ok"
+    oe.end_span(
+        _render_span,
+        "degraded" if violations else "ok",
+        reason_code="compliance_violation" if violations else None,
+    )
 
     # ------------------------------------------------------------------
     # 9. Persist
     # ------------------------------------------------------------------
     # Compliance > everything: a body that tripped the blacklist is held as
     # 'needs_review' and never emailed — content is preserved for inspection.
+    _persist_span = oe.start_span("persist_report")
     final_status = "needs_review" if violations else "success"
     report.status = final_status
     report.report_md = full_md
@@ -707,6 +727,13 @@ def _finish_report(
     )
     mark_news_surfaced(session, user_id, report.id, url_hashes)
     session.commit()
+    # issue #446: the "report-ready" milestone (Requirements point 2) —
+    # committed status/body/coverage/news, i.e. the report exists as far as
+    # any OTHER reader of the business Session is concerned. Deliberately
+    # BEFORE email: email confirmation is a separate, independent outcome.
+    if stage_state is not None:
+        stage_state["persist_report"] = "ok"
+    oe.end_span(_persist_span, "ok", attributes={"report_status": final_status})
     log_ops_event("report.generate.end", report_id=str(report.id), status=final_status)
 
     if violations:
@@ -730,9 +757,16 @@ def _finish_report(
     # The report is already committed as 'success' above. send_report_email
     # is contracted never to raise, but we isolate it anyway so an unexpected
     # failure here cannot fall through to the generation-failure handler and
-    # flip an already-persisted success to 'failed'.
+    # flip an already-persisted success to 'failed'. Report success does NOT
+    # imply email confirmation — a False/exception outcome here never changes
+    # `report.status` (issue #446 Design §3).
+    _email_span = oe.start_span("email_send")
     try:
-        if not send_report_email(report, session):
+        if send_report_email(report, session):
+            if stage_state is not None:
+                stage_state["email_send"] = "ok"
+            oe.end_span(_email_span, "ok")
+        else:
             # See the quiet-day branch above for why this no longer
             # claims delivery (PR #181 review).
             logger.warning(
@@ -740,8 +774,14 @@ def _finish_report(
                 "email_sender logs above for the cause",
                 report.id,
             )
+            if stage_state is not None:
+                stage_state["email_send"] = "unconfirmed"
+            oe.end_span(_email_span, "unconfirmed")
     except Exception:
         logger.exception("report %s: email send raised unexpectedly", report.id)
+        if stage_state is not None:
+            stage_state["email_send"] = "failed"
+        oe.end_span(_email_span, "failed", reason_code="unexpected_exception")
 
     return report
 
@@ -762,6 +802,7 @@ def generate_report(
     moves_cache: MovesCache | None = None,
     now: datetime | None = None,
     users_remaining: int = 1,
+    _telemetry_attrs: dict[str, Any] | None = None,
 ) -> Report:
     """
     Run the full F1 report generation pipeline and persist the result.
@@ -794,6 +835,11 @@ def generate_report(
     stamps ONE `now` for the whole batch and passes it to every user's call
     so the cache key is actually shared, not just the dict object.
 
+    `_telemetry_attrs` (issue #446): private — batch-position attributes
+    (`recipient_index`/`users_remaining`/`batch_offset_ms`) a fan-out caller
+    (report_tasks.py) attaches to this attempt's operational-event span.
+    `None` (every other call site) attaches nothing extra.
+
     `users_remaining` (issue #128 A4): how many users, INCLUDING this one,
     the current fan-out still has to serve. Forwarded to the L1/L2 shared
     caches so each user gets a fair slice of the day's remaining analysis
@@ -802,6 +848,39 @@ def generate_report(
     surfaced once per checkpoint. `1` (every non-fan-out call site: manual
     trigger, tests, a single-user system) means no restriction at all.
     """
+    # issue #446: started before the idempotency lookup below (Design §3) —
+    # inherits the caller's task run as a child span if one is active
+    # (report_tasks.py), else becomes its own standalone root run (a direct
+    # self-service/admin call). `stage_state` is a compact map of the named
+    # stages this attempt actually reaches; unreached stages default to
+    # "not_reached" and are attached to the root end event so a killed/failed
+    # attempt's SQL trail shows what it never got to, not just what failed.
+    _attempt = oe.start_attempt(
+        "report.generate",
+        user_id=user_id,
+        attributes={
+            "report_type": report_type,
+            "session_node": session_node,
+            **(_telemetry_attrs or {}),
+        },
+    )
+    _stage_state: dict[str, str] = dict.fromkeys(
+        (
+            "preparation",
+            "pass1_query_gen",
+            "tavily_search",
+            "l2_intel",
+            "l1_intel",
+            "l3_synthesis",
+            "assembly",
+            "pass2_analysis",
+            "shadow_assembly",
+            "render_and_compliance",
+            "persist_report",
+            "email_send",
+        ),
+        "not_reached",
+    )
     validate_report_type(report_type)
     settings = get_settings()
     # A local cache when the caller supplied none: the global move set has two
@@ -832,6 +911,7 @@ def generate_report(
     ).scalar_one_or_none()
 
     if existing is not None and existing.status in ("success", "skipped"):
+        oe.set_report_id(existing.id)
         if existing.status == "success" and existing.email_sent_at is None:
             # #61: the render/persist commit succeeded but the email attempt
             # after it either failed, was skipped, or never confirmed
@@ -848,6 +928,7 @@ def generate_report(
                     "email_sender logs above for the cause",
                     existing.id,
                 )
+            oe.end_attempt(_attempt, "ok", attributes={"path": "email_only"})
             return existing
         logger.info(
             "report %s: already complete for %s (status=%s) — returning existing",
@@ -855,6 +936,7 @@ def generate_report(
             eff_date,
             existing.status,
         )
+        oe.end_attempt(_attempt, "ok", attributes={"path": "noop"})
         return existing
 
     # ------------------------------------------------------------------
@@ -976,6 +1058,8 @@ def generate_report(
             period_end.isoformat(),
         )
 
+    oe.set_report_id(report.id)
+
     if prior_ctx is not None:
         # #61: resume straight from render using the stored Pass 2/assembly
         # body — everything upstream of it (portfolio/news/anomalies fetch,
@@ -988,14 +1072,31 @@ def generate_report(
         )
         resume_raw_body = prior_ctx.assembly_raw or prior_ctx.pass2_raw
         try:
-            return _finish_report(
-                session, report, prior_ctx, user_id, eff_date, output_lang, resume_raw_body, None
+            _resumed = _finish_report(
+                session,
+                report,
+                prior_ctx,
+                user_id,
+                eff_date,
+                output_lang,
+                resume_raw_body,
+                None,
+                stage_state=_stage_state,
             )
+            oe.end_attempt(
+                _attempt, "ok", attributes={"path": "resume_body", "stage_state": _stage_state}
+            )
+            return _resumed
         except Exception:
             logger.exception("report %s: generation failed (resume)", report.id)
             report.status = "failed"
             report.report_inputs = prior_ctx.to_jsonb()
             log_ops_event("report.generate.end", report_id=str(report.id), status="failed")
+            oe.end_attempt(
+                _attempt,
+                "failed",
+                attributes={"path": "resume_body", "stage_state": _stage_state},
+            )
             try:
                 session.commit()
             except Exception:
@@ -1025,6 +1126,7 @@ def generate_report(
         # ------------------------------------------------------------------
         # 1. Gather inputs (news + price moves read from the capture stores)
         # ------------------------------------------------------------------
+        _preparation_span = oe.start_span("preparation")
         logger.info("report %s: fetching portfolio snapshot", report.id)
         portfolio_snap = compute_portfolio(
             session,
@@ -1148,6 +1250,8 @@ def generate_report(
         ctx.forward_events = load_forward_events(
             session, eff_date, eff_date + timedelta(days=FORWARD_WINDOW_DAYS)
         )
+        _stage_state["preparation"] = "ok"
+        oe.end_span(_preparation_span, "ok")
 
         # ------------------------------------------------------------------
         # 2. Skip check
@@ -1215,6 +1319,8 @@ def generate_report(
             # transaction as the status commit, so the two can never diverge.
             mark_news_surfaced(session, user_id, report.id, [item.url_hash for item in news_items])
             session.commit()
+            _stage_state["render_and_compliance"] = "ok"
+            _stage_state["persist_report"] = "ok"
             log_ops_event("report.generate.end", report_id=str(report.id), status="skipped")
             # R-7: a short manual re-run (e.g. a same-day second trigger minutes
             # after the first) covers a near-empty window — 0 news, 0 anomalies,
@@ -1229,9 +1335,20 @@ def generate_report(
                     "report %s: short manual quiet window — suppressing heartbeat email",
                     report.id,
                 )
+                oe.skip_span("email_send", reason_code="short_manual_quiet")
+                _stage_state["email_send"] = "skipped"
+                oe.end_attempt(
+                    _attempt,
+                    "ok",
+                    attributes={"path": "quiet_day", "stage_state": _stage_state},
+                )
                 return report
+            _email_span = oe.start_span("email_send")
             try:
-                if not send_report_email(report, session):
+                if send_report_email(report, session):
+                    _stage_state["email_send"] = "ok"
+                    oe.end_span(_email_span, "ok")
+                else:
                     # False now covers more than "sent but the commit
                     # failed" — it's also send_report_email's fail-closed
                     # response to an unresolved recipient (issue #129 B3).
@@ -1244,13 +1361,21 @@ def generate_report(
                         "email_sender logs above for the cause",
                         report.id,
                     )
+                    _stage_state["email_send"] = "unconfirmed"
+                    oe.end_span(_email_span, "unconfirmed")
             except Exception:
                 logger.exception("report %s: quiet-day email send raised unexpectedly", report.id)
+                _stage_state["email_send"] = "failed"
+                oe.end_span(_email_span, "failed", reason_code="unexpected_exception")
+            oe.end_attempt(
+                _attempt, "ok", attributes={"path": "quiet_day", "stage_state": _stage_state}
+            )
             return report
 
         # ------------------------------------------------------------------
         # 3. Pass 1 — search intent
         # ------------------------------------------------------------------
+        _pass1_span = oe.start_span("pass1_query_gen")
         client = _openrouter_client()
         low_cost_model = settings.LOW_COST_LLM_MODEL
 
@@ -1266,19 +1391,20 @@ def generate_report(
         ctx.pass1_prompt = pass1_user
 
         logger.info("report %s: Pass 1 LLM call (%s)", report.id, low_cost_model)
-        raw_pass1 = _call_llm(
-            client,
-            low_cost_model,
-            pass1_system,
-            pass1_user,
-            with_holdings=False,
-            pin_provider=False,
-            provider_order=_BYOK_PROVIDER_ORDER,
-            allow_fallbacks=False,
-            enforce_data_collection=False,
-            disable_reasoning=True,
-            usage_sink=ctx.llm_calls,
-        )
+        with oe.operation_span("llm_call", model=low_cost_model):
+            raw_pass1 = _call_llm(
+                client,
+                low_cost_model,
+                pass1_system,
+                pass1_user,
+                with_holdings=False,
+                pin_provider=False,
+                provider_order=_BYOK_PROVIDER_ORDER,
+                allow_fallbacks=False,
+                enforce_data_collection=False,
+                disable_reasoning=True,
+                usage_sink=ctx.llm_calls,
+            )
         ctx.pass1_raw = raw_pass1
 
         # Parse search queries from Pass 1 response
@@ -1295,6 +1421,8 @@ def generate_report(
         except Exception:
             logger.warning("report %s: could not parse Pass 1 JSON, using empty queries", report.id)
         ctx.search_queries = search_queries[:_MAX_SEARCH_QUERIES]
+        _stage_state["pass1_query_gen"] = "ok"
+        oe.end_span(_pass1_span, "ok")
 
         # ------------------------------------------------------------------
         # 4. Tavily search  — daily budget enforced across runs
@@ -1310,9 +1438,11 @@ def generate_report(
                 used_today,
                 daily_remaining,
             )
-            search_results = _run_tavily_search(
-                session, ctx.search_queries, eff_date, budget=daily_remaining
-            )
+            with oe.operation_span("tavily_search", query_count=len(ctx.search_queries)):
+                search_results = _run_tavily_search(
+                    session, ctx.search_queries, eff_date, budget=daily_remaining
+                )
+            _stage_state["tavily_search"] = "ok"
         else:
             search_results = []
         ctx.search_results = search_results
@@ -1465,9 +1595,11 @@ def generate_report(
                 len(tq),
                 targeted_budget,
             )
-            targeted_results = _run_tavily_search(
-                session, tq, eff_date, budget=targeted_budget, date_windows=weight_query_windows
-            )
+            with oe.operation_span("tavily_search", query_count=len(tq)):
+                targeted_results = _run_tavily_search(
+                    session, tq, eff_date, budget=targeted_budget, date_windows=weight_query_windows
+                )
+            _stage_state["tavily_search"] = "ok"
             targeted_results = _rank_title_matches_first(targeted_results, query_to_identifier)
             ctx.search_results.extend(targeted_results)
             for r in targeted_results:
@@ -1536,6 +1668,7 @@ def generate_report(
         # `build_l1_facts` call site, for why) — L3 is the only L1+L2 join.
         # L2 first so class-intersection extras can join the L1 candidate
         # list. L2 does not depend on L1. (issue #128 quality gate)
+        _l2_span = oe.start_span("l2_intel")
         l2_event_keys = l2_event_keys_for_user(session, eff_date, ctx.macro_signals)
         l2_facts = build_l2_facts(session, l2_event_keys, eff_date)
         ctx.macro_event_intel = get_l2_intel_batch(
@@ -1557,7 +1690,17 @@ def generate_report(
             len(l2_event_keys),
             len(ctx.macro_event_exposure),
         )
+        _stage_state["l2_intel"] = "ok"
+        oe.end_span(
+            _l2_span,
+            "ok",
+            attributes={
+                "candidate_count": len(l2_event_keys),
+                "cache_hit_count": len(ctx.macro_event_intel),
+            },
+        )
 
+        _l1_span = oe.start_span("l1_intel")
         l1_identifiers = l1_identifiers_for_user(
             ctx.price_anomalies,
             holdings=list(ctx.portfolio_summary.get("holdings") or []),
@@ -1664,7 +1807,12 @@ def generate_report(
                 len(queries),
                 topup_budget,
             )
-            for result in _run_tavily_search(session, list(queries), eff_date, budget=topup_budget):
+            with oe.operation_span("tavily_search", query_count=len(queries)):
+                topup_results = _run_tavily_search(
+                    session, list(queries), eff_date, budget=topup_budget
+                )
+            _stage_state["tavily_search"] = "ok"
+            for result in topup_results:
                 ident = queries.get(result.get("query", ""))
                 title = result.get("title", "")
                 if ident and title:
@@ -1690,6 +1838,15 @@ def generate_report(
             report.id,
             len(ctx.ticker_intel),
             len(l1_identifiers),
+        )
+        _stage_state["l1_intel"] = "ok"
+        oe.end_span(
+            _l1_span,
+            "ok",
+            attributes={
+                "candidate_count": len(l1_identifiers),
+                "cache_hit_count": len(ctx.ticker_intel),
+            },
         )
 
         # L2 ran immediately above L1 so class-intersection extras can join
@@ -1723,6 +1880,7 @@ def generate_report(
         # this layer costs a sentence, never a report — the same degradation
         # contract L1 and L2 answer to, except that those degrade inside their
         # own batch functions while this one is a single call.
+        _l3_span = oe.start_span("l3_synthesis")
         try:
             day_clusters = get_day_synthesis(
                 session,
@@ -1739,11 +1897,15 @@ def generate_report(
             ctx.cross_name_intel = clusters_for_user(
                 day_clusters, list(ctx.ticker_intel), all_briefed
             )
+            _stage_state["l3_synthesis"] = "ok"
+            oe.end_span(_l3_span, "ok", attributes={"candidate_count": len(ctx.cross_name_intel)})
         except Exception:
             logger.exception(
                 "report %s: cross-name synthesis failed — continuing without it", report.id
             )
             ctx.cross_name_intel = []
+            _stage_state["l3_synthesis"] = "degraded"
+            oe.end_span(_l3_span, "degraded", reason_code="synthesis_failed")
         logger.info(
             "report %s: %d cross-name cluster(s) bear on this portfolio",
             report.id,
@@ -1773,9 +1935,19 @@ def generate_report(
         ctx.investor_questionnaire_snapshot = investor_prefs.questionnaire
         ctx.investor_questionnaire_version = investor_prefs.questionnaire_version
 
+        _assembly_span = oe.start_span("assembly")
         raw_body = _try_assembly(client, settings, ctx, report.id, investor_prefs)
+        if raw_body is not None:
+            _stage_state["assembly"] = "ok"
+            oe.end_span(_assembly_span, "ok")
+            _stage_state["pass2_analysis"] = "skipped"
+            oe.skip_span("pass2_analysis", reason_code="assembly_selected")
+        else:
+            _stage_state["assembly"] = "skipped"
+            oe.end_span(_assembly_span, "skipped", reason_code="not_selected")
 
         if raw_body is None:
+            _pass2_span = oe.start_span("pass2_analysis")
             primary_model = settings.PRIMARY_LLM_MODEL
             pass2_user = _build_pass2_prompt(
                 ctx.portfolio_summary,
@@ -1798,14 +1970,15 @@ def generate_report(
 
             logger.info("report %s: Pass 2 LLM call (%s)", report.id, primary_model)
             # Pass 2 carries holdings → enforce data_collection=deny
-            raw_pass2 = _call_llm(
-                client,
-                primary_model,
-                _build_pass2_system(),
-                pass2_user,
-                with_holdings=True,
-                usage_sink=ctx.llm_calls,
-            )
+            with oe.operation_span("llm_call", model=primary_model):
+                raw_pass2 = _call_llm(
+                    client,
+                    primary_model,
+                    _build_pass2_system(),
+                    pass2_user,
+                    with_holdings=True,
+                    usage_sink=ctx.llm_calls,
+                )
 
             # H-DEBT-2: a provider can return a truncated HTTP 200 (rate-limiting,
             # mid-response cutoff). A short body missing §3/§4 must not ship as
@@ -1814,12 +1987,16 @@ def generate_report(
             # assembly path there is nothing left to fall back TO, so this stays
             # a raise.
             if body_is_incomplete(raw_pass2):
+                _stage_state["pass2_analysis"] = "failed"
+                oe.end_span(_pass2_span, "failed", reason_code="truncated_body")
                 raise RuntimeError(
                     f"report {report.id}: Pass 2 output looks truncated "
                     f"({len(raw_pass2)} chars, missing one of §3/§4)"
                 )
             ctx.pass2_raw = raw_pass2
             raw_body = raw_pass2
+            _stage_state["pass2_analysis"] = "ok"
+            oe.end_span(_pass2_span, "ok")
 
         # Shadow comparison (design doc §6.3.1) — runs after the shipped body
         # is settled, never influences it, never blocks the report. The
@@ -1830,25 +2007,61 @@ def generate_report(
         # and flip the whole report to 'failed' (round 2 review finding, PR
         # #163) — exactly the "measurement breaks what it measures" failure
         # this harness exists to rule out.
+        _shadow_span = oe.start_span("shadow_assembly")
         try:
             _run_shadow_assembly(client, settings, ctx, report.id, investor_prefs)
+            _stage_state["shadow_assembly"] = "ok"
+            oe.end_span(_shadow_span, "ok")
         except Exception:
             logger.exception(
                 "report %s: shadow assembly harness failed — shipped body unaffected", report.id
             )
+            _stage_state["shadow_assembly"] = "degraded"
+            oe.end_span(_shadow_span, "degraded", reason_code="harness_failed")
 
         # ------------------------------------------------------------------
         # 7/8/9/10. Annotate + assemble + render + persist + email (#5/#7/#8)
         # ------------------------------------------------------------------
-        return _finish_report(
-            session, report, ctx, user_id, eff_date, output_lang, raw_body, news_items
+        _result = _finish_report(
+            session,
+            report,
+            ctx,
+            user_id,
+            eff_date,
+            output_lang,
+            raw_body,
+            news_items,
+            stage_state=_stage_state,
         )
+        oe.end_attempt(
+            _attempt,
+            "ok",
+            attributes={
+                "path": "full",
+                "report_status": _result.status,
+                "stage_state": _stage_state,
+            },
+        )
+        return _result
 
-    except Exception:
+    except Exception as exc:
         logger.exception("report %s: generation failed", report.id)
         report.status = "failed"
         report.report_inputs = ctx.to_jsonb()
         log_ops_event("report.generate.end", report_id=str(report.id), status="failed")
+        # issue #446: whichever named stage raised did not reach its own
+        # `oe.end_span` call (a mid-stage exception unwinds straight past
+        # it) — that stage's start row stays unmatched, which is the
+        # designed "unknown/incomplete" signal (Design §3), not a bug to
+        # paper over with a fabricated end here. The root attempt itself
+        # still gets a clean, real end with whatever stage_state was
+        # actually reached before the failure.
+        oe.end_attempt(
+            _attempt,
+            "failed",
+            reason_code=type(exc).__name__,
+            attributes={"path": "full", "stage_state": _stage_state},
+        )
         try:
             session.commit()
         except Exception:

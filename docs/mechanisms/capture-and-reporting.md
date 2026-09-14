@@ -1253,3 +1253,144 @@ verified unchanged by this fix): `_to_base()`'s aggregation architecture,
 coverage are all untouched — this was a read-time date-selection fix, not an
 aggregation or coverage fix. FX rates are still pulled once daily into
 `fx_rates`; no request-path call to the FX source was added.
+
+### Operational event log: durable batch/attempt/stage evidence (issue #446)
+
+**Trigger**: production reports.created_at→email_sent_at spans (12 samples,
+80–537s, plus two outliers near 3h/4.6h) motivated a question — what change
+would let a growing user batch finish within minutes — that `log_ops_event`
+(`app/core/ops_log.py`, stdout-only JSON) cannot answer: it has no durable
+sink independent of container lifecycle, no per-stage boundaries, and
+overwrites nothing about earlier attempts of the same report. An earlier
+"six report_inputs timings, no migration" proposal was superseded during
+requirements review (see the issue's Design comment) because it loses
+evidence exactly at the hard boundaries — a killed process before the first
+report commit, a retry resetting the JSON, and `report.generate.end` already
+precedes email in `log_ops_event`'s own timeline.
+
+**Generic writer, independent of `Report`** (`app/core/operational_events.py`
++ `app/models/operational_event.py`, migration `b3c4d5e6f7a8`): one
+`operational_events` table, written through its OWN short-lived PostgreSQL
+connection (`pool_size=1, max_overflow=0`, 1s connect timeout, 250ms
+statement_timeout, 100ms lock_timeout) — never the caller's business
+`Session`. `run_id` identifies one task/direct-root invocation; `span_id`/
+`parent_span_id` identify a named stage occurrence within it (a
+`report.generate` attempt under a batch task's own run is itself a child
+span, not a second run — Design §1). `event_kind` is one of `dispatch` /
+`start` / `end` / `skipped` / `retry` / `context`. `user_id` is a real FK
+(`ON DELETE CASCADE` — personal telemetry cannot outlive the user);
+`report_id` is correlation-only, deliberately **not** a FK, so this sink
+never waits on an uncommitted business row. `attributes` is a JSONB column
+gated by a closed, versioned allowlist (`ALLOWED_ATTRIBUTE_KEYS`) — an
+unlisted key is dropped (never its value), never raises.
+
+**Fail-open, sink-disable-on-error** (Contract constraints #2): one write
+attempt, no in-process retry; a connection/statement/lock failure logs one
+sanitized warning (operation + event_kind + run_id only, never the failing
+exception's text) and disables further sink writes for that run only — a
+later root run gets a fresh attempt. A sink failure never replaces, masks,
+or converts a real business exception; observability code never commits,
+rolls back, or touches the caller's `Session`.
+
+**API shape** (`start_run`/`end_run`, `start_attempt`/`end_attempt` — the
+seam that decides "child span of an active task run" vs. "direct call
+becomes its own root run" — `start_span`/`end_span`, `skip_span`,
+`emit_retry`, `emit_dispatch`, `set_report_id`, and the `operation_span`
+context-manager convenience): plain functions over a `contextvars.ContextVar`-
+held run/span stack, not a class instance — deliberately explicit
+start/then/end pairs rather than requiring every call site to restructure
+into a `with` block, since most integration points here are single
+statements or existing straight-line code, not fresh try/except scaffolding.
+A call with no active run is a true no-op (`SpanToken(span_id=None)`) — this
+is what keeps a shared helper (e.g. `report_llm._call_llm`, if a future
+integration wraps it directly) safe to call whether or not a report attempt
+is currently active.
+
+**Report pipeline integration** (`report_tasks.py`, `report_generator.py`):
+- `generate_incremental_report` (the scheduled batch task) and
+  `generate_report_job` (the on-demand async worker) each `start_run` before
+  their own stale-trigger/terminal-job checks, `end_run` on every return
+  path. `before_task_publish` (`app/tasks/__init__.py`, restricted to these
+  two task names only) emits a standalone `dispatch` event and stamps a
+  `dispatch_id` header the task reads back — a retry publication gets a new
+  `dispatch_id`; a broker redelivery of the same message keeps the original.
+- `generate_report` calls `start_attempt` before its idempotency lookup
+  (inherits the caller's active run as a child span, or becomes its own
+  root for a direct self-service/admin call) and closes it on every return
+  path: already-complete/email-only no-op, `#61` resume, quiet-day (with the
+  short-manual-quiet suppressed-heartbeat sub-case), the full path, and the
+  outer exception handler. `set_report_id` fires once the fresh row's own
+  `session.flush()` makes `report.id` known — everything before that point
+  (including the attempt's own `start` row) correlates by `run_id`/span
+  ancestry only, never `report_id` (a killed process before the first
+  commit must not leave an orphaned `report_id` reference).
+- Named stage spans wrap their existing locations exactly as designed:
+  `preparation`, `pass1_query_gen`, `tavily_search` (each of the three call
+  sites — macro-themed, anomaly-targeted, L1 top-up — is its own span
+  occurrence; aggregation is a read-side `SUM`, never an in-process merge),
+  `l2_intel`, `l1_intel`, `l3_synthesis`, `assembly` (ok/skipped, never
+  fabricates a Pass 2 call it didn't make), `pass2_analysis` (entered only
+  when assembly did not produce a body; `skip_span(reason_code=
+  "assembly_selected")` records the skip explicitly when it did),
+  `shadow_assembly`, `render_and_compliance`, `persist_report` (closes
+  right after the business commit — Requirements point 2's "report-ready"
+  milestone, strictly before email), `email_send` (outcome `ok`/
+  `unconfirmed`/`failed` — never changes `report.status`, matching
+  `send_report_email`'s existing never-raises contract). A local
+  `stage_state` dict (`not_reached` by default) rides on the root attempt's
+  end event's attributes — a mid-stage exception unwinds past that stage's
+  own `end_span` call, leaving its `start` row genuinely unmatched (the
+  designed "unknown/incomplete" signal, not a fabricated `failed` duration
+  papered over after the fact) while `stage_state` still shows every OTHER
+  stage's real outcome. `report_generator.py`'s own `_call_llm` call sites
+  for Pass 1 and Pass 2 are wrapped in an `llm_call` child span
+  (`oe.operation_span("llm_call", model=...)`).
+- `regenerate_report()` is deliberately **not** instrumented — it is an
+  on-demand re-render/re-analyze tool with its own no-side-effects contract
+  (never emails, never marks news surfaced), not a `generate_report`
+  attempt, and the issue's acceptance table does not list it.
+
+**Retention** (`app/tasks/operational_events_tasks.py`,
+`cleanup_expired_events` in `operational_events.py`): 90 days, deleted in
+1,000-row batches, `recorded_at < cutoff` (exact-cutoff rows kept). Scheduled
+`cleanup-operational-events-daily` at 05:00 **UTC** (`app/tasks/__init__.py`
+— deliberately UTC via `_NowIn(UTC)`, not this schedule's usual ET, since
+retention here is a UTC-window policy tied to `recorded_at`, not a US market
+session), retry + ops-alert on exhaustion, same shape as
+`cache_tasks.sweep_stale_shared_intel_cache`.
+
+**Deliberately out of scope for this integration pass** (documented gap, not
+a silent omission): per-call `llm_call`/`llm_request` child spans for the
+L1/L2/L3/assembly/translation modules' own `_call_llm` sites
+(`ticker_intel.py`, `macro_event_intel.py`, `cross_name_intel.py`,
+`report_assembly.py`, `report_translation.py`) — those are covered only at
+their PARENT stage span's granularity (`l1_intel`/`l2_intel`/`l3_synthesis`/
+`assembly`), not per individual LLM call inside them; `report_search.py`'s
+own cache-hit/miss/budget-skipped counts are not yet surfaced as span
+attributes; `report_translation.py`'s chunk/retry/fallback child spans under
+`render_and_compliance` are not yet added. None of these gaps affect
+correctness of what IS instrumented — they are additional granularity a
+future pass can add without touching the writer or the schema. No FX/other
+capture-pipeline production hook was added (Contract constraints #6) — see
+`test_capture_fx_example_has_no_report_dependency` in
+`test_operational_events.py` for the reusable-example proof the issue asks
+for instead.
+
+**Verification performed (local, test-fixture only — NOT production)**:
+full backend suite (2417 passed, 3 skipped) including
+`test_operational_events.py` (14 tests: independent commit/rollback
+boundary against real Postgres, `event_id` dedup via
+`ON CONFLICT DO NOTHING`, sink fail-open + disable-on-error, attribute
+allowlist, retention exact-cutoff, `ON DELETE CASCADE` user-purge, run/
+attempt/span nesting, the report-independent capture.fx example) and
+`test_report_generator_telemetry.py` (2 tests: a full mocked-LLM report
+generation produces 33 `operational_events` rows with every expected stage
+matched start/end and `stage_state=ok`, ~71ms measured
+`telemetry_overhead_ms` on a ~191ms attempt; a forced Pass-2-truncation
+failure leaves `pass2_analysis` `failed` with later stages `not_reached` in
+the root's `stage_state`, matching Design §5's worked example). Alembic
+upgrade/downgrade round-trip verified against real Postgres. No production
+deployment, no container-recreation read-back drill, and no ~1-week
+representative-sample review have been performed — those remain the
+Contract constraints' post-rollout gates, not something a local session can
+satisfy.

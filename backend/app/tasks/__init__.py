@@ -1,10 +1,12 @@
 """Celery application and Beat schedule (Stage H + ADR-002 capture layer)."""
 
-from datetime import datetime, timedelta
+import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from celery import Celery  # type: ignore[import-untyped]
 from celery.schedules import crontab  # type: ignore[import-untyped]
+from celery.signals import before_task_publish  # type: ignore[import-untyped]
 
 from app.core.config import get_settings
 from app.core.timezones import BERLIN, CST, ET, HKT, JST, KST, LONDON
@@ -26,8 +28,48 @@ celery_app = Celery(
         "app.tasks.email_verification_tasks",
         "app.tasks.report_delivery_tasks",
         "app.tasks.notification_tasks",
+        "app.tasks.operational_events_tasks",
     ],
 )
+
+# Publication-time telemetry (issue #446, Design §3): restricted to the two
+# report task names only — this hook fires for EVERY task published on this
+# Celery app, and instrumenting the rest is explicitly out of scope
+# (Contract constraints #6). `before_task_publish` runs in the PUBLISHING
+# process (the Beat/API/admin process calling `.delay()`/`.apply_async()`),
+# not the worker — so this cannot use app.core.operational_events' run/span
+# context (no run exists yet) and writes a standalone `emit_dispatch` record
+# instead, correlated to the eventual worker-side run only via the
+# `dispatch_id` header propagated below.
+_TELEMETRY_TASK_NAMES = frozenset(
+    {
+        "app.tasks.report_tasks.generate_incremental_report",
+        "app.tasks.report_tasks.generate_report_job",
+    }
+)
+
+
+@before_task_publish.connect  # type: ignore[untyped-decorator]
+def _emit_report_task_dispatch(
+    sender: str | None = None,
+    headers: dict[str, Any] | None = None,
+    **_kwargs: Any,
+) -> None:
+    if sender not in _TELEMETRY_TASK_NAMES or headers is None:
+        return
+    from app.core.operational_events import emit_dispatch
+
+    dispatch_id = uuid.uuid4()
+    # Propagated to the worker via Celery's own task headers (picked up by
+    # the task itself, e.g. `self.request.dispatch_id` — Celery merges
+    # arbitrary header keys onto `self.request`). A retry publication
+    # (`self.retry(...)`) goes through this same signal again and gets a
+    # NEW dispatch_id; a broker redelivery of the SAME message does not
+    # re-publish, so it keeps the original headers unchanged (Design §1).
+    headers["dispatch_id"] = str(dispatch_id)
+    headers["published_at"] = datetime.now(UTC).isoformat()
+    emit_dispatch(f"{sender}.dispatch", dispatch_id=dispatch_id, task_id=headers.get("id"))
+
 
 # Market session nodes (ADR-002). Each (market, tz, [(node, hour, minute)]).
 # No call-auction, no after-hours for HK/CN.
@@ -270,6 +312,14 @@ _beat_schedule: dict[str, dict[str, Any]] = {
     "capture-fx-catchup-daily": {
         "task": "app.tasks.capture_tasks.capture_fx_catchup_task",
         "schedule": crontab(hour=0, minute=5, day_of_week="tue-sat"),
+    },
+    # operational_events retention sweep (issue #446, Design §4): 05:00 UTC
+    # specifically, not ET like this schedule's other daily entries — the
+    # confirmed 90-day retention policy is a UTC-window policy (occurred_at/
+    # recorded_at are stored in UTC), not tied to a US market session.
+    "cleanup-operational-events-daily": {
+        "task": "app.tasks.operational_events_tasks.cleanup_operational_events",
+        "schedule": crontab(hour=5, minute=0, nowfun=_NowIn(UTC)),
     },
 }
 _beat_schedule.update(_build_report_schedule())
