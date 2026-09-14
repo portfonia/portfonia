@@ -1,0 +1,122 @@
+name: vigil
+
+networks:
+  vigil:
+    name: vigil-net
+
+volumes:
+  vigil-postgres-data:
+    name: vigil-postgres-data
+  vigil-redis-data:
+    name: vigil-redis-data
+
+services:
+  vigil-postgres:
+    image: postgres:16-alpine
+    container_name: vigil-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${VIGIL_DB_NAME:?VIGIL_DB_NAME must be set}
+      POSTGRES_USER: ${VIGIL_DB_USER:?VIGIL_DB_USER must be set}
+      POSTGRES_PASSWORD: ${VIGIL_DB_PASSWORD:?VIGIL_DB_PASSWORD must be set}
+    volumes:
+      - vigil-postgres-data:/var/lib/postgresql/data
+    networks: [vigil]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${VIGIL_DB_USER} -d ${VIGIL_DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  vigil-redis:
+    image: redis:7-alpine
+    container_name: vigil-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - vigil-redis-data:/data
+    networks: [vigil]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  vigil-migrate:
+    image: vigil-backend
+    container_name: vigil-migrate
+    env_file: .env
+    environment:
+      VIGIL_DB_HOST: vigil-postgres
+      VIGIL_REDIS_HOST: vigil-redis
+    depends_on:
+      vigil-postgres:
+        condition: service_healthy
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    networks: [vigil]
+
+  vigil-backend:
+    image: vigil-backend
+    build:
+      context: ./backend
+    container_name: vigil-backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      VIGIL_DB_HOST: vigil-postgres
+      VIGIL_REDIS_HOST: vigil-redis
+    depends_on:
+      vigil-postgres:
+        condition: service_healthy
+      vigil-redis:
+        condition: service_healthy
+      vigil-migrate:
+        condition: service_completed_successfully
+    networks: [vigil]
+
+  vigil-celery-worker:
+    image: vigil-backend
+    container_name: vigil-celery-worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      VIGIL_DB_HOST: vigil-postgres
+      VIGIL_REDIS_HOST: vigil-redis
+    command: ["celery", "-A", "vigil_app.tasks", "worker", "--loglevel=info"]
+    depends_on:
+      vigil-postgres:
+        condition: service_healthy
+      vigil-redis:
+        condition: service_healthy
+      vigil-migrate:
+        condition: service_completed_successfully
+    networks: [vigil]
+
+  vigil-celery-beat:
+    image: vigil-backend
+    container_name: vigil-celery-beat
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      VIGIL_DB_HOST: vigil-postgres
+      VIGIL_REDIS_HOST: vigil-redis
+    command: ["celery", "-A", "vigil_app.tasks", "beat", "--loglevel=info"]
+    depends_on:
+      vigil-postgres:
+        condition: service_healthy
+      vigil-redis:
+        condition: service_healthy
+      vigil-migrate:
+        condition: service_completed_successfully
+    networks: [vigil]
+
+  vigil-frontend:
+    image: vigil-frontend
+    build:
+      context: ./frontend
+    container_name: vigil-frontend
+    restart: unless-stopped
+    depends_on:
+      - vigil-backend
+    networks: [vigil]
