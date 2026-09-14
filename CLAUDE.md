@@ -542,16 +542,18 @@ table is for cross-session technical-debt reminders only, not a substitute.
 - **Deferred**: open issue → leave in backlog → comment + close when later
   addressed.
 
-**Two separate GitHub identities, don't mix them up** (actual accounts live
-in `.env.local`, never committed — this file intentionally does not name
-them): `GITHUB_TOKEN` is the primary write identity — repo owner, used for
-commits/pushes, issue/PR creation, and merges. `GITHUB_REVIEWER_TOKEN`
-(blacktomb42) is read + PR-review-only. Using it is never a substitute for
-the product owner's own merge authorization, and its approval never comes
-from self-review. *Full identity-boundary history, including a later
-correction to who owns the blacktomb42 account and when it's appropriate
-to use it: playbook `docs/playbooks/git-and-review-incidents.md` — read
-that before assuming this paragraph alone is the current, complete rule.*
+**GitHub access and separate identities:** writes use the stored `gh`
+OAuth login for `portfonia`, checked without `GH_TOKEN`/`GITHUB_TOKEN`
+environment overrides. If OAuth is unavailable, the authorized fallback is
+this project's `.env.local` `GITHUB_TOKEN`, verified as `portfonia`.
+Reviews use `.env.local` `GITHUB_REVIEWER_TOKEN`, verified as `blacktomb42`;
+never use that reviewer token for issue maintenance, pushes, or merges.
+Load only the needed token for the command and never expose its value.
+Authentication or a review does not replace the owner's explicit merge
+approval; the existing self-review restrictions still apply. See
+`docs/playbooks/git-and-review-incidents.md` for the current procedure and
+clearly superseded historical rules. Obsidian operations use the configured
+MCP, as specified in `AGENTS.md` and documentation governance.
 
 ## Conventional Commits (MANDATORY)
 
