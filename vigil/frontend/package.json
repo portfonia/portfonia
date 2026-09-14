@@ -1,0 +1,6 @@
+{
+  "name": "vigil-frontend",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Vigil UI skeleton. P1.1 ships no management, confirm, or retrieve pages."
+}
