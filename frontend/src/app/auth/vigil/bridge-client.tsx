@@ -60,6 +60,21 @@ export function VigilBridgeClient({ email }: { email: string }) {
       setErrorKey("vigilBridgeFailed");
       return;
     }
+    let sessionActive = false;
+    try {
+      const res = await fetch("/api/auth/session-status", { cache: "no-store" });
+      if (res.status === 401) {
+        window.location.assign("/login?next=/auth/vigil");
+        return;
+      }
+      sessionActive = res.status === 204;
+    } catch {
+      sessionActive = false;
+    }
+    if (!sessionActive) {
+      setErrorKey("vigilBridgeFailed");
+      return;
+    }
     const origin = configuredVigilOrigin();
     const supabase = createClient();
     const {
