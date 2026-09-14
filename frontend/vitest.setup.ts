@@ -9,6 +9,7 @@ import "@testing-library/jest-dom/vitest";
 // (see lib/supabase/env.test.ts).
 process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://auth.test.local";
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "sb_publishable_test";
+process.env.NEXT_PUBLIC_VIGIL_ORIGIN ??= "https://vigil.portfonia.com";
 
 // jsdom has no ResizeObserver (issue #320: recharts' ResponsiveContainer
 // requires one to mount at all — without this stub every chart component

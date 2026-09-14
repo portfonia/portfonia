@@ -255,6 +255,8 @@ backend/venv
 # shadows frontend source dirs — explicitly un-ignore frontend's lib.
 !frontend/src/lib/
 !frontend/src/lib/**
+!vigil/frontend/src/lib/
+!vigil/frontend/src/lib/**
 
 # Local daemon logs (worker/beat)
 .run/

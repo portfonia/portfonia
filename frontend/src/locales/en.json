@@ -62,7 +62,13 @@
     "resetPasswordSubmit": "Update password",
     "resetPasswordSubmitting": "Updating...",
     "resetPasswordSuccess": "Your password has been updated. Redirecting to log in...",
-    "resetPasswordFailed": "Could not update your password. This link may have expired — request a new one."
+    "resetPasswordFailed": "Could not update your password. This link may have expired — request a new one.",
+    "vigilBridgeHeading": "Continue to Vigil",
+    "vigilBridgeSignedInAs": "Signed in as {email}",
+    "vigilBridgeContinue": "Continue to Vigil",
+    "vigilBridgeNoOpener": "This page must be opened from Vigil. Return to Vigil and try again.",
+    "vigilBridgeFailed": "Could not continue. Close this window and retry from Vigil.",
+    "vigilBridgeWorking": "Waiting for Vigil…"
   },
   "holdings": {
     "pageTitle": "Holdings",
