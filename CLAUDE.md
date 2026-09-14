@@ -664,5 +664,20 @@ features, and stock-pick-style recommendations are all explicitly excluded.
   speculative.
 - **KISS applies to code AND user journey** — fewer steps, fewer options,
   fewer modes by default.
+- **Match engineering investment to this project's actual scale, not to
+  enterprise-SaaS reflexes** (product owner, 2026-09-14, after the Vigil
+  R0 isolation architecture — separate DB/Redis/Celery/frontend/domain
+  across #451/#452/#453/#470 — turned a login into a cross-origin popup
+  handshake and got reversed same-day, see #473). Portfolio-risk-tier /
+  blast-radius-containment language is not a free justification for
+  splitting a feature into its own isolated service, its own database, or
+  its own auth handshake — this project has no per-seat enterprise
+  contract, no compliance mandate, and no team of operators to carry that
+  complexity. Before proposing or accepting an isolation/defense-in-depth
+  design, check it against what this product and its actual usage
+  actually need, not against what a well-funded SaaS would do. Default to
+  the simplest thing that satisfies the real requirement; earn the extra
+  layer with a concrete, current threat or constraint, not a generic
+  "this is how it's normally done."
 - **Reversibility check before destructive actions** (DB migrations dropping
   columns, `rm -rf`, force pushes). Confirm with the user before executing.
