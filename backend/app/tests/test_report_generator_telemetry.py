@@ -130,6 +130,7 @@ def test_generate_report_full_path_emits_matched_stage_spans(db_session: Session
     for stage in (
         "preparation",
         "pass1_query_gen",
+        "tavily_search",
         "l2_intel",
         "l1_intel",
         "l3_synthesis",

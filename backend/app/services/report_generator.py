@@ -868,6 +868,7 @@ def generate_report(
         (
             "preparation",
             "pass1_query_gen",
+            "tavily_search",
             "l2_intel",
             "l1_intel",
             "l3_synthesis",
@@ -1441,6 +1442,7 @@ def generate_report(
                 search_results = _run_tavily_search(
                     session, ctx.search_queries, eff_date, budget=daily_remaining
                 )
+            _stage_state["tavily_search"] = "ok"
         else:
             search_results = []
         ctx.search_results = search_results
@@ -1597,6 +1599,7 @@ def generate_report(
                 targeted_results = _run_tavily_search(
                     session, tq, eff_date, budget=targeted_budget, date_windows=weight_query_windows
                 )
+            _stage_state["tavily_search"] = "ok"
             targeted_results = _rank_title_matches_first(targeted_results, query_to_identifier)
             ctx.search_results.extend(targeted_results)
             for r in targeted_results:
@@ -1808,6 +1811,7 @@ def generate_report(
                 topup_results = _run_tavily_search(
                     session, list(queries), eff_date, budget=topup_budget
                 )
+            _stage_state["tavily_search"] = "ok"
             for result in topup_results:
                 ident = queries.get(result.get("query", ""))
                 title = result.get("title", "")
