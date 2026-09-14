@@ -8,7 +8,8 @@ const { login, markPendingLogin, clearPendingLogin } = vi.hoisted(() => ({
   clearPendingLogin: vi.fn(),
 }));
 
-vi.mock("./actions", () => ({ login, LOGIN_NEXT_VIGIL: "/auth/vigil" }));
+vi.mock("./actions", () => ({ login }));
+vi.mock("./login-next", () => ({ LOGIN_NEXT_VIGIL: "/auth/vigil" }));
 vi.mock("@/hooks/use-session", () => ({ markPendingLogin, clearPendingLogin }));
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
