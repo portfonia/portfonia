@@ -120,8 +120,15 @@ services:
     image: vigil-frontend
     build:
       context: ./frontend
+      args:
+        BACKEND_URL: http://vigil-backend:8000
+        NEXT_PUBLIC_SUPABASE_URL: ${SUPABASE_PUBLIC_AUTH_URL:-https://auth.portfonia.com}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:?required}
+        NEXT_PUBLIC_PORTFONIA_ORIGIN: ${VIGIL_PORTFONIA_PUBLIC_ORIGIN:-https://portfonia.com}
     container_name: vigil-frontend
     restart: unless-stopped
+    environment:
+      BACKEND_URL: http://vigil-backend:8000
     depends_on:
       - vigil-backend
     networks: [vigil]

@@ -9,11 +9,12 @@ import { Input } from "@/components/ui/input";
 import { useLocale } from "@/app/_components/locale-provider";
 import { markPendingLogin } from "@/hooks/use-session";
 import { settleAuthAction } from "@/lib/settle-auth-action";
-import { login, type LoginState } from "./actions";
+import { LOGIN_NEXT_VIGIL, login, type LoginState } from "./actions";
 
-export function LoginForm() {
+export function LoginForm({ next }: { next?: string }) {
   const t = useTranslations("auth");
   const { locale } = useLocale();
+  const allowedNext = next === LOGIN_NEXT_VIGIL ? LOGIN_NEXT_VIGIL : null;
 
   async function loginAndDisarmOnError(
     prev: LoginState | undefined,
@@ -37,6 +38,7 @@ export function LoginForm() {
           selected locale (no URL-based routing — see src/locales/README.md),
           so the client-only locale state rides along as a plain form field. */}
       <input type="hidden" name="locale" value={locale} />
+      {allowedNext ? <input type="hidden" name="next" value={allowedNext} /> : null}
       <div className="flex flex-col gap-1.5">
         <label htmlFor="email" className="text-sm text-foreground/80">
           {t("emailLabel")}

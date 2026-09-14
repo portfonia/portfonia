@@ -69,6 +69,29 @@ describe("proxy", () => {
     expect(new URL(res.headers.get("location")!).pathname).toBe("/login");
   });
 
+  it("carries next=/auth/vigil when redirecting an unauthenticated bridge visit, and no other original query", async () => {
+    getUser.mockResolvedValue({ data: { user: null } });
+    getSession.mockResolvedValue({ data: { session: null } });
+
+    const res = await proxy(makeRequest("/auth/vigil?injected=https://evil.example"));
+
+    expect(res.status).toBe(307);
+    const location = new URL(res.headers.get("location")!);
+    expect(location.pathname).toBe("/login");
+    expect(location.searchParams.get("next")).toBe("/auth/vigil");
+    expect(location.searchParams.get("injected")).toBeNull();
+  });
+
+  it("does not copy an arbitrary original path into login next", async () => {
+    getUser.mockResolvedValue({ data: { user: null } });
+    getSession.mockResolvedValue({ data: { session: null } });
+
+    const res = await proxy(makeRequest("/holdings"));
+
+    const location = new URL(res.headers.get("location")!);
+    expect(location.searchParams.has("next")).toBe(false);
+  });
+
   it("does not redirect an authenticated request to a protected route", async () => {
     getUser.mockResolvedValue({ data: { user: AUTHED_USER } });
     getSession.mockResolvedValue({
