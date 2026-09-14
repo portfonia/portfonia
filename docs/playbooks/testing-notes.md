@@ -50,3 +50,34 @@ logger got disabled out from under the test".
 **Workaround**, scoped to the test file (not `alembic.ini`, which would be
 a wider blast radius than this needs): `logging.getLogger("your.module").
 disabled = False` right before the `caplog.at_level(...)` block.
+
+## `db_session.commit()` never really commits to Postgres (first hit 2026-09-13, `test_operational_events.py`, issue #446)
+
+`db_session` binds to `connection = get_engine().connect(); outer =
+connection.begin()` and joins every `Session` it hands out to that same
+connection via a SAVEPOINT (`join_transaction_mode="create_savepoint"`).
+Calling `.commit()` on a session built this way only releases the
+SAVEPOINT — the OUTER transaction (`outer`) stays open until the fixture
+tears down at test end and rolls it back. This is invisible for ordinary
+ORM assertions (the same session reads its own uncommitted work fine under
+READ COMMITTED), but it is a real trap the moment a test needs a
+**second, independent** database connection to see that write — which is
+exactly the shape `app/core/operational_events.py`'s writer uses on
+purpose (its own short-lived connection, real commits, survives business
+rollback — see that module's docstring). A user/row seeded via
+`db_session.add(...); db_session.commit()` and then referenced by a
+foreign key from an independently-committed write (e.g. `operational_
+events.user_id`) fails that FK check — silently, if the writer is
+fail-open like this one — because the referenced row does not exist yet
+from the other connection's point of view.
+
+**Fix, not a workaround**: seed/verify anything a second connection must
+see through a genuinely separate connection, not `db_session` — `with
+get_engine().connect() as conn: conn.execute(insert(...)); conn.commit()`.
+Symmetrically, verifying the effect of a write made through such an
+independent connection can be done via `db_session` itself (it sees
+externally-committed data fine under READ COMMITTED) — the trap only runs
+one direction: `db_session`'s own writes are the ones invisible elsewhere.
+Applies to any future test of an independent-connection writer this
+project builds on the same pattern (the issue #446 design note explicitly
+expects FX/other capture pipelines to reuse it).
