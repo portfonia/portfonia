@@ -98,10 +98,6 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   if (!user && !isPublicPath(pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
-    url.search = "";
-    if (pathname === "/auth/vigil") {
-      url.searchParams.set("next", "/auth/vigil");
-    }
     return NextResponse.redirect(url);
   }
 

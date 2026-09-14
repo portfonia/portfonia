@@ -52,36 +52,4 @@ describe("login action", () => {
     expect(redirect).toHaveBeenCalledWith("/profile");
     expect(getMeServer).not.toHaveBeenCalled();
   });
-
-  it("redirects to /auth/vigil when next is exactly that path", async () => {
-    signInWithPassword.mockResolvedValue({ error: null });
-
-    await login(
-      undefined,
-      formData({ email: "a@b.com", password: "correcthorse", next: "/auth/vigil" }),
-    );
-
-    expect(redirect).toHaveBeenCalledWith("/auth/vigil");
-  });
-
-  it.each([
-    "",
-    "/profile",
-    "/auth/vigil/extra",
-    "/auth/vigil?x=1",
-    "/login?next=/auth/vigil",
-    "https://portfonia.com/auth/vigil",
-    "//evil.example/auth/vigil",
-    "/profile/auth/vigil",
-    "/AUTH/VIGIL",
-    " /auth/vigil",
-    "/auth/vigil ",
-    "%2Fauth%2Fvigil",
-  ])("ignores next=%j and lands on /profile", async (next) => {
-    signInWithPassword.mockResolvedValue({ error: null });
-
-    await login(undefined, formData({ email: "a@b.com", password: "correcthorse", next }));
-
-    expect(redirect).toHaveBeenCalledWith("/profile");
-  });
 });

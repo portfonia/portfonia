@@ -62,13 +62,7 @@
     "resetPasswordSubmit": "更新密碼",
     "resetPasswordSubmitting": "更新中……",
     "resetPasswordSuccess": "密碼已更新，正在跳轉至登入頁……",
-    "resetPasswordFailed": "密碼更新失敗，此連結可能已過期，請重新申請。",
-    "vigilBridgeHeading": "繼續前往 Vigil",
-    "vigilBridgeSignedInAs": "目前登入為 {email}",
-    "vigilBridgeContinue": "繼續前往 Vigil",
-    "vigilBridgeNoOpener": "此頁面必須從 Vigil 開啟。請回到 Vigil 重試。",
-    "vigilBridgeFailed": "無法繼續。請關閉此視窗並從 Vigil 重試。",
-    "vigilBridgeWorking": "正在等待 Vigil…"
+    "resetPasswordFailed": "密碼更新失敗，此連結可能已過期，請重新申請。"
   },
   "holdings": {
     "pageTitle": "持倉",

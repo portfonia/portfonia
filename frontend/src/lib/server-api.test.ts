@@ -11,11 +11,7 @@ const { logout } = vi.hoisted(() => ({
 vi.mock("@/lib/supabase/server", () => ({ currentAccessToken }));
 vi.mock("@/lib/auth-actions", () => ({ logout }));
 
-import {
-  getPortfolioSummaryServer,
-  listHoldingsServer,
-  portfoniaSessionIsActive,
-} from "./server-api";
+import { getPortfolioSummaryServer, listHoldingsServer } from "./server-api";
 
 // redirect() always throws internally (a NEXT_REDIRECT digest the Next.js
 // runtime intercepts) — logout() never resolves normally in production, so
@@ -109,41 +105,5 @@ describe("getPortfolioSummaryServer", () => {
 
     const [url] = fetchMock.mock.calls[0] as [string];
     expect(url).toContain("base_currency=CNY");
-  });
-});
-
-describe("portfoniaSessionIsActive", () => {
-  afterEach(() => {
-    global.fetch = originalFetch;
-    vi.resetAllMocks();
-  });
-
-  it("forwards the bearer to GET /auth/session-status and treats 204 as active", async () => {
-    currentAccessToken.mockResolvedValue("sb-access-token-ssr");
-    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
-    global.fetch = fetchMock;
-
-    await expect(portfoniaSessionIsActive()).resolves.toBe(true);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toMatch(/\/auth\/session-status$/);
-    expect(new Headers(init.headers).get("authorization")).toBe("Bearer sb-access-token-ssr");
-    expect(logout).not.toHaveBeenCalled();
-  });
-
-  it("returns false on 401 without calling logout (the bridge must keep next=/auth/vigil)", async () => {
-    currentAccessToken.mockResolvedValue("sb-access-token-ssr");
-    global.fetch = vi.fn().mockResolvedValue(new Response("", { status: 401 }));
-
-    await expect(portfoniaSessionIsActive()).resolves.toBe(false);
-    expect(logout).not.toHaveBeenCalled();
-  });
-
-  it("returns false when there is no access token", async () => {
-    currentAccessToken.mockResolvedValue(null);
-    const fetchMock = vi.fn();
-    global.fetch = fetchMock;
-
-    await expect(portfoniaSessionIsActive()).resolves.toBe(false);
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

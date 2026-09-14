@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import UTC, datetime
-from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,7 +14,6 @@ from vigil_app.core.auth import AccessTokenClaims
 from vigil_app.core.config import get_settings
 from vigil_app.core.database import get_session
 from vigil_app.main import app
-from vigil_app.models.runtime_heartbeat import RuntimeHeartbeat
 from vigil_app.models.vault import Vault
 from vigil_app.services import session_status as session_status_mod
 from vigil_app.services.session_status import SessionExpired, SessionStatusUnavailable
@@ -149,80 +146,3 @@ def test_non_owner_cannot_create_vault(
     resp = client.post("/vault", headers={"Authorization": "Bearer t"})
     assert resp.status_code == 403
     assert db_session.execute(select(func.count()).select_from(Vault)).scalar_one() == 0
-
-
-def _assert_p13_shape(body: dict[str, object]) -> None:
-    assert "active_config_id" in body
-    assert "deadline_at" in body
-    assert body["deadline_at"] is None
-    heartbeat = body["heartbeat"]
-    assert isinstance(heartbeat, dict)
-    assert set(heartbeat) == {
-        "last_scan_completed_at",
-        "last_dependency_check_at",
-        "health",
-        "reason",
-    }
-
-
-def test_get_vault_disarmed_view_includes_heartbeat_and_null_placeholders(
-    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _patch_owner(monkeypatch, _owner_claims())
-    _patch_session_ok(monkeypatch)
-    resp = client.get("/vault", headers={"Authorization": "Bearer owner-jwt"})
-    assert resp.status_code == 200
-    body = resp.json()
-    _assert_p13_shape(body)
-    assert body["active_config_id"] is None
-    assert body["active_object_id"] is None
-    assert body["heartbeat"]["health"] == "held"
-    assert body["heartbeat"]["last_scan_completed_at"] is None
-    assert body["heartbeat"]["last_dependency_check_at"] is None
-    assert "pending_object" not in body
-
-
-def test_get_vault_serializes_active_config_id_and_live_heartbeat(
-    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _patch_owner(monkeypatch, _owner_claims())
-    _patch_session_ok(monkeypatch)
-    config_id = uuid4()
-    object_id = uuid4()
-    scanned = datetime(2026, 9, 14, 13, 0, tzinfo=UTC)
-    db_session.add(
-        Vault(
-            owner_auth_subject=get_settings().OWNER_AUTH_SUBJECT,
-            phase="DISARMED",
-            revision=3,
-            active_config_id=config_id,
-            active_object_id=object_id,
-        )
-    )
-    beat = db_session.get(RuntimeHeartbeat, 1)
-    assert beat is not None
-    beat.health = "ok"
-    beat.reason = None
-    beat.last_scan_completed_at = scanned
-    beat.last_dependency_check_at = scanned
-    db_session.commit()
-
-    resp = client.get("/vault", headers={"Authorization": "Bearer owner-jwt"})
-    assert resp.status_code == 200
-    body = resp.json()
-    _assert_p13_shape(body)
-    assert body["revision"] == 3
-    assert body["active_config_id"] == str(config_id)
-    assert body["active_object_id"] == str(object_id)
-    assert body["heartbeat"]["health"] == "ok"
-    assert body["heartbeat"]["last_scan_completed_at"] == "2026-09-14T13:00:00Z"
-
-
-def test_post_vault_response_includes_p13_fields(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _patch_owner(monkeypatch, _owner_claims())
-    _patch_session_ok(monkeypatch)
-    created = client.post("/vault", headers={"Authorization": "Bearer owner-jwt"})
-    assert created.status_code == 201
-    _assert_p13_shape(created.json())

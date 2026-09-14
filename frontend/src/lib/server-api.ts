@@ -18,19 +18,6 @@ async function authHeaders(): Promise<HeadersInit> {
   return token ? { authorization: `Bearer ${token}` } : {};
 }
 
-// Bridge page (P1.3): existing 15-min idle / 8h lifetime check. A 401 here
-// must not run the generic logout() redirect to /login (that would drop
-// next=/auth/vigil). The caller decides where to send the visitor.
-export async function portfoniaSessionIsActive(): Promise<boolean> {
-  const token = await currentAccessToken();
-  if (!token) return false;
-  const res = await fetch(`${BACKEND_URL}/auth/session-status`, {
-    cache: "no-store",
-    headers: { authorization: `Bearer ${token}` },
-  });
-  return res.status === 204;
-}
-
 // Same rationale as lib/api.ts's throwOnHttpError: a 401 here can be the
 // server-side idle timeout (issue #235) firing on the very first request
 // of a reopened, previously-idle tab — before any client-side code has run

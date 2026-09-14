@@ -8,7 +8,7 @@ const { login, markPendingLogin, clearPendingLogin } = vi.hoisted(() => ({
   clearPendingLogin: vi.fn(),
 }));
 
-vi.mock("./actions", () => ({ login, LOGIN_NEXT_VIGIL: "/auth/vigil" }));
+vi.mock("./actions", () => ({ login }));
 vi.mock("@/hooks/use-session", () => ({ markPendingLogin, clearPendingLogin }));
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
@@ -40,43 +40,6 @@ describe("LoginForm", () => {
     const submittedForm = login.mock.calls[0][1] as FormData;
     expect(submittedForm.get("email")).toBe("a@b.com");
     expect(submittedForm.get("password")).toBe("correcthorse");
-    expect(submittedForm.get("next")).toBeNull();
-  });
-
-  it("includes next=/auth/vigil as a hidden field when that exact path is supplied", async () => {
-    login.mockResolvedValue({ error: null });
-    const user = userEvent.setup();
-    render(
-      <LocaleProvider>
-        <LoginForm next="/auth/vigil" />
-      </LocaleProvider>,
-    );
-
-    await user.type(screen.getByLabelText(/email/i), "a@b.com");
-    await user.type(screen.getByLabelText(/password/i), "correcthorse");
-    await user.click(screen.getByRole("button", { name: /log in/i }));
-
-    await waitFor(() => expect(login).toHaveBeenCalled());
-    const submittedForm = login.mock.calls[0][1] as FormData;
-    expect(submittedForm.get("next")).toBe("/auth/vigil");
-  });
-
-  it("does not emit a next field when the supplied value only contains /auth/vigil", async () => {
-    login.mockResolvedValue({ error: null });
-    const user = userEvent.setup();
-    render(
-      <LocaleProvider>
-        <LoginForm next="/login?next=/auth/vigil" />
-      </LocaleProvider>,
-    );
-
-    await user.type(screen.getByLabelText(/email/i), "a@b.com");
-    await user.type(screen.getByLabelText(/password/i), "correcthorse");
-    await user.click(screen.getByRole("button", { name: /log in/i }));
-
-    await waitFor(() => expect(login).toHaveBeenCalled());
-    const submittedForm = login.mock.calls[0][1] as FormData;
-    expect(submittedForm.get("next")).toBeNull();
   });
 
   it("marks the login as pending on submit, before the Server Action resolves", async () => {

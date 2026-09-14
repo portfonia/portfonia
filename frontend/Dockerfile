@@ -28,10 +28,8 @@ ENV BACKEND_URL=$BACKEND_URL
 # silently breaks login for exactly the users the proxy exists for.
 ARG NEXT_PUBLIC_SUPABASE_URL=https://auth.portfonia.com
 ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
-ARG NEXT_PUBLIC_VIGIL_ORIGIN=https://vigil.portfonia.com
 ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
 ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
-ENV NEXT_PUBLIC_VIGIL_ORIGIN=$NEXT_PUBLIC_VIGIL_ORIGIN
 
 # docker-compose.yml fails closed on a missing NEXT_PUBLIC_SUPABASE_ANON_KEY
 # (${SUPABASE_ANON_KEY:?required}), but a raw `docker build` bypasses that

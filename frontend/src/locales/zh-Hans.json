@@ -62,13 +62,7 @@
     "resetPasswordSubmit": "更新密码",
     "resetPasswordSubmitting": "更新中……",
     "resetPasswordSuccess": "密码已更新，正在跳转到登录页……",
-    "resetPasswordFailed": "密码更新失败，该链接可能已过期，请重新申请。",
-    "vigilBridgeHeading": "继续前往 Vigil",
-    "vigilBridgeSignedInAs": "当前登录为 {email}",
-    "vigilBridgeContinue": "继续前往 Vigil",
-    "vigilBridgeNoOpener": "此页面必须从 Vigil 打开。请回到 Vigil 重试。",
-    "vigilBridgeFailed": "无法继续。请关闭此窗口并从 Vigil 重试。",
-    "vigilBridgeWorking": "正在等待 Vigil…"
+    "resetPasswordFailed": "密码更新失败，该链接可能已过期，请重新申请。"
   },
   "holdings": {
     "pageTitle": "持仓",

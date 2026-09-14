@@ -119,7 +119,6 @@ services:
         # #185). The Dockerfile has its own belt-and-suspenders check too,
         # for a raw `docker build` that bypasses this interpolation.
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:?required}
-        NEXT_PUBLIC_VIGIL_ORIGIN: ${NEXT_PUBLIC_VIGIL_ORIGIN:-https://vigil.portfonia.com}
     container_name: portfonia-frontend
     restart: unless-stopped
     environment:

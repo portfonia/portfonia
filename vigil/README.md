@@ -1,4 +1,4 @@
-# Vigil runtime (P1.1 / P1.2 / P1.3)
+# Vigil runtime (P1.1 / P1.2)
 
 Isolated Vigil compose project, database, and worker foundation. This is not a
 Portfonia overlay: database name, Redis key/queue prefix, object bucket, KEK,
@@ -65,12 +65,7 @@ The first revision creates `vaults`, `audit_events`, `runtime_heartbeat`, and
 The registered scan task is inert until P3.3.
 
 `GET /vault` returns a DISARMED no-object view without inserting a row.
-A vault row is created only by `POST /vault`. The view includes `active_config_id`,
-always-null `deadline_at` (until P3.3), and a nested `heartbeat` object.
-
-The frontend is a Next.js app. It rewrites `/api/*` to `vigil-backend:8000` and
-injects the host session bearer. Login is a popup to Portfonia `/auth/vigil`.
-This tree does not add a public Caddy site for `vigil.portfonia.com`.
+A vault row is created only by `POST /vault`.
 
 Dispatch, release, and arming stay disabled unless their flags are explicitly
 enabled after later checkpoints land.
