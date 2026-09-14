@@ -15,7 +15,6 @@ from app.routers import (
     auth,
     email_verification,
     holdings,
-    internal_vigil,
     investment_context,
     me,
     portfolio,
@@ -60,7 +59,6 @@ app.include_router(holdings.router, prefix="/holdings", tags=["holdings"])
 app.include_router(portfolio.router, prefix="/portfolio", tags=["portfolio"])
 app.include_router(reports.router, prefix="/reports", tags=["reports"])
 app.include_router(admin.router, prefix="/admin", tags=["admin"])
-app.include_router(internal_vigil.router)
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(
     investment_context.router, prefix="/investment-context", tags=["investment-context"]

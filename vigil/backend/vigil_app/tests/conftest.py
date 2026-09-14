@@ -69,8 +69,6 @@ def required_vigil_env() -> dict[str, str]:
         "VIGIL_IDENTITY_SERVICE_TOKEN": "identity-token-test",
         "VIGIL_OPS_API_TOKEN": "ops-token-test",
         "VIGIL_RESEND_API_KEY": "re_test_not_real",
-        "VIGIL_AUTH_ISSUER": "https://auth.test.invalid/auth/v1",
-        "VIGIL_PORTFONIA_INTERNAL_BASE_URL": "http://backend:8000",
     }
 
 

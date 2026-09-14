@@ -5,7 +5,7 @@ import logging
 from fastapi import FastAPI
 
 from vigil_app.core.config import get_settings
-from vigil_app.routers import health, vault
+from vigil_app.routers import health
 
 logging.basicConfig(
     level=logging.INFO,
@@ -21,4 +21,3 @@ app = FastAPI(
 )
 
 app.include_router(health.router)
-app.include_router(vault.router)

@@ -41,8 +41,6 @@ def test_settings_load_when_all_required_present(required_env: dict[str, str]) -
         "VIGIL_IDENTITY_SERVICE_TOKEN",
         "VIGIL_OPS_API_TOKEN",
         "VIGIL_RESEND_API_KEY",
-        "VIGIL_AUTH_ISSUER",
-        "VIGIL_PORTFONIA_INTERNAL_BASE_URL",
     ],
 )
 def test_missing_required_setting_fails_startup(

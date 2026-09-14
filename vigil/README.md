@@ -1,4 +1,4 @@
-# Vigil runtime (P1.1 / P1.2)
+# Vigil runtime (P1.1)
 
 Isolated Vigil compose project, database, and worker foundation. This is not a
 Portfonia overlay: database name, Redis key/queue prefix, object bucket, KEK,
@@ -8,6 +8,7 @@ notification key, and Celery app are Vigil-specific. Do not import
 ## Compose
 
 Project name is `vigil`. Service, network, and volume names are Vigil-specific.
+Shared reverse-proxy / Auth wiring is out of this checkpoint.
 
 ```bash
 cp vigil/.env.example vigil/.env
@@ -17,34 +18,7 @@ docker compose --env-file vigil/.env -f vigil/compose.yml build
 ```
 
 `docker compose down` against this file must not be used as a way to restart
-Portfonia. The two compose projects do not share Postgres, Redis, or object
-volumes.
-
-## Shared reverse-proxy and Auth wiring (P1.2)
-
-Public Caddy (`api.portfonia.com`) denies `/internal/*` with 404. Vigil talks
-to Portfonia over a dedicated Docker network, not the public hostname.
-
-One-time network provision (both compose files declare it `external: true`):
-
-```bash
-docker network create portfonia-vigil-internal
-```
-
-Only Portfonia `backend` and Vigil `vigil-backend` attach to that network.
-Postgres, Redis, frontend, Caddy, and workers stay off it.
-
-Vigil settings for that hop:
-
-- `VIGIL_PORTFONIA_INTERNAL_BASE_URL=http://backend:8000`
-- `VIGIL_IDENTITY_SERVICE_TOKEN` must match Portfonia's
-  `VIGIL_IDENTITY_SERVICE_TOKEN`
-- `VIGIL_AUTH_ISSUER` is the hosted Auth issuer (`…/auth/v1`)
-
-Management requests verify the JWT, allowlist `VIGIL_OWNER_AUTH_SUBJECT`, then
-call Portfonia `GET /auth/session-status` on that internal URL. The scan path
-calls only `GET /internal/vigil/principals/{auth_subject}` and never
-session-status.
+Portfonia. The two compose projects do not share networks or volumes.
 
 ## Migrations
 
@@ -63,9 +37,6 @@ The first revision creates `vaults`, `audit_events`, `runtime_heartbeat`, and
 `GET /health/ready` returns `{"status":"ready"}` (200) or
 `{"status":"degraded"}` (503). It does not stamp `last_scan_completed_at`.
 The registered scan task is inert until P3.3.
-
-`GET /vault` returns a DISARMED no-object view without inserting a row.
-A vault row is created only by `POST /vault`.
 
 Dispatch, release, and arming stay disabled unless their flags are explicitly
 enabled after later checkpoints land.

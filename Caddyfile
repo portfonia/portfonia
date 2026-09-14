@@ -3,12 +3,7 @@ portfonia.com, www.portfonia.com {
 }
 
 api.portfonia.com {
-	handle /internal/* {
-		respond 404
-	}
-	handle {
-		reverse_proxy backend:8000
-	}
+	reverse_proxy backend:8000
 }
 
 # Auth reverse-proxy (Ring 1-B decision point 2). Browser talks to our

@@ -337,11 +337,6 @@ class Settings(BaseSettings):
     ADMIN_API_TOKEN: SecretStr
     ADMIN_API_TOKEN_PREV: SecretStr | None = None
 
-    # Vigil account-facts endpoint (issue #452 / P1.2). Dedicated bearer,
-    # independent of ADMIN_API_TOKEN and of current_principal. No _PREV
-    # rotation window — a missing/blank value fails Settings load.
-    VIGIL_IDENTITY_SERVICE_TOKEN: SecretStr
-
     # Hosted Auth (Supabase). Required — B4 is the first wiring of these
     # fields; a missing value must fail Settings load, same as
     # HOLDINGS_ENCRYPTION_KEY / ADMIN_API_TOKEN. Verification uses the
@@ -394,14 +389,6 @@ class Settings(BaseSettings):
         if v is None or not v.get_secret_value().strip():
             return None
         return SecretStr(v.get_secret_value().strip())
-
-    @field_validator("VIGIL_IDENTITY_SERVICE_TOKEN")
-    @classmethod
-    def _validate_vigil_identity_service_token(cls, v: SecretStr) -> SecretStr:
-        stripped = v.get_secret_value().strip()
-        if not stripped:
-            raise ValueError("VIGIL_IDENTITY_SERVICE_TOKEN must not be blank")
-        return SecretStr(stripped)
 
     # Daily Postgres -> OCI Object Storage backup (issue #106). Empty
     # namespace disables the scheduled task entirely — local dev never has
