@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     OPS_API_TOKEN: SecretStr
     RESEND_API_KEY: SecretStr
 
+    AUTH_ISSUER: str
+    PORTFONIA_INTERNAL_BASE_URL: str
+
     DISPATCH_ENABLED: bool = False
     RELEASE_ENABLED: bool = False
     ARMING_ENABLED: bool = False
@@ -67,6 +70,8 @@ class Settings(BaseSettings):
         "OBJECT_BUCKET",
         "OWNER_AUTH_SUBJECT",
         "KEK_VERSION",
+        "AUTH_ISSUER",
+        "PORTFONIA_INTERNAL_BASE_URL",
         mode="before",
     )
     @classmethod

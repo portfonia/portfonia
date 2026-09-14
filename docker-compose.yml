@@ -1,3 +1,8 @@
+networks:
+  portfonia-vigil-internal:
+    name: portfonia-vigil-internal
+    external: true
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -65,6 +70,9 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+    networks:
+      - default
+      - portfonia-vigil-internal
 
   celery-worker:
     image: portfonia-backend

@@ -75,3 +75,16 @@ print("ok")
 """
     stdout = _run(code, _VIGIL_BACKEND, extra_env=required_env)
     assert "ok" in stdout
+
+
+def test_vigil_auth_does_not_import_portfonia_auth(required_env: dict[str, str]) -> None:
+    code = """
+import sys
+import vigil_app.core.auth
+assert "app.core.deps" not in sys.modules
+assert "app.services.auth_provider" not in sys.modules
+assert "app.core.config" not in sys.modules
+print("ok")
+"""
+    stdout = _run(code, _VIGIL_BACKEND, extra_env=required_env)
+    assert "ok" in stdout

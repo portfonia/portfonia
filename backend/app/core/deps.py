@@ -134,3 +134,29 @@ def require_ops_token(authorization: str | None = Header(default=None)) -> None:
 
     if not matched:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid ops token")
+
+
+def require_vigil_identity_token(authorization: str | None = Header(default=None)) -> None:
+    """Bearer <VIGIL_IDENTITY_SERVICE_TOKEN>. Internal account-facts only.
+
+    Same comparison discipline as require_ops_token (digest then
+    compare_digest, unconditional loop) but a single candidate — this
+    issue does not authorize a _PREV rotation window.
+    """
+    settings = get_settings()
+    provided = _bearer_token(authorization)
+    if provided is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="missing identity token"
+        )
+
+    candidates = [settings.VIGIL_IDENTITY_SERVICE_TOKEN.get_secret_value()]
+    provided_digest = _digest(provided)
+    matched = False
+    for candidate in candidates:
+        matched |= secrets.compare_digest(provided_digest, _digest(candidate))
+
+    if not matched:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid identity token"
+        )
