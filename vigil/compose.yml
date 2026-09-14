@@ -3,6 +3,9 @@ name: vigil
 networks:
   vigil:
     name: vigil-net
+  portfonia-vigil-internal:
+    name: portfonia-vigil-internal
+    external: true
 
 volumes:
   vigil-postgres-data:
@@ -73,7 +76,9 @@ services:
         condition: service_healthy
       vigil-migrate:
         condition: service_completed_successfully
-    networks: [vigil]
+    networks:
+      - vigil
+      - portfonia-vigil-internal
 
   vigil-celery-worker:
     image: vigil-backend
