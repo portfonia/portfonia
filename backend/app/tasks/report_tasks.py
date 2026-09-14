@@ -7,6 +7,7 @@ import uuid
 from datetime import UTC, date, datetime
 from typing import Any, NamedTuple
 
+from app.core import operational_events as oe
 from app.core.config import get_settings
 from app.core.timezones import ET
 from app.services.email_sender import send_ops_alert
@@ -110,6 +111,26 @@ def generate_incremental_report(
     from app.services.user_scope import active_users
     from app.services.window_data import MovesCache
 
+    # issue #446: a root run for this task invocation, started before the
+    # stale-trigger/user lookups (Design §3) — every return/exception path
+    # below closes it via end_run. `dispatch_id` reads back the header
+    # `before_task_publish` attached in app/tasks/__init__.py; a redelivery
+    # of the same message keeps that header unchanged, while a fresh
+    # `self.retry` publication (see the batch-failure branch) gets a new one.
+    raw_dispatch_id = self.request.get("dispatch_id")
+    dispatch_id = uuid.UUID(raw_dispatch_id) if raw_dispatch_id else None
+    oe.start_run(
+        "report.batch",
+        task_id=self.request.id,
+        dispatch_id=dispatch_id,
+        attributes={
+            "session_node": session_node,
+            "report_type": report_type,
+            "cadence": cadence,
+            "retry_count": self.request.retries,
+        },
+    )
+
     if trigger_hour is not None and trigger_minute is not None:
         now_et = datetime.now(ET)
         scheduled_today = now_et.replace(
@@ -139,6 +160,7 @@ def generate_incremental_report(
                     f"still receive a report for this window, trigger one manually."
                 ),
             )
+            oe.end_run("skipped", reason_code="stale_beat_catchup")
             return {"status": "skipped_stale_trigger"}
 
     logger.info(
@@ -155,6 +177,7 @@ def generate_incremental_report(
         users = active_users(session, cadence)
         if not users:
             logger.info("generate_incremental_report: no active users, nothing to generate")
+            oe.end_run("ok", reason_code="no_active_users", attributes={"recipient_count": 0})
             return {"status": "no_active_users", "results": []}
         recipients = [
             _Recipient(user_id=u.id, locale=u.locale, base_currency=u.base_currency) for u in users
@@ -199,6 +222,19 @@ def generate_incremental_report(
                     # its turn, and the countdown must stay monotonic so
                     # later users neither over- nor under-claim.
                     users_remaining=len(recipients) - index,
+                    # issue #446: per-user batch position + wait offset —
+                    # Design §3's "child attempts record zero-based
+                    # recipient_index, users_remaining and monotonic offset
+                    # from batch start". Real wall clock, not batch_now
+                    # (which is the frozen window-cache anchor, not a
+                    # timing reference — Design §3 "never the injected
+                    # batch_now/report_date as execution-start time").
+                    _telemetry_attrs={
+                        "recipient_index": index,
+                        "users_remaining": len(recipients) - index,
+                        "batch_offset_ms": (datetime.now(tz=UTC) - batch_now).total_seconds()
+                        * 1000,
+                    },
                 )
                 logger.info(
                     "generate_incremental_report: complete for user %s — report_id=%s status=%s",
@@ -257,9 +293,11 @@ def generate_incremental_report(
                 f"generate_incremental_report: all {len(results)} user(s) failed in this batch"
             )
 
+        oe.end_run("ok", attributes={"recipient_count": len(recipients)})
         return {"status": "completed", "results": results}
     except Exception as exc:
         logger.exception("generate_incremental_report: batch failed, scheduling retry")
+        oe.end_run("retry_requested", reason_code=type(exc).__name__)
         if self.request.retries >= self.max_retries:
             send_ops_alert(
                 subject="[Portfonia] Report generation batch FAILED — all retries exhausted",
@@ -289,8 +327,11 @@ def generate_incremental_report(
         session.close()
 
 
-@celery_app.task(name="app.tasks.report_tasks.generate_report_job")  # type: ignore[untyped-decorator]
+@celery_app.task(  # type: ignore[untyped-decorator]
+    name="app.tasks.report_tasks.generate_report_job", bind=True
+)
 def generate_report_job(
+    self: Any,
     job_id: str,
     report_type: str = "incremental",
     report_date: str | None = None,
@@ -329,12 +370,26 @@ def generate_report_job(
         if job is None:
             logger.error("generate_report_job: job %s not found", job_id)
             return {"status": "job_not_found"}
+        # issue #446: a root run for this on-demand generation task — like
+        # the scheduled batch task, started before the terminal-job no-op
+        # check (Design §3 "distinguish direct invocation from queued
+        # execution": this IS the queued path).
+        raw_dispatch_id = self.request.get("dispatch_id")
+        oe.start_run(
+            "report.generate_job",
+            task_id=self.request.id,
+            dispatch_id=uuid.UUID(raw_dispatch_id) if raw_dispatch_id else None,
+            job_id=job.id,
+            user_id=job.user_id,
+            attributes={"session_node": session_node, "report_type": report_type},
+        )
         if job.status != "pending":
             logger.info(
                 "generate_report_job: job %s already %s — redelivery, skipping",
                 job_id,
                 job.status,
             )
+            oe.end_run("skipped", reason_code="already_terminal")
             return {
                 "job_id": job_id,
                 "status": job.status,
@@ -377,6 +432,7 @@ def generate_report_job(
             job.status = "success"
             job.report_id = report.id
         session.commit()
+        oe.end_run("ok" if job.status == "success" else "failed")
         return {
             "job_id": job_id,
             "status": job.status,
