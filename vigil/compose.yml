@@ -6,9 +6,6 @@ networks:
   portfonia-vigil-internal:
     name: portfonia-vigil-internal
     external: true
-  portfonia-vigil-public:
-    name: portfonia-vigil-public
-    external: true
 
 volumes:
   vigil-postgres-data:
@@ -134,6 +131,4 @@ services:
       BACKEND_URL: http://vigil-backend:8000
     depends_on:
       - vigil-backend
-    networks:
-      - vigil
-      - portfonia-vigil-public
+    networks: [vigil]
