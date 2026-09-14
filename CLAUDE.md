@@ -681,3 +681,16 @@ features, and stock-pick-style recommendations are all explicitly excluded.
   "this is how it's normally done."
 - **Reversibility check before destructive actions** (DB migrations dropping
   columns, `rm -rf`, force pushes). Confirm with the user before executing.
+  **Precedent (2026-09-14, Vigil R0 retraction, #473)**: the product owner
+  can explicitly, in the current conversation, direct a hard reset +
+  force-push of `main` back to a specific prior commit — e.g. to retract a
+  fully-merged, self-contained feature back to a clean pre-feature state,
+  in preference to a revert-commit chain that would keep the retracted
+  code's bulk permanently in `main`'s diff/blame history. This requires
+  the same real-time, explicit authorization as any other destructive
+  action (not a standing permission); verify no other active branch
+  actually depends on the commits being dropped (`git branch -r
+  --contains <sha>`) before doing it. Any PR/worktree still branched from
+  the old tip needs `git rebase --onto <new-main> <old-branch-point>
+  <branch>` afterward, not a plain `git rebase <new-main>` (which is a
+  no-op when the old tip is already an ancestor of the branch).
