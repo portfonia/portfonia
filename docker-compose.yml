@@ -2,6 +2,9 @@ networks:
   portfonia-vigil-internal:
     name: portfonia-vigil-internal
     external: true
+  portfonia-vigil-public:
+    name: portfonia-vigil-public
+    external: true
 
 services:
   postgres:
@@ -143,3 +146,6 @@ services:
     depends_on:
       - backend
       - frontend
+    networks:
+      - default
+      - portfonia-vigil-public

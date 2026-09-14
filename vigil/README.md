@@ -34,6 +34,22 @@ docker network create portfonia-vigil-internal
 Only Portfonia `backend` and Vigil `vigil-backend` attach to that network.
 Postgres, Redis, frontend, Caddy, and workers stay off it.
 
+## Public reverse proxy (deploy follow-up to P1.3)
+
+`vigil.portfonia.com` reaches Vigil's frontend through a second, separately
+scoped external network — never `portfonia-vigil-internal`, which stays a
+backend-to-backend-only channel:
+
+```bash
+docker network create portfonia-vigil-public
+```
+
+Only Portfonia `caddy` and Vigil `vigil-frontend` attach to
+`portfonia-vigil-public`. Postgres, Redis, both backends, and Celery workers
+stay off it. The public `Caddyfile` site block does a plain
+`reverse_proxy vigil-frontend:3000` — no path-level rules, unlike
+`api.portfonia.com`'s `/internal/*` deny.
+
 Vigil settings for that hop:
 
 - `VIGIL_PORTFONIA_INTERNAL_BASE_URL=http://backend:8000`
@@ -70,7 +86,8 @@ always-null `deadline_at` (until P3.3), and a nested `heartbeat` object.
 
 The frontend is a Next.js app. It rewrites `/api/*` to `vigil-backend:8000` and
 injects the host session bearer. Login is a popup to Portfonia `/auth/vigil`.
-This tree does not add a public Caddy site for `vigil.portfonia.com`.
+Public Caddy routing for `vigil.portfonia.com` is provisioned separately —
+see "Public reverse proxy" above.
 
 Dispatch, release, and arming stay disabled unless their flags are explicitly
 enabled after later checkpoints land.
