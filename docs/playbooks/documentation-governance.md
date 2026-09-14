@@ -116,7 +116,7 @@ services, sending real emails, or releasing entrusted files.
 
 ## Obsidian access and secret handling
 
-Use the configured Obsidian MCP first. Read the existing note before an
+Use the configured Obsidian MCP. Read the existing note before an
 update, preserve unrelated content, prefer a bounded edit for a small
 change, and read back the result. Check structured success/error fields;
 empty content is not automatically a missing note. For an explicitly
@@ -124,8 +124,12 @@ authorized deletion, preserve the necessary material at its authorized
 destination first, delete only the exact requested paths, and verify their
 absence without creating replacement vault files.
 
+Do not switch to UI automation or REST because an unrelated shell/code-mode
+tool fails. A different access method requires an explicit user instruction.
+
 The configured MCP uses environment variables such as `OBSIDIAN_API_KEY`,
-`OBSIDIAN_BASE_URL`, and `OBSIDIAN_ALLOW_INSECURE`. The local REST fallback
+`OBSIDIAN_BASE_URL`, and `OBSIDIAN_ALLOW_INSECURE`. If explicitly requested,
+the local REST alternative
 uses `OBSIDIAN_REST_URL` (normally `https://127.0.0.1:27124`) and
 `OBSIDIAN_API_KEY`; use vault-relative paths and bearer authentication.
 The local endpoint uses a self-signed certificate, so the configured local

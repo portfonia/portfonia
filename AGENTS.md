@@ -6,7 +6,15 @@ Read `CLAUDE.md` for the shared repository engineering, security, testing, and G
 
 - [Documentation governance](docs/playbooks/documentation-governance.md): document ownership, Obsidian authorization, executable design contracts, evidence labels, and note-access conventions.
 - [Shared engineering rules](CLAUDE.md): language, security, testing, and deployment conventions.
-- [Git and review identities](docs/playbooks/git-and-review-incidents.md): write/review identity boundaries and workflow history.
+- [Git and review identities](docs/playbooks/git-and-review-incidents.md): gh OAuth writes, owner-token fallback, reviewer-token boundaries, and workflow history.
+
+## GitHub and Obsidian access
+
+- GitHub writes use the stored `gh` OAuth login for `portfonia`. Check without environment-token overrides: `env -u GH_TOKEN -u GITHUB_TOKEN gh api user --jq .login`.
+- If that OAuth path is unavailable, use only `GITHUB_TOKEN` from this project's `.env.local` for the owner-token fallback; verify the API login is `portfonia` before writing. Do not silently use another account.
+- GitHub reviews use `GITHUB_REVIEWER_TOKEN` from this project's `.env.local`; verify the API login is `blacktomb42`. Never use the reviewer token for issue maintenance, pushes, or merges.
+- Obsidian operations use the configured MCP. Read the existing target, update in place within scope, and read back. Do not substitute UI automation or REST merely because a command tool fails; a different access method requires an explicit user instruction.
+- Load tokens only for the required command; never print or persist their values. Authentication does not authorize a merge, deployment, or self-review.
 
 ## Language and Obsidian authorization (mandatory)
 
@@ -59,4 +67,4 @@ deploy, or release entrusted files.
 
 For documentation updates, maintain the relevant repository document and its AGENTS.md index entry; update shared CLAUDE.md only when its rules are affected. Edit an existing Obsidian feature note only within the user's authorized scope. Do not automatically create companion notes or synchronize every documentation surface. Update governing sections in place when a rule changes; append incident evidence without leaving contradictory active rules. Detailed contracts and access conventions are in [Documentation governance](docs/playbooks/documentation-governance.md).
 
-Use the configured Obsidian MCP first. Keep credentials out of repository files, notes, and memory. These issue/design rules are project-wide; do not silently promote them to all projects.
+Use the configured Obsidian MCP. Keep credentials out of repository files, notes, and memory. These issue/design rules are project-wide; do not silently promote them to all projects.
