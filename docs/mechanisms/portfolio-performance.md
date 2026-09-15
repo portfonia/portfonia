@@ -782,3 +782,21 @@ separate from `MultiSelectMenu` since it can never reach "none"/"several".
 cumulative line and the monthly bar for `csi300`; the shared `--chart-5`
 token (still used by the unrelated `/portfolio` breakdown charts) is
 untouched.
+
+## Gap connector across missing snapshot dates (issue #486)
+
+Frontend-only (PR #488). After `buildChartData` assembles portfolio
+solid/approx points and any displayable benchmark rows, it inserts a null
+UTC calendar row for every date strictly between two consecutive real
+portfolio/approx points — independent of selected or displayable
+benchmarks, and never outside that span. Each maximal missing-date run
+then gets its **own** column (`portfolioGap`, `portfolioGap:1`, …)
+populated only at the two already-real endpoints, using those endpoints'
+own values. The page emits one dashed `connectNulls` `<Line>` per column,
+under the solid/approx strokes, excluded from legend and tooltip.
+
+A single global gap series is not used: `connectNulls` would join every
+endpoint and draw a fictitious dashed path through real history between
+separate gaps (PR #488 review 5210408209). No reconstructed number is
+written onto a missing date (composition-replay guardrail, issue #366).
+Write-path carry for weekends is the separate issue #487.

@@ -4,8 +4,9 @@
 // library the /portfolio breakdown cards use. The portfolio line is split
 // into a solid column and a dashed `portfolioApprox` column by the data
 // helper, so an approximate stretch reads as dashes without a second legend
-// entry. Pure presentational: data/row building and copy resolution happen
-// in the page body / performance-data.ts.
+// entry. A third `portfolioGap` column (issue #486) draws a dashed connector
+// across dates with no snapshot at all. Pure presentational: data/row
+// building and copy resolution happen in the page body / performance-data.ts.
 
 import { useLocale } from "@/app/_components/locale-provider";
 import { useTranslations } from "next-intl";
@@ -24,16 +25,20 @@ import {
 } from "recharts";
 import { useMemo } from "react";
 import type { BenchmarkCode } from "@/lib/api";
-import type { BuiltChartData, ChartSeriesRow } from "./performance-data";
+import { isPortfolioGapKey, type BuiltChartData, type ChartSeriesRow } from "./performance-data";
 
 export interface ChartSeriesSpec {
-  // Chart data column key (portfolio / portfolioApprox / a benchmark code).
+  // Chart data column key (portfolio / portfolioApprox / portfolioGap / a
+  // benchmark code).
   key: string;
   label: string;
   color: string;
   dashed?: boolean;
   isPortfolio?: boolean;
   singletonDot?: boolean;
+  // Only the gap connector (issue #486) sets this so Recharts draws one
+  // dashed segment between the two real boundary points.
+  connectNulls?: boolean;
 }
 
 const APPROX_DASH = "5 4";
@@ -61,6 +66,7 @@ function ChartTooltip({
 
   const entries = series
     .map((spec) => {
+      if (isPortfolioGapKey(spec.key)) return null;
       const value = rowValue(row, spec.key);
       if (value === null) return null;
       const meta =
@@ -198,7 +204,7 @@ export function PerformanceChart({
               }
               activeDot={{ r: 4 }}
               isAnimationActive={false}
-              connectNulls={false}
+              connectNulls={spec.connectNulls === true}
             />
           ))}
         </LineChart>

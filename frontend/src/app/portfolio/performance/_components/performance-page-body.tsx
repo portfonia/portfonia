@@ -57,6 +57,8 @@ import {
   PORTFOLIO_KEY,
   buildChartData,
   hasApproximateSegment,
+  isPortfolioGapKey,
+  portfolioGapSeriesKeys,
   seriesHasSingleValue,
 } from "./performance-data";
 import { formatFullDate, formatSignedPct, toRatio } from "./performance-format";
@@ -240,6 +242,16 @@ export function PerformancePageBody({
     const names = t.raw("performance.benchmarkNames");
     const series: ChartSeriesSpec[] = [];
     if (response && !response.portfolio.empty) {
+      for (const key of portfolioGapSeriesKeys(chartData.rows)) {
+        series.push({
+          key,
+          label: t("performance.chartPortfolioLabel"),
+          color: PORTFOLIO_COLOR,
+          dashed: true,
+          isPortfolio: true,
+          connectNulls: true,
+        });
+      }
       series.push({
         key: PORTFOLIO_KEY,
         label: t("performance.chartPortfolioLabel"),
@@ -280,7 +292,9 @@ export function PerformancePageBody({
   // Legend mirrors the drawn lines, collapsing the portfolio's solid+dashed
   // pair back into one entry (the dashed hint line explains the second
   // stroke style).
-  const legendSeries = chartSeries.filter((spec) => spec.key !== PORTFOLIO_APPROX_KEY);
+  const legendSeries = chartSeries.filter(
+    (spec) => spec.key !== PORTFOLIO_APPROX_KEY && !isPortfolioGapKey(spec.key),
+  );
 
   const benchmarkNames = t.raw("performance.benchmarkNames");
   const assetClassNames = t.raw("assetClasses") as Record<string, string>;
