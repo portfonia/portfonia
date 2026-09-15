@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 from uuid import UUID
 
 import httpx
@@ -608,7 +609,12 @@ def send_verification_email(email: str, token: str, *, locale: str = "en") -> st
         return None
 
 
-def send_ops_alert(subject: str, body: str, idempotency_key: str | None = None) -> bool:
+def send_ops_alert(
+    subject: str,
+    body: str,
+    idempotency_key: str | None = None,
+    severity: Literal["INFO", "WARNING", "ALERT"] = "ALERT",
+) -> bool:
     """Send a plain-text ops alert to the admin email via Resend.
 
     Used for failure/needs_review notifications. Never raises — returns True
@@ -619,14 +625,20 @@ def send_ops_alert(subject: str, body: str, idempotency_key: str | None = None) 
     Pass idempotency_key to suppress duplicate alerts across Celery retries of
     the same task. Resend will accept the first delivery and discard subsequent
     requests with the same key within 24 hours.
+
+    severity (issue #479) is a subject/body label only — default ALERT keeps
+    unreviewed call sites looking urgent. It does not change routing or
+    idempotency.
     """
     settings = get_settings()
     api_key = settings.RESEND_API_KEY.get_secret_value()
+    tagged_subject = f"[{severity}] {subject}"
+    tagged_body = f"Severity: {severity}\n\n{body}"
     payload: dict[str, object] = {
         "from": settings.EMAIL_FROM,
         "to": [settings.ADMIN_EMAIL],
-        "subject": subject,
-        "text": body,
+        "subject": tagged_subject,
+        "text": tagged_body,
     }
     headers: dict[str, str] = {
         "Authorization": f"Bearer {api_key}",
@@ -642,10 +654,10 @@ def send_ops_alert(subject: str, body: str, idempotency_key: str | None = None) 
                 json=payload,
             )
             resp.raise_for_status()
-        logger.info("ops alert sent to %s: %s", settings.ADMIN_EMAIL, subject)
+        logger.info("ops alert sent to %s: %s", settings.ADMIN_EMAIL, tagged_subject)
         return True
     except Exception:
-        logger.exception("ops alert delivery failed: %s", subject)
+        logger.exception("ops alert delivery failed: %s", tagged_subject)
         return False
 
 

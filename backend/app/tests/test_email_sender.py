@@ -25,6 +25,7 @@ from app.services.email_sender import (
     _WRAPPER_TD_STYLE,
     _inline_body_styles,
     _render_html,
+    send_ops_alert,
     send_report_email,
     send_verification_email,
 )
@@ -998,6 +999,55 @@ def test_idempotency_key_and_token_stable_one_second_apart(
 
     assert key1 == key2
     assert token1 == token2
+
+
+# ---------------------------------------------------------------------------
+# send_ops_alert severity taxonomy (issue #479)
+# ---------------------------------------------------------------------------
+
+
+def _ops_alert_settings() -> MagicMock:
+    s = _mock_settings()
+    s.ADMIN_EMAIL = "ops@example.com"
+    return s
+
+
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
+def test_send_ops_alert_warning_prefixes_subject_and_body(
+    mock_client_cls: MagicMock, mock_settings: MagicMock
+) -> None:
+    """issue #479: explicit WARNING is visible in the subject and first body line."""
+    mock_settings.return_value = _ops_alert_settings()
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    post_mock = mock_client_cls.return_value.__enter__.return_value.post
+    post_mock.return_value = mock_resp
+
+    send_ops_alert("subject-line", "body-text", severity="WARNING")
+
+    payload = post_mock.call_args.kwargs["json"]
+    assert payload["subject"].startswith("[WARNING] ")
+    assert payload["text"].startswith("Severity: WARNING")
+
+
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
+def test_send_ops_alert_defaults_to_alert(
+    mock_client_cls: MagicMock, mock_settings: MagicMock
+) -> None:
+    """issue #479: callers that omit severity keep today's implicit-urgent default."""
+    mock_settings.return_value = _ops_alert_settings()
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    post_mock = mock_client_cls.return_value.__enter__.return_value.post
+    post_mock.return_value = mock_resp
+
+    send_ops_alert("subject-line", "body-text")
+
+    payload = post_mock.call_args.kwargs["json"]
+    assert payload["subject"].startswith("[ALERT] ")
+    assert payload["text"].startswith("Severity: ALERT")
 
 
 # ---------------------------------------------------------------------------

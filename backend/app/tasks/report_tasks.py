@@ -173,6 +173,7 @@ def generate_incremental_report(
                     f"{trigger_minute:02d} ET time.\n\n{cause_note}\n\n"
                     f"The report was skipped — no report was generated or emailed."
                 ),
+                severity="WARNING",
             )
             oe.end_run("skipped", reason_code="stale_beat_catchup")
             return {"status": "skipped_stale_trigger"}
