@@ -447,6 +447,15 @@ After every `git push`:
 3. **Red** → pull failing logs with `gh run view --log-failed`, fix the root
    cause locally (never retry blindly), commit, push again, re-watch.
 
+**Verifying a reported merge is not re-running the gate** (2026-09-15): the
+quality gate already ran green at commit/push time — that's what made the
+commit mine to push. Checking that a reported merge actually landed means
+`gh pr view --json state,mergeCommit,mergedAt`, `git fetch && git pull
+--ff-only`, and a diff spot-check against the issue's Design comment — not
+a fresh `ruff`/`mypy`/`pytest -q` pass. Re-run the full gate only with a
+specific reason to doubt the reported green state (a rebase after the gate
+ran, a manually-resolved merge conflict, or an explicit request).
+
 Do not declare a task done, close a session, or move to the next task while
 CI is red or still running. Leaving a PR red and moving on is the primary
 failure mode this protocol exists to prevent.
