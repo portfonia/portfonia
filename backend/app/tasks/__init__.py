@@ -123,15 +123,15 @@ def _node_cron(tz: Any, hour: int, minute: int) -> crontab:
 # Cadence design doc, decision point 3.
 #
 # `weekly` (issue #191) fires Saturday 19:00 ET rather than at a real market
-# close — no capture task runs on weekends at all (_MARKET_NODES and every
-# other daily capture entry below are Mon-Fri only), so any Saturday time
-# reads the same Friday-close snapshot; `session_node="weekend_snapshot"`
+# close. Portfolio-value snapshot capture is 20:30 ET every day (issue #487),
+# so a Saturday weekly report still reads Friday's snapshot; later same-day
+# capture does not feed this Beat row. `session_node="weekend_snapshot"`
 # names that explicitly rather than reusing "after_close", which would imply
 # a close event that didn't happen. The macro/news layer (ticker_intel.py /
 # cross_name_intel.py) is a live, generation-time search keyed by trade_date,
-# not tied to these weekday capture nodes — so a Saturday report's holdings
-# data is a stable weekday-old snapshot, but its macro content can still
-# reflect the weekend.
+# not tied to these capture nodes — so a Saturday report's holdings data is
+# a stable weekday-old snapshot, but its macro content can still reflect
+# the weekend.
 _REPORT_CADENCES: tuple[tuple[str, str, str, dict[str, Any], str], ...] = (
     (
         "report-incremental-mwf",
@@ -220,22 +220,25 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "task": "app.tasks.capture_tasks.capture_forward_events_task",
         "schedule": crontab(hour=8, minute=0, day_of_week="mon-fri"),
     },
-    # FX rates (R-4): pull once per US trading day. 17:15 ET, NOT 16:05 like the
-    # equities close nodes (issue #258) — FX has no NYSE-style hard close, so
-    # 16:05 consistently captured the *previous* day's daily bar (confirmed
-    # against 5 days of production fx_rates rows, all off by exactly one day).
-    # FX's own daily bar rolls over around 17:00 ET; 17:15 leaves a buffer past
-    # that. Idempotent upsert either way.
+    # FX rates (R-4): 17:15 ET every calendar day (issue #487; was mon-fri).
+    # NOT 16:05 like the equities close nodes (issue #258) — FX has no
+    # NYSE-style hard close, so 16:05 consistently captured the *previous*
+    # day's daily bar (confirmed against 5 days of production fx_rates rows,
+    # all off by exactly one day). FX's own daily bar rolls over around
+    # 17:00 ET; 17:15 leaves a buffer past that. A genuine non-trading day
+    # is an idempotent source-dated upsert of the last bar, not a new row
+    # dated "today".
     "capture-fx-daily": {
         "task": "app.tasks.capture_tasks.capture_fx_task",
-        "schedule": crontab(hour=17, minute=15, day_of_week="mon-fri"),
+        "schedule": crontab(hour=17, minute=15),
     },
     # Fund NAV (Tiantian Fund): settled NAV for fund_code holdings is published by
     # the fund manager after A-share close (usually same evening). 20:00 CST
-    # gives enough buffer; idempotent upsert in price_snapshots.
+    # every calendar day (issue #487); idempotent upsert in price_snapshots
+    # keyed by the source NAV date, not fetch-time.
     "capture-fund-navs-daily": {
         "task": "app.tasks.capture_tasks.capture_fund_navs_task",
-        "schedule": crontab(hour=20, minute=0, day_of_week="mon-fri", nowfun=_NowIn(CST)),
+        "schedule": crontab(hour=20, minute=0, nowfun=_NowIn(CST)),
     },
     # Stuck-pending UploadJob backstop (issue #85): a plain interval, not a
     # crontab — this is a fast, always-on sweep, not a market-session-timed
@@ -275,27 +278,32 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "task": "app.tasks.cache_tasks.sweep_stale_shared_intel_cache",
         "schedule": crontab(hour=4, minute=0),
     },
-    # Portfolio Performance (issue #360 Phase 1). 20:30 ET, Mon-Fri — after
-    # every market's close node (latest is US after_close at 20:00 ET) and
-    # after the 17:15 ET FX fetch, so a user's day almost always resolves
-    # its FX dependency on the first try (capture_portfolio_value_snapshot's
-    # own per-user skipped_deps check covers the rare case it doesn't).
+    # Portfolio Performance (issue #360 Phase 1). 20:30 ET every calendar
+    # day (issue #487) — after every market's close node (latest is US
+    # after_close at 20:00 ET) and after the 17:15 ET FX fetch, so a user's
+    # day almost always resolves its FX dependency on the first try
+    # (capture_portfolio_value_snapshot's own per-user skipped_deps check
+    # covers the rare case it doesn't). A Saturday/Sunday run writes a
+    # complete batch with carried-forward marks disclosed as approx_carried.
     "capture-portfolio-value-snapshot-daily": {
         "task": "app.tasks.capture_tasks.capture_portfolio_value_snapshot_task",
-        "schedule": crontab(hour=20, minute=30, day_of_week="mon-fri"),
+        "schedule": crontab(hour=20, minute=30),
     },
     # Same cadence as the snapshot task above — benchmark closes (sp500/
     # dow30/nasdaq/csi300, D9 + #383) are independent of holdings/FX and
     # could run earlier, but sharing one fixed time keeps the schedule easy
-    # to reason about; both tasks are idempotent upserts either way.
+    # to reason about; both tasks are idempotent source-dated upserts
+    # (issue #487: every calendar day; no new bar → no new dated row).
     "capture-benchmark-index-prices-daily": {
         "task": "app.tasks.capture_tasks.capture_benchmark_index_prices_task",
-        "schedule": crontab(hour=20, minute=30, day_of_week="mon-fri"),
+        "schedule": crontab(hour=20, minute=30),
     },
     # Issue #372 slice B: lag/skipped_deps probe after the 20:30 ET window.
+    # Every calendar day (issue #487) so a failed weekend portfolio capture
+    # is detected that night, not deferred to Monday.
     "check-capture-health-daily": {
         "task": "app.tasks.capture_tasks.check_capture_health_task",
-        "schedule": crontab(hour=21, minute=30, day_of_week="mon-fri"),
+        "schedule": crontab(hour=21, minute=30),
     },
     # FX catch-up (issue #426): capture_fx_task's 17:15 ET fetch can land a
     # bar dated the *prior* day when yfinance hasn't published that day's FX

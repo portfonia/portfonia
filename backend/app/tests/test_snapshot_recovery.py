@@ -166,6 +166,27 @@ def test_missed_day_is_recomputed_when_the_book_is_unchanged(db_session: Session
     assert outbox_row is not None and outbox_row.status == "applied"
 
 
+def test_missed_saturday_is_recomputed_when_the_book_is_unchanged(db_session: Session) -> None:
+    """Issue #487: weekends are legitimate capture days, so automatic
+    catch-up must recover a failed Saturday, not skip weekday()<5."""
+    saturday = date(2026, 9, 12)
+    friday = date(2026, 9, 11)
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    _seed_holding(db_session, user_id, "AAPL", Decimal("10"))
+    _seed_price(db_session, "AAPL", friday, Decimal("20"))
+    db_session.flush()
+    capture_portfolio_value_snapshot(db_session, friday)
+
+    assert recompute_is_safe(db_session, user_id, saturday) is True
+    report = recover_portfolio_snapshots(db_session, saturday, saturday, today=date(2026, 9, 14))
+    assert (report.replayed, report.recomputed, report.skipped_unsafe) == (0, 1, 0)
+    assert _status(db_session, user_id, saturday) == "complete"
+    rows = _daily_rows(db_session, saturday)
+    assert len(rows) == 1
+    assert rows[0].data_quality == "approx_carried"
+
+
 def test_recompute_of_a_skipped_deps_day_is_retried_once_fx_arrives(db_session: Session) -> None:
     """A day left `skipped_deps` by a late FX capture is picked up by the
     catch-up instead of being lost (the pre-#373 code claimed the next run

@@ -28,7 +28,7 @@ from app.models.base import Base
 # writer is the only producer of these values (issue #360 Phase 1 design
 # review call: holdings.py's CHECK-constraint pattern exists because user
 # input reaches those columns directly; every row here is server-computed).
-DATA_QUALITY_VALUES = ("ok", "approx_backfill", "approx_fx", "insufficient")
+DATA_QUALITY_VALUES = ("ok", "approx_backfill", "approx_fx", "approx_carried", "insufficient")
 
 
 class PortfolioValueSnapshot(Base):

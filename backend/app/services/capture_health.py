@@ -1,9 +1,10 @@
-"""Capture-health probe (issue #372 slice B).
+"""Capture-health probe (issue #372 slice B; weekend split issue #487).
 
-Alert rule (the one rule): Mon-Fri 21:30 ET probe; expected date = that ET
-weekday. A pipeline is stale if it has no success evidence dated on that
-day. 36h wall-clock is not used — a Monday probe vs Friday evidence is 72h
-and would false-positive every weekend.
+Alert rule: 21:30 ET every calendar day. FX/price/benchmark expected date
+is the last Mon-Fri on or before `as_of` (a non-trading day never produces
+a fresh close/rate). Portfolio expected date is `as_of` itself — weekends
+are legitimate snapshot days. 36h wall-clock is not used — a Monday probe
+vs Friday market evidence is 72h and would false-positive every weekend.
 
 Hard-fail (retries exhausted) stays on capture_tasks._capture_failed.
 This module only notices lag and non-complete portfolio batches.
@@ -39,6 +40,13 @@ def expected_capture_date(as_of: date) -> date:
     """Last Mon-Fri calendar date on or before `as_of` (no holiday calendar)."""
     while as_of.weekday() >= 5:
         as_of -= timedelta(days=1)
+    return as_of
+
+
+def expected_capture_date_portfolio(as_of: date) -> date:
+    """Portfolio-snapshot pipeline expects fresh evidence every calendar
+    day — unlike market-data pipelines, a non-trading day is still a
+    legitimate capture target (carried-forward marks, D5 / Requirement 3)."""
     return as_of
 
 
@@ -100,7 +108,9 @@ def _max_date(session: Session, column: object) -> date | None:
 
 
 def evaluate_capture_health(session: Session, as_of: date | None = None) -> CaptureHealthReport:
-    expected = expected_capture_date(as_of or datetime.now(tz=ET).date())
+    as_of_date = as_of or datetime.now(tz=ET).date()
+    expected = expected_capture_date(as_of_date)
+    portfolio_expected = expected_capture_date_portfolio(as_of_date)
     # Any close bar (listed market or fund NAV) dated expected clears this
     # pipeline. Intentional v1 coarseness: "price" absent from the alert
     # means at least one close exists that day, not every venue is healthy.
@@ -117,7 +127,7 @@ def evaluate_capture_health(session: Session, as_of: date | None = None) -> Capt
     skipped = int(
         session.execute(
             select(func.count()).where(
-                PortfolioSnapshotBatch.snapshot_date == expected,
+                PortfolioSnapshotBatch.snapshot_date == portfolio_expected,
                 PortfolioSnapshotBatch.status == "skipped_deps",
             )
         ).scalar_one()
@@ -125,7 +135,7 @@ def evaluate_capture_health(session: Session, as_of: date | None = None) -> Capt
     pending = int(
         session.execute(
             select(func.count()).where(
-                PortfolioSnapshotBatch.snapshot_date == expected,
+                PortfolioSnapshotBatch.snapshot_date == portfolio_expected,
                 PortfolioSnapshotBatch.status == "pending",
             )
         ).scalar_one()
@@ -135,7 +145,7 @@ def evaluate_capture_health(session: Session, as_of: date | None = None) -> Capt
         issues.append("price")
     if is_stale(fx_last, expected):
         issues.append("fx")
-    if should_alert_portfolio(complete_last, expected, skipped, pending):
+    if should_alert_portfolio(complete_last, portfolio_expected, skipped, pending):
         issues.append("portfolio")
     if is_stale(bench_last, expected):
         issues.append("benchmark")
@@ -247,7 +257,7 @@ def _render_alert_body(report: CaptureHealthReport, fingerprint: str) -> str:
         "",
         "---",
         "Technical detail:",
-        "  probe: 21:30 ET Mon-Fri, detection only (does not write or retry)",
+        "  probe: 21:30 ET every day, detection only (does not write or retry)",
         f"  raw issue codes: {fingerprint}",
         f"  portfolio: skipped_deps={report.skipped_deps} pending={report.pending}",
         f"  dedup key: ops-capture-health-{expected}-{fingerprint}",

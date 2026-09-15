@@ -222,6 +222,15 @@ def build_snapshot_row(
     if is_backfilled and data_quality == "ok":
         data_quality = "approx_backfill"
 
+    # Carried-forward close or FX (issue #487): auto-priced holdings only.
+    # Cash/manual/capture_supported=False have price_as_of=None (D5) and
+    # never take this branch.
+    if data_quality == "ok" and local.price_as_of is not None:
+        price_carried = local.price_as_of != snapshot_date
+        fx_carried = fx_as_of is not None and fx_as_of != snapshot_date
+        if price_carried or fx_carried:
+            data_quality = "approx_carried"
+
     return {
         "user_id": user_id,
         "snapshot_date": snapshot_date,
