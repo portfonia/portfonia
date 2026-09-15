@@ -88,7 +88,11 @@ from app.services.report_assembly import (
     should_use_assembly,
 )
 from app.services.report_context import ReportContext, ReportInputsDict
-from app.services.report_llm import _BYOK_PROVIDER_ORDER, _call_llm, _openrouter_client
+from app.services.report_llm import (
+    _call_llm,
+    _call_llm_byok_with_fallback,
+    _openrouter_client,
+)
 from app.services.report_prompts import (
     _COMPLIANCE_SYSTEM_PREFIX,
     _build_pass1_prompt,
@@ -1392,17 +1396,12 @@ def generate_report(
 
         logger.info("report %s: Pass 1 LLM call (%s)", report.id, low_cost_model)
         with oe.operation_span("llm_call", model=low_cost_model):
-            raw_pass1 = _call_llm(
+            raw_pass1 = _call_llm_byok_with_fallback(
                 client,
                 low_cost_model,
                 pass1_system,
                 pass1_user,
                 with_holdings=False,
-                pin_provider=False,
-                provider_order=_BYOK_PROVIDER_ORDER,
-                allow_fallbacks=False,
-                enforce_data_collection=False,
-                disable_reasoning=True,
                 usage_sink=ctx.llm_calls,
             )
         ctx.pass1_raw = raw_pass1

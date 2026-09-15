@@ -38,3 +38,6 @@ ignore_missing_imports = true
 asyncio_mode = "auto"
 testpaths = ["app"]
 python_files = ["test_*.py", "*_test.py"]
+markers = [
+    "no_byok_fallback_alias: do not alias _call_llm_byok_with_fallback onto _call_llm",
+]

@@ -126,6 +126,15 @@ class Settings(BaseSettings):
     # the previous model — worth a broader pass before treating this as
     # fully validated long-term.
     STRUCTURED_LLM_MODEL: str = "openai/gpt-5.6-luna"
+    # Second-tier model for the two LOW_COST_LLM_MODEL / BYOK call sites
+    # (Pass 1 search-query gen, translation) after `_call_llm`'s own retry
+    # budget is exhausted on a retryable error (issue #477). Independent
+    # marketplace call with data_collection=deny — does not loosen the BYOK
+    # leg's allow_fallbacks=False pairing. Same model id as
+    # STRUCTURED_LLM_MODEL; reasoning_effort is separate because this path is
+    # free-text generation, not JSON extraction.
+    FALLBACK_LLM_MODEL: str = "openai/gpt-5.6-luna"
+    FALLBACK_LLM_REASONING_EFFORT: str = "high"
 
     # --- Shared-compute personalized assembly (issue #128 A4) ---------------
     # Master switch for the second-layer assembly path (design doc §6.3). When

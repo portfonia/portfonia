@@ -17,6 +17,7 @@ import openai
 
 from app.core.config import OR_ATTRIBUTION_HEADERS, get_settings
 from app.services.llm_errors import (
+    LLMCallError,
     LLMEmptyResponseError,
     LLMErrorCode,
     classify,
@@ -350,3 +351,69 @@ def _call_llm(
         )
     content = choice.message.content or ""
     return content.strip()
+
+
+def _call_llm_byok_with_fallback(
+    client: openai.OpenAI,
+    byok_model: str,
+    system: str,
+    user: str,
+    *,
+    with_holdings: bool,
+    usage_sink: list[dict[str, Any]] | None = None,
+    allow_empty_content: bool = False,
+) -> str:
+    """BYOK low-cost call, then one deny-gated marketplace retry on exhaustion.
+
+    The primary leg is the existing Pass 1 / translation shape (issue #78):
+    provider_order=_BYOK_PROVIDER_ORDER, allow_fallbacks=False,
+    enforce_data_collection=False, disable_reasoning=True. That pairing is
+    unchanged. If that call exhausts `_call_llm`'s retry budget on a
+    retryable error, one additional `_call_llm` runs against
+    FALLBACK_LLM_MODEL with enforce_data_collection=True and no BYOK kwargs
+    (issue #477). A non-retryable primary failure is re-raised as-is.
+    """
+    try:
+        return _call_llm(
+            client,
+            byok_model,
+            system,
+            user,
+            with_holdings=with_holdings,
+            pin_provider=False,
+            provider_order=_BYOK_PROVIDER_ORDER,
+            allow_fallbacks=False,
+            enforce_data_collection=False,
+            disable_reasoning=True,
+            allow_empty_content=allow_empty_content,
+            usage_sink=usage_sink,
+        )
+    except Exception as primary_exc:
+        if not is_retryable(primary_exc):
+            raise
+        settings = get_settings()
+        logger.warning(
+            "llm call: BYOK model=%s exhausted, falling back to model=%s",
+            byok_model,
+            settings.FALLBACK_LLM_MODEL,
+        )
+        try:
+            return _call_llm(
+                client,
+                settings.FALLBACK_LLM_MODEL,
+                system,
+                user,
+                with_holdings=with_holdings,
+                pin_provider=False,
+                enforce_data_collection=True,
+                reasoning_effort=settings.FALLBACK_LLM_REASONING_EFFORT,
+                allow_empty_content=allow_empty_content,
+                usage_sink=usage_sink,
+            )
+        except Exception as fallback_exc:
+            raise LLMCallError(
+                classify(fallback_exc),
+                f"BYOK model={byok_model} failed ({primary_exc}); "
+                f"fallback model={settings.FALLBACK_LLM_MODEL} also failed "
+                f"({fallback_exc})",
+            ) from fallback_exc

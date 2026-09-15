@@ -13,7 +13,11 @@ import openai
 
 from app.core.config import get_settings
 from app.services.i18n_glossary import load_i18n_glossary, locale_for_output_lang
-from app.services.report_llm import _BYOK_PROVIDER_ORDER, _call_llm, _openrouter_client
+from app.services.report_llm import (
+    _call_llm,  # noqa: F401 — existing tests patch this module attribute
+    _call_llm_byok_with_fallback,
+    _openrouter_client,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +37,9 @@ _TRANSLATION_PACING_SECONDS = 2.0
 
 # _BYOK_PROVIDER_ORDER lives in report_llm.py, next to _call_llm's deny/
 # allow_fallbacks pairing (PR #150 review) — it pins BOTH Pass 1 search-query
-# generation (report_generator.py) and translation (this module), so a
-# translation-only home would let a future "translation no longer needs BYOK"
-# edit silently break Pass 1's hard pin. Imported above.
+# generation (report_generator.py) and translation (this module) via
+# `_call_llm_byok_with_fallback`. `_call_llm` remains imported so existing
+# tests can patch this module's name; production call sites use the helper.
 
 
 def _build_glossary_instruction(target_lang: str) -> str:
@@ -110,14 +114,11 @@ def _translate_chunk(client: openai.OpenAI, model: str, system: str, chunk: str)
     the English source for that chunk — a complete English section beats a silently
     dropped one (e.g. §3 vanishing from the report).
 
-    `provider_order=_BYOK_PROVIDER_ORDER`: translation is a mechanical render on
-    the low-cost model, routed via OpenRouter BYOK straight to DeepSeek's own
-    backend (issue #78) rather than the pinned Pass2 marketplace pool.
-    `allow_fallbacks=False` makes that pin a hard requirement — this call
-    carries holdings-derived report text (with_holdings=True), so it must fail
-    rather than silently reroute to an arbitrary provider if DeepSeek is
-    unavailable. `enforce_data_collection=False` and `disable_reasoning=True`
-    are part of the same change — see _call_llm docstring.
+    Routed through `_call_llm_byok_with_fallback`: the primary leg is the
+    issue #78 BYOK pin (order=["DeepSeek"], allow_fallbacks=False, deny off,
+    reasoning off). After that leg exhausts its retry budget on a retryable
+    error, issue #477 makes one additional deny-gated marketplace call.
+    Translation carries holdings-derived report text (with_holdings=True).
     """
 
     def _short(out: str) -> bool:
@@ -130,17 +131,12 @@ def _translate_chunk(client: openai.OpenAI, model: str, system: str, chunk: str)
     # source (_short()) — _call_llm raising on a blank body by default
     # (PR #161 review) would replace that graceful degradation with a hard
     # failure of the whole translation pass over one chunk.
-    out = _call_llm(
+    out = _call_llm_byok_with_fallback(
         client,
         model,
         system,
         chunk,
         with_holdings=True,
-        pin_provider=False,
-        provider_order=_BYOK_PROVIDER_ORDER,
-        allow_fallbacks=False,
-        enforce_data_collection=False,
-        disable_reasoning=True,
         allow_empty_content=True,
     )
     if _short(out):
@@ -148,17 +144,12 @@ def _translate_chunk(client: openai.OpenAI, model: str, system: str, chunk: str)
             "translation chunk looked truncated (%d->%d chars); retrying", len(chunk), len(out)
         )
         time.sleep(_TRANSLATION_PACING_SECONDS)
-        out = _call_llm(
+        out = _call_llm_byok_with_fallback(
             client,
             model,
             system,
             chunk,
             with_holdings=True,
-            pin_provider=False,
-            provider_order=_BYOK_PROVIDER_ORDER,
-            allow_fallbacks=False,
-            enforce_data_collection=False,
-            disable_reasoning=True,
             allow_empty_content=True,
         )
     if _short(out):
