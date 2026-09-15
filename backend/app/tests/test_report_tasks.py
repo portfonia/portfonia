@@ -610,6 +610,73 @@ def test_task_skips_stale_beat_catchup(
     assert "SKIPPED" in mock_alert.call_args.kwargs["subject"]
 
 
+@patch("app.tasks.report_tasks.datetime")
+@patch("app.tasks.report_tasks.send_ops_alert")
+@patch("app.core.database.SessionLocal")
+@patch("app.services.report_generator.generate_report")
+def test_stale_trigger_retries_zero_attributes_beat_downtime(
+    mock_gen: MagicMock,
+    mock_session_cls: MagicMock,
+    mock_alert: MagicMock,
+    mock_datetime: MagicMock,
+) -> None:
+    """Issue #478: a genuinely fresh late delivery still points at Beat."""
+    mock_datetime.now.return_value = datetime(2026, 6, 30, 19, 46, tzinfo=ET)
+
+    from app.tasks.report_tasks import generate_incremental_report
+
+    generate_incremental_report.push_request(retries=0)
+    try:
+        with patch("app.tasks.report_tasks.oe.end_run") as mock_end_run:
+            result = generate_incremental_report.run(trigger_hour=17, trigger_minute=0)
+    finally:
+        generate_incremental_report.pop_request()
+
+    assert result == {"status": "skipped_stale_trigger"}
+    mock_gen.assert_not_called()
+    mock_alert.assert_called_once()
+    body = mock_alert.call_args.kwargs["body"]
+    assert "Beat was likely down" in body or (
+        "Beat" in body and "down" in body and "Restart Beat" in body
+    )
+    assert "Restart Beat" in body
+    mock_end_run.assert_called_once_with("skipped", reason_code="stale_beat_catchup")
+
+
+@patch("app.tasks.report_tasks.datetime")
+@patch("app.tasks.report_tasks.send_ops_alert")
+@patch("app.core.database.SessionLocal")
+@patch("app.services.report_generator.generate_report")
+def test_stale_trigger_retries_nonzero_attributes_celery_retry(
+    mock_gen: MagicMock,
+    mock_session_cls: MagicMock,
+    mock_alert: MagicMock,
+    mock_datetime: MagicMock,
+) -> None:
+    """Issue #478: a late Celery retry must not tell the reader to restart Beat."""
+    mock_datetime.now.return_value = datetime(2026, 6, 30, 19, 46, tzinfo=ET)
+    task_id = "8ee7a077-b599-447c-9e6c-f1fedbe6466a"
+
+    from app.tasks.report_tasks import generate_incremental_report
+
+    generate_incremental_report.push_request(retries=1, id=task_id)
+    try:
+        with patch("app.tasks.report_tasks.oe.end_run") as mock_end_run:
+            result = generate_incremental_report.run(trigger_hour=17, trigger_minute=0)
+    finally:
+        generate_incremental_report.pop_request()
+
+    assert result == {"status": "skipped_stale_trigger"}
+    mock_gen.assert_not_called()
+    mock_alert.assert_called_once()
+    body = mock_alert.call_args.kwargs["body"]
+    assert "retry" in body.lower()
+    assert "same task delivery" in body
+    assert "Restart Beat" not in body
+    assert "restart Beat" not in body
+    mock_end_run.assert_called_once_with("skipped", reason_code="stale_beat_catchup")
+
+
 @patch("app.services.user_scope.active_users")
 @patch("app.tasks.report_tasks.datetime")
 @patch("app.tasks.report_tasks.send_ops_alert")

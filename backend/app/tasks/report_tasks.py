@@ -138,26 +138,40 @@ def generate_incremental_report(
         )
         late_minutes = (now_et - scheduled_today).total_seconds() / 60
         if late_minutes > _SCHEDULE_STALENESS_TOLERANCE_MINUTES:
+            if self.request.retries > 0:
+                cause_note = (
+                    f"This is Celery retry #{self.request.retries} of the same task "
+                    f"delivery (task id {self.request.id}) — most likely the earlier "
+                    f"attempt hit the all-users-failed retry path "
+                    f'("generate_incremental_report: all N user(s) failed in this '
+                    f"batch\"). Check worker.log for that attempt's own per-user "
+                    f"failure alerts; restarting Beat will not help here."
+                )
+            else:
+                cause_note = (
+                    "This is a fresh delivery arriving late, consistent with Beat "
+                    "having been down and just come back online. Restart Beat if "
+                    "it isn't already running."
+                )
             logger.warning(
-                "generate_incremental_report: skipping stale Beat catch-up "
+                "generate_incremental_report: skipping stale trigger "
                 "(report_type=%s session_node=%s scheduled=%02d:%02d ET, "
-                "fired %.0f min late — Beat was likely down)",
+                "fired %.0f min late, retries=%d — %s)",
                 report_type,
                 session_node,
                 trigger_hour,
                 trigger_minute,
                 late_minutes,
+                self.request.retries,
+                cause_note,
             )
             send_ops_alert(
                 subject=f"[Portfonia] Scheduled report SKIPPED — Beat catch-up ({report_type})",
                 body=(
                     f"A scheduled '{session_node}' {report_type} report fired "
                     f"{late_minutes:.0f} minutes after its intended {trigger_hour:02d}:"
-                    f"{trigger_minute:02d} ET time. This means Celery Beat was down and "
-                    f"just came back online, replaying the missed tick.\n\n"
-                    f"The report was skipped — no report was generated or emailed. "
-                    f"Restart Beat if it isn't already running, and if the user should "
-                    f"still receive a report for this window, trigger one manually."
+                    f"{trigger_minute:02d} ET time.\n\n{cause_note}\n\n"
+                    f"The report was skipped — no report was generated or emailed."
                 ),
             )
             oe.end_run("skipped", reason_code="stale_beat_catchup")
