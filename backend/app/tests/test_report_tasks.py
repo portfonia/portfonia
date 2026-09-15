@@ -409,6 +409,7 @@ def test_task_single_user_failure_isolated_from_batch(
     assert mock_gen.call_count == 3  # U3 still attempted despite U2's failure
     mock_alert.assert_called_once()
     assert "FAILED for one user" in mock_alert.call_args.kwargs["subject"]
+    assert mock_alert.call_args.kwargs["severity"] == "ALERT"
     mock_session.rollback.assert_called_once()
 
 
@@ -451,6 +452,7 @@ def test_task_retries_the_whole_batch_when_every_user_fails(
     subjects = [c.kwargs["subject"] for c in mock_alert.call_args_list]
     assert any("FAILED for one user" in s for s in subjects)
     assert any("batch FAILED" in s for s in subjects)
+    assert all(c.kwargs["severity"] == "ALERT" for c in mock_alert.call_args_list)
 
 
 @patch("app.services.user_scope.active_users")
@@ -477,6 +479,7 @@ def test_task_needs_review_sends_ops_alert_per_user(
     mock_alert.assert_called_once()
     subject = mock_alert.call_args.kwargs["subject"]
     assert "BLOCKED" in subject or "needs_review" in subject or "compliance" in subject.lower()
+    assert mock_alert.call_args.kwargs["severity"] == "WARNING"
 
 
 @patch("app.services.user_scope.active_users")
@@ -576,6 +579,7 @@ def test_task_batch_failure_retries_and_alerts_on_exhaustion(
 
     mock_alert.assert_called_once()
     assert "batch FAILED" in mock_alert.call_args.kwargs["subject"]
+    assert mock_alert.call_args.kwargs["severity"] == "ALERT"
     mock_bug_report.assert_called_once()
 
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import cast
+from typing import Literal, cast
 
 import httpx
 from sqlalchemy import and_, func, literal, or_, select
@@ -412,7 +412,12 @@ def _cst_today() -> date:
 _ALERT_DEDUP_TTL_SECONDS = 90 * 24 * 60 * 60
 
 
-def _send_nav_alert(subject: str, body: str, dedup_key: str) -> None:
+def _send_nav_alert(
+    subject: str,
+    body: str,
+    dedup_key: str,
+    severity: Literal["INFO", "WARNING", "ALERT"],
+) -> None:
     """Send a fund-NAV ops alert unless this dedup_key was already alerted.
 
     The durable Redis dedup is the real anti-daily-spam mechanism; the Resend
@@ -425,7 +430,7 @@ def _send_nav_alert(subject: str, body: str, dedup_key: str) -> None:
     """
     if already_alerted(dedup_key):
         return
-    if send_ops_alert(subject=subject, body=body, idempotency_key=dedup_key):
+    if send_ops_alert(subject=subject, body=body, idempotency_key=dedup_key, severity=severity):
         mark_alerted(dedup_key, _ALERT_DEDUP_TTL_SECONDS)
 
 
@@ -446,6 +451,7 @@ def _warn_if_nav_missing(fund_code: str, as_of_date: date) -> None:
             f"Check worker.log for fetch errors mentioning this code."
         ),
         dedup_key=f"ops-fund-nav-empty-{fund_code}-{as_of_date.isoformat()}",
+        severity="WARNING",
     )
 
 
@@ -476,6 +482,7 @@ def _warn_if_nav_stale(
             f"capture_fund_navs_task runs mentioning this code."
         ),
         dedup_key=f"ops-fund-nav-stale-{fund_code}-{latest_nav_date.isoformat()}",
+        severity="WARNING",
     )
 
 
@@ -537,6 +544,7 @@ def _emit_etf_missing_alert(target: CaptureTarget, suffix: str, detail: str) -> 
         subject=f"[Portfonia] ETF close missing — {target.key}",
         body=detail,
         dedup_key=f"ops-etf-close-missing-{target.key}-{suffix}",
+        severity="WARNING",
     )
 
 

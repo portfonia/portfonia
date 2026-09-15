@@ -168,6 +168,7 @@ def test_task_retries_and_alerts_on_exhaustion(
 
     mock_alert.assert_called_once()
     assert "sweep" in mock_alert.call_args.kwargs["subject"].lower()
+    assert mock_alert.call_args.kwargs["severity"] == "ALERT"
     mock_session.close.assert_called_once()
 
 

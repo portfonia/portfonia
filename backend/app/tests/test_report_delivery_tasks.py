@@ -233,6 +233,7 @@ def test_poll_complaint_fires_one_ops_alert(
     kwargs = mock_ops_alert.call_args.kwargs
     assert "complained" in kwargs["subject"] or "complaint" in kwargs["subject"].lower()
     assert "d@example.com" in kwargs["body"]
+    assert kwargs["severity"] == "WARNING"
 
 
 @patch("app.tasks.report_delivery_tasks.httpx.Client")

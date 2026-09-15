@@ -289,6 +289,7 @@ def _load_watch_tier_weights_or_alert() -> dict[str, float]:
                 "(override: Settings.WATCH_TIER_WEIGHTS_CONFIG_PATH)."
             ),
             idempotency_key=dedup_key,
+            severity="ALERT",
         ):
             mark_alerted(dedup_key, _WATCH_TIER_CONFIG_ALERT_DEDUP_TTL_SECONDS)
         return {}
@@ -1159,6 +1160,7 @@ def generate_report(
                 subject=f"[Portfonia] price missing — {len(portfolio_snap.stale_tickers)} holding(s) unpriced",
                 body=alert_body,
                 idempotency_key=f"ops-price-missing-{report.id}",
+                severity="WARNING",
             )
             create_bug_report(
                 title=f"holdings unpriced: price missing for {stale_list}",
@@ -1194,6 +1196,7 @@ def generate_report(
                     "recent market moves.\n\nCheck price capture logs for these tickers."
                 ),
                 idempotency_key=f"ops-price-stale-{report.id}",
+                severity="WARNING",
             )
 
         # FX stale check: if rates trail the window cutoff, valuation in non-USD
@@ -1217,6 +1220,7 @@ def generate_report(
                     f"Check worker.log and run capture_fx_task.apply() to backfill."
                 ),
                 idempotency_key=f"ops-fx-stale-{report.id}",
+                severity="WARNING",
             )
 
         logger.info("report %s: loading windowed news", report.id)

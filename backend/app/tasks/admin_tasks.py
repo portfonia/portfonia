@@ -14,6 +14,8 @@ a standard answer to.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from app.services.email_sender import send_ops_alert
 from app.tasks import celery_app
 
@@ -30,5 +32,9 @@ from app.tasks import celery_app
     # see app/routers/admin.py).
     ignore_result=True,
 )
-def send_admin_alert_task(subject: str, body: str) -> None:
-    send_ops_alert(subject, body)
+def send_admin_alert_task(
+    subject: str,
+    body: str,
+    severity: Literal["INFO", "WARNING", "ALERT"] = "ALERT",
+) -> None:
+    send_ops_alert(subject, body, severity=severity)

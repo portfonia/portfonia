@@ -129,6 +129,7 @@ def test_total_fetch_failure_sends_ops_alert(db_session: Session, production_env
         c for c in mock_alert.call_args_list if "FX fetch failed" in c.kwargs["subject"]
     )
     assert "USDCNY" in fetch_failed_alert.kwargs["body"]
+    assert fetch_failed_alert.kwargs["severity"] == "ALERT"
 
 
 def test_partial_fetch_failure_sends_ops_alert(db_session: Session, production_env: None) -> None:
@@ -207,6 +208,7 @@ def test_missing_pair_sends_never_resolved_alert(db_session: Session, production
         c for c in mock_alert.call_args_list if "never resolved" in c.kwargs["subject"]
     )
     assert "USDHKD" in missing_alert.kwargs["subject"]
+    assert missing_alert.kwargs["severity"] == "ALERT"
 
 
 def test_stale_resolvable_pair_sends_stale_alert(db_session: Session, production_env: None) -> None:
@@ -238,6 +240,7 @@ def test_stale_resolvable_pair_sends_stale_alert(db_session: Session, production
     )
     assert "USDHKD" in stale_alert.kwargs["subject"]
     assert old_date.isoformat() in stale_alert.kwargs["body"]
+    assert stale_alert.kwargs["severity"] == "WARNING"
 
 
 def test_healthy_pairs_send_no_staleness_alert(db_session: Session, production_env: None) -> None:

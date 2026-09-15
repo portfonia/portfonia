@@ -366,6 +366,7 @@ def cleanup_upload_jobs(self: Any) -> dict[str, int]:
                     f"keeps growing until this is fixed. Not a correctness issue, but check "
                     f"disk usage if this persists. Check worker.log for the full traceback."
                 ),
+                severity="WARNING",
             )
         raise self.retry(exc=exc) from exc
     finally:

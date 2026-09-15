@@ -216,6 +216,7 @@ def test_forbidden_output_not_cached_and_alerted(db_session: Session) -> None:
 
     assert result == {}
     mock_alert.assert_called_once()
+    assert mock_alert.call_args.kwargs["severity"] == "WARNING"
     row = db_session.execute(
         select(TickerIntel).where(TickerIntel.identifier == "NVDA")
     ).scalar_one()

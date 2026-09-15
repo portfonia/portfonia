@@ -115,6 +115,7 @@ def test_still_missing_after_fallback_also_fails_sends_one_alert(
     assert set(result.still_missing) == set(_PAIRS)
     mock_alert.assert_called_once()
     assert _TARGET.isoformat() in mock_alert.call_args.kwargs["body"]
+    assert mock_alert.call_args.kwargs["severity"] == "WARNING"
 
 
 def test_no_twelvedata_key_skips_fallback_without_raising(db_session: Session) -> None:

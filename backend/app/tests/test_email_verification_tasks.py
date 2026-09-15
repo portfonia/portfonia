@@ -428,6 +428,7 @@ def test_alert_resend_all_access_key_issue_sends_and_dedups(mock_alert: MagicMoc
     alert_resend_all_access_key_issue("missing")
 
     mock_alert.assert_called_once()
+    assert mock_alert.call_args.kwargs["severity"] == "ALERT"
 
 
 @patch("app.services.email_sender.send_ops_alert", return_value=True)

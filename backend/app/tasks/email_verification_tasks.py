@@ -63,6 +63,7 @@ def alert_resend_all_access_key_issue(reason: str) -> None:
             "poll_report_delivery). Fix RESEND_ALL_ACCESS_API_KEY in the production "
             "environment — this alert will stop repeating once resolved."
         ),
+        severity="ALERT",
     )
     if sent:
         mark_alerted(dedup_key, _RESEND_ALL_ACCESS_KEY_ALERT_TTL)

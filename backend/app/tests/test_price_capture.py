@@ -446,6 +446,7 @@ def test_terminal_nav_stale_alert_is_keyed_by_nav_date(
     alert.assert_called_once()
     assert alert.call_args.kwargs["idempotency_key"] == "ops-fund-nav-stale-513500-2026-08-27"
     assert "513500" in alert.call_args.kwargs["subject"]
+    assert alert.call_args.kwargs["severity"] == "WARNING"
     assert any("2026-08-27" in r.getMessage() for r in caplog.records)
 
 
@@ -496,6 +497,7 @@ def test_terminal_empty_nav_warns_and_alerts(
         emit_nav_terminal_diagnostics((_missing_target("513500"),), date(2026, 9, 1), 2)
     alert.assert_called_once()
     assert alert.call_args.kwargs["idempotency_key"] == "ops-fund-nav-empty-513500-2026-09-01"
+    assert alert.call_args.kwargs["severity"] == "WARNING"
     assert any(
         "513500" in r.getMessage() and "no NAV history" in r.getMessage()
         for r in caplog.records

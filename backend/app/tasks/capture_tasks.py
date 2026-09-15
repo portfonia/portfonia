@@ -228,6 +228,7 @@ def _capture_failed(task_name: str, exc: BaseException, context: str = "") -> No
             f"Impact: data missing from next report window.\n"
             f"Check worker.log for the full traceback."
         ),
+        severity="ALERT",
     )
     create_bug_report(
         title=f"capture failure: {task_name}",

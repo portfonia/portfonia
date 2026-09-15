@@ -191,6 +191,7 @@ def poll_report_delivery(self: Any, report_id: str) -> str:
                     "corresponding verified-at timestamp has been cleared; future "
                     "reports will not be sent to this address until it is re-verified."
                 ),
+                severity="WARNING",
             )
 
         return f"auto_revoked_{last_event}"
