@@ -567,6 +567,18 @@ approval; the existing self-review restrictions still apply. See
 clearly superseded historical rules. Obsidian operations use the configured
 MCP, as specified in `AGENTS.md` and documentation governance.
 
+## Design sessions do not implement (MANDATORY, 2026-09-15)
+
+A session whose task was writing/authoring an issue or design doc must not
+pivot into implementing code in the same session — not directly, not via a
+subagent — unless the product owner explicitly asks it to in that session.
+Applies to every agent/harness working in this repo (Claude Code, Grok CLI,
+Codex, or otherwise), not just one. A design session ends by handing off a
+self-contained prompt (see any issue's own comments for what "implementable
+without this conversation's context" looks like) to a separate
+implementation session — it does not ask "want me to implement this now?"
+and does not start writing code on its own initiative.
+
 ## Conventional Commits (MANDATORY)
 
 Format: `<type>(<scope>): <description>`
