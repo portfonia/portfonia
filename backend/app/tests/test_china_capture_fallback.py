@@ -439,6 +439,7 @@ def test_emit_etf_terminal_alerts_when_missing_dates_empty(db_session: Session) 
     assert alert.call_args.kwargs["idempotency_key"] == (
         "ops-etf-close-missing-513500.SS-window-2026-09-08"
     )
+    assert alert.call_args.kwargs["severity"] == "WARNING"
 
 
 def test_emit_nav_terminal_uses_existing_dedup_not_capture_failed(

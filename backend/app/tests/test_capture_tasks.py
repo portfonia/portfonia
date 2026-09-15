@@ -211,6 +211,7 @@ def test_backfill_combined_failure_keeps_later_markets_in_alert(
     assert "CN_UNIQUE_TOKEN" in issue_body
     assert "HK_UNIQUE_TOKEN" in alert_body
     assert "CN_UNIQUE_TOKEN" in alert_body
+    assert mock_alert.call_args.kwargs["severity"] == "ALERT"
 
 
 def test_fx_capture_entry_runs_daily_weekdays() -> None:

@@ -504,6 +504,7 @@ def test_forbidden_output_is_not_cached_and_alerts(db_session: Session) -> None:
         assert l3.get_day_synthesis(db_session, _DATE) == []
 
     assert alert.called
+    assert alert.call_args.kwargs["severity"] == "WARNING"
     row = db_session.execute(select(CrossNameIntel)).scalars().one()
     assert row.clusters is None, "forbidden text must never be stored"
 

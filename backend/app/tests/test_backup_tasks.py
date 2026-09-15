@@ -103,5 +103,6 @@ def test_backup_failed_sends_ops_alert_and_creates_issue() -> None:
 
     mock_alert.assert_called_once()
     assert "disk full" in mock_alert.call_args.kwargs["body"]
+    assert mock_alert.call_args.kwargs["severity"] == "ALERT"
     mock_issue.assert_called_once()
     assert mock_issue.call_args.kwargs["labels"] == ["bug", "ops", "backup"]

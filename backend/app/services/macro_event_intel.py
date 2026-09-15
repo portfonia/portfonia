@@ -607,6 +607,7 @@ def _generate(
                 f"intel for this event."
             ),
             idempotency_key=f"ops-l2-blocked-{event_key}-{trade_date}",
+            severity="WARNING",
         )
         # Locked on the spot, not retried — see `_generate`'s docstring.
         _write_cache(session, event_key, trade_date, model, None, [], facts, _MAX_ATTEMPTS_PER_KEY)

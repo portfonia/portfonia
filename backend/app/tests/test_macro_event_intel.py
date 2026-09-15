@@ -621,6 +621,7 @@ def test_forbidden_output_is_not_cached_and_alerts_ops(db_session: Session) -> N
 
     assert result == {}
     assert mock_alert.called
+    assert mock_alert.call_args.kwargs["severity"] == "WARNING"
     row = db_session.execute(select(MacroEventIntel)).scalars().one()
     assert row.analysis is None
     assert "buy" not in (row.analysis or "")

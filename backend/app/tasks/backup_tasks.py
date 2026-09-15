@@ -24,6 +24,7 @@ def _backup_failed(exc: BaseException) -> None:
             "Impact: no fresh backup uploaded today — production DB has one "
             "fewer day of restore coverage. Check worker.log for the full traceback."
         ),
+        severity="ALERT",
     )
     create_bug_report(
         title="database backup failure",

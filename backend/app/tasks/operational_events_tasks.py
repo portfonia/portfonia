@@ -51,6 +51,7 @@ def cleanup_operational_events(self: Any) -> dict[str, int]:
                     "being cleaned up — the table will keep growing until this is fixed. Not a "
                     "correctness issue for reports. Check worker.log for the full traceback."
                 ),
+                severity="WARNING",
             )
         raise self.retry(exc=exc) from exc
     finally:

@@ -646,6 +646,7 @@ def _generate(
                 f"cross-name conclusion; every other section is unaffected."
             ),
             idempotency_key=f"ops-l3-blocked-{trade_date}-{fingerprint[:12]}",
+            severity="WARNING",
         )
         # Locked immediately rather than retried, same as L1/L2: #160's retry
         # budget is for transport faults, and re-running a generation that

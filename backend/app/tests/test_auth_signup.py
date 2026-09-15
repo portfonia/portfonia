@@ -384,6 +384,7 @@ def test_signup_compensation_failure_sends_ops_alert(
             },
         )
     alert.assert_called_once()
+    assert alert.call_args.kwargs["severity"] == "ALERT"
     # A concrete, copy-pasteable command — not the literal "{id}" f-string
     # escape this originally emitted (PR #246 round 1 review). There is no
     # local users.id to recover after a failed compensation (rollback ran);

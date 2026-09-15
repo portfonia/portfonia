@@ -6,6 +6,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from typing import Literal
 
 import yfinance as yf
 from sqlalchemy import func, select
@@ -61,7 +62,12 @@ _FX_STALE_DAYS = 4
 _ALERT_DEDUP_TTL_SECONDS = 90 * 24 * 60 * 60
 
 
-def _send_fx_alert(subject: str, body: str, dedup_key: str) -> None:
+def _send_fx_alert(
+    subject: str,
+    body: str,
+    dedup_key: str,
+    severity: Literal["INFO", "WARNING", "ALERT"],
+) -> None:
     """Send an FX ops alert unless this dedup_key was already alerted.
 
     Mirrors price_capture.py's _send_nav_alert exactly (issue #298 precedent
@@ -83,7 +89,7 @@ def _send_fx_alert(subject: str, body: str, dedup_key: str) -> None:
         return
     if already_alerted(dedup_key):
         return
-    if send_ops_alert(subject=subject, body=body, idempotency_key=dedup_key):
+    if send_ops_alert(subject=subject, body=body, idempotency_key=dedup_key, severity=severity):
         mark_alerted(dedup_key, _ALERT_DEDUP_TTL_SECONDS)
 
 
@@ -107,6 +113,7 @@ def _warn_failed_pairs(failed: list[str], today: date) -> None:
             "Check worker.log for yfinance errors on these pairs."
         ),
         dedup_key=f"ops-fx-fetch-failed-{'-'.join(sorted(failed))}-{today.isoformat()}",
+        severity="ALERT",
     )
 
 
@@ -140,6 +147,7 @@ def _check_fx_staleness(session: Session, today: date) -> None:
                     f"Check worker.log for capture_fx_task and fx_rates for this pair."
                 ),
                 dedup_key=f"ops-fx-pair-missing-{pair_name}-{today.isoformat()}",
+                severity="ALERT",
             )
             continue
         lag = (today - latest).days
@@ -154,6 +162,7 @@ def _check_fx_staleness(session: Session, today: date) -> None:
                     f"Check worker.log for capture_fx_task runs and fx_rates for this pair."
                 ),
                 dedup_key=f"ops-fx-pair-stale-{pair_name}-{latest.isoformat()}",
+                severity="WARNING",
             )
 
 
@@ -462,5 +471,6 @@ def fx_catchup(session: Session, target_date: date) -> FxCatchupResult:
                 f"ops-fx-catchup-still-missing-{target_date.isoformat()}-"
                 + "-".join(result.still_missing)
             ),
+            severity="WARNING",
         )
     return result

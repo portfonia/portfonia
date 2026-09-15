@@ -3929,6 +3929,7 @@ def test_broken_watch_tier_config_sends_ops_alert(tmp_path: Any, _production_env
         )
     assert mock_alert.call_count == 1
     assert "watch_tier_weights" in mock_alert.call_args.kwargs["subject"]
+    assert mock_alert.call_args.kwargs["severity"] == "ALERT"
 
 
 def test_broken_watch_tier_config_alert_deduped_same_day(
@@ -3966,3 +3967,51 @@ def test_valid_watch_tier_config_never_alerts(_production_env: None) -> None:
             _watched_portfolio("critical"), holding_news={}, anomalies=[]
         )
     assert mock_alert.call_count == 0
+
+
+def _generate_report_with_snap(db_session: Session, snap: PortfolioSnapshot) -> MagicMock:
+    """Run generate_report far enough to fire the post-snapshot ops alerts."""
+    mock_alert = MagicMock()
+    with (
+        patch("app.services.report_generator.compute_portfolio", return_value=snap),
+        patch(
+            "app.services.report_generator.load_news_window",
+            return_value=[_news_item("Fed raises rates")],
+        ),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+        patch(
+            "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
+        ),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
+        patch(
+            "app.services.report_generator._run_tavily_search", return_value=_FAKE_TAVILY_RESULTS
+        ),
+        patch.object(rg, "send_ops_alert", mock_alert),
+    ):
+        rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+    return mock_alert
+
+
+def test_price_missing_alert_is_warning(db_session: Session) -> None:
+    snap = _portfolio_snap()
+    snap.stale_tickers = ["MISSING"]
+    mock_alert = _generate_report_with_snap(db_session, snap)
+    missing = next(c for c in mock_alert.call_args_list if "price missing" in c.kwargs["subject"])
+    assert missing.kwargs["severity"] == "WARNING"
+
+
+def test_price_stale_alert_is_warning(db_session: Session) -> None:
+    snap = _portfolio_snap()
+    snap.stale_priced_tickers = ["AAPL"]
+    mock_alert = _generate_report_with_snap(db_session, snap)
+    stale = next(c for c in mock_alert.call_args_list if "price data stale" in c.kwargs["subject"])
+    assert stale.kwargs["severity"] == "WARNING"
+
+
+def test_report_fx_stale_alert_is_warning(db_session: Session) -> None:
+    snap = _portfolio_snap()
+    snap.fx_rates_as_of = {"CNY": date(2026, 5, 20)}
+    mock_alert = _generate_report_with_snap(db_session, snap)
+    fx_stale = next(c for c in mock_alert.call_args_list if "FX rates stale" in c.kwargs["subject"])
+    assert fx_stale.kwargs["severity"] == "WARNING"

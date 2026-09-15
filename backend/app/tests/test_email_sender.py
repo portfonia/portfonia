@@ -519,6 +519,7 @@ def test_send_inactive_user_alerts_unresolved_subject(
         mock_alert.call_args.kwargs["subject"]
         == "Portfonia: report recipient could not be resolved"
     )
+    assert mock_alert.call_args.kwargs["severity"] == "WARNING"
     sender_records = [r for r in caplog.records if r.name == "app.services.email_sender"]
     assert any(
         r.levelno == logging.ERROR and "could not resolve a recipient" in r.getMessage()
@@ -563,6 +564,7 @@ def test_send_active_unverified_user_alerts_no_verified_recipient(
     assert (
         mock_alert.call_args.kwargs["subject"] == "Portfonia ops: report has no verified recipient"
     )
+    assert mock_alert.call_args.kwargs["severity"] == "WARNING"
     # PR #288 review: this branch only runs AFTER a Report row exists and
     # delivery was refused (admin/self-service generate of an unverified
     # user, or the fan-out-verified/send-unverified race) — the body must
@@ -667,6 +669,7 @@ def test_send_commit_failure_returns_false_and_alerts(
     mock_alert.assert_called_once()
     subject = mock_alert.call_args.kwargs["subject"]
     assert "unconfirmed" in subject
+    assert mock_alert.call_args.kwargs["severity"] == "WARNING"
     # issue #45 review follow-up: manual-repair instructions must cover both
     # halves of the pair, not just email_sent_at — otherwise a manual fix
     # leaves provider_message_id stale/NULL even after confirming delivery.

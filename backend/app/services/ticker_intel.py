@@ -455,6 +455,7 @@ def _generate(
                 f"continues without L1 intel for this identifier."
             ),
             idempotency_key=f"ops-l1-blocked-{identifier}-{trade_date}",
+            severity="WARNING",
         )
         # Locked immediately, not retried: #160's retry budget is for
         # transport faults, and re-running a generation that already produced

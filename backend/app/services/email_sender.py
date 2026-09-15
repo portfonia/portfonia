@@ -266,6 +266,7 @@ def send_report_email(report: Report, session: Session) -> bool:
                 # which is the intended behavior for a condition that has
                 # now persisted a full day.
                 idempotency_key=f"ops-report-recipient-missing-{report.id}",
+                severity="WARNING",
             )
         else:
             logger.warning(
@@ -290,6 +291,7 @@ def send_report_email(report: Report, session: Session) -> bool:
                 # See the sibling alert above (PR #341 review, issue #61) —
                 # same repeat-retry rationale.
                 idempotency_key=f"ops-report-no-verified-recipient-{report.id}",
+                severity="WARNING",
             )
         return False
 
@@ -438,6 +440,7 @@ def send_report_email(report: Report, session: Session) -> bool:
                 f"email_sent_at and provider_message_id (to {resend_id or 'unknown'}) "
                 f"on this report row if confirmed."
             ),
+            severity="WARNING",
         )
         return False
 
@@ -794,6 +797,7 @@ def send_portfolio_overview_email(session: Session, user_id: UUID, base_currency
             send_ops_alert(
                 subject="Portfonia: portfolio overview recipient could not be resolved",
                 body=f"user_id={user_id} — recipient_email_with_purpose() returned None. Not sent.",
+                severity="WARNING",
             )
         else:
             logger.warning(
@@ -808,6 +812,7 @@ def send_portfolio_overview_email(session: Session, user_id: UUID, base_currency
                     "nor delivery_email_verified_at is set. The requested overview email "
                     "was NOT sent."
                 ),
+                severity="WARNING",
             )
         return False
 

@@ -146,6 +146,7 @@ def signup(
                         f"(issue #225 orphan-purge path) or the Supabase Dashboard."
                     ),
                     idempotency_key=f"ops-signup-compensation-{sub}",
+                    severity="ALERT",
                 )
         if isinstance(exc, AuthProviderError | IntegrityError):
             reason = (

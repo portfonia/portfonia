@@ -120,6 +120,7 @@ def sweep_stale_shared_intel_cache(self: Any) -> dict[str, int]:
                     f"fixed. Not a correctness issue for reports, but check disk usage if this "
                     f"persists. Check worker.log for the full traceback."
                 ),
+                severity="ALERT",
             )
         raise self.retry(exc=exc) from exc
     finally:

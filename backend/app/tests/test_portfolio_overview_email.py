@@ -316,6 +316,7 @@ def test_send_inactive_user_alerts_and_fails_closed(
         mock_alert.call_args.kwargs["subject"]
         == "Portfonia: portfolio overview recipient could not be resolved"
     )
+    assert mock_alert.call_args.kwargs["severity"] == "WARNING"
 
 
 @patch("app.services.email_sender.send_ops_alert")
@@ -344,6 +345,7 @@ def test_send_active_unverified_user_still_alerts(
         mock_alert.call_args.kwargs["subject"]
         == "Portfonia ops: portfolio overview has no verified recipient"
     )
+    assert mock_alert.call_args.kwargs["severity"] == "WARNING"
 
 
 @patch(

@@ -266,6 +266,7 @@ def generate_incremental_report(
                             f"Check worker.log for the triggering terms.\n"
                             f"To rerun: POST /reports/{report.id}/regenerate?mode=analyze"
                         ),
+                        severity="WARNING",
                     )
                 results.append(
                     {"user_id": str(user_id), "report_id": str(report.id), "status": report.status}
@@ -290,6 +291,7 @@ def generate_incremental_report(
                         f"Other users in this batch were unaffected — this failure did not stop "
                         f"the batch. Check worker.log for the full traceback."
                     ),
+                    severity="ALERT",
                 )
                 results.append({"user_id": str(user_id), "status": "failed"})
 
@@ -325,6 +327,7 @@ def generate_incremental_report(
                     f"alerts already sent for this run's individual failures.\n\n"
                     f"Check worker.log for the full traceback."
                 ),
+                severity="ALERT",
             )
             create_bug_report(
                 title=f"report generation batch failure: {type(exc).__name__}",
