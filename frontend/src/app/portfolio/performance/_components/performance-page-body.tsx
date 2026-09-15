@@ -54,10 +54,11 @@ import { MultiSelectMenu } from "./multi-select-menu";
 import { PerformanceChart, type ChartSeriesSpec } from "./performance-chart";
 import {
   PORTFOLIO_APPROX_KEY,
-  PORTFOLIO_GAP_KEY,
   PORTFOLIO_KEY,
   buildChartData,
   hasApproximateSegment,
+  isPortfolioGapKey,
+  portfolioGapSeriesKeys,
   seriesHasSingleValue,
 } from "./performance-data";
 import { formatFullDate, formatSignedPct, toRatio } from "./performance-format";
@@ -241,10 +242,9 @@ export function PerformancePageBody({
     const names = t.raw("performance.benchmarkNames");
     const series: ChartSeriesSpec[] = [];
     if (response && !response.portfolio.empty) {
-      const hasGap = chartData.rows.some((row) => row.portfolioGap !== null);
-      if (hasGap) {
+      for (const key of portfolioGapSeriesKeys(chartData.rows)) {
         series.push({
-          key: PORTFOLIO_GAP_KEY,
+          key,
           label: t("performance.chartPortfolioLabel"),
           color: PORTFOLIO_COLOR,
           dashed: true,
@@ -293,7 +293,7 @@ export function PerformancePageBody({
   // pair back into one entry (the dashed hint line explains the second
   // stroke style).
   const legendSeries = chartSeries.filter(
-    (spec) => spec.key !== PORTFOLIO_APPROX_KEY && spec.key !== PORTFOLIO_GAP_KEY,
+    (spec) => spec.key !== PORTFOLIO_APPROX_KEY && !isPortfolioGapKey(spec.key),
   );
 
   const benchmarkNames = t.raw("performance.benchmarkNames");

@@ -43,12 +43,27 @@ if (typeof globalThis.ResizeObserver !== "undefined") {
 const PORTFOLIO_COLOR = "var(--chart-1)";
 const SP500_COLOR = "var(--chart-2)";
 
-function seriesFor(includeApprox: boolean, includeGap = false): ChartSeriesSpec[] {
+function gapKeysFromRows(rows: ChartSeriesRow[]): string[] {
+  const keys = new Set<string>();
+  for (const row of rows) {
+    for (const key of Object.keys(row)) {
+      if (
+        (key === "portfolioGap" || key.startsWith("portfolioGap:")) &&
+        typeof row[key] === "number"
+      ) {
+        keys.add(key);
+      }
+    }
+  }
+  return [...keys].sort();
+}
+
+function seriesFor(includeApprox: boolean, gapKeys: string[] = []): ChartSeriesSpec[] {
   const series: ChartSeriesSpec[] = [];
-  // Gap line first so the solid/approx strokes paint on top of it.
-  if (includeGap) {
+  // Gap lines first so the solid/approx strokes paint on top of them.
+  for (const key of gapKeys) {
     series.push({
-      key: "portfolioGap",
+      key,
       label: "Portfolio",
       color: PORTFOLIO_COLOR,
       dashed: true,
@@ -77,9 +92,9 @@ function seriesFor(includeApprox: boolean, includeGap = false): ChartSeriesSpec[
 
 function renderChart(rows: ChartSeriesRow[], singletonPortfolio = false) {
   const includeApprox = rows.some((row) => row.portfolioApprox !== null);
-  const includeGap = rows.some((row) => typeof row.portfolioGap === "number");
-  const series = seriesFor(includeApprox, includeGap).map((spec) =>
-    spec.key !== "portfolioGap" && spec.isPortfolio
+  const gapKeys = gapKeysFromRows(rows);
+  const series = seriesFor(includeApprox, gapKeys).map((spec) =>
+    spec.isPortfolio && !gapKeys.includes(spec.key)
       ? { ...spec, singletonDot: singletonPortfolio }
       : spec,
   );
@@ -176,5 +191,30 @@ describe("PerformanceChart", () => {
     ];
     const { container } = renderChart(rows);
     expect(container.querySelectorAll('path[stroke-dasharray="5 4"]').length).toBe(1);
+  });
+
+  it("does not draw a dashed connector through real history between two gaps (#486)", () => {
+    const rows: ChartSeriesRow[] = [
+      { date: "2026-09-11", portfolio: 0, portfolioApprox: null, portfolioGap: 0, sp500: 0 },
+      { date: "2026-09-12", portfolio: null, portfolioApprox: null, portfolioGap: null, sp500: 0.01 },
+      { date: "2026-09-13", portfolio: null, portfolioApprox: null, portfolioGap: null, sp500: 0.01 },
+      { date: "2026-09-14", portfolio: 0.1, portfolioApprox: null, portfolioGap: 0.1, sp500: 0.02 },
+      { date: "2026-09-15", portfolio: 0.5, portfolioApprox: null, portfolioGap: null, sp500: 0.03 },
+      { date: "2026-09-16", portfolio: 0.1, portfolioApprox: null, portfolioGap: null, sp500: 0.03 },
+      { date: "2026-09-17", portfolio: 0.1, portfolioApprox: null, portfolioGap: null, sp500: 0.03 },
+      { date: "2026-09-18", portfolio: 0.1, portfolioApprox: null, portfolioGap: null, "portfolioGap:1": 0.1, sp500: 0.03 },
+      { date: "2026-09-19", portfolio: null, portfolioApprox: null, portfolioGap: null, sp500: 0.03 },
+      { date: "2026-09-20", portfolio: null, portfolioApprox: null, portfolioGap: null, sp500: 0.03 },
+      { date: "2026-09-21", portfolio: 0.2, portfolioApprox: null, portfolioGap: null, "portfolioGap:1": 0.2, sp500: 0.04 },
+    ];
+    const { container } = renderChart(rows);
+
+    const dashed = [...container.querySelectorAll('path[stroke-dasharray="5 4"]')].filter(
+      (path) => path.getAttribute("stroke-width") === "2.5",
+    );
+    expect(dashed).toHaveLength(2);
+    for (const path of dashed) {
+      expect(path.getAttribute("d")?.match(/M/g)?.length).toBe(1);
+    }
   });
 });

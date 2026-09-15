@@ -14,6 +14,36 @@ export const PORTFOLIO_KEY = "portfolio";
 export const PORTFOLIO_APPROX_KEY = "portfolioApprox";
 export const PORTFOLIO_GAP_KEY = "portfolioGap";
 
+export function portfolioGapSeriesKey(index: number): string {
+  return index === 0 ? PORTFOLIO_GAP_KEY : `${PORTFOLIO_GAP_KEY}:${index}`;
+}
+
+export function isPortfolioGapKey(key: string): boolean {
+  return key === PORTFOLIO_GAP_KEY || key.startsWith(`${PORTFOLIO_GAP_KEY}:`);
+}
+
+export function portfolioGapSeriesKeys(rows: readonly ChartSeriesRow[]): string[] {
+  const keys: string[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    for (const key of Object.keys(row)) {
+      if (!isPortfolioGapKey(key) || seen.has(key)) continue;
+      const value = row[key];
+      if (typeof value === "number" && Number.isFinite(value)) {
+        seen.add(key);
+        keys.push(key);
+      }
+    }
+  }
+  return keys.sort((a, b) => gapKeyIndex(a) - gapKeyIndex(b));
+}
+
+function gapKeyIndex(key: string): number {
+  if (key === PORTFOLIO_GAP_KEY) return 0;
+  const parsed = Number(key.slice(PORTFOLIO_GAP_KEY.length + 1));
+  return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+}
+
 export interface ChartSeriesRow {
   date: string;
   portfolio: number | null;
@@ -58,9 +88,37 @@ function rowPortfolioValue(row: ChartSeriesRow): number | null {
   return null;
 }
 
-function fillPortfolioGapColumn(rows: ChartSeriesRow[]): void {
+function addUtcDays(isoDate: string, days: number): string {
+  const year = Number(isoDate.slice(0, 4));
+  const month = Number(isoDate.slice(5, 7));
+  const day = Number(isoDate.slice(8, 10));
+  const utc = Date.UTC(year, month - 1, day + days);
+  return new Date(utc).toISOString().slice(0, 10);
+}
+
+function insertMissingCalendarDates(
+  byDate: Map<string, ChartSeriesRow>,
+  ensureRow: (date: string) => ChartSeriesRow,
+): void {
+  const valued = [...byDate.values()]
+    .filter((row) => rowPortfolioValue(row) !== null)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  for (let k = 0; k < valued.length - 1; k += 1) {
+    const left = valued[k];
+    const right = valued[k + 1];
+    if (left === undefined || right === undefined) continue;
+    let cursor = addUtcDays(left.date, 1);
+    while (cursor < right.date) {
+      ensureRow(cursor);
+      cursor = addUtcDays(cursor, 1);
+    }
+  }
+}
+
+function fillPortfolioGapColumns(rows: ChartSeriesRow[]): void {
   const values = rows.map(rowPortfolioValue);
   let i = 0;
+  let gapIndex = 0;
   while (i < rows.length) {
     if (values[i] === null) {
       i += 1;
@@ -74,8 +132,18 @@ function fillPortfolioGapColumn(rows: ChartSeriesRow[]): void {
       break;
     }
     if (j > i + 1) {
-      rows[i].portfolioGap = values[i];
-      rows[j].portfolioGap = values[j];
+      const left = values[i];
+      const right = values[j];
+      const leftRow = rows[i];
+      const rightRow = rows[j];
+      if (left === null || right === null || leftRow === undefined || rightRow === undefined) {
+        i = j;
+        continue;
+      }
+      const key = portfolioGapSeriesKey(gapIndex);
+      leftRow[key] = left;
+      rightRow[key] = right;
+      gapIndex += 1;
     }
     i = j;
   }
@@ -132,8 +200,10 @@ export function buildChartData(
     }
   }
 
+  insertMissingCalendarDates(byDate, ensureRow);
+
   const rows = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
-  fillPortfolioGapColumn(rows);
+  fillPortfolioGapColumns(rows);
 
   return {
     rows,

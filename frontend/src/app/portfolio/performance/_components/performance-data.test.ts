@@ -244,13 +244,97 @@ describe("buildChartData", () => {
       rows.map((r) => [r.date, r]),
     );
 
+    // Each gap is its own column so Recharts cannot join them through the
+    // shared middle boundary (acceptance 5).
     expect(row["2026-09-11"].portfolioGap).toBe(0);
     expect(row["2026-09-12"].portfolioGap).toBeNull();
     expect(row["2026-09-13"].portfolioGap).toBeNull();
     expect(row["2026-09-14"].portfolioGap).toBe(0.1);
+    expect(row["2026-09-14"]["portfolioGap:1"]).toBe(0.1);
     expect(row["2026-09-15"].portfolioGap).toBeNull();
+    expect(row["2026-09-15"]["portfolioGap:1"] ?? null).toBeNull();
     expect(row["2026-09-16"].portfolioGap).toBeNull();
-    expect(row["2026-09-17"].portfolioGap).toBe(0.21);
+    expect(row["2026-09-17"].portfolioGap).toBeNull();
+    expect(row["2026-09-17"]["portfolioGap:1"]).toBe(0.21);
+    expect(row["2026-09-11"]["portfolioGap:1"] ?? null).toBeNull();
+  });
+
+  it("does not put two gaps separated by real history on one connector column (#486)", () => {
+    const portfolio = portfolioSeries([
+      { date: "2026-09-11", value_base: "100", return_pct_cumulative: "0", is_approximate: false },
+      { date: "2026-09-14", value_base: "110", return_pct_cumulative: "0.1", is_approximate: false },
+      { date: "2026-09-15", value_base: "150", return_pct_cumulative: "0.5", is_approximate: false },
+      { date: "2026-09-16", value_base: "110", return_pct_cumulative: "0.1", is_approximate: false },
+      { date: "2026-09-17", value_base: "110", return_pct_cumulative: "0.1", is_approximate: false },
+      { date: "2026-09-18", value_base: "110", return_pct_cumulative: "0.1", is_approximate: false },
+      { date: "2026-09-21", value_base: "120", return_pct_cumulative: "0.2", is_approximate: false },
+    ]);
+    const sp500 = benchmarkSeries("sp500", [
+      "2026-09-11",
+      "2026-09-12",
+      "2026-09-13",
+      "2026-09-14",
+      "2026-09-15",
+      "2026-09-16",
+      "2026-09-17",
+      "2026-09-18",
+      "2026-09-19",
+      "2026-09-20",
+      "2026-09-21",
+    ].map((date) => benchmarkPoint(date, "0")));
+
+    const { rows } = buildChartData(portfolio, [sp500]);
+    const row: Record<string, ChartSeriesRow> = Object.fromEntries(
+      rows.map((r) => [r.date, r]),
+    );
+
+    expect(row["2026-09-11"].portfolioGap).toBe(0);
+    expect(row["2026-09-14"].portfolioGap).toBe(0.1);
+    expect(row["2026-09-14"]["portfolioGap:1"] ?? null).toBeNull();
+    expect(row["2026-09-15"].portfolioGap).toBeNull();
+    expect(row["2026-09-15"]["portfolioGap:1"] ?? null).toBeNull();
+    expect(row["2026-09-18"].portfolioGap).toBeNull();
+    expect(row["2026-09-18"]["portfolioGap:1"]).toBe(0.1);
+    expect(row["2026-09-21"]["portfolioGap:1"]).toBe(0.2);
+    expect(row["2026-09-21"].portfolioGap).toBeNull();
+  });
+
+  it("inserts calendar holes in portfolio-only mode so a weekend is a gap (#486)", () => {
+    const portfolio = portfolioSeries([
+      { date: "2026-09-11", value_base: "100", return_pct_cumulative: "0", is_approximate: false },
+      { date: "2026-09-14", value_base: "110", return_pct_cumulative: "0.1", is_approximate: false },
+    ]);
+
+    const { rows } = buildChartData(portfolio, []);
+    expect(rows.map((r) => r.date)).toEqual([
+      "2026-09-11",
+      "2026-09-12",
+      "2026-09-13",
+      "2026-09-14",
+    ]);
+    expect(rows[1]?.portfolio).toBeNull();
+    expect(rows[1]?.portfolioApprox).toBeNull();
+    expect(rows[2]?.portfolio).toBeNull();
+    expect(rows[0]?.portfolioGap).toBe(0);
+    expect(rows[3]?.portfolioGap).toBe(0.1);
+  });
+
+  it("still detects a calendar gap when the only benchmark is not displayable (#486)", () => {
+    const portfolio = portfolioSeries([
+      { date: "2026-09-11", value_base: "100", return_pct_cumulative: "0", is_approximate: false },
+      { date: "2026-09-14", value_base: "110", return_pct_cumulative: "0.1", is_approximate: false },
+    ]);
+    const dow30 = benchmarkSeries("dow30", [], { comparable: false, displayable: false });
+
+    const { rows } = buildChartData(portfolio, [dow30]);
+    expect(rows.map((r) => r.date)).toEqual([
+      "2026-09-11",
+      "2026-09-12",
+      "2026-09-13",
+      "2026-09-14",
+    ]);
+    expect(rows[0]?.portfolioGap).toBe(0);
+    expect(rows[3]?.portfolioGap).toBe(0.1);
   });
 
   it("returns no rows when the portfolio is empty and no benchmark draws", () => {
