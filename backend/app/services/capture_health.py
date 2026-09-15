@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from typing import Literal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -43,6 +44,14 @@ def expected_capture_date(as_of: date) -> date:
 
 def is_stale(last_success: date | None, expected: date) -> bool:
     return last_success is None or last_success < expected
+
+
+def _is_repeat(last: date | None, expected: date) -> bool:
+    """True if this pipeline was ALSO stale on the immediately preceding
+    trading day's own probe — reuses expected_capture_date so a Monday
+    probe correctly checks against the prior Friday, not calendar-Sunday."""
+    prior_expected = expected_capture_date(expected - timedelta(days=1))
+    return last is None or last < prior_expected
 
 
 def should_alert_portfolio(
@@ -257,10 +266,22 @@ def maybe_alert_capture_health(report: CaptureHealthReport) -> None:
     if already_alerted(dedup_key):
         return
     human_labels = ", ".join(_ISSUE_LABELS[code] for code in _ISSUE_ORDER if code in report.issues)
+    last_by_code = {
+        "price": report.price_last,
+        "fx": report.fx_last,
+        "benchmark": report.bench_last,
+    }
+    is_repeat = any(
+        _is_repeat(last_by_code[code], report.expected_date)
+        for code in report.issues
+        if code in last_by_code
+    )
+    severity: Literal["INFO", "WARNING", "ALERT"] = "WARNING" if is_repeat else "INFO"
     if send_ops_alert(
         subject=f"[Portfonia] Capture alert: {human_labels} not confirmed for "
         f"{report.expected_date.isoformat()}",
         body=_render_alert_body(report, fingerprint),
         idempotency_key=dedup_key,
+        severity=severity,
     ):
         mark_alerted(dedup_key, _ALERT_DEDUP_TTL_SECONDS)

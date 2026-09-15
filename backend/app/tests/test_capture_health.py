@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Generator
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
@@ -22,6 +22,8 @@ from app.models.fx_rate import FxRate
 from app.models.portfolio_snapshot_batch import PortfolioSnapshotBatch
 from app.models.price_snapshot import PriceSnapshot
 from app.services.capture_health import (
+    CaptureHealthReport,
+    _is_repeat,
     evaluate_capture_health,
     expected_capture_date,
     is_stale,
@@ -199,6 +201,102 @@ def test_alert_body_names_the_fx_catchup_followup(
         body = mock_alert.call_args.kwargs["body"]
         assert "00:05 ET" in body
         assert "#426" in body
+
+
+# ---------------------------------------------------------------------------
+# Severity taxonomy (issue #479)
+# ---------------------------------------------------------------------------
+
+_MON = date(2026, 9, 14)
+_THU_BEFORE_MON = date(2026, 9, 10)
+_FRI_BEFORE_MON = date(2026, 9, 11)
+_MON_BEFORE_TUE = date(2026, 9, 7)
+
+
+def test_is_repeat_uses_prior_trading_day_not_calendar_yesterday() -> None:
+    """issue #479: a Monday probe must check Friday, not calendar-Sunday.
+
+    `expected - timedelta(days=1)` on Monday is Sunday; last=Friday would
+    then look like a repeat (Friday < Sunday). The helper must go through
+    expected_capture_date so Friday success is NOT a repeat on Monday.
+    """
+    prior_via_helper = expected_capture_date(_MON - timedelta(days=1))
+    calendar_yesterday = _MON - timedelta(days=1)
+    assert prior_via_helper == _FRI_BEFORE_MON
+    assert calendar_yesterday != _FRI_BEFORE_MON
+    assert calendar_yesterday > _FRI_BEFORE_MON
+
+    assert _is_repeat(_FRI_BEFORE_MON, _MON) is False
+    assert _is_repeat(_THU_BEFORE_MON, _MON) is True
+    assert _is_repeat(None, _MON) is True
+    assert _is_repeat(_MON_BEFORE_TUE, _TUE) is False
+    assert _is_repeat(_FRI, _TUE) is True
+
+
+def _fx_report(*, expected: date, fx_last: date | None) -> CaptureHealthReport:
+    return CaptureHealthReport(
+        expected_date=expected,
+        issues=("fx",),
+        skipped_deps=0,
+        pending=0,
+        fx_last=fx_last,
+    )
+
+
+def test_capture_health_single_day_stale_is_info(production_env: None) -> None:
+    """issue #479: stale only on expected_date → INFO."""
+    report = _fx_report(expected=_TUE, fx_last=_MON_BEFORE_TUE)
+    with patch("app.services.capture_health.send_ops_alert", return_value=True) as mock_alert:
+        maybe_alert_capture_health(report)
+        mock_alert.assert_called_once()
+        assert mock_alert.call_args.kwargs["severity"] == "INFO"
+
+
+def test_capture_health_repeat_stale_is_warning(production_env: None) -> None:
+    """issue #479: stale on expected_date AND the prior trading day → WARNING."""
+    report = _fx_report(expected=_TUE, fx_last=_FRI)
+    with patch("app.services.capture_health.send_ops_alert", return_value=True) as mock_alert:
+        maybe_alert_capture_health(report)
+        mock_alert.assert_called_once()
+        assert mock_alert.call_args.kwargs["severity"] == "WARNING"
+
+
+def test_capture_health_monday_after_stale_friday_is_warning(production_env: None) -> None:
+    """issue #479: Monday probe after a stale Friday is a repeat, via
+    expected_capture_date, not calendar-Sunday."""
+    report = _fx_report(expected=_MON, fx_last=_THU_BEFORE_MON)
+    with patch("app.services.capture_health.send_ops_alert", return_value=True) as mock_alert:
+        maybe_alert_capture_health(report)
+        mock_alert.assert_called_once()
+        assert mock_alert.call_args.kwargs["severity"] == "WARNING"
+
+
+def test_capture_health_monday_after_healthy_friday_is_info(production_env: None) -> None:
+    """issue #479: Friday success then Monday lag is a single-day INFO.
+
+    A calendar-yesterday implementation would mis-label this WARNING.
+    """
+    report = _fx_report(expected=_MON, fx_last=_FRI_BEFORE_MON)
+    with patch("app.services.capture_health.send_ops_alert", return_value=True) as mock_alert:
+        maybe_alert_capture_health(report)
+        mock_alert.assert_called_once()
+        assert mock_alert.call_args.kwargs["severity"] == "INFO"
+
+
+def test_capture_health_portfolio_only_is_info(production_env: None) -> None:
+    """issue #479: portfolio has no single _last date and does not participate
+    in repeat detection — a portfolio-only report is INFO."""
+    report = CaptureHealthReport(
+        expected_date=_TUE,
+        issues=("portfolio",),
+        skipped_deps=1,
+        pending=0,
+        complete_last=_FRI,
+    )
+    with patch("app.services.capture_health.send_ops_alert", return_value=True) as mock_alert:
+        maybe_alert_capture_health(report)
+        mock_alert.assert_called_once()
+        assert mock_alert.call_args.kwargs["severity"] == "INFO"
 
 
 def test_beat_probe_is_after_snapshot_window() -> None:

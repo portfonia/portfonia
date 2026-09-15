@@ -608,6 +608,7 @@ def test_task_skips_stale_beat_catchup(
     mock_gen.assert_not_called()
     mock_alert.assert_called_once()
     assert "SKIPPED" in mock_alert.call_args.kwargs["subject"]
+    assert mock_alert.call_args.kwargs["severity"] == "WARNING"
 
 
 @patch("app.tasks.report_tasks.datetime")
