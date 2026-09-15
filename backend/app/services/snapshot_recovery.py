@@ -246,9 +246,11 @@ def recover_portfolio_snapshots(
 ) -> SnapshotRecoveryReport:
     """Recover missing snapshot days in `[start_date, end_date]` (inclusive).
 
-    Weekdays only — the daily capture runs Mon-Fri, so that is the set of days
-    that can be missing (no market-holiday calendar exists here; see
-    `capture_health.expected_capture_date` for the same convention).
+    Every calendar day (issue #487): weekends are legitimate portfolio
+    capture targets, so a failed Saturday/Sunday is recoverable the same
+    way as a weekday. Market-data pipelines still use
+    `capture_health.expected_capture_date` (last Mon-Fri); this module
+    recovers portfolio snapshots only.
 
     Commits per date, so one bad day cannot roll back another's recovery.
     """
@@ -267,34 +269,33 @@ def recover_portfolio_snapshots(
 
     target = start_date
     while target <= end_date:
-        if target.weekday() < 5:
-            complete_ids = set(
-                session.execute(
-                    select(PortfolioSnapshotBatch.user_id).where(
-                        PortfolioSnapshotBatch.snapshot_date == target,
-                        PortfolioSnapshotBatch.status == "complete",
-                    )
-                ).scalars()
-            )
-            needing = [user_id for user_id in user_ids if user_id not in complete_ids]
-            already_complete += len(user_ids) - len(needing)
-            if needing:
-                touched_dates.append(target.isoformat())
-            for user_id in needing:
-                outcome = _recover_user_day(session, user_id, target, oldest_recomputable)
-                if outcome == "replayed":
-                    replayed += 1
-                elif outcome == "recomputed":
-                    recomputed += 1
-                elif outcome == "failed":
-                    failed += 1
-                elif outcome == "skipped_old":
-                    skipped_old += 1
-                elif outcome == "skipped_deps":
-                    skipped_deps += 1
-                else:
-                    skipped_unsafe += 1
-            session.commit()
+        complete_ids = set(
+            session.execute(
+                select(PortfolioSnapshotBatch.user_id).where(
+                    PortfolioSnapshotBatch.snapshot_date == target,
+                    PortfolioSnapshotBatch.status == "complete",
+                )
+            ).scalars()
+        )
+        needing = [user_id for user_id in user_ids if user_id not in complete_ids]
+        already_complete += len(user_ids) - len(needing)
+        if needing:
+            touched_dates.append(target.isoformat())
+        for user_id in needing:
+            outcome = _recover_user_day(session, user_id, target, oldest_recomputable)
+            if outcome == "replayed":
+                replayed += 1
+            elif outcome == "recomputed":
+                recomputed += 1
+            elif outcome == "failed":
+                failed += 1
+            elif outcome == "skipped_old":
+                skipped_old += 1
+            elif outcome == "skipped_deps":
+                skipped_deps += 1
+            else:
+                skipped_unsafe += 1
+        session.commit()
         target += timedelta(days=1)
 
     report = SnapshotRecoveryReport(

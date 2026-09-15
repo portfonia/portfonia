@@ -604,12 +604,12 @@ layer** (per-user, incremental).
   user to have at least one holding; `weekly` fires Saturday 19:00 ET
   (`session_node="weekend_snapshot"`, not `"after_close"` — no market
   actually closed at that trigger), does NOT require holdings (issue #221
-  §8 empty-book content contract). No capture task runs on weekends
-  (`_MARKET_NODES` and every other daily capture entry are Mon-Fri only), so
-  a weekly report's holdings/price data is always Friday's snapshot
-  regardless of the exact Saturday time — only the live, generation-time
-  macro/news search (`ticker_intel.py`/`cross_name_intel.py`) can reflect
-  anything that happened over the weekend. `celery_app.conf.timezone =
+  §8 empty-book content contract). Portfolio/FX/benchmark/fund-NAV capture
+  tasks run every calendar day since issue #487, but the weekly report
+  fires at 19:00 ET Saturday, before the 20:30 ET portfolio snapshot, so
+  a weekly report's holdings snapshot is still Friday's — only the live,
+  generation-time macro/news search (`ticker_intel.py`/`cross_name_intel.py`)
+  can reflect anything that happened over the weekend. `celery_app.conf.timezone =
   "America/New_York"` means neither row needs a `_node_cron`/nowfun
   wrapper — that's only for the HK/CST market nodes below. Full design
   record: Obsidian `Hermes/Portfonia/Docs/Ring 1-B Cadence.md`.

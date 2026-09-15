@@ -1,8 +1,9 @@
-"""Capture-health probe (issue #372 slice B).
+"""Capture-health probe (issue #372 slice B; weekend split issue #487).
 
-Alert rule: after the Mon-Fri 21:30 ET probe, expected date = that ET
-weekday. Stale = no success evidence dated on that day. Not a 36h wall
-clock (Monday vs Friday would false-positive).
+Alert rule: 21:30 ET every calendar day. Market-data expected date = last
+Mon-Fri; portfolio expected date = that calendar day. Stale = no success
+evidence dated on the relevant expected day. Not a 36h wall clock (Monday
+vs Friday would false-positive).
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from app.services.capture_health import (
     _is_repeat,
     evaluate_capture_health,
     expected_capture_date,
+    expected_capture_date_portfolio,
     is_stale,
     maybe_alert_capture_health,
     should_alert_portfolio,
@@ -42,6 +44,13 @@ _UID = uuid.UUID("00000000-0000-0000-0000-0000000000c1")
 def test_expected_capture_date_is_weekday() -> None:
     assert expected_capture_date(_TUE) == _TUE
     assert expected_capture_date(date(2026, 9, 6)) == _FRI  # Sunday -> Friday
+
+
+def test_expected_capture_date_portfolio_is_calendar_day() -> None:
+    """Issue #487: portfolio evidence is expected every calendar day."""
+    assert expected_capture_date_portfolio(_TUE) == _TUE
+    assert expected_capture_date_portfolio(_SAT) == _SAT
+    assert expected_capture_date_portfolio(date(2026, 9, 6)) == date(2026, 9, 6)
 
 
 def test_is_stale_frozen_clock() -> None:
@@ -299,11 +308,73 @@ def test_capture_health_portfolio_only_is_info(production_env: None) -> None:
         assert mock_alert.call_args.kwargs["severity"] == "INFO"
 
 
+def test_saturday_probe_healthy_when_portfolio_complete_and_friday_market_data(
+    db_session: Session,
+) -> None:
+    """Acceptance 5: Saturday probe with a complete Saturday portfolio
+    batch and Friday FX/price/benchmark evidence does not alert."""
+    seed_user(db_session, _UID, email="health-sat@example.com")
+    session_d = _SAT
+    db_session.add(
+        PriceSnapshot(
+            ticker="AAPL",
+            market="US",
+            session_node="close",
+            trade_date=_FRI,
+            close=Decimal("100"),
+        )
+    )
+    db_session.add(FxRate(pair="USDCNY", rate=Decimal("7"), rate_date=_FRI))
+    db_session.add(
+        BenchmarkPrice(
+            index_code="sp500", price_date=_FRI, close_price=Decimal("1"), currency="USD"
+        )
+    )
+    db_session.add(PortfolioSnapshotBatch(user_id=_UID, snapshot_date=session_d, status="complete"))
+    db_session.flush()
+
+    report = evaluate_capture_health(db_session, as_of=_SAT)
+    assert report.issues == ()
+    assert report.should_alert() is False
+    assert expected_capture_date(_SAT) == _FRI
+    assert expected_capture_date_portfolio(_SAT) == _SAT
+
+
+def test_saturday_probe_alerts_when_portfolio_batch_missing(db_session: Session) -> None:
+    """Acceptance 6: Saturday probe with no complete portfolio batch that
+    day alerts on portfolio, even though Friday market data is current."""
+    seed_user(db_session, _UID, email="health-sat-miss@example.com")
+    db_session.add(
+        PriceSnapshot(
+            ticker="AAPL",
+            market="US",
+            session_node="close",
+            trade_date=_FRI,
+            close=Decimal("100"),
+        )
+    )
+    db_session.add(FxRate(pair="USDCNY", rate=Decimal("7"), rate_date=_FRI))
+    db_session.add(
+        BenchmarkPrice(
+            index_code="sp500", price_date=_FRI, close_price=Decimal("1"), currency="USD"
+        )
+    )
+    db_session.flush()
+
+    report = evaluate_capture_health(db_session, as_of=_SAT)
+    assert "portfolio" in report.issues
+    assert "price" not in report.issues
+    assert "fx" not in report.issues
+    assert "benchmark" not in report.issues
+    assert report.should_alert() is True
+
+
 def test_beat_probe_is_after_snapshot_window() -> None:
     entry = celery_app.conf.beat_schedule["check-capture-health-daily"]
     assert entry["task"] == "app.tasks.capture_tasks.check_capture_health_task"
     assert 21 in entry["schedule"].hour
     assert 30 in entry["schedule"].minute
+    assert entry["schedule"].day_of_week == set(range(7))
 
 
 def test_fx_catchup_beat_schedule() -> None:
