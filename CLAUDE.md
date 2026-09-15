@@ -567,6 +567,19 @@ approval; the existing self-review restrictions still apply. See
 clearly superseded historical rules. Obsidian operations use the configured
 MCP, as specified in `AGENTS.md` and documentation governance.
 
+## Reviews must be full-context, not diff-only (MANDATORY, 2026-09-15)
+
+Any code review in this repo — Grok review, Claude's `/code-review`, a
+Codex review, or a manual one — must read current governing docs/issue/
+comments and trace the full caller/writer/reader/schema/transaction chain
+of changed code, not just the rendered diff; separate a PR-introduced
+defect from pre-existing surrounding behavior; and test cross-boundary
+behavior (idempotent re-runs, empty input, rollback, a real dependency
+where risk warrants it) rather than unit-level checks alone. Full
+procedure/checklist: `docs/playbooks/full-context-review.md`. Review
+approval never authorizes merge, deployment, or a production data
+operation on its own.
+
 ## Design sessions do not implement (MANDATORY, 2026-09-15)
 
 A session whose task was writing/authoring an issue or design doc must not
