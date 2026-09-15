@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.services import report_translation as rt
 from app.services.report_llm import _BYOK_PROVIDER_ORDER
 
@@ -64,6 +66,7 @@ def test_split_sections_chunks_at_section_and_subsection_headings_and_roundtrips
     assert "\n".join(chunks) == md
 
 
+@pytest.mark.no_byok_fallback_alias
 def test_translate_chunk_uses_byok_hard_pin_no_deny_no_reasoning() -> None:
     """PR #79 review: lock down the exact extra_body shape of the BYOK
     exception (issue #78) end-to-end through the real _call_llm — not just
@@ -101,6 +104,7 @@ def test_translate_chunk_falls_back_to_source_when_truncated() -> None:
     assert out == source  # kept the English source rather than dropping the section
 
 
+@pytest.mark.no_byok_fallback_alias
 def test_translate_chunk_falls_back_to_source_on_real_empty_response() -> None:
     """End-to-end through the real (unmocked) _call_llm: a blank model
     response must resolve via _translate_chunk's own short-then-retry-then-

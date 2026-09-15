@@ -1871,12 +1871,12 @@ def test_generate_report_pass1_call_has_no_holdings(db_session: Session) -> None
     assert "Apple" not in captured["pass1_user"]
 
 
+@pytest.mark.no_byok_fallback_alias
 def test_generate_report_pass1_call_uses_byok_hard_pin(db_session: Session) -> None:
-    """PR #79 review: Pass 1's _call_llm invocation must carry the BYOK hard-pin
-    kwargs (order=["DeepSeek"], allow_fallbacks=False, deny off, reasoning off)
-    — not just the isolation property covered by the test above. A future edit
-    that drops any one of these would silently reopen the marketplace-fallback
-    compliance gap the review flagged."""
+    """PR #79 review: Pass 1's helper must still make the BYOK hard-pin
+    inner call (order=["DeepSeek"], allow_fallbacks=False, deny off, reasoning
+    off). Captured on report_llm._call_llm because the call site now goes
+    through `_call_llm_byok_with_fallback` (issue #477)."""
     captured: dict[str, object] = {}
 
     def _capture_llm(
@@ -1905,6 +1905,7 @@ def test_generate_report_pass1_call_uses_byok_hard_pin(db_session: Session) -> N
             return_value=([], 2),
         ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_llm._call_llm", side_effect=_capture_llm),
         patch("app.services.report_generator._call_llm", side_effect=_capture_llm),
         patch("app.services.report_generator._run_tavily_search", return_value=[]),
     ):

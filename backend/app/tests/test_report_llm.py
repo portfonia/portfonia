@@ -14,7 +14,7 @@ import openai
 import pytest
 
 from app.services import report_llm as rl
-from app.services.llm_errors import LLMEmptyResponseError
+from app.services.llm_errors import LLMCallError, LLMEmptyResponseError
 from app.services.llm_retry_config import LLMRetryConfig
 
 _REQUEST = httpx.Request("POST", "https://openrouter.test/v1/chat/completions")
@@ -302,3 +302,101 @@ def test_call_llm_keeps_explicit_allow_fallbacks_even_when_sole_provider_key() -
 
     kwargs = client.chat.completions.create.call_args.kwargs
     assert kwargs["extra_body"]["provider"] == {"allow_fallbacks": False}
+
+
+def _fallback_settings() -> MagicMock:
+    settings = MagicMock()
+    settings.FALLBACK_LLM_MODEL = "openai/gpt-5.6-luna"
+    settings.FALLBACK_LLM_REASONING_EFFORT = "high"
+    return settings
+
+
+def test_byok_with_fallback_not_invoked_when_primary_succeeds() -> None:
+    """Acceptance #1: a successful BYOK call must not touch FALLBACK_LLM_MODEL."""
+    client = MagicMock()
+    with patch.object(rl, "_call_llm", return_value="ok") as mock_call:
+        out = rl._call_llm_byok_with_fallback(
+            client, "byok-model", "sys", "user", with_holdings=False
+        )
+    assert out == "ok"
+    assert mock_call.call_count == 1
+    assert mock_call.call_args.args[1] == "byok-model"
+    assert all(c.args[1] != "openai/gpt-5.6-luna" for c in mock_call.call_args_list)
+
+
+def test_byok_with_fallback_invoked_once_on_retryable_primary_failure() -> None:
+    """Acceptance #2: exhausted retryable BYOK failure → one deny-gated fallback."""
+    client = MagicMock()
+    sink: list[dict[str, object]] = []
+
+    def _side_effect(
+        _client: object, model: str, _system: str, _user: str, **kwargs: object
+    ) -> str:
+        if model == "byok-model":
+            raise LLMEmptyResponseError("empty choices")
+        return "fallback-ok"
+
+    with (
+        patch.object(rl, "_call_llm", side_effect=_side_effect) as mock_call,
+        patch.object(rl, "get_settings", return_value=_fallback_settings()),
+    ):
+        out = rl._call_llm_byok_with_fallback(
+            client,
+            "byok-model",
+            "sys",
+            "user",
+            with_holdings=True,
+            usage_sink=sink,
+        )
+    assert out == "fallback-ok"
+    assert mock_call.call_count == 2
+    primary_kwargs = mock_call.call_args_list[0].kwargs
+    assert primary_kwargs["provider_order"] == rl._BYOK_PROVIDER_ORDER
+    assert primary_kwargs["allow_fallbacks"] is False
+    assert primary_kwargs["enforce_data_collection"] is False
+    assert primary_kwargs["disable_reasoning"] is True
+    assert primary_kwargs["usage_sink"] is sink
+    fallback_args, fallback_kwargs = mock_call.call_args_list[1]
+    assert fallback_args[1] == "openai/gpt-5.6-luna"
+    assert fallback_kwargs["enforce_data_collection"] is True
+    assert fallback_kwargs["reasoning_effort"] == "high"
+    assert fallback_kwargs["pin_provider"] is False
+    assert fallback_kwargs["with_holdings"] is True
+    assert fallback_kwargs["usage_sink"] is sink
+    assert "provider_order" not in fallback_kwargs
+    assert "allow_fallbacks" not in fallback_kwargs
+    assert "disable_reasoning" not in fallback_kwargs
+
+
+def test_byok_with_fallback_not_invoked_on_non_retryable_primary_failure() -> None:
+    """Acceptance #3: AUTH on the BYOK leg must propagate; no fallback call."""
+    client = MagicMock()
+    err = openai.AuthenticationError(
+        "401", response=httpx.Response(401, request=_REQUEST), body=None
+    )
+    with (
+        patch.object(rl, "_call_llm", side_effect=err) as mock_call,
+        pytest.raises(openai.AuthenticationError),
+    ):
+        rl._call_llm_byok_with_fallback(client, "byok-model", "sys", "user", with_holdings=False)
+    assert mock_call.call_count == 1
+    assert mock_call.call_args.args[1] == "byok-model"
+
+
+def test_byok_with_fallback_surfaces_both_causes_when_both_legs_fail() -> None:
+    """Acceptance #4: the raised message must name both the BYOK and fallback failures."""
+    client = MagicMock()
+
+    def _side_effect(
+        _client: object, model: str, _system: str, _user: str, **kwargs: object
+    ) -> str:
+        if model == "byok-model":
+            raise LLMEmptyResponseError("primary empty")
+        raise LLMEmptyResponseError("fallback empty")
+
+    with (
+        patch.object(rl, "_call_llm", side_effect=_side_effect),
+        patch.object(rl, "get_settings", return_value=_fallback_settings()),
+        pytest.raises(LLMCallError, match=r"primary empty.*fallback empty"),
+    ):
+        rl._call_llm_byok_with_fallback(client, "byok-model", "sys", "user", with_holdings=False)

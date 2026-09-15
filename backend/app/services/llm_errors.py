@@ -67,12 +67,11 @@ class ErrorPolicy:
     request — no, an identical call reproduces it exactly.)
 
     ``fallbackable``: could routing the same call to a *different*
-    model/provider plausibly succeed? Currently informational only — no
-    call site has a second-tier model to escalate to (holdings parsing runs
-    one model twice since #84; ``_BYOK_PROVIDER_ORDER`` is a compliance
-    hard pin that by definition must not fall back). Kept because it is
-    half of the classification's meaning and the eventual consumer is
-    obvious; a consumer must NOT be invented for it speculatively.
+    model/provider plausibly succeed? Informational on the error itself.
+    Issue #477's BYOK helper decides the second-tier call from
+    ``is_retryable``, not this flag (the BYOK pin itself still must not
+    open ``allow_fallbacks``). Holdings parsing still runs one model
+    twice (#84) and does not consume this flag.
     """
 
     retryable: bool

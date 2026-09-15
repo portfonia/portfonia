@@ -79,3 +79,11 @@ the payload to an arbitrary marketplace provider that `deny` would normally
 have excluded; the call fails outright instead (PR #79 review finding). Do
 not extend the exception to any other call site without the same explicit
 sign-off, and never drop the `allow_fallbacks=False` pairing if you do.
+
+**Second-tier fallback (issue #477):** after that BYOK leg exhausts
+`_call_llm`'s own retry budget on a retryable error, `_call_llm_byok_with_fallback`
+makes one additional independent call to `FALLBACK_LLM_MODEL`
+(`openai/gpt-5.6-luna`, `FALLBACK_LLM_REASONING_EFFORT=high`) with
+`enforce_data_collection=True` and no BYOK kwargs. This does not loosen the
+BYOK pairing; a non-retryable primary failure (e.g. AUTH) is re-raised
+without the second call.
