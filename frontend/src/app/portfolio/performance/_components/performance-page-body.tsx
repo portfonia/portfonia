@@ -54,6 +54,7 @@ import { MultiSelectMenu } from "./multi-select-menu";
 import { PerformanceChart, type ChartSeriesSpec } from "./performance-chart";
 import {
   PORTFOLIO_APPROX_KEY,
+  PORTFOLIO_GAP_KEY,
   PORTFOLIO_KEY,
   buildChartData,
   hasApproximateSegment,
@@ -240,6 +241,17 @@ export function PerformancePageBody({
     const names = t.raw("performance.benchmarkNames");
     const series: ChartSeriesSpec[] = [];
     if (response && !response.portfolio.empty) {
+      const hasGap = chartData.rows.some((row) => row.portfolioGap !== null);
+      if (hasGap) {
+        series.push({
+          key: PORTFOLIO_GAP_KEY,
+          label: t("performance.chartPortfolioLabel"),
+          color: PORTFOLIO_COLOR,
+          dashed: true,
+          isPortfolio: true,
+          connectNulls: true,
+        });
+      }
       series.push({
         key: PORTFOLIO_KEY,
         label: t("performance.chartPortfolioLabel"),
@@ -280,7 +292,9 @@ export function PerformancePageBody({
   // Legend mirrors the drawn lines, collapsing the portfolio's solid+dashed
   // pair back into one entry (the dashed hint line explains the second
   // stroke style).
-  const legendSeries = chartSeries.filter((spec) => spec.key !== PORTFOLIO_APPROX_KEY);
+  const legendSeries = chartSeries.filter(
+    (spec) => spec.key !== PORTFOLIO_APPROX_KEY && spec.key !== PORTFOLIO_GAP_KEY,
+  );
 
   const benchmarkNames = t.raw("performance.benchmarkNames");
   const assetClassNames = t.raw("assetClasses") as Record<string, string>;

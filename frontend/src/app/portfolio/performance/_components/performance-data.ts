@@ -1,6 +1,6 @@
 // Chart row/domain building for the performance chart (issue #360 Phase 2,
-// issue #377 displayable history). Kept separate from the recharts component
-// so merge logic is unit-testable without rendering.
+// issue #377 displayable history, issue #486 gap connector). Kept separate
+// from the recharts component so merge logic is unit-testable without rendering.
 
 import type {
   BenchmarkCode,
@@ -12,11 +12,16 @@ import { toRatio } from "./performance-format";
 
 export const PORTFOLIO_KEY = "portfolio";
 export const PORTFOLIO_APPROX_KEY = "portfolioApprox";
+export const PORTFOLIO_GAP_KEY = "portfolioGap";
 
 export interface ChartSeriesRow {
   date: string;
   portfolio: number | null;
   portfolioApprox: number | null;
+  // Rendering-only connector between two already-real points across a
+  // missing-date run (issue #486). Null everywhere except those two
+  // boundaries; never a reconstructed value.
+  portfolioGap: number | null;
   // Benchmark cumulative % ratio columns, keyed by index_code. Null stays
   // null so the chart cannot bridge an unavailable span.
   [indexCode: string]: string | number | null;
@@ -43,6 +48,39 @@ function splitPortfolioColumns(
   return split;
 }
 
+function rowPortfolioValue(row: ChartSeriesRow): number | null {
+  if (typeof row.portfolio === "number" && Number.isFinite(row.portfolio)) {
+    return row.portfolio;
+  }
+  if (typeof row.portfolioApprox === "number" && Number.isFinite(row.portfolioApprox)) {
+    return row.portfolioApprox;
+  }
+  return null;
+}
+
+function fillPortfolioGapColumn(rows: ChartSeriesRow[]): void {
+  const values = rows.map(rowPortfolioValue);
+  let i = 0;
+  while (i < rows.length) {
+    if (values[i] === null) {
+      i += 1;
+      continue;
+    }
+    let j = i + 1;
+    while (j < rows.length && values[j] === null) {
+      j += 1;
+    }
+    if (j >= rows.length) {
+      break;
+    }
+    if (j > i + 1) {
+      rows[i].portfolioGap = values[i];
+      rows[j].portfolioGap = values[j];
+    }
+    i = j;
+  }
+}
+
 export interface BuiltChartData {
   rows: ChartSeriesRow[];
   drawnBenchmarks: BenchmarkPerformanceSeries[];
@@ -64,7 +102,7 @@ export function buildChartData(
   const ensureRow = (date: string): ChartSeriesRow => {
     let row = byDate.get(date);
     if (!row) {
-      row = { date, portfolio: null, portfolioApprox: null };
+      row = { date, portfolio: null, portfolioApprox: null, portfolioGap: null };
       byDate.set(date, row);
     }
     return row;
@@ -94,8 +132,11 @@ export function buildChartData(
     }
   }
 
+  const rows = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+  fillPortfolioGapColumn(rows);
+
   return {
-    rows: [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)),
+    rows,
     drawnBenchmarks,
     pointMeta,
   };
