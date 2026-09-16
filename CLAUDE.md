@@ -19,6 +19,28 @@ proactively):
 - `docs/playbooks/testing-notes.md` — test DB isolation/PID-suffix
   reasoning, the `caplog`-after-migrate mechanism.
 
+## Time Handling (MANDATORY)
+
+Unless a specific scenario explicitly calls for a different clock (a
+market's own local session — CST/HKT/LONDON/BERLIN/JST/KST, see
+`app/core/timezones.MARKET_TZ`), **every date/time default in this project
+is NYSE/ET (`America/New_York`), never the process's system clock**.
+
+**Why**: issue #494 — the daily portfolio-snapshot capture called naive
+`date.today()`, which reads the container's system clock (UTC in every
+deployed environment here). The daily Beat fires at 20:30 ET, which is
+00:30 UTC the next calendar day, so every snapshot was permanently
+mislabeled one day late — a real user's 2026-09-14 data point went
+missing because of it. Full incident: issue #494.
+
+**How to apply**:
+- Code: use `app.core.timezones.today_et()` (or `datetime.now(tz=ET)` for
+  a timestamp, not just a date) — never bare `date.today()`/
+  `datetime.now()`/`datetime.today()`.
+- Infrastructure: production host OS and every container run with
+  `TZ=America/New_York` (`docker-compose.yml`) — this is defense in
+  depth alongside the code convention above, not a substitute for it.
+
 ## Where to find current state
 
 This file holds **conventions and mechanisms**, not a project status board.
