@@ -223,8 +223,29 @@ def test_fx_capture_entry_runs_daily_weekdays() -> None:
     # yesterday's daily bar every single day — confirmed against 5 days of
     # production fx_rates rows, all off by exactly one day. FX's own daily
     # bar rolls over around 17:00 ET; 17:15 leaves a buffer past that.
+    # Issue #487: every calendar day (was mon-fri); a non-trading day is a
+    # source-dated no-op, not a re-dated "today" row.
     assert cron.hour == {17} and cron.minute == {15}
-    assert cron.day_of_week == {1, 2, 3, 4, 5}  # mon-fri
+    assert cron.day_of_week == set(range(7))
+
+
+_EVERY_DAY_CAPTURE_ENTRIES = (
+    "capture-fx-daily",
+    "capture-fund-navs-daily",
+    "capture-portfolio-value-snapshot-daily",
+    "capture-benchmark-index-prices-daily",
+    "check-capture-health-daily",
+)
+
+
+def test_capture_entries_widened_to_every_calendar_day() -> None:
+    """Issue #487: the five weekday-gated capture/health Beat entries drop
+    day_of_week="mon-fri". capture-fx-catchup-daily stays tue-sat."""
+    for name in _EVERY_DAY_CAPTURE_ENTRIES:
+        cron = celery_app.conf.beat_schedule[name]["schedule"]
+        assert cron.day_of_week == set(range(7)), name
+    catchup = celery_app.conf.beat_schedule["capture-fx-catchup-daily"]["schedule"]
+    assert catchup.day_of_week == {2, 3, 4, 5, 6}
 
 
 @patch("app.core.database.SessionLocal")

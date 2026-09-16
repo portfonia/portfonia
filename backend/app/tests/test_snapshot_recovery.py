@@ -7,10 +7,12 @@ from holdings that have moved.
 
 from __future__ import annotations
 
+import datetime as datetime_module
 import logging
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import select
@@ -166,6 +168,79 @@ def test_missed_day_is_recomputed_when_the_book_is_unchanged(db_session: Session
     assert outbox_row is not None and outbox_row.status == "applied"
 
 
+def test_missed_saturday_is_recomputed_when_the_book_is_unchanged(db_session: Session) -> None:
+    """Issue #487: after weekend capture is live, catch-up recovers a failed
+    Saturday. Date is on/after WEEKEND_CAPTURE_ENABLED_FROM."""
+    saturday = date(2026, 9, 19)
+    friday = date(2026, 9, 18)
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    _seed_holding(db_session, user_id, "AAPL", Decimal("10"))
+    _seed_price(db_session, "AAPL", friday, Decimal("20"))
+    db_session.flush()
+    capture_portfolio_value_snapshot(db_session, friday)
+
+    assert recompute_is_safe(db_session, user_id, saturday) is True
+    report = recover_portfolio_snapshots(db_session, saturday, saturday, today=date(2026, 9, 21))
+    assert (report.replayed, report.recomputed, report.skipped_unsafe) == (0, 1, 0)
+    assert _status(db_session, user_id, saturday) == "complete"
+    rows = _daily_rows(db_session, saturday)
+    assert len(rows) == 1
+    assert rows[0].data_quality == "approx_carried"
+
+
+def test_prerollout_weekend_is_not_filled_by_unattended_recovery(db_session: Session) -> None:
+    """Review P1: Sep 12/13 belong to backfill_weekend_gaps.py."""
+    friday = date(2026, 9, 11)
+    saturday = date(2026, 9, 12)
+    sunday = date(2026, 9, 13)
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    _seed_holding(db_session, user_id, "AAPL", Decimal("10"))
+    _seed_price(db_session, "AAPL", friday, Decimal("20"))
+    db_session.flush()
+    capture_portfolio_value_snapshot(db_session, friday)
+
+    assert recompute_is_safe(db_session, user_id, saturday) is True
+    recover_portfolio_snapshots(
+        db_session, date(2026, 9, 8), date(2026, 9, 15), today=date(2026, 9, 15)
+    )
+    assert _status(db_session, user_id, saturday) is None
+    assert _status(db_session, user_id, sunday) is None
+    assert _daily_rows(db_session, saturday) == []
+    assert _daily_rows(db_session, sunday) == []
+
+
+def test_daily_task_does_not_fill_prerollout_weekends(db_session: Session) -> None:
+    """Review P1: ordinary Beat task, clock on Sep 15, must not publish Sep 12/13."""
+    from app.tasks.capture_tasks import capture_portfolio_value_snapshot_task
+
+    friday = date(2026, 9, 11)
+    saturday = date(2026, 9, 12)
+    sunday = date(2026, 9, 13)
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    _seed_holding(db_session, user_id, "AAPL", Decimal("10"))
+    _seed_price(db_session, "AAPL", friday, Decimal("20"))
+    db_session.flush()
+    capture_portfolio_value_snapshot(db_session, friday)
+
+    class FrozenDate(datetime_module.date):
+        @classmethod
+        def today(cls) -> FrozenDate:
+            return cls(2026, 9, 15)
+
+    with (
+        patch("datetime.date", FrozenDate),
+        patch("app.services.portfolio_history.date", FrozenDate),
+        patch("app.services.snapshot_recovery.date", FrozenDate),
+    ):
+        capture_portfolio_value_snapshot_task.run()
+
+    assert _status(db_session, user_id, saturday) is None
+    assert _status(db_session, user_id, sunday) is None
+
+
 def test_recompute_of_a_skipped_deps_day_is_retried_once_fx_arrives(db_session: Session) -> None:
     """A day left `skipped_deps` by a late FX capture is picked up by the
     catch-up instead of being lost (the pre-#373 code claimed the next run
@@ -279,7 +354,7 @@ def test_recovery_window_is_bounded(db_session: Session) -> None:
 
 
 def test_weekend_days_are_not_recovered(db_session: Session) -> None:
-    """Mon-Fri is the capture cadence; a Saturday has nothing to recover."""
+    """Pre-rollout Saturdays stay empty even when the book is unchanged."""
     user_id = uuid.uuid4()
     seed_user(db_session, user_id)
     _seed_holding(db_session, user_id, "AAPL", Decimal("10"))
@@ -290,6 +365,7 @@ def test_weekend_days_are_not_recovered(db_session: Session) -> None:
     report = recover_portfolio_snapshots(db_session, saturday, saturday, today=TODAY)
 
     assert report.replayed == 0
+    assert report.recomputed == 0
     assert _daily_rows(db_session, saturday) == []
 
 

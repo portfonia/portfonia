@@ -1,9 +1,10 @@
-"""Capture-health probe (issue #372 slice B).
+"""Capture-health probe (issue #372 slice B; weekend split issue #487).
 
-Alert rule (the one rule): Mon-Fri 21:30 ET probe; expected date = that ET
-weekday. A pipeline is stale if it has no success evidence dated on that
-day. 36h wall-clock is not used — a Monday probe vs Friday evidence is 72h
-and would false-positive every weekend.
+Alert rule: 21:30 ET every calendar day. FX/price/benchmark expected date
+is the last Mon-Fri on or before `as_of` (a non-trading day never produces
+a fresh close/rate). Portfolio expected date is `as_of` itself — weekends
+are legitimate snapshot days. 36h wall-clock is not used — a Monday probe
+vs Friday market evidence is 72h and would false-positive every weekend.
 
 Hard-fail (retries exhausted) stays on capture_tasks._capture_failed.
 This module only notices lag and non-complete portfolio batches.
@@ -42,6 +43,13 @@ def expected_capture_date(as_of: date) -> date:
     return as_of
 
 
+def expected_capture_date_portfolio(as_of: date) -> date:
+    """Portfolio-snapshot pipeline expects fresh evidence every calendar
+    day — unlike market-data pipelines, a non-trading day is still a
+    legitimate capture target (carried-forward marks, D5 / Requirement 3)."""
+    return as_of
+
+
 def is_stale(last_success: date | None, expected: date) -> bool:
     return last_success is None or last_success < expected
 
@@ -77,6 +85,13 @@ class CaptureHealthReport:
     fx_last: date | None = None
     bench_last: date | None = None
     complete_last: date | None = None
+    # Last Mon-Fri on or before the probe. Market-data wording and
+    # repeat-detection use this; `expected_date` is the probe/portfolio
+    # calendar day (issue #487).
+    market_expected_date: date | None = None
+
+    def market_day(self) -> date:
+        return self.market_expected_date or expected_capture_date(self.expected_date)
 
     def should_alert(self) -> bool:
         return bool(self.issues)
@@ -91,6 +106,7 @@ class CaptureHealthReport:
             "fx_last": self.fx_last.isoformat() if self.fx_last else None,
             "bench_last": self.bench_last.isoformat() if self.bench_last else None,
             "complete_last": self.complete_last.isoformat() if self.complete_last else None,
+            "market_expected_date": self.market_day().isoformat(),
         }
 
 
@@ -100,7 +116,9 @@ def _max_date(session: Session, column: object) -> date | None:
 
 
 def evaluate_capture_health(session: Session, as_of: date | None = None) -> CaptureHealthReport:
-    expected = expected_capture_date(as_of or datetime.now(tz=ET).date())
+    as_of_date = as_of or datetime.now(tz=ET).date()
+    expected = expected_capture_date(as_of_date)
+    portfolio_expected = expected_capture_date_portfolio(as_of_date)
     # Any close bar (listed market or fund NAV) dated expected clears this
     # pipeline. Intentional v1 coarseness: "price" absent from the alert
     # means at least one close exists that day, not every venue is healthy.
@@ -117,7 +135,7 @@ def evaluate_capture_health(session: Session, as_of: date | None = None) -> Capt
     skipped = int(
         session.execute(
             select(func.count()).where(
-                PortfolioSnapshotBatch.snapshot_date == expected,
+                PortfolioSnapshotBatch.snapshot_date == portfolio_expected,
                 PortfolioSnapshotBatch.status == "skipped_deps",
             )
         ).scalar_one()
@@ -125,7 +143,7 @@ def evaluate_capture_health(session: Session, as_of: date | None = None) -> Capt
     pending = int(
         session.execute(
             select(func.count()).where(
-                PortfolioSnapshotBatch.snapshot_date == expected,
+                PortfolioSnapshotBatch.snapshot_date == portfolio_expected,
                 PortfolioSnapshotBatch.status == "pending",
             )
         ).scalar_one()
@@ -135,12 +153,12 @@ def evaluate_capture_health(session: Session, as_of: date | None = None) -> Capt
         issues.append("price")
     if is_stale(fx_last, expected):
         issues.append("fx")
-    if should_alert_portfolio(complete_last, expected, skipped, pending):
+    if should_alert_portfolio(complete_last, portfolio_expected, skipped, pending):
         issues.append("portfolio")
     if is_stale(bench_last, expected):
         issues.append("benchmark")
     report = CaptureHealthReport(
-        expected_date=expected,
+        expected_date=as_of_date,
         issues=tuple(issues),
         skipped_deps=skipped,
         pending=pending,
@@ -148,9 +166,11 @@ def evaluate_capture_health(session: Session, as_of: date | None = None) -> Capt
         fx_last=fx_last,
         bench_last=bench_last,
         complete_last=complete_last,
+        market_expected_date=expected,
     )
     logger.info(
-        "capture_health: expected=%s issues=%s skipped_deps=%d pending=%d",
+        "capture_health: expected=%s market_expected=%s issues=%s skipped_deps=%d pending=%d",
+        as_of_date,
         expected,
         ",".join(issues) or "none",
         skipped,
@@ -199,7 +219,7 @@ def _format_last(d: date | None) -> str:
 
 
 def _render_issue_block(code: str, report: CaptureHealthReport) -> list[str]:
-    expected = report.expected_date.isoformat()
+    expected = report.market_day().isoformat()
     if code == "portfolio":
         # No "no X dated ... yet" lead here — the template leads straight
         # with the skipped/pending counts, unlike the other three pipelines.
@@ -226,7 +246,7 @@ def _render_issue_block(code: str, report: CaptureHealthReport) -> list[str]:
 def _render_alert_body(report: CaptureHealthReport, fingerprint: str) -> str:
     expected = report.expected_date.isoformat()
     lines = [
-        f"Portfonia data capture check — {expected} (expected trading day, US Eastern Time)",
+        f"Portfonia data capture check — {expected} (US Eastern Time)",
         "",
         "ISSUES FOUND:",
         "",
@@ -247,7 +267,7 @@ def _render_alert_body(report: CaptureHealthReport, fingerprint: str) -> str:
         "",
         "---",
         "Technical detail:",
-        "  probe: 21:30 ET Mon-Fri, detection only (does not write or retry)",
+        "  probe: 21:30 ET every day, detection only (does not write or retry)",
         f"  raw issue codes: {fingerprint}",
         f"  portfolio: skipped_deps={report.skipped_deps} pending={report.pending}",
         f"  dedup key: ops-capture-health-{expected}-{fingerprint}",
@@ -272,7 +292,7 @@ def maybe_alert_capture_health(report: CaptureHealthReport) -> None:
         "benchmark": report.bench_last,
     }
     is_repeat = any(
-        _is_repeat(last_by_code[code], report.expected_date)
+        _is_repeat(last_by_code[code], report.market_day())
         for code in report.issues
         if code in last_by_code
     )

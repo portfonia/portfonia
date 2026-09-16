@@ -14,7 +14,7 @@ from app.models.holding import Holding
 from app.models.portfolio_snapshot_batch import PortfolioSnapshotBatch
 from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
 from app.models.price_snapshot import PriceSnapshot
-from app.services.portfolio_history import capture_portfolio_value_snapshot
+from app.services.portfolio_history import build_snapshot_row, capture_portfolio_value_snapshot
 from app.services.user_purge import purge_user
 from app.tests.conftest import capture_user_day, seed_user
 
@@ -341,3 +341,133 @@ def test_user_purge_cascades_snapshot_and_batch_rows(db_session: Session) -> Non
         ).first()
         is None
     )
+
+
+# ---------------------------------------------------------------------------
+# Weekend capture disclosure (issue #487)
+# ---------------------------------------------------------------------------
+
+_FRI = date(2026, 9, 11)
+_SAT = date(2026, 9, 12)
+
+
+def test_saturday_auto_priced_row_is_approx_carried(db_session: Session) -> None:
+    """Acceptance 1: Saturday snapshot of a US-stock auto holding whose
+    close/FX last landed Friday is a complete batch with approx_carried."""
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    db_session.add(
+        Holding(
+            user_id=user_id,
+            name="Apple",
+            ticker="AAPL",
+            currency="USD",
+            pricing_mode="auto",
+            shares=Decimal("10"),
+            market="US",
+        )
+    )
+    _seed_price(db_session, "AAPL", _FRI, Decimal("100"))
+    db_session.flush()
+
+    capture_portfolio_value_snapshot(db_session, snapshot_date=_SAT)
+
+    row = db_session.execute(
+        select(PortfolioValueSnapshot).where(
+            PortfolioValueSnapshot.user_id == user_id,
+            PortfolioValueSnapshot.snapshot_date == _SAT,
+        )
+    ).scalar_one()
+    assert row.data_quality == "approx_carried"
+    assert row.price_as_of == _FRI
+    batch = db_session.execute(
+        select(PortfolioSnapshotBatch).where(
+            PortfolioSnapshotBatch.user_id == user_id,
+            PortfolioSnapshotBatch.snapshot_date == _SAT,
+        )
+    ).scalar_one()
+    assert batch.status == "complete"
+
+
+def test_saturday_cash_row_stays_ok(db_session: Session) -> None:
+    """Acceptance 2: cash has no price-staleness concept, even on Saturday."""
+    user_id = uuid.uuid4()
+    seed_user(db_session, user_id)
+    db_session.add(
+        Holding(
+            user_id=user_id,
+            name="USD Cash",
+            currency="USD",
+            pricing_mode="manual",
+            asset_type="cash",
+            current_value=Decimal("1000"),
+        )
+    )
+    db_session.flush()
+
+    capture_portfolio_value_snapshot(db_session, snapshot_date=_SAT)
+
+    row = db_session.execute(
+        select(PortfolioValueSnapshot).where(
+            PortfolioValueSnapshot.user_id == user_id,
+            PortfolioValueSnapshot.snapshot_date == _SAT,
+        )
+    ).scalar_one()
+    assert row.data_quality == "ok"
+    assert row.price_as_of is None
+
+
+def test_stale_second_fx_leg_is_approx_carried() -> None:
+    """Review P2: HKD holding priced into CNY uses USDHKD and USDCNY.
+    A same-day close + same-day USDHKD must not hide a stale USDCNY leg."""
+    holding = Holding(
+        user_id=uuid.uuid4(),
+        name="Tencent",
+        ticker="0700.HK",
+        currency="HKD",
+        pricing_mode="auto",
+        shares=Decimal("10"),
+        market="HK",
+        capture_supported=True,
+    )
+    holding.id = uuid.uuid4()
+    day = date(2026, 9, 14)
+    row = build_snapshot_row(
+        holding,
+        holding.user_id,
+        day,
+        "CNY",
+        {
+            "USDHKD": (Decimal("7.8"), day),
+            "USDCNY": (Decimal("7.1"), date(2026, 9, 11)),
+        },
+        lambda _key, _d: (Decimal("400"), day),
+        is_backfilled=False,
+    )
+    assert row["data_quality"] == "approx_carried"
+
+
+def test_same_currency_valuation_ignores_unrelated_fx_row() -> None:
+    """Review P2: HKD -> HKD uses no FX pair; a stale USDHKD row is irrelevant."""
+    holding = Holding(
+        user_id=uuid.uuid4(),
+        name="Tencent",
+        ticker="0700.HK",
+        currency="HKD",
+        pricing_mode="auto",
+        shares=Decimal("10"),
+        market="HK",
+        capture_supported=True,
+    )
+    holding.id = uuid.uuid4()
+    day = date(2026, 9, 14)
+    row = build_snapshot_row(
+        holding,
+        holding.user_id,
+        day,
+        "HKD",
+        {"USDHKD": (Decimal("7.8"), date(2026, 9, 11))},
+        lambda _key, _d: (Decimal("400"), day),
+        is_backfilled=False,
+    )
+    assert row["data_quality"] == "ok"

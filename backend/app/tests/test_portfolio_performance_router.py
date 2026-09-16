@@ -9,8 +9,11 @@ from decimal import Decimal
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.models.holding import Holding
 from app.models.portfolio_snapshot_batch import PortfolioSnapshotBatch
 from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
+from app.models.price_snapshot import PriceSnapshot
+from app.services.portfolio_history import capture_portfolio_value_snapshot
 from app.tests.conftest import TEST_USER_ID, seed_user
 
 D1 = date(2026, 8, 1)
@@ -192,3 +195,40 @@ def test_get_portfolio_performance_monthly_benchmark_out_of_catalog_is_422(
         params={"range": "1M", "monthly_benchmark": "a50"},
     )
     assert resp.status_code == 422
+
+
+def test_saturday_carried_mark_is_approximate_on_performance_api(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """Acceptance 3: a carried Saturday snapshot day is is_approximate=True.
+    Frontend buildChartData (unmodified here) already maps that to
+    portfolioApprox — issue #360 req 6 / #487 req 4."""
+    seed_user(db_session, TEST_USER_ID)
+    db_session.add(
+        Holding(
+            user_id=TEST_USER_ID,
+            name="Apple",
+            ticker="AAPL",
+            currency="USD",
+            pricing_mode="auto",
+            shares=Decimal("10"),
+            market="US",
+        )
+    )
+    db_session.add(
+        PriceSnapshot(
+            ticker="AAPL",
+            market="US",
+            session_node="close",
+            trade_date=date(2026, 9, 11),
+            close=Decimal("100"),
+        )
+    )
+    db_session.flush()
+    capture_portfolio_value_snapshot(db_session, snapshot_date=date(2026, 9, 12))
+
+    resp = app_client.get("/portfolio/performance", params={"range": "ALL"})
+    assert resp.status_code == 200
+    points = resp.json()["portfolio"]["points"]
+    saturday = next(p for p in points if p["date"] == "2026-09-12")
+    assert saturday["is_approximate"] is True
