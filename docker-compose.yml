@@ -4,6 +4,7 @@ services:
     container_name: portfonia-postgres
     restart: unless-stopped
     environment:
+      TZ: America/New_York
       POSTGRES_DB: ${DB_NAME:-portfonia_dev}
       POSTGRES_USER: ${DB_USER:-portfonia}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env.local}
@@ -21,6 +22,8 @@ services:
     image: redis:7-alpine
     container_name: portfonia-redis
     restart: unless-stopped
+    environment:
+      TZ: America/New_York
     command: ["redis-server", "--appendonly", "yes"]
     ports:
       - "127.0.0.1:${REDIS_PORT:-6379}:6379"
@@ -45,6 +48,8 @@ services:
     image: portfonia-backend
     container_name: portfonia-migrate
     env_file: .env
+    environment:
+      TZ: America/New_York
     depends_on:
       postgres:
         condition: service_healthy
@@ -58,6 +63,8 @@ services:
     container_name: portfonia-backend
     restart: unless-stopped
     env_file: .env
+    environment:
+      TZ: America/New_York
     depends_on:
       postgres:
         condition: service_healthy
@@ -71,6 +78,8 @@ services:
     container_name: portfonia-celery-worker
     restart: unless-stopped
     env_file: .env
+    environment:
+      TZ: America/New_York
     command: ["celery", "-A", "app.tasks", "worker", "--loglevel=info"]
     depends_on:
       postgres:
@@ -85,6 +94,8 @@ services:
     container_name: portfonia-celery-beat
     restart: unless-stopped
     env_file: .env
+    environment:
+      TZ: America/New_York
     command: ["celery", "-A", "app.tasks", "beat", "--loglevel=info"]
     depends_on:
       postgres:
@@ -114,6 +125,7 @@ services:
     container_name: portfonia-frontend
     restart: unless-stopped
     environment:
+      TZ: America/New_York
       BACKEND_URL: http://backend:8000
     depends_on:
       - backend
@@ -126,6 +138,7 @@ services:
       - "80:80"
       - "443:443"
     environment:
+      TZ: America/New_York
       SUPABASE_PROJECT_HOST: ${SUPABASE_PROJECT_HOST:?required}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
