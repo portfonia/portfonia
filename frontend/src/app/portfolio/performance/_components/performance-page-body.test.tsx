@@ -486,6 +486,31 @@ describe("PerformancePageBody", () => {
     );
   });
 
+  it("keeps the dashed legend hint on a solid-to-approximate transition (#493)", async () => {
+    getPerformanceMock.mockResolvedValue(
+      response({
+        portfolio: portfolioSeries([
+          {
+            date: "2026-08-03",
+            value_base: "100",
+            return_pct_cumulative: "0",
+            is_approximate: false,
+          },
+          {
+            date: "2026-08-04",
+            value_base: "101",
+            return_pct_cumulative: "0.01",
+            is_approximate: true,
+          },
+        ]),
+      }),
+    );
+    renderBody();
+
+    expect(await screen.findByTestId("performance-chart")).toBeInTheDocument();
+    expect(screen.getByText(/dashed = approximate/)).toBeInTheDocument();
+  });
+
   it("shows the approximate badge and dashed legend hint for approximate data", async () => {
     getPerformanceMock.mockResolvedValue(
       response({

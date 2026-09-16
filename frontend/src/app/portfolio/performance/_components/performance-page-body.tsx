@@ -259,16 +259,6 @@ export function PerformancePageBody({
         isPortfolio: true,
         singletonDot: seriesHasSingleValue(chartData.rows, PORTFOLIO_KEY),
       });
-      if (hasApprox) {
-        series.push({
-          key: PORTFOLIO_APPROX_KEY,
-          label: t("performance.chartPortfolioLabel"),
-          color: PORTFOLIO_COLOR,
-          dashed: true,
-          isPortfolio: true,
-          singletonDot: seriesHasSingleValue(chartData.rows, PORTFOLIO_APPROX_KEY),
-        });
-      }
     }
     for (const benchmark of chartData.drawnBenchmarks) {
       const ownBaseline =
@@ -287,7 +277,7 @@ export function PerformancePageBody({
       });
     }
     return series;
-  }, [response, chartData, hasApprox, t, locale]);
+  }, [response, chartData, t, locale]);
 
   // Legend mirrors the drawn lines, collapsing the portfolio's solid+dashed
   // pair back into one entry (the dashed hint line explains the second

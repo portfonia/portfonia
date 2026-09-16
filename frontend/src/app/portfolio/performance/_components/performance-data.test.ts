@@ -135,6 +135,32 @@ describe("buildChartData", () => {
     expect(row["2026-08-06"].portfolio).toBeNull();
     expect(row["2026-08-07"].portfolio).toBe(0.2);
     expect(row["2026-08-07"].portfolioApprox).toBeNull();
+    // Approximate stretch is a dashed-eligible run: connector uses each
+    // day's own real value plus the bounding solid endpoints (#493).
+    expect(row["2026-08-03"].portfolioGap).toBeNull();
+    expect(row["2026-08-04"].portfolioGap).toBe(0.1);
+    expect(row["2026-08-05"].portfolioGap).toBe(0.21);
+    expect(row["2026-08-06"].portfolioGap).toBe(0.3);
+    expect(row["2026-08-07"].portfolioGap).toBe(0.2);
+  });
+
+  it("draws a dashed connector across a solid-to-approximate transition (#493)", () => {
+    const portfolio = portfolioSeries([
+      { date: "2026-08-03", value_base: "100", return_pct_cumulative: "0", is_approximate: false },
+      { date: "2026-08-04", value_base: "110", return_pct_cumulative: "0.1", is_approximate: true },
+    ]);
+
+    const { rows } = buildChartData(portfolio, []);
+    const row: Record<string, ChartSeriesRow> = Object.fromEntries(
+      rows.map((r) => [r.date, r]),
+    );
+
+    expect(row["2026-08-03"].portfolio).toBe(0);
+    expect(row["2026-08-03"].portfolioApprox).toBeNull();
+    expect(row["2026-08-04"].portfolio).toBeNull();
+    expect(row["2026-08-04"].portfolioApprox).toBe(0.1);
+    expect(row["2026-08-03"].portfolioGap).toBe(0);
+    expect(row["2026-08-04"].portfolioGap).toBe(0.1);
   });
 
   it("sets portfolioGap only at the two real boundaries of a missing-date run (#486)", () => {
@@ -209,7 +235,7 @@ describe("buildChartData", () => {
     expect(rows.map((r) => r.portfolioGap)).toEqual([null, null, null]);
   });
 
-  it("does not treat an approximate stretch as a gap (#486)", () => {
+  it("keeps an approximate stretch on its own connector and does not drop its values (#493)", () => {
     const portfolio = portfolioSeries([
       { date: "2026-08-03", value_base: "100", return_pct_cumulative: "0", is_approximate: false },
       { date: "2026-08-04", value_base: "110", return_pct_cumulative: "0.1", is_approximate: false },
@@ -219,8 +245,35 @@ describe("buildChartData", () => {
     ]);
 
     const { rows } = buildChartData(portfolio, []);
-    expect(rows.every((r) => r.portfolioGap === null)).toBe(true);
     expect(rows.map((r) => r.portfolioApprox)).toEqual([null, null, 0.21, 0.3, null]);
+    expect(rows.map((r) => r.portfolioGap)).toEqual([null, 0.1, 0.21, 0.3, 0.2]);
+    expect(rows.map((r) => r.portfolio)).toEqual([0, 0.1, null, null, 0.2]);
+  });
+
+  it("does not put two non-solid runs separated by a solid stretch on one connector (#493)", () => {
+    const portfolio = portfolioSeries([
+      { date: "2026-08-03", value_base: "100", return_pct_cumulative: "0", is_approximate: false },
+      { date: "2026-08-04", value_base: "101", return_pct_cumulative: "0.01", is_approximate: true },
+      { date: "2026-08-05", value_base: "110", return_pct_cumulative: "0.1", is_approximate: false },
+      { date: "2026-08-06", value_base: "120", return_pct_cumulative: "0.2", is_approximate: false },
+      { date: "2026-08-07", value_base: "121", return_pct_cumulative: "0.21", is_approximate: true },
+      { date: "2026-08-08", value_base: "130", return_pct_cumulative: "0.3", is_approximate: false },
+    ]);
+
+    const { rows } = buildChartData(portfolio, []);
+    const row: Record<string, ChartSeriesRow> = Object.fromEntries(
+      rows.map((r) => [r.date, r]),
+    );
+
+    expect(row["2026-08-03"].portfolioGap).toBe(0);
+    expect(row["2026-08-04"].portfolioGap).toBe(0.01);
+    expect(row["2026-08-05"].portfolioGap).toBe(0.1);
+    expect(row["2026-08-05"]["portfolioGap:1"] ?? null).toBeNull();
+    expect(row["2026-08-06"].portfolioGap).toBeNull();
+    expect(row["2026-08-06"]["portfolioGap:1"]).toBe(0.2);
+    expect(row["2026-08-07"]["portfolioGap:1"]).toBe(0.21);
+    expect(row["2026-08-08"]["portfolioGap:1"]).toBe(0.3);
+    expect(row["2026-08-08"].portfolioGap).toBeNull();
   });
 
   it("assigns independent boundary values for multiple separate gaps (#486)", () => {

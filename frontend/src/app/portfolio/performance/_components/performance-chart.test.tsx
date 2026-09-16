@@ -58,9 +58,9 @@ function gapKeysFromRows(rows: ChartSeriesRow[]): string[] {
   return [...keys].sort();
 }
 
-function seriesFor(includeApprox: boolean, gapKeys: string[] = []): ChartSeriesSpec[] {
+function seriesFor(gapKeys: string[] = []): ChartSeriesSpec[] {
   const series: ChartSeriesSpec[] = [];
-  // Gap lines first so the solid/approx strokes paint on top of them.
+  // Dashed connectors first so the solid stroke paints on top of them.
   for (const key of gapKeys) {
     series.push({
       key,
@@ -77,23 +77,13 @@ function seriesFor(includeApprox: boolean, gapKeys: string[] = []): ChartSeriesS
     color: PORTFOLIO_COLOR,
     isPortfolio: true,
   });
-  if (includeApprox) {
-    series.push({
-      key: "portfolioApprox",
-      label: "Portfolio",
-      color: PORTFOLIO_COLOR,
-      dashed: true,
-      isPortfolio: true,
-    });
-  }
   series.push({ key: "sp500", label: "S&P 500", color: SP500_COLOR });
   return series;
 }
 
 function renderChart(rows: ChartSeriesRow[], singletonPortfolio = false) {
-  const includeApprox = rows.some((row) => row.portfolioApprox !== null);
   const gapKeys = gapKeysFromRows(rows);
-  const series = seriesFor(includeApprox, gapKeys).map((spec) =>
+  const series = seriesFor(gapKeys).map((spec) =>
     spec.isPortfolio && !gapKeys.includes(spec.key)
       ? { ...spec, singletonDot: singletonPortfolio }
       : spec,
@@ -125,13 +115,27 @@ describe("PerformanceChart", () => {
 
   it("renders approximate segments as dashed strokes (req 6)", () => {
     const rows = [
-      { date: "2026-08-03", portfolio: 0, portfolioApprox: null, portfolioGap: null, sp500: 0 },
-      { date: "2026-08-04", portfolio: null, portfolioApprox: 0.1, portfolioGap: null, sp500: 0.02 },
-      { date: "2026-08-05", portfolio: null, portfolioApprox: 0.15, portfolioGap: null, sp500: 0.01 },
+      { date: "2026-08-03", portfolio: 0, portfolioApprox: null, portfolioGap: 0, sp500: 0 },
+      { date: "2026-08-04", portfolio: null, portfolioApprox: 0.1, portfolioGap: 0.1, sp500: 0.02 },
+      { date: "2026-08-05", portfolio: null, portfolioApprox: 0.15, portfolioGap: 0.15, sp500: 0.01 },
     ];
     const { container } = renderChart(rows);
 
     expect(container.querySelector('path[stroke-dasharray="5 4"]')).not.toBeNull();
+  });
+
+  it("renders a dashed connector on a solid-to-approximate transition (#493)", () => {
+    const rows = [
+      { date: "2026-08-03", portfolio: 0, portfolioApprox: null, portfolioGap: 0, sp500: 0 },
+      { date: "2026-08-04", portfolio: null, portfolioApprox: 0.1, portfolioGap: 0.1, sp500: 0.02 },
+    ];
+    const { container } = renderChart(rows);
+
+    const dashed = [...container.querySelectorAll('path[stroke-dasharray="5 4"]')].filter(
+      (path) => path.getAttribute("stroke-width") === "2.5",
+    );
+    expect(dashed).toHaveLength(1);
+    expect(dashed[0]?.getAttribute("d")?.match(/M/g)?.length).toBe(1);
   });
 
   it("renders a dot when the portfolio has a single point (short history)", () => {
@@ -183,11 +187,11 @@ describe("PerformanceChart", () => {
     expect(container.querySelector('path[stroke-dasharray]')).toBeNull();
   });
 
-  it("leaves an approximate stretch's dashed stroke as the only extra segment (#486)", () => {
+  it("leaves an approximate stretch's dashed stroke as the only extra segment (#493)", () => {
     const rows = [
-      { date: "2026-08-03", portfolio: 0, portfolioApprox: null, portfolioGap: null, sp500: 0 },
-      { date: "2026-08-04", portfolio: null, portfolioApprox: 0.1, portfolioGap: null, sp500: 0.02 },
-      { date: "2026-08-05", portfolio: null, portfolioApprox: 0.15, portfolioGap: null, sp500: 0.01 },
+      { date: "2026-08-03", portfolio: 0, portfolioApprox: null, portfolioGap: 0, sp500: 0 },
+      { date: "2026-08-04", portfolio: null, portfolioApprox: 0.1, portfolioGap: 0.1, sp500: 0.02 },
+      { date: "2026-08-05", portfolio: null, portfolioApprox: 0.15, portfolioGap: 0.15, sp500: 0.01 },
     ];
     const { container } = renderChart(rows);
     expect(container.querySelectorAll('path[stroke-dasharray="5 4"]').length).toBe(1);

@@ -1,6 +1,7 @@
 // Chart row/domain building for the performance chart (issue #360 Phase 2,
-// issue #377 displayable history, issue #486 gap connector). Kept separate
-// from the recharts component so merge logic is unit-testable without rendering.
+// issue #377 displayable history, issue #486/#493 dashed connectors). Kept
+// separate from the recharts component so merge logic is unit-testable
+// without rendering.
 
 import type {
   BenchmarkCode,
@@ -48,9 +49,9 @@ export interface ChartSeriesRow {
   date: string;
   portfolio: number | null;
   portfolioApprox: number | null;
-  // Rendering-only connector between two already-real points across a
-  // missing-date run (issue #486). Null everywhere except those two
-  // boundaries; never a reconstructed value.
+  // Rendering-only dashed connector (issues #486/#493). Holds already-real
+  // boundary and approximate-run values; missing calendar dates stay null
+  // and are never reconstructed.
   portfolioGap: number | null;
   // Benchmark cumulative % ratio columns, keyed by index_code. Null stays
   // null so the chart cannot bridge an unavailable span.
@@ -115,37 +116,56 @@ function insertMissingCalendarDates(
   }
 }
 
+function isSolidEligible(row: ChartSeriesRow): boolean {
+  return typeof row.portfolio === "number" && Number.isFinite(row.portfolio);
+}
+
 function fillPortfolioGapColumns(rows: ChartSeriesRow[]): void {
-  const values = rows.map(rowPortfolioValue);
+  // One independent dashed column per maximal run of consecutive
+  // non-solid-eligible dates (approximate points or missing calendar
+  // days), bounded by the adjacent real values. Issue #493.
   let i = 0;
   let gapIndex = 0;
   while (i < rows.length) {
-    if (values[i] === null) {
+    const startRow = rows[i];
+    if (startRow === undefined || isSolidEligible(startRow)) {
       i += 1;
       continue;
     }
-    let j = i + 1;
-    while (j < rows.length && values[j] === null) {
-      j += 1;
+    const lo = i;
+    let hi = i;
+    while (hi + 1 < rows.length) {
+      const next = rows[hi + 1];
+      if (next === undefined || isSolidEligible(next)) break;
+      hi += 1;
     }
-    if (j >= rows.length) {
-      break;
+
+    const points: { row: ChartSeriesRow; value: number }[] = [];
+    const leftRow = lo > 0 ? rows[lo - 1] : undefined;
+    const leftVal = leftRow === undefined ? null : rowPortfolioValue(leftRow);
+    if (leftRow !== undefined && leftVal !== null) {
+      points.push({ row: leftRow, value: leftVal });
     }
-    if (j > i + 1) {
-      const left = values[i];
-      const right = values[j];
-      const leftRow = rows[i];
-      const rightRow = rows[j];
-      if (left === null || right === null || leftRow === undefined || rightRow === undefined) {
-        i = j;
-        continue;
-      }
+    for (let k = lo; k <= hi; k += 1) {
+      const interior = rows[k];
+      if (interior === undefined) continue;
+      const value = rowPortfolioValue(interior);
+      if (value !== null) points.push({ row: interior, value });
+    }
+    const rightRow = hi + 1 < rows.length ? rows[hi + 1] : undefined;
+    const rightVal = rightRow === undefined ? null : rowPortfolioValue(rightRow);
+    if (rightRow !== undefined && rightVal !== null) {
+      points.push({ row: rightRow, value: rightVal });
+    }
+
+    if (points.length >= 2) {
       const key = portfolioGapSeriesKey(gapIndex);
-      leftRow[key] = left;
-      rightRow[key] = right;
+      for (const point of points) {
+        point.row[key] = point.value;
+      }
       gapIndex += 1;
     }
-    i = j;
+    i = hi + 1;
   }
 }
 
