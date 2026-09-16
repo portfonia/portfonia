@@ -24,6 +24,37 @@ vi.mock("@/lib/api", async (importOriginal) => {
 
 const getPerformanceMock = vi.mocked(getPortfolioPerformance);
 
+// Chart SVG/tooltip assertions need a non-zero contentRect. The shared
+// vitest ResizeObserver stub only lets ResponsiveContainer mount.
+class SizedResizeObserver {
+  private callback: ResizeObserverCallback;
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback;
+  }
+  observe(target: Element): void {
+    const entry = {
+      target,
+      contentRect: {
+        x: 0,
+        y: 0,
+        width: 800,
+        height: 300,
+        top: 0,
+        right: 800,
+        bottom: 300,
+        left: 0,
+        toJSON: () => ({}),
+      },
+    } as ResizeObserverEntry;
+    this.callback([entry], this as unknown as ResizeObserver);
+  }
+  unobserve(): void {}
+  disconnect(): void {}
+}
+if (typeof globalThis.ResizeObserver !== "undefined") {
+  (globalThis as { ResizeObserver: unknown }).ResizeObserver = SizedResizeObserver;
+}
+
 function holding(overrides: Partial<HoldingValueOut>): HoldingValueOut {
   return {
     holding_id: "11111111-1111-1111-1111-111111111111",
@@ -484,6 +515,56 @@ describe("PerformancePageBody", () => {
         "Nothing matches the selected filters in this range",
       ),
     );
+  });
+
+  it("renders a singleton dot for an approximate-only history (#493)", async () => {
+    getPerformanceMock.mockResolvedValue(
+      response({
+        portfolio: portfolioSeries([
+          {
+            date: "2026-08-03",
+            value_base: "100",
+            return_pct_cumulative: "0",
+            is_approximate: true,
+          },
+        ]),
+        benchmarks: [],
+        header: {
+          value_base: "100.00",
+          value_change_base: "0",
+          value_change_pct: "0",
+          label: "market_value_change",
+        },
+      }),
+    );
+    renderBody();
+    const chart = await screen.findByTestId("performance-chart");
+    expect(chart.querySelector(".recharts-line-dots")).not.toBeNull();
+  });
+
+  it("keeps the dashed legend hint on a solid-to-approximate transition (#493)", async () => {
+    getPerformanceMock.mockResolvedValue(
+      response({
+        portfolio: portfolioSeries([
+          {
+            date: "2026-08-03",
+            value_base: "100",
+            return_pct_cumulative: "0",
+            is_approximate: false,
+          },
+          {
+            date: "2026-08-04",
+            value_base: "101",
+            return_pct_cumulative: "0.01",
+            is_approximate: true,
+          },
+        ]),
+      }),
+    );
+    renderBody();
+
+    expect(await screen.findByTestId("performance-chart")).toBeInTheDocument();
+    expect(screen.getByText(/dashed = approximate/)).toBeInTheDocument();
   });
 
   it("shows the approximate badge and dashed legend hint for approximate data", async () => {

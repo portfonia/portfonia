@@ -25,7 +25,14 @@ import {
 } from "recharts";
 import { useMemo } from "react";
 import type { BenchmarkCode } from "@/lib/api";
-import { isPortfolioGapKey, type BuiltChartData, type ChartSeriesRow } from "./performance-data";
+import {
+  PORTFOLIO_APPROX_KEY,
+  PORTFOLIO_KEY,
+  isPortfolioGapKey,
+  rowPortfolioValue,
+  type BuiltChartData,
+  type ChartSeriesRow,
+} from "./performance-data";
 
 export interface ChartSeriesSpec {
   // Chart data column key (portfolio / portfolioApprox / portfolioGap / a
@@ -48,7 +55,7 @@ function rowValue(row: ChartSeriesRow, key: string): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function ChartTooltip({
+export function ChartTooltip({
   active,
   payload,
   series,
@@ -66,8 +73,8 @@ function ChartTooltip({
 
   const entries = series
     .map((spec) => {
-      if (isPortfolioGapKey(spec.key)) return null;
-      const value = rowValue(row, spec.key);
+      if (isPortfolioGapKey(spec.key) || spec.key === PORTFOLIO_APPROX_KEY) return null;
+      const value = spec.key === PORTFOLIO_KEY ? rowPortfolioValue(row) : rowValue(row, spec.key);
       if (value === null) return null;
       const meta =
         spec.isPortfolio || spec.key === "portfolioApprox"

@@ -259,14 +259,17 @@ export function PerformancePageBody({
         isPortfolio: true,
         singletonDot: seriesHasSingleValue(chartData.rows, PORTFOLIO_KEY),
       });
-      if (hasApprox) {
+      const hasSolidPoint = chartData.rows.some(
+        (row) => typeof row.portfolio === "number" && Number.isFinite(row.portfolio),
+      );
+      if (!hasSolidPoint && seriesHasSingleValue(chartData.rows, PORTFOLIO_APPROX_KEY)) {
         series.push({
           key: PORTFOLIO_APPROX_KEY,
           label: t("performance.chartPortfolioLabel"),
           color: PORTFOLIO_COLOR,
           dashed: true,
           isPortfolio: true,
-          singletonDot: seriesHasSingleValue(chartData.rows, PORTFOLIO_APPROX_KEY),
+          singletonDot: true,
         });
       }
     }
@@ -287,7 +290,7 @@ export function PerformancePageBody({
       });
     }
     return series;
-  }, [response, chartData, hasApprox, t, locale]);
+  }, [response, chartData, t, locale]);
 
   // Legend mirrors the drawn lines, collapsing the portfolio's solid+dashed
   // pair back into one entry (the dashed hint line explains the second
