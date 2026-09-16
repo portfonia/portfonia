@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.core.timezones import today_et
 from app.models.fx_rate import FxRate
 from app.scripts import backfill_usdcnh_history as script
 
@@ -51,7 +52,7 @@ def test_end_date_defaults_to_today_when_no_existing_rows(db_session: Session) -
         script.backfill_usdcnh_history(db_session, years=5, apply_changes=False)
 
     args = mock_fetch.call_args.args
-    assert args[2] == date.today()
+    assert args[2] == today_et()
 
 
 def test_dry_run_does_not_write_rows(db_session: Session) -> None:

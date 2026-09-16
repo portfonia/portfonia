@@ -7,7 +7,6 @@ from holdings that have moved.
 
 from __future__ import annotations
 
-import datetime as datetime_module
 import logging
 import uuid
 from datetime import date, timedelta
@@ -225,15 +224,11 @@ def test_daily_task_does_not_fill_prerollout_weekends(db_session: Session) -> No
     db_session.flush()
     capture_portfolio_value_snapshot(db_session, friday)
 
-    class FrozenDate(datetime_module.date):
-        @classmethod
-        def today(cls) -> FrozenDate:
-            return cls(2026, 9, 15)
-
+    frozen = date(2026, 9, 15)
     with (
-        patch("datetime.date", FrozenDate),
-        patch("app.services.portfolio_history.date", FrozenDate),
-        patch("app.services.snapshot_recovery.date", FrozenDate),
+        patch("app.core.timezones.today_et", return_value=frozen),
+        patch("app.services.portfolio_history.today_et", return_value=frozen),
+        patch("app.services.snapshot_recovery.today_et", return_value=frozen),
     ):
         capture_portfolio_value_snapshot_task.run()
 

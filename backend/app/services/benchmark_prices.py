@@ -23,6 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
+from app.core.timezones import today_et
 from app.models.benchmark_price import BenchmarkPrice
 from app.services._yfinance import _quiet_yfinance_logs, _retry_with_backoff
 
@@ -62,7 +63,7 @@ _CSI300_AGREE_REL = Decimal("0.0001")
 
 
 def _today() -> date:
-    return date.today()
+    return today_et()
 
 
 def _fetch_index_closes(

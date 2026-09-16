@@ -32,6 +32,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
+from app.core.timezones import today_et
 from app.models.fx_rate import FxRate
 from app.services._twelvedata import fetch_daily_history
 
@@ -58,7 +59,7 @@ def _existing_earliest_date(session: Session) -> date | None:
 
 def backfill_usdcnh_history(session: Session, *, years: int, apply_changes: bool) -> int:
     earliest = _existing_earliest_date(session)
-    end_date = (earliest - timedelta(days=1)) if earliest is not None else date.today()
+    end_date = (earliest - timedelta(days=1)) if earliest is not None else today_et()
     start_date = end_date - timedelta(days=365 * years)
 
     if end_date < start_date:

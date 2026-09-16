@@ -27,6 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
+from app.core.timezones import today_et
 from app.models.portfolio_snapshot_batch import PortfolioSnapshotBatch
 from app.services.portfolio_history import (
     apply_outbox_row,
@@ -169,7 +170,7 @@ def main() -> None:
     parser.add_argument(
         "--end-date",
         type=_parse_date,
-        default=date.today() - timedelta(days=1),
+        default=today_et() - timedelta(days=1),
         help="Inclusive end (default: yesterday, the day before this ships).",
     )
     args = parser.parse_args()

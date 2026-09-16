@@ -10,7 +10,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.timezones import ET
+from app.core.timezones import ET, today_et
 from app.models.fx_rate import FxRate
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
@@ -369,7 +369,7 @@ def compute_portfolio(
     `as_of` are recorded in `stale_priced_tickers` (included in totals but
     flagged for ops alerting).
     """
-    price_ref = as_of or date.today()
+    price_ref = as_of or today_et()
     fx, fx_pair_dates = _load_fx_rates(session)
     snapshot = PortfolioSnapshot(base_currency=base_currency)
     captured_closes = _latest_captured_closes(session)
