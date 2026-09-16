@@ -79,7 +79,7 @@ function splitPortfolioColumns(
   return split;
 }
 
-function rowPortfolioValue(row: ChartSeriesRow): number | null {
+export function rowPortfolioValue(row: ChartSeriesRow): number | null {
   if (typeof row.portfolio === "number" && Number.isFinite(row.portfolio)) {
     return row.portfolio;
   }

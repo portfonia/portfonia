@@ -1,9 +1,9 @@
-import { render } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
 import type { ChartSeriesRow } from "./performance-data";
-import { PerformanceChart, type ChartSeriesSpec } from "./performance-chart";
+import { ChartTooltip, PerformanceChart, type ChartSeriesSpec } from "./performance-chart";
 
 // The shared vitest ResizeObserver stub (vitest.setup.ts) exists only so
 // recharts' ResponsiveContainer can MOUNT — it never reports a size, so
@@ -81,16 +81,36 @@ function seriesFor(gapKeys: string[] = []): ChartSeriesSpec[] {
   return series;
 }
 
-function renderChart(rows: ChartSeriesRow[], singletonPortfolio = false) {
+function renderChart(
+  rows: ChartSeriesRow[],
+  singletonPortfolio = false,
+  extraSeries: ChartSeriesSpec[] = [],
+) {
   const gapKeys = gapKeysFromRows(rows);
-  const series = seriesFor(gapKeys).map((spec) =>
-    spec.isPortfolio && !gapKeys.includes(spec.key)
-      ? { ...spec, singletonDot: singletonPortfolio }
-      : spec,
-  );
+  const series = [
+    ...seriesFor(gapKeys).map((spec) =>
+      spec.isPortfolio && !gapKeys.includes(spec.key)
+        ? { ...spec, singletonDot: singletonPortfolio }
+        : spec,
+    ),
+    ...extraSeries,
+  ];
   return render(
     <LocaleProvider>
       <PerformanceChart rows={rows} series={series} pointMeta={{}} anchorDate={null} />
+    </LocaleProvider>,
+  );
+}
+
+function renderTooltip(row: ChartSeriesRow, series: ChartSeriesSpec[]) {
+  return render(
+    <LocaleProvider>
+      <ChartTooltip
+        active
+        payload={[{ payload: row, graphicalItemId: "portfolio" }]}
+        series={series}
+        pointMeta={{}}
+      />
     </LocaleProvider>,
   );
 }
@@ -143,6 +163,53 @@ describe("PerformanceChart", () => {
     const { container } = renderChart(rows, true);
 
     expect(container.querySelector(".recharts-line-dots")).not.toBeNull();
+  });
+
+  it("renders a singleton dot for an approximate-only history (#493)", () => {
+    const rows = [
+      { date: "2026-08-03", portfolio: null, portfolioApprox: 0, portfolioGap: null },
+    ];
+    const { container } = renderChart(rows, false, [
+      {
+        key: "portfolioApprox",
+        label: "Portfolio",
+        color: PORTFOLIO_COLOR,
+        dashed: true,
+        isPortfolio: true,
+        singletonDot: true,
+      },
+    ]);
+
+    expect(container.querySelector(".recharts-line-dots")).not.toBeNull();
+  });
+
+  it("shows one portfolio tooltip value on an approximate date (#493)", () => {
+    const rows = [
+      { date: "2026-08-03", portfolio: 0, portfolioApprox: null, portfolioGap: 0, sp500: 0 },
+      { date: "2026-08-04", portfolio: null, portfolioApprox: 0.1, portfolioGap: 0.1, sp500: 0.01 },
+      { date: "2026-08-05", portfolio: 0.21, portfolioApprox: null, portfolioGap: 0.21, sp500: 0.03 },
+    ];
+    // Same series shape the page emits: connectors + solid, no portfolioApprox line.
+    renderTooltip(rows[1] as ChartSeriesRow, seriesFor(gapKeysFromRows(rows)));
+
+    expect(screen.getByText("Portfolio")).toBeInTheDocument();
+    expect(screen.getByText("+10.00%")).toBeInTheDocument();
+    expect(screen.getByText("S&P 500")).toBeInTheDocument();
+    expect(screen.getByText("+1.00%")).toBeInTheDocument();
+    expect(screen.getAllByText("Portfolio")).toHaveLength(1);
+  });
+
+  it("does not invent a portfolio tooltip value on a missing date (#493)", () => {
+    const rows = [
+      { date: "2026-08-03", portfolio: 0, portfolioApprox: null, portfolioGap: 0, sp500: 0 },
+      { date: "2026-08-04", portfolio: null, portfolioApprox: null, portfolioGap: null, sp500: 0.01 },
+      { date: "2026-08-05", portfolio: 0.21, portfolioApprox: null, portfolioGap: 0.21, sp500: 0.03 },
+    ];
+    renderTooltip(rows[1] as ChartSeriesRow, seriesFor(gapKeysFromRows(rows)));
+
+    expect(screen.queryByText("Portfolio")).toBeNull();
+    expect(screen.getByText("S&P 500")).toBeInTheDocument();
+    expect(screen.getByText("+1.00%")).toBeInTheDocument();
   });
 
   it("renders nothing for empty rows", () => {

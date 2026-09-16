@@ -259,6 +259,19 @@ export function PerformancePageBody({
         isPortfolio: true,
         singletonDot: seriesHasSingleValue(chartData.rows, PORTFOLIO_KEY),
       });
+      const hasSolidPoint = chartData.rows.some(
+        (row) => typeof row.portfolio === "number" && Number.isFinite(row.portfolio),
+      );
+      if (!hasSolidPoint && seriesHasSingleValue(chartData.rows, PORTFOLIO_APPROX_KEY)) {
+        series.push({
+          key: PORTFOLIO_APPROX_KEY,
+          label: t("performance.chartPortfolioLabel"),
+          color: PORTFOLIO_COLOR,
+          dashed: true,
+          isPortfolio: true,
+          singletonDot: true,
+        });
+      }
     }
     for (const benchmark of chartData.drawnBenchmarks) {
       const ownBaseline =

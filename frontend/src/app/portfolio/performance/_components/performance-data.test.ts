@@ -390,6 +390,21 @@ describe("buildChartData", () => {
     expect(rows[3]?.portfolioGap).toBe(0.1);
   });
 
+  it("does not fabricate a connector for a single approximate snapshot (#493)", () => {
+    const portfolio = portfolioSeries([
+      { date: "2026-08-03", value_base: "100", return_pct_cumulative: "0", is_approximate: true },
+    ]);
+
+    const { rows } = buildChartData(portfolio, []);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      date: "2026-08-03",
+      portfolio: null,
+      portfolioApprox: 0,
+      portfolioGap: null,
+    });
+  });
+
   it("returns no rows when the portfolio is empty and no benchmark draws", () => {
     const empty: PortfolioPerformanceSeries = {
       empty: true,
