@@ -38,6 +38,7 @@ from typing import Literal
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
+from app.core.timezones import today_et
 from app.models.holding import Holding
 from app.models.portfolio_snapshot_batch import PortfolioSnapshotBatch
 from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
@@ -1207,7 +1208,7 @@ def compute_portfolio_performance(
     monthly_benchmark: str = "sp500",
     today: date | None = None,
 ) -> PerformanceResult:
-    today = today or date.today()
+    today = today or today_et()
     start_date, end_date = resolve_range(range_key, today)
 
     canonical_currency = report_currency_for(session, user_id, "USD")

@@ -43,6 +43,7 @@ from app.core.rate_limit import (
     rate_limit_create_invite,
     release_report_resend_cooldown,
 )
+from app.core.timezones import today_et
 from app.models.email_verification import EmailVerification
 from app.models.holding import Holding
 from app.models.invite import Invite
@@ -231,7 +232,7 @@ def recover_portfolio_snapshots_endpoint(
     Window defaults to the last `CATCHUP_LOOKBACK_DAYS` ending today, and is
     capped at `MAX_RECOVERY_WINDOW_DAYS` per request because it runs inline.
     """
-    end = end_date or date.today()
+    end = end_date or today_et()
     start = start_date or end - timedelta(days=CATCHUP_LOOKBACK_DAYS)
     try:
         report = recover_portfolio_snapshots(session, start, end)

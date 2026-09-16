@@ -6,6 +6,7 @@ correctly — e.g. US Eastern is UTC-5 in winter, UTC-4 in summer.
 
 from __future__ import annotations
 
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 # US Eastern — canonical market clock for FX rate_date boundaries (design §6.2).
@@ -39,3 +40,8 @@ MARKET_TZ = {
     "Japan": JST,
     "Korea": KST,
 }
+
+
+def today_et() -> date:
+    """Calendar day in America/New_York, not the process system clock."""
+    return datetime.now(tz=ET).date()

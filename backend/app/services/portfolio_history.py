@@ -39,6 +39,7 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
+from app.core.timezones import today_et
 from app.models.fx_rate import FxRate
 from app.models.holding import Holding
 from app.models.portfolio_snapshot_batch import PortfolioSnapshotBatch
@@ -500,7 +501,7 @@ def capture_portfolio_value_snapshot(
     The publish phase is one transaction for the whole fan-out (decided in
     #373; see the module docstring).
     """
-    target_date = snapshot_date or date.today()
+    target_date = snapshot_date or today_et()
     user_ids = snapshot_fanout_user_ids(session)
 
     skipped = 0

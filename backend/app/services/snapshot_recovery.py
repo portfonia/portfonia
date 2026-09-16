@@ -38,6 +38,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.timezones import today_et
 from app.models.holding import Holding
 from app.models.portfolio_snapshot_batch import PortfolioSnapshotBatch
 from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
@@ -266,7 +267,7 @@ def recover_portfolio_snapshots(
     if (end_date - start_date).days > MAX_RECOVERY_WINDOW_DAYS:
         raise ValueError(f"recovery window may not exceed {MAX_RECOVERY_WINDOW_DAYS} days")
 
-    reference_today = today or date.today()
+    reference_today = today or today_et()
     oldest_recomputable = reference_today - timedelta(days=CATCHUP_LOOKBACK_DAYS)
     user_ids = snapshot_fanout_user_ids(session)
 

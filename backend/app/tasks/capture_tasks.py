@@ -679,16 +679,17 @@ def capture_portfolio_value_snapshot_task(self: Any) -> dict[str, int]:
     it refuses to invent are logged and left non-`complete` for ops (detection
     is the separate capture-health probe, #372).
     """
-    from datetime import date, timedelta
+    from datetime import timedelta
 
     from app.core.database import SessionLocal
+    from app.core.timezones import today_et
     from app.services.portfolio_history import capture_portfolio_value_snapshot
     from app.services.snapshot_recovery import CATCHUP_LOOKBACK_DAYS, recover_portfolio_snapshots
 
     session = SessionLocal()
     try:
         result = capture_portfolio_value_snapshot(session)
-        today = date.today()
+        today = today_et()
         recovery = recover_portfolio_snapshots(
             session,
             start_date=today - timedelta(days=CATCHUP_LOOKBACK_DAYS),
