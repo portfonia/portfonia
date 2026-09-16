@@ -85,6 +85,13 @@ class CaptureHealthReport:
     fx_last: date | None = None
     bench_last: date | None = None
     complete_last: date | None = None
+    # Last Mon-Fri on or before the probe. Market-data wording and
+    # repeat-detection use this; `expected_date` is the probe/portfolio
+    # calendar day (issue #487).
+    market_expected_date: date | None = None
+
+    def market_day(self) -> date:
+        return self.market_expected_date or expected_capture_date(self.expected_date)
 
     def should_alert(self) -> bool:
         return bool(self.issues)
@@ -99,6 +106,7 @@ class CaptureHealthReport:
             "fx_last": self.fx_last.isoformat() if self.fx_last else None,
             "bench_last": self.bench_last.isoformat() if self.bench_last else None,
             "complete_last": self.complete_last.isoformat() if self.complete_last else None,
+            "market_expected_date": self.market_day().isoformat(),
         }
 
 
@@ -150,7 +158,7 @@ def evaluate_capture_health(session: Session, as_of: date | None = None) -> Capt
     if is_stale(bench_last, expected):
         issues.append("benchmark")
     report = CaptureHealthReport(
-        expected_date=expected,
+        expected_date=as_of_date,
         issues=tuple(issues),
         skipped_deps=skipped,
         pending=pending,
@@ -158,9 +166,11 @@ def evaluate_capture_health(session: Session, as_of: date | None = None) -> Capt
         fx_last=fx_last,
         bench_last=bench_last,
         complete_last=complete_last,
+        market_expected_date=expected,
     )
     logger.info(
-        "capture_health: expected=%s issues=%s skipped_deps=%d pending=%d",
+        "capture_health: expected=%s market_expected=%s issues=%s skipped_deps=%d pending=%d",
+        as_of_date,
         expected,
         ",".join(issues) or "none",
         skipped,
@@ -209,7 +219,7 @@ def _format_last(d: date | None) -> str:
 
 
 def _render_issue_block(code: str, report: CaptureHealthReport) -> list[str]:
-    expected = report.expected_date.isoformat()
+    expected = report.market_day().isoformat()
     if code == "portfolio":
         # No "no X dated ... yet" lead here — the template leads straight
         # with the skipped/pending counts, unlike the other three pipelines.
@@ -236,7 +246,7 @@ def _render_issue_block(code: str, report: CaptureHealthReport) -> list[str]:
 def _render_alert_body(report: CaptureHealthReport, fingerprint: str) -> str:
     expected = report.expected_date.isoformat()
     lines = [
-        f"Portfonia data capture check — {expected} (expected trading day, US Eastern Time)",
+        f"Portfonia data capture check — {expected} (US Eastern Time)",
         "",
         "ISSUES FOUND:",
         "",
@@ -282,7 +292,7 @@ def maybe_alert_capture_health(report: CaptureHealthReport) -> None:
         "benchmark": report.bench_last,
     }
     is_repeat = any(
-        _is_repeat(last_by_code[code], report.expected_date)
+        _is_repeat(last_by_code[code], report.market_day())
         for code in report.issues
         if code in last_by_code
     )

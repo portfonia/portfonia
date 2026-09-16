@@ -566,8 +566,10 @@ before `snapshot_date` get `data_quality="approx_carried"` and flow through
 the existing `_is_approximate` / dashed `portfolioApprox` path. FX /
 benchmark / fund-NAV Beat entries also run every day; they date rows by the
 source bar, so a non-trading day is an idempotent no-op, not a re-dated
-"today" row. `recover_portfolio_snapshots` iterates every calendar day so
-a failed weekend is recoverable. One-off historical weekend fill is
+"today" row. `recover_portfolio_snapshots` recovers weekend days on or after
+`WEEKEND_CAPTURE_ENABLED_FROM` (2026-09-15) so a failed live Saturday/
+Sunday is catchable; earlier weekend gaps stay untouched by that
+unattended path. One-off historical weekend fill is
 `app/scripts/backfill_weekend_gaps.py` (Requirement 6), fingerprint-gated
 by `recompute_is_safe` — not a standing Beat task, and not a production
 write without a separate authorization.
@@ -575,8 +577,11 @@ write without a separate authorization.
 **Capture health (issue #372 slice B, split in #487)**: `check-capture-health-daily` at
 21:30 ET every calendar day. One probe after that window, not checks sprinkled into
 every capture function. **Alert rule:** FX/price/benchmark/fund-NAV expected
-date = last Mon-Fri on or before `as_of` (`expected_capture_date`);
-portfolio expected date = `as_of` itself (`expected_capture_date_portfolio`).
+date = last Mon-Fri on or before `as_of` (`expected_capture_date`, stored as
+`market_expected_date`); portfolio expected date = `as_of` itself
+(`expected_capture_date_portfolio`). `CaptureHealthReport.expected_date` is
+the probe calendar day so weekend portfolio alerts do not share Friday's
+dedup key.
 A market-data pipeline is stale if it has no success evidence dated on that
 last trading day; the portfolio pipeline is stale if it has no `complete`
 batch on the calendar day of the probe.

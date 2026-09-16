@@ -46,7 +46,7 @@ from app.models.portfolio_snapshot_outbox import PortfolioSnapshotOutbox
 from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
 from app.models.price_snapshot import PriceSnapshot
 from app.models.user import User
-from app.services.fx_conversion import CURRENCY_TO_FX_PAIR, fx_multiplier, to_base
+from app.services.fx_conversion import CURRENCY_TO_FX_PAIR, conversion_pairs, fx_multiplier, to_base
 from app.services.instrument_symbols import normalize_legacy_ticker
 from app.services.markets import is_capture_supported
 from app.services.snapshot_outbox import (
@@ -224,10 +224,15 @@ def build_snapshot_row(
 
     # Carried-forward close or FX (issue #487): auto-priced holdings only.
     # Cash/manual/capture_supported=False have price_as_of=None (D5) and
-    # never take this branch.
+    # never take this branch. FX freshness follows conversion_pairs — the
+    # legs to_base actually consumed — not the single stored fx_as_of pair.
     if data_quality == "ok" and local.price_as_of is not None:
         price_carried = local.price_as_of != snapshot_date
-        fx_carried = fx_as_of is not None and fx_as_of != snapshot_date
+        used_pairs = conversion_pairs(h.currency, base_currency) or []
+        fx_carried = any(
+            fx_dates.get(pair) is not None and fx_dates[pair] != snapshot_date
+            for pair in used_pairs
+        )
         if price_carried or fx_carried:
             data_quality = "approx_carried"
 

@@ -59,6 +59,12 @@ logger = logging.getLogger(__name__)
 # fingerprint can see without a holdings CDC.
 CATCHUP_LOOKBACK_DAYS = 7
 
+# First calendar day on which weekend snapshot capture is a live Beat
+# target (issue #487 Requirement 1). Unattended recover_portfolio_snapshots
+# must not invent weekend rows before this date — those gaps belong to the
+# separately authorized backfill_weekend_gaps.py (Requirement 6).
+WEEKEND_CAPTURE_ENABLED_FROM = date(2026, 9, 15)
+
 # Ops-triggered recovery may look years back for frozen payloads (they are not
 # age-limited); this only bounds one synchronous request.
 MAX_RECOVERY_WINDOW_DAYS = 90
@@ -246,11 +252,12 @@ def recover_portfolio_snapshots(
 ) -> SnapshotRecoveryReport:
     """Recover missing snapshot days in `[start_date, end_date]` (inclusive).
 
-    Every calendar day (issue #487): weekends are legitimate portfolio
-    capture targets, so a failed Saturday/Sunday is recoverable the same
-    way as a weekday. Market-data pipelines still use
-    `capture_health.expected_capture_date` (last Mon-Fri); this module
-    recovers portfolio snapshots only.
+    Every calendar day from `WEEKEND_CAPTURE_ENABLED_FROM` (issue #487):
+    weekends on/after that date are legitimate portfolio capture targets,
+    so a failed Saturday/Sunday is recoverable the same way as a weekday.
+    Earlier weekend gaps stay untouched here — they are the separately
+    authorized `backfill_weekend_gaps.py` window. Market-data pipelines
+    still use `capture_health.expected_capture_date` (last Mon-Fri).
 
     Commits per date, so one bad day cannot roll back another's recovery.
     """
@@ -269,6 +276,9 @@ def recover_portfolio_snapshots(
 
     target = start_date
     while target <= end_date:
+        if target.weekday() >= 5 and target < WEEKEND_CAPTURE_ENABLED_FROM:
+            target += timedelta(days=1)
+            continue
         complete_ids = set(
             session.execute(
                 select(PortfolioSnapshotBatch.user_id).where(

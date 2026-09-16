@@ -367,6 +367,50 @@ def test_saturday_probe_alerts_when_portfolio_batch_missing(db_session: Session)
     assert "fx" not in report.issues
     assert "benchmark" not in report.issues
     assert report.should_alert() is True
+    assert report.expected_date == _SAT
+
+
+def test_weekend_portfolio_alerts_use_probe_date_for_dedup(
+    db_session: Session, production_env: None
+) -> None:
+    """Review P2: Saturday then Sunday portfolio failures must send two
+    emails, keyed by the probe date, not Friday's market expected date.
+    A second Saturday probe is deduped."""
+    seed_user(db_session, _UID, email="health-weekend-dedup@example.com")
+    db_session.add(
+        PriceSnapshot(
+            ticker="AAPL",
+            market="US",
+            session_node="close",
+            trade_date=_FRI,
+            close=Decimal("100"),
+        )
+    )
+    db_session.add(FxRate(pair="USDCNY", rate=Decimal("7"), rate_date=_FRI))
+    db_session.add(
+        BenchmarkPrice(
+            index_code="sp500", price_date=_FRI, close_price=Decimal("1"), currency="USD"
+        )
+    )
+    db_session.flush()
+
+    sat = evaluate_capture_health(db_session, as_of=_SAT)
+    sun = evaluate_capture_health(db_session, as_of=date(2026, 9, 6))
+    assert sat.issues == ("portfolio",)
+    assert sun.issues == ("portfolio",)
+    assert sat.expected_date == _SAT
+    assert sun.expected_date == date(2026, 9, 6)
+
+    with patch("app.services.capture_health.send_ops_alert", return_value=True) as mock_alert:
+        maybe_alert_capture_health(sat)
+        maybe_alert_capture_health(sun)
+        maybe_alert_capture_health(sat)
+        assert mock_alert.call_count == 2
+        subjects = [c.kwargs["subject"] for c in mock_alert.call_args_list]
+        assert _SAT.isoformat() in subjects[0]
+        assert date(2026, 9, 6).isoformat() in subjects[1]
+        assert _FRI.isoformat() not in subjects[0]
+        assert _FRI.isoformat() not in subjects[1]
 
 
 def test_beat_probe_is_after_snapshot_window() -> None:
