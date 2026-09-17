@@ -1,13 +1,42 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+import json
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_session
 from app.models.vigil import VigilVault
-from app.schemas.vigil import VigilVaultStatus
+from app.schemas.vigil import (
+    VigilConfigurationIn,
+    VigilConfigurationOut,
+    VigilObjectInitIn,
+    VigilObjectInitOut,
+    VigilObjectUploadOut,
+    VigilVaultStatus,
+)
 from app.services.vigil.access import VigilOwner, require_vigil_owner
+from app.services.vigil.configuration import (
+    VigilConfigurationInputError,
+    VigilRecipientsLocked,
+    VigilRevisionConflict,
+    validate_configuration_input,
+    write_pending_configuration,
+)
+from app.services.vigil.dns_check import (
+    VigilDnsUnavailable,
+    VigilNoMailRoute,
+    check_recipients_dns,
+)
+from app.services.vigil.objects import (
+    VigilObjectConflict,
+    VigilObjectInputError,
+    VigilObjectNotFound,
+    init_object,
+    upload_object,
+)
 
 router = APIRouter()
 
@@ -37,4 +66,184 @@ def get_vault(
         revision=vault.revision,
         hold_reason=vault.hold_reason,
         next_check_at=vault.next_check_at,
+    )
+
+
+# Issue #454 (Vigil R0 P2.1): configuration + object storage. DNS routing
+# validity happens outside any lock — see services/vigil/dns_check.py and
+# #450 Design section 5 ("DNS checks occur outside locks; a transient DNS
+# failure is 503 with no active-state change").
+
+
+@router.post(
+    "/configurations", response_model=VigilConfigurationOut, status_code=status.HTTP_201_CREATED
+)
+def post_configuration(
+    payload: VigilConfigurationIn,
+    owner: VigilOwner = Depends(require_vigil_owner),
+    session: Session = Depends(get_session),
+) -> VigilConfigurationOut:
+    try:
+        normalized = validate_configuration_input(
+            interval_days=payload.interval_days,
+            grace_hours=payload.grace_hours,
+            recipients=[r.model_dump() for r in payload.recipients],
+            message=payload.message,
+        )
+    except VigilConfigurationInputError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+    try:
+        check_recipients_dns(r.email for r in normalized.recipients)
+    except VigilNoMailRoute as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    except VigilDnsUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+
+    try:
+        result = write_pending_configuration(
+            session,
+            owner_user_id=owner.user_id,
+            owner_email=owner.email,
+            expected_revision=payload.expected_revision,
+            normalized=normalized,
+        )
+    except VigilRevisionConflict as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "revision_conflict", "current_revision": exc.current_revision},
+        ) from exc
+    except VigilRecipientsLocked as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+    session.commit()
+    return VigilConfigurationOut(
+        vault_id=result.vault_id, config_id=result.config_id, revision=result.revision
+    )
+
+
+@router.post(
+    "/objects/init", response_model=VigilObjectInitOut, status_code=status.HTTP_201_CREATED
+)
+def post_object_init(
+    payload: VigilObjectInitIn,
+    response: Response,
+    owner: VigilOwner = Depends(require_vigil_owner),
+    session: Session = Depends(get_session),
+) -> VigilObjectInitOut:
+    try:
+        result = init_object(
+            session,
+            owner_user_id=owner.user_id,
+            expected_revision=payload.expected_revision,
+            config_id=payload.config_id,
+            request_id=payload.request_id,
+            filename=payload.filename,
+            plaintext_size=payload.plaintext_size,
+        )
+    except VigilObjectNotFound as exc:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except VigilObjectInputError as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    except VigilObjectConflict as exc:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except VigilRevisionConflict as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "revision_conflict", "current_revision": exc.current_revision},
+        ) from exc
+
+    session.commit()
+    if not result.created:
+        response.status_code = status.HTTP_200_OK
+    return VigilObjectInitOut(object_id=result.object_id, revision=result.revision)
+
+
+_MAX_UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
+_MAX_UPLOAD_BODY_BYTES = 10_100_000
+
+
+@router.post(
+    "/objects/upload", response_model=VigilObjectUploadOut, status_code=status.HTTP_201_CREATED
+)
+async def post_object_upload(
+    response: Response,
+    expected_revision: int = Form(...),
+    config_id: UUID = Form(...),
+    object_id: UUID = Form(...),
+    manifest: str = Form(...),
+    inner: str = Form(...),
+    file: UploadFile = File(...),
+    owner: VigilOwner = Depends(require_vigil_owner),
+    session: Session = Depends(get_session),
+) -> VigilObjectUploadOut:
+    try:
+        manifest_obj = json.loads(manifest)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="manifest is not valid JSON"
+        ) from exc
+
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := await file.read(_MAX_UPLOAD_READ_CHUNK_BYTES):
+        total += len(chunk)
+        if total > _MAX_UPLOAD_BODY_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"upload body exceeds {_MAX_UPLOAD_BODY_BYTES} bytes",
+            )
+        chunks.append(chunk)
+    ciphertext = b"".join(chunks)
+
+    try:
+        result = upload_object(
+            session,
+            owner_user_id=owner.user_id,
+            expected_revision=expected_revision,
+            object_id=object_id,
+            config_id=config_id,
+            manifest=manifest_obj,
+            inner_b64=inner,
+            ciphertext=ciphertext,
+        )
+    except VigilObjectNotFound as exc:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except VigilObjectInputError as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    except VigilObjectConflict as exc:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except VigilRevisionConflict as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "revision_conflict", "current_revision": exc.current_revision},
+        ) from exc
+
+    session.commit()
+    if not result.created:
+        response.status_code = status.HTTP_200_OK
+    return VigilObjectUploadOut(
+        object_id=result.object_id, status=result.status, revision=result.revision
     )

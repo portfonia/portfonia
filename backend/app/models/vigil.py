@@ -8,6 +8,8 @@ from sqlalchemy import (
     BigInteger,
     CheckConstraint,
     ForeignKey,
+    Index,
+    LargeBinary,
     SmallInteger,
     Text,
     UniqueConstraint,
@@ -19,12 +21,15 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
 
-# Vigil R0 P1.1 (issue #451) — base schema only: vigil_vaults, vigil_runtime,
-# vigil_audit_events. Field/constraint contract is #450 Design section 4 /
-# Vigil_R0_Dev.md Appendix A, incorporated by reference — do not diverge from
-# it without updating that comment. Later checkpoints (#454+) add the rest of
-# the vigil_* tables (configurations/objects/cycles/...); this file only
-# grows alongside the checkpoint that actually needs each one.
+# Vigil R0 P1.1 (issue #451) added the base schema: vigil_vaults,
+# vigil_runtime, vigil_audit_events. Issue #454 (P2.1) adds
+# vigil_configurations/vigil_objects and upgrades vaults'
+# active/pending_config/object_id columns from plain nullable UUIDs to real
+# FKs now that their target tables exist. Field/constraint contract is #450
+# Design section 4 / Vigil_R0_Dev.md Appendix A, incorporated by reference —
+# do not diverge from it without updating that comment. Later checkpoints
+# (#458+) add the rest of the vigil_* tables (cycles/rounds/outbox/...); this
+# file only grows alongside the checkpoint that actually needs each one.
 
 VALID_VIGIL_PHASES = (
     "DISARMED",
@@ -37,6 +42,12 @@ VALID_VIGIL_PHASES = (
 )
 VALID_VIGIL_RUNTIME_HEALTH = ("ok", "held")
 VALID_VIGIL_AUDIT_ACTOR_TYPES = ("owner", "token", "system", "ops")
+VALID_VIGIL_CONFIGURATION_STATUSES = ("pending", "active", "retired")
+VALID_VIGIL_OBJECT_STATUSES = ("staging", "ready", "active", "retired", "deleted")
+VIGIL_OBJECT_MAX_PLAINTEXT_SIZE = 10_000_000
+# AES-256-GCM tag length (bytes) the browser-produced ciphertext always
+# carries appended — #450 Design section 5 / Vigil_R0_Dev.md §3.
+VIGIL_OBJECT_GCM_TAG_LENGTH = 16
 
 
 def _in_list_sql(column: str, values: tuple[str, ...]) -> str:
@@ -47,12 +58,14 @@ def _in_list_sql(column: str, values: tuple[str, ...]) -> str:
 class VigilVault(Base):
     """Per-owner Vigil vault row — one per user (issue #451).
 
-    Business logic (arm/release/replace/etc.) is not implemented yet; this
-    checkpoint only carries the schema and the DISARMED/revision=0 default
-    state a bare `INSERT` produces. `active_config_id`/`active_object_id`/
-    `pending_config_id`/`pending_object_id` are plain nullable UUID columns
-    with no FK — their target tables (vigil_configurations/vigil_objects)
-    don't exist until #454.
+    Business logic (arm/release/replace/etc.) is not implemented yet, but
+    since #454 (P2.1) `active_config_id`/`active_object_id`/
+    `pending_config_id`/`pending_object_id` are real FKs into
+    vigil_configurations/vigil_objects (RESTRICT — a purge must null these
+    out before deleting the rows they point at; see
+    services/user_purge.py). No route sets active_* yet (#458 arm);
+    pending_* is set by POST /vigil/configurations and
+    POST /vigil/objects/init.
     """
 
     __tablename__ = "vigil_vaults"
@@ -71,10 +84,18 @@ class VigilVault(Base):
     )
     phase: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'DISARMED'"))
     revision: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("0"))
-    active_config_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
-    active_object_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
-    pending_config_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
-    pending_object_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    active_config_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("vigil_configurations.id", ondelete="RESTRICT")
+    )
+    active_object_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("vigil_objects.id", ondelete="RESTRICT")
+    )
+    pending_config_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("vigil_configurations.id", ondelete="RESTRICT")
+    )
+    pending_object_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("vigil_objects.id", ondelete="RESTRICT")
+    )
     next_check_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     hold_reason: Mapped[str | None] = mapped_column(Text)
     held_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
@@ -146,6 +167,128 @@ class VigilAuditEvent(Base):
     to_phase: Mapped[str | None] = mapped_column(Text)
     revision: Mapped[int] = mapped_column(BigInteger, nullable=False)
     detail: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class VigilConfiguration(Base):
+    """Versioned configuration candidate for a vault (issue #454, P2.1).
+
+    `data_cipher` is a services.vigil.crypto contextual envelope wrapping
+    the strict business JSON {interval_days, grace_hours, account_email,
+    recipients:[{position,email}], message} — never a plain encrypted
+    scalar. `id` is a Python-side UUID (not server-generated) because the
+    crypto envelope must bind `row_id` to this row's own id *before* the
+    INSERT that stores it — the caller allocates the id, builds
+    `data_cipher` from it, then constructs this row with that id.
+
+    Address uniqueness/count within `recipients` is enforced after decrypt
+    under the vault lock (services/vigil/configuration.py), not at the SQL
+    level — recipients live inside `data_cipher`, not a separate column.
+    """
+
+    __tablename__ = "vigil_configurations"
+    __table_args__ = (
+        UniqueConstraint(
+            "vault_id", "config_revision", name="uq_vigil_configurations_vault_id_config_revision"
+        ),
+        CheckConstraint(_in_list_sql("status", VALID_VIGIL_CONFIGURATION_STATUSES), name="status"),
+        Index(
+            "uq_vigil_configurations_one_active",
+            "vault_id",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
+        Index(
+            "uq_vigil_configurations_one_pending",
+            "vault_id",
+            unique=True,
+            postgresql_where=text("status = 'pending'"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    vault_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("vigil_vaults.id", ondelete="RESTRICT"), nullable=False
+    )
+    config_revision: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    data_cipher: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class VigilObject(Base):
+    """Versioned file candidate for a vault (issue #454, P2.1).
+
+    Same id-allocation rationale as VigilConfiguration: `id` is a
+    Python-side UUID so services/vigil/objects.py can allocate it, return
+    it to the caller from POST /vigil/objects/init, and only later (a
+    separate POST /vigil/objects/upload call) fill in the crypto/ciphertext
+    columns bound to that same id.
+
+    `staging` rows have every crypto/ciphertext column NULL (no upload yet);
+    `ready`/`active` rows must have all of them populated with
+    octet_length(ciphertext) == plaintext_size + 16 — enforced by the
+    `crypto_fields_present_when_ready` CHECK below rather than left to
+    application code, per this project's "table boundary = concurrency/
+    invariant boundary" convention (Vigil Concept & Design.md appendix C.1).
+    `retired`/`deleted` rows have ciphertext/outer_cipher set back to NULL
+    (an application-layer tombstone only — see #450 Design section 7 for the
+    physical-storage boundary this does NOT claim).
+    """
+
+    __tablename__ = "vigil_objects"
+    __table_args__ = (
+        UniqueConstraint("vault_id", "request_id", name="uq_vigil_objects_vault_id_request_id"),
+        CheckConstraint(_in_list_sql("status", VALID_VIGIL_OBJECT_STATUSES), name="status"),
+        CheckConstraint(
+            f"plaintext_size >= 0 AND plaintext_size <= {VIGIL_OBJECT_MAX_PLAINTEXT_SIZE}",
+            name="plaintext_size_bounds",
+        ),
+        CheckConstraint(
+            "status NOT IN ('ready', 'active') OR ("
+            "ciphertext_size IS NOT NULL AND cipher_sha256 IS NOT NULL "
+            "AND manifest IS NOT NULL AND outer_cipher IS NOT NULL "
+            "AND ciphertext IS NOT NULL "
+            f"AND octet_length(ciphertext) = plaintext_size + {VIGIL_OBJECT_GCM_TAG_LENGTH}"
+            ")",
+            name="crypto_fields_present_when_ready",
+        ),
+        Index(
+            "uq_vigil_objects_one_active",
+            "vault_id",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
+        Index(
+            "uq_vigil_objects_one_pending",
+            "vault_id",
+            unique=True,
+            postgresql_where=text("status IN ('staging', 'ready')"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    vault_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("vigil_vaults.id", ondelete="RESTRICT"), nullable=False
+    )
+    config_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("vigil_configurations.id", ondelete="RESTRICT"), nullable=False
+    )
+    request_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    filename_cipher: Mapped[str] = mapped_column(Text, nullable=False)
+    plaintext_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    ciphertext_size: Mapped[int | None] = mapped_column(BigInteger)
+    cipher_sha256: Mapped[str | None] = mapped_column(Text)
+    manifest: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    outer_cipher: Mapped[str | None] = mapped_column(Text)
+    ciphertext: Mapped[bytes | None] = mapped_column(LargeBinary)
+    activated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
