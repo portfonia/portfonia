@@ -122,6 +122,36 @@ describe("proxy", () => {
     },
   );
 
+  // blacktomb42 review, PR #506: no trailingSlash config in next.config.ts
+  // means Next defaults to trailingSlash: false, and does NOT normalize
+  // the pathname before middleware runs — request.nextUrl.pathname carries
+  // the trailing slash exactly as sent. An exact-match array (.includes)
+  // would silently miss "/vigil/confirm/" and send a recipient through the
+  // normal Supabase/login-redirect path instead of the exemption.
+  it.each(["/vigil/confirm/", "/vigil/retrieve/", "/vigil/revoke/"])(
+    "still exempts the public Vigil shell %s with a trailing slash",
+    async (path) => {
+      getUser.mockClear();
+      createServerClient.mockClear();
+
+      const res = await proxy(makeRequest(path));
+
+      expect(res.headers.get("location")).toBeNull();
+      expect(getUser).not.toHaveBeenCalled();
+      expect(createServerClient).not.toHaveBeenCalled();
+    },
+  );
+
+  it("still sets ?next=/vigil when the originally-requested path has a trailing slash", async () => {
+    getUser.mockResolvedValue({ data: { user: null } });
+    getSession.mockResolvedValue({ data: { session: null } });
+
+    const res = await proxy(makeRequest("/vigil/"));
+
+    const location = new URL(res.headers.get("location")!);
+    expect(location.searchParams.get("next")).toBe("/vigil");
+  });
+
   it("does NOT exempt /vigil/setup — an unauthenticated request still redirects to /login", async () => {
     getUser.mockResolvedValue({ data: { user: null } });
     getSession.mockResolvedValue({ data: { session: null } });

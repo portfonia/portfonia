@@ -67,8 +67,21 @@ function isVigilAuthExempt(pathname: string): boolean {
   );
 }
 
+// blacktomb42 review, PR #506: next.config.ts sets no `trailingSlash`
+// option, so Next defaults to `trailingSlash: false` and does NOT
+// normalize the incoming pathname before middleware runs —
+// request.nextUrl.pathname carries a trailing slash exactly as the client
+// sent it. Every exact-match comparison below (`isVigilAuthExempt`, the
+// literal "/vigil" check) needs a normalized value or a mailed link with a
+// stray trailing slash would silently fall through to the ordinary
+// Supabase/login-redirect path instead of its exemption. Root "/" is left
+// alone — there is nothing to strip.
+function stripTrailingSlash(pathname: string): string {
+  return pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
+}
+
 export async function proxy(request: NextRequest): Promise<NextResponse> {
-  const pathname = request.nextUrl.pathname;
+  const pathname = stripTrailingSlash(request.nextUrl.pathname);
 
   // Skip the Supabase client/getUser() call entirely for these — not just
   // the redirect-to-login check below. An Auth outage must never turn a
