@@ -20,6 +20,7 @@ from app.routers import (
     portfolio,
     reports,
     unsubscribe,
+    vigil,
 )
 
 # Without this the root logger defaults to WARNING and every logger.info() in the
@@ -68,6 +69,7 @@ app.include_router(
     email_verification.router, prefix="/email-verifications", tags=["email-verifications"]
 )
 app.include_router(unsubscribe.router, prefix="/unsubscribe", tags=["unsubscribe"])
+app.include_router(vigil.router, prefix="/vigil", tags=["vigil"])
 
 # Pydantic/FastAPI 422 bodies include `"input"`. SecretStr does not strip it
 # (validation runs on the raw string). Redact known secret fields so a public

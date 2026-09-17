@@ -19,6 +19,7 @@ from app.models.report import Report
 from app.models.upload_job import UploadJob
 from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
+from app.models.vigil import VigilVault
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,7 @@ class PurgeResult:
     email_verifications: int
     invites_used_by_cleared: int
     users_invited_by_cleared: int
+    vigil_vaults: int
     users: int
 
 
@@ -101,6 +103,16 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
             ),
         )
     )
+    # Must precede DELETE users: vigil_vaults.owner_user_id FKs to users.id
+    # ON DELETE RESTRICT (issue #451 checkpoint P1.1) — the base-row purge
+    # hook. No other Vigil table exists yet; later checkpoints extend this
+    # for their own dependent rows (section 3 of the P1.1 Design comment).
+    vigil_vaults = _rowcount(
+        cast(
+            CursorResult[Any],
+            session.execute(delete(VigilVault).where(VigilVault.owner_user_id == user_id)),
+        )
+    )
     users = _rowcount(
         cast(CursorResult[Any], session.execute(delete(User).where(User.id == user_id)))
     )
@@ -114,5 +126,6 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
         email_verifications=email_verifications,
         invites_used_by_cleared=invites_used_by_cleared,
         users_invited_by_cleared=users_invited_by_cleared,
+        vigil_vaults=vigil_vaults,
         users=users,
     )

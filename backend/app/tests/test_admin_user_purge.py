@@ -27,6 +27,7 @@ from app.models.report import Report
 from app.models.upload_job import UploadJob
 from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
+from app.models.vigil import VigilVault
 from app.services.auth_provider import AuthProviderError, AuthUserInfo
 from app.services.invites import hash_invite_token
 from app.services.questionnaire_taxonomy import QUESTIONNAIRE_VERSION
@@ -662,6 +663,62 @@ def test_holding_with_null_account_id_and_a_real_user_id_is_unaffected(
     db_session.add(_user(_A, "a@example.com"))
     db_session.add(_h(user_id=_A, name="NVIDIA", ticker="NVDA", account_id=None))
     db_session.flush()  # must not raise
+
+
+# --- issue #451 checkpoint P1.1: vigil_vaults base-row purge hook --------
+
+
+def test_purge_deletes_vigil_vault(app_client: TestClient, db_session: Session) -> None:
+    """P1.1: vigil_vaults.owner_user_id FKs to users.id ON DELETE RESTRICT
+    — purge must clean up this user's own vault row before deleting users,
+    same class of hookup as accounts (B7) above. No other Vigil table
+    exists yet, so this is the entire hook this checkpoint installs."""
+    db_session.add(_user(_A, "a@example.com"))
+    db_session.flush()
+    db_session.add(VigilVault(owner_user_id=_A))
+    db_session.flush()
+
+    resp = app_client.delete(_path(_A), headers=_headers(), params={"confirm": "a@example.com"})
+    assert resp.status_code == 200, resp.text
+    db_session.expire_all()
+    assert _count(db_session, VigilVault.owner_user_id, _A) == 0
+
+
+def test_purge_does_not_touch_another_users_vigil_vault(
+    app_client: TestClient, db_session: Session
+) -> None:
+    db_session.add_all([_user(_A, "a@example.com"), _user(_B, "b@example.com")])
+    db_session.flush()
+    other_vault = VigilVault(owner_user_id=_B)
+    db_session.add(other_vault)
+    db_session.flush()
+    other_vault_id = other_vault.id
+
+    resp = app_client.delete(_path(_A), headers=_headers(), params={"confirm": "a@example.com"})
+    assert resp.status_code == 200
+    db_session.expire_all()
+    assert db_session.get(VigilVault, other_vault_id) is not None
+
+
+def test_purge_without_vigil_vault_succeeds(app_client: TestClient, db_session: Session) -> None:
+    db_session.add(_user(_A, "a@example.com"))
+    db_session.flush()
+    resp = app_client.delete(_path(_A), headers=_headers(), params={"confirm": "a@example.com"})
+    assert resp.status_code == 200, resp.text
+
+
+def test_deleting_vigil_vault_owner_out_of_order_hits_fk(db_session: Session) -> None:
+    """Real FK: vigil_vaults.owner_user_id -> users.id ON DELETE RESTRICT
+    (issue #451). A bare DELETE FROM users with a vault still pointing at
+    it must fail — same class of guard B7 already pays for on holdings/
+    reports/upload_jobs/news_surfaced/accounts above."""
+    db_session.add(_user(_A, "a@example.com"))
+    db_session.flush()
+    db_session.add(VigilVault(owner_user_id=_A))
+    db_session.flush()
+    with pytest.raises(IntegrityError):
+        db_session.execute(delete(User).where(User.id == _A))
+        db_session.flush()
 
 
 # --- issue #260: email_verifications table + user_id FK ------------------
