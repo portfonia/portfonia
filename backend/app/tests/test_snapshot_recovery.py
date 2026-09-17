@@ -27,7 +27,6 @@ from app.services.portfolio_history import capture_portfolio_value_snapshot, sta
 from app.services.snapshot_outbox import get_outbox_row
 from app.services.snapshot_recovery import (
     CATCHUP_LOOKBACK_DAYS,
-    recompute_is_safe,
     recover_portfolio_snapshots,
 )
 from app.services.user_purge import purge_user
@@ -113,11 +112,12 @@ def test_unpublished_day_is_replayed_from_the_frozen_payload(db_session: Session
     assert outbox_row is not None and outbox_row.status == "applied"
 
 
-def test_recomputing_a_missed_day_from_a_moved_book_is_refused(
+def test_recomputing_a_missed_day_from_a_moved_book_is_now_allowed(
     db_session: Session, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """No frozen payload + the book moved since the last frozen evidence: the
-    day stays missing and the skip is logged. Nothing is invented."""
+    """No frozen payload + the book moved since the last frozen evidence:
+    issue #497 removed the composition-fingerprint gate, so the missed day
+    is recomputed anyway from today's (moved) holdings rather than skipped."""
     user_id = uuid.uuid4()
     seed_user(db_session, user_id)
     _seed_holding(db_session, user_id, "AAPL", Decimal("10"))
@@ -130,17 +130,16 @@ def test_recomputing_a_missed_day_from_a_moved_book_is_refused(
     _seed_price(db_session, "TSLA", MISSED_DAY, Decimal("100"))
     db_session.flush()
 
-    assert recompute_is_safe(db_session, user_id, MISSED_DAY) is False
-
     logging.getLogger("app.services.snapshot_recovery").disabled = False
     with caplog.at_level(logging.WARNING, logger="app.services.snapshot_recovery"):
         report = recover_portfolio_snapshots(db_session, MISSED_DAY, MISSED_DAY, today=TODAY)
 
-    assert (report.replayed, report.recomputed, report.skipped_unsafe) == (0, 0, 1)
-    assert _daily_rows(db_session, MISSED_DAY) == []
-    assert _status(db_session, user_id, MISSED_DAY) is None
-    assert get_outbox_row(db_session, user_id, MISSED_DAY) is None
-    assert "book has moved" in caplog.text
+    assert (report.replayed, report.recomputed) == (0, 1)
+    rows = _daily_rows(db_session, MISSED_DAY)
+    assert {r.ticker for r in rows} == {"AAPL", "TSLA"}
+    assert _status(db_session, user_id, MISSED_DAY) == "complete"
+    outbox_row = get_outbox_row(db_session, user_id, MISSED_DAY)
+    assert outbox_row is not None and outbox_row.status == "applied"
 
 
 def test_missed_day_is_recomputed_when_the_book_is_unchanged(db_session: Session) -> None:
@@ -154,11 +153,9 @@ def test_missed_day_is_recomputed_when_the_book_is_unchanged(db_session: Session
     db_session.flush()
     capture_portfolio_value_snapshot(db_session, EVIDENCE_DAY)
 
-    assert recompute_is_safe(db_session, user_id, MISSED_DAY) is True
-
     report = recover_portfolio_snapshots(db_session, MISSED_DAY, MISSED_DAY, today=TODAY)
 
-    assert (report.replayed, report.recomputed, report.skipped_unsafe) == (0, 1, 0)
+    assert (report.replayed, report.recomputed) == (0, 1)
     rows = _daily_rows(db_session, MISSED_DAY)
     assert len(rows) == 1
     assert rows[0].market_value_base == Decimal("210.00")
@@ -179,9 +176,8 @@ def test_missed_saturday_is_recomputed_when_the_book_is_unchanged(db_session: Se
     db_session.flush()
     capture_portfolio_value_snapshot(db_session, friday)
 
-    assert recompute_is_safe(db_session, user_id, saturday) is True
     report = recover_portfolio_snapshots(db_session, saturday, saturday, today=date(2026, 9, 21))
-    assert (report.replayed, report.recomputed, report.skipped_unsafe) == (0, 1, 0)
+    assert (report.replayed, report.recomputed) == (0, 1)
     assert _status(db_session, user_id, saturday) == "complete"
     rows = _daily_rows(db_session, saturday)
     assert len(rows) == 1
@@ -200,7 +196,6 @@ def test_prerollout_weekend_is_not_filled_by_unattended_recovery(db_session: Ses
     db_session.flush()
     capture_portfolio_value_snapshot(db_session, friday)
 
-    assert recompute_is_safe(db_session, user_id, saturday) is True
     recover_portfolio_snapshots(
         db_session, date(2026, 9, 8), date(2026, 9, 15), today=date(2026, 9, 15)
     )

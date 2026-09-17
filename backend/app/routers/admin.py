@@ -208,7 +208,6 @@ class SnapshotRecoveryResult(BaseModel):
     replayed: int
     recomputed: int
     already_complete: int
-    skipped_unsafe: int
     skipped_old: int
     skipped_deps: int
     failed: int
@@ -223,11 +222,12 @@ def recover_portfolio_snapshots_endpoint(
 ) -> SnapshotRecoveryResult:
     """Recover Portfolio Performance snapshot days (issue #373).
 
-    Replays every frozen-but-unpublished payload in the window, and rebuilds a
-    missing day from live holdings only when the book provably has not moved
-    since the last frozen evidence and the day is inside the short catch-up
-    window. Days it refuses to invent are reported (`skipped_unsafe` /
-    `skipped_old` / `failed`) and logged — nothing is silently fabricated.
+    Replays every frozen-but-unpublished payload in the window, and rebuilds
+    any remaining missing day from live holdings unconditionally as long as
+    it is inside the short catch-up window (issue #497 removed the
+    composition-fingerprint gate this used to require). Days it still won't
+    touch are reported (`skipped_old` / `skipped_deps` / `failed`) and
+    logged.
 
     Window defaults to the last `CATCHUP_LOOKBACK_DAYS` ending today, and is
     capped at `MAX_RECOVERY_WINDOW_DAYS` per request because it runs inline.
@@ -243,7 +243,6 @@ def recover_portfolio_snapshots_endpoint(
         replayed=report.replayed,
         recomputed=report.recomputed,
         already_complete=report.already_complete,
-        skipped_unsafe=report.skipped_unsafe,
         skipped_old=report.skipped_old,
         skipped_deps=report.skipped_deps,
         failed=report.failed,

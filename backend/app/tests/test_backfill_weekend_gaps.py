@@ -15,7 +15,6 @@ from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
 from app.models.price_snapshot import PriceSnapshot
 from app.scripts.backfill_weekend_gaps import backfill_weekend_gaps
 from app.services.portfolio_history import capture_portfolio_value_snapshot
-from app.services.snapshot_recovery import recompute_is_safe
 from app.tests.conftest import seed_user
 
 _START = date(2026, 9, 8)
@@ -84,11 +83,9 @@ def test_unchanged_book_backfills_every_weekend_in_range(db_session: Session) ->
     db_session.flush()
     capture_portfolio_value_snapshot(db_session, _FRI)
 
-    assert recompute_is_safe(db_session, user_id, _SAT) is True
     report = backfill_weekend_gaps(db_session, _START, _END)
 
     assert report.backfilled == 2
-    assert report.skipped_unsafe == 0
     for day in (_SAT, _SUN):
         rows = _weekend_rows(db_session, user_id, day)
         assert len(rows) == 1
@@ -97,11 +94,12 @@ def test_unchanged_book_backfills_every_weekend_in_range(db_session: Session) ->
         assert _batch_status(db_session, user_id, day) == "complete"
 
 
-def test_composition_change_skips_weekends_after_the_change_and_names_them(
+def test_composition_change_no_longer_blocks_the_weekend_backfill(
     db_session: Session,
 ) -> None:
-    """Acceptance 8b: a holding added after the last frozen evidence means
-    weekends after that change get no row, and the report names the pair."""
+    """Acceptance 8b (issue #497): a holding added after the last frozen
+    evidence used to block the weekend backfill; the fingerprint gate that
+    did that is deleted, so both weekend days now get a real row anyway."""
     user_id = uuid.uuid4()
     seed_user(db_session, user_id)
     _holding(db_session, user_id, "AAPL", Decimal("10"))
@@ -114,19 +112,13 @@ def test_composition_change_skips_weekends_after_the_change_and_names_them(
     _seed_price(db_session, "TSLA", _FRI, Decimal("50"))
     db_session.flush()
 
-    assert recompute_is_safe(db_session, user_id, _SAT) is False
     report = backfill_weekend_gaps(db_session, _START, _END)
 
-    assert _weekend_rows(db_session, user_id, _SAT) == []
-    assert _weekend_rows(db_session, user_id, _SUN) == []
-    assert _batch_status(db_session, user_id, _SAT) is None
-    assert report.skipped_unsafe >= 2
-    named = {(item.user_id, item.snapshot_date) for item in report.skipped}
-    assert (user_id, _SAT) in named
-    assert (user_id, _SUN) in named
-    reasons = {item.reason for item in report.skipped if item.user_id == user_id}
-    assert reasons
-    assert all(reason for reason in reasons)
+    assert report.backfilled == 2
+    for day in (_SAT, _SUN):
+        rows = _weekend_rows(db_session, user_id, day)
+        assert {r.ticker for r in rows} == {"AAPL", "TSLA"}
+        assert _batch_status(db_session, user_id, day) == "complete"
 
 
 def test_rerun_is_noop_on_already_complete_weekend_days(db_session: Session) -> None:

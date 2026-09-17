@@ -2,10 +2,15 @@
 
 Writes real `portfolio_value_snapshots` rows for Saturday/Sunday dates in
 a bounded window, using the live `stage_user_snapshot` + `apply_outbox_row`
-path, gated by `snapshot_recovery.recompute_is_safe`. Does not call
-`recover_portfolio_snapshots` (that wrapper still bounds recompute to
-`CATCHUP_LOOKBACK_DAYS` from today, which is the wrong bound for this
-explicit historical window).
+path. Does not call `recover_portfolio_snapshots` (that wrapper still bounds
+recompute to `CATCHUP_LOOKBACK_DAYS` from today, which is the wrong bound for
+this explicit historical window).
+
+Issue #497 removed the composition-fingerprint safety gate that used to
+refuse a day when the live book didn't match the last frozen evidence: every
+weekend day in the given range is now recomputed unconditionally from
+current live holdings, bounded only by the caller-supplied
+`--start-date`/`--end-date`.
 
     python -m app.scripts.backfill_weekend_gaps
     python -m app.scripts.backfill_weekend_gaps --start-date 2026-09-08 --end-date 2026-09-14
@@ -35,10 +40,6 @@ from app.services.portfolio_history import (
     stage_user_snapshot,
 )
 from app.services.snapshot_outbox import get_outbox_row
-from app.services.snapshot_recovery import (
-    latest_frozen_evidence_date,
-    recompute_is_safe,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,6 @@ class WeekendGapSkip:
 class WeekendGapBackfillReport:
     backfilled: int = 0
     already_complete: int = 0
-    skipped_unsafe: int = 0
     skipped_deps: int = 0
     dates: tuple[str, ...] = field(default_factory=tuple)
     skipped: tuple[WeekendGapSkip, ...] = field(default_factory=tuple)
@@ -74,23 +74,19 @@ def _weekend_dates(start_date: date, end_date: date) -> list[date]:
     return days
 
 
-def _unsafe_reason(session: Session, user_id: uuid.UUID, target: date) -> str:
-    if latest_frozen_evidence_date(session, user_id, target) is None:
-        return "no_frozen_evidence"
-    return "composition_changed"
-
-
 def backfill_weekend_gaps(
     session: Session, start_date: date, end_date: date
 ) -> WeekendGapBackfillReport:
     """Backfill Saturday/Sunday dates in `[start_date, end_date]` (inclusive).
 
-    A row is written for `(user_id, date)` only when `recompute_is_safe`
-    is True. Commits per date so one bad day cannot roll back another.
+    A row is written for every `(user_id, date)` not already `complete`,
+    recomputed unconditionally from current live holdings (issue #497 —
+    the composition-fingerprint gate that used to refuse this is deleted).
+    Commits per date so one bad day cannot roll back another.
     """
     weekend_days = _weekend_dates(start_date, end_date)
     user_ids = snapshot_fanout_user_ids(session)
-    backfilled = already_complete = skipped_unsafe = skipped_deps = 0
+    backfilled = already_complete = skipped_deps = 0
     skipped: list[WeekendGapSkip] = []
     touched: list[str] = []
 
@@ -106,17 +102,6 @@ def backfill_weekend_gaps(
         for user_id in user_ids:
             if user_id in complete_ids:
                 already_complete += 1
-                continue
-            if not recompute_is_safe(session, user_id, target):
-                reason = _unsafe_reason(session, user_id, target)
-                skipped_unsafe += 1
-                skipped.append(WeekendGapSkip(user_id, target, reason))
-                logger.warning(
-                    "backfill_weekend_gaps: skip unsafe user=%s date=%s reason=%s",
-                    user_id,
-                    target,
-                    reason,
-                )
                 continue
             _written, status = stage_user_snapshot(session, user_id, target)
             if status != "computed":
@@ -141,20 +126,18 @@ def backfill_weekend_gaps(
     report = WeekendGapBackfillReport(
         backfilled=backfilled,
         already_complete=already_complete,
-        skipped_unsafe=skipped_unsafe,
         skipped_deps=skipped_deps,
         dates=tuple(touched),
         skipped=tuple(skipped),
     )
     logger.info(
         "backfill_weekend_gaps: window=%s..%s weekends=%d backfilled=%d "
-        "already_complete=%d skipped_unsafe=%d skipped_deps=%d",
+        "already_complete=%d skipped_deps=%d",
         start_date,
         end_date,
         len(weekend_days),
         backfilled,
         already_complete,
-        skipped_unsafe,
         skipped_deps,
     )
     return report
@@ -179,7 +162,7 @@ def main() -> None:
     with SessionLocal() as session:
         report = backfill_weekend_gaps(session, args.start_date, args.end_date)
     print(
-        f"backfilled={report.backfilled} already_complete={report.already_complete} skipped_unsafe={report.skipped_unsafe} skipped_deps={report.skipped_deps}"
+        f"backfilled={report.backfilled} already_complete={report.already_complete} skipped_deps={report.skipped_deps}"
     )
     for item in report.skipped:
         print(f"skipped user={item.user_id} date={item.snapshot_date} reason={item.reason}")
