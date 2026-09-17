@@ -15,7 +15,8 @@
     "portfolioPerformance": "績效表現",
     "questionnaire": "投資風格",
     "sessionExpired": "由於 {minutes} 分鐘內無操作，登入已結束。",
-    "editHoldings": "編輯持倉"
+    "editHoldings": "編輯持倉",
+    "vigil": "Vigil"
   },
   "auth": {
     "loginHeading": "登入",
@@ -1164,5 +1165,28 @@
         }
       ]
     }
+  },
+  "vigil": {
+    "title": "Vigil",
+    "setupCta": "設定 Vigil",
+    "loadError": "無法載入 Vigil 狀態。",
+    "states": {
+      "setupRequired": "Vigil 尚未設定。",
+      "disarmed": "Vigil 已設定，目前處於解除狀態。",
+      "active": "Vigil 已佈防，正在監控您的簽到。",
+      "waitingDelivery": "簽到請求已送出，正在等待送達確認。",
+      "countdown": "簽到窗口正在進行中。",
+      "hold": "Vigil 處於暫停狀態，目前未在倒數計時。",
+      "released": "檔案已發送給您的接收人。",
+      "revoked": "發送已被撤銷。",
+      "unavailable": "Vigil 目前無法使用。"
+    },
+    "public": {
+      "confirmTitle": "確認簽到",
+      "retrieveTitle": "取得檔案",
+      "revokeTitle": "撤銷發送",
+      "unavailable": "此連結尚未生效，請稍後再試。"
+    },
+    "setupPagePlaceholder": "Vigil 設定功能尚未上線，將於後續更新中提供。"
   }
 }

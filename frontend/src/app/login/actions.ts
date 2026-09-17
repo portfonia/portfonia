@@ -17,6 +17,17 @@ function resolveLocale(formData: FormData) {
   return isLocale(raw) ? raw : DEFAULT_LOCALE;
 }
 
+// Issue #453: the ONLY non-default return destination /login ever honors.
+// Exact-match against the literal string only — no prefix, no decoding, no
+// trimming — so an external URL, a protocol-relative "//host" value, a
+// "javascript:" scheme, or any other page (including a same-app one like
+// /vigil/setup) all fall through to the unconditional /profile default,
+// same as if the field were absent.
+function resolveNextDestination(formData: FormData): "/vigil" | "/profile" {
+  const raw = formData.get("next");
+  return raw === "/vigil" ? "/vigil" : "/profile";
+}
+
 export async function login(
   _prevState: LoginState | undefined,
   formData: FormData,
@@ -40,9 +51,10 @@ export async function login(
 
   // Issue #280 item 3: /login only ever serves returning users — signup
   // redirects straight to /questionnaire?onboarding=1 and never passes
-  // through this action — so the landing is unconditionally /profile, no
+  // through this action — so the landing is /profile by default, no
   // new-vs-returning or onboarding-gap branch. Interrupted onboarding is
   // resumed from Profile's gap cards in edit mode, not from a login
-  // landing.
-  redirect("/profile");
+  // landing. Issue #453 adds exactly one alternative: a login initiated
+  // from /vigil returns there instead — see resolveNextDestination above.
+  redirect(resolveNextDestination(formData));
 }

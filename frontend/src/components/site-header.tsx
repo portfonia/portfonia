@@ -7,9 +7,20 @@ import { useTranslations } from "next-intl";
 import { GetStartedMenu } from "@/components/get-started-menu";
 import { LocaleSwitcher } from "@/components/locale-switcher";
 
+// Issue #453: these three public Vigil action shells (a recipient clicking
+// a mailed link, possibly never authenticated at all) must keep the brand
+// and locale chrome but never mount GetStartedMenu — that component's own
+// useSession()/useIdleLogout() hooks would otherwise treat an idle OWNER
+// session as reason to redirect the page to /login mid confirm/retrieve/
+// revoke, stopping a recipient's action that has nothing to do with that
+// session. Exact-match only, never a prefix — /vigil and /vigil/setup stay
+// on the full authenticated chrome.
+const PUBLIC_VIGIL_SHELL_ROUTES = ["/vigil/confirm", "/vigil/retrieve", "/vigil/revoke"];
+
 export function SiteHeader() {
   const pathname = usePathname();
   const isHome = pathname === "/";
+  const isPublicVigilShell = PUBLIC_VIGIL_SHELL_ROUTES.includes(pathname);
   const tCommon = useTranslations("common");
 
   // One bar shape on every route (issue #207 R1): brand + language + menu.
@@ -25,7 +36,7 @@ export function SiteHeader() {
         </Link>
         <div className="flex items-center gap-4">
           <LocaleSwitcher />
-          <GetStartedMenu />
+          {!isPublicVigilShell && <GetStartedMenu />}
         </div>
       </nav>
     </header>

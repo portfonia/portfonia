@@ -11,7 +11,12 @@ import { markPendingLogin } from "@/hooks/use-session";
 import { settleAuthAction } from "@/lib/settle-auth-action";
 import { login, type LoginState } from "./actions";
 
-export function LoginForm() {
+// Issue #453: the only value login/actions.ts's resolveNextDestination ever
+// accepts besides its own default. Passed down from login/page.tsx, which
+// reads it from the ?next= query string proxy.ts itself set (never from
+// anywhere else) — see actions.ts for why an arbitrary/external value can
+// never reach here in practice.
+export function LoginForm({ next }: { next?: "/vigil" }) {
   const t = useTranslations("auth");
   const { locale } = useLocale();
 
@@ -37,6 +42,7 @@ export function LoginForm() {
           selected locale (no URL-based routing — see src/locales/README.md),
           so the client-only locale state rides along as a plain form field. */}
       <input type="hidden" name="locale" value={locale} />
+      {next && <input type="hidden" name="next" value={next} />}
       <div className="flex flex-col gap-1.5">
         <label htmlFor="email" className="text-sm text-foreground/80">
           {t("emailLabel")}

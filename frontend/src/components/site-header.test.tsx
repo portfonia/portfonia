@@ -133,4 +133,43 @@ describe("SiteHeader", () => {
     expect(screen.getByRole("menuitem", { name: "简体中文" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "繁體中文" })).toBeInTheDocument();
   });
+
+  // Issue #453: an idle owner session hitting one of these public shells
+  // must never get redirected mid-flow by GetStartedMenu's own
+  // useSession()/useIdleLogout() — those hooks simply must not mount here.
+  // Brand/locale chrome stays exactly as every other route.
+  describe("public Vigil action shells (issue #453)", () => {
+    it.each(["/vigil/confirm", "/vigil/retrieve", "/vigil/revoke"])(
+      "does not mount the Get Started menu on %s",
+      (route) => {
+        getUser.mockClear();
+        usePathname.mockReturnValue(route);
+        renderHeader();
+
+        expect(screen.queryByRole("button", { name: /get started/i })).not.toBeInTheDocument();
+        expect(getUser).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["/vigil/confirm", "/vigil/retrieve", "/vigil/revoke"])(
+      "still shows brand link and locale switcher on %s",
+      (route) => {
+        usePathname.mockReturnValue(route);
+        renderHeader();
+
+        expect(screen.getByRole("link", { name: /portfonia/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /language/i })).toBeInTheDocument();
+      },
+    );
+
+    it("keeps the Get Started menu on the protected /vigil dashboard and /vigil/setup", () => {
+      getUser.mockResolvedValue({ data: { user: null } });
+      for (const route of ["/vigil", "/vigil/setup"]) {
+        usePathname.mockReturnValue(route);
+        const { unmount } = renderHeader();
+        expect(getUser).toHaveBeenCalled();
+        unmount();
+      }
+    });
+  });
 });

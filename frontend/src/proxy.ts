@@ -50,7 +50,33 @@ function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 
+// Issue #453: exactly these three page routes, plus the future
+// /api/vigil/public/* backend prefix (no route exists there yet — #460+ —
+// but the exemption is added now so proxy.ts never needs touching again
+// when it lands). A recipient following a mailed confirm/retrieve/revoke
+// link has no Portfonia session at all, and must not depend on Auth being
+// reachable — Design section 5's "public P" scope is a token+nonce, not a
+// cookie session. Deliberately NOT a prefix match on "/vigil": /vigil and
+// /vigil/setup stay on the normal protected path below.
+const EXACT_PUBLIC_VIGIL_PAGES = ["/vigil/confirm", "/vigil/retrieve", "/vigil/revoke"];
+const PUBLIC_VIGIL_API_PREFIX = "/api/vigil/public/";
+
+function isVigilAuthExempt(pathname: string): boolean {
+  return (
+    EXACT_PUBLIC_VIGIL_PAGES.includes(pathname) || pathname.startsWith(PUBLIC_VIGIL_API_PREFIX)
+  );
+}
+
 export async function proxy(request: NextRequest): Promise<NextResponse> {
+  const pathname = request.nextUrl.pathname;
+
+  // Skip the Supabase client/getUser() call entirely for these — not just
+  // the redirect-to-login check below. An Auth outage must never turn a
+  // stop/confirm link into a 5xx or an indefinite hang.
+  if (isVigilAuthExempt(pathname)) {
+    return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
   const { url, anonKey } = supabasePublicEnv();
 
@@ -93,11 +119,20 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const pathname = request.nextUrl.pathname;
-
   if (!user && !isPublicPath(pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
+    url.search = "";
+    // Issue #453: the ONLY return destination /login ever accepts besides
+    // its own default (/profile) is the literal string "/vigil" — and this
+    // is the only place that ever sets it, hardcoded, never echoing
+    // anything from the incoming request's own query string. That is what
+    // makes "reject any external/protocol-relative return URL" hold by
+    // construction rather than by validation: there is no code path that
+    // could ever produce another value here.
+    if (pathname === "/vigil") {
+      url.searchParams.set("next", "/vigil");
+    }
     return NextResponse.redirect(url);
   }
 
