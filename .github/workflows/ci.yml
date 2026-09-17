@@ -1,0 +1,45 @@
+name: CI
+
+# Minimal, deliberately (2026-09-17): ruff only — no mypy, no pytest, no
+# frontend, no Postgres service container. Those need real dependency
+# installs / a DB / dummy Settings values and took minutes on a
+# cold GitHub-hosted runner in an earlier POC (PR #503, closed unmerged —
+# not worth the wait at this project's scale). ruff needs none of that: it
+# only reads source files, so this job installs one package and finishes
+# in seconds. This does not replace the local quality gate in CLAUDE.md —
+# it's a cheap backstop for the one class of mistake (unformatted/linted
+# code reaching a PR) that costs nothing to catch here.
+#
+# `pull_request` only, not `push` — the earlier POC's push+pull_request
+# combination double-ran CI on every push to a branch with an open PR.
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install ruff==0.15.13
+
+      - run: ruff format --check .
+        working-directory: backend
+
+      - run: ruff check .
+        working-directory: backend
