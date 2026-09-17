@@ -15,7 +15,8 @@
     "portfolioPerformance": "Performance",
     "questionnaire": "Investment style",
     "sessionExpired": "Your session ended after {minutes} minutes of inactivity.",
-    "editHoldings": "Edit holdings"
+    "editHoldings": "Edit holdings",
+    "vigil": "Vigil"
   },
   "auth": {
     "loginHeading": "Log in",
@@ -1164,5 +1165,28 @@
         }
       ]
     }
+  },
+  "vigil": {
+    "title": "Vigil",
+    "setupCta": "Set up Vigil",
+    "loadError": "Vigil status could not be loaded.",
+    "states": {
+      "setupRequired": "Vigil isn't set up yet.",
+      "disarmed": "Vigil is configured but currently disarmed.",
+      "active": "Vigil is armed and monitoring your check-ins.",
+      "waitingDelivery": "A check-in request has been sent; waiting for delivery confirmation.",
+      "countdown": "A check-in window is in progress.",
+      "hold": "Vigil is on hold and not currently counting down.",
+      "released": "The file has been released to your recipients.",
+      "revoked": "The release was revoked.",
+      "unavailable": "Vigil is currently unavailable."
+    },
+    "public": {
+      "confirmTitle": "Confirm check-in",
+      "retrieveTitle": "Retrieve file",
+      "revokeTitle": "Revoke release",
+      "unavailable": "This link isn't active yet. Please check back later."
+    },
+    "setupPagePlaceholder": "Vigil setup isn't available yet. This is coming in a future update."
   }
 }

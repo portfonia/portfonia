@@ -15,7 +15,8 @@
     "portfolioPerformance": "业绩表现",
     "questionnaire": "投资风格",
     "sessionExpired": "由于 {minutes} 分钟内无操作，登录已结束。",
-    "editHoldings": "编辑持仓"
+    "editHoldings": "编辑持仓",
+    "vigil": "Vigil"
   },
   "auth": {
     "loginHeading": "登录",
@@ -1164,5 +1165,28 @@
         }
       ]
     }
+  },
+  "vigil": {
+    "title": "Vigil",
+    "setupCta": "设置 Vigil",
+    "loadError": "无法加载 Vigil 状态。",
+    "states": {
+      "setupRequired": "Vigil 尚未设置。",
+      "disarmed": "Vigil 已配置，当前处于解除状态。",
+      "active": "Vigil 已布防，正在监控您的签到。",
+      "waitingDelivery": "签到请求已发送，正在等待送达确认。",
+      "countdown": "签到窗口正在进行中。",
+      "hold": "Vigil 处于暂停状态，当前未在倒计时。",
+      "released": "文件已发送给您的接收人。",
+      "revoked": "发送已被撤销。",
+      "unavailable": "Vigil 当前不可用。"
+    },
+    "public": {
+      "confirmTitle": "确认签到",
+      "retrieveTitle": "获取文件",
+      "revokeTitle": "撤销发送",
+      "unavailable": "此链接尚未生效，请稍后再试。"
+    },
+    "setupPagePlaceholder": "Vigil 设置功能尚未上线，将在后续更新中提供。"
   }
 }
