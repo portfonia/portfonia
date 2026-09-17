@@ -1,0 +1,117 @@
+name: CI
+
+# Proof-of-concept (2026-09-17): mirrors the local quality gate (CLAUDE.md
+# "Quality Gates") so it runs even when a push didn't go through an agent
+# that ran it first — the local gate stays the primary responsibility;
+# this is a backstop, not a replacement. Backend and frontend are
+# independent jobs; a PR touching only one side still runs both today
+# (path filtering is a possible follow-up, not done here to keep this POC
+# small).
+#
+# All backend `env:` values below are throwaway CI-only placeholders (a
+# freshly generated Fernet key, fake URLs/tokens) — never real secrets,
+# and not usable against any real service. Settings() requires every one
+# of these fields to be present just to import `app.main` (get_settings()
+# runs at module import time), even though the tests that need each field
+# mock the corresponding external call.
+
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: portfonia
+          POSTGRES_PASSWORD: portfonia
+          POSTGRES_DB: portfonia
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      APP_ENV: test
+      APP_SECRET_KEY: ci-dummy-secret
+      APP_BASE_URL: http://localhost:8000
+      FRONTEND_URL: http://localhost:3000
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_NAME: portfonia
+      DB_USER: portfonia
+      DB_PASSWORD: portfonia
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      OPENROUTER_API_KEY: ci-dummy
+      PRIMARY_LLM_MODEL: deepseek/deepseek-v4-pro
+      LOW_COST_LLM_MODEL: deepseek/deepseek-v4-flash-latest
+      TAVILY_API_KEY: ci-dummy
+      RESEND_API_KEY: ci-dummy
+      EMAIL_FROM: ci@example.com
+      EMAIL_REPLY_TO: ci@example.com
+      DEV_USER_ID: 00000000-0000-0000-0000-000000000001
+      DEV_USER_EMAIL: dev@example.com
+      # Throwaway Fernet key, generated for this workflow only — protects
+      # nothing real, never rotate it because "it leaked".
+      HOLDINGS_ENCRYPTION_KEY: DbQyfw-m2SikbgfRbwtMPppNZiHC8ashp8R3wU_P3hY=
+      ADMIN_API_TOKEN: ci-dummy-admin-token
+      SUPABASE_URL: https://ci-dummy.supabase.co
+      SUPABASE_ANON_KEY: ci-dummy
+      SUPABASE_SERVICE_ROLE_KEY: ci-dummy
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+        working-directory: backend
+
+      - run: ruff format --check .
+        working-directory: backend
+
+      - run: ruff check .
+        working-directory: backend
+
+      - run: mypy .
+        working-directory: backend
+
+      - run: pytest -q
+        working-directory: backend
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+
+      - run: bun install --frozen-lockfile
+        working-directory: frontend
+
+      - run: bun run lint
+        working-directory: frontend
+
+      - run: bun run typecheck
+        working-directory: frontend
+
+      - run: bun run test
+        working-directory: frontend
