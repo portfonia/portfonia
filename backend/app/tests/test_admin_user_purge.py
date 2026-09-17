@@ -27,7 +27,7 @@ from app.models.report import Report
 from app.models.upload_job import UploadJob
 from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
-from app.models.vigil import VigilVault
+from app.models.vigil import VigilConfiguration, VigilObject, VigilVault
 from app.services.auth_provider import AuthProviderError, AuthUserInfo
 from app.services.invites import hash_invite_token
 from app.services.questionnaire_taxonomy import QUESTIONNAIRE_VERSION
@@ -718,6 +718,142 @@ def test_deleting_vigil_vault_owner_out_of_order_hits_fk(db_session: Session) ->
     db_session.flush()
     with pytest.raises(IntegrityError):
         db_session.execute(delete(User).where(User.id == _A))
+        db_session.flush()
+
+
+# --- issue #454 checkpoint P2.1: vigil_configurations/vigil_objects purge -
+
+
+def _own_config(
+    vault_id: uuid.UUID, *, config_revision: int = 1, status: str = "pending"
+) -> VigilConfiguration:
+    return VigilConfiguration(
+        id=uuid.uuid4(),
+        vault_id=vault_id,
+        config_revision=config_revision,
+        status=status,
+        data_cipher="not-real-ciphertext",
+    )
+
+
+def _own_object(vault_id: uuid.UUID, config_id: uuid.UUID) -> VigilObject:
+    return VigilObject(
+        id=uuid.uuid4(),
+        vault_id=vault_id,
+        config_id=config_id,
+        request_id=uuid.uuid4(),
+        status="staging",
+        filename_cipher="not-real-ciphertext",
+        plaintext_size=10,
+    )
+
+
+def test_purge_deletes_vigil_configurations_and_objects_and_clears_vault_pointers(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """A13: vigil_vaults.active/pending_config_id/object_id are now real
+    ON DELETE RESTRICT FKs (#454) — a bare DELETE would fail loudly unless
+    purge nulls them first, then removes objects before configurations
+    (objects.config_id also FKs to configurations)."""
+    db_session.add(_user(_A, "a@example.com"))
+    db_session.flush()
+    vault = VigilVault(owner_user_id=_A)
+    db_session.add(vault)
+    db_session.flush()
+    config = _own_config(vault.id)
+    db_session.add(config)
+    db_session.flush()
+    obj = _own_object(vault.id, config.id)
+    db_session.add(obj)
+    db_session.flush()
+    vault.pending_config_id = config.id
+    vault.pending_object_id = obj.id
+    db_session.flush()
+    config_id, object_id, vault_id = config.id, obj.id, vault.id
+
+    resp = app_client.delete(_path(_A), headers=_headers(), params={"confirm": "a@example.com"})
+    assert resp.status_code == 200, resp.text
+    db_session.expire_all()
+    assert db_session.get(VigilConfiguration, config_id) is None
+    assert db_session.get(VigilObject, object_id) is None
+    assert db_session.get(VigilVault, vault_id) is None
+
+
+def test_purge_does_not_touch_another_users_vigil_configurations_or_objects(
+    app_client: TestClient, db_session: Session
+) -> None:
+    db_session.add_all([_user(_A, "a@example.com"), _user(_B, "b@example.com")])
+    db_session.flush()
+    other_vault = VigilVault(owner_user_id=_B)
+    db_session.add(other_vault)
+    db_session.flush()
+    other_config = _own_config(other_vault.id)
+    db_session.add(other_config)
+    db_session.flush()
+    other_object = _own_object(other_vault.id, other_config.id)
+    db_session.add(other_object)
+    db_session.flush()
+    other_config_id, other_object_id = other_config.id, other_object.id
+
+    resp = app_client.delete(_path(_A), headers=_headers(), params={"confirm": "a@example.com"})
+    assert resp.status_code == 200
+    db_session.expire_all()
+    assert db_session.get(VigilConfiguration, other_config_id) is not None
+    assert db_session.get(VigilObject, other_object_id) is not None
+
+
+def test_purge_with_vigil_configurations_reports_nonzero_counts(
+    app_client: TestClient, db_session: Session
+) -> None:
+    from app.services.user_purge import purge_user
+
+    db_session.add(_user(_A, "a@example.com"))
+    db_session.flush()
+    vault = VigilVault(owner_user_id=_A)
+    db_session.add(vault)
+    db_session.flush()
+    config = _own_config(vault.id)
+    db_session.add(config)
+    db_session.flush()
+    db_session.add(_own_object(vault.id, config.id))
+    db_session.flush()
+
+    result = purge_user(db_session, _A)
+    db_session.rollback()
+    assert result.vigil_configurations == 1
+    assert result.vigil_objects == 1
+
+
+def test_deleting_vigil_configuration_out_of_order_hits_fk(db_session: Session) -> None:
+    """Real FK: vigil_configurations.vault_id -> vigil_vaults.id ON DELETE
+    RESTRICT (#454) — bypassing purge_user's order must fail loudly."""
+    db_session.add(_user(_A, "a@example.com"))
+    db_session.flush()
+    vault = VigilVault(owner_user_id=_A)
+    db_session.add(vault)
+    db_session.flush()
+    db_session.add(_own_config(vault.id))
+    db_session.flush()
+    with pytest.raises(IntegrityError):
+        db_session.execute(delete(VigilVault).where(VigilVault.id == vault.id))
+        db_session.flush()
+
+
+def test_deleting_vigil_object_out_of_order_hits_fk(db_session: Session) -> None:
+    """Real FK: vigil_objects.config_id -> vigil_configurations.id ON
+    DELETE RESTRICT (#454)."""
+    db_session.add(_user(_A, "a@example.com"))
+    db_session.flush()
+    vault = VigilVault(owner_user_id=_A)
+    db_session.add(vault)
+    db_session.flush()
+    config = _own_config(vault.id)
+    db_session.add(config)
+    db_session.flush()
+    db_session.add(_own_object(vault.id, config.id))
+    db_session.flush()
+    with pytest.raises(IntegrityError):
+        db_session.execute(delete(VigilConfiguration).where(VigilConfiguration.id == config.id))
         db_session.flush()
 
 

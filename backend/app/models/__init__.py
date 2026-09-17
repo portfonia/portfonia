@@ -23,7 +23,13 @@ from app.models.ticker_intel import TickerIntel
 from app.models.upload_job import UploadJob
 from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
-from app.models.vigil import VigilAuditEvent, VigilRuntime, VigilVault
+from app.models.vigil import (
+    VigilAuditEvent,
+    VigilConfiguration,
+    VigilObject,
+    VigilRuntime,
+    VigilVault,
+)
 
 __all__ = [
     "Account",
@@ -52,6 +58,8 @@ __all__ = [
     "User",
     "UserInvestmentContext",
     "VigilAuditEvent",
+    "VigilConfiguration",
+    "VigilObject",
     "VigilRuntime",
     "VigilVault",
 ]

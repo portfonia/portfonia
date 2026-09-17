@@ -4,14 +4,17 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # GET /vigil/vault response shape — #452 Design comment / #450 Design
 # section 5 (incorporated by reference), object_summary and full field
 # list. `active`/`pending`/`recipients`/`delivery_status` stay structurally
-# present but always empty/None at this checkpoint: vigil_configurations
-# and vigil_objects (#454+) don't exist yet, so there is nothing to
-# populate them from.
+# present but always empty/None as of #454 too: vigil_configurations and
+# vigil_objects now exist and GET /vigil/vault could read them, but this
+# route doesn't decrypt/populate the summary yet (no masking policy for
+# `recipients`/`filename` decided at this checkpoint — blacktomb42 PR #507
+# review: "reasonable until decrypt/masking policy", not a gap to silently
+# paper over). Filled in once that policy exists.
 
 
 class VigilObjectSummary(BaseModel):
@@ -34,3 +37,55 @@ class VigilVaultStatus(BaseModel):
     pending: VigilObjectSummary | None = None
     recipients: list[str] = Field(default_factory=list)
     delivery_status: list[Any] = Field(default_factory=list)
+
+
+# POST /vigil/configurations / /vigil/objects/init / /vigil/objects/upload
+# (issue #454, Vigil R0 P2.1) — #450 Design section 5. `extra="forbid"`
+# throughout matches "Unknown fields -> 422" from that section; validation
+# beyond basic shape (interval/grace bounds, recipient count/dedupe, email
+# normalization, DNS, revision locking) happens in
+# services/vigil/configuration.py and services/vigil/objects.py, not here.
+
+
+class VigilRecipientIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str
+    email_confirm: str
+
+
+class VigilConfigurationIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int
+    interval_days: int | None = None
+    grace_hours: int | None = None
+    recipients: list[VigilRecipientIn]
+    message: str | None = None
+
+
+class VigilConfigurationOut(BaseModel):
+    vault_id: UUID
+    config_id: UUID
+    revision: int
+
+
+class VigilObjectInitIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int
+    config_id: UUID
+    request_id: UUID
+    filename: str
+    plaintext_size: int
+
+
+class VigilObjectInitOut(BaseModel):
+    object_id: UUID
+    revision: int
+
+
+class VigilObjectUploadOut(BaseModel):
+    object_id: UUID
+    status: str
+    revision: int

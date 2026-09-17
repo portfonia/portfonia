@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy import delete, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
@@ -19,7 +19,7 @@ from app.models.report import Report
 from app.models.upload_job import UploadJob
 from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
-from app.models.vigil import VigilVault
+from app.models.vigil import VigilConfiguration, VigilObject, VigilVault
 
 
 @dataclass(frozen=True)
@@ -33,6 +33,8 @@ class PurgeResult:
     email_verifications: int
     invites_used_by_cleared: int
     users_invited_by_cleared: int
+    vigil_objects: int
+    vigil_configurations: int
     vigil_vaults: int
     users: int
 
@@ -103,10 +105,46 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
             ),
         )
     )
+    # Extends the #451 base-row purge hook for #454's two new tables
+    # (Design section 3 / section 6 order: "Clear vault active/pending
+    # references, then remove ... objects, configurations ... and vault").
+    # vigil_vaults.active/pending_config_id/object_id are now real
+    # ON DELETE RESTRICT FKs into these tables (#454) — nulling them out
+    # first is required, not optional, or the DELETEs below fail loudly
+    # rather than silently bypassing the feature's stop path.
+    vault_id = session.execute(
+        select(VigilVault.id).where(VigilVault.owner_user_id == user_id)
+    ).scalar_one_or_none()
+    vigil_objects = 0
+    vigil_configurations = 0
+    if vault_id is not None:
+        session.execute(
+            update(VigilVault)
+            .where(VigilVault.id == vault_id)
+            .values(
+                active_config_id=None,
+                active_object_id=None,
+                pending_config_id=None,
+                pending_object_id=None,
+            )
+        )
+        vigil_objects = _rowcount(
+            cast(
+                CursorResult[Any],
+                session.execute(delete(VigilObject).where(VigilObject.vault_id == vault_id)),
+            )
+        )
+        vigil_configurations = _rowcount(
+            cast(
+                CursorResult[Any],
+                session.execute(
+                    delete(VigilConfiguration).where(VigilConfiguration.vault_id == vault_id)
+                ),
+            )
+        )
     # Must precede DELETE users: vigil_vaults.owner_user_id FKs to users.id
     # ON DELETE RESTRICT (issue #451 checkpoint P1.1) — the base-row purge
-    # hook. No other Vigil table exists yet; later checkpoints extend this
-    # for their own dependent rows (section 3 of the P1.1 Design comment).
+    # hook.
     vigil_vaults = _rowcount(
         cast(
             CursorResult[Any],
@@ -126,6 +164,8 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
         email_verifications=email_verifications,
         invites_used_by_cleared=invites_used_by_cleared,
         users_invited_by_cleared=users_invited_by_cleared,
+        vigil_objects=vigil_objects,
+        vigil_configurations=vigil_configurations,
         vigil_vaults=vigil_vaults,
         users=users,
     )
