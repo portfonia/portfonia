@@ -46,7 +46,7 @@ _MANIFEST_ALGORITHM = "AES-256-GCM"
 _MANIFEST_VERSION = 1
 _INNER_NO_PASSWORD_LENGTH = 32
 _INNER_WITH_PASSWORD_LENGTH = 48
-_MAX_UPLOAD_BODY_BYTES = 10_100_000
+MAX_UPLOAD_BODY_BYTES = 10_100_000
 _REQUIRED_KDF = {
     "name": "argon2id",
     "version": 19,
@@ -86,6 +86,7 @@ class VigilObjectNotFound(RuntimeError):
 
 
 __all__ = [
+    "MAX_UPLOAD_BODY_BYTES",
     "VigilObjectConflict",
     "VigilObjectInputError",
     "VigilObjectNotFound",
@@ -172,11 +173,20 @@ def init_object(
     if expected_revision != vault.revision:
         raise VigilRevisionConflict(current_revision=vault.revision)
 
-    # Retire only the previous PENDING object (staging or ready) — never active.
+    # Retire only the previous PENDING object (staging or ready) — never
+    # active. Appendix A: "retired/deleted C and outer column become NULL
+    # in the current logical row atomically after stop" — a superseded
+    # pending object is exactly such a stop, not something deferred to
+    # #458's later activation (blacktomb42 PR #507 review round 1: this
+    # previously flipped only `status`, leaving real ciphertext/outer_cipher
+    # in a row already unreachable via any legitimate business path). A
+    # `staging` row has no crypto fields to clear.
     if vault.pending_object_id is not None:
         old_pending = session.get(VigilObject, vault.pending_object_id)
         if old_pending is not None and old_pending.status in ("staging", "ready"):
             old_pending.status = "retired"
+            old_pending.ciphertext = None
+            old_pending.outer_cipher = None
 
     new_id = uuid.uuid4()
     obj = VigilObject(
@@ -285,7 +295,7 @@ def upload_object(
     inner_b64: str,
     ciphertext: bytes,
 ) -> ObjectUploadResult:
-    if len(ciphertext) + len(inner_b64) > _MAX_UPLOAD_BODY_BYTES:
+    if len(ciphertext) + len(inner_b64) > MAX_UPLOAD_BODY_BYTES:
         raise VigilObjectInputError("upload body exceeds the maximum bound")
 
     vault = _lock_user_and_vault(session, owner_user_id)

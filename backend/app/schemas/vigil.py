@@ -9,9 +9,12 @@ from pydantic import BaseModel, ConfigDict, Field
 # GET /vigil/vault response shape — #452 Design comment / #450 Design
 # section 5 (incorporated by reference), object_summary and full field
 # list. `active`/`pending`/`recipients`/`delivery_status` stay structurally
-# present but always empty/None at this checkpoint: vigil_configurations
-# and vigil_objects (#454+) don't exist yet, so there is nothing to
-# populate them from.
+# present but always empty/None as of #454 too: vigil_configurations and
+# vigil_objects now exist and GET /vigil/vault could read them, but this
+# route doesn't decrypt/populate the summary yet (no masking policy for
+# `recipients`/`filename` decided at this checkpoint — blacktomb42 PR #507
+# review: "reasonable until decrypt/masking policy", not a gap to silently
+# paper over). Filled in once that policy exists.
 
 
 class VigilObjectSummary(BaseModel):

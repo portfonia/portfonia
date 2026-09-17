@@ -200,6 +200,55 @@ def test_init_replay_after_superseded_conflicts(db_session: Session) -> None:
         )
 
 
+def test_init_superseding_a_ready_pending_nulls_its_ciphertext(db_session: Session) -> None:
+    """Appendix A: 'retired/deleted C and outer column become NULL in the
+    current logical row atomically after stop' — this applies the moment a
+    pending object is superseded, not only at #458's later activation.
+    blacktomb42 PR #507 review round 1: init_object previously only flipped
+    status to 'retired' and left real ciphertext/outer_cipher sitting in a
+    row that is already unreachable via any legitimate business path."""
+    config_id, revision = _seed_pending_config(db_session)
+    first = init_object(
+        db_session,
+        owner_user_id=_OWNER_ID,
+        expected_revision=revision,
+        config_id=config_id,
+        request_id=uuid.uuid4(),
+        filename="will.pdf",
+        plaintext_size=4,
+    )
+    db_session.flush()
+    ready = upload_object(
+        db_session,
+        owner_user_id=_OWNER_ID,
+        expected_revision=first.revision,
+        object_id=first.object_id,
+        config_id=config_id,
+        manifest=_manifest(first.vault_id, first.object_id),
+        inner_b64=_b64url(b"D" * 32),
+        ciphertext=b"C" * 20,
+    )
+    db_session.flush()
+    assert ready.status == "ready"
+
+    init_object(
+        db_session,
+        owner_user_id=_OWNER_ID,
+        expected_revision=ready.revision,
+        config_id=config_id,
+        request_id=uuid.uuid4(),
+        filename="will-v2.pdf",
+        plaintext_size=8,
+    )
+    db_session.flush()
+
+    old = db_session.get(VigilObject, first.object_id)
+    assert old is not None
+    assert old.status == "retired"
+    assert old.ciphertext is None
+    assert old.outer_cipher is None
+
+
 def test_init_stale_revision_on_fresh_request_conflicts(db_session: Session) -> None:
     config_id, revision = _seed_pending_config(db_session)
     with pytest.raises(VigilRevisionConflict) as excinfo:

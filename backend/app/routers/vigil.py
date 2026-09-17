@@ -31,6 +31,7 @@ from app.services.vigil.dns_check import (
     check_recipients_dns,
 )
 from app.services.vigil.objects import (
+    MAX_UPLOAD_BODY_BYTES,
     VigilObjectConflict,
     VigilObjectInputError,
     VigilObjectNotFound,
@@ -42,10 +43,12 @@ router = APIRouter()
 
 # Issue #452 (Vigil R0 P1.2): owner authorization now exists
 # (services/vigil/access.py) — this route reads the caller's own vault row
-# under it. No configuration/object/cycle tables exist yet (#454+), so
-# `active`/`pending`/`recipients`/`delivery_status` are always empty here;
-# `last_scan_completed_at` stays None too, since no scan task writes it
-# yet (#453/#456+).
+# under it. vigil_configurations/vigil_objects exist as of #454, but this
+# route doesn't decrypt/populate `active`/`pending`/`recipients` from them
+# yet (no masking policy decided at this checkpoint — see schemas/vigil.py);
+# `delivery_status` stays empty until #456+ (no outbox yet), and
+# `last_scan_completed_at` stays None until a scan task writes it
+# (#453/#456+).
 
 
 @router.get("/vault", response_model=VigilVaultStatus)
@@ -176,7 +179,6 @@ def post_object_init(
 
 
 _MAX_UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
-_MAX_UPLOAD_BODY_BYTES = 10_100_000
 
 
 @router.post(
@@ -204,10 +206,10 @@ async def post_object_upload(
     total = 0
     while chunk := await file.read(_MAX_UPLOAD_READ_CHUNK_BYTES):
         total += len(chunk)
-        if total > _MAX_UPLOAD_BODY_BYTES:
+        if total > MAX_UPLOAD_BODY_BYTES:
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=f"upload body exceeds {_MAX_UPLOAD_BODY_BYTES} bytes",
+                detail=f"upload body exceeds {MAX_UPLOAD_BODY_BYTES} bytes",
             )
         chunks.append(chunk)
     ciphertext = b"".join(chunks)
