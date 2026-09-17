@@ -128,15 +128,37 @@ the end of the daily task:
 - A day with an outbox row is **replayed** (from the payload, never recomputed
   from current holdings), whatever its age. `applied` rows whose live rows
   have gone missing are re-applied the same way.
-- A day with **no** payload is recomputed from live holdings only when both
-  (a) it is within `CATCHUP_LOOKBACK_DAYS` (7) and (b) the live book's
-  composition fingerprint equals the newest frozen evidence before that day —
-  i.e. the book provably has not moved since the last `complete` snapshot.
-  A change-and-revert inside that window is undetectable without a holdings
-  CDC (out of scope for #373); that residual is why the window is short.
+- A day with **no** payload is recomputed from live holdings unconditionally,
+  as long as it is within `CATCHUP_LOOKBACK_DAYS` (7).
 - Anything else is skipped with a structured WARNING and left not-`complete`;
   `skipped_deps` days stay eligible for a later catch-up once FX lands.
 - An undecodable payload is marked `failed` (logged, visible) and not retried.
+
+**Correction (2026-09-16, issue #497 — the composition-fingerprint gate this
+section originally described is deleted, not amended)**: the recompute path
+above used to additionally require the live book's composition fingerprint
+to equal the newest frozen evidence before the target day — i.e. it refused
+to recompute unless the book provably had not moved since the last
+`complete` snapshot. That check (`recompute_is_safe`,
+`frozen_book_fingerprint`, `live_book_fingerprint`,
+`latest_frozen_evidence_date`, `_COMPOSITION_FIELDS`) is gone. Why: #492
+found it produced a structural false positive for every
+`pricing_mode="auto"` holding — `build_snapshot_row` always freezes
+`current_value` as `None` on the frozen side, but the fingerprint read the
+raw live `Holding.current_value` column with no such override, so the two
+could never match for any such holding whose live column wasn't literally
+`NULL` (commonly `0`, depending on which creation path wrote the row). This
+silently, permanently blocked legitimate recovery for any affected user,
+with no alert. Product-owner decision, made with full knowledge of both this
+and the original #366/#367 incident the gate was built to prevent: accept
+the narrower residual risk — a genuinely moved book gets recomputed as if it
+were the missing day's real book, with no disclosure flag distinguishing it
+from an ordinary same-day capture — bounded by `CATCHUP_LOOKBACK_DAYS` (and,
+for `backfill_weekend_gaps.py` below, by its caller-supplied date range),
+rather than patch the comparison. `stage_user_snapshot` still hardcodes
+`is_backfilled=False` on every row it writes, so this residual is
+undetectable from the row itself — external detection (#372's capture-health
+probe, or a human noticing a chart looks wrong) is unchanged.
 
 **Retention**: `computed`/`failed` rows are never pruned (they are pending
 recovery evidence). `applied` rows are redundant once the live rows exist —
@@ -570,9 +592,11 @@ source bar, so a non-trading day is an idempotent no-op, not a re-dated
 `WEEKEND_CAPTURE_ENABLED_FROM` (2026-09-15) so a failed live Saturday/
 Sunday is catchable; earlier weekend gaps stay untouched by that
 unattended path. One-off historical weekend fill is
-`app/scripts/backfill_weekend_gaps.py` (Requirement 6), fingerprint-gated
-by `recompute_is_safe` — not a standing Beat task, and not a production
-write without a separate authorization.
+`app/scripts/backfill_weekend_gaps.py` (Requirement 6) — not a standing Beat
+task, and not a production write without a separate authorization. Recomputes
+unconditionally within the caller-supplied date range since issue #497
+removed the `recompute_is_safe` fingerprint gate (see the Correction note
+above `capture_portfolio_value_snapshot`'s recovery description).
 
 **Capture health (issue #372 slice B, split in #487)**: `check-capture-health-daily` at
 21:30 ET every calendar day. One probe after that window, not checks sprinkled into
@@ -820,6 +844,7 @@ endpoint and draw a fictitious dashed path through real history between
 separate gaps (PR #488 review 5210408209). No reconstructed number is
 written onto a missing date (composition-replay guardrail, issue #366).
 Write-path carry for weekends is issue #487: every-day Beat capture plus
-`approx_carried` disclosure, with a fingerprint-gated one-off backfill
-script for 2026-09-08 through the day before deploy. #486 remains the
-display path for any gap that backfill declines to fill.
+`approx_carried` disclosure, with a one-off backfill script for 2026-09-08
+through the day before deploy (unconditional since #497 removed the
+fingerprint gate it originally ran under). #486 remains the display path
+for any gap that backfill declines to fill.
