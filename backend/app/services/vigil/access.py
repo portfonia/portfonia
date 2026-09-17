@@ -71,13 +71,13 @@ def require_vigil_owner(
     arm/escalation guard uses `is_vigil_owner_eligible` for that stricter
     check.
     """
-    if _configured_owner_subject() is None or not _feature_available():
+    owner_subject = _configured_owner_subject()
+    if owner_subject is None or not _feature_available():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="vigil is not available",
         )
 
-    owner_subject = _configured_owner_subject()
     user = session.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
     if user is None:
         # Defensive only: current_principal already confirmed this user_id
@@ -106,6 +106,12 @@ def is_vigil_owner_eligible(session: Session, user_id: UUID) -> bool:
     from #450 Design section 3 — that locking is the caller's
     responsibility (e.g. `SELECT ... FOR UPDATE` on `User` before calling
     this), not built into this read.
+
+    Known residual (blacktomb42 PR #504 review, non-blocking): A02's
+    "unchanged account address" isn't checked here yet — there is no
+    encrypted config `account_email` snapshot to compare against until
+    #454 lands. Add that comparison here once #454's configuration table
+    exists, rather than opening a parallel eligibility path.
     """
     owner_subject = _configured_owner_subject()
     if owner_subject is None:
