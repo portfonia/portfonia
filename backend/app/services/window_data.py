@@ -531,30 +531,43 @@ def _merge_theme_anomalies(
     dominant holding as well.
     """
 
-    # Sort by current_value descending; fall back to 0 when value is unknown.
-    def _val(h: Holding) -> Decimal:
+    # Sort by real value descending; fall back to 0 when value is unknown.
+    #
+    # `Holding.current_value` is not a valuation the codebase maintains for
+    # pricing_mode="auto" holdings (build_snapshot_row always freezes it as
+    # None); the live column can hold anything depending on which creation
+    # path wrote the row (issue #492). For an auto holding the real value is
+    # shares x its own already-computed current price; for everything else
+    # (manual/cash/capture_supported=False), current_value is the real,
+    # user-declared value and is unchanged.
+    def _val(pair: tuple[Holding, PriceAnomaly]) -> Decimal:
+        h, a = pair
+        if h.pricing_mode == "auto":
+            if h.shares is None:
+                return Decimal("0")
+            return h.shares * a.current_price
         return h.current_value or Decimal("0")
 
-    flagged_sorted = sorted(flagged, key=lambda t: _val(t[0]), reverse=True)
+    flagged_sorted = sorted(flagged, key=_val, reverse=True)
     _dominant_h, dominant_a = flagged_sorted[0]
 
-    total_value = sum(_val(h) for h, _ in flagged)
+    total_value = sum(_val(pair) for pair in flagged)
     if total_value == 0:
         # Equal-weight fallback when no values are available.
         weighted_pct = (
             sum((a.pct_change for _, a in flagged), Decimal("0")) / len(flagged)
         ).quantize(_RATIO)
     else:
-        weighted_pct = (sum(_val(h) * a.pct_change for h, a in flagged) / total_value).quantize(
-            _RATIO
-        )
+        weighted_pct = (
+            sum(_val(pair) * pair[1].pct_change for pair in flagged) / total_value
+        ).quantize(_RATIO)
 
     constituents = [
         ConstituentMove(
             name=h.name,
             identifier=a.identifier,
             pct_change=a.pct_change,
-            current_value=_val(h),
+            current_value=_val((h, a)),
         )
         for h, a in flagged_sorted
     ]

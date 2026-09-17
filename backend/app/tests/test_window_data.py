@@ -21,6 +21,7 @@ from app.models.report import Report
 from app.models.ticker_leverage import TickerLeverageOverride
 from app.models.ticker_theme import TickerTheme
 from app.services import window_data
+from app.services.price_anomaly_detector import PriceAnomaly
 from app.services.window_data import (
     BOOTSTRAP_WATERMARK,
     _window_closes,
@@ -1181,7 +1182,11 @@ def test_detect_window_anomalies_single_user_golden_fields(db_session: Session) 
                 currency="USD",
                 asset_type="stock",
                 asset_class="STOCK",
-                current_value=Decimal("9000"),
+                shares=Decimal("45"),
+                # Deliberately stale/wrong (issue #492): auto-priced holdings'
+                # weighting must come from shares x current_price, never this
+                # raw column, so a wrong value here must not change the result.
+                current_value=Decimal("999999"),
             ),
             Holding(
                 user_id=_USER,
@@ -1191,7 +1196,8 @@ def test_detect_window_anomalies_single_user_golden_fields(db_session: Session) 
                 currency="USD",
                 asset_type="stock",
                 asset_class="STOCK",
-                current_value=Decimal("1000"),
+                shares=Decimal("10"),
+                current_value=Decimal("999999"),
             ),
         ]
     )
@@ -1219,9 +1225,9 @@ def test_detect_window_anomalies_single_user_golden_fields(db_session: Session) 
             _close_at("STANDA", date(2026, 6, 2), 100.0, start),
             _close("STANDA", date(2026, 6, 3), 106.0),  # +6%, standalone (no theme row)
             _close_at("THMBIG", date(2026, 6, 2), 200.0, start),
-            _close("THMBIG", date(2026, 6, 3), 210.0),  # +5%, dominant (current_value=9000)
+            _close("THMBIG", date(2026, 6, 3), 210.0),  # +5%, dominant (45 shares x 210 = 9450)
             _close_at("THMSML", date(2026, 6, 2), 50.0, start),
-            _close("THMSML", date(2026, 6, 3), 53.5),  # +7%, minor (current_value=1000)
+            _close("THMSML", date(2026, 6, 3), 53.5),  # +7%, minor (10 shares x 53.5 = 535)
         ]
     )
     db_session.flush()
@@ -1266,13 +1272,13 @@ def test_detect_window_anomalies_single_user_golden_fields(db_session: Session) 
         "asset_type": "STOCK",
         "current_price": Decimal("210.0"),
         "prev_price": Decimal("200.0"),
-        "pct_change": Decimal("0.0520"),  # value-weighted: (9000*.05 + 1000*.07)/10000
+        "pct_change": Decimal("0.0511"),  # value-weighted: (9450*.05 + 535*.07)/9985
         "threshold": Decimal("0.05"),
         "trigger": "single_day",
         "market": "US",
         "baseline_date": date(2026, 6, 2),
         "latest_date": date(2026, 6, 3),
-        "window_net_pct": Decimal("0.0520"),
+        "window_net_pct": Decimal("0.0511"),
         "max_day_pct": Decimal("0.0500"),  # dominant constituent's own max_day_pct
         "max_day_date": date(2026, 6, 3),
         "prev_close": Decimal("200.0"),
@@ -1289,13 +1295,133 @@ def test_detect_window_anomalies_single_user_golden_fields(db_session: Session) 
                 "name": "Theme Big",
                 "identifier": "THMBIG",
                 "pct_change": Decimal("0.0500"),
-                "current_value": Decimal("9000"),
+                "current_value": Decimal("9450.0"),
             },
             {
                 "name": "Theme Small",
                 "identifier": "THMSML",
                 "pct_change": Decimal("0.0700"),
-                "current_value": Decimal("1000"),
+                "current_value": Decimal("535.0"),
             },
         ],
     }
+
+
+def _anomaly(
+    *, identifier: str, current_price: Decimal, prev_price: Decimal, pct_change: Decimal
+) -> PriceAnomaly:
+    return PriceAnomaly(
+        name=identifier,
+        identifier=identifier,
+        asset_type="STOCK",
+        current_price=current_price,
+        prev_price=prev_price,
+        pct_change=pct_change,
+        threshold=Decimal("0.05"),
+    )
+
+
+def test_merge_theme_anomalies_ignores_stale_current_value_for_auto_holdings() -> None:
+    """Issue #492: `current_value` on a `pricing_mode="auto"` holding is not
+    a valuation the codebase maintains for auto holdings (build_snapshot_row
+    always writes None into the frozen side) — the live column can hold
+    anything depending on which creation path wrote the row, e.g. a
+    zero-share watch-tier holding created via a bulk edit. Weighting must use
+    shares x price for an auto holding, never that raw column, so a large
+    stale value there must not out-weight a manual holding's real value."""
+    theme_row = TickerTheme(
+        ticker="IGNORED", theme="t", theme_label_zh="z", theme_label_en="e", asset_class="STOCK"
+    )
+    auto_zero_share = Holding(
+        name="Watched Zero-Share",
+        ticker="ZERO",
+        pricing_mode="auto",
+        currency="USD",
+        asset_class="STOCK",
+        shares=Decimal("0"),
+        current_value=Decimal("500000"),  # stale/wrong — must be ignored
+    )
+    manual = Holding(
+        name="Manual Real Position",
+        ticker="MANL",
+        pricing_mode="manual",
+        currency="USD",
+        asset_class="STOCK",
+        current_value=Decimal("2000"),
+    )
+    auto_anomaly = _anomaly(
+        identifier="ZERO",
+        current_price=Decimal("10.0"),
+        prev_price=Decimal("8.0"),
+        pct_change=Decimal("0.2000"),
+    )
+    manual_anomaly = _anomaly(
+        identifier="MANL",
+        current_price=Decimal("20.0"),
+        prev_price=Decimal("18.5"),
+        pct_change=Decimal("0.0800"),
+    )
+
+    merged = window_data._merge_theme_anomalies(
+        [(auto_zero_share, auto_anomaly), (manual, manual_anomaly)], theme_row
+    )
+
+    # Real weighting: manual's 2000 vs. auto's true (shares=0 -> 0), not the
+    # stale 500000 column, so the manual holding's own pct_change wins
+    # outright and it is the dominant constituent.
+    assert merged.pct_change == Decimal("0.0800")
+    assert merged.constituents[0].identifier == "MANL"
+    by_identifier = {c.identifier: c for c in merged.constituents}
+    assert by_identifier["MANL"].current_value == Decimal("2000")
+    assert by_identifier["ZERO"].current_value == Decimal("0")
+
+
+def test_merge_theme_anomalies_uses_real_auto_valuation_when_shares_priced() -> None:
+    """Regression guard (issue #492): the fix must not zero out or ignore a
+    real auto valuation — only stop trusting the raw current_value column.
+    An auto holding with real shares x price weights exactly like a manual
+    holding with the same real value."""
+    theme_row = TickerTheme(
+        ticker="IGNORED", theme="t", theme_label_zh="z", theme_label_en="e", asset_class="STOCK"
+    )
+    auto_priced = Holding(
+        name="Auto Priced",
+        ticker="AUTO",
+        pricing_mode="auto",
+        currency="USD",
+        asset_class="STOCK",
+        shares=Decimal("100"),
+        # Deliberately different from the real value (100 x 10.0 = 1000) to
+        # prove this column is not what drives the weighting.
+        current_value=Decimal("1"),
+    )
+    manual = Holding(
+        name="Manual",
+        ticker="MANL",
+        pricing_mode="manual",
+        currency="USD",
+        asset_class="STOCK",
+        current_value=Decimal("1000"),
+    )
+    auto_anomaly = _anomaly(
+        identifier="AUTO",
+        current_price=Decimal("10.0"),
+        prev_price=Decimal("9.0"),
+        pct_change=Decimal("0.1000"),
+    )
+    manual_anomaly = _anomaly(
+        identifier="MANL",
+        current_price=Decimal("20.0"),
+        prev_price=Decimal("16.7"),
+        pct_change=Decimal("0.2000"),
+    )
+
+    merged = window_data._merge_theme_anomalies(
+        [(auto_priced, auto_anomaly), (manual, manual_anomaly)], theme_row
+    )
+
+    # Equal real value (1000 each) -> equal weight -> plain average.
+    assert merged.pct_change == Decimal("0.1500")
+    by_identifier = {c.identifier: c for c in merged.constituents}
+    assert by_identifier["AUTO"].current_value == Decimal("1000.0")
+    assert by_identifier["MANL"].current_value == Decimal("1000")
