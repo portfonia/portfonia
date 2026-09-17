@@ -17,6 +17,7 @@ on:
   pull_request:
     paths:
       - "backend/**"
+      - ".github/workflows/ci.yml"
 
 permissions:
   contents: read
