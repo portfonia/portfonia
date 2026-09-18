@@ -2,6 +2,15 @@
 
 Read `CLAUDE.md` for the shared repository engineering, security, testing, and Git conventions. This file adds the Codex issue/design documentation contract.
 
+## No over-engineering (MANDATORY, 2026-09-18)
+
+`CLAUDE.md`'s "No over-engineering" section applies here without change:
+requirements analysis, design, and implementation stop at "sufficient for
+the actual, current requirement." Do not add a mechanism, abstraction,
+validation layer, or defense-in-depth check because it is common practice
+or covers a hypothetical future need. When unsure whether something is
+required, ask the product owner before designing or implementing it.
+
 ## Documentation index
 
 - [Documentation governance](docs/playbooks/documentation-governance.md): document ownership, Obsidian authorization, executable design contracts, evidence labels, and note-access conventions.
