@@ -461,19 +461,20 @@ def capture_fx_task(self: Any) -> dict[str, Any]:
     from app.services.fx_fetcher import update_fx_rates
 
     oe.start_run("capture.fx", task_id=self.request.id)
+    span = oe.start_span("capture.fx.fetch")
     session = SessionLocal()
     try:
         result = update_fx_rates(session)
         session.commit()
         outcome = "ok" if not result.failed else "partial"
-        oe.end_run(
-            outcome,
-            attributes={"pairs_upserted": result.upserted, "pairs_failed": len(result.failed)},
-        )
+        counts = {"pairs_upserted": result.upserted, "pairs_failed": len(result.failed)}
+        oe.end_span(span, outcome, attributes={"source": "yfinance", **counts})
+        oe.end_run(outcome, attributes=counts)
         return {"upserted": result.upserted, "failed": result.failed}
     except Exception as exc:
         session.rollback()
         logger.exception("capture_fx_task: failed, scheduling retry")
+        oe.end_span(span, "failed", reason_code=type(exc).__name__)
         oe.end_run("failed", reason_code=type(exc).__name__)
         if self.request.retries >= self.max_retries:
             _capture_failed(
@@ -790,22 +791,31 @@ def capture_fx_catchup_task(self: Any) -> dict[str, object]:
     from app.services.fx_fetcher import fx_catchup
 
     oe.start_run("capture.fx", task_id=self.request.id)
+    span = oe.start_span("capture.fx.catchup")
     session = SessionLocal()
     try:
         today_et = datetime.now(tz=ET).date()
         target_date = expected_capture_date(today_et)
         result = fx_catchup(session, target_date)
         session.commit()
-        pairs_upserted = len(result.recovered_via_retry) + len(result.recovered_via_fallback)
-        pairs_failed = len(result.still_missing)
-        outcome = "ok" if not pairs_failed else "partial"
-        oe.end_run(
-            outcome, attributes={"pairs_upserted": pairs_upserted, "pairs_failed": pairs_failed}
-        )
+        if result.recovered_via_fallback:
+            source = "twelvedata"
+        elif result.recovered_via_retry:
+            source = "yfinance"
+        else:
+            source = "none"
+        counts = {
+            "pairs_upserted": len(result.recovered_via_retry) + len(result.recovered_via_fallback),
+            "pairs_failed": len(result.still_missing),
+        }
+        outcome = "ok" if not counts["pairs_failed"] else "partial"
+        oe.end_span(span, outcome, attributes={"source": source, **counts})
+        oe.end_run(outcome, attributes=counts)
         return result.as_dict()
     except Exception as exc:
         session.rollback()
         logger.exception("capture_fx_catchup_task: failed")
+        oe.end_span(span, "failed", reason_code=type(exc).__name__)
         oe.end_run("failed", reason_code=type(exc).__name__)
         if self.request.retries >= self.max_retries:
             _capture_failed(

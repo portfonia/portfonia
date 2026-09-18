@@ -419,7 +419,12 @@ def test_saturday_cash_row_stays_ok(db_session: Session) -> None:
 
 def test_stale_second_fx_leg_is_approx_carried() -> None:
     """Review P2: HKD holding priced into CNY uses USDHKD and USDCNY.
-    A same-day close + same-day USDHKD must not hide a stale USDCNY leg."""
+    A same-day close + same-day USDHKD must not hide a stale USDCNY leg.
+
+    USDCNY dated 2026-09-09 (Wed) into a 2026-09-14 (Mon) snapshot is 3
+    business days behind (Thu/Fri/Mon, weekend skipped) — beyond the
+    issue #509 tolerance, unlike the immediately-prior Friday->Monday
+    weekend-carry case covered by test_fx_lag_skips_weekend_when_counting_tolerance."""
     holding = Holding(
         user_id=uuid.uuid4(),
         name="Tencent",
@@ -439,7 +444,7 @@ def test_stale_second_fx_leg_is_approx_carried() -> None:
         "CNY",
         {
             "USDHKD": (Decimal("7.8"), day),
-            "USDCNY": (Decimal("7.1"), date(2026, 9, 11)),
+            "USDCNY": (Decimal("7.1"), date(2026, 9, 9)),
         },
         lambda _key, _d: (Decimal("400"), day),
         is_backfilled=False,
@@ -474,6 +479,37 @@ def test_fx_lag_within_two_calendar_days_stays_ok() -> None:
     )
     assert row["data_quality"] == "ok"
     assert row["fx_as_of"] == date(2026, 9, 15)
+
+
+def test_fx_lag_skips_weekend_when_counting_tolerance() -> None:
+    """Issue #509 (product owner correction): the 2-day tolerance counts
+    business days, not raw calendar days — a Friday-dated FX rate feeding a
+    Monday snapshot is only 1 business day behind (skip Sat/Sun, same
+    weekend-rollback convention as capture_health.expected_capture_date),
+    even though it's 3 calendar days apart."""
+    holding = Holding(
+        user_id=uuid.uuid4(),
+        name="Apple",
+        ticker="AAPL",
+        currency="USD",
+        pricing_mode="auto",
+        shares=Decimal("10"),
+        market="US",
+        capture_supported=True,
+    )
+    holding.id = uuid.uuid4()
+    fri = date(2026, 9, 11)
+    mon = date(2026, 9, 14)
+    row = build_snapshot_row(
+        holding,
+        holding.user_id,
+        mon,
+        "CNY",
+        {"USDCNY": (Decimal("7.1"), fri)},
+        lambda _key, _d: (Decimal("100"), mon),
+        is_backfilled=False,
+    )
+    assert row["data_quality"] == "ok"
 
 
 def test_fx_lag_beyond_two_calendar_days_is_approx_carried() -> None:

@@ -296,6 +296,36 @@ def test_capture_fx_task_writes_operational_event_on_success(
 
 @patch("app.core.database.SessionLocal")
 @patch("app.services.fx_fetcher.update_fx_rates")
+def test_capture_fx_task_writes_a_span(mock_update: MagicMock, mock_session_cls: MagicMock) -> None:
+    """Issue #509 review (blacktomb42, PR #511): Contract acceptance #5
+    asks for at least one span, not only the run — this task has exactly
+    one phase (the plain yfinance fetch, no fallback), so one span covers
+    it, tagged with the source that resolved it."""
+    from app.services.fx_fetcher import FxFetchResult
+    from app.tasks.capture_tasks import capture_fx_task
+
+    session = MagicMock()
+    mock_session_cls.return_value = session
+    mock_update.return_value = FxFetchResult(upserted=3, failed=[])
+
+    with (
+        patch("app.tasks.capture_tasks.oe.start_run"),
+        patch("app.tasks.capture_tasks.oe.end_run"),
+        patch("app.tasks.capture_tasks.oe.start_span") as mock_start_span,
+        patch("app.tasks.capture_tasks.oe.end_span") as mock_end_span,
+    ):
+        capture_fx_task.run()
+
+    assert mock_start_span.call_args.args[0] == "capture.fx.fetch"
+    mock_end_span.assert_called_once_with(
+        mock_start_span.return_value,
+        "ok",
+        attributes={"source": "yfinance", "pairs_upserted": 3, "pairs_failed": 0},
+    )
+
+
+@patch("app.core.database.SessionLocal")
+@patch("app.services.fx_fetcher.update_fx_rates")
 def test_capture_fx_task_writes_operational_event_on_partial_failure(
     mock_update: MagicMock, mock_session_cls: MagicMock
 ) -> None:

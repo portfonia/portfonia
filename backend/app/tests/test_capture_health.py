@@ -524,5 +524,110 @@ def test_fx_catchup_task_writes_operational_event(
 
     assert mock_start.call_args.args[0] == "capture.fx"
     mock_end.assert_called_once_with("ok", attributes={"pairs_upserted": 1, "pairs_failed": 0})
+
+
+@patch("app.core.database.SessionLocal")
+@patch("app.services.fx_fetcher.fx_catchup")
+def test_fx_catchup_task_span_reports_twelvedata_source(
+    mock_catchup: MagicMock, mock_session_cls: MagicMock
+) -> None:
+    """Issue #509 review (blacktomb42, PR #511): Design sketched "which
+    source resolved them" — a pair recovered via the Twelve Data fallback
+    must say so, not just "some source, unspecified"."""
+    from app.services.fx_fetcher import FxCatchupResult
+    from app.tasks.capture_tasks import capture_fx_catchup_task
+
+    session = MagicMock()
+    mock_session_cls.return_value = session
+    mock_catchup.return_value = FxCatchupResult(
+        target_date=_TUE,
+        initially_missing=["USDJPY"],
+        recovered_via_fallback=["USDJPY"],
+    )
+
+    with patch("app.tasks.capture_tasks.datetime") as mock_dt:
+        mock_dt.now.return_value.date.return_value = _TUE
+        with (
+            patch("app.tasks.capture_tasks.oe.start_run"),
+            patch("app.tasks.capture_tasks.oe.end_run"),
+            patch("app.tasks.capture_tasks.oe.start_span") as mock_start_span,
+            patch("app.tasks.capture_tasks.oe.end_span") as mock_end_span,
+        ):
+            capture_fx_catchup_task.run()
+
+    assert mock_start_span.call_args.args[0] == "capture.fx.catchup"
+    mock_end_span.assert_called_once_with(
+        mock_start_span.return_value,
+        "ok",
+        attributes={"source": "twelvedata", "pairs_upserted": 1, "pairs_failed": 0},
+    )
+
+
+@patch("app.core.database.SessionLocal")
+@patch("app.services.fx_fetcher.fx_catchup")
+def test_fx_catchup_task_span_reports_yfinance_retry_source(
+    mock_catchup: MagicMock, mock_session_cls: MagicMock
+) -> None:
+    """A pair recovered on the plain retry (no Twelve Data call needed)
+    reports "yfinance", the same source name FxRate.source itself uses."""
+    from app.services.fx_fetcher import FxCatchupResult
+    from app.tasks.capture_tasks import capture_fx_catchup_task
+
+    session = MagicMock()
+    mock_session_cls.return_value = session
+    mock_catchup.return_value = FxCatchupResult(
+        target_date=_TUE,
+        initially_missing=["USDJPY"],
+        recovered_via_retry=["USDJPY"],
+    )
+
+    with patch("app.tasks.capture_tasks.datetime") as mock_dt:
+        mock_dt.now.return_value.date.return_value = _TUE
+        with (
+            patch("app.tasks.capture_tasks.oe.start_run"),
+            patch("app.tasks.capture_tasks.oe.end_run"),
+            patch("app.tasks.capture_tasks.oe.start_span") as mock_start_span,
+            patch("app.tasks.capture_tasks.oe.end_span") as mock_end_span,
+        ):
+            capture_fx_catchup_task.run()
+
+    mock_end_span.assert_called_once_with(
+        mock_start_span.return_value,
+        "ok",
+        attributes={"source": "yfinance", "pairs_upserted": 1, "pairs_failed": 0},
+    )
+
+
+@patch("app.core.database.SessionLocal")
+@patch("app.services.fx_fetcher.fx_catchup")
+def test_fx_catchup_task_span_exists_on_noop(
+    mock_catchup: MagicMock, mock_session_cls: MagicMock
+) -> None:
+    """Nothing was missing (the common case) still writes one span — the
+    Contract's "at least one span" acceptance test must not depend on a
+    pair actually needing recovery that day."""
+    from app.services.fx_fetcher import FxCatchupResult
+    from app.tasks.capture_tasks import capture_fx_catchup_task
+
+    session = MagicMock()
+    mock_session_cls.return_value = session
+    mock_catchup.return_value = FxCatchupResult(target_date=_TUE)
+
+    with patch("app.tasks.capture_tasks.datetime") as mock_dt:
+        mock_dt.now.return_value.date.return_value = _TUE
+        with (
+            patch("app.tasks.capture_tasks.oe.start_run"),
+            patch("app.tasks.capture_tasks.oe.end_run"),
+            patch("app.tasks.capture_tasks.oe.start_span") as mock_start_span,
+            patch("app.tasks.capture_tasks.oe.end_span") as mock_end_span,
+        ):
+            capture_fx_catchup_task.run()
+
+    mock_start_span.assert_called_once()
+    mock_end_span.assert_called_once_with(
+        mock_start_span.return_value,
+        "ok",
+        attributes={"source": "none", "pairs_upserted": 0, "pairs_failed": 0},
+    )
     session.commit.assert_called_once()
     session.close.assert_called_once()

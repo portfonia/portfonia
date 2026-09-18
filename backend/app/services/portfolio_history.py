@@ -71,14 +71,31 @@ _CENT = Decimal("0.01")
 _PRICE_LOOKBACK_DAYS = 10
 _FX_LOOKBACK_DAYS = 10
 
-# Issue #509: an FX rate up to this many calendar days behind snapshot_date
+# Issue #509: an FX rate up to this many BUSINESS days behind snapshot_date
 # is normal vendor-publish background noise, not a data-quality problem —
-# stays data_quality="ok" rather than "approx_carried". A flat calendar-day
-# count (product owner decision, not a trading-calendar approximation):
-# price staleness (price_carried, the sibling check below) is unaffected.
+# stays data_quality="ok" rather than "approx_carried". Weekend-skipping
+# (product owner correction, 2026-09-18: a flat calendar-day count wrongly
+# flagged an ordinary Friday-rate-into-Monday-snapshot carry, 3 calendar
+# days but only 1 real trading gap), no holiday calendar — same "Mon-Fri,
+# no holidays" convention as capture_health.expected_capture_date. Price
+# staleness (price_carried, the sibling check below) is unaffected.
 _FX_LAG_TOLERANCE_DAYS = 2
 
 PriceLookupFn = Callable[[str, date], "tuple[Decimal, date] | None"]
+
+
+def _business_day_lag(rate_date: date, snapshot_date: date) -> int:
+    """Count of Mon-Fri calendar dates strictly after `rate_date`, up to and
+    including `snapshot_date` — the weekday-only distance between the two,
+    skipping Saturdays/Sundays (no holiday calendar, same convention as
+    `capture_health.expected_capture_date`)."""
+    lag = 0
+    cursor = rate_date
+    while cursor < snapshot_date:
+        cursor += timedelta(days=1)
+        if cursor.weekday() < 5:
+            lag += 1
+    return lag
 
 
 def historical_price(session: Session, key: str, as_of_date: date) -> tuple[Decimal, date] | None:
@@ -239,7 +256,7 @@ def build_snapshot_row(
         used_pairs = conversion_pairs(h.currency, base_currency) or []
         fx_carried = any(
             fx_dates.get(pair) is not None
-            and (snapshot_date - fx_dates[pair]).days > _FX_LAG_TOLERANCE_DAYS
+            and _business_day_lag(fx_dates[pair], snapshot_date) > _FX_LAG_TOLERANCE_DAYS
             for pair in used_pairs
         )
         if price_carried or fx_carried:
