@@ -89,3 +89,57 @@ class VigilObjectUploadOut(BaseModel):
     object_id: UUID
     status: str
     revision: int
+
+
+class VigilDrillIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int
+    config_id: UUID
+    object_id: UUID
+
+
+class VigilDrillOut(BaseModel):
+    drill_id: UUID
+    status: str
+    revision: int
+
+
+class VigilArmIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int
+    config_id: UUID
+    object_id: UUID
+
+
+class VigilArmOut(BaseModel):
+    phase: str
+    revision: int
+    next_check_at: str
+
+
+class VigilPublicStatusIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str
+    action: str
+
+
+class VigilPublicStatusOut(BaseModel):
+    available: bool
+    nonce: str | None = None
+    expires_at: str | None = None
+
+
+class VigilPublicConfirmIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str
+    nonce: str
+    altcha: str
+
+
+class VigilPublicConfirmOut(BaseModel):
+    result: str
+    next_check_at: str | None = None

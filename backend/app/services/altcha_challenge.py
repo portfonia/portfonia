@@ -134,3 +134,31 @@ def verify_change_password_solution(payload_b64: str) -> bool:
     except Exception:
         return False
     return ok
+
+
+def _vigil_hmac_key() -> str:
+    from app.services.vigil.crypto import HKDF_ALTCHA_INFO, derive_notification_subkeys
+
+    return derive_notification_subkeys(HKDF_ALTCHA_INFO)[0].hex()
+
+
+def create_vigil_challenge() -> dict[str, object]:
+    """Vigil-purpose Altcha v1 challenge. HMAC key is HKDF-derived from the
+    notification family (`vigil-altcha-v1`), not APP_SECRET_KEY and not a
+    new env secret (#450 Design section 4 / #458)."""
+    options = altcha_v1.ChallengeOptions(
+        hmac_key=_vigil_hmac_key(),
+        expires=datetime.now(UTC) + CHALLENGE_TTL,
+    )
+    challenge: altcha_v1.Challenge = altcha_v1.create_challenge(options)
+    return cast(dict[str, object], challenge.to_dict())
+
+
+def verify_vigil_solution(payload_b64: str) -> bool:
+    if not payload_b64:
+        return False
+    try:
+        ok, _err = altcha_v1.verify_solution(payload_b64, _vigil_hmac_key(), check_expires=True)
+    except Exception:
+        return False
+    return ok

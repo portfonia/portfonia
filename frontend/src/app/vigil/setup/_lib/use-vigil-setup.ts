@@ -26,7 +26,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
+  armVigilVault,
   createVigilConfiguration,
+  createVigilDrill,
   getVigilVaultStatus,
   initVigilObject,
   uploadVigilObject,
@@ -47,6 +49,23 @@ import {
 
 export type VigilSetupPhase = "form" | "submitting" | "ready" | "error";
 export type VigilSetupStage = "configuring" | "preparing" | "encrypting" | "uploading" | null;
+export type VigilDrillUiState = "idle" | "pending" | "sent" | "unknown" | "expired" | "confirmed";
+
+function drillStateFromVault(status: VigilVaultStatus): VigilDrillUiState | null {
+  const first = status.delivery_status?.[0];
+  if (!first || typeof first !== "object") return null;
+  const state = (first as { state?: unknown }).state;
+  if (
+    state === "pending" ||
+    state === "sent" ||
+    state === "unknown" ||
+    state === "expired" ||
+    state === "confirmed"
+  ) {
+    return state;
+  }
+  return null;
+}
 
 interface VigilCryptoClientLike {
   encryptFile(input: {
@@ -119,6 +138,10 @@ export function useVigilSetup(options: UseVigilSetupOptions = {}) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<SetupFormErrorCode[]>([]);
+  const [pendingConfigId, setPendingConfigId] = useState<string | null>(null);
+  const [pendingObjectId, setPendingObjectId] = useState<string | null>(null);
+  const [drillUiState, setDrillUiState] = useState<VigilDrillUiState>("idle");
+  const [armed, setArmed] = useState(false);
 
   const revisionRef = useRef(0);
   const vaultIdRef = useRef<string | null>(null);
@@ -135,6 +158,8 @@ export function useVigilSetup(options: UseVigilSetupOptions = {}) {
         setVaultStatus(status);
         revisionRef.current = status.revision;
         vaultIdRef.current = status.vault_id;
+        const drill = drillStateFromVault(status);
+        if (drill) setDrillUiState(drill);
       })
       .catch(() => {
         if (!cancelled) setVaultStatusError(true);
@@ -267,6 +292,10 @@ export function useVigilSetup(options: UseVigilSetupOptions = {}) {
         { signal: controller.signal, onProgress: setProgress },
       );
       revisionRef.current = uploadResult.revision;
+      setPendingConfigId(configId);
+      setPendingObjectId(objectId);
+      setDrillUiState("idle");
+      setArmed(false);
 
       setPhase("ready");
       setStage(null);
@@ -288,6 +317,77 @@ export function useVigilSetup(options: UseVigilSetupOptions = {}) {
       setStage(null);
     }
   }, [file, hasPassword, password, passwordConfirm, recipients, message, intervalDays, graceHours]);
+
+  const sendDrill = useCallback(async () => {
+    if (!pendingConfigId || !pendingObjectId) return;
+    setErrorMessage(null);
+    setErrorCode(null);
+    try {
+      const result = await createVigilDrill({
+        expected_revision: revisionRef.current,
+        config_id: pendingConfigId,
+        object_id: pendingObjectId,
+      });
+      revisionRef.current = result.revision;
+      setDrillUiState("pending");
+    } catch (err) {
+      const { message: msg, code } = errorMessageFor(err);
+      if (err instanceof VigilRevisionConflictError) {
+        revisionRef.current = err.currentRevision;
+      }
+      setErrorMessage(msg);
+      setErrorCode(code === "apiError" ? "drillFailed" : code);
+    }
+  }, [pendingConfigId, pendingObjectId]);
+
+  const activate = useCallback(async () => {
+    if (!pendingConfigId || !pendingObjectId) return;
+    setErrorMessage(null);
+    setErrorCode(null);
+    try {
+      const result = await armVigilVault({
+        expected_revision: revisionRef.current,
+        config_id: pendingConfigId,
+        object_id: pendingObjectId,
+      });
+      revisionRef.current = result.revision;
+      setArmed(true);
+    } catch (err) {
+      const { message: msg, code } = errorMessageFor(err);
+      if (err instanceof VigilRevisionConflictError) {
+        revisionRef.current = err.currentRevision;
+      }
+      if (err instanceof VigilApiError && err.status === 503) {
+        setErrorCode("armIncomplete");
+        setErrorMessage(msg);
+        return;
+      }
+      setErrorMessage(msg);
+      setErrorCode(code === "apiError" ? "armFailed" : code);
+    }
+  }, [pendingConfigId, pendingObjectId]);
+
+  useEffect(() => {
+    if (phase !== "ready") return;
+    if (drillUiState !== "pending" && drillUiState !== "sent" && drillUiState !== "unknown") return;
+    let cancelled = false;
+    const timer = window.setInterval(() => {
+      void getVigilVaultStatus()
+        .then((status) => {
+          if (cancelled) return;
+          revisionRef.current = status.revision;
+          const drill = drillStateFromVault(status);
+          if (drill) setDrillUiState(drill);
+        })
+        .catch(() => {
+          /* keep last known drill state */
+        });
+    }, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [phase, drillUiState]);
 
   return {
     vaultStatus,
@@ -319,5 +419,9 @@ export function useVigilSetup(options: UseVigilSetupOptions = {}) {
 
     submit,
     cancel,
+    sendDrill,
+    activate,
+    drillUiState,
+    armed,
   };
 }

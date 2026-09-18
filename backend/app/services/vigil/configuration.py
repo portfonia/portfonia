@@ -33,6 +33,8 @@ from sqlalchemy.orm import Session
 from app.models.user import User
 from app.models.vigil import VigilConfiguration, VigilVault
 from app.services.vigil.crypto import decrypt_field, encrypt_field
+from app.services.vigil.dispatch import cancel_outbox_intents
+from app.services.vigil.tokens import db_now, invalidate_open_drill_tokens
 
 VALID_INTERVAL_DAYS = (7, 14, 30, 60, 90)
 DEFAULT_INTERVAL_DAYS = 30
@@ -161,6 +163,10 @@ def _decrypt_configuration_data(config: VigilConfiguration, vault_id: UUID) -> d
     return data
 
 
+def load_configuration_data(config: VigilConfiguration, vault_id: UUID) -> dict[str, object]:
+    return _decrypt_configuration_data(config, vault_id)
+
+
 def _assert_recipients_not_changed_after_arming(
     session: Session, vault: VigilVault, normalized: NormalizedConfiguration
 ) -> None:
@@ -232,6 +238,14 @@ def write_pending_configuration(
     if vault.pending_config_id is not None:
         pending = session.get(VigilConfiguration, vault.pending_config_id)
         if pending is not None and pending.status == "pending":
+            now = db_now(session)
+            superseded = invalidate_open_drill_tokens(
+                session, vault_id=vault.id, now=now, config_id=pending.id
+            )
+            if superseded:
+                cancel_outbox_intents(
+                    session, vault_id=vault.id, purpose="drill", scope_ids=superseded
+                )
             pending.status = "retired"
 
     business_data = {

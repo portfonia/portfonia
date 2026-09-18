@@ -6,6 +6,8 @@ const {
   createVigilConfiguration,
   initVigilObject,
   uploadVigilObject,
+  createVigilDrill,
+  armVigilVault,
   VigilRevisionConflictErrorCtor,
   VigilApiErrorCtor,
 } = vi.hoisted(() => {
@@ -32,6 +34,8 @@ const {
     createVigilConfiguration: vi.fn(),
     initVigilObject: vi.fn(),
     uploadVigilObject: vi.fn(),
+    createVigilDrill: vi.fn(),
+    armVigilVault: vi.fn(),
     VigilRevisionConflictErrorCtor,
     VigilApiErrorCtor,
   };
@@ -42,6 +46,8 @@ vi.mock("@/lib/vigil/api", () => ({
   createVigilConfiguration,
   initVigilObject,
   uploadVigilObject,
+  createVigilDrill,
+  armVigilVault,
   VigilRevisionConflictError: VigilRevisionConflictErrorCtor,
   VigilApiError: VigilApiErrorCtor,
 }));

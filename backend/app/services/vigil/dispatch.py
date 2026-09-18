@@ -165,6 +165,51 @@ def write_outbox_entry(
     return row
 
 
+def cancel_outbox_intents(
+    session: Session,
+    *,
+    vault_id: UUID,
+    purpose: str | None = None,
+    scope_ids: list[UUID] | None = None,
+    config_id: UUID | None = None,
+    object_id: UUID | None = None,
+) -> int:
+    """Cancel non-terminal outbox rows and clear their payload.
+
+    Caller already holds the User-then-vault lock. Application-layer stop
+    only — not physical erasure.
+    """
+    conditions = [
+        VigilOutbox.vault_id == vault_id,
+        VigilOutbox.status.in_((_PENDING, _LEASED, _UNKNOWN)),
+    ]
+    if purpose is not None:
+        conditions.append(VigilOutbox.purpose == purpose)
+    if scope_ids is not None:
+        if not scope_ids:
+            return 0
+        conditions.append(VigilOutbox.scope_id.in_(scope_ids))
+    if config_id is not None:
+        conditions.append(VigilOutbox.config_id == config_id)
+    if object_id is not None:
+        conditions.append(VigilOutbox.object_id == object_id)
+    result = cast(
+        CursorResult[Any],
+        session.execute(
+            update(VigilOutbox)
+            .where(and_(*conditions))
+            .values(
+                status=_CANCELLED,
+                payload_cipher=None,
+                payload_sha256=None,
+                next_attempt_at=None,
+                lease_until=None,
+            )
+        ),
+    )
+    return int(result.rowcount or 0)
+
+
 def _decrypt_payload(row: VigilOutbox) -> OutboxPayload:
     raw = decrypt_notification_field(
         row.payload_cipher,  # type: ignore[arg-type]

@@ -1185,7 +1185,13 @@
       "confirmTitle": "确认签到",
       "retrieveTitle": "获取文件",
       "revokeTitle": "撤销发送",
-      "unavailable": "此链接尚未生效，请稍后再试。"
+      "unavailable": "此链接尚未生效，请稍后再试。",
+      "confirmHint": "此确认只验证当前账户，不会布防 Vigil。",
+      "confirmButton": "确认",
+      "confirming": "正在确认…",
+      "confirmed": "账户已确认。请回到设置页再执行布防。",
+      "gone": "此确认链接已失效。",
+      "failed": "确认失败，可以重试。"
     },
     "setup": {
       "activeStillReleasingNote": "您已有一份处于布防倒计时中的有效安排。在此设置替换文件不会暂停它——在您明确布防替换文件之前，原有安排仍会按原计划继续释放。",
@@ -1233,6 +1239,16 @@
         "title": "已就绪——等待演练",
         "body": "文件已加密并上传完成，但尚未布防：在您运行演练并明确布防之前，不会向收件人发送任何内容，布防是单独的一步。"
       },
+      "drill": {
+        "send": "发送账户确认",
+        "pending": "确认邮件已排队。",
+        "sent": "邮件服务已接受确认邮件。",
+        "unknown": "确认邮件的投递结果未知。",
+        "expired": "确认链接已过期。请重新发送。",
+        "confirmed": "账户已确认。准备好后再布防——这是单独的一步。",
+        "activate": "布防",
+        "armed": "Vigil 已布防。"
+      },
       "startNew": "设置另一个文件",
       "errors": {
         "fileRequired": "请先选择文件。",
@@ -1252,7 +1268,10 @@
         "revisionConflict": "您的 Vigil 设置已在别处发生变化，请检查表单后重试。",
         "apiError": "请求未能完成，您可以重试。",
         "cancelled": "上传已取消。",
-        "unknown": "出现问题，您可以重试。"
+        "unknown": "出现问题，您可以重试。",
+        "drillFailed": "确认邮件未能排队，可以重试。",
+        "armFailed": "布防失败，可以重试。",
+        "armIncomplete": "在停止与恢复路径完成集成之前，线上布防保持关闭。"
       }
     }
   }

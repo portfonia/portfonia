@@ -13,7 +13,7 @@ describe("PublicActionShell", () => {
     vi.resetAllMocks();
   });
 
-  it.each(["confirm", "retrieve", "revoke"] as const)(
+  it.each(["retrieve", "revoke"] as const)(
     "renders the %s title and the shared unavailable copy",
     (action) => {
       render(
@@ -26,11 +26,7 @@ describe("PublicActionShell", () => {
     },
   );
 
-  // A02 / A06 (#450 Design section 5/9): mounting or GETting a public shell
-  // must fetch NO private metadata and take NO business action — no
-  // /vigil/public/* endpoint exists yet at this checkpoint, and even once
-  // it does, a mere page load must never itself invoke it.
-  it("makes no network request on mount", () => {
+  it("confirm shows an explicit button and does not fetch on mount", () => {
     const fetchMock = vi.fn();
     global.fetch = fetchMock;
 
@@ -40,6 +36,7 @@ describe("PublicActionShell", () => {
       </LocaleProvider>,
     );
 
+    expect(screen.getByRole("button", { name: /confirm/i })).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
