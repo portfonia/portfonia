@@ -220,17 +220,21 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "task": "app.tasks.capture_tasks.capture_forward_events_task",
         "schedule": crontab(hour=8, minute=0, day_of_week="mon-fri"),
     },
-    # FX rates (R-4): 17:15 ET every calendar day (issue #487; was mon-fri).
-    # NOT 16:05 like the equities close nodes (issue #258) — FX has no
-    # NYSE-style hard close, so 16:05 consistently captured the *previous*
-    # day's daily bar (confirmed against 5 days of production fx_rates rows,
-    # all off by exactly one day). FX's own daily bar rolls over around
-    # 17:00 ET; 17:15 leaves a buffer past that. A genuine non-trading day
-    # is an idempotent source-dated upsert of the last bar, not a new row
-    # dated "today".
+    # FX rates (R-4): 19:30 ET every calendar day (issue #509; was 17:15 ET,
+    # before that 16:05 like the equities close nodes, issue #258). 16:05
+    # and then 17:15 both consistently captured the *previous* day's daily
+    # bar (confirmed against production fx_rates rows on both timings, off
+    # by exactly one day every time) — a live probe on 2026-09-17 against
+    # the actual production fetch path found the FX daily bar's own
+    # rollover lands around 19:00 ET, not the ~17:00 ET earlier timings
+    # assumed. 19:30 ET leaves a buffer past that, with a second same-day
+    # attempt at 20:00 ET (capture-fx-catchup-daily) before the 20:30 ET
+    # portfolio snapshot locks in the day's data quality. A genuine
+    # non-trading day is an idempotent source-dated upsert of the last bar,
+    # not a new row dated "today".
     "capture-fx-daily": {
         "task": "app.tasks.capture_tasks.capture_fx_task",
-        "schedule": crontab(hour=17, minute=15),
+        "schedule": crontab(hour=19, minute=30),
     },
     # Fund NAV (Tiantian Fund): settled NAV for fund_code holdings is published by
     # the fund manager after A-share close (usually same evening). 20:00 CST
@@ -305,21 +309,19 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "task": "app.tasks.capture_tasks.check_capture_health_task",
         "schedule": crontab(hour=21, minute=30),
     },
-    # FX catch-up (issue #426): capture_fx_task's 17:15 ET fetch can land a
-    # bar dated the *prior* day when yfinance hasn't published that day's FX
-    # close bar yet (confirmed live 2026-09-10 — all 14 pairs landed on
-    # yesterday's date despite the task reporting success). A bigger fixed
-    # buffer doesn't reliably fix this (vendor publish lag is variable, not a
-    # fixed offset — same lesson as issue #389's fund-NAV/China-ETF bounded
-    # retry+fallback), so this mirrors the #372/#373 detection-vs-recovery
-    # split instead: the 21:30 ET probe above stays pure detection, and this
-    # is FX's own separate recovery pass. `tue-sat` at 00:05 ET means each
-    # run targets the *previous* ET weekday (tue->mon, ..., sat->fri) — one
-    # catch-up attempt per trading day, run once that day has fully closed
-    # out.
+    # FX catch-up (issue #426, retimed same-day by issue #509): a second,
+    # same-day attempt 30 minutes before the 20:30 ET portfolio snapshot —
+    # retry + Twelve Data fallback for any pair the 19:30 ET fetch above
+    # still missed. The original design ran this at 00:05 ET the *next*
+    # calendar day (tue-sat, targeting the previous ET weekday): that could
+    # only ever repair `fx_rates` for future reads, never that day's own
+    # snapshot, which had already locked in `approx_carried` seven-plus
+    # hours earlier at 20:30 ET. Every calendar day now, targeting *today*
+    # (via `expected_capture_date`, which still rolls a weekend run back to
+    # the last real trading day — there is no Saturday-dated FX bar).
     "capture-fx-catchup-daily": {
         "task": "app.tasks.capture_tasks.capture_fx_catchup_task",
-        "schedule": crontab(hour=0, minute=5, day_of_week="tue-sat"),
+        "schedule": crontab(hour=20, minute=0),
     },
     # operational_events retention sweep (issue #446, Design §4): 05:00 UTC
     # specifically, not ET like this schedule's other daily entries — the

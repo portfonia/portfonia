@@ -218,19 +218,22 @@ def test_fx_capture_entry_runs_daily_weekdays() -> None:
     entry = celery_app.conf.beat_schedule["capture-fx-daily"]
     assert entry["task"] == "app.tasks.capture_tasks.capture_fx_task"
     cron = entry["schedule"]
-    # 17:15 ET, not 16:05 (issue #258): FX has no NYSE-style hard close, so
-    # scheduling it 5 minutes after the 16:00 ET equities close captured
-    # yesterday's daily bar every single day — confirmed against 5 days of
-    # production fx_rates rows, all off by exactly one day. FX's own daily
-    # bar rolls over around 17:00 ET; 17:15 leaves a buffer past that.
+    # 19:30 ET (issue #509, was 17:15 ET / issue #258's 16:05 ET before
+    # that): a live probe on 2026-09-17 found the FX daily bar's own
+    # rollover lands around 19:00 ET, not the ~17:00 ET earlier attempts
+    # assumed — 17:15 ET landed yesterday's bar every single day it was
+    # observed. 19:30 ET leaves a buffer past the observed rollover, with
+    # a second same-day attempt at 20:00 ET (capture-fx-catchup-daily)
+    # before the 20:30 ET portfolio snapshot locks in the day's quality.
     # Issue #487: every calendar day (was mon-fri); a non-trading day is a
     # source-dated no-op, not a re-dated "today" row.
-    assert cron.hour == {17} and cron.minute == {15}
+    assert cron.hour == {19} and cron.minute == {30}
     assert cron.day_of_week == set(range(7))
 
 
 _EVERY_DAY_CAPTURE_ENTRIES = (
     "capture-fx-daily",
+    "capture-fx-catchup-daily",
     "capture-fund-navs-daily",
     "capture-portfolio-value-snapshot-daily",
     "capture-benchmark-index-prices-daily",
@@ -240,12 +243,12 @@ _EVERY_DAY_CAPTURE_ENTRIES = (
 
 def test_capture_entries_widened_to_every_calendar_day() -> None:
     """Issue #487: the five weekday-gated capture/health Beat entries drop
-    day_of_week="mon-fri". capture-fx-catchup-daily stays tue-sat."""
+    day_of_week="mon-fri". Issue #509: capture-fx-catchup-daily joins them
+    (every calendar day) now that it runs same-day at 20:00 ET rather than
+    tue-sat at 00:05 ET the next day."""
     for name in _EVERY_DAY_CAPTURE_ENTRIES:
         cron = celery_app.conf.beat_schedule[name]["schedule"]
         assert cron.day_of_week == set(range(7)), name
-    catchup = celery_app.conf.beat_schedule["capture-fx-catchup-daily"]["schedule"]
-    assert catchup.day_of_week == {2, 3, 4, 5, 6}
 
 
 @patch("app.core.database.SessionLocal")
@@ -262,6 +265,83 @@ def test_capture_fx_task(mock_update: MagicMock, mock_session_cls: MagicMock) ->
     mock_update.assert_called_once_with(session)
     session.commit.assert_called_once()
     session.close.assert_called_once()
+
+
+@patch("app.core.database.SessionLocal")
+@patch("app.services.fx_fetcher.update_fx_rates")
+def test_capture_fx_task_writes_operational_event_on_success(
+    mock_update: MagicMock, mock_session_cls: MagicMock
+) -> None:
+    """Issue #509: a durable capture.fx run/span, independent of container
+    stdout logs, so a later container recreate doesn't erase whether this
+    attempt ran and what it found — the gap this issue's own investigation
+    hit trying to check a prior catch-up attempt."""
+    from app.services.fx_fetcher import FxFetchResult
+    from app.tasks.capture_tasks import capture_fx_task
+
+    session = MagicMock()
+    mock_session_cls.return_value = session
+    mock_update.return_value = FxFetchResult(upserted=3, failed=[])
+
+    with (
+        patch("app.tasks.capture_tasks.oe.start_run") as mock_start,
+        patch("app.tasks.capture_tasks.oe.end_run") as mock_end,
+    ):
+        capture_fx_task.run()
+
+    mock_start.assert_called_once()
+    assert mock_start.call_args.args[0] == "capture.fx"
+    mock_end.assert_called_once_with("ok", attributes={"pairs_upserted": 3, "pairs_failed": 0})
+
+
+@patch("app.core.database.SessionLocal")
+@patch("app.services.fx_fetcher.update_fx_rates")
+def test_capture_fx_task_writes_operational_event_on_partial_failure(
+    mock_update: MagicMock, mock_session_cls: MagicMock
+) -> None:
+    """Some pairs still missing after the plain fetch is a real, distinct
+    outcome from full success — not folded into "ok"."""
+    from app.services.fx_fetcher import FxFetchResult
+    from app.tasks.capture_tasks import capture_fx_task
+
+    session = MagicMock()
+    mock_session_cls.return_value = session
+    mock_update.return_value = FxFetchResult(upserted=12, failed=["USDJPY", "USDKRW"])
+
+    with (
+        patch("app.tasks.capture_tasks.oe.start_run"),
+        patch("app.tasks.capture_tasks.oe.end_run") as mock_end,
+    ):
+        capture_fx_task.run()
+
+    mock_end.assert_called_once_with(
+        "partial", attributes={"pairs_upserted": 12, "pairs_failed": 2}
+    )
+
+
+@patch("app.core.database.SessionLocal")
+@patch("app.services.fx_fetcher.update_fx_rates")
+def test_capture_fx_task_writes_operational_event_on_exception(
+    mock_update: MagicMock, mock_session_cls: MagicMock
+) -> None:
+    from app.tasks.capture_tasks import capture_fx_task
+
+    session = MagicMock()
+    mock_session_cls.return_value = session
+    mock_update.side_effect = RuntimeError("boom")
+
+    capture_fx_task.push_request(retries=0)
+    try:
+        with (
+            patch("app.tasks.capture_tasks.oe.start_run"),
+            patch("app.tasks.capture_tasks.oe.end_run") as mock_end,
+            pytest.raises(RuntimeError),
+        ):
+            capture_fx_task.run()
+    finally:
+        capture_fx_task.pop_request()
+
+    mock_end.assert_called_once_with("failed", reason_code="RuntimeError")
 
 
 @patch("app.core.database.SessionLocal")

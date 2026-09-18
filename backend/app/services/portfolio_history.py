@@ -71,6 +71,13 @@ _CENT = Decimal("0.01")
 _PRICE_LOOKBACK_DAYS = 10
 _FX_LOOKBACK_DAYS = 10
 
+# Issue #509: an FX rate up to this many calendar days behind snapshot_date
+# is normal vendor-publish background noise, not a data-quality problem —
+# stays data_quality="ok" rather than "approx_carried". A flat calendar-day
+# count (product owner decision, not a trading-calendar approximation):
+# price staleness (price_carried, the sibling check below) is unaffected.
+_FX_LAG_TOLERANCE_DAYS = 2
+
 PriceLookupFn = Callable[[str, date], "tuple[Decimal, date] | None"]
 
 
@@ -231,7 +238,8 @@ def build_snapshot_row(
         price_carried = local.price_as_of != snapshot_date
         used_pairs = conversion_pairs(h.currency, base_currency) or []
         fx_carried = any(
-            fx_dates.get(pair) is not None and fx_dates[pair] != snapshot_date
+            fx_dates.get(pair) is not None
+            and (snapshot_date - fx_dates[pair]).days > _FX_LAG_TOLERANCE_DAYS
             for pair in used_pairs
         )
         if price_carried or fx_carried:

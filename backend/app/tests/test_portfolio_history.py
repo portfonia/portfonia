@@ -447,6 +447,62 @@ def test_stale_second_fx_leg_is_approx_carried() -> None:
     assert row["data_quality"] == "approx_carried"
 
 
+def test_fx_lag_within_two_calendar_days_stays_ok() -> None:
+    """Issue #509: a same-day price with an FX rate up to 2 calendar days
+    behind snapshot_date is normal background noise, not a data-quality
+    problem — stays data_quality="ok", unlike today's exact-equality check."""
+    holding = Holding(
+        user_id=uuid.uuid4(),
+        name="Apple",
+        ticker="AAPL",
+        currency="USD",
+        pricing_mode="auto",
+        shares=Decimal("10"),
+        market="US",
+        capture_supported=True,
+    )
+    holding.id = uuid.uuid4()
+    day = date(2026, 9, 17)
+    row = build_snapshot_row(
+        holding,
+        holding.user_id,
+        day,
+        "CNY",
+        {"USDCNY": (Decimal("7.1"), date(2026, 9, 15))},  # 2 calendar days behind
+        lambda _key, _d: (Decimal("100"), day),
+        is_backfilled=False,
+    )
+    assert row["data_quality"] == "ok"
+    assert row["fx_as_of"] == date(2026, 9, 15)
+
+
+def test_fx_lag_beyond_two_calendar_days_is_approx_carried() -> None:
+    """Issue #509: the boundary just past the 2-calendar-day tolerance
+    still flags approx_carried — same-day price, FX 3 calendar days behind."""
+    holding = Holding(
+        user_id=uuid.uuid4(),
+        name="Apple",
+        ticker="AAPL",
+        currency="USD",
+        pricing_mode="auto",
+        shares=Decimal("10"),
+        market="US",
+        capture_supported=True,
+    )
+    holding.id = uuid.uuid4()
+    day = date(2026, 9, 17)
+    row = build_snapshot_row(
+        holding,
+        holding.user_id,
+        day,
+        "CNY",
+        {"USDCNY": (Decimal("7.1"), date(2026, 9, 14))},  # 3 calendar days behind
+        lambda _key, _d: (Decimal("100"), day),
+        is_backfilled=False,
+    )
+    assert row["data_quality"] == "approx_carried"
+
+
 def test_same_currency_valuation_ignores_unrelated_fx_row() -> None:
     """Review P2: HKD -> HKD uses no FX pair; a stale USDHKD row is irrelevant."""
     holding = Holding(

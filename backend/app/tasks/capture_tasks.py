@@ -17,6 +17,7 @@ from typing import Any
 
 from celery.exceptions import Retry  # type: ignore[import-untyped]
 
+from app.core import operational_events as oe
 from app.services.capture_results import CaptureDataMiss, CaptureOutcome
 from app.services.china_session_calendar import ChinaSessionWindow
 from app.services.email_sender import send_ops_alert
@@ -449,18 +450,31 @@ def capture_fx_task(self: Any) -> dict[str, Any]:
     triggered it (observed: rates frozen at 2026-06-04 while reports ran on
     06-10). The upsert is idempotent, so a missed fire is covered by the next
     daily run. (R-4)
+
+    Wrapped in a `capture.fx` operational_events run (issue #509): durable,
+    Postgres-backed evidence of whether this attempt ran and what it found,
+    independent of container stdout logs — a `docker compose up --build`
+    recreate wipes those, which blocked verifying a prior catch-up attempt
+    during this issue's own investigation.
     """
     from app.core.database import SessionLocal
     from app.services.fx_fetcher import update_fx_rates
 
+    oe.start_run("capture.fx", task_id=self.request.id)
     session = SessionLocal()
     try:
         result = update_fx_rates(session)
         session.commit()
+        outcome = "ok" if not result.failed else "partial"
+        oe.end_run(
+            outcome,
+            attributes={"pairs_upserted": result.upserted, "pairs_failed": len(result.failed)},
+        )
         return {"upserted": result.upserted, "failed": result.failed}
     except Exception as exc:
         session.rollback()
         logger.exception("capture_fx_task: failed, scheduling retry")
+        oe.end_run("failed", reason_code=type(exc).__name__)
         if self.request.retries >= self.max_retries:
             _capture_failed(
                 "capture_fx_task",
@@ -752,37 +766,52 @@ def check_capture_health_task(self: Any) -> dict[str, object]:
     default_retry_delay=300,
 )
 def capture_fx_catchup_task(self: Any) -> dict[str, object]:
-    """00:05 ET catch-up for the prior ET weekday's FX rates (issue #426).
+    """20:00 ET same-day catch-up for today's FX rates (issue #509, was a
+    00:05 ET *next-day* catch-up, issue #426).
 
-    Scheduled `tue-sat` (each run targets the previous ET weekday: tue->mon,
-    ..., sat->fri) so `target_date` has fully closed out and the vendor has
-    had hours past the ~17:00 ET FX rollover to publish, before this retries
-    `update_fx_rates()` once and falls back to Twelve Data per still-missing
-    pair. Detection (the #372 stale alert) is unaffected by this — it only
-    alerts on its own if a pair is still missing after both attempts.
+    Scheduled every calendar day, 30 minutes before the 20:30 ET portfolio
+    snapshot — `target_date` is today (via `expected_capture_date`, which
+    still rolls a weekend run back to the last real trading day), giving
+    this a real chance to repair that SAME day's snapshot before it locks
+    in `approx_carried`, unlike the original next-day timing which could
+    only ever repair `fx_rates` for future reads. Retries `update_fx_rates()`
+    once and falls back to Twelve Data per still-missing pair, same as
+    before. Detection (the #372 stale alert) is unaffected by this — it
+    only alerts on its own if a pair is still missing after both attempts.
+
+    Wrapped in a `capture.fx` operational_events run (issue #509), same
+    operation name and attribute shape as `capture_fx_task` — both same-day
+    attempts read as one consistent event series, durable across a
+    container recreate (see that task's docstring for why this matters).
     """
-    from datetime import timedelta
-
     from app.core.database import SessionLocal
     from app.core.timezones import ET
     from app.services.capture_health import expected_capture_date
     from app.services.fx_fetcher import fx_catchup
 
+    oe.start_run("capture.fx", task_id=self.request.id)
     session = SessionLocal()
     try:
         today_et = datetime.now(tz=ET).date()
-        target_date = expected_capture_date(today_et - timedelta(days=1))
+        target_date = expected_capture_date(today_et)
         result = fx_catchup(session, target_date)
         session.commit()
+        pairs_upserted = len(result.recovered_via_retry) + len(result.recovered_via_fallback)
+        pairs_failed = len(result.still_missing)
+        outcome = "ok" if not pairs_failed else "partial"
+        oe.end_run(
+            outcome, attributes={"pairs_upserted": pairs_upserted, "pairs_failed": pairs_failed}
+        )
         return result.as_dict()
     except Exception as exc:
         session.rollback()
         logger.exception("capture_fx_catchup_task: failed")
+        oe.end_run("failed", reason_code=type(exc).__name__)
         if self.request.retries >= self.max_retries:
             _capture_failed(
                 "capture_fx_catchup_task",
                 exc,
-                context="FX catch-up for the prior trading day failed; that day's rate may stay stale.",
+                context="FX catch-up for today's own FX gap failed; today's snapshot may stay approx_carried.",
             )
         raise self.retry(exc=exc) from exc
     finally:
