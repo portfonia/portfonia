@@ -1,4 +1,4 @@
-// Exact "Browser v1" manifest/KDF shape, #450 Design section 5 Appendix B:
+// Exact "Browser v1" manifest/KDF shape, #450 Design section 5:
 //   kdf = {name:'argon2id', version:19, memory_kib:65536, iterations:3,
 //          parallelism:1, length:32}
 // This object is sent byte-for-byte as JSON and re-validated by the

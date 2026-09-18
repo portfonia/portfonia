@@ -4,7 +4,7 @@
 // plus the multi-step submit pipeline (configuration -> object init ->
 // browser encryption -> upload) and its retry-safety cache.
 //
-// Retry-safety contract (P2.2-A04/=A05, Appendix B "Browser retry resends
+// Retry-safety contract (P2.2-A04/=A05, the "Browser v1" contract's "Browser retry resends
 // same bytes; changed file/password gets fresh ID/DEK/nonces"):
 //   - `objectCacheRef` is keyed by a fingerprint of (file identity +
 //     password choice + password value). A plain retry after a failed

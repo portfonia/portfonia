@@ -6,7 +6,7 @@ const VAULT_ID = "11111111-1111-4111-8111-111111111111";
 const OBJECT_ID = "22222222-2222-4222-8222-222222222222";
 
 describe("buildFileAad / buildInnerAad", () => {
-  it("produces the exact compact JSON array UTF-8 bytes from Appendix B", () => {
+  it("produces the exact compact JSON array UTF-8 bytes from the Browser v1 contract (#450 Design section 5)", () => {
     const decoder = new TextDecoder();
     expect(decoder.decode(buildFileAad(VAULT_ID, OBJECT_ID))).toBe(
       `["vigil-file",1,"${VAULT_ID}","${OBJECT_ID}"]`,

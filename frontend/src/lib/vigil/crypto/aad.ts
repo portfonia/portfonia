@@ -1,4 +1,4 @@
-// Appendix B: "AAD UTF8 compact JSON arrays ['vigil-file',1,vault_id,
+// #450 Design section 5's "Browser v1" contract: "AAD UTF8 compact JSON arrays ['vigil-file',1,vault_id,
 // object_id] and ['vigil-inner',1,vault_id,object_id]". JSON.stringify on
 // an array with no `space` argument is already compact (no inserted
 // whitespace), matching the backend's `json.dumps(..., separators=(",",

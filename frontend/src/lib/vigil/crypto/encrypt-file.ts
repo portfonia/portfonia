@@ -1,5 +1,5 @@
 // Orchestrates one Browser-v1 encryption pass (#450 Design section 5
-// Appendix B). Pure/stateless: given (vaultId, objectId, plaintext,
+// #450 Design section 5's "Browser v1" contract). Pure/stateless: given (vaultId, objectId, plaintext,
 // password) it always produces FRESH random DEK/nonces/salt — callers
 // (the Worker, and above it the setup-page hook) are responsible for
 // caching the result and only calling this again when the file or
@@ -28,7 +28,7 @@ export interface EncryptVigilFileInput {
   objectId: string;
   plaintext: Uint8Array;
   /** Raw UTF-8 password bytes, not trimmed/normalized, or `null` for the
-   * explicit "no password" choice (Appendix B: "Without password
+   * explicit "no password" choice (Browser v1 contract: "Without password
    * explicitly chosen, inner=DEK"). */
   password: Uint8Array | null;
 }

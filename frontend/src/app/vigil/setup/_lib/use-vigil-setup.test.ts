@@ -211,6 +211,55 @@ describe("useVigilSetup", () => {
     expect(secondUploadArgs.object_id).toBe("o2");
   });
 
+  it("changing the file after a failed attempt allocates a fresh object ID and re-encrypts (P2.2-A04)", async () => {
+    getVigilVaultStatus.mockResolvedValue({ vault_id: null, phase: "DISARMED", revision: 0 });
+    createVigilConfiguration.mockResolvedValue({ vault_id: "v1", config_id: "c1", revision: 1 });
+    initVigilObject.mockResolvedValueOnce({ object_id: "o1", revision: 2 });
+    initVigilObject.mockResolvedValueOnce({ object_id: "o2", revision: 4 });
+    uploadVigilObject.mockRejectedValueOnce(new Error("network error"));
+    uploadVigilObject.mockResolvedValueOnce({ object_id: "o2", status: "ready", revision: 5 });
+    const crypto = fakeCryptoClient();
+
+    const { result } = renderHook(() => useVigilSetup({ cryptoClient: crypto }));
+    await waitFor(() => expect(result.current.vaultStatus).not.toBeNull());
+
+    act(() => {
+      result.current.setFile(makeFile("will.pdf", 1024));
+      result.current.setHasPassword(false);
+      result.current.setRecipients(DEFAULT_RECIPIENTS);
+    });
+
+    await act(async () => {
+      await result.current.submit();
+    });
+    expect(result.current.phase).toBe("error");
+
+    act(() => {
+      // Same name/hasPassword, but a different underlying File — a new
+      // selection through the file picker, even of a file that happens to
+      // share a name, must not be mistaken for "the same file" (fileIdentity
+      // also folds in size/lastModified, exercised here via a larger file).
+      result.current.setFile(makeFile("will.pdf", 2048));
+    });
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(result.current.phase).toBe("ready");
+    // Configuration is unchanged (recipients/interval/grace/message didn't
+    // change), but the object-init + encrypt steps must re-run for the new
+    // file, unlike the plain-retry case above.
+    expect(createVigilConfiguration).toHaveBeenCalledTimes(1);
+    expect(initVigilObject).toHaveBeenCalledTimes(2);
+    expect(initVigilObject).toHaveBeenLastCalledWith(
+      expect.objectContaining({ filename: "will.pdf", plaintext_size: 2048 }),
+    );
+    expect(crypto.encryptFile).toHaveBeenCalledTimes(2);
+    const secondUploadArgs = uploadVigilObject.mock.calls[1][0];
+    expect(secondUploadArgs.object_id).toBe("o2");
+  });
+
   it("a crypto worker failure never calls uploadVigilObject (P2.2-A02: no fallback upload)", async () => {
     getVigilVaultStatus.mockResolvedValue({ vault_id: null, phase: "DISARMED", revision: 0 });
     createVigilConfiguration.mockResolvedValue({ vault_id: "v1", config_id: "c1", revision: 1 });

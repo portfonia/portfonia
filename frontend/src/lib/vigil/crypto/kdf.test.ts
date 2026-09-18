@@ -70,7 +70,7 @@ describe("deriveArgon2idKey", () => {
     expect(a).not.toEqual(b);
   });
 
-  it("does not trim or normalize the raw password bytes (Appendix B: unnormalized/untrimmed)", async () => {
+  it("does not trim or normalize the raw password bytes (Browser v1 contract, #450 Design section 5: unnormalized/untrimmed)", async () => {
     const salt = new Uint8Array(16).fill(9);
     const untrimmed = await deriveArgon2idKey(new TextEncoder().encode("  password  "), salt);
     const trimmed = await deriveArgon2idKey(new TextEncoder().encode("password"), salt);

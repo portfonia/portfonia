@@ -2,7 +2,7 @@
 // build (the .wasm bytes are compiled into hash-wasm's own JS bundle as
 // inline base64, so there is no `fetch()`/CDN request for the binary at
 // all, at build time or runtime: stronger than "same-origin static
-// asset"). Exact contract, #450 Design section 5 Appendix B: Argon2id
+// asset"). Exact "Browser v1" contract, #450 Design section 5: Argon2id
 // v19, memory=65536 KiB, iterations=3, parallelism=1, output=32 bytes.
 //
 // Never import holdings' `encrypt_value`-equivalent or any other KDF here

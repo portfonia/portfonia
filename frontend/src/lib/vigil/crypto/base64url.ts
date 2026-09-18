@@ -1,5 +1,5 @@
 // Unpadded base64url (RFC 4648 §5) for every binary manifest field
-// (#450 Design section 5 Appendix B: "Binary JSON unpadded base64url").
+// (#450 Design section 5's "Browser v1" contract: "Binary JSON unpadded base64url").
 // btoa/atob operate on binary strings, not bytes directly, hence the
 // charCode round-trip; this runs identically in a browser Worker and in
 // Vitest's jsdom/node environments (both provide btoa/atob globally).

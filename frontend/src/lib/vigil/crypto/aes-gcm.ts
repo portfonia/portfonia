@@ -1,5 +1,5 @@
 // AES-256-GCM primitives on the standard W3C SubtleCrypto interface
-// (available identically in a browser Worker and in Node). Appendix B:
+// (available identically in a browser Worker and in Node). Browser v1 contract, #450 Design section 5:
 // "C = ciphertext||tag" with a 16-byte tag — SubtleCrypto's `encrypt`
 // already appends the tag to its output and `decrypt` requires it appended
 // on input, so no manual concatenation is needed here.

@@ -1,6 +1,6 @@
 // Pure, side-effect-free form validation for /vigil/setup (issue #455).
 // Mirrors the backend's own bounds exactly (services/vigil/configuration.py,
-// services/vigil/objects.py, #450 Design section 5 Appendix B) so the form
+// services/vigil/objects.py, #450 Design section 5's "Browser v1" contract) so the form
 // fails fast with the same rules the server will enforce anyway — this is
 // a UX convenience, not a substitute for the server's authoritative checks.
 

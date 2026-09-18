@@ -100,7 +100,7 @@ describe("encryptVigilFile / decryptVigilFile round trip", () => {
     expect(recovered).toEqual(plaintext);
 
     // A visually-normalized variant of the same password must NOT decrypt
-    // (Appendix B: raw bytes, not trimmed/normalized).
+    // (Browser v1 contract, #450 Design section 5: raw bytes, not trimmed/normalized).
     const paddedPassword = textPlaintext("Ünïcödé パスワード 中文密码 🔒 ");
     await expect(
       decryptVigilFile({

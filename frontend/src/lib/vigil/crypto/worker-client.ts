@@ -6,7 +6,7 @@
 // previously-produced ciphertext. That policy belongs one layer up, in
 // the setup-page hook: a plain retry after an upload failure must resend
 // the exact bytes already produced by a prior `encryptFile` call, never
-// call this again, per Appendix B ("Browser retry resends same bytes;
+// call this again, per the Browser v1 contract ("Browser retry resends same bytes;
 // changed file/password gets fresh ID/DEK/nonces").
 import { VigilCryptoUnavailableError } from "./errors";
 import type { VigilManifest } from "./manifest";
