@@ -25,6 +25,7 @@ from app.core.config import get_settings
 from app.models.user import User
 from app.models.vigil import (
     VigilActionToken,
+    VigilAuditEvent,
     VigilConsumedNonce,
     VigilObject,
     VigilVault,
@@ -535,21 +536,65 @@ def test_p23_a04_backup_field_422_and_live_arm_blocked_without_stop_hooks(
     assert vault.first_armed_at is None
 
 
-def test_purge_removes_action_tokens_and_consumed_nonces(
+def test_p23_a04_unverified_account_email_cannot_drill(
     app_client: TestClient, db_session: Session
+) -> None:
+    config_id, object_id, revision = _seed_ready(db_session)
+    db_session.commit()
+    owner = db_session.get(User, TEST_USER_ID)
+    assert owner is not None
+    owner.email_verified_at = None
+    db_session.commit()
+    resp = _post_drill(app_client, config_id, object_id, revision)
+    assert resp.status_code == 503
+    vault = db_session.execute(
+        select(VigilVault).where(VigilVault.owner_user_id == TEST_USER_ID)
+    ).scalar_one()
+    db_session.refresh(vault)
+    assert vault.phase == "DISARMED"
+    assert db_session.scalar(select(func.count()).select_from(VigilActionToken)) == 0
+
+
+def test_public_status_rejects_unknown_action(app_client: TestClient, db_session: Session) -> None:
+    config_id, object_id, revision = _seed_ready(db_session)
+    db_session.commit()
+    drill = _post_drill(app_client, config_id, object_id, revision)
+    token = peek_outbox_token_for_tests(db_session, uuid.UUID(drill.json()["drill_id"]))
+    resp = app_client.post(
+        "/vigil/public/status",
+        headers=_origin(),
+        json={"token": token, "action": "backup"},
+    )
+    assert resp.status_code == 422
+
+
+def test_purge_removes_action_tokens_and_consumed_nonces(
+    app_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from app.services.user_purge import purge_user
 
+    monkeypatch.setattr("app.services.vigil.arm.live_activation_allowed", lambda: True)
     config_id, object_id, revision = _seed_ready(db_session)
     db_session.commit()
     drill = _post_drill(app_client, config_id, object_id, revision)
     token = peek_outbox_token_for_tests(db_session, uuid.UUID(drill.json()["drill_id"]))
     nonce = _mint_http_nonce(app_client, token)
     assert _confirm(app_client, token, nonce, _solved_vigil_altcha(app_client)).status_code == 200
+    armed = app_client.post(
+        "/vigil/arm",
+        json={
+            "expected_revision": drill.json()["revision"],
+            "config_id": str(config_id),
+            "object_id": str(object_id),
+        },
+    )
+    assert armed.status_code == 200, armed.text
+    assert db_session.scalar(select(func.count()).select_from(VigilAuditEvent)) == 1
     result = purge_user(db_session, TEST_USER_ID)
     db_session.rollback()
     assert result.vigil_action_tokens == 1
     assert result.vigil_consumed_nonces == 1
+    assert result.vigil_audit_events == 1
 
 
 def test_no_new_compose_service_or_domain() -> None:

@@ -21,6 +21,7 @@ from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
 from app.models.vigil import (
     VigilActionToken,
+    VigilAuditEvent,
     VigilConfiguration,
     VigilConsumedNonce,
     VigilDeliveryEvent,
@@ -47,6 +48,7 @@ class PurgeResult:
     vigil_outbox: int
     vigil_objects: int
     vigil_configurations: int
+    vigil_audit_events: int
     vigil_vaults: int
     users: int
 
@@ -133,6 +135,7 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
     vigil_outbox = 0
     vigil_objects = 0
     vigil_configurations = 0
+    vigil_audit_events = 0
     if vault_id is not None:
         session.execute(
             update(VigilVault)
@@ -222,6 +225,17 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
                 ),
             )
         )
+        # #458 writes vigil_audit_events on arm; vault_id is ON DELETE
+        # RESTRICT since P1.1. Parent Design section 3 deletes audit_events
+        # after configurations and before the vault row.
+        vigil_audit_events = _rowcount(
+            cast(
+                CursorResult[Any],
+                session.execute(
+                    delete(VigilAuditEvent).where(VigilAuditEvent.vault_id == vault_id)
+                ),
+            )
+        )
     # Must precede DELETE users: vigil_vaults.owner_user_id FKs to users.id
     # ON DELETE RESTRICT (issue #451 checkpoint P1.1) — the base-row purge
     # hook.
@@ -250,6 +264,7 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
         vigil_outbox=vigil_outbox,
         vigil_objects=vigil_objects,
         vigil_configurations=vigil_configurations,
+        vigil_audit_events=vigil_audit_events,
         vigil_vaults=vigil_vaults,
         users=users,
     )
