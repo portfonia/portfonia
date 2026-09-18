@@ -186,6 +186,20 @@ area of the code, not just the one-line summary here.
   messages, PR descriptions, issue text, README, `docs/`, ADRs, tests.
   Repository filenames and documentation indexes must also be English;
   do not embed Chinese note titles or paths in repository documentation.
+- **Obsidian project documentation is written in Chinese** (the product
+  owner's working language) — this applies to `Hermes/Portfonia/*` design
+  docs, dev logs, and any other Obsidian note for this project, which sit
+  outside the repository entirely and are therefore not covered by the
+  English-only rule above.
+- **Conversation with the product owner in this repository's sessions
+  defaults to Chinese**, regardless of the language of the request, unless
+  the owner asks otherwise. This does not relax the English-only rule for
+  anything written into the repository itself (code, commits, PRs, issues).
+- **A handoff prompt written for a new session to continue work in this
+  repository is written in Chinese and explicitly instructs the receiving
+  session to converse with the owner in Chinese** — the same rule as live
+  conversation above, stated explicitly so a fresh session with no memory
+  of this convention still follows it from its first reply.
 - **In-product strings are i18n-keyed** and shipped through the translation
   layer, never hardcoded in any single language. Runtime UI locales
   exposed to users: English, Simplified Chinese, and Traditional Chinese
