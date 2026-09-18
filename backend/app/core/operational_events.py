@@ -96,6 +96,10 @@ ALLOWED_ATTRIBUTE_KEYS = frozenset(
         "cache_hit_count",
         "cache_miss_count",
         "candidate_count",
+        # capture.fx (issue #509)
+        "pairs_upserted",
+        "pairs_failed",
+        "source",
         "budget_skipped_count",
         "query_count",
         "result_count",
