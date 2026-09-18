@@ -45,6 +45,8 @@ VALID_VIGIL_AUDIT_ACTOR_TYPES = ("owner", "token", "system", "ops")
 VALID_VIGIL_CONFIGURATION_STATUSES = ("pending", "active", "retired")
 VALID_VIGIL_OBJECT_STATUSES = ("staging", "ready", "active", "retired", "deleted")
 VIGIL_OBJECT_MAX_PLAINTEXT_SIZE = 10_000_000
+VALID_VIGIL_OUTBOX_PURPOSES = ("drill", "challenge", "release", "owner_notice")
+VALID_VIGIL_OUTBOX_STATUSES = ("pending", "leased", "accepted", "failed", "unknown", "cancelled")
 # AES-256-GCM tag length (bytes) the browser-produced ciphertext always
 # carries appended — #450 Design section 5 / Vigil_R0_Dev.md §3.
 VIGIL_OBJECT_GCM_TAG_LENGTH = 16
@@ -289,6 +291,79 @@ class VigilObject(Base):
     ciphertext: Mapped[bytes | None] = mapped_column(LargeBinary)
     activated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class VigilOutbox(Base):
+    """Shared-worker encrypted mail intent (issue #456, P3.1).
+
+    `scope_id` identifies the business event (e.g. a future drill/round/
+    batch row) this send belongs to. It is a plain UUID, not a FK: the
+    tables it will eventually reference (cycles/rounds/release_batches)
+    don't exist until #458/#459/#460 — this checkpoint only proves the
+    outbox mechanism with internal fixture-only callers (#456 scope). Add
+    the FK once the referenced table exists rather than widening this to a
+    polymorphic association now.
+
+    `payload_cipher`/`payload_sha256` hold the frozen recipient snapshot +
+    mail body + token under `VIGIL_NOTIFICATION_KEY` (never the data key —
+    services/vigil/crypto.py's `encrypt_field` always selects
+    VIGIL_ENCRYPTION_KEY, so dispatch.py uses its own notification-key
+    Fernet builder). A terminal outcome (accepted/failed/cancelled) or the
+    24h-since-creation / 24h-since-first-attempt sweep clears both columns
+    to NULL — see services/vigil/dispatch.py for the exact state machine.
+
+    `dedup_key` is UNIQUE together with a non-null `provider_id`
+    (partial unique index below) per #450 Design section 4/6: two outbox
+    rows can share a caller-chosen `dedup_key` only until one of them
+    actually gets a provider id, at which point a second provider-accepted
+    send under the same key would be a real duplicate.
+    """
+
+    __tablename__ = "vigil_outbox"
+    __table_args__ = (
+        UniqueConstraint("dedup_key", name="uq_vigil_outbox_dedup_key"),
+        CheckConstraint(_in_list_sql("purpose", VALID_VIGIL_OUTBOX_PURPOSES), name="purpose"),
+        CheckConstraint(_in_list_sql("status", VALID_VIGIL_OUTBOX_STATUSES), name="status"),
+        CheckConstraint(
+            "recipient_index IS NULL OR recipient_index BETWEEN 1 AND 3",
+            name="recipient_index_bounds",
+        ),
+        CheckConstraint("attempts >= 0", name="attempts_nonneg"),
+        Index(
+            "uq_vigil_outbox_provider_id",
+            "provider_id",
+            unique=True,
+            postgresql_where=text("provider_id IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    vault_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("vigil_vaults.id", ondelete="RESTRICT"), nullable=False
+    )
+    config_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("vigil_configurations.id", ondelete="RESTRICT"), nullable=False
+    )
+    object_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("vigil_objects.id", ondelete="RESTRICT"), nullable=False
+    )
+    scope_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    purpose: Mapped[str] = mapped_column(Text, nullable=False)
+    dedup_key: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_cipher: Mapped[str | None] = mapped_column(Text)
+    payload_sha256: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'pending'"))
+    attempts: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("0"))
+    lease_until: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    next_attempt_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    first_attempt_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    provider_id: Mapped[str | None] = mapped_column(Text)
+    accepted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    last_error_code: Mapped[str | None] = mapped_column(Text)
+    recipient_index: Mapped[int | None] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )

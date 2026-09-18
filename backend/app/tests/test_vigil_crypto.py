@@ -161,7 +161,8 @@ def test_decrypt_rejects_unknown_version() -> None:
             "row_id": str(_ROW_ID),
             "vault_id": str(_VAULT_ID),
             "value": "x",
-        }
+        },
+        crypto_module._build_fernet(),
     )
     with pytest.raises(VigilCryptoError):
         _dec(monkey_token)
@@ -179,7 +180,8 @@ def test_decrypt_rejects_unknown_extra_field() -> None:
             "vault_id": str(_VAULT_ID),
             "value": "x",
             "extra": "unexpected",
-        }
+        },
+        crypto_module._build_fernet(),
     )
     with pytest.raises(VigilCryptoError):
         _dec(monkey_token)

@@ -19,7 +19,7 @@ from app.models.report import Report
 from app.models.upload_job import UploadJob
 from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
-from app.models.vigil import VigilConfiguration, VigilObject, VigilVault
+from app.models.vigil import VigilConfiguration, VigilObject, VigilOutbox, VigilVault
 
 
 @dataclass(frozen=True)
@@ -33,6 +33,7 @@ class PurgeResult:
     email_verifications: int
     invites_used_by_cleared: int
     users_invited_by_cleared: int
+    vigil_outbox: int
     vigil_objects: int
     vigil_configurations: int
     vigil_vaults: int
@@ -115,6 +116,7 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
     vault_id = session.execute(
         select(VigilVault.id).where(VigilVault.owner_user_id == user_id)
     ).scalar_one_or_none()
+    vigil_outbox = 0
     vigil_objects = 0
     vigil_configurations = 0
     if vault_id is not None:
@@ -126,6 +128,19 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
                 active_object_id=None,
                 pending_config_id=None,
                 pending_object_id=None,
+            )
+        )
+        # #456 (P3.1) extends the #454 purge hook: vigil_outbox has RESTRICT
+        # FKs into vigil_configurations/vigil_objects, so it must be deleted
+        # BEFORE them (Design section 3: "cancel Vigil pending sends ...
+        # remove Vigil child rows in FK order"). No cancellation semantics
+        # here — a hard purge removes the rows outright rather than
+        # transitioning them through `cancelled` first, since nothing will
+        # ever read this user's outbox again.
+        vigil_outbox = _rowcount(
+            cast(
+                CursorResult[Any],
+                session.execute(delete(VigilOutbox).where(VigilOutbox.vault_id == vault_id)),
             )
         )
         vigil_objects = _rowcount(
@@ -164,6 +179,7 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
         email_verifications=email_verifications,
         invites_used_by_cleared=invites_used_by_cleared,
         users_invited_by_cleared=users_invited_by_cleared,
+        vigil_outbox=vigil_outbox,
         vigil_objects=vigil_objects,
         vigil_configurations=vigil_configurations,
         vigil_vaults=vigil_vaults,

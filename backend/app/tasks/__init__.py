@@ -29,6 +29,7 @@ celery_app = Celery(
         "app.tasks.report_delivery_tasks",
         "app.tasks.notification_tasks",
         "app.tasks.operational_events_tasks",
+        "app.tasks.vigil_tasks",
     ],
 )
 
@@ -251,6 +252,15 @@ _beat_schedule: dict[str, dict[str, Any]] = {
     # backstopping.
     "sweep-stale-upload-jobs": {
         "task": "app.tasks.holdings_tasks.sweep_stale_upload_jobs",
+        "schedule": 30.0,
+    },
+    # Vigil outbox dispatch sweep (issue #456, P3.1): bounded to 5 due rows
+    # per invocation (dispatch.MAX_ROWS_PER_SWEEP) — a plain interval, not a
+    # market-session crontab, since a pending mail intent can become due at
+    # any time of day. 30s matches the stale-upload-job sweep's cadence;
+    # VIGIL_MODE=off (default) makes every invocation a fast no-op query.
+    "sweep-vigil-outbox": {
+        "task": "app.tasks.vigil_tasks.dispatch_vigil_outbox_task",
         "schedule": 30.0,
     },
     # Upload-job retention sweep (issue #264): daily cleanup of upload_jobs
