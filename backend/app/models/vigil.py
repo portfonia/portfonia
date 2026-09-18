@@ -302,13 +302,10 @@ class VigilObject(Base):
 class VigilOutbox(Base):
     """Shared-worker encrypted mail intent (issue #456, P3.1).
 
-    `scope_id` identifies the business event (e.g. a future drill/round/
-    batch row) this send belongs to. It is a plain UUID, not a FK: the
-    tables it will eventually reference (cycles/rounds/release_batches)
-    don't exist until #458/#459/#460 — this checkpoint only proves the
-    outbox mechanism with internal fixture-only callers (#456 scope). Add
-    the FK once the referenced table exists rather than widening this to a
-    polymorphic association now.
+    `scope_id` identifies the business event this send belongs to (drill
+    token id, round id, later a release-batch id). It stays a plain UUID,
+    not a FK: drill/cycle/round rows already exist, but release_batches
+    do not until #460, and a polymorphic association is still not wanted.
 
     `payload_cipher`/`payload_sha256` hold the frozen recipient snapshot +
     mail body + token under `VIGIL_NOTIFICATION_KEY` (never the data key —
@@ -410,12 +407,11 @@ class VigilDeliveryEvent(Base):
 
 
 class VigilActionToken(Base):
-    """Purpose-bound link token, hash-only (issue #458, P2.3).
+    """Purpose-bound link token, hash-only (issue #458, P2.3; cycle FK #459).
 
-    Parent schema includes cycle_id/batch_id and cycle_confirm/owner_revoke
-    purposes so later checkpoints can attach relationships without a new
-    table. This checkpoint only writes purpose=drill; cycle_id/batch_id
-    stay NULL with no FK (those tables do not exist yet).
+    `purpose=drill` is written by #458; `purpose=cycle_confirm` and
+    `cycle_id` (FK to vigil_cycles) are written by #459. `batch_id` stays
+    a nullable UUID without an FK until #460 creates release_batches.
     """
 
     __tablename__ = "vigil_action_tokens"

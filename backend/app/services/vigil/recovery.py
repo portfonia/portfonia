@@ -43,9 +43,9 @@ def stop_prior_arrangement(session: Session, vault: VigilVault, *, now: datetime
 
     Cancels outbox intents and pending drills, retires the previous active
     config/object, and NULLs ciphertext/outer_cipher on that logical row.
-    Cancels an active confirmation cycle when #459 tables exist. Grants
-    still do not exist; callers must refuse live arming while
-    `live_activation_allowed()` is False.
+    Cancels an active confirmation cycle. Grants still do not exist;
+    callers must refuse live arming while `live_activation_allowed()`
+    is False.
     """
     from app.services.vigil.cycles import cancel_active_cycles
 
