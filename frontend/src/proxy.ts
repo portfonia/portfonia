@@ -50,10 +50,9 @@ function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 
-// Issue #453: exactly these three page routes, plus the future
-// /api/vigil/public/* backend prefix (no route exists there yet — #460+ —
-// but the exemption is added now so proxy.ts never needs touching again
-// when it lands). A recipient following a mailed confirm/retrieve/revoke
+// Issue #453/#458: exactly these three page routes, plus
+// /api/vigil/public/* (drill confirm in #458; retrieve/revoke later).
+// A recipient following a mailed confirm/retrieve/revoke
 // link has no Portfonia session at all, and must not depend on Auth being
 // reachable — Design section 5's "public P" scope is a token+nonce, not a
 // cookie session. Deliberately NOT a prefix match on "/vigil": /vigil and

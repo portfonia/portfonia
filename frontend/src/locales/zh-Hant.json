@@ -1185,7 +1185,13 @@
       "confirmTitle": "確認簽到",
       "retrieveTitle": "取得檔案",
       "revokeTitle": "撤銷發送",
-      "unavailable": "此連結尚未生效，請稍後再試。"
+      "unavailable": "此連結尚未生效，請稍後再試。",
+      "confirmHint": "此確認只驗證目前帳戶，不會佈防 Vigil。",
+      "confirmButton": "確認",
+      "confirming": "正在確認…",
+      "confirmed": "帳戶已確認。請回到設置頁再執行佈防。",
+      "gone": "此確認連結已失效。",
+      "failed": "確認失敗，可以重試。"
     },
     "setup": {
       "activeStillReleasingNote": "您已有一份處於佈防倒數中的有效安排。在此設置替換檔案不會暫停它——在您明確佈防替換檔案之前，原有安排仍會按原計劃繼續釋出。",
@@ -1233,6 +1239,16 @@
         "title": "已就緒——等待演練",
         "body": "檔案已加密並上傳完成，但尚未佈防：在您執行演練並明確佈防之前，不會向收件人傳送任何內容，佈防是另一個独立步驟。"
       },
+      "drill": {
+        "send": "發送帳戶確認",
+        "pending": "確認郵件已排隊。",
+        "sent": "郵件服務已接受確認郵件。",
+        "unknown": "確認郵件的投遞結果未知。",
+        "expired": "確認連結已過期。請重新發送。",
+        "confirmed": "帳戶已確認。準備好後再佈防——這是單獨的一步。",
+        "activate": "佈防",
+        "armed": "Vigil 已佈防。"
+      },
       "startNew": "設置另一個檔案",
       "errors": {
         "fileRequired": "請先選擇檔案。",
@@ -1252,7 +1268,10 @@
         "revisionConflict": "您的 Vigil 設置已在別處發生變化，請檢查表單後重試。",
         "apiError": "請求未能完成，您可以重試。",
         "cancelled": "上傳已取消。",
-        "unknown": "發生問題，您可以重試。"
+        "unknown": "發生問題，您可以重試。",
+        "drillFailed": "確認郵件未能排隊，可以重試。",
+        "armFailed": "佈防失敗，可以重試。",
+        "armIncomplete": "在停止與恢復路徑完成整合之前，線上佈防保持關閉。"
       }
     }
   }

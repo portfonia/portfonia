@@ -40,6 +40,10 @@ function baseHookState(overrides: Partial<ReturnType<typeof useVigilSetup>> = {}
     validationErrors: [],
     submit: vi.fn(),
     cancel: vi.fn(),
+    sendDrill: vi.fn(),
+    activate: vi.fn(),
+    drillUiState: "idle",
+    armed: false,
     ...overrides,
   };
 }
@@ -106,11 +110,24 @@ describe("VigilSetupPageBody", () => {
     expect(cancel).toHaveBeenCalledTimes(1);
   });
 
-  it("shows the ready-awaiting-drill state and does not render an arm/drill button", () => {
-    renderPage({ phase: "ready" });
+  it("shows the ready-awaiting-drill state with an explicit send-confirmation button", () => {
+    renderPage({ phase: "ready", drillUiState: "idle" });
     expect(screen.getByText(/awaiting drill/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /arm/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /drill/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /send account confirmation/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^activate$/i })).not.toBeInTheDocument();
+  });
+
+  it("shows pending/sent/unknown/expired/confirmed drill states", () => {
+    renderPage({ phase: "ready", drillUiState: "pending" });
+    expect(screen.getByText(/confirmation email is queued/i)).toBeInTheDocument();
+  });
+
+  it("shows an explicit activate button only after confirmation", async () => {
+    const activate = vi.fn();
+    renderPage({ phase: "ready", drillUiState: "confirmed", activate });
+    const button = screen.getByRole("button", { name: /^activate$/i });
+    await userEvent.click(button);
+    expect(activate).toHaveBeenCalledTimes(1);
   });
 
   it("shows a Retry button (not the initial submit label) after an error", () => {

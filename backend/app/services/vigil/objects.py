@@ -38,6 +38,8 @@ from app.models.vigil import (
 )
 from app.services.vigil.configuration import VigilRevisionConflict
 from app.services.vigil.crypto import decrypt_field, encrypt_field
+from app.services.vigil.dispatch import cancel_outbox_intents
+from app.services.vigil.tokens import db_now, invalidate_open_drill_tokens
 
 MAX_FILENAME_CODEPOINTS = 255
 _FILENAME_PURPOSE = "vigil_object_filename"
@@ -184,6 +186,14 @@ def init_object(
     if vault.pending_object_id is not None:
         old_pending = session.get(VigilObject, vault.pending_object_id)
         if old_pending is not None and old_pending.status in ("staging", "ready"):
+            now = db_now(session)
+            superseded = invalidate_open_drill_tokens(
+                session, vault_id=vault.id, now=now, object_id=old_pending.id
+            )
+            if superseded:
+                cancel_outbox_intents(
+                    session, vault_id=vault.id, purpose="drill", scope_ids=superseded
+                )
             old_pending.status = "retired"
             old_pending.ciphertext = None
             old_pending.outer_cipher = None

@@ -1185,7 +1185,13 @@
       "confirmTitle": "Confirm check-in",
       "retrieveTitle": "Retrieve file",
       "revokeTitle": "Revoke release",
-      "unavailable": "This link isn't active yet. Please check back later."
+      "unavailable": "This link isn't active yet. Please check back later.",
+      "confirmHint": "This confirmation only verifies your current account. It does not arm Vigil.",
+      "confirmButton": "Confirm",
+      "confirming": "Confirming…",
+      "confirmed": "Account confirmed. Return to setup to activate.",
+      "gone": "This confirmation link is no longer valid.",
+      "failed": "Confirmation failed. You can try again."
     },
     "setup": {
       "activeStillReleasingNote": "You already have an active arrangement armed and counting down. Setting up a replacement here does not pause it — it keeps releasing on its own schedule until you explicitly arm a replacement.",
@@ -1233,6 +1239,16 @@
         "title": "Ready — awaiting drill",
         "body": "Your file is encrypted and uploaded. It is not armed yet: nothing will be sent to your recipients until you run a drill and explicitly arm it, which is a separate step."
       },
+      "drill": {
+        "send": "Send account confirmation",
+        "pending": "Confirmation email is queued.",
+        "sent": "Confirmation email was accepted by the mail provider.",
+        "unknown": "Delivery of the confirmation email is unknown.",
+        "expired": "The confirmation link expired. Send a new one.",
+        "confirmed": "Account confirmed. Activate when you are ready — this is a separate step.",
+        "activate": "Activate",
+        "armed": "Vigil is armed."
+      },
       "startNew": "Set up another file",
       "errors": {
         "fileRequired": "Choose a file first.",
@@ -1252,7 +1268,10 @@
         "revisionConflict": "Your Vigil setup changed elsewhere. Review the form and try again.",
         "apiError": "The request could not be completed. You can retry.",
         "cancelled": "Upload cancelled.",
-        "unknown": "Something went wrong. You can retry."
+        "unknown": "Something went wrong. You can retry.",
+        "drillFailed": "The confirmation email could not be queued. You can retry.",
+        "armFailed": "Activation failed. You can retry.",
+        "armIncomplete": "Live activation is disabled until stop and recovery integration is complete."
       }
     }
   }

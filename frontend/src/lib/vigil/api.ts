@@ -230,3 +230,89 @@ export function uploadVigilObject(
     xhr.send(form);
   });
 }
+
+export interface VigilDrillResult {
+  drill_id: string;
+  status: string;
+  revision: number;
+}
+
+export async function createVigilDrill(input: {
+  expected_revision: number;
+  config_id: string;
+  object_id: string;
+}): Promise<VigilDrillResult> {
+  const res = await fetch("/api/vigil/drills", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw await parseJsonError(res);
+  return res.json() as Promise<VigilDrillResult>;
+}
+
+export interface VigilArmResult {
+  phase: string;
+  revision: number;
+  next_check_at: string;
+}
+
+export async function armVigilVault(input: {
+  expected_revision: number;
+  config_id: string;
+  object_id: string;
+}): Promise<VigilArmResult> {
+  const res = await fetch("/api/vigil/arm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw await parseJsonError(res);
+  return res.json() as Promise<VigilArmResult>;
+}
+
+export interface VigilPublicStatus {
+  available: boolean;
+  nonce?: string | null;
+  expires_at?: string | null;
+}
+
+export async function getVigilPublicStatus(token: string): Promise<VigilPublicStatus> {
+  const res = await fetch(`/api/vigil/public/status?token=${encodeURIComponent(token)}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new VigilApiError(res.status, await res.text());
+  return res.json() as Promise<VigilPublicStatus>;
+}
+
+export async function mintVigilPublicNonce(
+  token: string,
+  action: "confirm" | "revoke" | "metadata" | "material" | "ciphertext",
+): Promise<VigilPublicStatus> {
+  const res = await fetch("/api/vigil/public/status", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, action }),
+  });
+  if (!res.ok) throw new VigilApiError(res.status, await res.text());
+  return res.json() as Promise<VigilPublicStatus>;
+}
+
+export interface VigilPublicConfirmResult {
+  result: "confirmed" | "already_resolved" | "revoked";
+  next_check_at: string | null;
+}
+
+export async function confirmVigilPublic(input: {
+  token: string;
+  nonce: string;
+  altcha: string;
+}): Promise<VigilPublicConfirmResult> {
+  const res = await fetch("/api/vigil/public/confirm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new VigilApiError(res.status, await res.text());
+  return res.json() as Promise<VigilPublicConfirmResult>;
+}

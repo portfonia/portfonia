@@ -67,6 +67,32 @@ export function VigilSetupPageBody() {
           <div className="flex flex-col gap-3">
             <h3 className="text-base font-medium">{t("setup.ready.title")}</h3>
             <p className="text-sm text-foreground/80">{t("setup.ready.body")}</p>
+            {s.armed ? (
+              <p className="text-sm text-foreground/80">{t("setup.drill.armed")}</p>
+            ) : (
+              <>
+                {s.drillUiState !== "idle" && (
+                  <p className="text-sm text-foreground/80">{t(`setup.drill.${s.drillUiState}`)}</p>
+                )}
+                {s.drillUiState === "idle" || s.drillUiState === "expired" ? (
+                  <Button type="button" onClick={() => void s.sendDrill()}>
+                    {t("setup.drill.send")}
+                  </Button>
+                ) : null}
+                {s.drillUiState === "confirmed" ? (
+                  <Button type="button" onClick={() => void s.activate()}>
+                    {t("setup.drill.activate")}
+                  </Button>
+                ) : null}
+                {s.errorCode && (
+                  <p className="text-sm text-destructive" role="alert">
+                    {t.has(`setup.errors.${s.errorCode}`)
+                      ? t(`setup.errors.${s.errorCode}`)
+                      : t("setup.errors.unknown")}
+                  </p>
+                )}
+              </>
+            )}
           </div>
         )}
 

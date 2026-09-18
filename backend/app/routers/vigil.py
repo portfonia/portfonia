@@ -24,14 +24,24 @@ from app.core.config import get_settings
 from app.core.database import get_session
 from app.models.vigil import VigilVault
 from app.schemas.vigil import (
+    VigilArmIn,
+    VigilArmOut,
     VigilConfigurationIn,
     VigilConfigurationOut,
+    VigilDrillIn,
+    VigilDrillOut,
     VigilObjectInitIn,
     VigilObjectInitOut,
     VigilObjectUploadOut,
     VigilVaultStatus,
 )
 from app.services.vigil.access import VigilOwner, require_vigil_owner
+from app.services.vigil.arm import (
+    VigilArmConflict,
+    VigilArmInputError,
+    VigilArmUnavailable,
+    arm_pending,
+)
 from app.services.vigil.configuration import (
     VigilConfigurationInputError,
     VigilRecipientsLocked,
@@ -44,6 +54,14 @@ from app.services.vigil.dns_check import (
     VigilDnsUnavailable,
     VigilNoMailRoute,
     check_recipients_dns,
+)
+from app.services.vigil.drills import (
+    VigilDrillConflict,
+    VigilDrillCooldown,
+    VigilDrillInputError,
+    VigilDrillUnavailable,
+    drill_delivery_state,
+    enqueue_drill,
 )
 from app.services.vigil.objects import (
     MAX_UPLOAD_BODY_BYTES,
@@ -84,6 +102,7 @@ def get_vault(
         revision=vault.revision,
         hold_reason=vault.hold_reason,
         next_check_at=vault.next_check_at,
+        delivery_status=drill_delivery_state(session, vault),
     )
 
 
@@ -263,6 +282,97 @@ async def post_object_upload(
         response.status_code = status.HTTP_200_OK
     return VigilObjectUploadOut(
         object_id=result.object_id, status=result.status, revision=result.revision
+    )
+
+
+@router.post("/drills", response_model=VigilDrillOut, status_code=status.HTTP_202_ACCEPTED)
+def post_drill(
+    payload: VigilDrillIn,
+    owner: VigilOwner = Depends(require_vigil_owner),
+    session: Session = Depends(get_session),
+) -> VigilDrillOut:
+    try:
+        result = enqueue_drill(
+            session,
+            owner_user_id=owner.user_id,
+            expected_revision=payload.expected_revision,
+            config_id=payload.config_id,
+            object_id=payload.object_id,
+        )
+        session.commit()
+    except VigilRevisionConflict as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "revision_conflict", "current_revision": exc.current_revision},
+        ) from exc
+    except VigilDrillCooldown as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="drill cooldown",
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from exc
+    except VigilDrillInputError as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    except (VigilDrillUnavailable, VigilDrillConflict) as exc:
+        session.rollback()
+        code = (
+            status.HTTP_503_SERVICE_UNAVAILABLE
+            if isinstance(exc, VigilDrillUnavailable)
+            else status.HTTP_409_CONFLICT
+        )
+        raise HTTPException(status_code=code, detail=str(exc)) from exc
+
+    try:
+        from app.tasks.vigil_tasks import dispatch_vigil_outbox_task
+
+        dispatch_vigil_outbox_task.delay()
+    except Exception:
+        # Sweep recovers a lost enqueue; do not fail the accepted drill.
+        pass
+    return VigilDrillOut(drill_id=result.drill_id, status=result.status, revision=result.revision)
+
+
+@router.post("/arm", response_model=VigilArmOut)
+def post_arm(
+    payload: VigilArmIn,
+    owner: VigilOwner = Depends(require_vigil_owner),
+    session: Session = Depends(get_session),
+) -> VigilArmOut:
+    try:
+        result = arm_pending(
+            session,
+            owner_user_id=owner.user_id,
+            expected_revision=payload.expected_revision,
+            config_id=payload.config_id,
+            object_id=payload.object_id,
+        )
+        session.commit()
+    except VigilRevisionConflict as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "revision_conflict", "current_revision": exc.current_revision},
+        ) from exc
+    except VigilArmInputError as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    except VigilArmConflict as exc:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except VigilArmUnavailable as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    return VigilArmOut(
+        phase=result.phase, revision=result.revision, next_check_at=result.next_check_at
     )
 
 

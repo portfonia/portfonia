@@ -20,7 +20,10 @@ from app.models.upload_job import UploadJob
 from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
 from app.models.vigil import (
+    VigilActionToken,
+    VigilAuditEvent,
     VigilConfiguration,
+    VigilConsumedNonce,
     VigilDeliveryEvent,
     VigilObject,
     VigilOutbox,
@@ -40,9 +43,12 @@ class PurgeResult:
     invites_used_by_cleared: int
     users_invited_by_cleared: int
     vigil_delivery_events: int
+    vigil_consumed_nonces: int
+    vigil_action_tokens: int
     vigil_outbox: int
     vigil_objects: int
     vigil_configurations: int
+    vigil_audit_events: int
     vigil_vaults: int
     users: int
 
@@ -124,9 +130,12 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
         select(VigilVault.id).where(VigilVault.owner_user_id == user_id)
     ).scalar_one_or_none()
     vigil_delivery_events = 0
+    vigil_consumed_nonces = 0
+    vigil_action_tokens = 0
     vigil_outbox = 0
     vigil_objects = 0
     vigil_configurations = 0
+    vigil_audit_events = 0
     if vault_id is not None:
         session.execute(
             update(VigilVault)
@@ -152,6 +161,30 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
                     VigilOutbox.vault_id == vault_id, VigilOutbox.provider_id.isnot(None)
                 )
             ).all()
+        )
+        token_hashes = list(
+            session.scalars(
+                select(VigilActionToken.token_hash).where(VigilActionToken.vault_id == vault_id)
+            ).all()
+        )
+        if token_hashes:
+            vigil_consumed_nonces = _rowcount(
+                cast(
+                    CursorResult[Any],
+                    session.execute(
+                        delete(VigilConsumedNonce).where(
+                            VigilConsumedNonce.token_hash.in_(token_hashes)
+                        )
+                    ),
+                )
+            )
+        vigil_action_tokens = _rowcount(
+            cast(
+                CursorResult[Any],
+                session.execute(
+                    delete(VigilActionToken).where(VigilActionToken.vault_id == vault_id)
+                ),
+            )
         )
         if outbox_ids or provider_ids:
             conditions = []
@@ -192,6 +225,17 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
                 ),
             )
         )
+        # #458 writes vigil_audit_events on arm; vault_id is ON DELETE
+        # RESTRICT since P1.1. Parent Design section 3 deletes audit_events
+        # after configurations and before the vault row.
+        vigil_audit_events = _rowcount(
+            cast(
+                CursorResult[Any],
+                session.execute(
+                    delete(VigilAuditEvent).where(VigilAuditEvent.vault_id == vault_id)
+                ),
+            )
+        )
     # Must precede DELETE users: vigil_vaults.owner_user_id FKs to users.id
     # ON DELETE RESTRICT (issue #451 checkpoint P1.1) — the base-row purge
     # hook.
@@ -215,9 +259,12 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
         invites_used_by_cleared=invites_used_by_cleared,
         users_invited_by_cleared=users_invited_by_cleared,
         vigil_delivery_events=vigil_delivery_events,
+        vigil_consumed_nonces=vigil_consumed_nonces,
+        vigil_action_tokens=vigil_action_tokens,
         vigil_outbox=vigil_outbox,
         vigil_objects=vigil_objects,
         vigil_configurations=vigil_configurations,
+        vigil_audit_events=vigil_audit_events,
         vigil_vaults=vigil_vaults,
         users=users,
     )

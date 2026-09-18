@@ -48,6 +48,7 @@ VIGIL_OBJECT_MAX_PLAINTEXT_SIZE = 10_000_000
 VALID_VIGIL_OUTBOX_PURPOSES = ("drill", "challenge", "release", "owner_notice")
 VALID_VIGIL_OUTBOX_STATUSES = ("pending", "leased", "accepted", "failed", "unknown", "cancelled")
 VALID_VIGIL_DELIVERY_EVIDENCE_SOURCES = ("webhook", "poll")
+VALID_VIGIL_ACTION_TOKEN_PURPOSES = ("drill", "cycle_confirm", "owner_revoke")
 # AES-256-GCM tag length (bytes) the browser-produced ciphertext always
 # carries appended — #450 Design section 5 / Vigil_R0_Dev.md §3.
 VIGIL_OBJECT_GCM_TAG_LENGTH = 16
@@ -405,3 +406,67 @@ class VigilDeliveryEvent(Base):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class VigilActionToken(Base):
+    """Purpose-bound link token, hash-only (issue #458, P2.3).
+
+    Parent schema includes cycle_id/batch_id and cycle_confirm/owner_revoke
+    purposes so later checkpoints can attach relationships without a new
+    table. This checkpoint only writes purpose=drill; cycle_id/batch_id
+    stay NULL with no FK (those tables do not exist yet).
+    """
+
+    __tablename__ = "vigil_action_tokens"
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="uq_vigil_action_tokens_token_hash"),
+        CheckConstraint(_in_list_sql("purpose", VALID_VIGIL_ACTION_TOKEN_PURPOSES), name="purpose"),
+        Index(
+            "uq_vigil_action_tokens_one_pending_drill",
+            "config_id",
+            "object_id",
+            unique=True,
+            postgresql_where=text(
+                "purpose = 'drill' AND confirmed_at IS NULL AND used_at IS NULL "
+                "AND invalidated_at IS NULL"
+            ),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    vault_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("vigil_vaults.id", ondelete="RESTRICT"), nullable=False
+    )
+    config_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("vigil_configurations.id", ondelete="RESTRICT"), nullable=False
+    )
+    object_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("vigil_objects.id", ondelete="RESTRICT"), nullable=False
+    )
+    cycle_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    purpose: Mapped[str] = mapped_column(Text, nullable=False)
+    token_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    invalidated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    confirmed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class VigilConsumedNonce(Base):
+    """One-time public-action nonce consumption (issue #458, P2.3).
+
+    jti is the PK: inserting it in the action transaction is what consumes
+    the nonce. GET /vigil/public/status must never write this table.
+    """
+
+    __tablename__ = "vigil_consumed_nonces"
+
+    jti: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    token_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    used_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
