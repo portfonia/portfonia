@@ -1187,6 +1187,73 @@
       "revokeTitle": "撤销发送",
       "unavailable": "此链接尚未生效，请稍后再试。"
     },
-    "setupPagePlaceholder": "Vigil 设置功能尚未上线，将在后续更新中提供。"
+    "setup": {
+      "activeStillReleasingNote": "您已有一份处于布防倒计时中的有效安排。在此设置替换文件不会暂停它——在您明确布防替换文件之前，原有安排仍会按原计划继续释放。",
+      "pendingExistsNote": "您有一次此前会话遗留的待处理上传。在下方开始新设置将替换它。",
+      "file": {
+        "label": "文件",
+        "choose": "选择文件",
+        "none": "未选择文件",
+        "selected": "{name}（{size}）"
+      },
+      "password": {
+        "sectionTitle": "密码",
+        "withPassword": "设置密码",
+        "withoutPassword": "不设密码",
+        "withoutPasswordWarning": "不设密码时，仅凭服务器保存的数据密钥即可解密此文件——任何能读取该密钥的人都能打开它。",
+        "passwordLabel": "密码",
+        "passwordConfirmLabel": "确认密码"
+      },
+      "recipients": {
+        "sectionTitle": "收件人",
+        "emailLabel": "收件人 {n} 邮箱",
+        "emailConfirmLabel": "确认收件人 {n} 邮箱",
+        "add": "添加收件人",
+        "remove": "移除"
+      },
+      "message": {
+        "label": "留言（可选）"
+      },
+      "schedule": {
+        "intervalLabel": "签到间隔",
+        "intervalDays": "{days} 天",
+        "graceLabel": "宽限期（小时）"
+      },
+      "submit": "加密并上传",
+      "cancel": "取消",
+      "retry": "重试",
+      "stage": {
+        "configuring": "正在保存配置……",
+        "preparing": "正在准备上传……",
+        "encrypting": "正在浏览器本地加密……",
+        "uploading": "正在上传……"
+      },
+      "progressPercent": "{percent}%",
+      "ready": {
+        "title": "已就绪——等待演练",
+        "body": "文件已加密并上传完成，但尚未布防：在您运行演练并明确布防之前，不会向收件人发送任何内容，布防是单独的一步。"
+      },
+      "startNew": "设置另一个文件",
+      "errors": {
+        "fileRequired": "请先选择文件。",
+        "fileTooLarge": "文件超过 10,000,000 字节上限。",
+        "passwordChoiceRequired": "请选择是否设置密码。",
+        "passwordRequired": "请输入密码，或选择“不设密码”。",
+        "passwordMismatch": "密码与确认密码不一致。",
+        "passwordTooLong": "密码最多 1024 字节。",
+        "recipientsRequired": "请至少添加一位收件人。",
+        "recipientsTooMany": "最多允许 3 位收件人。",
+        "recipientEmailMismatch": "某位收件人的邮箱与确认邮箱不一致。",
+        "recipientEmailInvalid": "某位收件人的邮箱地址无效。",
+        "recipientsDuplicate": "收件人邮箱地址不能重复。",
+        "intervalInvalid": "请选择有效的签到间隔。",
+        "graceInvalid": "宽限期必须在 24 至 168 小时之间。",
+        "messageTooLong": "留言最多 4000 字符。",
+        "revisionConflict": "您的 Vigil 设置已在别处发生变化，请检查表单后重试。",
+        "apiError": "请求未能完成，您可以重试。",
+        "cancelled": "上传已取消。",
+        "unknown": "出现问题，您可以重试。"
+      }
+    }
   }
 }
