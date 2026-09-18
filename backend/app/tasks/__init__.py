@@ -263,6 +263,13 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "task": "app.tasks.vigil_tasks.dispatch_vigil_outbox_task",
         "schedule": 30.0,
     },
+    # Vigil delivery-evidence poll (issue #457, P3.2): missing provider
+    # facts only, at 5/15/30 minutes after first_attempt_at, bounded to 5
+    # GETs per invocation. Same existing worker/beat as the outbox sweep.
+    "poll-vigil-delivery": {
+        "task": "app.tasks.vigil_tasks.poll_vigil_delivery_task",
+        "schedule": 30.0,
+    },
     # Upload-job retention sweep (issue #264): daily cleanup of upload_jobs
     # rows (holdings preview JSONB + terminal shell rows) older than 30
     # days. 04:30 ET — every day, staggered from the 03:00 ET backup and

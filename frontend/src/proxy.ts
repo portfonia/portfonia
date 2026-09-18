@@ -60,10 +60,13 @@ function isPublicPath(pathname: string): boolean {
 // /vigil/setup stay on the normal protected path below.
 const EXACT_PUBLIC_VIGIL_PAGES = ["/vigil/confirm", "/vigil/retrieve", "/vigil/revoke"];
 const PUBLIC_VIGIL_API_PREFIX = "/api/vigil/public/";
+const PUBLIC_VIGIL_WEBHOOK_PATH = "/api/vigil/webhooks/resend";
 
 function isVigilAuthExempt(pathname: string): boolean {
   return (
-    EXACT_PUBLIC_VIGIL_PAGES.includes(pathname) || pathname.startsWith(PUBLIC_VIGIL_API_PREFIX)
+    EXACT_PUBLIC_VIGIL_PAGES.includes(pathname) ||
+    pathname.startsWith(PUBLIC_VIGIL_API_PREFIX) ||
+    pathname === PUBLIC_VIGIL_WEBHOOK_PATH
   );
 }
 

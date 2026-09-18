@@ -15,9 +15,11 @@ change can silently affect the other.
 Two independent key families, both random Fernet keys, neither derived from
 the other: VIGIL_ENCRYPTION_KEY/_PREV ("data", persistent metadata/envelope
 — `encrypt_field`/`decrypt_field`) and VIGIL_NOTIFICATION_KEY/_PREV
-("notification", the short-lived mail outbox payload — #456's
+("notification", the short-lived mail outbox payload and retained
+delivery-event addresses — #456/#457's
 `encrypt_notification_field`/`decrypt_notification_field`). A leaked data
-key must not expose a pending mail body/token, and vice versa.
+key must not expose a pending mail body/token or a retained address, and
+vice versa.
 """
 
 from __future__ import annotations
@@ -166,8 +168,8 @@ def encrypt_notification_field(
     value: str, *, purpose: str, table: str, row_id: UUID, vault_id: UUID
 ) -> str:
     """Same contextual envelope as `encrypt_field`, but under the
-    independent notification key (#456) — used only for the short-lived
-    outbox mail payload, never for persistent Vigil metadata."""
+    independent notification key (#456/#457) — outbox mail payload and
+    retained delivery-event addresses. Never the data or holdings key."""
     envelope = {
         "version": _ENVELOPE_VERSION,
         "purpose": purpose,

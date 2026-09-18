@@ -244,6 +244,11 @@ class Settings(BaseSettings):
     # infrastructure required for the verification flow's core click-confirm
     # path to work).
     RESEND_ALL_ACCESS_API_KEY: SecretStr | None = None
+    # Svix signing secret for POST /vigil/webhooks/resend (issue #457, P3.2).
+    # Optional: missing/blank makes that route 503 without affecting
+    # Portfonia startup or report jobs. Verification is local HMAC — this
+    # value never leaves the process.
+    RESEND_WEBHOOK_SECRET: SecretStr | None = None
     # Ops alert recipient — receives failure/needs_review notifications.
     ADMIN_EMAIL: str = "portfonia@gmail.com"
 

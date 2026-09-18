@@ -265,6 +265,7 @@ def _manual_body_and_key(db_session: Session, outbox_id: uuid.UUID) -> tuple[dic
         "subject": payload.subject,
         "text": payload.text,
         "html": payload.html,
+        "tags": [{"name": "vigil_outbox_id", "value": str(outbox_id)}],
     }
     return body, f"vigil/{outbox_id}"
 

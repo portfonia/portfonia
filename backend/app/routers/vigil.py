@@ -1,12 +1,26 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.database import get_session
 from app.models.vigil import VigilVault
 from app.schemas.vigil import (
@@ -25,6 +39,7 @@ from app.services.vigil.configuration import (
     validate_configuration_input,
     write_pending_configuration,
 )
+from app.services.vigil.delivery import ingest_verified_webhook, verify_resend_signature
 from app.services.vigil.dns_check import (
     VigilDnsUnavailable,
     VigilNoMailRoute,
@@ -249,3 +264,66 @@ async def post_object_upload(
     return VigilObjectUploadOut(
         object_id=result.object_id, status=result.status, revision=result.revision
     )
+
+
+def _svix_headers(request: Request) -> dict[str, str]:
+    headers = request.headers
+    return {
+        "id": headers.get("svix-id") or headers.get("webhook-id") or "",
+        "timestamp": headers.get("svix-timestamp") or headers.get("webhook-timestamp") or "",
+        "signature": headers.get("svix-signature") or headers.get("webhook-signature") or "",
+    }
+
+
+@router.post("/webhooks/resend", status_code=status.HTTP_200_OK)
+async def post_resend_webhook(
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict[str, str]:
+    """Raw signed Resend/Svix body. Verify BEFORE parsing. Duplicate = 200
+    no-op; bad signature = 400; DB failure = 503. No owner session.
+    """
+    settings = get_settings()
+    secret = settings.RESEND_WEBHOOK_SECRET
+    if secret is None or not secret.get_secret_value():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Vigil webhook secret is not configured",
+        )
+    raw = await request.body()
+    payload_text = raw.decode("utf-8")
+    try:
+        verify_resend_signature(
+            payload=payload_text, headers=_svix_headers(request), secret=secret.get_secret_value()
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="invalid webhook signature"
+        ) from exc
+
+    try:
+        parsed: Any = json.loads(payload_text)
+    except json.JSONDecodeError:
+        return {"status": "ignored"}
+    if not isinstance(parsed, dict):
+        return {"status": "ignored"}
+
+    event_id = _svix_headers(request)["id"]
+    if not event_id:
+        return {"status": "ignored"}
+    try:
+        result = ingest_verified_webhook(
+            session,
+            provider_event_id=event_id,
+            payload=parsed,
+            received_at=datetime.now(UTC),
+        )
+        session.commit()
+    except OperationalError as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="database unavailable"
+        ) from exc
+    if result == "ignored":
+        return {"status": "ignored"}
+    return {"status": "ok"}

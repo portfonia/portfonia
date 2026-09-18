@@ -531,9 +531,19 @@ def run_outbox_dispatch_sweep(
             "subject": payload.subject,
             "text": payload.text,
             "html": payload.html,
+            "tags": [{"name": "vigil_outbox_id", "value": str(outbox_id)}],
         }
         result = send_fn(body, idempotency_key)
         _finalize_attempt(session_factory, outbox_id, result, now=now)
         sent += 1
+
+    assoc_session = session_factory()
+    try:
+        from app.services.vigil.delivery import associate_unmatched_events
+
+        associate_unmatched_events(assoc_session)
+        assoc_session.commit()
+    finally:
+        assoc_session.close()
 
     return DispatchSweepSummary(expired=expired, leased=leased, sent=sent)

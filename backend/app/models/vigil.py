@@ -47,6 +47,7 @@ VALID_VIGIL_OBJECT_STATUSES = ("staging", "ready", "active", "retired", "deleted
 VIGIL_OBJECT_MAX_PLAINTEXT_SIZE = 10_000_000
 VALID_VIGIL_OUTBOX_PURPOSES = ("drill", "challenge", "release", "owner_notice")
 VALID_VIGIL_OUTBOX_STATUSES = ("pending", "leased", "accepted", "failed", "unknown", "cancelled")
+VALID_VIGIL_DELIVERY_EVIDENCE_SOURCES = ("webhook", "poll")
 # AES-256-GCM tag length (bytes) the browser-produced ciphertext always
 # carries appended — #450 Design section 5 / Vigil_R0_Dev.md §3.
 VIGIL_OBJECT_GCM_TAG_LENGTH = 16
@@ -364,6 +365,43 @@ class VigilOutbox(Base):
     accepted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     last_error_code: Mapped[str | None] = mapped_column(Text)
     recipient_index: Mapped[int | None] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class VigilDeliveryEvent(Base):
+    """Signed provider delivery facts (issue #457, P3.2).
+
+    UNIQUE `provider_event_id` is the Svix/Resend event id (webhook) or a
+    synthetic `poll:{outbox_id}:{window}` key (bounded 5/15/30-minute
+    poll). `outbox_id` is nullable: unmatched events (wrong product,
+    webhook-before-send-response, shared-provider report mail) are kept
+    for later association and never credited to a vault. No raw body,
+    token, or personal message is stored; an address is retained only as
+    a notification-key ciphertext bound to this row.
+    """
+
+    __tablename__ = "vigil_delivery_events"
+    __table_args__ = (
+        UniqueConstraint("provider_event_id", name="uq_vigil_delivery_events_provider_event_id"),
+        CheckConstraint(
+            _in_list_sql("evidence_source", VALID_VIGIL_DELIVERY_EVIDENCE_SOURCES),
+            name="evidence_source",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    provider_event_id: Mapped[str] = mapped_column(Text, nullable=False)
+    outbox_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("vigil_outbox.id", ondelete="RESTRICT")
+    )
+    provider_message_id: Mapped[str] = mapped_column(Text, nullable=False)
+    event_type: Mapped[str] = mapped_column(Text, nullable=False)
+    provider_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    received_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    evidence_source: Mapped[str] = mapped_column(Text, nullable=False)
+    address_cipher: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
