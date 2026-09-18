@@ -13,6 +13,7 @@ import logging
 from typing import Any
 
 from app.core.database import SessionLocal
+from app.services.vigil.cycles import run_cycle_scan
 from app.services.vigil.delivery import run_delivery_poll_sweep
 from app.services.vigil.dispatch import run_outbox_dispatch_sweep
 from app.tasks import celery_app
@@ -51,3 +52,23 @@ def poll_vigil_delivery_task(self: Any) -> None:
     summary = run_delivery_poll_sweep(SessionLocal)
     if summary.polled:
         logger.info("vigil delivery poll: polled=%d", summary.polled)
+
+
+@celery_app.task(  # type: ignore[untyped-decorator]
+    name="app.tasks.vigil_tasks.scan_vigil_cycles_task",
+    bind=True,
+    max_retries=0,
+)
+def scan_vigil_cycles_task(self: Any) -> None:
+    """Bounded cycle scan on the existing worker. No HTTP inside the
+    scan transaction; heartbeat is committed with the work.
+    """
+    session = SessionLocal()
+    try:
+        run_cycle_scan(session)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()

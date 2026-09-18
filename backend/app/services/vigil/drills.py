@@ -272,7 +272,12 @@ def public_status(
     if vault is None:
         raise VigilPublicTokenError(404, "not found")
     now = db_now(session)
-    state = _token_available(row, now=now, vault=vault)
+    if row.purpose == "cycle_confirm":
+        from app.services.vigil.cycles import cycle_token_public_state
+
+        state = cycle_token_public_state(session, row, now=now, vault=vault)
+    else:
+        state = _token_available(row, now=now, vault=vault)
     if state in {"invalidated", "expired", "stale", "used", "wrong_purpose"}:
         raise VigilPublicTokenError(410, "gone")
     if state == "confirmed":

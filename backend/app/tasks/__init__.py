@@ -270,6 +270,12 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "task": "app.tasks.vigil_tasks.poll_vigil_delivery_task",
         "schedule": 30.0,
     },
+    # Vigil three-round confirmation scan (issue #459, P3.3): at most one
+    # level step per invocation, 60s on the existing beat/worker/queue.
+    "scan-vigil-cycles": {
+        "task": "app.tasks.vigil_tasks.scan_vigil_cycles_task",
+        "schedule": 60.0,
+    },
     # Upload-job retention sweep (issue #264): daily cleanup of upload_jobs
     # rows (holdings preview JSONB + terminal shell rows) older than 30
     # days. 04:30 ET — every day, staggered from the 03:00 ET backup and

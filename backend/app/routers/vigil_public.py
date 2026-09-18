@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_session
+from app.models.vigil import VigilActionToken
 from app.schemas.vigil import (
     VigilPublicConfirmIn,
     VigilPublicConfirmOut,
@@ -15,7 +17,9 @@ from app.schemas.vigil import (
 )
 from app.services.altcha_challenge import create_vigil_challenge, verify_vigil_solution
 from app.services.vigil.crypto import VigilCryptoError
+from app.services.vigil.cycles import confirm_cycle_token
 from app.services.vigil.drills import VigilPublicTokenError, confirm_drill, public_status
+from app.services.vigil.tokens import hash_link_token
 
 router = APIRouter()
 
@@ -106,6 +110,19 @@ def post_public_confirm(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="invalid altcha"
         )
     try:
+        peeked = session.scalars(
+            select(VigilActionToken).where(
+                VigilActionToken.token_hash == hash_link_token(payload.token)
+            )
+        ).one_or_none()
+        if peeked is None:
+            raise VigilPublicTokenError(404, "not found")
+        if peeked.purpose == "cycle_confirm":
+            cycle_result = confirm_cycle_token(session, token=payload.token, nonce=payload.nonce)
+            session.commit()
+            return VigilPublicConfirmOut(
+                result=cycle_result.result, next_check_at=cycle_result.next_check_at
+            )
         result = confirm_drill(session, token=payload.token, nonce=payload.nonce)
         session.commit()
     except VigilPublicTokenError as exc:

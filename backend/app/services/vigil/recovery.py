@@ -21,10 +21,19 @@ from app.services.vigil.tokens import invalidate_open_drill_tokens
 
 
 def live_activation_allowed() -> bool:
-    """False until #459/#460/#464 complete the stop/recovery path.
+    """False until #460/#464 complete grant-revocation and restore.
 
-    Arming must never silently skip old-grant revocation. Tests that need
-    the supported atomic-swap cases patch this to True.
+    #459 installs cycles so stop can cancel an active confirmation cycle,
+    but live HTTP arming still refuses while grant revocation is missing.
+    Tests that need the supported atomic-swap cases patch this to True.
+    """
+    return False
+
+
+def final_release_allowed() -> bool:
+    """False until P4.1 (#460) owns transactional grants/release.
+
+    The cycle scanner must not materialize a RELEASED vault or grants.
     """
     return False
 
@@ -34,10 +43,13 @@ def stop_prior_arrangement(session: Session, vault: VigilVault, *, now: datetime
 
     Cancels outbox intents and pending drills, retires the previous active
     config/object, and NULLs ciphertext/outer_cipher on that logical row.
-    Grants/cycles do not exist yet; this function does not pretend it
-    revoked them. Callers must still refuse live arming while
+    Cancels an active confirmation cycle when #459 tables exist. Grants
+    still do not exist; callers must refuse live arming while
     `live_activation_allowed()` is False.
     """
+    from app.services.vigil.cycles import cancel_active_cycles
+
+    cancel_active_cycles(session, vault, now=now, status="cancelled")
     cancel_outbox_intents(session, vault_id=vault.id)
     invalidate_open_drill_tokens(session, vault_id=vault.id, now=now)
 

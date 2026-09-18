@@ -119,6 +119,18 @@ class VigilArmOut(BaseModel):
     next_check_at: str
 
 
+class VigilCheckInIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int
+
+
+class VigilCheckInOut(BaseModel):
+    phase: str
+    revision: int
+    next_check_at: str | None = None
+
+
 class VigilPublicStatusIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
