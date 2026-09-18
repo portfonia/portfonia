@@ -22,10 +22,12 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_session
-from app.models.vigil import VigilVault
+from app.models.vigil import VigilRuntime, VigilVault
 from app.schemas.vigil import (
     VigilArmIn,
     VigilArmOut,
+    VigilCheckInIn,
+    VigilCheckInOut,
     VigilConfigurationIn,
     VigilConfigurationOut,
     VigilDrillIn,
@@ -48,6 +50,13 @@ from app.services.vigil.configuration import (
     VigilRevisionConflict,
     validate_configuration_input,
     write_pending_configuration,
+)
+from app.services.vigil.cycles import (
+    VigilCycleConflict,
+    VigilCycleUnavailable,
+    check_in,
+    current_deadline_at,
+    disarm,
 )
 from app.services.vigil.delivery import ingest_verified_webhook, verify_resend_signature
 from app.services.vigil.dns_check import (
@@ -96,12 +105,16 @@ def get_vault(
     if vault is None:
         return VigilVaultStatus(vault_id=None, phase="DISARMED", revision=0)
 
+    runtime = session.get(VigilRuntime, 1)
+    last_scan = runtime.last_scan_completed_at if runtime is not None else None
     return VigilVaultStatus(
         vault_id=vault.id,
         phase=vault.phase,
         revision=vault.revision,
         hold_reason=vault.hold_reason,
         next_check_at=vault.next_check_at,
+        deadline_at=current_deadline_at(session, vault),
+        last_scan_completed_at=last_scan,
         delivery_status=drill_delivery_state(session, vault),
     )
 
@@ -372,6 +385,57 @@ def post_arm(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
         ) from exc
     return VigilArmOut(
+        phase=result.phase, revision=result.revision, next_check_at=result.next_check_at
+    )
+
+
+def _cycle_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, VigilRevisionConflict):
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "revision_conflict", "current_revision": exc.current_revision},
+        )
+    if isinstance(exc, VigilCycleConflict):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.detail)
+    if isinstance(exc, VigilCycleUnavailable):
+        return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+    raise exc
+
+
+@router.post("/check-in", response_model=VigilCheckInOut)
+def post_check_in(
+    payload: VigilCheckInIn,
+    owner: VigilOwner = Depends(require_vigil_owner),
+    session: Session = Depends(get_session),
+) -> VigilCheckInOut:
+    try:
+        result = check_in(
+            session, owner_user_id=owner.user_id, expected_revision=payload.expected_revision
+        )
+        session.commit()
+    except (VigilCycleConflict, VigilCycleUnavailable, VigilRevisionConflict) as exc:
+        session.rollback()
+        raise _cycle_http_error(exc) from exc
+    return VigilCheckInOut(
+        phase=result.phase, revision=result.revision, next_check_at=result.next_check_at
+    )
+
+
+@router.post("/disarm", response_model=VigilCheckInOut)
+def post_disarm(
+    payload: VigilCheckInIn,
+    owner: VigilOwner = Depends(require_vigil_owner),
+    session: Session = Depends(get_session),
+) -> VigilCheckInOut:
+    try:
+        result = disarm(
+            session, owner_user_id=owner.user_id, expected_revision=payload.expected_revision
+        )
+        session.commit()
+    except (VigilCycleConflict, VigilCycleUnavailable, VigilRevisionConflict) as exc:
+        session.rollback()
+        raise _cycle_http_error(exc) from exc
+    return VigilCheckInOut(
         phase=result.phase, revision=result.revision, next_check_at=result.next_check_at
     )
 

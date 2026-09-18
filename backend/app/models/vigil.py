@@ -49,6 +49,7 @@ VALID_VIGIL_OUTBOX_PURPOSES = ("drill", "challenge", "release", "owner_notice")
 VALID_VIGIL_OUTBOX_STATUSES = ("pending", "leased", "accepted", "failed", "unknown", "cancelled")
 VALID_VIGIL_DELIVERY_EVIDENCE_SOURCES = ("webhook", "poll")
 VALID_VIGIL_ACTION_TOKEN_PURPOSES = ("drill", "cycle_confirm", "owner_revoke")
+VALID_VIGIL_CYCLE_STATUSES = ("active", "confirmed", "released", "cancelled")
 # AES-256-GCM tag length (bytes) the browser-produced ciphertext always
 # carries appended — #450 Design section 5 / Vigil_R0_Dev.md §3.
 VIGIL_OBJECT_GCM_TAG_LENGTH = 16
@@ -301,13 +302,10 @@ class VigilObject(Base):
 class VigilOutbox(Base):
     """Shared-worker encrypted mail intent (issue #456, P3.1).
 
-    `scope_id` identifies the business event (e.g. a future drill/round/
-    batch row) this send belongs to. It is a plain UUID, not a FK: the
-    tables it will eventually reference (cycles/rounds/release_batches)
-    don't exist until #458/#459/#460 — this checkpoint only proves the
-    outbox mechanism with internal fixture-only callers (#456 scope). Add
-    the FK once the referenced table exists rather than widening this to a
-    polymorphic association now.
+    `scope_id` identifies the business event this send belongs to (drill
+    token id, round id, later a release-batch id). It stays a plain UUID,
+    not a FK: drill/cycle/round rows already exist, but release_batches
+    do not until #460, and a polymorphic association is still not wanted.
 
     `payload_cipher`/`payload_sha256` hold the frozen recipient snapshot +
     mail body + token under `VIGIL_NOTIFICATION_KEY` (never the data key —
@@ -409,12 +407,11 @@ class VigilDeliveryEvent(Base):
 
 
 class VigilActionToken(Base):
-    """Purpose-bound link token, hash-only (issue #458, P2.3).
+    """Purpose-bound link token, hash-only (issue #458, P2.3; cycle FK #459).
 
-    Parent schema includes cycle_id/batch_id and cycle_confirm/owner_revoke
-    purposes so later checkpoints can attach relationships without a new
-    table. This checkpoint only writes purpose=drill; cycle_id/batch_id
-    stay NULL with no FK (those tables do not exist yet).
+    `purpose=drill` is written by #458; `purpose=cycle_confirm` and
+    `cycle_id` (FK to vigil_cycles) are written by #459. `batch_id` stays
+    a nullable UUID without an FK until #460 creates release_batches.
     """
 
     __tablename__ = "vigil_action_tokens"
@@ -443,7 +440,9 @@ class VigilActionToken(Base):
     object_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("vigil_objects.id", ondelete="RESTRICT"), nullable=False
     )
-    cycle_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    cycle_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("vigil_cycles.id", ondelete="RESTRICT")
+    )
     batch_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     purpose: Mapped[str] = mapped_column(Text, nullable=False)
     token_hash: Mapped[str] = mapped_column(Text, nullable=False)
@@ -470,3 +469,85 @@ class VigilConsumedNonce(Base):
     action: Mapped[str] = mapped_column(Text, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
     used_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+
+
+class VigilCycle(Base):
+    """One confirmation cycle for an armed arrangement (issue #459, P3.3).
+
+    At most one `active` row per vault. `current_level` is 1..3;
+    RELEASED is a later checkpoint (P4.1) and is not written here.
+    """
+
+    __tablename__ = "vigil_cycles"
+    __table_args__ = (
+        CheckConstraint(_in_list_sql("status", VALID_VIGIL_CYCLE_STATUSES), name="status"),
+        CheckConstraint("current_level >= 1 AND current_level <= 3", name="current_level_bounds"),
+        Index(
+            "uq_vigil_cycles_one_active",
+            "vault_id",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    vault_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("vigil_vaults.id", ondelete="RESTRICT"), nullable=False
+    )
+    config_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("vigil_configurations.id", ondelete="RESTRICT"), nullable=False
+    )
+    object_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("vigil_objects.id", ondelete="RESTRICT"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    current_level: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class VigilRound(Base):
+    """Persisted confirmation window for one cycle level/generation (#459).
+
+    Both `anchor_at` and `deadline_at` are null, or both are present.
+    Superseded generations stay so three windows can be reconstructed.
+    """
+
+    __tablename__ = "vigil_rounds"
+    __table_args__ = (
+        UniqueConstraint(
+            "cycle_id", "level", "generation", name="uq_vigil_rounds_cycle_id_level_generation"
+        ),
+        CheckConstraint("level >= 1 AND level <= 3", name="level_bounds"),
+        CheckConstraint("generation >= 1", name="generation_nonneg"),
+        CheckConstraint(
+            "(anchor_at IS NULL AND deadline_at IS NULL) "
+            "OR (anchor_at IS NOT NULL AND deadline_at IS NOT NULL)",
+            name="anchor_deadline_pair",
+        ),
+        Index(
+            "uq_vigil_rounds_one_open_generation",
+            "cycle_id",
+            "level",
+            unique=True,
+            postgresql_where=text("superseded_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    cycle_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("vigil_cycles.id", ondelete="RESTRICT"), nullable=False
+    )
+    level: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    generation: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    outbox_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("vigil_outbox.id", ondelete="RESTRICT"), nullable=False
+    )
+    anchor_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    deadline_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    superseded_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )

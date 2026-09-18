@@ -24,9 +24,11 @@ from app.models.vigil import (
     VigilAuditEvent,
     VigilConfiguration,
     VigilConsumedNonce,
+    VigilCycle,
     VigilDeliveryEvent,
     VigilObject,
     VigilOutbox,
+    VigilRound,
     VigilVault,
 )
 
@@ -45,7 +47,9 @@ class PurgeResult:
     vigil_delivery_events: int
     vigil_consumed_nonces: int
     vigil_action_tokens: int
+    vigil_rounds: int
     vigil_outbox: int
+    vigil_cycles: int
     vigil_objects: int
     vigil_configurations: int
     vigil_audit_events: int
@@ -132,7 +136,9 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
     vigil_delivery_events = 0
     vigil_consumed_nonces = 0
     vigil_action_tokens = 0
+    vigil_rounds = 0
     vigil_outbox = 0
+    vigil_cycles = 0
     vigil_objects = 0
     vigil_configurations = 0
     vigil_audit_events = 0
@@ -186,6 +192,16 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
                 ),
             )
         )
+        cycle_ids = list(
+            session.scalars(select(VigilCycle.id).where(VigilCycle.vault_id == vault_id)).all()
+        )
+        if cycle_ids:
+            vigil_rounds = _rowcount(
+                cast(
+                    CursorResult[Any],
+                    session.execute(delete(VigilRound).where(VigilRound.cycle_id.in_(cycle_ids))),
+                )
+            )
         if outbox_ids or provider_ids:
             conditions = []
             if outbox_ids:
@@ -209,6 +225,12 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
             cast(
                 CursorResult[Any],
                 session.execute(delete(VigilOutbox).where(VigilOutbox.vault_id == vault_id)),
+            )
+        )
+        vigil_cycles = _rowcount(
+            cast(
+                CursorResult[Any],
+                session.execute(delete(VigilCycle).where(VigilCycle.vault_id == vault_id)),
             )
         )
         vigil_objects = _rowcount(
@@ -261,7 +283,9 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
         vigil_delivery_events=vigil_delivery_events,
         vigil_consumed_nonces=vigil_consumed_nonces,
         vigil_action_tokens=vigil_action_tokens,
+        vigil_rounds=vigil_rounds,
         vigil_outbox=vigil_outbox,
+        vigil_cycles=vigil_cycles,
         vigil_objects=vigil_objects,
         vigil_configurations=vigil_configurations,
         vigil_audit_events=vigil_audit_events,
