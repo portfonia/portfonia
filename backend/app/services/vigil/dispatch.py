@@ -253,12 +253,55 @@ def sweep_expired_outbox(session: Session, *, now: datetime | None = None) -> in
     return int(result_a.rowcount or 0) + int(result_b.rowcount or 0)
 
 
+def _lock_user_vault_and_row(session: Session, outbox_id: UUID) -> VigilOutbox | None:
+    """Locks User -> vigil_vaults -> vigil_outbox, in that exact order
+    (#450 Design section 3 / blacktomb42 PR #510 review round 1: an
+    earlier version locked the outbox row first, backwards from every
+    other Vigil service module's lock order). The initial unlocked read
+    only discovers which vault this row belongs to — `vault_id` is never
+    reassigned after insert, so a stale read here cannot point the
+    subsequent locks at the wrong vault."""
+    peek = session.get(VigilOutbox, outbox_id)
+    if peek is None:
+        return None
+    locked = _lock_user_and_vault(session, peek.vault_id)
+    if locked is None:
+        return None
+    return session.execute(
+        select(VigilOutbox).where(VigilOutbox.id == outbox_id).with_for_update()
+    ).scalar_one_or_none()
+
+
+def _is_due_for_retry(
+    *, status: str, has_payload: bool, next_attempt_at: datetime | None, now: datetime
+) -> bool:
+    """Must mirror `_lease_due_ids`'s SQL `due_retry` predicate exactly.
+
+    `next_attempt_at IS NULL` means two different things depending on
+    status: for a never-tried PENDING row it means "due immediately" (no
+    attempt has scheduled a delay yet); for an UNKNOWN row it means
+    retries are EXHAUSTED (`_next_attempt_after` returned None because the
+    attempt ceiling or the 23h window was hit) — treating that the same as
+    "due now" would re-send an already-exhausted row on every sweep until
+    `sweep_expired_outbox`'s 24h clear finally removes its payload
+    (blacktomb42 PR #510 review round 1, P3.1-A02).
+    """
+    if status not in _RETRYABLE_STATUSES or not has_payload:
+        return False
+    if next_attempt_at is not None:
+        return next_attempt_at <= now
+    return status == _PENDING
+
+
 def _lease_due_ids(session: Session, *, now: datetime, limit: int) -> list[UUID]:
     stuck_lease = and_(VigilOutbox.status == _LEASED, VigilOutbox.lease_until <= now)
     due_retry = and_(
         VigilOutbox.status.in_(_RETRYABLE_STATUSES),
         VigilOutbox.payload_cipher.isnot(None),
-        or_(VigilOutbox.next_attempt_at.is_(None), VigilOutbox.next_attempt_at <= now),
+        or_(
+            and_(VigilOutbox.next_attempt_at.isnot(None), VigilOutbox.next_attempt_at <= now),
+            and_(VigilOutbox.status == _PENDING, VigilOutbox.next_attempt_at.is_(None)),
+        ),
     )
     return list(
         session.scalars(
@@ -271,24 +314,23 @@ def _lease_due_ids(session: Session, *, now: datetime, limit: int) -> list[UUID]
 
 
 def _lease_one(session_factory: Callable[[], Session], outbox_id: UUID, *, now: datetime) -> bool:
-    """Locks User->vault->row and, if still due, marks it `leased`. Commits
-    (releasing every lock) before returning — the caller does the actual
-    HTTP send outside any lock."""
+    """Locks User->vault->row (in that order) and, if still due, marks it
+    `leased`. Commits (releasing every lock) before returning — the caller
+    does the actual HTTP send outside any lock."""
     session = session_factory()
     try:
-        row = session.get(VigilOutbox, outbox_id, with_for_update=True)
+        row = _lock_user_vault_and_row(session, outbox_id)
         if row is None:
-            return False
-        locked = _lock_user_and_vault(session, row.vault_id)
-        if locked is None:
+            session.rollback()
             return False
         is_stuck_lease = (
             row.status == _LEASED and row.lease_until is not None and row.lease_until <= now
         )
-        is_due_retry = (
-            row.status in _RETRYABLE_STATUSES
-            and row.payload_cipher is not None
-            and (row.next_attempt_at is None or row.next_attempt_at <= now)
+        is_due_retry = _is_due_for_retry(
+            status=row.status,
+            has_payload=row.payload_cipher is not None,
+            next_attempt_at=row.next_attempt_at,
+            now=now,
         )
         if not (is_stuck_lease or is_due_retry):
             session.rollback()
@@ -380,12 +422,8 @@ def _finalize_attempt(
     """
     session = session_factory()
     try:
-        row = session.get(VigilOutbox, outbox_id, with_for_update=True)
+        row = _lock_user_vault_and_row(session, outbox_id)
         if row is None:
-            session.rollback()
-            return
-        locked = _lock_user_and_vault(session, row.vault_id)
-        if locked is None:
             session.rollback()
             return
 

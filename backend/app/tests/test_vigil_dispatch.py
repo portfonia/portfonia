@@ -329,6 +329,80 @@ def test_unknown_outcome_is_retried_then_stops_after_23h_window() -> None:
     )
 
 
+def test_exhausted_unknown_row_is_not_resent_before_the_24h_sweep(db_session: Session) -> None:
+    """blacktomb42 PR #510 review round 1, P3.1-A02: `_next_attempt_after`
+    returning None at exhaustion previously made `_lease_due_ids`/
+    `_lease_one` treat `next_attempt_at IS NULL` as "due now" for ANY
+    retryable row — indistinguishable from a never-tried PENDING row. An
+    UNKNOWN row past its retry ceiling (but still short of the 24h payload
+    clear) would get leased and re-sent on every ~30s sweep instead of
+    sitting idle until `sweep_expired_outbox` clears it."""
+    vault_id, config_id, object_id = _seed_object(db_session)
+    row = _write_entry(
+        db_session, vault_id=vault_id, config_id=config_id, object_id=object_id, dedup_key="dk-8"
+    )
+    now = datetime.now(UTC)
+    db_session.execute(
+        update(VigilOutbox)
+        .where(VigilOutbox.id == row.id)
+        .values(
+            status="unknown",
+            attempts=5,
+            first_attempt_at=now - timedelta(hours=1),
+            next_attempt_at=None,  # exhausted, per _next_attempt_after
+        )
+    )
+    db_session.commit()
+
+    def _send(body: dict[str, Any], idempotency_key: str) -> ProviderSendResult:
+        raise AssertionError("an exhausted unknown row must not be sent again")
+
+    summary = run_outbox_dispatch_sweep(_session_factory, send_fn=_send, now=now)
+    assert summary.sent == 0
+    assert summary.leased == 0
+
+    fresh = _reload(db_session, row.id)
+    assert fresh.status == "unknown"
+    assert fresh.payload_cipher is not None  # still short of the 24h sweep clear
+
+
+def test_lease_one_locks_user_then_vault_then_outbox_row(db_session: Session) -> None:
+    """blacktomb42 PR #510 review round 1: lock order must be
+    User -> vigil_vaults -> vigil_outbox (#450 Design section 3), not the
+    other way around."""
+    from sqlalchemy import event
+
+    from app.core.database import get_engine
+
+    vault_id, config_id, object_id = _seed_object(db_session)
+    row = _write_entry(
+        db_session, vault_id=vault_id, config_id=config_id, object_id=object_id, dedup_key="dk-9"
+    )
+    now = datetime.now(UTC)
+
+    order: list[str] = []
+
+    def _capture(conn: object, cursor: object, statement: str, *_args: object) -> None:
+        if "FOR UPDATE" not in statement.upper():
+            return
+        if "users" in statement:
+            order.append("users")
+        elif "vigil_vaults" in statement:
+            order.append("vigil_vaults")
+        elif "vigil_outbox" in statement:
+            order.append("vigil_outbox")
+
+    engine = get_engine()
+    event.listen(engine, "before_cursor_execute", _capture)
+    try:
+        assert _lease_one(_session_factory, row.id, now=now)
+    finally:
+        event.remove(engine, "before_cursor_execute", _capture)
+
+    first_seen = list(dict.fromkeys(order))
+    assert first_seen[:3] == ["users", "vigil_vaults", "vigil_outbox"]
+
+
 def test_unknown_payload_cleared_24h_after_first_attempt(db_session: Session) -> None:
     vault_id, config_id, object_id = _seed_object(db_session)
     row = _write_entry(
