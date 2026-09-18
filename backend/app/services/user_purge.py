@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
@@ -19,7 +19,13 @@ from app.models.report import Report
 from app.models.upload_job import UploadJob
 from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
-from app.models.vigil import VigilConfiguration, VigilObject, VigilOutbox, VigilVault
+from app.models.vigil import (
+    VigilConfiguration,
+    VigilDeliveryEvent,
+    VigilObject,
+    VigilOutbox,
+    VigilVault,
+)
 
 
 @dataclass(frozen=True)
@@ -33,6 +39,7 @@ class PurgeResult:
     email_verifications: int
     invites_used_by_cleared: int
     users_invited_by_cleared: int
+    vigil_delivery_events: int
     vigil_outbox: int
     vigil_objects: int
     vigil_configurations: int
@@ -116,6 +123,7 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
     vault_id = session.execute(
         select(VigilVault.id).where(VigilVault.owner_user_id == user_id)
     ).scalar_one_or_none()
+    vigil_delivery_events = 0
     vigil_outbox = 0
     vigil_objects = 0
     vigil_configurations = 0
@@ -130,6 +138,33 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
                 pending_object_id=None,
             )
         )
+        # #457 (P3.2) extends the #456 purge hook: vigil_delivery_events
+        # FKs into vigil_outbox (RESTRICT), so associated rows go first.
+        # Unmatched events that already carry this vault's provider_id are
+        # removed in the same statement so a webhook-before-response row
+        # cannot outlive the outbox it would have folded into.
+        outbox_ids = list(
+            session.scalars(select(VigilOutbox.id).where(VigilOutbox.vault_id == vault_id)).all()
+        )
+        provider_ids = list(
+            session.scalars(
+                select(VigilOutbox.provider_id).where(
+                    VigilOutbox.vault_id == vault_id, VigilOutbox.provider_id.isnot(None)
+                )
+            ).all()
+        )
+        if outbox_ids or provider_ids:
+            conditions = []
+            if outbox_ids:
+                conditions.append(VigilDeliveryEvent.outbox_id.in_(outbox_ids))
+            if provider_ids:
+                conditions.append(VigilDeliveryEvent.provider_message_id.in_(provider_ids))
+            vigil_delivery_events = _rowcount(
+                cast(
+                    CursorResult[Any],
+                    session.execute(delete(VigilDeliveryEvent).where(or_(*conditions))),
+                )
+            )
         # #456 (P3.1) extends the #454 purge hook: vigil_outbox has RESTRICT
         # FKs into vigil_configurations/vigil_objects, so it must be deleted
         # BEFORE them (Design section 3: "cancel Vigil pending sends ...
@@ -179,6 +214,7 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
         email_verifications=email_verifications,
         invites_used_by_cleared=invites_used_by_cleared,
         users_invited_by_cleared=users_invited_by_cleared,
+        vigil_delivery_events=vigil_delivery_events,
         vigil_outbox=vigil_outbox,
         vigil_objects=vigil_objects,
         vigil_configurations=vigil_configurations,

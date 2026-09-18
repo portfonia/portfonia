@@ -205,6 +205,15 @@ describe("proxy", () => {
     expect(getUser).not.toHaveBeenCalled();
   });
 
+  it("never calls the Supabase client for POST /api/vigil/webhooks/resend", async () => {
+    getUser.mockClear();
+
+    const res = await proxy(makeRequest("/api/vigil/webhooks/resend"));
+
+    expect(res.headers.get("location")).toBeNull();
+    expect(getUser).not.toHaveBeenCalled();
+  });
+
   it("never redirects a same-origin /api/* request even when unauthenticated (the backend enforces 401 itself)", async () => {
     getUser.mockResolvedValue({ data: { user: null } });
     getSession.mockResolvedValue({ data: { session: null } });
