@@ -54,7 +54,7 @@ _NEGATIVE_TYPES = frozenset(
     }
 )
 _DELIVERED_TYPES = frozenset({"email.delivered", "delivered"})
-IngestStatus = Literal["stored", "duplicate"]
+IngestStatus = Literal["stored", "duplicate", "ignored"]
 
 
 @dataclass(frozen=True)
@@ -322,10 +322,10 @@ def ingest_verified_webhook(
     event_type = payload.get("type")
     data = payload.get("data")
     if not isinstance(event_type, str) or not isinstance(data, dict):
-        return "stored"
+        return "ignored"
     email_id = data.get("email_id")
     if not isinstance(email_id, str) or not email_id:
-        return "stored"
+        return "ignored"
     to_raw = data.get("to")
     to_addr: str | None = None
     if isinstance(to_raw, list) and to_raw and isinstance(to_raw[0], str):

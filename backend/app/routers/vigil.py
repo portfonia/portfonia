@@ -312,7 +312,7 @@ async def post_resend_webhook(
     if not event_id:
         return {"status": "ignored"}
     try:
-        ingest_verified_webhook(
+        result = ingest_verified_webhook(
             session,
             provider_event_id=event_id,
             payload=parsed,
@@ -324,4 +324,6 @@ async def post_resend_webhook(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="database unavailable"
         ) from exc
+    if result == "ignored":
+        return {"status": "ignored"}
     return {"status": "ok"}

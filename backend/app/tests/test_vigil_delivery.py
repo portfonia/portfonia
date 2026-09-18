@@ -511,6 +511,40 @@ def test_bad_signature_is_rejected_with_400(app_client: TestClient, db_session: 
     assert db_session.scalars(select(VigilDeliveryEvent)).first() is None
 
 
+def test_signed_malformed_payload_is_ignored_not_stored(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """A valid Svix signature on a body that is not a Resend email event
+    must 200 without inserting — not a 'stored' path with no row."""
+    from app.services.vigil.delivery import ingest_verified_webhook
+
+    payload = json.dumps({"hello": "not-an-email-event"})
+    ts = str(int(datetime.now(UTC).timestamp()))
+    resp = app_client.post(
+        "/vigil/webhooks/resend",
+        content=payload,
+        headers={
+            "svix-id": "evt-malformed",
+            "svix-timestamp": ts,
+            "svix-signature": _sign(payload, msg_id="evt-malformed", timestamp=ts),
+            "content-type": "application/json",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ignored"}
+    assert db_session.scalars(select(VigilDeliveryEvent)).first() is None
+
+    status = ingest_verified_webhook(
+        db_session,
+        provider_event_id="evt-malformed-direct",
+        payload={"type": "email.delivered", "data": {"email_id": 123}},
+        received_at=datetime.now(UTC),
+    )
+    assert status == "ignored"
+    db_session.commit()
+    assert db_session.scalars(select(VigilDeliveryEvent)).first() is None
+
+
 def test_valid_signature_persists_event_and_duplicate_is_200_noop(
     app_client: TestClient, db_session: Session
 ) -> None:
