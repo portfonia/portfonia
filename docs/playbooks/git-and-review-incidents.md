@@ -5,36 +5,50 @@ Tracking one-liners. Read this before touching stacked branches, before
 handling a leaked infrastructure identifier, or before using either GitHub
 identity in this repo.
 
-## Current access procedure (owner-confirmed 2026-09-13)
+## Current access procedure (owner-confirmed 2026-09-18: REST only, no OAuth)
+
+**`gh auth login`/stored OAuth is never attempted for this project, for any
+GitHub operation.** The owner already re-verified OAuth login (`gh auth
+status`) and it still reported an invalid token mid-session (2026-09-18);
+the prior "OAuth primary, token fallback" procedure is retracted, not just
+its execution — do not retry OAuth "just in case" before falling back.
+
+**Use `gh api` (REST endpoints) exclusively — never `gh issue`/`gh pr` and
+other high-level porcelain subcommands for GitHub reads/writes.** Those
+subcommands may call GitHub's GraphQL endpoint internally (confirmed
+2026-09-18: `gh issue close`/`gh issue view --json` failed on a GraphQL
+transport error while the plain REST endpoint and `gh api` calls succeeded
+throughout the same outage). `gh api` gives a direct, predictable REST call
+every time.
 
 | Operation | Authentication and required identity |
 |---|---|
-| GitHub writes, including issue maintenance and branch/PR publication | Stored `gh` OAuth login, verified as `portfonia`. |
-| GitHub writes when OAuth is unavailable | `GITHUB_TOKEN` from this project's `.env.local`, verified as `portfonia`. This is the explicitly authorized fallback. |
-| GitHub reviews | `GITHUB_REVIEWER_TOKEN` from this project's `.env.local`, verified as `blacktomb42`. |
+| GitHub writes, including issue maintenance and branch/PR publication | `GITHUB_TOKEN` from this project's `.env.local`, via `GH_TOKEN=<token> gh api ...`. Verify `GH_TOKEN=<token> gh api user --jq .login` returns `portfonia` before writing. |
+| GitHub reviews | `GITHUB_REVIEWER_TOKEN` from this project's `.env.local`, same `gh api` pattern, verified as `blacktomb42`. |
 
-First verify the repository with `git remote -v`. Test the OAuth path with
-`env -u GH_TOKEN -u GITHUB_TOKEN gh api user --jq .login`, so an inherited
-API token cannot masquerade as the stored OAuth login. An authentication
-failure describes that path in the current session, not a general inability
-of `gh` or other agents to use OAuth. A wrong-account result is not authority
-to write as that account.
-
-For a token-backed command, load only the required project variable into
-that command's environment, verify `gh api user --jq .login`, then execute
-the authorized operation. Never print a token, run `gh auth token` to the
-visible output, or persist credentials into scripts or documentation. The
-reviewer token must not perform issue maintenance, pushes, or merges.
+First verify the repository with `git remote -v`. For a token-backed
+command, load only the required project variable into that command's
+environment, verify `gh api user --jq .login`, then execute the authorized
+operation via `gh api <REST endpoint>`. Never print a token, run `gh auth
+token` to the visible output, or persist credentials into scripts or
+documentation. The reviewer token must not perform issue maintenance,
+pushes, or merges. When posting a body from a file, use `-F body=@<path>`
+(the file-expanding flag), never `-f body=@<path>` — `-f` sends the literal
+string `@<path>`, not the file's contents (see the `feedback_gh_api_field_
+flag_file_expansion` memory incident this project already hit once).
 
 Obsidian operations use the configured MCP: read the existing target,
 update within the authorized scope, and read back. Do not substitute a UI
-or REST path unless the user explicitly requests it.
+or REST path unless the user explicitly requests it. (This is a separate
+tool/mechanism from the GitHub REST-vs-OAuth decision above — Obsidian's
+own "don't substitute REST" default is unchanged.)
 
-This procedure supersedes older references below to `GITHUB_TOKEN` as the
-primary write route. Those sections are historical provenance, not a
-competing authentication policy. The later correction that `blacktomb42`
-belongs to the owner, the self-review restrictions, and explicit owner
-authorization for merging/deploying remain in force.
+This procedure supersedes both the 2026-09-13 OAuth-primary procedure
+below and the even older `GITHUB_TOKEN`-as-fallback framing before that.
+Those sections are historical provenance, not a competing authentication
+policy. The correction that `blacktomb42` belongs to the owner, the
+self-review restrictions, and explicit owner authorization for
+merging/deploying remain in force.
 
 ## Stacked branches + squash-merge: a known trap (2026-08-07, PR #93/#95/#96)
 

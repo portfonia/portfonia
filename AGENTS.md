@@ -15,12 +15,12 @@ required, ask the product owner before designing or implementing it.
 
 - [Documentation governance](docs/playbooks/documentation-governance.md): document ownership, Obsidian authorization, executable design contracts, evidence labels, and note-access conventions.
 - [Shared engineering rules](CLAUDE.md): language, security, testing, and deployment conventions.
-- [Git and review identities](docs/playbooks/git-and-review-incidents.md): gh OAuth writes, owner-token fallback, reviewer-token boundaries, and workflow history.
+- [Git and review identities](docs/playbooks/git-and-review-incidents.md): token-only `gh api` (REST) writes, reviewer-token boundaries, and workflow history — includes why OAuth was retracted 2026-09-18.
 
 ## GitHub and Obsidian access
 
-- GitHub writes use the stored `gh` OAuth login for `portfonia`. Check without environment-token overrides: `env -u GH_TOKEN -u GITHUB_TOKEN gh api user --jq .login`.
-- If that OAuth path is unavailable, use only `GITHUB_TOKEN` from this project's `.env.local` for the owner-token fallback; verify the API login is `portfonia` before writing. Do not silently use another account.
+- Never attempt `gh auth login`/stored OAuth for this project (retracted 2026-09-18: reported invalid mid-session despite the owner re-verifying it).
+- GitHub writes use `GITHUB_TOKEN` from this project's `.env.local`, verified as `portfonia` (`gh api user --jq .login`), via `gh api` (REST endpoints) only — never `gh issue`/`gh pr` or other high-level porcelain subcommands, which may call GitHub's GraphQL endpoint internally.
 - GitHub reviews use `GITHUB_REVIEWER_TOKEN` from this project's `.env.local`; verify the API login is `blacktomb42`. Never use the reviewer token for issue maintenance, pushes, or merges.
 - Obsidian operations use the configured MCP. Read the existing target, update in place within scope, and read back. Do not substitute UI automation or REST merely because a command tool fails; a different access method requires an explicit user instruction.
 - Load tokens only for the required command; never print or persist their values. Authentication does not authorize a merge, deployment, or self-review.
