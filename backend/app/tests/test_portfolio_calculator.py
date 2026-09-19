@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -89,6 +89,7 @@ def test_full_snapshot_values_and_distributions(db_session: Session) -> None:
     snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
 
     assert snap.fx_rates_as_of == {"CNY": _FX_DATE}
+    assert snap.stale_fx_pairs == []  # _seed_fx's fetched_at defaults to "now" -- fresh
     assert snap.stale_tickers == ["BAD"]
     # 3000 USD + 14000 CNY/7 = 2000 USD + 5000 cash
     assert snap.total_base == Decimal("10000.00")
@@ -283,6 +284,77 @@ def test_fx_rates_as_of_only_includes_currencies_this_render_needed(
     snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
 
     assert snap.fx_rates_as_of == {}
+
+
+# ---------------------------------------------------------------------------
+# stale_fx_pairs (issue #519 Requirement 6): a live-quote FX rate whose
+# fetched_at is more than 48h old is still used for valuation, but flagged
+# as approximate — independent of historical_fx_rates_asof's 10-day
+# lookback (portfolio_history.py), which is unaffected by this.
+# ---------------------------------------------------------------------------
+
+
+def test_stale_fx_pair_used_anyway_but_flagged(db_session: Session) -> None:
+    stale_fetched_at = datetime.now(tz=UTC) - timedelta(hours=49)
+    db_session.add(
+        FxRate(
+            pair="USDCNY",
+            rate=Decimal("7.0"),
+            rate_date=_FX_DATE,
+            source="test",
+            fetched_at=stale_fetched_at,
+        )
+    )
+    db_session.add(_stock("Moutai", "600519.SS", "CNY", "10", "1400"))
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    assert snap.stale_fx_pairs == ["CNY"]
+    # Still valued using the stale rate, not excluded (2000 USD).
+    assert snap.total_base == Decimal("2000.00")
+    assert snap.stale_tickers == []
+
+
+def test_fresh_fx_pair_not_flagged_stale(db_session: Session) -> None:
+    fresh_fetched_at = datetime.now(tz=UTC) - timedelta(hours=1)
+    db_session.add(
+        FxRate(
+            pair="USDCNY",
+            rate=Decimal("7.0"),
+            rate_date=_FX_DATE,
+            source="test",
+            fetched_at=fresh_fetched_at,
+        )
+    )
+    db_session.add(_stock("Moutai", "600519.SS", "CNY", "10", "1400"))
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    assert snap.stale_fx_pairs == []
+
+
+def test_fx_pair_just_under_48h_boundary_not_flagged_stale(db_session: Session) -> None:
+    """blacktomb42 review, PR #522: the 49h-stale / 1h-fresh pair above
+    doesn't pin the actual boundary — 47h (an hour inside the 48h window)
+    must not flag, distinct from the 49h case actually crossing it."""
+    boundary_fetched_at = datetime.now(tz=UTC) - timedelta(hours=47)
+    db_session.add(
+        FxRate(
+            pair="USDCNY",
+            rate=Decimal("7.0"),
+            rate_date=_FX_DATE,
+            source="test",
+            fetched_at=boundary_fetched_at,
+        )
+    )
+    db_session.add(_stock("Moutai", "600519.SS", "CNY", "10", "1400"))
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    assert snap.stale_fx_pairs == []
 
 
 def test_empty_portfolio_has_no_concentration(db_session: Session) -> None:

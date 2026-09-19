@@ -198,18 +198,19 @@ def test_alert_body_matches_issue_426_literal_wording(
         assert "- Portfolio value snapshots: 0 user-day(s) waiting on a missing dependency" in body
 
 
-def test_alert_body_names_the_fx_catchup_followup(
+def test_alert_body_names_the_fx_evening_followup(
     db_session: Session, production_env: None
 ) -> None:
-    """issue #426: the fx block specifically should point at the 00:05 ET
-    catch-up rather than leaving the reader to guess what happens next."""
+    """issue #519: the fx block specifically should point at the 20:00 ET
+    evening attempt rather than leaving the reader to guess what happens
+    next (was the 00:05 ET next-day catch-up, issue #426)."""
     _seed(db_session, _FRI)
     report = evaluate_capture_health(db_session, as_of=_TUE)
     with patch("app.services.capture_health.send_ops_alert", return_value=True) as mock_alert:
         maybe_alert_capture_health(report)
         body = mock_alert.call_args.kwargs["body"]
-        assert "00:05 ET" in body
-        assert "#426" in body
+        assert "20:00 ET" in body
+        assert "#519" in body
 
 
 # ---------------------------------------------------------------------------
@@ -421,14 +422,13 @@ def test_beat_probe_is_after_snapshot_window() -> None:
     assert entry["schedule"].day_of_week == set(range(7))
 
 
-def test_fx_catchup_beat_schedule() -> None:
-    """issue #509: retimed to 20:00 ET, same calendar day, 30 minutes before
-    the 20:30 ET portfolio snapshot — the prior 00:05 ET *next-day* schedule
-    (issue #426) always ran after that day's own snapshot had already
-    locked in approx_carried, so it could only ever repair future reads,
-    never the day's own snapshot."""
-    entry = celery_app.conf.beat_schedule["capture-fx-catchup-daily"]
-    assert entry["task"] == "app.tasks.capture_tasks.capture_fx_catchup_task"
+def test_fx_evening_beat_schedule() -> None:
+    """issue #519: 20:00 ET (US equity after-hours close), same calendar
+    day, 30 minutes before the 20:30 ET portfolio snapshot — every day
+    including weekends (the #487 separate weekend-backfill script is
+    retired in favor of this single schedule)."""
+    entry = celery_app.conf.beat_schedule["capture-fx-evening-daily"]
+    assert entry["task"] == "app.tasks.capture_tasks.capture_fx_evening_task"
     assert 20 in entry["schedule"].hour
     assert 0 in entry["schedule"].minute
     assert entry["schedule"].day_of_week == set(range(7))
@@ -453,109 +453,61 @@ def test_probe_task(
 
 
 @patch("app.core.database.SessionLocal")
-@patch("app.services.fx_fetcher.fx_catchup")
-def test_fx_catchup_task_targets_today(
-    mock_catchup: MagicMock, mock_session_cls: MagicMock
+@patch("app.services.fx_fetcher.capture_fx_rates")
+def test_fx_evening_task_writes_operational_event(
+    mock_capture: MagicMock, mock_session_cls: MagicMock
 ) -> None:
-    """issue #509: retimed to 20:00 ET same-day, this must target *today's*
-    ET date, not yesterday's (the whole point of moving it same-day — a
-    Tuesday 20:00 ET run recovers Tuesday's own gap before Tuesday's own
-    20:30 ET snapshot, not Monday's)."""
-    from app.tasks.capture_tasks import capture_fx_catchup_task
+    """Issue #519 (was #509): same durable-evidence requirement as
+    capture_fx_task, reusing the same `capture.fx` operation and attribute
+    shape so both same-day attempts read as one consistent event series."""
+    from app.services.fx_fetcher import FxCaptureResult
+    from app.tasks.capture_tasks import capture_fx_evening_task
 
     session = MagicMock()
     mock_session_cls.return_value = session
-    mock_catchup.return_value.as_dict.return_value = {"target_date": "2026-09-08"}
-
-    with patch("app.tasks.capture_tasks.datetime") as mock_dt:
-        mock_dt.now.return_value.date.return_value = _TUE
-        assert capture_fx_catchup_task.run() == {"target_date": "2026-09-08"}
-
-    mock_catchup.assert_called_once_with(session, _TUE)
-
-
-@patch("app.core.database.SessionLocal")
-@patch("app.services.fx_fetcher.fx_catchup")
-def test_fx_catchup_task_weekend_rolls_back_to_expected_trading_day(
-    mock_catchup: MagicMock, mock_session_cls: MagicMock
-) -> None:
-    """issue #509: a same-day run on a Saturday still targets Friday, via
-    the same `expected_capture_date` weekend-rollback every other capture
-    task already uses — there is no Saturday-dated FX bar to look for."""
-    from app.tasks.capture_tasks import capture_fx_catchup_task
-
-    session = MagicMock()
-    mock_session_cls.return_value = session
-    mock_catchup.return_value.as_dict.return_value = {"target_date": "2026-09-04"}
-
-    with patch("app.tasks.capture_tasks.datetime") as mock_dt:
-        mock_dt.now.return_value.date.return_value = _SAT
-        assert capture_fx_catchup_task.run() == {"target_date": "2026-09-04"}
-
-    mock_catchup.assert_called_once_with(session, _FRI)
-
-
-@patch("app.core.database.SessionLocal")
-@patch("app.services.fx_fetcher.fx_catchup")
-def test_fx_catchup_task_writes_operational_event(
-    mock_catchup: MagicMock, mock_session_cls: MagicMock
-) -> None:
-    """Issue #509: same durable-evidence requirement as capture_fx_task,
-    reusing the same `capture.fx` operation and attribute shape so both
-    same-day attempts read as one consistent event series."""
-    from app.services.fx_fetcher import FxCatchupResult
-    from app.tasks.capture_tasks import capture_fx_catchup_task
-
-    session = MagicMock()
-    mock_session_cls.return_value = session
-    mock_catchup.return_value = FxCatchupResult(
-        target_date=_TUE,
-        initially_missing=["USDJPY"],
+    mock_capture.return_value = FxCaptureResult(
+        recovered_via_yfinance=[],
         recovered_via_fallback=["USDJPY"],
     )
 
-    with patch("app.tasks.capture_tasks.datetime") as mock_dt:
-        mock_dt.now.return_value.date.return_value = _TUE
-        with (
-            patch("app.tasks.capture_tasks.oe.start_run") as mock_start,
-            patch("app.tasks.capture_tasks.oe.end_run") as mock_end,
-        ):
-            capture_fx_catchup_task.run()
+    with (
+        patch("app.tasks.capture_tasks.oe.start_run") as mock_start,
+        patch("app.tasks.capture_tasks.oe.end_run") as mock_end,
+    ):
+        capture_fx_evening_task.run()
 
     assert mock_start.call_args.args[0] == "capture.fx"
     mock_end.assert_called_once_with("ok", attributes={"pairs_upserted": 1, "pairs_failed": 0})
 
 
 @patch("app.core.database.SessionLocal")
-@patch("app.services.fx_fetcher.fx_catchup")
-def test_fx_catchup_task_span_reports_twelvedata_source(
-    mock_catchup: MagicMock, mock_session_cls: MagicMock
+@patch("app.services.fx_fetcher.capture_fx_rates")
+def test_fx_evening_task_span_reports_twelvedata_source(
+    mock_capture: MagicMock, mock_session_cls: MagicMock
 ) -> None:
-    """Issue #509 review (blacktomb42, PR #511): Design sketched "which
-    source resolved them" — a pair recovered via the Twelve Data fallback
-    must say so, not just "some source, unspecified"."""
-    from app.services.fx_fetcher import FxCatchupResult
-    from app.tasks.capture_tasks import capture_fx_catchup_task
+    """Issue #509 review (blacktomb42, PR #511), carried into #519's
+    rewrite: Design sketched "which source resolved them" — a pair
+    recovered via the Twelve Data fallback must say so, not just "some
+    source, unspecified"."""
+    from app.services.fx_fetcher import FxCaptureResult
+    from app.tasks.capture_tasks import capture_fx_evening_task
 
     session = MagicMock()
     mock_session_cls.return_value = session
-    mock_catchup.return_value = FxCatchupResult(
-        target_date=_TUE,
-        initially_missing=["USDJPY"],
+    mock_capture.return_value = FxCaptureResult(
+        recovered_via_yfinance=[],
         recovered_via_fallback=["USDJPY"],
     )
 
-    with patch("app.tasks.capture_tasks.datetime") as mock_dt:
-        mock_dt.now.return_value.date.return_value = _TUE
-        with (
-            patch("app.tasks.capture_tasks.oe.start_run"),
-            patch("app.tasks.capture_tasks.oe.end_run"),
-            patch("app.tasks.capture_tasks.oe.start_span") as mock_start_span,
-            patch("app.tasks.capture_tasks.oe.end_span") as mock_end_span,
-        ):
-            capture_fx_catchup_task.run()
+    with (
+        patch("app.tasks.capture_tasks.oe.start_run"),
+        patch("app.tasks.capture_tasks.oe.end_run"),
+        patch("app.tasks.capture_tasks.oe.start_span") as mock_start_span,
+        patch("app.tasks.capture_tasks.oe.end_span") as mock_end_span,
+    ):
+        capture_fx_evening_task.run()
 
-    assert mock_start_span.call_args.args[0] == "capture.fx.catchup"
+    assert mock_start_span.call_args.args[0] == "capture.fx.evening"
     mock_end_span.assert_called_once_with(
         mock_start_span.return_value,
         "ok",
@@ -564,32 +516,27 @@ def test_fx_catchup_task_span_reports_twelvedata_source(
 
 
 @patch("app.core.database.SessionLocal")
-@patch("app.services.fx_fetcher.fx_catchup")
-def test_fx_catchup_task_span_reports_yfinance_retry_source(
-    mock_catchup: MagicMock, mock_session_cls: MagicMock
+@patch("app.services.fx_fetcher.capture_fx_rates")
+def test_fx_evening_task_span_reports_yfinance_source(
+    mock_capture: MagicMock, mock_session_cls: MagicMock
 ) -> None:
-    """A pair recovered on the plain retry (no Twelve Data call needed)
-    reports "yfinance", the same source name FxRate.source itself uses."""
-    from app.services.fx_fetcher import FxCatchupResult
-    from app.tasks.capture_tasks import capture_fx_catchup_task
+    """A pair recovered via the plain yfinance live quote (no Twelve Data
+    call needed) reports "yfinance", the same source name FxRate.source
+    itself uses."""
+    from app.services.fx_fetcher import FxCaptureResult
+    from app.tasks.capture_tasks import capture_fx_evening_task
 
     session = MagicMock()
     mock_session_cls.return_value = session
-    mock_catchup.return_value = FxCatchupResult(
-        target_date=_TUE,
-        initially_missing=["USDJPY"],
-        recovered_via_retry=["USDJPY"],
-    )
+    mock_capture.return_value = FxCaptureResult(recovered_via_yfinance=["USDJPY"])
 
-    with patch("app.tasks.capture_tasks.datetime") as mock_dt:
-        mock_dt.now.return_value.date.return_value = _TUE
-        with (
-            patch("app.tasks.capture_tasks.oe.start_run"),
-            patch("app.tasks.capture_tasks.oe.end_run"),
-            patch("app.tasks.capture_tasks.oe.start_span") as mock_start_span,
-            patch("app.tasks.capture_tasks.oe.end_span") as mock_end_span,
-        ):
-            capture_fx_catchup_task.run()
+    with (
+        patch("app.tasks.capture_tasks.oe.start_run"),
+        patch("app.tasks.capture_tasks.oe.end_run"),
+        patch("app.tasks.capture_tasks.oe.start_span") as mock_start_span,
+        patch("app.tasks.capture_tasks.oe.end_span") as mock_end_span,
+    ):
+        capture_fx_evening_task.run()
 
     mock_end_span.assert_called_once_with(
         mock_start_span.return_value,
@@ -599,35 +546,35 @@ def test_fx_catchup_task_span_reports_yfinance_retry_source(
 
 
 @patch("app.core.database.SessionLocal")
-@patch("app.services.fx_fetcher.fx_catchup")
-def test_fx_catchup_task_span_exists_on_noop(
-    mock_catchup: MagicMock, mock_session_cls: MagicMock
+@patch("app.services.fx_fetcher.capture_fx_rates")
+def test_fx_evening_task_span_exists_when_all_pairs_resolved(
+    mock_capture: MagicMock, mock_session_cls: MagicMock
 ) -> None:
     """Nothing was missing (the common case) still writes one span — the
     Contract's "at least one span" acceptance test must not depend on a
-    pair actually needing recovery that day."""
-    from app.services.fx_fetcher import FxCatchupResult
-    from app.tasks.capture_tasks import capture_fx_catchup_task
+    pair actually needing a fallback that day."""
+    from app.services.fx_fetcher import FxCaptureResult
+    from app.tasks.capture_tasks import capture_fx_evening_task
 
     session = MagicMock()
     mock_session_cls.return_value = session
-    mock_catchup.return_value = FxCatchupResult(target_date=_TUE)
+    mock_capture.return_value = FxCaptureResult(
+        recovered_via_yfinance=[f"PAIR{i}" for i in range(14)]
+    )
 
-    with patch("app.tasks.capture_tasks.datetime") as mock_dt:
-        mock_dt.now.return_value.date.return_value = _TUE
-        with (
-            patch("app.tasks.capture_tasks.oe.start_run"),
-            patch("app.tasks.capture_tasks.oe.end_run"),
-            patch("app.tasks.capture_tasks.oe.start_span") as mock_start_span,
-            patch("app.tasks.capture_tasks.oe.end_span") as mock_end_span,
-        ):
-            capture_fx_catchup_task.run()
+    with (
+        patch("app.tasks.capture_tasks.oe.start_run"),
+        patch("app.tasks.capture_tasks.oe.end_run"),
+        patch("app.tasks.capture_tasks.oe.start_span") as mock_start_span,
+        patch("app.tasks.capture_tasks.oe.end_span") as mock_end_span,
+    ):
+        capture_fx_evening_task.run()
 
     mock_start_span.assert_called_once()
     mock_end_span.assert_called_once_with(
         mock_start_span.return_value,
         "ok",
-        attributes={"source": "none", "pairs_upserted": 0, "pairs_failed": 0},
+        attributes={"source": "yfinance", "pairs_upserted": 14, "pairs_failed": 0},
     )
     session.commit.assert_called_once()
     session.close.assert_called_once()

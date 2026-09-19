@@ -1,8 +1,12 @@
-"""Fetch daily FX rates from yfinance and upsert into fx_rates table."""
+"""Fetch live FX quotes (yfinance, with a Twelve Data per-pair fallback)
+and upsert into fx_rates table, once per each of the two daily capture
+attempts (issue #519) — not a daily-close/daily-bar fetch; see
+`capture_fx_rates`'s docstring for why."""
 
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -17,8 +21,8 @@ from app.core.alert_dedup import already_alerted, mark_alerted
 from app.core.config import get_settings
 from app.core.timezones import ET
 from app.models.fx_rate import FxRate
-from app.services._twelvedata import fetch_daily_history
-from app.services._yfinance import _quiet_yfinance_logs, fetch_last_close
+from app.services._twelvedata import fetch_live_rate as twelvedata_fetch_live_rate
+from app.services._yfinance import _quiet_yfinance_logs, fetch_live_rate
 from app.services.email_sender import send_ops_alert
 
 logger = logging.getLogger(__name__)
@@ -168,13 +172,15 @@ def _check_fx_staleness(session: Session, today: date) -> None:
 
 def _fetch_rates(pairs: dict[str, str]) -> dict[str, tuple[Decimal, date]]:
     """
-    Batch-fetch close rates for the given yfinance FX tickers.
+    Batch-fetch live quotes for the given yfinance FX tickers (issue #519 —
+    was a daily-close fetch; a `=X` FX ticker trades 24/5 and has no real
+    daily close to wait for).
 
     Returns {pair_name: (rate, rate_date_et)} where rate_date_et is the
-    trading-day date in US Eastern Time (design §6.2). Pairs with no data
-    are omitted.
+    ET calendar date at fetch time, not a trading-day/bar date. Pairs with
+    no data are omitted.
     """
-    points = fetch_last_close(list(pairs.values()))
+    points = fetch_live_rate(list(pairs.values()))
 
     result: dict[str, tuple[Decimal, date]] = {}
     for pair_name, yf_ticker in pairs.items():
@@ -335,27 +341,17 @@ def backfill_fx_rates(session: Session, years: int = 5) -> int:
 
 
 @dataclass
-class FxCatchupResult:
-    target_date: date
-    initially_missing: list[str] = field(default_factory=list)
-    recovered_via_retry: list[str] = field(default_factory=list)
+class FxCaptureResult:
+    recovered_via_yfinance: list[str] = field(default_factory=list)
     recovered_via_fallback: list[str] = field(default_factory=list)
     still_missing: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, object]:
         return {
-            "target_date": self.target_date.isoformat(),
-            "initially_missing": self.initially_missing,
-            "recovered_via_retry": self.recovered_via_retry,
+            "recovered_via_yfinance": self.recovered_via_yfinance,
             "recovered_via_fallback": self.recovered_via_fallback,
             "still_missing": self.still_missing,
         }
-
-
-def _resolved_pairs(session: Session, target_date: date) -> set[str]:
-    return set(
-        session.execute(select(FxRate.pair).where(FxRate.rate_date == target_date)).scalars()
-    )
 
 
 def _twelvedata_key() -> str | None:
@@ -369,84 +365,66 @@ def _twelvedata_symbol(pair: str) -> str:
     return f"{pair[:3]}/{pair[3:]}"
 
 
-def fx_catchup(session: Session, target_date: date) -> FxCatchupResult:
-    """Recover *target_date*'s FX rate for any pair still missing it.
+# Twelve Data free tier: 8 requests/minute (`_twelvedata.py`'s own comment).
+# A fixed inter-call delay keeps a many-pairs-missing run under that cap
+# instead of bursting through it (issue #518's root cause: 8 calls 400'd,
+# the next 6 429'd because nothing paced them).
+_TWELVEDATA_MIN_INTERVAL_SECONDS = 8.0
 
-    Issue #426: `update_fx_rates()`'s 17:15 ET fetch can land a bar dated
-    the *prior* day when yfinance hasn't published `target_date`'s daily
-    close bar yet (a variable vendor publish lag, not a fixed offset — a
-    bigger constant buffer at 17:15 ET doesn't reliably absorb it, same
-    lesson as issue #389's fund-NAV/China-ETF bounded retry+fallback). This
-    is meant to run at 00:05 ET the *next* calendar day (see the
-    `capture-fx-catchup-daily` beat entry), by which point `target_date`
-    has fully closed out and a plain retry is often enough on its own.
 
-    Any pair still missing after the retry falls back to Twelve Data (one
-    call per still-missing pair, for that single date) — the same library
-    `_twelvedata.py` already uses for the USDCNH historical gap-fill (issue
-    #406), now also the daily-capture fallback (decided, not a default this
-    module assumed on its own: see issue #426 and `Settings.
-    TWELVEDATA_API_KEY`'s docstring).
+def capture_fx_rates(session: Session) -> FxCaptureResult:
+    """Fetch today's live FX rate for every pair (issue #519).
 
-    Detection stays separate: this never sends the #372 "stale" alert. It
-    only alerts if a pair is still missing after both the retry and the
-    fallback have been tried.
+    Replaces #426's daily-bar catch-up: yfinance's `fetch_live_rate` either
+    returns today's quote right now or it doesn't (there is no bar to wait
+    for), so any pair it misses falls back to Twelve Data's live quote
+    immediately, in the same run — not on a later retry against a
+    specific missed calendar day.
+
+    Called symmetrically by both scheduled attempts (16:00 ET day-session
+    close, 20:00 ET evening-session close, `app/tasks/__init__.py`) —
+    neither is a "catch-up" of the other; each is a fresh attempt.
     """
-    result = FxCatchupResult(target_date=target_date)
-    missing = set(_PAIRS) - _resolved_pairs(session, target_date)
-    if not missing:
-        return result
-    result.initially_missing = sorted(missing)
-
-    update_fx_rates(session)
+    result = FxCaptureResult()
+    fetch_result = update_fx_rates(session)
     session.flush()
-    missing -= _resolved_pairs(session, target_date)
-    result.recovered_via_retry = sorted(p for p in result.initially_missing if p not in missing)
+    missing = set(fetch_result.failed)
+    result.recovered_via_yfinance = sorted(set(_PAIRS) - missing)
 
     if missing:
         api_key = _twelvedata_key()
         if api_key is None:
             logger.warning(
-                "fx_catchup: %d pair(s) still missing for %s and "
+                "capture_fx_rates: %d pair(s) missing from yfinance and "
                 "TWELVEDATA_API_KEY is unset, no fallback available: %s",
                 len(missing),
-                target_date.isoformat(),
                 sorted(missing),
             )
         else:
+            today = datetime.now(tz=ET).date()
             fetched_at = datetime.now(tz=UTC)
-            for pair_name in sorted(missing):
+            for i, pair_name in enumerate(sorted(missing)):
+                if i > 0:
+                    time.sleep(_TWELVEDATA_MIN_INTERVAL_SECONDS)
                 try:
-                    points = fetch_daily_history(
-                        _twelvedata_symbol(pair_name), target_date, target_date, api_key
-                    )
+                    rate = twelvedata_fetch_live_rate(_twelvedata_symbol(pair_name), api_key)
                 except Exception:
                     logger.exception(
-                        "fx_catchup: twelvedata fallback failed for %s (%s)",
-                        pair_name,
-                        target_date.isoformat(),
-                    )
-                    continue
-                match = next((rate for d, rate in points if d == target_date), None)
-                if match is None:
-                    logger.warning(
-                        "fx_catchup: twelvedata has no %s bar dated %s",
-                        pair_name,
-                        target_date.isoformat(),
+                        "capture_fx_rates: twelvedata fallback failed for %s", pair_name
                     )
                     continue
                 stmt = (
                     insert(FxRate)
                     .values(
                         pair=pair_name,
-                        rate=match,
-                        rate_date=target_date,
+                        rate=rate,
+                        rate_date=today,
                         source="twelvedata",
                         fetched_at=fetched_at,
                     )
                     .on_conflict_do_update(
                         constraint="uq_fx_rates_pair_rate_date",
-                        set_={"rate": match, "fetched_at": fetched_at, "source": "twelvedata"},
+                        set_={"rate": rate, "fetched_at": fetched_at, "source": "twelvedata"},
                     )
                 )
                 session.execute(stmt)
@@ -456,20 +434,20 @@ def fx_catchup(session: Session, target_date: date) -> FxCatchupResult:
 
     result.still_missing = sorted(missing)
     if result.still_missing:
+        today_str = datetime.now(tz=ET).date().isoformat()
         _send_fx_alert(
-            subject=f"[Portfonia] FX catch-up still missing {len(result.still_missing)} "
-            f"pair(s) — {target_date.isoformat()}",
+            subject=f"[Portfonia] FX capture still missing {len(result.still_missing)} "
+            f"pair(s) — {today_str}",
             body=(
-                f"After a retry and a Twelve Data fallback attempt, "
-                f"{target_date.isoformat()}'s rate is still missing for: "
+                f"After a live-quote fetch and a Twelve Data fallback attempt, "
+                f"{today_str}'s rate is still missing for: "
                 + ", ".join(result.still_missing)
                 + ".\n\nHoldings/base-currency conversions in these currencies will keep "
                 "using an older rate until a fresher one is captured.\n\n"
-                "Check worker.log for capture_fx_catchup_task."
+                "Check worker.log for capture_fx_task/capture_fx_evening_task."
             ),
             dedup_key=(
-                f"ops-fx-catchup-still-missing-{target_date.isoformat()}-"
-                + "-".join(result.still_missing)
+                f"ops-fx-capture-still-missing-{today_str}-" + "-".join(result.still_missing)
             ),
             severity="WARNING",
         )

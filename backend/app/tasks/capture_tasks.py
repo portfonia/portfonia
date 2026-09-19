@@ -441,15 +441,21 @@ def backfill_ohlcv_task(self: Any, tickers: list[str] | None = None) -> dict[str
     default_retry_delay=300,
 )
 def capture_fx_task(self: Any) -> dict[str, Any]:
-    """Fetch today's FX rates and upsert into fx_rates.
+    """Day-session-close live FX capture (issue #519, was a daily-close
+    fetch; 16:00 ET, US equity regular-session close).
 
-    Until this task existed, FX was only refreshed by the manual
+    Until a task like this existed, FX was only refreshed by the manual
     POST /admin/portfolio/refresh entry point (then at POST /portfolio/refresh,
     before the ops-token split — issue #128 checkpoint B2), so rates went
-    stale whenever no one
-    triggered it (observed: rates frozen at 2026-06-04 while reports ran on
-    06-10). The upsert is idempotent, so a missed fire is covered by the next
-    daily run. (R-4)
+    stale whenever no one triggered it (observed: rates frozen at 2026-06-04
+    while reports ran on 06-10). The upsert is idempotent, so a missed fire
+    is covered by the next daily run. (R-4)
+
+    Calls the same `capture_fx_rates` as `capture_fx_evening_task` (the
+    20:00 ET second attempt) — a live quote either fetches successfully
+    right now or falls back to Twelve Data right now, so neither task is a
+    "catch-up" of the other; both are symmetric attempts at the current
+    live rate.
 
     Wrapped in a `capture.fx` operational_events run (issue #509): durable,
     Postgres-backed evidence of whether this attempt ran and what it found,
@@ -458,19 +464,24 @@ def capture_fx_task(self: Any) -> dict[str, Any]:
     during this issue's own investigation.
     """
     from app.core.database import SessionLocal
-    from app.services.fx_fetcher import update_fx_rates
+    from app.services.fx_fetcher import capture_fx_rates
 
     oe.start_run("capture.fx", task_id=self.request.id)
-    span = oe.start_span("capture.fx.fetch")
+    span = oe.start_span("capture.fx.day")
     session = SessionLocal()
     try:
-        result = update_fx_rates(session)
+        result = capture_fx_rates(session)
         session.commit()
-        outcome = "ok" if not result.failed else "partial"
-        counts = {"pairs_upserted": result.upserted, "pairs_failed": len(result.failed)}
-        oe.end_span(span, outcome, attributes={"source": "yfinance", **counts})
+        source = "twelvedata" if result.recovered_via_fallback else "yfinance"
+        counts = {
+            "pairs_upserted": len(result.recovered_via_yfinance)
+            + len(result.recovered_via_fallback),
+            "pairs_failed": len(result.still_missing),
+        }
+        outcome = "ok" if not counts["pairs_failed"] else "partial"
+        oe.end_span(span, outcome, attributes={"source": source, **counts})
         oe.end_run(outcome, attributes=counts)
-        return {"upserted": result.upserted, "failed": result.failed}
+        return result.as_dict()
     except Exception as exc:
         session.rollback()
         logger.exception("capture_fx_task: failed, scheduling retry")
@@ -761,24 +772,23 @@ def check_capture_health_task(self: Any) -> dict[str, object]:
 
 
 @celery_app.task(  # type: ignore[untyped-decorator]
-    name="app.tasks.capture_tasks.capture_fx_catchup_task",
+    name="app.tasks.capture_tasks.capture_fx_evening_task",
     bind=True,
     max_retries=1,
     default_retry_delay=300,
 )
-def capture_fx_catchup_task(self: Any) -> dict[str, object]:
-    """20:00 ET same-day catch-up for today's FX rates (issue #509, was a
-    00:05 ET *next-day* catch-up, issue #426).
+def capture_fx_evening_task(self: Any) -> dict[str, object]:
+    """Evening-session-close live FX capture (issue #519, was a next-day
+    daily-bar catch-up, issue #426, then a same-day one, issue #509).
 
-    Scheduled every calendar day, 30 minutes before the 20:30 ET portfolio
-    snapshot — `target_date` is today (via `expected_capture_date`, which
-    still rolls a weekend run back to the last real trading day), giving
-    this a real chance to repair that SAME day's snapshot before it locks
-    in `approx_carried`, unlike the original next-day timing which could
-    only ever repair `fx_rates` for future reads. Retries `update_fx_rates()`
-    once and falls back to Twelve Data per still-missing pair, same as
-    before. Detection (the #372 stale alert) is unaffected by this — it
-    only alerts on its own if a pair is still missing after both attempts.
+    Scheduled every calendar day at 20:00 ET (US equity after-hours/
+    extended-session close), 30 minutes before the 20:30 ET portfolio
+    snapshot. Calls the same `capture_fx_rates` as `capture_fx_task` (the
+    16:00 ET day-session attempt) — this is a second symmetric live-quote
+    attempt, not a catch-up chasing a specific missed calendar day (there
+    is no daily bar to wait for once both providers fetch a live quote).
+    Detection (the #372 stale alert) is unaffected by this — it only
+    alerts on its own if a pair is still missing after both attempts.
 
     Wrapped in a `capture.fx` operational_events run (issue #509), same
     operation name and attribute shape as `capture_fx_task` — both same-day
@@ -786,26 +796,18 @@ def capture_fx_catchup_task(self: Any) -> dict[str, object]:
     container recreate (see that task's docstring for why this matters).
     """
     from app.core.database import SessionLocal
-    from app.core.timezones import ET
-    from app.services.capture_health import expected_capture_date
-    from app.services.fx_fetcher import fx_catchup
+    from app.services.fx_fetcher import capture_fx_rates
 
     oe.start_run("capture.fx", task_id=self.request.id)
-    span = oe.start_span("capture.fx.catchup")
+    span = oe.start_span("capture.fx.evening")
     session = SessionLocal()
     try:
-        today_et = datetime.now(tz=ET).date()
-        target_date = expected_capture_date(today_et)
-        result = fx_catchup(session, target_date)
+        result = capture_fx_rates(session)
         session.commit()
-        if result.recovered_via_fallback:
-            source = "twelvedata"
-        elif result.recovered_via_retry:
-            source = "yfinance"
-        else:
-            source = "none"
+        source = "twelvedata" if result.recovered_via_fallback else "yfinance"
         counts = {
-            "pairs_upserted": len(result.recovered_via_retry) + len(result.recovered_via_fallback),
+            "pairs_upserted": len(result.recovered_via_yfinance)
+            + len(result.recovered_via_fallback),
             "pairs_failed": len(result.still_missing),
         }
         outcome = "ok" if not counts["pairs_failed"] else "partial"
@@ -814,14 +816,14 @@ def capture_fx_catchup_task(self: Any) -> dict[str, object]:
         return result.as_dict()
     except Exception as exc:
         session.rollback()
-        logger.exception("capture_fx_catchup_task: failed")
+        logger.exception("capture_fx_evening_task: failed")
         oe.end_span(span, "failed", reason_code=type(exc).__name__)
         oe.end_run("failed", reason_code=type(exc).__name__)
         if self.request.retries >= self.max_retries:
             _capture_failed(
-                "capture_fx_catchup_task",
+                "capture_fx_evening_task",
                 exc,
-                context="FX catch-up for today's own FX gap failed; today's snapshot may stay approx_carried.",
+                context="Evening FX capture for today failed; today's snapshot may stay approx_carried.",
             )
         raise self.retry(exc=exc) from exc
     finally:

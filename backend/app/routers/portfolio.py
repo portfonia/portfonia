@@ -134,6 +134,7 @@ def get_portfolio_summary(
     return PortfolioSummaryResponse(
         base_currency=snap.base_currency,
         fx_rates_as_of=snap.fx_rates_as_of,
+        stale_fx_pairs=snap.stale_fx_pairs,
         total_base=snap.total_base,
         by_market=snap.by_market,
         by_currency=snap.by_currency,
