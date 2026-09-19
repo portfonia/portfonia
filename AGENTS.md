@@ -2,6 +2,15 @@
 
 Read `CLAUDE.md` for the shared repository engineering, security, testing, and Git conventions. This file adds the Codex issue/design documentation contract.
 
+## No over-engineering (MANDATORY, 2026-09-18)
+
+`CLAUDE.md`'s "No over-engineering" section applies here without change:
+requirements analysis, design, and implementation stop at "sufficient for
+the actual, current requirement." Do not add a mechanism, abstraction,
+validation layer, or defense-in-depth check because it is common practice
+or covers a hypothetical future need. When unsure whether something is
+required, ask the product owner before designing or implementing it.
+
 ## Documentation index
 
 - [Documentation governance](docs/playbooks/documentation-governance.md): document ownership, Obsidian authorization, executable design contracts, evidence labels, and note-access conventions.
@@ -19,6 +28,7 @@ Read `CLAUDE.md` for the shared repository engineering, security, testing, and G
 ## Language and Obsidian authorization (mandatory)
 
 - Repository content and filenames must be English. Do not put Chinese prose, note titles, or filenames in repository instructions, documentation, or indexes.
+- Obsidian project documentation is written in Chinese; conversation with the product owner defaults to Chinese; a handoff prompt written for a new session is written in Chinese and tells the receiving session to converse in Chinese too. See `CLAUDE.md`'s Language Policy section for the full statement — none of this relaxes the English-only rule above for anything written into the repository itself.
 - Never create an Obsidian file without the user's explicit authorization to create that file. A request to update documentation, a missing note, a cross-reference, or a standing synchronization rule is not authorization to create one.
 - Update only the relevant existing documents within the authorized scope. If an intended Obsidian target does not exist, stop that write and ask before creating it; continue other authorized work.
 - Keep project development conventions and design-authoring guidance in this index and the repository's `docs/` directory. Do not create or recreate parallel Codex configuration/design notes in Obsidian.

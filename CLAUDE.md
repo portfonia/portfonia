@@ -4,6 +4,40 @@ AI-facing guidance for agent tooling working in this repository.
 Last updated: 2026-09-03 (trimmed for size — see `docs/playbooks/`; mechanism
 deep-dives referenced from the table below live in `docs/mechanisms/`).
 
+## No over-engineering (MANDATORY, 2026-09-18)
+
+Requirements analysis, design, and implementation in this repository all
+stop at "sufficient for the actual, current requirement" — never add a
+mechanism, abstraction, validation layer, or defense-in-depth check because
+it is common practice, sounds more correct, or covers a hypothetical future
+need. This applies to every Ring and every agent/harness working in this
+repo, not just Vigil.
+
+**Why**: issue #515 — a hand-rolled Origin-header check added to a
+read-only, no-state-change Vigil endpoint (on top of the app's existing
+global `CORSMiddleware`, plus that endpoint's own nonce+Altcha protections)
+broke the first real production use of the entire public-confirmation
+mechanism. This is the same failure pattern as the retracted Vigil
+isolation architecture (#473) at smaller scale: a plausible-sounding
+security/robustness justification, unmatched to the actual threat model,
+that added cost (implementation, review, LLM budget, and — this time —
+actual breakage) without being asked for.
+
+**How to apply**:
+- Before adding any check, layer, table, service, or config knob: name the
+  concrete requirement it satisfies. "Might be good practice" or "more
+  correct" is not a requirement.
+- If a mechanism can't be tied to something the product or the current
+  checkpoint's Contract constraints actually need, don't add it — flag it
+  and ask instead of building it "to be safe."
+- When unsure whether something is required or is gold-plating, ask the
+  product owner before designing or implementing it, rather than defaulting
+  to the more defensive option.
+- This does not license skipping the compliance/security boundaries this
+  file already states elsewhere as hard requirements (layer-3 rule,
+  encryption at rest, worktree/PR flow, etc.) — those are the actual
+  requirement, not the kind of speculative addition this rule targets.
+
 **Playbook files** (situational detail moved out of this file to keep it a
 rulebook, not a diary — read the linked file when its topic comes up, not
 proactively):
@@ -152,6 +186,20 @@ area of the code, not just the one-line summary here.
   messages, PR descriptions, issue text, README, `docs/`, ADRs, tests.
   Repository filenames and documentation indexes must also be English;
   do not embed Chinese note titles or paths in repository documentation.
+- **Obsidian project documentation is written in Chinese** (the product
+  owner's working language) — this applies to `Hermes/Portfonia/*` design
+  docs, dev logs, and any other Obsidian note for this project, which sit
+  outside the repository entirely and are therefore not covered by the
+  English-only rule above.
+- **Conversation with the product owner in this repository's sessions
+  defaults to Chinese**, regardless of the language of the request, unless
+  the owner asks otherwise. This does not relax the English-only rule for
+  anything written into the repository itself (code, commits, PRs, issues).
+- **A handoff prompt written for a new session to continue work in this
+  repository is written in Chinese and explicitly instructs the receiving
+  session to converse with the owner in Chinese** — the same rule as live
+  conversation above, stated explicitly so a fresh session with no memory
+  of this convention still follows it from its first reply.
 - **In-product strings are i18n-keyed** and shipped through the translation
   layer, never hardcoded in any single language. Runtime UI locales
   exposed to users: English, Simplified Chinese, and Traditional Chinese
