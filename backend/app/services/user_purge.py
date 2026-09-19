@@ -247,9 +247,10 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
                 ),
             )
         )
-        # #458 writes vigil_audit_events on arm; vault_id is ON DELETE
-        # RESTRICT since P1.1. Parent Design section 3 deletes audit_events
-        # after configurations and before the vault row.
+        # vigil_audit_events is deprecated/unused since #527 (no writer), but
+        # pre-#527 rows may still exist and vault_id is ON DELETE RESTRICT
+        # since P1.1. Parent Design section 3 deletes audit_events after
+        # configurations and before the vault row.
         vigil_audit_events = _rowcount(
             cast(
                 CursorResult[Any],

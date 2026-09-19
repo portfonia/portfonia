@@ -636,7 +636,23 @@ def test_purge_removes_action_tokens_and_consumed_nonces(
         },
     )
     assert armed.status_code == 200, armed.text
-    assert db_session.scalar(select(func.count()).select_from(VigilAuditEvent)) == 1
+    # #527: arm no longer writes vigil_audit_events rows.
+    assert db_session.scalar(select(func.count()).select_from(VigilAuditEvent)) == 0
+    # A pre-#527 row must still be purgeable: vault_id is ON DELETE RESTRICT.
+    vault_id = db_session.execute(
+        select(VigilVault.id).where(VigilVault.owner_user_id == TEST_USER_ID)
+    ).scalar_one()
+    db_session.add(
+        VigilAuditEvent(
+            vault_id=vault_id,
+            sequence=1,
+            action="armed",
+            actor_type="owner",
+            revision=1,
+            detail={},
+        )
+    )
+    db_session.flush()
     result = purge_user(db_session, TEST_USER_ID)
     db_session.rollback()
     assert result.vigil_action_tokens == 1

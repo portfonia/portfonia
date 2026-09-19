@@ -23,6 +23,7 @@ from app.core.config import get_settings
 from app.models.user import User
 from app.models.vigil import (
     VigilActionToken,
+    VigilAuditEvent,
     VigilCycle,
     VigilDeliveryEvent,
     VigilOutbox,
@@ -305,6 +306,9 @@ def test_p33_a01_three_windows_earliest_sep10_and_one_scan_never_creates_three_l
     assert len(_rounds(db_session, cycle.id)) == 3
     assert vault.phase == "FINAL_WARNING"
     assert vault.phase != "RELEASED"
+    # #527: no scan-driven transition (cycle_opened/deadline_set/
+    # level_advanced) writes vigil_audit_events any more.
+    assert db_session.scalar(select(func.count()).select_from(VigilAuditEvent)) == 0
 
 
 def test_p33_a01_single_scan_does_not_catch_up_three_levels(db_session: Session) -> None:
@@ -767,3 +771,20 @@ def test_purge_deletes_cycles_and_rounds(db_session: Session) -> None:
     assert db_session.scalar(select(func.count()).select_from(VigilCycle)) == 0
     assert db_session.scalar(select(func.count()).select_from(VigilRound)) == 0
     del vault
+
+
+def test_owner_and_scan_transitions_write_no_audit_rows(db_session: Session) -> None:
+    """#527: check_in / disarm / resume keep their evidence in the business
+    rows only — nothing in the cycle path inserts a VigilAuditEvent."""
+    vault = _seed_armed(db_session, next_check_at=_SEP1)
+    _heartbeat(db_session, _SEP1 - timedelta(seconds=30))
+    _scan(db_session, _SEP1)
+    check_in(db_session, owner_user_id=TEST_USER_ID, expected_revision=vault.revision)
+    db_session.refresh(vault)
+    vault.hold_reason = "scan_gap"
+    vault.held_at = _SEP1
+    db_session.flush()
+    resume_held_vault(db_session, owner_user_id=TEST_USER_ID, expected_revision=vault.revision)
+    db_session.refresh(vault)
+    disarm(db_session, owner_user_id=TEST_USER_ID, expected_revision=vault.revision)
+    assert db_session.scalar(select(func.count()).select_from(VigilAuditEvent)) == 0
