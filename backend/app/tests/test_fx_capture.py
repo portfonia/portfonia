@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Generator
 from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import pytest
 from sqlalchemy import select
@@ -123,8 +123,48 @@ def test_fallback_paces_calls_to_stay_under_rate_limit(db_session: Session) -> N
     ):
         capture_fx_rates(db_session)
 
-    # 3 fallback calls -> 2 inter-call sleeps (no sleep before the first).
+    # 3 fallback calls -> 2 inter-call sleeps (no sleep before the first),
+    # each exactly the documented per-call interval (not just "some" delay).
     assert mock_sleep.call_count == 2
+    assert mock_sleep.call_args_list == [call(8.0), call(8.0)]
+
+
+def test_fallback_stays_within_rate_limit_over_a_full_14_pair_burst(
+    db_session: Session,
+) -> None:
+    """The real #518 shape: all 14 pairs miss yfinance in one run. Drives a
+    fake clock forward by each `time.sleep` call and asserts no rolling
+    60-second window ever sees more than 8 Twelve Data calls — a genuine
+    check against the vendor's actual limit, not just "some sleeps
+    happened"."""
+    clock = {"now": 0.0}
+    call_times: list[float] = []
+
+    def fake_sleep(seconds: float) -> None:
+        clock["now"] += seconds
+
+    def fake_twelvedata_call(symbol: str, api_key: str) -> Decimal:
+        call_times.append(clock["now"])
+        return Decimal("7.05")
+
+    with (
+        patch("app.services.fx_fetcher.fetch_live_rate", return_value={}),
+        patch("app.services.fx_fetcher._twelvedata_key", return_value="fake-key"),
+        patch(
+            "app.services.fx_fetcher.twelvedata_fetch_live_rate", side_effect=fake_twelvedata_call
+        ),
+        patch("app.services.fx_fetcher.time.sleep", side_effect=fake_sleep),
+    ):
+        result = capture_fx_rates(db_session)
+
+    assert len(call_times) == len(_PAIRS)
+    assert result.still_missing == []
+    for window_start in call_times:
+        calls_in_window = sum(1 for t in call_times if window_start <= t < window_start + 60.0)
+        assert calls_in_window <= 8, (
+            f"{calls_in_window} Twelve Data calls fell inside a 60s window "
+            f"starting at t={window_start} -- exceeds the free-tier 8/min cap"
+        )
 
 
 def test_upsert_is_idempotent(db_session: Session) -> None:

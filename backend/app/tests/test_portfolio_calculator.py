@@ -335,6 +335,28 @@ def test_fresh_fx_pair_not_flagged_stale(db_session: Session) -> None:
     assert snap.stale_fx_pairs == []
 
 
+def test_fx_pair_just_under_48h_boundary_not_flagged_stale(db_session: Session) -> None:
+    """blacktomb42 review, PR #522: the 49h-stale / 1h-fresh pair above
+    doesn't pin the actual boundary — 47h (an hour inside the 48h window)
+    must not flag, distinct from the 49h case actually crossing it."""
+    boundary_fetched_at = datetime.now(tz=UTC) - timedelta(hours=47)
+    db_session.add(
+        FxRate(
+            pair="USDCNY",
+            rate=Decimal("7.0"),
+            rate_date=_FX_DATE,
+            source="test",
+            fetched_at=boundary_fetched_at,
+        )
+    )
+    db_session.add(_stock("Moutai", "600519.SS", "CNY", "10", "1400"))
+    db_session.flush()
+
+    snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")
+
+    assert snap.stale_fx_pairs == []
+
+
 def test_empty_portfolio_has_no_concentration(db_session: Session) -> None:
     _seed_fx(db_session)
     snap = compute_portfolio(db_session, user_id=_USER, base_currency="USD")

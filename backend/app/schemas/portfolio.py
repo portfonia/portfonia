@@ -55,9 +55,10 @@ class ConcentrationOut(BaseModel):
 class PortfolioSummaryResponse(BaseModel):
     base_currency: str
     fx_rates_as_of: dict[str, date]
-    # Currency codes whose fx_rates_as_of date was resolved from a rate
-    # fetched more than 48h ago (issue #519) — still used for valuation,
-    # flagged here so the frontend can render it as approximate.
+    # Currency codes whose FX rate has a fetch timestamp (fetched_at, not
+    # the fx_rates_as_of calendar date above) more than 48h in the past
+    # (issue #519) — still used for valuation, flagged here so the
+    # frontend can render it as approximate.
     stale_fx_pairs: list[str]
     total_base: Decimal
     by_market: dict[str, Decimal]

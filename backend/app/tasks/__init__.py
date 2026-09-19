@@ -299,17 +299,18 @@ _beat_schedule: dict[str, dict[str, Any]] = {
     # search_cache grow one row per (identifier|query, trade_date) per day
     # under multi-user fan-out — see app/tasks/cache_tasks.py module
     # docstring. Off-peak, distinct from the 03:00 ET backup and the other
-    # daily cadences (forward events 08:00 ET, FX 16:05 ET, fund NAV 20:00
-    # CST). Every day, not just trading days, matching backup-database-daily's
-    # rationale.
+    # daily cadences (forward events 08:00 ET, FX 16:00/20:00 ET, fund NAV
+    # 20:00 CST). Every day, not just trading days, matching
+    # backup-database-daily's rationale.
     "sweep-stale-shared-intel-cache-daily": {
         "task": "app.tasks.cache_tasks.sweep_stale_shared_intel_cache",
         "schedule": crontab(hour=4, minute=0),
     },
     # Portfolio Performance (issue #360 Phase 1). 20:30 ET every calendar
     # day (issue #487) — after every market's close node (latest is US
-    # after_close at 20:00 ET) and after the 17:15 ET FX fetch, so a user's
-    # day almost always resolves its FX dependency on the first try
+    # after_close at 20:00 ET) and after the 20:00 ET evening FX capture
+    # (capture-fx-evening-daily, issue #519), so a user's day almost always
+    # resolves its FX dependency on the first try
     # (capture_portfolio_value_snapshot's own per-user skipped_deps check
     # covers the rare case it doesn't). A Saturday/Sunday run writes a
     # complete batch with carried-forward marks disclosed as approx_carried.

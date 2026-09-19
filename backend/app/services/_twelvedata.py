@@ -1,19 +1,26 @@
-"""Twelve Data FX fetch (issue #406 historical gap-fill; issue #426 daily fallback).
+"""Twelve Data FX fetch (issue #406 historical gap-fill; issue #519 live-quote fallback).
 
 yfinance classifies `USDCNH=X` as a limited-history quote type (rejects
 `period="max"`, returns ~1 month at most regardless of fetch strategy —
 confirmed live, see issue #406's Exploration). Twelve Data's free tier was
 confirmed live to carry full multi-year USD/CNH daily history. This module
 originally existed solely to back `app/scripts/backfill_usdcnh_history.py`'s
-one-off gap fill.
+one-off gap fill (`fetch_daily_history`, the `/time_series` daily-bar
+route — still used only there, never for routine daily capture).
 
-Issue #426 widened its use: `fx_fetcher.fx_catchup()` (the 00:05 ET
-next-day recovery pass for a pair still missing its prior day's rate after
-a retry) now also calls `fetch_daily_history` here, one pair at a time, as
-its fallback source. Every pair's routine daily capture (`update_fx_rates`,
-17:15 ET) stays yfinance-only — this is a fallback for the recovery path
-only, not a general yfinance replacement (see `Settings.TWELVEDATA_API_KEY`'s
-docstring for the current scope).
+Issue #519 widened its use with a second, unrelated function:
+`fx_fetcher.capture_fx_rates()` calls `fetch_live_rate` here (the `/price`
+live-quote route, not `/time_series`) as its per-pair fallback whenever
+yfinance's own live quote (`_yfinance.fetch_live_rate`) misses a pair.
+Both of this module's two daily capture attempts (16:00 ET and 20:00 ET,
+`app/tasks/__init__.py`) call the same `capture_fx_rates`, so this
+fallback can fire from either — this is a fallback for that path only,
+not a general yfinance replacement (see `Settings.TWELVEDATA_API_KEY`'s
+docstring for the current scope). `/time_series` was tried and rejected
+for this fallback role first (issue #518): it 400s on a same-day-range
+query regardless of publish timing, since it is itself a daily-bar route
+with the same "no real close for a 24/5 market" problem `fetch_live_rate`
+exists to avoid.
 """
 
 from __future__ import annotations

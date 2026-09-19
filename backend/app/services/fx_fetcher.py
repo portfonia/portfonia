@@ -1,4 +1,7 @@
-"""Fetch daily FX rates from yfinance and upsert into fx_rates table."""
+"""Fetch live FX quotes (yfinance, with a Twelve Data per-pair fallback)
+and upsert into fx_rates table, once per each of the two daily capture
+attempts (issue #519) — not a daily-close/daily-bar fetch; see
+`capture_fx_rates`'s docstring for why."""
 
 from __future__ import annotations
 
