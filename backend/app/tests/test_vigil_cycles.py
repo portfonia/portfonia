@@ -587,13 +587,6 @@ def test_p33_public_cycle_confirm_replay_is_already_resolved(
     assert outbox is not None
     token = _decrypt_payload(outbox).token
     origin = {"Origin": get_settings().FRONTEND_URL.rstrip("/")}
-    status = app_client.post(
-        "/vigil/public/status",
-        headers=origin,
-        json={"token": token, "action": "confirm"},
-    )
-    assert status.status_code == 200, status.text
-    nonce = status.json()["nonce"]
     from typing import cast
 
     from altcha import v1 as altcha_v1
@@ -619,7 +612,7 @@ def test_p33_public_cycle_confirm_replay_is_already_resolved(
     first = app_client.post(
         "/vigil/public/confirm",
         headers=origin,
-        json={"token": token, "nonce": nonce, "altcha": altcha},
+        json={"token": token, "altcha": altcha},
     )
     assert first.status_code == 200, first.text
     assert first.json()["result"] == "confirmed"
@@ -637,7 +630,7 @@ def test_p33_public_cycle_confirm_replay_is_already_resolved(
     replay = app_client.post(
         "/vigil/public/confirm",
         headers=origin,
-        json={"token": token, "nonce": nonce, "altcha": altcha},
+        json={"token": token, "altcha": altcha},
     )
     assert replay.status_code == 200, replay.text
     assert replay.json()["result"] == "already_resolved"
@@ -736,13 +729,35 @@ def test_old_matching_cycle_token_still_confirms_after_resume(
     ).one()
     assert still.invalidated_at is None
 
+    from typing import cast
+
+    from altcha import v1 as altcha_v1
+    from altcha.v1 import AlgoType
+
     origin = {"Origin": get_settings().FRONTEND_URL.rstrip("/")}
-    status = app_client.post(
-        "/vigil/public/status",
-        headers=origin,
-        json={"token": old_token, "action": "confirm"},
+    challenge_resp = app_client.get("/vigil/public/altcha-challenge", headers=origin)
+    challenge = challenge_resp.json()
+    algorithm = cast(AlgoType, challenge["algorithm"])
+    solution = altcha_v1.solve_challenge(
+        challenge=challenge["challenge"],
+        salt=challenge["salt"],
+        algorithm=algorithm,
+        max_number=challenge["maxNumber"],
     )
-    assert status.status_code == 200, status.text
+    assert solution is not None
+    altcha = altcha_v1.Payload(
+        algorithm=algorithm,
+        challenge=challenge["challenge"],
+        number=solution.number,
+        salt=challenge["salt"],
+        signature=challenge["signature"],
+    ).to_base64()
+    confirm = app_client.post(
+        "/vigil/public/confirm",
+        headers=origin,
+        json={"token": old_token, "altcha": altcha},
+    )
+    assert confirm.status_code == 200, confirm.text
 
 
 def test_scan_is_on_existing_beat_every_60s() -> None:

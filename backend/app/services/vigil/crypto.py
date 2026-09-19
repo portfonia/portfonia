@@ -24,20 +24,14 @@ vice versa.
 
 from __future__ import annotations
 
-import base64
 import json
 from typing import Any
 from uuid import UUID
 
 from cryptography.fernet import Fernet, InvalidToken, MultiFernet
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from pydantic import SecretStr
 
 from app.core.config import get_settings
-
-HKDF_PUBLIC_NONCE_INFO = b"vigil-public-nonce-v1"
-HKDF_ALTCHA_INFO = b"vigil-altcha-v1"
 
 _ENVELOPE_VERSION = 1
 _ENVELOPE_KEYS = frozenset({"version", "purpose", "table", "row_id", "vault_id", "value"})
@@ -195,40 +189,3 @@ def decrypt_notification_field(
     return _validate_envelope_context(
         envelope, purpose=purpose, table=table, row_id=row_id, vault_id=vault_id
     )
-
-
-def _notification_key_bytes(key: SecretStr) -> bytes:
-    raw = key.get_secret_value().encode()
-    try:
-        decoded = base64.urlsafe_b64decode(raw)
-    except (ValueError, TypeError) as exc:
-        raise VigilCryptoError("VIGIL_NOTIFICATION_KEY is not a well-formed Fernet key.") from exc
-    if len(decoded) != 32:
-        raise VigilCryptoError("VIGIL_NOTIFICATION_KEY did not decode to 32 bytes.")
-    return decoded
-
-
-def derive_notification_subkeys(info: bytes) -> tuple[bytes, ...]:
-    """HKDF-SHA256 subkeys from the notification-key family.
-
-    salt is absent/None, output 32 bytes, info is a fixed protocol label
-    (#450 Design section 4). Current key first; PREV remains usable for the
-    three-minute nonce window. Never uses VIGIL_ENCRYPTION_KEY bytes as a
-    protocol key.
-    """
-    settings = get_settings()
-    current = settings.VIGIL_NOTIFICATION_KEY
-    if current is None or not current.get_secret_value():
-        raise VigilCryptoError(
-            "VIGIL_NOTIFICATION_KEY is not configured — Vigil crypto is unavailable."
-        )
-    keys = [_notification_key_bytes(current)]
-    prev = settings.VIGIL_NOTIFICATION_KEY_PREV
-    if prev is not None and prev.get_secret_value():
-        keys.append(_notification_key_bytes(prev))
-    derived: list[bytes] = []
-    for material in keys:
-        derived.append(
-            HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=info).derive(material)
-        )
-    return tuple(derived)

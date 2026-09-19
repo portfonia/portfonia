@@ -6,7 +6,7 @@ import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useConsumeLinkToken } from "@/hooks/use-consume-link-token";
-import { confirmVigilPublic, mintVigilPublicNonce, VigilApiError } from "@/lib/vigil/api";
+import { confirmVigilPublic, VigilApiError } from "@/lib/vigil/api";
 import { VigilConfirmAltcha } from "./vigil-confirm-altcha";
 
 export type PublicVigilAction = "confirm" | "retrieve" | "revoke";
@@ -33,12 +33,7 @@ export function PublicActionShell({ action }: { action: PublicVigilAction }) {
     }
     setBusy(true);
     try {
-      const status = await mintVigilPublicNonce(token, "confirm");
-      if (!status.available || !status.nonce) {
-        setResult("gone");
-        return;
-      }
-      const outcome = await confirmVigilPublic({ token, nonce: status.nonce, altcha });
+      const outcome = await confirmVigilPublic({ token, altcha });
       if (outcome.result === "confirmed" || outcome.result === "already_resolved") {
         setResult("confirmed");
       } else {

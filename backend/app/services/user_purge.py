@@ -23,7 +23,6 @@ from app.models.vigil import (
     VigilActionToken,
     VigilAuditEvent,
     VigilConfiguration,
-    VigilConsumedNonce,
     VigilCycle,
     VigilDeliveryEvent,
     VigilObject,
@@ -45,7 +44,6 @@ class PurgeResult:
     invites_used_by_cleared: int
     users_invited_by_cleared: int
     vigil_delivery_events: int
-    vigil_consumed_nonces: int
     vigil_action_tokens: int
     vigil_rounds: int
     vigil_outbox: int
@@ -134,7 +132,6 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
         select(VigilVault.id).where(VigilVault.owner_user_id == user_id)
     ).scalar_one_or_none()
     vigil_delivery_events = 0
-    vigil_consumed_nonces = 0
     vigil_action_tokens = 0
     vigil_rounds = 0
     vigil_outbox = 0
@@ -168,22 +165,6 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
                 )
             ).all()
         )
-        token_hashes = list(
-            session.scalars(
-                select(VigilActionToken.token_hash).where(VigilActionToken.vault_id == vault_id)
-            ).all()
-        )
-        if token_hashes:
-            vigil_consumed_nonces = _rowcount(
-                cast(
-                    CursorResult[Any],
-                    session.execute(
-                        delete(VigilConsumedNonce).where(
-                            VigilConsumedNonce.token_hash.in_(token_hashes)
-                        )
-                    ),
-                )
-            )
         vigil_action_tokens = _rowcount(
             cast(
                 CursorResult[Any],
@@ -282,7 +263,6 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
         invites_used_by_cleared=invites_used_by_cleared,
         users_invited_by_cleared=users_invited_by_cleared,
         vigil_delivery_events=vigil_delivery_events,
-        vigil_consumed_nonces=vigil_consumed_nonces,
         vigil_action_tokens=vigil_action_tokens,
         vigil_rounds=vigil_rounds,
         vigil_outbox=vigil_outbox,

@@ -1,4 +1,4 @@
-"""Account drill enqueue, public status, and confirmation (issue #458)."""
+"""Account drill enqueue and public confirmation (issue #458)."""
 
 from __future__ import annotations
 
@@ -29,20 +29,14 @@ from app.services.vigil.crypto import decrypt_notification_field
 from app.services.vigil.dispatch import cancel_outbox_intents, write_outbox_entry
 from app.services.vigil.tokens import (
     DRILL_TTL,
-    VigilNonceError,
-    consume_nonce,
     db_now,
     hash_link_token,
     invalidate_open_drill_tokens,
     mint_link_token,
-    mint_signed_nonce,
-    rfc3339_z,
-    verify_signed_nonce,
 )
 
 DRILL_COOLDOWN = timedelta(seconds=60)
 _DRILL_PURPOSE = "drill"
-_CONFIRM_ACTION = "confirm"
 _PAYLOAD_PURPOSE = "vigil_outbox_payload"
 
 
@@ -78,13 +72,6 @@ class DrillEnqueueResult:
     drill_id: UUID
     status: str
     revision: int
-
-
-@dataclass(frozen=True)
-class PublicStatus:
-    available: bool
-    nonce: str | None = None
-    expires_at: str | None = None
 
 
 def _lock_user_and_vault(session: Session, owner_user_id: UUID) -> tuple[User, VigilVault]:
@@ -254,69 +241,18 @@ def _token_available(token: VigilActionToken, *, now: datetime, vault: VigilVaul
     return "available"
 
 
-def public_status(
-    session: Session,
-    *,
-    token: str,
-    action: str | None,
-    mint_nonce: bool,
-) -> PublicStatus:
-    """Read-only unless mint_nonce, which still performs no DB write."""
-    token_hash = hash_link_token(token)
-    row = session.scalars(
-        select(VigilActionToken).where(VigilActionToken.token_hash == token_hash)
-    ).one_or_none()
-    if row is None:
-        raise VigilPublicTokenError(404, "not found")
-    vault = session.get(VigilVault, row.vault_id)
-    if vault is None:
-        raise VigilPublicTokenError(404, "not found")
-    now = db_now(session)
-    if row.purpose == "cycle_confirm":
-        from app.services.vigil.cycles import cycle_token_public_state
-
-        state = cycle_token_public_state(session, row, now=now, vault=vault)
-    else:
-        state = _token_available(row, now=now, vault=vault)
-    if state in {"invalidated", "expired", "stale", "used", "wrong_purpose"}:
-        raise VigilPublicTokenError(410, "gone")
-    if state == "confirmed":
-        return PublicStatus(available=False)
-    if action is not None and action != _CONFIRM_ACTION:
-        return PublicStatus(available=False)
-    if not mint_nonce:
-        return PublicStatus(available=True)
-    nonce = mint_signed_nonce(
-        token_hash=token_hash, action=_CONFIRM_ACTION, object_id=row.object_id, now=now
-    )
-    return PublicStatus(
-        available=True,
-        nonce=nonce.compact,
-        expires_at=rfc3339_z(nonce.expires_at),
-    )
-
-
 def confirm_drill(
     session: Session,
     *,
     token: str,
-    nonce: str,
     now: datetime | None = None,
 ) -> str:
+    """Single-use is `VigilActionToken.confirmed_at`, set here under the
+    row lock `_lock_token_context` already took — no separate nonce
+    consumption needed (#528, #516 finding 14)."""
     token_hash = hash_link_token(token)
     _, vault, row = _lock_token_context(session, token_hash)
     current = now or db_now(session)
-    try:
-        signed = verify_signed_nonce(
-            nonce,
-            token_hash=token_hash,
-            action=_CONFIRM_ACTION,
-            object_id=row.object_id,
-            now=current,
-        )
-        consume_nonce(session, signed, now=current)
-    except VigilNonceError as exc:
-        raise VigilPublicTokenError(422, str(exc)) from exc
 
     state = _token_available(row, now=current, vault=vault)
     if state == "confirmed":

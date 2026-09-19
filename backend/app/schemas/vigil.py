@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -132,24 +132,10 @@ class VigilCheckInOut(BaseModel):
     next_check_at: str | None = None
 
 
-class VigilPublicStatusIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    token: str
-    action: Literal["confirm", "revoke", "metadata", "material", "ciphertext"]
-
-
-class VigilPublicStatusOut(BaseModel):
-    available: bool
-    nonce: str | None = None
-    expires_at: str | None = None
-
-
 class VigilPublicConfirmIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     token: str
-    nonce: str
     altcha: str
 
 

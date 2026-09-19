@@ -9,16 +9,11 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.database import get_session
 from app.models.vigil import VigilActionToken
-from app.schemas.vigil import (
-    VigilPublicConfirmIn,
-    VigilPublicConfirmOut,
-    VigilPublicStatusIn,
-    VigilPublicStatusOut,
-)
+from app.schemas.vigil import VigilPublicConfirmIn, VigilPublicConfirmOut
 from app.services.altcha_challenge import create_vigil_challenge, verify_vigil_solution
 from app.services.vigil.crypto import VigilCryptoError
 from app.services.vigil.cycles import confirm_cycle_token
-from app.services.vigil.drills import VigilPublicTokenError, confirm_drill, public_status
+from app.services.vigil.drills import VigilPublicTokenError, confirm_drill
 from app.services.vigil.tokens import hash_link_token
 
 router = APIRouter()
@@ -47,42 +42,6 @@ def get_altcha_challenge(response: Response) -> dict[str, object]:
         ) from exc
 
 
-@router.get("/public/status", response_model=VigilPublicStatusOut)
-def get_public_status(
-    response: Response,
-    token: str,
-    session: Session = Depends(get_session),
-) -> VigilPublicStatusOut:
-    _require_public_feature()
-    _no_store(response)
-    try:
-        result = public_status(session, token=token, action=None, mint_nonce=False)
-    except VigilPublicTokenError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-    return VigilPublicStatusOut(available=result.available)
-
-
-@router.post("/public/status", response_model=VigilPublicStatusOut)
-def post_public_status(
-    payload: VigilPublicStatusIn,
-    response: Response,
-    session: Session = Depends(get_session),
-) -> VigilPublicStatusOut:
-    _require_public_feature()
-    _no_store(response)
-    try:
-        result = public_status(session, token=payload.token, action=payload.action, mint_nonce=True)
-    except VigilPublicTokenError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-    except VigilCryptoError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="vigil is not available"
-        ) from exc
-    return VigilPublicStatusOut(
-        available=result.available, nonce=result.nonce, expires_at=result.expires_at
-    )
-
-
 @router.post("/public/confirm", response_model=VigilPublicConfirmOut)
 def post_public_confirm(
     payload: VigilPublicConfirmIn,
@@ -104,12 +63,12 @@ def post_public_confirm(
         if peeked is None:
             raise VigilPublicTokenError(404, "not found")
         if peeked.purpose == "cycle_confirm":
-            cycle_result = confirm_cycle_token(session, token=payload.token, nonce=payload.nonce)
+            cycle_result = confirm_cycle_token(session, token=payload.token)
             session.commit()
             return VigilPublicConfirmOut(
                 result=cycle_result.result, next_check_at=cycle_result.next_check_at
             )
-        result = confirm_drill(session, token=payload.token, nonce=payload.nonce)
+        result = confirm_drill(session, token=payload.token)
         session.commit()
     except VigilPublicTokenError as exc:
         session.rollback()

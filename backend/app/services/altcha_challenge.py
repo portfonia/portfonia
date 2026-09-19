@@ -137,15 +137,15 @@ def verify_change_password_solution(payload_b64: str) -> bool:
 
 
 def _vigil_hmac_key() -> str:
-    from app.services.vigil.crypto import HKDF_ALTCHA_INFO, derive_notification_subkeys
-
-    return derive_notification_subkeys(HKDF_ALTCHA_INFO)[0].hex()
+    # Distinct purpose key, same pattern as _change_password_hmac_key above
+    # (#528, #516 finding 16) — no separate Vigil-only HKDF subkey needed.
+    return f"{_hmac_key()}:vigil"
 
 
 def create_vigil_challenge() -> dict[str, object]:
-    """Vigil-purpose Altcha v1 challenge. HMAC key is HKDF-derived from the
-    notification family (`vigil-altcha-v1`), not APP_SECRET_KEY and not a
-    new env secret (#450 Design section 4 / #458)."""
+    """Vigil-purpose Altcha v1 challenge. HMAC key is purpose-distinct
+    (see `_vigil_hmac_key`), same shared-Altcha pattern as the other
+    factories in this module — not a dedicated Vigil HKDF subkey."""
     options = altcha_v1.ChallengeOptions(
         hmac_key=_vigil_hmac_key(),
         expires=datetime.now(UTC) + CHALLENGE_TTL,
