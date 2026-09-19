@@ -1,10 +1,15 @@
-"""Vigil outbox dispatch + delivery-evidence poll (issues #456/#457).
+"""Vigil outbox dispatch + cycle scan (issue #456; #457's bounded poller
+removed by issue #526, #516 finding 3).
 
 Registered on the EXISTING Celery app/queue (app/tasks/__init__.py) — no new
 worker, queue, or beat schedule mechanism. Dispatch processes at most
-`dispatch.MAX_ROWS_PER_SWEEP` (5) due `vigil_outbox` rows; the delivery poll
-issues at most five GET /emails/{id} calls for missing evidence at the
-5/15/30-minute windows.
+`dispatch.MAX_ROWS_PER_SWEEP` (5) due `vigil_outbox` rows. Delivery evidence
+now arrives via webhook only (`app.services.vigil.delivery.
+ingest_verified_webhook`) plus hold-on-missing-evidence in the cycle scan
+below — the bounded 5/15/30-minute GET /emails/{id} poll a second,
+provider-probing evidence path beside the webhook was removed rather than
+kept as a "backup": a single-process, no-SLA mechanism doesn't need two
+delivery-evidence paths to diverge from each other.
 """
 
 from __future__ import annotations
@@ -14,7 +19,6 @@ from typing import Any
 
 from app.core.database import SessionLocal
 from app.services.vigil.cycles import run_cycle_scan
-from app.services.vigil.delivery import run_delivery_poll_sweep
 from app.services.vigil.dispatch import run_outbox_dispatch_sweep
 from app.tasks import celery_app
 
@@ -39,19 +43,6 @@ def dispatch_vigil_outbox_task(self: Any) -> None:
             summary.leased,
             summary.sent,
         )
-
-
-@celery_app.task(  # type: ignore[untyped-decorator]
-    name="app.tasks.vigil_tasks.poll_vigil_delivery_task",
-    bind=True,
-    max_retries=0,
-)
-def poll_vigil_delivery_task(self: Any) -> None:
-    """Bounded missing-evidence poll. No Celery retry — the 5/15/30-minute
-    windows are computed from first_attempt_at on the next beat tick."""
-    summary = run_delivery_poll_sweep(SessionLocal)
-    if summary.polled:
-        logger.info("vigil delivery poll: polled=%d", summary.polled)
 
 
 @celery_app.task(  # type: ignore[untyped-decorator]
