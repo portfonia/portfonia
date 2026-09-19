@@ -627,6 +627,13 @@ def test_p33_public_cycle_confirm_replay_is_already_resolved(
     clock = vault.last_owner_confirmed_at
     assert clock is not None
 
+    # #527: the confirm-link path records the same durable event with the
+    # token actor, and the replay below adds no second one.
+    token_check_ins = _vigil_events(db_session, "vigil.check_in", vault.id)
+    assert [(row.attributes["actor"], row.attributes["to_phase"]) for row in token_check_ins] == [
+        ("token", "ARMED")
+    ]
+
     replay = app_client.post(
         "/vigil/public/confirm",
         headers=origin,
@@ -636,6 +643,7 @@ def test_p33_public_cycle_confirm_replay_is_already_resolved(
     assert replay.json()["result"] == "already_resolved"
     db_session.refresh(vault)
     assert vault.last_owner_confirmed_at == clock
+    assert len(_vigil_events(db_session, "vigil.check_in", vault.id)) == 1
 
 
 def test_cycle_unique_one_active_per_vault(db_session: Session) -> None:
