@@ -43,6 +43,20 @@ or REST path unless the user explicitly requests it. (This is a separate
 tool/mechanism from the GitHub REST-vs-OAuth decision above — Obsidian's
 own "don't substitute REST" default is unchanged.)
 
+**`git push`/`git pull` over HTTPS also broke** when `gh auth logout` ran
+(2026-09-18): this repo's origin is HTTPS, and the working credential
+helper was `gh`'s own (registered by an earlier `gh auth setup-git`) — with
+`gh` logged out, a plain `git push` fails with `fatal: could not read
+Username for 'https://github.com': Device not configured`, independent of
+the `gh api`-for-GitHub-content-operations decision above. Confirmed
+one-off fix: `git remote set-url origin https://x-access-token@github.com/
+portfonia/portfonia.git` (embeds the required username so only the
+password prompt remains), then `GIT_ASKPASS=<script printing GITHUB_TOKEN>
+git push ...`. This is a per-push workaround, not a standing config change
+— it does not write the token into any git config file. A cleaner
+permanent fix (e.g. a git credential helper backed by `GITHUB_TOKEN`) is
+worth setting up if this keeps recurring, but is not decided yet.
+
 This procedure supersedes both the 2026-09-13 OAuth-primary procedure
 below and the even older `GITHUB_TOKEN`-as-fallback framing before that.
 Those sections are historical provenance, not a competing authentication
