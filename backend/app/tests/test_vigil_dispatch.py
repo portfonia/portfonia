@@ -31,6 +31,7 @@ from app.services.vigil.dispatch import (
     ProviderSendResult,
     _finalize_attempt,
     _lease_one,
+    cancel_outbox_intents,
     run_outbox_dispatch_sweep,
     sweep_expired_outbox,
     write_outbox_entry,
@@ -239,8 +240,9 @@ def test_recovery_after_local_commit_failure_reuses_same_key_and_body(
 
     # Simulate: provider accepted, but the local finalize transaction rolls
     # back (e.g. a DB outage right after the HTTP call returned) — the row
-    # is left exactly as `_lease_one` left it: status='leased', payload
-    # intact, attempts/first_attempt_at unchanged.
+    # is left exactly as `_lease_one` left it: still `pending` with the
+    # in-flight `lease_until` set, payload intact, attempts/first_attempt_at
+    # unchanged.
     assert _lease_one(_session_factory, row.id, now=now)
     result = _send(*_manual_body_and_key(db_session, row.id))
     finalize_session = _session_factory()
@@ -408,6 +410,40 @@ def test_row_past_the_retry_window_is_not_sent_and_becomes_failed(db_session: Se
     assert fresh.payload_sha256 is None
     assert fresh.next_attempt_at is None
     assert fresh.lease_until is None
+
+
+def test_cancel_outbox_intents_fails_pending_and_spares_accepted(db_session: Session) -> None:
+    """#525: the caller-facing cancel lands in the single negative terminal
+    status and clears the frozen intent; an already-accepted row is left
+    alone."""
+    vault_id, config_id, object_id = _seed_object(db_session)
+    pending_row = _write_entry(
+        db_session, vault_id=vault_id, config_id=config_id, object_id=object_id, dedup_key="dk-12"
+    )
+    accepted_row = _write_entry(
+        db_session, vault_id=vault_id, config_id=config_id, object_id=object_id, dedup_key="dk-13"
+    )
+    db_session.execute(
+        update(VigilOutbox)
+        .where(VigilOutbox.id == accepted_row.id)
+        .values(status="accepted", provider_id="resend-kept", payload_cipher=None)
+    )
+    db_session.commit()
+
+    cancelled = cancel_outbox_intents(db_session, vault_id=vault_id)
+    db_session.commit()
+    assert cancelled == 1
+
+    fresh = _reload(db_session, pending_row.id)
+    assert fresh.status == "failed"
+    assert fresh.payload_cipher is None
+    assert fresh.payload_sha256 is None
+    assert fresh.next_attempt_at is None
+    assert fresh.lease_until is None
+
+    kept = _reload(db_session, accepted_row.id)
+    assert kept.status == "accepted"
+    assert kept.provider_id == "resend-kept"
 
 
 def test_lease_one_locks_user_then_vault_then_outbox_row(db_session: Session) -> None:
