@@ -17,7 +17,6 @@ import { deriveVigilDisplayState } from "../_lib/vault-display-state";
 export function VigilPageBody({ result }: { result: VigilVaultLoadResult }) {
   const t = useTranslations("vigil");
   const state = deriveVigilDisplayState(result);
-  const isHold = state === "hold";
 
   return (
     <Card>
@@ -26,9 +25,6 @@ export function VigilPageBody({ result }: { result: VigilVaultLoadResult }) {
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <p>{t(`states.${state}`)}</p>
-        {isHold && result.status === "ok" && result.vault.hold_reason && (
-          <p className="text-sm text-foreground/60">{result.vault.hold_reason}</p>
-        )}
         {state === "setupRequired" && (
           <Button render={<Link href="/vigil/setup" />}>{t("setupCta")}</Button>
         )}

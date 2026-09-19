@@ -33,7 +33,6 @@ function baseHookState(overrides: Partial<ReturnType<typeof useVigilSetup>> = {}
     graceHours: 72,
     setGraceHours: vi.fn(),
     phase: "form",
-    stage: null,
     progress: 0,
     errorMessage: null,
     errorCode: null,
@@ -97,14 +96,22 @@ describe("VigilSetupPageBody", () => {
     expect(screen.queryByText(/does not pause it/i)).not.toBeInTheDocument();
   });
 
-  it("shows encryption/upload progress while submitting", () => {
-    renderPage({ phase: "submitting", stage: "uploading", progress: 0.42 });
-    expect(screen.getByText(/uploading/i)).toBeInTheDocument();
+  it("shows a single busy indicator with upload progress while submitting", () => {
+    renderPage({ phase: "submitting", progress: 0.42 });
+    expect(screen.getByText(/submitting/i)).toBeInTheDocument();
+  });
+
+  // #529 (#516 finding 18): no named micro-stages surface to the user —
+  // internal pipeline steps (configure/init/encrypt/upload) stay sequential
+  // awaits behind one busy phase.
+  it("never surfaces named micro-stages (configuring/preparing/encrypting/uploading) while submitting", () => {
+    renderPage({ phase: "submitting", progress: 0.1 });
+    expect(screen.queryByText(/configuring|preparing|encrypting|uploading/i)).not.toBeInTheDocument();
   });
 
   it("shows a Cancel button while submitting, and calls cancel() on click", async () => {
     const cancel = vi.fn();
-    renderPage({ phase: "submitting", stage: "encrypting", cancel });
+    renderPage({ phase: "submitting", cancel });
     const cancelButton = screen.getByRole("button", { name: /cancel/i });
     await userEvent.click(cancelButton);
     expect(cancel).toHaveBeenCalledTimes(1);

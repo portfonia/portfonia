@@ -31,21 +31,11 @@ describe("VigilPageBody", () => {
     expect(screen.queryByRole("link", { name: /set up vigil/i })).not.toBeInTheDocument();
   });
 
-  it("shows the active-armed card with no setup link once a vault exists and is ARMED", () => {
-    renderBody({
-      status: "ok",
-      vault: {
-        vault_id: "11111111-1111-1111-1111-111111111111",
-        phase: "ARMED",
-        revision: 1,
-      },
-    });
-
-    expect(screen.getByText(/armed and monitoring/i)).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /set up vigil/i })).not.toBeInTheDocument();
-  });
-
-  it("shows the hold card whenever hold_reason is present, regardless of phase", () => {
+  // #529 (#516 finding 11): display state is phase/hold_reason-agnostic once
+  // a vault exists — those fields aren't populated by any real write path
+  // yet, so the dashboard must not branch on them even though they're
+  // present on the payload here.
+  it("shows the disarmed card with no setup link once a vault exists, regardless of phase/hold_reason on the payload", () => {
     renderBody({
       status: "ok",
       vault: {
@@ -56,7 +46,8 @@ describe("VigilPageBody", () => {
       },
     });
 
-    expect(screen.getByText(/on hold/i)).toBeInTheDocument();
+    expect(screen.getByText(/currently disarmed/i)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /set up vigil/i })).not.toBeInTheDocument();
   });
 
   // Never render inner/outer/DEK-shaped fields even if a caller somehow

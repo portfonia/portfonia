@@ -48,7 +48,6 @@ import {
 } from "./validation";
 
 export type VigilSetupPhase = "form" | "submitting" | "ready" | "error";
-export type VigilSetupStage = "configuring" | "preparing" | "encrypting" | "uploading" | null;
 export type VigilDrillUiState = "idle" | "pending" | "sent" | "unknown" | "expired" | "confirmed";
 
 function drillStateFromVault(status: VigilVaultStatus): VigilDrillUiState | null {
@@ -133,7 +132,6 @@ export function useVigilSetup(options: UseVigilSetupOptions = {}) {
   const [graceHours, setGraceHours] = useState<number>(VIGIL_GRACE_HOURS_DEFAULT);
 
   const [phase, setPhase] = useState<VigilSetupPhase>("form");
-  const [stage, setStage] = useState<VigilSetupStage>(null);
   const [progress, setProgress] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
@@ -191,7 +189,6 @@ export function useVigilSetup(options: UseVigilSetupOptions = {}) {
     cryptoClientRef.current?.terminate();
     cryptoClientRef.current = null;
     setPhase("form");
-    setStage(null);
     setProgress(0);
     setPassword("");
     setPasswordConfirm("");
@@ -223,7 +220,6 @@ export function useVigilSetup(options: UseVigilSetupOptions = {}) {
     try {
       const configFingerprint = JSON.stringify({ recipients, message, intervalDays, graceHours });
       if (configCacheRef.current?.fingerprint !== configFingerprint) {
-        setStage("configuring");
         const result = await createVigilConfiguration({
           expected_revision: revisionRef.current,
           interval_days: intervalDays,
@@ -254,7 +250,6 @@ export function useVigilSetup(options: UseVigilSetupOptions = {}) {
         objectId = objectCacheRef.current.objectId;
         encrypted = objectCacheRef.current.encrypted;
       } else {
-        setStage("preparing");
         const requestId = crypto.randomUUID();
         const plaintext = new Uint8Array(await file.arrayBuffer());
         const initResult = await initVigilObject({
@@ -267,7 +262,6 @@ export function useVigilSetup(options: UseVigilSetupOptions = {}) {
         revisionRef.current = initResult.revision;
         objectId = initResult.object_id;
 
-        setStage("encrypting");
         const cryptoClient = ensureCryptoClient();
         encrypted = await cryptoClient.encryptFile({
           vaultId,
@@ -279,7 +273,6 @@ export function useVigilSetup(options: UseVigilSetupOptions = {}) {
         objectCacheRef.current = { fingerprint: objectFingerprint, objectId, encrypted };
       }
 
-      setStage("uploading");
       const uploadResult = await uploadVigilObject(
         {
           expected_revision: revisionRef.current,
@@ -298,7 +291,6 @@ export function useVigilSetup(options: UseVigilSetupOptions = {}) {
       setArmed(false);
 
       setPhase("ready");
-      setStage(null);
       setPassword("");
       setPasswordConfirm("");
     } catch (err) {
@@ -308,13 +300,11 @@ export function useVigilSetup(options: UseVigilSetupOptions = {}) {
       }
       if (code === "cancelled") {
         setPhase("form");
-        setStage(null);
         return;
       }
       setErrorMessage(msg);
       setErrorCode(code);
       setPhase("error");
-      setStage(null);
     }
   }, [file, hasPassword, password, passwordConfirm, recipients, message, intervalDays, graceHours]);
 
@@ -411,7 +401,6 @@ export function useVigilSetup(options: UseVigilSetupOptions = {}) {
     setGraceHours,
 
     phase,
-    stage,
     progress,
     errorMessage,
     errorCode,

@@ -13,26 +13,13 @@ describe("PublicActionShell", () => {
     vi.resetAllMocks();
   });
 
-  it.each(["retrieve", "revoke"] as const)(
-    "renders the %s title and the shared unavailable copy",
-    (action) => {
-      render(
-        <LocaleProvider>
-          <PublicActionShell action={action} />
-        </LocaleProvider>,
-      );
-
-      expect(screen.getByText(/isn't active yet/i)).toBeInTheDocument();
-    },
-  );
-
   it("confirm shows an explicit button and does not fetch on mount", () => {
     const fetchMock = vi.fn();
     global.fetch = fetchMock;
 
     render(
       <LocaleProvider>
-        <PublicActionShell action="confirm" />
+        <PublicActionShell />
       </LocaleProvider>,
     );
 
@@ -45,7 +32,7 @@ describe("PublicActionShell", () => {
 
     render(
       <LocaleProvider>
-        <PublicActionShell action="confirm" />
+        <PublicActionShell />
       </LocaleProvider>,
     );
 

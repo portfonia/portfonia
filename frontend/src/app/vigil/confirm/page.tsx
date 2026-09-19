@@ -7,7 +7,7 @@ import { PublicActionShell } from "../_components/public-action-shell";
 export default function VigilConfirmPage() {
   return (
     <main className="mx-auto w-full max-w-2xl px-6 py-10">
-      <PublicActionShell action="confirm" />
+      <PublicActionShell />
     </main>
   );
 }

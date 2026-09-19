@@ -1173,18 +1173,13 @@
     "states": {
       "setupRequired": "Vigil 尚未設定。",
       "disarmed": "Vigil 已設定，目前處於解除狀態。",
-      "active": "Vigil 已佈防，正在監控您的簽到。",
-      "waitingDelivery": "簽到請求已送出，正在等待送達確認。",
-      "countdown": "簽到窗口正在進行中。",
-      "hold": "Vigil 處於暫停狀態，目前未在倒數計時。",
-      "released": "檔案已發送給您的接收人。",
-      "revoked": "發送已被撤銷。",
       "unavailable": "Vigil 目前無法使用。"
     },
     "public": {
       "confirmTitle": "確認簽到",
       "retrieveTitle": "取得檔案",
       "revokeTitle": "撤銷發送",
+      "notEnabled": "此功能尚未開放。",
       "unavailable": "此連結尚未生效，請稍後再試。",
       "confirmHint": "此確認只驗證目前帳戶，不會佈防 Vigil。",
       "confirmButton": "確認",
@@ -1228,12 +1223,7 @@
       "submit": "加密並上傳",
       "cancel": "取消",
       "retry": "重試",
-      "stage": {
-        "configuring": "正在儲存配置……",
-        "preparing": "正在準備上傳……",
-        "encrypting": "正在瀏覽器本機加密……",
-        "uploading": "正在上傳……"
-      },
+      "submitting": "正在提交……",
       "progressPercent": "{percent}%",
       "ready": {
         "title": "已就緒——等待演練",
