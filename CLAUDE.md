@@ -400,6 +400,15 @@ legitimate local state is `.env` (uploaded via `scp`).
   same edit to the main checkout's `.env.local` (or the setting silently
   reads as unset there — `Settings.<KEY>` fields default to `None`, so
   this fails quiet, not loud).
+- **A fresh worktree has neither `.env.local` nor `backend/venv`** (both
+  untracked, neither one a git-tracked path): running `pytest`/`ruff`/
+  `mypy` in a new worktree fails outright (`Field required` config errors,
+  or `ModuleNotFoundError` if a stray global `python3` is used instead)
+  until both are wired up. Symlink `.env.local` from the main checkout
+  (`ln -s /Users/garyj/Portfonia/.env.local .env.local` at the worktree
+  root) and invoke the main checkout's venv by absolute path (e.g.
+  `/Users/garyj/Portfonia/backend/venv/bin/python -m pytest`) rather than
+  assuming an activated venv or a project-local one exists.
 - For test code: never read or write the developer's real `~/.config/...`
   directories. Honor a project-scoped env var (e.g. `PORTFONIA_HOME`) and
   default tests to a temp dir. Direct use of `os.path.expanduser("~")` in
