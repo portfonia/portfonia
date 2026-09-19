@@ -360,14 +360,18 @@ def drill_delivery_state(session: Session, vault: VigilVault) -> list[dict[str, 
                 VigilOutbox.scope_id == token.id,
             )
         ).first()
+        # #525 flattened the outbox to pending/accepted/failed: a row that
+        # was never accepted (cancelled intent, provider refusal, or the
+        # retry window expiring) reads as `unknown` here. A cancelled drill
+        # intent cannot reach this branch anyway — the supersede/stop paths
+        # invalidate the drill token in the same transaction, and the
+        # `invalidated_at` branch above returns no drill entry first.
         if outbox is None:
             state = "pending"
         elif outbox.status == "accepted":
             state = "sent"
-        elif outbox.status in {"unknown", "failed"}:
+        elif outbox.status == "failed":
             state = "unknown"
-        elif outbox.status == "cancelled":
-            return []
         else:
             state = "pending"
     return [{"purpose": "drill", "state": state}]

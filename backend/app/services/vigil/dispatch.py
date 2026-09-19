@@ -1,27 +1,38 @@
 """Shared-worker encrypted outbox: write + bounded mail dispatch/recovery
-(issue #456, Vigil R0 P3.1).
+(issue #456, Vigil R0 P3.1; state machine flattened by issue #525, #516
+finding 4).
 
 This checkpoint builds the MECHANISM only — there is no real business
-caller yet (drill/arm is #458, three-round escalation is #459). Tests here
-are internal fixture-only callers that write a row via `write_outbox_entry`
+caller besides drills (#458) and cycle rounds (#459). Tests here are
+internal fixture-only callers that write a row via `write_outbox_entry`
 and drive `run_outbox_dispatch_sweep` directly, exactly as #456 scopes it.
+
+State machine (#525): three row statuses — `pending` (not accepted yet,
+retryable), `accepted` (provider took it), `failed` (terminal non-delivery:
+provider rejection, retry window expiry, or caller cancellation). There is
+no `leased` status: an in-flight attempt is a future `lease_until` on a
+still-`pending` row, and no `unknown` status: a provider outcome we cannot
+classify leaves the row `pending` with `next_attempt_at` set. Retry pacing
+is ONE interval (`RETRY_INTERVAL`) inside ONE window (`RETRY_WINDOW` from
+`created_at`), replacing the 1/5/15/60-minute, 5-attempt schedule with its
+23h attempt window beside a separate 24h payload clear.
 
 Transaction boundary (#450 Design section 6 / #456 Design comment):
 `write_outbox_entry` does NOT commit — the caller's own transaction (which
 also writes the domain-state change that triggered this send) covers both.
 Enqueuing the Celery task after that commit is an optimization only; the
 real recovery mechanism is `run_outbox_dispatch_sweep`'s periodic DB sweep
-for due/stale rows, invoked by app/tasks/vigil_tasks.py on the existing
-beat schedule.
+for due rows, invoked by app/tasks/vigil_tasks.py on the existing beat
+schedule.
 
 Lock order for every mutation here is User -> vigil_vaults -> vigil_outbox
 (#450 Design section 3), matching every other Vigil service module. The
 external HTTP call itself happens with NO lock held: lease under lock,
 release (commit) the leasing transaction, call Resend, then re-acquire the
 same lock order in a fresh transaction to record the outcome. This is what
-lets a concurrent cancellation (once a real cancel path exists) commit
-while a send is in flight without corrupting either side (see
-`_finalize_attempt`'s reload-before-write).
+lets a concurrent cancellation (disarm/replace) commit while a send is in
+flight without corrupting either side (see `_finalize_attempt`'s
+reload-before-write).
 """
 
 from __future__ import annotations
@@ -52,24 +63,25 @@ _PAYLOAD_PURPOSE = "vigil_outbox_payload"
 _RESEND_SEND_URL = "https://api.resend.com/emails"
 
 # #450 Design section 6 / Contract constraints — exact thresholds, not
-# tunable per environment (no fast-grace deployed profile, E4).
+# tunable per environment (no fast-grace deployed profile, E4). Issue #525
+# collapsed the retry machine to ONE interval inside ONE window — see the
+# module docstring; nothing here is a per-attempt tier or an attempt cap.
 LEASE_SECONDS = 60
 HTTP_TIMEOUT_SECONDS = 15.0
-MAX_ATTEMPTS = 5
-RETRY_SCHEDULE_MINUTES = (1, 5, 15, 60)
-MAX_ATTEMPT_WINDOW = timedelta(hours=23)
-NEVER_ATTEMPTED_CANCEL_AFTER = timedelta(hours=24)
-UNKNOWN_PAYLOAD_CLEAR_AFTER = timedelta(hours=24)
+RETRY_INTERVAL = timedelta(minutes=15)
+RETRY_WINDOW = timedelta(hours=24)
 MAX_ROWS_PER_SWEEP = 5
 
 _PENDING = "pending"
-_LEASED = "leased"
 _ACCEPTED = "accepted"
 _FAILED = "failed"
-_UNKNOWN = "unknown"
-_CANCELLED = "cancelled"
-_RETRYABLE_STATUSES = (_PENDING, _UNKNOWN)
-_TERMINAL_STATUSES = (_ACCEPTED, _FAILED, _CANCELLED)
+
+# Provider outcomes — what ONE HTTP attempt observed, never a row status.
+# An `unknown` outcome (timeout/transport/5xx/missing id) leaves the row
+# `pending` with a scheduled retry; `failed` is a provider refusal.
+_OUTCOME_ACCEPTED = "accepted"
+_OUTCOME_FAILED = "failed"
+_OUTCOME_UNKNOWN = "unknown"
 
 
 class VigilOutboxError(RuntimeError):
@@ -177,11 +189,14 @@ def cancel_outbox_intents(
     """Cancel non-terminal outbox rows and clear their payload.
 
     Caller already holds the User-then-vault lock. Application-layer stop
-    only — not physical erasure.
+    only — not physical erasure. #525: "cancelled" is not a status of its
+    own any more, so a cancelled intent lands in the one negative terminal
+    status (`failed`); the provider facts (provider_id/accepted_at) of a
+    send that already went out are untouched.
     """
     conditions = [
         VigilOutbox.vault_id == vault_id,
-        VigilOutbox.status.in_((_PENDING, _LEASED, _UNKNOWN)),
+        VigilOutbox.status == _PENDING,
     ]
     if purpose is not None:
         conditions.append(VigilOutbox.purpose == purpose)
@@ -199,7 +214,7 @@ def cancel_outbox_intents(
             update(VigilOutbox)
             .where(and_(*conditions))
             .values(
-                status=_CANCELLED,
+                status=_FAILED,
                 payload_cipher=None,
                 payload_sha256=None,
                 next_attempt_at=None,
@@ -248,54 +263,44 @@ def _lock_user_and_vault(session: Session, vault_id: UUID) -> tuple[User, VigilV
 
 
 def sweep_expired_outbox(session: Session, *, now: datetime | None = None) -> int:
-    """Wall-clock expiry sweep (#456 A02/A03) — pure DB work, no network,
-    no lock beyond the row itself. Cheap enough to run on every sweep
-    invocation rather than being separately scheduled.
+    """Wall-clock expiry sweep (#456 A02/A03; single rule since #525) —
+    pure DB work, no network, no lock beyond the row itself. Cheap enough
+    to run on every sweep invocation rather than being separately
+    scheduled.
 
-    A never-attempted row is cancelled 24h after creation. A row stuck in
-    `unknown` has its payload nulled 24h after its first attempt (it stops
-    being retried well before that — see `_next_attempt_after` — but the
-    payload itself lingers, retained for potential reconciliation, until
-    this wall-clock deadline). This function is the sweep; callers that
-    need to gate access on "is this outbox row still usable" must ALSO
-    check wall-clock time directly (row.created_at/first_attempt_at vs.
-    now) rather than assuming this sweep has already run — a stopped
-    worker delays this cleanup, and the check must not depend on it having
-    executed (#456 Contract constraints).
+    A `pending` row older than `RETRY_WINDOW` is given up on: status
+    `failed`, payload cleared. That one rule covers both what used to be
+    two rules ("never attempted after 24h" and "attempted, clear payload
+    24h after the first attempt") — a row cannot be sent after its window
+    either way, and the frozen token/body are gone with it.
+
+    This function is the sweep; callers that need to gate access on "is
+    this outbox row still usable" must ALSO check wall-clock time directly
+    (row.created_at vs. now) rather than assuming this sweep has already
+    run — a stopped worker delays this cleanup, and the check must not
+    depend on it having executed (#456 Contract constraints).
     """
     now = now or datetime.now(UTC)
 
-    never_attempted_cutoff = now - NEVER_ATTEMPTED_CANCEL_AFTER
-    result_a = cast(
+    window_cutoff = now - RETRY_WINDOW
+    result = cast(
         CursorResult[Any],
         session.execute(
             update(VigilOutbox)
             .where(
-                VigilOutbox.status.in_((_PENDING, _LEASED)),
-                VigilOutbox.first_attempt_at.is_(None),
-                VigilOutbox.created_at <= never_attempted_cutoff,
+                VigilOutbox.status == _PENDING,
+                VigilOutbox.created_at <= window_cutoff,
             )
             .values(
-                status=_CANCELLED, payload_cipher=None, payload_sha256=None, next_attempt_at=None
+                status=_FAILED,
+                payload_cipher=None,
+                payload_sha256=None,
+                next_attempt_at=None,
+                lease_until=None,
             )
         ),
     )
-
-    unknown_cutoff = now - UNKNOWN_PAYLOAD_CLEAR_AFTER
-    result_b = cast(
-        CursorResult[Any],
-        session.execute(
-            update(VigilOutbox)
-            .where(
-                VigilOutbox.status == _UNKNOWN,
-                VigilOutbox.first_attempt_at.isnot(None),
-                VigilOutbox.first_attempt_at <= unknown_cutoff,
-                VigilOutbox.payload_cipher.isnot(None),
-            )
-            .values(payload_cipher=None, payload_sha256=None, next_attempt_at=None)
-        ),
-    )
-    return int(result_a.rowcount or 0) + int(result_b.rowcount or 0)
+    return int(result.rowcount or 0)
 
 
 def _lock_user_vault_and_row(session: Session, outbox_id: UUID) -> VigilOutbox | None:
@@ -318,40 +323,45 @@ def _lock_user_vault_and_row(session: Session, outbox_id: UUID) -> VigilOutbox |
 
 
 def _is_due_for_retry(
-    *, status: str, has_payload: bool, next_attempt_at: datetime | None, now: datetime
+    *,
+    status: str,
+    has_payload: bool,
+    created_at: datetime,
+    lease_until: datetime | None,
+    next_attempt_at: datetime | None,
+    now: datetime,
 ) -> bool:
-    """Must mirror `_lease_due_ids`'s SQL `due_retry` predicate exactly.
+    """The single authoritative "may this row be sent now" rule (#525).
 
-    `next_attempt_at IS NULL` means two different things depending on
-    status: for a never-tried PENDING row it means "due immediately" (no
-    attempt has scheduled a delay yet); for an UNKNOWN row it means
-    retries are EXHAUSTED (`_next_attempt_after` returned None because the
-    attempt ceiling or the 23h window was hit) — treating that the same as
-    "due now" would re-send an already-exhausted row on every sweep until
-    `sweep_expired_outbox`'s 24h clear finally removes its payload
-    (blacktomb42 PR #510 review round 1, P3.1-A02).
+    Evaluated under the row lock by `_lease_one`; `_lease_due_ids` is only
+    a coarse prefilter, so the two cannot drift apart (the P3.1 review
+    round 1 defect was a Python predicate that had to mirror a SQL one).
+
+    `next_attempt_at IS NULL` now has exactly one meaning — never attempted,
+    due now — because a row that stops being retryable leaves `pending`
+    (the sweep marks it `failed`) instead of sitting in a retryable status
+    with a NULL schedule.
     """
-    if status not in _RETRYABLE_STATUSES or not has_payload:
+    if status != _PENDING or not has_payload:
         return False
-    if next_attempt_at is not None:
-        return next_attempt_at <= now
-    return status == _PENDING
+    if created_at <= now - RETRY_WINDOW:
+        return False
+    if lease_until is not None and lease_until > now:
+        return False
+    return next_attempt_at is None or next_attempt_at <= now
 
 
 def _lease_due_ids(session: Session, *, now: datetime, limit: int) -> list[UUID]:
-    stuck_lease = and_(VigilOutbox.status == _LEASED, VigilOutbox.lease_until <= now)
-    due_retry = and_(
-        VigilOutbox.status.in_(_RETRYABLE_STATUSES),
-        VigilOutbox.payload_cipher.isnot(None),
-        or_(
-            and_(VigilOutbox.next_attempt_at.isnot(None), VigilOutbox.next_attempt_at <= now),
-            and_(VigilOutbox.status == _PENDING, VigilOutbox.next_attempt_at.is_(None)),
-        ),
-    )
+    """Coarse candidate prefilter, oldest first. Deliberately NOT the
+    authoritative due rule — `_lease_one` re-checks under the row lock."""
     return list(
         session.scalars(
             select(VigilOutbox.id)
-            .where(or_(due_retry, stuck_lease))
+            .where(
+                VigilOutbox.status == _PENDING,
+                VigilOutbox.payload_cipher.isnot(None),
+                or_(VigilOutbox.lease_until.is_(None), VigilOutbox.lease_until <= now),
+            )
             .order_by(VigilOutbox.created_at)
             .limit(limit)
         ).all()
@@ -360,27 +370,25 @@ def _lease_due_ids(session: Session, *, now: datetime, limit: int) -> list[UUID]
 
 def _lease_one(session_factory: Callable[[], Session], outbox_id: UUID, *, now: datetime) -> bool:
     """Locks User->vault->row (in that order) and, if still due, marks it
-    `leased`. Commits (releasing every lock) before returning — the caller
-    does the actual HTTP send outside any lock."""
+    claimed by setting `lease_until` (status stays `pending` — #525).
+    Commits (releasing every lock) before returning — the caller does the
+    actual HTTP send outside any lock."""
     session = session_factory()
     try:
         row = _lock_user_vault_and_row(session, outbox_id)
         if row is None:
             session.rollback()
             return False
-        is_stuck_lease = (
-            row.status == _LEASED and row.lease_until is not None and row.lease_until <= now
-        )
-        is_due_retry = _is_due_for_retry(
+        if not _is_due_for_retry(
             status=row.status,
             has_payload=row.payload_cipher is not None,
+            created_at=row.created_at,
+            lease_until=row.lease_until,
             next_attempt_at=row.next_attempt_at,
             now=now,
-        )
-        if not (is_stuck_lease or is_due_retry):
+        ):
             session.rollback()
             return False
-        row.status = _LEASED
         row.lease_until = now + timedelta(seconds=LEASE_SECONDS)
         session.commit()
         return True
@@ -390,7 +398,7 @@ def _lease_one(session_factory: Callable[[], Session], outbox_id: UUID, *, now: 
 
 @dataclass(frozen=True)
 class ProviderSendResult:
-    outcome: str  # "accepted" | "failed" | "unknown"
+    outcome: str  # "accepted" | "failed" | "unknown" (provider outcome, not a row status)
     provider_id: str | None
     error_code: str | None
 
@@ -413,17 +421,19 @@ def _default_send(body: dict[str, Any], idempotency_key: str) -> ProviderSendRes
                 json=body,
             )
     except httpx.TimeoutException:
-        return ProviderSendResult(outcome=_UNKNOWN, provider_id=None, error_code="timeout")
+        return ProviderSendResult(outcome=_OUTCOME_UNKNOWN, provider_id=None, error_code="timeout")
     except httpx.HTTPError:
-        return ProviderSendResult(outcome=_UNKNOWN, provider_id=None, error_code="transport_error")
+        return ProviderSendResult(
+            outcome=_OUTCOME_UNKNOWN, provider_id=None, error_code="transport_error"
+        )
 
     if resp.status_code >= 500:
         return ProviderSendResult(
-            outcome=_UNKNOWN, provider_id=None, error_code=f"http_{resp.status_code}"
+            outcome=_OUTCOME_UNKNOWN, provider_id=None, error_code=f"http_{resp.status_code}"
         )
     if resp.status_code >= 400:
         return ProviderSendResult(
-            outcome=_FAILED, provider_id=None, error_code=f"http_{resp.status_code}"
+            outcome=_OUTCOME_FAILED, provider_id=None, error_code=f"http_{resp.status_code}"
         )
 
     try:
@@ -431,23 +441,12 @@ def _default_send(body: dict[str, Any], idempotency_key: str) -> ProviderSendRes
     except ValueError:
         provider_id = None
     if isinstance(provider_id, str) and provider_id:
-        return ProviderSendResult(outcome=_ACCEPTED, provider_id=provider_id, error_code=None)
-    return ProviderSendResult(outcome=_UNKNOWN, provider_id=None, error_code="missing_provider_id")
-
-
-def _next_attempt_after(
-    *, attempts: int, first_attempt_at: datetime, now: datetime
-) -> datetime | None:
-    """`attempts` is the count AFTER this attempt. Returns None when
-    retries are exhausted (max attempts reached, or the next scheduled
-    attempt would land past first_attempt_at + 23h)."""
-    if attempts >= MAX_ATTEMPTS or attempts > len(RETRY_SCHEDULE_MINUTES):
-        return None
-    delay = timedelta(minutes=RETRY_SCHEDULE_MINUTES[attempts - 1])
-    candidate = now + delay
-    if candidate - first_attempt_at > MAX_ATTEMPT_WINDOW:
-        return None
-    return candidate
+        return ProviderSendResult(
+            outcome=_OUTCOME_ACCEPTED, provider_id=provider_id, error_code=None
+        )
+    return ProviderSendResult(
+        outcome=_OUTCOME_UNKNOWN, provider_id=None, error_code="missing_provider_id"
+    )
 
 
 def _finalize_attempt(
@@ -462,7 +461,7 @@ def _finalize_attempt(
     "a cancellation or revocation may have committed DURING the HTTP
     call"). A late `accepted` is always recorded as a historical fact
     (provider_id/accepted_at), but never reactivates a row that is no
-    longer `leased` by us: no flipping a terminal status back, no
+    longer `pending` by us: no flipping a terminal status back, no
     restoring a cleared payload.
     """
     session = session_factory()
@@ -472,13 +471,13 @@ def _finalize_attempt(
             session.rollback()
             return
 
-        if row.status != _LEASED:
+        if row.status != _PENDING:
             # Raced: cancelled (or otherwise moved on) while the HTTP call
             # was in flight. Record the provider fact for the historical
             # record ONLY if we actually got one — never touch status or
-            # payload_cipher; a cleared payload stays cleared, a cancelled
-            # row stays cancelled.
-            if result.outcome == _ACCEPTED and row.provider_id is None:
+            # payload_cipher; a cleared payload stays cleared, a failed row
+            # stays failed.
+            if result.outcome == _OUTCOME_ACCEPTED and row.provider_id is None:
                 row.provider_id = result.provider_id
                 row.accepted_at = now
             session.commit()
@@ -488,31 +487,24 @@ def _finalize_attempt(
         row.attempts = attempts
         if row.first_attempt_at is None:
             row.first_attempt_at = now
+        row.lease_until = None
 
-        if result.outcome == _ACCEPTED:
+        if result.outcome == _OUTCOME_ACCEPTED:
             row.status = _ACCEPTED
             row.provider_id = result.provider_id
             row.accepted_at = now
             row.payload_cipher = None
             row.payload_sha256 = None
             row.next_attempt_at = None
-        elif result.outcome == _FAILED:
+        elif result.outcome == _OUTCOME_FAILED:
             row.status = _FAILED
             row.last_error_code = result.error_code
             row.payload_cipher = None
             row.payload_sha256 = None
             row.next_attempt_at = None
-        else:  # unknown
-            row.status = _UNKNOWN
+        else:  # unknown — stay pending, retry once per RETRY_INTERVAL
             row.last_error_code = result.error_code
-            row.next_attempt_at = _next_attempt_after(
-                attempts=attempts, first_attempt_at=row.first_attempt_at, now=now
-            )
-            # Payload is NOT cleared here even if retries are exhausted —
-            # sweep_expired_outbox owns the 24h-since-first-attempt clear
-            # (A02), so a request-path check that runs before the next
-            # sweep still sees a payload and must rely on its OWN
-            # wall-clock check, not payload presence, to decide validity.
+            row.next_attempt_at = now + RETRY_INTERVAL
 
         session.commit()
     finally:
