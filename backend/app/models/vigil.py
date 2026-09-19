@@ -472,22 +472,6 @@ class VigilActionToken(Base):
     )
 
 
-class VigilConsumedNonce(Base):
-    """One-time public-action nonce consumption (issue #458, P2.3).
-
-    jti is the PK: inserting it in the action transaction is what consumes
-    the nonce. GET /vigil/public/status must never write this table.
-    """
-
-    __tablename__ = "vigil_consumed_nonces"
-
-    jti: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
-    token_hash: Mapped[str] = mapped_column(Text, nullable=False)
-    action: Mapped[str] = mapped_column(Text, nullable=False)
-    expires_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
-    used_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
-
-
 class VigilCycle(Base):
     """One confirmation cycle for an armed arrangement (issue #459, P3.3).
 

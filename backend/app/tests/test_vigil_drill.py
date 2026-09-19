@@ -26,7 +26,6 @@ from app.models.user import User
 from app.models.vigil import (
     VigilActionToken,
     VigilAuditEvent,
-    VigilConsumedNonce,
     VigilObject,
     VigilVault,
 )
@@ -36,7 +35,6 @@ from app.services.vigil.configuration import (
 )
 from app.services.vigil.drills import peek_outbox_token_for_tests
 from app.services.vigil.objects import init_object, upload_object
-from app.services.vigil.tokens import mint_signed_nonce
 from app.tests.conftest import TEST_USER_ID
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -179,24 +177,12 @@ def _post_drill(
     )
 
 
-def _confirm(app_client: TestClient, token: str, nonce: str, altcha: str) -> Any:
+def _confirm(app_client: TestClient, token: str, altcha: str) -> Any:
     return app_client.post(
         "/vigil/public/confirm",
         headers=_origin(),
-        json={"token": token, "nonce": nonce, "altcha": altcha},
+        json={"token": token, "altcha": altcha},
     )
-
-
-def _mint_http_nonce(app_client: TestClient, token: str) -> str:
-    resp = app_client.post(
-        "/vigil/public/status",
-        headers=_origin(),
-        json={"token": token, "action": "confirm"},
-    )
-    assert resp.status_code == 200, resp.text
-    nonce = resp.json()["nonce"]
-    assert isinstance(nonce, str)
-    return nonce
 
 
 # --- Issue #515 -------------------------------------------------------------
@@ -206,9 +192,11 @@ def test_public_endpoints_do_not_require_origin_header(
     app_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Real browser/proxy traffic does not reliably send Origin on a GET, and
-    none of these four endpoints needs it: the two GETs return no secret and
-    cause no state change, and the two POSTs are already gated by the
-    single-use token hash, minted nonce, and solved Altcha challenge."""
+    neither of these two remaining public endpoints needs it: the GET
+    returns no secret and causes no state change, and the confirm POST is
+    already gated by the single-use token hash and a solved Altcha
+    challenge (#528, #516 finding 13 removed the GET/POST status-mint
+    ceremony that used to sit between them)."""
     monkeypatch.setattr("app.services.vigil.arm.live_activation_allowed", lambda: True)
 
     config_id, object_id, revision = _seed_ready(db_session)
@@ -235,16 +223,7 @@ def test_public_endpoints_do_not_require_origin_header(
         signature=challenge["signature"],
     ).to_base64()
 
-    status_resp = app_client.get("/vigil/public/status", params={"token": token})
-    assert status_resp.status_code == 200, status_resp.text
-
-    nonce_resp = app_client.post("/vigil/public/status", json={"token": token, "action": "confirm"})
-    assert nonce_resp.status_code == 200, nonce_resp.text
-    nonce = nonce_resp.json()["nonce"]
-
-    confirm_resp = app_client.post(
-        "/vigil/public/confirm", json={"token": token, "nonce": nonce, "altcha": altcha}
-    )
+    confirm_resp = app_client.post("/vigil/public/confirm", json={"token": token, "altcha": altcha})
     assert confirm_resp.status_code == 200, confirm_resp.text
 
 
@@ -260,15 +239,7 @@ def test_p23_a01_b_drill_then_c_init_cannot_activate_without_explicit_arm(
     db_session.commit()
     drill_a = _post_drill(app_client, config_a, object_a, rev_a)
     token_a = peek_outbox_token_for_tests(db_session, uuid.UUID(drill_a.json()["drill_id"]))
-    assert (
-        _confirm(
-            app_client,
-            token_a,
-            _mint_http_nonce(app_client, token_a),
-            _solved_vigil_altcha(app_client),
-        ).status_code
-        == 200
-    )
+    assert _confirm(app_client, token_a, _solved_vigil_altcha(app_client)).status_code == 200
     armed_a = app_client.post(
         "/vigil/arm",
         json={
@@ -287,7 +258,6 @@ def test_p23_a01_b_drill_then_c_init_cannot_activate_without_explicit_arm(
     drill_b = _post_drill(app_client, config_b, object_b, rev_b)
     assert drill_b.status_code == 202, drill_b.text
     token_b = peek_outbox_token_for_tests(db_session, uuid.UUID(drill_b.json()["drill_id"]))
-    nonce_b = _mint_http_nonce(app_client, token_b)
     _age_drills(db_session)
 
     config_c, object_c, rev_c = _seed_ready(
@@ -295,7 +265,7 @@ def test_p23_a01_b_drill_then_c_init_cannot_activate_without_explicit_arm(
     )
     db_session.commit()
 
-    confirm_b = _confirm(app_client, token_b, nonce_b, _solved_vigil_altcha(app_client))
+    confirm_b = _confirm(app_client, token_b, _solved_vigil_altcha(app_client))
     assert confirm_b.status_code == 410
 
     arm_b = app_client.post(
@@ -328,8 +298,7 @@ def test_p23_a01_b_drill_then_c_init_cannot_activate_without_explicit_arm(
     drill_c = _post_drill(app_client, config_c, object_c, rev_c)
     assert drill_c.status_code == 202, drill_c.text
     token_c = peek_outbox_token_for_tests(db_session, uuid.UUID(drill_c.json()["drill_id"]))
-    nonce_c = _mint_http_nonce(app_client, token_c)
-    confirm_c = _confirm(app_client, token_c, nonce_c, _solved_vigil_altcha(app_client))
+    confirm_c = _confirm(app_client, token_c, _solved_vigil_altcha(app_client))
     assert confirm_c.status_code == 200
     assert confirm_c.json()["result"] == "confirmed"
     db_session.refresh(vault)
@@ -370,10 +339,7 @@ def test_p23_a01_failed_new_drill_leaves_prior_armed_state(
     db_session.commit()
     drill_a = _post_drill(app_client, config_a, object_a, rev_a)
     token_a = peek_outbox_token_for_tests(db_session, uuid.UUID(drill_a.json()["drill_id"]))
-    nonce_a = _mint_http_nonce(app_client, token_a)
-    assert (
-        _confirm(app_client, token_a, nonce_a, _solved_vigil_altcha(app_client)).status_code == 200
-    )
+    assert _confirm(app_client, token_a, _solved_vigil_altcha(app_client)).status_code == 200
     armed = app_client.post(
         "/vigil/arm",
         json={
@@ -407,64 +373,43 @@ def test_p23_a01_failed_new_drill_leaves_prior_armed_state(
 # --- P2.3-A02 / A06 --------------------------------------------------------
 
 
-def test_p23_a02_get_status_is_read_only_and_nonce_replay_fails(
+def test_p23_a02_public_status_endpoints_removed_and_confirm_replay_is_already_resolved(
     app_client: TestClient, db_session: Session
 ) -> None:
+    """#528, #516 finding 13/14: no status-mint ceremony exists anymore —
+    confirm works with `{token, altcha}` alone — and single-use is
+    `VigilActionToken.confirmed_at`, not a separate nonce table, so a
+    replayed confirm is an idempotent `already_resolved`, never a second
+    state change."""
     config_id, object_id, revision = _seed_ready(db_session)
     db_session.commit()
     drill = _post_drill(app_client, config_id, object_id, revision)
     assert drill.status_code == 202, drill.text
     token = peek_outbox_token_for_tests(db_session, uuid.UUID(drill.json()["drill_id"]))
-
-    nonce_count_before = (
-        db_session.scalar(select(func.count()).select_from(VigilConsumedNonce)) or 0
-    )
     token_row = db_session.execute(
         select(VigilActionToken).where(VigilActionToken.id == uuid.UUID(drill.json()["drill_id"]))
     ).scalar_one()
-    for _ in range(100):
-        resp = app_client.get(
-            "/vigil/public/status",
-            params={"token": token},
-            headers=_origin(),
-        )
-        assert resp.status_code == 200, resp.text
-        body = resp.json()
-        assert body["available"] is True
-        assert body.get("nonce") is None
-        assert "account_email" not in body
-        assert "recipients" not in body
-    db_session.refresh(token_row)
-    assert token_row.confirmed_at is None
-    assert token_row.used_at is None
+
+    assert app_client.get("/vigil/public/status", params={"token": token}).status_code == 404
     assert (
-        db_session.scalar(select(func.count()).select_from(VigilConsumedNonce)) or 0
-    ) == nonce_count_before
-
-    expired = mint_signed_nonce(
-        token_hash=token_row.token_hash,
-        action="confirm",
-        object_id=object_id,
-        now=datetime.now(UTC) - timedelta(minutes=5),
+        app_client.post(
+            "/vigil/public/status", json={"token": token, "action": "confirm"}
+        ).status_code
+        == 404
     )
-    expired_resp = _confirm(app_client, token, expired.compact, _solved_vigil_altcha(app_client))
-    assert expired_resp.status_code == 422
 
-    wrong = mint_signed_nonce(
-        token_hash=token_row.token_hash,
-        action="revoke",
-        object_id=object_id,
-        now=datetime.now(UTC),
-    )
-    wrong_resp = _confirm(app_client, token, wrong.compact, _solved_vigil_altcha(app_client))
-    assert wrong_resp.status_code == 422
-
-    nonce = _mint_http_nonce(app_client, token)
-    first = _confirm(app_client, token, nonce, _solved_vigil_altcha(app_client))
-    assert first.status_code == 200
+    first = _confirm(app_client, token, _solved_vigil_altcha(app_client))
+    assert first.status_code == 200, first.text
     assert first.json()["result"] == "confirmed"
-    replay = _confirm(app_client, token, nonce, _solved_vigil_altcha(app_client))
-    assert replay.status_code == 422
+    db_session.refresh(token_row)
+    assert token_row.confirmed_at is not None
+    confirmed_at = token_row.confirmed_at
+
+    replay = _confirm(app_client, token, _solved_vigil_altcha(app_client))
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["result"] == "already_resolved"
+    db_session.refresh(token_row)
+    assert token_row.confirmed_at == confirmed_at
 
 
 # --- P2.3-A03 / D5 ---------------------------------------------------------
@@ -478,15 +423,7 @@ def test_p23_a03_first_arm_sets_retention_later_drill_does_not_refresh(
     db_session.commit()
     drill_a = _post_drill(app_client, config_a, object_a, rev_a)
     token_a = peek_outbox_token_for_tests(db_session, uuid.UUID(drill_a.json()["drill_id"]))
-    assert (
-        _confirm(
-            app_client,
-            token_a,
-            _mint_http_nonce(app_client, token_a),
-            _solved_vigil_altcha(app_client),
-        ).status_code
-        == 200
-    )
+    assert _confirm(app_client, token_a, _solved_vigil_altcha(app_client)).status_code == 200
     armed = app_client.post(
         "/vigil/arm",
         json={
@@ -513,15 +450,7 @@ def test_p23_a03_first_arm_sets_retention_later_drill_does_not_refresh(
     db_session.commit()
     drill_b = _post_drill(app_client, config_b, object_b, rev_b)
     token_b = peek_outbox_token_for_tests(db_session, uuid.UUID(drill_b.json()["drill_id"]))
-    assert (
-        _confirm(
-            app_client,
-            token_b,
-            _mint_http_nonce(app_client, token_b),
-            _solved_vigil_altcha(app_client),
-        ).status_code
-        == 200
-    )
+    assert _confirm(app_client, token_b, _solved_vigil_altcha(app_client)).status_code == 200
     armed_b = app_client.post(
         "/vigil/arm",
         json={
@@ -559,12 +488,7 @@ def test_p23_a04_backup_field_422_and_live_arm_blocked_without_stop_hooks(
     drill = _post_drill(app_client, config_id, object_id, revision)
     assert drill.status_code == 202, drill.text
     token = peek_outbox_token_for_tests(db_session, uuid.UUID(drill.json()["drill_id"]))
-    assert (
-        _confirm(
-            app_client, token, _mint_http_nonce(app_client, token), _solved_vigil_altcha(app_client)
-        ).status_code
-        == 200
-    )
+    assert _confirm(app_client, token, _solved_vigil_altcha(app_client)).status_code == 200
     live_arm = app_client.post(
         "/vigil/arm",
         json={
@@ -602,20 +526,7 @@ def test_p23_a04_unverified_account_email_cannot_drill(
     assert db_session.scalar(select(func.count()).select_from(VigilActionToken)) == 0
 
 
-def test_public_status_rejects_unknown_action(app_client: TestClient, db_session: Session) -> None:
-    config_id, object_id, revision = _seed_ready(db_session)
-    db_session.commit()
-    drill = _post_drill(app_client, config_id, object_id, revision)
-    token = peek_outbox_token_for_tests(db_session, uuid.UUID(drill.json()["drill_id"]))
-    resp = app_client.post(
-        "/vigil/public/status",
-        headers=_origin(),
-        json={"token": token, "action": "backup"},
-    )
-    assert resp.status_code == 422
-
-
-def test_purge_removes_action_tokens_and_consumed_nonces(
+def test_purge_removes_action_tokens(
     app_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from app.services.user_purge import purge_user
@@ -625,8 +536,7 @@ def test_purge_removes_action_tokens_and_consumed_nonces(
     db_session.commit()
     drill = _post_drill(app_client, config_id, object_id, revision)
     token = peek_outbox_token_for_tests(db_session, uuid.UUID(drill.json()["drill_id"]))
-    nonce = _mint_http_nonce(app_client, token)
-    assert _confirm(app_client, token, nonce, _solved_vigil_altcha(app_client)).status_code == 200
+    assert _confirm(app_client, token, _solved_vigil_altcha(app_client)).status_code == 200
     armed = app_client.post(
         "/vigil/arm",
         json={
@@ -669,7 +579,6 @@ def test_purge_removes_action_tokens_and_consumed_nonces(
     result = purge_user(db_session, TEST_USER_ID)
     db_session.rollback()
     assert result.vigil_action_tokens == 1
-    assert result.vigil_consumed_nonces == 1
     assert result.vigil_audit_events == 1
 
 

@@ -36,13 +36,10 @@ from app.services.vigil.delivery import evaluate_delivery_evidence
 from app.services.vigil.dispatch import cancel_outbox_intents, write_outbox_entry
 from app.services.vigil.events import emit_vigil_event
 from app.services.vigil.tokens import (
-    VigilNonceError,
-    consume_nonce,
     db_now,
     hash_link_token,
     mint_link_token,
     rfc3339_z,
-    verify_signed_nonce,
 )
 
 SCAN_GAP = timedelta(minutes=5)
@@ -753,9 +750,12 @@ def confirm_cycle_token(
     session: Session,
     *,
     token: str,
-    nonce: str,
     now: datetime | None = None,
 ) -> PublicCycleConfirmResult:
+    """Single-use is `VigilActionToken.confirmed_at`/`VigilCycle.status`,
+    both set by `_resolve_to_armed` under the row locks `_lock_token_context`
+    already took — no separate nonce consumption needed (#528, #516 finding
+    14)."""
     from app.services.vigil.drills import VigilPublicTokenError, _lock_token_context
 
     token_hash = hash_link_token(token)
@@ -768,16 +768,6 @@ def confirm_cycle_token(
     ).scalar_one_or_none()
     if cycle is None:
         raise VigilPublicTokenError(404, "not found")
-    try:
-        signed = verify_signed_nonce(
-            nonce,
-            token_hash=token_hash,
-            action="confirm",
-            object_id=row.object_id,
-            now=current,
-        )
-    except VigilNonceError as exc:
-        raise VigilPublicTokenError(422, str(exc)) from exc
 
     if cycle.status == "confirmed" or row.confirmed_at is not None:
         next_check = rfc3339_z(vault.next_check_at) if vault.next_check_at is not None else None
@@ -788,10 +778,6 @@ def confirm_cycle_token(
         raise VigilPublicTokenError(409, "gone")
     if vault.phase == "DISARMED":
         raise VigilPublicTokenError(410, "gone")
-    try:
-        consume_nonce(session, signed, now=current)
-    except VigilNonceError as exc:
-        raise VigilPublicTokenError(422, str(exc)) from exc
     _resolve_to_armed(
         session,
         user=user,
@@ -804,23 +790,3 @@ def confirm_cycle_token(
     return PublicCycleConfirmResult(
         result="confirmed", next_check_at=rfc3339_z(vault.next_check_at)
     )
-
-
-def cycle_token_public_state(
-    session: Session, token_row: VigilActionToken, *, now: datetime, vault: VigilVault
-) -> str:
-    if token_row.cycle_id is None:
-        return "wrong_purpose"
-    cycle = session.get(VigilCycle, token_row.cycle_id)
-    if cycle is None:
-        return "stale"
-    if token_row.confirmed_at is not None or cycle.status == "confirmed":
-        return "confirmed"
-    if token_row.invalidated_at is not None:
-        return "invalidated"
-    if cycle.status != "active":
-        return "stale"
-    if cycle.vault_id != vault.id:
-        return "stale"
-    del now
-    return "available"
