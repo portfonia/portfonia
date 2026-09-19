@@ -858,3 +858,17 @@ def test_db_failure_on_webhook_returns_503(
         },
     )
     assert resp.status_code == 503
+
+
+def test_delivery_poller_removed_from_beat_and_tasks() -> None:
+    """Regression guard for issue #526 (#516 finding 3): the bounded
+    delivery-evidence poll must not reappear on the beat schedule or as a
+    task, even accidentally re-added alongside a future change to this
+    module. Webhook + hold-on-missing-evidence is the only path.
+    """
+    from app.services.vigil import delivery
+    from app.tasks import celery_app, vigil_tasks
+
+    assert "poll-vigil-delivery" not in celery_app.conf.beat_schedule
+    assert not hasattr(vigil_tasks, "poll_vigil_delivery_task")
+    assert not hasattr(delivery, "run_delivery_poll_sweep")

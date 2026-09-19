@@ -372,9 +372,11 @@ class VigilOutbox(Base):
 class VigilDeliveryEvent(Base):
     """Signed provider delivery facts (issue #457, P3.2).
 
-    UNIQUE `provider_event_id` is the Svix/Resend event id (webhook) or a
-    synthetic `poll:{outbox_id}:{window}` key (bounded 5/15/30-minute
-    poll). `outbox_id` is nullable: unmatched events (wrong product,
+    UNIQUE `provider_event_id` is the Svix/Resend event id (webhook). Rows
+    written before issue #526 (#516 finding 3) removed the bounded
+    5/15/30-minute delivery poll may carry a legacy synthetic
+    `poll:{outbox_id}:{window}` key instead — nothing writes that shape
+    anymore. `outbox_id` is nullable: unmatched events (wrong product,
     webhook-before-send-response, shared-provider report mail) are kept
     for later association and never credited to a vault. No raw body,
     token, or personal message is stored; an address is retained only as
