@@ -624,18 +624,22 @@ table is for cross-session technical-debt reminders only, not a substitute.
 - **Deferred**: open issue → leave in backlog → comment + close when later
   addressed.
 
-**GitHub access and separate identities:** writes use the stored `gh`
-OAuth login for `portfonia`, checked without `GH_TOKEN`/`GITHUB_TOKEN`
-environment overrides. If OAuth is unavailable, the authorized fallback is
-this project's `.env.local` `GITHUB_TOKEN`, verified as `portfonia`.
-Reviews use `.env.local` `GITHUB_REVIEWER_TOKEN`, verified as `blacktomb42`;
-never use that reviewer token for issue maintenance, pushes, or merges.
-Load only the needed token for the command and never expose its value.
-Authentication or a review does not replace the owner's explicit merge
-approval; the existing self-review restrictions still apply. See
-`docs/playbooks/git-and-review-incidents.md` for the current procedure and
-clearly superseded historical rules. Obsidian operations use the configured
-MCP, as specified in `AGENTS.md` and documentation governance.
+**GitHub access and separate identities:** never attempt `gh auth login`/
+stored OAuth for this project (retracted 2026-09-18 — OAuth reported
+invalid mid-session despite the owner re-verifying it). Writes use
+`GITHUB_TOKEN` from this project's `.env.local`, verified as `portfonia`,
+via `gh api` (REST endpoints) exclusively — never `gh issue`/`gh pr` or
+other high-level porcelain subcommands, which may call GitHub's GraphQL
+endpoint internally. Reviews use `.env.local` `GITHUB_REVIEWER_TOKEN`,
+verified as `blacktomb42`; never use that reviewer token for issue
+maintenance, pushes, or merges. Load only the needed token for the
+command and never expose its value. Authentication or a review does not
+replace the owner's explicit merge approval; the existing self-review
+restrictions still apply. See `docs/playbooks/git-and-review-incidents.md`
+for the current procedure and clearly superseded historical rules.
+Obsidian operations use the configured MCP, as specified in `AGENTS.md`
+and documentation governance — that default is unaffected by the GitHub
+REST-only change above.
 
 ## Reviews must be full-context, not diff-only (MANDATORY, 2026-09-15)
 
