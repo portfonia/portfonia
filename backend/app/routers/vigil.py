@@ -59,11 +59,6 @@ from app.services.vigil.cycles import (
     disarm,
 )
 from app.services.vigil.delivery import ingest_verified_webhook, verify_resend_signature
-from app.services.vigil.dns_check import (
-    VigilDnsUnavailable,
-    VigilNoMailRoute,
-    check_recipients_dns,
-)
 from app.services.vigil.drills import (
     VigilDrillConflict,
     VigilDrillCooldown,
@@ -119,10 +114,10 @@ def get_vault(
     )
 
 
-# Issue #454 (Vigil R0 P2.1): configuration + object storage. DNS routing
-# validity happens outside any lock — see services/vigil/dns_check.py and
-# #450 Design section 5 ("DNS checks occur outside locks; a transient DNS
-# failure is 503 with no active-state change").
+# Issue #454 (Vigil R0 P2.1): configuration + object storage. Issue #524
+# (#516 finding 2) removed the save-time DNS/MX check this comment used to
+# describe: recipients are contacted months or years after save, so a
+# save-time DNS result predicts nothing about release-time deliverability.
 
 
 @router.post(
@@ -143,17 +138,6 @@ def post_configuration(
     except VigilConfigurationInputError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        ) from exc
-
-    try:
-        check_recipients_dns(r.email for r in normalized.recipients)
-    except VigilNoMailRoute as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        ) from exc
-    except VigilDnsUnavailable as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
         ) from exc
 
     try:

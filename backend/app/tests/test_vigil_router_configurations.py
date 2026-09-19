@@ -1,8 +1,10 @@
 """POST /vigil/configurations HTTP contract (issue #454, Vigil R0 P2.1).
 
-DNS is monkeypatched at services.vigil.dns_check._domain_has_mail_route —
-no real network call in this suite (matches this project's "external
-notification mocked by default" convention extended to outbound DNS).
+Issue #524 (#516 finding 2) removed save-time DNS/MX validation — no DNS
+mock is needed in this suite anymore. `test_configuration_save_needs_no_
+dns` below is the regression guard: recipients at a domain with no real
+mail route must still save successfully, since save-time DNS/MX no longer
+gates it.
 """
 
 from __future__ import annotations
@@ -16,7 +18,6 @@ from sqlalchemy.orm import Session
 
 from app.models.user import User
 from app.models.vigil import VigilVault
-from app.services.vigil import dns_check
 from app.tests.conftest import TEST_USER_ID
 
 
@@ -28,11 +29,6 @@ def _vigil_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("VIGIL_OWNER_AUTH_SUBJECT", "owner-sub")
     monkeypatch.setenv("VIGIL_ENCRYPTION_KEY", Fernet.generate_key().decode())
     get_settings.cache_clear()
-
-
-@pytest.fixture(autouse=True)
-def _dns_ok(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(dns_check, "_domain_has_mail_route", lambda domain: True)
 
 
 @pytest.fixture(autouse=True)
@@ -117,19 +113,18 @@ def test_unknown_field_returns_422(app_client: TestClient) -> None:
     assert resp.status_code == 422
 
 
-def test_dns_no_route_returns_422(app_client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(dns_check, "_domain_has_mail_route", lambda domain: False)
-    resp = app_client.post("/vigil/configurations", json=_payload())
-    assert resp.status_code == 422
-
-
-def test_dns_transient_failure_returns_503_with_no_state_change(
-    app_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def _raise(domain: str) -> bool:
-        raise dns_check.VigilDnsUnavailable("timed out")
-
-    monkeypatch.setattr(dns_check, "_domain_has_mail_route", _raise)
-    resp = app_client.post("/vigil/configurations", json=_payload())
-    assert resp.status_code == 503
-    assert db_session.query(VigilVault).count() == 0
+def test_configuration_save_needs_no_dns(app_client: TestClient) -> None:
+    """A syntactically valid recipient at a domain with no real mail route
+    still saves — save-time DNS/MX no longer gates configuration save."""
+    resp = app_client.post(
+        "/vigil/configurations",
+        json=_payload(
+            recipients=[
+                {
+                    "email": "a@no-such-mail-route.invalid",
+                    "email_confirm": "a@no-such-mail-route.invalid",
+                }
+            ]
+        ),
+    )
+    assert resp.status_code == 201, resp.text

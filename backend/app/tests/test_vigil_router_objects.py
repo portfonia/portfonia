@@ -14,7 +14,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models.user import User
-from app.services.vigil import dns_check
 from app.tests.conftest import TEST_USER_ID
 
 
@@ -26,7 +25,6 @@ def _vigil_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("VIGIL_OWNER_AUTH_SUBJECT", "owner-sub")
     monkeypatch.setenv("VIGIL_ENCRYPTION_KEY", Fernet.generate_key().decode())
     get_settings.cache_clear()
-    monkeypatch.setattr(dns_check, "_domain_has_mail_route", lambda domain: True)
 
 
 @pytest.fixture(autouse=True)
