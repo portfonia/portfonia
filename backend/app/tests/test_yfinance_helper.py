@@ -25,6 +25,7 @@ from app.services._yfinance import (
     _retry_with_backoff,
     _scale_price,
     fetch_last_close,
+    fetch_live_rate,
     fetch_ohlcv_range,
     fetch_ohlcv_range_bounded,
     fetch_spot,
@@ -674,3 +675,60 @@ def test_raw_download_retries_on_exception_and_recovers() -> None:
 
     assert not result.empty
     assert call_count["n"] == 2
+
+
+# ---------------------------------------------------------------------------
+# fetch_live_rate (issue #519) — live/intraday quote, not a daily-close bar.
+# ---------------------------------------------------------------------------
+
+
+def _fake_ticker_cls(last_price: float | None) -> type:
+    class _FastInfo(dict):
+        pass
+
+    class _FakeTicker:
+        def __init__(self, symbol: str) -> None:
+            self.symbol = symbol
+            self.fast_info = _FastInfo(last_price=last_price)
+
+    return _FakeTicker
+
+
+def test_fetch_live_rate_returns_last_price_per_ticker() -> None:
+    with patch(
+        "app.services._yfinance.yf.Ticker", side_effect=_fake_ticker_cls(1.4041999578475952)
+    ):
+        points = fetch_live_rate(["USDAUD=X", "USDGBP=X"])
+
+    assert set(points) == {"USDAUD=X", "USDGBP=X"}
+    price, as_of = points["USDAUD=X"]
+    assert price == 1.4041999578475952
+    assert as_of.tzinfo is not None
+
+
+def test_fetch_live_rate_omits_ticker_on_missing_price() -> None:
+    with patch("app.services._yfinance.yf.Ticker", side_effect=_fake_ticker_cls(None)):
+        points = fetch_live_rate(["USDAUD=X"])
+
+    assert points == {}
+
+
+def test_fetch_live_rate_omits_ticker_on_nan_price() -> None:
+    with patch("app.services._yfinance.yf.Ticker", side_effect=_fake_ticker_cls(float("nan"))):
+        points = fetch_live_rate(["USDAUD=X"])
+
+    assert points == {}
+
+
+def test_fetch_live_rate_omits_ticker_on_exception() -> None:
+    def _raising(symbol: str) -> object:
+        raise RuntimeError("network error")
+
+    with patch("app.services._yfinance.yf.Ticker", side_effect=_raising):
+        points = fetch_live_rate(["USDAUD=X"])
+
+    assert points == {}
+
+
+def test_fetch_live_rate_empty_input_returns_empty() -> None:
+    assert fetch_live_rate([]) == {}

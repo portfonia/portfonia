@@ -1,4 +1,7 @@
-"""Integration tests for fx_fetcher — real Postgres, mocked yfinance."""
+"""Integration tests for fx_fetcher's yfinance leg — real Postgres, mocked
+yfinance live-quote fetch (issue #519: was fetch_last_close's daily-bar
+fetch; a live quote's as_of is the fetch moment, not a bar's own date,
+but the upsert/alert mechanics this file covers are otherwise unchanged)."""
 
 from __future__ import annotations
 
@@ -40,7 +43,7 @@ def _fake_points() -> dict[str, tuple[float, datetime]]:
 
 
 def test_upsert_writes_all_pairs(db_session: Session) -> None:
-    with patch.object(fx_fetcher, "fetch_last_close", return_value=_fake_points()):
+    with patch.object(fx_fetcher, "fetch_live_rate", return_value=_fake_points()):
         result = fx_fetcher.update_fx_rates(db_session)
 
     assert result.upserted == len(fx_fetcher._PAIRS)
@@ -53,7 +56,7 @@ def test_upsert_writes_all_pairs(db_session: Session) -> None:
 
 
 def test_upsert_is_idempotent(db_session: Session) -> None:
-    with patch.object(fx_fetcher, "fetch_last_close", return_value=_fake_points()):
+    with patch.object(fx_fetcher, "fetch_live_rate", return_value=_fake_points()):
         fx_fetcher.update_fx_rates(db_session)
         fx_fetcher.update_fx_rates(db_session)
 
@@ -62,7 +65,7 @@ def test_upsert_is_idempotent(db_session: Session) -> None:
 
 
 def test_no_data_marks_all_failed(db_session: Session) -> None:
-    with patch.object(fx_fetcher, "fetch_last_close", return_value={}):
+    with patch.object(fx_fetcher, "fetch_live_rate", return_value={}):
         result = fx_fetcher.update_fx_rates(db_session)
 
     assert result.upserted == 0
@@ -71,7 +74,7 @@ def test_no_data_marks_all_failed(db_session: Session) -> None:
 
 def test_partial_data_records_missing_pair(db_session: Session) -> None:
     points = {"USDCNY=X": (7.18, _AS_OF)}
-    with patch.object(fx_fetcher, "fetch_last_close", return_value=points):
+    with patch.object(fx_fetcher, "fetch_live_rate", return_value=points):
         result = fx_fetcher.update_fx_rates(db_session)
 
     assert result.upserted == 1
@@ -101,7 +104,7 @@ def test_no_alert_sent_outside_production(db_session: Session) -> None:
     "development" (no production_env fixture requested here)."""
     get_settings.cache_clear()
     with (
-        patch.object(fx_fetcher, "fetch_last_close", return_value={}),
+        patch.object(fx_fetcher, "fetch_live_rate", return_value={}),
         patch.object(fx_fetcher, "send_ops_alert", return_value=True) as mock_alert,
     ):
         fx_fetcher.update_fx_rates(db_session)
@@ -120,7 +123,7 @@ def test_total_fetch_failure_sends_ops_alert(db_session: Session, production_env
     "never resolved" gap check (item 7b) in the same run — a separate, both-
     real failure mode, not a duplicate of this one."""
     with (
-        patch.object(fx_fetcher, "fetch_last_close", return_value={}),
+        patch.object(fx_fetcher, "fetch_live_rate", return_value={}),
         patch.object(fx_fetcher, "send_ops_alert", return_value=True) as mock_alert,
     ):
         fx_fetcher.update_fx_rates(db_session)
@@ -135,7 +138,7 @@ def test_total_fetch_failure_sends_ops_alert(db_session: Session, production_env
 def test_partial_fetch_failure_sends_ops_alert(db_session: Session, production_env: None) -> None:
     points = {"USDCNY=X": (7.18, _AS_OF)}
     with (
-        patch.object(fx_fetcher, "fetch_last_close", return_value=points),
+        patch.object(fx_fetcher, "fetch_live_rate", return_value=points),
         patch.object(fx_fetcher, "send_ops_alert", return_value=True) as mock_alert,
     ):
         fx_fetcher.update_fx_rates(db_session)
@@ -156,7 +159,7 @@ def test_fetch_failure_alert_is_deduped_same_day(db_session: Session, production
     re-alert — the durable Redis dedup (issue #298 pattern), not send_ops_
     alert's own Resend Idempotency-Key, is what suppresses this."""
     with (
-        patch.object(fx_fetcher, "fetch_last_close", return_value={}),
+        patch.object(fx_fetcher, "fetch_live_rate", return_value={}),
         patch.object(fx_fetcher, "send_ops_alert", return_value=True) as mock_alert,
     ):
         fx_fetcher.update_fx_rates(db_session)
@@ -174,7 +177,7 @@ def test_failed_alert_not_deduped_when_send_fails(
     """A failed send must leave the dedup state unset so the next run retries
     it (mirrors price_capture.py's _send_nav_alert round-2 review fix)."""
     with (
-        patch.object(fx_fetcher, "fetch_last_close", return_value={}),
+        patch.object(fx_fetcher, "fetch_live_rate", return_value={}),
         patch.object(fx_fetcher, "send_ops_alert", return_value=False) as mock_alert,
     ):
         fx_fetcher.update_fx_rates(db_session)
@@ -199,7 +202,7 @@ def test_missing_pair_sends_never_resolved_alert(db_session: Session, production
     points = {yf_ticker: (7.18, _AS_OF) for yf_ticker in fx_fetcher._PAIRS.values()}
     del points["USDHKD=X"]
     with (
-        patch.object(fx_fetcher, "fetch_last_close", return_value=points),
+        patch.object(fx_fetcher, "fetch_live_rate", return_value=points),
         patch.object(fx_fetcher, "send_ops_alert", return_value=True) as mock_alert,
     ):
         fx_fetcher.update_fx_rates(db_session)
@@ -221,7 +224,7 @@ def test_stale_resolvable_pair_sends_stale_alert(db_session: Session, production
     db_session.flush()
 
     with (
-        patch.object(fx_fetcher, "fetch_last_close") as mock_fetch,
+        patch.object(fx_fetcher, "fetch_live_rate") as mock_fetch,
         patch.object(fx_fetcher, "send_ops_alert", return_value=True) as mock_alert,
     ):
         # Everything except USDHKD fetches fine at the real "today"; USDHKD
@@ -251,7 +254,7 @@ def test_healthy_pairs_send_no_staleness_alert(db_session: Session, production_e
     fresh_as_of = datetime.now(tz=UTC)
     points = {yf_ticker: (7.18, fresh_as_of) for yf_ticker in fx_fetcher._PAIRS.values()}
     with (
-        patch.object(fx_fetcher, "fetch_last_close", return_value=points),
+        patch.object(fx_fetcher, "fetch_live_rate", return_value=points),
         patch.object(fx_fetcher, "send_ops_alert", return_value=True) as mock_alert,
     ):
         fx_fetcher.update_fx_rates(db_session)

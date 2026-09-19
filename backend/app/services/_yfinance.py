@@ -348,6 +348,34 @@ def fetch_last_close(tickers: list[str]) -> dict[str, ClosePoint]:
     return out
 
 
+def fetch_live_rate(tickers: list[str]) -> dict[str, ClosePoint]:
+    """Live/intraday quote per ticker (issue #519), not a daily-close bar.
+
+    For a 24/5 market (FX `=X` tickers) there is no daily close to wait
+    for — `fetch_last_close`'s `yf.download(period=...)` daily `Close`
+    series is a resampled-and-lagging derivative that Yahoo does not
+    finalize same-day at any evening ET time (confirmed live, issue #519).
+    `Ticker.fast_info["last_price"]` is the actually-live quote for the
+    same ticker. One call per ticker — `fast_info` is a `Ticker`-level
+    property, not batchable the way `yf.download` is, and FX's small pair
+    count (14) makes per-ticker calls cheap enough not to need the
+    market-batching/backoff machinery `_download_batch` uses for the much
+    larger equity ticker set. `as_of` is the fetch moment, not a
+    vendor-supplied quote timestamp — `fast_info` does not expose one.
+    """
+    out: dict[str, ClosePoint] = {}
+    for ticker in tickers:
+        try:
+            price = yf.Ticker(ticker).fast_info["last_price"]
+        except Exception:
+            logger.exception("fetch_live_rate: failed for %s", ticker)
+            continue
+        if price is None or price != price:  # NaN check without importing math
+            continue
+        out[ticker] = (float(price), datetime.now(tz=UTC))
+    return out
+
+
 def _ohlcv_rows_for_ticker(
     hist: pd.DataFrame, ticker: str, currency: str | None = None
 ) -> list[OhlcvPoint]:

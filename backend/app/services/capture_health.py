@@ -202,8 +202,8 @@ _ISSUE_EFFECTS: dict[str, str] = {
     "price": "Reports and valuations for today will be missing a fresh closing price.",
     "fx": (
         "Reports and valuations will use the last-known rate above instead of "
-        "today's until a fresher one lands. A follow-up check at 00:05 ET the "
-        "next day retries and falls back to a second data source (issue #426) "
+        "today's until a fresher one lands. A second live-quote attempt at "
+        "20:00 ET falls back to a second data source per pair (issue #519) "
         "before this needs a human look."
     ),
     "benchmark": "Benchmark comparisons on the Portfolio Performance chart will lag by one day.",

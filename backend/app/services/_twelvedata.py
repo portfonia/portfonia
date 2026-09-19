@@ -27,6 +27,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 _TIME_SERIES_URL = "https://api.twelvedata.com/time_series"
+_PRICE_URL = "https://api.twelvedata.com/price"
 
 # Free tier: 800 requests/day, 8/minute, 5000 data points/request (Twelve
 # Data docs) — a multi-year daily-bar request for one symbol is a single
@@ -86,3 +87,43 @@ def fetch_daily_history(
         out.append((rate_date, close))
     out.sort(key=lambda pair: pair[0])
     return out
+
+
+def fetch_live_rate(symbol: str, api_key: str) -> Decimal:
+    """Live spot quote for `symbol` (e.g. "USD/CNH") via Twelve Data's
+    `/price` endpoint (issue #519).
+
+    `/time_series` (`fetch_daily_history` above) is a daily-bar route —
+    it rejects a same-day-range query outright (`start_date == end_date`
+    -> 400 "No data is available", confirmed live) independent of publish
+    timing, because it is fetching a bar for a day that has not been
+    aggregated yet. `/price` is Twelve Data's always-live quote for a
+    24/5 FX pair, the direct counterpart to yfinance's `fast_info`
+    (`_yfinance.fetch_live_rate`). Used only as this pipeline's fallback
+    when yfinance's live quote fails for a pair — `fetch_daily_history`
+    stays the only route for `backfill_usdcnh_history.py`'s historical
+    multi-year seed, which legitimately wants daily bars.
+
+    Raises `httpx.HTTPError` on a transport/HTTP failure and `ValueError`
+    on a malformed or non-finite/non-positive price.
+    """
+    with httpx.Client(timeout=30) as client:
+        resp = client.get(
+            _PRICE_URL,
+            params={"symbol": symbol},
+            headers={"Authorization": f"apikey {api_key}"},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    if not isinstance(data, dict) or "price" not in data:
+        raise ValueError(f"twelvedata price response missing 'price': {data!r}")
+    try:
+        price = Decimal(str(data["price"]))
+    except InvalidOperation as exc:
+        raise ValueError(f"twelvedata price response malformed price: {data!r}") from exc
+    # Same non-finite/non-positive guard as fetch_daily_history (issue #411
+    # review) — Decimal() parses "NaN"/"Infinity" without raising.
+    if not price.is_finite() or price <= 0:
+        raise ValueError(f"twelvedata price response non-finite/non-positive: {data!r}")
+    return price

@@ -218,22 +218,21 @@ def test_fx_capture_entry_runs_daily_weekdays() -> None:
     entry = celery_app.conf.beat_schedule["capture-fx-daily"]
     assert entry["task"] == "app.tasks.capture_tasks.capture_fx_task"
     cron = entry["schedule"]
-    # 19:30 ET (issue #509, was 17:15 ET / issue #258's 16:05 ET before
-    # that): a live probe on 2026-09-17 found the FX daily bar's own
-    # rollover lands around 19:00 ET, not the ~17:00 ET earlier attempts
-    # assumed — 17:15 ET landed yesterday's bar every single day it was
-    # observed. 19:30 ET leaves a buffer past the observed rollover, with
-    # a second same-day attempt at 20:00 ET (capture-fx-catchup-daily)
-    # before the 20:30 ET portfolio snapshot locks in the day's quality.
-    # Issue #487: every calendar day (was mon-fri); a non-trading day is a
-    # source-dated no-op, not a re-dated "today" row.
-    assert cron.hour == {19} and cron.minute == {30}
+    # 16:00 ET, US equity day-session close (issue #519 — live-quote fetch,
+    # not a daily-close bar, so there is no publish-lag rollover time to
+    # buffer against; every #509-era timing (16:05/17:15/19:30 ET) landed
+    # yesterday's daily bar regardless of clock time, confirmed against two
+    # weeks of production fx_rates rows). Second same-day attempt at
+    # 20:00 ET (capture-fx-evening-daily) before the 20:30 ET portfolio
+    # snapshot. Issue #487: every calendar day (was mon-fri); a non-trading
+    # day is a source-dated no-op, not a re-dated "today" row.
+    assert cron.hour == {16} and cron.minute == {0}
     assert cron.day_of_week == set(range(7))
 
 
 _EVERY_DAY_CAPTURE_ENTRIES = (
     "capture-fx-daily",
-    "capture-fx-catchup-daily",
+    "capture-fx-evening-daily",
     "capture-fund-navs-daily",
     "capture-portfolio-value-snapshot-daily",
     "capture-benchmark-index-prices-daily",
@@ -252,36 +251,41 @@ def test_capture_entries_widened_to_every_calendar_day() -> None:
 
 
 @patch("app.core.database.SessionLocal")
-@patch("app.services.fx_fetcher.update_fx_rates")
-def test_capture_fx_task(mock_update: MagicMock, mock_session_cls: MagicMock) -> None:
-    from app.services.fx_fetcher import FxFetchResult
+@patch("app.services.fx_fetcher.capture_fx_rates")
+def test_capture_fx_task(mock_capture: MagicMock, mock_session_cls: MagicMock) -> None:
+    from app.services.fx_fetcher import FxCaptureResult
     from app.tasks.capture_tasks import capture_fx_task
 
     session = MagicMock()
     mock_session_cls.return_value = session
-    mock_update.return_value = FxFetchResult(upserted=3, failed=[])
+    mock_capture.return_value = FxCaptureResult(recovered_via_yfinance=["USDCNY", "USDHKD"])
     result = capture_fx_task.run()
-    assert result == {"upserted": 3, "failed": []}
-    mock_update.assert_called_once_with(session)
+    assert result == {
+        "recovered_via_yfinance": ["USDCNY", "USDHKD"],
+        "recovered_via_fallback": [],
+        "still_missing": [],
+    }
+    mock_capture.assert_called_once_with(session)
     session.commit.assert_called_once()
     session.close.assert_called_once()
 
 
 @patch("app.core.database.SessionLocal")
-@patch("app.services.fx_fetcher.update_fx_rates")
+@patch("app.services.fx_fetcher.capture_fx_rates")
 def test_capture_fx_task_writes_operational_event_on_success(
-    mock_update: MagicMock, mock_session_cls: MagicMock
+    mock_capture: MagicMock, mock_session_cls: MagicMock
 ) -> None:
-    """Issue #509: a durable capture.fx run/span, independent of container
-    stdout logs, so a later container recreate doesn't erase whether this
-    attempt ran and what it found — the gap this issue's own investigation
-    hit trying to check a prior catch-up attempt."""
-    from app.services.fx_fetcher import FxFetchResult
+    """Issue #509 (carried into #519's rewrite): a durable capture.fx
+    run/span, independent of container stdout logs, so a later container
+    recreate doesn't erase whether this attempt ran and what it found."""
+    from app.services.fx_fetcher import FxCaptureResult
     from app.tasks.capture_tasks import capture_fx_task
 
     session = MagicMock()
     mock_session_cls.return_value = session
-    mock_update.return_value = FxFetchResult(upserted=3, failed=[])
+    mock_capture.return_value = FxCaptureResult(
+        recovered_via_yfinance=["USDCNY", "USDHKD", "USDJPY"]
+    )
 
     with (
         patch("app.tasks.capture_tasks.oe.start_run") as mock_start,
@@ -295,18 +299,21 @@ def test_capture_fx_task_writes_operational_event_on_success(
 
 
 @patch("app.core.database.SessionLocal")
-@patch("app.services.fx_fetcher.update_fx_rates")
-def test_capture_fx_task_writes_a_span(mock_update: MagicMock, mock_session_cls: MagicMock) -> None:
-    """Issue #509 review (blacktomb42, PR #511): Contract acceptance #5
-    asks for at least one span, not only the run — this task has exactly
-    one phase (the plain yfinance fetch, no fallback), so one span covers
-    it, tagged with the source that resolved it."""
-    from app.services.fx_fetcher import FxFetchResult
+@patch("app.services.fx_fetcher.capture_fx_rates")
+def test_capture_fx_task_writes_a_span(
+    mock_capture: MagicMock, mock_session_cls: MagicMock
+) -> None:
+    """Issue #509 review (blacktomb42, PR #511), carried into #519: Contract
+    acceptance #5 asks for at least one span, not only the run — tagged
+    with the source that resolved the pairs."""
+    from app.services.fx_fetcher import FxCaptureResult
     from app.tasks.capture_tasks import capture_fx_task
 
     session = MagicMock()
     mock_session_cls.return_value = session
-    mock_update.return_value = FxFetchResult(upserted=3, failed=[])
+    mock_capture.return_value = FxCaptureResult(
+        recovered_via_yfinance=["USDCNY", "USDHKD", "USDJPY"]
+    )
 
     with (
         patch("app.tasks.capture_tasks.oe.start_run"),
@@ -316,7 +323,7 @@ def test_capture_fx_task_writes_a_span(mock_update: MagicMock, mock_session_cls:
     ):
         capture_fx_task.run()
 
-    assert mock_start_span.call_args.args[0] == "capture.fx.fetch"
+    assert mock_start_span.call_args.args[0] == "capture.fx.day"
     mock_end_span.assert_called_once_with(
         mock_start_span.return_value,
         "ok",
@@ -325,18 +332,21 @@ def test_capture_fx_task_writes_a_span(mock_update: MagicMock, mock_session_cls:
 
 
 @patch("app.core.database.SessionLocal")
-@patch("app.services.fx_fetcher.update_fx_rates")
+@patch("app.services.fx_fetcher.capture_fx_rates")
 def test_capture_fx_task_writes_operational_event_on_partial_failure(
-    mock_update: MagicMock, mock_session_cls: MagicMock
+    mock_capture: MagicMock, mock_session_cls: MagicMock
 ) -> None:
-    """Some pairs still missing after the plain fetch is a real, distinct
-    outcome from full success — not folded into "ok"."""
-    from app.services.fx_fetcher import FxFetchResult
+    """Some pairs still missing after both the live fetch and the fallback
+    is a real, distinct outcome from full success — not folded into "ok"."""
+    from app.services.fx_fetcher import FxCaptureResult
     from app.tasks.capture_tasks import capture_fx_task
 
     session = MagicMock()
     mock_session_cls.return_value = session
-    mock_update.return_value = FxFetchResult(upserted=12, failed=["USDJPY", "USDKRW"])
+    mock_capture.return_value = FxCaptureResult(
+        recovered_via_yfinance=[f"PAIR{i}" for i in range(12)],
+        still_missing=["USDJPY", "USDKRW"],
+    )
 
     with (
         patch("app.tasks.capture_tasks.oe.start_run"),
@@ -350,15 +360,15 @@ def test_capture_fx_task_writes_operational_event_on_partial_failure(
 
 
 @patch("app.core.database.SessionLocal")
-@patch("app.services.fx_fetcher.update_fx_rates")
+@patch("app.services.fx_fetcher.capture_fx_rates")
 def test_capture_fx_task_writes_operational_event_on_exception(
-    mock_update: MagicMock, mock_session_cls: MagicMock
+    mock_capture: MagicMock, mock_session_cls: MagicMock
 ) -> None:
     from app.tasks.capture_tasks import capture_fx_task
 
     session = MagicMock()
     mock_session_cls.return_value = session
-    mock_update.side_effect = RuntimeError("boom")
+    mock_capture.side_effect = RuntimeError("boom")
 
     capture_fx_task.push_request(retries=0)
     try:

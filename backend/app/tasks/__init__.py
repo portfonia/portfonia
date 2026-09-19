@@ -221,21 +221,22 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "task": "app.tasks.capture_tasks.capture_forward_events_task",
         "schedule": crontab(hour=8, minute=0, day_of_week="mon-fri"),
     },
-    # FX rates (R-4): 19:30 ET every calendar day (issue #509; was 17:15 ET,
-    # before that 16:05 like the equities close nodes, issue #258). 16:05
-    # and then 17:15 both consistently captured the *previous* day's daily
-    # bar (confirmed against production fx_rates rows on both timings, off
-    # by exactly one day every time) — a live probe on 2026-09-17 against
-    # the actual production fetch path found the FX daily bar's own
-    # rollover lands around 19:00 ET, not the ~17:00 ET earlier timings
-    # assumed. 19:30 ET leaves a buffer past that, with a second same-day
-    # attempt at 20:00 ET (capture-fx-catchup-daily) before the 20:30 ET
-    # portfolio snapshot locks in the day's data quality. A genuine
-    # non-trading day is an idempotent source-dated upsert of the last bar,
-    # not a new row dated "today".
+    # FX rates (R-4, issue #519): live-quote fetch, not a daily-close bar —
+    # a `=X` FX ticker trades 24/5 and has no real daily close to wait for.
+    # Every #509-era timing (16:05, 17:15, then 19:30/20:00 ET) consistently
+    # captured the *previous* calendar day's yfinance daily bar regardless
+    # of clock time, confirmed against production `fx_rates` rows across
+    # two full weeks straddling the #509 deploy — the variable was never
+    # *when* you asked, it was *what* you asked for (a bar has to be
+    # aggregated after close; a live quote does not). 16:00 ET (US equity
+    # day-session close) is the first of two symmetric same-day attempts,
+    # the second at 20:00 ET (capture-fx-evening-daily) before the 20:30 ET
+    # portfolio snapshot. A genuine non-trading day (weekend/holiday) is an
+    # idempotent source-dated upsert of whatever live quote comes back, not
+    # a new row invented for "today".
     "capture-fx-daily": {
         "task": "app.tasks.capture_tasks.capture_fx_task",
-        "schedule": crontab(hour=19, minute=30),
+        "schedule": crontab(hour=16, minute=0),
     },
     # Fund NAV (Tiantian Fund): settled NAV for fund_code holdings is published by
     # the fund manager after A-share close (usually same evening). 20:00 CST
@@ -332,18 +333,16 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "task": "app.tasks.capture_tasks.check_capture_health_task",
         "schedule": crontab(hour=21, minute=30),
     },
-    # FX catch-up (issue #426, retimed same-day by issue #509): a second,
-    # same-day attempt 30 minutes before the 20:30 ET portfolio snapshot —
-    # retry + Twelve Data fallback for any pair the 19:30 ET fetch above
-    # still missed. The original design ran this at 00:05 ET the *next*
-    # calendar day (tue-sat, targeting the previous ET weekday): that could
-    # only ever repair `fx_rates` for future reads, never that day's own
-    # snapshot, which had already locked in `approx_carried` seven-plus
-    # hours earlier at 20:30 ET. Every calendar day now, targeting *today*
-    # (via `expected_capture_date`, which still rolls a weekend run back to
-    # the last real trading day — there is no Saturday-dated FX bar).
-    "capture-fx-catchup-daily": {
-        "task": "app.tasks.capture_tasks.capture_fx_catchup_task",
+    # FX evening capture (issue #519, was a "catch-up" under #426/#509): a
+    # second, symmetric live-quote attempt 30 minutes before the 20:30 ET
+    # portfolio snapshot — not a retry chasing the 16:00 ET attempt's
+    # specific miss, since a live quote either fetches now or falls back to
+    # Twelve Data now, on its own. Runs every calendar day including
+    # weekends (issue #519 — folded into this single schedule rather than
+    # #487's separate weekend-only backfill script, which this issue
+    # retires).
+    "capture-fx-evening-daily": {
+        "task": "app.tasks.capture_tasks.capture_fx_evening_task",
         "schedule": crontab(hour=20, minute=0),
     },
     # operational_events retention sweep (issue #446, Design §4): 05:00 UTC

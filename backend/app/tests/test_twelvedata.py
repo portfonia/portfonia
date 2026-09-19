@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.services._twelvedata import fetch_daily_history
+from app.services._twelvedata import fetch_daily_history, fetch_live_rate
 
 _API_KEY = "test-twelvedata-key"
 
@@ -72,3 +72,50 @@ def test_rejects_malformed_point_missing_close() -> None:
         pytest.raises(ValueError, match="malformed point"),
     ):
         fetch_daily_history("USD/CNH", date(2021, 9, 9), date(2021, 9, 9), _API_KEY)
+
+
+# ---------------------------------------------------------------------------
+# fetch_live_rate (issue #519) — /price, not /time_series. Twelve Data's
+# daily-bar endpoint rejects a same-day-range query outright (confirmed live,
+# `start_date == end_date` -> 400 "No data is available"), independent of
+# publish timing; /price is the always-live quote route.
+# ---------------------------------------------------------------------------
+
+
+def _price_response(price: str) -> MagicMock:
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    resp.json.return_value = {"price": price}
+    return resp
+
+
+def test_fetch_live_rate_returns_decimal_price() -> None:
+    with patch(
+        "app.services._twelvedata.httpx.Client",
+        return_value=_patched_client(_price_response("1.40341")),
+    ):
+        rate = fetch_live_rate("USD/AUD", _API_KEY)
+
+    assert rate == Decimal("1.40341")
+
+
+def test_fetch_live_rate_rejects_non_finite_or_non_positive() -> None:
+    with (
+        patch(
+            "app.services._twelvedata.httpx.Client",
+            return_value=_patched_client(_price_response("0")),
+        ),
+        pytest.raises(ValueError, match="non-finite/non-positive"),
+    ):
+        fetch_live_rate("USD/AUD", _API_KEY)
+
+
+def test_fetch_live_rate_rejects_missing_price_field() -> None:
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    resp.json.return_value = {"code": 400, "message": "no data"}
+    with (
+        patch("app.services._twelvedata.httpx.Client", return_value=_patched_client(resp)),
+        pytest.raises(ValueError, match="missing 'price'"),
+    ):
+        fetch_live_rate("USD/AUD", _API_KEY)
