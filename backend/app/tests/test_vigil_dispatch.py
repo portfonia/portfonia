@@ -1,5 +1,5 @@
 """services/vigil/dispatch.py — shared-worker encrypted outbox (issue #456,
-Vigil R0 P3.1).
+Vigil R0 P3.1; state machine flattened by issue #525, #516 finding 4).
 
 Real Postgres per this project's test convention. `send_fn` is always
 mocked here (#456 A04 / project-wide "external notifications mocked by
@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.user import User
@@ -25,11 +26,12 @@ from app.services.vigil.configuration import (
     write_pending_configuration,
 )
 from app.services.vigil.dispatch import (
-    MAX_ATTEMPT_WINDOW,
+    RETRY_INTERVAL,
+    RETRY_WINDOW,
     ProviderSendResult,
     _finalize_attempt,
     _lease_one,
-    _next_attempt_after,
+    cancel_outbox_intents,
     run_outbox_dispatch_sweep,
     sweep_expired_outbox,
     write_outbox_entry,
@@ -198,7 +200,24 @@ def test_sweep_sends_pending_row_and_records_accepted(db_session: Session) -> No
     assert fresh.accepted_at is not None
     assert fresh.payload_cipher is None
     assert fresh.payload_sha256 is None
+    assert fresh.lease_until is None
     assert fresh.attempts == 1
+
+
+def test_outbox_status_enum_is_the_three_state_machine(db_session: Session) -> None:
+    """#525: the DB enum holds pending/accepted/failed only — the dropped
+    intermediate statuses are rejected, not merely unwritten."""
+    vault_id, config_id, object_id = _seed_object(db_session)
+    row = _write_entry(
+        db_session, vault_id=vault_id, config_id=config_id, object_id=object_id, dedup_key="dk-enum"
+    )
+    for legacy in ("leased", "unknown", "cancelled"):
+        with pytest.raises(IntegrityError), db_session.begin_nested():
+            db_session.execute(
+                update(VigilOutbox).where(VigilOutbox.id == row.id).values(status=legacy)
+            )
+    fresh = _reload(db_session, row.id)
+    assert fresh.status == "pending"
 
 
 # --- P3.1-A01 / A10: accepted-then-rollback recovers with same key/body ----
@@ -221,8 +240,9 @@ def test_recovery_after_local_commit_failure_reuses_same_key_and_body(
 
     # Simulate: provider accepted, but the local finalize transaction rolls
     # back (e.g. a DB outage right after the HTTP call returned) — the row
-    # is left exactly as `_lease_one` left it: status='leased', payload
-    # intact, attempts/first_attempt_at unchanged.
+    # is left exactly as `_lease_one` left it: still `pending` with the
+    # in-flight `lease_until` set, payload intact, attempts/first_attempt_at
+    # unchanged.
     assert _lease_one(_session_factory, row.id, now=now)
     result = _send(*_manual_body_and_key(db_session, row.id))
     finalize_session = _session_factory()
@@ -236,8 +256,15 @@ def test_recovery_after_local_commit_failure_reuses_same_key_and_body(
         finalize_session.close()
 
     stuck = _reload(db_session, row.id)
-    assert stuck.status == "leased"  # unaffected by the rolled-back attempt
+    assert stuck.status == "pending"  # unaffected by the rolled-back attempt
+    assert stuck.lease_until is not None  # the in-flight claim left by _lease_one
     assert stuck.payload_cipher is not None
+
+    # A row still under its lease is not reclaimed...
+    premature = run_outbox_dispatch_sweep(
+        _session_factory, send_fn=_send, now=now + timedelta(seconds=5)
+    )
+    assert premature.leased == 0
 
     # Recovery: the next sweep (lease reclaimed once its 60s expires)
     # replays with the SAME idempotency key and SAME body — no new token.
@@ -251,6 +278,7 @@ def test_recovery_after_local_commit_failure_reuses_same_key_and_body(
     final = _reload(db_session, row.id)
     assert final.status == "accepted"
     assert final.payload_cipher is None
+    assert final.lease_until is None
 
 
 def _manual_body_and_key(db_session: Session, outbox_id: uuid.UUID) -> tuple[dict[str, Any], str]:
@@ -273,7 +301,7 @@ def _manual_body_and_key(db_session: Session, outbox_id: uuid.UUID) -> tuple[dic
 # --- post-send finalization race: a cancellation commits mid-flight -------
 
 
-def test_late_accept_never_reactivates_a_cancelled_row(db_session: Session) -> None:
+def test_late_accept_never_reactivates_a_failed_row(db_session: Session) -> None:
     vault_id, config_id, object_id = _seed_object(db_session)
     row = _write_entry(
         db_session, vault_id=vault_id, config_id=config_id, object_id=object_id, dedup_key="dk-4"
@@ -282,12 +310,14 @@ def test_late_accept_never_reactivates_a_cancelled_row(db_session: Session) -> N
     assert _lease_one(_session_factory, row.id, now=now)
 
     # A cancellation commits WHILE our (simulated) HTTP call is "in flight".
+    # #525: cancellation and provider rejection share the one negative
+    # terminal status.
     cancel_session = _session_factory()
     try:
         cancel_session.execute(
             update(VigilOutbox)
             .where(VigilOutbox.id == row.id)
-            .values(status="cancelled", payload_cipher=None, payload_sha256=None)
+            .values(status="failed", payload_cipher=None, payload_sha256=None)
         )
         cancel_session.commit()
     finally:
@@ -299,72 +329,121 @@ def test_late_accept_never_reactivates_a_cancelled_row(db_session: Session) -> N
     _finalize_attempt(_session_factory, row.id, late_result, now=now + timedelta(seconds=5))
 
     final = _reload(db_session, row.id)
-    assert final.status == "cancelled"  # never reactivated
+    assert final.status == "failed"  # never reactivated
     assert final.payload_cipher is None  # never restored
     # The late acceptance is still recorded as a historical delivery fact.
     assert final.provider_id == "resend-late"
     assert final.accepted_at is not None
 
 
-# --- P3.1-A02: unknown outcome retry ceiling + 24h payload sweep -----------
+# --- P3.1-A02 (#525): one retry interval, one retry window -----------------
 
 
-def test_unknown_outcome_is_retried_then_stops_after_23h_window() -> None:
-    first_attempt = datetime(2026, 1, 1, tzinfo=UTC)
-    # attempts 1..4 land within the 1/5/15/60-minute schedule.
-    for attempts, expected_minutes in zip((1, 2, 3, 4), (1, 5, 15, 60), strict=True):
-        now = first_attempt
-        next_at = _next_attempt_after(attempts=attempts, first_attempt_at=first_attempt, now=now)
-        assert next_at == now + timedelta(minutes=expected_minutes)
-
-    # 5th attempt: max attempts reached regardless of the 23h window.
-    assert (
-        _next_attempt_after(attempts=5, first_attempt_at=first_attempt, now=first_attempt) is None
-    )
-
-    # A candidate that would land past first_attempt + 23h is refused even
-    # under the attempt-count ceiling.
-    near_deadline = first_attempt + MAX_ATTEMPT_WINDOW - timedelta(minutes=30)
-    assert (
-        _next_attempt_after(attempts=4, first_attempt_at=first_attempt, now=near_deadline) is None
-    )
-
-
-def test_exhausted_unknown_row_is_not_resent_before_the_24h_sweep(db_session: Session) -> None:
-    """blacktomb42 PR #510 review round 1, P3.1-A02: `_next_attempt_after`
-    returning None at exhaustion previously made `_lease_due_ids`/
-    `_lease_one` treat `next_attempt_at IS NULL` as "due now" for ANY
-    retryable row — indistinguishable from a never-tried PENDING row. An
-    UNKNOWN row past its retry ceiling (but still short of the 24h payload
-    clear) would get leased and re-sent on every ~30s sweep instead of
-    sitting idle until `sweep_expired_outbox` clears it."""
+def test_unknown_outcome_stays_pending_with_one_retry_interval(db_session: Session) -> None:
     vault_id, config_id, object_id = _seed_object(db_session)
     row = _write_entry(
-        db_session, vault_id=vault_id, config_id=config_id, object_id=object_id, dedup_key="dk-8"
+        db_session, vault_id=vault_id, config_id=config_id, object_id=object_id, dedup_key="dk-10"
+    )
+    now = datetime.now(UTC)
+
+    def _send(body: dict[str, Any], idempotency_key: str) -> ProviderSendResult:
+        return ProviderSendResult(outcome="unknown", provider_id=None, error_code="timeout")
+
+    summary = run_outbox_dispatch_sweep(_session_factory, send_fn=_send, now=now)
+    assert summary.sent == 1
+
+    fresh = _reload(db_session, row.id)
+    assert fresh.status == "pending"  # still retryable — no `unknown` status
+    assert fresh.attempts == 1
+    assert fresh.first_attempt_at is not None
+    assert fresh.next_attempt_at == now + RETRY_INTERVAL
+    assert fresh.lease_until is None
+    assert fresh.payload_cipher is not None  # retry keeps the frozen body/token
+    assert fresh.last_error_code == "timeout"
+
+    # Not due again before the single retry interval...
+    early = run_outbox_dispatch_sweep(
+        _session_factory, send_fn=_send, now=now + RETRY_INTERVAL - timedelta(minutes=1)
+    )
+    assert early.leased == 0
+    assert early.sent == 0
+
+    # ...and due again once it has elapsed.
+    on_time = run_outbox_dispatch_sweep(
+        _session_factory, send_fn=_send, now=now + RETRY_INTERVAL + timedelta(seconds=1)
+    )
+    assert on_time.sent == 1
+    assert _reload(db_session, row.id).attempts == 2
+
+
+def test_row_past_the_retry_window_is_not_sent_and_becomes_failed(db_session: Session) -> None:
+    """The single window replaces the old attempt ceiling + 23h schedule
+    window + separate 24h payload clear: past it the row is terminal."""
+    vault_id, config_id, object_id = _seed_object(db_session)
+    row = _write_entry(
+        db_session, vault_id=vault_id, config_id=config_id, object_id=object_id, dedup_key="dk-11"
     )
     now = datetime.now(UTC)
     db_session.execute(
         update(VigilOutbox)
         .where(VigilOutbox.id == row.id)
         .values(
-            status="unknown",
-            attempts=5,
-            first_attempt_at=now - timedelta(hours=1),
-            next_attempt_at=None,  # exhausted, per _next_attempt_after
+            created_at=now - RETRY_WINDOW - timedelta(minutes=1),
+            first_attempt_at=now - RETRY_WINDOW,
+            attempts=3,
+            next_attempt_at=None,
         )
     )
     db_session.commit()
 
     def _send(body: dict[str, Any], idempotency_key: str) -> ProviderSendResult:
-        raise AssertionError("an exhausted unknown row must not be sent again")
+        raise AssertionError("a row past the retry window must not be sent again")
 
     summary = run_outbox_dispatch_sweep(_session_factory, send_fn=_send, now=now)
     assert summary.sent == 0
     assert summary.leased == 0
+    assert summary.expired == 1
 
     fresh = _reload(db_session, row.id)
-    assert fresh.status == "unknown"
-    assert fresh.payload_cipher is not None  # still short of the 24h sweep clear
+    assert fresh.status == "failed"
+    assert fresh.payload_cipher is None
+    assert fresh.payload_sha256 is None
+    assert fresh.next_attempt_at is None
+    assert fresh.lease_until is None
+
+
+def test_cancel_outbox_intents_fails_pending_and_spares_accepted(db_session: Session) -> None:
+    """#525: the caller-facing cancel lands in the single negative terminal
+    status and clears the frozen intent; an already-accepted row is left
+    alone."""
+    vault_id, config_id, object_id = _seed_object(db_session)
+    pending_row = _write_entry(
+        db_session, vault_id=vault_id, config_id=config_id, object_id=object_id, dedup_key="dk-12"
+    )
+    accepted_row = _write_entry(
+        db_session, vault_id=vault_id, config_id=config_id, object_id=object_id, dedup_key="dk-13"
+    )
+    db_session.execute(
+        update(VigilOutbox)
+        .where(VigilOutbox.id == accepted_row.id)
+        .values(status="accepted", provider_id="resend-kept", payload_cipher=None)
+    )
+    db_session.commit()
+
+    cancelled = cancel_outbox_intents(db_session, vault_id=vault_id)
+    db_session.commit()
+    assert cancelled == 1
+
+    fresh = _reload(db_session, pending_row.id)
+    assert fresh.status == "failed"
+    assert fresh.payload_cipher is None
+    assert fresh.payload_sha256 is None
+    assert fresh.next_attempt_at is None
+    assert fresh.lease_until is None
+
+    kept = _reload(db_session, accepted_row.id)
+    assert kept.status == "accepted"
+    assert kept.provider_id == "resend-kept"
 
 
 def test_lease_one_locks_user_then_vault_then_outbox_row(db_session: Session) -> None:
@@ -404,16 +483,21 @@ def test_lease_one_locks_user_then_vault_then_outbox_row(db_session: Session) ->
     assert first_seen[:3] == ["users", "vigil_vaults", "vigil_outbox"]
 
 
-def test_unknown_payload_cleared_24h_after_first_attempt(db_session: Session) -> None:
+def test_first_attempt_payload_cleared_when_the_window_expires(db_session: Session) -> None:
     vault_id, config_id, object_id = _seed_object(db_session)
     row = _write_entry(
         db_session, vault_id=vault_id, config_id=config_id, object_id=object_id, dedup_key="dk-5"
     )
-    first_attempt = datetime.now(UTC) - timedelta(hours=25)
+    now = datetime.now(UTC)
     db_session.execute(
         update(VigilOutbox)
         .where(VigilOutbox.id == row.id)
-        .values(status="unknown", first_attempt_at=first_attempt, attempts=5, next_attempt_at=None)
+        .values(
+            created_at=now - RETRY_WINDOW - timedelta(hours=1),
+            first_attempt_at=now - RETRY_WINDOW - timedelta(minutes=30),
+            attempts=4,
+            next_attempt_at=now - RETRY_WINDOW + timedelta(minutes=1),
+        )
     )
     db_session.commit()
 
@@ -422,39 +506,40 @@ def test_unknown_payload_cleared_24h_after_first_attempt(db_session: Session) ->
     assert still_stale_before_sweep is not None
     assert still_stale_before_sweep.payload_cipher is not None  # sweep hasn't run yet
 
-    cleared = sweep_expired_outbox(db_session, now=datetime.now(UTC))
+    cleared = sweep_expired_outbox(db_session, now=now)
     db_session.commit()
-    assert cleared >= 1
+    assert cleared == 1
 
     fresh = db_session.get(VigilOutbox, row.id)
     assert fresh is not None
-    assert fresh.status == "unknown"
+    assert fresh.status == "failed"
     assert fresh.payload_cipher is None
     assert fresh.payload_sha256 is None
 
 
-# --- P3.1-A03: never-attempted intent cancelled at 24h from creation -------
+# --- P3.1-A03 (#525): never-attempted intent fails at the window ----------
 
 
-def test_never_attempted_row_cancelled_24h_after_creation(db_session: Session) -> None:
+def test_never_attempted_row_fails_at_the_window(db_session: Session) -> None:
     vault_id, config_id, object_id = _seed_object(db_session)
     row = _write_entry(
         db_session, vault_id=vault_id, config_id=config_id, object_id=object_id, dedup_key="dk-6"
     )
+    now = datetime.now(UTC)
     db_session.execute(
         update(VigilOutbox)
         .where(VigilOutbox.id == row.id)
-        .values(created_at=datetime.now(UTC) - timedelta(hours=25))
+        .values(created_at=now - RETRY_WINDOW - timedelta(hours=1))
     )
     db_session.commit()
 
-    cleared = sweep_expired_outbox(db_session, now=datetime.now(UTC))
+    cleared = sweep_expired_outbox(db_session, now=now)
     db_session.commit()
-    assert cleared >= 1
+    assert cleared == 1
 
     fresh = db_session.get(VigilOutbox, row.id)
     assert fresh is not None
-    assert fresh.status == "cancelled"
+    assert fresh.status == "failed"
     assert fresh.payload_cipher is None
 
 

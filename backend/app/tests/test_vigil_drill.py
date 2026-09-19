@@ -673,6 +673,42 @@ def test_purge_removes_action_tokens_and_consumed_nonces(
     assert result.vigil_audit_events == 1
 
 
+def test_drill_delivery_state_hides_untried_terminal_intent(
+    app_client: TestClient, db_session: Session
+) -> None:
+    """#525: a drill intent that went terminal without a single attempt
+    (retry-window expiry on an unattempted row, or a cancelled supersede)
+    leaves no drill row — pre-#525 those rows were `cancelled` and hidden
+    rather than shown as an unresolved attempt."""
+    from app.models.vigil import VigilOutbox
+    from app.services.vigil.drills import drill_delivery_state
+
+    config_id, object_id, revision = _seed_ready(db_session)
+    db_session.commit()
+    drill = _post_drill(app_client, config_id, object_id, revision)
+    drill_id = uuid.UUID(drill.json()["drill_id"])
+    vault = db_session.execute(
+        select(VigilVault).where(VigilVault.owner_user_id == TEST_USER_ID)
+    ).scalar_one()
+    outbox = db_session.execute(
+        select(VigilOutbox).where(VigilOutbox.scope_id == drill_id)
+    ).scalar_one()
+
+    outbox.status = "failed"
+    outbox.payload_cipher = None
+    outbox.payload_sha256 = None
+    db_session.flush()
+    assert drill_delivery_state(db_session, vault) == []
+
+    outbox.first_attempt_at = datetime.now(UTC)
+    db_session.flush()
+    assert drill_delivery_state(db_session, vault) == [{"purpose": "drill", "state": "unknown"}]
+
+    outbox.status = "accepted"
+    db_session.flush()
+    assert drill_delivery_state(db_session, vault) == [{"purpose": "drill", "state": "sent"}]
+
+
 def test_no_new_compose_service_or_domain() -> None:
     compose = yaml.safe_load((_REPO_ROOT / "docker-compose.yml").read_text())
     assert set(compose["services"]) == {

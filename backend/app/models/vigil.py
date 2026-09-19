@@ -46,7 +46,7 @@ VALID_VIGIL_CONFIGURATION_STATUSES = ("pending", "active", "retired")
 VALID_VIGIL_OBJECT_STATUSES = ("staging", "ready", "active", "retired", "deleted")
 VIGIL_OBJECT_MAX_PLAINTEXT_SIZE = 10_000_000
 VALID_VIGIL_OUTBOX_PURPOSES = ("drill", "challenge", "release", "owner_notice")
-VALID_VIGIL_OUTBOX_STATUSES = ("pending", "leased", "accepted", "failed", "unknown", "cancelled")
+VALID_VIGIL_OUTBOX_STATUSES = ("pending", "accepted", "failed")
 VALID_VIGIL_DELIVERY_EVIDENCE_SOURCES = ("webhook", "poll")
 VALID_VIGIL_ACTION_TOKEN_PURPOSES = ("drill", "cycle_confirm", "owner_revoke")
 VALID_VIGIL_CYCLE_STATUSES = ("active", "confirmed", "released", "cancelled")
@@ -321,9 +321,14 @@ class VigilOutbox(Base):
     mail body + token under `VIGIL_NOTIFICATION_KEY` (never the data key —
     services/vigil/crypto.py's `encrypt_field` always selects
     VIGIL_ENCRYPTION_KEY, so dispatch.py uses its own notification-key
-    Fernet builder). A terminal outcome (accepted/failed/cancelled) or the
-    24h-since-creation / 24h-since-first-attempt sweep clears both columns
-    to NULL — see services/vigil/dispatch.py for the exact state machine.
+    Fernet builder). Both columns are cleared when the intent reaches a
+    terminal status — `accepted`, or `failed` (provider refusal, caller
+    cancellation, or retry-window expiry). The three-status machine and its
+    single retry interval/window are described in
+    services/vigil/dispatch.py's module docstring (#525 flattened the
+    6-status, multi-tier schedule; `leased`/`unknown`/`cancelled` no
+    longer exist, and an in-flight attempt is a future `lease_until` on a
+    still-`pending` row).
 
     `dedup_key` is UNIQUE together with a non-null `provider_id`
     (partial unique index below) per #450 Design section 4/6: two outbox
