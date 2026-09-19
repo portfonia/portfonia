@@ -185,7 +185,9 @@ def test_missed_saturday_is_recomputed_when_the_book_is_unchanged(db_session: Se
 
 
 def test_prerollout_weekend_is_not_filled_by_unattended_recovery(db_session: Session) -> None:
-    """Review P1: Sep 12/13 belong to backfill_weekend_gaps.py."""
+    """Review P1: Sep 12/13 predate WEEKEND_CAPTURE_ENABLED_FROM and were
+    filled by a since-retired one-off authorized backfill (issue #519) —
+    unattended recovery must still never invent them on its own."""
     friday = date(2026, 9, 11)
     saturday = date(2026, 9, 12)
     sunday = date(2026, 9, 13)

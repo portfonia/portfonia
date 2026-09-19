@@ -1,10 +1,17 @@
-"""Issue #487 acceptance 4: FX / benchmark / fund-NAV capture on a date
-with no new source bar must not write a row dated that call date.
+"""Issue #487 acceptance 4: benchmark / fund-NAV capture on a date with no
+new source bar must not write a row dated that call date.
 
 Fund-NAV dating was an implementation-time check: `_nav_rows` keys
 `trade_date` off `point.nav_date`, not fetch-time (`captured_at` is
 metadata only). That is why `capture-fund-navs-daily` is included in the
 every-day Beat widening.
+
+FX used to be covered by this same acceptance criterion (a daily-bar
+fetch, source-dated), but issue #519 switched it to a live-quote fetch —
+there is no source bar to defer to anymore, so a Saturday fetch
+legitimately writes a Saturday-dated row (see
+`test_fx_capture_on_saturday_dates_the_row_saturday` below, which replaces
+the old "does not date a row Saturday" FX case).
 """
 
 from __future__ import annotations
@@ -35,20 +42,22 @@ _FRI_AS_OF = datetime(2026, 9, 11, 21, 15, tzinfo=UTC)
 _USER = uuid.UUID("00000000-0000-0000-0000-0000000000d4")
 
 
-def test_fx_capture_on_saturday_does_not_date_a_row_saturday(db_session: Session) -> None:
+def test_fx_capture_on_saturday_dates_the_row_saturday(db_session: Session) -> None:
+    """Issue #519: FX is a live-quote fetch now, not a daily-bar fetch — a
+    Saturday capture legitimately writes a Saturday-dated row using
+    whatever live quote comes back (there is no source bar's own date to
+    defer to instead), unlike the benchmark/fund-NAV tests below."""
     for pair in _PAIRS:
         db_session.add(FxRate(pair=pair, rate=Decimal("7"), rate_date=_FRI, source="yfinance"))
     db_session.flush()
-    before = db_session.execute(select(func.count()).select_from(FxRate)).scalar_one()
-    friday_points = {yf_ticker: (7.18, _FRI_AS_OF) for yf_ticker in _PAIRS.values()}
-    with patch.object(fx_fetcher, "fetch_last_close", return_value=friday_points):
+    saturday_as_of = datetime(2026, 9, 12, 20, 0, tzinfo=UTC)
+    saturday_points = {yf_ticker: (7.18, saturday_as_of) for yf_ticker in _PAIRS.values()}
+    with patch.object(fx_fetcher, "fetch_live_rate", return_value=saturday_points):
         fx_fetcher.update_fx_rates(db_session)
-    after = db_session.execute(select(func.count()).select_from(FxRate)).scalar_one()
-    assert after == before
     saturday_rows = db_session.execute(
         select(func.count()).select_from(FxRate).where(FxRate.rate_date == _SAT)
     ).scalar_one()
-    assert saturday_rows == 0
+    assert saturday_rows == len(_PAIRS)
 
 
 def test_benchmark_capture_on_saturday_does_not_date_a_row_saturday(

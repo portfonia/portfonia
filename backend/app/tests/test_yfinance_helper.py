@@ -683,7 +683,7 @@ def test_raw_download_retries_on_exception_and_recovers() -> None:
 
 
 def _fake_ticker_cls(last_price: float | None) -> type:
-    class _FastInfo(dict):
+    class _FastInfo(dict[str, float | None]):
         pass
 
     class _FakeTicker:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import func, select
@@ -166,11 +166,28 @@ class PortfolioSnapshot:
     # populated for currencies actually needed by this render (a holding's
     # native currency, or the selected base_currency).
     fx_rates_as_of: dict[str, date] = field(default_factory=dict)
+    # Currency codes (matching fx_rates_as_of's keying) whose resolved FX
+    # rate is more than _FX_FRESH_HOURS old at render time (issue #519
+    # Requirement 6) — the rate is still used for valuation, this is a
+    # data-quality flag only, independent of historical_fx_rates_asof's
+    # 10-day lookback (portfolio_history.py, unaffected by this).
+    stale_fx_pairs: list[str] = field(default_factory=list)
 
 
-def _load_fx_rates(session: Session) -> tuple[dict[str, Decimal], dict[str, date]]:
+# How stale a live-quote FX rate may be before a render flags it
+# `stale_fx_pairs` (issue #519 Requirement 6) — a request-time freshness
+# check, independent of historical_fx_rates_asof's 10-day lookback and
+# build_snapshot_row's 2-business-day approx_carried tolerance (neither
+# changes here).
+_FX_FRESH_HOURS = 48
+
+
+def _load_fx_rates(
+    session: Session,
+) -> tuple[dict[str, Decimal], dict[str, date], dict[str, datetime]]:
     """
-    Return the latest fx_rates snapshot as {pair: rate} plus {pair: rate_date}.
+    Return the latest fx_rates snapshot as {pair: rate}, {pair: rate_date},
+    and {pair: fetched_at}.
 
     Each pair resolves its own latest rate_date on or before today (ET)
     independently (issue #354) — real FX data does not arrive with every pair
@@ -180,7 +197,7 @@ def _load_fx_rates(session: Session) -> tuple[dict[str, Decimal], dict[str, date
     shared max(rate_date) across ALL pairs, so whichever pair advanced to a
     new trading day first made every other pair vanish from the dict until it
     caught up — silently dropping holdings/base-currency conversions in that
-    other pair's currency. Returns ({}, {}) when the table is empty.
+    other pair's currency. Returns ({}, {}, {}) when the table is empty.
     """
     today_et = datetime.now(tz=ET).date()
 
@@ -191,7 +208,7 @@ def _load_fx_rates(session: Session) -> tuple[dict[str, Decimal], dict[str, date
         .subquery()
     )
     rows = session.execute(
-        select(FxRate.pair, FxRate.rate, FxRate.rate_date).join(
+        select(FxRate.pair, FxRate.rate, FxRate.rate_date, FxRate.fetched_at).join(
             latest_per_pair,
             (FxRate.pair == latest_per_pair.c.pair)
             & (FxRate.rate_date == latest_per_pair.c.rate_date),
@@ -200,10 +217,12 @@ def _load_fx_rates(session: Session) -> tuple[dict[str, Decimal], dict[str, date
 
     rates: dict[str, Decimal] = {}
     pair_dates: dict[str, date] = {}
-    for pair, rate, rate_date in rows:
+    pair_fetched_at: dict[str, datetime] = {}
+    for pair, rate, rate_date, fetched_at in rows:
         rates[pair] = rate
         pair_dates[pair] = rate_date
-    return rates, pair_dates
+        pair_fetched_at[pair] = fetched_at
+    return rates, pair_dates, pair_fetched_at
 
 
 def format_fx_rates_as_of(fx_rates_as_of: dict[str, str]) -> str:
@@ -370,7 +389,7 @@ def compute_portfolio(
     flagged for ops alerting).
     """
     price_ref = as_of or today_et()
-    fx, fx_pair_dates = _load_fx_rates(session)
+    fx, fx_pair_dates, fx_pair_fetched_at = _load_fx_rates(session)
     snapshot = PortfolioSnapshot(base_currency=base_currency)
     captured_closes = _latest_captured_closes(session)
 
@@ -557,10 +576,14 @@ def compute_portfolio(
     # itself) — USD needs no rate, it's the pivot.
     needed_currencies = {h.currency for h in holdings} | {base_currency}
     needed_currencies.discard("USD")
+    now = datetime.now(tz=UTC)
     for ccy in needed_currencies:
         pair = _CURRENCY_TO_FX_PAIR.get(ccy)
         if pair is not None and pair in fx_pair_dates:
             snapshot.fx_rates_as_of[ccy] = fx_pair_dates[pair]
+            fetched_at = fx_pair_fetched_at.get(pair)
+            if fetched_at is not None and (now - fetched_at) > timedelta(hours=_FX_FRESH_HOURS):
+                snapshot.stale_fx_pairs.append(ccy)
 
     leverage_map = load_leverage_map(session)
     snapshot.concentration = _compute_concentration(snapshot, leverage_map)

@@ -59,8 +59,11 @@ CATCHUP_LOOKBACK_DAYS = 7
 
 # First calendar day on which weekend snapshot capture is a live Beat
 # target (issue #487 Requirement 1). Unattended recover_portfolio_snapshots
-# must not invent weekend rows before this date — those gaps belong to the
-# separately authorized backfill_weekend_gaps.py (Requirement 6).
+# must not invent weekend rows before this date — the only weekend gap that
+# ever predated it (2026-09-12/13) was backfilled by a one-off authorized
+# script (Requirement 6, retired by issue #519 once its job was done and
+# confirmed complete in production) and is not something this function
+# should try to reconstruct on its own for any earlier date either.
 WEEKEND_CAPTURE_ENABLED_FROM = date(2026, 9, 15)
 
 # Ops-triggered recovery may look years back for frozen payloads (they are not
@@ -147,9 +150,9 @@ def recover_portfolio_snapshots(
     Every calendar day from `WEEKEND_CAPTURE_ENABLED_FROM` (issue #487):
     weekends on/after that date are legitimate portfolio capture targets,
     so a failed Saturday/Sunday is recoverable the same way as a weekday.
-    Earlier weekend gaps stay untouched here — they are the separately
-    authorized `backfill_weekend_gaps.py` window. Market-data pipelines
-    still use `capture_health.expected_capture_date` (last Mon-Fri).
+    Earlier weekend gaps stay untouched here — see that constant's own
+    docstring for why. Market-data pipelines still use
+    `capture_health.expected_capture_date` (last Mon-Fri).
 
     Commits per date, so one bad day cannot roll back another's recovery.
     """

@@ -659,6 +659,67 @@ assumed by the implementing session). A pair still missing after both the
 retry and the fallback gets its own one-off `_send_fx_alert`, separate
 from and unrelated to the #372 probe's alert.
 
+**Superseded by issue #519 (2026-09-18): the retry-against-a-stale-bar
+model above was diagnosing the wrong layer.** The paragraphs above (and
+issue #509's later retime of `capture_fx_task` to 19:30 ET / the catch-up
+to 20:00 ET, chasing the same assumption from a different angle) all
+treat yfinance's/Twelve Data's *daily-bar* fetch as the source of truth
+and try to catch it publishing late. Investigating a fresh incident
+(#518: both attempts missing all 14 pairs on an ordinary Friday) found
+the real defect one layer down: `fetch_last_close`'s `yf.download(period=...)`
+daily `Close` series and Twelve Data's `/time_series` are both built for
+instruments with a real daily close (equities) — a `=X` FX pair trades
+24/5 and has none, so the daily bar these functions wait for was never
+going to land same-day at *any* clock time; #509's retime "worked" in its
+own live probe purely because that probe never checked whether the
+returned date actually matched the target trading day, the same blind
+spot `capture_fx_task`'s own success criterion had.
+
+**Current mechanism (issue #519): live-quote fetch, not a daily-bar
+fetch.** `_yfinance.fetch_live_rate` (`Ticker.fast_info["last_price"]`,
+one call per ticker — not batchable the way `yf.download` is) and
+`_twelvedata.fetch_live_rate` (`/price`) both return the actual live
+spot rate, confirmed to update continuously regardless of clock time.
+`fx_fetcher.update_fx_rates()` now calls the yfinance leg and dates the
+row by fetch moment (`rate_date = datetime.now(tz=ET).date()`), not a
+bar's own index date. `fx_catchup()`/`FxCatchupResult` (the
+retry-against-a-`target_date` framing) is gone, replaced by
+`capture_fx_rates()`/`FxCaptureResult`: fetch live now, and for any pair
+yfinance missed, fall back to Twelve Data's live quote in the same run —
+paced with a fixed 8-second inter-call delay (`_TWELVEDATA_MIN_INTERVAL_
+SECONDS`) so a many-pairs-missing run cannot burst through Twelve Data's
+free-tier 8-requests/minute cap, which is exactly how #518's fallback
+converted 8 pairs' date-range 400s into 6 more pairs' 429s. Both daily
+attempts — `capture_fx_task` (16:00 ET, US equity day-session close) and
+`capture_fx_evening_task` (20:00 ET, US equity after-hours close, was
+`capture_fx_catchup_task`) — call this same function; neither is a
+catch-up of the other, both are symmetric live-quote attempts, every
+calendar day including weekends.
+
+**Two freshness mechanisms now coexist deliberately, not merged**
+(product owner decision, 2026-09-18): `historical_fx_rates_asof`'s
+10-day `lookback_days` (`portfolio_history.py`, snapshot-building read
+path) and `build_snapshot_row`'s 2-business-day `approx_carried`
+tolerance (#509 Requirement 2) are both unchanged by #519. A new,
+independent 48-hour freshness check lives at the live/request-time read
+path instead: `portfolio_calculator._load_fx_rates` now also returns
+each pair's `fetched_at`, and `compute_portfolio` flags any currency
+whose resolved rate is more than 48h old into `PortfolioSnapshot.
+stale_fx_pairs` (exposed on `/portfolio`'s `PortfolioSummaryResponse` as
+`stale_fx_pairs`) — the stale rate is still used for valuation (decided:
+use-anyway-but-flag, mirroring `approx_carried`'s own philosophy, not
+exclude-from-totals), this is a data-quality signal only.
+
+**`backfill_weekend_gaps.py` retired.** The daily Beat schedule already
+had no `day_of_week` restriction; the script existed only to backfill the
+one historical gap (2026-09-12/13, before `WEEKEND_CAPTURE_ENABLED_FROM`)
+predating that daily-including-weekends rollout. Confirmed live in
+production (2026-09-18) that gap was already fully backfilled (77 rows
+each for both dates, matching the active user count) and the snapshots
+table has no earlier history to backfill — the script's only job was
+already done, so it and its dedicated test were deleted rather than kept
+as permanent standing infrastructure for a gap that cannot recur.
+
 **Full-exit fan-out (issue #367 review finding B, blacktomb42, review
 5563537095)**: `capture_portfolio_value_snapshot`'s user selection
 originally was `User.id.in_(select(Holding.user_id).distinct())` only —
