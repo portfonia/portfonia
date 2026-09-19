@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -24,13 +24,6 @@ from app.services.vigil.tokens import hash_link_token
 router = APIRouter()
 
 
-def _require_public_origin(request: Request) -> None:
-    expected = get_settings().FRONTEND_URL.rstrip("/")
-    origin = request.headers.get("origin")
-    if origin != expected:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
-
-
 def _require_public_feature() -> None:
     if get_settings().VIGIL_MODE not in {"active", "recovery"}:
         raise HTTPException(
@@ -43,8 +36,7 @@ def _no_store(response: Response) -> None:
 
 
 @router.get("/public/altcha-challenge")
-def get_altcha_challenge(request: Request, response: Response) -> dict[str, object]:
-    _require_public_origin(request)
+def get_altcha_challenge(response: Response) -> dict[str, object]:
     _require_public_feature()
     _no_store(response)
     try:
@@ -57,12 +49,10 @@ def get_altcha_challenge(request: Request, response: Response) -> dict[str, obje
 
 @router.get("/public/status", response_model=VigilPublicStatusOut)
 def get_public_status(
-    request: Request,
     response: Response,
     token: str,
     session: Session = Depends(get_session),
 ) -> VigilPublicStatusOut:
-    _require_public_origin(request)
     _require_public_feature()
     _no_store(response)
     try:
@@ -75,11 +65,9 @@ def get_public_status(
 @router.post("/public/status", response_model=VigilPublicStatusOut)
 def post_public_status(
     payload: VigilPublicStatusIn,
-    request: Request,
     response: Response,
     session: Session = Depends(get_session),
 ) -> VigilPublicStatusOut:
-    _require_public_origin(request)
     _require_public_feature()
     _no_store(response)
     try:
@@ -98,11 +86,9 @@ def post_public_status(
 @router.post("/public/confirm", response_model=VigilPublicConfirmOut)
 def post_public_confirm(
     payload: VigilPublicConfirmIn,
-    request: Request,
     response: Response,
     session: Session = Depends(get_session),
 ) -> VigilPublicConfirmOut:
-    _require_public_origin(request)
     _require_public_feature()
     _no_store(response)
     if not verify_vigil_solution(payload.altcha):

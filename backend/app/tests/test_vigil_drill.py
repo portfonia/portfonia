@@ -201,6 +201,55 @@ def _mint_http_nonce(app_client: TestClient, token: str) -> str:
     return nonce
 
 
+# --- Issue #515 -------------------------------------------------------------
+
+
+def test_public_endpoints_do_not_require_origin_header(
+    app_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Real browser/proxy traffic does not reliably send Origin on a GET, and
+    none of these four endpoints needs it: the two GETs return no secret and
+    cause no state change, and the two POSTs are already gated by the
+    single-use token hash, minted nonce, and solved Altcha challenge."""
+    monkeypatch.setattr("app.services.vigil.arm.live_activation_allowed", lambda: True)
+
+    config_id, object_id, revision = _seed_ready(db_session)
+    db_session.commit()
+    drill = _post_drill(app_client, config_id, object_id, revision)
+    token = peek_outbox_token_for_tests(db_session, uuid.UUID(drill.json()["drill_id"]))
+
+    challenge_resp = app_client.get("/vigil/public/altcha-challenge")
+    assert challenge_resp.status_code == 200, challenge_resp.text
+    challenge = challenge_resp.json()
+    algorithm = cast(AlgoType, challenge["algorithm"])
+    solution = altcha_v1.solve_challenge(
+        challenge=challenge["challenge"],
+        salt=challenge["salt"],
+        algorithm=algorithm,
+        max_number=challenge["maxNumber"],
+    )
+    assert solution is not None
+    altcha = altcha_v1.Payload(
+        algorithm=algorithm,
+        challenge=challenge["challenge"],
+        number=solution.number,
+        salt=challenge["salt"],
+        signature=challenge["signature"],
+    ).to_base64()
+
+    status_resp = app_client.get("/vigil/public/status", params={"token": token})
+    assert status_resp.status_code == 200, status_resp.text
+
+    nonce_resp = app_client.post("/vigil/public/status", json={"token": token, "action": "confirm"})
+    assert nonce_resp.status_code == 200, nonce_resp.text
+    nonce = nonce_resp.json()["nonce"]
+
+    confirm_resp = app_client.post(
+        "/vigil/public/confirm", json={"token": token, "nonce": nonce, "altcha": altcha}
+    )
+    assert confirm_resp.status_code == 200, confirm_resp.text
+
+
 # --- P2.3-A01 / A05 --------------------------------------------------------
 
 
