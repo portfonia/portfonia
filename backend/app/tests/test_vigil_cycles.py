@@ -23,6 +23,7 @@ from app.core.config import get_settings
 from app.models.user import User
 from app.models.vigil import (
     VigilActionToken,
+    VigilAuditEvent,
     VigilCycle,
     VigilDeliveryEvent,
     VigilOutbox,
@@ -305,6 +306,16 @@ def test_p33_a01_three_windows_earliest_sep10_and_one_scan_never_creates_three_l
     assert len(_rounds(db_session, cycle.id)) == 3
     assert vault.phase == "FINAL_WARNING"
     assert vault.phase != "RELEASED"
+    # #527: scan-driven transitions land in operational_events, never in
+    # vigil_audit_events.
+    assert db_session.scalar(select(func.count()).select_from(VigilAuditEvent)) == 0
+    deadline_sets = _vigil_events(db_session, "vigil.deadline_set", vault.id)
+    assert len(deadline_sets) == 3
+    assert {row.attributes["actor"] for row in deadline_sets} == {"system"}
+    assert {row.attributes["cycle_id"] for row in deadline_sets} == {str(cycle.id)}
+    advanced = _vigil_events(db_session, "vigil.level_advanced", vault.id)
+    assert [row.attributes["to_phase"] for row in advanced] == ["CHALLENGE_2", "FINAL_WARNING"]
+    assert [row.attributes["level"] for row in advanced] == [2, 3]
 
 
 def test_p33_a01_single_scan_does_not_catch_up_three_levels(db_session: Session) -> None:
@@ -616,6 +627,13 @@ def test_p33_public_cycle_confirm_replay_is_already_resolved(
     clock = vault.last_owner_confirmed_at
     assert clock is not None
 
+    # #527: the confirm-link path records the same durable event with the
+    # token actor, and the replay below adds no second one.
+    token_check_ins = _vigil_events(db_session, "vigil.check_in", vault.id)
+    assert [(row.attributes["actor"], row.attributes["to_phase"]) for row in token_check_ins] == [
+        ("token", "ARMED")
+    ]
+
     replay = app_client.post(
         "/vigil/public/confirm",
         headers=origin,
@@ -625,6 +643,7 @@ def test_p33_public_cycle_confirm_replay_is_already_resolved(
     assert replay.json()["result"] == "already_resolved"
     db_session.refresh(vault)
     assert vault.last_owner_confirmed_at == clock
+    assert len(_vigil_events(db_session, "vigil.check_in", vault.id)) == 1
 
 
 def test_cycle_unique_one_active_per_vault(db_session: Session) -> None:
@@ -767,3 +786,55 @@ def test_purge_deletes_cycles_and_rounds(db_session: Session) -> None:
     assert db_session.scalar(select(func.count()).select_from(VigilCycle)) == 0
     assert db_session.scalar(select(func.count()).select_from(VigilRound)) == 0
     del vault
+
+
+def _vigil_events(db_session: Session, operation: str, vault_id: uuid.UUID) -> list[Any]:
+    """Rows this vault's transition wrote to operational_events (issue #527).
+
+    Filtered by the vault_id attribute because the sink commits on its own
+    connection, so rows from other tests in the same session DB are visible.
+    """
+    from app.models.operational_event import OperationalEvent
+
+    rows = db_session.scalars(
+        select(OperationalEvent).where(OperationalEvent.operation == operation)
+    ).all()
+    return [row for row in rows if row.attributes.get("vault_id") == str(vault_id)]
+
+
+def test_owner_and_scan_transitions_write_operational_events_not_audit_rows(
+    db_session: Session,
+) -> None:
+    """#527: check_in / disarm / resume / cycle transitions land in
+    operational_events (#446) and never in vigil_audit_events."""
+    vault = _seed_armed(db_session, next_check_at=_SEP1)
+    _heartbeat(db_session, _SEP1 - timedelta(seconds=30))
+    _scan(db_session, _SEP1)
+    check_in(db_session, owner_user_id=TEST_USER_ID, expected_revision=vault.revision)
+    db_session.refresh(vault)
+    vault.hold_reason = "scan_gap"
+    vault.held_at = _SEP1
+    db_session.flush()
+    resume_held_vault(db_session, owner_user_id=TEST_USER_ID, expected_revision=vault.revision)
+    db_session.refresh(vault)
+    disarm(db_session, owner_user_id=TEST_USER_ID, expected_revision=vault.revision)
+
+    assert db_session.scalar(select(func.count()).select_from(VigilAuditEvent)) == 0
+
+    opened = _vigil_events(db_session, "vigil.cycle_opened", vault.id)
+    assert [row.attributes["actor"] for row in opened] == ["system"]
+    assert opened[0].attributes["to_phase"] == "CHALLENGE_1"
+    assert opened[0].attributes["level"] == 1
+
+    check_ins = _vigil_events(db_session, "vigil.check_in", vault.id)
+    assert [(row.attributes["actor"], row.attributes["to_phase"]) for row in check_ins] == [
+        ("owner", "ARMED")
+    ]
+
+    resumed = _vigil_events(db_session, "vigil.resume", vault.id)
+    assert [row.attributes["actor"] for row in resumed] == ["ops"]
+
+    disarmed = _vigil_events(db_session, "vigil.disarm", vault.id)
+    assert [(row.attributes["actor"], row.attributes["to_phase"]) for row in disarmed] == [
+        ("owner", "DISARMED")
+    ]

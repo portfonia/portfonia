@@ -18,7 +18,6 @@ from app.core.config import get_settings
 from app.models.user import User
 from app.models.vigil import (
     VigilActionToken,
-    VigilAuditEvent,
     VigilConfiguration,
     VigilCycle,
     VigilObject,
@@ -35,6 +34,7 @@ from app.services.vigil.configuration import (
 )
 from app.services.vigil.delivery import evaluate_delivery_evidence
 from app.services.vigil.dispatch import cancel_outbox_intents, write_outbox_entry
+from app.services.vigil.events import emit_vigil_event
 from app.services.vigil.tokens import (
     VigilNonceError,
     consume_nonce,
@@ -84,39 +84,6 @@ class CycleActionResult:
 class PublicCycleConfirmResult:
     result: str
     next_check_at: str | None
-
-
-def _append_audit(
-    session: Session,
-    vault: VigilVault,
-    *,
-    action: str,
-    actor_type: str,
-    from_phase: str,
-    to_phase: str,
-    detail: dict[str, object],
-) -> None:
-    sequence = (
-        session.scalar(
-            select(VigilAuditEvent.sequence)
-            .where(VigilAuditEvent.vault_id == vault.id)
-            .order_by(VigilAuditEvent.sequence.desc())
-            .limit(1)
-        )
-        or 0
-    ) + 1
-    session.add(
-        VigilAuditEvent(
-            vault_id=vault.id,
-            sequence=sequence,
-            action=action,
-            actor_type=actor_type,
-            from_phase=from_phase,
-            to_phase=to_phase,
-            revision=vault.revision,
-            detail=detail,
-        )
-    )
 
 
 def _lock_user_and_vault(session: Session, owner_user_id: UUID) -> tuple[User, VigilVault]:
@@ -379,14 +346,14 @@ def _open_level_one(session: Session, *, user: User, vault: VigilVault, now: dat
     vault.phase = "CHALLENGE_1"
     vault.updated_at = now
     vault.revision += 1
-    _append_audit(
-        session,
-        vault,
-        action="cycle_opened",
-        actor_type="system",
+    emit_vigil_event(
+        "vigil.cycle_opened",
+        actor="system",
+        vault_id=vault.id,
         from_phase=from_phase,
         to_phase=vault.phase,
-        detail={"cycle_id": str(cycle.id), "level": 1},
+        cycle_id=cycle.id,
+        level=1,
     )
 
 
@@ -409,14 +376,15 @@ def _set_deadline_or_hold(
         current.deadline_at = evidence.anchor_at + timedelta(hours=grace)
         vault.updated_at = now
         vault.revision += 1
-        _append_audit(
-            session,
-            vault,
-            action="deadline_set",
-            actor_type="system",
+        emit_vigil_event(
+            "vigil.deadline_set",
+            actor="system",
+            vault_id=vault.id,
             from_phase=vault.phase,
             to_phase=vault.phase,
-            detail={"round_id": str(current.id), "level": current.level},
+            cycle_id=cycle.id,
+            round_id=current.id,
+            level=current.level,
         )
         return True
     if evidence.reason == "negative":
@@ -507,14 +475,14 @@ def _advance_or_gate_release(
         vault.phase = _LEVEL_PHASE[next_level]
         vault.updated_at = now
         vault.revision += 1
-        _append_audit(
-            session,
-            vault,
-            action="level_advanced",
-            actor_type="system",
+        emit_vigil_event(
+            "vigil.level_advanced",
+            actor="system",
+            vault_id=vault.id,
             from_phase=from_phase,
             to_phase=vault.phase,
-            detail={"cycle_id": str(cycle.id), "level": next_level},
+            cycle_id=cycle.id,
+            level=next_level,
         )
         return True
     blocked = _windows_complete(session, cycle, now=now)
@@ -645,14 +613,13 @@ def _resolve_to_armed(
     vault.retention_anchor_at = now
     vault.updated_at = now
     vault.revision += 1
-    _append_audit(
-        session,
-        vault,
-        action="check_in",
-        actor_type=actor_type,
+    emit_vigil_event(
+        "vigil.check_in",
+        actor=actor_type,
+        vault_id=vault.id,
         from_phase=from_phase,
         to_phase="ARMED",
-        detail={"cycle_id": str(cycle.id) if cycle is not None else None},
+        cycle_id=cycle.id if cycle is not None else None,
     )
     session.flush()
 
@@ -706,14 +673,12 @@ def disarm(
     vault.next_check_at = None
     vault.updated_at = current
     vault.revision += 1
-    _append_audit(
-        session,
-        vault,
-        action="disarm",
-        actor_type="owner",
+    emit_vigil_event(
+        "vigil.disarm",
+        actor="owner",
+        vault_id=vault.id,
         from_phase=from_phase,
         to_phase="DISARMED",
-        detail={},
     )
     session.flush()
     return CycleActionResult(phase=vault.phase, revision=vault.revision, next_check_at=None)
@@ -759,14 +724,13 @@ def resume_held_vault(
     runtime = _runtime_row(session)
     runtime.health = "ok"
     runtime.reason = None
-    _append_audit(
-        session,
-        vault,
-        action="resume",
-        actor_type="ops",
+    emit_vigil_event(
+        "vigil.resume",
+        actor="ops",
+        vault_id=vault.id,
         from_phase=vault.phase,
         to_phase=vault.phase,
-        detail={"level": cycle.current_level if cycle is not None else None},
+        level=cycle.current_level if cycle is not None else None,
     )
     session.flush()
     next_check = rfc3339_z(vault.next_check_at) if vault.next_check_at is not None else None

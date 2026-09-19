@@ -5,6 +5,10 @@ Only these three tables exist at this checkpoint; no business logic
 contract from #450 Design section 4 / Vigil_R0_Dev.md Appendix A: column
 defaults, CHECK constraints, and the FK boundaries later checkpoints (and
 `purge_user`) depend on.
+
+`vigil_audit_events` is deprecated/unused since #527 (no writer) — the
+schema tests below still hold because the table itself is not dropped, and
+`purge_user` still deletes pre-#527 rows (vault_id is ON DELETE RESTRICT).
 """
 
 from __future__ import annotations
@@ -107,7 +111,8 @@ def test_runtime_health_check_constraint_rejects_unknown_value(db_session: Sessi
 
 
 def test_audit_event_requires_existing_vault(db_session: Session) -> None:
-    """Real FK: vigil_audit_events.vault_id -> vigil_vaults.id."""
+    """Real FK: vigil_audit_events.vault_id -> vigil_vaults.id (table kept
+    as an abandoned-in-place table since #527)."""
     db_session.add(
         VigilAuditEvent(
             vault_id=uuid.uuid4(),

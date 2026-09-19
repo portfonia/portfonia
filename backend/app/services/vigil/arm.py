@@ -15,7 +15,6 @@ from app.models.user import User
 from app.models.vigil import (
     VIGIL_OBJECT_GCM_TAG_LENGTH,
     VigilActionToken,
-    VigilAuditEvent,
     VigilConfiguration,
     VigilObject,
     VigilVault,
@@ -27,6 +26,7 @@ from app.services.vigil.configuration import (
     normalize_email,
 )
 from app.services.vigil.crypto import decrypt_field
+from app.services.vigil.events import emit_vigil_event
 from app.services.vigil.recovery import live_activation_allowed, stop_prior_arrangement
 from app.services.vigil.tokens import db_now, rfc3339_z
 
@@ -64,38 +64,6 @@ def _lock_user_and_vault(session: Session, owner_user_id: UUID) -> tuple[User, V
     if vault is None:
         raise VigilArmConflict("no vault")
     return user, vault
-
-
-def _append_audit(
-    session: Session,
-    vault: VigilVault,
-    *,
-    action: str,
-    from_phase: str,
-    to_phase: str,
-    detail: dict[str, object],
-) -> None:
-    sequence = (
-        session.scalar(
-            select(VigilAuditEvent.sequence)
-            .where(VigilAuditEvent.vault_id == vault.id)
-            .order_by(VigilAuditEvent.sequence.desc())
-            .limit(1)
-        )
-        or 0
-    ) + 1
-    session.add(
-        VigilAuditEvent(
-            vault_id=vault.id,
-            sequence=sequence,
-            action=action,
-            actor_type="owner",
-            from_phase=from_phase,
-            to_phase=to_phase,
-            revision=vault.revision,
-            detail=detail,
-        )
-    )
 
 
 def arm_pending(
@@ -206,15 +174,14 @@ def arm_pending(
         vault.retention_anchor_at = vault.last_owner_confirmed_at or vault.first_armed_at
     vault.updated_at = now
     vault.revision += 1
-    _append_audit(
-        session,
-        vault,
-        action="armed",
+    session.flush()
+    emit_vigil_event(
+        "vigil.armed",
+        actor="owner",
+        vault_id=vault.id,
         from_phase=from_phase,
         to_phase="ARMED",
-        detail={"config_id": str(config.id), "object_id": str(obj.id)},
     )
-    session.flush()
     assert vault.next_check_at is not None
     return ArmResult(
         phase="ARMED", revision=vault.revision, next_check_at=rfc3339_z(vault.next_check_at)

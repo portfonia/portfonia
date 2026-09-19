@@ -140,12 +140,22 @@ class VigilRuntime(Base):
 
 
 class VigilAuditEvent(Base):
-    """Append-only per-vault audit log (issue #451).
+    """DEPRECATED / UNUSED (issue #527, #516 finding 6) — do not write rows.
 
-    Nothing writes rows here yet — no route or task in this checkpoint
-    mutates a vault's phase — but the table/FK/UNIQUE contract is part of
-    #450 Design section4's frozen field list, so it ships now alongside
-    vaults/runtime rather than being added piecemeal later.
+    Vigil's own audit-log table was retired as an over-engineered duplicate
+    of the generic `operational_events` store (issue #446): no application
+    code reads a row here, and every transition it used to
+    record is already durable in the business rows (`vigil_vaults` phase/
+    revision/hold_reason/first_armed_at/last_owner_confirmed_at,
+    `vigil_rounds` anchor/deadline, `vigil_action_tokens` confirmed/used
+    timestamps). The table and its constraints stay as-is — the schema is
+    not migrated and historical rows are abandoned in place, never
+    backfilled. `purge_user` still deletes rows for the vault it removes,
+    because `vault_id` is ON DELETE RESTRICT; a physical DROP TABLE is a
+    separate decision (no forensic need confirmed yet).
+
+    If a Vigil event ever does need a durable record again, it goes through
+    `app.core.operational_events`, not this table.
     """
 
     __tablename__ = "vigil_audit_events"
