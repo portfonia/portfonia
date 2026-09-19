@@ -636,12 +636,25 @@ def test_purge_removes_action_tokens_and_consumed_nonces(
         },
     )
     assert armed.status_code == 200, armed.text
-    # #527: arm no longer writes vigil_audit_events rows.
-    assert db_session.scalar(select(func.count()).select_from(VigilAuditEvent)) == 0
-    # A pre-#527 row must still be purgeable: vault_id is ON DELETE RESTRICT.
     vault_id = db_session.execute(
         select(VigilVault.id).where(VigilVault.owner_user_id == TEST_USER_ID)
     ).scalar_one()
+    # #527: arm no longer writes vigil_audit_events rows — the durable record
+    # is an operational_events entry (#446) carrying the vault and phase.
+    assert db_session.scalar(select(func.count()).select_from(VigilAuditEvent)) == 0
+    from app.models.operational_event import OperationalEvent
+
+    armed_rows = [
+        row
+        for row in db_session.scalars(
+            select(OperationalEvent).where(OperationalEvent.operation == "vigil.armed")
+        ).all()
+        if row.attributes.get("vault_id") == str(vault_id)
+    ]
+    assert [(row.attributes["actor"], row.attributes["to_phase"]) for row in armed_rows] == [
+        ("owner", "ARMED")
+    ]
+    # A pre-#527 row must still be purgeable: vault_id is ON DELETE RESTRICT.
     db_session.add(
         VigilAuditEvent(
             vault_id=vault_id,

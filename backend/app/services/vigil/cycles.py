@@ -34,6 +34,7 @@ from app.services.vigil.configuration import (
 )
 from app.services.vigil.delivery import evaluate_delivery_evidence
 from app.services.vigil.dispatch import cancel_outbox_intents, write_outbox_entry
+from app.services.vigil.events import emit_vigil_event
 from app.services.vigil.tokens import (
     VigilNonceError,
     consume_nonce,
@@ -341,9 +342,19 @@ def _open_level_one(session: Session, *, user: User, vault: VigilVault, now: dat
     session.add(cycle)
     session.flush()
     _mint_round(session, vault=vault, cycle=cycle, user=user, level=1, generation=1, now=now)
+    from_phase = vault.phase
     vault.phase = "CHALLENGE_1"
     vault.updated_at = now
     vault.revision += 1
+    emit_vigil_event(
+        "vigil.cycle_opened",
+        actor="system",
+        vault_id=vault.id,
+        from_phase=from_phase,
+        to_phase=vault.phase,
+        cycle_id=cycle.id,
+        level=1,
+    )
 
 
 def _set_deadline_or_hold(
@@ -365,6 +376,16 @@ def _set_deadline_or_hold(
         current.deadline_at = evidence.anchor_at + timedelta(hours=grace)
         vault.updated_at = now
         vault.revision += 1
+        emit_vigil_event(
+            "vigil.deadline_set",
+            actor="system",
+            vault_id=vault.id,
+            from_phase=vault.phase,
+            to_phase=vault.phase,
+            cycle_id=cycle.id,
+            round_id=current.id,
+            level=current.level,
+        )
         return True
     if evidence.reason == "negative":
         _apply_hold(vault, HOLD_EVIDENCE_NEGATIVE, now)
@@ -450,9 +471,19 @@ def _advance_or_gate_release(
             generation=1,
             now=now,
         )
+        from_phase = vault.phase
         vault.phase = _LEVEL_PHASE[next_level]
         vault.updated_at = now
         vault.revision += 1
+        emit_vigil_event(
+            "vigil.level_advanced",
+            actor="system",
+            vault_id=vault.id,
+            from_phase=from_phase,
+            to_phase=vault.phase,
+            cycle_id=cycle.id,
+            level=next_level,
+        )
         return True
     blocked = _windows_complete(session, cycle, now=now)
     if blocked == HOLD_EVIDENCE_NEGATIVE:
@@ -551,6 +582,7 @@ def _resolve_to_armed(
     user: User,
     vault: VigilVault,
     now: datetime,
+    actor_type: str,
     confirming_token: VigilActionToken | None = None,
     cycle_status: str = "confirmed",
 ) -> None:
@@ -574,12 +606,21 @@ def _resolve_to_armed(
     if vault.active_config_id is None:
         raise VigilCycleConflict("no active configuration")
     interval = _interval_days(session, vault, vault.active_config_id)
+    from_phase = vault.phase
     vault.phase = "ARMED"
     vault.next_check_at = now + timedelta(days=interval)
     vault.last_owner_confirmed_at = now
     vault.retention_anchor_at = now
     vault.updated_at = now
     vault.revision += 1
+    emit_vigil_event(
+        "vigil.check_in",
+        actor=actor_type,
+        vault_id=vault.id,
+        from_phase=from_phase,
+        to_phase="ARMED",
+        cycle_id=cycle.id if cycle is not None else None,
+    )
     session.flush()
 
 
@@ -601,7 +642,7 @@ def check_in(
         raise VigilCycleConflict("disarmed cannot check-in")
     if vault.phase == "RELEASED":
         raise VigilCycleConflict({"error": "released", "action": "revoke"})
-    _resolve_to_armed(session, user=user, vault=vault, now=current)
+    _resolve_to_armed(session, user=user, vault=vault, now=current, actor_type="owner")
     assert vault.next_check_at is not None
     return CycleActionResult(
         phase=vault.phase,
@@ -626,11 +667,19 @@ def disarm(
         raise VigilRevisionConflict(current_revision=vault.revision)
     if vault.phase == "RELEASED":
         raise VigilCycleConflict({"error": "released", "action": "revoke"})
+    from_phase = vault.phase
     cancel_active_cycles(session, vault, now=current, status="cancelled")
     vault.phase = "DISARMED"
     vault.next_check_at = None
     vault.updated_at = current
     vault.revision += 1
+    emit_vigil_event(
+        "vigil.disarm",
+        actor="owner",
+        vault_id=vault.id,
+        from_phase=from_phase,
+        to_phase="DISARMED",
+    )
     session.flush()
     return CycleActionResult(phase=vault.phase, revision=vault.revision, next_check_at=None)
 
@@ -675,6 +724,14 @@ def resume_held_vault(
     runtime = _runtime_row(session)
     runtime.health = "ok"
     runtime.reason = None
+    emit_vigil_event(
+        "vigil.resume",
+        actor="ops",
+        vault_id=vault.id,
+        from_phase=vault.phase,
+        to_phase=vault.phase,
+        level=cycle.current_level if cycle is not None else None,
+    )
     session.flush()
     next_check = rfc3339_z(vault.next_check_at) if vault.next_check_at is not None else None
     return CycleActionResult(phase=vault.phase, revision=vault.revision, next_check_at=next_check)
@@ -740,6 +797,7 @@ def confirm_cycle_token(
         user=user,
         vault=vault,
         now=current,
+        actor_type="token",
         confirming_token=row,
     )
     assert vault.next_check_at is not None

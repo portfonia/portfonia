@@ -306,9 +306,16 @@ def test_p33_a01_three_windows_earliest_sep10_and_one_scan_never_creates_three_l
     assert len(_rounds(db_session, cycle.id)) == 3
     assert vault.phase == "FINAL_WARNING"
     assert vault.phase != "RELEASED"
-    # #527: no scan-driven transition (cycle_opened/deadline_set/
-    # level_advanced) writes vigil_audit_events any more.
+    # #527: scan-driven transitions land in operational_events, never in
+    # vigil_audit_events.
     assert db_session.scalar(select(func.count()).select_from(VigilAuditEvent)) == 0
+    deadline_sets = _vigil_events(db_session, "vigil.deadline_set", vault.id)
+    assert len(deadline_sets) == 3
+    assert {row.attributes["actor"] for row in deadline_sets} == {"system"}
+    assert {row.attributes["cycle_id"] for row in deadline_sets} == {str(cycle.id)}
+    advanced = _vigil_events(db_session, "vigil.level_advanced", vault.id)
+    assert [row.attributes["to_phase"] for row in advanced] == ["CHALLENGE_2", "FINAL_WARNING"]
+    assert [row.attributes["level"] for row in advanced] == [2, 3]
 
 
 def test_p33_a01_single_scan_does_not_catch_up_three_levels(db_session: Session) -> None:
@@ -773,9 +780,25 @@ def test_purge_deletes_cycles_and_rounds(db_session: Session) -> None:
     del vault
 
 
-def test_owner_and_scan_transitions_write_no_audit_rows(db_session: Session) -> None:
-    """#527: check_in / disarm / resume keep their evidence in the business
-    rows only — nothing in the cycle path inserts a VigilAuditEvent."""
+def _vigil_events(db_session: Session, operation: str, vault_id: uuid.UUID) -> list[Any]:
+    """Rows this vault's transition wrote to operational_events (issue #527).
+
+    Filtered by the vault_id attribute because the sink commits on its own
+    connection, so rows from other tests in the same session DB are visible.
+    """
+    from app.models.operational_event import OperationalEvent
+
+    rows = db_session.scalars(
+        select(OperationalEvent).where(OperationalEvent.operation == operation)
+    ).all()
+    return [row for row in rows if row.attributes.get("vault_id") == str(vault_id)]
+
+
+def test_owner_and_scan_transitions_write_operational_events_not_audit_rows(
+    db_session: Session,
+) -> None:
+    """#527: check_in / disarm / resume / cycle transitions land in
+    operational_events (#446) and never in vigil_audit_events."""
     vault = _seed_armed(db_session, next_check_at=_SEP1)
     _heartbeat(db_session, _SEP1 - timedelta(seconds=30))
     _scan(db_session, _SEP1)
@@ -787,4 +810,23 @@ def test_owner_and_scan_transitions_write_no_audit_rows(db_session: Session) -> 
     resume_held_vault(db_session, owner_user_id=TEST_USER_ID, expected_revision=vault.revision)
     db_session.refresh(vault)
     disarm(db_session, owner_user_id=TEST_USER_ID, expected_revision=vault.revision)
+
     assert db_session.scalar(select(func.count()).select_from(VigilAuditEvent)) == 0
+
+    opened = _vigil_events(db_session, "vigil.cycle_opened", vault.id)
+    assert [row.attributes["actor"] for row in opened] == ["system"]
+    assert opened[0].attributes["to_phase"] == "CHALLENGE_1"
+    assert opened[0].attributes["level"] == 1
+
+    check_ins = _vigil_events(db_session, "vigil.check_in", vault.id)
+    assert [(row.attributes["actor"], row.attributes["to_phase"]) for row in check_ins] == [
+        ("owner", "ARMED")
+    ]
+
+    resumed = _vigil_events(db_session, "vigil.resume", vault.id)
+    assert [row.attributes["actor"] for row in resumed] == ["ops"]
+
+    disarmed = _vigil_events(db_session, "vigil.disarm", vault.id)
+    assert [(row.attributes["actor"], row.attributes["to_phase"]) for row in disarmed] == [
+        ("owner", "DISARMED")
+    ]

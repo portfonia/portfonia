@@ -26,6 +26,7 @@ from app.services.vigil.configuration import (
     normalize_email,
 )
 from app.services.vigil.crypto import decrypt_field
+from app.services.vigil.events import emit_vigil_event
 from app.services.vigil.recovery import live_activation_allowed, stop_prior_arrangement
 from app.services.vigil.tokens import db_now, rfc3339_z
 
@@ -154,6 +155,7 @@ def arm_pending(
     if drill is None:
         raise VigilArmInputError("no confirmed drill for this pending candidate")
 
+    from_phase = vault.phase
     stop_prior_arrangement(session, vault, now=now)
 
     drill.used_at = now
@@ -173,6 +175,13 @@ def arm_pending(
     vault.updated_at = now
     vault.revision += 1
     session.flush()
+    emit_vigil_event(
+        "vigil.armed",
+        actor="owner",
+        vault_id=vault.id,
+        from_phase=from_phase,
+        to_phase="ARMED",
+    )
     assert vault.next_check_at is not None
     return ArmResult(
         phase="ARMED", revision=vault.revision, next_check_at=rfc3339_z(vault.next_check_at)
