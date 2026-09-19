@@ -4,7 +4,7 @@ import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useVigilSetup, type VigilSetupStage } from "./_lib/use-vigil-setup";
+import { useVigilSetup } from "./_lib/use-vigil-setup";
 import {
   VIGIL_GRACE_HOURS_MAX,
   VIGIL_GRACE_HOURS_MIN,
@@ -18,11 +18,6 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function stageLabel(t: ReturnType<typeof useTranslations>, stage: VigilSetupStage): string | null {
-  if (!stage) return null;
-  return t(`setup.stage.${stage}`);
 }
 
 export function VigilSetupPageBody() {
@@ -275,8 +270,8 @@ export function VigilSetupPageBody() {
 
             {submitting && (
               <div className="flex flex-col gap-1">
-                <p className="text-sm text-muted-foreground">{stageLabel(t, s.stage)}</p>
-                {s.stage === "uploading" && (
+                <p className="text-sm text-muted-foreground">{t("setup.submitting")}</p>
+                {s.progress > 0 && (
                   <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
                     <div
                       className="h-full bg-primary transition-all"

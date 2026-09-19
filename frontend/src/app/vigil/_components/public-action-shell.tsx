@@ -9,15 +9,13 @@ import { useConsumeLinkToken } from "@/hooks/use-consume-link-token";
 import { confirmVigilPublic, VigilApiError } from "@/lib/vigil/api";
 import { VigilConfirmAltcha } from "./vigil-confirm-altcha";
 
-export type PublicVigilAction = "confirm" | "retrieve" | "revoke";
-
-const TITLE_KEYS: Record<PublicVigilAction, string> = {
-  confirm: "confirmTitle",
-  retrieve: "retrieveTitle",
-  revoke: "revokeTitle",
-};
-
-export function PublicActionShell({ action }: { action: PublicVigilAction }) {
+// Public shell (issue #453/#528) for the one public Vigil action that is
+// actually authorized today: confirm. Retrieve and revoke used to render
+// through this same shell as always-unavailable placeholders; #529 (#516
+// finding 17) removed that product pretence — their routes now render a
+// single static not-enabled note instead (see retrieve/revoke page.tsx),
+// with no shared action Literal here to grow back into.
+export function PublicActionShell() {
   const t = useTranslations("vigil.public");
   const token = useConsumeLinkToken();
   const [busy, setBusy] = useState(false);
@@ -53,11 +51,11 @@ export function PublicActionShell({ action }: { action: PublicVigilAction }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t(TITLE_KEYS[action])}</CardTitle>
+        <CardTitle>{t("confirmTitle")}</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        {action !== "confirm" || result === "gone" ? (
-          <p>{result === "gone" ? t("gone") : t("unavailable")}</p>
+        {result === "gone" ? (
+          <p>{t("gone")}</p>
         ) : result === "confirmed" ? (
           <p>{t("confirmed")}</p>
         ) : (

@@ -1173,18 +1173,13 @@
     "states": {
       "setupRequired": "Vigil 尚未设置。",
       "disarmed": "Vigil 已配置，当前处于解除状态。",
-      "active": "Vigil 已布防，正在监控您的签到。",
-      "waitingDelivery": "签到请求已发送，正在等待送达确认。",
-      "countdown": "签到窗口正在进行中。",
-      "hold": "Vigil 处于暂停状态，当前未在倒计时。",
-      "released": "文件已发送给您的接收人。",
-      "revoked": "发送已被撤销。",
       "unavailable": "Vigil 当前不可用。"
     },
     "public": {
       "confirmTitle": "确认签到",
       "retrieveTitle": "获取文件",
       "revokeTitle": "撤销发送",
+      "notEnabled": "此功能尚未开放。",
       "unavailable": "此链接尚未生效，请稍后再试。",
       "confirmHint": "此确认只验证当前账户，不会布防 Vigil。",
       "confirmButton": "确认",
@@ -1228,12 +1223,7 @@
       "submit": "加密并上传",
       "cancel": "取消",
       "retry": "重试",
-      "stage": {
-        "configuring": "正在保存配置……",
-        "preparing": "正在准备上传……",
-        "encrypting": "正在浏览器本地加密……",
-        "uploading": "正在上传……"
-      },
+      "submitting": "正在提交……",
       "progressPercent": "{percent}%",
       "ready": {
         "title": "已就绪——等待演练",
