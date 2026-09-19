@@ -43,8 +43,9 @@ class VigilVaultStatus(BaseModel):
 # (issue #454, Vigil R0 P2.1) — #450 Design section 5. `extra="forbid"`
 # throughout matches "Unknown fields -> 422" from that section; validation
 # beyond basic shape (interval/grace bounds, recipient count/dedupe, email
-# normalization, DNS, revision locking) happens in
-# services/vigil/configuration.py and services/vigil/objects.py, not here.
+# normalization, revision locking) happens in services/vigil/configuration.py
+# and services/vigil/objects.py, not here. Save-time DNS/MX validation was
+# removed (issue #524, #516 finding 2) — see git history for #454's original.
 
 
 class VigilRecipientIn(BaseModel):

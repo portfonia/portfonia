@@ -1,17 +1,17 @@
 """POST /vigil/configurations business logic (issue #454, Vigil R0 P2.1).
 
-Split into three phases the router composes (Design section 5: "DNS checks
-occur outside locks; check off-lock then revalidate submitted normalized
-values on commit"):
+Split into two phases the router composes:
 
 1. `validate_configuration_input` — pure, no DB/network: interval/grace/
    recipient-count/dedupe/confirm-match/message-length bounds, email
    normalization. Raises `VigilConfigurationInputError` (-> 422).
-2. `check_recipients_dns` — network, no lock held. Raises
-   `VigilConfigurationInputError` (-> 422, no valid mail route) or
-   `VigilDnsUnavailable` (-> 503, transient failure, no state change).
-3. `write_pending_configuration` — DB, under the User-then-vault lock order
+2. `write_pending_configuration` — DB, under the User-then-vault lock order
    (#450 Design section 3). Raises `VigilRevisionConflict` (-> 409).
+
+Issue #524 (#516 finding 2) removed a third, network phase that used to run
+between these two (`check_recipients_dns`, save-time DNS/MX validation) —
+recipients are contacted months or years after save, so a save-time DNS
+result predicted nothing about release-time deliverability.
 
 `data_cipher`'s business JSON shape is Appendix A's
 {interval_days,grace_hours,account_email,recipients:[{position,email}],

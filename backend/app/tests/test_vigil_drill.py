@@ -30,7 +30,6 @@ from app.models.vigil import (
     VigilObject,
     VigilVault,
 )
-from app.services.vigil import dns_check
 from app.services.vigil.configuration import (
     validate_configuration_input,
     write_pending_configuration,
@@ -50,7 +49,6 @@ def _vigil_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("VIGIL_ENCRYPTION_KEY", Fernet.generate_key().decode())
     monkeypatch.setenv("VIGIL_NOTIFICATION_KEY", Fernet.generate_key().decode())
     get_settings.cache_clear()
-    monkeypatch.setattr(dns_check, "_domain_has_mail_route", lambda domain: True)
     monkeypatch.setattr(
         "app.tasks.vigil_tasks.dispatch_vigil_outbox_task.delay", lambda *a, **k: None
     )
