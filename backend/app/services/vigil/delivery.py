@@ -5,8 +5,14 @@ facts and return {usable, anchor, reason}. Deadline/state transitions
 belong to #459 (P3.3) and are not implemented here.
 
 Webhook verification is local HMAC via resend.Webhooks.verify (Svix
-algorithm, 300s timestamp tolerance) — no network. Bounded 5/15/30-minute
-polling of GET /emails/{id} is the only outbound call, mocked in tests.
+algorithm, 300s timestamp tolerance) — no network. Issue #526 (#516
+finding 3) removed the bounded 5/15/30-minute GET /emails/{id} poll that
+used to sit beside this webhook path: webhook ingestion +
+hold-on-missing-evidence (the cycle scan in `app.services.vigil.cycles`)
+is now the sole delivery-evidence path, so this module makes no outbound
+HTTP calls at all. `evidence_source="poll"` remains a valid historical
+value (`VALID_VIGIL_DELIVERY_EVIDENCE_SOURCES` in `app.models.vigil`) for
+any rows written before the removal; nothing writes it anymore.
 """
 
 from __future__ import annotations
@@ -14,20 +20,17 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, cast
 from uuid import UUID
 
-import httpx
 import resend
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.models.user import User
 from app.models.vigil import VigilDeliveryEvent, VigilOutbox, VigilVault
 from app.services.vigil.crypto import VigilCryptoError, encrypt_notification_field
@@ -35,11 +38,7 @@ from app.services.vigil.crypto import VigilCryptoError, encrypt_notification_fie
 logger = logging.getLogger(__name__)
 
 _ADDRESS_PURPOSE = "vigil_delivery_address"
-_RESEND_EMAIL_URL = "https://api.resend.com/emails/{id}"
-HTTP_TIMEOUT_SECONDS = 15.0
 PROVIDER_FUTURE_SKEW = timedelta(minutes=5)
-POLL_WINDOWS_MINUTES = (5, 15, 30)
-MAX_POLL_ROWS_PER_SWEEP = 5
 
 _NEGATIVE_TYPES = frozenset(
     {
@@ -62,11 +61,6 @@ class DeliveryEvidence:
     usable: bool
     anchor_at: datetime | None
     reason: str
-
-
-@dataclass(frozen=True)
-class DeliveryPollSummary:
-    polled: int
 
 
 def _normalize_addr(value: str) -> str:
@@ -368,129 +362,3 @@ def verify_resend_signature(*, payload: str, headers: dict[str, str], secret: st
             "webhook_secret": secret,
         }
     )
-
-
-def _poll_event_id(outbox_id: UUID, minutes: int) -> str:
-    return f"poll:{outbox_id}:{minutes}"
-
-
-def _due_poll_window(
-    outbox: VigilOutbox, events: list[VigilDeliveryEvent], *, now: datetime
-) -> int | None:
-    if outbox.first_attempt_at is None:
-        return None
-    existing = {e.provider_event_id for e in events}
-    for minutes in POLL_WINDOWS_MINUTES:
-        key = _poll_event_id(outbox.id, minutes)
-        if key in existing:
-            continue
-        if now >= outbox.first_attempt_at + timedelta(minutes=minutes):
-            return minutes
-    return None
-
-
-def _evidence_already_terminal(session: Session, outbox_id: UUID) -> bool:
-    evidence = evaluate_delivery_evidence(session, outbox_id)
-    return evidence.reason in {"delivered", "negative"}
-
-
-def _fetch_provider_email(provider_id: str) -> dict[str, Any] | None:
-    settings = get_settings()
-    key = settings.RESEND_ALL_ACCESS_API_KEY
-    if key is None or not key.get_secret_value():
-        return None
-    try:
-        with httpx.Client(timeout=HTTP_TIMEOUT_SECONDS) as client:
-            resp = client.get(
-                _RESEND_EMAIL_URL.format(id=provider_id),
-                headers={"Authorization": f"Bearer {key.get_secret_value()}"},
-            )
-    except httpx.HTTPError:
-        return None
-    if resp.status_code != 200:
-        return None
-    try:
-        body = resp.json()
-    except ValueError:
-        return None
-    return body if isinstance(body, dict) else None
-
-
-def _poll_event_type(last_event: object) -> str:
-    if not isinstance(last_event, str) or not last_event:
-        return "email.sent"
-    if last_event.startswith("email."):
-        return last_event
-    return f"email.{last_event}"
-
-
-def run_delivery_poll_sweep(
-    session_factory: Callable[[], Session],
-    *,
-    now: datetime | None = None,
-    limit: int = MAX_POLL_ROWS_PER_SWEEP,
-) -> DeliveryPollSummary:
-    """Poll GET /emails/{id} only for accepted outbox rows still missing
-    usable or negative evidence. At most `limit` provider calls per
-    invocation; windows are 5, then 15, then 30 minutes after
-    first_attempt_at, then stop. Missing evidence stays unknown.
-    """
-    now = now or datetime.now(UTC)
-    session = session_factory()
-    try:
-        candidates = list(
-            session.scalars(
-                select(VigilOutbox)
-                .where(
-                    VigilOutbox.provider_id.isnot(None),
-                    VigilOutbox.first_attempt_at.isnot(None),
-                    VigilOutbox.first_attempt_at
-                    <= now - timedelta(minutes=POLL_WINDOWS_MINUTES[0]),
-                )
-                .order_by(VigilOutbox.first_attempt_at)
-            ).all()
-        )
-        due: list[tuple[UUID, str, int]] = []
-        for row in candidates:
-            if row.provider_id is None:
-                continue
-            if _evidence_already_terminal(session, row.id):
-                continue
-            events = _events_for_outbox(session, row.id)
-            window = _due_poll_window(row, events, now=now)
-            if window is None:
-                continue
-            due.append((row.id, row.provider_id, window))
-            if len(due) >= limit:
-                break
-    finally:
-        session.close()
-
-    polled = 0
-    for outbox_id, provider_id, window in due:
-        body = _fetch_provider_email(provider_id)
-        if body is None:
-            continue
-        to_raw = body.get("to")
-        to_addr: str | None = None
-        if isinstance(to_raw, list) and to_raw and isinstance(to_raw[0], str):
-            to_addr = to_raw[0]
-        elif isinstance(to_raw, str):
-            to_addr = to_raw
-        write_session = session_factory()
-        try:
-            ingest_provider_event(
-                write_session,
-                provider_event_id=_poll_event_id(outbox_id, window),
-                provider_message_id=provider_id,
-                event_type=_poll_event_type(body.get("last_event")),
-                provider_at=None,
-                received_at=now,
-                evidence_source="poll",
-                to_addr=to_addr,
-            )
-            write_session.commit()
-            polled += 1
-        finally:
-            write_session.close()
-    return DeliveryPollSummary(polled=polled)

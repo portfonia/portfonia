@@ -1,8 +1,10 @@
 """services/vigil/delivery.py — verified delivery evidence (issue #457, P3.2).
 
-Real Postgres. Provider HTTP (Resend GET /emails/{id}) is mocked. Webhook
-signature verification is local HMAC (resend.Webhooks.verify, 300s
-tolerance) and needs no network mock.
+Real Postgres. Webhook signature verification is local HMAC
+(resend.Webhooks.verify, 300s tolerance) and needs no network mock. Issue
+#526 (#516 finding 3) removed the bounded GET /emails/{id} poll that used
+to sit beside the webhook path, so this module makes no outbound provider
+HTTP calls at all — there is nothing left here to mock.
 """
 
 from __future__ import annotations
@@ -47,7 +49,6 @@ def _vigil_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("VIGIL_MODE", "active")
     monkeypatch.setenv("RESEND_API_KEY", "test-resend-key")
     monkeypatch.setenv("RESEND_WEBHOOK_SECRET", _WEBHOOK_SECRET)
-    monkeypatch.setenv("RESEND_ALL_ACCESS_API_KEY", "test-all-access-key")
     get_settings.cache_clear()
 
 
@@ -731,111 +732,6 @@ def test_missing_provider_evidence_stays_unknown(db_session: Session) -> None:
     assert evidence.reason == "unknown"
 
 
-def test_poll_records_delivered_at_observation_when_timestamp_missing(
-    db_session: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from app.services.vigil import delivery as delivery_mod
-    from app.services.vigil.delivery import evaluate_delivery_evidence, run_delivery_poll_sweep
-
-    vault_id, config_id, object_id = _seed_object(db_session)
-    row = _write_entry(
-        db_session,
-        vault_id=vault_id,
-        config_id=config_id,
-        object_id=object_id,
-        dedup_key="dk-a04-2",
-    )
-    first = datetime(2026, 1, 1, 11, 0, tzinfo=UTC)
-    _mark_accepted(db_session, row.id, provider_id="msg-poll", first_attempt_at=first)
-
-    calls: list[str] = []
-
-    def _fake_get(provider_id: str) -> dict[str, Any]:
-        calls.append(provider_id)
-        return {"id": provider_id, "last_event": "delivered", "to": ["recipient@example.com"]}
-
-    monkeypatch.setattr(delivery_mod, "_fetch_provider_email", _fake_get)
-
-    now = first + timedelta(minutes=5)
-    summary = run_delivery_poll_sweep(_session_factory, now=now)
-    assert summary.polled == 1
-    assert calls == ["msg-poll"]
-
-    evidence = evaluate_delivery_evidence(db_session, row.id, now=now)
-    assert evidence.usable is True
-    assert evidence.anchor_at == now
-    event = db_session.scalars(select(VigilDeliveryEvent)).one()
-    assert event.evidence_source == "poll"
-    assert event.provider_at is None
-
-
-def test_poll_skips_when_evidence_already_present(
-    db_session: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from app.services.vigil import delivery as delivery_mod
-    from app.services.vigil.delivery import ingest_provider_event, run_delivery_poll_sweep
-
-    vault_id, config_id, object_id = _seed_object(db_session)
-    row = _write_entry(
-        db_session,
-        vault_id=vault_id,
-        config_id=config_id,
-        object_id=object_id,
-        dedup_key="dk-a04-3",
-    )
-    first = datetime(2026, 1, 1, 11, 0, tzinfo=UTC)
-    _mark_accepted(db_session, row.id, provider_id="msg-skip", first_attempt_at=first)
-    ingest_provider_event(
-        db_session,
-        provider_event_id="evt-already",
-        provider_message_id="msg-skip",
-        event_type="email.delivered",
-        provider_at=datetime(2026, 1, 1, 11, 30, tzinfo=UTC),
-        received_at=datetime(2026, 1, 1, 11, 31, tzinfo=UTC),
-        evidence_source="webhook",
-        to_addr="recipient@example.com",
-    )
-    db_session.commit()
-
-    def _fake_get(provider_id: str) -> dict[str, Any]:
-        raise AssertionError(f"must not poll when evidence exists: {provider_id}")
-
-    monkeypatch.setattr(delivery_mod, "_fetch_provider_email", _fake_get)
-    summary = run_delivery_poll_sweep(_session_factory, now=first + timedelta(minutes=30))
-    assert summary.polled == 0
-
-
-def test_poll_windows_are_5_15_30_and_stop_after_third(
-    db_session: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from app.services.vigil import delivery as delivery_mod
-    from app.services.vigil.delivery import run_delivery_poll_sweep
-
-    vault_id, config_id, object_id = _seed_object(db_session)
-    row = _write_entry(
-        db_session,
-        vault_id=vault_id,
-        config_id=config_id,
-        object_id=object_id,
-        dedup_key="dk-a04-4",
-    )
-    first = datetime(2026, 1, 1, 11, 0, tzinfo=UTC)
-    _mark_accepted(db_session, row.id, provider_id="msg-windows", first_attempt_at=first)
-
-    def _fake_get(provider_id: str) -> dict[str, Any]:
-        return {"id": provider_id, "last_event": "sent", "to": ["recipient@example.com"]}
-
-    monkeypatch.setattr(delivery_mod, "_fetch_provider_email", _fake_get)
-
-    assert run_delivery_poll_sweep(_session_factory, now=first + timedelta(minutes=4)).polled == 0
-    assert run_delivery_poll_sweep(_session_factory, now=first + timedelta(minutes=5)).polled == 1
-    assert run_delivery_poll_sweep(_session_factory, now=first + timedelta(minutes=6)).polled == 0
-    assert run_delivery_poll_sweep(_session_factory, now=first + timedelta(minutes=15)).polled == 1
-    assert run_delivery_poll_sweep(_session_factory, now=first + timedelta(minutes=30)).polled == 1
-    assert run_delivery_poll_sweep(_session_factory, now=first + timedelta(minutes=45)).polled == 0
-    assert db_session.query(VigilDeliveryEvent).count() == 3
-
-
 def test_no_new_compose_service_or_domain() -> None:
     compose = yaml.safe_load((_REPO_ROOT / "docker-compose.yml").read_text())
     assert set(compose["services"]) == {
@@ -962,3 +858,17 @@ def test_db_failure_on_webhook_returns_503(
         },
     )
     assert resp.status_code == 503
+
+
+def test_delivery_poller_removed_from_beat_and_tasks() -> None:
+    """Regression guard for issue #526 (#516 finding 3): the bounded
+    delivery-evidence poll must not reappear on the beat schedule or as a
+    task, even accidentally re-added alongside a future change to this
+    module. Webhook + hold-on-missing-evidence is the only path.
+    """
+    from app.services.vigil import delivery
+    from app.tasks import celery_app, vigil_tasks
+
+    assert "poll-vigil-delivery" not in celery_app.conf.beat_schedule
+    assert not hasattr(vigil_tasks, "poll_vigil_delivery_task")
+    assert not hasattr(delivery, "run_delivery_poll_sweep")

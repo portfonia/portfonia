@@ -264,13 +264,6 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "task": "app.tasks.vigil_tasks.dispatch_vigil_outbox_task",
         "schedule": 30.0,
     },
-    # Vigil delivery-evidence poll (issue #457, P3.2): missing provider
-    # facts only, at 5/15/30 minutes after first_attempt_at, bounded to 5
-    # GETs per invocation. Same existing worker/beat as the outbox sweep.
-    "poll-vigil-delivery": {
-        "task": "app.tasks.vigil_tasks.poll_vigil_delivery_task",
-        "schedule": 30.0,
-    },
     # Vigil three-round confirmation scan (issue #459, P3.3): at most one
     # level step per invocation, 60s on the existing beat/worker/queue.
     "scan-vigil-cycles": {
