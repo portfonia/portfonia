@@ -36,6 +36,7 @@ from app.services.vigil.configuration import (
 from app.services.vigil.drills import peek_outbox_token_for_tests
 from app.services.vigil.objects import init_object, upload_object
 from app.tests.conftest import TEST_USER_ID
+from app.tests.vigil_helpers import ensure_confirmation_email
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -105,7 +106,7 @@ def _seed_ready(
     cfg = write_pending_configuration(
         db_session,
         owner_user_id=TEST_USER_ID,
-        owner_email="owner@example.com",
+        confirmation_email_id=ensure_confirmation_email(db_session, owner_user_id=TEST_USER_ID).id,
         expected_revision=expected_revision,
         normalized=validate_configuration_input(
             interval_days=30,
@@ -230,7 +231,7 @@ def test_public_endpoints_do_not_require_origin_header(
 # --- P2.3-A01 / A05 --------------------------------------------------------
 
 
-def test_p23_a01_b_drill_then_c_init_cannot_activate_without_explicit_arm(
+def test_reusable_confirmation_survives_superseded_historical_drill(
     app_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("app.services.vigil.arm.live_activation_allowed", lambda: True)
@@ -250,9 +251,13 @@ def test_p23_a01_b_drill_then_c_init_cannot_activate_without_explicit_arm(
     )
     assert armed_a.status_code == 200, armed_a.text
     _age_drills(db_session)
+    paused_a = app_client.post(
+        "/vigil/disarm", json={"expected_revision": armed_a.json()["revision"]}
+    )
+    assert paused_a.status_code == 200, paused_a.text
 
     config_b, object_b, rev_b = _seed_ready(
-        db_session, expected_revision=armed_a.json()["revision"], filename="b.pdf"
+        db_session, expected_revision=paused_a.json()["revision"], filename="b.pdf"
     )
     db_session.commit()
     drill_b = _post_drill(app_client, config_b, object_b, rev_b)
@@ -278,7 +283,7 @@ def test_p23_a01_b_drill_then_c_init_cannot_activate_without_explicit_arm(
     )
     assert arm_b.status_code == 422
 
-    arm_c_without_drill = app_client.post(
+    arm_c_with_reusable_confirmation = app_client.post(
         "/vigil/arm",
         json={
             "expected_revision": rev_c,
@@ -286,39 +291,15 @@ def test_p23_a01_b_drill_then_c_init_cannot_activate_without_explicit_arm(
             "object_id": str(object_c),
         },
     )
-    assert arm_c_without_drill.status_code == 422
+    assert arm_c_with_reusable_confirmation.status_code == 200
 
     vault = db_session.execute(
         select(VigilVault).where(VigilVault.owner_user_id == TEST_USER_ID)
     ).scalar_one()
     db_session.refresh(vault)
     assert vault.phase == "ARMED"
-    assert vault.active_object_id == object_a
-
-    drill_c = _post_drill(app_client, config_c, object_c, rev_c)
-    assert drill_c.status_code == 202, drill_c.text
-    token_c = peek_outbox_token_for_tests(db_session, uuid.UUID(drill_c.json()["drill_id"]))
-    confirm_c = _confirm(app_client, token_c, _solved_vigil_altcha(app_client))
-    assert confirm_c.status_code == 200
-    assert confirm_c.json()["result"] == "confirmed"
-    db_session.refresh(vault)
-    assert vault.phase == "ARMED"
-    assert vault.active_object_id == object_a
-    assert vault.last_owner_confirmed_at is None
-
-    arm_c = app_client.post(
-        "/vigil/arm",
-        json={
-            "expected_revision": drill_c.json()["revision"],
-            "config_id": str(config_c),
-            "object_id": str(object_c),
-        },
-    )
-    assert arm_c.status_code == 200, arm_c.text
-    assert arm_c.json()["phase"] == "ARMED"
-    db_session.refresh(vault)
-    assert vault.phase == "ARMED"
     assert vault.active_object_id == object_c
+    assert vault.last_owner_confirmed_at is None
     obj_a = db_session.get(VigilObject, object_a)
     assert obj_a is not None
     assert obj_a.status == "retired"
@@ -443,9 +424,11 @@ def test_p23_a03_first_arm_sets_retention_later_drill_does_not_refresh(
     assert retention == first_armed
     assert vault.last_owner_confirmed_at is None
     _age_drills(db_session)
+    paused = app_client.post("/vigil/disarm", json={"expected_revision": armed.json()["revision"]})
+    assert paused.status_code == 200, paused.text
 
     config_b, object_b, rev_b = _seed_ready(
-        db_session, expected_revision=armed.json()["revision"], filename="b.pdf"
+        db_session, expected_revision=paused.json()["revision"], filename="b.pdf"
     )
     db_session.commit()
     drill_b = _post_drill(app_client, config_b, object_b, rev_b)
@@ -507,7 +490,7 @@ def test_p23_a04_backup_field_422_and_live_arm_blocked_without_stop_hooks(
     assert vault.first_armed_at is None
 
 
-def test_p23_a04_unverified_account_email_cannot_drill(
+def test_historical_drill_uses_selected_confirmation_not_account_email(
     app_client: TestClient, db_session: Session
 ) -> None:
     config_id, object_id, revision = _seed_ready(db_session)
@@ -517,13 +500,14 @@ def test_p23_a04_unverified_account_email_cannot_drill(
     owner.email_verified_at = None
     db_session.commit()
     resp = _post_drill(app_client, config_id, object_id, revision)
-    assert resp.status_code == 503
+    assert resp.status_code == 202
     vault = db_session.execute(
         select(VigilVault).where(VigilVault.owner_user_id == TEST_USER_ID)
     ).scalar_one()
     db_session.refresh(vault)
     assert vault.phase == "DISARMED"
-    assert db_session.scalar(select(func.count()).select_from(VigilActionToken)) == 0
+    assert vault.pending_config_id == config_id and vault.pending_object_id == object_id
+    assert db_session.scalar(select(func.count()).select_from(VigilActionToken)) == 1
 
 
 def test_purge_removes_action_tokens(

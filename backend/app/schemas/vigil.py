@@ -6,15 +6,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# GET /vigil/vault response shape — #452 Design comment / #450 Design
-# section 5 (incorporated by reference), object_summary and full field
-# list. `active`/`pending`/`recipients`/`delivery_status` stay structurally
-# present but always empty/None as of #454 too: vigil_configurations and
-# vigil_objects now exist and GET /vigil/vault could read them, but this
-# route doesn't decrypt/populate the summary yet (no masking policy for
-# `recipients`/`filename` decided at this checkpoint — blacktomb42 PR #507
-# review: "reasonable until decrypt/masking policy", not a gap to silently
-# paper over). Filled in once that policy exists.
+# GET /vigil/vault returns the non-sensitive pending projection needed to
+# restore /vigil/activate from server state (#539). It intentionally omits
+# filenames, recipients, messages, and encryption material.
 
 
 class VigilObjectSummary(BaseModel):
@@ -23,6 +17,14 @@ class VigilObjectSummary(BaseModel):
     plaintext_size: int
     status: str
     has_password: bool | None
+
+
+class VigilPendingCandidate(BaseModel):
+    config_id: UUID
+    object_id: UUID | None
+    object_status: str | None
+    confirmation_email_id: UUID
+    confirmation_email_verified: bool
 
 
 class VigilVaultStatus(BaseModel):
@@ -34,7 +36,7 @@ class VigilVaultStatus(BaseModel):
     deadline_at: datetime | None = None
     last_scan_completed_at: datetime | None = None
     active: VigilObjectSummary | None = None
-    pending: VigilObjectSummary | None = None
+    pending: VigilPendingCandidate | None = None
     recipients: list[str] = Field(default_factory=list)
     delivery_status: list[Any] = Field(default_factory=list)
 
@@ -59,6 +61,7 @@ class VigilConfigurationIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     expected_revision: int
+    confirmation_email_id: UUID
     interval_days: int | None = None
     grace_hours: int | None = None
     recipients: list[VigilRecipientIn]
@@ -68,6 +71,34 @@ class VigilConfigurationIn(BaseModel):
 class VigilConfigurationOut(BaseModel):
     vault_id: UUID
     config_id: UUID
+    revision: int
+
+
+class VigilConfirmationEmailOut(BaseModel):
+    id: UUID
+    address: str
+    verified_at: datetime | None
+
+
+class VigilConfirmationEmailListOut(BaseModel):
+    emails: list[VigilConfirmationEmailOut]
+
+
+class VigilConfirmationEmailCreateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int
+    address: str
+
+
+class VigilRevisionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int
+
+
+class VigilConfirmationEmailMutationOut(BaseModel):
+    email: VigilConfirmationEmailOut | None
     revision: int
 
 

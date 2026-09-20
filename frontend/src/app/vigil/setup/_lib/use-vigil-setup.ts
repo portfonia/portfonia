@@ -24,17 +24,21 @@
 //     never creates a redundant new `vigil_configurations` row just
 //     because the file/password fingerprint also happened to change.
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import {
-  armVigilVault,
+  addVigilConfirmationEmail,
+  cancelVigilConfirmationEmailVerification,
   createVigilConfiguration,
-  createVigilDrill,
+  deleteVigilConfirmationEmail,
   getVigilVaultStatus,
   initVigilObject,
+  listVigilConfirmationEmails,
   uploadVigilObject,
   VigilApiError,
   VigilRevisionConflictError,
   type VigilVaultStatus,
+  type VigilConfirmationEmail,
 } from "@/lib/vigil/api";
 import { encodeBase64Url } from "@/lib/vigil/crypto/base64url";
 import type { VigilManifest } from "@/lib/vigil/crypto/manifest";
@@ -48,24 +52,6 @@ import {
 } from "./validation";
 
 export type VigilSetupPhase = "form" | "submitting" | "ready" | "error";
-export type VigilDrillUiState = "idle" | "pending" | "sent" | "unknown" | "expired" | "confirmed";
-
-function drillStateFromVault(status: VigilVaultStatus): VigilDrillUiState | null {
-  const first = status.delivery_status?.[0];
-  if (!first || typeof first !== "object") return null;
-  const state = (first as { state?: unknown }).state;
-  if (
-    state === "pending" ||
-    state === "sent" ||
-    state === "unknown" ||
-    state === "expired" ||
-    state === "confirmed"
-  ) {
-    return state;
-  }
-  return null;
-}
-
 interface VigilCryptoClientLike {
   encryptFile(input: {
     vaultId: string;
@@ -119,6 +105,7 @@ function errorMessageFor(err: unknown): { message: string; code: string } {
 }
 
 export function useVigilSetup(options: UseVigilSetupOptions = {}) {
+  const router = useRouter();
   const [vaultStatus, setVaultStatus] = useState<VigilVaultStatus | null>(null);
   const [vaultStatusError, setVaultStatusError] = useState(false);
 
@@ -130,16 +117,15 @@ export function useVigilSetup(options: UseVigilSetupOptions = {}) {
   const [message, setMessage] = useState("");
   const [intervalDays, setIntervalDays] = useState<number>(VIGIL_INTERVAL_DAYS_DEFAULT);
   const [graceHours, setGraceHours] = useState<number>(VIGIL_GRACE_HOURS_DEFAULT);
+  const [confirmationEmails, setConfirmationEmails] = useState<VigilConfirmationEmail[]>([]);
+  const [selectedConfirmationEmailId, setSelectedConfirmationEmailId] = useState("");
+  const [newConfirmationEmail, setNewConfirmationEmail] = useState("");
 
   const [phase, setPhase] = useState<VigilSetupPhase>("form");
   const [progress, setProgress] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<SetupFormErrorCode[]>([]);
-  const [pendingConfigId, setPendingConfigId] = useState<string | null>(null);
-  const [pendingObjectId, setPendingObjectId] = useState<string | null>(null);
-  const [drillUiState, setDrillUiState] = useState<VigilDrillUiState>("idle");
-  const [armed, setArmed] = useState(false);
 
   const revisionRef = useRef(0);
   const vaultIdRef = useRef<string | null>(null);
@@ -150,14 +136,14 @@ export function useVigilSetup(options: UseVigilSetupOptions = {}) {
 
   useEffect(() => {
     let cancelled = false;
-    getVigilVaultStatus()
-      .then((status) => {
+    Promise.all([getVigilVaultStatus(), listVigilConfirmationEmails()])
+      .then(([status, emails]) => {
         if (cancelled) return;
         setVaultStatus(status);
+        setConfirmationEmails(emails);
+        if (emails.length > 0) setSelectedConfirmationEmailId(emails[0].id);
         revisionRef.current = status.revision;
         vaultIdRef.current = status.vault_id;
-        const drill = drillStateFromVault(status);
-        if (drill) setDrillUiState(drill);
       })
       .catch(() => {
         if (!cancelled) setVaultStatusError(true);
@@ -165,6 +151,57 @@ export function useVigilSetup(options: UseVigilSetupOptions = {}) {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  const addConfirmationEmail = useCallback(async () => {
+    setErrorCode(null);
+    try {
+      const result = await addVigilConfirmationEmail({
+        expected_revision: revisionRef.current,
+        address: newConfirmationEmail,
+      });
+      revisionRef.current = result.revision;
+      const emails = await listVigilConfirmationEmails();
+      setConfirmationEmails(emails);
+      if (result.email) setSelectedConfirmationEmailId(result.email.id);
+      setNewConfirmationEmail("");
+    } catch (err) {
+      const { code } = errorMessageFor(err);
+      if (err instanceof VigilRevisionConflictError) revisionRef.current = err.currentRevision;
+      setErrorCode(code);
+    }
+  }, [newConfirmationEmail]);
+
+  const cancelConfirmationEmail = useCallback(async (emailId: string) => {
+    setErrorCode(null);
+    try {
+      const result = await cancelVigilConfirmationEmailVerification(emailId, revisionRef.current);
+      revisionRef.current = result.revision;
+      setConfirmationEmails(await listVigilConfirmationEmails());
+      setVaultStatus(await getVigilVaultStatus());
+    } catch (err) {
+      const { code } = errorMessageFor(err);
+      if (err instanceof VigilRevisionConflictError) revisionRef.current = err.currentRevision;
+      setErrorCode(code);
+    }
+  }, []);
+
+  const removeConfirmationEmail = useCallback(async (emailId: string) => {
+    setErrorCode(null);
+    try {
+      const result = await deleteVigilConfirmationEmail(emailId, revisionRef.current);
+      revisionRef.current = result.revision;
+      const emails = await listVigilConfirmationEmails();
+      setConfirmationEmails(emails);
+      setSelectedConfirmationEmailId((current) =>
+        current === emailId ? (emails[0]?.id ?? "") : current,
+      );
+      setVaultStatus(await getVigilVaultStatus());
+    } catch (err) {
+      const { code } = errorMessageFor(err);
+      if (err instanceof VigilRevisionConflictError) revisionRef.current = err.currentRevision;
+      setErrorCode(code);
+    }
   }, []);
 
   useEffect(
@@ -206,7 +243,8 @@ export function useVigilSetup(options: UseVigilSetupOptions = {}) {
       graceHours,
     });
     setValidationErrors(errors);
-    if (errors.length > 0 || !file || hasPassword === null) {
+    if (errors.length > 0 || !file || hasPassword === null || !selectedConfirmationEmailId) {
+      if (!selectedConfirmationEmailId) setErrorCode("confirmationEmailRequired");
       return;
     }
 
@@ -218,10 +256,17 @@ export function useVigilSetup(options: UseVigilSetupOptions = {}) {
     abortControllerRef.current = controller;
 
     try {
-      const configFingerprint = JSON.stringify({ recipients, message, intervalDays, graceHours });
+      const configFingerprint = JSON.stringify({
+        recipients,
+        message,
+        intervalDays,
+        graceHours,
+        selectedConfirmationEmailId,
+      });
       if (configCacheRef.current?.fingerprint !== configFingerprint) {
         const result = await createVigilConfiguration({
           expected_revision: revisionRef.current,
+          confirmation_email_id: selectedConfirmationEmailId,
           interval_days: intervalDays,
           grace_hours: graceHours,
           recipients,
@@ -285,14 +330,10 @@ export function useVigilSetup(options: UseVigilSetupOptions = {}) {
         { signal: controller.signal, onProgress: setProgress },
       );
       revisionRef.current = uploadResult.revision;
-      setPendingConfigId(configId);
-      setPendingObjectId(objectId);
-      setDrillUiState("idle");
-      setArmed(false);
-
       setPhase("ready");
       setPassword("");
       setPasswordConfirm("");
+      router.push("/vigil/activate");
     } catch (err) {
       const { message: msg, code } = errorMessageFor(err);
       if (err instanceof VigilRevisionConflictError) {
@@ -306,78 +347,18 @@ export function useVigilSetup(options: UseVigilSetupOptions = {}) {
       setErrorCode(code);
       setPhase("error");
     }
-  }, [file, hasPassword, password, passwordConfirm, recipients, message, intervalDays, graceHours]);
-
-  const sendDrill = useCallback(async () => {
-    if (!pendingConfigId || !pendingObjectId) return;
-    setErrorMessage(null);
-    setErrorCode(null);
-    try {
-      const result = await createVigilDrill({
-        expected_revision: revisionRef.current,
-        config_id: pendingConfigId,
-        object_id: pendingObjectId,
-      });
-      revisionRef.current = result.revision;
-      setDrillUiState("pending");
-    } catch (err) {
-      const { message: msg, code } = errorMessageFor(err);
-      if (err instanceof VigilRevisionConflictError) {
-        revisionRef.current = err.currentRevision;
-      }
-      setErrorMessage(msg);
-      setErrorCode(code === "apiError" ? "drillFailed" : code);
-    }
-  }, [pendingConfigId, pendingObjectId]);
-
-  const activate = useCallback(async () => {
-    if (!pendingConfigId || !pendingObjectId) return;
-    setErrorMessage(null);
-    setErrorCode(null);
-    try {
-      const result = await armVigilVault({
-        expected_revision: revisionRef.current,
-        config_id: pendingConfigId,
-        object_id: pendingObjectId,
-      });
-      revisionRef.current = result.revision;
-      setArmed(true);
-    } catch (err) {
-      const { message: msg, code } = errorMessageFor(err);
-      if (err instanceof VigilRevisionConflictError) {
-        revisionRef.current = err.currentRevision;
-      }
-      if (err instanceof VigilApiError && err.status === 503) {
-        setErrorCode("armIncomplete");
-        setErrorMessage(msg);
-        return;
-      }
-      setErrorMessage(msg);
-      setErrorCode(code === "apiError" ? "armFailed" : code);
-    }
-  }, [pendingConfigId, pendingObjectId]);
-
-  useEffect(() => {
-    if (phase !== "ready") return;
-    if (drillUiState !== "pending" && drillUiState !== "sent" && drillUiState !== "unknown") return;
-    let cancelled = false;
-    const timer = window.setInterval(() => {
-      void getVigilVaultStatus()
-        .then((status) => {
-          if (cancelled) return;
-          revisionRef.current = status.revision;
-          const drill = drillStateFromVault(status);
-          if (drill) setDrillUiState(drill);
-        })
-        .catch(() => {
-          /* keep last known drill state */
-        });
-    }, 5000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [phase, drillUiState]);
+  }, [
+    file,
+    hasPassword,
+    password,
+    passwordConfirm,
+    recipients,
+    message,
+    intervalDays,
+    graceHours,
+    selectedConfirmationEmailId,
+    router,
+  ]);
 
   return {
     vaultStatus,
@@ -399,6 +380,14 @@ export function useVigilSetup(options: UseVigilSetupOptions = {}) {
     setIntervalDays,
     graceHours,
     setGraceHours,
+    confirmationEmails,
+    selectedConfirmationEmailId,
+    setSelectedConfirmationEmailId,
+    newConfirmationEmail,
+    setNewConfirmationEmail,
+    addConfirmationEmail,
+    cancelConfirmationEmail,
+    removeConfirmationEmail,
 
     phase,
     progress,
@@ -408,9 +397,5 @@ export function useVigilSetup(options: UseVigilSetupOptions = {}) {
 
     submit,
     cancel,
-    sendDrill,
-    activate,
-    drillUiState,
-    armed,
   };
 }

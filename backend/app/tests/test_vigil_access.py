@@ -270,7 +270,7 @@ def test_eligible_true_for_active_verified_allowlisted_owner(
     assert is_vigil_owner_eligible(db_session, user.id) is True
 
 
-def test_eligible_false_when_unverified(
+def test_account_email_verification_is_not_vigil_confirmation_eligibility(
     db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from app.services.vigil.access import is_vigil_owner_eligible
@@ -284,7 +284,7 @@ def test_eligible_false_when_unverified(
         email_verified_at=None,
     )
 
-    assert is_vigil_owner_eligible(db_session, user.id) is False
+    assert is_vigil_owner_eligible(db_session, user.id) is True
 
 
 def test_eligible_false_when_inactive(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -367,8 +367,7 @@ def test_eligible_runs_with_no_request_scoped_state(
 
 
 def test_access_module_never_reads_delivery_email() -> None:
-    """Account-confirmation identity source is User.email + email_verified_at
-    — never the report pipeline's delivery_email field (#452 Design)."""
+    """Vigil confirmation never uses the report pipeline delivery address."""
     from app.services.vigil import access
 
     source = inspect.getsource(access)

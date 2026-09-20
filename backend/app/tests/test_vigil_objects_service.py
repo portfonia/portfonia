@@ -30,6 +30,7 @@ from app.services.vigil.objects import (
     init_object,
     upload_object,
 )
+from app.tests.vigil_helpers import ensure_confirmation_email
 
 _OWNER_ID = uuid.UUID("00000000-0000-0000-0000-0000000000f2")
 
@@ -39,6 +40,7 @@ def _vigil_key(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.core.config import get_settings
 
     monkeypatch.setenv("VIGIL_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    monkeypatch.setenv("VIGIL_NOTIFICATION_KEY", Fernet.generate_key().decode())
     get_settings.cache_clear()
 
 
@@ -65,7 +67,7 @@ def _seed_pending_config(db_session: Session) -> tuple[uuid.UUID, int]:
     result = write_pending_configuration(
         db_session,
         owner_user_id=_OWNER_ID,
-        owner_email="owner@example.com",
+        confirmation_email_id=ensure_confirmation_email(db_session, owner_user_id=_OWNER_ID).id,
         expected_revision=0,
         normalized=validate_configuration_input(
             interval_days=30,

@@ -45,10 +45,21 @@ VALID_VIGIL_AUDIT_ACTOR_TYPES = ("owner", "token", "system", "ops")
 VALID_VIGIL_CONFIGURATION_STATUSES = ("pending", "active", "retired")
 VALID_VIGIL_OBJECT_STATUSES = ("staging", "ready", "active", "retired", "deleted")
 VIGIL_OBJECT_MAX_PLAINTEXT_SIZE = 10_000_000
-VALID_VIGIL_OUTBOX_PURPOSES = ("drill", "challenge", "release", "owner_notice")
+VALID_VIGIL_OUTBOX_PURPOSES = (
+    "drill",
+    "email_verify",
+    "challenge",
+    "release",
+    "owner_notice",
+)
 VALID_VIGIL_OUTBOX_STATUSES = ("pending", "accepted", "failed")
 VALID_VIGIL_DELIVERY_EVIDENCE_SOURCES = ("webhook", "poll")
-VALID_VIGIL_ACTION_TOKEN_PURPOSES = ("drill", "cycle_confirm", "owner_revoke")
+VALID_VIGIL_ACTION_TOKEN_PURPOSES = (
+    "drill",
+    "email_verify",
+    "cycle_confirm",
+    "owner_revoke",
+)
 VALID_VIGIL_CYCLE_STATUSES = ("active", "confirmed", "released", "cancelled")
 # AES-256-GCM tag length (bytes) the browser-produced ciphertext always
 # carries appended — #450 Design section 5 / Vigil_R0_Dev.md §3.
@@ -191,9 +202,9 @@ class VigilConfiguration(Base):
     """Versioned configuration candidate for a vault (issue #454, P2.1).
 
     `data_cipher` is a services.vigil.crypto contextual envelope wrapping
-    the strict business JSON {interval_days, grace_hours, account_email,
-    recipients:[{position,email}], message} — never a plain encrypted
-    scalar. `id` is a Python-side UUID (not server-generated) because the
+    interval/grace, the selected reusable confirmation email, release
+    recipients, and message — never a plain encrypted scalar. `id` is a
+    Python-side UUID (not server-generated) because the
     crypto envelope must bind `row_id` to this row's own id *before* the
     INSERT that stores it — the caller allocates the id, builds
     `data_cipher` from it, then constructs this row with that id.
@@ -231,6 +242,33 @@ class VigilConfiguration(Base):
     status: Mapped[str] = mapped_column(Text, nullable=False)
     data_cipher: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class VigilConfirmationEmail(Base):
+    """Reusable owner-scoped mailbox proof for Vigil (issue #539)."""
+
+    __tablename__ = "vigil_confirmation_emails"
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_user_id",
+            "address_fingerprint",
+            name="uq_vigil_confirmation_emails_owner_user_id_address_fingerprint",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    address_cipher: Mapped[str] = mapped_column(Text, nullable=False)
+    address_fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    verified_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
 
@@ -341,6 +379,11 @@ class VigilOutbox(Base):
     __table_args__ = (
         UniqueConstraint("dedup_key", name="uq_vigil_outbox_dedup_key"),
         CheckConstraint(_in_list_sql("purpose", VALID_VIGIL_OUTBOX_PURPOSES), name="purpose"),
+        CheckConstraint(
+            "(purpose = 'email_verify' AND config_id IS NULL AND object_id IS NULL) OR "
+            "(purpose <> 'email_verify' AND config_id IS NOT NULL AND object_id IS NOT NULL)",
+            name="purpose_context",
+        ),
         CheckConstraint(_in_list_sql("status", VALID_VIGIL_OUTBOX_STATUSES), name="status"),
         CheckConstraint(
             "recipient_index IS NULL OR recipient_index BETWEEN 1 AND 3",
@@ -359,11 +402,11 @@ class VigilOutbox(Base):
     vault_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("vigil_vaults.id", ondelete="RESTRICT"), nullable=False
     )
-    config_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("vigil_configurations.id", ondelete="RESTRICT"), nullable=False
+    config_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("vigil_configurations.id", ondelete="RESTRICT")
     )
-    object_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("vigil_objects.id", ondelete="RESTRICT"), nullable=False
+    object_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("vigil_objects.id", ondelete="RESTRICT")
     )
     scope_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     purpose: Mapped[str] = mapped_column(Text, nullable=False)
@@ -435,6 +478,13 @@ class VigilActionToken(Base):
     __table_args__ = (
         UniqueConstraint("token_hash", name="uq_vigil_action_tokens_token_hash"),
         CheckConstraint(_in_list_sql("purpose", VALID_VIGIL_ACTION_TOKEN_PURPOSES), name="purpose"),
+        CheckConstraint(
+            "(purpose = 'email_verify' AND confirmation_email_id IS NOT NULL "
+            "AND config_id IS NULL AND object_id IS NULL) OR "
+            "(purpose <> 'email_verify' AND confirmation_email_id IS NULL "
+            "AND config_id IS NOT NULL AND object_id IS NOT NULL)",
+            name="purpose_context",
+        ),
         Index(
             "uq_vigil_action_tokens_one_pending_drill",
             "config_id",
@@ -451,11 +501,14 @@ class VigilActionToken(Base):
     vault_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("vigil_vaults.id", ondelete="RESTRICT"), nullable=False
     )
-    config_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("vigil_configurations.id", ondelete="RESTRICT"), nullable=False
+    config_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("vigil_configurations.id", ondelete="RESTRICT")
     )
-    object_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("vigil_objects.id", ondelete="RESTRICT"), nullable=False
+    object_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("vigil_objects.id", ondelete="RESTRICT")
+    )
+    confirmation_email_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("vigil_confirmation_emails.id", ondelete="RESTRICT")
     )
     cycle_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("vigil_cycles.id", ondelete="RESTRICT")

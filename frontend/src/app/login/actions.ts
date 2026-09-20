@@ -20,12 +20,15 @@ function resolveLocale(formData: FormData) {
 // Issue #453: the ONLY non-default return destination /login ever honors.
 // Exact-match against the literal string only — no prefix, no decoding, no
 // trimming — so an external URL, a protocol-relative "//host" value, a
-// "javascript:" scheme, or any other page (including a same-app one like
-// /vigil/setup) all fall through to the unconditional /profile default,
-// same as if the field were absent.
-function resolveNextDestination(formData: FormData): "/vigil" | "/profile" {
+// "javascript:" scheme, or any page outside the three exact Vigil routes
+// all fall through to the unconditional /profile default, same as if the
+// field were absent.
+function resolveNextDestination(
+  formData: FormData,
+): "/vigil" | "/vigil/setup" | "/vigil/activate" | "/profile" {
   const raw = formData.get("next");
-  return raw === "/vigil" ? "/vigil" : "/profile";
+  if (raw === "/vigil" || raw === "/vigil/setup" || raw === "/vigil/activate") return raw;
+  return "/profile";
 }
 
 export async function login(

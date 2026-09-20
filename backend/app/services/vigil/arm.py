@@ -14,17 +14,13 @@ from app.core.config import get_settings
 from app.models.user import User
 from app.models.vigil import (
     VIGIL_OBJECT_GCM_TAG_LENGTH,
-    VigilActionToken,
     VigilConfiguration,
     VigilObject,
     VigilVault,
 )
 from app.services.vigil.access import is_vigil_owner_eligible
-from app.services.vigil.configuration import (
-    VigilRevisionConflict,
-    load_configuration_data,
-    normalize_email,
-)
+from app.services.vigil.configuration import VigilRevisionConflict, load_configuration_data
+from app.services.vigil.confirmation_emails import resolve_verified_configuration_email
 from app.services.vigil.crypto import decrypt_field
 from app.services.vigil.events import emit_vigil_event
 from app.services.vigil.recovery import live_activation_allowed, stop_prior_arrangement
@@ -81,7 +77,7 @@ def arm_pending(
     if not allow_incomplete_stop and not live_activation_allowed():
         raise VigilArmUnavailable("stop/recovery integration is incomplete")
 
-    user, vault = _lock_user_and_vault(session, owner_user_id)
+    _user, vault = _lock_user_and_vault(session, owner_user_id)
     now = db_now(session)
     if expected_revision != vault.revision:
         raise VigilRevisionConflict(current_revision=vault.revision)
@@ -122,43 +118,18 @@ def arm_pending(
         raise VigilArmInputError("pending object outer envelope is unreadable") from exc
 
     data = load_configuration_data(config, vault.id)
-    account_email = data.get("account_email")
     recipients = data.get("recipients")
     interval_days = data.get("interval_days")
-    if not isinstance(account_email, str):
-        raise VigilArmInputError("configuration account_email is missing")
-    try:
-        if normalize_email(user.email) != normalize_email(account_email):
-            raise VigilArmInputError("account email does not match the configuration snapshot")
-    except ValueError as exc:
-        raise VigilArmInputError("account email is invalid") from exc
-    if user.email_verified_at is None:
-        raise VigilArmInputError("account email is not verified")
+    if resolve_verified_configuration_email(session, vault=vault, config=config, lock=True) is None:
+        raise VigilArmInputError("selected confirmation email is not verified or no longer matches")
     if not isinstance(recipients, list) or not (1 <= len(recipients) <= 3):
         raise VigilArmInputError("configuration recipients are incomplete")
     if not isinstance(interval_days, int):
         raise VigilArmInputError("configuration interval is invalid")
 
-    drill = session.scalars(
-        select(VigilActionToken)
-        .where(
-            VigilActionToken.vault_id == vault.id,
-            VigilActionToken.purpose == "drill",
-            VigilActionToken.config_id == config_id,
-            VigilActionToken.object_id == object_id,
-            VigilActionToken.confirmed_at.isnot(None),
-            VigilActionToken.invalidated_at.is_(None),
-            VigilActionToken.used_at.is_(None),
-        )
-        .with_for_update()
-    ).first()
-    if drill is None:
-        raise VigilArmInputError("no confirmed drill for this pending candidate")
-
     from_phase = vault.phase
     stop_prior_arrangement(session, vault, now=now)
 
-    drill.used_at = now
     config.status = "active"
     obj.status = "active"
     obj.activated_at = now

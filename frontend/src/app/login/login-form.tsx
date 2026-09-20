@@ -11,12 +11,9 @@ import { markPendingLogin } from "@/hooks/use-session";
 import { settleAuthAction } from "@/lib/settle-auth-action";
 import { login, type LoginState } from "./actions";
 
-// Issue #453: the only value login/actions.ts's resolveNextDestination ever
-// accepts besides its own default. Passed down from login/page.tsx, which
-// reads it from the ?next= query string proxy.ts itself set (never from
-// anywhere else) — see actions.ts for why an arbitrary/external value can
-// never reach here in practice.
-export function LoginForm({ next }: { next?: "/vigil" }) {
+// Exact allowlisted return values shared with login/actions.ts. login/page.tsx
+// only passes one of these values from the proxy-generated ?next= parameter.
+export function LoginForm({ next }: { next?: "/vigil" | "/vigil/setup" | "/vigil/activate" }) {
   const t = useTranslations("auth");
   const { locale } = useLocale();
 

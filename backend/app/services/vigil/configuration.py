@@ -13,11 +13,10 @@ between these two (`check_recipients_dns`, save-time DNS/MX validation) —
 recipients are contacted months or years after save, so a save-time DNS
 result predicted nothing about release-time deliverability.
 
-`data_cipher`'s business JSON shape is Appendix A's
-{interval_days,grace_hours,account_email,recipients:[{position,email}],
-message} — encrypted as one field via services.vigil.crypto, not scattered
-across separate DB columns (no separate searchable recipient table, per
-Appendix A "no separate recipient table or searchable email hash").
+`data_cipher` stores interval/grace, a reusable confirmation-email reference
+and encrypted address snapshot, release recipients, and the owner message as
+one encrypted business document. Release recipients remain inside this
+document rather than a separate searchable table.
 """
 
 from __future__ import annotations
@@ -31,7 +30,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.user import User
-from app.models.vigil import VigilConfiguration, VigilVault
+from app.models.vigil import VigilConfiguration, VigilConfirmationEmail, VigilObject, VigilVault
 from app.services.vigil.crypto import decrypt_field, encrypt_field
 from app.services.vigil.dispatch import cancel_outbox_intents
 from app.services.vigil.tokens import db_now, invalidate_open_drill_tokens
@@ -63,8 +62,7 @@ class VigilRevisionConflict(RuntimeError):
 
 
 class VigilRecipientsLocked(RuntimeError):
-    """Recipients/order cannot change once a vault has been armed at least
-    once, even after a later disarm (#450 Design section 5) (-> 422)."""
+    """A fresh setup cannot be submitted until the active vault is paused."""
 
 
 def normalize_email(raw: str) -> str:
@@ -167,28 +165,6 @@ def load_configuration_data(config: VigilConfiguration, vault_id: UUID) -> dict[
     return _decrypt_configuration_data(config, vault_id)
 
 
-def _assert_recipients_not_changed_after_arming(
-    session: Session, vault: VigilVault, normalized: NormalizedConfiguration
-) -> None:
-    """Once armed at least once, recipients/order are fixed forever — even
-    after a later disarm (#450 Design section 5)."""
-    if vault.first_armed_at is None:
-        return
-    reference_id = vault.active_config_id or vault.pending_config_id
-    if reference_id is None:
-        return
-    reference = session.get(VigilConfiguration, reference_id)
-    if reference is None:
-        return
-    data = _decrypt_configuration_data(reference, vault.id)
-    existing_recipients = data.get("recipients", [])
-    submitted = [{"position": r.position, "email": r.email} for r in normalized.recipients]
-    if existing_recipients != submitted:
-        raise VigilRecipientsLocked(
-            "recipients cannot change after the vault has been armed at least once"
-        )
-
-
 @dataclass(frozen=True)
 class ConfigurationWriteResult:
     vault_id: UUID
@@ -200,7 +176,7 @@ def write_pending_configuration(
     session: Session,
     *,
     owner_user_id: UUID,
-    owner_email: str,
+    confirmation_email_id: UUID,
     expected_revision: int,
     normalized: NormalizedConfiguration,
 ) -> ConfigurationWriteResult:
@@ -224,7 +200,26 @@ def write_pending_configuration(
         if expected_revision != vault.revision:
             raise VigilRevisionConflict(current_revision=vault.revision)
 
-    _assert_recipients_not_changed_after_arming(session, vault, normalized)
+    if vault.phase != "DISARMED" or vault.active_config_id is not None:
+        raise VigilRecipientsLocked("pause Vigil before starting a fresh setup")
+
+    confirmation_email = session.scalars(
+        select(VigilConfirmationEmail)
+        .where(
+            VigilConfirmationEmail.id == confirmation_email_id,
+            VigilConfirmationEmail.owner_user_id == owner_user_id,
+        )
+        .with_for_update()
+    ).one_or_none()
+    if confirmation_email is None:
+        raise VigilConfigurationInputError("confirmation email does not belong to this owner")
+    confirmation_address = decrypt_field(
+        confirmation_email.address_cipher,
+        purpose="vigil_confirmation_email_address",
+        table="vigil_confirmation_emails",
+        row_id=confirmation_email.id,
+        vault_id=owner_user_id,
+    )
 
     next_config_revision = (
         session.scalar(
@@ -248,10 +243,21 @@ def write_pending_configuration(
                 )
             pending.status = "retired"
 
+    if vault.pending_object_id is not None:
+        pending_object = session.execute(
+            select(VigilObject).where(VigilObject.id == vault.pending_object_id).with_for_update()
+        ).scalar_one_or_none()
+        if pending_object is not None and pending_object.status in ("staging", "ready"):
+            pending_object.status = "retired"
+            pending_object.ciphertext = None
+            pending_object.outer_cipher = None
+        vault.pending_object_id = None
+
     business_data = {
         "interval_days": normalized.interval_days,
         "grace_hours": normalized.grace_hours,
-        "account_email": owner_email,
+        "confirmation_email_id": str(confirmation_email.id),
+        "confirmation_email": confirmation_address,
         "recipients": [{"position": r.position, "email": r.email} for r in normalized.recipients],
         "message": normalized.message,
     }

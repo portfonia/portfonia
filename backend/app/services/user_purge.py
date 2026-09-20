@@ -23,6 +23,7 @@ from app.models.vigil import (
     VigilActionToken,
     VigilAuditEvent,
     VigilConfiguration,
+    VigilConfirmationEmail,
     VigilCycle,
     VigilDeliveryEvent,
     VigilObject,
@@ -50,6 +51,7 @@ class PurgeResult:
     vigil_cycles: int
     vigil_objects: int
     vigil_configurations: int
+    vigil_confirmation_emails: int
     vigil_audit_events: int
     vigil_vaults: int
     users: int
@@ -138,6 +140,7 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
     vigil_cycles = 0
     vigil_objects = 0
     vigil_configurations = 0
+    vigil_confirmation_emails = 0
     vigil_audit_events = 0
     if vault_id is not None:
         session.execute(
@@ -228,6 +231,16 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
                 ),
             )
         )
+        vigil_confirmation_emails = _rowcount(
+            cast(
+                CursorResult[Any],
+                session.execute(
+                    delete(VigilConfirmationEmail).where(
+                        VigilConfirmationEmail.owner_user_id == user_id
+                    )
+                ),
+            )
+        )
         # vigil_audit_events is deprecated/unused since #527 (no writer), but
         # pre-#527 rows may still exist and vault_id is ON DELETE RESTRICT
         # since P1.1. Parent Design section 3 deletes audit_events after
@@ -269,6 +282,7 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
         vigil_cycles=vigil_cycles,
         vigil_objects=vigil_objects,
         vigil_configurations=vigil_configurations,
+        vigil_confirmation_emails=vigil_confirmation_emails,
         vigil_audit_events=vigil_audit_events,
         vigil_vaults=vigil_vaults,
         users=users,

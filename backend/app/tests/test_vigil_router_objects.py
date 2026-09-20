@@ -15,6 +15,9 @@ from sqlalchemy.orm import Session
 
 from app.models.user import User
 from app.tests.conftest import TEST_USER_ID
+from app.tests.vigil_helpers import ensure_confirmation_email
+
+_EMAIL_ID = uuid.UUID("00000000-0000-4000-8000-000000000539")
 
 
 @pytest.fixture(autouse=True)
@@ -24,11 +27,12 @@ def _vigil_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("VIGIL_MODE", "active")
     monkeypatch.setenv("VIGIL_OWNER_AUTH_SUBJECT", "owner-sub")
     monkeypatch.setenv("VIGIL_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    monkeypatch.setenv("VIGIL_NOTIFICATION_KEY", Fernet.generate_key().decode())
     get_settings.cache_clear()
 
 
 @pytest.fixture(autouse=True)
-def _owner_user(db_session: Session) -> User:
+def _owner_user(db_session: Session, _vigil_configured: None) -> User:
     row = User(
         id=TEST_USER_ID,
         auth_provider="supabase",
@@ -42,6 +46,7 @@ def _owner_user(db_session: Session) -> User:
     )
     db_session.add(row)
     db_session.flush()
+    ensure_confirmation_email(db_session, owner_user_id=TEST_USER_ID, email_id=_EMAIL_ID)
     return row
 
 
@@ -50,6 +55,7 @@ def _seed_config(app_client: TestClient) -> tuple[str, int]:
         "/vigil/configurations",
         json={
             "expected_revision": 0,
+            "confirmation_email_id": str(_EMAIL_ID),
             "recipients": [{"email": "a@example.com", "email_confirm": "a@example.com"}],
         },
     )

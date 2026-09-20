@@ -9,6 +9,7 @@ gates it.
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 
 import pytest
@@ -19,6 +20,9 @@ from sqlalchemy.orm import Session
 from app.models.user import User
 from app.models.vigil import VigilVault
 from app.tests.conftest import TEST_USER_ID
+from app.tests.vigil_helpers import ensure_confirmation_email
+
+_EMAIL_ID = uuid.UUID("00000000-0000-4000-8000-000000000539")
 
 
 @pytest.fixture(autouse=True)
@@ -28,11 +32,12 @@ def _vigil_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("VIGIL_MODE", "active")
     monkeypatch.setenv("VIGIL_OWNER_AUTH_SUBJECT", "owner-sub")
     monkeypatch.setenv("VIGIL_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    monkeypatch.setenv("VIGIL_NOTIFICATION_KEY", Fernet.generate_key().decode())
     get_settings.cache_clear()
 
 
 @pytest.fixture(autouse=True)
-def _owner_user(db_session: Session) -> User:
+def _owner_user(db_session: Session, _vigil_configured: None) -> User:
     row = User(
         id=TEST_USER_ID,
         auth_provider="supabase",
@@ -46,12 +51,14 @@ def _owner_user(db_session: Session) -> User:
     )
     db_session.add(row)
     db_session.flush()
+    ensure_confirmation_email(db_session, owner_user_id=TEST_USER_ID, email_id=_EMAIL_ID)
     return row
 
 
 def _payload(**overrides: object) -> dict[str, object]:
     base: dict[str, object] = {
         "expected_revision": 0,
+        "confirmation_email_id": str(_EMAIL_ID),
         "recipients": [{"email": "a@example.com", "email_confirm": "a@example.com"}],
     }
     base.update(overrides)
@@ -128,3 +135,69 @@ def test_configuration_save_needs_no_dns(app_client: TestClient) -> None:
         ),
     )
     assert resp.status_code == 201, resp.text
+
+
+def test_confirmation_email_rest_lifecycle_is_owner_scoped_and_revisioned(
+    app_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "app.tasks.vigil_tasks.dispatch_vigil_outbox_task.delay", lambda *args, **kwargs: None
+    )
+    listed = app_client.get("/vigil/confirmation-emails")
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()["emails"]] == [str(_EMAIL_ID)]
+
+    added = app_client.post(
+        "/vigil/confirmation-emails",
+        json={"expected_revision": 0, "address": "Second@Example.COM"},
+    )
+    assert added.status_code == 201, added.text
+    email_id = added.json()["email"]["id"]
+    assert added.json()["email"]["address"] == "second@example.com"
+    assert added.json()["email"]["verified_at"] is None
+
+    sent = app_client.post(
+        f"/vigil/confirmation-emails/{email_id}/send-verification",
+        json={"expected_revision": added.json()["revision"]},
+    )
+    assert sent.status_code == 202, sent.text
+
+    cancelled = app_client.post(
+        f"/vigil/confirmation-emails/{email_id}/cancel-verification",
+        json={"expected_revision": sent.json()["revision"]},
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    deleted = app_client.request(
+        "DELETE",
+        f"/vigil/confirmation-emails/{email_id}",
+        json={"expected_revision": cancelled.json()["revision"]},
+    )
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["email"] is None
+
+
+def test_vault_read_returns_non_secret_pending_projection(app_client: TestClient) -> None:
+    config = app_client.post("/vigil/configurations", json=_payload()).json()
+    initialized = app_client.post(
+        "/vigil/objects/init",
+        json={
+            "expected_revision": config["revision"],
+            "config_id": config["config_id"],
+            "request_id": str(uuid.uuid4()),
+            "filename": "private-will.pdf",
+            "plaintext_size": 123,
+        },
+    )
+    assert initialized.status_code == 201, initialized.text
+    status = app_client.get("/vigil/vault")
+    assert status.status_code == 200
+    pending = status.json()["pending"]
+    assert pending == {
+        "config_id": config["config_id"],
+        "object_id": initialized.json()["object_id"],
+        "object_status": "staging",
+        "confirmation_email_id": str(_EMAIL_ID),
+        "confirmation_email_verified": True,
+    }
+    assert "filename" not in pending
+    assert "recipients" not in pending

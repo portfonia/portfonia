@@ -27,10 +27,10 @@ from app.models.vigil import (
     VigilVault,
 )
 from app.services.vigil.access import is_vigil_owner_eligible
-from app.services.vigil.configuration import (
-    VigilRevisionConflict,
-    load_configuration_data,
-    normalize_email,
+from app.services.vigil.configuration import VigilRevisionConflict, load_configuration_data
+from app.services.vigil.confirmation_emails import (
+    invalidate_setup_for_configuration,
+    resolve_verified_configuration_email,
 )
 from app.services.vigil.delivery import evaluate_delivery_evidence
 from app.services.vigil.dispatch import cancel_outbox_intents, write_outbox_entry
@@ -181,20 +181,14 @@ def _interval_days(session: Session, vault: VigilVault, config_id: UUID) -> int:
     return interval
 
 
-def _account_ok(session: Session, user: User, vault: VigilVault, config_id: UUID) -> bool:
-    if not is_vigil_owner_eligible(session, user.id):
-        return False
+def _confirmation_address(
+    session: Session, vault: VigilVault, config_id: UUID
+) -> tuple[VigilConfiguration, str] | None:
     config = session.get(VigilConfiguration, config_id)
     if config is None:
-        return False
-    data = load_configuration_data(config, vault.id)
-    account_email = data.get("account_email")
-    if not isinstance(account_email, str):
-        return False
-    try:
-        return normalize_email(user.email) == normalize_email(account_email)
-    except ValueError:
-        return False
+        return None
+    address = resolve_verified_configuration_email(session, vault=vault, config=config, lock=True)
+    return (config, address) if address is not None else None
 
 
 def _apply_hold(vault: VigilVault, reason: str, now: datetime) -> None:
@@ -255,7 +249,7 @@ def _mint_round(
     *,
     vault: VigilVault,
     cycle: VigilCycle,
-    user: User,
+    recipient_email: str,
     level: int,
     generation: int,
     now: datetime,
@@ -294,7 +288,7 @@ def _mint_round(
         scope_id=round_id,
         purpose=_CHALLENGE_PURPOSE,
         dedup_key=f"challenge:{round_id}",
-        recipient_email=user.email,
+        recipient_email=recipient_email,
         subject=subject,
         text_body=text_body,
         html_body=html_body,
@@ -317,7 +311,7 @@ def _mint_round(
 def _open_level_one(session: Session, *, user: User, vault: VigilVault, now: datetime) -> None:
     if vault.active_config_id is None or vault.active_object_id is None:
         return
-    session.execute(
+    config = session.execute(
         select(VigilConfiguration)
         .where(VigilConfiguration.id == vault.active_config_id)
         .with_for_update()
@@ -325,9 +319,14 @@ def _open_level_one(session: Session, *, user: User, vault: VigilVault, now: dat
     session.execute(
         select(VigilObject).where(VigilObject.id == vault.active_object_id).with_for_update()
     ).scalar_one()
-    if not _account_ok(session, user, vault, vault.active_config_id):
+    if not is_vigil_owner_eligible(session, user.id):
         _apply_hold(vault, HOLD_ACCOUNT_INELIGIBLE, now)
         return
+    confirmation = _confirmation_address(session, vault, vault.active_config_id)
+    if confirmation is None:
+        invalidate_setup_for_configuration(session, vault=vault, config=config, now=now)
+        return
+    _, recipient_email = confirmation
     cycle = VigilCycle(
         vault_id=vault.id,
         config_id=vault.active_config_id,
@@ -338,7 +337,15 @@ def _open_level_one(session: Session, *, user: User, vault: VigilVault, now: dat
     )
     session.add(cycle)
     session.flush()
-    _mint_round(session, vault=vault, cycle=cycle, user=user, level=1, generation=1, now=now)
+    _mint_round(
+        session,
+        vault=vault,
+        cycle=cycle,
+        recipient_email=recipient_email,
+        level=1,
+        generation=1,
+        now=now,
+    )
     from_phase = vault.phase
     vault.phase = "CHALLENGE_1"
     vault.updated_at = now
@@ -454,16 +461,23 @@ def _advance_or_gate_release(
         _apply_hold(vault, HOLD_DELIVERY_MISSING, now)
         return True
     if cycle.current_level < 3:
-        if not _account_ok(session, user, vault, cycle.config_id):
+        if not is_vigil_owner_eligible(session, user.id):
             _apply_hold(vault, HOLD_ACCOUNT_INELIGIBLE, now)
             return True
+        confirmation = _confirmation_address(session, vault, cycle.config_id)
+        if confirmation is None:
+            config = session.get(VigilConfiguration, cycle.config_id)
+            if config is not None:
+                invalidate_setup_for_configuration(session, vault=vault, config=config, now=now)
+            return True
+        _, recipient_email = confirmation
         next_level = cycle.current_level + 1
         cycle.current_level = next_level
         _mint_round(
             session,
             vault=vault,
             cycle=cycle,
-            user=user,
+            recipient_email=recipient_email,
             level=next_level,
             generation=1,
             now=now,
@@ -664,10 +678,34 @@ def disarm(
         raise VigilRevisionConflict(current_revision=vault.revision)
     if vault.phase == "RELEASED":
         raise VigilCycleConflict({"error": "released", "action": "revoke"})
+    if vault.phase not in _SCAN_PHASES:
+        raise VigilCycleConflict("vault is not active")
+    if vault.pending_config_id is not None or vault.pending_object_id is not None:
+        raise VigilCycleConflict("competing pending candidate")
+    if vault.active_config_id is None or vault.active_object_id is None:
+        raise VigilCycleConflict("active candidate is missing")
+    config = session.execute(
+        select(VigilConfiguration)
+        .where(VigilConfiguration.id == vault.active_config_id)
+        .with_for_update()
+    ).scalar_one_or_none()
+    obj = session.execute(
+        select(VigilObject).where(VigilObject.id == vault.active_object_id).with_for_update()
+    ).scalar_one_or_none()
+    if config is None or obj is None or config.status != "active" or obj.status != "active":
+        raise VigilCycleConflict("active candidate is inconsistent")
     from_phase = vault.phase
     cancel_active_cycles(session, vault, now=current, status="cancelled")
+    config.status = "pending"
+    obj.status = "ready"
+    vault.pending_config_id = config.id
+    vault.pending_object_id = obj.id
+    vault.active_config_id = None
+    vault.active_object_id = None
     vault.phase = "DISARMED"
     vault.next_check_at = None
+    vault.hold_reason = None
+    vault.held_at = None
     vault.updated_at = current
     vault.revision += 1
     emit_vigil_event(
@@ -688,7 +726,7 @@ def resume_held_vault(
     expected_revision: int,
     now: datetime | None = None,
 ) -> CycleActionResult:
-    user, vault = _lock_user_and_vault(session, owner_user_id)
+    _user, vault = _lock_user_and_vault(session, owner_user_id)
     current = now or db_now(session)
     if expected_revision != vault.revision:
         raise VigilRevisionConflict(current_revision=vault.revision)
@@ -704,11 +742,24 @@ def resume_held_vault(
         if current_round is not None:
             current_round.superseded_at = current
             next_generation = current_round.generation + 1
+        if vault.active_config_id is None:
+            raise VigilCycleConflict("no active configuration")
+        confirmation = _confirmation_address(session, vault, vault.active_config_id)
+        if confirmation is None:
+            config = session.get(VigilConfiguration, vault.active_config_id)
+            if config is not None and invalidate_setup_for_configuration(
+                session, vault=vault, config=config, now=current
+            ):
+                return CycleActionResult(
+                    phase=vault.phase, revision=vault.revision, next_check_at=None
+                )
+            raise VigilCycleConflict("confirmation email is no longer verified")
+        _, recipient_email = confirmation
         _mint_round(
             session,
             vault=vault,
             cycle=cycle,
-            user=user,
+            recipient_email=recipient_email,
             level=cycle.current_level,
             generation=next_generation,
             now=current,

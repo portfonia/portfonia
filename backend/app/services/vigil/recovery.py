@@ -50,7 +50,11 @@ def stop_prior_arrangement(session: Session, vault: VigilVault, *, now: datetime
     from app.services.vigil.cycles import cancel_active_cycles
 
     cancel_active_cycles(session, vault, now=now, status="cancelled")
-    cancel_outbox_intents(session, vault_id=vault.id)
+    # Reusable email-verification intents belong to the owner collection,
+    # not to an arrangement being replaced. Keep them alive while stopping
+    # every arrangement-scoped intent.
+    for purpose in ("drill", "challenge", "release", "owner_notice"):
+        cancel_outbox_intents(session, vault_id=vault.id, purpose=purpose)
     invalidate_open_drill_tokens(session, vault_id=vault.id, now=now)
 
     if vault.active_object_id is not None:

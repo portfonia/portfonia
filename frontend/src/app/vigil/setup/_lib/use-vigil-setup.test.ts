@@ -1,13 +1,13 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   getVigilVaultStatus,
   createVigilConfiguration,
   initVigilObject,
   uploadVigilObject,
-  createVigilDrill,
-  armVigilVault,
+  listVigilConfirmationEmails,
+  routerPush,
   VigilRevisionConflictErrorCtor,
   VigilApiErrorCtor,
 } = vi.hoisted(() => {
@@ -34,8 +34,8 @@ const {
     createVigilConfiguration: vi.fn(),
     initVigilObject: vi.fn(),
     uploadVigilObject: vi.fn(),
-    createVigilDrill: vi.fn(),
-    armVigilVault: vi.fn(),
+    listVigilConfirmationEmails: vi.fn(),
+    routerPush: vi.fn(),
     VigilRevisionConflictErrorCtor,
     VigilApiErrorCtor,
   };
@@ -46,11 +46,15 @@ vi.mock("@/lib/vigil/api", () => ({
   createVigilConfiguration,
   initVigilObject,
   uploadVigilObject,
-  createVigilDrill,
-  armVigilVault,
+  listVigilConfirmationEmails,
+  addVigilConfirmationEmail: vi.fn(),
+  cancelVigilConfirmationEmailVerification: vi.fn(),
+  deleteVigilConfirmationEmail: vi.fn(),
   VigilRevisionConflictError: VigilRevisionConflictErrorCtor,
   VigilApiError: VigilApiErrorCtor,
 }));
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: routerPush }) }));
 
 import { useVigilSetup } from "./use-vigil-setup";
 
@@ -88,6 +92,12 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
+beforeEach(() => {
+  listVigilConfirmationEmails.mockResolvedValue([
+    { id: "e1", address: "owner@example.com", verified_at: "2026-09-19T00:00:00Z" },
+  ]);
+});
+
 describe("useVigilSetup", () => {
   it("loads the current vault revision/vault_id on mount", async () => {
     getVigilVaultStatus.mockResolvedValue({ vault_id: "v1", phase: "ARMED", revision: 5 });
@@ -119,7 +129,11 @@ describe("useVigilSetup", () => {
     });
 
     expect(createVigilConfiguration).toHaveBeenCalledWith(
-      expect.objectContaining({ expected_revision: 0, recipients: DEFAULT_RECIPIENTS }),
+      expect.objectContaining({
+        expected_revision: 0,
+        confirmation_email_id: "e1",
+        recipients: DEFAULT_RECIPIENTS,
+      }),
     );
     expect(initVigilObject).toHaveBeenCalledWith(
       expect.objectContaining({ expected_revision: 1, config_id: "c1", filename: "will.pdf", plaintext_size: 1024 }),
@@ -132,6 +146,7 @@ describe("useVigilSetup", () => {
       expect.anything(),
     );
     expect(result.current.phase).toBe("ready");
+    expect(routerPush).toHaveBeenCalledWith("/vigil/activate");
   });
 
   it("a plain retry after an upload failure resends byte-identical crypto material with no re-encryption (P2.2-A04)", async () => {

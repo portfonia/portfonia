@@ -48,6 +48,7 @@ from app.services.vigil.dispatch import _decrypt_payload
 from app.services.vigil.objects import init_object, upload_object
 from app.services.vigil.tokens import hash_link_token
 from app.tests.conftest import TEST_USER_ID
+from app.tests.vigil_helpers import ensure_confirmation_email
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _SEP1 = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
@@ -118,7 +119,7 @@ def _seed_armed(
     cfg = write_pending_configuration(
         db_session,
         owner_user_id=TEST_USER_ID,
-        owner_email="owner@example.com",
+        confirmation_email_id=ensure_confirmation_email(db_session, owner_user_id=TEST_USER_ID).id,
         expected_revision=0,
         normalized=validate_configuration_input(
             interval_days=30,

@@ -37,6 +37,7 @@ from app.services.vigil.dispatch import (
     write_outbox_entry,
 )
 from app.services.vigil.objects import init_object
+from app.tests.vigil_helpers import ensure_confirmation_email
 
 _OWNER_ID = uuid.UUID("00000000-0000-0000-0000-0000000000f3")
 
@@ -99,7 +100,9 @@ def _seed_object(db_session: Session) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
     config_result = write_pending_configuration(
         db_session,
         owner_user_id=_OWNER_ID,
-        owner_email="owner-p3-1@example.com",
+        confirmation_email_id=ensure_confirmation_email(
+            db_session, owner_user_id=_OWNER_ID, address="owner-p3-1@example.com"
+        ).id,
         expected_revision=0,
         normalized=validate_configuration_input(
             interval_days=30,
