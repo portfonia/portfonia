@@ -1181,16 +1181,28 @@
       "revokeTitle": "Revoke release",
       "notEnabled": "This feature is not enabled yet.",
       "unavailable": "This link isn't active yet. Please check back later.",
-      "confirmHint": "This confirmation only verifies your current account. It does not arm Vigil.",
+      "confirmHint": "This confirmation does not sign you in and never activates or releases Vigil by itself.",
       "confirmButton": "Confirm",
       "confirming": "Confirming…",
-      "confirmed": "Account confirmed. Return to setup to activate.",
+      "confirmed": "Confirmation recorded.",
+      "emailVerified": "Email verified. Return to Vigil to activate when ready.",
+      "continueToActivate": "Continue to Activate",
       "gone": "This confirmation link is no longer valid.",
       "failed": "Confirmation failed. You can try again."
     },
     "setup": {
-      "activeStillReleasingNote": "You already have an active arrangement armed and counting down. Setting up a replacement here does not pause it — it keeps releasing on its own schedule until you explicitly arm a replacement.",
+      "pauseBeforeNew": "Pause the active Vigil arrangement before starting a fresh setup.",
+      "goToActivate": "Go to Activate",
       "pendingExistsNote": "You have a pending upload from an earlier session. Starting a new setup below will replace it.",
+      "confirmationEmail": {
+        "title": "Vigil confirmation email",
+        "verified": "Verified",
+        "unverified": "Not verified",
+        "newLabel": "Add confirmation email",
+        "add": "Add",
+        "cancelVerification": "Cancel verification",
+        "delete": "Delete"
+      },
       "file": {
         "label": "File",
         "choose": "Choose file",
@@ -1226,20 +1238,10 @@
       "submitting": "Submitting…",
       "progressPercent": "{percent}%",
       "ready": {
-        "title": "Ready — awaiting drill",
-        "body": "Your file is encrypted and uploaded. It is not armed yet: nothing will be sent to your recipients until you run a drill and explicitly arm it, which is a separate step."
+        "title": "Setup complete",
+        "body": "Your file is encrypted and uploaded. Continue to Activate to verify the selected email and activate Vigil.",
+        "continue": "Continue to Activate"
       },
-      "drill": {
-        "send": "Send account confirmation",
-        "pending": "Confirmation email is queued.",
-        "sent": "Confirmation email was accepted by the mail provider.",
-        "unknown": "Delivery of the confirmation email is unknown.",
-        "expired": "The confirmation link expired. Send a new one.",
-        "confirmed": "Account confirmed. Activate when you are ready — this is a separate step.",
-        "activate": "Activate",
-        "armed": "Vigil is armed."
-      },
-      "startNew": "Set up another file",
       "errors": {
         "fileRequired": "Choose a file first.",
         "fileTooLarge": "This file is larger than the 10,000,000-byte limit.",
@@ -1255,14 +1257,28 @@
         "intervalInvalid": "Choose a valid check-in interval.",
         "graceInvalid": "Grace period must be between 24 and 168 hours.",
         "messageTooLong": "Message must be at most 4000 characters.",
+        "confirmationEmailRequired": "Select or add a Vigil confirmation email.",
         "revisionConflict": "Your Vigil setup changed elsewhere. Review the form and try again.",
         "apiError": "The request could not be completed. You can retry.",
         "cancelled": "Upload cancelled.",
-        "unknown": "Something went wrong. You can retry.",
-        "drillFailed": "The confirmation email could not be queued. You can retry.",
-        "armFailed": "Activation failed. You can retry.",
-        "armIncomplete": "Live activation is disabled until stop and recovery integration is complete."
+        "unknown": "Something went wrong. You can retry."
       }
+    },
+    "activate": {
+      "title": "Activate Vigil",
+      "loading": "Loading your Vigil status…",
+      "active": "Vigil is active. Pause preserves this setup so it can be activated again.",
+      "pause": "Pause",
+      "terminal": "This Vigil arrangement is in a terminal state.",
+      "noCandidate": "There is no setup ready to activate.",
+      "goToSetup": "Go to Setup",
+      "incomplete": "The pending setup is incomplete. Start Setup again.",
+      "restartSetup": "Restart Setup",
+      "verificationRequired": "Verify {address} before activating Vigil.",
+      "sendVerification": "Send verification email",
+      "ready": "{address} is verified. Activate when you are ready.",
+      "activate": "Activate",
+      "error": "The action could not be completed. Reload the current server state and try again."
     }
   }
 }

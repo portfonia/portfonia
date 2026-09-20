@@ -138,15 +138,11 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.search = "";
-    // Issue #453: the ONLY return destination /login ever accepts besides
-    // its own default (/profile) is the literal string "/vigil" — and this
-    // is the only place that ever sets it, hardcoded, never echoing
-    // anything from the incoming request's own query string. That is what
-    // makes "reject any external/protocol-relative return URL" hold by
-    // construction rather than by validation: there is no code path that
-    // could ever produce another value here.
-    if (pathname === "/vigil") {
-      url.searchParams.set("next", "/vigil");
+    // The only return destinations /login accepts besides /profile are
+    // these exact protected Vigil routes. Never echo a caller-provided
+    // query value, so external/protocol-relative return URLs cannot enter.
+    if (pathname === "/vigil" || pathname === "/vigil/setup" || pathname === "/vigil/activate") {
+      url.searchParams.set("next", pathname);
     }
     return NextResponse.redirect(url);
   }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,7 +26,8 @@ export function VigilSetupPageBody() {
   const s = useVigilSetup();
 
   const submitting = s.phase === "submitting";
-  const showForm = s.phase === "form" || s.phase === "submitting" || s.phase === "error";
+  const active = s.vaultStatus !== null && s.vaultStatus.phase !== "DISARMED";
+  const showForm = !active && (s.phase === "form" || s.phase === "submitting" || s.phase === "error");
 
   function updateRecipient(index: number, patch: Partial<SetupRecipientForm>) {
     s.setRecipients(s.recipients.map((r, i) => (i === index ? { ...r, ...patch } : r)));
@@ -47,10 +49,11 @@ export function VigilSetupPageBody() {
         <CardTitle>{t("title")}</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
-        {s.vaultStatus && s.vaultStatus.phase !== "DISARMED" && (
-          <p className="rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground/80">
-            {t("setup.activeStillReleasingNote")}
-          </p>
+        {active && (
+          <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground/80">
+            <p>{t("setup.pauseBeforeNew")}</p>
+            <Button render={<Link href="/vigil/activate" />}>{t("setup.goToActivate")}</Button>
+          </div>
         )}
         {s.vaultStatus?.pending && (
           <p className="rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground/80">
@@ -58,36 +61,80 @@ export function VigilSetupPageBody() {
           </p>
         )}
 
+        <fieldset className="flex flex-col gap-3">
+          <legend className="text-sm font-medium">{t("setup.confirmationEmail.title")}</legend>
+          {s.confirmationEmails.map((email) => (
+            <div key={email.id} className="flex flex-col gap-2 rounded-lg border border-border p-3">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="vigil-confirmation-email"
+                  checked={s.selectedConfirmationEmailId === email.id}
+                  disabled={submitting || active}
+                  onChange={() => s.setSelectedConfirmationEmailId(email.id)}
+                />
+                <span>{email.address}</span>
+                <span className="text-muted-foreground">
+                  {email.verified_at
+                    ? t("setup.confirmationEmail.verified")
+                    : t("setup.confirmationEmail.unverified")}
+                </span>
+              </label>
+              <div className="flex gap-2">
+                {email.verified_at && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={submitting}
+                    onClick={() => void s.cancelConfirmationEmail(email.id)}
+                  >
+                    {t("setup.confirmationEmail.cancelVerification")}
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={submitting}
+                  onClick={() => void s.removeConfirmationEmail(email.id)}
+                >
+                  {t("setup.confirmationEmail.delete")}
+                </Button>
+              </div>
+            </div>
+          ))}
+          <div className="flex gap-2">
+            <input
+              type="email"
+              aria-label={t("setup.confirmationEmail.newLabel")}
+              value={s.newConfirmationEmail}
+              disabled={submitting}
+              onChange={(event) => s.setNewConfirmationEmail(event.target.value)}
+              className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              disabled={submitting || !s.newConfirmationEmail}
+              onClick={() => void s.addConfirmationEmail()}
+            >
+              {t("setup.confirmationEmail.add")}
+            </Button>
+          </div>
+        </fieldset>
+
+        {s.errorCode && s.phase !== "submitting" && (
+          <p className="text-sm text-destructive" role="alert">
+            {t.has(`setup.errors.${s.errorCode}`)
+              ? t(`setup.errors.${s.errorCode}`)
+              : t("setup.errors.unknown")}
+          </p>
+        )}
+
         {s.phase === "ready" && (
           <div className="flex flex-col gap-3">
             <h3 className="text-base font-medium">{t("setup.ready.title")}</h3>
             <p className="text-sm text-foreground/80">{t("setup.ready.body")}</p>
-            {s.armed ? (
-              <p className="text-sm text-foreground/80">{t("setup.drill.armed")}</p>
-            ) : (
-              <>
-                {s.drillUiState !== "idle" && (
-                  <p className="text-sm text-foreground/80">{t(`setup.drill.${s.drillUiState}`)}</p>
-                )}
-                {s.drillUiState === "idle" || s.drillUiState === "expired" ? (
-                  <Button type="button" onClick={() => void s.sendDrill()}>
-                    {t("setup.drill.send")}
-                  </Button>
-                ) : null}
-                {s.drillUiState === "confirmed" ? (
-                  <Button type="button" onClick={() => void s.activate()}>
-                    {t("setup.drill.activate")}
-                  </Button>
-                ) : null}
-                {s.errorCode && (
-                  <p className="text-sm text-destructive" role="alert">
-                    {t.has(`setup.errors.${s.errorCode}`)
-                      ? t(`setup.errors.${s.errorCode}`)
-                      : t("setup.errors.unknown")}
-                  </p>
-                )}
-              </>
-            )}
+            <Button render={<Link href="/vigil/activate" />}>{t("setup.ready.continue")}</Button>
           </div>
         )}
 
@@ -260,12 +307,6 @@ export function VigilSetupPageBody() {
                   </li>
                 ))}
               </ul>
-            )}
-
-            {s.phase === "error" && s.errorCode && (
-              <p className="text-sm text-destructive" role="alert">
-                {t.has(`setup.errors.${s.errorCode}`) ? t(`setup.errors.${s.errorCode}`) : t("setup.errors.unknown")}
-              </p>
             )}
 
             {submitting && (

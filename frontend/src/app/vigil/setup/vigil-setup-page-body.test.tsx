@@ -32,6 +32,16 @@ function baseHookState(overrides: Partial<ReturnType<typeof useVigilSetup>> = {}
     setIntervalDays: vi.fn(),
     graceHours: 72,
     setGraceHours: vi.fn(),
+    confirmationEmails: [
+      { id: "e1", address: "owner@example.com", verified_at: "2026-09-19T00:00:00Z" },
+    ],
+    selectedConfirmationEmailId: "e1",
+    setSelectedConfirmationEmailId: vi.fn(),
+    newConfirmationEmail: "",
+    setNewConfirmationEmail: vi.fn(),
+    addConfirmationEmail: vi.fn(),
+    cancelConfirmationEmail: vi.fn(),
+    removeConfirmationEmail: vi.fn(),
     phase: "form",
     progress: 0,
     errorMessage: null,
@@ -39,10 +49,6 @@ function baseHookState(overrides: Partial<ReturnType<typeof useVigilSetup>> = {}
     validationErrors: [],
     submit: vi.fn(),
     cancel: vi.fn(),
-    sendDrill: vi.fn(),
-    activate: vi.fn(),
-    drillUiState: "idle",
-    armed: false,
     ...overrides,
   };
 }
@@ -88,7 +94,11 @@ describe("VigilSetupPageBody", () => {
 
   it("shows the active-arrangement note when the vault is not DISARMED", () => {
     renderPage({ vaultStatus: { vault_id: "v1", phase: "ARMED", revision: 3 } });
-    expect(screen.getByText(/does not pause it/i)).toBeInTheDocument();
+    expect(screen.getByText(/pause the active Vigil arrangement/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /go to activate/i })).toHaveAttribute(
+      "href",
+      "/vigil/activate",
+    );
   });
 
   it("does not show the active-arrangement note for a DISARMED/no-vault status", () => {
@@ -112,29 +122,30 @@ describe("VigilSetupPageBody", () => {
   it("shows a Cancel button while submitting, and calls cancel() on click", async () => {
     const cancel = vi.fn();
     renderPage({ phase: "submitting", cancel });
-    const cancelButton = screen.getByRole("button", { name: /cancel/i });
+    const cancelButton = screen.getByRole("button", { name: /^cancel$/i });
     await userEvent.click(cancelButton);
     expect(cancel).toHaveBeenCalledTimes(1);
   });
 
-  it("shows the ready-awaiting-drill state with an explicit send-confirmation button", () => {
-    renderPage({ phase: "ready", drillUiState: "idle" });
-    expect(screen.getByText(/awaiting drill/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /send account confirmation/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^activate$/i })).not.toBeInTheDocument();
+  it("routes a completed setup to the dedicated Activate page", () => {
+    renderPage({ phase: "ready" });
+    expect(screen.getByText(/setup complete/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /continue to activate/i })).toHaveAttribute(
+      "href",
+      "/vigil/activate",
+    );
   });
 
-  it("shows pending/sent/unknown/expired/confirmed drill states", () => {
-    renderPage({ phase: "ready", drillUiState: "pending" });
-    expect(screen.getByText(/confirmation email is queued/i)).toBeInTheDocument();
-  });
+  it("manages reusable confirmation emails separately from release recipients", async () => {
+    const cancelConfirmationEmail = vi.fn();
+    const removeConfirmationEmail = vi.fn();
+    renderPage({ cancelConfirmationEmail, removeConfirmationEmail });
 
-  it("shows an explicit activate button only after confirmation", async () => {
-    const activate = vi.fn();
-    renderPage({ phase: "ready", drillUiState: "confirmed", activate });
-    const button = screen.getByRole("button", { name: /^activate$/i });
-    await userEvent.click(button);
-    expect(activate).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("owner@example.com")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /cancel verification/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^delete$/i }));
+    expect(cancelConfirmationEmail).toHaveBeenCalledWith("e1");
+    expect(removeConfirmationEmail).toHaveBeenCalledWith("e1");
   });
 
   it("shows a Retry button (not the initial submit label) after an error", () => {

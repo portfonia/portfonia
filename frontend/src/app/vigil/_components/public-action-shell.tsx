@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/button";
@@ -19,7 +20,9 @@ export function PublicActionShell() {
   const t = useTranslations("vigil.public");
   const token = useConsumeLinkToken();
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<"confirmed" | "gone" | "failed" | null>(null);
+  const [result, setResult] = useState<
+    "confirmed" | "emailVerified" | "gone" | "failed" | null
+  >(null);
 
   async function onConfirm() {
     if (!token || busy) return;
@@ -32,7 +35,12 @@ export function PublicActionShell() {
     setBusy(true);
     try {
       const outcome = await confirmVigilPublic({ token, altcha });
-      if (outcome.result === "confirmed" || outcome.result === "already_resolved") {
+      if (
+        outcome.result === "email_verified" ||
+        outcome.result === "email_already_verified"
+      ) {
+        setResult("emailVerified");
+      } else if (outcome.result === "confirmed" || outcome.result === "already_resolved") {
         setResult("confirmed");
       } else {
         setResult("gone");
@@ -56,6 +64,11 @@ export function PublicActionShell() {
       <CardContent className="flex flex-col gap-3">
         {result === "gone" ? (
           <p>{t("gone")}</p>
+        ) : result === "emailVerified" ? (
+          <div className="flex flex-col gap-3">
+            <p>{t("emailVerified")}</p>
+            <Button render={<Link href="/vigil/activate" />}>{t("continueToActivate")}</Button>
+          </div>
         ) : result === "confirmed" ? (
           <p>{t("confirmed")}</p>
         ) : (

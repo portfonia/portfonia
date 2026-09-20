@@ -1181,16 +1181,28 @@
       "revokeTitle": "撤销发送",
       "notEnabled": "此功能尚未开放。",
       "unavailable": "此链接尚未生效，请稍后再试。",
-      "confirmHint": "此确认只验证当前账户，不会布防 Vigil。",
+      "confirmHint": "此确认不会让浏览器登录，也不会自行启用或释放 Vigil。",
       "confirmButton": "确认",
       "confirming": "正在确认…",
-      "confirmed": "账户已确认。请回到设置页再执行布防。",
+      "confirmed": "确认已记录。",
+      "emailVerified": "邮箱已验证。准备好后可返回 Vigil 启用。",
+      "continueToActivate": "前往启用页",
       "gone": "此确认链接已失效。",
       "failed": "确认失败，可以重试。"
     },
     "setup": {
-      "activeStillReleasingNote": "您已有一份处于布防倒计时中的有效安排。在此设置替换文件不会暂停它——在您明确布防替换文件之前，原有安排仍会按原计划继续释放。",
+      "pauseBeforeNew": "开始全新设置前，请先暂停当前已启用的 Vigil 安排。",
+      "goToActivate": "前往启用页",
       "pendingExistsNote": "您有一次此前会话遗留的待处理上传。在下方开始新设置将替换它。",
+      "confirmationEmail": {
+        "title": "Vigil 确认邮箱",
+        "verified": "已验证",
+        "unverified": "未验证",
+        "newLabel": "添加确认邮箱",
+        "add": "添加",
+        "cancelVerification": "取消验证",
+        "delete": "删除"
+      },
       "file": {
         "label": "文件",
         "choose": "选择文件",
@@ -1226,20 +1238,10 @@
       "submitting": "正在提交……",
       "progressPercent": "{percent}%",
       "ready": {
-        "title": "已就绪——等待演练",
-        "body": "文件已加密并上传完成，但尚未布防：在您运行演练并明确布防之前，不会向收件人发送任何内容，布防是单独的一步。"
+        "title": "设置已完成",
+        "body": "文件已加密并上传完成。请前往启用页验证所选邮箱并启用 Vigil。",
+        "continue": "前往启用页"
       },
-      "drill": {
-        "send": "发送账户确认",
-        "pending": "确认邮件已排队。",
-        "sent": "邮件服务已接受确认邮件。",
-        "unknown": "确认邮件的投递结果未知。",
-        "expired": "确认链接已过期。请重新发送。",
-        "confirmed": "账户已确认。准备好后再布防——这是单独的一步。",
-        "activate": "布防",
-        "armed": "Vigil 已布防。"
-      },
-      "startNew": "设置另一个文件",
       "errors": {
         "fileRequired": "请先选择文件。",
         "fileTooLarge": "文件超过 10,000,000 字节上限。",
@@ -1255,14 +1257,28 @@
         "intervalInvalid": "请选择有效的签到间隔。",
         "graceInvalid": "宽限期必须在 24 至 168 小时之间。",
         "messageTooLong": "留言最多 4000 字符。",
+        "confirmationEmailRequired": "请选择或添加一个 Vigil 确认邮箱。",
         "revisionConflict": "您的 Vigil 设置已在别处发生变化，请检查表单后重试。",
         "apiError": "请求未能完成，您可以重试。",
         "cancelled": "上传已取消。",
-        "unknown": "出现问题，您可以重试。",
-        "drillFailed": "确认邮件未能排队，可以重试。",
-        "armFailed": "布防失败，可以重试。",
-        "armIncomplete": "在停止与恢复路径完成集成之前，线上布防保持关闭。"
+        "unknown": "出现问题，您可以重试。"
       }
+    },
+    "activate": {
+      "title": "启用 Vigil",
+      "loading": "正在加载 Vigil 状态……",
+      "active": "Vigil 已启用。暂停会保留这份设置，以便之后直接重新启用。",
+      "pause": "暂停",
+      "terminal": "此 Vigil 安排已进入终止状态。",
+      "noCandidate": "当前没有可启用的设置。",
+      "goToSetup": "前往设置页",
+      "incomplete": "待处理设置不完整，请重新开始设置。",
+      "restartSetup": "重新设置",
+      "verificationRequired": "启用 Vigil 前，请先验证 {address}。",
+      "sendVerification": "发送验证邮件",
+      "ready": "{address} 已验证。准备好后即可启用。",
+      "activate": "启用",
+      "error": "操作未能完成。请重新加载服务器状态后再试。"
     }
   }
 }

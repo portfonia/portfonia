@@ -20,11 +20,8 @@ from app.models.vigil import (
     VigilVault,
 )
 from app.services.vigil.access import is_vigil_owner_eligible
-from app.services.vigil.configuration import (
-    VigilRevisionConflict,
-    load_configuration_data,
-    normalize_email,
-)
+from app.services.vigil.configuration import VigilRevisionConflict
+from app.services.vigil.confirmation_emails import resolve_verified_configuration_email
 from app.services.vigil.crypto import decrypt_notification_field
 from app.services.vigil.dispatch import cancel_outbox_intents, write_outbox_entry
 from app.services.vigil.tokens import (
@@ -114,19 +111,6 @@ def _lock_token_context(
     return user, locked_vault, token
 
 
-def _account_matches_config(user: User, config: VigilConfiguration, vault_id: UUID) -> bool:
-    if user.email_verified_at is None:
-        return False
-    data = load_configuration_data(config, vault_id)
-    account_email = data.get("account_email")
-    if not isinstance(account_email, str):
-        return False
-    try:
-        return normalize_email(user.email) == normalize_email(account_email)
-    except ValueError:
-        return False
-
-
 def enqueue_drill(
     session: Session,
     *,
@@ -139,7 +123,7 @@ def enqueue_drill(
     if settings.VIGIL_MODE != "active":
         raise VigilDrillUnavailable("vigil outbound mail is not available")
 
-    user, vault = _lock_user_and_vault(session, owner_user_id)
+    _user, vault = _lock_user_and_vault(session, owner_user_id)
     now = db_now(session)
     if expected_revision != vault.revision:
         raise VigilRevisionConflict(current_revision=vault.revision)
@@ -162,8 +146,11 @@ def enqueue_drill(
         raise VigilDrillInputError("pending candidate is not ready")
     if obj.cipher_sha256 is None or obj.outer_cipher is None or obj.ciphertext is None:
         raise VigilDrillInputError("pending object is missing crypto fields")
-    if not _account_matches_config(user, config, vault.id):
-        raise VigilDrillInputError("drill recipient must be the verified current account")
+    confirmation_address = resolve_verified_configuration_email(
+        session, vault=vault, config=config, lock=True
+    )
+    if confirmation_address is None:
+        raise VigilDrillInputError("drill recipient must be a verified confirmation email")
 
     last = session.scalars(
         select(VigilActionToken)
@@ -214,7 +201,7 @@ def enqueue_drill(
         scope_id=token_row.id,
         purpose=_DRILL_PURPOSE,
         dedup_key=f"drill:{token_row.id}",
-        recipient_email=user.email,
+        recipient_email=confirmation_address,
         subject=subject,
         text_body=text_body,
         html_body=html_body,

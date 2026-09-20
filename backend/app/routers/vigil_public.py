@@ -11,6 +11,10 @@ from app.core.database import get_session
 from app.models.vigil import VigilActionToken
 from app.schemas.vigil import VigilPublicConfirmIn, VigilPublicConfirmOut
 from app.services.altcha_challenge import create_vigil_challenge, verify_vigil_solution
+from app.services.vigil.confirmation_emails import (
+    VigilConfirmationEmailPublicError,
+    confirm_confirmation_email,
+)
 from app.services.vigil.crypto import VigilCryptoError
 from app.services.vigil.cycles import confirm_cycle_token
 from app.services.vigil.drills import VigilPublicTokenError, confirm_drill
@@ -68,9 +72,14 @@ def post_public_confirm(
             return VigilPublicConfirmOut(
                 result=cycle_result.result, next_check_at=cycle_result.next_check_at
             )
+        if peeked.purpose == "email_verify":
+            result = confirm_confirmation_email(session, token=payload.token)
+            session.commit()
+            public_result = "email_verified" if result == "confirmed" else "email_already_verified"
+            return VigilPublicConfirmOut(result=public_result, next_check_at=None)
         result = confirm_drill(session, token=payload.token)
         session.commit()
-    except VigilPublicTokenError as exc:
+    except (VigilPublicTokenError, VigilConfirmationEmailPublicError) as exc:
         session.rollback()
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     return VigilPublicConfirmOut(result=result, next_check_at=None)

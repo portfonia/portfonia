@@ -25,6 +25,7 @@ from app.services.vigil.configuration import (
     write_pending_configuration,
 )
 from app.services.vigil.crypto import decrypt_field
+from app.tests.vigil_helpers import ensure_confirmation_email
 
 _OWNER_ID = uuid.UUID("00000000-0000-0000-0000-0000000000f1")
 
@@ -34,6 +35,7 @@ def _vigil_key(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.core.config import get_settings
 
     monkeypatch.setenv("VIGIL_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    monkeypatch.setenv("VIGIL_NOTIFICATION_KEY", Fernet.generate_key().decode())
     get_settings.cache_clear()
 
 
@@ -68,7 +70,7 @@ def test_creates_vault_on_first_write(db_session: Session) -> None:
     result = write_pending_configuration(
         db_session,
         owner_user_id=_OWNER_ID,
-        owner_email="owner@example.com",
+        confirmation_email_id=ensure_confirmation_email(db_session, owner_user_id=_OWNER_ID).id,
         expected_revision=0,
         normalized=_normalized("a@example.com"),
     )
@@ -86,7 +88,7 @@ def test_first_write_with_nonzero_expected_revision_conflicts(db_session: Sessio
         write_pending_configuration(
             db_session,
             owner_user_id=_OWNER_ID,
-            owner_email="owner@example.com",
+            confirmation_email_id=ensure_confirmation_email(db_session, owner_user_id=_OWNER_ID).id,
             expected_revision=5,
             normalized=_normalized("a@example.com"),
         )
@@ -101,7 +103,7 @@ def test_expected_revision_mismatch_on_existing_vault_conflicts_without_mutation
     write_pending_configuration(
         db_session,
         owner_user_id=_OWNER_ID,
-        owner_email="owner@example.com",
+        confirmation_email_id=ensure_confirmation_email(db_session, owner_user_id=_OWNER_ID).id,
         expected_revision=0,
         normalized=_normalized("a@example.com"),
     )
@@ -111,7 +113,7 @@ def test_expected_revision_mismatch_on_existing_vault_conflicts_without_mutation
         write_pending_configuration(
             db_session,
             owner_user_id=_OWNER_ID,
-            owner_email="owner@example.com",
+            confirmation_email_id=ensure_confirmation_email(db_session, owner_user_id=_OWNER_ID).id,
             expected_revision=0,  # stale — real current revision is 1
             normalized=_normalized("b@example.com"),
         )
@@ -126,7 +128,7 @@ def test_second_write_retires_prior_pending_and_bumps_config_revision(
     first = write_pending_configuration(
         db_session,
         owner_user_id=_OWNER_ID,
-        owner_email="owner@example.com",
+        confirmation_email_id=ensure_confirmation_email(db_session, owner_user_id=_OWNER_ID).id,
         expected_revision=0,
         normalized=_normalized("a@example.com"),
     )
@@ -135,7 +137,7 @@ def test_second_write_retires_prior_pending_and_bumps_config_revision(
     second = write_pending_configuration(
         db_session,
         owner_user_id=_OWNER_ID,
-        owner_email="owner@example.com",
+        confirmation_email_id=ensure_confirmation_email(db_session, owner_user_id=_OWNER_ID).id,
         expected_revision=first.revision,
         normalized=_normalized("b@example.com"),
     )
@@ -157,7 +159,7 @@ def test_data_cipher_decrypts_to_expected_business_json(db_session: Session) -> 
     result = write_pending_configuration(
         db_session,
         owner_user_id=_OWNER_ID,
-        owner_email="owner@example.com",
+        confirmation_email_id=ensure_confirmation_email(db_session, owner_user_id=_OWNER_ID).id,
         expected_revision=0,
         normalized=_normalized("a@example.com", "b@example.com"),
     )
@@ -172,31 +174,62 @@ def test_data_cipher_decrypts_to_expected_business_json(db_session: Session) -> 
         vault_id=result.vault_id,
     )
     data = json.loads(plaintext)
-    assert data == {
-        "interval_days": 30,
-        "grace_hours": 72,
-        "account_email": "owner@example.com",
-        "recipients": [
-            {"position": 1, "email": "a@example.com"},
-            {"position": 2, "email": "b@example.com"},
-        ],
-        "message": "hello",
-    }
+    assert data["interval_days"] == 30
+    assert data["grace_hours"] == 72
+    assert data["confirmation_email"] == "owner@example.com"
+    assert uuid.UUID(data["confirmation_email_id"])
+    assert data["recipients"] == [
+        {"position": 1, "email": "a@example.com"},
+        {"position": 2, "email": "b@example.com"},
+    ]
+    assert data["message"] == "hello"
+    assert "account_email" not in data
 
 
-def test_recipients_locked_after_first_arming_rejects_changed_list(db_session: Session) -> None:
+def test_paused_setup_can_be_superseded_with_changed_recipients(db_session: Session) -> None:
     _owner(db_session)
     first = write_pending_configuration(
         db_session,
         owner_user_id=_OWNER_ID,
-        owner_email="owner@example.com",
+        confirmation_email_id=ensure_confirmation_email(db_session, owner_user_id=_OWNER_ID).id,
         expected_revision=0,
         normalized=_normalized("a@example.com"),
     )
     db_session.flush()
     vault = db_session.get(VigilVault, first.vault_id)
     assert vault is not None
-    # Simulate #458's arm: promote pending -> active, mark first_armed_at.
+    # Simulate a candidate that was armed and then paused back to pending.
+    config = db_session.get(VigilConfiguration, first.config_id)
+    assert config is not None
+    vault.first_armed_at = datetime.now(UTC)
+    db_session.flush()
+
+    replacement = write_pending_configuration(
+        db_session,
+        owner_user_id=_OWNER_ID,
+        confirmation_email_id=ensure_confirmation_email(db_session, owner_user_id=_OWNER_ID).id,
+        expected_revision=first.revision,
+        normalized=_normalized("different@example.com"),
+    )
+
+    db_session.refresh(config)
+    assert replacement.config_id != first.config_id
+    assert config.status == "retired"
+    assert vault.pending_config_id == replacement.config_id
+
+
+def test_setup_write_while_active_rejects_even_with_unchanged_list(db_session: Session) -> None:
+    _owner(db_session)
+    first = write_pending_configuration(
+        db_session,
+        owner_user_id=_OWNER_ID,
+        confirmation_email_id=ensure_confirmation_email(db_session, owner_user_id=_OWNER_ID).id,
+        expected_revision=0,
+        normalized=_normalized("a@example.com"),
+    )
+    db_session.flush()
+    vault = db_session.get(VigilVault, first.vault_id)
+    assert vault is not None
     config = db_session.get(VigilConfiguration, first.config_id)
     assert config is not None
     config.status = "active"
@@ -209,37 +242,7 @@ def test_recipients_locked_after_first_arming_rejects_changed_list(db_session: S
         write_pending_configuration(
             db_session,
             owner_user_id=_OWNER_ID,
-            owner_email="owner@example.com",
+            confirmation_email_id=ensure_confirmation_email(db_session, owner_user_id=_OWNER_ID).id,
             expected_revision=first.revision,
-            normalized=_normalized("different@example.com"),
+            normalized=_normalized("a@example.com"),
         )
-
-
-def test_recipients_locked_after_first_arming_allows_unchanged_list(db_session: Session) -> None:
-    _owner(db_session)
-    first = write_pending_configuration(
-        db_session,
-        owner_user_id=_OWNER_ID,
-        owner_email="owner@example.com",
-        expected_revision=0,
-        normalized=_normalized("a@example.com"),
-    )
-    db_session.flush()
-    vault = db_session.get(VigilVault, first.vault_id)
-    assert vault is not None
-    config = db_session.get(VigilConfiguration, first.config_id)
-    assert config is not None
-    config.status = "active"
-    vault.active_config_id = first.config_id
-    vault.pending_config_id = None
-    vault.first_armed_at = datetime.now(UTC)
-    db_session.flush()
-
-    second = write_pending_configuration(
-        db_session,
-        owner_user_id=_OWNER_ID,
-        owner_email="owner@example.com",
-        expected_revision=first.revision,
-        normalized=_normalized("a@example.com"),
-    )
-    assert second.config_id != first.config_id

@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  addVigilConfirmationEmail,
   createVigilConfiguration,
   getVigilVaultStatus,
   initVigilObject,
+  listVigilConfirmationEmails,
+  pauseVigilVault,
+  sendVigilConfirmationEmailVerification,
   uploadVigilObject,
   VigilApiError,
   VigilRevisionConflictError,
@@ -70,6 +74,7 @@ describe("createVigilConfiguration / initVigilObject", () => {
 
     const result = await createVigilConfiguration({
       expected_revision: 0,
+      confirmation_email_id: "10000000-0000-4000-8000-000000000001",
       recipients: [{ email: "a@example.com", email_confirm: "a@example.com" }],
     });
 
@@ -78,6 +83,7 @@ describe("createVigilConfiguration / initVigilObject", () => {
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body as string)).toEqual({
       expected_revision: 0,
+      confirmation_email_id: "10000000-0000-4000-8000-000000000001",
       recipients: [{ email: "a@example.com", email_confirm: "a@example.com" }],
     });
     expect(result).toEqual({ vault_id: "v1", config_id: "c1", revision: 1 });
@@ -92,6 +98,7 @@ describe("createVigilConfiguration / initVigilObject", () => {
 
     const err = await createVigilConfiguration({
       expected_revision: 0,
+      confirmation_email_id: "10000000-0000-4000-8000-000000000001",
       recipients: [{ email: "a@example.com", email_confirm: "a@example.com" }],
     }).catch((e: unknown) => e);
 
@@ -104,7 +111,11 @@ describe("createVigilConfiguration / initVigilObject", () => {
       .fn()
       .mockResolvedValue(new Response(JSON.stringify({ detail: "recipients must have between 1 and 3 entries" }), { status: 422 }));
 
-    const err = await createVigilConfiguration({ expected_revision: 0, recipients: [] }).catch((e: unknown) => e);
+    const err = await createVigilConfiguration({
+      expected_revision: 0,
+      confirmation_email_id: "10000000-0000-4000-8000-000000000001",
+      recipients: [],
+    }).catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(VigilApiError);
     expect((err as VigilApiError).status).toBe(422);
@@ -145,6 +156,72 @@ describe("createVigilConfiguration / initVigilObject", () => {
 
     expect(err).toBeInstanceOf(VigilApiError);
     expect((err as VigilApiError).status).toBe(404);
+  });
+});
+
+describe("confirmation-email and Pause API calls", () => {
+  afterEach(() => {
+    global.fetch = originalFetch;
+    vi.resetAllMocks();
+  });
+
+  it("lists and adds owner-scoped confirmation emails", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            emails: [{ id: "e1", address: "owner@example.com", verified_at: null }],
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            email: { id: "e2", address: "other@example.com", verified_at: null },
+            revision: 3,
+          }),
+          { status: 201 },
+        ),
+      );
+    global.fetch = fetchMock;
+
+    await expect(listVigilConfirmationEmails()).resolves.toHaveLength(1);
+    await addVigilConfirmationEmail({ expected_revision: 2, address: "other@example.com" });
+
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/vigil/confirmation-emails");
+    expect(fetchMock.mock.calls[1][0]).toBe("/api/vigil/confirmation-emails");
+    expect(JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string)).toEqual({
+      expected_revision: 2,
+      address: "other@example.com",
+    });
+  });
+
+  it("posts verification and Pause with the current revision", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ email: null, revision: 5 }), { status: 202 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ phase: "DISARMED", revision: 6, next_check_at: null }),
+          { status: 200 },
+        ),
+      );
+    global.fetch = fetchMock;
+
+    await sendVigilConfirmationEmailVerification("e1", 4);
+    await pauseVigilVault(5);
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "/api/vigil/confirmation-emails/e1/send-verification",
+    );
+    expect(fetchMock.mock.calls[1][0]).toBe("/api/vigil/disarm");
+    expect(JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string)).toEqual({
+      expected_revision: 5,
+    });
   });
 });
 

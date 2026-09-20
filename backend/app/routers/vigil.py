@@ -22,7 +22,13 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_session
-from app.models.vigil import VigilRuntime, VigilVault
+from app.models.vigil import (
+    VigilConfiguration,
+    VigilConfirmationEmail,
+    VigilObject,
+    VigilRuntime,
+    VigilVault,
+)
 from app.schemas.vigil import (
     VigilArmIn,
     VigilArmOut,
@@ -30,11 +36,17 @@ from app.schemas.vigil import (
     VigilCheckInOut,
     VigilConfigurationIn,
     VigilConfigurationOut,
+    VigilConfirmationEmailCreateIn,
+    VigilConfirmationEmailListOut,
+    VigilConfirmationEmailMutationOut,
+    VigilConfirmationEmailOut,
     VigilDrillIn,
     VigilDrillOut,
     VigilObjectInitIn,
     VigilObjectInitOut,
     VigilObjectUploadOut,
+    VigilPendingCandidate,
+    VigilRevisionIn,
     VigilVaultStatus,
 )
 from app.services.vigil.access import VigilOwner, require_vigil_owner
@@ -48,8 +60,21 @@ from app.services.vigil.configuration import (
     VigilConfigurationInputError,
     VigilRecipientsLocked,
     VigilRevisionConflict,
+    load_configuration_data,
     validate_configuration_input,
     write_pending_configuration,
+)
+from app.services.vigil.confirmation_emails import (
+    ConfirmationEmailMutation,
+    ConfirmationEmailView,
+    VigilConfirmationEmailCooldown,
+    VigilConfirmationEmailInputError,
+    VigilConfirmationEmailNotFound,
+    add_confirmation_email,
+    cancel_confirmation_email_verification,
+    delete_confirmation_email,
+    list_confirmation_emails,
+    send_confirmation_email_verification,
 )
 from app.services.vigil.cycles import (
     VigilCycleConflict,
@@ -78,14 +103,9 @@ from app.services.vigil.objects import (
 
 router = APIRouter()
 
-# Issue #452 (Vigil R0 P1.2): owner authorization now exists
-# (services/vigil/access.py) — this route reads the caller's own vault row
-# under it. vigil_configurations/vigil_objects exist as of #454, but this
-# route doesn't decrypt/populate `active`/`pending`/`recipients` from them
-# yet (no masking policy decided at this checkpoint — see schemas/vigil.py);
-# `delivery_status` stays empty until #456+ (no outbox yet), and
-# `last_scan_completed_at` stays None until a scan task writes it
-# (#453/#456+).
+# Owner-authorized status plus the minimal pending-candidate projection used
+# to restore /vigil/activate after refresh or re-login (#539). Sensitive
+# configuration and object fields are deliberately not returned.
 
 
 @router.get("/vault", response_model=VigilVaultStatus)
@@ -102,6 +122,31 @@ def get_vault(
 
     runtime = session.get(VigilRuntime, 1)
     last_scan = runtime.last_scan_completed_at if runtime is not None else None
+    pending_projection: VigilPendingCandidate | None = None
+    if vault.pending_config_id is not None:
+        config = session.get(VigilConfiguration, vault.pending_config_id)
+        obj = session.get(VigilObject, vault.pending_object_id) if vault.pending_object_id else None
+        if config is not None:
+            data = load_configuration_data(config, vault.id)
+            raw_email_id = data.get("confirmation_email_id")
+            if isinstance(raw_email_id, str):
+                try:
+                    email_id = UUID(raw_email_id)
+                except ValueError:
+                    email_id = None
+                if email_id is not None:
+                    email = session.get(VigilConfirmationEmail, email_id)
+                    pending_projection = VigilPendingCandidate(
+                        config_id=config.id,
+                        object_id=obj.id if obj is not None else None,
+                        object_status=obj.status if obj is not None else None,
+                        confirmation_email_id=email_id,
+                        confirmation_email_verified=(
+                            email is not None
+                            and email.owner_user_id == owner.user_id
+                            and email.verified_at is not None
+                        ),
+                    )
     return VigilVaultStatus(
         vault_id=vault.id,
         phase=vault.phase,
@@ -110,8 +155,166 @@ def get_vault(
         next_check_at=vault.next_check_at,
         deadline_at=current_deadline_at(session, vault),
         last_scan_completed_at=last_scan,
+        pending=pending_projection,
         delivery_status=drill_delivery_state(session, vault),
     )
+
+
+def _email_out(view: ConfirmationEmailView) -> VigilConfirmationEmailOut:
+    return VigilConfirmationEmailOut(id=view.id, address=view.address, verified_at=view.verified_at)
+
+
+def _email_mutation_out(result: ConfirmationEmailMutation) -> VigilConfirmationEmailMutationOut:
+    return VigilConfirmationEmailMutationOut(
+        email=_email_out(result.email) if result.email is not None else None,
+        revision=result.revision,
+    )
+
+
+def _raise_email_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, VigilRevisionConflict):
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "revision_conflict", "current_revision": exc.current_revision},
+        )
+    if isinstance(exc, VigilConfirmationEmailNotFound):
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    if isinstance(exc, VigilConfirmationEmailInputError):
+        return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    if isinstance(exc, VigilConfirmationEmailCooldown):
+        return HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="confirmation email cooldown",
+            headers={"Retry-After": str(exc.retry_after)},
+        )
+    raise exc
+
+
+@router.get("/confirmation-emails", response_model=VigilConfirmationEmailListOut)
+def get_confirmation_emails(
+    owner: VigilOwner = Depends(require_vigil_owner),
+    session: Session = Depends(get_session),
+) -> VigilConfirmationEmailListOut:
+    return VigilConfirmationEmailListOut(
+        emails=[
+            _email_out(row)
+            for row in list_confirmation_emails(session, owner_user_id=owner.user_id)
+        ]
+    )
+
+
+@router.post(
+    "/confirmation-emails",
+    response_model=VigilConfirmationEmailMutationOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def post_confirmation_email(
+    payload: VigilConfirmationEmailCreateIn,
+    response: Response,
+    owner: VigilOwner = Depends(require_vigil_owner),
+    session: Session = Depends(get_session),
+) -> VigilConfirmationEmailMutationOut:
+    try:
+        before = len(list_confirmation_emails(session, owner_user_id=owner.user_id))
+        result = add_confirmation_email(
+            session,
+            owner_user_id=owner.user_id,
+            expected_revision=payload.expected_revision,
+            address=payload.address,
+        )
+        session.commit()
+        after = len(list_confirmation_emails(session, owner_user_id=owner.user_id))
+        if after == before:
+            response.status_code = status.HTTP_200_OK
+        return _email_mutation_out(result)
+    except (
+        VigilRevisionConflict,
+        VigilConfirmationEmailInputError,
+        VigilConfirmationEmailNotFound,
+    ) as exc:
+        session.rollback()
+        raise _raise_email_error(exc) from exc
+
+
+@router.post(
+    "/confirmation-emails/{email_id}/send-verification",
+    response_model=VigilConfirmationEmailMutationOut,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def post_confirmation_email_verification(
+    email_id: UUID,
+    payload: VigilRevisionIn,
+    owner: VigilOwner = Depends(require_vigil_owner),
+    session: Session = Depends(get_session),
+) -> VigilConfirmationEmailMutationOut:
+    try:
+        result = send_confirmation_email_verification(
+            session,
+            owner_user_id=owner.user_id,
+            email_id=email_id,
+            expected_revision=payload.expected_revision,
+        )
+        session.commit()
+    except (
+        VigilRevisionConflict,
+        VigilConfirmationEmailInputError,
+        VigilConfirmationEmailNotFound,
+        VigilConfirmationEmailCooldown,
+    ) as exc:
+        session.rollback()
+        raise _raise_email_error(exc) from exc
+    try:
+        from app.tasks.vigil_tasks import dispatch_vigil_outbox_task
+
+        dispatch_vigil_outbox_task.delay()
+    except Exception:
+        pass
+    return _email_mutation_out(result)
+
+
+@router.post(
+    "/confirmation-emails/{email_id}/cancel-verification",
+    response_model=VigilConfirmationEmailMutationOut,
+)
+def post_confirmation_email_cancel(
+    email_id: UUID,
+    payload: VigilRevisionIn,
+    owner: VigilOwner = Depends(require_vigil_owner),
+    session: Session = Depends(get_session),
+) -> VigilConfirmationEmailMutationOut:
+    try:
+        result = cancel_confirmation_email_verification(
+            session,
+            owner_user_id=owner.user_id,
+            email_id=email_id,
+            expected_revision=payload.expected_revision,
+        )
+        session.commit()
+        return _email_mutation_out(result)
+    except (VigilRevisionConflict, VigilConfirmationEmailNotFound) as exc:
+        session.rollback()
+        raise _raise_email_error(exc) from exc
+
+
+@router.delete("/confirmation-emails/{email_id}", response_model=VigilConfirmationEmailMutationOut)
+def delete_confirmation_email_route(
+    email_id: UUID,
+    payload: VigilRevisionIn,
+    owner: VigilOwner = Depends(require_vigil_owner),
+    session: Session = Depends(get_session),
+) -> VigilConfirmationEmailMutationOut:
+    try:
+        result = delete_confirmation_email(
+            session,
+            owner_user_id=owner.user_id,
+            email_id=email_id,
+            expected_revision=payload.expected_revision,
+        )
+        session.commit()
+        return _email_mutation_out(result)
+    except (VigilRevisionConflict, VigilConfirmationEmailNotFound) as exc:
+        session.rollback()
+        raise _raise_email_error(exc) from exc
 
 
 # Issue #454 (Vigil R0 P2.1): configuration + object storage. Issue #524
@@ -144,7 +347,7 @@ def post_configuration(
         result = write_pending_configuration(
             session,
             owner_user_id=owner.user_id,
-            owner_email=owner.email,
+            confirmation_email_id=payload.confirmation_email_id,
             expected_revision=payload.expected_revision,
             normalized=normalized,
         )
@@ -154,7 +357,7 @@ def post_configuration(
             status_code=status.HTTP_409_CONFLICT,
             detail={"error": "revision_conflict", "current_revision": exc.current_revision},
         ) from exc
-    except VigilRecipientsLocked as exc:
+    except (VigilRecipientsLocked, VigilConfigurationInputError) as exc:
         session.rollback()
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)

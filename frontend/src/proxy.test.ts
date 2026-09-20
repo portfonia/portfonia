@@ -162,6 +162,17 @@ describe("proxy", () => {
     expect(new URL(res.headers.get("location")!).pathname).toBe("/login");
   });
 
+  it("preserves /vigil/activate as the exact post-login destination", async () => {
+    getUser.mockResolvedValue({ data: { user: null } });
+    getSession.mockResolvedValue({ data: { session: null } });
+
+    const res = await proxy(makeRequest("/vigil/activate"));
+
+    const location = new URL(res.headers.get("location")!);
+    expect(location.pathname).toBe("/login");
+    expect(location.searchParams.get("next")).toBe("/vigil/activate");
+  });
+
   it("does NOT exempt the /vigil dashboard itself — an unauthenticated request still redirects to /login", async () => {
     getUser.mockResolvedValue({ data: { user: null } });
     getSession.mockResolvedValue({ data: { session: null } });

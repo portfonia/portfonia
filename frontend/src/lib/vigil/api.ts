@@ -1,13 +1,8 @@
 // Client-side typed access to the Vigil management API, browser side.
 //
-// Mirrors backend/app/schemas/vigil.py's VigilVaultStatus/VigilObjectSummary
-// exactly as they exist today (#452/#504) — not the aspirational full shape
-// from #450's Design section 5. `active`/`pending`/`recipients`/
-// `delivery_status` are structurally present but always empty/None until
-// #454+ adds the configurations/objects tables; do not add `inner`/`outer`/
-// DEK fields here even speculatively — the backend never returns them and a
-// client type that accepted them would be exactly the leak surface #453's
-// scope explicitly forbids.
+// Mirrors the non-sensitive status shape returned by backend Vigil routes.
+// The pending projection is sufficient to restore /vigil/activate without
+// localStorage; encryption material and private configuration stay server-side.
 import type { VigilManifest } from "./crypto/manifest";
 
 export interface VigilObjectSummary {
@@ -27,7 +22,13 @@ export interface VigilVaultStatus {
   deadline_at?: string | null;
   last_scan_completed_at?: string | null;
   active?: VigilObjectSummary | null;
-  pending?: VigilObjectSummary | null;
+  pending?: {
+    config_id: string;
+    object_id: string | null;
+    object_status: string | null;
+    confirmation_email_id: string;
+    confirmation_email_verified: boolean;
+  } | null;
   recipients?: string[];
   delivery_status?: unknown[];
 }
@@ -42,7 +43,7 @@ export interface VigilVaultStatus {
 export async function getVigilVaultStatus(): Promise<VigilVaultStatus> {
   const res = await fetch("/api/vigil/vault", { cache: "no-store" });
   if (!res.ok) {
-    throw new Error(`vigil vault status request failed: ${res.status}`);
+    throw await parseJsonError(res);
   }
   return res.json() as Promise<VigilVaultStatus>;
 }
@@ -109,10 +110,80 @@ export interface VigilRecipientInput {
 
 export interface VigilConfigurationInput {
   expected_revision: number;
+  confirmation_email_id: string;
   interval_days?: number;
   grace_hours?: number;
   recipients: VigilRecipientInput[];
   message?: string;
+}
+
+export interface VigilConfirmationEmail {
+  id: string;
+  address: string;
+  verified_at: string | null;
+}
+
+export interface VigilConfirmationEmailMutationResult {
+  email: VigilConfirmationEmail | null;
+  revision: number;
+}
+
+export async function listVigilConfirmationEmails(): Promise<VigilConfirmationEmail[]> {
+  const res = await fetch("/api/vigil/confirmation-emails", { cache: "no-store" });
+  if (!res.ok) throw await parseJsonError(res);
+  const body = (await res.json()) as { emails: VigilConfirmationEmail[] };
+  return body.emails;
+}
+
+export async function addVigilConfirmationEmail(input: {
+  expected_revision: number;
+  address: string;
+}): Promise<VigilConfirmationEmailMutationResult> {
+  const res = await fetch("/api/vigil/confirmation-emails", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw await parseJsonError(res);
+  return res.json() as Promise<VigilConfirmationEmailMutationResult>;
+}
+
+async function mutateVigilConfirmationEmail(
+  path: string,
+  method: "POST" | "DELETE",
+  expectedRevision: number,
+): Promise<VigilConfirmationEmailMutationResult> {
+  const res = await fetch(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expected_revision: expectedRevision }),
+  });
+  if (!res.ok) throw await parseJsonError(res);
+  return res.json() as Promise<VigilConfirmationEmailMutationResult>;
+}
+
+export function sendVigilConfirmationEmailVerification(emailId: string, expectedRevision: number) {
+  return mutateVigilConfirmationEmail(
+    `/api/vigil/confirmation-emails/${emailId}/send-verification`,
+    "POST",
+    expectedRevision,
+  );
+}
+
+export function cancelVigilConfirmationEmailVerification(emailId: string, expectedRevision: number) {
+  return mutateVigilConfirmationEmail(
+    `/api/vigil/confirmation-emails/${emailId}/cancel-verification`,
+    "POST",
+    expectedRevision,
+  );
+}
+
+export function deleteVigilConfirmationEmail(emailId: string, expectedRevision: number) {
+  return mutateVigilConfirmationEmail(
+    `/api/vigil/confirmation-emails/${emailId}`,
+    "DELETE",
+    expectedRevision,
+  );
 }
 
 export interface VigilConfigurationResult {
@@ -231,26 +302,6 @@ export function uploadVigilObject(
   });
 }
 
-export interface VigilDrillResult {
-  drill_id: string;
-  status: string;
-  revision: number;
-}
-
-export async function createVigilDrill(input: {
-  expected_revision: number;
-  config_id: string;
-  object_id: string;
-}): Promise<VigilDrillResult> {
-  const res = await fetch("/api/vigil/drills", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
-  if (!res.ok) throw await parseJsonError(res);
-  return res.json() as Promise<VigilDrillResult>;
-}
-
 export interface VigilArmResult {
   phase: string;
   revision: number;
@@ -271,8 +322,27 @@ export async function armVigilVault(input: {
   return res.json() as Promise<VigilArmResult>;
 }
 
+export async function pauseVigilVault(expectedRevision: number): Promise<{
+  phase: string;
+  revision: number;
+  next_check_at: string | null;
+}> {
+  const res = await fetch("/api/vigil/disarm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expected_revision: expectedRevision }),
+  });
+  if (!res.ok) throw await parseJsonError(res);
+  return res.json() as Promise<{ phase: string; revision: number; next_check_at: string | null }>;
+}
+
 export interface VigilPublicConfirmResult {
-  result: "confirmed" | "already_resolved" | "revoked";
+  result:
+    | "confirmed"
+    | "already_resolved"
+    | "email_verified"
+    | "email_already_verified"
+    | "revoked";
   next_check_at: string | null;
 }
 

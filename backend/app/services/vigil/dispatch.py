@@ -109,8 +109,8 @@ def write_outbox_entry(
     session: Session,
     *,
     vault: VigilVault,
-    config_id: UUID,
-    object_id: UUID,
+    config_id: UUID | None,
+    object_id: UUID | None,
     scope_id: UUID,
     purpose: str,
     dedup_key: str,
@@ -132,7 +132,7 @@ def write_outbox_entry(
     that (best-effort) after its own commit succeeds; the periodic sweep
     is the real recovery path if the enqueue is lost.
     """
-    if purpose not in ("drill", "challenge", "release", "owner_notice"):
+    if purpose not in ("drill", "email_verify", "challenge", "release", "owner_notice"):
         raise VigilOutboxError(f"unknown outbox purpose: {purpose!r}")
 
     outbox_id = uuid.uuid4()

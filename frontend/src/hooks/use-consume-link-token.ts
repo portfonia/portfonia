@@ -14,9 +14,8 @@ import { useEffect, useState } from "react";
 // render has no `window`, so both server and client must render `null` on
 // first paint, with the real value applied only after hydration.
 //
-// This checkpoint (#453) never sends the token anywhere: no business
-// action exists yet (#460-462). The hook exists now so that invariant is
-// real from the start rather than retrofitted once a fetch call appears.
+// The public action sends the in-memory token only after the visitor solves
+// Altcha and explicitly submits the confirmation form.
 export function useConsumeLinkToken(): string | null {
   const [token, setToken] = useState<string | null>(null);
 

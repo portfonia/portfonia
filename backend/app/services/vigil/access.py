@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, status
@@ -29,8 +28,6 @@ class VigilOwner:
     feature actually needs ride along — no broader profile dump."""
 
     user_id: UUID
-    email: str
-    email_verified_at: datetime | None
 
 
 def _configured_owner_subject() -> str | None:
@@ -66,10 +63,9 @@ def require_vigil_owner(
     a caller who isn't the owner must never learn "you're just not the
     owner" (403) when the feature is simply unavailable to everyone.
 
-    Deliberately does NOT gate on `User.email_verified_at` — an
-    unverified-email owner can still read vault status; only the (future)
-    arm/escalation guard uses `is_vigil_owner_eligible` for that stricter
-    check.
+    Account-email verification is not a Vigil authorization fact. Issue
+    #539 uses the separately verified owner-scoped confirmation email for
+    activation and challenge delivery.
     """
     owner_subject = _configured_owner_subject()
     if owner_subject is None or not _feature_available():
@@ -86,7 +82,7 @@ def require_vigil_owner(
     if user.auth_subject != owner_subject:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
 
-    return VigilOwner(user_id=user.id, email=user.email, email_verified_at=user.email_verified_at)
+    return VigilOwner(user_id=user.id)
 
 
 def is_vigil_owner_eligible(session: Session, user_id: UUID) -> bool:
@@ -95,23 +91,17 @@ def is_vigil_owner_eligible(session: Session, user_id: UUID) -> bool:
     reloads everything by primary key rather than trusting any decision
     made earlier in a browser session.
 
-    Account facts only: active status, allowlist match against the
-    currently configured `VIGIL_OWNER_AUTH_SUBJECT`, and a verified
-    account email (`User.email_verified_at`) — never the report
-    pipeline's separate delivery-address field. Does not gate on
-    `VIGIL_MODE`; callers that also need the feature-availability check
-    compose that separately (see `require_vigil_owner`).
+    Account facts only: active status and allowlist match against the
+    currently configured `VIGIL_OWNER_AUTH_SUBJECT`. Confirmation-email
+    eligibility is checked against the selected owner-scoped Vigil email
+    by the arm and cycle services. Does not gate on `VIGIL_MODE`; callers
+    compose that availability check separately.
 
     Future arm/scan/release callers hold the User-then-vault lock order
     from #450 Design section 3 — that locking is the caller's
     responsibility (e.g. `SELECT ... FOR UPDATE` on `User` before calling
     this), not built into this read.
 
-    Known residual (blacktomb42 PR #504 review, non-blocking): A02's
-    "unchanged account address" isn't checked here yet — there is no
-    encrypted config `account_email` snapshot to compare against until
-    #454 lands. Add that comparison here once #454's configuration table
-    exists, rather than opening a parallel eligibility path.
     """
     owner_subject = _configured_owner_subject()
     if owner_subject is None:
@@ -122,6 +112,4 @@ def is_vigil_owner_eligible(session: Session, user_id: UUID) -> bool:
         return False
     if user.status != "active":
         return False
-    if user.auth_subject != owner_subject:
-        return False
-    return user.email_verified_at is not None
+    return user.auth_subject == owner_subject
