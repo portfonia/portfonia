@@ -11,17 +11,20 @@ stop at "sufficient for the actual, current requirement" — never add a
 mechanism, abstraction, validation layer, or defense-in-depth check because
 it is common practice, sounds more correct, or covers a hypothetical future
 need. This applies to every Ring and every agent/harness working in this
-repo, not just Vigil.
+repo.
 
 **Why**: issue #515 — a hand-rolled Origin-header check added to a
-read-only, no-state-change Vigil endpoint (on top of the app's existing
-global `CORSMiddleware`, plus that endpoint's own nonce+Altcha protections)
-broke the first real production use of the entire public-confirmation
-mechanism. This is the same failure pattern as the retracted Vigil
-isolation architecture (#473) at smaller scale: a plausible-sounding
-security/robustness justification, unmatched to the actual threat model,
-that added cost (implementation, review, LLM budget, and — this time —
-actual breakage) without being asked for.
+read-only, no-state-change confirmation endpoint (on top of the app's
+existing global `CORSMiddleware`, plus that endpoint's own nonce+Altcha
+protections) broke the first real production use of the entire
+public-confirmation mechanism. This was the same failure pattern as an
+earlier retracted isolated-service architecture (#473) at smaller scale: a
+plausible-sounding security/robustness justification, unmatched to the
+actual threat model, that added cost (implementation, review, LLM budget,
+and — this time — actual breakage) without being asked for. (The feature
+both incidents involved has since been removed entirely — issue #542 — for
+the same class of over-engineering; this rule and its precedent stand
+independent of that feature's existence.)
 
 **How to apply**:
 - Before adding any check, layer, table, service, or config knob: name the
@@ -780,10 +783,11 @@ features, and stock-pick-style recommendations are all explicitly excluded.
 - **KISS applies to code AND user journey** — fewer steps, fewer options,
   fewer modes by default.
 - **Match engineering investment to this project's actual scale, not to
-  enterprise-SaaS reflexes** (product owner, 2026-09-14, after the Vigil
-  R0 isolation architecture — separate DB/Redis/Celery/frontend/domain
-  across #451/#452/#453/#470 — turned a login into a cross-origin popup
-  handshake and got reversed same-day, see #473). Portfolio-risk-tier /
+  enterprise-SaaS reflexes** (product owner, 2026-09-14, after an
+  isolated-service architecture for a since-removed feature — separate
+  DB/Redis/Celery/frontend/domain across #451/#452/#453/#470 — turned a
+  login into a cross-origin popup handshake and got reversed same-day, see
+  #473). Portfolio-risk-tier /
   blast-radius-containment language is not a free justification for
   splitting a feature into its own isolated service, its own database, or
   its own auth handshake — this project has no per-seat enterprise
@@ -807,7 +811,7 @@ features, and stock-pick-style recommendations are all explicitly excluded.
 - **Reversibility check before destructive actions** (DB migrations
   dropping columns, `rm -rf`, force pushes): state the risk, then act on
   the owner's explicit, real-time instruction — don't refuse by citing
-  this file. **Precedent (2026-09-14, Vigil R0 retraction, #473)**: the
+  this file. **Precedent (2026-09-14, #473 retraction)**: the
   owner directed a hard reset + force-push of `main` back to a specific
   prior commit to retract a fully-merged, self-contained feature to a
   clean pre-feature state, in preference to a revert-commit chain that

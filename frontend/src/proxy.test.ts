@@ -104,14 +104,14 @@ describe("proxy", () => {
   );
 
   // Issue #542 review finding: these three paths were fully auth-exempt
-  // before the Vigil teardown (a recipient with no Portfonia session had
-  // to reach them without depending on Auth). Their pages are deleted now,
-  // but removing the auth exemption alongside them was a real regression —
-  // an anonymous visitor got redirected to /login instead of Next's normal
-  // missing-page 404. This test locks in the fix: the exemption must
-  // survive even though the pages behind it no longer exist.
+  // before their owning feature was removed (a recipient with no Portfonia
+  // session had to reach them without depending on Auth). Their pages are
+  // deleted now, but removing the auth exemption alongside them was a real
+  // regression — an anonymous visitor got redirected to /login instead of
+  // Next's normal missing-page 404. This test locks in the fix: the
+  // exemption must survive even though the pages behind it no longer exist.
   it.each(["/vigil/confirm", "/vigil/retrieve", "/vigil/revoke"])(
-    "never redirects the former public Vigil shell %s even when unauthenticated (issue #542 review)",
+    "never redirects the former public shell %s even when unauthenticated (issue #542 review)",
     async (path) => {
       getUser.mockResolvedValue({ data: { user: null } });
       getSession.mockResolvedValue({ data: { session: null } });

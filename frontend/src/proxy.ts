@@ -51,13 +51,15 @@ const PUBLIC_PATH_PREFIXES = [
 // the exemption itself must stay — without it, an anonymous visitor gets
 // redirected to /login instead of Next's normal missing-page 404, which is
 // a real regression this PR introduced (removing the gate is correct;
-// removing the exemption alongside it was not). No Vigil functionality is
-// restored — there is no page left behind these paths to serve.
-const FORMER_VIGIL_PUBLIC_SHELL_PATHS = ["/vigil/confirm", "/vigil/retrieve", "/vigil/revoke"];
+// removing the exemption alongside it was not). No functionality is
+// restored — there is no page left behind these paths to serve. The three
+// literal paths must stay byte-for-byte as they were, since old mailed
+// links out in the world still point at them.
+const FORMER_PUBLIC_SHELL_PATHS = ["/vigil/confirm", "/vigil/retrieve", "/vigil/revoke"];
 
 function isPublicPath(pathname: string): boolean {
   if (pathname === "/") return true;
-  if (FORMER_VIGIL_PUBLIC_SHELL_PATHS.includes(pathname)) return true;
+  if (FORMER_PUBLIC_SHELL_PATHS.includes(pathname)) return true;
   return PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 
