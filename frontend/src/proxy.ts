@@ -45,8 +45,19 @@ const PUBLIC_PATH_PREFIXES = [
   "/api/",
 ];
 
+// Issue #542 review finding: these three paths were exempted from the auth
+// gate entirely pre-teardown (a recipient with no Portfonia session had to
+// reach them without depending on Auth). Their pages are deleted now, but
+// the exemption itself must stay — without it, an anonymous visitor gets
+// redirected to /login instead of Next's normal missing-page 404, which is
+// a real regression this PR introduced (removing the gate is correct;
+// removing the exemption alongside it was not). No Vigil functionality is
+// restored — there is no page left behind these paths to serve.
+const FORMER_VIGIL_PUBLIC_SHELL_PATHS = ["/vigil/confirm", "/vigil/retrieve", "/vigil/revoke"];
+
 function isPublicPath(pathname: string): boolean {
   if (pathname === "/") return true;
+  if (FORMER_VIGIL_PUBLIC_SHELL_PATHS.includes(pathname)) return true;
   return PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 
