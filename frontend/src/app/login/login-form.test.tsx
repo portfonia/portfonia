@@ -103,37 +103,4 @@ describe("LoginForm", () => {
     expect(screen.queryByRole("link", { name: /sign ?up/i })).not.toBeInTheDocument();
   });
 
-  describe("next return destination (issue #453)", () => {
-    it("submits the next prop as a hidden field when provided", async () => {
-      login.mockResolvedValue({ error: null });
-      const user = userEvent.setup();
-      render(
-        <LocaleProvider>
-          <LoginForm next="/vigil" />
-        </LocaleProvider>,
-      );
-
-      await user.type(screen.getByLabelText(/email/i), "a@b.com");
-      await user.type(screen.getByLabelText(/password/i), "correcthorse");
-      await user.click(screen.getByRole("button", { name: /log in/i }));
-
-      await waitFor(() => expect(login).toHaveBeenCalled());
-      const submittedForm = login.mock.calls[0][1] as FormData;
-      expect(submittedForm.get("next")).toBe("/vigil");
-    });
-
-    it("submits no next field when the prop is omitted (default /profile landing)", async () => {
-      login.mockResolvedValue({ error: null });
-      const user = userEvent.setup();
-      renderForm();
-
-      await user.type(screen.getByLabelText(/email/i), "a@b.com");
-      await user.type(screen.getByLabelText(/password/i), "correcthorse");
-      await user.click(screen.getByRole("button", { name: /log in/i }));
-
-      await waitFor(() => expect(login).toHaveBeenCalled());
-      const submittedForm = login.mock.calls[0][1] as FormData;
-      expect(submittedForm.get("next")).toBeNull();
-    });
-  });
 });

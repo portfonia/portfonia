@@ -15,8 +15,7 @@
     "portfolioPerformance": "Performance",
     "questionnaire": "Investment style",
     "sessionExpired": "Your session ended after {minutes} minutes of inactivity.",
-    "editHoldings": "Edit holdings",
-    "vigil": "Vigil"
+    "editHoldings": "Edit holdings"
   },
   "auth": {
     "loginHeading": "Log in",
@@ -1164,121 +1163,6 @@
           ]
         }
       ]
-    }
-  },
-  "vigil": {
-    "title": "Vigil",
-    "setupCta": "Set up Vigil",
-    "loadError": "Vigil status could not be loaded.",
-    "states": {
-      "setupRequired": "Vigil isn't set up yet.",
-      "disarmed": "Vigil is configured but currently disarmed.",
-      "unavailable": "Vigil is currently unavailable."
-    },
-    "public": {
-      "confirmTitle": "Confirm check-in",
-      "retrieveTitle": "Retrieve file",
-      "revokeTitle": "Revoke release",
-      "notEnabled": "This feature is not enabled yet.",
-      "unavailable": "This link isn't active yet. Please check back later.",
-      "confirmHint": "This confirmation does not sign you in and never activates or releases Vigil by itself.",
-      "confirmButton": "Confirm",
-      "confirming": "Confirming…",
-      "confirmed": "Confirmation recorded.",
-      "emailVerified": "Email verified. Return to Vigil to activate when ready.",
-      "continueToActivate": "Continue to Activate",
-      "gone": "This confirmation link is no longer valid.",
-      "failed": "Confirmation failed. You can try again."
-    },
-    "setup": {
-      "pauseBeforeNew": "Pause the active Vigil arrangement before starting a fresh setup.",
-      "goToActivate": "Go to Activate",
-      "pendingExistsNote": "You have a pending upload from an earlier session. Starting a new setup below will replace it.",
-      "confirmationEmail": {
-        "title": "Vigil confirmation email",
-        "verified": "Verified",
-        "unverified": "Not verified",
-        "newLabel": "Add confirmation email",
-        "add": "Add",
-        "cancelVerification": "Cancel verification",
-        "delete": "Delete"
-      },
-      "file": {
-        "label": "File",
-        "choose": "Choose file",
-        "none": "No file selected",
-        "selected": "{name} ({size})"
-      },
-      "password": {
-        "sectionTitle": "Password",
-        "withPassword": "Set a password",
-        "withoutPassword": "No password",
-        "withoutPasswordWarning": "Without a password, the server-held data key alone is enough to decrypt this file — anyone who could read that key could open it.",
-        "passwordLabel": "Password",
-        "passwordConfirmLabel": "Confirm password"
-      },
-      "recipients": {
-        "sectionTitle": "Recipients",
-        "emailLabel": "Recipient {n} email",
-        "emailConfirmLabel": "Confirm recipient {n} email",
-        "add": "Add recipient",
-        "remove": "Remove"
-      },
-      "message": {
-        "label": "Message (optional)"
-      },
-      "schedule": {
-        "intervalLabel": "Check-in interval",
-        "intervalDays": "{days} days",
-        "graceLabel": "Grace period (hours)"
-      },
-      "submit": "Encrypt and upload",
-      "cancel": "Cancel",
-      "retry": "Retry",
-      "submitting": "Submitting…",
-      "progressPercent": "{percent}%",
-      "ready": {
-        "title": "Setup complete",
-        "body": "Your file is encrypted and uploaded. Continue to Activate to verify the selected email and activate Vigil.",
-        "continue": "Continue to Activate"
-      },
-      "errors": {
-        "fileRequired": "Choose a file first.",
-        "fileTooLarge": "This file is larger than the 10,000,000-byte limit.",
-        "passwordChoiceRequired": "Choose whether to set a password.",
-        "passwordRequired": "Enter a password, or choose “No password”.",
-        "passwordMismatch": "Password and confirmation do not match.",
-        "passwordTooLong": "Password must be at most 1024 bytes.",
-        "recipientsRequired": "Add at least one recipient.",
-        "recipientsTooMany": "At most 3 recipients are allowed.",
-        "recipientEmailMismatch": "A recipient's email and confirmation do not match.",
-        "recipientEmailInvalid": "A recipient's email address is not valid.",
-        "recipientsDuplicate": "Recipient email addresses must be unique.",
-        "intervalInvalid": "Choose a valid check-in interval.",
-        "graceInvalid": "Grace period must be between 24 and 168 hours.",
-        "messageTooLong": "Message must be at most 4000 characters.",
-        "confirmationEmailRequired": "Select or add a Vigil confirmation email.",
-        "revisionConflict": "Your Vigil setup changed elsewhere. Review the form and try again.",
-        "apiError": "The request could not be completed. You can retry.",
-        "cancelled": "Upload cancelled.",
-        "unknown": "Something went wrong. You can retry."
-      }
-    },
-    "activate": {
-      "title": "Activate Vigil",
-      "loading": "Loading your Vigil status…",
-      "active": "Vigil is active. Pause preserves this setup so it can be activated again.",
-      "pause": "Pause",
-      "terminal": "This Vigil arrangement is in a terminal state.",
-      "noCandidate": "There is no setup ready to activate.",
-      "goToSetup": "Go to Setup",
-      "incomplete": "The pending setup is incomplete. Start Setup again.",
-      "restartSetup": "Restart Setup",
-      "verificationRequired": "Verify {address} before activating Vigil.",
-      "sendVerification": "Send verification email",
-      "ready": "{address} is verified. Activate when you are ready.",
-      "activate": "Activate",
-      "error": "The action could not be completed. Reload the current server state and try again."
     }
   }
 }

@@ -50,33 +50,12 @@ function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 
-// Issue #453/#458: exactly these three page routes, plus
-// /api/vigil/public/* (drill confirm in #458; retrieve/revoke later).
-// A recipient following a mailed confirm/retrieve/revoke
-// link has no Portfonia session at all, and must not depend on Auth being
-// reachable — Design section 5's "public P" scope is a token+nonce, not a
-// cookie session. Deliberately NOT a prefix match on "/vigil": /vigil and
-// /vigil/setup stay on the normal protected path below.
-const EXACT_PUBLIC_VIGIL_PAGES = ["/vigil/confirm", "/vigil/retrieve", "/vigil/revoke"];
-const PUBLIC_VIGIL_API_PREFIX = "/api/vigil/public/";
-const PUBLIC_VIGIL_WEBHOOK_PATH = "/api/vigil/webhooks/resend";
-
-function isVigilAuthExempt(pathname: string): boolean {
-  return (
-    EXACT_PUBLIC_VIGIL_PAGES.includes(pathname) ||
-    pathname.startsWith(PUBLIC_VIGIL_API_PREFIX) ||
-    pathname === PUBLIC_VIGIL_WEBHOOK_PATH
-  );
-}
-
 // blacktomb42 review, PR #506: next.config.ts sets no `trailingSlash`
 // option, so Next defaults to `trailingSlash: false` and does NOT
 // normalize the incoming pathname before middleware runs —
 // request.nextUrl.pathname carries a trailing slash exactly as the client
-// sent it. Every exact-match comparison below (`isVigilAuthExempt`, the
-// literal "/vigil" check) needs a normalized value or a mailed link with a
-// stray trailing slash would silently fall through to the ordinary
-// Supabase/login-redirect path instead of its exemption. Root "/" is left
+// sent it. Every exact-match comparison below needs a normalized value or a
+// stray trailing slash would silently change behavior. Root "/" is left
 // alone — there is nothing to strip.
 function stripTrailingSlash(pathname: string): string {
   return pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
@@ -84,13 +63,6 @@ function stripTrailingSlash(pathname: string): string {
 
 export async function proxy(request: NextRequest): Promise<NextResponse> {
   const pathname = stripTrailingSlash(request.nextUrl.pathname);
-
-  // Skip the Supabase client/getUser() call entirely for these — not just
-  // the redirect-to-login check below. An Auth outage must never turn a
-  // stop/confirm link into a 5xx or an indefinite hang.
-  if (isVigilAuthExempt(pathname)) {
-    return NextResponse.next({ request });
-  }
 
   let response = NextResponse.next({ request });
   const { url, anonKey } = supabasePublicEnv();
@@ -138,12 +110,6 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.search = "";
-    // The only return destinations /login accepts besides /profile are
-    // these exact protected Vigil routes. Never echo a caller-provided
-    // query value, so external/protocol-relative return URLs cannot enter.
-    if (pathname === "/vigil" || pathname === "/vigil/setup" || pathname === "/vigil/activate") {
-      url.searchParams.set("next", pathname);
-    }
     return NextResponse.redirect(url);
   }
 

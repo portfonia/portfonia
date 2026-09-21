@@ -36,7 +36,7 @@ def get_unsubscribe_status(token: str) -> UnsubscribeStatusResult:
     """Inert lookup for the confirm page's initial GET render. No writes
     and no DB reads — the token is self-contained. An email security
     gateway prefetch therefore cannot change any account state (design
-    doc §3.7 / Vigil §4.2)."""
+    doc §3.7)."""
     claims = verify_token(token)
     if claims is None:
         return UnsubscribeStatusResult(found=False, email=None)

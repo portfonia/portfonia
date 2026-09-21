@@ -244,11 +244,6 @@ class Settings(BaseSettings):
     # infrastructure required for the verification flow's core click-confirm
     # path to work).
     RESEND_ALL_ACCESS_API_KEY: SecretStr | None = None
-    # Svix signing secret for POST /vigil/webhooks/resend (issue #457, P3.2).
-    # Optional: missing/blank makes that route 503 without affecting
-    # Portfonia startup or report jobs. Verification is local HMAC — this
-    # value never leaves the process.
-    RESEND_WEBHOOK_SECRET: SecretStr | None = None
     # Ops alert recipient — receives failure/needs_review notifications.
     ADMIN_EMAIL: str = "portfonia@gmail.com"
 
@@ -403,29 +398,6 @@ class Settings(BaseSettings):
         if v is None or not v.get_secret_value().strip():
             return None
         return SecretStr(v.get_secret_value().strip())
-
-    # Vigil (issue #451, Vigil R0 P1.1). off/active/recovery — see
-    # Vigil_R0_Dev.md §7. Only "off" (the default) is meaningful until #452
-    # (P1.2) wires up owner authorization; deliberately no eager enum
-    # validator here (A04) — a malformed value must not fail Settings load
-    # or stop existing app startup/report tasks, only whatever Vigil
-    # feature code reads it later.
-    VIGIL_MODE: str = "off"
-    # R0 single-owner allowlist: compared against the caller's
-    # users.auth_subject (never JWT email) once #452 adds the identity
-    # check. Optional — Vigil stays unavailable without it regardless of
-    # VIGIL_MODE.
-    VIGIL_OWNER_AUTH_SUBJECT: str | None = None
-    # Two independent Fernet key families (E1, Vigil Concept & Design.md
-    # §3/§9) — neither reuses HOLDINGS_ENCRYPTION_KEY. All optional in this
-    # checkpoint (no Vigil code reads them yet) and deliberately unvalidated
-    # at load time, unlike HOLDINGS_ENCRYPTION_KEY's _require_fernet_key —
-    # format checking is deferred to the feature code that first needs
-    # each key, matching VIGIL_MODE's lazy-validation rationale above.
-    VIGIL_ENCRYPTION_KEY: SecretStr | None = None
-    VIGIL_ENCRYPTION_KEY_PREV: SecretStr | None = None
-    VIGIL_NOTIFICATION_KEY: SecretStr | None = None
-    VIGIL_NOTIFICATION_KEY_PREV: SecretStr | None = None
 
     # Daily Postgres -> OCI Object Storage backup (issue #106). Empty
     # namespace disables the scheduled task entirely — local dev never has

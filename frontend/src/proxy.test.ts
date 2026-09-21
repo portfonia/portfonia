@@ -103,101 +103,7 @@ describe("proxy", () => {
     },
   );
 
-  // Issue #453: these three exact page routes must work even during a
-  // Supabase/Auth outage — a recipient's confirm/retrieve/revoke link must
-  // never depend on the Auth provider being reachable. Exempted from the
-  // Supabase lookup entirely (not just from the redirect check), so
-  // createServerClient/getUser is never even called for them.
-  it.each(["/vigil/confirm", "/vigil/retrieve", "/vigil/revoke"])(
-    "never calls the Supabase client for the public Vigil shell %s, even unauthenticated",
-    async (path) => {
-      getUser.mockClear();
-      createServerClient.mockClear();
-
-      const res = await proxy(makeRequest(path));
-
-      expect(res.headers.get("location")).toBeNull();
-      expect(getUser).not.toHaveBeenCalled();
-      expect(createServerClient).not.toHaveBeenCalled();
-    },
-  );
-
-  // blacktomb42 review, PR #506: no trailingSlash config in next.config.ts
-  // means Next defaults to trailingSlash: false, and does NOT normalize
-  // the pathname before middleware runs — request.nextUrl.pathname carries
-  // the trailing slash exactly as sent. An exact-match array (.includes)
-  // would silently miss "/vigil/confirm/" and send a recipient through the
-  // normal Supabase/login-redirect path instead of the exemption.
-  it.each(["/vigil/confirm/", "/vigil/retrieve/", "/vigil/revoke/"])(
-    "still exempts the public Vigil shell %s with a trailing slash",
-    async (path) => {
-      getUser.mockClear();
-      createServerClient.mockClear();
-
-      const res = await proxy(makeRequest(path));
-
-      expect(res.headers.get("location")).toBeNull();
-      expect(getUser).not.toHaveBeenCalled();
-      expect(createServerClient).not.toHaveBeenCalled();
-    },
-  );
-
-  it("still sets ?next=/vigil when the originally-requested path has a trailing slash", async () => {
-    getUser.mockResolvedValue({ data: { user: null } });
-    getSession.mockResolvedValue({ data: { session: null } });
-
-    const res = await proxy(makeRequest("/vigil/"));
-
-    const location = new URL(res.headers.get("location")!);
-    expect(location.searchParams.get("next")).toBe("/vigil");
-  });
-
-  it("does NOT exempt /vigil/setup — an unauthenticated request still redirects to /login", async () => {
-    getUser.mockResolvedValue({ data: { user: null } });
-    getSession.mockResolvedValue({ data: { session: null } });
-
-    const res = await proxy(makeRequest("/vigil/setup"));
-
-    expect(res.status).toBe(307);
-    expect(new URL(res.headers.get("location")!).pathname).toBe("/login");
-  });
-
-  it("preserves /vigil/activate as the exact post-login destination", async () => {
-    getUser.mockResolvedValue({ data: { user: null } });
-    getSession.mockResolvedValue({ data: { session: null } });
-
-    const res = await proxy(makeRequest("/vigil/activate"));
-
-    const location = new URL(res.headers.get("location")!);
-    expect(location.pathname).toBe("/login");
-    expect(location.searchParams.get("next")).toBe("/vigil/activate");
-  });
-
-  it("does NOT exempt the /vigil dashboard itself — an unauthenticated request still redirects to /login", async () => {
-    getUser.mockResolvedValue({ data: { user: null } });
-    getSession.mockResolvedValue({ data: { session: null } });
-
-    const res = await proxy(makeRequest("/vigil"));
-
-    expect(res.status).toBe(307);
-    expect(new URL(res.headers.get("location")!).pathname).toBe("/login");
-  });
-
-  // The literal "/vigil" return target is hardcoded by proxy.ts itself,
-  // never echoed from attacker-controlled input — this is what makes A03's
-  // "reject any other/external/protocol-relative return URL" hold: there is
-  // no code path that could ever emit anything else here.
-  it("appends ?next=/vigil to the /login redirect only when the originally-requested path was exactly /vigil", async () => {
-    getUser.mockResolvedValue({ data: { user: null } });
-    getSession.mockResolvedValue({ data: { session: null } });
-
-    const res = await proxy(makeRequest("/vigil"));
-
-    const location = new URL(res.headers.get("location")!);
-    expect(location.searchParams.get("next")).toBe("/vigil");
-  });
-
-  it("does not set ?next= on the /login redirect for any other protected route", async () => {
+  it("does not set ?next= on the /login redirect for any protected route", async () => {
     getUser.mockResolvedValue({ data: { user: null } });
     getSession.mockResolvedValue({ data: { session: null } });
 
@@ -205,24 +111,6 @@ describe("proxy", () => {
 
     const location = new URL(res.headers.get("location")!);
     expect(location.searchParams.has("next")).toBe(false);
-  });
-
-  it("never calls the Supabase client for /api/vigil/public/* even unauthenticated", async () => {
-    getUser.mockClear();
-
-    const res = await proxy(makeRequest("/api/vigil/public/confirm"));
-
-    expect(res.headers.get("location")).toBeNull();
-    expect(getUser).not.toHaveBeenCalled();
-  });
-
-  it("never calls the Supabase client for POST /api/vigil/webhooks/resend", async () => {
-    getUser.mockClear();
-
-    const res = await proxy(makeRequest("/api/vigil/webhooks/resend"));
-
-    expect(res.headers.get("location")).toBeNull();
-    expect(getUser).not.toHaveBeenCalled();
   });
 
   it("never redirects a same-origin /api/* request even when unauthenticated (the backend enforces 401 itself)", async () => {

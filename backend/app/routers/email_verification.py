@@ -2,8 +2,8 @@
 mechanism (Ring 1-Email Validation design doc, issue #260).
 
 Unauthenticated by design — the token itself is the credential, same as
-Vigil's confirm-page precedent and this project's own /reset-password
-(client-direct to Supabase, no session). No rate limiting is wired here yet:
+this project's own /reset-password precedent (client-direct to Supabase, no
+session). No rate limiting is wired here yet:
 the only caller that can CREATE a record is the Ops API (already gated by
 ADMIN_API_TOKEN — see app/routers/admin.py), so there is no untrusted-facing
 surface yet that could flood this router with garbage tokens to guess

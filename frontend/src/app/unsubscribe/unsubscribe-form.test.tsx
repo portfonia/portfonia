@@ -69,9 +69,7 @@ describe("UnsubscribeForm", () => {
 
   it("uses one consistent unsubscribe register across the whole page (issue #289 item 2)", async () => {
     // The heading/button chrome and the body copy must not mix "unsubscribe"
-    // with "revoke verification" — plain unsubscribe language everywhere,
-    // generic to the platform (not Portfonia-report-specific, so Vigil's
-    // future reuse of the same page shape needs no rewrite).
+    // with "revoke verification" — plain unsubscribe language everywhere.
     confirmUnsubscribe.mockResolvedValue({ error: null, email: "a@b.com" });
     const user = userEvent.setup();
     renderForm({ found: true, email: "a@b.com" });

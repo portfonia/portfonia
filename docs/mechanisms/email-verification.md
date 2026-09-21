@@ -22,8 +22,7 @@ only way to create a verification record at all.
 (nullable, `FK users.id ON DELETE RESTRICT`), `purpose`
 (`account_email`/`delivery_email`/`ops_manual` — a closed, frozen-snapshot
 `CheckConstraint`, same discipline as `6cd7544f63cf`/`e1f2a3b4c5d6`;
-`revoked` and the Vigil-reuse placeholder purposes from the design doc are
-NOT in this migration — nothing creates them yet), `email`, `token_hash`
+`revoked` is NOT in this migration — nothing creates it yet), `email`, `token_hash`
 (sha256, hash-only — same discipline as `invites.token_hash`), `status`
 (`pending`/`verified`/`expired`/`superseded`/`undeliverable`),
 `expires_at`, `verified_at`, `last_sent_at`, `resend_count`,
@@ -99,10 +98,10 @@ sent" — see `frontend-chrome.md`'s Profile redesign entry).
 4. `GET /email-verifications/status?token=` (`app/routers/
    email_verification.py`) is completely inert — no writes, including no
    persisted "expired" transition for a row whose `expires_at` has passed
-   (that transition only happens inside the POST). This mirrors Vigil
-   Concept & Design §4.2's reasoning: email security gateways (Outlook Safe
-   Links, Gmail link scanning) prefetch links in transit, and a GET that
-   mutates state would let a prefetch look like a confirmation.
+   (that transition only happens inside the POST) — email security
+   gateways (Outlook Safe Links, Gmail link scanning) prefetch links in
+   transit, and a GET that mutates state would let a prefetch look like a
+   confirmation.
 5. `POST /email-verifications/confirm` (token + Altcha payload) is the only
    state-changing step. **`purpose=account_email` never overwrites
    `users.email`** — it only marks `email_verified_at` when the record's
@@ -487,9 +486,7 @@ endpoint plus Profile UI.
    settings, and what the link does to future delivery. Register is plain
    "unsubscribe" — kept consistent with the /unsubscribe page. The
    footer may name Portfonia (it is a Portfonia report email); the
-   page-side copy stays generic ("this platform") so Vigil's future reuse
-   of the same page shape needs no rewrite — wording constraint only, no
-   multi-tenant plumbing built.
+   page-side copy stays generic ("this platform").
 2. **/unsubscribe page register** (`unsubscribe-form.tsx` + the
    `unsubscribe` keys in all three locale catalogs): heading/button
    already said "Unsubscribe" while the body said "Revoke verification"
@@ -524,8 +521,8 @@ endpoint plus Profile UI.
 4. **Profile gap card** (`profile-page-body.tsx` +
    `use-verification-send.ts` + `lib/api.ts`): the `noVerifiedRecipient`
    state now lists every address on record — `email` plus `delivery_email`
-   when set (today at most two; Vigil's own emails stay off this surface)
-   — each with a "Send verification" button calling the new endpoint.
+   when set (today at most two) — each with a "Send verification" button
+   calling the new endpoint.
    The row is omitted for a purpose that already has an actionable
    (pending/undeliverable) row: Send would supersede the live token
    already in the inbox (post-signup state — the pending list below with

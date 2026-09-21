@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getUser, onAuthStateChange, logout, fetchMock, getVigilVaultStatus } = vi.hoisted(() => ({
+const { getUser, onAuthStateChange, logout, fetchMock } = vi.hoisted(() => ({
   getUser: vi.fn(),
   onAuthStateChange: vi.fn(),
   logout: vi.fn(),
@@ -10,16 +10,7 @@ const { getUser, onAuthStateChange, logout, fetchMock, getVigilVaultStatus } = v
   // after a successful getUser() — default it to ok so every existing
   // "authed" case here still reaches authed without change.
   fetchMock: vi.fn(),
-  // issue #453: the Vigil nav entry's visibility check goes through
-  // lib/vigil/api.ts's own function, not the generic fetchMock above (that
-  // stub resolves a plain `{ ok: true }` object with no `.json()`, which
-  // getVigilVaultStatus would need). Defaults to hidden (rejecting) so
-  // every existing "logged in" case here — none of which is about Vigil —
-  // keeps its old exact-entry-set assertions unchanged.
-  getVigilVaultStatus: vi.fn(),
 }));
-
-vi.mock("@/lib/vigil/api", () => ({ getVigilVaultStatus }));
 
 // GetStartedMenu itself no longer reads the route (issue #209 unified the
 // menu across routes), but its useSession() dependency still calls
@@ -121,7 +112,6 @@ describe("GetStartedMenu", () => {
     vi.clearAllMocks();
     fetchMock.mockResolvedValue({ ok: true });
     vi.stubGlobal("fetch", fetchMock);
-    getVigilVaultStatus.mockRejectedValue(new Error("vigil vault status request failed: 403"));
   });
 
   afterEach(() => {
@@ -218,40 +208,6 @@ describe("GetStartedMenu", () => {
         "href",
         "/holdings",
       );
-    });
-
-    describe("Vigil nav entry (issue #453)", () => {
-      it("hides the Vigil entry when GET /vigil/vault rejects (not owner, feature off, etc.)", async () => {
-        getVigilVaultStatus.mockRejectedValue(new Error("vigil vault status request failed: 403"));
-        getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
-        const user = userEvent.setup();
-        renderMenu();
-        await openMenu(user);
-
-        expect(screen.queryByRole("menuitem", { name: "Vigil" })).not.toBeInTheDocument();
-      });
-
-      it("shows the Vigil entry linking to /vigil once GET /vigil/vault succeeds for this user", async () => {
-        getVigilVaultStatus.mockResolvedValue({ vault_id: null, phase: "DISARMED", revision: 0 });
-        getUser.mockResolvedValue({ data: { user: { email: "a@b.com" } } });
-        const user = userEvent.setup();
-        renderMenu();
-        await openMenu(user);
-
-        expect(await screen.findByRole("menuitem", { name: "Vigil" })).toHaveAttribute(
-          "href",
-          "/vigil",
-        );
-      });
-
-      it("never calls GET /vigil/vault for a guest session", async () => {
-        getUser.mockResolvedValue({ data: { user: null } });
-        const user = userEvent.setup();
-        renderMenu();
-        await openMenu(user);
-
-        expect(getVigilVaultStatus).not.toHaveBeenCalled();
-      });
     });
 
     it("offers a Profile entry linking to /profile as the first item (issue #220)", async () => {
@@ -371,7 +327,6 @@ describe("GetStartedMenu", () => {
 
       const menu = screen.getByRole("menu");
       expect(menu.textContent).not.toContain("Settings");
-      expect(menu.textContent).not.toContain("Vigil");
     });
 
     it("offers the Portfolio Performance entry linking to /portfolio/performance (issue #360 Phase 2)", async () => {

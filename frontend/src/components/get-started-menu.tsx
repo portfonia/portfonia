@@ -3,8 +3,8 @@
 // Single account/navigation entry point in the top bar (issue #207). Content
 // comes from a small registry gated on session status: a logged-out visitor
 // sees ONLY Log in; authenticated users see the app entries, their own email,
-// and Log out. Future entries (Settings, Vigil) are one new row in
-// AUTHED_ENTRIES once their routes ship.
+// and Log out. Future entries (Settings) are one new row in AUTHED_ENTRIES
+// once their routes ship.
 //
 // issue #209: labels used to branch on `isHome` between two parallel label
 // sets (home-messages.ts's `nav.*` vs this file's own English-only
@@ -22,7 +22,6 @@ import {
   ClipboardList,
   LogIn,
   LogOut,
-  ShieldAlert,
   User,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -34,7 +33,6 @@ import {
   revalidateSession,
 } from "@/hooks/use-session";
 import { useIdleLogout } from "@/hooks/use-idle-logout";
-import { useVigilAccess } from "@/hooks/use-vigil-access";
 import { isNextRedirectError } from "@/lib/next-redirect-error";
 import { logout } from "@/lib/auth-actions";
 
@@ -67,19 +65,10 @@ const AUTHED_ENTRIES = [
   { id: "questionnaire", href: "/questionnaire", Icon: ClipboardList },
 ] as const satisfies { id: string; href: string; Icon: LucideIcon }[];
 
-// Issue #453: not a static row like the ones above — only appended once
-// GET /vigil/vault actually succeeds for the signed-in user (see
-// hooks/use-vigil-access.ts). Navigation visibility is not authorization:
-// the backend's own require_vigil_owner boundary is what actually protects
-// /vigil, this only decides whether the menu offers the link.
-const VIGIL_ENTRY = { id: "vigil", href: "/vigil", Icon: ShieldAlert } as const;
-
 export function GetStartedMenu() {
   const t = useTranslations("menu");
   const session = useSession();
   const [logoutFailed, setLogoutFailed] = useState(false);
-  const vigilAvailable = useVigilAccess(session.status === "authed");
-  const authedEntries = vigilAvailable ? [...AUTHED_ENTRIES, VIGIL_ENTRY] : AUTHED_ENTRIES;
 
   const runLogout = (reason?: string) => {
     // Manual Log out must call logout() with no args (the idle hook passes
@@ -144,7 +133,7 @@ export function GetStartedMenu() {
 
         {session.status === "authed" && (
           <>
-            {authedEntries.map(({ id, href, Icon }) => (
+            {AUTHED_ENTRIES.map(({ id, href, Icon }) => (
               <MenuItemLink key={id} href={href}>
                 <Icon aria-hidden="true" className="size-4" />
                 {t(id)}
