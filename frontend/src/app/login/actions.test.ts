@@ -52,42 +52,4 @@ describe("login action", () => {
     expect(redirect).toHaveBeenCalledWith("/profile");
     expect(getMeServer).not.toHaveBeenCalled();
   });
-
-  describe("next return destination (issue #453)", () => {
-    it("redirects to /vigil when the form's next field is exactly /vigil", async () => {
-      signInWithPassword.mockResolvedValue({ error: null });
-
-      await login(
-        undefined,
-        formData({ email: "a@b.com", password: "correcthorse", next: "/vigil" }),
-      );
-
-      expect(redirect).toHaveBeenCalledWith("/vigil");
-    });
-
-    it.each(["/vigil/setup", "/vigil/activate"])(
-      "redirects to the approved Vigil sub-route %s",
-      async (next) => {
-        signInWithPassword.mockResolvedValue({ error: null });
-
-        await login(undefined, formData({ email: "a@b.com", password: "correcthorse", next }));
-
-        expect(redirect).toHaveBeenCalledWith(next);
-      },
-    );
-
-    it.each([
-      "/other-page",
-      "https://evil.example.com",
-      "//evil.example.com",
-      "javascript:alert(1)",
-      "/vigil ",
-    ])("falls back to /profile for any next value that isn't exactly /vigil: %s", async (next) => {
-      signInWithPassword.mockResolvedValue({ error: null });
-
-      await login(undefined, formData({ email: "a@b.com", password: "correcthorse", next }));
-
-      expect(redirect).toHaveBeenCalledWith("/profile");
-    });
-  });
 });

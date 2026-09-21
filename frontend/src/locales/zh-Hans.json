@@ -15,8 +15,7 @@
     "portfolioPerformance": "业绩表现",
     "questionnaire": "投资风格",
     "sessionExpired": "由于 {minutes} 分钟内无操作，登录已结束。",
-    "editHoldings": "编辑持仓",
-    "vigil": "Vigil"
+    "editHoldings": "编辑持仓"
   },
   "auth": {
     "loginHeading": "登录",
@@ -1164,121 +1163,6 @@
           ]
         }
       ]
-    }
-  },
-  "vigil": {
-    "title": "Vigil",
-    "setupCta": "设置 Vigil",
-    "loadError": "无法加载 Vigil 状态。",
-    "states": {
-      "setupRequired": "Vigil 尚未设置。",
-      "disarmed": "Vigil 已配置，当前处于解除状态。",
-      "unavailable": "Vigil 当前不可用。"
-    },
-    "public": {
-      "confirmTitle": "确认签到",
-      "retrieveTitle": "获取文件",
-      "revokeTitle": "撤销发送",
-      "notEnabled": "此功能尚未开放。",
-      "unavailable": "此链接尚未生效，请稍后再试。",
-      "confirmHint": "此确认不会让浏览器登录，也不会自行启用或释放 Vigil。",
-      "confirmButton": "确认",
-      "confirming": "正在确认…",
-      "confirmed": "确认已记录。",
-      "emailVerified": "邮箱已验证。准备好后可返回 Vigil 启用。",
-      "continueToActivate": "前往启用页",
-      "gone": "此确认链接已失效。",
-      "failed": "确认失败，可以重试。"
-    },
-    "setup": {
-      "pauseBeforeNew": "开始全新设置前，请先暂停当前已启用的 Vigil 安排。",
-      "goToActivate": "前往启用页",
-      "pendingExistsNote": "您有一次此前会话遗留的待处理上传。在下方开始新设置将替换它。",
-      "confirmationEmail": {
-        "title": "Vigil 确认邮箱",
-        "verified": "已验证",
-        "unverified": "未验证",
-        "newLabel": "添加确认邮箱",
-        "add": "添加",
-        "cancelVerification": "取消验证",
-        "delete": "删除"
-      },
-      "file": {
-        "label": "文件",
-        "choose": "选择文件",
-        "none": "未选择文件",
-        "selected": "{name}（{size}）"
-      },
-      "password": {
-        "sectionTitle": "密码",
-        "withPassword": "设置密码",
-        "withoutPassword": "不设密码",
-        "withoutPasswordWarning": "不设密码时，仅凭服务器保存的数据密钥即可解密此文件——任何能读取该密钥的人都能打开它。",
-        "passwordLabel": "密码",
-        "passwordConfirmLabel": "确认密码"
-      },
-      "recipients": {
-        "sectionTitle": "收件人",
-        "emailLabel": "收件人 {n} 邮箱",
-        "emailConfirmLabel": "确认收件人 {n} 邮箱",
-        "add": "添加收件人",
-        "remove": "移除"
-      },
-      "message": {
-        "label": "留言（可选）"
-      },
-      "schedule": {
-        "intervalLabel": "签到间隔",
-        "intervalDays": "{days} 天",
-        "graceLabel": "宽限期（小时）"
-      },
-      "submit": "加密并上传",
-      "cancel": "取消",
-      "retry": "重试",
-      "submitting": "正在提交……",
-      "progressPercent": "{percent}%",
-      "ready": {
-        "title": "设置已完成",
-        "body": "文件已加密并上传完成。请前往启用页验证所选邮箱并启用 Vigil。",
-        "continue": "前往启用页"
-      },
-      "errors": {
-        "fileRequired": "请先选择文件。",
-        "fileTooLarge": "文件超过 10,000,000 字节上限。",
-        "passwordChoiceRequired": "请选择是否设置密码。",
-        "passwordRequired": "请输入密码，或选择“不设密码”。",
-        "passwordMismatch": "密码与确认密码不一致。",
-        "passwordTooLong": "密码最多 1024 字节。",
-        "recipientsRequired": "请至少添加一位收件人。",
-        "recipientsTooMany": "最多允许 3 位收件人。",
-        "recipientEmailMismatch": "某位收件人的邮箱与确认邮箱不一致。",
-        "recipientEmailInvalid": "某位收件人的邮箱地址无效。",
-        "recipientsDuplicate": "收件人邮箱地址不能重复。",
-        "intervalInvalid": "请选择有效的签到间隔。",
-        "graceInvalid": "宽限期必须在 24 至 168 小时之间。",
-        "messageTooLong": "留言最多 4000 字符。",
-        "confirmationEmailRequired": "请选择或添加一个 Vigil 确认邮箱。",
-        "revisionConflict": "您的 Vigil 设置已在别处发生变化，请检查表单后重试。",
-        "apiError": "请求未能完成，您可以重试。",
-        "cancelled": "上传已取消。",
-        "unknown": "出现问题，您可以重试。"
-      }
-    },
-    "activate": {
-      "title": "启用 Vigil",
-      "loading": "正在加载 Vigil 状态……",
-      "active": "Vigil 已启用。暂停会保留这份设置，以便之后直接重新启用。",
-      "pause": "暂停",
-      "terminal": "此 Vigil 安排已进入终止状态。",
-      "noCandidate": "当前没有可启用的设置。",
-      "goToSetup": "前往设置页",
-      "incomplete": "待处理设置不完整，请重新开始设置。",
-      "restartSetup": "重新设置",
-      "verificationRequired": "启用 Vigil 前，请先验证 {address}。",
-      "sendVerification": "发送验证邮件",
-      "ready": "{address} 已验证。准备好后即可启用。",
-      "activate": "启用",
-      "error": "操作未能完成。请重新加载服务器状态后再试。"
     }
   }
 }

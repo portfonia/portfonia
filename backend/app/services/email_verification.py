@@ -27,9 +27,8 @@ from app.services.invites import _normalize_email
 
 logger = logging.getLogger(__name__)
 
-# Design doc §6 suggested 24-72h; 48h is the midpoint default. Not
-# Vigil's PoW-challenge TTL (minutes) — this is an unattended email
-# round-trip, not a live browser session.
+# Design doc §6 suggested 24-72h; 48h is the midpoint default — this is an
+# unattended email round-trip, not a live browser session.
 TOKEN_TTL = timedelta(hours=48)
 _TOKEN_NBYTES = 16  # 128 bits, base64url-encoded by secrets.token_urlsafe
 
@@ -268,7 +267,7 @@ def get_verification_status(session: Session, *, token: str) -> VerificationStat
     an expired-but-still-`pending` row is reported as "expired" here without
     persisting that transition; only confirm_verification (a POST) writes
     the expired status, keeping this GET side-effect-free (design doc §3.3
-    step 2 / Vigil §4.2)."""
+    step 2)."""
     record = session.execute(
         select(EmailVerification).where(EmailVerification.token_hash == _hash_token(token))
     ).scalar_one_or_none()

@@ -1,8 +1,8 @@
 import { VerifyEmailForm } from "./verify-email-form";
 
 // Public route (proxy.ts PUBLIC_PATH_PREFIXES) — the token itself is the
-// credential (design doc §3.3/§6.3 precedent in Vigil Concept & Design),
-// same as /reset-password. No Server Component auth check here.
+// credential (Ring 1-Email Validation design doc §3.3/§6.3), same as
+// /reset-password. No Server Component auth check here.
 //
 // No next-intl usage in this file: this app has no URL-based locale routing
 // (issue #209) and locale lives in client-only context (locale-provider) —
@@ -16,8 +16,8 @@ export interface VerifyEmailStatus {
   email: string | null;
 }
 
-// GET-inert lookup only — no state change (design doc §3.3 step 2 / Vigil
-// §4.2: an email security gateway's link-prefetch must never look like a
+// GET-inert lookup only — no state change (design doc §3.3 step 2: an
+// email security gateway's link-prefetch must never look like a
 // confirmation). A network/parse failure here degrades to the same
 // "invalid or expired" message the form itself shows for a bad token —
 // there's nothing more specific to tell an anonymous visitor.

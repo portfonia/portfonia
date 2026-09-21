@@ -293,9 +293,9 @@ def test_get_verification_status_pending(
 def test_get_verification_status_reports_expired_without_persisting_it(
     db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """GET must stay side-effect-free (design doc §3.3 step 2 / Vigil
-    §4.2) — an expired row is reported as "expired" but its DB status
-    column stays "pending" until an actual confirm attempt touches it."""
+    """GET must stay side-effect-free (design doc §3.3 step 2) — an
+    expired row is reported as "expired" but its DB status column stays
+    "pending" until an actual confirm attempt touches it."""
     record, token = _create_and_capture_token(
         db_session, monkeypatch, email="a@example.com", purpose="ops_manual"
     )

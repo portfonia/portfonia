@@ -131,15 +131,6 @@ ALLOWED_ATTRIBUTE_KEYS = frozenset(
         # timing completeness
         "telemetry_overhead_ms",
         "cadence",
-        # Vigil state transitions (issue #527; replaces vigil_audit_events'
-        # action/actor_type/from_phase/to_phase/detail columns)
-        "actor",
-        "vault_id",
-        "cycle_id",
-        "round_id",
-        "level",
-        "from_phase",
-        "to_phase",
     }
 )
 

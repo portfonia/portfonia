@@ -499,9 +499,8 @@ def send_report_email(report: Report, session: Session) -> bool:
 # the report is, that it was delivered per the user's own configured
 # settings, and what the link does to future delivery. Register is plain
 # "unsubscribe", kept consistent with the /unsubscribe page (issue #289 item
-# 2); the page-side copy stays generic ("this platform") because Vigil may
-# reuse the same page shape, while this footer may name Portfonia — it is a
-# Portfonia report email (Ring 1-Email Validation.md, 2026-08-31 section).
+# 2); this footer names Portfonia because it is a Portfonia report email
+# (Ring 1-Email Validation.md, 2026-08-31 section).
 _UNSUBSCRIBE_FOOTER_COPY: dict[str, dict[str, str]] = {
     "en": {
         "html_md": (

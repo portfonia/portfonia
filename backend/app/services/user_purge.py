@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import delete, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
@@ -19,18 +19,6 @@ from app.models.report import Report
 from app.models.upload_job import UploadJob
 from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
-from app.models.vigil import (
-    VigilActionToken,
-    VigilAuditEvent,
-    VigilConfiguration,
-    VigilConfirmationEmail,
-    VigilCycle,
-    VigilDeliveryEvent,
-    VigilObject,
-    VigilOutbox,
-    VigilRound,
-    VigilVault,
-)
 
 
 @dataclass(frozen=True)
@@ -44,16 +32,6 @@ class PurgeResult:
     email_verifications: int
     invites_used_by_cleared: int
     users_invited_by_cleared: int
-    vigil_delivery_events: int
-    vigil_action_tokens: int
-    vigil_rounds: int
-    vigil_outbox: int
-    vigil_cycles: int
-    vigil_objects: int
-    vigil_configurations: int
-    vigil_confirmation_emails: int
-    vigil_audit_events: int
-    vigil_vaults: int
     users: int
 
 
@@ -123,145 +101,6 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
             ),
         )
     )
-    # Extends the #451 base-row purge hook for #454's two new tables
-    # (Design section 3 / section 6 order: "Clear vault active/pending
-    # references, then remove ... objects, configurations ... and vault").
-    # vigil_vaults.active/pending_config_id/object_id are now real
-    # ON DELETE RESTRICT FKs into these tables (#454) — nulling them out
-    # first is required, not optional, or the DELETEs below fail loudly
-    # rather than silently bypassing the feature's stop path.
-    vault_id = session.execute(
-        select(VigilVault.id).where(VigilVault.owner_user_id == user_id)
-    ).scalar_one_or_none()
-    vigil_delivery_events = 0
-    vigil_action_tokens = 0
-    vigil_rounds = 0
-    vigil_outbox = 0
-    vigil_cycles = 0
-    vigil_objects = 0
-    vigil_configurations = 0
-    vigil_confirmation_emails = 0
-    vigil_audit_events = 0
-    if vault_id is not None:
-        session.execute(
-            update(VigilVault)
-            .where(VigilVault.id == vault_id)
-            .values(
-                active_config_id=None,
-                active_object_id=None,
-                pending_config_id=None,
-                pending_object_id=None,
-            )
-        )
-        # #457 (P3.2) extends the #456 purge hook: vigil_delivery_events
-        # FKs into vigil_outbox (RESTRICT), so associated rows go first.
-        # Unmatched events that already carry this vault's provider_id are
-        # removed in the same statement so a webhook-before-response row
-        # cannot outlive the outbox it would have folded into.
-        outbox_ids = list(
-            session.scalars(select(VigilOutbox.id).where(VigilOutbox.vault_id == vault_id)).all()
-        )
-        provider_ids = list(
-            session.scalars(
-                select(VigilOutbox.provider_id).where(
-                    VigilOutbox.vault_id == vault_id, VigilOutbox.provider_id.isnot(None)
-                )
-            ).all()
-        )
-        vigil_action_tokens = _rowcount(
-            cast(
-                CursorResult[Any],
-                session.execute(
-                    delete(VigilActionToken).where(VigilActionToken.vault_id == vault_id)
-                ),
-            )
-        )
-        cycle_ids = list(
-            session.scalars(select(VigilCycle.id).where(VigilCycle.vault_id == vault_id)).all()
-        )
-        if cycle_ids:
-            vigil_rounds = _rowcount(
-                cast(
-                    CursorResult[Any],
-                    session.execute(delete(VigilRound).where(VigilRound.cycle_id.in_(cycle_ids))),
-                )
-            )
-        if outbox_ids or provider_ids:
-            conditions = []
-            if outbox_ids:
-                conditions.append(VigilDeliveryEvent.outbox_id.in_(outbox_ids))
-            if provider_ids:
-                conditions.append(VigilDeliveryEvent.provider_message_id.in_(provider_ids))
-            vigil_delivery_events = _rowcount(
-                cast(
-                    CursorResult[Any],
-                    session.execute(delete(VigilDeliveryEvent).where(or_(*conditions))),
-                )
-            )
-        # #456 (P3.1) extends the #454 purge hook: vigil_outbox has RESTRICT
-        # FKs into vigil_configurations/vigil_objects, so it must be deleted
-        # BEFORE them (Design section 3: "cancel Vigil pending sends ...
-        # remove Vigil child rows in FK order"). No cancellation semantics
-        # here — a hard purge removes the rows outright rather than
-        # transitioning them through `cancelled` first, since nothing will
-        # ever read this user's outbox again.
-        vigil_outbox = _rowcount(
-            cast(
-                CursorResult[Any],
-                session.execute(delete(VigilOutbox).where(VigilOutbox.vault_id == vault_id)),
-            )
-        )
-        vigil_cycles = _rowcount(
-            cast(
-                CursorResult[Any],
-                session.execute(delete(VigilCycle).where(VigilCycle.vault_id == vault_id)),
-            )
-        )
-        vigil_objects = _rowcount(
-            cast(
-                CursorResult[Any],
-                session.execute(delete(VigilObject).where(VigilObject.vault_id == vault_id)),
-            )
-        )
-        vigil_configurations = _rowcount(
-            cast(
-                CursorResult[Any],
-                session.execute(
-                    delete(VigilConfiguration).where(VigilConfiguration.vault_id == vault_id)
-                ),
-            )
-        )
-        vigil_confirmation_emails = _rowcount(
-            cast(
-                CursorResult[Any],
-                session.execute(
-                    delete(VigilConfirmationEmail).where(
-                        VigilConfirmationEmail.owner_user_id == user_id
-                    )
-                ),
-            )
-        )
-        # vigil_audit_events is deprecated/unused since #527 (no writer), but
-        # pre-#527 rows may still exist and vault_id is ON DELETE RESTRICT
-        # since P1.1. Parent Design section 3 deletes audit_events after
-        # configurations and before the vault row.
-        vigil_audit_events = _rowcount(
-            cast(
-                CursorResult[Any],
-                session.execute(
-                    delete(VigilAuditEvent).where(VigilAuditEvent.vault_id == vault_id)
-                ),
-            )
-        )
-    # Must precede DELETE users: vigil_vaults.owner_user_id FKs to users.id
-    # ON DELETE RESTRICT (issue #451 checkpoint P1.1) — the base-row purge
-    # hook.
-    vigil_vaults = _rowcount(
-        cast(
-            CursorResult[Any],
-            session.execute(delete(VigilVault).where(VigilVault.owner_user_id == user_id)),
-        )
-    )
     users = _rowcount(
         cast(CursorResult[Any], session.execute(delete(User).where(User.id == user_id)))
     )
@@ -275,15 +114,5 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
         email_verifications=email_verifications,
         invites_used_by_cleared=invites_used_by_cleared,
         users_invited_by_cleared=users_invited_by_cleared,
-        vigil_delivery_events=vigil_delivery_events,
-        vigil_action_tokens=vigil_action_tokens,
-        vigil_rounds=vigil_rounds,
-        vigil_outbox=vigil_outbox,
-        vigil_cycles=vigil_cycles,
-        vigil_objects=vigil_objects,
-        vigil_configurations=vigil_configurations,
-        vigil_confirmation_emails=vigil_confirmation_emails,
-        vigil_audit_events=vigil_audit_events,
-        vigil_vaults=vigil_vaults,
         users=users,
     )

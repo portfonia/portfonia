@@ -95,25 +95,6 @@ history behavior is covered by the portfolio-performance mechanism and its
 governing feature design, not by this general playbook. Do not duplicate a
 dated feature example into project-wide rules.
 
-## Vigil document ownership
-
-The existing owner-selected notes are:
-
-- `Hermes/Portfonia/Vigil Concept & Design.md`: product requirements,
-  decisions, and security boundaries.
-- `Hermes/Portfonia/Vigil_R0_Dev.md`: Ring 0 contracts, dependencies,
-  acceptance evidence, and implementation tracking.
-
-Keep changes to these existing notes within the user's authorized scope.
-Their presence in this index is not permission to create a missing note.
-Track Portfonia capabilities separately from Vigil integration and actual
-Vigil acceptance evidence. Feature-specific findings, such as account
-identity boundaries, email-delivery semantics, and file-release behavior,
-stay in those notes; do not turn an integration proposal into a global rule.
-
-A documentation update does not authorize implementing Vigil, deploying
-services, sending real emails, or releasing entrusted files.
-
 ## Obsidian access and secret handling
 
 Use the configured Obsidian MCP. Read the existing note before an
