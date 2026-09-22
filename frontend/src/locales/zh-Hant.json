@@ -525,7 +525,6 @@
         "approx_fx": "部分時點使用備援匯率。"
       },
       "chartPortfolioLabel": "組合",
-      "approxDashLegend": "虛線 = 近似資料",
       "benchmarkNoUsableHistory": "{name} 在此區間沒有可用的指數歷史。",
       "comparisonBaselineOnly": "{name}：首個追蹤快照，變化從 0% 開始。",
       "comparisonAnchorUnavailable": "{name} 無法在組合首個追蹤日估值，因此不可與組合比較。",

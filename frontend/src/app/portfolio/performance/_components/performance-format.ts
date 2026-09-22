@@ -51,8 +51,8 @@ export function formatSignedPct(value: number | null | undefined, digits = 2): s
   return `${sign}${pct.toFixed(digits)}%`;
 }
 
-// Integer-percent form for axis ticks (no "+", no decimals — a 5-year axis
-// with signed 2-decimal labels is unreadable).
+// Unsigned percent for axis ticks, always two decimal places.
 export function formatTickPct(value: number): string {
-  return `${(value * 100).toFixed(0)}%`;
+  const pct = (value * 100).toFixed(2);
+  return `${pct === "-0.00" ? "0.00" : pct}%`;
 }

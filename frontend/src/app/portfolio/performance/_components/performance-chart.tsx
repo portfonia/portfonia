@@ -1,11 +1,7 @@
 "use client";
 
 // Portfolio-vs-benchmarks line chart (issue #360 Phase 2). Recharts, same
-// library the /portfolio breakdown cards use. The portfolio line is split
-// into a solid column and a dashed `portfolioApprox` column by the data
-// helper, so an approximate stretch reads as dashes without a second legend
-// entry. A third `portfolioGap` column (issue #486) draws a dashed connector
-// across dates with no snapshot at all. Pure presentational: data/row
+// library the /portfolio breakdown cards use. Pure presentational: data/row
 // building and copy resolution happen in the page body / performance-data.ts.
 
 import { useLocale } from "@/app/_components/locale-provider";
@@ -26,29 +22,18 @@ import {
 import { useMemo } from "react";
 import type { BenchmarkCode } from "@/lib/api";
 import {
-  PORTFOLIO_APPROX_KEY,
-  PORTFOLIO_KEY,
-  isPortfolioGapKey,
-  rowPortfolioValue,
   type BuiltChartData,
   type ChartSeriesRow,
 } from "./performance-data";
 
 export interface ChartSeriesSpec {
-  // Chart data column key (portfolio / portfolioApprox / portfolioGap / a
-  // benchmark code).
   key: string;
   label: string;
   color: string;
-  dashed?: boolean;
   isPortfolio?: boolean;
   singletonDot?: boolean;
-  // Only the gap connector (issue #486) sets this so Recharts draws one
-  // dashed segment between the two real boundary points.
   connectNulls?: boolean;
 }
-
-const APPROX_DASH = "5 4";
 
 function rowValue(row: ChartSeriesRow, key: string): number | null {
   const value = row[key];
@@ -73,13 +58,11 @@ export function ChartTooltip({
 
   const entries = series
     .map((spec) => {
-      if (isPortfolioGapKey(spec.key) || spec.key === PORTFOLIO_APPROX_KEY) return null;
-      const value = spec.key === PORTFOLIO_KEY ? rowPortfolioValue(row) : rowValue(row, spec.key);
+      const value = rowValue(row, spec.key);
       if (value === null) return null;
-      const meta =
-        spec.isPortfolio || spec.key === "portfolioApprox"
-          ? undefined
-          : pointMeta[row.date]?.[spec.key as BenchmarkCode];
+      const meta = spec.isPortfolio
+        ? undefined
+        : pointMeta[row.date]?.[spec.key as BenchmarkCode];
       return (
         <li key={spec.key} className="flex flex-col gap-0.5">
           <span className="flex items-center justify-between gap-4">
@@ -203,7 +186,6 @@ export function PerformanceChart({
               dataKey={spec.key}
               stroke={spec.color}
               strokeWidth={spec.isPortfolio ? 2.5 : 1.5}
-              strokeDasharray={spec.dashed ? APPROX_DASH : undefined}
               dot={
                 spec.singletonDot
                   ? { r: 4, strokeWidth: 0, fill: spec.color }

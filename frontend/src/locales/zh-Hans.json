@@ -525,7 +525,6 @@
         "approx_fx": "部分时点使用了兜底汇率。"
       },
       "chartPortfolioLabel": "组合",
-      "approxDashLegend": "虚线 = 近似数据",
       "benchmarkNoUsableHistory": "{name} 在此区间没有可用的指数历史。",
       "comparisonBaselineOnly": "{name}：首个追踪快照，变化从 0% 开始。",
       "comparisonAnchorUnavailable": "{name} 无法在组合首个追踪日估值，因此不可与组合比较。",
