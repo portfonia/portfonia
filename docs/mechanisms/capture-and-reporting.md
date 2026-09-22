@@ -1174,9 +1174,17 @@ entry per currency sorted alphabetically, joined with `" · "`. Omitted
 entirely (renders `null`) when `fx_rates_as_of` is empty (single-currency
 book already matching `base_currency`, no conversion happened) — mirrors
 `PriceAsOfBanner`'s existing hide-when-inapplicable convention rather than
-inventing an "N/A" state. Unconditional whenever any conversion happened —
-this is a transparency banner, not a staleness alert; the ops alert below is
-the separate, conditional mechanism for a genuine staleness breach.
+inventing an "N/A" state. The banner still renders whenever any conversion
+happened; mixed dates across currencies remain the accepted normal state,
+not an error. Issue #532/PR #547 adds a warning state on this same banner:
+`PortfolioSummary.stale_fx_pairs` is a required `string[]` from the backend
+48-hour classification, and the client does not recompute it. A displayed
+currency present in that list is labelled in text; fresh currencies stay
+unlabelled; a stale code absent from `fx_rates_as_of` creates no entry and
+does not by itself switch the banner. The warning uses one decorative icon
+plus copy that valuation still uses the latest available rate. Totals stay
+available. This is disclosure, not the separate FX ops alert below, and it
+does not change the performance chart.
 
 **Ops alerts gated on `APP_ENV == "production"` (2026-09-05 follow-up)**:
 `_send_fx_alert()` — the single choke point both mechanisms below route
