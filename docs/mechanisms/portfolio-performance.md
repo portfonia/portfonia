@@ -585,7 +585,8 @@ days and retries recently missed ones whose book provably hasn't moved; see
 "Capture durability (issue #373)"). A Saturday/Sunday portfolio snapshot
 is a real `complete` batch; auto-priced rows whose close or FX is dated
 before `snapshot_date` get `data_quality="approx_carried"` and flow through
-the existing `_is_approximate` / dashed `portfolioApprox` path. FX /
+the existing `_is_approximate` flag. The tracking chart no longer draws
+that flag as a dashed `portfolioApprox` stroke (issue #544). FX /
 benchmark / fund-NAV Beat entries also run every day; they date rows by the
 source bar, so a non-trading day is an idempotent no-op, not a re-dated
 "today" row. `recover_portfolio_snapshots` recovers weekend days on or after
@@ -909,3 +910,14 @@ Write-path carry for weekends is issue #487: every-day Beat capture plus
 through the day before deploy (unconditional since #497 removed the
 fingerprint gate it originally ran under). #486 remains the display path
 for any gap that backfill declines to fill.
+
+**Superseded for stroke style (issue #544, PR #545).** The per-gap
+`portfolioGap` columns, the `portfolioApprox` column, and the dashed
+strokes existed only to mix solid and dashed styles on one date range.
+The tracking chart now keeps one `portfolio` column (approximate points
+included) and one solid `<Line connectNulls>`. Calendar-row insertion
+for missing snapshot dates is unchanged. `is_approximate` and the
+approximate-data badge are unchanged. Y-axis tick labels use
+`formatTickPct` at a fixed two decimal places, with a rounded negative
+zero rendered as `0.00%`. The paragraphs above are the #486 record, not
+the current chart.
