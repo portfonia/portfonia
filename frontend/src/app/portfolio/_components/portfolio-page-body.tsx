@@ -150,7 +150,10 @@ export function PortfolioPageBody({
       </div>
 
       <PriceAsOfBanner priceAsOfDate={summary.price_as_of_date} />
-      <FxAsOfBanner fxRatesAsOf={summary.fx_rates_as_of} />
+      <FxAsOfBanner
+        fxRatesAsOf={summary.fx_rates_as_of}
+        staleFxPairs={summary.stale_fx_pairs}
+      />
 
       {loadError && (
         <p role="alert" className="text-sm text-destructive">
