@@ -1,9 +1,21 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { catalogs, type Locale } from "@/locales";
+import { ASSET_CLASS_COLORS } from "@/app/portfolio/performance/_components/allocation-data";
+import { getPortfolioPerformance, getPortfolioSummary } from "@/lib/api";
 import { LocaleProvider } from "./locale-provider";
 import { HomeSections } from "./home-sections";
+import {
+  HOME_ASSET_CLASS_SHARES,
+  HOME_GROUP_SHARES,
+  HOME_MARKET_SHARES,
+} from "./home-product-previews";
+
+vi.mock("@/lib/api", () => ({
+  getPortfolioSummary: vi.fn(),
+  getPortfolioPerformance: vi.fn(),
+}));
 
 const LOCALES: Locale[] = ["en", "zh-Hans", "zh-Hant"];
 
@@ -259,4 +271,253 @@ describe("HomeSections sample briefing", () => {
       }
     },
   );
+});
+
+function shareTotal(shares: Record<string, string>): number {
+  return Object.values(shares).reduce((sum, value) => sum + Number(value), 0);
+}
+
+function withLocaleStorage(initial?: string) {
+  const store = new Map<string, string>();
+  if (initial) store.set("portfonia:locale", initial);
+  Object.defineProperty(window, "localStorage", {
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+      removeItem: (key: string) => void store.delete(key),
+      clear: () => store.clear(),
+    },
+    configurable: true,
+  });
+}
+
+interface PassedSeries {
+  key: string;
+  label: string;
+  color: string;
+  isPortfolio: boolean;
+  connectNulls: boolean;
+}
+
+interface PassedPoint {
+  date: string;
+  portfolio: number | null;
+}
+
+describe("HomeSections product previews (issue #549)", () => {
+  beforeEach(() => {
+    vi.mocked(getPortfolioSummary).mockClear();
+    vi.mocked(getPortfolioPerformance).mockClear();
+    withLocaleStorage();
+  });
+
+  it("renders the Simplified Chinese hero copy unchanged", async () => {
+    withLocaleStorage("zh-Hans");
+    const hero = catalogs["zh-Hans"].home.hero;
+    render(
+      <LocaleProvider>
+        <HomeSections />
+      </LocaleProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(hero.titleLine1);
+    });
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(hero.titleAccent);
+    expect(screen.getByText(hero.tagline)).toBeInTheDocument();
+    expect(screen.getByText(hero.sub)).toBeInTheDocument();
+  });
+
+  it("keeps existing section headings in order and inserts previews after the sample report", () => {
+    render(
+      <LocaleProvider>
+        <HomeSections />
+      </LocaleProvider>,
+    );
+
+    const heading = (name: string) => screen.getByRole("heading", { level: 2, name });
+    const order = [
+      catalogs.en.home.how.heading,
+      catalogs.en.home.preview.heading,
+      catalogs.en.home.productPreviews.portfolioHeading,
+      catalogs.en.home.productPreviews.performanceHeading,
+      catalogs.en.home.productPreviews.ctaHeading,
+      catalogs.en.home.audience.heading,
+      catalogs.en.home.boundary.heading,
+      catalogs.en.home.faq.heading,
+    ];
+    const nodes = order.map((name) => heading(name));
+    for (let i = 0; i < nodes.length - 1; i += 1) {
+      expect(nodes[i].compareDocumentPosition(nodes[i + 1])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    }
+
+    const preview = document.getElementById("preview");
+    const inserted = document.getElementById("product-previews");
+    const audience = document.getElementById("audience");
+    const boundary = document.getElementById("boundary");
+    const faq = document.getElementById("faq");
+    expect(preview).not.toBeNull();
+    expect(inserted).not.toBeNull();
+    expect(audience).not.toBeNull();
+    expect(preview!.compareDocumentPosition(inserted!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(inserted!.compareDocumentPosition(audience!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(audience!.compareDocumentPosition(boundary!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(boundary!.compareDocumentPosition(faq!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(screen.getByText(catalogs.en.home.status)).toBeInTheDocument();
+    expect(faq!.compareDocumentPosition(screen.getByText(catalogs.en.home.status))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
+  it("renders exactly three portfolio donuts with percentage labels and no currency chart", () => {
+    render(
+      <LocaleProvider>
+        <HomeSections />
+      </LocaleProvider>,
+    );
+
+    const titles = [...document.querySelectorAll("[data-slot=card-title]")].map((node) => node.textContent);
+    expect(titles).toEqual([
+      catalogs.en.home.productPreviews.chartMarket,
+      catalogs.en.home.productPreviews.chartAssetClass,
+      catalogs.en.home.productPreviews.chartGroup,
+    ]);
+    expect(titles).not.toContain(catalogs.en.portfolio.chartByCurrency);
+    expect(shareTotal(HOME_MARKET_SHARES)).toBe(100);
+    expect(shareTotal(HOME_ASSET_CLASS_SHARES)).toBe(100);
+    expect(shareTotal(HOME_GROUP_SHARES)).toBe(100);
+    for (const shares of [HOME_MARKET_SHARES, HOME_ASSET_CLASS_SHARES, HOME_GROUP_SHARES]) {
+      for (const value of Object.values(shares)) {
+        expect(screen.getAllByText(`${Number(value)}%`).length).toBeGreaterThan(0);
+        expect(screen.queryByText(`(${Number(value).toFixed(1)}%)`)).not.toBeInTheDocument();
+      }
+    }
+  });
+
+  it("passes a year-to-date three-series chart, one monthly benchmark, and the static metric", () => {
+    render(
+      <LocaleProvider>
+        <HomeSections />
+      </LocaleProvider>,
+    );
+
+    const performance = screen.getByTestId("home-performance-preview");
+    const series = JSON.parse(performance.getAttribute("data-series") ?? "[]") as PassedSeries[];
+    const points = JSON.parse(performance.getAttribute("data-points") ?? "[]") as PassedPoint[];
+    expect(series).toEqual([
+      {
+        key: "portfolio",
+        label: catalogs.en.portfolio.performance.chartPortfolioLabel,
+        color: "var(--chart-1)",
+        isPortfolio: true,
+        connectNulls: true,
+      },
+      {
+        key: "sp500",
+        label: catalogs.en.portfolio.performance.benchmarkNames.sp500,
+        color: "var(--chart-2)",
+        isPortfolio: false,
+        connectNulls: false,
+      },
+      {
+        key: "csi300",
+        label: catalogs.en.portfolio.performance.benchmarkNames.csi300,
+        color: "var(--chart-csi300)",
+        isPortfolio: false,
+        connectNulls: false,
+      },
+    ]);
+    const dates = points.map((point) => point.date);
+    expect(dates[0]).toBe("2026-01-01");
+    expect(dates[dates.length - 1]?.startsWith("2026-")).toBe(true);
+    expect([...dates].sort()).toEqual(dates);
+    expect(points[points.length - 1]?.portfolio).toBeCloseTo(0.0842, 6);
+    expect(screen.getByText(catalogs.en.home.productPreviews.metricValue)).toBeInTheDocument();
+    expect(screen.getByText(catalogs.en.home.productPreviews.yearToDate)).toBeInTheDocument();
+    expect(screen.queryByText(/since inception/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/annualized/i)).not.toBeInTheDocument();
+
+    const allocation = screen.getByTestId("home-allocation-preview");
+    const assetClasses = (allocation.getAttribute("data-asset-classes") ?? "").split(",");
+    const assetClassNames = JSON.parse(
+      allocation.getAttribute("data-asset-class-names") ?? "{}",
+    ) as Record<string, string>;
+    const allocationDates = (allocation.getAttribute("data-dates") ?? "").split(",");
+    expect(assetClasses.length).toBeGreaterThan(0);
+    for (const assetClass of assetClasses) {
+      expect(ASSET_CLASS_COLORS[assetClass]).toBeTruthy();
+      expect(assetClassNames[assetClass]).toBe(
+        catalogs.en.portfolio.assetClasses[assetClass as keyof typeof catalogs.en.portfolio.assetClasses],
+      );
+    }
+    expect(allocationDates).toEqual(dates);
+
+    const monthly = screen.getByTestId("home-monthly-preview");
+    const monthlyRows = JSON.parse(monthly.getAttribute("data-rows") ?? "[]") as {
+      benchmark: number | null;
+    }[];
+    expect(monthly.getAttribute("data-benchmark-name")).toBe(
+      catalogs.en.portfolio.performance.benchmarkNames.sp500,
+    );
+    expect(monthly.getAttribute("data-benchmark-color")).toBe("var(--chart-2)");
+    expect(monthlyRows.length).toBeGreaterThan(0);
+    expect(monthlyRows.every((row) => "benchmark" in row)).toBe(true);
+    expect(monthly.getAttribute("data-rows")).not.toContain("csi300");
+  });
+
+  it("adds exactly one Get Started link after performance, aimed at /holdings", () => {
+    render(
+      <LocaleProvider>
+        <HomeSections />
+      </LocaleProvider>,
+    );
+
+    const links = screen.getAllByRole("link", { name: catalogs.en.home.hero.ctaPrimary });
+    expect(links).toHaveLength(2);
+    expect(links.map((link) => link.getAttribute("href"))).toEqual(["/holdings", "/holdings"]);
+    const performance = screen.getByRole("heading", {
+      level: 2,
+      name: catalogs.en.home.productPreviews.performanceHeading,
+    });
+    const audience = document.getElementById("audience");
+    expect(performance.compareDocumentPosition(links[1])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(links[1].compareDocumentPosition(audience!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(screen.queryByRole("link", { name: /sign up|waitlist|apply|invite/i })).not.toBeInTheDocument();
+  });
+
+  it("does not call portfolio or performance APIs while rendering", () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    render(
+      <LocaleProvider>
+        <HomeSections />
+      </LocaleProvider>,
+    );
+
+    expect(getPortfolioSummary).not.toHaveBeenCalled();
+    expect(getPortfolioPerformance).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it.each(LOCALES)("ships %s product-preview copy without dropping existing home strings", (locale) => {
+    const home = catalogs[locale].home;
+    const copy = home.productPreviews;
+    expect(copy.portfolioHeading.length).toBeGreaterThan(0);
+    expect(copy.portfolioBody.length).toBeGreaterThan(0);
+    expect(copy.performanceHeading.length).toBeGreaterThan(0);
+    expect(copy.performanceBody.length).toBeGreaterThan(0);
+    expect(copy.metricLabel.length).toBeGreaterThan(0);
+    expect(copy.metricValue).toBe("+8.42%");
+    expect(copy.yearToDate.length).toBeGreaterThan(0);
+    expect(copy.chartMarket.length).toBeGreaterThan(0);
+    expect(copy.chartAssetClass.length).toBeGreaterThan(0);
+    expect(copy.chartGroup.length).toBeGreaterThan(0);
+    expect(copy.ctaHeading.length).toBeGreaterThan(0);
+    expect(copy.ctaBody.length).toBeGreaterThan(0);
+    expect(Object.values(copy.markets)).toHaveLength(4);
+    expect(Object.values(copy.assetClasses)).toHaveLength(5);
+    expect(Object.values(copy.groups)).toHaveLength(3);
+    expect(home.hero.ctaPrimary.length).toBeGreaterThan(0);
+    expect(home.hero.titleAccent.length).toBeGreaterThan(0);
+  });
 });

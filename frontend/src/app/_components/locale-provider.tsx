@@ -105,6 +105,7 @@ export function useHomeMessages(): Messages["home"] {
     faq: t.raw("faq"),
     status: t.raw("status"),
     footer: t.raw("footer"),
+    productPreviews: t.raw("productPreviews"),
   };
 }
 

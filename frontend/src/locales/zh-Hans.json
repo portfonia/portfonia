@@ -959,6 +959,38 @@
     "footer": {
       "stack1": "Next.js · FastAPI · Celery · PostgreSQL",
       "stack2": "通过 OpenRouter 接入可插拔的 LLM 提供方"
+    },
+    "productPreviews": {
+      "portfolioHeading": "持仓概览",
+      "portfolioBody": "示例数字，不是你的持仓。同一份示例组合，按市场、资产类别和分组呈现。",
+      "performanceHeading": "组合表现",
+      "performanceBody": "今年至今的静态示例。组合曲线对照 S&P 500 与沪深300，其后是资产类别占比历史，以及只含一个基准的月度表现。",
+      "metricLabel": "组合表现",
+      "metricValue": "+8.42%",
+      "yearToDate": "今年至今",
+      "chartMarket": "按市场",
+      "chartAssetClass": "按资产类别",
+      "chartGroup": "按分组",
+      "ctaHeading": "你的持仓，值得被看得更完整",
+      "ctaBody": "从持仓结构到今年至今的表现，变化集中在一处。",
+      "markets": {
+        "us": "美国",
+        "hk": "香港",
+        "cn": "中国",
+        "other": "其他"
+      },
+      "assetClasses": {
+        "stock": "股票",
+        "usBroadEtf": "美国宽基 ETF",
+        "usTechEtf": "美国科技 ETF",
+        "bondFund": "债券基金",
+        "other": "其他"
+      },
+      "groups": {
+        "longTerm": "长期持仓",
+        "retirement": "退休账户",
+        "opportunity": "机会组合"
+      }
     }
   },
   "welcome": {
