@@ -9,6 +9,7 @@ function summary(overrides: Partial<PortfolioSummary>): PortfolioSummary {
   return {
     base_currency: "USD",
     fx_rates_as_of: {},
+    stale_fx_pairs: [],
     total_base: "1000.00",
     by_market: {},
     by_currency: {},

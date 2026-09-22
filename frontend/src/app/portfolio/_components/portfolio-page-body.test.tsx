@@ -52,6 +52,7 @@ function summary(overrides: Partial<PortfolioSummary>): PortfolioSummary {
   return {
     base_currency: "USD",
     fx_rates_as_of: {},
+    stale_fx_pairs: [],
     total_base: "3000.00",
     by_market: { US: "3000.00" },
     by_currency: { USD: "3000.00" },
@@ -117,6 +118,72 @@ describe("PortfolioPageBody", () => {
     renderBody(summary({ fx_rates_as_of: { CNY: "2026-09-04", HKD: "2026-09-03" } }));
     expect(screen.getByText(/CNY as of 2026-09-04/)).toBeInTheDocument();
     expect(screen.getByText(/HKD as of 2026-09-03/)).toBeInTheDocument();
+  });
+
+  it("shows the initial summary's stale FX label without blocking totals (issue #532)", () => {
+    renderBody(
+      summary({
+        fx_rates_as_of: { CNY: "2026-09-20", HKD: "2026-09-20" },
+        stale_fx_pairs: ["CNY"],
+      }),
+    );
+    expect(screen.getByText(/CNY as of 2026-09-20 \(more than 48 hours old\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Valuation still uses the latest available rates/)).toBeInTheDocument();
+    expect(totalAssetsValue()).toHaveTextContent("3,000.00 USD");
+  });
+
+  it("replaces stale FX disclosure with the successful currency refetch (issue #532)", async () => {
+    const user = userEvent.setup();
+    getPortfolioSummary.mockResolvedValue(
+      summary({
+        base_currency: "CNY",
+        total_base: "21000.00",
+        by_market: { US: "21000.00" },
+        fx_rates_as_of: { HKD: "2026-09-21" },
+        stale_fx_pairs: [],
+      }),
+    );
+    renderBody(
+      summary({
+        fx_rates_as_of: { CNY: "2026-09-20" },
+        stale_fx_pairs: ["CNY"],
+      }),
+    );
+    expect(screen.getByText(/CNY as of 2026-09-20 \(more than 48 hours old\)/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /base currency/i }));
+    await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument());
+    await user.click(screen.getByRole("menuitem", { name: "CNY" }));
+
+    await waitFor(() => {
+      expect(totalAssetsValue()).toHaveTextContent("21,000.00 CNY");
+    });
+    expect(screen.getByText(/HKD as of 2026-09-21/)).toBeInTheDocument();
+    expect(screen.queryByText(/more than 48 hours old/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/CNY as of 2026-09-20/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the previous stale FX banner when the currency refetch fails (issue #532)", async () => {
+    const user = userEvent.setup();
+    getPortfolioSummary.mockRejectedValue(new Error("boom"));
+    renderBody(
+      summary({
+        fx_rates_as_of: { HKD: "2026-09-20" },
+        stale_fx_pairs: ["HKD"],
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: /base currency/i }));
+    await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument());
+    await user.click(screen.getByRole("menuitem", { name: "CNY" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Couldn't refresh for the new currency. Showing the last loaded values."),
+      ).toBeInTheDocument();
+    });
+    expect(screen.getByText(/HKD as of 2026-09-20 \(more than 48 hours old\)/)).toBeInTheDocument();
+    expect(totalAssetsValue()).toHaveTextContent("3,000.00 USD");
   });
 
   it("splits capture-unsupported holdings into the no-live-price section, not the main table", () => {

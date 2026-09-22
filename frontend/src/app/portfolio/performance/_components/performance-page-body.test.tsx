@@ -88,6 +88,7 @@ function summary(holdings: HoldingValueOut[]): PortfolioSummary {
   return {
     base_currency: "USD",
     fx_rates_as_of: {},
+    stale_fx_pairs: [],
     total_base: "0.00",
     by_market: {},
     by_currency: {},

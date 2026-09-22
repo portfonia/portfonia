@@ -353,6 +353,10 @@ export interface PortfolioSummary {
   // single-currency and already matches base_currency (no conversion
   // happened).
   fx_rates_as_of: Record<string, string>;
+  // Currency codes whose resolved FX row was fetched more than 48 hours
+  // ago (issue #519). Non-null. The rate is still used for valuation;
+  // this list is disclosure only and is not recomputed on the client.
+  stale_fx_pairs: string[];
   total_base: string;
   by_market: Record<string, string>;
   by_currency: Record<string, string>;
