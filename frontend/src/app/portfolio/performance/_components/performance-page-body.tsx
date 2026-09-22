@@ -53,12 +53,9 @@ import { MonthlyPerformanceChart } from "./monthly-performance-chart";
 import { MultiSelectMenu } from "./multi-select-menu";
 import { PerformanceChart, type ChartSeriesSpec } from "./performance-chart";
 import {
-  PORTFOLIO_APPROX_KEY,
   PORTFOLIO_KEY,
   buildChartData,
   hasApproximateSegment,
-  isPortfolioGapKey,
-  portfolioGapSeriesKeys,
   seriesHasSingleValue,
 } from "./performance-data";
 import { formatFullDate, formatSignedPct, toRatio } from "./performance-format";
@@ -242,36 +239,14 @@ export function PerformancePageBody({
     const names = t.raw("performance.benchmarkNames");
     const series: ChartSeriesSpec[] = [];
     if (response && !response.portfolio.empty) {
-      for (const key of portfolioGapSeriesKeys(chartData.rows)) {
-        series.push({
-          key,
-          label: t("performance.chartPortfolioLabel"),
-          color: PORTFOLIO_COLOR,
-          dashed: true,
-          isPortfolio: true,
-          connectNulls: true,
-        });
-      }
       series.push({
         key: PORTFOLIO_KEY,
         label: t("performance.chartPortfolioLabel"),
         color: PORTFOLIO_COLOR,
         isPortfolio: true,
+        connectNulls: true,
         singletonDot: seriesHasSingleValue(chartData.rows, PORTFOLIO_KEY),
       });
-      const hasSolidPoint = chartData.rows.some(
-        (row) => typeof row.portfolio === "number" && Number.isFinite(row.portfolio),
-      );
-      if (!hasSolidPoint && seriesHasSingleValue(chartData.rows, PORTFOLIO_APPROX_KEY)) {
-        series.push({
-          key: PORTFOLIO_APPROX_KEY,
-          label: t("performance.chartPortfolioLabel"),
-          color: PORTFOLIO_COLOR,
-          dashed: true,
-          isPortfolio: true,
-          singletonDot: true,
-        });
-      }
     }
     for (const benchmark of chartData.drawnBenchmarks) {
       const ownBaseline =
@@ -292,12 +267,7 @@ export function PerformancePageBody({
     return series;
   }, [response, chartData, t, locale]);
 
-  // Legend mirrors the drawn lines, collapsing the portfolio's solid+dashed
-  // pair back into one entry (the dashed hint line explains the second
-  // stroke style).
-  const legendSeries = chartSeries.filter(
-    (spec) => spec.key !== PORTFOLIO_APPROX_KEY && !isPortfolioGapKey(spec.key),
-  );
+  const legendSeries = chartSeries;
 
   const benchmarkNames = t.raw("performance.benchmarkNames");
   const assetClassNames = t.raw("assetClasses") as Record<string, string>;
@@ -598,19 +568,6 @@ export function PerformancePageBody({
                     {spec.label}
                   </li>
                 ))}
-                {hasApprox && (
-                  <li className="flex items-center gap-2 text-muted-foreground">
-                    <span
-                      aria-hidden="true"
-                      className="h-0.5 w-4"
-                      style={{
-                        backgroundImage:
-                          "repeating-linear-gradient(90deg, var(--chart-1) 0 4px, transparent 4px 7px)",
-                      }}
-                    />
-                    {t("performance.approxDashLegend")}
-                  </li>
-                )}
               </ul>
               {!portfolioEmpty && sharedAnchor ? (
                 <p className="text-xs text-muted-foreground">

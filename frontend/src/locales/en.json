@@ -525,7 +525,6 @@
         "approx_fx": "Some points used fallback exchange rates."
       },
       "chartPortfolioLabel": "Portfolio",
-      "approxDashLegend": "dashed = approximate",
       "benchmarkNoUsableHistory": "{name} has no usable index history in this range.",
       "comparisonBaselineOnly": "{name}: first tracked snapshot; change starts at 0%.",
       "comparisonAnchorUnavailable": "{name} cannot be valued on the portfolio's first tracked day, so it is not comparable.",
