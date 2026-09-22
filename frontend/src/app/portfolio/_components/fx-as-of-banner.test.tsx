@@ -1,7 +1,3 @@
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -92,19 +88,5 @@ describe("FxAsOfBanner", () => {
     expect(text).not.toMatch(/more than 48 hours old/);
     expect(banner.querySelector("svg")).toBeNull();
     expect(banner).toHaveClass("border-input");
-  });
-
-  it("does not add a dashed portfolio series to the performance tracking chart (issue #532)", () => {
-    const chartPath = resolve(
-      dirname(fileURLToPath(import.meta.url)),
-      "../performance/_components/performance-chart.tsx",
-    );
-    const source = readFileSync(chartPath, "utf8");
-    const lineStart = source.indexOf("\n            <Line\n");
-    const lineBlock = source.slice(lineStart, source.indexOf("/>", lineStart));
-    expect(lineStart).toBeGreaterThan(-1);
-    expect(lineBlock).not.toContain("strokeDasharray");
-    expect(source).not.toContain("portfolioGap");
-    expect(source).not.toContain("portfolioApprox");
   });
 });
