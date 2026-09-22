@@ -709,7 +709,10 @@ whose resolved rate is more than 48h old into `PortfolioSnapshot.
 stale_fx_pairs` (exposed on `/portfolio`'s `PortfolioSummaryResponse` as
 `stale_fx_pairs`) — the stale rate is still used for valuation (decided:
 use-anyway-but-flag, mirroring `approx_carried`'s own philosophy, not
-exclude-from-totals), this is a data-quality signal only.
+exclude-from-totals), this is a data-quality signal only. Issue #532/PR #547
+shows that list on the existing `/portfolio` `FxAsOfBanner` for currencies
+that are also in `fx_rates_as_of`. The stale rate still values the book.
+The signal is not drawn on the performance chart.
 
 **`backfill_weekend_gaps.py` retired.** The daily Beat schedule already
 had no `day_of_week` restriction; the script existed only to backfill the
