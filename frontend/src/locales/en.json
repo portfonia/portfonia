@@ -959,6 +959,38 @@
     "footer": {
       "stack1": "Next.js · FastAPI · Celery · PostgreSQL",
       "stack2": "Pluggable LLM providers via OpenRouter"
+    },
+    "productPreviews": {
+      "portfolioHeading": "Portfolio overview",
+      "portfolioBody": "Sample figures, not your holdings. One illustrative portfolio, grouped by market, asset class, and portfolio group.",
+      "performanceHeading": "Portfolio performance",
+      "performanceBody": "A static year-to-date illustration. The portfolio line sits beside S&P 500 and CSI 300, followed by allocation history and monthly performance against one benchmark.",
+      "metricLabel": "Portfolio performance",
+      "metricValue": "+8.42%",
+      "yearToDate": "Year to date",
+      "chartMarket": "Market",
+      "chartAssetClass": "Asset class",
+      "chartGroup": "Portfolio group",
+      "ctaHeading": "Your portfolio deserves a more complete view",
+      "ctaBody": "From portfolio structure to year-to-date performance, see change in one place.",
+      "markets": {
+        "us": "US",
+        "hk": "Hong Kong",
+        "cn": "China",
+        "other": "Other"
+      },
+      "assetClasses": {
+        "stock": "Stock",
+        "usBroadEtf": "US broad-market ETF",
+        "usTechEtf": "US technology ETF",
+        "bondFund": "Bond fund",
+        "other": "Other"
+      },
+      "groups": {
+        "longTerm": "Long-term holdings",
+        "retirement": "Retirement account",
+        "opportunity": "Opportunity portfolio"
+      }
     }
   },
   "welcome": {

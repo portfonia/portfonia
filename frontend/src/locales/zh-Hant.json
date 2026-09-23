@@ -959,6 +959,38 @@
     "footer": {
       "stack1": "Next.js · FastAPI · Celery · PostgreSQL",
       "stack2": "透過 OpenRouter 串接可替換的 LLM 服務"
+    },
+    "productPreviews": {
+      "portfolioHeading": "持倉概覽",
+      "portfolioBody": "示例數字，不是你的持倉。同一份示例組合，按市場、資產類別和分組呈現。",
+      "performanceHeading": "組合表現",
+      "performanceBody": "今年至今的靜態示例。組合曲線對照 S&P 500 與滬深300，其後是資產類別佔比歷史，以及只含一個基準的月度表現。",
+      "metricLabel": "組合表現",
+      "metricValue": "+8.42%",
+      "yearToDate": "今年至今",
+      "chartMarket": "按市場",
+      "chartAssetClass": "按資產類別",
+      "chartGroup": "按分組",
+      "ctaHeading": "你的持倉，值得被看得更完整",
+      "ctaBody": "從持倉結構到今年至今的表現，變化集中在一處。",
+      "markets": {
+        "us": "美國",
+        "hk": "香港",
+        "cn": "中國",
+        "other": "其他"
+      },
+      "assetClasses": {
+        "stock": "股票",
+        "usBroadEtf": "美國寬基 ETF",
+        "usTechEtf": "美國科技 ETF",
+        "bondFund": "債券基金",
+        "other": "其他"
+      },
+      "groups": {
+        "longTerm": "長期持倉",
+        "retirement": "退休帳戶",
+        "opportunity": "機會組合"
+      }
     }
   },
   "welcome": {

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 
+import { HomeProductPreviews } from "./home-product-previews";
 import { useHomeMessages, useLocale } from "./locale-provider";
 
 const CARD_ICONS = [
@@ -301,6 +302,8 @@ export function HomeSections() {
           </div>
         </div>
       </section>
+
+      <HomeProductPreviews />
 
       <section id="audience" className="px-6 py-16 sm:py-20">
         <div className="mx-auto max-w-4xl">
