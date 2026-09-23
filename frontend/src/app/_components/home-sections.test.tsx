@@ -273,6 +273,19 @@ describe("HomeSections sample briefing", () => {
   );
 });
 
+function cssColor(value: string): string {
+  const probe = document.createElement("span");
+  probe.style.backgroundColor = value;
+  return probe.style.backgroundColor;
+}
+
+function legendPairs(root: HTMLElement): { label: string; color: string }[] {
+  return [...root.querySelectorAll("ul li")].map((item) => ({
+    label: item.textContent?.trim() ?? "",
+    color: (item.querySelector("span") as HTMLElement | null)?.style.backgroundColor ?? "",
+  }));
+}
+
 function shareTotal(shares: Record<string, string>): number {
   return Object.values(shares).reduce((sum, value) => sum + Number(value), 0);
 }
@@ -432,6 +445,11 @@ describe("HomeSections product previews (issue #549)", () => {
     expect(dates[dates.length - 1]?.startsWith("2026-")).toBe(true);
     expect([...dates].sort()).toEqual(dates);
     expect(points[points.length - 1]?.portfolio).toBeCloseTo(0.0842, 6);
+    expect(legendPairs(performance)).toEqual([
+      { label: catalogs.en.portfolio.performance.chartPortfolioLabel, color: "var(--chart-1)" },
+      { label: catalogs.en.portfolio.performance.benchmarkNames.sp500, color: "var(--chart-2)" },
+      { label: catalogs.en.portfolio.performance.benchmarkNames.csi300, color: "var(--chart-csi300)" },
+    ]);
     expect(screen.getByText(catalogs.en.home.productPreviews.metricValue)).toBeInTheDocument();
     expect(screen.getByText(catalogs.en.home.productPreviews.yearToDate)).toBeInTheDocument();
     expect(screen.queryByText(/since inception/i)).not.toBeInTheDocument();
@@ -451,6 +469,12 @@ describe("HomeSections product previews (issue #549)", () => {
       );
     }
     expect(allocationDates).toEqual(dates);
+    expect(legendPairs(allocation)).toEqual(
+      assetClasses.map((assetClass) => ({
+        label: catalogs.en.portfolio.assetClasses[assetClass as keyof typeof catalogs.en.portfolio.assetClasses],
+        color: cssColor(ASSET_CLASS_COLORS[assetClass]),
+      })),
+    );
 
     const monthly = screen.getByTestId("home-monthly-preview");
     const monthlyRows = JSON.parse(monthly.getAttribute("data-rows") ?? "[]") as {
@@ -463,6 +487,10 @@ describe("HomeSections product previews (issue #549)", () => {
     expect(monthlyRows.length).toBeGreaterThan(0);
     expect(monthlyRows.every((row) => "benchmark" in row)).toBe(true);
     expect(monthly.getAttribute("data-rows")).not.toContain("csi300");
+    expect(legendPairs(monthly)).toEqual([
+      { label: catalogs.en.portfolio.performance.monthlyPortfolioLabel, color: "var(--chart-1)" },
+      { label: catalogs.en.portfolio.performance.benchmarkNames.sp500, color: "var(--chart-2)" },
+    ]);
   });
 
   it("adds exactly one Get Started link after performance, aimed at /holdings", () => {

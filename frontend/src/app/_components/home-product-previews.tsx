@@ -5,6 +5,8 @@ import { useTranslations } from "next-intl";
 
 import { BreakdownChart } from "@/app/portfolio/_components/breakdown-chart";
 import {
+  ASSET_CLASS_COLORS,
+  DEFAULT_ASSET_CLASS_COLOR,
   type AllocationPointMeta,
   type AllocationRow,
 } from "@/app/portfolio/performance/_components/allocation-data";
@@ -205,6 +207,18 @@ export function HomeProductPreviews() {
                 pointMeta={{}}
                 anchorDate={null}
               />
+              <ul className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                {series.map((spec) => (
+                  <li key={spec.key} className="flex items-center gap-2">
+                    <span
+                      aria-hidden="true"
+                      className="h-0.5 w-4 rounded-full"
+                      style={{ backgroundColor: spec.color }}
+                    />
+                    {spec.label}
+                  </li>
+                ))}
+              </ul>
             </div>
             <div className="rounded-xl border border-white/10 bg-card p-6">
               <p className="text-sm text-foreground/60">{copy.metricLabel}</p>
@@ -229,6 +243,20 @@ export function HomeProductPreviews() {
                 assetClassNames={assetClassNames}
                 pointMeta={HOME_ALLOCATION_POINT_META}
               />
+              <ul className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                {HOME_ALLOCATION_CLASSES.map((assetClass) => (
+                  <li key={assetClass} className="flex items-center gap-2">
+                    <span
+                      aria-hidden="true"
+                      className="size-2.5 shrink-0 rounded-full"
+                      style={{
+                        backgroundColor: ASSET_CLASS_COLORS[assetClass] ?? DEFAULT_ASSET_CLASS_COLOR,
+                      }}
+                    />
+                    {assetClassNames[assetClass]}
+                  </li>
+                ))}
+              </ul>
             </div>
             <div
               className="min-w-0 rounded-xl border border-white/10 bg-card p-4"
@@ -245,6 +273,24 @@ export function HomeProductPreviews() {
                 benchmarkName={tPerf("benchmarkNames.sp500")}
                 benchmarkColor={SP500_COLOR}
               />
+              <ul className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                <li className="flex items-center gap-2">
+                  <span
+                    aria-hidden="true"
+                    className="size-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: PORTFOLIO_COLOR }}
+                  />
+                  {tPerf("monthlyPortfolioLabel")}
+                </li>
+                <li className="flex items-center gap-2">
+                  <span
+                    aria-hidden="true"
+                    className="size-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: SP500_COLOR }}
+                  />
+                  {tPerf("benchmarkNames.sp500")}
+                </li>
+              </ul>
             </div>
           </div>
         </div>
