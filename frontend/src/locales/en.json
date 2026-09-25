@@ -432,6 +432,58 @@
     "emailVerificationSendFailed": "Could not send the verification email. Please try again."
   },
   "portfolio": {
+    "riskPanel": {
+      "infoSymbol": "i",
+      "betaZero": "β=0",
+      "betaThree": "β=3",
+      "title": "Historical volatility & risk",
+      "subtitle": "Real holdings snapshots · last 60 trading days · annualized",
+      "loading": "Loading historical risk",
+      "loadError": "Could not load historical risk. Try refreshing the page.",
+      "beta": "Beta",
+      "betaSubtitle": "Fixed against S&P 500",
+      "betaExplanation": "Historical sensitivity of the portfolio to the S&P 500 over the observation window. It does not predict future results.",
+      "risk": "Risk",
+      "riskSubtitle": "Personalized risk observation",
+      "riskExplanation": "Combines historical volatility with questionnaire risk tolerance, horizon and objective, alongside holdings structure.",
+      "deviation": "Deviation",
+      "deviationSubtitle": "Questionnaire preferences ↔ holdings",
+      "deviationExplanation": "Compares questionnaire risk preference, style and markets with the asset and market structure of valued holdings.",
+      "riskLabels": {
+        "within": "Within tolerance",
+        "caution": "Caution",
+        "exceeds": "Exceeds tolerance"
+      },
+      "tiers": {
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High"
+      },
+      "states": {
+        "insufficient_sample": "Insufficient sample",
+        "data_quality": "Insufficient data quality for personalized Risk",
+        "no_questionnaire": "No submitted questionnaire; personalized assessment unavailable",
+        "no_valued_holdings": "No valued holdings; deviation unavailable"
+      },
+      "objectiveTier": "Historical volatility tier: {tier}",
+      "aggressiveDirection": "Aggressive direction +{count} tier(s)",
+      "conservativeDirection": "Conservative direction {count} tier(s)",
+      "match": "No verifiable deviation",
+      "conservative": "Conservative",
+      "matchShort": "Match",
+      "aggressive": "Aggressive",
+      "deviationSubline": "Direction and tier gap",
+      "volatilityTitle": "Volatility · annualized historical volatility",
+      "benchmarkSelector": "Volatility comparison benchmark",
+      "portfolio": "Portfolio",
+      "chartDescription": "Rolling annualized volatility of the portfolio and {benchmark}",
+      "sixtyDaysAgo": "60 trading days ago",
+      "now": "Now",
+      "insufficientSample": "Insufficient sample",
+      "sampleDisclosure": "Portfolio {portfolioStart}–{portfolioEnd}: {portfolioCount} valid returns · {benchmark} {benchmarkStart}–{benchmarkEnd}: {benchmarkCount} valid returns · ×√252 · {currency} · approximate TWR",
+      "manualShare": "Manual valuation share: {share}",
+      "footnote": "Historical volatility measures fluctuation in daily returns. The Performance page’s Growth of tracked value vs. benchmarks shows cumulative growth; these are different metrics and cannot substitute for each other. Historical statistics do not predict future results."
+    },
     "pageTitle": "Portfolio Overview",
     "currencyLabel": "Base currency",
     "asOfBanner": "Prices as of {date} — each market's own latest close, not one global timestamp. End-of-day data, not real-time.",

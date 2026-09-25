@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -27,8 +28,14 @@ from app.schemas.portfolio import (
     PerformanceMetaOut,
     PerformancePointOut,
     PortfolioPerformanceResponse,
+    PortfolioRiskResponse,
     PortfolioSeriesOut,
     PortfolioSummaryResponse,
+    RiskBenchmarkSeriesOut,
+    RiskBetaOut,
+    RiskDeviationOut,
+    RiskLabelOut,
+    RiskVolSeriesOut,
     SendOverviewResponse,
 )
 from app.services.portfolio_calculator import compute_portfolio
@@ -39,6 +46,7 @@ from app.services.portfolio_export import (
     render_portfolio_export_xlsx,
 )
 from app.services.portfolio_performance import compute_portfolio_performance
+from app.services.portfolio_risk import compute_portfolio_risk
 from app.services.user_scope import report_currency_for
 from app.tasks.notification_tasks import send_portfolio_overview_email_task
 
@@ -71,6 +79,45 @@ BaseCurrency = Literal[
 
 RangeKey = Literal["1M", "6M", "YTD", "1Y", "5Y", "ALL"]
 BenchmarkCode = Literal["sp500", "dow30", "nasdaq", "csi300"]
+
+
+def _risk_vol_out(series: object) -> RiskVolSeriesOut:
+    result = RiskVolSeriesOut.model_validate(series, from_attributes=True)
+    precision = Decimal("0.0001")
+    if result.current is not None:
+        result.current = result.current.quantize(precision)
+    for point in result.points:
+        point.vol = point.vol.quantize(precision)
+    return result
+
+
+@router.get("/risk", response_model=PortfolioRiskResponse)
+def get_portfolio_risk(
+    benchmark: Annotated[BenchmarkCode, Query()] = "sp500",
+    base_currency: Annotated[BaseCurrency | None, Query()] = None,
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+) -> PortfolioRiskResponse:
+    currency = base_currency or report_currency_for(session, principal.user_id, "USD")
+    result = compute_portfolio_risk(session, principal.user_id, benchmark, currency)
+    return PortfolioRiskResponse(
+        base_currency=result.base_currency,
+        portfolio_vol=_risk_vol_out(result.portfolio_vol),
+        benchmark_vol=RiskBenchmarkSeriesOut(
+            **_risk_vol_out(result.benchmark_vol).model_dump(),
+            code=result.benchmark_code,
+        ),
+        beta=RiskBetaOut(
+            status=result.beta.status,
+            value=result.beta.value.quantize(Decimal("0.0001"))
+            if result.beta.value is not None
+            else None,
+            sample_count=result.beta.sample_count,
+        ),
+        risk=RiskLabelOut.model_validate(result.risk, from_attributes=True),
+        deviation=RiskDeviationOut.model_validate(result.deviation, from_attributes=True),
+        manual_valuation_share=result.manual_valuation_share,
+    )
 
 
 def _export_locale(session: Session, user_id: UUID) -> str:

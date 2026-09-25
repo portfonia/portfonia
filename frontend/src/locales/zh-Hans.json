@@ -432,6 +432,58 @@
     "emailVerificationSendFailed": "验证邮件发送失败，请重试。"
   },
   "portfolio": {
+    "riskPanel": {
+      "infoSymbol": "i",
+      "betaZero": "β=0",
+      "betaThree": "β=3",
+      "title": "历史波动与风险",
+      "subtitle": "真实持仓快照 · 最近 60 个交易日 · 年化",
+      "loading": "正在加载历史风险",
+      "loadError": "无法加载历史风险，请刷新页面重试。",
+      "beta": "Beta",
+      "betaSubtitle": "固定相对 S&P 500",
+      "betaExplanation": "组合在观察期内相对 S&P 500 的历史敏感度，不预测未来结果。",
+      "risk": "Risk",
+      "riskSubtitle": "个性化风险观察",
+      "riskExplanation": "综合历史波动、问卷中的风险承受偏好、期限与目标，以及持仓结构。",
+      "deviation": "偏离度",
+      "deviationSubtitle": "问卷偏好 ↔ 实际持仓",
+      "deviationExplanation": "比较问卷中的风险偏好、风格与市场偏好，以及已估值持仓的资产和市场结构。",
+      "riskLabels": {
+        "within": "在承受范围内",
+        "caution": "需留意",
+        "exceeds": "超出承受范围"
+      },
+      "tiers": {
+        "low": "低",
+        "medium": "中",
+        "high": "高"
+      },
+      "states": {
+        "insufficient_sample": "样本不足",
+        "data_quality": "数据质量不足，无法评估个性化 Risk",
+        "no_questionnaire": "尚无已提交问卷，无法评估个性化指标",
+        "no_valued_holdings": "无可估值持仓，无法评估偏离度"
+      },
+      "objectiveTier": "历史波动档位：{tier}",
+      "aggressiveDirection": "进取方向 +{count} 档",
+      "conservativeDirection": "保守方向 {count} 档",
+      "match": "未见可证实的偏离",
+      "conservative": "保守",
+      "matchShort": "匹配",
+      "aggressive": "进取",
+      "deviationSubline": "方向与档位差",
+      "volatilityTitle": "波动率 · 年化历史波动",
+      "benchmarkSelector": "波动率对照基准",
+      "portfolio": "组合",
+      "chartDescription": "组合与{benchmark}的滚动年化波动曲线",
+      "sixtyDaysAgo": "60 个交易日前",
+      "now": "当前",
+      "insufficientSample": "样本不足",
+      "sampleDisclosure": "组合 {portfolioStart}–{portfolioEnd}：{portfolioCount} 个有效收益 · {benchmark} {benchmarkStart}–{benchmarkEnd}：{benchmarkCount} 个有效收益 · ×√252 · {currency} · 近似 TWR",
+      "manualShare": "手动估值占比：{share}",
+      "footnote": "历史波动衡量日收益的起伏；Performance 页的 Growth of tracked value vs. benchmarks 展示累计增长。两者是不同指标，不能互相替代。历史统计不预测未来结果。"
+    },
     "pageTitle": "持仓总览",
     "currencyLabel": "基准货币",
     "asOfBanner": "价格截至 {date}——各市场按自身最新收盘计算，并非同一全局时间点。为收盘数据，非实时。",

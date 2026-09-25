@@ -93,6 +93,14 @@ beforeEach(() => {
 });
 
 describe("PortfolioPageBody", () => {
+  it("places historical risk between Unrealized P&L and breakdown cards", () => {
+    renderBody(summary({}));
+    const labels = ["Unrealized P&L", "Historical volatility & risk", "By market"];
+    const positions = labels.map((label) => document.body.textContent?.indexOf(label) ?? -1);
+    expect(positions[0]).toBeGreaterThanOrEqual(0);
+    expect(positions[1]).toBeGreaterThan(positions[0]);
+    expect(positions[2]).toBeGreaterThan(positions[1]);
+  });
   it("shows a load error when there is no initial summary", () => {
     renderBody(null, true);
     expect(screen.getByText("Couldn't load your portfolio. Try refreshing the page.")).toBeInTheDocument();

@@ -4,8 +4,54 @@ import datetime as dt
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel
+
+
+class RiskVolPointOut(BaseModel):
+    date: date
+    vol: Decimal
+
+
+class RiskVolSeriesOut(BaseModel):
+    status: Literal["ok", "insufficient_sample"]
+    current: Decimal | None
+    tier: Literal["low", "medium", "high"] | None
+    window_start: date | None
+    window_end: date | None
+    sample_count: int
+    points: list[RiskVolPointOut]
+
+
+class RiskBenchmarkSeriesOut(RiskVolSeriesOut):
+    code: Literal["sp500", "dow30", "nasdaq", "csi300"]
+
+
+class RiskBetaOut(BaseModel):
+    status: Literal["ok", "insufficient_sample"]
+    value: Decimal | None
+    sample_count: int
+
+
+class RiskLabelOut(BaseModel):
+    status: Literal["ok", "no_questionnaire", "insufficient_sample", "data_quality"]
+    label: Literal["within", "caution", "exceeds"] | None
+
+
+class RiskDeviationOut(BaseModel):
+    status: Literal["ok", "no_questionnaire", "no_valued_holdings"]
+    delta: int | None
+
+
+class PortfolioRiskResponse(BaseModel):
+    base_currency: str
+    portfolio_vol: RiskVolSeriesOut
+    benchmark_vol: RiskBenchmarkSeriesOut
+    beta: RiskBetaOut
+    risk: RiskLabelOut
+    deviation: RiskDeviationOut
+    manual_valuation_share: Decimal | None
 
 
 class HoldingValueOut(BaseModel):

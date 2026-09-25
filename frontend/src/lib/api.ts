@@ -565,6 +565,36 @@ export async function updateReportCurrency(reportCurrency: string): Promise<void
 export type PerformanceRange = "1M" | "6M" | "YTD" | "1Y" | "5Y" | "ALL";
 export type BenchmarkCode = "sp500" | "dow30" | "nasdaq" | "csi300";
 
+export interface RiskVolSeries {
+  status: "ok" | "insufficient_sample";
+  current: string | null;
+  tier: "low" | "medium" | "high" | null;
+  window_start: string | null;
+  window_end: string | null;
+  sample_count: number;
+  points: { date: string; vol: string }[];
+}
+
+export interface PortfolioRiskResponse {
+  base_currency: string;
+  portfolio_vol: RiskVolSeries;
+  benchmark_vol: RiskVolSeries & { code: BenchmarkCode };
+  beta: { status: "ok" | "insufficient_sample"; value: string | null; sample_count: number };
+  risk: { status: "ok" | "no_questionnaire" | "insufficient_sample" | "data_quality"; label: "within" | "caution" | "exceeds" | null };
+  deviation: { status: "ok" | "no_questionnaire" | "no_valued_holdings"; delta: number | null };
+  manual_valuation_share: string | null;
+}
+
+export async function getPortfolioRisk(
+  benchmark: BenchmarkCode,
+  baseCurrency: string,
+): Promise<PortfolioRiskResponse> {
+  const params = new URLSearchParams({ benchmark, base_currency: baseCurrency });
+  const res = await fetch(`/api/portfolio/risk?${params.toString()}`, { cache: "no-store" });
+  if (!res.ok) await throwOnHttpError(res);
+  return res.json() as Promise<PortfolioRiskResponse>;
+}
+
 export const PERFORMANCE_RANGES = ["1M", "6M", "YTD", "1Y", "5Y", "ALL"] as const satisfies readonly PerformanceRange[];
 export const BENCHMARK_CODES = ["sp500", "dow30", "nasdaq", "csi300"] as const satisfies readonly BenchmarkCode[];
 // Issue #382 first-visit UI state. The GET handler still defaults `range`

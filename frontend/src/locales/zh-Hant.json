@@ -432,6 +432,58 @@
     "emailVerificationSendFailed": "驗證郵件發送失敗，請重試。"
   },
   "portfolio": {
+    "riskPanel": {
+      "infoSymbol": "i",
+      "betaZero": "β=0",
+      "betaThree": "β=3",
+      "title": "歷史波動與風險",
+      "subtitle": "真實持倉快照 · 最近 60 個交易日 · 年化",
+      "loading": "正在載入歷史風險",
+      "loadError": "無法載入歷史風險，請重新整理頁面。",
+      "beta": "Beta",
+      "betaSubtitle": "固定相對 S&P 500",
+      "betaExplanation": "組合在觀察期內相對 S&P 500 的歷史敏感度，不預測未來結果。",
+      "risk": "Risk",
+      "riskSubtitle": "個人化風險觀察",
+      "riskExplanation": "綜合歷史波動、問卷中的風險承受偏好、期限與目標，以及持倉結構。",
+      "deviation": "偏離度",
+      "deviationSubtitle": "問卷偏好 ↔ 實際持倉",
+      "deviationExplanation": "比較問卷中的風險偏好、風格與市場偏好，以及已估值持倉的資產和市場結構。",
+      "riskLabels": {
+        "within": "在承受範圍內",
+        "caution": "需留意",
+        "exceeds": "超出承受範圍"
+      },
+      "tiers": {
+        "low": "低",
+        "medium": "中",
+        "high": "高"
+      },
+      "states": {
+        "insufficient_sample": "樣本不足",
+        "data_quality": "資料品質不足，無法評估個人化 Risk",
+        "no_questionnaire": "尚無已提交問卷，無法評估個人化指標",
+        "no_valued_holdings": "無可估值持倉，無法評估偏離度"
+      },
+      "objectiveTier": "歷史波動檔位：{tier}",
+      "aggressiveDirection": "進取方向 +{count} 檔",
+      "conservativeDirection": "保守方向 {count} 檔",
+      "match": "未見可證實的偏離",
+      "conservative": "保守",
+      "matchShort": "匹配",
+      "aggressive": "進取",
+      "deviationSubline": "方向與檔位差",
+      "volatilityTitle": "波動率 · 年化歷史波動",
+      "benchmarkSelector": "波動率對照基準",
+      "portfolio": "組合",
+      "chartDescription": "組合與{benchmark}的滾動年化波動曲線",
+      "sixtyDaysAgo": "60 個交易日前",
+      "now": "目前",
+      "insufficientSample": "樣本不足",
+      "sampleDisclosure": "組合 {portfolioStart}–{portfolioEnd}：{portfolioCount} 個有效收益 · {benchmark} {benchmarkStart}–{benchmarkEnd}：{benchmarkCount} 個有效收益 · ×√252 · {currency} · 近似 TWR",
+      "manualShare": "手動估值佔比：{share}",
+      "footnote": "歷史波動衡量日收益的起伏；Performance 頁面的 Growth of tracked value vs. benchmarks 展示累計增長。兩者是不同指標，不能互相替代。歷史統計不預測未來結果。"
+    },
     "pageTitle": "持倉總覽",
     "currencyLabel": "基準貨幣",
     "asOfBanner": "價格截至 {date}——各市場按自身最新收盤計算，並非同一全域時間點。為收盤數據，非即時。",
