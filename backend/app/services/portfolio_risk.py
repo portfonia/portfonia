@@ -265,9 +265,7 @@ def _index_returns(
     for day in days:
         valuation = values.get(day)
         current = (
-            valuation.value
-            if valuation is not None and valuation.price_as_of == day and not valuation.carried
-            else None
+            valuation.value if valuation is not None and valuation.price_as_of == day else None
         )
         if current is not None and previous is not None and previous > 0:
             result[day] = current / previous - 1

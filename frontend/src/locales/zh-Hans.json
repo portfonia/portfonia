@@ -445,7 +445,7 @@
       "betaExplanation": "组合在观察期内相对 S&P 500 的历史敏感度，不预测未来结果。",
       "risk": "Risk",
       "riskSubtitle": "个性化风险观察",
-      "riskExplanation": "综合历史波动、问卷中的风险承受偏好、期限与目标，以及持仓结构。",
+      "riskExplanation": "综合历史波动，以及问卷中的风险承受偏好、期限与目标。",
       "deviation": "偏离度",
       "deviationSubtitle": "问卷偏好 ↔ 实际持仓",
       "deviationExplanation": "比较问卷中的风险偏好、风格与市场偏好，以及已估值持仓的资产和市场结构。",

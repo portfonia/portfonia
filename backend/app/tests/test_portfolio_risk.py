@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models.benchmark_price import BenchmarkPrice
+from app.models.fx_rate import FxRate
 from app.models.holding import Holding
 from app.models.portfolio_snapshot_batch import PortfolioSnapshotBatch
 from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
@@ -17,6 +18,7 @@ from app.models.user_investment_context import UserInvestmentContext
 from app.services.portfolio_risk import (
     _beta,
     _deviation,
+    _index_returns,
     _risk_label,
     _rolling_vol,
     _tier,
@@ -124,11 +126,72 @@ def test_deviation_examples() -> None:
     )
     assert (
         _deviation(
-            [holding("100", "ETF", "US")],
-            {"risk_appetite": "CONSERVATIVE", "style": "INDEX", "markets": ["US"]},
+            [holding("50", "EQUITY_US_BROAD", "US"), holding("50", "BOND_FUND", "US")],
+            {"risk_appetite": "BALANCED", "style": "INDEX", "markets": ["US"]},
         ).delta
-        == 2
+        == 0
     )
+
+
+def test_index_return_accepts_resolved_prior_day_fx_on_actual_close(
+    db_session: Session,
+) -> None:
+    first = date(2026, 8, 3)
+    second = date(2026, 8, 4)
+    db_session.add_all(
+        [
+            BenchmarkPrice(
+                index_code="csi300", price_date=first, close_price=Decimal("100"), currency="CNY"
+            ),
+            BenchmarkPrice(
+                index_code="csi300", price_date=second, close_price=Decimal("110"), currency="CNY"
+            ),
+            FxRate(pair="USDCNY", rate_date=first, rate=Decimal("7"), source="test"),
+        ]
+    )
+    db_session.flush()
+    assert _index_returns(db_session, "csi300", [first, second], "USD")[second].quantize(
+        Decimal("0.0001")
+    ) == Decimal("0.1000")
+
+
+def test_cash_flow_day_does_not_create_portfolio_volatility(db_session: Session) -> None:
+    import uuid
+
+    seed_user(db_session, TEST_USER_ID)
+    start = date(2026, 8, 3)
+    days = [
+        start + timedelta(days=i) for i in range(33) if (start + timedelta(days=i)).weekday() < 5
+    ]
+    holding_id = uuid.uuid4()
+    for index, day in enumerate(days):
+        shares = Decimal("1") if index < 12 else Decimal("2")
+        value = shares * Decimal("100")
+        db_session.add_all(
+            [
+                BenchmarkPrice(
+                    index_code="sp500",
+                    price_date=day,
+                    close_price=Decimal("100") + Decimal(index % 2),
+                ),
+                PortfolioSnapshotBatch(user_id=TEST_USER_ID, snapshot_date=day, status="complete"),
+                PortfolioValueSnapshot(
+                    user_id=TEST_USER_ID,
+                    snapshot_date=day,
+                    holding_id=holding_id,
+                    currency="USD",
+                    base_currency="USD",
+                    shares=shares,
+                    market_value=value,
+                    market_value_base=value,
+                ),
+            ]
+        )
+    db_session.flush()
+    result = compute_portfolio_risk(db_session, TEST_USER_ID, "sp500", "USD", today=days[-1])
+    assert result.portfolio_vol.status == "ok"
+    assert result.portfolio_vol.sample_count == len(days) - 1
+    assert result.portfolio_vol.current == Decimal("0")
 
 
 def test_endpoint_auth_validation_and_empty_holdings(

@@ -445,7 +445,7 @@
       "betaExplanation": "Historical sensitivity of the portfolio to the S&P 500 over the observation window. It does not predict future results.",
       "risk": "Risk",
       "riskSubtitle": "Personalized risk observation",
-      "riskExplanation": "Combines historical volatility with questionnaire risk tolerance, horizon and objective, alongside holdings structure.",
+      "riskExplanation": "Combines historical volatility with questionnaire risk tolerance, horizon and objective.",
       "deviation": "Deviation",
       "deviationSubtitle": "Questionnaire preferences ↔ holdings",
       "deviationExplanation": "Compares questionnaire risk preference, style and markets with the asset and market structure of valued holdings.",

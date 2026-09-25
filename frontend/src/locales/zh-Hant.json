@@ -445,7 +445,7 @@
       "betaExplanation": "組合在觀察期內相對 S&P 500 的歷史敏感度，不預測未來結果。",
       "risk": "Risk",
       "riskSubtitle": "個人化風險觀察",
-      "riskExplanation": "綜合歷史波動、問卷中的風險承受偏好、期限與目標，以及持倉結構。",
+      "riskExplanation": "綜合歷史波動，以及問卷中的風險承受偏好、期限與目標。",
       "deviation": "偏離度",
       "deviationSubtitle": "問卷偏好 ↔ 實際持倉",
       "deviationExplanation": "比較問卷中的風險偏好、風格與市場偏好，以及已估值持倉的資產和市場結構。",
