@@ -1020,6 +1020,10 @@
       "stack2": "通过 OpenRouter 接入可插拔的 LLM 提供方"
     },
     "productPreviews": {
+      "riskHeading": "风险画像",
+      "riskBody": "示例数字，不是你的持仓。同一份示例组合的历史波动、相对 S&P 500 的 Beta，以及对照个人问卷的风险位置与偏离度。",
+      "riskCtaHeading": "走得长远，靠的是管住风险",
+      "riskCtaBody": "收益决定你能走多快，风险决定你能走多远。先看清组合的波动有多大、和大盘有多同步、离自己设定的承受范围有多远。",
       "portfolioHeading": "持仓概览",
       "portfolioBody": "示例数字，不是你的持仓。同一份示例组合，按市场、资产类别和分组呈现。",
       "performanceHeading": "组合表现",
