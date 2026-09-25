@@ -1020,6 +1020,10 @@
       "stack2": "透過 OpenRouter 串接可替換的 LLM 服務"
     },
     "productPreviews": {
+      "riskHeading": "風險畫像",
+      "riskBody": "示例數字，不是你的持倉。同一份示例組合的歷史波動、相對 S&P 500 的 Beta，以及對照個人問卷的風險位置與偏離度。",
+      "riskCtaHeading": "走得長遠，靠的是管住風險",
+      "riskCtaBody": "收益決定你能走多快，風險決定你能走多遠。先看清組合的波動有多大、和大盤有多同步、離自己設定的承受範圍有多遠。",
       "portfolioHeading": "持倉概覽",
       "portfolioBody": "示例數字，不是你的持倉。同一份示例組合，按市場、資產類別和分組呈現。",
       "performanceHeading": "組合表現",

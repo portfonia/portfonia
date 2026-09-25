@@ -22,7 +22,7 @@ export function toTimestamp(iso: string): number {
   return new Date(year, month - 1, day).getTime();
 }
 
-function isoFromTimestamp(t: number): string {
+export function isoFromTimestamp(t: number): string {
   const date = new Date(t);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
@@ -65,13 +65,13 @@ export function RiskChartTooltip({
   );
 }
 
-function pct(value: string | null): string {
+export function pct(value: string | null): string {
   return value === null ? "—" : `${(Number(value) * 100).toFixed(1)}%`;
 }
 
-const GAUGE_COLORS = ["#36a67a", "#8b6bd6", "#d7ad45", "#df8744", "#d65c88"] as const;
-const RISK_COLORS = [GAUGE_COLORS[0], GAUGE_COLORS[2], GAUGE_COLORS[4]];
-const DEVIATION_COLORS = [GAUGE_COLORS[4], GAUGE_COLORS[2], GAUGE_COLORS[0], GAUGE_COLORS[2], GAUGE_COLORS[4]];
+export const GAUGE_COLORS = ["#36a67a", "#8b6bd6", "#d7ad45", "#df8744", "#d65c88"] as const;
+export const RISK_COLORS = [GAUGE_COLORS[0], GAUGE_COLORS[2], GAUGE_COLORS[4]];
+export const DEVIATION_COLORS = [GAUGE_COLORS[4], GAUGE_COLORS[2], GAUGE_COLORS[0], GAUGE_COLORS[2], GAUGE_COLORS[4]];
 
 export function betaSegment(value: number): { index: number; angle: number } {
   const clamped = Math.max(-1, Math.min(3, value));
@@ -95,7 +95,7 @@ function gaugeTriangle(angle: number, radius: number, inward: boolean): string {
   ].map(([px, py]) => `${px},${py}`).join(" ");
 }
 
-function ExplanationCell({
+export function ExplanationCell({
   name,
   value,
   subtitle,
@@ -136,7 +136,7 @@ function ExplanationCell({
   );
 }
 
-function BetaGauge({ value }: { value: number | null }) {
+export function BetaGauge({ value }: { value: number | null }) {
   const t = useTranslations("portfolio.riskPanel");
   // Rounded caps consume about 11°; a 14° path gap leaves roughly 3° visible.
   const gap = 14 * Math.PI / 180;
@@ -159,7 +159,7 @@ function BetaGauge({ value }: { value: number | null }) {
   );
 }
 
-function SegmentedBar({ segments, activeIndex, endLabels, middleLabel }: {
+export function SegmentedBar({ segments, activeIndex, endLabels, middleLabel }: {
   segments: { color: string; label?: string }[];
   activeIndex: number | null;
   endLabels?: [string, string];

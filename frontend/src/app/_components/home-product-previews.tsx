@@ -14,16 +14,17 @@ import { AllocationChart } from "@/app/portfolio/performance/_components/allocat
 import { type MonthlyBarRow } from "@/app/portfolio/performance/_components/monthly-data";
 import { MonthlyPerformanceChart } from "@/app/portfolio/performance/_components/monthly-performance-chart";
 import { type ChartSeriesRow } from "@/app/portfolio/performance/_components/performance-data";
+import { BENCHMARK_COLORS, PORTFOLIO_COLOR } from "@/app/portfolio/performance/_components/performance-colors";
 import {
   PerformanceChart,
   type ChartSeriesSpec,
 } from "@/app/portfolio/performance/_components/performance-chart";
 import { type Messages } from "@/locales";
+import { HomeRiskPreview } from "./home-risk-preview";
 
 const SAMPLE_CURRENCY = "USD";
-const PORTFOLIO_COLOR = "var(--chart-1)";
-const SP500_COLOR = "var(--chart-2)";
-const CSI300_COLOR = "var(--chart-csi300)";
+const SP500_COLOR = BENCHMARK_COLORS.sp500;
+const CSI300_COLOR = BENCHMARK_COLORS.csi300;
 
 export const HOME_MARKET_SHARES: Record<string, string> = {
   us: "55",
@@ -151,6 +152,27 @@ export function HomeProductPreviews() {
   return (
     <section id="product-previews" className="px-6 py-16 sm:py-20">
       <div className="mx-auto flex max-w-4xl flex-col gap-16">
+        <div>
+          <div className="mb-8 border-b border-white/10 pb-5">
+            <h2 className="font-serif text-2xl sm:text-3xl">{copy.riskHeading}</h2>
+          </div>
+          <p className="mb-6 max-w-2xl text-base leading-relaxed text-foreground/70">{copy.riskBody}</p>
+          <div className="min-w-0 space-y-6 rounded-xl border border-white/10 bg-card p-4" data-testid="home-risk-preview">
+            <HomeRiskPreview />
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-white/10 bg-card p-7 sm:p-11">
+          <h2 className="max-w-[18ch] font-serif text-2xl sm:text-3xl">{copy.riskCtaHeading}</h2>
+          <p className="mt-4 max-w-xl text-base leading-relaxed text-foreground/70">{copy.riskCtaBody}</p>
+          <Link
+            href="/holdings"
+            className="mt-8 inline-flex rounded-md bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground"
+          >
+            {t("hero.ctaPrimary")}
+          </Link>
+        </div>
+
         <div>
           <div className="mb-8 border-b border-white/10 pb-5">
             <h2 className="font-serif text-2xl sm:text-3xl">{copy.portfolioHeading}</h2>

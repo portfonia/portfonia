@@ -1,9 +1,9 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { catalogs, type Locale } from "@/locales";
 import { ASSET_CLASS_COLORS } from "@/app/portfolio/performance/_components/allocation-data";
-import { getPortfolioPerformance, getPortfolioSummary } from "@/lib/api";
+import { getPortfolioPerformance, getPortfolioRisk, getPortfolioSummary } from "@/lib/api";
 import { LocaleProvider } from "./locale-provider";
 import { HomeSections } from "./home-sections";
 import {
@@ -11,13 +11,31 @@ import {
   HOME_GROUP_SHARES,
   HOME_MARKET_SHARES,
 } from "./home-product-previews";
+import { HOME_RISK_SAMPLE } from "./home-risk-sample";
 
 vi.mock("@/lib/api", () => ({
   getPortfolioSummary: vi.fn(),
   getPortfolioPerformance: vi.fn(),
+  getPortfolioRisk: vi.fn(),
 }));
 
 const LOCALES: Locale[] = ["en", "zh-Hans", "zh-Hant"];
+
+class SizedResizeObserver {
+  private callback: ResizeObserverCallback;
+  constructor(callback: ResizeObserverCallback) { this.callback = callback; }
+  observe(target: Element): void {
+    this.callback([{
+      target,
+      contentRect: { x: 0, y: 0, width: 800, height: 300, top: 0, right: 800, bottom: 300, left: 0, toJSON: () => ({}) },
+    } as ResizeObserverEntry], this as unknown as ResizeObserver);
+  }
+  unobserve(): void {}
+  disconnect(): void {}
+}
+if (typeof globalThis.ResizeObserver !== "undefined") {
+  (globalThis as { ResizeObserver: unknown }).ResizeObserver = SizedResizeObserver;
+}
 
 function parseUsdAmount(cell: string): number {
   return Number(cell.replace(/\*\*/g, "").replace(/,/g, ""));
@@ -453,7 +471,9 @@ describe("HomeSections product previews (issue #549)", () => {
     expect(screen.getByText(catalogs.en.home.productPreviews.metricValue)).toBeInTheDocument();
     expect(screen.getByText(catalogs.en.home.productPreviews.yearToDate)).toBeInTheDocument();
     expect(screen.queryByText(/since inception/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/annualized/i)).not.toBeInTheDocument();
+    const performanceBlock = screen.getByRole("heading", { level: 2, name: catalogs.en.home.productPreviews.performanceHeading }).parentElement?.parentElement;
+    expect(performanceBlock).toBeDefined();
+    expect(within(performanceBlock!).queryByText(/annualized/i)).not.toBeInTheDocument();
 
     const allocation = screen.getByTestId("home-allocation-preview");
     const assetClasses = (allocation.getAttribute("data-asset-classes") ?? "").split(",");
@@ -501,15 +521,19 @@ describe("HomeSections product previews (issue #549)", () => {
     );
 
     const links = screen.getAllByRole("link", { name: catalogs.en.home.hero.ctaPrimary });
-    expect(links).toHaveLength(2);
-    expect(links.map((link) => link.getAttribute("href"))).toEqual(["/holdings", "/holdings"]);
+    expect(links).toHaveLength(3);
+    expect(links.map((link) => link.getAttribute("href"))).toEqual(["/holdings", "/holdings", "/holdings"]);
+    const riskPreview = screen.getByTestId("home-risk-preview");
+    const portfolioHeading = screen.getByRole("heading", { level: 2, name: catalogs.en.home.productPreviews.portfolioHeading });
+    expect(riskPreview.compareDocumentPosition(links[1])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(links[1].compareDocumentPosition(portfolioHeading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     const performance = screen.getByRole("heading", {
       level: 2,
       name: catalogs.en.home.productPreviews.performanceHeading,
     });
     const audience = document.getElementById("audience");
-    expect(performance.compareDocumentPosition(links[1])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(links[1].compareDocumentPosition(audience!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(performance.compareDocumentPosition(links[2])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(links[2].compareDocumentPosition(audience!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(screen.queryByRole("link", { name: /sign up|waitlist|apply|invite/i })).not.toBeInTheDocument();
   });
 
@@ -523,6 +547,7 @@ describe("HomeSections product previews (issue #549)", () => {
 
     expect(getPortfolioSummary).not.toHaveBeenCalled();
     expect(getPortfolioPerformance).not.toHaveBeenCalled();
+    expect(getPortfolioRisk).not.toHaveBeenCalled();
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
@@ -547,5 +572,69 @@ describe("HomeSections product previews (issue #549)", () => {
     expect(Object.values(copy.groups)).toHaveLength(3);
     expect(home.hero.ctaPrimary.length).toBeGreaterThan(0);
     expect(home.hero.titleAccent.length).toBeGreaterThan(0);
+  });
+
+  it("places the shared risk preview and its get-started block before portfolio overview", () => {
+    const { container } = render(<LocaleProvider><HomeSections /></LocaleProvider>);
+    const risk = screen.getByTestId("home-risk-preview");
+    const riskHeading = screen.getByRole("heading", { level: 2, name: "Portfolio risk" });
+    const riskCta = screen.getByRole("heading", { level: 2, name: "Lasting results come from keeping risk in check" });
+    const overview = screen.getByRole("heading", { level: 2, name: catalogs.en.home.productPreviews.portfolioHeading });
+    const performance = screen.getByRole("heading", { level: 2, name: catalogs.en.home.productPreviews.performanceHeading });
+    const finalCta = screen.getByRole("heading", { level: 2, name: catalogs.en.home.productPreviews.ctaHeading });
+    expect(riskHeading.compareDocumentPosition(risk)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(risk.compareDocumentPosition(riskCta)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(riskCta.compareDocumentPosition(overview)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(overview.compareDocumentPosition(performance)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(performance.compareDocumentPosition(finalCta)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(screen.getByText("Sample figures, not your holdings. The same illustrative portfolio's historical volatility, Beta against the S&P 500, and where it sits against a personal questionnaire.")).toBeInTheDocument();
+    expect(screen.getByText("Returns decide how fast you go; risk decides how far. See how much your portfolio swings, how closely it moves with the market, and how far it sits from the tolerance you set.")).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-testid="home-risk-preview"]')).toHaveLength(1);
+  });
+
+  it("renders the static shared visuals without account disclosures or a selector", async () => {
+    const { container } = render(<LocaleProvider><HomeSections /></LocaleProvider>);
+    const risk = screen.getByTestId("home-risk-preview");
+    const beta = within(risk).getByRole("button", { name: /Beta:/ });
+    expect(beta).toHaveTextContent("1.12");
+    expect(beta.querySelector('[data-testid="beta-portfolio-marker"]')).not.toBeNull();
+    expect(beta.querySelector('[data-testid="beta-reference-marker"]')).not.toBeNull();
+    expect(within(risk).getByRole("button", { name: /^Risk:/ })).toHaveTextContent("Caution");
+    expect(within(risk).getByRole("button", { name: /^Deviation:/ })).toHaveTextContent("Aggressive direction +1 tier");
+    for (const value of ["18.6%", "14.2%", "16.8%", catalogs.en.portfolio.riskPanel.footnote]) {
+      expect(within(risk).getByText(value)).toBeInTheDocument();
+    }
+    expect(within(risk).queryByRole("button", { name: /Volatility comparison benchmark/i })).toBeNull();
+    fireEvent.focus(beta);
+    expect(within(risk).getByRole("tooltip")).toHaveTextContent(catalogs.en.portfolio.riskPanel.betaExplanation);
+    fireEvent.blur(beta);
+    expect(risk.textContent).not.toContain("Approximate TWR");
+    expect(risk.textContent).not.toContain("Manual valuation");
+    await waitFor(() => expect(risk.querySelectorAll("path.recharts-line-curve")).toHaveLength(3));
+    expect(container.querySelector('[data-testid="home-risk-preview"]')).toBe(risk);
+  });
+
+  it("keeps the sample literal coherent and ships the approved risk copy", () => {
+    expect(HOME_RISK_SAMPLE.beta.value).toBe("1.12");
+    expect(HOME_RISK_SAMPLE.risk.label).toBe("caution");
+    expect(HOME_RISK_SAMPLE.deviation.delta).toBe(1);
+    expect(HOME_RISK_SAMPLE.portfolio_vol.current).toBe("0.186");
+    expect(HOME_RISK_SAMPLE.benchmark_vols.map((item) => [item.code, item.current])).toEqual([["sp500", "0.142"], ["csi300", "0.168"]]);
+    for (const series of [HOME_RISK_SAMPLE.portfolio_vol, ...HOME_RISK_SAMPLE.benchmark_vols]) {
+      expect(series.points.length).toBeGreaterThanOrEqual(35);
+      expect(series.points.at(-1)).toEqual({ date: "2026-09-18", vol: series.current });
+      expect(series.window_start).toBe(series.points[0].date);
+      expect(series.window_end).toBe("2026-09-18");
+    }
+    expect(catalogs.en.home.productPreviews.riskHeading).toBe("Portfolio risk");
+    expect(catalogs.en.home.productPreviews.riskCtaHeading).toBe("Lasting results come from keeping risk in check");
+    expect(catalogs["zh-Hans"].home.productPreviews.riskHeading).toBe("风险画像");
+    expect(catalogs["zh-Hans"].home.productPreviews.riskBody).toBe("示例数字，不是你的持仓。同一份示例组合的历史波动、相对 S&P 500 的 Beta，以及对照个人问卷的风险位置与偏离度。");
+    expect(catalogs["zh-Hans"].home.productPreviews.riskCtaHeading).toBe("走得长远，靠的是管住风险");
+    expect(catalogs["zh-Hans"].home.productPreviews.riskCtaBody).toBe("收益决定你能走多快，风险决定你能走多远。先看清组合的波动有多大、和大盘有多同步、离自己设定的承受范围有多远。");
+    for (const locale of LOCALES) {
+      const copy = catalogs[locale].home.productPreviews;
+      for (const key of ["riskHeading", "riskBody", "riskCtaHeading", "riskCtaBody"] as const) expect(copy[key]).toBeTruthy();
+    }
   });
 });
