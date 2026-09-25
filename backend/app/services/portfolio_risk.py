@@ -27,7 +27,7 @@ from app.services.portfolio_performance import Filters, _build_portfolio_series,
 logger = logging.getLogger(__name__)
 
 WINDOW = 60
-MIN_SAMPLES = 22
+MIN_SAMPLES = 10
 ANNUALIZE = Decimal(252).sqrt()
 VOL_TIERS = (Decimal("0.10"), Decimal("0.20"))
 RISK_BASE = {
@@ -304,15 +304,7 @@ def compute_portfolio_risk(
         )
         for day in nyse_days:
             link = build.daily_links.get(day)
-            if (
-                link is not None
-                and tracking_start is not None
-                and day > tracking_start
-                and not any(
-                    row.data_quality == "approx_carried"
-                    for row in build.filtered_by_date.get(day, [])
-                )
-            ):
+            if link is not None and tracking_start is not None and day > tracking_start:
                 portfolio_returns[day] = link
     portfolio_vol = _rolling_vol(nyse_days, portfolio_returns, nyse_days[-WINDOW:])
     benchmark_vol = _rolling_vol(selected_days, benchmark_returns, selected_days[-WINDOW:])

@@ -477,8 +477,13 @@
       "benchmarkSelector": "波動率對照基準",
       "portfolio": "組合",
       "chartDescription": "組合與{benchmark}的滾動年化波動曲線",
-      "sixtyDaysAgo": "60 個交易日前",
-      "now": "目前",
+      "tooltipAsOf": "截至 {date}",
+      "reason": {
+        "insufficient": "需要至少 {min} 個有效交易日，目前有 {count} 個。",
+        "manualShare": "手動估值佔組合 {share}，超過 {limit} 上限。",
+        "noQuestionnaire": "尚未提交投資問卷。",
+        "noValuedHoldings": "暫無可估值持倉。"
+      },
       "insufficientSample": "樣本不足",
       "sampleDisclosure": "組合 {portfolioStart}–{portfolioEnd}：{portfolioCount} 個有效收益 · {benchmark} {benchmarkStart}–{benchmarkEnd}：{benchmarkCount} 個有效收益 · ×√252 · {currency} · 近似 TWR",
       "manualShare": "手動估值佔比：{share}",

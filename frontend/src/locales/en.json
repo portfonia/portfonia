@@ -477,8 +477,13 @@
       "benchmarkSelector": "Volatility comparison benchmark",
       "portfolio": "Portfolio",
       "chartDescription": "Rolling annualized volatility of the portfolio and {benchmark}",
-      "sixtyDaysAgo": "60 trading days ago",
-      "now": "Now",
+      "tooltipAsOf": "as of {date}",
+      "reason": {
+        "insufficient": "Needs at least {min} valid trading days; currently {count}.",
+        "manualShare": "Manually valued holdings are {share} of the portfolio, above the {limit} limit.",
+        "noQuestionnaire": "No submitted investment questionnaire.",
+        "noValuedHoldings": "No valued holdings yet."
+      },
       "insufficientSample": "Insufficient sample",
       "sampleDisclosure": "Portfolio {portfolioStart}–{portfolioEnd}: {portfolioCount} valid returns · {benchmark} {benchmarkStart}–{benchmarkEnd}: {benchmarkCount} valid returns · ×√252 · {currency} · approximate TWR",
       "manualShare": "Manual valuation share: {share}",

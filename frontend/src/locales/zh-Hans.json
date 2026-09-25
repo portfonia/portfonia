@@ -477,8 +477,13 @@
       "benchmarkSelector": "波动率对照基准",
       "portfolio": "组合",
       "chartDescription": "组合与{benchmark}的滚动年化波动曲线",
-      "sixtyDaysAgo": "60 个交易日前",
-      "now": "当前",
+      "tooltipAsOf": "截至 {date}",
+      "reason": {
+        "insufficient": "需要至少 {min} 个有效交易日，目前有 {count} 个。",
+        "manualShare": "手动估值占组合 {share}，超过 {limit} 上限。",
+        "noQuestionnaire": "尚未提交投资问卷。",
+        "noValuedHoldings": "暂无可估值持仓。"
+      },
       "insufficientSample": "样本不足",
       "sampleDisclosure": "组合 {portfolioStart}–{portfolioEnd}：{portfolioCount} 个有效收益 · {benchmark} {benchmarkStart}–{benchmarkEnd}：{benchmarkCount} 个有效收益 · ×√252 · {currency} · 近似 TWR",
       "manualShare": "手动估值占比：{share}",

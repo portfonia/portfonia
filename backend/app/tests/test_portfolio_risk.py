@@ -29,9 +29,9 @@ from app.tests.conftest import TEST_USER_ID, seed_user
 
 def test_volatility_sample_count_annualization_and_tiers() -> None:
     start = date(2026, 8, 3)
-    days = [start + timedelta(days=i) for i in range(22)]
+    days = [start + timedelta(days=i) for i in range(10)]
     returns = {d: Decimal("0.01") if i % 2 == 0 else Decimal("-0.01") for i, d in enumerate(days)}
-    short = _rolling_vol(days[:21], returns, days[:21])
+    short = _rolling_vol(days[:9], returns, days[:9])
     assert short.status == "insufficient_sample"
     assert short.current is None
     assert short.points == []
@@ -39,7 +39,8 @@ def test_volatility_sample_count_annualization_and_tiers() -> None:
     full = _rolling_vol(days, returns, days)
     assert full.status == "ok"
     assert full.current is not None
-    assert full.current.quantize(Decimal("0.0001")) == Decimal("0.1625")
+    expected = (Decimal("0.001") / Decimal(9)).sqrt() * Decimal(252).sqrt()
+    assert full.current == expected
     assert len(full.points) == 1
     assert full.points[0].date == days[-1]
     assert [_tier(Decimal(v)) for v in ("0.0999", "0.1000", "0.1999", "0.2000")] == [
@@ -52,13 +53,13 @@ def test_volatility_sample_count_annualization_and_tiers() -> None:
 
 def test_beta_pairs_and_zero_variance() -> None:
     start = date(2026, 8, 3)
-    days = [start + timedelta(days=i) for i in range(22)]
+    days = [start + timedelta(days=i) for i in range(10)]
     benchmark = {d: Decimal("0.01") if i % 2 else Decimal("-0.01") for i, d in enumerate(days)}
     portfolio = {d: v * Decimal("1.5") for d, v in benchmark.items()}
     value = _beta(days, portfolio, benchmark).value
     assert value is not None
     assert value.quantize(Decimal("0.0001")) == Decimal("1.5000")
-    assert _beta(days[:21], portfolio, benchmark).status == "insufficient_sample"
+    assert _beta(days[:9], portfolio, benchmark).status == "insufficient_sample"
     assert _beta(days, portfolio, {d: Decimal("0.01") for d in days}).value is None
 
 
@@ -275,8 +276,8 @@ def test_real_postgres_nyse_sampling_carried_and_benchmark_independence(
     assert sp.risk == csi.risk
     assert sp.benchmark_vol != csi.benchmark_vol
     assert sp.portfolio_vol.status == "ok"
-    assert sp.portfolio_vol.sample_count == len(nyse) - 2
-    assert sp.beta.sample_count == len(nyse) - 2
+    assert sp.portfolio_vol.sample_count == len(nyse) - 1
+    assert sp.beta.sample_count == len(nyse) - 1
     assert sp.portfolio_vol.window_end == nyse[-1]
     assert csi.benchmark_vol.window_end == max(day for day in calendar if day.weekday() < 5)
 
@@ -379,7 +380,7 @@ def test_real_postgres_benchmark_remains_visible_without_holdings(db_session: Se
     assert result.manual_valuation_share is None
 
 
-def test_real_postgres_ten_portfolio_samples_keep_benchmark_and_deviation(
+def test_real_postgres_ten_portfolio_samples_enable_risk_and_keep_deviation(
     db_session: Session,
 ) -> None:
     import uuid
@@ -457,10 +458,10 @@ def test_real_postgres_ten_portfolio_samples_keep_benchmark_and_deviation(
     db_session.flush()
 
     result = compute_portfolio_risk(db_session, TEST_USER_ID, "sp500", "USD", today=days[-1])
-    assert result.portfolio_vol.status == "insufficient_sample"
+    assert result.portfolio_vol.status == "ok"
     assert result.portfolio_vol.sample_count == 10
-    assert result.beta.status == "insufficient_sample"
-    assert result.risk.status == "insufficient_sample"
+    assert result.beta.status == "ok"
+    assert result.risk.status == "data_quality"
     assert result.benchmark_vol.status == "ok"
     assert result.benchmark_vol.current is not None
     assert result.benchmark_vol.points
