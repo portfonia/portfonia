@@ -578,7 +578,7 @@ export interface RiskVolSeries {
 export interface PortfolioRiskResponse {
   base_currency: string;
   portfolio_vol: RiskVolSeries;
-  benchmark_vol: RiskVolSeries & { code: BenchmarkCode };
+  benchmark_vols: (RiskVolSeries & { code: BenchmarkCode })[];
   beta: { status: "ok" | "insufficient_sample"; value: string | null; sample_count: number };
   risk: { status: "ok" | "no_questionnaire" | "insufficient_sample" | "data_quality"; label: "within" | "caution" | "exceeds" | null };
   deviation: { status: "ok" | "no_questionnaire" | "no_valued_holdings"; delta: number | null };
@@ -586,10 +586,11 @@ export interface PortfolioRiskResponse {
 }
 
 export async function getPortfolioRisk(
-  benchmark: BenchmarkCode,
+  benchmarks: BenchmarkCode[],
   baseCurrency: string,
 ): Promise<PortfolioRiskResponse> {
-  const params = new URLSearchParams({ benchmark, base_currency: baseCurrency });
+  const params = new URLSearchParams({ base_currency: baseCurrency });
+  benchmarks.forEach((code) => params.append("benchmarks", code));
   const res = await fetch(`/api/portfolio/risk?${params.toString()}`, { cache: "no-store" });
   if (!res.ok) await throwOnHttpError(res);
   return res.json() as Promise<PortfolioRiskResponse>;

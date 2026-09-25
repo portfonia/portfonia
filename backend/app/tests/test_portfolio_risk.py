@@ -7,6 +7,7 @@ from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
+from httpx import QueryParams
 from sqlalchemy.orm import Session
 
 from app.models.benchmark_price import BenchmarkPrice
@@ -189,7 +190,7 @@ def test_cash_flow_day_does_not_create_portfolio_volatility(db_session: Session)
             ]
         )
     db_session.flush()
-    result = compute_portfolio_risk(db_session, TEST_USER_ID, "sp500", "USD", today=days[-1])
+    result = compute_portfolio_risk(db_session, TEST_USER_ID, ["sp500"], "USD", today=days[-1])
     assert result.portfolio_vol.status == "ok"
     assert result.portfolio_vol.sample_count == len(days) - 1
     assert result.portfolio_vol.current == Decimal("0")
@@ -207,7 +208,8 @@ def test_endpoint_auth_validation_and_empty_holdings(
     assert data["risk"]["status"] == "no_questionnaire"
     assert data["deviation"]["status"] == "no_questionnaire"
     assert data["manual_valuation_share"] is None
-    assert app_client.get("/portfolio/risk", params={"benchmark": "bad"}).status_code == 422
+    assert data["benchmark_vols"] == []
+    assert app_client.get("/portfolio/risk", params={"benchmarks": "bad"}).status_code == 422
     assert app_client.get("/portfolio/risk", params={"base_currency": "BAD"}).status_code == 422
 
 
@@ -269,17 +271,17 @@ def test_real_postgres_nyse_sampling_carried_and_benchmark_independence(
         )
     db_session.flush()
 
-    sp = compute_portfolio_risk(db_session, TEST_USER_ID, "sp500", "USD", today=calendar[-1])
-    csi = compute_portfolio_risk(db_session, TEST_USER_ID, "csi300", "USD", today=calendar[-1])
+    sp = compute_portfolio_risk(db_session, TEST_USER_ID, ["sp500"], "USD", today=calendar[-1])
+    csi = compute_portfolio_risk(db_session, TEST_USER_ID, ["csi300"], "USD", today=calendar[-1])
     assert sp.portfolio_vol == csi.portfolio_vol
     assert sp.beta == csi.beta
     assert sp.risk == csi.risk
-    assert sp.benchmark_vol != csi.benchmark_vol
+    assert sp.benchmark_vols != csi.benchmark_vols
     assert sp.portfolio_vol.status == "ok"
     assert sp.portfolio_vol.sample_count == len(nyse) - 1
     assert sp.beta.sample_count == len(nyse) - 1
     assert sp.portfolio_vol.window_end == nyse[-1]
-    assert csi.benchmark_vol.window_end == max(day for day in calendar if day.weekday() < 5)
+    assert csi.benchmark_vols[0][1].window_end == max(day for day in calendar if day.weekday() < 5)
 
     manual = Holding(
         user_id=TEST_USER_ID,
@@ -322,7 +324,9 @@ def test_real_postgres_nyse_sampling_carried_and_benchmark_independence(
         ]
     )
     db_session.flush()
-    at_limit = compute_portfolio_risk(db_session, TEST_USER_ID, "sp500", "USD", today=calendar[-1])
+    at_limit = compute_portfolio_risk(
+        db_session, TEST_USER_ID, ["sp500"], "USD", today=calendar[-1]
+    )
     assert at_limit.manual_valuation_share == Decimal("0.66")
     assert at_limit.risk.status == "data_quality"
     assert at_limit.portfolio_vol.status == "ok"
@@ -332,7 +336,7 @@ def test_real_postgres_nyse_sampling_carried_and_benchmark_independence(
     cash.current_value = Decimal("34.01")
     db_session.flush()
     below_limit = compute_portfolio_risk(
-        db_session, TEST_USER_ID, "sp500", "USD", today=calendar[-1]
+        db_session, TEST_USER_ID, ["sp500"], "USD", today=calendar[-1]
     )
     assert below_limit.manual_valuation_share == Decimal("0.6599")
     assert below_limit.risk.status == "ok"
@@ -369,10 +373,10 @@ def test_real_postgres_benchmark_remains_visible_without_holdings(db_session: Se
         )
     )
     db_session.flush()
-    result = compute_portfolio_risk(db_session, TEST_USER_ID, "sp500", "USD", today=days[-1])
-    assert result.benchmark_vol.status == "ok"
-    assert result.benchmark_vol.current is not None
-    assert result.benchmark_vol.points
+    result = compute_portfolio_risk(db_session, TEST_USER_ID, ["sp500"], "USD", today=days[-1])
+    assert result.benchmark_vols[0][1].status == "ok"
+    assert result.benchmark_vols[0][1].current is not None
+    assert result.benchmark_vols[0][1].points
     assert result.portfolio_vol.status == "insufficient_sample"
     assert result.beta.status == "insufficient_sample"
     assert result.risk.status == "insufficient_sample"
@@ -457,13 +461,58 @@ def test_real_postgres_ten_portfolio_samples_enable_risk_and_keep_deviation(
     )
     db_session.flush()
 
-    result = compute_portfolio_risk(db_session, TEST_USER_ID, "sp500", "USD", today=days[-1])
+    result = compute_portfolio_risk(db_session, TEST_USER_ID, ["sp500"], "USD", today=days[-1])
     assert result.portfolio_vol.status == "ok"
     assert result.portfolio_vol.sample_count == 10
     assert result.beta.status == "ok"
     assert result.risk.status == "data_quality"
-    assert result.benchmark_vol.status == "ok"
-    assert result.benchmark_vol.current is not None
-    assert result.benchmark_vol.points
+    assert result.benchmark_vols[0][1].status == "ok"
+    assert result.benchmark_vols[0][1].current is not None
+    assert result.benchmark_vols[0][1].points
     assert result.deviation.status == "ok"
     assert result.deviation.delta == 1
+
+
+def test_index_return_bridges_missing_valuation_and_leading_gap(db_session: Session) -> None:
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    days = [date(2026, 8, 3) + timedelta(days=i) for i in range(4)]
+    closes = [SimpleNamespace(source_date=d) for d in days]
+    values = {
+        d: SimpleNamespace(value=Decimal(v), price_as_of=d)
+        for d, v in [(days[0], "100"), (days[2], "120"), (days[3], "126")]
+    }
+    with (
+        patch("app.services.portfolio_risk.load_index_closes", return_value={"sp500": closes}),
+        patch("app.services.portfolio_risk.required_pairs_for_closes", return_value=[]),
+        patch("app.services.portfolio_risk.load_fx_series", return_value={}),
+        patch("app.services.portfolio_risk.evaluate_index_range", return_value=values),
+    ):
+        result = _index_returns(db_session, "sp500", days, "USD")
+        assert result == {days[2]: Decimal("0.2"), days[3]: Decimal("0.05")}
+        with patch(
+            "app.services.portfolio_risk.load_index_closes", return_value={"sp500": closes[1:]}
+        ):
+            assert _index_returns(db_session, "sp500", days[1:], "USD") == {
+                days[3]: Decimal("0.05")
+            }
+
+
+def test_endpoint_benchmark_order_and_selection_independence(
+    app_client: TestClient, db_session: Session
+) -> None:
+    seed_user(db_session, TEST_USER_ID)
+    parameter_sets: list[list[tuple[str, str | int | float | bool | None]]] = [
+        [("benchmarks", "nasdaq"), ("benchmarks", "sp500"), ("benchmarks", "nasdaq")],
+        [("benchmarks", "csi300"), ("benchmarks", "dow30")],
+        [],
+    ]
+    results = [
+        app_client.get("/portfolio/risk", params=QueryParams(p)).json() for p in parameter_sets
+    ]
+    assert [row["code"] for row in results[0]["benchmark_vols"]] == ["nasdaq", "sp500"]
+    assert [row["code"] for row in results[1]["benchmark_vols"]] == ["csi300", "dow30"]
+    assert results[2]["benchmark_vols"] == []
+    for field in ("beta", "portfolio_vol", "risk", "deviation", "manual_valuation_share"):
+        assert results[0][field] == results[1][field] == results[2][field]

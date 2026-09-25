@@ -47,7 +47,7 @@ class RiskDeviationOut(BaseModel):
 class PortfolioRiskResponse(BaseModel):
     base_currency: str
     portfolio_vol: RiskVolSeriesOut
-    benchmark_vol: RiskBenchmarkSeriesOut
+    benchmark_vols: list[RiskBenchmarkSeriesOut]
     beta: RiskBetaOut
     risk: RiskLabelOut
     deviation: RiskDeviationOut

@@ -93,20 +93,22 @@ def _risk_vol_out(series: object) -> RiskVolSeriesOut:
 
 @router.get("/risk", response_model=PortfolioRiskResponse)
 def get_portfolio_risk(
-    benchmark: Annotated[BenchmarkCode, Query()] = "sp500",
+    benchmarks: Annotated[list[BenchmarkCode] | None, Query()] = None,
     base_currency: Annotated[BaseCurrency | None, Query()] = None,
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
 ) -> PortfolioRiskResponse:
     currency = base_currency or report_currency_for(session, principal.user_id, "USD")
-    result = compute_portfolio_risk(session, principal.user_id, benchmark, currency)
+    result = compute_portfolio_risk(
+        session, principal.user_id, list(dict.fromkeys(benchmarks or [])), currency
+    )
     return PortfolioRiskResponse(
         base_currency=result.base_currency,
         portfolio_vol=_risk_vol_out(result.portfolio_vol),
-        benchmark_vol=RiskBenchmarkSeriesOut(
-            **_risk_vol_out(result.benchmark_vol).model_dump(),
-            code=result.benchmark_code,
-        ),
+        benchmark_vols=[
+            RiskBenchmarkSeriesOut(**_risk_vol_out(series).model_dump(), code=code)
+            for code, series in result.benchmark_vols
+        ],
         beta=RiskBetaOut(
             status=result.beta.status,
             value=result.beta.value.quantize(Decimal("0.0001"))

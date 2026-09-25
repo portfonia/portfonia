@@ -434,7 +434,7 @@
   "portfolio": {
     "riskPanel": {
       "infoSymbol": "i",
-      "betaZero": "β=0",
+      "betaMinusOne": "β=−1",
       "betaThree": "β=3",
       "title": "历史波动与风险",
       "subtitle": "真实持仓快照 · 最近 60 个交易日 · 年化",
@@ -477,6 +477,7 @@
       "benchmarkSelector": "波动率对照基准",
       "portfolio": "组合",
       "chartDescription": "组合与{benchmark}的滚动年化波动曲线",
+      "chartDescriptionPortfolioOnly": "组合滚动年化历史波动率",
       "tooltipAsOf": "截至 {date}",
       "reason": {
         "insufficient": "需要至少 {min} 个有效交易日，目前有 {count} 个。",
@@ -485,7 +486,8 @@
         "noValuedHoldings": "暂无可估值持仓。"
       },
       "insufficientSample": "样本不足",
-      "sampleDisclosure": "组合 {portfolioStart}–{portfolioEnd}：{portfolioCount} 个有效收益 · {benchmark} {benchmarkStart}–{benchmarkEnd}：{benchmarkCount} 个有效收益 · ×√252 · {currency} · 近似 TWR",
+      "sampleDisclosurePortfolio": "组合 {start}–{end}：{count} 个有效收益 · ×√252 · {currency} · 近似 TWR",
+      "sampleDisclosureBenchmark": "{benchmark} {start}–{end}：{count} 个有效收益",
       "manualShare": "手动估值占比：{share}",
       "footnote": "历史波动衡量日收益的起伏；Performance 页的 Growth of tracked value vs. benchmarks 展示累计增长。两者是不同指标，不能互相替代。历史统计不预测未来结果。"
     },

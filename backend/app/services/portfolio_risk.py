@@ -89,8 +89,7 @@ class DeviationResult:
 class PortfolioRiskResult:
     base_currency: str
     portfolio_vol: VolSeries
-    benchmark_vol: VolSeries
-    benchmark_code: BenchmarkCode
+    benchmark_vols: list[tuple[BenchmarkCode, VolSeries]]
     beta: BetaResult
     risk: RiskResult
     deviation: DeviationResult
@@ -267,28 +266,23 @@ def _index_returns(
         current = (
             valuation.value if valuation is not None and valuation.price_as_of == day else None
         )
-        if current is not None and previous is not None and previous > 0:
-            result[day] = current / previous - 1
-        previous = current
+        if current is not None:
+            if previous is not None and previous > 0:
+                result[day] = current / previous - 1
+            previous = current
     return result
 
 
 def compute_portfolio_risk(
     session: Session,
     user_id: uuid.UUID,
-    benchmark: BenchmarkCode,
+    benchmarks: list[BenchmarkCode],
     base_currency: str,
     today: date | None = None,
 ) -> PortfolioRiskResult:
     today = today or today_et()
     nyse_days = _index_days(session, "sp500", today)
-    selected_days = nyse_days if benchmark == "sp500" else _index_days(session, benchmark, today)
     sp_returns = _index_returns(session, "sp500", nyse_days, base_currency)
-    benchmark_returns = (
-        sp_returns
-        if benchmark == "sp500"
-        else _index_returns(session, benchmark, selected_days, base_currency)
-    )
     portfolio_returns: dict[date, Decimal] = {}
     if nyse_days:
         tracking_start = _tracking_start(session, user_id)
@@ -307,7 +301,15 @@ def compute_portfolio_risk(
             if link is not None and tracking_start is not None and day > tracking_start:
                 portfolio_returns[day] = link
     portfolio_vol = _rolling_vol(nyse_days, portfolio_returns, nyse_days[-WINDOW:])
-    benchmark_vol = _rolling_vol(selected_days, benchmark_returns, selected_days[-WINDOW:])
+    benchmark_vols: list[tuple[BenchmarkCode, VolSeries]] = []
+    for code in dict.fromkeys(benchmarks):
+        selected_days = nyse_days if code == "sp500" else _index_days(session, code, today)
+        returns = (
+            sp_returns
+            if code == "sp500"
+            else _index_returns(session, code, selected_days, base_currency)
+        )
+        benchmark_vols.append((code, _rolling_vol(selected_days, returns, selected_days[-WINDOW:])))
     beta = _beta(nyse_days, portfolio_returns, sp_returns)
     holdings = compute_portfolio(session, user_id=user_id, base_currency=base_currency).holdings
     manual_share = _manual_share(holdings)
@@ -358,5 +360,5 @@ def compute_portfolio_risk(
     else:
         deviation = _deviation(holdings, answers)
     return PortfolioRiskResult(
-        base_currency, portfolio_vol, benchmark_vol, benchmark, beta, risk, deviation, manual_share
+        base_currency, portfolio_vol, benchmark_vols, beta, risk, deviation, manual_share
     )
