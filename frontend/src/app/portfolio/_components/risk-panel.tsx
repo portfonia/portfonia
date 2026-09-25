@@ -2,11 +2,68 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
+import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, type TooltipContentProps } from "recharts";
 
+import { useLocale } from "@/app/_components/locale-provider";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { BENCHMARK_CODES, getPortfolioRisk, type BenchmarkCode, type PortfolioRiskResponse } from "@/lib/api";
 import { BenchmarkSingleSelectMenu } from "../performance/_components/benchmark-single-select-menu";
+import { formatFullDate, formatShortDate, formatTickPct } from "../performance/_components/performance-format";
+
+// Display copy only; mirrors MIN_SAMPLES and MANUAL_SHARE_LIMIT in portfolio_risk.py.
+const MIN_SAMPLE_COPY = 10;
+const MANUAL_SHARE_LIMIT_COPY = "66%";
+
+type RiskPoint = { t: number; vol: number };
+
+export function toTimestamp(iso: string): number {
+  const [year, month, day] = iso.split("-").map(Number);
+  return new Date(year, month - 1, day).getTime();
+}
+
+function isoFromTimestamp(t: number): string {
+  const date = new Date(t);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function latestOnOrBefore(series: RiskPoint[], hovered: number): RiskPoint | undefined {
+  return series.findLast((point) => point.t <= hovered);
+}
+
+export function RiskChartTooltip({
+  active, label, payload, portfolio, benchmark, benchmarkName,
+}: {
+  active?: boolean;
+  label?: string | number;
+  payload?: TooltipContentProps["payload"];
+  portfolio: RiskPoint[];
+  benchmark: RiskPoint[];
+  benchmarkName: string;
+}) {
+  const { locale } = useLocale();
+  const t = useTranslations("portfolio.riskPanel");
+  const hovered = label === undefined ? Number(payload?.[0]?.payload?.t) : Number(label);
+  if (!active || !Number.isFinite(hovered)) return null;
+  const entries = [
+    { name: t("portfolio"), color: "#60a5fa", point: latestOnOrBefore(portfolio, hovered) },
+    { name: benchmarkName, color: "#fbbf24", point: latestOnOrBefore(benchmark, hovered) },
+  ].filter((entry) => entry.point !== undefined);
+  if (entries.length === 0) return null;
+  return (
+    <div role="tooltip" className="rounded-lg border border-border bg-card/95 px-3 py-2 text-sm shadow-lg backdrop-blur-sm">
+      <p className="mb-1 font-medium tabular-nums">{formatFullDate(isoFromTimestamp(hovered), locale)}</p>
+      <ul className="flex flex-col gap-1">
+        {entries.map(({ name, color, point }) => point && <li key={name} className="flex flex-col gap-0.5">
+          <span className="flex items-center justify-between gap-4">
+            <span className="flex items-center gap-2 truncate"><span aria-hidden="true" className="size-2 shrink-0 rounded-full" style={{ backgroundColor: color }} /><span className="truncate">{name}</span></span>
+            <span className="shrink-0 tabular-nums">{formatTickPct(point.vol)}</span>
+          </span>
+          {point.t !== hovered && <span className="pl-4 text-xs text-muted-foreground">{t("tooltipAsOf", { date: formatFullDate(isoFromTimestamp(point.t), locale) })}</span>}
+        </li>)}
+      </ul>
+    </div>
+  );
+}
 
 function pct(value: string | null): string {
   return value === null ? "—" : `${(Number(value) * 100).toFixed(1)}%`;
@@ -24,55 +81,57 @@ function ExplanationCell({
   value,
   subtitle,
   explanation,
+  reason,
   children,
 }: {
   name: string;
   value: string;
   subtitle: string;
   explanation: string;
+  reason?: string;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const pointerClick = useRef(false);
   const t = useTranslations("portfolio.riskPanel");
   return (
     <button
       type="button"
-      aria-label={`${name}: ${value}. ${explanation}`}
+      aria-label={`${name}: ${value}. ${explanation}${reason ? ` ${reason}` : ""}`}
       aria-expanded={open}
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
-      onFocus={() => setOpen(true)}
+      onPointerDown={() => { pointerClick.current = true; }}
+      onFocus={() => { if (!pointerClick.current) setOpen(true); }}
       onBlur={() => setOpen(false)}
-      onClick={() => setOpen(true)}
-      className="min-w-0 rounded-xl border border-border bg-background/30 p-4 text-left transition-colors hover:border-primary/50 hover:bg-primary/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+      onClick={() => { pointerClick.current = false; setOpen((current) => !current); }}
+      className="relative h-64 min-w-0 rounded-xl border border-border bg-background/30 p-4 text-left transition-colors hover:border-primary/50 hover:bg-primary/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
     >
       <div className="flex items-center justify-between text-sm font-semibold">
         <span>{name}</span><span aria-hidden="true" className="rounded-full border border-current px-1.5 text-xs">{t("infoSymbol")}</span>
       </div>
       <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>
       {children}
-      {open && <p role="tooltip" className="mt-3 border-t border-border pt-3 text-xs leading-relaxed text-muted-foreground">{explanation}</p>}
+      {open && <span role="tooltip" className="absolute inset-x-3 top-11 z-10 rounded-lg border border-border bg-card p-3 text-xs leading-relaxed text-muted-foreground shadow-lg">{explanation}{reason && <span className="mt-2 block">{reason}</span>}</span>}
     </button>
   );
 }
 
 function BetaGauge({ value }: { value: number | null }) {
   const t = useTranslations("portfolio.riskPanel");
-  if (value === null) return null;
-  const gauge = betaGaugePosition(value);
-  const theta = Math.PI * (1 - gauge.position / 100);
-  const x = 100 + 66 * Math.cos(theta);
-  const y = 86 - 66 * Math.sin(theta);
+  const gauge = value === null ? null : betaGaugePosition(value);
+  const theta = gauge === null ? null : Math.PI * (1 - gauge.position / 100);
+  const x = theta === null ? null : 100 + 66 * Math.cos(theta);
+  const y = theta === null ? null : 86 - 66 * Math.sin(theta);
   return (
     <div className="relative mx-auto mt-4 max-w-56">
       <svg viewBox="0 0 200 115" className="w-full" aria-hidden="true">
         <path d="M 20 86 A 80 80 0 0 1 60 16.7" fill="none" stroke="#4eaa83" strokeWidth="12" />
         <path d="M 60 16.7 A 80 80 0 0 1 140 16.7" fill="none" stroke="#dab55a" strokeWidth="12" />
         <path d="M 140 16.7 A 80 80 0 0 1 180 86" fill="none" stroke="#a15b42" strokeWidth="12" />
-        <line x1="100" y1="86" x2={x} y2={y} stroke="currentColor" strokeWidth="2" />
-        <circle cx="100" cy="86" r="4" fill="currentColor" />
+        {x !== null && y !== null && <><line x1="100" y1="86" x2={x} y2={y} stroke="currentColor" strokeWidth="2" /><circle cx="100" cy="86" r="4" fill="currentColor" /></>}
       </svg>
-      <div className="absolute inset-x-0 bottom-4 text-center font-heading text-3xl tabular-nums">{value.toFixed(2)}</div>
+      <div className={`absolute inset-x-0 bottom-4 text-center font-heading tabular-nums ${value === null ? "text-sm" : "text-3xl"}`}>{value === null ? t("insufficientSample") : value.toFixed(2)}</div>
       <div className="flex justify-between text-xs text-muted-foreground"><span>{t("betaZero")}</span><span>{t("betaThree")}</span></div>
     </div>
   );
@@ -97,24 +156,10 @@ function Scale({ position, labels, marker }: { position: number | null; labels: 
   );
 }
 
-function chartRows(data: PortfolioRiskResponse) {
-  const rows = new Map<string, { date: string; portfolio: number | null; benchmark: number | null }>();
-  if (data.portfolio_vol.status === "ok") {
-    for (const point of data.portfolio_vol.points) rows.set(point.date, { date: point.date, portfolio: Number(point.vol) * 100, benchmark: null });
-  }
-  if (data.benchmark_vol.status === "ok") {
-    for (const point of data.benchmark_vol.points) {
-      const row = rows.get(point.date) ?? { date: point.date, portfolio: null, benchmark: null };
-      row.benchmark = Number(point.vol) * 100;
-      rows.set(point.date, row);
-    }
-  }
-  return [...rows.values()].sort((a, b) => a.date.localeCompare(b.date));
-}
-
 export function RiskPanel({ baseCurrency }: { baseCurrency: string }) {
   const t = useTranslations("portfolio.riskPanel");
   const names = useTranslations("portfolio.performance.benchmarkNames");
+  const { locale } = useLocale();
   const [benchmark, setBenchmark] = useState<BenchmarkCode>(BENCHMARK_CODES[0]);
   const [data, setData] = useState<PortfolioRiskResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -137,7 +182,16 @@ export function RiskPanel({ baseCurrency }: { baseCurrency: string }) {
     ? t(`states.${data.deviation.status}`)
     : delta > 0 ? t("aggressiveDirection", { count: delta })
       : delta < 0 ? t("conservativeDirection", { count: Math.abs(delta) }) : t("match");
-  const rows = data ? chartRows(data) : [];
+  const portfolioSeries = data?.portfolio_vol.points.map((point) => ({ t: toTimestamp(point.date), vol: Number(point.vol) })) ?? [];
+  const benchmarkSeries = data?.benchmark_vol.points.map((point) => ({ t: toTimestamp(point.date), vol: Number(point.vol) })) ?? [];
+  const insufficientReason = (count: number) => t("reason.insufficient", { min: MIN_SAMPLE_COPY, count });
+  const betaReason = data?.beta.status === "insufficient_sample" ? insufficientReason(data.beta.sample_count) : undefined;
+  const riskReason = !data || data.risk.status === "ok" ? undefined
+    : data.risk.status === "insufficient_sample" ? insufficientReason(data.portfolio_vol.sample_count)
+      : data.risk.status === "data_quality" ? t("reason.manualShare", { share: pct(data.manual_valuation_share), limit: MANUAL_SHARE_LIMIT_COPY })
+        : t("reason.noQuestionnaire");
+  const deviationReason = data?.deviation.status === "no_questionnaire" ? t("reason.noQuestionnaire")
+    : data?.deviation.status === "no_valued_holdings" ? t("reason.noValuedHoldings") : undefined;
 
   return (
     <Card>
@@ -146,21 +200,19 @@ export function RiskPanel({ baseCurrency }: { baseCurrency: string }) {
         <CardDescription>{t("subtitle")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6 px-4">
-        {loading || (data !== null && data.base_currency !== baseCurrency) ? <div role="status" aria-label={t("loading")} className="grid gap-4 min-[461px]:grid-cols-2 min-[721px]:grid-cols-[1.15fr_1fr_1fr]">
-          {[0, 1, 2].map((n) => <div key={n} className="h-56 animate-pulse rounded-xl bg-muted" />)}
+        {loading || (data !== null && data.base_currency !== baseCurrency) ? <div role="status" aria-label={t("loading")} className="grid grid-cols-1 gap-4 min-[461px]:grid-cols-2 min-[721px]:grid-cols-3">
+          {[0, 1, 2].map((n) => <div key={n} className="h-64 animate-pulse rounded-xl bg-muted" />)}
         </div> : error ? <p role="alert" className="text-sm text-destructive">{t("loadError")}</p> : data && <>
-          <div className="grid gap-4 min-[461px]:grid-cols-2 min-[721px]:grid-cols-[1.15fr_1fr_1fr]">
-            <div className="min-[461px]:col-span-2 min-[721px]:col-span-1">
-              <ExplanationCell name={t("beta")} value={betaText} subtitle={t("betaSubtitle")} explanation={t("betaExplanation")}>
-                {betaValue === null ? <p className="mt-5 text-xl">{betaText}</p> : <BetaGauge value={betaValue} />}
-              </ExplanationCell>
-            </div>
-            <ExplanationCell name={t("risk")} value={riskText} subtitle={t("riskSubtitle")} explanation={t("riskExplanation")}>
+          <div className="grid grid-cols-1 gap-4 min-[461px]:grid-cols-2 min-[721px]:grid-cols-3">
+            <ExplanationCell name={t("beta")} value={betaText} subtitle={t("betaSubtitle")} explanation={t("betaExplanation")} reason={betaReason}>
+              <BetaGauge value={betaValue} />
+            </ExplanationCell>
+            <ExplanationCell name={t("risk")} value={riskText} subtitle={t("riskSubtitle")} explanation={t("riskExplanation")} reason={riskReason}>
               <p className="mt-7 min-h-12 font-heading text-xl text-primary">{riskText}</p>
               <Scale position={data.risk.label ? ({ within: 16.67, caution: 50, exceeds: 83.33 })[data.risk.label] : null} labels={[t("riskLabels.within"), t("riskLabels.caution"), t("riskLabels.exceeds")]} marker="triangle" />
               <p className="mt-4 text-xs text-muted-foreground">{t("objectiveTier", { tier: data.portfolio_vol.tier ? t(`tiers.${data.portfolio_vol.tier}`) : t("insufficientSample") })}</p>
             </ExplanationCell>
-            <ExplanationCell name={t("deviation")} value={deviationText} subtitle={t("deviationSubtitle")} explanation={t("deviationExplanation")}>
+            <ExplanationCell name={t("deviation")} value={deviationText} subtitle={t("deviationSubtitle")} explanation={t("deviationExplanation")} reason={deviationReason}>
               <p className="mt-7 min-h-12 font-heading text-xl text-primary">{deviationText}</p>
               <Scale position={delta === null || delta === undefined ? null : (delta + 2) * 25} labels={[t("conservative"), t("matchShort"), t("aggressive")]} marker="line" />
               <p className="mt-4 text-xs text-muted-foreground">{t("deviationSubline")}</p>
@@ -177,15 +229,16 @@ export function RiskPanel({ baseCurrency }: { baseCurrency: string }) {
             </div>
             {data.portfolio_vol.status === "ok" || data.benchmark_vol.status === "ok" ? <div role="img" aria-label={t("chartDescription", { benchmark: names(benchmark) })} className="mt-5 h-56 w-full min-w-0">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={rows} margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+                <LineChart margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="date" hide /><YAxis hide domain={[0, "auto"]} />
-                  {data.portfolio_vol.status === "ok" && <Line dataKey="portfolio" type="monotone" stroke="#60a5fa" dot={false} connectNulls isAnimationActive={false} />}
-                  {data.benchmark_vol.status === "ok" && <Line dataKey="benchmark" type="monotone" stroke="#fbbf24" dot={false} connectNulls isAnimationActive={false} />}
+                  <XAxis type="number" dataKey="t" scale="time" domain={["dataMin", "dataMax"]} tickFormatter={(value: number) => formatShortDate(isoFromTimestamp(value), locale)} />
+                  <YAxis tickFormatter={formatTickPct} domain={[0, "auto"]} width={52} />
+                  <Tooltip content={(props: TooltipContentProps) => <RiskChartTooltip {...props} portfolio={data.portfolio_vol.status === "ok" ? portfolioSeries : []} benchmark={data.benchmark_vol.status === "ok" ? benchmarkSeries : []} benchmarkName={names(benchmark)} />} />
+                  {data.portfolio_vol.status === "ok" && <Line data={portfolioSeries} dataKey="vol" type="monotone" stroke="#60a5fa" dot={false} isAnimationActive={false} />}
+                  {data.benchmark_vol.status === "ok" && <Line data={benchmarkSeries} dataKey="vol" type="monotone" stroke="#fbbf24" dot={false} isAnimationActive={false} />}
                 </LineChart>
               </ResponsiveContainer>
             </div> : <p className="mt-5 text-sm text-muted-foreground">{t("insufficientSample")}</p>}
-            <div className="flex justify-between text-xs text-muted-foreground"><span>{t("sixtyDaysAgo")}</span><span>{t("now")}</span></div>
             <p className="mt-3 text-xs text-muted-foreground">{t("sampleDisclosure", { portfolioStart: data.portfolio_vol.window_start ?? "—", portfolioEnd: data.portfolio_vol.window_end ?? "—", portfolioCount: data.portfolio_vol.sample_count, benchmarkStart: data.benchmark_vol.window_start ?? "—", benchmarkEnd: data.benchmark_vol.window_end ?? "—", benchmarkCount: data.benchmark_vol.sample_count, benchmark: names(benchmark), currency: data.base_currency })}</p>
             <p className="mt-1 text-xs text-muted-foreground">{t("manualShare", { share: pct(data.manual_valuation_share) })}</p>
           </section>

@@ -1,15 +1,15 @@
-# Portfolio historical volatility and risk (issue #551)
+# Portfolio historical volatility and risk (issues #551 and #553)
 
-`GET /portfolio/risk` is a read-only companion to Portfolio Overview. It does not change `/portfolio/summary` or `/portfolio/performance`. The panel appears after Unrealized P&L. The authoritative product contract is issue #551 and its Requirements, Reasons, Exploration, Design, and Contract constraints comments.
+`GET /portfolio/risk` is a read-only companion to Portfolio Overview. It does not change `/portfolio/summary` or `/portfolio/performance`. The panel appears after Unrealized P&L. Issue #551 defines the original product contract; issue #553 supersedes its sampling, chart, and indicator-cell rules. Each issue has Requirements, Reasons, Exploration, Design, and Contract constraints comments.
 
 ## Data and sampling
 
-- The portfolio uses unrounded approximate-TWR `daily_links` from `portfolio_performance._build_portfolio_series`. The service excludes dates without a complete snapshot batch, dates on or before the real tracking start, and any day with an `approx_carried` snapshot row. Other snapshot quality marks follow the existing TWR calculation.
+- The portfolio uses unrounded approximate-TWR `daily_links` from `portfolio_performance._build_portfolio_series`. A valid sample is a NYSE day after the real tracking start with a non-null daily link. A link requires a complete snapshot batch. An `approx_carried` row no longer excludes the entire day; other snapshot quality marks follow the existing TWR calculation.
 - S&P 500 close dates in `benchmark_prices` define the NYSE calendar for portfolio volatility and Beta. The selected benchmark's own close dates define its gold-line calendar. A switch of benchmark cannot change the portfolio series, Beta, or Risk.
-- Each current window contains at most 60 trading dates on its own calendar. A rolling point needs at least 22 valid simple daily returns. Volatility is sample standard deviation times √252. Beta uses same-day portfolio/S&P returns in the display currency and is unavailable with fewer than 22 pairs or zero S&P variance.
+- Each current window contains at most 60 trading dates on its own calendar. A rolling point needs at least 10 valid simple daily returns. Volatility is sample standard deviation times √252. Beta uses same-day portfolio/S&P returns in the display currency and is unavailable with fewer than 10 pairs or zero S&P variance.
 - An index return requires actual closes on both adjacent index trading dates and resolved FX valuation on both dates. A bounded as-of FX rate may mark the valuation as carried while remaining resolved; that mark alone does not discard the return.
 - The endpoint returns status and `null` for unavailable values, never a fabricated zero. Window dates and sample counts are exposed separately for each line. An empty holdings list does not suppress independently computable benchmark volatility (owner clarification, 2026-09-24).
-- Fewer than 22 valid portfolio samples makes portfolio volatility and Beta unavailable while a sufficiently sampled index can still return its gold-line value and points. Risk follows its questionnaire or insufficient-sample branch. Deviation remains based on current valued holdings and a submitted questionnaire; historical sample count does not gate it.
+- Fewer than 10 valid portfolio samples makes portfolio volatility and Beta unavailable while a sufficiently sampled index can still return its gold-line value and points. Risk follows its questionnaire or insufficient-sample branch. Deviation remains based on current valued holdings and a submitted questionnaire; historical sample count does not gate it.
 
 ## Current holdings and questionnaire
 
@@ -21,6 +21,10 @@ The thresholds are named constants in `backend/app/services/portfolio_risk.py`; 
 
 ## UI and scope
 
-`risk-panel.tsx` fetches the endpoint for the Overview display currency and a local benchmark selection. It renders Beta's fixed S&P gauge, questionnaire-relative Risk, structural Deviation, and the two rolling volatility lines with separate status copy and sample disclosure. If portfolio samples are insufficient but benchmark samples suffice, the chart shows only the gold line; the portfolio legend says "insufficient sample" and the benchmark selector remains available. A single chart-level insufficient-sample message appears only when both series are insufficient. Explanations are static translated descriptions, with no per-user answer or holding facts. The three locale catalogs carry all user-facing text. The panel is descriptive and makes no trading recommendation.
+`risk-panel.tsx` fetches the endpoint for the Overview display currency and a local benchmark selection. It renders Beta's fixed S&P gauge, questionnaire-relative Risk, structural Deviation, and the two rolling volatility lines with separate status copy and sample disclosure. If portfolio samples are insufficient but benchmark samples suffice, the chart shows only the gold line; the portfolio legend says "insufficient sample" and the benchmark selector remains available. A single chart-level insufficient-sample message appears only when both series are insufficient.
+
+The chart uses a numeric time axis and passes each line its own dated points. Calendar differences create no artificial null rows or fragments. Real data gaps are not specially rendered: a line spans them at their actual time spacing. If explicit gap breaks become necessary, issue #553 Exploration records option (b): return nullable volatility points for uncomputable days and let Recharts break the line natively. The present API remains unchanged. Date and percent axes and the hover tooltip make the values readable; each tooltip row uses that line's latest point on or before the hovered date and marks an earlier point "as of" its own date.
+
+The three equal fixed-height cells show explanations in overlays, including a data-state reason when a metric is unavailable. Beta's gauge arcs remain visible without a value or needle. Explanations are translated descriptions, with no per-user answer or holding facts. The three locale catalogs carry all user-facing text. The panel is descriptive and makes no trading recommendation.
 
 No migration, capture task, provider fetch, backfill, persisted selection, report change, or production data operation is part of this mechanism.
