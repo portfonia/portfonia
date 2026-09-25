@@ -434,7 +434,7 @@
   "portfolio": {
     "riskPanel": {
       "infoSymbol": "i",
-      "betaZero": "β=0",
+      "betaMinusOne": "β=−1",
       "betaThree": "β=3",
       "title": "Historical volatility & risk",
       "subtitle": "Real holdings snapshots · last 60 trading days · annualized",
@@ -477,6 +477,7 @@
       "benchmarkSelector": "Volatility comparison benchmark",
       "portfolio": "Portfolio",
       "chartDescription": "Rolling annualized volatility of the portfolio and {benchmark}",
+      "chartDescriptionPortfolioOnly": "Rolling annualized volatility of the portfolio",
       "tooltipAsOf": "as of {date}",
       "reason": {
         "insufficient": "Needs at least {min} valid trading days; currently {count}.",
@@ -485,7 +486,8 @@
         "noValuedHoldings": "No valued holdings yet."
       },
       "insufficientSample": "Insufficient sample",
-      "sampleDisclosure": "Portfolio {portfolioStart}–{portfolioEnd}: {portfolioCount} valid returns · {benchmark} {benchmarkStart}–{benchmarkEnd}: {benchmarkCount} valid returns · ×√252 · {currency} · approximate TWR",
+      "sampleDisclosurePortfolio": "Portfolio {start}–{end}: {count} valid returns · ×√252 · {currency} · approximate TWR",
+      "sampleDisclosureBenchmark": "{benchmark} {start}–{end}: {count} valid returns",
       "manualShare": "Manual valuation share: {share}",
       "footnote": "Historical volatility measures fluctuation in daily returns. The Performance page’s Growth of tracked value vs. benchmarks shows cumulative growth; these are different metrics and cannot substitute for each other. Historical statistics do not predict future results."
     },
