@@ -13,6 +13,26 @@ import { LocaleProvider } from "@/app/_components/locale-provider";
 import type { PortfolioRiskResponse } from "@/lib/api";
 import { RiskPanel, betaGaugePosition } from "./risk-panel";
 
+// Recharts needs a reported size before it emits actual SVG paths.
+class SizedResizeObserver {
+  private callback: ResizeObserverCallback;
+  constructor(callback: ResizeObserverCallback) { this.callback = callback; }
+  observe(target: Element): void {
+    this.callback([{
+      target,
+      contentRect: {
+        x: 0, y: 0, width: 800, height: 300, top: 0, right: 800, bottom: 300,
+        left: 0, toJSON: () => ({}),
+      },
+    } as ResizeObserverEntry], this as unknown as ResizeObserver);
+  }
+  unobserve(): void {}
+  disconnect(): void {}
+}
+if (typeof globalThis.ResizeObserver !== "undefined") {
+  (globalThis as { ResizeObserver: unknown }).ResizeObserver = SizedResizeObserver;
+}
+
 const data: PortfolioRiskResponse = {
   base_currency: "USD",
   portfolio_vol: { status: "ok", current: "0.1860", tier: "medium", window_start: "2026-06-01", window_end: "2026-08-24", sample_count: 60, points: [{ date: "2026-08-24", vol: "0.1860" }] },
@@ -89,4 +109,50 @@ it("renders independent unavailable states without hiding the chart", async () =
   expect(screen.getByText(/Insufficient data quality/)).toBeInTheDocument();
   expect(screen.getByText(/No valued holdings/)).toBeInTheDocument();
   expect(screen.getByText("18.6%")).toBeInTheDocument();
+});
+
+it("shows only the benchmark curve when portfolio samples are insufficient", async () => {
+  const insufficient: PortfolioRiskResponse = {
+    ...data,
+    portfolio_vol: { status: "insufficient_sample", current: null, tier: null, window_start: "2026-06-01", window_end: "2026-08-24", sample_count: 10, points: [] },
+    benchmark_vol: { ...data.benchmark_vol, points: [{ date: "2026-08-23", vol: "0.1300" }, { date: "2026-08-24", vol: "0.1420" }] },
+    beta: { status: "insufficient_sample", value: null, sample_count: 10 },
+    risk: { status: "insufficient_sample", label: null },
+    deviation: { status: "ok", delta: 1 },
+  };
+  getPortfolioRisk.mockResolvedValueOnce(insufficient).mockResolvedValueOnce({
+    ...insufficient,
+    benchmark_vol: { ...insufficient.benchmark_vol, code: "csi300", current: "0.2300", points: [{ date: "2026-08-23", vol: "0.2100" }, { date: "2026-08-24", vol: "0.2300" }] },
+  });
+  const { container } = render(<LocaleProvider><RiskPanel baseCurrency="USD" /></LocaleProvider>);
+  await waitFor(() => expect(container.querySelector('path.recharts-line-curve[stroke="#fbbf24"]')).not.toBeNull());
+  expect(container.querySelector('path.recharts-line-curve[stroke="#60a5fa"]')).toBeNull();
+  const chart = screen.getByRole("img", { name: /Rolling annualized volatility/ }).closest("section");
+  expect(chart).not.toBeNull();
+  expect(chart).toHaveTextContent("Portfolio: Insufficient sample");
+  expect(chart).toHaveTextContent("S&P 500: 14.2%");
+  expect(screen.getByRole("button", { name: /Beta: Insufficient sample/ })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Risk: Insufficient sample/ })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Deviation: Aggressive direction \+1/ })).toBeInTheDocument();
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: /Volatility comparison benchmark/i }));
+  await user.click(await screen.findByRole("menuitem", { name: "CSI 300" }));
+  await waitFor(() => expect(getPortfolioRisk).toHaveBeenLastCalledWith("csi300", "USD"));
+  expect(await screen.findByText("23.0%")).toBeInTheDocument();
+  expect(container.querySelector('path.recharts-line-curve[stroke="#60a5fa"]')).toBeNull();
+});
+
+it("shows one chart message when neither curve has enough samples", async () => {
+  const unavailable = { ...data.portfolio_vol, status: "insufficient_sample" as const, current: null, tier: null, points: [] };
+  getPortfolioRisk.mockResolvedValue({
+    ...data,
+    portfolio_vol: unavailable,
+    benchmark_vol: { ...unavailable, code: "sp500" },
+    beta: { status: "insufficient_sample", value: null, sample_count: 10 },
+    risk: { status: "insufficient_sample", label: null },
+  });
+  render(<LocaleProvider><RiskPanel baseCurrency="USD" /></LocaleProvider>);
+  const chart = (await screen.findByText("Volatility · annualized historical volatility")).closest("section");
+  expect(chart?.querySelector('[role="img"]')).toBeNull();
+  expect(chart).toHaveTextContent("Insufficient sample");
 });

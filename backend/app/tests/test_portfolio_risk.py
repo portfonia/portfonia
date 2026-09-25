@@ -307,8 +307,99 @@ def test_real_postgres_benchmark_remains_visible_without_holdings(db_session: Se
     db_session.flush()
     result = compute_portfolio_risk(db_session, TEST_USER_ID, "sp500", "USD", today=days[-1])
     assert result.benchmark_vol.status == "ok"
+    assert result.benchmark_vol.current is not None
+    assert result.benchmark_vol.points
     assert result.portfolio_vol.status == "insufficient_sample"
     assert result.beta.status == "insufficient_sample"
     assert result.risk.status == "insufficient_sample"
     assert result.deviation.status == "no_valued_holdings"
     assert result.manual_valuation_share is None
+
+
+def test_real_postgres_ten_portfolio_samples_keep_benchmark_and_deviation(
+    db_session: Session,
+) -> None:
+    import uuid
+
+    seed_user(db_session, TEST_USER_ID)
+    first = date(2026, 8, 3)
+    days = [
+        first + timedelta(days=i) for i in range(36) if (first + timedelta(days=i)).weekday() < 5
+    ]
+    holding_id = uuid.uuid4()
+    value = Decimal("100")
+    for index, day in enumerate(days):
+        db_session.add(
+            BenchmarkPrice(
+                index_code="sp500",
+                price_date=day,
+                close_price=Decimal("100") + (Decimal("1") if index % 2 else Decimal("0")),
+            )
+        )
+        if day in days[-11:]:
+            value *= Decimal("1.01") if index % 2 else Decimal("0.99")
+            db_session.add(
+                PortfolioSnapshotBatch(user_id=TEST_USER_ID, snapshot_date=day, status="complete")
+            )
+            db_session.add(
+                PortfolioValueSnapshot(
+                    user_id=TEST_USER_ID,
+                    snapshot_date=day,
+                    holding_id=holding_id,
+                    currency="USD",
+                    base_currency="USD",
+                    shares=Decimal("1"),
+                    market_value=value,
+                    market_value_base=value,
+                )
+            )
+    db_session.add_all(
+        [
+            Holding(
+                user_id=TEST_USER_ID,
+                name="Tracked asset",
+                pricing_mode="manual",
+                currency="USD",
+                current_value=Decimal("80"),
+                asset_type="other",
+                asset_class="STOCK",
+                market="US",
+            ),
+            Holding(
+                user_id=TEST_USER_ID,
+                name="Cash",
+                pricing_mode="manual",
+                currency="USD",
+                current_value=Decimal("20"),
+                asset_type="cash",
+                asset_class="CASH_EQUIV",
+                market="US",
+            ),
+            UserInvestmentContext(
+                user_id=TEST_USER_ID,
+                questionnaire={
+                    "asset_scale": "100K_500K",
+                    "sectors_of_interest": [],
+                    "intel_focus": "MACRO",
+                    "risk_appetite": "BALANCED",
+                    "horizon": "LONG",
+                    "objective": "GROWTH",
+                    "style": "GROWTH",
+                    "markets": ["US"],
+                },
+                questionnaire_version="v1",
+            ),
+        ]
+    )
+    db_session.flush()
+
+    result = compute_portfolio_risk(db_session, TEST_USER_ID, "sp500", "USD", today=days[-1])
+    assert result.portfolio_vol.status == "insufficient_sample"
+    assert result.portfolio_vol.sample_count == 10
+    assert result.beta.status == "insufficient_sample"
+    assert result.risk.status == "insufficient_sample"
+    assert result.benchmark_vol.status == "ok"
+    assert result.benchmark_vol.current is not None
+    assert result.benchmark_vol.points
+    assert result.deviation.status == "ok"
+    assert result.deviation.delta == 1

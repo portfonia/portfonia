@@ -99,11 +99,15 @@ function Scale({ position, labels, marker }: { position: number | null; labels: 
 
 function chartRows(data: PortfolioRiskResponse) {
   const rows = new Map<string, { date: string; portfolio: number | null; benchmark: number | null }>();
-  for (const point of data.portfolio_vol.points) rows.set(point.date, { date: point.date, portfolio: Number(point.vol) * 100, benchmark: null });
-  for (const point of data.benchmark_vol.points) {
-    const row = rows.get(point.date) ?? { date: point.date, portfolio: null, benchmark: null };
-    row.benchmark = Number(point.vol) * 100;
-    rows.set(point.date, row);
+  if (data.portfolio_vol.status === "ok") {
+    for (const point of data.portfolio_vol.points) rows.set(point.date, { date: point.date, portfolio: Number(point.vol) * 100, benchmark: null });
+  }
+  if (data.benchmark_vol.status === "ok") {
+    for (const point of data.benchmark_vol.points) {
+      const row = rows.get(point.date) ?? { date: point.date, portfolio: null, benchmark: null };
+      row.benchmark = Number(point.vol) * 100;
+      rows.set(point.date, row);
+    }
   }
   return [...rows.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -168,16 +172,16 @@ export function RiskPanel({ baseCurrency }: { baseCurrency: string }) {
               <BenchmarkSingleSelectMenu label={t("benchmarkSelector")} value={benchmark} onChange={setBenchmark} />
             </div>
             <div className="mt-4 flex flex-wrap gap-5 text-sm">
-              <span><span aria-hidden="true" className="mr-2 inline-block h-0.5 w-5 align-middle bg-blue-400" />{t("portfolio")}: <strong>{pct(data.portfolio_vol.current)}</strong></span>
-              <span><span aria-hidden="true" className="mr-2 inline-block h-0.5 w-5 align-middle bg-amber-400" />{names(benchmark)}: <strong>{pct(data.benchmark_vol.current)}</strong></span>
+              <span><span aria-hidden="true" className="mr-2 inline-block h-0.5 w-5 align-middle bg-blue-400" />{t("portfolio")}: <strong>{data.portfolio_vol.status === "ok" ? pct(data.portfolio_vol.current) : t("insufficientSample")}</strong></span>
+              <span><span aria-hidden="true" className="mr-2 inline-block h-0.5 w-5 align-middle bg-amber-400" />{names(benchmark)}: <strong>{data.benchmark_vol.status === "ok" ? pct(data.benchmark_vol.current) : t("insufficientSample")}</strong></span>
             </div>
-            {rows.length ? <div role="img" aria-label={t("chartDescription", { benchmark: names(benchmark) })} className="mt-5 h-56 w-full min-w-0">
+            {data.portfolio_vol.status === "ok" || data.benchmark_vol.status === "ok" ? <div role="img" aria-label={t("chartDescription", { benchmark: names(benchmark) })} className="mt-5 h-56 w-full min-w-0">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={rows} margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
                   <XAxis dataKey="date" hide /><YAxis hide domain={[0, "auto"]} />
-                  <Line dataKey="portfolio" type="monotone" stroke="#60a5fa" dot={false} connectNulls isAnimationActive={false} />
-                  <Line dataKey="benchmark" type="monotone" stroke="#fbbf24" dot={false} connectNulls isAnimationActive={false} />
+                  {data.portfolio_vol.status === "ok" && <Line dataKey="portfolio" type="monotone" stroke="#60a5fa" dot={false} connectNulls isAnimationActive={false} />}
+                  {data.benchmark_vol.status === "ok" && <Line dataKey="benchmark" type="monotone" stroke="#fbbf24" dot={false} connectNulls isAnimationActive={false} />}
                 </LineChart>
               </ResponsiveContainer>
             </div> : <p className="mt-5 text-sm text-muted-foreground">{t("insufficientSample")}</p>}
