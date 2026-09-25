@@ -21,6 +21,7 @@ import { ExportPortfolioButtons } from "./export-portfolio-buttons";
 import { FxAsOfBanner } from "./fx-as-of-banner";
 import { NoLivePriceSection } from "./no-live-price-section";
 import { PnlSummaryCard } from "./pnl-summary-card";
+import { RiskPanel } from "./risk-panel";
 import {
   ACCOUNT_OTHER_KEY,
   formatCurrencyBreakdownRow,
@@ -173,6 +174,8 @@ export function PortfolioPageBody({
       </Card>
 
       <PnlSummaryCard summary={summary} />
+
+      <RiskPanel baseCurrency={summary.base_currency} />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <BreakdownChart
