@@ -219,3 +219,16 @@ already in scope) and `email_sender.py`'s portfolio-overview email (issue
 on the disclaimer being "locale-independent by design", the assumption
 this issue removes). Does not touch the disclaimer's content or its
 template-layer status — only which language renders.
+
+### §1 closing page-links line (issue #560)
+
+§1 ends with one fixed sentence linking to the Portfolio
+(`{FRONTEND_URL}/portfolio`) and Performance (`{FRONTEND_URL}/portfolio/performance`)
+pages. The copy lives in `i18n_glossary.yml` `templates.section1_page_links`
+(`en` + `zh-Hans`) and is rendered by `report_sections._build_section1_page_links`.
+Like the footer, it is template-layer copy that never reaches the LLM:
+`report_generator._render_full_md` translates `header + window + §1` and the
+LLM body in two `_translate_md` calls and splices the already-localized line
+between them, so the wording and URLs stay byte-exact. Because translation
+chunks at `## `/`### ` headings, splitting the call does not change the chunk
+set. The non-`en` compliance re-scan still runs over the spliced output.

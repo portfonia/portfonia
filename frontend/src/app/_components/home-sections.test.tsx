@@ -578,7 +578,7 @@ describe("HomeSections product previews (issue #549)", () => {
     const { container } = render(<LocaleProvider><HomeSections /></LocaleProvider>);
     const risk = screen.getByTestId("home-risk-preview");
     const riskHeading = screen.getByRole("heading", { level: 2, name: "Portfolio risk" });
-    const riskCta = screen.getByRole("heading", { level: 2, name: "Lasting results come from keeping risk in check" });
+    const riskCta = screen.getByRole("heading", { level: 2, name: "Going the distance means balancing opportunity and risk" });
     const overview = screen.getByRole("heading", { level: 2, name: catalogs.en.home.productPreviews.portfolioHeading });
     const performance = screen.getByRole("heading", { level: 2, name: catalogs.en.home.productPreviews.performanceHeading });
     const finalCta = screen.getByRole("heading", { level: 2, name: catalogs.en.home.productPreviews.ctaHeading });
@@ -588,7 +588,7 @@ describe("HomeSections product previews (issue #549)", () => {
     expect(overview.compareDocumentPosition(performance)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(performance.compareDocumentPosition(finalCta)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(screen.getByText("Sample figures, not your holdings. The same illustrative portfolio's historical volatility, Beta against the S&P 500, and where it sits against a personal questionnaire.")).toBeInTheDocument();
-    expect(screen.getByText("Returns decide how fast you go; risk decides how far. See how much your portfolio swings, how closely it moves with the market, and how far it sits from the tolerance you set.")).toBeInTheDocument();
+    expect(screen.getByText("Opportunity decides how fast you can go; risk decides how steady the ride is. The two reinforce and constrain each other, and you need both. Here you can see how much your portfolio swings, how closely it moves with the market, and how far it sits from the tolerance you set.")).toBeInTheDocument();
     expect(container.querySelectorAll('[data-testid="home-risk-preview"]')).toHaveLength(1);
   });
 
@@ -627,11 +627,11 @@ describe("HomeSections product previews (issue #549)", () => {
       expect(series.window_end).toBe("2026-09-18");
     }
     expect(catalogs.en.home.productPreviews.riskHeading).toBe("Portfolio risk");
-    expect(catalogs.en.home.productPreviews.riskCtaHeading).toBe("Lasting results come from keeping risk in check");
+    expect(catalogs.en.home.productPreviews.riskCtaHeading).toBe("Going the distance means balancing opportunity and risk");
     expect(catalogs["zh-Hans"].home.productPreviews.riskHeading).toBe("风险画像");
     expect(catalogs["zh-Hans"].home.productPreviews.riskBody).toBe("示例数字，不是你的持仓。同一份示例组合的历史波动、相对 S&P 500 的 Beta，以及对照个人问卷的风险位置与偏离度。");
-    expect(catalogs["zh-Hans"].home.productPreviews.riskCtaHeading).toBe("走得长远，靠的是管住风险");
-    expect(catalogs["zh-Hans"].home.productPreviews.riskCtaBody).toBe("收益决定你能走多快，风险决定你能走多远。先看清组合的波动有多大、和大盘有多同步、离自己设定的承受范围有多远。");
+    expect(catalogs["zh-Hans"].home.productPreviews.riskCtaHeading).toBe("走得长远，需要平衡好机会与风险");
+    expect(catalogs["zh-Hans"].home.productPreviews.riskCtaBody).toBe("收益机会决定你能走多快，风险决定你能走多稳。两者相辅相成，又互相制约，缺一不可。在这里看清组合的波动有多大、和大盘有多同步、离自己设定的承受范围有多远。");
     for (const locale of LOCALES) {
       const copy = catalogs[locale].home.productPreviews;
       for (const key of ["riskHeading", "riskBody", "riskCtaHeading", "riskCtaBody"] as const) expect(copy[key]).toBeTruthy();

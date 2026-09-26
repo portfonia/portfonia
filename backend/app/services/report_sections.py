@@ -11,6 +11,7 @@ from datetime import date, datetime
 from string import Template
 from typing import Any
 
+from app.core.config import get_settings
 from app.core.timezones import ET
 from app.services.i18n_glossary import load_i18n_glossary, locale_for_output_lang
 from app.services.portfolio_calculator import format_fx_rates_as_of
@@ -135,6 +136,20 @@ def _build_section1(portfolio: dict[str, Any]) -> str:
         )
 
     return "\n".join(lines)
+
+
+def _build_section1_page_links(output_lang: str = "en") -> str:
+    """Closing §1 line linking to the Portfolio / Performance pages (issue #560).
+
+    Fixed template copy from i18n_glossary.yml, already in `output_lang` —
+    the caller splices it in after translation, like `_build_footer`.
+    """
+    base = get_settings().FRONTEND_URL.rstrip("/")
+    template = load_i18n_glossary().templates["section1_page_links"]
+    return Template(template[locale_for_output_lang(output_lang)]).substitute(
+        portfolio_url=f"{base}/portfolio",
+        performance_url=f"{base}/portfolio/performance",
+    )
 
 
 # ---------------------------------------------------------------------------
