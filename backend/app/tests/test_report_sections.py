@@ -704,3 +704,39 @@ def test_build_section1_marks_stale_priced_rows_inline() -> None:
     assert "[price stale]" in psh_row  # stale but priced → inline marker
     assert "[price stale]" not in fresh_row  # fresh row unmasked
     assert "100" in psh_row  # value still shown (included in totals)
+
+
+# ---------------------------------------------------------------------------
+# Issue #560 — §1 closing line linking to the Portfolio / Performance pages.
+# ---------------------------------------------------------------------------
+
+
+def _page_urls() -> tuple[str, str]:
+    from app.core.config import get_settings
+
+    base = get_settings().FRONTEND_URL.rstrip("/")
+    return f"{base}/portfolio", f"{base}/portfolio/performance"
+
+
+def test_section1_page_links_en_is_exact_template_with_frontend_urls() -> None:
+    portfolio_url, performance_url = _page_urls()
+    assert sec._build_section1_page_links("en") == (
+        f"Want a closer look? Open [Portfolio]({portfolio_url}) to explore your "
+        f"holdings, allocation and risk, or [Performance]({performance_url}) to "
+        "follow your returns and long-term trends."
+    )
+
+
+def test_section1_page_links_zh_renders_zh_hans_with_same_urls() -> None:
+    portfolio_url, performance_url = _page_urls()
+    line = sec._build_section1_page_links("zh")
+    assert f"[持仓总览]({portfolio_url})" in line
+    assert f"[业绩表现]({performance_url})" in line
+    assert "Want a closer look" not in line
+
+
+def test_section1_page_links_carry_no_forbidden_vocabulary() -> None:
+    from app.compliance.output_scan import _scan_forbidden_output
+
+    for lang in ("en", "zh"):
+        assert _scan_forbidden_output(sec._build_section1_page_links(lang)) == []

@@ -153,6 +153,13 @@ templates:
   disclaimer:
     en: "This report is generated automatically by an AI large language model (LLM) system. AI-generated content may contain imprecise, incomplete, or inaccurate language and does not represent the views or opinions of the sender. This report is provided for informational purposes only. It does not constitute investment advice, a recommendation to buy or sell any security, or a solicitation of any investment. Past performance is not indicative of future results. The sender accepts no responsibility for any decisions made based on this content. Always consult a qualified financial advisor before making investment decisions."
     zh-Hans: "本报告由AI大型语言模型（LLM）系统自动生成。AI生成内容可能包含不精确、不完整或不准确的措辞，不代表发送方的观点或意见。本报告仅供参考，不构成投资建议、证券买卖推荐或投资招揽。历史业绩不代表未来表现。对于基于本内容所作出的任何决策，发送方不承担任何责任。在做出任何投资决策前，请咨询持牌财务顾问。"
+  # Closing line of §1 (issue #560), spliced in after translation by
+  # report_generator._render_full_md so the LLM never paraphrases it or
+  # its URLs. $portfolio_url / $performance_url are built from
+  # Settings.FRONTEND_URL; link texts match the site menu labels.
+  section1_page_links:
+    en: "Want a closer look? Open [Portfolio]($portfolio_url) to explore your holdings, allocation and risk, or [Performance]($performance_url) to follow your returns and long-term trends."
+    zh-Hans: "想看得更深入？在[持仓总览]($portfolio_url)中查看持仓结构、分布与风险，在[业绩表现]($performance_url)中追踪收益与长期趋势。"
   cross_reference_example:
     # A concrete example of the §-anchor marker the Pass 2 prompt permits the
     # LLM to emit (report_generator._build_pass2_prompt's §4.2 rule).

@@ -4015,3 +4015,47 @@ def test_report_fx_stale_alert_is_warning(db_session: Session) -> None:
     mock_alert = _generate_report_with_snap(db_session, snap)
     fx_stale = next(c for c in mock_alert.call_args_list if "FX rates stale" in c.kwargs["subject"])
     assert fx_stale.kwargs["severity"] == "WARNING"
+
+
+# ---------------------------------------------------------------------------
+# Issue #560 — §1 closing page-links line is template-layer copy, spliced in
+# after translation so the LLM never sees or paraphrases it.
+# ---------------------------------------------------------------------------
+
+_LINKS_PORTFOLIO: dict[str, Any] = {
+    "base_currency": "USD",
+    "total_base": 10000,
+    "fx_rates_as_of": {},
+    "holdings": [],
+    "by_market": {"US": 10000},
+}
+_LINKS_RAW_BODY = "## §2 Macro Context\n\nRates were steady.\n"
+
+
+def test_render_full_md_places_page_links_at_end_of_section1_en() -> None:
+    from app.services.report_sections import _build_section1_page_links
+
+    full_md, _v, _t = rg._render_full_md("2026-09-25", _LINKS_PORTFOLIO, [], _LINKS_RAW_BODY, "en")
+    links = _build_section1_page_links("en")
+    assert links in full_md
+    assert full_md.index("**Distribution:**") < full_md.index(links) < full_md.index("## §2")
+
+
+def test_render_full_md_zh_keeps_page_links_out_of_translation() -> None:
+    from app.services.report_sections import _build_section1_page_links
+
+    seen: list[str] = []
+
+    def _fake_translate(md: str, lang: str) -> str:
+        seen.append(md)
+        return f"[{lang}]\n{md}"
+
+    with patch("app.services.report_generator._translate_md", side_effect=_fake_translate):
+        full_md, violations, _t = rg._render_full_md(
+            "2026-09-25", _LINKS_PORTFOLIO, [], _LINKS_RAW_BODY, "zh"
+        )
+    zh_links = _build_section1_page_links("zh")
+    assert zh_links in full_md
+    assert full_md.index(zh_links) < full_md.index("## §2")
+    assert all("Want a closer look" not in md and zh_links not in md for md in seen)
+    assert violations == []

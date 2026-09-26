@@ -113,6 +113,7 @@ from app.services.report_sections import (
     _build_footer,
     _build_forward_block,
     _build_section1,
+    _build_section1_page_links,
     _build_section42_table,
     _build_section44_technical,
     _build_today_events_block,
@@ -446,12 +447,18 @@ def _render_full_md(
         news_items, portfolio, period_start, period_end, trading_days, price_data_through
     )
     section1 = _build_section1(portfolio)
-    dynamic_en = header + window + section1 + "\n\n" + cleaned
 
     # Compliance scan on the English canonical first (highest-signal blacklist).
     violations = _scan_forbidden_output(cleaned)
 
-    dynamic_out = _translate_md(dynamic_en, output_lang)
+    # Translate the snapshot and the body separately so §1's closing page-links
+    # line (issue #560) is spliced in already localized and never reaches the
+    # LLM. Chunking is by heading, so the chunk set is unchanged.
+    snapshot_out = _translate_md(header + window + section1, output_lang)
+    body_out = _translate_md(cleaned, output_lang)
+    dynamic_out = (
+        snapshot_out.rstrip() + "\n\n" + _build_section1_page_links(output_lang) + "\n\n" + body_out
+    )
     # The translator can re-add its own disclaimer paragraph (it runs after the
     # pre-translation strip); remove it so the body carries no disclaimer and the
     # scan does not false-trip on its advisory-sounding wording in either language.
