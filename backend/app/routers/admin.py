@@ -66,6 +66,7 @@ from app.services.credit_ledger import (
     InsufficientCredits,
     adjust_by_admin,
 )
+from app.services.credit_ledger_export import build_balances_csv, build_ledger_csv
 from app.services.email_sender import send_report_email
 from app.services.email_verification import (
     ResendTooSoon,
@@ -176,6 +177,24 @@ class AdminLoggingRoute(APIRoute):
 
 
 router = APIRouter(route_class=AdminLoggingRoute, dependencies=[Depends(require_ops_token)])
+
+
+@router.get("/credits/ledger.csv")
+def export_credit_ledger(session: Session = Depends(get_session)) -> Response:
+    return Response(
+        content=build_ledger_csv(session),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename=credit-ledger-{today_et()}.csv"},
+    )
+
+
+@router.get("/credits/balances.csv")
+def export_credit_balances(session: Session = Depends(get_session)) -> Response:
+    return Response(
+        content=build_balances_csv(session),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename=credit-balances-{today_et()}.csv"},
+    )
 
 
 class RefreshResult(BaseModel):

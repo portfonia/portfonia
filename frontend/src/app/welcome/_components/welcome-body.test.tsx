@@ -10,6 +10,7 @@ import { WelcomeBody } from "./welcome-body";
 
 const _ME: Me = {
   email: "a@b.com",
+  credit_balance: "0.00",
   delivery_email: null,
   email_verified_at: null,
   delivery_email_verified_at: null,

@@ -25,6 +25,7 @@ from app.models.email_verification import EmailVerification
 from app.models.holding import Holding
 from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
+from app.services.credit_ledger import grant_signup_credits
 from app.services.questionnaire_taxonomy import QUESTIONNAIRE_VERSION
 from app.tests.conftest import TEST_USER_ID
 
@@ -87,6 +88,15 @@ def test_me_returns_email_and_delivery_email(app_client: TestClient, db_session:
     body = resp.json()
     assert body["email"] == "me-test@example.com"
     assert body["delivery_email"] == "delivery@example.com"
+
+
+def test_me_credit_balance_with_and_without_grant(
+    app_client: TestClient, db_session: Session
+) -> None:
+    user = _seed_user(db_session)
+    assert app_client.get("/me").json()["credit_balance"] == "0.00"
+    grant_signup_credits(db_session, user)
+    assert app_client.get("/me").json()["credit_balance"] == "5.00"
 
 
 def test_me_delivery_email_null_when_unset(app_client: TestClient, db_session: Session) -> None:
