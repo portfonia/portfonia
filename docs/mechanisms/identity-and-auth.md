@@ -963,3 +963,39 @@ then runs the existing current-password check + `updateUser`. Missing or
 invalid PoW never reaches the Auth provider. Password update itself stays
 a Next/Supabase action — no new backend change-password API.
 
+### Waitlist (issue #566)
+
+The logged-out `/waitlist` page submits email and current UI locale through
+`POST /waitlist`, after a purpose-distinct Altcha challenge from
+`GET /waitlist/altcha-challenge`. The submission normalizes the email with
+`strip().lower()`, checks Altcha, then applies the existing fixed-window
+limiter: 5/IP/minute, 20/IP/hour, 3/email/hour (hashed Redis key), and a
+200/day global alert threshold. The response is always `200
+{"received": true}` for new, repeat, rejected, and already registered
+emails; validation, bad captcha, limit, and Redis errors retain 422/400/429/503.
+
+`waitlist_entries` stores one unique normalized email, its UI locale,
+manual `pending|invited|rejected` status, `link_sent_at`, and timestamps.
+`invites.waitlist_entry_id` is nullable: a redeemed invite with this marker
+is organic; NULL means referred. Invite rows remain after user purge. A
+waitlist invite uses the existing email-bound signup and five-credit grant;
+signup, redeem, and purge behavior are unchanged.
+
+The ops view derives `registered` from an invite's `used_at` and `activated`
+from the linked user's `email_verified_at`; both verified and activated
+timestamps are returned today. It reports the newest link's generation and
+expiry times and whether that unused link is revoked or expired. After a
+purge, `registered_at` survives while user and verification fields become
+NULL. Registration through another invite does not change the waitlist row.
+
+The ops-token protected endpoints are `GET /admin/waitlist` (stage and
+expired-link filters), `GET /admin/waitlist/by-email`,
+`GET /admin/waitlist/{id}`, `POST /admin/waitlist/{id}/invite`,
+`POST /admin/waitlist/{id}/sent`, and `PATCH /admin/waitlist/{id}/status`.
+Minting an email-bound invite returns its token and signup URL, revokes a
+still-live prior link, and clears the sent timestamp; the admin sends the
+link personally, then records that with `/sent`. Manual status changes
+revoke any live link. Registered entries cannot be re-minted or manually
+re-statused. Every accepted public submission enqueues a plain-English
+admin notice with ET time after commit, including repeats and rejected
+re-submissions; enqueue failure is logged without changing the response.

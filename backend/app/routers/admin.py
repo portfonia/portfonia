@@ -30,7 +30,7 @@ import openai
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import exists, func, select
+from sqlalchemy import exists, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -43,7 +43,7 @@ from app.core.rate_limit import (
     rate_limit_create_invite,
     release_report_resend_cooldown,
 )
-from app.core.timezones import today_et
+from app.core.timezones import ET, today_et
 from app.models.email_verification import EmailVerification
 from app.models.holding import Holding
 from app.models.invite import Invite
@@ -51,6 +51,7 @@ from app.models.report import Report
 from app.models.report_currency_change import ReportCurrencyChange
 from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
+from app.models.waitlist_entry import WaitlistEntry
 from app.schemas.holdings import VALID_CURRENCIES
 from app.schemas.reports import ReportOut
 from app.services import fx_fetcher, price_fetcher
@@ -100,6 +101,8 @@ from app.services.ticker_leverage import (
 from app.services.user_directory import recipient_email_with_purpose
 from app.services.user_purge import purge_user
 from app.services.user_scope import report_currency_for, report_language_for
+from app.services.waitlist import view as waitlist_view
+from app.services.waitlist import views as waitlist_views
 from app.tasks.admin_tasks import send_admin_alert_task
 
 logger = logging.getLogger(__name__)
@@ -277,6 +280,164 @@ def recover_portfolio_snapshots_endpoint(
 class CreateInviteBody(BaseModel):
     email: str | None = None
     expires_days: int = Field(default=14, ge=1, le=90)
+
+
+class WaitlistEntryOut(BaseModel):
+    id: UUID
+    email: str
+    locale: str
+    stage: Literal["pending", "invited", "sent", "registered", "activated", "rejected"]
+    status: Literal["pending", "invited", "rejected"]
+    created_at: datetime
+    status_changed_at: datetime
+    link_generated_at: datetime | None
+    link_expires_at: datetime | None
+    link_expired: bool
+    link_sent_at: datetime | None
+    registered_at: datetime | None
+    verified_at: datetime | None
+    activated_at: datetime | None
+    user_id: UUID | None
+
+
+class WaitlistInviteOut(WaitlistEntryOut):
+    token: str
+    invite_url: str
+
+
+class WaitlistInviteBody(BaseModel):
+    expires_days: int = Field(default=14, ge=1, le=90)
+
+
+class WaitlistStatusBody(BaseModel):
+    status: Literal["pending", "rejected"]
+
+
+def _waitlist_entry(session: Session, entry_id: UUID, *, lock: bool = False) -> WaitlistEntry:
+    query = select(WaitlistEntry).where(WaitlistEntry.id == entry_id)
+    if lock:
+        query = query.with_for_update()
+    entry = session.scalar(query)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="waitlist entry not found")
+    return entry
+
+
+def _revoke_waitlist_links(session: Session, entry_id: UUID, now: datetime) -> None:
+    session.execute(
+        update(Invite)
+        .where(
+            Invite.waitlist_entry_id == entry_id,
+            Invite.used_at.is_(None),
+            Invite.revoked_at.is_(None),
+            Invite.expires_at > now,
+        )
+        .values(revoked_at=now)
+    )
+
+
+@router.get("/waitlist", response_model=list[WaitlistEntryOut])
+def list_waitlist(
+    stage: Literal["pending", "invited", "sent", "registered", "activated", "rejected"]
+    | None = None,
+    link_expired: bool | None = None,
+    session: Session = Depends(get_session),
+) -> list[WaitlistEntryOut]:
+    entries = list(session.scalars(select(WaitlistEntry).order_by(WaitlistEntry.created_at.desc())))
+    states = waitlist_views(session, entries)
+    return [
+        WaitlistEntryOut.model_validate(state)
+        for state in states
+        if (stage is None or state["stage"] == stage)
+        and (link_expired is None or state["link_expired"] == link_expired)
+    ]
+
+
+@router.get("/waitlist/by-email", response_model=WaitlistEntryOut)
+def get_waitlist_by_email(email: str, session: Session = Depends(get_session)) -> WaitlistEntryOut:
+    entry = session.scalar(
+        select(WaitlistEntry).where(WaitlistEntry.email == email.strip().lower())
+    )
+    if entry is None:
+        raise HTTPException(status_code=404, detail="waitlist entry not found")
+    return WaitlistEntryOut.model_validate(waitlist_view(session, entry))
+
+
+@router.get("/waitlist/{entry_id}", response_model=WaitlistEntryOut)
+def get_waitlist(entry_id: UUID, session: Session = Depends(get_session)) -> WaitlistEntryOut:
+    return WaitlistEntryOut.model_validate(
+        waitlist_view(session, _waitlist_entry(session, entry_id))
+    )
+
+
+@router.post("/waitlist/{entry_id}/invite", response_model=WaitlistInviteOut)
+def mint_waitlist_invite(
+    entry_id: UUID,
+    body: WaitlistInviteBody,
+    session: Session = Depends(get_session),
+    _: None = Depends(rate_limit_create_invite),
+) -> WaitlistInviteOut:
+    entry = _waitlist_entry(session, entry_id, lock=True)
+    state = waitlist_view(session, entry)
+    if state["stage"] in ("registered", "activated"):
+        raise HTTPException(status_code=409, detail="entry already registered")
+    now = datetime.now(tz=ET)
+    _revoke_waitlist_links(session, entry_id, now)
+    try:
+        issued = create_invite(
+            session,
+            created_by=UUID(get_settings().DEV_USER_ID),
+            email=entry.email,
+            expires_days=body.expires_days,
+            waitlist_entry_id=entry.id,
+        )
+    except EmailAlreadyRegistered:
+        session.rollback()
+        raise HTTPException(
+            status_code=409, detail="email already belongs to an existing user"
+        ) from None
+    entry.status = "invited"
+    entry.link_sent_at = None
+    entry.status_changed_at = now
+    session.commit()
+    state = waitlist_view(session, entry)
+    return WaitlistInviteOut.model_validate(
+        {
+            **state,
+            "token": issued.token,
+            "invite_url": f"{get_settings().FRONTEND_URL}/signup?invite={issued.token}",
+        }
+    )
+
+
+@router.post("/waitlist/{entry_id}/sent", response_model=WaitlistEntryOut)
+def mark_waitlist_sent(entry_id: UUID, session: Session = Depends(get_session)) -> WaitlistEntryOut:
+    entry = _waitlist_entry(session, entry_id, lock=True)
+    state = waitlist_view(session, entry)
+    if state["stage"] != "invited" or state["link_expired"]:
+        raise HTTPException(status_code=409, detail=f"current stage: {state['stage']}")
+    entry.link_sent_at = datetime.now(tz=ET)
+    session.commit()
+    return WaitlistEntryOut.model_validate(waitlist_view(session, entry))
+
+
+@router.patch("/waitlist/{entry_id}/status", response_model=WaitlistEntryOut)
+def set_waitlist_status(
+    entry_id: UUID,
+    body: WaitlistStatusBody,
+    session: Session = Depends(get_session),
+) -> WaitlistEntryOut:
+    entry = _waitlist_entry(session, entry_id, lock=True)
+    state = waitlist_view(session, entry)
+    if state["stage"] in ("registered", "activated"):
+        raise HTTPException(status_code=409, detail="entry already registered")
+    now = datetime.now(tz=ET)
+    _revoke_waitlist_links(session, entry_id, now)
+    entry.status = body.status
+    entry.link_sent_at = None
+    entry.status_changed_at = now
+    session.commit()
+    return WaitlistEntryOut.model_validate(waitlist_view(session, entry))
 
 
 class InviteOut(BaseModel):

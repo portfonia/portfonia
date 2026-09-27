@@ -24,6 +24,7 @@ from app.models.ticker_intel import TickerIntel
 from app.models.upload_job import UploadJob
 from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
+from app.models.waitlist_entry import WaitlistEntry
 
 __all__ = [
     "Account",
@@ -52,4 +53,5 @@ __all__ = [
     "UploadJob",
     "User",
     "UserInvestmentContext",
+    "WaitlistEntry",
 ]

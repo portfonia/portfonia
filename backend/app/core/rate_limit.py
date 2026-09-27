@@ -398,6 +398,31 @@ def rate_limit_forgot_password(request: Request, email: str) -> None:
     )
 
 
+def rate_limit_waitlist(request: Request, email: str) -> None:
+    client_id = client_id_from_request(request)
+    _enforce_ip(
+        "rl:waitlist:ip",
+        client_id,
+        ((5, 60), (20, 3600)),
+        scope="waitlist-ip",
+    )
+    email_bucket = hashlib.sha256(email.encode()).hexdigest()
+    _enforce_ip(
+        "rl:waitlist:email",
+        email_bucket,
+        ((3, 3600),),
+        scope="waitlist-email",
+    )
+    _note_global_volume(
+        key_prefix="rl:waitlist:global",
+        scope="waitlist-global",
+        subject="Portfonia ops: waitlist volume circuit",
+        noun="waitlist",
+        limit=200,
+        ttl=86400,
+    )
+
+
 def guard_known_invite_token(session: Session, token: str) -> None:
     """Count attempts only for tokens that already exist in `invites`.
 

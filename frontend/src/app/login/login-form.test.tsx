@@ -96,10 +96,11 @@ describe("LoginForm", () => {
     await waitFor(() => expect(clearPendingLogin).toHaveBeenCalled());
   });
 
-  it("tells an account-less visitor to ask for an invite, rather than linking to a token-less /signup", () => {
+  it("links an interested visitor to the public waitlist", () => {
     renderForm();
 
-    expect(screen.getByText(/need an invite/i)).toBeInTheDocument();
+    expect(screen.getByText(/internal testing/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /join the waitlist/i })).toHaveAttribute("href", "/waitlist");
     expect(screen.queryByRole("link", { name: /sign ?up/i })).not.toBeInTheDocument();
   });
 

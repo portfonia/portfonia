@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Text, func, text
+from sqlalchemy import ForeignKey, Text, func, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,6 +27,9 @@ class Invite(Base):
     token_hash: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     email: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    waitlist_entry_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("waitlist_entries.id"), index=True
+    )
     expires_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
     used_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     used_by_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))

@@ -31,6 +31,7 @@ const PUBLIC_PATH_PREFIXES = [
   "/login",
   "/signup",
   "/forgot-password",
+  "/waitlist",
   "/reset-password",
   "/verify-email",
   "/unsubscribe",

@@ -24,6 +24,7 @@ from typing import cast
 from altcha import v1 as altcha_v1
 
 from app.core.config import get_settings
+from app.core.timezones import ET
 
 # Long enough for a slow client/CPU to solve the PoW and submit the form,
 # short enough that a scraped challenge is useless shortly after.
@@ -106,6 +107,29 @@ def _change_password_hmac_key() -> str:
     # from either must not verify here, so this purpose is mixed into the
     # HMAC key rather than silently reusing `_hmac_key()`.
     return f"{_hmac_key()}:change-password"
+
+
+def _waitlist_hmac_key() -> str:
+    return f"{_hmac_key()}:waitlist"
+
+
+def create_waitlist_challenge() -> dict[str, object]:
+    options = altcha_v1.ChallengeOptions(
+        hmac_key=_waitlist_hmac_key(),
+        expires=datetime.now(tz=ET) + CHALLENGE_TTL,
+    )
+    challenge: altcha_v1.Challenge = altcha_v1.create_challenge(options)
+    return cast(dict[str, object], challenge.to_dict())
+
+
+def verify_waitlist_solution(payload_b64: str) -> bool:
+    if not payload_b64:
+        return False
+    try:
+        ok, _err = altcha_v1.verify_solution(payload_b64, _waitlist_hmac_key(), check_expires=True)
+    except Exception:
+        return False
+    return ok
 
 
 def create_change_password_challenge() -> dict[str, object]:
