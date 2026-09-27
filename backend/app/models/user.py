@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import Boolean, CheckConstraint, Text, func, text
+from sqlalchemy import Boolean, CheckConstraint, Numeric, Text, func, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -47,6 +48,8 @@ class User(Base):
         CheckConstraint(
             _in_list_sql("base_currency", tuple(VALID_CURRENCIES)), name="base_currency"
         ),
+        CheckConstraint("credit_cash_balance >= 0", name="credit_cash_balance"),
+        CheckConstraint("credit_gift_balance >= 0", name="credit_gift_balance"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -57,6 +60,12 @@ class User(Base):
     auth_provider: Mapped[str] = mapped_column(Text, nullable=False)
     auth_subject: Mapped[str | None] = mapped_column(Text, unique=True)
     email: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    credit_cash_balance: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), nullable=False, server_default=text("0")
+    )
+    credit_gift_balance: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), nullable=False, server_default=text("0")
+    )
     status: Mapped[str] = mapped_column(Text, nullable=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     display_name: Mapped[str | None] = mapped_column(EncryptedString)

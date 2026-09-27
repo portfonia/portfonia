@@ -1,6 +1,7 @@
 from app.models.account import Account
 from app.models.base import Base
 from app.models.benchmark_price import BenchmarkPrice
+from app.models.credit_ledger import CreditLedgerEntry
 from app.models.cross_name_intel import CrossNameIntel
 from app.models.forward_event import ForwardEvent
 from app.models.fx_rate import FxRate
@@ -28,6 +29,7 @@ __all__ = [
     "Account",
     "Base",
     "BenchmarkPrice",
+    "CreditLedgerEntry",
     "CrossNameIntel",
     "ForwardEvent",
     "FxRate",

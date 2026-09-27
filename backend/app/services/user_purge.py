@@ -6,11 +6,12 @@ from dataclasses import dataclass
 from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy import delete, update
+from sqlalchemy import delete, func, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.models.account import Account
+from app.models.credit_ledger import CreditLedgerEntry
 from app.models.email_verification import EmailVerification
 from app.models.holding import Holding
 from app.models.invite import Invite
@@ -33,6 +34,7 @@ class PurgeResult:
     invites_used_by_cleared: int
     users_invited_by_cleared: int
     users: int
+    credit_ledger_flagged: int
 
 
 def _rowcount(result: CursorResult[Any]) -> int:
@@ -101,6 +103,19 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
             ),
         )
     )
+    credit_ledger_flagged = _rowcount(
+        cast(
+            CursorResult[Any],
+            session.execute(
+                update(CreditLedgerEntry)
+                .where(
+                    CreditLedgerEntry.user_id == user_id,
+                    CreditLedgerEntry.user_deleted_at.is_(None),
+                )
+                .values(user_deleted_at=func.now())
+            ),
+        )
+    )
     users = _rowcount(
         cast(CursorResult[Any], session.execute(delete(User).where(User.id == user_id)))
     )
@@ -115,4 +130,5 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
         invites_used_by_cleared=invites_used_by_cleared,
         users_invited_by_cleared=users_invited_by_cleared,
         users=users,
+        credit_ledger_flagged=credit_ledger_flagged,
     )
