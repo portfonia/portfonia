@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
+from threading import Barrier, Event
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.database import get_engine
 from app.models.credit_ledger import CreditLedgerEntry
 from app.models.user import User
 from app.scripts.backfill_signup_grants import backfill_signup_grants
@@ -44,6 +47,109 @@ def assert_balanced(session: Session, user: User) -> None:
         assert balance == sum((row.amount for row in rows), Decimal("0.00"))
         assert balance == (rows[-1].balance_after if rows else Decimal("0.00"))
         assert balance >= 0
+
+
+@pytest.mark.parametrize(
+    "initial_grant,amount,expected_balance,second_rejected",
+    [
+        (False, Decimal("10.00"), Decimal("20.00"), False),
+        (True, Decimal("-5.00"), Decimal("0.00"), True),
+    ],
+)
+def test_row_lock_refreshes_preloaded_user_across_connections(
+    session_test_db: None,
+    request: pytest.FixtureRequest,
+    initial_grant: bool,
+    amount: Decimal,
+    expected_balance: Decimal,
+    second_rejected: bool,
+) -> None:
+    """Two live connections preload the same balance before serialized writes."""
+    engine = get_engine()
+    user_id = uuid.uuid4()
+    with Session(engine) as setup:
+        user = seed_user(setup, user_id)
+        if initial_grant:
+            grant_signup_credits(setup, user)
+        setup.commit()
+
+    def cleanup() -> None:
+        # These independent commits are outside db_session's rollback fixture.
+        with Session(engine) as session:
+            session.execute(delete(CreditLedgerEntry).where(CreditLedgerEntry.user_id == user_id))
+            session.execute(delete(User).where(User.id == user_id))
+            session.commit()
+
+    request.addfinalizer(cleanup)
+
+    both_loaded = Barrier(2)
+    first_written = Event()
+    second_attempted = Event()
+    release_first = Event()
+
+    def first_writer() -> None:
+        with Session(engine) as session:
+            preloaded = session.get(User, user_id)
+            assert preloaded is not None
+            both_loaded.wait(timeout=10)
+            adjust_by_admin(
+                session,
+                user_id=user_id,
+                amount=amount,
+                note="first",
+                idempotency_key=f"{user_id}:first",
+            )
+            first_written.set()
+            assert release_first.wait(timeout=10)
+            session.commit()
+
+    def second_writer() -> bool:
+        with Session(engine) as session:
+            preloaded = session.get(User, user_id)
+            assert preloaded is not None
+            both_loaded.wait(timeout=10)
+            assert first_written.wait(timeout=10)
+            second_attempted.set()
+            try:
+                adjust_by_admin(
+                    session,
+                    user_id=user_id,
+                    amount=amount,
+                    note="second",
+                    idempotency_key=f"{user_id}:second",
+                )
+            except InsufficientCredits:
+                session.rollback()
+                return True
+            session.commit()
+            return False
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(first_writer)
+        second = pool.submit(second_writer)
+        try:
+            assert second_attempted.wait(timeout=10)
+        finally:
+            release_first.set()
+        first.result(timeout=10)
+        assert second.result(timeout=10) is second_rejected
+
+    with Session(engine) as check:
+        checked_user = check.get(User, user_id)
+        assert checked_user is not None
+        assert_balanced(check, checked_user)
+        assert checked_user.credit_gift_balance == expected_balance
+        rows = (
+            check.execute(
+                select(CreditLedgerEntry)
+                .where(CreditLedgerEntry.user_id == user_id)
+                .order_by(CreditLedgerEntry.id)
+            )
+            .scalars()
+            .all()
+        )
+        assert len(rows) == 2
+        assert rows[-1].balance_after == expected_balance
 
 
 def test_grant_once_and_zero_setting(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -134,9 +240,26 @@ def test_consumption_split_and_single_bucket(db_session: Session) -> None:
         ("gift", Decimal("-12.00"), Decimal("0.00")),
         ("cash", Decimal("-2.00"), Decimal("18.00")),
     ]
-    assert consume_credits(
+    before_replay = len(
+        db_session.execute(
+            select(CreditLedgerEntry.id).where(CreditLedgerEntry.user_id == user.id)
+        ).all()
+    )
+    replay = consume_credits(
         db_session, user_id=user.id, amount=Decimal("14.00"), reason="qa", idempotency_key="qa:abc"
-    ).replayed
+    )
+    assert replay.replayed is True
+    assert [entry.id for entry in replay.entries] == [entry.id for entry in result.entries]
+    assert (
+        len(
+            db_session.execute(
+                select(CreditLedgerEntry.id).where(CreditLedgerEntry.user_id == user.id)
+            ).all()
+        )
+        == before_replay
+    )
+    assert user.credit_gift_balance == Decimal("0.00")
+    assert user.credit_cash_balance == Decimal("18.00")
     with pytest.raises(InsufficientCredits):
         consume_credits(
             db_session,
@@ -146,17 +269,32 @@ def test_consumption_split_and_single_bucket(db_session: Session) -> None:
             idempotency_key="qa:short",
         )
     assert (
-        consume_credits(
-            db_session,
-            user_id=user.id,
-            amount=Decimal("1.00"),
-            reason="qa",
-            idempotency_key="qa:cash",
+        db_session.execute(
+            select(CreditLedgerEntry).where(CreditLedgerEntry.idempotency_key == "qa:short")
         )
-        .entries[0]
-        .bucket
-        == "cash"
+        .scalars()
+        .all()
+        == []
     )
+    assert (
+        len(
+            db_session.execute(
+                select(CreditLedgerEntry.id).where(CreditLedgerEntry.user_id == user.id)
+            ).all()
+        )
+        == before_replay
+    )
+    assert user.credit_gift_balance == Decimal("0.00")
+    assert user.credit_cash_balance == Decimal("18.00")
+    cash_only = consume_credits(
+        db_session,
+        user_id=user.id,
+        amount=Decimal("1.00"),
+        reason="qa",
+        idempotency_key="qa:cash",
+    )
+    assert len(cash_only.entries) == 1
+    assert cash_only.entries[0].bucket == "cash"
     adjust_by_admin(
         db_session, user_id=user.id, amount=Decimal("2.00"), note="grant", idempotency_key="gift"
     )
@@ -218,18 +356,45 @@ def test_admin_endpoint_contract(app_client: TestClient, db_session: Session) ->
     assert first.status_code == 200, first.text
     assert first.json()["gift_balance"] == "15.00"
     assert first.json()["cash_balance"] == "0.00"
+    assert first.json()["replayed"] is False
     assert first.json()["entry"]["amount"] == "10.00"
+    assert first.json()["entry"]["balance_after"] == "15.00"
     replay = app_client.post(url, json=body, headers=headers)
     assert replay.status_code == 200
     assert replay.json()["replayed"] is True
     assert replay.json()["entry"]["id"] == first.json()["entry"]["id"]
+    assert replay.json()["gift_balance"] == "15.00"
+    row_ids = (
+        db_session.execute(select(CreditLedgerEntry.id).where(CreditLedgerEntry.user_id == user.id))
+        .scalars()
+        .all()
+    )
+    assert len(row_ids) == 2
     assert (
         app_client.post(url, json={**body, "amount": "20.00"}, headers=headers).status_code == 409
+    )
+    db_session.refresh(user)
+    assert user.credit_gift_balance == Decimal("15.00")
+    assert user.credit_cash_balance == Decimal("0.00")
+    assert (
+        db_session.execute(select(CreditLedgerEntry.id).where(CreditLedgerEntry.user_id == user.id))
+        .scalars()
+        .all()
+        == row_ids
     )
     short = app_client.post(
         url, json={**body, "amount": "-20.00", "idempotency_key": "two"}, headers=headers
     )
     assert short.status_code == 409 and short.json()["detail"] == "insufficient gift balance"
+    db_session.refresh(user)
+    assert user.credit_gift_balance == Decimal("15.00")
+    assert user.credit_cash_balance == Decimal("0.00")
+    assert (
+        db_session.execute(select(CreditLedgerEntry.id).where(CreditLedgerEntry.user_id == user.id))
+        .scalars()
+        .all()
+        == row_ids
+    )
     for bad in ({"amount": "0"}, {"amount": "1.001"}, {"note": "   "}, {"idempotency_key": "   "}):
         assert app_client.post(url, json={**body, **bad}, headers=headers).status_code == 422
     assert (
@@ -270,6 +435,7 @@ def test_signup_purge_and_resignup(
     assert old_user is not None
     assert_balanced(db_session, old_user)
     assert old_user.credit_gift_balance == Decimal("5.00")
+    assert old_user.credit_cash_balance == Decimal("0.00")
     old_id = old_user.id
     rows = (
         db_session.execute(select(CreditLedgerEntry).where(CreditLedgerEntry.user_id == old_id))
@@ -277,6 +443,12 @@ def test_signup_purge_and_resignup(
         .all()
     )
     assert len(rows) == 1
+    assert rows[0].amount == Decimal("5.00")
+    assert rows[0].balance_after == Decimal("5.00")
+    assert rows[0].reason == "signup_grant"
+    assert rows[0].actor_type == "system"
+    assert rows[0].idempotency_key == signup_grant_key("alice@example.com")
+    total_before_purge = len(db_session.execute(select(CreditLedgerEntry.id)).all())
     purge = app_client.delete(
         "/admin/users/by-email",
         params={"email": "alice@example.com", "confirm": "alice@example.com"},
@@ -286,6 +458,7 @@ def test_signup_purge_and_resignup(
     assert purge.json()["deleted"]["credit_ledger_flagged"] == 1
     db_session.expire_all()
     assert db_session.get(User, old_id) is None
+    assert len(db_session.execute(select(CreditLedgerEntry.id)).all()) == total_before_purge
     flagged = db_session.get(CreditLedgerEntry, rows[0].id)
     assert flagged is not None and flagged.user_deleted_at is not None
     new_user = signup(" Alice@Example.com ")

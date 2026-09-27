@@ -42,7 +42,10 @@ class LedgerWrite:
 
 def _lock_user(session: Session, user_id: uuid.UUID) -> User:
     user = session.execute(
-        select(User).where(User.id == user_id).with_for_update()
+        select(User)
+        .where(User.id == user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     ).scalar_one_or_none()
     if user is None:
         raise LookupError(f"user {user_id} not found")
