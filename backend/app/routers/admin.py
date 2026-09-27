@@ -61,6 +61,11 @@ from app.services.auth_provider import (
     get_auth_user,
     get_auth_user_by_email,
 )
+from app.services.credit_ledger import (
+    IdempotencyConflict,
+    InsufficientCredits,
+    adjust_by_admin,
+)
 from app.services.email_sender import send_report_email
 from app.services.email_verification import (
     ResendTooSoon,
@@ -703,6 +708,7 @@ class PurgeDeletedCounts(BaseModel):
     invites_used_by_cleared: int
     users_invited_by_cleared: int
     users: int
+    credit_ledger_flagged: int
 
 
 _NO_LOCAL_ROWS = PurgeDeletedCounts(
@@ -716,6 +722,7 @@ _NO_LOCAL_ROWS = PurgeDeletedCounts(
     invites_used_by_cleared=0,
     users_invited_by_cleared=0,
     users=0,
+    credit_ledger_flagged=0,
 )
 
 
@@ -827,6 +834,7 @@ def _purge_local_user(session: Session, user: User, confirm: str | None) -> Purg
             invites_used_by_cleared=result.invites_used_by_cleared,
             users_invited_by_cleared=result.users_invited_by_cleared,
             users=result.users,
+            credit_ledger_flagged=result.credit_ledger_flagged,
         ),
     )
 
@@ -911,6 +919,98 @@ def purge_user_by_email_endpoint(
         email=auth_user.email,
         auth_deleted=True,
         deleted=_NO_LOCAL_ROWS,
+    )
+
+
+class CreditAdjustmentBody(BaseModel):
+    email: str
+    amount: Decimal = Field(max_digits=12, decimal_places=2)
+    note: str = Field(min_length=1, max_length=500)
+    idempotency_key: str = Field(min_length=1, max_length=100)
+    reference: str | None = Field(default=None, max_length=200)
+
+    @field_validator("note", "idempotency_key", mode="before")
+    @classmethod
+    def _strip_required(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("amount")
+    @classmethod
+    def _nonzero_amount(cls, value: Decimal) -> Decimal:
+        if value == 0:
+            raise ValueError("amount must not be zero")
+        return value
+
+
+class CreditLedgerEntryOut(BaseModel):
+    id: int
+    bucket: str
+    amount: Decimal
+    balance_after: Decimal
+    reason: str
+    actor_type: str
+    idempotency_key: str
+    note: str | None
+    reference: str | None
+    created_at: datetime
+
+
+class CreditAdjustmentOut(BaseModel):
+    user_id: UUID
+    email: str
+    replayed: bool
+    entry: CreditLedgerEntryOut
+    cash_balance: Decimal
+    gift_balance: Decimal
+
+
+@router.post("/users/by-email/credit-adjustments", response_model=CreditAdjustmentOut)
+def credit_adjustment_by_email(
+    body: CreditAdjustmentBody,
+    session: Session = Depends(get_session),
+) -> CreditAdjustmentOut:
+    normalized_email = _normalize_email(body.email)
+    user = session.execute(select(User).where(User.email == normalized_email)).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    try:
+        result = adjust_by_admin(
+            session,
+            user_id=user.id,
+            amount=body.amount,
+            note=body.note,
+            idempotency_key=body.idempotency_key,
+            reference=body.reference,
+        )
+        session.commit()
+    except InsufficientCredits as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="insufficient gift balance") from exc
+    except (IdempotencyConflict, IntegrityError) as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="idempotency_key already used for a different adjustment",
+        ) from exc
+    entry = result.entries[0]
+    return CreditAdjustmentOut(
+        user_id=user.id,
+        email=user.email,
+        replayed=result.replayed,
+        entry=CreditLedgerEntryOut(
+            id=entry.id,
+            bucket=entry.bucket,
+            amount=entry.amount,
+            balance_after=entry.balance_after,
+            reason=entry.reason,
+            actor_type=entry.actor_type,
+            idempotency_key=entry.idempotency_key,
+            note=entry.note,
+            reference=entry.reference,
+            created_at=entry.created_at,
+        ),
+        cash_balance=user.credit_cash_balance,
+        gift_balance=user.credit_gift_balance,
     )
 
 

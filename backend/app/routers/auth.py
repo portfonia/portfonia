@@ -33,6 +33,7 @@ from app.services.auth_provider import (
     delete_auth_user,
     request_password_reset,
 )
+from app.services.credit_ledger import grant_signup_credits
 from app.services.email_sender import send_ops_alert
 from app.services.invites import (
     INVITE_REJECTED_MESSAGE,
@@ -103,6 +104,8 @@ def signup(
         )
         session.add(user)
         session.flush()
+        if grant_signup_credits(session, user) is None:
+            logger.info("signup grant skipped user=%s", new_id)
         backfill_news_surfaced_before(session, new_id, cold_start_watermark(datetime.now(tz=UTC)))
         session.commit()
     except InviteRejected:

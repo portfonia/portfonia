@@ -155,6 +155,7 @@ area of the code, not just the one-line summary here.
 - [System default analysis framework — B1](docs/mechanisms/identity-and-auth.md) — Ring 1 stage B, issue #129/PR #172: `config/analysis_framework.yml`, injection order, §2 rewrite.
 - [Identity seam: current_principal + explicit user_id — B3](docs/mechanisms/identity-and-auth.md) — Ring 1 stage B, issue #129/PR #181.
 - [Users, invites, and JWKS auth — B4](docs/mechanisms/identity-and-auth.md) — Ring 1 stage B, issue #129/PR #183: JWKS verification, no `JWT_SECRET`, invite redeem.
+- [Credit ledger write path](docs/mechanisms/credit-ledger.md) — issue #562 PR-A: cash/gift balances, append-only ledger, signup grant, Ops gift adjustments, purge flagging, and existing-user backfill.
 - [Idle-timeout server enforcement](docs/mechanisms/identity-and-auth.md) — issue #235, PR #240 (3 review rounds): Redis-backed idle check on `current_principal`, fail-open on Redis outage; issue #236 (2026-09-11) adds an independent 8h absolute session lifetime cap in the same file plus a frontend `GET /auth/session-status` probe closing an information-disclosure gap in the top-bar menu.
 - [Ops user hard-purge](docs/mechanisms/identity-and-auth.md) — issue #199/#225/B7 (`DELETE /admin/users/{id}`) + #274/#275 (by-email sibling): hard-deletes local rows + Supabase Auth account, handles Auth-only orphans.
 - [Ops user directory read](docs/mechanisms/identity-and-auth.md) — issue #278/PR #285: read-only `GET /admin/users` filter/list, built to satisfy delete-by-email's pre-delete confirmation policy.

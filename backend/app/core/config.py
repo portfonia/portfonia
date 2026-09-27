@@ -1,5 +1,6 @@
 """Typed configuration loaded from .env.local (dev) or process env (prod)."""
 
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 
@@ -46,6 +47,18 @@ class Settings(BaseSettings):
 
     # App
     APP_ENV: str = "development"
+    SIGNUP_GRANT_CREDITS: Decimal = Decimal("5.00")
+
+    @field_validator("SIGNUP_GRANT_CREDITS")
+    @classmethod
+    def _validate_signup_grant_credits(cls, value: Decimal) -> Decimal:
+        exponent = value.as_tuple().exponent
+        if not value.is_finite() or value < 0 or not isinstance(exponent, int) or exponent < -2:
+            raise ValueError(
+                "SIGNUP_GRANT_CREDITS must be nonnegative with at most 2 decimal places"
+            )
+        return value
+
     APP_SECRET_KEY: SecretStr
     APP_BASE_URL: str
     FRONTEND_URL: str
