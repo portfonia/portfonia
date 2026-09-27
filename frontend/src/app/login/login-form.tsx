@@ -67,7 +67,7 @@ export function LoginForm() {
         {t("forgotPasswordLink")}
       </Link>
       <p className="text-center text-xs text-foreground/60">
-        {t("waitlistHint")} <Link href="/waitlist" className="underline">{t("waitlistLink")}</Link>
+        {t("waitlistHint")}<Link href="/waitlist" className="underline">{t("waitlistLink")}</Link>
       </p>
     </form>
   );

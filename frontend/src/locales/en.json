@@ -37,7 +37,7 @@
     "signupButton": "Create account",
     "signingUp": "Creating account...",
     "missingInvite": "This link is missing its invite token. Ask whoever invited you for a fresh link.",
-    "waitlistHint": "Portfonia is in internal testing. If you're interested, you can",
+    "waitlistHint": "Portfonia is in internal testing. If you're interested, you can ",
     "waitlistLink": "join the waitlist",
     "waitlistHeading": "Join the waitlist",
     "waitlistSubtitle": "Leave your email to request an invitation.",
