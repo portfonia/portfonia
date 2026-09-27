@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 
 from pydantic import BaseModel
 
@@ -34,6 +35,7 @@ class MeOut(BaseModel):
     address" (the frontend's no-valid-recipient condition)."""
 
     email: str
+    credit_balance: Decimal
     delivery_email: str | None
     email_verified_at: datetime | None
     delivery_email_verified_at: datetime | None

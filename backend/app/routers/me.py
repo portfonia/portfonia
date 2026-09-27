@@ -73,6 +73,7 @@ def get_me(
 
     return MeOut(
         email=user.email,
+        credit_balance=user.credit_cash_balance + user.credit_gift_balance,
         delivery_email=user.delivery_email,
         email_verified_at=user.email_verified_at,
         delivery_email_verified_at=user.delivery_email_verified_at,

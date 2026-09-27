@@ -28,3 +28,9 @@ python -m app.scripts.backfill_signup_grants
 ```
 
 The script scans every current `users` row, regardless of status. It reports `would-grant` or `already-granted` by signup hash without writing. `--apply` commits one user at a time using the same grant service and a backfill note. Re-running it grants nothing twice. Production dry run and `--apply` are separate owner-authorized data operations; opening this PR does not run either.
+
+## Read path (PR-B)
+
+`GET /admin/credits/ledger.csv` exports all ledger rows by ascending `id`, with the columns `id,created_at,user_id,email,bucket,amount,balance_after,reason,actor_type,actor_id,idempotency_key,reference,note,user_deleted_at`. Email comes from a left join to `users`, so a purged user's email is empty while `user_deleted_at` remains present. `GET /admin/credits/balances.csv` exports one row per current user by email, with `user_id,email,status,cash_balance,gift_balance,total_balance,ledger_cash_sum,ledger_gift_sum,consistent`. The sums are ledger amounts per bucket, and `consistent` is true only when both stored balances match their respective sums. Both endpoints use the existing Ops token and audit path, require no parameters, return in-memory CSV with fixed two-decimal amounts, and attach a filename dated with `today_et()`. Timestamps use ET ISO 8601 with an offset; NULL timestamps are empty.
+
+`GET /me` includes `credit_balance`, the sum of cash and gift balances, serialized as a decimal string. The Profile Account card displays that string verbatim under the `Credits` label in all three UI locales, without currency formatting.

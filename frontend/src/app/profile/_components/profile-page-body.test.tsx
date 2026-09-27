@@ -41,6 +41,9 @@ vi.mock("@/lib/api", async () => {
 import { LocaleProvider } from "@/app/_components/locale-provider";
 import type { Me, PendingEmailVerification } from "@/lib/api";
 import { ApiError } from "@/lib/api";
+import en from "@/locales/en.json";
+import zhHans from "@/locales/zh-Hans.json";
+import zhHant from "@/locales/zh-Hant.json";
 import { ProfilePageBody } from "./profile-page-body";
 
 function renderBody(me: Me | null, hadLoadError = false) {
@@ -89,6 +92,7 @@ const PENDING: PendingEmailVerification = {
 
 const BASE_ME: Me = {
   email: "user@example.com",
+  credit_balance: "5.00",
   delivery_email: null,
   email_verified_at: null,
   delivery_email_verified_at: null,
@@ -123,6 +127,24 @@ describe("ProfilePageBody", () => {
     // BASE_ME has no delivery_email, so the account email legitimately
     // appears twice (account row + delivery-email fallback row).
     expect(screen.getAllByText("user@example.com").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("shows credits as a plain read-only balance in the Account card", () => {
+    renderBody(BASE_ME);
+    const title = screen.getByText("Account");
+    const card = title.closest('[data-slot="card"]');
+    if (!(card instanceof HTMLElement)) throw new Error("Account card not found");
+    expect(within(card).getByText("Credits")).toBeInTheDocument();
+    expect(within(card).getByText("5.00")).toBeInTheDocument();
+    expect(card.textContent).not.toMatch(/\$|USD/);
+  });
+
+  it("keeps the Credits label in English in all three locales", () => {
+    expect([en, zhHans, zhHant].map((catalog) => catalog.profile.accountCreditsLabel)).toEqual([
+      "Credits",
+      "Credits",
+      "Credits",
+    ]);
   });
 
   it("falls back to the account email for delivery email, with a note, when unset", () => {

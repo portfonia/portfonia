@@ -198,10 +198,14 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
         <CardHeader>
           <CardTitle>{t("accountHeading")}</CardTitle>
         </CardHeader>
-        <CardContent className="px-4">
+        <CardContent className="flex flex-col gap-4 px-4">
           <div className="flex flex-col gap-1.5">
             <span className="text-sm text-foreground/80">{t("accountEmailLabel")}</span>
             <span className="text-sm">{me.email}</span>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm text-foreground/80">{t("accountCreditsLabel")}</span>
+            <span className="text-sm">{me.credit_balance}</span>
           </div>
         </CardContent>
       </Card>

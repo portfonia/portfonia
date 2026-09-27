@@ -470,6 +470,7 @@ export async function putInvestmentContext(
 // #269), `missing` (gap card), and `pending_email_verifications`.
 export interface Me {
   email: string;
+  credit_balance: string;
   delivery_email: string | null;
   // Issue #269: raw verification timestamps mirroring the `users` columns,
   // so the Profile page derives verification state without a new endpoint.
