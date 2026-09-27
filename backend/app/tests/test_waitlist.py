@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import cast
 from unittest.mock import MagicMock
 
@@ -21,6 +21,7 @@ from app.core.timezones import ET
 from app.models.invite import Invite
 from app.models.user import User
 from app.models.waitlist_entry import WaitlistEntry
+from app.services.invites import hash_invite_token
 from app.services.user_purge import purge_user
 from app.tests.conftest import seed_user
 
@@ -68,8 +69,15 @@ def test_new_repeat_and_rejected_submission(
     row = db_session.scalar(select(WaitlistEntry).where(WaitlistEntry.email == "a@x.com"))
     assert row is not None and row.locale == "zh-Hans" and row.status == "pending"
     assert notice.call_args.args[0] == "Portfonia waitlist: new request from a@x.com"
-    assert "Language: Simplified Chinese" in notice.call_args.args[1]
-    assert "Submitted: " in notice.call_args.args[1]
+    submitted_et = row.created_at.astimezone(ET).strftime("%Y-%m-%d %H:%M ET")
+    assert notice.call_args.args[1] == (
+        "Someone joined the waitlist.\n\n"
+        "Email: a@x.com\n"
+        "Language: Simplified Chinese\n"
+        f"Submitted: {submitted_et}\n\n"
+        "Nothing has been done with this request yet."
+    )
+    assert notice.call_args.kwargs == {"severity": "INFO"}
     assert _submit(app_client, "a@x.com", "en").json() == {"received": True}
     db_session.refresh(row)
     assert row.locale == "zh-Hans"
@@ -101,6 +109,16 @@ def test_mint_sent_and_manual_status(app_client: TestClient, db_session: Session
     assert reminted.status_code == 200
     db_session.refresh(first_invite)
     assert first_invite.revoked_at is not None
+    live = db_session.scalars(
+        select(Invite).where(
+            Invite.waitlist_entry_id == row.id,
+            Invite.used_at.is_(None),
+            Invite.revoked_at.is_(None),
+            Invite.expires_at > datetime.now(tz=ET),
+        )
+    ).all()
+    assert len(live) == 1
+    assert live[0].token_hash == hash_invite_token(reminted.json()["token"])
     assert reminted.json()["link_sent_at"] is None
     rejected = app_client.patch(f"{path}/status", headers=_headers(), json={"status": "rejected"})
     assert rejected.json()["stage"] == "rejected"
@@ -317,6 +335,13 @@ def test_list_filters_and_expired_link(app_client: TestClient, db_session: Sessi
         "/admin/waitlist", headers=_headers(), params={"link_expired": "true"}
     ).json()
     assert [item["id"] for item in expired] == [str(sent.id)]
+    not_expired = app_client.get(
+        "/admin/waitlist", headers=_headers(), params={"link_expired": "false"}
+    ).json()
+    assert {item["id"] for item in not_expired} == {
+        str(entries["pending@example.com"].id),
+        str(rejected.id),
+    }
     assert app_client.post(f"{sent_path}/sent", headers=_headers()).status_code == 409
     reminted = app_client.post(f"{sent_path}/invite", headers=_headers(), json={})
     assert reminted.json()["stage"] == "invited"
