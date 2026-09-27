@@ -999,3 +999,24 @@ revoke any live link. Registered entries cannot be re-minted or manually
 re-statused. Every accepted public submission enqueues a plain-English
 admin notice with ET time after commit, including repeats and rejected
 re-submissions; enqueue failure is logged without changing the response.
+
+### Invitation letter (issue #569)
+
+`POST /admin/invitation-letters` is an ops-token, rate-limited manual send
+endpoint for one normalized email. A rejected or registered waitlist entry,
+an existing user address, or an address that unsubscribed from invitation
+letters returns 409. For an eligible waitlist entry it revokes live links,
+mints an email-bound invite, and records `invited`; after Resend accepts the
+letter it sets `link_sent_at` (derived stage `sent`). An address without a
+waitlist entry receives a letter without creating one. The entry's UI locale
+overrides the optional request language. A send failure leaves the committed
+invite unsent; a later call revokes its live waitlist link and mints another.
+
+The letter shows the signup URL and carries RFC 8058 one-click unsubscribe
+headers. `GET /invitation-letters/unsubscribe` only renders a confirmation;
+`POST` sets `invites.letter_unsubscribed_at` idempotently. Unsubscribe affects
+future letters only. A one-shot Resend poll records `letter_delivery_event`;
+bounced, complained, suppressed, and failed events trigger an ops alert,
+without changing invite or waitlist state. `GET /auth/invite-email` returns
+the bound email, if any, for signup's read-only email field; redeem and
+account-email verification retain their existing checks.

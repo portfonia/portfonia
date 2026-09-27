@@ -11,7 +11,13 @@ import { markPendingLogin } from "@/hooks/use-session";
 import { settleAuthAction } from "@/lib/settle-auth-action";
 import { signup, type SignupState } from "./actions";
 
-export function SignupForm({ inviteToken }: { inviteToken: string }) {
+export function SignupForm({
+  inviteToken,
+  lockedEmail,
+}: {
+  inviteToken: string;
+  lockedEmail: string | null;
+}) {
   const t = useTranslations("auth");
   const { locale } = useLocale();
   // Rendering /terms and /privacy in a new tab keeps the in-progress signup
@@ -80,7 +86,15 @@ export function SignupForm({ inviteToken }: { inviteToken: string }) {
         <label htmlFor="email" className="text-sm text-foreground/80">
           {t("emailLabel")}
         </label>
-        <Input id="email" name="email" type="email" autoComplete="email" required />
+        <Input
+          id="email"
+          name="email"
+          type="email"
+          autoComplete="email"
+          defaultValue={lockedEmail ?? undefined}
+          readOnly={lockedEmail !== null}
+          required
+        />
       </div>
       <div className="flex flex-col gap-1.5">
         <label htmlFor="password" className="text-sm text-foreground/80">
