@@ -54,6 +54,14 @@ FORGOT_PASSWORD_IP_HOUR_LIMIT = 20
 FORGOT_PASSWORD_IP_HOUR_TTL = 3600
 FORGOT_PASSWORD_EMAIL_HOUR_LIMIT = 3
 FORGOT_PASSWORD_EMAIL_HOUR_TTL = 3600
+WAITLIST_IP_MINUTE_LIMIT = 5
+WAITLIST_IP_MINUTE_TTL = 60
+WAITLIST_IP_HOUR_LIMIT = 20
+WAITLIST_IP_HOUR_TTL = 3600
+WAITLIST_EMAIL_HOUR_LIMIT = 3
+WAITLIST_EMAIL_HOUR_TTL = 3600
+WAITLIST_GLOBAL_ALERT_LIMIT = 200
+WAITLIST_GLOBAL_TTL = 86400
 # Resend email-verification (issue #262, Profile Page.md §8.3): two buckets
 # in front of POST /email-verifications/{id}/resend — a per-user bucket
 # (same magnitude as forgot-password's email limit) and a per-address GLOBAL
@@ -341,6 +349,17 @@ def _note_global_invite_mint() -> None:
     )
 
 
+def _note_global_waitlist() -> None:
+    _note_global_volume(
+        key_prefix="rl:waitlist:global",
+        scope="waitlist-global",
+        subject="Portfonia ops: waitlist volume circuit",
+        noun="waitlist",
+        limit=WAITLIST_GLOBAL_ALERT_LIMIT,
+        ttl=WAITLIST_GLOBAL_TTL,
+    )
+
+
 def rate_limit_signup(request: Request) -> None:
     client_id = client_id_from_request(request)
     _note_global_signup()
@@ -403,24 +422,20 @@ def rate_limit_waitlist(request: Request, email: str) -> None:
     _enforce_ip(
         "rl:waitlist:ip",
         client_id,
-        ((5, 60), (20, 3600)),
+        (
+            (WAITLIST_IP_MINUTE_LIMIT, WAITLIST_IP_MINUTE_TTL),
+            (WAITLIST_IP_HOUR_LIMIT, WAITLIST_IP_HOUR_TTL),
+        ),
         scope="waitlist-ip",
     )
     email_bucket = hashlib.sha256(email.encode()).hexdigest()
     _enforce_ip(
         "rl:waitlist:email",
         email_bucket,
-        ((3, 3600),),
+        ((WAITLIST_EMAIL_HOUR_LIMIT, WAITLIST_EMAIL_HOUR_TTL),),
         scope="waitlist-email",
     )
-    _note_global_volume(
-        key_prefix="rl:waitlist:global",
-        scope="waitlist-global",
-        subject="Portfonia ops: waitlist volume circuit",
-        noun="waitlist",
-        limit=200,
-        ttl=86400,
-    )
+    _note_global_waitlist()
 
 
 def guard_known_invite_token(session: Session, token: str) -> None:

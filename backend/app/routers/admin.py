@@ -316,6 +316,7 @@ class WaitlistStatusBody(BaseModel):
 def _waitlist_entry(session: Session, entry_id: UUID, *, lock: bool = False) -> WaitlistEntry:
     query = select(WaitlistEntry).where(WaitlistEntry.id == entry_id)
     if lock:
+        # Keep at most one active invite per entry across concurrent requests.
         query = query.with_for_update()
     entry = session.scalar(query)
     if entry is None:

@@ -327,8 +327,6 @@ def test_list_filters_and_expired_link(app_client: TestClient, db_session: Sessi
     ).json()["id"] == str(sent.id)
     invite = db_session.scalar(select(Invite).where(Invite.waitlist_entry_id == sent.id))
     assert invite is not None
-    from datetime import datetime
-
     invite.expires_at = datetime.now(tz=ET) - timedelta(days=1)
     db_session.flush()
     expired = app_client.get(
