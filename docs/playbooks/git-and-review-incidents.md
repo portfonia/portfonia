@@ -56,6 +56,37 @@ git push ...`. This is a per-push workaround, not a standing config change
 — it does not write the token into any git config file. A cleaner
 permanent fix (e.g. a git credential helper backed by `GITHUB_TOKEN`) is
 worth setting up if this keeps recurring, but is not decided yet.
+*(Superseded 2026-09-27 — see the next paragraph.)*
+
+**Current git transport auth (product owner, 2026-09-27): a repo-local
+credential helper backed by `GITHUB_TOKEN`.** The per-push workaround above
+kept recurring (every agent session and Codex run had to rediscover it), so
+the main checkout's `.git/config` now carries a credential helper for
+`https://github.com` that reads `GITHUB_TOKEN` from the main checkout's
+`.env.local` each time git asks for a credential, and answers with username
+`x-access-token`. Plain `git fetch`/`git pull`/`git push` work with no extra
+flags, and every worktree of this repository inherits the setting because
+worktrees share the main checkout's `.git/config`. The config entry is two
+values under `[credential "https://github.com"]`: an empty `helper =`
+first, which clears the helpers inherited from global/system config (the
+logged-out `gh auth git-credential` helper and the macOS keychain, so the
+token is never cached there), followed by an inline `!f() { ... }; f` shell
+function that answers only `get` requests. `origin` is back to the plain
+`https://github.com/portfonia/portfonia.git` URL. The token is never
+written into git config; rotating it means editing `.env.local` only.
+`.git/config` is untracked, so a fresh clone does not have the helper: to
+recreate it, run from the main checkout root (the path is an absolute
+path to that checkout's `.env.local`):
+
+```bash
+git config --local --add credential.https://github.com.helper ''
+git config --local --add credential.https://github.com.helper '!f() { test "$1" = get || exit 0; t=$(sed -n "s/^GITHUB_TOKEN=//p" <main-checkout>/.env.local | head -n 1 | tr -d "\r"); test -n "$t" || exit 0; echo username=x-access-token; echo "password=$t"; }; f'
+git remote set-url origin https://github.com/portfonia/portfonia.git
+```
+
+Verify with `GIT_TERMINAL_PROMPT=0 git push --dry-run origin main`, which
+authenticates without pushing. This covers git transport only; GitHub API
+operations still follow the `GH_TOKEN=<token> gh api ...` rule above.
 
 This procedure supersedes both the 2026-09-13 OAuth-primary procedure
 below and the even older `GITHUB_TOKEN`-as-fallback framing before that.
