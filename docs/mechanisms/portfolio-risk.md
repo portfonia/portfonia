@@ -1,4 +1,4 @@
-# Portfolio historical volatility and risk (issues #551, #553, and #555)
+# Portfolio historical volatility and risk (issues #551, #553, #555, and #557)
 
 `GET /portfolio/risk` is a read-only companion to Portfolio Overview. It does not change `/portfolio/summary` or `/portfolio/performance`. The panel appears after Unrealized P&L. Issue #551 defines the original product contract; issue #553 supersedes its sampling, chart, and indicator-cell rules; issue #555 changes index-gap returns, the benchmark API, and panel visuals. Each issue has Requirements, Reasons, Exploration, Design, and Contract constraints comments.
 
@@ -28,3 +28,15 @@ The chart uses a numeric time axis and passes each line its own dated points. Ca
 The three equal fixed-height cells show explanations in overlays, including a data-state reason when a metric is unavailable. Beta's gauge arcs remain visible without a value or needle. Explanations are translated descriptions, with no per-user answer or holding facts. The three locale catalogs carry all user-facing text. The panel is descriptive and makes no trading recommendation.
 
 No migration, capture task, provider fetch, backfill, persisted selection, report change, or production data operation is part of this mechanism.
+
+## Logged-out homepage preview (issue #557)
+
+The logged-out homepage shows a static risk preview at the top of `#product-previews`, before the Portfolio overview preview. A risk-focused get-started block follows it. The preview is composed in `frontend/src/app/_components/home-risk-preview.tsx` from fixed sample data in `home-risk-sample.ts`. It makes no request to `GET /portfolio/risk` and shows no benchmark selector or account-specific disclosure lines.
+
+The preview reuses the gauge, bar, cell, tooltip, colour, and formatting declarations **exported** from `frontend/src/app/portfolio/_components/risk-panel.tsx`. `RiskPanel` itself was deliberately left unrefactored: the product owner withdrew an earlier plan to extract a shared view. The homepage re-declares only the volatility chart's Recharts JSX, using the same axis, line, and tooltip settings.
+
+Keep this coupling in mind:
+- Renaming or changing the props of those exported components also affects the homepage.
+- A visual change to the live chart JSX in `RiskPanel` has to be mirrored in `home-risk-preview.tsx`.
+
+The homepage copy is i18n-keyed under `home.productPreviews` (`riskHeading`, `riskBody`, `riskCtaHeading`, `riskCtaBody`).
