@@ -28,6 +28,7 @@ from app.models.user_investment_context import UserInvestmentContext
 from app.services.credit_ledger import grant_signup_credits
 from app.services.questionnaire_taxonomy import QUESTIONNAIRE_VERSION
 from app.tests.conftest import TEST_USER_ID
+from app.tests.test_credit_ledger import assert_balanced
 
 
 def _seed_user(
@@ -94,8 +95,10 @@ def test_me_credit_balance_with_and_without_grant(
     app_client: TestClient, db_session: Session
 ) -> None:
     user = _seed_user(db_session)
+    assert_balanced(db_session, user)
     assert app_client.get("/me").json()["credit_balance"] == "0.00"
     grant_signup_credits(db_session, user)
+    assert_balanced(db_session, user)
     assert app_client.get("/me").json()["credit_balance"] == "5.00"
 
 

@@ -18,6 +18,7 @@ from app.models.credit_ledger import CreditLedgerEntry
 from app.models.user import User
 from app.services.credit_ledger import adjust_by_admin, grant_signup_credits
 from app.tests.conftest import seed_user
+from app.tests.test_credit_ledger import assert_balanced
 
 
 def _rows(response_text: str) -> list[dict[str, str]]:
@@ -33,6 +34,8 @@ def test_ledger_csv_contract(app_client: TestClient, db_session: Session) -> Non
     removed = seed_user(db_session, uuid.uuid4(), "removed@example.com")
     grant_signup_credits(db_session, live)
     grant_signup_credits(db_session, removed)
+    assert_balanced(db_session, live)
+    assert_balanced(db_session, removed)
     deleted_at = datetime(2026, 9, 27, 2, 45, 19, tzinfo=ET)
     db_session.query(CreditLedgerEntry).filter_by(user_id=removed.id).update(
         {CreditLedgerEntry.user_deleted_at: deleted_at}
@@ -59,7 +62,8 @@ def test_ledger_csv_contract(app_client: TestClient, db_session: Session) -> Non
     assert selected[str(removed.id)]["user_deleted_at"] == deleted_at.isoformat()
     for row in selected.values():
         assert row["amount"] == row["balance_after"] == "5.00"
-        assert datetime.fromisoformat(row["created_at"]).utcoffset() == deleted_at.utcoffset()
+        created_at = datetime.fromisoformat(row["created_at"])
+        assert created_at.utcoffset() == created_at.astimezone(ET).utcoffset()
 
 
 def test_balances_csv_consistency(app_client: TestClient, db_session: Session) -> None:
@@ -79,6 +83,7 @@ def test_balances_csv_consistency(app_client: TestClient, db_session: Session) -
         note="correction",
         idempotency_key=str(uuid.uuid4()),
     )
+    assert_balanced(db_session, bob)
     assert app_client.get("/admin/credits/balances.csv").status_code == 401
     response = app_client.get("/admin/credits/balances.csv", headers=_headers())
     assert response.status_code == 200
