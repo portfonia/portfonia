@@ -20,6 +20,7 @@ from app.routers import (
     portfolio,
     reports,
     unsubscribe,
+    waitlist,
 )
 
 # Without this the root logger defaults to WARNING and every logger.info() in the
@@ -60,6 +61,7 @@ app.include_router(portfolio.router, prefix="/portfolio", tags=["portfolio"])
 app.include_router(reports.router, prefix="/reports", tags=["reports"])
 app.include_router(admin.router, prefix="/admin", tags=["admin"])
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
+app.include_router(waitlist.router, prefix="/waitlist", tags=["waitlist"])
 app.include_router(
     investment_context.router, prefix="/investment-context", tags=["investment-context"]
 )

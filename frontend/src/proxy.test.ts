@@ -85,6 +85,7 @@ describe("proxy", () => {
     "/login",
     "/signup?invite=abc",
     "/forgot-password",
+    "/waitlist",
     "/reset-password",
     "/verify-email",
     "/unsubscribe",

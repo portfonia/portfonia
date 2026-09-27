@@ -12,6 +12,7 @@ vi.mock("./actions", () => ({ login }));
 vi.mock("@/hooks/use-session", () => ({ markPendingLogin, clearPendingLogin }));
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
+import { catalogs } from "@/locales";
 import { LoginForm } from "./login-form";
 
 function renderForm() {
@@ -96,11 +97,39 @@ describe("LoginForm", () => {
     await waitFor(() => expect(clearPendingLogin).toHaveBeenCalled());
   });
 
-  it("tells an account-less visitor to ask for an invite, rather than linking to a token-less /signup", () => {
+  it("links an interested visitor to the public waitlist", () => {
     renderForm();
 
-    expect(screen.getByText(/need an invite/i)).toBeInTheDocument();
+    expect(screen.getByText(/internal testing/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /join the waitlist/i })).toHaveAttribute("href", "/waitlist");
     expect(screen.queryByRole("link", { name: /sign ?up/i })).not.toBeInTheDocument();
+  });
+
+  it("joins the waitlist hint and link with one space in English", () => {
+    renderForm();
+
+    const link = screen.getByRole("link", { name: /join the waitlist/i });
+    expect(link.parentElement?.textContent).toBe(
+      "Portfonia is in internal testing. If you're interested, you can join the waitlist",
+    );
+  });
+
+  it("joins the waitlist hint and link with no space in Chinese", async () => {
+    const original = Object.getOwnPropertyDescriptor(window, "localStorage");
+    Object.defineProperty(window, "localStorage", {
+      value: { getItem: () => "zh-Hans", setItem: () => undefined },
+      configurable: true,
+    });
+    try {
+      renderForm();
+
+      const { waitlistHint, waitlistLink } = catalogs["zh-Hans"].auth;
+      const link = await screen.findByRole("link", { name: waitlistLink });
+      expect(waitlistHint.endsWith(" ")).toBe(false);
+      expect(link.parentElement?.textContent).toBe(`${waitlistHint}${waitlistLink}`);
+    } finally {
+      if (original) Object.defineProperty(window, "localStorage", original);
+    }
   });
 
 });

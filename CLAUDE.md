@@ -116,6 +116,7 @@ area of the code, not just the one-line summary here.
 
 - [Frontend chrome (header/nav) convention](docs/mechanisms/frontend-chrome.md) — issue #146/#148 (shared `SiteHeader`); #214 session re-verification; #209 global i18n catalog; #220 Profile menu entry; #269 Profile section reorder; #390 Holdings+Report management merge; #350 item 4 LocaleSwitcher rebuild.
 - [Profile page: GET /me account summary](docs/mechanisms/identity-and-auth.md) — issue #220/#221: `/profile` summary + full `GET /me` shape; #269 adds verification timestamps.
+- [Waitlist](docs/mechanisms/identity-and-auth.md#waitlist-issue-566) — issue #566: public requests, derived stages, and ops-managed email-bound invite links.
 - [Post-signup onboarding](docs/mechanisms/frontend-chrome.md) — issue #221: ToS gate, `/questionnaire?onboarding=1` → `/welcome` flow; #280 reordered to questionnaire→holdings→welcome; #290 send-stop copy lift.
 - [Async holdings upload](docs/mechanisms/holdings-pipeline.md) — issue #77/#82/#85: `POST /holdings/upload` returns 202 + job id, Celery parses, 45s SLA, two-layer hard-kill resolution.
 - [Holdings encryption at rest](docs/mechanisms/holdings-pipeline.md) — issue #31: field-level Fernet via SQLAlchemy `TypeDecorator`, system-wide key, `ORDER BY` moved to Python.

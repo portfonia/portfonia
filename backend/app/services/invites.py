@@ -68,6 +68,7 @@ def create_invite(
     email: str | None = None,
     expires_at: datetime | None = None,
     expires_days: int = 14,
+    waitlist_entry_id: uuid.UUID | None = None,
 ) -> IssuedInvite:
     email_n = _normalize_email(email)
     if email_n is not None and signup_email_taken(session, email_n):
@@ -80,6 +81,7 @@ def create_invite(
         token_hash=hash_invite_token(token),
         email=email_n,
         created_by=created_by,
+        waitlist_entry_id=waitlist_entry_id,
         expires_at=expires_at,
         created_at=created_at,
     )
