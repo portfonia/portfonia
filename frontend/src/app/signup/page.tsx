@@ -1,3 +1,5 @@
+import { headers } from "next/headers";
+
 import { SignupHeading } from "./signup-heading";
 import { SignupForm } from "./signup-form";
 
@@ -11,9 +13,17 @@ export default async function SignupPage({
   if (invite) {
     try {
       const backendUrl = process.env.BACKEND_URL ?? "http://localhost:8000";
+      // Match signup/actions.ts: the backend sees the frontend container as
+      // the peer unless Caddy's visitor IP is forwarded through this hop.
+      const incoming = await headers();
+      const forwarded: Record<string, string> = {};
+      const xff = incoming.get("x-forwarded-for");
+      const realIp = incoming.get("x-real-ip");
+      if (xff) forwarded["X-Forwarded-For"] = xff;
+      if (realIp) forwarded["X-Real-IP"] = realIp;
       const response = await fetch(
         `${backendUrl}/auth/invite-email?token=${encodeURIComponent(invite)}`,
-        { cache: "no-store" },
+        { cache: "no-store", headers: forwarded },
       );
       if (response.ok) {
         const body: { email: string | null } = await response.json();

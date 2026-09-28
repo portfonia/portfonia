@@ -80,13 +80,32 @@ def test_canonical_ipv4_mapped_ipv6() -> None:
     assert canonical_client_id("::ffff:203.0.113.9") == "203.0.113.9"
 
 
-def test_invite_email_lookup_does_not_share_a_server_ip_quota(
+def test_invite_email_lookup_uses_each_forwarded_visitor_ip(
     app_client: TestClient, backend: InMemoryBackend
 ) -> None:
-    for _ in range(SIGNUP_IP_MINUTE_LIMIT + 3):
-        response = app_client.get("/auth/invite-email?token=unknown")
+    for visitor in range(1, 9):
+        ip = f"203.0.113.{visitor}"
+        response = app_client.get(
+            "/auth/invite-email?token=unknown",
+            headers={"X-Forwarded-For": ip, "X-Real-IP": ip},
+        )
         assert response.status_code == 200
         assert response.json() == {"email": None}
+    for _ in range(SIGNUP_IP_MINUTE_LIMIT - 1):
+        assert (
+            app_client.get(
+                "/auth/invite-email?token=unknown",
+                headers={"X-Forwarded-For": "203.0.113.1", "X-Real-IP": "203.0.113.1"},
+            ).status_code
+            == 200
+        )
+    assert (
+        app_client.get(
+            "/auth/invite-email?token=unknown",
+            headers={"X-Forwarded-For": "203.0.113.1", "X-Real-IP": "203.0.113.1"},
+        ).status_code
+        == 429
+    )
 
 
 def test_incr_sets_ttl_only_on_first_hit(backend: InMemoryBackend) -> None:

@@ -1035,5 +1035,7 @@ bounced, complained, suppressed, and failed events trigger an ops alert,
 without changing invite or waitlist state. `GET /auth/invite-email` returns
 the bound email, if any, for signup's read-only email field; redeem and
 account-email verification retain their existing checks. The public
-invite-email lookup is unthrottled: it is called by the frontend server,
-where an IP limiter would pool unrelated signup visitors into one bucket.
+invite-email lookup uses the existing signup IP window limits in its own
+bucket. The Next.js signup page forwards Caddy's visitor IP headers on its
+server-side lookup, as the signup action already does, so unrelated visitors
+do not share the frontend container's limit.
