@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import threading
 import uuid
 from datetime import datetime
 from unittest.mock import MagicMock, patch
@@ -96,6 +97,76 @@ def test_send_completion_does_not_overwrite_concurrent_ops_change(
             else:
                 assert current.status == intervention
     finally:
+        with Session(engine) as cleanup:
+            cleanup.execute(delete(Invite).where(Invite.waitlist_entry_id == entry_id))
+            cleanup.execute(delete(WaitlistEntry).where(WaitlistEntry.id == entry_id))
+            cleanup.commit()
+
+
+def test_completion_lock_blocks_status_change_until_sent_commit(session_test_db: None) -> None:
+    """A status edit started after the re-check must wait for the completion commit."""
+    from app.routers.admin import (
+        InvitationLetterBody,
+        WaitlistStatusBody,
+        send_invitation_letter_endpoint,
+        set_waitlist_status,
+    )
+
+    engine = get_engine()
+    with Session(engine) as seed:
+        entry = WaitlistEntry(email="race-after-recheck@example.com", locale="en", status="pending")
+        seed.add(entry)
+        seed.commit()
+        entry_id = entry.id
+
+    started = threading.Event()
+    finished = threading.Event()
+    errors: list[Exception] = []
+
+    def edit_status() -> None:
+        started.set()
+        try:
+            with Session(engine) as second:
+                set_waitlist_status(entry_id, WaitlistStatusBody(status="rejected"), session=second)
+        except Exception as exc:
+            errors.append(exc)
+        finally:
+            finished.set()
+
+    worker: threading.Thread | None = None
+    try:
+        with Session(engine) as first:
+            original_refresh = first.refresh
+
+            def refresh_then_start_status_edit(instance: object) -> None:
+                nonlocal worker
+                original_refresh(instance)
+                worker = threading.Thread(target=edit_status, daemon=True)
+                worker.start()
+                assert started.wait(2)
+                assert not finished.wait(0.5), "status edit passed the completion lock"
+
+            with (
+                patch.object(first, "refresh", side_effect=refresh_then_start_status_edit),
+                patch("app.routers.admin.send_invitation_letter", return_value="resend-locked"),
+                patch("app.routers.admin.poll_invitation_letter_delivery.apply_async"),
+            ):
+                sent = send_invitation_letter_endpoint(
+                    InvitationLetterBody(email="race-after-recheck@example.com"),
+                    session=first,
+                    _=None,
+                )
+        assert finished.wait(5)
+        assert errors == []
+        with Session(engine) as check:
+            current = check.get(WaitlistEntry, entry_id)
+            invite = check.get(Invite, sent.invite_id)
+            assert current is not None and current.status == "rejected"
+            assert current.link_sent_at is None
+            assert invite is not None and invite.letter_provider_message_id == "resend-locked"
+    finally:
+        if worker is not None:
+            worker.join(timeout=5)
         with Session(engine) as cleanup:
             cleanup.execute(delete(Invite).where(Invite.waitlist_entry_id == entry_id))
             cleanup.execute(delete(WaitlistEntry).where(WaitlistEntry.id == entry_id))

@@ -374,18 +374,6 @@ def rate_limit_signup(request: Request) -> None:
     )
 
 
-def rate_limit_invite_email(request: Request) -> None:
-    _enforce_ip(
-        "rl:invite_email:ip",
-        client_id_from_request(request),
-        (
-            (SIGNUP_IP_MINUTE_LIMIT, SIGNUP_IP_MINUTE_TTL),
-            (SIGNUP_IP_HOUR_LIMIT, SIGNUP_IP_HOUR_TTL),
-        ),
-        scope="invite-email",
-    )
-
-
 def rate_limit_create_invite(request: Request) -> None:
     client_id = client_id_from_request(request)
     _note_global_invite_mint()

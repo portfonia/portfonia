@@ -1015,6 +1015,10 @@ If the waitlist entry changes while Resend is sending, the delivery record is
 saved on that invite but `link_sent_at` is left unchanged. The completion
 write locks the entry again and checks that it is still `invited` and the
 sent invite is not revoked.
+This lost-race path still returns 201 with the letter's `invite_url`, even
+though that URL has been revoked by the intervening ops change. If the
+waitlist lookup still shows `invited` after a 201, inspect the live link
+before treating the letter as the sent link.
 
 A client timeout is not proof that Resend failed. Do not immediately retry:
 for a waitlist address, first check `GET /admin/waitlist/by-email`; for an
@@ -1030,6 +1034,6 @@ future letters only. A one-shot Resend poll records `letter_delivery_event`;
 bounced, complained, suppressed, and failed events trigger an ops alert,
 without changing invite or waitlist state. `GET /auth/invite-email` returns
 the bound email, if any, for signup's read-only email field; redeem and
-account-email verification retain their existing checks.
-The public invite-email lookup uses the existing signup IP window limits in
-its own rate-limit bucket.
+account-email verification retain their existing checks. The public
+invite-email lookup is unthrottled: it is called by the frontend server,
+where an IP limiter would pool unrelated signup visitors into one bucket.
