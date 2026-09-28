@@ -47,16 +47,25 @@ a cash-redeemable balance. Full rationale and sources: issue #574
 - The U.S. tax-resident restriction (Terms §4) is removed.
 - Service status is "limited public service", replacing "closed beta" /
   "invite-gated".
+- The two plans differ only in briefing cadence; everything else is
+  included in both.
+- Low balance: users are emailed a reminder in advance when their balance
+  will not cover the next monthly fee.
+- Plan change or cancellation: the already-charged fee for the current
+  month is returned pro rata for the unused part of the month.
+- Credits do not expire. After a purchase's 120-day refund window there is
+  no other refund channel; the credits stay usable.
+- Account deletion permanently removes holdings, investment-style
+  settings, and all other personal data; credit and transaction records
+  are kept, no longer linked to the email address.
 
-## Open owner decisions
+## Open owner decision
 
-These block the implementation issue, not this document. Each appears in
-the copy below as `{{OWNER DECISION n}}`.
+Blocks the implementation issue, not this document; marked in the copy as
+`{{OWNER DECISION}}`.
 
-1. What happens when the balance cannot cover the next monthly fee.
-2. When a plan change or cancellation takes effect, and whether fees are
-   prorated.
-3. Whether credits expire.
+- What happens at renewal if the balance is still short after the
+  reminder email (for example, briefings pause until credits are added).
 
 ## Copy conventions
 
@@ -96,6 +105,7 @@ added wherever Terms and Privacy are linked today (home footer, Profile,
      email per week, tied to the holdings you have entered.
    - Mon / Wed / Fri briefing — 1.99 credits per month. Three personalized
      briefing emails per week (Monday, Wednesday, Friday).
+   - The two plans differ only in how often briefings are sent.
 2. **Included in every plan**
    - Holdings upload from CSV, Excel, or Markdown, with row-level editing.
    - Portfolio overview: allocation, performance against benchmarks, and
@@ -115,9 +125,12 @@ added wherever Terms and Privacy are linked today (home footer, Profile,
    - Your plan fee is deducted from your credit balance at the start of
      each monthly billing period. Complimentary credits are used first,
      then purchased credits.
-   - {{OWNER DECISION 1: insufficient balance}}
-   - {{OWNER DECISION 2: plan change / cancellation timing and proration}}
-   - {{OWNER DECISION 3: credit expiry}}
+   - If your balance will not cover the next month's fee, we email you a
+     reminder in advance. {{OWNER DECISION: what happens at renewal if the
+     balance is still short}}
+   - If you change or cancel your plan, the unused part of the current
+     month's fee is returned to your credit balance pro rata.
+   - Credits do not expire.
 5. **Refunds**
    - Unused purchased credits can be refunded within 120 days of purchase.
      See the Refund Policy for details.
@@ -143,10 +156,12 @@ added wherever Terms and Privacy are linked today (home footer, Profile,
      payment method.
 2. **Non-refundable credits**
    - Complimentary, promotional, and referral credits are not refundable.
-   - Credits already applied to a billing period are not refundable.
-   - After 120 days from a purchase, credits from that purchase are no
-     longer refundable but remain usable for your subscription.
-     {{OWNER DECISION 3 may qualify this sentence}}
+   - Credits already applied to a billing period are not refunded to your
+     payment method. When you change or cancel a plan, the unused part of
+     the current month's fee is returned to your credit balance pro rata.
+   - After 120 days from a purchase, credits from that purchase can no
+     longer be refunded. They do not expire and remain usable for your
+     subscription.
 3. **Statutory rights**
    - This policy does not limit any right of withdrawal or refund you have
      under Paddle's Buyer Terms or the consumer-protection law of the
@@ -191,10 +206,12 @@ existing text for them verbatim.
      packs priced in US dollars (1 credit = US$1 at purchase); current
      plans and packs are listed on the Pricing page.
    - Your plan fee is deducted from your credit balance at the start of
-     each monthly billing period, complimentary credits first.
-   - Credits are usable only for Portfonia subscriptions, are
-     non-transferable, and have no cash value except as provided in the
-     Refund Policy.
+     each monthly billing period, complimentary credits first. If you
+     change or cancel your plan, the unused part of the current month's
+     fee is returned to your credit balance pro rata.
+   - Credits do not expire. They are usable only for Portfonia
+     subscriptions, are non-transferable, and have no cash value except as
+     provided in the Refund Policy.
    - Our order process is conducted by our online reseller Paddle.com.
      Paddle.com is the Merchant of Record for all our orders. Paddle
      provides all customer service inquiries and handles returns. Your
@@ -246,10 +263,17 @@ Removed: old §4 "Regional Restriction" (U.S. tax residents).
    and handles your payment information under its own privacy notice."
    Heading changes from "Third-Party Processing (LLMs)" to "Third-Party
    Processing".
-6. **Data Retention** — existing paragraph unchanged, plus: "Credit and
-   transaction records are kept after account deletion, no longer linked
-   to your email address, for accounting and tax purposes."
-7. **Your Rights** *(unchanged)*
+6. **Data Retention** — existing paragraph unchanged, plus: "When your
+   account is deleted, your holdings, investment-style settings, reports,
+   and other personal data are permanently removed; database backups that
+   still contain them expire within 30 days. Credit and transaction records
+   are kept, no longer linked to your email address, for accounting and
+   tax purposes."
+7. **Your Rights** — "You can review and update your holdings and profile
+   information directly in the Service. You can request permanent deletion
+   of your account by contacting us; deletion removes your holdings,
+   investment-style settings, and authentication account as described in
+   Data Retention."
 8. **Cookies and Sessions** *(unchanged)*
 9. **Children's Privacy** *(unchanged)*
 10. **Applicable Law** — "We handle personal data in accordance with the
@@ -259,9 +283,18 @@ Removed: old §4 "Regional Restriction" (U.S. tax residents).
 11. **Changes to This Policy** *(unchanged)*
 12. **Contact** *(unchanged)*
 
-The retention sentence in §6 reflects existing behavior: hard purge keeps
-`credit_ledger` rows by `user_id` with `user_deleted_at` set and deletes the
-`users` row that holds the email (`docs/mechanisms/credit-ledger.md`).
+The retention text in §6/§7 reflects existing behavior:
+`app/services/user_purge.py` deletes holdings, accounts, reports, upload
+jobs, `user_investment_context`, and email verifications, then the `users`
+row that holds the email; `credit_ledger` rows stay keyed by `user_id` with
+`user_deleted_at` set (`docs/mechanisms/credit-ledger.md`). Backups use a
+30-day retention (`docs/mechanisms/backup-and-ops.md`).
+
+Implementation note for the pro-rata return (proposal, not
+owner-confirmed; not copy): return the amount to the bucket(s) the fee was
+deducted from, so returned complimentary credits stay non-refundable. How
+returned purchased credits map to a purchase's 120-day window is left to
+the implementation issue's design.
 
 ## Home copy
 
