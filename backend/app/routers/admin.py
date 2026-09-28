@@ -68,19 +68,21 @@ from app.services.credit_ledger import (
     adjust_by_admin,
 )
 from app.services.credit_ledger_export import build_balances_csv, build_ledger_csv
-from app.services.email_sender import send_report_email
+from app.services.email_sender import send_invitation_letter, send_report_email
 from app.services.email_verification import (
     ResendTooSoon,
     VerificationSendFailed,
     create_verification,
 )
 from app.services.fund_nav_fetcher import update_fund_navs
+from app.services.invitation_unsubscribe import create_token as create_invitation_unsubscribe_token
 from app.services.invites import (
     EmailAlreadyRegistered,
     _normalize_email,
     create_invite,
     list_invites,
     revoke_invite,
+    signup_email_taken,
 )
 from app.services.llm_errors import LLMEmptyResponseError
 from app.services.report_currency import apply_report_currency_change
@@ -104,6 +106,8 @@ from app.services.user_scope import report_currency_for, report_language_for
 from app.services.waitlist import view as waitlist_view
 from app.services.waitlist import views as waitlist_views
 from app.tasks.admin_tasks import send_admin_alert_task
+from app.tasks.email_verification_tasks import POLL_DELAY_SECONDS
+from app.tasks.invitation_letter_tasks import poll_invitation_letter_delivery
 
 logger = logging.getLogger(__name__)
 
@@ -280,6 +284,142 @@ def recover_portfolio_snapshots_endpoint(
 class CreateInviteBody(BaseModel):
     email: str | None = None
     expires_days: int = Field(default=14, ge=1, le=90)
+
+
+class InvitationLetterBody(BaseModel):
+    email: str
+    language: Literal["en", "zh"] | None = None
+    expires_days: int = Field(default=14, ge=1, le=90)
+
+
+class InvitationLetterOut(BaseModel):
+    invite_id: UUID
+    email: str
+    language: Literal["en", "zh"]
+    waitlist_entry_id: UUID | None
+    expires_at: datetime
+    invite_url: str
+    letter_sent_at: datetime
+    provider_message_id: str
+
+
+@router.post("/invitation-letters", response_model=InvitationLetterOut, status_code=201)
+def send_invitation_letter_endpoint(
+    body: InvitationLetterBody,
+    session: Session = Depends(get_session),
+    _: None = Depends(rate_limit_create_invite),
+) -> InvitationLetterOut:
+    email_n = body.email.strip().lower()
+    if not email_n:
+        raise HTTPException(status_code=422, detail="email is required")
+    if (
+        session.scalar(
+            select(Invite.id)
+            .where(Invite.email == email_n, Invite.letter_unsubscribed_at.is_not(None))
+            .limit(1)
+        )
+        is not None
+    ):
+        raise HTTPException(
+            status_code=409, detail="recipient unsubscribed from invitation letters"
+        )
+    if signup_email_taken(session, email_n):
+        raise HTTPException(status_code=409, detail="email already belongs to an existing user")
+    entry = session.scalar(
+        select(WaitlistEntry).where(WaitlistEntry.email == email_n).with_for_update()
+    )
+    now = datetime.now(tz=ET)
+    language: Literal["en", "zh"] = body.language or "en"
+    if entry is not None:
+        state = waitlist_view(session, entry)
+        if state["stage"] in ("registered", "activated"):
+            raise HTTPException(status_code=409, detail="entry already registered")
+        if entry.status == "rejected":
+            raise HTTPException(status_code=409, detail="entry rejected")
+        _revoke_waitlist_links(session, entry.id, now)
+        language = "zh" if entry.locale.startswith("zh") else "en"
+    try:
+        issued = create_invite(
+            session,
+            created_by=UUID(get_settings().DEV_USER_ID),
+            email=email_n,
+            expires_days=body.expires_days,
+            waitlist_entry_id=entry.id if entry else None,
+        )
+    except EmailAlreadyRegistered:
+        session.rollback()
+        raise HTTPException(
+            status_code=409, detail="email already belongs to an existing user"
+        ) from None
+    if entry is not None:
+        entry.status = "invited"
+        entry.link_sent_at = None
+        entry.status_changed_at = now
+    session.commit()
+    settings = get_settings()
+    invite_url = f"{settings.FRONTEND_URL}/signup?invite={issued.token}"
+    unsubscribe_token = create_invitation_unsubscribe_token(issued.id, language)
+    unsubscribe_url = (
+        f"{settings.FRONTEND_URL}/api/invitation-letters/unsubscribe?token={unsubscribe_token}"
+    )
+    provider_id = send_invitation_letter(
+        email_n,
+        invite_url,
+        unsubscribe_url,
+        locale=language,
+        idempotency_key=f"invitation-letter:{issued.id}",
+    )
+    if provider_id is None:
+        logger.error("invitation letter send failed for invite %s", issued.id)
+        raise HTTPException(
+            status_code=502,
+            detail="invitation email send failed; the link was created but not sent and will expire unused",
+        )
+    sent_at = datetime.now(tz=ET)
+    try:
+        invite = session.get(Invite, issued.id)
+        assert invite is not None
+        if entry is not None:
+            current_entry = session.scalar(
+                select(WaitlistEntry)
+                .where(WaitlistEntry.id == entry.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            session.refresh(invite)
+            if (
+                current_entry is not None
+                and current_entry.status == "invited"
+                and invite.revoked_at is None
+            ):
+                current_entry.link_sent_at = sent_at
+            else:
+                logger.warning(
+                    "invitation letter %s sent after waitlist entry changed; link_sent_at unchanged",
+                    issued.id,
+                )
+        invite.letter_sent_at = sent_at
+        invite.letter_provider_message_id = provider_id
+        session.commit()
+    except Exception:
+        logger.exception("letter sent, record not persisted: provider id %s", provider_id)
+        raise
+    try:
+        poll_invitation_letter_delivery.apply_async(
+            args=[str(issued.id)], countdown=POLL_DELAY_SECONDS
+        )
+    except Exception:
+        logger.exception("invitation letter poll enqueue failed for %s", issued.id)
+    return InvitationLetterOut(
+        invite_id=issued.id,
+        email=email_n,
+        language=language,
+        waitlist_entry_id=entry.id if entry else None,
+        expires_at=issued.expires_at,
+        invite_url=invite_url,
+        letter_sent_at=sent_at,
+        provider_message_id=provider_id,
+    )
 
 
 class WaitlistEntryOut(BaseModel):

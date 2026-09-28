@@ -117,6 +117,7 @@ area of the code, not just the one-line summary here.
 - [Frontend chrome (header/nav) convention](docs/mechanisms/frontend-chrome.md) — issue #146/#148 (shared `SiteHeader`); #214 session re-verification; #209 global i18n catalog; #220 Profile menu entry; #269 Profile section reorder; #390 Holdings+Report management merge; #350 item 4 LocaleSwitcher rebuild.
 - [Profile page: GET /me account summary](docs/mechanisms/identity-and-auth.md) — issue #220/#221: `/profile` summary + full `GET /me` shape; #269 adds verification timestamps.
 - [Waitlist](docs/mechanisms/identity-and-auth.md#waitlist-issue-566) — issue #566: public requests, derived stages, and ops-managed email-bound invite links.
+- [Invitation letter](docs/mechanisms/identity-and-auth.md#invitation-letter-issue-569) — issue #569: ops-triggered letters, unsubscribe, delivery poll, and signup email lock.
 - [Post-signup onboarding](docs/mechanisms/frontend-chrome.md) — issue #221: ToS gate, `/questionnaire?onboarding=1` → `/welcome` flow; #280 reordered to questionnaire→holdings→welcome; #290 send-stop copy lift.
 - [Async holdings upload](docs/mechanisms/holdings-pipeline.md) — issue #77/#82/#85: `POST /holdings/upload` returns 202 + job id, Celery parses, 45s SLA, two-layer hard-kill resolution.
 - [Holdings encryption at rest](docs/mechanisms/holdings-pipeline.md) — issue #31: field-level Fernet via SQLAlchemy `TypeDecorator`, system-wide key, `ORDER BY` moved to Python.
@@ -226,10 +227,13 @@ area of the code, not just the one-line summary here.
   (`frontend/src/locales/*.json` for UI chrome; `backend/config/
   i18n_glossary.yml` for report output; `_VERIFICATION_EMAIL_COPY` in
   `backend/app/services/email_sender.py` for the one transactional
-  verification email, issue #260/PR #261; `_RULES_ZH` / `_EXAMPLES_ZH` in
+  verification email, issue #260/PR #261; `_INVITATION_LETTER_COPY` in
+  `backend/app/services/email_sender.py` and the unsubscribe page copy
+  dict in `backend/app/routers/invitation_letters.py`, issue #569;
+  `_RULES_ZH` / `_EXAMPLES_ZH` in
   `backend/app/services/holdings_export.py` for the holdings
   export/template dialect keyed off `users.locale`, issue #92/PR #310 —
-  four mechanisms, not one/two/three, see the Mechanism deep-dives table)
+  six mechanisms, see the Mechanism deep-dives table)
   and are the only places where non-English text legitimately appears in
   the repo. A lint rule (`i18next/no-literal-string` in
   `frontend/eslint.config.mjs`) enforces this for UI code.

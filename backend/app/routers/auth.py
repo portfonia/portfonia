@@ -20,8 +20,10 @@ from app.core.rate_limit import (
     UNAVAILABLE_DETAIL,
     guard_known_invite_token,
     rate_limit_forgot_password,
+    rate_limit_invite_email,
     rate_limit_signup,
 )
+from app.models.invite import Invite
 from app.models.user import User
 from app.services.altcha_challenge import (
     create_forgot_password_challenge,
@@ -38,6 +40,7 @@ from app.services.email_sender import send_ops_alert
 from app.services.invites import (
     INVITE_REJECTED_MESSAGE,
     InviteRejected,
+    hash_invite_token,
     redeem_invite,
     signup_email_taken,
 )
@@ -46,6 +49,16 @@ from app.services.window_data import backfill_news_surfaced_before, cold_start_w
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+@router.get("/invite-email")
+def invite_email(
+    token: str,
+    session: Session = Depends(get_session),
+    _: None = Depends(rate_limit_invite_email),
+) -> dict[str, str | None]:
+    invite = session.scalar(select(Invite).where(Invite.token_hash == hash_invite_token(token)))
+    return {"email": invite.email if invite else None}
 
 
 class SignupRequest(BaseModel):

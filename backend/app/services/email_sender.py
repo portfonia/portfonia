@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from datetime import UTC, datetime, timedelta
+from html import escape
 from typing import Literal
 from uuid import UUID
 
@@ -36,6 +37,89 @@ from app.tasks import next_occurrence_for_cadence
 logger = logging.getLogger(__name__)
 
 _RESEND_SEND_URL = "https://api.resend.com/emails"
+
+_INVITATION_LETTER_COPY: dict[str, dict[str, str]] = {
+    "en": {
+        "subject": "Portfonia Invitation Letter",
+        "paragraph1": "Welcome to Portfonia. You have been invited to join the platform. Please click the registration link below to create a new account with your email address.",
+        "paragraph2": "After creating your account, we encourage you to complete the personalized investment-style questionnaire and add your main holdings and the instruments you follow, so the platform can provide you with more relevant service. Your holdings are protected by HTTPS encryption in transit and AES-128 authenticated encryption at rest.",
+        "paragraph3": "If you have any feedback or suggestions in your day-to-day use, please write to info@portfonia.com. We will respond promptly and handle it appropriately.",
+        "paragraph4": "Thank you again for your time and trust!",
+        "footer": "You received this email because you were invited to join Portfonia. If you do not wish to receive further invitation emails, you can unsubscribe: {unsubscribe_url}",
+    },
+    "zh": {
+        "subject": "Portfonia 邀请函",
+        "paragraph1": "欢迎来到 Portfonia，您已被邀请加入本平台，请点击以下注册链接，用您的邮件地址注册新账户。",  # noqa: RUF001
+        "paragraph2": "创建账户后，我们鼓励您填写个性化投资风格问卷，以及您的主要持仓和关注的标的，以便平台更好地为您提供关联性更高的服务。您的持仓信息在传输全程经 HTTPS 加密，存储时经 AES-128 认证加密保护。",  # noqa: RUF001
+        "paragraph3": "如果您在日常使用中有意见和建议，可以致信 info@portfonia.com。我们会在第一时间反馈并适当处理。",  # noqa: RUF001
+        "paragraph4": "再次感谢您的时间和信任！",  # noqa: RUF001
+        "footer": "您收到这封邮件，是因为您受邀加入 Portfonia。如不希望再收到邀请邮件，可以退订：{unsubscribe_url}",  # noqa: RUF001
+    },
+}
+
+
+def send_invitation_letter(
+    email: str, invite_url: str, unsubscribe_url: str, *, locale: str, idempotency_key: str
+) -> str | None:
+    """Send a plain invitation letter and return its Resend id, or None."""
+    settings = get_settings()
+    copy = _INVITATION_LETTER_COPY[locale]
+    paragraphs = [copy[f"paragraph{i}"] for i in range(1, 5)]
+    text_body = "\n\n".join(
+        [
+            paragraphs[0],
+            invite_url,
+            *paragraphs[1:],
+            "---",
+            copy["footer"].format(unsubscribe_url=unsubscribe_url),
+        ]
+    )
+    safe_invite = escape(invite_url, quote=True)
+    safe_unsubscribe = escape(unsubscribe_url, quote=True)
+    html_body = "".join(
+        [
+            f"<p>{escape(paragraphs[0])}</p>",
+            f'<p><a href="{safe_invite}">{safe_invite}</a></p>',
+            *(f"<p>{escape(paragraph)}</p>" for paragraph in paragraphs[1:]),
+            "<hr>",
+            f"<p>{escape(copy['footer'].split('{unsubscribe_url}')[0])}"
+            f'<a href="{safe_unsubscribe}">{safe_unsubscribe}</a></p>',
+        ]
+    )
+    payload: dict[str, object] = {
+        "from": settings.EMAIL_FROM,
+        "to": [email],
+        "reply_to": settings.EMAIL_REPLY_TO,
+        "subject": copy["subject"],
+        "text": text_body,
+        "html": html_body,
+        "headers": {
+            "List-Unsubscribe": f"<{unsubscribe_url}>",
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        },
+    }
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.post(
+                _RESEND_SEND_URL,
+                headers={
+                    "Authorization": f"Bearer {settings.RESEND_API_KEY.get_secret_value()}",
+                    "Content-Type": "application/json",
+                    "Idempotency-Key": idempotency_key,
+                },
+                json=payload,
+            )
+            resp.raise_for_status()
+        resend_id = resp.json().get("id")
+        if not isinstance(resend_id, str):
+            logger.error("invitation letter to %s: Resend returned 2xx without an id", email)
+            return None
+        return resend_id
+    except Exception:
+        logger.exception("invitation letter delivery failed for %s", email)
+        return None
+
+
 # Resend Idempotency-Key TTL is 24 hours. The unsubscribe token is embedded
 # in html_body, which is hashed into that key, so `now` used to mint the
 # token must be constant inside this window (PR #279 review).

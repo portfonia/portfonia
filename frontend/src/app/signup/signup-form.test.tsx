@@ -14,10 +14,10 @@ vi.mock("@/hooks/use-session", () => ({ markPendingLogin, clearPendingLogin }));
 import { LocaleProvider } from "@/app/_components/locale-provider";
 import { SignupForm } from "./signup-form";
 
-function renderForm(inviteToken: string) {
+function renderForm(inviteToken: string, lockedEmail: string | null = null) {
   return render(
     <LocaleProvider>
-      <SignupForm inviteToken={inviteToken} />
+      <SignupForm inviteToken={inviteToken} lockedEmail={lockedEmail} />
     </LocaleProvider>,
   );
 }
@@ -36,6 +36,20 @@ async function fillForm(user: ReturnType<typeof userEvent.setup>, pw: string) {
 }
 
 describe("SignupForm", () => {
+  it("keeps a bound email read-only and includes it in submitted FormData", async () => {
+    signup.mockResolvedValue({ error: null });
+    const user = userEvent.setup();
+    renderForm("tok-bound", "a@b.com");
+    expect(email()).toHaveValue("a@b.com");
+    expect(email()).toHaveAttribute("readonly");
+    await user.type(password(), "correcthorse");
+    await user.type(confirmPassword(), "correcthorse");
+    await user.click(tosCheckbox());
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+    await waitFor(() => expect(signup).toHaveBeenCalled());
+    expect((signup.mock.calls[0][1] as FormData).get("email")).toBe("a@b.com");
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
   });

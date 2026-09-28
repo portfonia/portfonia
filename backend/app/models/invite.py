@@ -34,6 +34,10 @@ class Invite(Base):
     used_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     used_by_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     revoked_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    letter_sent_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    letter_provider_message_id: Mapped[str | None] = mapped_column(Text)
+    letter_delivery_event: Mapped[str | None] = mapped_column(Text)
+    letter_unsubscribed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
