@@ -80,6 +80,14 @@ def test_canonical_ipv4_mapped_ipv6() -> None:
     assert canonical_client_id("::ffff:203.0.113.9") == "203.0.113.9"
 
 
+def test_invite_email_lookup_sixth_request_is_429(
+    app_client: TestClient, backend: InMemoryBackend
+) -> None:
+    for _ in range(SIGNUP_IP_MINUTE_LIMIT):
+        assert app_client.get("/auth/invite-email?token=unknown").status_code == 200
+    assert app_client.get("/auth/invite-email?token=unknown").status_code == 429
+
+
 def test_incr_sets_ttl_only_on_first_hit(backend: InMemoryBackend) -> None:
     n1 = backend.incr_with_ttl("k", 60)
     ttl1 = backend.ttl("k")

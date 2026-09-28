@@ -1011,6 +1011,17 @@ letter it sets `link_sent_at` (derived stage `sent`). An address without a
 waitlist entry receives a letter without creating one. The entry's UI locale
 overrides the optional request language. A send failure leaves the committed
 invite unsent; a later call revokes its live waitlist link and mints another.
+If the waitlist entry changes while Resend is sending, the delivery record is
+saved on that invite but `link_sent_at` is left unchanged. The completion
+write locks the entry again and checks that it is still `invited` and the
+sent invite is not revoked.
+
+A client timeout is not proof that Resend failed. Do not immediately retry:
+for a waitlist address, first check `GET /admin/waitlist/by-email`; for an
+address outside the waitlist, inspect `GET /admin/invites` and the send logs.
+A second call creates a new link and can leave the first email pointing at a
+revoked link. Non-waitlist calls do not create waitlist rows, and repeated
+calls may leave multiple live email-bound invites by design.
 
 The letter shows the signup URL and carries RFC 8058 one-click unsubscribe
 headers. `GET /invitation-letters/unsubscribe` only renders a confirmation;
@@ -1020,3 +1031,5 @@ bounced, complained, suppressed, and failed events trigger an ops alert,
 without changing invite or waitlist state. `GET /auth/invite-email` returns
 the bound email, if any, for signup's read-only email field; redeem and
 account-email verification retain their existing checks.
+The public invite-email lookup uses the existing signup IP window limits in
+its own rate-limit bucket.

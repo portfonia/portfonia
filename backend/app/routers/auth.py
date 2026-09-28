@@ -20,6 +20,7 @@ from app.core.rate_limit import (
     UNAVAILABLE_DETAIL,
     guard_known_invite_token,
     rate_limit_forgot_password,
+    rate_limit_invite_email,
     rate_limit_signup,
 )
 from app.models.invite import Invite
@@ -51,7 +52,11 @@ router = APIRouter()
 
 
 @router.get("/invite-email")
-def invite_email(token: str, session: Session = Depends(get_session)) -> dict[str, str | None]:
+def invite_email(
+    token: str,
+    session: Session = Depends(get_session),
+    _: None = Depends(rate_limit_invite_email),
+) -> dict[str, str | None]:
     invite = session.scalar(select(Invite).where(Invite.token_hash == hash_invite_token(token)))
     return {"email": invite.email if invite else None}
 

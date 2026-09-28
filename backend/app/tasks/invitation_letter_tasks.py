@@ -55,12 +55,14 @@ def poll_invitation_letter_delivery(self: Any, invite_id: str) -> str:
             return "skipped_unauthorized"
         response.raise_for_status()
         event = response.json().get("last_event")
+        if not isinstance(event, str) or not event:
+            raise ValueError("Resend response has no last_event")
         invite.letter_delivery_event = event
         session.commit()
         if event in UNDELIVERABLE_EVENTS:
             logger.warning("invitation letter %s delivery event %s", invite_id, event)
             sent_at = (
-                invite.letter_sent_at.astimezone(ET).isoformat()
+                invite.letter_sent_at.astimezone(ET).strftime("%Y-%m-%d %H:%M ET")
                 if invite.letter_sent_at
                 else "unknown"
             )
@@ -79,7 +81,7 @@ def poll_invitation_letter_delivery(self: Any, invite_id: str) -> str:
         else:
             logger.info("invitation letter %s delivery event %s", invite_id, event)
         return f"ok_{event}"
-    except httpx.HTTPError as exc:
+    except (httpx.HTTPError, ValueError) as exc:
         logger.exception("invitation letter poll failed for %s", invite_id)
         raise self.retry() from exc
     finally:

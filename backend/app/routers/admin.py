@@ -379,10 +379,27 @@ def send_invitation_letter_endpoint(
     try:
         invite = session.get(Invite, issued.id)
         assert invite is not None
+        if entry is not None:
+            current_entry = session.scalar(
+                select(WaitlistEntry)
+                .where(WaitlistEntry.id == entry.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            session.refresh(invite)
+            if (
+                current_entry is not None
+                and current_entry.status == "invited"
+                and invite.revoked_at is None
+            ):
+                current_entry.link_sent_at = sent_at
+            else:
+                logger.warning(
+                    "invitation letter %s sent after waitlist entry changed; link_sent_at unchanged",
+                    issued.id,
+                )
         invite.letter_sent_at = sent_at
         invite.letter_provider_message_id = provider_id
-        if entry is not None:
-            entry.link_sent_at = sent_at
         session.commit()
     except Exception:
         logger.exception("letter sent, record not persisted: provider id %s", provider_id)
