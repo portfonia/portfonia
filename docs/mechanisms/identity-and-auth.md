@@ -1039,3 +1039,7 @@ invite-email lookup uses the existing signup IP window limits in its own
 bucket. The Next.js signup page forwards Caddy's visitor IP headers on its
 server-side lookup, as the signup action already does, so unrelated visitors
 do not share the frontend container's limit.
+
+Invitation letter links include the recipient's UI locale as `?lang=`.
+`/signup` applies valid values through `setLocale`, persisting the choice for
+later pages; this does not introduce URL-based locale routing.

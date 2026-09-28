@@ -8,6 +8,7 @@ import hmac
 import threading
 import uuid
 from datetime import datetime
+from html import escape
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -248,7 +249,8 @@ def test_letter_send_persists_invite_and_blocks_unsubscribed(
         assert row.letter_provider_message_id == "resend-1" and row.letter_sent_at is not None
         assert body["provider_message_id"] == "resend-1"
         assert body["invite_url"].startswith(f"{get_settings().FRONTEND_URL}/signup?invite=")
-        token = body["invite_url"].split("invite=", 1)[1]
+        assert body["invite_url"].endswith("&lang=en")
+        token = body["invite_url"].split("invite=", 1)[1].split("&", 1)[0]
         from app.services.invites import hash_invite_token
 
         assert row.token_hash == hash_invite_token(token)
@@ -262,7 +264,10 @@ def test_letter_send_persists_invite_and_blocks_unsubscribed(
             f"{get_settings().FRONTEND_URL}/api/invitation-letters/unsubscribe?token="
         )
         assert verify_token(unsubscribe_url.split("token=", 1)[1]) == (row.id, "en")
-        assert f'<a href="{body["invite_url"]}">{body["invite_url"]}</a>' in payload["html"]
+        assert (
+            f'<a href="{escape(body["invite_url"])}">{escape(body["invite_url"])}</a>'
+            in payload["html"]
+        )
         assert body["invite_url"] in payload["text"]
         assert call.kwargs["headers"]["Idempotency-Key"] == f"invitation-letter:{row.id}"
         poll.assert_called_once_with(args=[body["invite_id"]], countdown=600)
@@ -327,6 +332,11 @@ def test_waitlist_locale_and_send_failure(app_client: TestClient, db_session: Se
             "/admin/invitation-letters", json={"email": entry.email}, headers=headers
         )
     assert response.status_code == 201 and response.json()["language"] == "zh"
+    assert response.json()["invite_url"].endswith("&lang=zh-Hant")
+    assert (
+        escape(response.json()["invite_url"])
+        in (client_class.return_value.__enter__.return_value.post.call_args.kwargs["json"]["html"])
+    )
     assert (
         client_class.return_value.__enter__.return_value.post.call_args.kwargs["json"]["subject"]
         == "Portfonia 邀请函"
@@ -350,6 +360,24 @@ def test_waitlist_locale_and_send_failure(app_client: TestClient, db_session: Se
     assert [invite.id for invite in live] == [new_id]
     assert app_client.get(f"/admin/waitlist/{entry.id}", headers=headers).json()["stage"] == "sent"
     poll.assert_called_once_with(args=[str(new_id)], countdown=600)
+
+
+def test_non_waitlist_chinese_letter_uses_simplified_ui_locale(
+    app_client: TestClient,
+) -> None:
+    with (
+        patch("app.routers.admin.send_invitation_letter", return_value="resend-zh") as send,
+        patch("app.routers.admin.poll_invitation_letter_delivery.apply_async"),
+    ):
+        response = app_client.post(
+            "/admin/invitation-letters",
+            json={"email": "nonwaitlist-zh@example.com", "language": "zh"},
+            headers=_ops_headers(),
+        )
+    assert response.status_code == 201
+    invite_url = response.json()["invite_url"]
+    assert invite_url.endswith("&lang=zh-Hans")
+    assert send.call_args.args[1] == invite_url
 
 
 @pytest.mark.parametrize("status,expected", [("rejected", "entry rejected"), ("pending", None)])
