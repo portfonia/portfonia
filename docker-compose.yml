@@ -56,6 +56,8 @@ services:
     command: ["alembic", "upgrade", "head"]
     restart: "no"
 
+  # Do not publish a host port for backend: its `--forwarded-allow-ips "*"`
+  # is only safe while Caddy is the sole ingress (see backend/Dockerfile).
   backend:
     image: portfonia-backend
     build:
