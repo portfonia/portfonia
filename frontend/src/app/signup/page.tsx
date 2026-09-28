@@ -2,13 +2,14 @@ import { headers } from "next/headers";
 
 import { SignupHeading } from "./signup-heading";
 import { SignupForm } from "./signup-form";
+import { SignupLang } from "./signup-lang";
 
 export default async function SignupPage({
   searchParams,
 }: {
-  searchParams: Promise<{ invite?: string }>;
+  searchParams: Promise<{ invite?: string; lang?: string }>;
 }) {
-  const { invite } = await searchParams;
+  const { invite, lang } = await searchParams;
   let lockedEmail: string | null = null;
   if (invite) {
     try {
@@ -38,6 +39,7 @@ export default async function SignupPage({
     <main className="mx-auto flex max-w-lg flex-col gap-8 px-4 py-24">
       <SignupHeading />
       <SignupForm inviteToken={invite ?? ""} lockedEmail={lockedEmail} />
+      <SignupLang initialLang={lang ?? null} />
     </main>
   );
 }

@@ -13,6 +13,7 @@ vi.mock("next/headers", () => ({
 }));
 vi.mock("./signup-heading", () => ({ SignupHeading: () => null }));
 vi.mock("./signup-form", () => ({ SignupForm: () => null }));
+vi.mock("./signup-lang", () => ({ SignupLang: () => null }));
 
 import SignupPage from "./page";
 
@@ -55,5 +56,13 @@ describe("signup page invite-email lookup", () => {
     const forwarded = new Headers(init.headers);
     expect(forwarded.has("x-forwarded-for")).toBe(false);
     expect(forwarded.has("x-real-ip")).toBe(false);
+  });
+
+  it("passes the signup link language to the client component", async () => {
+    const page = await SignupPage({
+      searchParams: Promise.resolve({ invite: "token", lang: "zh-Hant" }),
+    });
+    const children = page.props.children as ReactElement<{ initialLang: string }>[];
+    expect(children[2].props.initialLang).toBe("zh-Hant");
   });
 });

@@ -330,6 +330,7 @@ def send_invitation_letter_endpoint(
     )
     now = datetime.now(tz=ET)
     language: Literal["en", "zh"] = body.language or "en"
+    ui_locale = "zh-Hans" if language == "zh" else "en"
     if entry is not None:
         state = waitlist_view(session, entry)
         if state["stage"] in ("registered", "activated"):
@@ -338,6 +339,7 @@ def send_invitation_letter_endpoint(
             raise HTTPException(status_code=409, detail="entry rejected")
         _revoke_waitlist_links(session, entry.id, now)
         language = "zh" if entry.locale.startswith("zh") else "en"
+        ui_locale = entry.locale
     try:
         issued = create_invite(
             session,
@@ -357,7 +359,7 @@ def send_invitation_letter_endpoint(
         entry.status_changed_at = now
     session.commit()
     settings = get_settings()
-    invite_url = f"{settings.FRONTEND_URL}/signup?invite={issued.token}"
+    invite_url = f"{settings.FRONTEND_URL}/signup?invite={issued.token}&lang={ui_locale}"
     unsubscribe_token = create_invitation_unsubscribe_token(issued.id, language)
     unsubscribe_url = (
         f"{settings.FRONTEND_URL}/api/invitation-letters/unsubscribe?token={unsubscribe_token}"
