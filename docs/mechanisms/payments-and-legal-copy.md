@@ -6,9 +6,19 @@
 
 Profile obtains configured packs and the public client token from the authenticated
 checkout-config endpoint. Paddle.js previews local prices and opens a one-page
-overlay. Only a signed `transaction.completed` webhook grants purchased credits
-to the cash bucket. The return to Profile shows a pending-credit notice, not a
-grant. Ops refunds debit unused purchased cash credits within 120 days, then
+overlay. Clicking Buy disables every Buy button until `checkout.loaded`,
+`checkout.closed`, or `checkout.error`, or until 15 seconds pass with none of
+those events. `checkout.completed` closes the overlay on the same page (no
+`successUrl` redirect). The block then shows a pending notice and polls
+`GET /payments/purchases/{transaction_id}` immediately and every 3 seconds.
+That read is authenticated and read-only: the signed-in user's own ledger row
+returns `credited: true` and the two-decimal credit amount; an unknown
+transaction or another user's transaction returns `credited: false` and
+`credits: null`. A credited result shows the amount and `router.refresh()`
+reloads the server-rendered balance. Polling stops 120 seconds after
+`checkout.completed` if the purchase is still uncredited. Only a signed
+`transaction.completed` webhook grants purchased credits to the cash bucket.
+Ops refunds debit unused purchased cash credits within 120 days, then
 create a proportional Paddle adjustment in the same request; a failed Paddle
 call rolls the debit back. A rejected adjustment restores the debit once.
 External adjustments alert Ops without changing the ledger. Monthly plan-fee

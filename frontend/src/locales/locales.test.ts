@@ -60,6 +60,27 @@ describe("locale catalogs stay structurally in sync (issue #209)", () => {
   });
 });
 
+describe("in-place credit purchase copy", () => {
+  it("replaces the redirect notice in every locale", () => {
+    expect(catalogs.en.profile.creditPurchaseOpening).toBe("Opening checkout…");
+    expect(catalogs.en.profile.creditPurchaseOpenFailed).toBe(
+      "Checkout did not open. Please try again.",
+    );
+    expect(catalogs.en.profile.creditPurchasePending).toBe(
+      "Payment received. Adding your credits; this usually takes under a minute.",
+    );
+    expect(catalogs.en.profile.creditPurchaseCredited).toBe(
+      "{credits} credits added to your balance.",
+    );
+    expect(catalogs.en.profile.creditPurchaseDelayed).toBe(
+      "Your payment is complete. Credits usually appear within a few minutes; if they are not shown after 10 minutes, contact info@portfonia.com.",
+    );
+    for (const locale of LOCALE_VALUES) {
+      expect(catalogs[locale].profile).not.toHaveProperty("creditPurchaseCompleted");
+    }
+  });
+});
+
 describe("legal copy for Paddle review", () => {
   it.each(LOCALE_VALUES)("%s contains no superseded names, placeholders, or status copy", (locale) => {
     expect(JSON.stringify(catalogs[locale])).not.toMatch(/Portfonia LLC|Portfonia AI|\{\{|closed beta|legal review/i);

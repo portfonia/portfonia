@@ -25,7 +25,7 @@ from app.models.credit_ledger import CreditLedgerEntry
 from app.routers import admin, paddle_webhooks, payments
 from app.services.credit_ledger import consume_credits, record_purchase
 from app.services.paddle_client import PaddleApiError
-from app.tests.conftest import seed_user
+from app.tests.conftest import TEST_USER_ID, seed_user
 from app.tests.test_admin_router import _headers
 
 PRICE = "pri_test10"
@@ -165,6 +165,53 @@ def test_checkout_config_is_authenticated_and_exposes_only_public_values(
     assert app_client.get("/payments/checkout-config").status_code == 503
     app.dependency_overrides.pop(current_principal)
     assert app_client.get("/payments/checkout-config").status_code == 401
+
+
+def test_purchase_status_reports_own_credited_purchase(
+    app_client: TestClient, db_session: Session
+) -> None:
+    user = seed_user(db_session, TEST_USER_ID)
+    record_purchase(
+        db_session, user_id=user.id, credits=Decimal("10"), transaction_id="txn_A", note="HKD 7800"
+    )
+    response = app_client.get("/payments/purchases/txn_A")
+    assert response.status_code == 200
+    assert response.json() == {"transaction_id": "txn_A", "credited": True, "credits": "10.00"}
+
+
+def test_purchase_status_unknown_transaction_is_not_credited(app_client: TestClient) -> None:
+    response = app_client.get("/payments/purchases/txn_missing")
+    assert response.status_code == 200
+    assert response.json() == {
+        "transaction_id": "txn_missing",
+        "credited": False,
+        "credits": None,
+    }
+
+
+def test_purchase_status_hides_another_users_purchase(
+    app_client: TestClient, db_session: Session
+) -> None:
+    owner = seed_user(db_session, uuid.uuid4())
+    record_purchase(
+        db_session,
+        user_id=owner.id,
+        credits=Decimal("10"),
+        transaction_id="txn_B",
+        note="HKD 7800",
+    )
+    response = app_client.get("/payments/purchases/txn_B")
+    assert response.status_code == 200
+    assert response.json() == {"transaction_id": "txn_B", "credited": False, "credits": None}
+
+
+def test_purchase_status_requires_auth_and_txn_prefix(app_client: TestClient) -> None:
+    app.dependency_overrides.pop(current_principal)
+    assert app_client.get("/payments/purchases/txn_A").status_code == 401
+    app.dependency_overrides[current_principal] = lambda: Principal(
+        user_id=uuid.uuid4(), email="a@example.com"
+    )
+    assert app_client.get("/payments/purchases/not-a-txn").status_code == 422
 
 
 def test_refund_partial_replay_and_rejected_reversal(

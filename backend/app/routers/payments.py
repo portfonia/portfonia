@@ -1,9 +1,14 @@
-"""Authenticated purchase configuration for Paddle.js."""
+"""Authenticated purchase configuration and crediting status for Paddle.js."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Path
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.database import get_session
 from app.core.deps import Principal, current_principal
+from app.models.credit_ledger import CreditLedgerEntry
+from app.services.credit_ledger import purchase_key
 
 router = APIRouter()
 
@@ -26,4 +31,25 @@ def checkout_config(principal: Principal = Depends(current_principal)) -> dict[s
         "packs": [
             {"price_id": price_id, "credits": f"{credits:.2f}"} for price_id, credits in packs
         ],
+    }
+
+
+@router.get("/purchases/{transaction_id}")
+def purchase_status(
+    transaction_id: str = Path(pattern=r"^txn_"),
+    principal: Principal = Depends(current_principal),
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    row = session.scalar(
+        select(CreditLedgerEntry).where(
+            CreditLedgerEntry.idempotency_key == purchase_key(transaction_id),
+            CreditLedgerEntry.user_id == principal.user_id,
+        )
+    )
+    if row is None:
+        return {"transaction_id": transaction_id, "credited": False, "credits": None}
+    return {
+        "transaction_id": transaction_id,
+        "credited": True,
+        "credits": f"{row.amount:.2f}",
     }

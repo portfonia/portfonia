@@ -796,3 +796,18 @@ export async function getCheckoutConfig(): Promise<CheckoutConfig | null> {
     return null;
   }
 }
+
+export type PurchaseStatus = {
+  transaction_id: string;
+  credited: boolean;
+  credits: string | null;
+};
+
+export async function getPurchaseStatus(transactionId: string): Promise<PurchaseStatus | null> {
+  try {
+    const response = await fetch("/api/payments/purchases/" + transactionId, { cache: "no-store" });
+    return response.ok ? (response.json() as Promise<PurchaseStatus>) : null;
+  } catch {
+    return null;
+  }
+}

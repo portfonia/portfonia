@@ -20,7 +20,7 @@ import { useVerificationSend } from "./use-verification-send";
 // translated content (the load-error message), so it isn't worth carving
 // that condition back into the Server Component just to keep this file
 // heading-only.
-export function ProfilePageBody({ me, hadLoadError, purchaseCompleted = false }: { me: Me | null; hadLoadError: boolean; purchaseCompleted?: boolean }) {
+export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadError: boolean }) {
   const t = useTranslations("profile");
   // Issue #107 review (blacktomb42, PR #271): the landing-page footer is the
   // only other place these link from, so a signed-in user — the population
@@ -194,8 +194,6 @@ export function ProfilePageBody({ me, hadLoadError, purchaseCompleted = false }:
           </CardContent>
         </Card>
       )}
-
-      {purchaseCompleted && <p role="status" className="text-sm">{t("creditPurchaseCompleted")}</p>}
 
       <Card>
         <CardHeader>

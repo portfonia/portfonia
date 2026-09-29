@@ -54,12 +54,11 @@ function renderBody(me: Me | null, hadLoadError = false) {
   );
 }
 
-it("shows the post-payment notice only when purchase completed", () => {
-  const normal = renderBody(BASE_ME);
-  expect(screen.queryByRole("status")).not.toBeInTheDocument();
-  normal.unmount();
-  render(<LocaleProvider><ProfilePageBody me={BASE_ME} hadLoadError={false} purchaseCompleted /></LocaleProvider>);
-  expect(screen.getByRole("status")).toHaveTextContent("Payment received.");
+it("does not render a purchase notice from a completed purchase query", () => {
+  renderBody(BASE_ME);
+  expect(screen.queryByText(
+    "Payment received. Your credits will appear here shortly; refresh this page in a minute.",
+  )).not.toBeInTheDocument();
 });
 
 // Section titles render as divs (CardTitle), so order is asserted on
