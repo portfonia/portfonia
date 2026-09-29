@@ -26,7 +26,7 @@ export function CreditPurchase() {
   const paddleRef = useRef<Paddle | null>(null);
   const handlerRef = useRef<(event: PaddleEventData) => void>(() => {});
   const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollDeadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollGeneration = useRef(0);
 
@@ -39,7 +39,7 @@ export function CreditPurchase() {
 
   function stopPolling() {
     if (pollTimerRef.current !== null) {
-      clearInterval(pollTimerRef.current);
+      clearTimeout(pollTimerRef.current);
       pollTimerRef.current = null;
     }
     if (pollDeadlineRef.current !== null) {
@@ -60,17 +60,19 @@ export function CreditPurchase() {
     async function tick() {
       const status = await getPurchaseStatus(transactionId);
       if (generation !== pollGeneration.current) return;
-      if (!status?.credited || status.credits == null) return;
-      pollGeneration.current += 1;
-      stopPolling();
-      setNotice({ credited: status.credits.replace(/\.00$/, "") });
-      router.refresh();
+      if (status?.credited && status.credits != null) {
+        pollGeneration.current += 1;
+        stopPolling();
+        setNotice({ credited: status.credits.replace(/\.00$/, "") });
+        router.refresh();
+        return;
+      }
+      pollTimerRef.current = setTimeout(() => {
+        void tick();
+      }, POLL_INTERVAL_MS);
     }
 
     void tick();
-    pollTimerRef.current = setInterval(() => {
-      void tick();
-    }, POLL_INTERVAL_MS);
     pollDeadlineRef.current = setTimeout(() => {
       if (generation !== pollGeneration.current) return;
       pollGeneration.current += 1;
@@ -112,7 +114,10 @@ export function CreditPurchase() {
         const paddle = await initializePaddle({
           environment: config.environment,
           token: config.client_token,
-          eventCallback: (event) => { handlerRef.current(event); },
+          eventCallback: (event) => {
+            if (!mounted) return;
+            handlerRef.current(event);
+          },
         });
         if (!paddle) throw new Error("Paddle unavailable");
         paddleRef.current = paddle;
@@ -130,6 +135,7 @@ export function CreditPurchase() {
     void load();
     return () => {
       mounted = false;
+      handlerRef.current = () => {};
       pollGeneration.current += 1;
       clearOpenTimer();
       stopPolling();

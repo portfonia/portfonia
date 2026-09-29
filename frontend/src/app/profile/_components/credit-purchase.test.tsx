@@ -133,6 +133,35 @@ it("polls the purchase after checkout.completed and refreshes once it is credite
   }
 });
 
+it("does not start another purchase-status request while one is in flight", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    let resolvePending: (value: { transaction_id: string; credited: boolean; credits: null }) => void = () => {};
+    const pending = new Promise<{ transaction_id: string; credited: boolean; credits: null }>((resolve) => {
+      resolvePending = resolve;
+    });
+    getPurchaseStatus.mockResolvedValue({ transaction_id: "txn_A", credited: false, credits: null });
+    getPurchaseStatus.mockReturnValueOnce(pending);
+    await renderReady();
+    fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
+    act(() => { onEvent?.({ name: "checkout.completed", data: { transaction_id: "txn_A" } }); });
+    expect(getPurchaseStatus).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(9_000); });
+    expect(getPurchaseStatus).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolvePending({ transaction_id: "txn_A", credited: false, credits: null });
+      await Promise.resolve();
+    });
+    expect(getPurchaseStatus).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_999); });
+    expect(getPurchaseStatus).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(getPurchaseStatus).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("stops polling after 120 seconds and shows the delayed notice", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   try {
@@ -150,6 +179,20 @@ it("stops polling after 120 seconds and shows the delayed notice", async () => {
     expect(calls).toBeGreaterThan(0);
     await act(async () => { await vi.advanceTimersByTimeAsync(9_000); });
     expect(getPurchaseStatus).toHaveBeenCalledTimes(calls);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("ignores checkout.completed after the component unmounts", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const view = render(<LocaleProvider><CreditPurchase /></LocaleProvider>);
+    expect(await screen.findByText("HK$78.00")).toBeInTheDocument();
+    view.unmount();
+    act(() => { onEvent?.({ name: "checkout.completed", data: { transaction_id: "txn_A" } }); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
+    expect(getPurchaseStatus).not.toHaveBeenCalled();
   } finally {
     vi.useRealTimers();
   }
