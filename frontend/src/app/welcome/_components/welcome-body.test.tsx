@@ -6,6 +6,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ replace }) }));
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
 import type { Me } from "@/lib/api";
+import { catalogs, type Locale } from "@/locales";
 import { WelcomeBody } from "./welcome-body";
 
 const _ME: Me = {
@@ -23,6 +24,20 @@ const _ME: Me = {
   report_currency: "USD",
 };
 
+function installLocaleStorage(initial?: string) {
+  const store = new Map<string, string>();
+  if (initial) store.set("portfonia:locale", initial);
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+      removeItem: (key: string) => void store.delete(key),
+      clear: () => store.clear(),
+    },
+  });
+}
+
 function renderBody(me: Me | null, hadLoadError = false) {
   return render(
     <LocaleProvider>
@@ -34,6 +49,7 @@ function renderBody(me: Me | null, hadLoadError = false) {
 describe("WelcomeBody", () => {
   beforeEach(() => {
     sessionStorage.clear();
+    installLocaleStorage();
     replace.mockClear();
   });
   afterEach(() => {
@@ -105,15 +121,37 @@ describe("WelcomeBody", () => {
     expect(screen.queryByText(/will not be sent/)).not.toBeInTheDocument();
   });
 
-  it("has no dashboard button and no CTA", () => {
+  it("links to Portfolio and Profile after a successful load", () => {
     renderBody(_ME);
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
-    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    const links = screen.getAllByRole("link");
+    expect(links).toHaveLength(2);
+    expect(links[0]).toHaveAccessibleName("Portfolio");
+    expect(links[0]).toHaveAttribute("href", "/portfolio");
+    expect(links[1]).toHaveAccessibleName("Profile");
+    expect(links[1]).toHaveAttribute("href", "/profile");
   });
 
-  it("shows the load-error message when me could not be loaded", () => {
+  it.each(["en", "zh-Hans", "zh-Hant"] as const)(
+    "uses the menu catalog labels for Portfolio and Profile in %s",
+    async (locale: Locale) => {
+      installLocaleStorage(locale);
+      renderBody(_ME);
+      const menu = catalogs[locale].menu;
+      const { findAllByRole } = screen;
+      const links = await findAllByRole("link");
+      expect(links).toHaveLength(2);
+      expect(links[0]).toHaveAccessibleName(menu.portfolio);
+      expect(links[0]).toHaveAttribute("href", "/portfolio");
+      expect(links[1]).toHaveAccessibleName(menu.profile);
+      expect(links[1]).toHaveAttribute("href", "/profile");
+    },
+  );
+
+  it("shows the load-error message and no links when me could not be loaded", () => {
     renderBody(null, true);
     expect(screen.getByText("Could not load your account.")).toBeInTheDocument();
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
   it("sets sessionStorage.portfonia.welcomed on first render", () => {
@@ -126,10 +164,10 @@ describe("WelcomeBody", () => {
     expect(sessionStorage.getItem("portfonia.welcomed")).toBeNull();
   });
 
-  it("redirects to / instead of rendering when already welcomed this session", () => {
+  it("redirects to /portfolio instead of rendering when already welcomed this session", () => {
     sessionStorage.setItem("portfonia.welcomed", "1");
     renderBody(_ME);
-    expect(replace).toHaveBeenCalledWith("/");
+    expect(replace).toHaveBeenCalledWith("/portfolio");
     expect(screen.queryByText(/Welcome,/)).not.toBeInTheDocument();
   });
 });

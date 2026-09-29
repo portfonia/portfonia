@@ -118,7 +118,7 @@ area of the code, not just the one-line summary here.
 - [Profile page: GET /me account summary](docs/mechanisms/identity-and-auth.md) — issue #220/#221: `/profile` summary + full `GET /me` shape; #269 adds verification timestamps.
 - [Waitlist](docs/mechanisms/identity-and-auth.md#waitlist-issue-566) — issue #566: public requests, derived stages, and ops-managed email-bound invite links.
 - [Invitation letter](docs/mechanisms/identity-and-auth.md#invitation-letter-issue-569) — issue #569: ops-triggered letters, unsubscribe, delivery poll, and signup email lock. #572 carries the letter's UI locale as `?lang=` on the signup link.
-- [Post-signup onboarding](docs/mechanisms/frontend-chrome.md) — issue #221: ToS gate, `/questionnaire?onboarding=1` → `/welcome` flow; #280 reordered to questionnaire→holdings→welcome; #290 send-stop copy lift.
+- [Post-signup onboarding](docs/mechanisms/frontend-chrome.md) — issue #221: ToS gate, `/questionnaire?onboarding=1` → `/welcome` flow; #280 reordered to questionnaire→holdings→welcome; #290 send-stop copy lift; #586 login and post-welcome land on `/portfolio`, with Portfolio header links.
 - [Async holdings upload](docs/mechanisms/holdings-pipeline.md) — issue #77/#82/#85: `POST /holdings/upload` returns 202 + job id, Celery parses, 45s SLA, two-layer hard-kill resolution.
 - [Holdings encryption at rest](docs/mechanisms/holdings-pipeline.md) — issue #31: field-level Fernet via SQLAlchemy `TypeDecorator`, system-wide key, `ORDER BY` moved to Python.
 - [Holdings domain CHECK constraints](docs/mechanisms/holdings-pipeline.md) — issue #25: DB-level CHECKs on `pricing_mode`/`asset_type`/`currency`/`asset_class`, naming-convention gotcha.

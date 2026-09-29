@@ -17,6 +17,7 @@ vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
 import type { HoldingValueOut, PortfolioSummary } from "@/lib/api";
+import { catalogs, type Locale } from "@/locales";
 import { PortfolioPageBody } from "./portfolio-page-body";
 
 function priced(overrides: Partial<HoldingValueOut>): HoldingValueOut {
@@ -71,12 +72,33 @@ function summary(overrides: Partial<PortfolioSummary>): PortfolioSummary {
   };
 }
 
+function installLocaleStorage(initial?: string) {
+  const store = new Map<string, string>();
+  if (initial) store.set("portfonia:locale", initial);
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+      removeItem: (key: string) => void store.delete(key),
+      clear: () => store.clear(),
+    },
+  });
+}
+
 function renderBody(initialSummary: PortfolioSummary | null, initialLoadError = false) {
   return render(
     <LocaleProvider>
       <PortfolioPageBody initialSummary={initialSummary} initialLoadError={initialLoadError} />
     </LocaleProvider>,
   );
+}
+
+function titleLinks() {
+  const heading = screen.getByRole("heading", { level: 1 });
+  const row = heading.parentElement;
+  if (!row) throw new Error("title row missing");
+  return within(row).getAllByRole("link");
 }
 
 // Several sections legitimately repeat the same formatted amount for this
@@ -90,6 +112,7 @@ function totalAssetsValue(): HTMLElement {
 
 beforeEach(() => {
   getPortfolioSummary.mockReset();
+  installLocaleStorage();
 });
 
 describe("PortfolioPageBody", () => {
@@ -113,9 +136,42 @@ describe("PortfolioPageBody", () => {
 
   it("links to /holdings/edit from the holdings-detail card (issue #430)", () => {
     renderBody(summary({}));
-    const link = screen.getByRole("link", { name: "Edit holdings" });
+    const card = screen.getByText("Holdings").closest('[data-slot="card"]');
+    if (!card) throw new Error("holdings card not found");
+    const link = within(card as HTMLElement).getByRole("link", { name: "Edit holdings" });
     expect(link).toHaveAttribute("href", "/holdings/edit");
   });
+
+  it("shows View performance, Edit holdings, and Investment style under the title", () => {
+    renderBody(summary({}));
+    const links = titleLinks();
+    expect(links.map((link) => link.textContent)).toEqual([
+      "View performance",
+      "Edit holdings",
+      "Investment style",
+    ]);
+    expect(links[0]).toHaveAttribute("href", "/portfolio/performance");
+    expect(links[1]).toHaveAttribute("href", "/holdings/edit");
+    expect(links[2]).toHaveAttribute("href", "/questionnaire");
+    expect(links[2].getAttribute("href")).not.toContain("?");
+  });
+
+  it.each(["zh-Hans", "zh-Hant"] as const)(
+    "uses catalog menu labels for the new title links in %s",
+    async (locale: Locale) => {
+      installLocaleStorage(locale);
+      renderBody(summary({}));
+      const menu = catalogs[locale].menu;
+      await waitFor(() => {
+        const links = titleLinks();
+        expect(links).toHaveLength(3);
+        expect(links[1]).toHaveTextContent(menu.editHoldings);
+        expect(links[1]).toHaveAttribute("href", "/holdings/edit");
+        expect(links[2]).toHaveTextContent(menu.questionnaire);
+        expect(links[2]).toHaveAttribute("href", "/questionnaire");
+      });
+    },
+  );
 
   it("shows no FX banner when the book needed no conversion (empty fx_rates_as_of)", () => {
     renderBody(summary({ fx_rates_as_of: {} }));
