@@ -14,7 +14,12 @@ Paddle purchase rows use `recharge:paddle:{transaction_id}`. Ops refund debits
 use `refund:{transaction_id}:{request_key}` and store the Paddle adjustment id
 as their reference. Rejected-adjustment reversals use
 `refund_reversal:{transaction_id}:{adjustment_id}`. These keys make webhook
-redelivery and Ops retries idempotent.
+redelivery idempotent, and make an Ops refund retry idempotent once its debit
+row is committed. One exception: if Paddle creates the adjustment but the
+local commit then fails, the debit is rolled back and the endpoint sends a
+"Paddle refund ledger commit failed" alert with the adjustment id. Do not
+retry that request; reconcile the adjustment in the Paddle dashboard first,
+because a retry with the same key finds no row and would refund again.
 
 `consume_credits` spends gift first, then cash. It rejects the whole request if the combined balance is short. This PR implements and tests it without adding a product caller.
 

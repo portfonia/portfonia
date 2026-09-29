@@ -382,3 +382,11 @@ def test_refund_rejects_spent_cash_and_expired_purchase_before_paddle(
         assert response.status_code == 409
         assert response.json()["detail"] == expected
     paddle.assert_not_called()
+
+
+def test_webhook_handler_runs_in_threadpool_not_event_loop() -> None:
+    # The handler does blocking DB work and sync httpx alert sends; as an
+    # `async def` it would stall the event loop for every other request.
+    import inspect
+
+    assert not inspect.iscoroutinefunction(paddle_webhooks.paddle_webhook)

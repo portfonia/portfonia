@@ -29,9 +29,18 @@ def _string(value: object) -> str:
     return value if isinstance(value, str) else ""
 
 
+async def _raw_body(request: Request) -> bytes:
+    return await request.body()
+
+
+# Sync handler (FastAPI runs it in the threadpool): the body does blocking DB
+# work and sync httpx alert sends that must not stall the event loop. The raw
+# bytes for signature verification come from the async dependency above.
 @router.post("/paddle")
-async def paddle_webhook(
-    request: Request, session: Session = Depends(get_session)
+def paddle_webhook(
+    request: Request,
+    raw: bytes = Depends(_raw_body),
+    session: Session = Depends(get_session),
 ) -> dict[str, str]:
     settings = get_settings()
     secret = settings.PADDLE_WEBHOOK_SECRET
@@ -44,7 +53,6 @@ async def paddle_webhook(
         raise HTTPException(status_code=503, detail="payments not configured")
     if settings.PADDLE_ENVIRONMENT is None:
         raise HTTPException(status_code=503, detail="payments not configured")
-    raw = await request.body()
     if not verify_signature(
         raw, request.headers.get("Paddle-Signature"), secret.get_secret_value()
     ):
