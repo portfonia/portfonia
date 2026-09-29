@@ -55,17 +55,18 @@ a cash-redeemable balance. Full rationale and sources: issue #574
   month is returned pro rata for the unused part of the month.
 - Credits do not expire. After a purchase's 120-day refund window there is
   no other refund channel; the credits stay usable.
-- Account deletion permanently removes holdings, investment-style
-  settings, and all other personal data; credit and transaction records
-  are kept, no longer linked to the email address.
+- Account deletion removes holdings, investment-style settings, and other
+  personal data; credit and transaction records are kept, no longer linked
+  to the email address. The copy says "removed", not "permanently
+  removed".
+- If the balance is still short at renewal, the plan stops and the plan's
+  features become unavailable; today that means scheduled briefings stop.
+- A pro-rata return goes back to the bucket(s) the fee was deducted from
+  (`gift` or `cash`), so returned complimentary credits stay
+  non-refundable. How a fee deducted across two or more buckets is
+  returned is an implementation question, bound by this principle.
 
-## Open owner decision
-
-Blocks the implementation issue, not this document; marked in the copy as
-`{{OWNER DECISION}}`.
-
-- What happens at renewal if the balance is still short after the
-  reminder email (for example, briefings pause until credits are added).
+No open owner decisions remain for this copy.
 
 ## Copy conventions
 
@@ -126,8 +127,9 @@ added wherever Terms and Privacy are linked today (home footer, Profile,
      each monthly billing period. Complimentary credits are used first,
      then purchased credits.
    - If your balance will not cover the next month's fee, we email you a
-     reminder in advance. {{OWNER DECISION: what happens at renewal if the
-     balance is still short}}
+     reminder in advance. If the balance is still not enough at renewal,
+     your plan stops and its features become unavailable — currently, your
+     scheduled briefings stop.
    - If you change or cancel your plan, the unused part of the current
      month's fee is returned to your credit balance pro rata.
    - Credits do not expire.
@@ -265,12 +267,11 @@ Removed: old §4 "Regional Restriction" (U.S. tax residents).
    Processing".
 6. **Data Retention** — existing paragraph unchanged, plus: "When your
    account is deleted, your holdings, investment-style settings, reports,
-   and other personal data are permanently removed; database backups that
-   still contain them expire within 30 days. Credit and transaction records
+   and other personal data are removed. Credit and transaction records
    are kept, no longer linked to your email address, for accounting and
    tax purposes."
 7. **Your Rights** — "You can review and update your holdings and profile
-   information directly in the Service. You can request permanent deletion
+   information directly in the Service. You can request deletion
    of your account by contacting us; deletion removes your holdings,
    investment-style settings, and authentication account as described in
    Data Retention."
@@ -287,14 +288,14 @@ The retention text in §6/§7 reflects existing behavior:
 `app/services/user_purge.py` deletes holdings, accounts, reports, upload
 jobs, `user_investment_context`, and email verifications, then the `users`
 row that holds the email; `credit_ledger` rows stay keyed by `user_id` with
-`user_deleted_at` set (`docs/mechanisms/credit-ledger.md`). Backups use a
-30-day retention (`docs/mechanisms/backup-and-ops.md`).
+`user_deleted_at` set (`docs/mechanisms/credit-ledger.md`). The copy says
+"removed" rather than "permanently removed" (owner decision), since
+database backups keep a 30-day retention
+(`docs/mechanisms/backup-and-ops.md`).
 
-Implementation note for the pro-rata return (proposal, not
-owner-confirmed; not copy): return the amount to the bucket(s) the fee was
-deducted from, so returned complimentary credits stay non-refundable. How
-returned purchased credits map to a purchase's 120-day window is left to
-the implementation issue's design.
+Left to the implementation issue: the pro-rata return algorithm when one
+fee spans several buckets, and how returned purchased credits map to a
+purchase's 120-day refund window.
 
 ## Home copy
 
