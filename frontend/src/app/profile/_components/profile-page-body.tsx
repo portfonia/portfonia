@@ -400,11 +400,17 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
       </Card>
 
       <div className="flex items-center gap-4 text-xs text-foreground/45">
+        <Link href="/pricing" className="underline underline-offset-2 hover:text-foreground/70">
+          {tLegalNav("pricing")}
+        </Link>
         <Link href="/terms" className="underline underline-offset-2 hover:text-foreground/70">
           {tLegalNav("terms")}
         </Link>
         <Link href="/privacy" className="underline underline-offset-2 hover:text-foreground/70">
           {tLegalNav("privacy")}
+        </Link>
+        <Link href="/refund" className="underline underline-offset-2 hover:text-foreground/70">
+          {tLegalNav("refund")}
         </Link>
       </div>
     </div>

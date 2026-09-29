@@ -660,7 +660,7 @@
   },
   "home": {
     "hero": {
-      "eyebrow": "MVP · Multi-user closed beta",
+      "eyebrow": "Limited public service",
       "titleLine1": "What's worth noticing",
       "titleAccent": "in your holdings.",
       "tagline": "Holdings-relevant depth and breadth — with you through the cycle, as lasting judgment compounds.",
@@ -710,7 +710,7 @@
       "heading": "What a briefing actually looks like",
       "tag": "Real report, anonymized",
       "badge": "Anonymized from a real report — sample holdings & figures",
-      "footnote": "Actual content varies depending on your subscription tier.",
+      "footnote": "Briefing frequency depends on your plan.",
       "snapshotTitle": "Portfolio snapshot",
       "totalLine": "Total value: $1,000,000 (FX date: 2026-08-21)",
       "holdingsColumns": [
@@ -1020,11 +1020,11 @@
         },
         {
           "q": "What does it cost?",
-          "a": "Portfonia is in a multi-user closed beta right now — content and features may differ by subscription tier when plans are announced."
+          "a": "Plans start at 0.99 credits per month for a weekly briefing, or 1.99 credits per month for Monday / Wednesday / Friday briefings. Credits are sold in US$10 and US$20 packs — see Pricing."
         }
       ]
     },
-    "status": "MVP — multi-user closed beta. Portfonia maps market context back to your real holdings so you can make timely, well-informed decisions. AI-generated content, for information only — not investment advice.",
+    "status": "Limited public service. Portfonia maps market context back to your real holdings so you can make timely, well-informed decisions. AI-generated content, for information only — not investment advice.",
     "footer": {
       "stack1": "Next.js · FastAPI · Celery · PostgreSQL",
       "stack2": "Pluggable LLM providers via OpenRouter"
@@ -1097,17 +1097,19 @@
   "legal": {
     "nav": {
       "terms": "Terms of Service",
-      "privacy": "Privacy Policy"
+      "privacy": "Privacy Policy",
+      "pricing": "Pricing",
+      "refund": "Refund Policy"
     },
     "terms": {
       "title": "Terms of Service",
-      "lastUpdated": "Last updated: 2026-08-30",
-      "intro": "These Terms of Service govern your use of Portfonia. Please read them together with our Privacy Policy.",
+      "lastUpdated": "Last updated: 2026-09-28",
+      "intro": "These Terms of Service govern your use of Portfonia. Please read them together with our Privacy Policy and Refund Policy.",
       "sections": [
         {
           "heading": "1. Acceptance of Terms",
           "body": [
-            "By creating an account or using Portfonia (\"the Service\"), you agree to these Terms of Service. If you do not agree, do not use the Service."
+            "\"Portfonia\", \"we\", and \"us\" refer to the operator of the Portfonia service. By creating an account or using Portfonia (\"the Service\"), you agree to these Terms of Service. If you do not agree, do not use the Service."
           ]
         },
         {
@@ -1121,14 +1123,16 @@
           "heading": "3. Eligibility and Accounts",
           "body": [
             "You must be able to form a binding contract to use the Service. You are responsible for keeping your login credentials confidential and for all activity under your account.",
-            "The Service is currently invite-gated and offered on a closed-beta basis; access, features, and pricing may change without the notice period a generally available product would owe you."
+            "The Service is offered as a limited public service: sign-up may be limited to people who have joined the waitlist or received an invitation, and features may change as the Service develops."
           ]
         },
         {
-          "heading": "4. Regional Restriction",
+          "heading": "4. Payments and Credits",
           "body": [
-            "This service is not available to U.S. tax residents. U.S. tax residents include U.S. citizens, U.S. permanent residents (green card holders), and any individual classified as a tax resident under U.S. tax law, regardless of their country of physical residence.",
-            "By registering for this service, you represent and warrant that you are not a U.S. tax resident. If you access this service by misrepresenting, concealing, or providing false information regarding your tax residency status, Portfonia AI bears no liability for any legal consequences arising therefrom. Upon discovery of any such violation, Portfonia AI reserves the right to immediately terminate your account and permanently deny service, with no refund of any fees paid."
+            "Paid plans are billed in prepaid service credits. Credits are sold in packs priced in US dollars (1 credit = US$1 at purchase); current plans and packs are listed on the Pricing page.",
+            "Your plan fee is deducted from your credit balance at the start of each monthly billing period, complimentary credits first. If you change or cancel your plan, the unused part of the current month's fee is returned to your credit balance pro rata.",
+            "Credits do not expire. They are usable only for Portfonia subscriptions, are non-transferable, and have no cash value except as provided in the Refund Policy.",
+            "Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle provides all customer service inquiries and handles returns. Your purchase is also subject to Paddle's Buyer Terms."
           ]
         },
         {
@@ -1147,7 +1151,7 @@
         {
           "heading": "7. Intellectual Property",
           "body": [
-            "Portfonia and its original content, features, and functionality are owned by Portfonia LLC. Reports generated for your account are yours to use personally; they are not licensed for redistribution as a data feed or third-party product."
+            "Portfonia and its original content, features, and functionality are owned by Portfonia. Reports generated for your account are yours to use personally; they are not licensed for redistribution as a data feed or third-party product."
           ]
         },
         {
@@ -1159,13 +1163,13 @@
         {
           "heading": "9. Limitation of Liability",
           "body": [
-            "To the fullest extent permitted by law, Portfonia LLC is not liable for any indirect, incidental, or consequential damages, or for any financial loss arising from your use of, or reliance on, the Service."
+            "To the fullest extent permitted by law, Portfonia is not liable for any indirect, incidental, or consequential damages, or for any financial loss arising from your use of, or reliance on, the Service. Nothing in these Terms limits liability that cannot be limited under applicable law."
           ]
         },
         {
           "heading": "10. Termination",
           "body": [
-            "You may stop using the Service and request deletion of your account and data at any time. Portfonia may suspend or terminate accounts that violate these Terms."
+            "You may stop using the Service and request deletion of your account and data at any time. Portfonia may suspend or terminate accounts that violate these Terms. Refunds on termination follow the Refund Policy."
           ]
         },
         {
@@ -1175,9 +1179,10 @@
           ]
         },
         {
-          "heading": "12. Governing Law",
+          "heading": "12. Governing Law and Disputes",
           "body": [
-            "These Terms are governed by the laws applicable in the jurisdiction where Portfonia LLC is organized, without regard to conflict-of-law principles. [Jurisdiction to be finalized pending legal review.]"
+            "These Terms are governed by the laws of the place where the operator of Portfonia is established, without regard to conflict-of-law principles. This does not deprive you of the protection of mandatory consumer-protection laws of the country where you live.",
+            "If a dispute arises, please contact us first at info@portfonia.com so we can try to resolve it informally and in good faith."
           ]
         },
         {
@@ -1190,7 +1195,7 @@
     },
     "privacy": {
       "title": "Privacy Policy",
-      "lastUpdated": "Last updated: 2026-08-30",
+      "lastUpdated": "Last updated: 2026-09-28",
       "intro": "Your privacy matters to us. This policy explains what we collect, why, and how it's protected.",
       "sections": [
         {
@@ -1204,13 +1209,15 @@
           "body": [
             "Account information: your email address and authentication credentials, handled by our authentication provider.",
             "Holdings and investment data: positions, brokers/custodians, and quantities you upload, plus any investment-style questionnaire responses you provide.",
-            "Usage information: basic session and activity data needed to operate the Service securely (for example, sign-in timestamps and idle-timeout enforcement)."
+            "Usage information: basic session and activity data needed to operate the Service securely (for example, sign-in timestamps and idle-timeout enforcement).",
+            "Payment and credit information: purchases are processed by Paddle.com as Merchant of Record. Paddle collects your payment details and billing information under its own privacy notice; we receive transaction records such as order ID, amount, currency, country, and the email used at checkout, but never your full card number. We also keep a record of your credit balance and every credit added or used."
           ]
         },
         {
           "heading": "3. How We Use Your Information",
           "body": [
-            "We use your data solely to generate and deliver your portfolio reports and to operate, secure, and improve the Service. We do not sell your data, and we do not use your holdings to build or improve any third-party product."
+            "We use your data solely to generate and deliver your portfolio reports and to operate, secure, and improve the Service. We do not sell your data, and we do not use your holdings to build or improve any third-party product.",
+            "We use payment and credit records to provide your plan, process refunds, and meet accounting and tax obligations."
           ]
         },
         {
@@ -1221,22 +1228,24 @@
           ]
         },
         {
-          "heading": "5. Third-Party Processing (LLMs)",
+          "heading": "5. Third-Party Processing",
           "body": [
             "Generating a report involves sending portions of your data to third-party large-language-model providers for analysis. By default, every such call is configured to opt out of the provider using your data for model training.",
-            "A narrow, owner-approved exception applies to two specific, non-analytical processing steps: public-market search-query generation, and translating a finished report into your display language. These two steps are routed directly to a single named provider's own first-party API instead of through the training opt-out described above, because that is the only way to reach that specific low-cost model. That provider's standard API terms permit using submitted data to improve its models, so this exception accepts that risk for those two steps only — it is not backed by a no-training data agreement. To limit the exception's reach, the routing is hard-pinned with no automatic fallback to a different provider if it becomes unavailable. The translation step does process report text derived from your holdings, since it translates the finished report itself; the search-query step does not, since it only uses public market/macro themes."
+            "A narrow, owner-approved exception applies to two specific, non-analytical processing steps: public-market search-query generation, and translating a finished report into your display language. These two steps are routed directly to a single named provider's own first-party API instead of through the training opt-out described above, because that is the only way to reach that specific low-cost model. That provider's standard API terms permit using submitted data to improve its models, so this exception accepts that risk for those two steps only — it is not backed by a no-training data agreement. To limit the exception's reach, the routing is hard-pinned with no automatic fallback to a different provider if it becomes unavailable. The translation step does process report text derived from your holdings, since it translates the finished report itself; the search-query step does not, since it only uses public market/macro themes.",
+            "Payments are processed by Paddle.com, which acts as Merchant of Record and handles your payment information under its own privacy notice."
           ]
         },
         {
           "heading": "6. Data Retention",
           "body": [
-            "We retain your account and holdings data for as long as your account is active. Some operational records (for example, upload-job metadata) are automatically purged after a short retention window. You may request full deletion of your account and associated data at any time (see \"Your Rights\" below)."
+            "We retain your account and holdings data for as long as your account is active. Some operational records (for example, upload-job metadata) are automatically purged after a short retention window. You may request full deletion of your account and associated data at any time (see \"Your Rights\" below).",
+            "When your account is deleted, your holdings, investment-style settings, reports, and other personal data are removed. Credit and transaction records are kept, no longer linked to your email address, for accounting and tax purposes."
           ]
         },
         {
           "heading": "7. Your Rights",
           "body": [
-            "You can review and update your holdings and profile information directly in the Service. You can request permanent deletion of your account and all associated data by contacting us; deletion removes your local records and your authentication account."
+            "You can review and update your holdings and profile information directly in the Service. You can request deletion of your account by contacting us; deletion removes your holdings, investment-style settings, and authentication account as described in Data Retention."
           ]
         },
         {
@@ -1252,9 +1261,9 @@
           ]
         },
         {
-          "heading": "10. Applicable Law and Target Regions",
+          "heading": "10. Applicable Law",
           "body": [
-            "This service currently targets users in mainland China, Hong Kong, and Singapore, in addition to the regional eligibility restriction described in our Terms of Service. The applicable data-protection law for each of those target regions is still under legal review; this section will be completed once that review is finished."
+            "We handle personal data in accordance with the data-protection laws that apply to us, including those of the country where you live where they apply."
           ]
         },
         {
@@ -1267,6 +1276,109 @@
           "heading": "12. Contact",
           "body": [
             "Questions about this Privacy Policy, or requests regarding your data, can be sent to info@portfonia.com."
+          ]
+        }
+      ]
+    },
+    "pricing": {
+      "title": "Pricing",
+      "lastUpdated": "Last updated: 2026-09-28",
+      "intro": "Portfonia is a portfolio intelligence service. You choose a briefing plan and pay for it with prepaid service credits.",
+      "sections": [
+        {
+          "heading": "1. Plans",
+          "body": [
+            "Weekly briefing — 0.99 credits per month. One personalized briefing email per week, tied to the holdings you have entered.",
+            "Mon / Wed / Fri briefing — 1.99 credits per month. Three personalized briefing emails per week (Monday, Wednesday, Friday).",
+            "The two plans differ only in how often briefings are sent."
+          ]
+        },
+        {
+          "heading": "2. Included in every plan",
+          "body": [
+            "Holdings upload from CSV, Excel, or Markdown, with row-level editing.",
+            "Portfolio overview: allocation, performance against benchmarks, and historical volatility and risk views.",
+            "Briefings covering price anomalies, technical position, macro and company news mapped to your holdings, and a forward calendar of macro and earnings events, each causal claim with a confidence label.",
+            "Briefings in English or Chinese."
+          ]
+        },
+        {
+          "heading": "3. Credits",
+          "body": [
+            "Credits are sold in packs: US$10 for 10 credits, or US$20 for 20 credits. Prices are in US dollars; any sales tax or VAT is calculated at checkout.",
+            "Credits are prepaid service credits, usable only for Portfonia subscriptions. They are non-transferable and have no cash value except as provided in the Refund Policy."
+          ]
+        },
+        {
+          "heading": "4. How billing works",
+          "body": [
+            "Your plan fee is deducted from your credit balance at the start of each monthly billing period. Complimentary credits are used first, then purchased credits.",
+            "If your balance will not cover the next month's fee, we email you a reminder in advance. If the balance is still not enough at renewal, your plan stops and its features become unavailable — currently, your scheduled briefings stop.",
+            "If you change or cancel your plan, the unused part of the current month's fee is returned to your credit balance pro rata.",
+            "Credits do not expire."
+          ]
+        },
+        {
+          "heading": "5. Refunds",
+          "body": [
+            "Unused purchased credits can be refunded within 120 days of purchase. See the Refund Policy for details."
+          ]
+        },
+        {
+          "heading": "6. Payment processing",
+          "body": [
+            "Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle provides all customer service inquiries and handles returns."
+          ]
+        },
+        {
+          "heading": "7. Not investment advice",
+          "body": [
+            "Portfonia is an information service. It does not provide investment, legal, or tax advice, and does not tell you what to buy, sell, or hold."
+          ]
+        }
+      ]
+    },
+    "refund": {
+      "title": "Refund Policy",
+      "lastUpdated": "Last updated: 2026-09-28",
+      "intro": "This policy explains when credits purchased for Portfonia can be refunded.",
+      "sections": [
+        {
+          "heading": "1. Refundable credits",
+          "body": [
+            "Credits you purchased through checkout that have not yet been used can be refunded within 120 days of the purchase. A refund is limited to the amount paid for that purchase and is returned to the original payment method."
+          ]
+        },
+        {
+          "heading": "2. Non-refundable credits",
+          "body": [
+            "Complimentary, promotional, and referral credits are not refundable.",
+            "Credits already applied to a billing period are not refunded to your payment method. When you change or cancel a plan, the unused part of the current month's fee is returned to your credit balance pro rata.",
+            "After 120 days from a purchase, credits from that purchase can no longer be refunded. They do not expire and remain usable for your subscription."
+          ]
+        },
+        {
+          "heading": "3. Statutory rights",
+          "body": [
+            "This policy does not limit any right of withdrawal or refund you have under Paddle's Buyer Terms or the consumer-protection law of the country where you live."
+          ]
+        },
+        {
+          "heading": "4. How to request a refund",
+          "body": [
+            "Email info@portfonia.com from your account email, or contact Paddle through the link in your purchase receipt. Approved refunds are processed by Paddle; card refunds usually appear within 3–5 business days."
+          ]
+        },
+        {
+          "heading": "5. Payment processing",
+          "body": [
+            "Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle provides all customer service inquiries and handles returns."
+          ]
+        },
+        {
+          "heading": "6. Nature of credits",
+          "body": [
+            "Credits are prepaid service credits, usable only for Portfonia subscriptions. They are non-transferable and have no cash value except as provided in this policy."
           ]
         }
       ]

@@ -4,13 +4,13 @@ import Link from "next/link";
 
 import { useLegalMessages } from "./locale-provider";
 
-type LegalDocKey = "terms" | "privacy";
+type LegalDocKey = "pricing" | "terms" | "privacy" | "refund";
+
+const documentOrder: LegalDocKey[] = ["pricing", "terms", "privacy", "refund"];
 
 export function LegalDocument({ doc }: { doc: LegalDocKey }) {
   const t = useLegalMessages();
   const content = t[doc];
-  const otherDoc = doc === "terms" ? "privacy" : "terms";
-  const otherHref = doc === "terms" ? "/privacy" : "/terms";
 
   return (
     <main className="mx-auto w-full max-w-2xl px-6 py-12">
@@ -33,11 +33,13 @@ export function LegalDocument({ doc }: { doc: LegalDocKey }) {
         ))}
       </div>
 
-      <p className="mt-12 border-t border-white/10 pt-6 text-sm text-foreground/60">
-        <Link href={otherHref} className="underline">
-          {t.nav[otherDoc]}
-        </Link>
-      </p>
+      <nav className="mt-12 flex flex-wrap gap-4 border-t border-white/10 pt-6 text-sm text-foreground/60">
+        {documentOrder.filter((key) => key !== doc).map((key) => (
+          <Link key={key} href={`/${key}`} className="underline">
+            {t.nav[key]}
+          </Link>
+        ))}
+      </nav>
     </main>
   );
 }

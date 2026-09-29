@@ -109,7 +109,7 @@ export function useHomeMessages(): Messages["home"] {
   };
 }
 
-// Same rationale as useHomeMessages above: legal.terms/legal.privacy are
+// Same rationale as useHomeMessages above: legal documents are
 // static section arrays with no ICU interpolation, so t.raw() per top-level
 // key restores real types instead of next-intl's untyped t.raw() return.
 export function useLegalMessages(): Messages["legal"] {
@@ -118,5 +118,7 @@ export function useLegalMessages(): Messages["legal"] {
     nav: t.raw("nav"),
     terms: t.raw("terms"),
     privacy: t.raw("privacy"),
+    pricing: t.raw("pricing"),
+    refund: t.raw("refund"),
   };
 }

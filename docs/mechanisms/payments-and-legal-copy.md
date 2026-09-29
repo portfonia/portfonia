@@ -1,12 +1,9 @@
 # Payments and legal copy for Paddle review (issue #574)
 
-**Status: draft copy specification — not shipped.** Nothing here is live
-until a separate implementation issue moves it into
-`frontend/src/locales/{en,zh-Hans,zh-Hant}.json` and adds the `/pricing`
-and `/refund` routes. This file holds the English source copy and the
-change map; the zh-Hans and zh-Hant drafts live in the owner's project
-notes, because repository docs are English-only and translated copy enters
-the repository only through the locale files.
+**Status: copy and public routes shipped in issue #576; purchase flow not implemented.**
+This file holds the English source copy and the change map. The zh-Hans and
+zh-Hant translations ship in `frontend/src/locales/`; their reviewed source
+lives in the owner's project notes.
 
 ## Why this exists
 

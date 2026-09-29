@@ -59,3 +59,15 @@ describe("locale catalogs stay structurally in sync (issue #209)", () => {
     }
   });
 });
+
+describe("legal copy for Paddle review", () => {
+  it.each(LOCALE_VALUES)("%s contains no superseded names, placeholders, or status copy", (locale) => {
+    expect(JSON.stringify(catalogs[locale])).not.toMatch(/Portfonia LLC|Portfonia AI|\{\{|closed beta|legal review/i);
+  });
+
+  it("keeps the required Terms and Privacy section structure", () => {
+    expect(catalogs.en.legal.terms.sections).toHaveLength(13);
+    expect(catalogs.en.legal.terms.sections[3].heading).toBe("4. Payments and Credits");
+    expect(catalogs.en.legal.privacy.sections).toHaveLength(12);
+  });
+});
