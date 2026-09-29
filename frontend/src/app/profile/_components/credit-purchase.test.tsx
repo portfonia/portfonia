@@ -184,6 +184,51 @@ it("stops polling after 120 seconds and shows the delayed notice", async () => {
   }
 });
 
+it("still handles checkout events when an earlier Paddle init finishes last", async () => {
+  const config = {
+    environment: "production", client_token: "live_test", user_id: "user-1",
+    email: "buyer@example.com", packs: [
+      { price_id: "pri_test", credits: "10.00" },
+      { price_id: "pri_20", credits: "20.00" },
+    ],
+  };
+  let releaseFirstConfig: (value: typeof config) => void = () => {};
+  const firstConfig = new Promise<typeof config>((resolve) => {
+    releaseFirstConfig = resolve;
+  });
+  getCheckoutConfig.mockReset();
+  getCheckoutConfig.mockResolvedValue(config);
+  getCheckoutConfig.mockReturnValueOnce(firstConfig);
+  const callbacks: Array<((event: PaddleEvent) => void) | undefined> = [];
+  initializePaddle.mockImplementation((options: { eventCallback?: (event: PaddleEvent) => void }) => {
+    callbacks.push(options.eventCallback);
+    onEvent = callbacks[callbacks.length - 1];
+    return Promise.resolve({ PricePreview: pricePreview, Checkout: { open: checkoutOpen, close: checkoutClose } });
+  });
+
+  const first = render(<LocaleProvider><CreditPurchase /></LocaleProvider>);
+  await act(async () => { await Promise.resolve(); });
+  first.unmount();
+
+  render(<LocaleProvider><CreditPurchase /></LocaleProvider>);
+  expect(await screen.findByText("HK$78.00")).toBeInTheDocument();
+  expect(initializePaddle).toHaveBeenCalledTimes(1);
+
+  await act(async () => { releaseFirstConfig(config); });
+  expect(initializePaddle).toHaveBeenCalledTimes(2);
+  expect(callbacks).toHaveLength(2);
+  expect(onEvent).toBe(callbacks[1]);
+
+  fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
+  expect(screen.getByRole("button", { name: "Opening checkout…" })).toBeDisabled();
+  act(() => { onEvent?.({ name: "checkout.loaded" }); });
+  expect(screen.getAllByRole("button", { name: "Buy" })[0]).toBeEnabled();
+
+  act(() => { onEvent?.({ name: "checkout.completed", data: { transaction_id: "txn_A" } }); });
+  await act(async () => { await Promise.resolve(); });
+  expect(getPurchaseStatus).toHaveBeenCalledWith("txn_A");
+});
+
 it("ignores checkout.completed after the component unmounts", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   try {

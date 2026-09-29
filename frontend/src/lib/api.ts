@@ -806,7 +806,7 @@ export type PurchaseStatus = {
 export async function getPurchaseStatus(transactionId: string): Promise<PurchaseStatus | null> {
   try {
     const response = await fetch("/api/payments/purchases/" + transactionId, { cache: "no-store" });
-    return response.ok ? (response.json() as Promise<PurchaseStatus>) : null;
+    return response.ok ? ((await response.json()) as PurchaseStatus) : null;
   } catch {
     return null;
   }

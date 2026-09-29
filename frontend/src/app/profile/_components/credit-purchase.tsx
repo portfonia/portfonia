@@ -16,6 +16,13 @@ const OPEN_TIMEOUT_MS = 15_000;
 const POLL_INTERVAL_MS = 3_000;
 const POLL_LIMIT_MS = 120_000;
 
+// initializePaddle replaces eventCallback on every call. A load started by
+// an earlier mount can finish last and install its callback, so this ref
+// has to outlive that mount and point at the handler installed now.
+const handlerRef: { current: (event: PaddleEventData) => void } = {
+  current: () => {},
+};
+
 export function CreditPurchase() {
   const t = useTranslations("profile");
   const router = useRouter();
@@ -24,7 +31,6 @@ export function CreditPurchase() {
   const [notice, setNotice] = useState<Notice>(null);
   const openingRef = useRef<string | null>(null);
   const paddleRef = useRef<Paddle | null>(null);
-  const handlerRef = useRef<(event: PaddleEventData) => void>(() => {});
   const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollDeadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -115,7 +121,6 @@ export function CreditPurchase() {
           environment: config.environment,
           token: config.client_token,
           eventCallback: (event) => {
-            if (!mounted) return;
             handlerRef.current(event);
           },
         });
