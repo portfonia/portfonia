@@ -1,19 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 
+import { Button } from "@/components/ui/button";
 import type { Me } from "@/lib/api";
 
 // sessionStorage-only dedupe (Ring 1-Onboarding.md §2.4) — not an entry
 // condition. Reachable from holdings onboarding save or its skip
 // (questionnaire onboarding save now routes to /holdings?onboarding=1,
-// issue #280 §9.1); a later direct visit this session bounces to "/".
+// issue #280 §9.1); a later direct visit this session bounces to
+// "/portfolio" (issue #586).
 const WELCOMED_KEY = "portfonia.welcomed";
 
 export function WelcomeBody({ me, hadLoadError }: { me: Me | null; hadLoadError: boolean }) {
   const t = useTranslations("welcome");
+  const tMenu = useTranslations("menu");
   const router = useRouter();
   const [ready, setReady] = useState(false);
 
@@ -25,12 +29,12 @@ export function WelcomeBody({ me, hadLoadError }: { me: Me | null; hadLoadError:
       alreadyWelcomed = false;
     }
     if (alreadyWelcomed) {
-      router.replace("/");
+      router.replace("/portfolio");
       return;
     }
     // Only burn the one-shot on an actual successful load (blacktomb42
     // review, PR #230) — marking it welcomed on a failed GET /me would
-    // bounce a legitimate retry straight to "/" once the fetch recovers,
+    // bounce a legitimate retry straight to "/portfolio" once the fetch recovers,
     // with no second chance to ever see this page.
     if (!hadLoadError && me) {
       try {
@@ -84,6 +88,12 @@ export function WelcomeBody({ me, hadLoadError }: { me: Me | null; hadLoadError:
           : t("deliveryVerified", { deliveryEmail: deliveryAddress })}
       </p>
       <p className="text-sm text-foreground/80">{t("cadence")}</p>
+      <div className="flex flex-wrap gap-3">
+        <Button render={<Link href="/portfolio" />}>{tMenu("portfolio")}</Button>
+        <Button variant="outline" render={<Link href="/profile" />}>
+          {tMenu("profile")}
+        </Button>
+      </div>
     </div>
   );
 }

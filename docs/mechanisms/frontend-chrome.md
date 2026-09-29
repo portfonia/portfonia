@@ -236,9 +236,11 @@ Canonical design: Obsidian `Hermes/Portfonia/Docs/Ring 1-Onboarding.md`.
   portfonia.welcomed` dedupe check in a `useEffect` (same one-time
   client-only-reveal pattern as `locale-provider.tsx`'s restore effect —
   needs the same `eslint-disable-next-line react-hooks/set-state-in-effect`
-  for the same hydration-mismatch reason) and `router.replace("/")`s a
-  second same-session visit instead of re-rendering. No CTA button, no
-  dashboard link, and no Profile menu entry to it — reachable only from the
+  for the same hydration-mismatch reason) and `router.replace("/portfolio")`s a
+  second same-session visit instead of re-rendering. Under the cadence line
+  sit two buttons, Portfolio (`/portfolio`) and Profile (`/profile`), using
+  the existing `menu` labels; the load-error branch renders neither. There
+  is no Profile menu entry to `/welcome` — reachable only from the
   holdings onboarding Save and Skip flows (issue #280 moved the
   questionnaire's onboarding Save to `/holdings?onboarding=1`, so it is no
   longer a direct entry). Copy never claims a holdings-confirmation email
@@ -265,14 +267,19 @@ Canonical design: Obsidian `Hermes/Portfonia/Docs/Ring 1-Onboarding.md`.
   an unverified `delivery_email` does not block a verified account email,
   so that mixed state claims delivery to the account address instead.
   **Update
-  (issue #280 item 3, 2026-08-31)**: successful login redirects
+  (issue #280 item 3, 2026-08-31)**: successful login redirected
   unconditionally to `/profile` (was `/holdings`). `/login` only ever
   serves returning users — signup redirects straight to
   `/questionnaire?onboarding=1` and never passes through this action — so
   there is no new-vs-returning or onboarding-gap branch; interrupted
   onboarding is resumed from Profile's gap cards in edit mode. The
   pre-existing `/me` round-trip in `login/actions.ts` was removed with the
-  branch.
+  branch. **Update (issue #586)**: that landing is `/portfolio`. `/welcome`
+  shows the Portfolio and Profile buttons above, and a same-session revisit
+  replaces to `/portfolio`. The Portfolio page title row adds Edit holdings
+  (`/holdings/edit`) and Investment style (`/questionnaire`, no query)
+  beside View performance, reusing the existing `menu` labels. Edit-mode
+  questionnaire Save and Skip still return to `/profile`.
 - **Profile's gap card reads `GET /me`'s `missing` field** (`#220` shipped
   the full response shape already; this is the first UI consumer of
   `missing`/`has_questionnaire`/`has_holdings`). Renders nothing when

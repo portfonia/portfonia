@@ -50,6 +50,7 @@ export function PortfolioPageBody({
   initialLoadError: boolean;
 }) {
   const t = useTranslations("portfolio");
+  const tMenu = useTranslations("menu");
   const [summary, setSummary] = useState(initialSummary);
   const [currency, setCurrency] = useState<BaseCurrency>(
     (initialSummary?.base_currency as BaseCurrency | undefined) ?? DEFAULT_BASE_CURRENCY,
@@ -132,12 +133,26 @@ export function PortfolioPageBody({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-col items-start gap-1">
           <h1 className="font-heading text-2xl font-medium">{t("pageTitle")}</h1>
-          <Link
-            href="/portfolio/performance"
-            className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
-          >
-            {t("performance.viewPerformanceLink")}
-          </Link>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <Link
+              href="/portfolio/performance"
+              className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
+            >
+              {t("performance.viewPerformanceLink")}
+            </Link>
+            <Link
+              href="/holdings/edit"
+              className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
+            >
+              {tMenu("editHoldings")}
+            </Link>
+            <Link
+              href="/questionnaire"
+              className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
+            >
+              {tMenu("questionnaire")}
+            </Link>
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <CurrencySwitcher

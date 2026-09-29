@@ -44,12 +44,12 @@ describe("login action", () => {
     expect(redirect).not.toHaveBeenCalled();
   });
 
-  it("redirects to /profile on success without a /me round-trip (issue #280 item 3)", async () => {
+  it("redirects to /portfolio on success without a /me round-trip (issue #586)", async () => {
     signInWithPassword.mockResolvedValue({ error: null });
 
     await login(undefined, formData({ email: "a@b.com", password: "correcthorse" }));
 
-    expect(redirect).toHaveBeenCalledWith("/profile");
+    expect(redirect).toHaveBeenCalledWith("/portfolio");
     expect(getMeServer).not.toHaveBeenCalled();
   });
 });

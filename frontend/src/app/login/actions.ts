@@ -38,10 +38,10 @@ export async function login(
     return { error: auth.errorInvalidCredentials };
   }
 
-  // Issue #280 item 3: /login only ever serves returning users — signup
+  // Issue #586: /login only ever serves returning users — signup
   // redirects straight to /questionnaire?onboarding=1 and never passes
-  // through this action — so the landing is /profile by default, no
-  // new-vs-returning or onboarding-gap branch. Interrupted onboarding is
-  // resumed from Profile's gap cards in edit mode, not from a login landing.
-  redirect("/profile");
+  // through this action — so there is still no /me round trip and no
+  // new-vs-returning branch. The landing is /portfolio. Interrupted
+  // onboarding is still resumed from Profile's gap cards in edit mode.
+  redirect("/portfolio");
 }
