@@ -8,6 +8,15 @@ type LegalDocKey = "pricing" | "terms" | "privacy" | "refund";
 
 const documentOrder: LegalDocKey[] = ["pricing", "terms", "privacy", "refund"];
 
+// The payment provider acting as Merchant of Record. Legal copy names it only
+// through the {merchantOfRecord} placeholder, so switching provider is a
+// one-line change here rather than an edit to every locale string.
+export const MERCHANT_OF_RECORD = "Paddle.com";
+
+function fillMerchant(text: string): string {
+  return text.replaceAll("{merchantOfRecord}", MERCHANT_OF_RECORD);
+}
+
 export function LegalDocument({ doc }: { doc: LegalDocKey }) {
   const t = useLegalMessages();
   const content = t[doc];
@@ -16,7 +25,7 @@ export function LegalDocument({ doc }: { doc: LegalDocKey }) {
     <main className="mx-auto w-full max-w-2xl px-6 py-12">
       <h1 className="font-serif text-3xl">{content.title}</h1>
       <p className="mt-2 text-sm text-foreground/45">{content.lastUpdated}</p>
-      <p className="mt-6 text-sm leading-relaxed text-foreground/80">{content.intro}</p>
+      <p className="mt-6 text-sm leading-relaxed text-foreground/80">{fillMerchant(content.intro)}</p>
 
       <div className="mt-10 flex flex-col gap-8">
         {content.sections.map((section) => (
@@ -25,7 +34,7 @@ export function LegalDocument({ doc }: { doc: LegalDocKey }) {
             <div className="mt-2 flex flex-col gap-3">
               {section.body.map((paragraph) => (
                 <p key={paragraph} className="text-sm leading-relaxed text-foreground/70">
-                  {paragraph}
+                  {fillMerchant(paragraph)}
                 </p>
               ))}
             </div>

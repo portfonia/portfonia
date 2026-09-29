@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { catalogs } from "@/locales";
-import { LegalDocument } from "./legal-document";
+import { LegalDocument, MERCHANT_OF_RECORD } from "./legal-document";
 import { LocaleProvider } from "./locale-provider";
 
 describe("LegalDocument", () => {
@@ -19,5 +19,17 @@ describe("LegalDocument", () => {
     expect(links.map((link) => link.getAttribute("href"))).toEqual(
       ["pricing", "terms", "privacy", "refund"].filter((key) => key !== doc).map((key) => `/${key}`),
     );
+  });
+
+  it("substitutes the merchant of record name into the rendered copy", () => {
+    render(
+      <LocaleProvider>
+        <LegalDocument doc="refund" />
+      </LocaleProvider>,
+    );
+
+    const main = screen.getByRole("main");
+    expect(main).toHaveTextContent(MERCHANT_OF_RECORD);
+    expect(main).not.toHaveTextContent("{merchantOfRecord}");
   });
 });

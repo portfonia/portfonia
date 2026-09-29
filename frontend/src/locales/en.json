@@ -1132,7 +1132,7 @@
             "Paid plans are billed in prepaid service credits. Credits are sold in packs priced in US dollars (1 credit = US$1 at purchase); current plans and packs are listed on the Pricing page.",
             "Your plan fee is deducted from your credit balance at the start of each monthly billing period, complimentary credits first. If you change or cancel your plan, the unused part of the current month's fee is returned to your credit balance pro rata.",
             "Credits do not expire. They are usable only for Portfonia subscriptions, are non-transferable, and have no cash value except as provided in the Refund Policy.",
-            "Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle provides all customer service inquiries and handles returns. Your purchase is also subject to Paddle's Buyer Terms."
+            "Our order process is conducted by our online reseller {merchantOfRecord}. {merchantOfRecord} is the Merchant of Record for all our orders. {merchantOfRecord} provides all customer service inquiries and handles returns. Your purchase is also subject to {merchantOfRecord}'s Buyer Terms."
           ]
         },
         {
@@ -1210,7 +1210,7 @@
             "Account information: your email address and authentication credentials, handled by our authentication provider.",
             "Holdings and investment data: positions, brokers/custodians, and quantities you upload, plus any investment-style questionnaire responses you provide.",
             "Usage information: basic session and activity data needed to operate the Service securely (for example, sign-in timestamps and idle-timeout enforcement).",
-            "Payment and credit information: purchases are processed by Paddle.com as Merchant of Record. Paddle collects your payment details and billing information under its own privacy notice; we receive transaction records such as order ID, amount, currency, country, and the email used at checkout, but never your full card number. We also keep a record of your credit balance and every credit added or used."
+            "Payment and credit information: purchases are processed by {merchantOfRecord} as Merchant of Record. {merchantOfRecord} collects your payment details and billing information under its own privacy notice; we receive transaction records such as order ID, amount, currency, country, and the email used at checkout, but never your full card number. We also keep a record of your credit balance and every credit added or used."
           ]
         },
         {
@@ -1232,13 +1232,13 @@
           "body": [
             "Generating a report involves sending portions of your data to third-party large-language-model providers for analysis. By default, every such call is configured to opt out of the provider using your data for model training.",
             "A narrow, owner-approved exception applies to two specific, non-analytical processing steps: public-market search-query generation, and translating a finished report into your display language. These two steps are routed directly to a single named provider's own first-party API instead of through the training opt-out described above, because that is the only way to reach that specific low-cost model. That provider's standard API terms permit using submitted data to improve its models, so this exception accepts that risk for those two steps only — it is not backed by a no-training data agreement. To limit the exception's reach, the routing is hard-pinned with no automatic fallback to a different provider if it becomes unavailable. The translation step does process report text derived from your holdings, since it translates the finished report itself; the search-query step does not, since it only uses public market/macro themes.",
-            "Payments are processed by Paddle.com, which acts as Merchant of Record and handles your payment information under its own privacy notice."
+            "Payments are processed by {merchantOfRecord}, which acts as Merchant of Record and handles your payment information under its own privacy notice."
           ]
         },
         {
           "heading": "6. Data Retention",
           "body": [
-            "We retain your account and holdings data for as long as your account is active. Some operational records (for example, upload-job metadata) are automatically purged after a short retention window. You may request full deletion of your account and associated data at any time (see \"Your Rights\" below).",
+            "We retain your account and holdings data for as long as your account is active. Some operational records (for example, upload-job metadata) are automatically purged after a short retention window. You may request deletion of your account at any time (see \"Your Rights\" below).",
             "When your account is deleted, your holdings, investment-style settings, reports, and other personal data are removed. Credit and transaction records are kept, no longer linked to your email address, for accounting and tax purposes."
           ]
         },
@@ -1327,7 +1327,7 @@
         {
           "heading": "6. Payment processing",
           "body": [
-            "Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle provides all customer service inquiries and handles returns."
+            "Our order process is conducted by our online reseller {merchantOfRecord}. {merchantOfRecord} is the Merchant of Record for all our orders. {merchantOfRecord} provides all customer service inquiries and handles returns."
           ]
         },
         {
@@ -1360,19 +1360,19 @@
         {
           "heading": "3. Statutory rights",
           "body": [
-            "This policy does not limit any right of withdrawal or refund you have under Paddle's Buyer Terms or the consumer-protection law of the country where you live."
+            "This policy does not limit any right of withdrawal or refund you have under {merchantOfRecord}'s Buyer Terms or the consumer-protection law of the country where you live."
           ]
         },
         {
           "heading": "4. How to request a refund",
           "body": [
-            "Email info@portfonia.com from your account email, or contact Paddle through the link in your purchase receipt. Approved refunds are processed by Paddle; card refunds usually appear within 3–5 business days."
+            "Email info@portfonia.com from your account email, or contact {merchantOfRecord} through the link in your purchase receipt. Approved refunds are processed by {merchantOfRecord}; card refunds usually appear within 3–5 business days."
           ]
         },
         {
           "heading": "5. Payment processing",
           "body": [
-            "Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle provides all customer service inquiries and handles returns."
+            "Our order process is conducted by our online reseller {merchantOfRecord}. {merchantOfRecord} is the Merchant of Record for all our orders. {merchantOfRecord} provides all customer service inquiries and handles returns."
           ]
         },
         {

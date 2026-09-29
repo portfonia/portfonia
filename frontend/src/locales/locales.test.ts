@@ -65,6 +65,16 @@ describe("legal copy for Paddle review", () => {
     expect(JSON.stringify(catalogs[locale])).not.toMatch(/Portfonia LLC|Portfonia AI|\{\{|closed beta|legal review/i);
   });
 
+  it.each(LOCALE_VALUES)("%s names the merchant of record only through the {merchantOfRecord} placeholder", (locale) => {
+    const serialized = JSON.stringify(catalogs[locale].legal);
+    expect(serialized).not.toMatch(/Paddle/);
+    expect(serialized).toContain("{merchantOfRecord}");
+  });
+
+  it.each(LOCALE_VALUES)("%s Privacy retention does not promise deletion of all associated data", (locale) => {
+    expect(catalogs[locale].legal.privacy.sections[5].body[0]).not.toMatch(/full deletion|彻底删除|徹底刪除/);
+  });
+
   it("keeps the required Terms and Privacy section structure", () => {
     expect(catalogs.en.legal.terms.sections).toHaveLength(13);
     expect(catalogs.en.legal.terms.sections[3].heading).toBe("4. Payments and Credits");

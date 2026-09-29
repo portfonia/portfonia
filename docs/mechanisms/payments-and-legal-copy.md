@@ -70,6 +70,13 @@ No open owner decisions remain for this copy.
 - US dollar amounts appear only on Pricing, Refund Policy, and Terms
   "Payments and Credits". Everywhere else the product says "credits" only.
 - The Paddle reseller notice appears on Pricing, Refund Policy, and Terms.
+- Shipped locale strings never name the provider literally: every mention
+  is the `{merchantOfRecord}` placeholder, filled by `MERCHANT_OF_RECORD`
+  (currently `Paddle.com`) in `frontend/src/app/_components/legal-document.tsx`.
+  Switching to another Merchant of Record (for example Creem) changes that
+  constant plus any provider-specific wording, not every locale string. A
+  non-MoR processor (such as PayPal Business) is not a drop-in swap: the
+  operator becomes the seller, which changes tax, refund, and legal copy.
 - `lastUpdated` is set to the ship date by the implementation issue.
 - New documents reuse the existing `legal.<doc>` shape:
   `title`, `lastUpdated`, `intro`, `sections[{heading, body[]}]`.
@@ -262,7 +269,10 @@ Removed: old §4 "Regional Restriction" (U.S. tax residents).
    and handles your payment information under its own privacy notice."
    Heading changes from "Third-Party Processing (LLMs)" to "Third-Party
    Processing".
-6. **Data Retention** — existing paragraph unchanged, plus: "When your
+6. **Data Retention** — existing paragraph kept except its last sentence,
+   which becomes "You may request deletion of your account at any time (see
+   "Your Rights" below)." (previously "full deletion of your account and
+   associated data", which contradicted the retained credit records), plus: "When your
    account is deleted, your holdings, investment-style settings, reports,
    and other personal data are removed. Credit and transaction records
    are kept, no longer linked to your email address, for accounting and
