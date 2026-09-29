@@ -59,3 +59,34 @@ describe("locale catalogs stay structurally in sync (issue #209)", () => {
     }
   });
 });
+
+describe("legal copy for Paddle review", () => {
+  it.each(LOCALE_VALUES)("%s contains no superseded names, placeholders, or status copy", (locale) => {
+    expect(JSON.stringify(catalogs[locale])).not.toMatch(/Portfonia LLC|Portfonia AI|\{\{|closed beta|legal review/i);
+  });
+
+  it.each(LOCALE_VALUES)("%s names the merchant of record only via placeholders and the reseller notice", (locale) => {
+    const { resellerNotice, ...documents } = catalogs[locale].legal;
+    const serialized = JSON.stringify(documents);
+    expect(serialized).not.toMatch(/Paddle/);
+    expect(serialized).toContain("{merchantOfRecord}");
+    expect(serialized).toContain("{resellerNotice}");
+    expect(resellerNotice).toMatch(/Paddle/);
+  });
+
+  it("keeps Paddle's required English reseller notice verbatim", () => {
+    expect(catalogs.en.legal.resellerNotice).toBe(
+      "Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle provides all customer service inquiries and handles returns.",
+    );
+  });
+
+  it.each(LOCALE_VALUES)("%s Privacy retention does not promise deletion of all associated data", (locale) => {
+    expect(catalogs[locale].legal.privacy.sections[5].body[0]).not.toMatch(/full deletion|彻底删除|徹底刪除/);
+  });
+
+  it("keeps the required Terms and Privacy section structure", () => {
+    expect(catalogs.en.legal.terms.sections).toHaveLength(13);
+    expect(catalogs.en.legal.terms.sections[3].heading).toBe("4. Payments and Credits");
+    expect(catalogs.en.legal.privacy.sections).toHaveLength(12);
+  });
+});

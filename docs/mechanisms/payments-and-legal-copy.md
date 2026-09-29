@@ -1,12 +1,9 @@
 # Payments and legal copy for Paddle review (issue #574)
 
-**Status: draft copy specification — not shipped.** Nothing here is live
-until a separate implementation issue moves it into
-`frontend/src/locales/{en,zh-Hans,zh-Hant}.json` and adds the `/pricing`
-and `/refund` routes. This file holds the English source copy and the
-change map; the zh-Hans and zh-Hant drafts live in the owner's project
-notes, because repository docs are English-only and translated copy enters
-the repository only through the locale files.
+**Status: copy and public routes shipped in issue #576; purchase flow not implemented.**
+This file holds the English source copy and the change map. The zh-Hans and
+zh-Hant translations ship in `frontend/src/locales/`; their reviewed source
+lives in the owner's project notes.
 
 ## Why this exists
 
@@ -66,6 +63,14 @@ a cash-redeemable balance. Full rationale and sources: issue #574
   non-refundable. How a fee deducted across two or more buckets is
   returned is an implementation question, bound by this principle.
 
+- The operator's legal name and phone number are given to a payment
+  provider only in its back office, never displayed on the site. If a
+  provider requires public display of either, that provider (Paddle, Creem,
+  or any similar channel) is abandoned rather than the site changed. The
+  Paddle seller handbook asks for the seller's legal name in the Terms and a
+  support email and phone on the site; the site currently shows the brand
+  name and email only.
+
 No open owner decisions remain for this copy.
 
 ## Copy conventions
@@ -73,6 +78,23 @@ No open owner decisions remain for this copy.
 - US dollar amounts appear only on Pricing, Refund Policy, and Terms
   "Payments and Credits". Everywhere else the product says "credits" only.
 - The Paddle reseller notice appears on Pricing, Refund Policy, and Terms.
+- Shipped locale strings never name the provider inside document text.
+  General mentions ("processed by Paddle", "Paddle's Buyer Terms") use the
+  `{merchantOfRecord}` placeholder, filled by `MERCHANT_OF_RECORD` (currently
+  `Paddle`) in `frontend/src/app/_components/legal-document.tsx`. The
+  reseller notice is provider-mandated verbatim wording (Paddle seller
+  handbook: "Our order process is conducted by our online reseller
+  Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle
+  provides all customer service inquiries and handles returns."), so it lives
+  whole in each locale's `legal.resellerNotice` and is inserted at
+  `{resellerNotice}`. Switching to another Merchant of Record (for example
+  Creem) means changing the constant and rewriting `legal.resellerNotice` in
+  the three locales. A non-MoR processor (such as PayPal Business) is not a
+  drop-in swap: the operator becomes the seller, which changes tax, refund,
+  and legal copy.
+- Placeholders are filled only by `LegalDocument`; document trees are read
+  with `t.raw()` and must never pass through next-intl `t()`, which would
+  parse them as ICU arguments.
 - `lastUpdated` is set to the ship date by the implementation issue.
 - New documents reuse the existing `legal.<doc>` shape:
   `title`, `lastUpdated`, `intro`, `sections[{heading, body[]}]`.
@@ -265,7 +287,10 @@ Removed: old §4 "Regional Restriction" (U.S. tax residents).
    and handles your payment information under its own privacy notice."
    Heading changes from "Third-Party Processing (LLMs)" to "Third-Party
    Processing".
-6. **Data Retention** — existing paragraph unchanged, plus: "When your
+6. **Data Retention** — existing paragraph kept except its last sentence,
+   which becomes "You may request deletion of your account at any time (see
+   "Your Rights" below)." (previously "full deletion of your account and
+   associated data", which contradicted the retained credit records), plus: "When your
    account is deleted, your holdings, investment-style settings, reports,
    and other personal data are removed. Credit and transaction records
    are kept, no longer linked to your email address, for accounting and

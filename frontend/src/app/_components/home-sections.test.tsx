@@ -100,22 +100,18 @@ describe("HomeSections sample briefing", () => {
     expect(screen.getByText("Forward calendar")).toBeInTheDocument();
     expect(screen.getByText("Holding analysis")).toBeInTheDocument();
     expect(screen.getByText("Risk radar")).toBeInTheDocument();
-    expect(
-      screen.getByText(/varies depending on your subscription tier/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Briefing frequency depends on your plan.")).toBeInTheDocument();
   });
 
-  it("carries the MVP closed-beta status line instead of Ring 0", () => {
+  it("renders the limited public service status and hero eyebrow", () => {
     render(
       <LocaleProvider>
         <HomeSections />
       </LocaleProvider>,
     );
 
-    expect(screen.getByText(/MVP — multi-user closed beta/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Ring 0/)).not.toBeInTheDocument();
-    // The hero eyebrow renders the same MVP wording.
-    expect(screen.getAllByText(/multi-user closed beta/i).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText(/^Limited public service\. Portfonia maps/)).toBeInTheDocument();
+    expect(screen.getByText("Limited public service")).toBeInTheDocument();
   });
 
   it("renders bold markers in snapshot table cells as emphasis, never literal asterisks", () => {

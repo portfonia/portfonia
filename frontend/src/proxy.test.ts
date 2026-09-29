@@ -91,6 +91,8 @@ describe("proxy", () => {
     "/unsubscribe",
     "/terms",
     "/privacy",
+    "/pricing",
+    "/refund",
     "/altcha.js",
   ])(
     "never redirects the public route %s even when unauthenticated",
