@@ -22,12 +22,14 @@ import logging
 import time
 from collections.abc import Callable, Coroutine
 from datetime import date, datetime, timedelta
-from decimal import Decimal
-from typing import Annotated, Any, Literal
+from decimal import ROUND_FLOOR, Decimal
+from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
+import httpx
 import openai
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import exists, func, select, update
@@ -65,10 +67,15 @@ from app.services.auth_provider import (
 from app.services.credit_ledger import (
     IdempotencyConflict,
     InsufficientCredits,
+    RefundExceedsPurchase,
+    RefundWindowClosed,
     adjust_by_admin,
+    debit_refund,
+    purchase_refundable,
+    refund_key,
 )
 from app.services.credit_ledger_export import build_balances_csv, build_ledger_csv
-from app.services.email_sender import send_invitation_letter, send_report_email
+from app.services.email_sender import send_invitation_letter, send_ops_alert, send_report_email
 from app.services.email_verification import (
     ResendTooSoon,
     VerificationSendFailed,
@@ -85,6 +92,12 @@ from app.services.invites import (
     signup_email_taken,
 )
 from app.services.llm_errors import LLMEmptyResponseError
+from app.services.paddle_client import (
+    PaddleApiError,
+    PaddleNotConfigured,
+    create_refund_adjustment,
+    get_transaction,
+)
 from app.services.report_currency import apply_report_currency_change
 from app.services.report_generator import generate_report, regenerate_report
 from app.services.snapshot_recovery import (
@@ -1285,6 +1298,144 @@ class CreditAdjustmentOut(BaseModel):
     entry: CreditLedgerEntryOut
     cash_balance: Decimal
     gift_balance: Decimal
+
+
+class RefundBody(BaseModel):
+    transaction_id: str = Field(pattern=r"^txn_")
+    credits: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    note: str = Field(min_length=1)
+    idempotency_key: str = Field(min_length=1)
+
+    @field_validator("note", "idempotency_key", mode="before")
+    @classmethod
+    def _strip_refund_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class RefundOut(BaseModel):
+    transaction_id: str
+    adjustment_id: str | None
+    adjustment_status: str | None
+    credits: Decimal
+    refund_amount: str | None
+    currency_code: str | None
+    replayed: bool
+    entry: CreditLedgerEntryOut
+
+
+@router.post("/payments/refunds", response_model=RefundOut)
+def refund_payment(
+    body: RefundBody, session: Session = Depends(get_session)
+) -> RefundOut | JSONResponse:
+    try:
+        write = debit_refund(
+            session,
+            transaction_id=body.transaction_id,
+            credits=body.credits,
+            request_key=body.idempotency_key,
+            note=body.note,
+        )
+    except LookupError as exc:
+        session.rollback()
+        raise HTTPException(status_code=404, detail="purchase not found") from exc
+    except RefundWindowClosed as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="refund window closed") from exc
+    except RefundExceedsPurchase as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="credits exceed unrefunded purchase") from exc
+    except InsufficientCredits as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="insufficient cash balance") from exc
+    except (IdempotencyConflict, IntegrityError) as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=409, detail="idempotency_key already used for a different adjustment"
+        ) from exc
+
+    entry = write.entries[0]
+    if write.replayed:
+        return RefundOut(
+            transaction_id=body.transaction_id,
+            adjustment_id=entry.reference,
+            adjustment_status=None,
+            credits=body.credits,
+            refund_amount=None,
+            currency_code=None,
+            replayed=True,
+            entry=CreditLedgerEntryOut.model_validate(entry, from_attributes=True),
+        )
+
+    purchase, remaining_after_debit = purchase_refundable(session, body.transaction_id)
+    try:
+        transaction = get_transaction(body.transaction_id)
+        details = transaction.get("details")
+        details_obj = cast(dict[str, object], details) if isinstance(details, dict) else {}
+        line_items = details_obj.get("line_items")
+        if (
+            transaction.get("status") != "completed"
+            or not isinstance(line_items, list)
+            or len(line_items) != 1
+        ):
+            session.rollback()
+            raise HTTPException(status_code=409, detail="manual refund required")
+        item = cast(dict[str, object], line_items[0])
+        totals = item.get("totals")
+        totals_obj = cast(dict[str, object], totals) if isinstance(totals, dict) else {}
+        total = int(str(totals_obj.get("total")))
+        full = body.credits == purchase.amount and remaining_after_debit == 0
+        amount = (
+            str(total)
+            if full
+            else str(
+                int(
+                    (Decimal(total) * body.credits / purchase.amount).to_integral_value(
+                        rounding=ROUND_FLOOR
+                    )
+                )
+            )
+        )
+        if amount == "0":
+            session.rollback()
+            raise HTTPException(status_code=409, detail="refund amount rounds to zero")
+        adjustment = create_refund_adjustment(
+            transaction_id=body.transaction_id,
+            reason=f"portfonia-refund:{refund_key(body.transaction_id, body.idempotency_key)}",
+            full=full,
+            item_id=str(item.get("id")),
+            amount=None if full else amount,
+        )
+    except PaddleNotConfigured as exc:
+        session.rollback()
+        raise HTTPException(status_code=503, detail="payments not configured") from exc
+    except (PaddleApiError, httpx.HTTPError) as exc:
+        session.rollback()
+        code = exc.code if isinstance(exc, PaddleApiError) else None
+        return JSONResponse(
+            status_code=502, content={"detail": "paddle error", "paddle_code": code}
+        )
+
+    adjustment_id = str(adjustment.get("id"))
+    entry.reference = adjustment_id
+    try:
+        session.commit()
+    except Exception as exc:
+        session.rollback()
+        send_ops_alert(
+            "Paddle refund ledger commit failed",
+            f"adjustment={adjustment_id} transaction={body.transaction_id} credits={body.credits} error={type(exc).__name__}",
+        )
+        raise HTTPException(status_code=500, detail="refund commit failed") from exc
+    return RefundOut(
+        transaction_id=body.transaction_id,
+        adjustment_id=adjustment_id,
+        adjustment_status=str(adjustment.get("status")),
+        credits=body.credits,
+        refund_amount=amount,
+        currency_code=str(transaction.get("currency_code")),
+        replayed=False,
+        entry=CreditLedgerEntryOut.model_validate(entry, from_attributes=True),
+    )
 
 
 @router.post("/users/by-email/credit-adjustments", response_model=CreditAdjustmentOut)

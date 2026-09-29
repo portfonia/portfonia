@@ -5,12 +5,14 @@ from __future__ import annotations
 import hashlib
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.timezones import ET
 from app.models.credit_ledger import ACTOR_TYPES, BUCKETS, CreditLedgerEntry
 from app.models.user import User
 from app.services.invites import _normalize_email
@@ -23,6 +25,7 @@ _REASON_RULES = {
     "admin_adjustment": ({"gift"}, "±"),
     "subscription": ({"cash", "gift"}, "-"),
     "qa": ({"cash", "gift"}, "-"),
+    "refund": ({"cash"}, "±"),
 }
 
 
@@ -32,6 +35,14 @@ class InsufficientCredits(Exception):
 
 class IdempotencyConflict(Exception):
     """A key was already used for another operation."""
+
+
+class RefundWindowClosed(Exception):
+    """The purchase is older than the refund window."""
+
+
+class RefundExceedsPurchase(Exception):
+    """The requested credits exceed the purchase's remaining credits."""
 
 
 @dataclass(frozen=True)
@@ -237,3 +248,117 @@ def consume_credits(
             )
         )
     return LedgerWrite(entries, replayed=False)
+
+
+def purchase_key(transaction_id: str) -> str:
+    return f"recharge:paddle:{transaction_id}"
+
+
+def refund_key(transaction_id: str, request_key: str) -> str:
+    return f"refund:{transaction_id}:{request_key}"
+
+
+def refund_reversal_key(transaction_id: str, adjustment_id: str) -> str:
+    return f"refund_reversal:{transaction_id}:{adjustment_id}"
+
+
+def record_purchase(
+    session: Session, *, user_id: uuid.UUID, credits: Decimal, transaction_id: str, note: str
+) -> LedgerWrite:
+    user = _lock_user(session, user_id)
+    existing = _rows_for_key(session, purchase_key(transaction_id))
+    if existing:
+        if any(row.user_id != user_id or row.amount != credits for row in existing):
+            raise IdempotencyConflict
+        return LedgerWrite(existing, replayed=True)
+    entry = _post(
+        session,
+        user,
+        bucket="cash",
+        amount=credits,
+        reason="recharge",
+        actor_type="system",
+        idempotency_key=purchase_key(transaction_id),
+        reference=transaction_id,
+        note=note,
+    )
+    return LedgerWrite([entry], replayed=False)
+
+
+def purchase_refundable(session: Session, transaction_id: str) -> tuple[CreditLedgerEntry, Decimal]:
+    purchase = session.execute(
+        select(CreditLedgerEntry).where(
+            CreditLedgerEntry.idempotency_key == purchase_key(transaction_id)
+        )
+    ).scalar_one_or_none()
+    if purchase is None:
+        raise LookupError("purchase not found")
+    adjustments = session.execute(
+        select(CreditLedgerEntry.amount).where(
+            CreditLedgerEntry.reason == "refund",
+            CreditLedgerEntry.user_id == purchase.user_id,
+            CreditLedgerEntry.idempotency_key.startswith(f"refund:{transaction_id}:")
+            | CreditLedgerEntry.idempotency_key.startswith(f"refund_reversal:{transaction_id}:"),
+        )
+    ).scalars()
+    return purchase, purchase.amount + sum(adjustments, Decimal("0"))
+
+
+def debit_refund(
+    session: Session, *, transaction_id: str, credits: Decimal, request_key: str, note: str
+) -> LedgerWrite:
+    key = refund_key(transaction_id, request_key)
+    existing = _rows_for_key(session, key)
+    if existing:
+        if any(row.amount != -credits or row.reason != "refund" for row in existing):
+            raise IdempotencyConflict
+        return LedgerWrite(existing, replayed=True)
+    purchase, _ = purchase_refundable(session, transaction_id)
+    user = _lock_user(session, purchase.user_id)
+    # Recalculate while holding the same user lock used by all ledger writers.
+    _, remaining = purchase_refundable(session, transaction_id)
+    if purchase.created_at < datetime.now(ET) - timedelta(days=120):
+        raise RefundWindowClosed
+    if credits > remaining:
+        raise RefundExceedsPurchase
+    entry = _post(
+        session,
+        user,
+        bucket="cash",
+        amount=-credits,
+        reason="refund",
+        actor_type="admin",
+        idempotency_key=key,
+        note=note,
+    )
+    return LedgerWrite([entry], replayed=False)
+
+
+def reverse_refund(session: Session, *, adjustment_id: str) -> LedgerWrite | None:
+    debit = session.execute(
+        select(CreditLedgerEntry).where(
+            CreditLedgerEntry.reason == "refund",
+            CreditLedgerEntry.amount < 0,
+            CreditLedgerEntry.reference == adjustment_id,
+        )
+    ).scalar_one_or_none()
+    if debit is None:
+        return None
+    transaction_id = debit.idempotency_key.split(":", 2)[1]
+    key = refund_reversal_key(transaction_id, adjustment_id)
+    user = _lock_user(session, debit.user_id)
+    existing = _rows_for_key(session, key)
+    if existing:
+        return LedgerWrite(existing, replayed=True)
+    entry = _post(
+        session,
+        user,
+        bucket="cash",
+        amount=-debit.amount,
+        reason="refund",
+        actor_type="system",
+        idempotency_key=key,
+        reference=adjustment_id,
+        note="refund rejected by Paddle",
+    )
+    return LedgerWrite([entry], replayed=False)

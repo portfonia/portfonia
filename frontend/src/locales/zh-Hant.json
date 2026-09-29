@@ -379,6 +379,13 @@
     "accountHeading": "帳戶",
     "accountEmailLabel": "電子郵件",
     "accountCreditsLabel": "Credits",
+    "creditPurchaseHeading": "購買 credits",
+    "creditPurchaseLoading": "正在載入價格…",
+    "creditPurchaseUnavailable": "暫時無法購買。",
+    "creditPackLabel": "{credits} credits",
+    "creditBuyButton": "購買",
+    "creditPurchaseTerms": "購買即表示你同意<terms>服務條款</terms>與<refund>退款政策</refund>。",
+    "creditPurchaseCompleted": "已收到付款。credits 將很快顯示在這裡，請一分鐘後重新整理本頁。",
     "passwordHeading": "修改密碼",
     "changePasswordLink": "修改密碼",
     "changePasswordPageTitle": "修改密碼",
@@ -1099,7 +1106,8 @@
       "terms": "服務條款",
       "privacy": "隱私政策",
       "pricing": "定價",
-      "refund": "退款政策"
+      "refund": "退款政策",
+      "buyCredits": "購買 credits"
     },
     "resellerNotice": "我們的訂單流程由線上經銷商 Paddle.com 執行。Paddle.com 是我們所有訂單的記錄商戶（Merchant of Record），負責處理所有客戶服務詢問及退貨。",
     "terms": {

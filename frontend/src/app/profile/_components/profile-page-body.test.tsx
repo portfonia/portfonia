@@ -54,6 +54,14 @@ function renderBody(me: Me | null, hadLoadError = false) {
   );
 }
 
+it("shows the post-payment notice only when purchase completed", () => {
+  const normal = renderBody(BASE_ME);
+  expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  normal.unmount();
+  render(<LocaleProvider><ProfilePageBody me={BASE_ME} hadLoadError={false} purchaseCompleted /></LocaleProvider>);
+  expect(screen.getByRole("status")).toHaveTextContent("Payment received.");
+});
+
 // Section titles render as divs (CardTitle), so order is asserted on
 // `data-slot="card-title"` nodes rather than heading roles.
 function sectionTitles(): string[] {

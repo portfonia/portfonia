@@ -379,6 +379,13 @@
     "accountHeading": "账户",
     "accountEmailLabel": "邮箱",
     "accountCreditsLabel": "Credits",
+    "creditPurchaseHeading": "购买 credits",
+    "creditPurchaseLoading": "正在加载价格…",
+    "creditPurchaseUnavailable": "暂时无法购买。",
+    "creditPackLabel": "{credits} credits",
+    "creditBuyButton": "购买",
+    "creditPurchaseTerms": "购买即表示你同意<terms>服务条款</terms>和<refund>退款政策</refund>。",
+    "creditPurchaseCompleted": "已收到付款。credits 将很快显示在这里，请一分钟后刷新本页。",
     "passwordHeading": "修改密码",
     "changePasswordLink": "修改密码",
     "changePasswordPageTitle": "修改密码",
@@ -1099,7 +1106,8 @@
       "terms": "服务条款",
       "privacy": "隐私政策",
       "pricing": "定价",
-      "refund": "退款政策"
+      "refund": "退款政策",
+      "buyCredits": "购买 credits"
     },
     "resellerNotice": "我们的订单流程由在线经销商 Paddle.com 执行。Paddle.com 是我们所有订单的记录商户（Merchant of Record），负责处理所有客户服务咨询及退货。",
     "terms": {

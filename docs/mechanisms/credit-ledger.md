@@ -8,7 +8,13 @@ Credit balances use two `NUMERIC(12,2)` columns on `users`: `credit_cash_balance
 
 For each live user and bucket, the stored balance equals both the sum of that user's ledger amounts and the highest-id row's `balance_after` (or zero if no rows exist). Balances and `balance_after` cannot be negative. `app/services/credit_ledger.py` is the only writer of balance columns and new ledger rows. Its public write functions lock the `users` row with `SELECT FOR UPDATE`, refresh the loaded user from the database, flush, and leave commit to their caller. Callers must flush any pending edits to that `User` before calling a credit write function, or the lock query will overwrite those in-memory edits. Balance updates and rows therefore commit together. Ledger rows are never deleted or rewritten; purge may only set `user_deleted_at`.
 
-`_REASON_RULES` assigns bucket and sign: `recharge` and `invite_rebate` credit cash; `signup_grant` credits gift; `admin_adjustment` credits or debits gift; `subscription` and `qa` debit gift and/or cash. To add a reason, update `REASONS` in `app/models/credit_ledger.py` and `_REASON_RULES` in `app/services/credit_ledger.py`, then add a migration that rewrites the `reason` CHECK. Migrations must freeze the reason list rather than importing the live Python tuple.
+`_REASON_RULES` assigns bucket and sign: `recharge` and `invite_rebate` credit cash; `signup_grant` credits gift; `admin_adjustment` credits or debits gift; `refund` debits purchased cash credits or reverses a rejected refund; `subscription` and `qa` debit gift and/or cash. To add a reason, update `REASONS` in `app/models/credit_ledger.py` and `_REASON_RULES` in `app/services/credit_ledger.py`, then add a migration that rewrites the `reason` CHECK. Migrations must freeze the reason list rather than importing the live Python tuple.
+
+Paddle purchase rows use `recharge:paddle:{transaction_id}`. Ops refund debits
+use `refund:{transaction_id}:{request_key}` and store the Paddle adjustment id
+as their reference. Rejected-adjustment reversals use
+`refund_reversal:{transaction_id}:{adjustment_id}`. These keys make webhook
+redelivery and Ops retries idempotent.
 
 `consume_credits` spends gift first, then cash. It rejects the whole request if the combined balance is short. This PR implements and tests it without adding a product caller.
 

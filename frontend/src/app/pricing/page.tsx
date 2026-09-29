@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { LegalDocument } from "../_components/legal-document";
+import { BuyCreditsLink } from "./buy-credits-link";
 
 // Static English title: locale is client-only (no URL-based locale routing,
 // per locales/README.md), so a Server Component's metadata can't read it.
@@ -9,5 +10,5 @@ export const metadata: Metadata = {
 };
 
 export default function PricingPage() {
-  return <LegalDocument doc="pricing" />;
+  return <><LegalDocument doc="pricing" /><BuyCreditsLink /></>;
 }

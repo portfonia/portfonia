@@ -159,6 +159,8 @@ _EXTERNAL_NOTIFY_MODULES = (
     "app.services.fx_fetcher",
     # issue #372: weekday capture-health probe.
     "app.services.capture_health",
+    "app.routers.paddle_webhooks",
+    "app.routers.admin",
 )
 
 

@@ -22,7 +22,15 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base
 
 BUCKETS = ("cash", "gift")
-REASONS = ("recharge", "invite_rebate", "signup_grant", "admin_adjustment", "subscription", "qa")
+REASONS = (
+    "recharge",
+    "invite_rebate",
+    "signup_grant",
+    "admin_adjustment",
+    "subscription",
+    "qa",
+    "refund",
+)
 ACTOR_TYPES = ("system", "admin")
 
 

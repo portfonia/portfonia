@@ -779,3 +779,20 @@ export async function getPortfolioPerformance(
   if (!res.ok) await throwOnHttpError(res);
   return res.json() as Promise<PortfolioPerformanceResponse>;
 }
+
+export type CheckoutConfig = {
+  environment: "sandbox" | "production";
+  client_token: string;
+  user_id: string;
+  email: string;
+  packs: { price_id: string; credits: string }[];
+};
+
+export async function getCheckoutConfig(): Promise<CheckoutConfig | null> {
+  try {
+    const response = await fetch("/api/payments/checkout-config", { cache: "no-store" });
+    return response.ok ? (response.json() as Promise<CheckoutConfig>) : null;
+  } catch {
+    return null;
+  }
+}
