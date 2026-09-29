@@ -1101,6 +1101,7 @@
       "pricing": "定價",
       "refund": "退款政策"
     },
+    "resellerNotice": "我們的訂單流程由線上經銷商 Paddle.com 執行。Paddle.com 是我們所有訂單的記錄商戶（Merchant of Record），負責處理所有客戶服務詢問及退貨。",
     "terms": {
       "title": "服務條款",
       "lastUpdated": "最後更新：2026-09-28",
@@ -1132,7 +1133,7 @@
             "付費方案以預付服務點數（credits）計費。Credits 以美元定價的點數包出售（購買時 1 credit = US$1）；現行方案與點數包見定價頁面。",
             "每個月度計費週期開始時，從您的 credits 餘額中扣除方案費用，優先扣除贈送的 credits。變更或取消方案時，當月費用中未使用的部分將按比例退回至您的 credits 餘額。",
             "Credits 不會過期，僅可用於 Portfonia 訂閱，不可轉讓，除退款政策規定外無現金價值。",
-            "我們的訂單流程由線上經銷商 {merchantOfRecord} 執行。{merchantOfRecord} 是我們所有訂單的記錄商戶（Merchant of Record），負責處理所有客戶服務詢問及退貨。您的購買同時受 {merchantOfRecord} 買方條款約束。"
+            "{resellerNotice}您的購買同時受 {merchantOfRecord} 買方條款約束。"
           ]
         },
         {
@@ -1327,7 +1328,7 @@
         {
           "heading": "6. 付款處理",
           "body": [
-            "我們的訂單流程由線上經銷商 {merchantOfRecord} 執行。{merchantOfRecord} 是我們所有訂單的記錄商戶（Merchant of Record），負責處理所有客戶服務詢問及退貨。"
+            "{resellerNotice}"
           ]
         },
         {
@@ -1372,7 +1373,7 @@
         {
           "heading": "5. 付款處理",
           "body": [
-            "我們的訂單流程由線上經銷商 {merchantOfRecord} 執行。{merchantOfRecord} 是我們所有訂單的記錄商戶（Merchant of Record），負責處理所有客戶服務詢問及退貨。"
+            "{resellerNotice}"
           ]
         },
         {

@@ -65,10 +65,19 @@ describe("legal copy for Paddle review", () => {
     expect(JSON.stringify(catalogs[locale])).not.toMatch(/Portfonia LLC|Portfonia AI|\{\{|closed beta|legal review/i);
   });
 
-  it.each(LOCALE_VALUES)("%s names the merchant of record only through the {merchantOfRecord} placeholder", (locale) => {
-    const serialized = JSON.stringify(catalogs[locale].legal);
+  it.each(LOCALE_VALUES)("%s names the merchant of record only via placeholders and the reseller notice", (locale) => {
+    const { resellerNotice, ...documents } = catalogs[locale].legal;
+    const serialized = JSON.stringify(documents);
     expect(serialized).not.toMatch(/Paddle/);
     expect(serialized).toContain("{merchantOfRecord}");
+    expect(serialized).toContain("{resellerNotice}");
+    expect(resellerNotice).toMatch(/Paddle/);
+  });
+
+  it("keeps Paddle's required English reseller notice verbatim", () => {
+    expect(catalogs.en.legal.resellerNotice).toBe(
+      "Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle provides all customer service inquiries and handles returns.",
+    );
   });
 
   it.each(LOCALE_VALUES)("%s Privacy retention does not promise deletion of all associated data", (locale) => {

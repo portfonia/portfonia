@@ -1101,6 +1101,7 @@
       "pricing": "定价",
       "refund": "退款政策"
     },
+    "resellerNotice": "我们的订单流程由在线经销商 Paddle.com 执行。Paddle.com 是我们所有订单的记录商户（Merchant of Record），负责处理所有客户服务咨询及退货。",
     "terms": {
       "title": "服务条款",
       "lastUpdated": "最后更新：2026-09-28",
@@ -1132,7 +1133,7 @@
             "付费套餐以预付服务点数（credits）计费。Credits 以美元定价的点数包出售（购买时 1 credit = US$1）；现行套餐与点数包见定价页面。",
             "每个月度计费周期开始时，从您的 credits 余额中扣除套餐费用，优先扣除赠送的 credits。更换或取消套餐时，当月费用中未使用的部分将按比例返还至您的 credits 余额。",
             "Credits 不会过期，仅可用于 Portfonia 订阅，不可转让，除退款政策规定外无现金价值。",
-            "我们的订单流程由在线经销商 {merchantOfRecord} 执行。{merchantOfRecord} 是我们所有订单的记录商户（Merchant of Record），负责处理所有客户服务咨询及退货。您的购买同时受 {merchantOfRecord} 买方条款约束。"
+            "{resellerNotice}您的购买同时受 {merchantOfRecord} 买方条款约束。"
           ]
         },
         {
@@ -1327,7 +1328,7 @@
         {
           "heading": "6. 支付处理",
           "body": [
-            "我们的订单流程由在线经销商 {merchantOfRecord} 执行。{merchantOfRecord} 是我们所有订单的记录商户（Merchant of Record），负责处理所有客户服务咨询及退货。"
+            "{resellerNotice}"
           ]
         },
         {
@@ -1372,7 +1373,7 @@
         {
           "heading": "5. 支付处理",
           "body": [
-            "我们的订单流程由在线经销商 {merchantOfRecord} 执行。{merchantOfRecord} 是我们所有订单的记录商户（Merchant of Record），负责处理所有客户服务咨询及退货。"
+            "{resellerNotice}"
           ]
         },
         {

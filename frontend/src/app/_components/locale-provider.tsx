@@ -109,13 +109,16 @@ export function useHomeMessages(): Messages["home"] {
   };
 }
 
-// Same rationale as useHomeMessages above: legal documents are
-// static section arrays with no ICU interpolation, so t.raw() per top-level
-// key restores real types instead of next-intl's untyped t.raw() return.
+// Same rationale as useHomeMessages above: t.raw() per top-level key restores
+// real types instead of next-intl's untyped t.raw() return. The legal document
+// trees contain {merchantOfRecord}/{resellerNotice} placeholders that
+// LegalDocument fills itself; they must stay on t.raw() and never go through
+// t(), which would parse them as ICU arguments.
 export function useLegalMessages(): Messages["legal"] {
   const t = useTranslations("legal");
   return {
     nav: t.raw("nav"),
+    resellerNotice: t.raw("resellerNotice"),
     terms: t.raw("terms"),
     privacy: t.raw("privacy"),
     pricing: t.raw("pricing"),

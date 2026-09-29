@@ -21,7 +21,7 @@ describe("LegalDocument", () => {
     );
   });
 
-  it("substitutes the merchant of record name into the rendered copy", () => {
+  it("renders the reseller notice and merchant name without leftover placeholders", () => {
     render(
       <LocaleProvider>
         <LegalDocument doc="refund" />
@@ -29,7 +29,8 @@ describe("LegalDocument", () => {
     );
 
     const main = screen.getByRole("main");
-    expect(main).toHaveTextContent(MERCHANT_OF_RECORD);
-    expect(main).not.toHaveTextContent("{merchantOfRecord}");
+    expect(main).toHaveTextContent(catalogs.en.legal.resellerNotice);
+    expect(main).toHaveTextContent(`${MERCHANT_OF_RECORD}'s Buyer Terms`);
+    expect(main.textContent).not.toMatch(/\{(merchantOfRecord|resellerNotice)\}/);
   });
 });

@@ -1101,6 +1101,7 @@
       "pricing": "Pricing",
       "refund": "Refund Policy"
     },
+    "resellerNotice": "Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle provides all customer service inquiries and handles returns.",
     "terms": {
       "title": "Terms of Service",
       "lastUpdated": "Last updated: 2026-09-28",
@@ -1132,7 +1133,7 @@
             "Paid plans are billed in prepaid service credits. Credits are sold in packs priced in US dollars (1 credit = US$1 at purchase); current plans and packs are listed on the Pricing page.",
             "Your plan fee is deducted from your credit balance at the start of each monthly billing period, complimentary credits first. If you change or cancel your plan, the unused part of the current month's fee is returned to your credit balance pro rata.",
             "Credits do not expire. They are usable only for Portfonia subscriptions, are non-transferable, and have no cash value except as provided in the Refund Policy.",
-            "Our order process is conducted by our online reseller {merchantOfRecord}. {merchantOfRecord} is the Merchant of Record for all our orders. {merchantOfRecord} provides all customer service inquiries and handles returns. Your purchase is also subject to {merchantOfRecord}'s Buyer Terms."
+            "{resellerNotice} Your purchase is also subject to {merchantOfRecord}'s Buyer Terms."
           ]
         },
         {
@@ -1327,7 +1328,7 @@
         {
           "heading": "6. Payment processing",
           "body": [
-            "Our order process is conducted by our online reseller {merchantOfRecord}. {merchantOfRecord} is the Merchant of Record for all our orders. {merchantOfRecord} provides all customer service inquiries and handles returns."
+            "{resellerNotice}"
           ]
         },
         {
@@ -1372,7 +1373,7 @@
         {
           "heading": "5. Payment processing",
           "body": [
-            "Our order process is conducted by our online reseller {merchantOfRecord}. {merchantOfRecord} is the Merchant of Record for all our orders. {merchantOfRecord} provides all customer service inquiries and handles returns."
+            "{resellerNotice}"
           ]
         },
         {
