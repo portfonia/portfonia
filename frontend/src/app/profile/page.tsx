@@ -3,7 +3,7 @@ import { getMeServer } from "@/lib/server-api";
 import { isNextRedirectError } from "@/lib/next-redirect-error";
 import { ProfilePageBody } from "./_components/profile-page-body";
 
-export default async function ProfilePage() {
+export default async function ProfilePage({ searchParams }: { searchParams: Promise<{ purchase?: string }> }) {
   let me: Me | null = null;
   let hadLoadError = false;
   try {
@@ -17,7 +17,7 @@ export default async function ProfilePage() {
 
   return (
     <main className="mx-auto w-full max-w-2xl px-6 py-10">
-      <ProfilePageBody me={me} hadLoadError={hadLoadError} />
+      <ProfilePageBody me={me} hadLoadError={hadLoadError} purchaseCompleted={(await searchParams).purchase === "completed"} />
     </main>
   );
 }

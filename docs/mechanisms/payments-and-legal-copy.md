@@ -1,6 +1,18 @@
 # Payments and legal copy for Paddle review (issue #574)
 
-**Status: copy and public routes shipped in issue #576; purchase flow not implemented.**
+**Status: purchase and refund implemented in issue #578; plan-fee deduction not implemented.**
+
+## Purchase and refund flow (#578)
+
+Profile obtains configured packs and the public client token from the authenticated
+checkout-config endpoint. Paddle.js previews local prices and opens a one-page
+overlay. Only a signed `transaction.completed` webhook grants purchased credits
+to the cash bucket. The return to Profile shows a pending-credit notice, not a
+grant. Ops refunds debit unused purchased cash credits within 120 days, then
+create a proportional Paddle adjustment in the same request; a failed Paddle
+call rolls the debit back. A rejected adjustment restores the debit once.
+External adjustments alert Ops without changing the ledger. Monthly plan-fee
+deduction remains future work.
 This file holds the English source copy and the change map. The zh-Hans and
 zh-Hant translations ship in `frontend/src/locales/`; their reviewed source
 lives in the owner's project notes.

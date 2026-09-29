@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import type { Me } from "@/lib/api";
 import { REPORT_LANGUAGES, type ReportLanguage } from "@/locales";
 import { PendingVerificationsList } from "./pending-verifications-list";
+import { CreditPurchase } from "./credit-purchase";
 import { useReportCurrency } from "./use-report-currency";
 import { useReportLanguage } from "./use-report-language";
 import { useVerificationResend } from "./use-verification-resend";
@@ -19,7 +20,7 @@ import { useVerificationSend } from "./use-verification-send";
 // translated content (the load-error message), so it isn't worth carving
 // that condition back into the Server Component just to keep this file
 // heading-only.
-export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadError: boolean }) {
+export function ProfilePageBody({ me, hadLoadError, purchaseCompleted = false }: { me: Me | null; hadLoadError: boolean; purchaseCompleted?: boolean }) {
   const t = useTranslations("profile");
   // Issue #107 review (blacktomb42, PR #271): the landing-page footer is the
   // only other place these link from, so a signed-in user — the population
@@ -194,6 +195,8 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
         </Card>
       )}
 
+      {purchaseCompleted && <p role="status" className="text-sm">{t("creditPurchaseCompleted")}</p>}
+
       <Card>
         <CardHeader>
           <CardTitle>{t("accountHeading")}</CardTitle>
@@ -207,6 +210,7 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
             <span className="text-sm text-foreground/80">{t("accountCreditsLabel")}</span>
             <span className="text-sm">{me.credit_balance}</span>
           </div>
+          <CreditPurchase />
         </CardContent>
       </Card>
 

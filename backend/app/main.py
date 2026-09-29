@@ -18,6 +18,8 @@ from app.routers import (
     investment_context,
     invitation_letters,
     me,
+    paddle_webhooks,
+    payments,
     portfolio,
     reports,
     unsubscribe,
@@ -70,6 +72,8 @@ app.include_router(
     investment_context.router, prefix="/investment-context", tags=["investment-context"]
 )
 app.include_router(me.router, prefix="/me", tags=["me"])
+app.include_router(payments.router, prefix="/payments", tags=["payments"])
+app.include_router(paddle_webhooks.router, prefix="/webhooks", tags=["webhooks"])
 app.include_router(
     email_verification.router, prefix="/email-verifications", tags=["email-verifications"]
 )

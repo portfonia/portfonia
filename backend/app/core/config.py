@@ -3,9 +3,10 @@
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from cryptography.fernet import Fernet
-from pydantic import AliasChoices, Field, SecretStr, field_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Project root contains .env.local (one level above backend/)
@@ -48,6 +49,41 @@ class Settings(BaseSettings):
     # App
     APP_ENV: str = "development"
     SIGNUP_GRANT_CREDITS: Decimal = Decimal("5.00")
+    PADDLE_ENVIRONMENT: Literal["sandbox", "production"] | None = None
+    PADDLE_API_KEY: SecretStr | None = None
+    PADDLE_CLIENT_SIDE_TOKEN: str | None = None
+    PADDLE_WEBHOOK_SECRET: SecretStr | None = None
+    PADDLE_CREDIT_PACKS: dict[str, Decimal] = Field(default_factory=dict)
+
+    @field_validator("PADDLE_CREDIT_PACKS")
+    @classmethod
+    def _validate_paddle_packs(cls, packs: dict[str, Decimal]) -> dict[str, Decimal]:
+        for price_id, credits in packs.items():
+            exponent = credits.as_tuple().exponent
+            if (
+                not price_id.startswith("pri_")
+                or not credits.is_finite()
+                or credits <= 0
+                or not isinstance(exponent, int)
+                or exponent < -2
+            ):
+                raise ValueError("PADDLE_CREDIT_PACKS has an invalid price or credit amount")
+        return packs
+
+    @model_validator(mode="after")
+    def _validate_paddle_environment(self) -> "Settings":
+        if self.PADDLE_ENVIRONMENT:
+            api_prefix = "pdl_live_" if self.PADDLE_ENVIRONMENT == "production" else "pdl_sdbx_"
+            token_prefix = "live_" if self.PADDLE_ENVIRONMENT == "production" else "test_"
+            if self.PADDLE_API_KEY and not self.PADDLE_API_KEY.get_secret_value().startswith(
+                api_prefix
+            ):
+                raise ValueError("PADDLE_API_KEY does not match PADDLE_ENVIRONMENT")
+            if self.PADDLE_CLIENT_SIDE_TOKEN and not self.PADDLE_CLIENT_SIDE_TOKEN.startswith(
+                token_prefix
+            ):
+                raise ValueError("PADDLE_CLIENT_SIDE_TOKEN does not match PADDLE_ENVIRONMENT")
+        return self
 
     @field_validator("SIGNUP_GRANT_CREDITS")
     @classmethod
