@@ -11,6 +11,7 @@ import {
   exportHoldings,
   exportPortfolio,
   getPortfolioPerformance,
+  getPurchaseStatus,
   listHoldings,
 } from "./api";
 
@@ -122,6 +123,22 @@ describe("exportPortfolio", () => {
     global.fetch = vi.fn().mockResolvedValue(new Response("", { status: 500 }));
 
     await expect(exportPortfolio("md", "USD")).rejects.toThrow(ApiError);
+  });
+});
+
+describe("getPurchaseStatus", () => {
+  afterEach(() => {
+    global.fetch = originalFetch;
+    vi.resetAllMocks();
+  });
+
+  it("returns null when the status body cannot be read", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.reject(new Error("invalid json")),
+    });
+
+    await expect(getPurchaseStatus("txn_A")).resolves.toBeNull();
   });
 });
 
