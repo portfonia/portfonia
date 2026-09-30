@@ -175,8 +175,10 @@ continues from old expiry using the existing anchor. If
 `next_expiry(old_expiry, anchor) < today`, a whole period was missed:
 no missed periods are charged, and one fresh period starts today with
 today's anchor and charge key, exactly as Expired resume does. Ledger calls
-precede column edits. Each successful check leaves the user non-overdue,
-so a same-day task retry cannot charge again.
+precede column edits. A same-day task retry cannot charge again: a renewed
+or resumed user is no longer overdue, and a user moved to Expired keeps the
+old expiry date but is now handled by the Expired rules, which charge only
+when the balance covers the fee.
 
 Example: expiry 2026-11-17, checked 2026-11-21 -> Weekly charge 0.99,
 period 2026-11-17..2026-12-17. Expiry 2026-08-17, checked 2026-11-21 ->

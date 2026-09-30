@@ -471,8 +471,15 @@ def test_notice_copy_and_locale_fallback(locale: str, kind: str) -> None:
             == "provider-id"
         )
         payload = post.call_args.kwargs["json"]
-        copy = email._SUBSCRIPTION_NOTICE_COPY[locale if locale != "fr" else "en"]
-        assert payload["subject"] == copy[f"{kind}_subject"]
+        english_subject = {
+            "low_balance": "Portfonia - your credit balance will not cover the next renewal",
+            "expired": "Portfonia - your subscription has ended",
+        }[kind]
+        if locale in ("en", "fr"):
+            assert payload["subject"] == english_subject
+        else:
+            copy = email._SUBSCRIPTION_NOTICE_COPY[locale]
+            assert payload["subject"] == copy[f"{kind}_subject"] != english_subject
         assert payload["to"] == ["verified@example.com"]
         assert (
             "2026-11-17" in payload["text"]
