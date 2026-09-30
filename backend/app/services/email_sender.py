@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from html import escape
 from typing import Literal
 from uuid import UUID
@@ -1016,3 +1017,74 @@ def send_portfolio_overview_email(session: Session, user_id: UUID, base_currency
 
     logger.info("portfolio overview: sent to user_id=%s", user_id)
     return True
+
+
+_SUBSCRIPTION_NOTICE_COPY: dict[str, dict[str, str]] = {
+    "en": {
+        "weekly": "Weekly",
+        "mwf": "Mon/Wed/Fri",
+        "low_balance_subject": "Portfonia - your credit balance will not cover the next renewal",
+        "low_balance_body": "Your {plan} subscription is paid through {expires_on}. The next fee is {fee} credits and your balance is {balance} credits. Top up on your Profile page to keep your briefings coming: {profile_url}",
+        "expired_subject": "Portfonia - your subscription has ended",
+        "expired_body": "Your {plan} subscription ended on {expires_on}. It could not be renewed because your balance of {balance} credits does not cover the fee of {fee} credits. Scheduled briefings have stopped. Top up on your Profile page and the subscription resumes on your next report day: {profile_url}",
+    },
+    "zh": {
+        "weekly": "每周",
+        "mwf": "周一/周三/周五",
+        "low_balance_subject": "Portfonia - 您的积分余额不足以支付下次续费",
+        "low_balance_body": "您的{plan}订阅已付费至 {expires_on}。下次费用为 {fee} 积分，您的余额为 {balance} 积分。请在个人资料页面充值，以继续接收简报：{profile_url}",  # noqa: RUF001
+        "expired_subject": "Portfonia - 您的订阅已到期",
+        "expired_body": "您的{plan}订阅已于 {expires_on} 到期。由于您的 {balance} 积分余额不足以支付 {fee} 积分费用，订阅未能续费。定时简报已停止。请在个人资料页面充值，订阅将在您的下一个报告日恢复：{profile_url}",  # noqa: RUF001
+    },
+    "zh-Hant": {
+        "weekly": "每週",
+        "mwf": "週一/週三/週五",
+        "low_balance_subject": "Portfonia - 您的點數餘額不足以支付下次續費",
+        "low_balance_body": "您的{plan}訂閱已付費至 {expires_on}。下次費用為 {fee} 點數，您的餘額為 {balance} 點數。請在個人資料頁面儲值，以繼續接收簡報：{profile_url}",  # noqa: RUF001
+        "expired_subject": "Portfonia - 您的訂閱已到期",
+        "expired_body": "您的{plan}訂閱已於 {expires_on} 到期。由於您的 {balance} 點數餘額不足以支付 {fee} 點數費用，訂閱未能續費。定時簡報已停止。請在個人資料頁面儲值，訂閱將在您的下一個報告日恢復：{profile_url}",  # noqa: RUF001
+    },
+}
+
+
+def send_subscription_notice(
+    email: str,
+    kind: str,
+    *,
+    locale: str,
+    plan: str,
+    expires_on: date,
+    fee: Decimal,
+    balance: Decimal,
+) -> str | None:
+    """Send a transactional subscription notice; provider failure never raises."""
+    try:
+        settings = get_settings()
+        copy = _SUBSCRIPTION_NOTICE_COPY.get(locale, _SUBSCRIPTION_NOTICE_COPY["en"])
+        payload: dict[str, object] = {
+            "from": settings.EMAIL_FROM,
+            "to": [email],
+            "subject": copy[f"{kind}_subject"],
+            "text": copy[f"{kind}_body"].format(
+                plan=copy[plan],
+                expires_on=expires_on.isoformat(),
+                fee=f"{fee:.2f}",
+                balance=f"{balance:.2f}",
+                profile_url=f"{settings.FRONTEND_URL}/profile",
+            ),
+        }
+        headers = {
+            "Authorization": f"Bearer {settings.RESEND_API_KEY.get_secret_value()}",
+            "Content-Type": "application/json",
+        }
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.post(_RESEND_SEND_URL, headers=headers, json=payload)
+            resp.raise_for_status()
+        message_id = resp.json().get("id")
+        if not isinstance(message_id, str):
+            logger.error("Subscription notice to %s returned no usable provider id", email)
+            return None
+        return message_id
+    except Exception:
+        logger.exception("Subscription notice delivery failed for %s", email)
+        return None

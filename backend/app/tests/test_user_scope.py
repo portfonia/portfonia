@@ -10,8 +10,10 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
+from app.core.timezones import today_et
 from app.models.holding import Holding
 from app.models.user import User
+from app.services.subscription import next_expiry
 from app.services.user_scope import (
     active_user_ids,
     active_users,
@@ -49,6 +51,11 @@ def _user(
         locale=locale,
         base_currency=base_currency,
         report_cadence=cadence,
+        subscription_status="active",
+        subscription_type=cadence,
+        subscription_period_start=today_et(),
+        subscription_anchor_day=today_et().day,
+        subscription_expires_on=next_expiry(today_et(), today_et().day),
         email_verified_at=email_verified_at,
     )
 

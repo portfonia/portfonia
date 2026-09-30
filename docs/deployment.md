@@ -295,3 +295,28 @@ smaller procedure from the code-deploy flow above** — established
    won't show you; print the provider's raw HTTP response instead).
 
 
+
+
+## Subscription launch activation (issue #596)
+
+Deploy #595, #596, #597 and #599 together. After deploying, ensure the
+Celery worker and Beat containers run the new code. Before the next scheduled
+batch (Mon/Wed/Fri 17:00 ET; Weekly Saturday 19:00 ET), run inside the deployed
+backend environment:
+
+```sh
+python -m app.scripts.activate_existing_subscriptions
+python -m app.scripts.activate_existing_subscriptions --apply
+```
+
+The first command is a dry run; inspect each email, outcome, plan and amount
+before applying. `--apply` commits one user at a time, charges only eligible
+inactive accounts and sends no launch notification. A second apply does not
+charge again. Investigate any insufficient outcome before the scheduled batch.
+Until activation completes, legacy inactive subscriptions receive no scheduled
+reports under the new dispatch gate.
+
+Both production dry run and `--apply` require the product owner's explicit
+current authorization as separate data operations. PR creation, merge and
+deployment approval do not authorize these commands. Never run them against
+a non-test database during implementation or tests.

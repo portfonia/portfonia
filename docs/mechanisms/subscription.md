@@ -1,9 +1,8 @@
-# Subscription core (issues #595 and #600)
+# Subscription core and lifecycle (issues #595, #596 and #600)
 
-This backend core implements user subscription operations. Scheduled renewal,
-expiry, auto-resume, notification emails and existing-user activation belong
-to #596; frontend and public copy belong to #597; cash purge/adjustments belong
-to #599. These issues are deployed together. No production operation is part
+This backend implements user subscription operations and the scheduled
+lifecycle. Frontend and public copy belong to #597; cash purge/adjustments
+belong to #599. These issues are deployed together. No production operation is part
 of this implementation.
 
 ## State and ownership
@@ -25,9 +24,8 @@ only balance and ledger writer. The migration `s59500000001` adds:
 New signups are inactive with cadence `none`. Migration preserves every
 existing cadence and gives existing rows inactive subscription defaults.
 The post-activation invariant is cadence equals type when present, otherwise
-`none`; type is null for inactive/cancelled states. Activation is deferred to
-#596, so that invariant does not yet hold for legacy rows. Scheduled fan-out
-queries are unchanged here.
+`none`; type is null for inactive/cancelled states. Legacy rows acquire this invariant when the owner runs launch activation.
+Scheduled fan-out requires active subscription status.
 
 ## Billing and transactions
 
@@ -89,8 +87,7 @@ and immediately stops delivery to that address. If no verified address
 remains, `cancel_for_no_verified_email` marks an active subscription pending
 cancellation. This system action ignores and does not consume the daily
 adjustment lock. Another verified address prevents cancellation. Re-verifying
-an email does not automatically resume a cancelled subscription. Transition
-to cancelled after expiry is deferred to #596.
+an email does not automatically resume a cancelled subscription. The scheduled check transitions to cancelled after expiry.
 
 ## API and integrations
 
@@ -144,3 +141,68 @@ reason CHECKs; rows using `none` or `subscription_return` require explicit
 data handling before a rollback. Merge, deployment and production data work
 require separate owner authorization. The Ops reference note is not updated
 without authorization for that note.
+
+
+## Scheduled lifecycle (issue #596)
+
+`active_users` and `active_user_ids` require `subscription_status == active`,
+in addition to the existing account, cadence, email and holdings gates.
+Cancel-pending active subscriptions still receive reports. On-demand and Ops
+report generation are unaffected.
+
+`generate_incremental_report` calls `run_cadence_checks(session, cadence,
+today_et())` after the recipient loop, before the all-failed retry decision,
+and also when there are no recipients. Stale-trigger skips do not check.
+Check-phase failures are logged and ops-alerted without changing report
+results or retry decisions.
+
+Checks read sorted ids of active accounts on that cadence with active or
+expired subscriptions, regardless of holdings or verified email. Each user
+is refreshed under `FOR UPDATE`, ignoring the daily user-adjustment lock,
+and committed separately; failures roll back that user and continue.
+
+| State / condition | Result |
+|---|---|
+| Active, today at or before expiry | Unchanged |
+| Active, overdue, cancel pending or no verified email | Cancelled, null type, cadence none, clear cancel flag; retain expiry |
+| Active, overdue, sufficient balance | Charge one period and renew |
+| Active, overdue, insufficient balance | Expired; retain type, cadence, period, expiry and anchor; send expiry notice after commit |
+| Expired, verified email and sufficient balance | Charge one period, resume active from today |
+| Expired, otherwise | Unchanged |
+
+Normal renewal charges with `subscription:{id}:{old_expiry}:{plan}` and
+continues from old expiry using the existing anchor. If
+`next_expiry(old_expiry, anchor) < today`, a whole period was missed:
+no missed periods are charged, and one fresh period starts today with
+today's anchor and charge key, exactly as Expired resume does. Ledger calls
+precede column edits. Each successful check leaves the user non-overdue,
+so a same-day task retry cannot charge again.
+
+Example: expiry 2026-11-17, checked 2026-11-21 -> Weekly charge 0.99,
+period 2026-11-17..2026-12-17. Expiry 2026-08-17, checked 2026-11-21 ->
+one 0.99 charge keyed 2026-11-21, period 2026-11-21..2026-12-21, anchor 21.
+Expired with balance 0.40 stays expired; after a 5.00 grant, a check on
+2026-12-05 charges 0.99, leaves 4.41, and resumes through 2027-01-05.
+The resume-day report was already skipped; delivery begins next report day.
+
+`maybe_send_low_balance_reminder` runs after the commit of a successful
+`POST /me/subscription`, scheduled renewal/resume, or non-replayed Paddle
+purchase. It sends only for active, non-cancel-pending subscriptions whose
+total balance is below the plan fee and whose verified recipient resolves.
+There is no notification state table: each charge and each short top-up can
+send another reminder. Expiry notice sends only on transition to expired.
+Both notices use the user's locale (`en`, `zh`, `zh-Hant`, otherwise English)
+and the verified delivery address first, then verified account address.
+Provider errors log and return None without rolling back subscription state.
+Tests mock notification sends automatically; provider tests mock HTTP.
+
+Launch activation uses `activate_existing` and the shared fresh-subscribe
+helper, without setting `subscription_adjusted_on` or sending notices.
+Already-processed subscriptions are skipped. Inactive active accounts with
+verified email and weekly/mwf cadence are charged from launch day. Other
+inactive accounts keep inactive status and get cadence none. Unexpected
+insufficient balance is reported as insufficient and also sets cadence none.
+The script defaults to a read-only dry run and commits one user at a time
+under `--apply`; re-running cannot charge again. See
+[Deployment](../deployment.md#subscription-launch-activation-issue-596)
+for sequencing and authorization.
