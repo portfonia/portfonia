@@ -576,8 +576,9 @@ def send_report_email(report: Report, session: Session) -> bool:
 
 
 # Locale-keyed footer for the report-email unsubscribe link (issue #257).
-# Same bare `en`/`zh` keys as `_VERIFICATION_EMAIL_COPY` below — OUTPUT_LANG,
-# not the frontend BCP-47 tags. The HTML variant is markdown so `_render_html`
+# Keyed by stored report language (`en`/`zh`/`zh-Hant`, issue #583), the same
+# bare-code convention as `_VERIFICATION_EMAIL_COPY` below — OUTPUT_LANG, not
+# the frontend BCP-47 tags. The HTML variant is markdown so `_render_html`
 # turns it into a real <a href> in the footer; the text variant is the same
 # URL as a plain line. Disclaimer/glossary copy already lives in
 # `report.report_md` (assembled by report_sections._build_footer) and is

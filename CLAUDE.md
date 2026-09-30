@@ -219,8 +219,10 @@ area of the code, not just the one-line summary here.
   and `zh-Hant` (Traditional), since issue #582. Both Chinese codes select
   the existing `zh-Hans` glossary source; `app/services/zh_hant.py` supplies
   Taiwan conversion using OpenCC `s2twp` and `config/zh_hant_terms.yml`.
-  This foundation opens the language whitelist; actual report, email and
-  export conversion is scoped to #583/#584/#585. Driven per-user by
+  Report rendering landed in #583: both compliance scans run on the
+  Simplified text, then the assembled report (plus the report email's
+  subject and unsubscribe footer) is converted to Traditional. Other
+  emails, invitations and exports remain #584/#585. Driven per-user by
   `users.locale` since issue #308; `Settings.OUTPUT_LANG` remains the fallback
   default. A UI locale is not a report language.
 - Translation resources live under a dedicated locales directory
