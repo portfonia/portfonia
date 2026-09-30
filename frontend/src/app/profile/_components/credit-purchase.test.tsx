@@ -2,7 +2,10 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 
-type PaddleEvent = { name?: string; data?: { transaction_id?: string } };
+type PaddleEvent = {
+  name?: string;
+  data?: { transaction_id?: string; items?: { price_id: string }[] };
+};
 
 const {
   getCheckoutConfig,
@@ -251,4 +254,175 @@ it("shows unavailable when config is missing or preview fails", async () => {
   pricePreview.mockRejectedValueOnce(new Error("preview failed"));
   render(<LocaleProvider><CreditPurchase /></LocaleProvider>);
   await waitFor(() => expect(screen.getByText("Purchasing is temporarily unavailable.")).toBeInTheDocument());
+});
+
+it("reopens the same unfinished transaction when Buy is clicked again for the same pack", async () => {
+  await renderReady();
+  fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
+  act(() => { onEvent?.({ name: "checkout.loaded", data: { transaction_id: "txn_a", items: [{ price_id: "pri_test" }] } }); });
+  act(() => { onEvent?.({ name: "checkout.closed" }); });
+  fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
+  expect(checkoutOpen).toHaveBeenCalledTimes(2);
+  expect(checkoutOpen).toHaveBeenNthCalledWith(1, {
+    items: [{ priceId: "pri_test", quantity: 1 }],
+    customer: { email: "buyer@example.com" },
+    customData: { user_id: "user-1" },
+    settings: { displayMode: "overlay", variant: "one-page" },
+  });
+  expect(checkoutOpen).toHaveBeenNthCalledWith(2, {
+    transactionId: "txn_a",
+    settings: { displayMode: "overlay", variant: "one-page" },
+  });
+});
+
+it("does not reuse a transaction when Buy is clicked for a different pack", async () => {
+  await renderReady();
+  fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
+  act(() => { onEvent?.({ name: "checkout.loaded", data: { transaction_id: "txn_a", items: [{ price_id: "pri_test" }] } }); });
+  act(() => { onEvent?.({ name: "checkout.closed" }); });
+  fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[1]);
+  expect(checkoutOpen).toHaveBeenCalledTimes(2);
+  expect(checkoutOpen).toHaveBeenNthCalledWith(1, {
+    items: [{ priceId: "pri_test", quantity: 1 }],
+    customer: { email: "buyer@example.com" },
+    customData: { user_id: "user-1" },
+    settings: { displayMode: "overlay", variant: "one-page" },
+  });
+  expect(checkoutOpen).toHaveBeenNthCalledWith(2, {
+    items: [{ priceId: "pri_20", quantity: 1 }],
+    customer: { email: "buyer@example.com" },
+    customData: { user_id: "user-1" },
+    settings: { displayMode: "overlay", variant: "one-page" },
+  });
+});
+
+it("starts a new transaction after checkout.completed, even for the same pack", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    getPurchaseStatus.mockResolvedValue({ transaction_id: "txn_a", credited: false, credits: null });
+    await renderReady();
+    fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
+    act(() => { onEvent?.({ name: "checkout.loaded", data: { transaction_id: "txn_a", items: [{ price_id: "pri_test" }] } }); });
+    act(() => { onEvent?.({ name: "checkout.completed", data: { transaction_id: "txn_a" } }); });
+    await act(async () => { await Promise.resolve(); });
+    fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
+    expect(checkoutOpen).toHaveBeenCalledTimes(2);
+    expect(checkoutOpen).toHaveBeenNthCalledWith(1, {
+      items: [{ priceId: "pri_test", quantity: 1 }],
+      customer: { email: "buyer@example.com" },
+      customData: { user_id: "user-1" },
+      settings: { displayMode: "overlay", variant: "one-page" },
+    });
+    expect(checkoutOpen).toHaveBeenNthCalledWith(2, {
+      items: [{ priceId: "pri_test", quantity: 1 }],
+      customer: { email: "buyer@example.com" },
+      customData: { user_id: "user-1" },
+      settings: { displayMode: "overlay", variant: "one-page" },
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("falls back to a new transaction after checkout.error on a reopen", async () => {
+  await renderReady();
+  fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
+  act(() => { onEvent?.({ name: "checkout.loaded", data: { transaction_id: "txn_a", items: [{ price_id: "pri_test" }] } }); });
+  act(() => { onEvent?.({ name: "checkout.closed" }); });
+  fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
+  act(() => { onEvent?.({ name: "checkout.error" }); });
+  fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
+  expect(checkoutOpen).toHaveBeenCalledTimes(3);
+  expect(checkoutOpen).toHaveBeenNthCalledWith(1, {
+    items: [{ priceId: "pri_test", quantity: 1 }],
+    customer: { email: "buyer@example.com" },
+    customData: { user_id: "user-1" },
+    settings: { displayMode: "overlay", variant: "one-page" },
+  });
+  expect(checkoutOpen).toHaveBeenNthCalledWith(2, {
+    transactionId: "txn_a",
+    settings: { displayMode: "overlay", variant: "one-page" },
+  });
+  expect(checkoutOpen).toHaveBeenNthCalledWith(3, {
+    items: [{ priceId: "pri_test", quantity: 1 }],
+    customer: { email: "buyer@example.com" },
+    customData: { user_id: "user-1" },
+    settings: { displayMode: "overlay", variant: "one-page" },
+  });
+});
+
+it("falls back to a new transaction after the reopen's 15s open timeout", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    await renderReady();
+    fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
+    act(() => { onEvent?.({ name: "checkout.loaded", data: { transaction_id: "txn_a", items: [{ price_id: "pri_test" }] } }); });
+    act(() => { onEvent?.({ name: "checkout.closed" }); });
+    fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
+    expect(checkoutOpen).toHaveBeenCalledTimes(3);
+    expect(checkoutOpen).toHaveBeenNthCalledWith(1, {
+      items: [{ priceId: "pri_test", quantity: 1 }],
+      customer: { email: "buyer@example.com" },
+      customData: { user_id: "user-1" },
+      settings: { displayMode: "overlay", variant: "one-page" },
+    });
+    expect(checkoutOpen).toHaveBeenNthCalledWith(2, {
+      transactionId: "txn_a",
+      settings: { displayMode: "overlay", variant: "one-page" },
+    });
+    expect(checkoutOpen).toHaveBeenNthCalledWith(3, {
+      items: [{ priceId: "pri_test", quantity: 1 }],
+      customer: { email: "buyer@example.com" },
+      customData: { user_id: "user-1" },
+      settings: { displayMode: "overlay", variant: "one-page" },
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("does not remember a transaction when checkout.loaded carries no transaction_id", async () => {
+  await renderReady();
+  fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
+  act(() => { onEvent?.({ name: "checkout.loaded" }); });
+  act(() => { onEvent?.({ name: "checkout.closed" }); });
+  fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
+  expect(checkoutOpen).toHaveBeenCalledTimes(2);
+  expect(checkoutOpen).toHaveBeenNthCalledWith(1, {
+    items: [{ priceId: "pri_test", quantity: 1 }],
+    customer: { email: "buyer@example.com" },
+    customData: { user_id: "user-1" },
+    settings: { displayMode: "overlay", variant: "one-page" },
+  });
+  expect(checkoutOpen).toHaveBeenNthCalledWith(2, {
+    items: [{ priceId: "pri_test", quantity: 1 }],
+    customer: { email: "buyer@example.com" },
+    customData: { user_id: "user-1" },
+    settings: { displayMode: "overlay", variant: "one-page" },
+  });
+});
+
+it("pairs a late checkout.loaded with its own pack, not the pack clicked last", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    await renderReady();
+    fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[1]);
+    act(() => { onEvent?.({ name: "checkout.loaded", data: { transaction_id: "txn_b", items: [{ price_id: "pri_20" }] } }); });
+    act(() => { onEvent?.({ name: "checkout.loaded", data: { transaction_id: "txn_a", items: [{ price_id: "pri_test" }] } }); });
+    act(() => { onEvent?.({ name: "checkout.closed" }); });
+    fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[1]);
+    expect(checkoutOpen).toHaveBeenCalledTimes(3);
+    expect(checkoutOpen).toHaveBeenNthCalledWith(3, {
+      items: [{ priceId: "pri_20", quantity: 1 }],
+      customer: { email: "buyer@example.com" },
+      customData: { user_id: "user-1" },
+      settings: { displayMode: "overlay", variant: "one-page" },
+    });
+  } finally {
+    vi.useRealTimers();
+  }
 });
