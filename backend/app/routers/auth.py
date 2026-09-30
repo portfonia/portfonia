@@ -76,7 +76,7 @@ class SignupRequest(BaseModel):
     # value should not normally happen. Keep in sync with
     # app.models.user.VALID_REPORT_LANGUAGES by hand (Pydantic Literal
     # members must be compile-time).
-    locale: Literal["en", "zh"] | None = None
+    locale: Literal["en", "zh", "zh-Hant"] | None = None
 
 
 class SignupResponse(BaseModel):

@@ -97,7 +97,7 @@ def test_signup_persists_weekly_cadence_and_tos_accepted_at(
     assert row.tos_accepted_at is not None
 
 
-@pytest.mark.parametrize("locale", ["en", "zh"])
+@pytest.mark.parametrize("locale", ["en", "zh", "zh-Hant"])
 def test_signup_stores_locale_from_request_when_present(
     app_client: TestClient,
     db_session: Session,
@@ -114,7 +114,7 @@ def test_signup_stores_locale_from_request_when_present(
         "/auth/signup",
         json={
             "invite_token": issued.token,
-            "email": f"locale-{locale}@example.com",
+            "email": f"locale-{locale.lower()}@example.com",
             "password": "a-long-enough-password",
             "tos_accepted": True,
             "locale": locale,
@@ -123,7 +123,7 @@ def test_signup_stores_locale_from_request_when_present(
     assert resp.status_code == 201
 
     row = db_session.execute(
-        select(User).where(User.email == f"locale-{locale}@example.com")
+        select(User).where(User.email == f"locale-{locale.lower()}@example.com")
     ).scalar_one()
     assert row.locale == locale
 

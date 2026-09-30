@@ -301,14 +301,14 @@ class CreateInviteBody(BaseModel):
 
 class InvitationLetterBody(BaseModel):
     email: str
-    language: Literal["en", "zh"] | None = None
+    language: Literal["en", "zh", "zh-Hant"] | None = None
     expires_days: int = Field(default=14, ge=1, le=90)
 
 
 class InvitationLetterOut(BaseModel):
     invite_id: UUID
     email: str
-    language: Literal["en", "zh"]
+    language: Literal["en", "zh", "zh-Hant"]
     waitlist_entry_id: UUID | None
     expires_at: datetime
     invite_url: str
@@ -342,7 +342,7 @@ def send_invitation_letter_endpoint(
         select(WaitlistEntry).where(WaitlistEntry.email == email_n).with_for_update()
     )
     now = datetime.now(tz=ET)
-    language: Literal["en", "zh"] = body.language or "en"
+    language: Literal["en", "zh", "zh-Hant"] = body.language or "en"
     ui_locale = "zh-Hans" if language == "zh" else "en"
     if entry is not None:
         state = waitlist_view(session, entry)
@@ -1495,7 +1495,7 @@ class UpdateReportLanguageByEmailBody(BaseModel):
     # drifting whitelist for the ops path"). Keep in sync with
     # app.models.user.VALID_REPORT_LANGUAGES by hand; Pydantic Literal
     # members must be compile-time, not derived from that tuple.
-    report_language: Literal["en", "zh"]
+    report_language: Literal["en", "zh", "zh-Hant"]
 
 
 class UpdateReportLanguageByEmailOut(BaseModel):
