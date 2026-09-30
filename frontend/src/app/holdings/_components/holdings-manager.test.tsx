@@ -33,6 +33,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 // mocked here (same pattern as get-started-menu.test.tsx).
 vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
 
+import { catalogs } from "@/locales";
 import { LocaleProvider } from "@/app/_components/locale-provider";
 import type { HoldingOut, UploadPreview } from "@/lib/api";
 import { HoldingsManager } from "./holdings-manager";
@@ -338,8 +339,11 @@ describe("HoldingsManager", () => {
       await waitFor(() => expect(exportHoldings).toHaveBeenCalledWith("en"));
     });
 
-    it("maps the zh-Hans UI locale to the bare 'zh' backend code", async () => {
-      withLocaleStorage("zh-Hans");
+    it.each([
+      ["zh-Hans", "zh"],
+      ["zh-Hant", "zh-Hant"],
+    ] as const)("passes UI locale %s to both download buttons as %s (#585)", async (locale, expected) => {
+      withLocaleStorage(locale);
       const user = userEvent.setup();
       renderManager(undefined, [
         {
@@ -363,8 +367,10 @@ describe("HoldingsManager", () => {
           updated_at: "2026-01-01T00:00:00Z",
         },
       ]);
-      await user.click(screen.getByRole("button", { name: /下载模板/i }));
-      await waitFor(() => expect(downloadHoldingsTemplate).toHaveBeenCalledWith("zh"));
+      await user.click(screen.getByRole("button", { name: catalogs[locale].holdings.downloadTemplate }));
+      await waitFor(() => expect(downloadHoldingsTemplate).toHaveBeenCalledWith(expected));
+      await user.click(screen.getByRole("button", { name: catalogs[locale].holdings.exportButton }));
+      await waitFor(() => expect(exportHoldings).toHaveBeenCalledWith(expected));
     });
   });
 });

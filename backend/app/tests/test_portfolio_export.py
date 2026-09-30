@@ -170,7 +170,7 @@ def test_md_locale_switches_headers() -> None:
 
 
 def test_md_unrecognized_locale_falls_back_to_english() -> None:
-    body = render_portfolio_export_md(_snapshot(), "zh-Hant")
+    body = render_portfolio_export_md(_snapshot(), "fr")
     assert "Ticker" in body
 
 

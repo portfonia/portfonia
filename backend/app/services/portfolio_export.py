@@ -89,12 +89,39 @@ _HEADERS_ZH: dict[str, str] = {
     "capture_supported": "是否可实时取价",
 }
 
+_HEADERS_ZH_HANT: dict[str, str] = {
+    "ticker": "代號",
+    "fund_code": "基金代號",
+    "name": "名稱",
+    "market": "市場",
+    "broker": "託管機構",
+    "account": "帳戶",
+    "portfolio": "分組",
+    "asset_class": "資產類別",
+    "currency": "幣別",
+    "shares": "單位數",
+    "avg_cost": "平均成本",
+    "market_value": "市值（原幣別）",
+    "market_value_base": "市值（本位幣）",
+    "cost_basis_base": "成本（本位幣）",
+    "unrealized_pnl_base": "未實現損益（本位幣）",
+    "unrealized_pnl_pct": "未實現損益率",
+    "pricing_mode": "定價方式",
+    "capture_supported": "是否可取得即時報價",
+}
+
 # Locale-keyed dispatch (issue #319 pattern, same shape as
 # holdings_export.py's _RULES_BY_LOCALE) — a locale not present here
-# (including a future zh-Hant) falls back to "en".
-_HEADERS_BY_LOCALE: dict[str, dict[str, str]] = {"en": _HEADERS_EN, "zh": _HEADERS_ZH}
+# falls back to "en".
+_HEADERS_BY_LOCALE: dict[str, dict[str, str]] = {
+    "en": _HEADERS_EN,
+    "zh": _HEADERS_ZH,
+    "zh-Hant": _HEADERS_ZH_HANT,
+}
 _AS_OF_LABEL_BY_LOCALE: dict[str, str] = {"en": "As of", "zh": "截至"}
 _BASE_CURRENCY_LABEL_BY_LOCALE: dict[str, str] = {"en": "Base currency", "zh": "本位币"}
+_AS_OF_LABEL_BY_LOCALE["zh-Hant"] = "截至"
+_BASE_CURRENCY_LABEL_BY_LOCALE["zh-Hant"] = "本位幣"
 
 
 def _headers(locale: str) -> dict[str, str]:

@@ -8,12 +8,12 @@ import { exportPortfolio, type PortfolioExportFormat } from "@/lib/api";
 import { downloadFile } from "@/lib/template";
 import { Button } from "@/components/ui/button";
 
-// issue #331: user-triggered snapshot download, not a delivery mechanism
-// (distinct from SendOverviewButton). `locale` maps the same way exportLocaleParam
-// does in holdings-manager.tsx: zh-Hans -> "zh", everything else passes through
-// literally and falls back to English server-side.
+// UI locales map to export codes: zh-Hans -> "zh", zh-Hant -> "zh-Hant".
+// Other values pass through; unrecognized codes fall back to English server-side.
 function exportLocaleParam(locale: string): string {
-  return locale === "zh-Hans" ? "zh" : locale;
+  if (locale === "zh-Hans") return "zh";
+  if (locale === "zh-Hant") return "zh-Hant";
+  return locale;
 }
 
 export function ExportPortfolioButtons({

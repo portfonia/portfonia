@@ -131,7 +131,7 @@ def _export_locale(session: Session, user_id: UUID) -> str:
     from app.models.user import User
 
     user = session.get(User, user_id)
-    if user is None or user.locale not in ("en", "zh"):
+    if user is None or user.locale not in ("en", "zh", "zh-Hant"):
         return "en"
     return user.locale
 

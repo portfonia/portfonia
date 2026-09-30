@@ -40,13 +40,12 @@ import {
 import { HoldingsTable } from "./holdings-table";
 import { BrokerSummary, IssueList, PreviewTable, rowNeedsAmber } from "./preview";
 
-// Maps the frontend's own UI-locale union to the bare code the backend's
-// export/template `locale` query param understands (issue #319 item 9):
-// zh-Hans -> "zh"; en and zh-Hant (still gated out of the switcher, issue
-// #209) both pass through literally and fall back to English server-side
-// (holdings_export.render_rules only recognizes "en"/"zh").
+// UI locales map to export codes: zh-Hans -> "zh", zh-Hant -> "zh-Hant".
+// Other values pass through; unrecognized codes fall back to English server-side.
 function exportLocaleParam(locale: string): string {
-  return locale === "zh-Hans" ? "zh" : locale;
+  if (locale === "zh-Hans") return "zh";
+  if (locale === "zh-Hant") return "zh-Hant";
+  return locale;
 }
 
 export function HoldingsManager({

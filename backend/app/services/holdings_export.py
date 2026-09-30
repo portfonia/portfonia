@@ -149,6 +149,42 @@ _EXAMPLES_ZH = """\
 """
 
 
+_RULES_ZH_HANT = """\
+##### 持倉模板
+#####
+##### 一行一條。順序不限，解析器按自由文字讀取。
+##### 上市標的（自動定價）：名稱  代號或基金代號  貨幣  單位數  平均成本  券商
+##### 上市標的（pricing_mode:manual）：同上，平均成本後再加目前市值
+##### 現金或銀行理財產品（無公開代號）：名稱  總金額  貨幣  券商
+##### 行尾可選標籤（含空格的值請加雙引號）。下載的匯出檔案只會寫
+##### account/portfolio/notes 這三個——其餘三個手動填寫時解析器仍能辨識：
+#####   account:"IRA" portfolio:Growth notes:"長期" asset_type:stock market:US pricing_mode:auto
+##### asset_type 為 stock / etf / fund / cash / 理財類 / other。
+##### pricing_mode 為 auto 或 manual。market 是上市地（US / HK / A-Share / UK / Europe / Japan / Korea / Other）。
+#####
+##### 代號字尾：.HK（港股）、.SS / .SZ（A股）、.L（倫敦）、.AS / .PA / .DE（歐洲）、
+##### .T（日本）、.KS / .KQ（韓國）。美股無需字尾。
+##### 一旦確定上市地（使用者填寫或有把握推導），即寫入對應字尾。
+##### Pershing Square 請寫 PSH.L 並標 market:UK。
+##### 無法確定上市地時不猜字尾 — 若已知請設定 Market。
+##### 中國公募基金請填寫 6 位基金代號（例如 110011）。
+##### 無代號的現金和理財為 Other，不根據銀行券商推斷為 A 股。
+##### 以 ##### 開頭的行是註解，解析時會被忽略。
+"""
+
+_EXAMPLES_ZH_HANT = """\
+##### --- 範例（刪除這些行後填入你自己的持倉） ---
+##### Apple AAPL USD 100 228 IBKR asset_type:stock market:US pricing_mode:auto
+##### SPDR S&P 500 ETF SPY USD 20 450 IBKR asset_type:etf market:US pricing_mode:auto
+##### 騰訊 0700.HK HKD 380 371.47 富途 asset_type:stock market:HK pricing_mode:auto
+##### 貴州茅臺 600519.SS CNY 10 1680 中信證券 asset_type:stock market:A-Share pricing_mode:auto
+##### 易方達藍籌精選 110011 CNY 40000 3.99 支付寶 asset_type:fund market:A-Share pricing_mode:auto
+##### 美元現金 50000 USD Schwab asset_type:cash market:Other pricing_mode:manual
+##### 銀行理財產品 100000 CNY 招商銀行 asset_type:wealth-management market:Other pricing_mode:manual
+##### Pershing Square PSH.L GBP 50 55 IBKR asset_type:stock market:UK pricing_mode:auto
+"""
+
+
 def _flatten(value: object) -> str:
     if value is None:
         return ""
@@ -229,10 +265,14 @@ def render_holding_line(holding: Holding) -> str:
 
 
 # Locale-keyed dispatch (issue #319 item 9) replacing the old `locale == "zh"`
-# ternary — a locale not present here (including a future zh-Hant) falls back
+# ternary — an unrecognized locale falls back
 # to "en", same as the ternary's implicit else did.
-_RULES_BY_LOCALE: dict[str, str] = {"en": _RULES_EN, "zh": _RULES_ZH}
-_EXAMPLES_BY_LOCALE: dict[str, str] = {"en": _EXAMPLES_EN, "zh": _EXAMPLES_ZH}
+_RULES_BY_LOCALE: dict[str, str] = {"en": _RULES_EN, "zh": _RULES_ZH, "zh-Hant": _RULES_ZH_HANT}
+_EXAMPLES_BY_LOCALE: dict[str, str] = {
+    "en": _EXAMPLES_EN,
+    "zh": _EXAMPLES_ZH,
+    "zh-Hant": _EXAMPLES_ZH_HANT,
+}
 
 
 def render_rules(locale: str, *, include_examples: bool) -> str:
