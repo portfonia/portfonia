@@ -28,6 +28,7 @@ REASONS = (
     "signup_grant",
     "admin_adjustment",
     "subscription",
+    "subscription_return",
     "qa",
     "refund",
 )

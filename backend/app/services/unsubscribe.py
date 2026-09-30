@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.models.email_verification import EmailVerification
 from app.models.user import User
+from app.services.subscription import cancel_for_no_verified_email, has_verified_email
 from app.services.unsubscribe_token import UnsubscribeClaims, verify_token
 
 UNSUBSCRIBE_REJECTED_MESSAGE = "invalid or expired unsubscribe link"
@@ -63,6 +64,9 @@ def confirm_unsubscribe(session: Session, *, token: str) -> UnsubscribeClaims:
         user.email_verified_at = None
     if user.delivery_email == claims.email:
         user.delivery_email_verified_at = None
+
+    if not has_verified_email(user):
+        cancel_for_no_verified_email(user)
 
     now = datetime.now(UTC)
     session.add(

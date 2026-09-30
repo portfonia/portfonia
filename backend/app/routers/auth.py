@@ -112,7 +112,7 @@ def signup(
             base_currency="USD",
             # New users default to weekly, not mwf (Ring 1-Onboarding.md §一.6).
             # Multi-cadence Beat/fan-out wiring is a follow-up issue.
-            report_cadence="weekly",
+            report_cadence="none",
             tos_accepted_at=datetime.now(UTC),
         )
         session.add(user)

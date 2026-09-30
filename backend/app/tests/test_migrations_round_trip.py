@@ -363,7 +363,7 @@ def test_traditional_report_language_migration(alembic_cfg: Config) -> None:
     from sqlalchemy import text
     from sqlalchemy.exc import IntegrityError
 
-    command.upgrade(alembic_cfg, "head")
+    command.upgrade(alembic_cfg, "d58200000001")
     s = get_settings()
     engine = create_engine(s.database_url)
     uid = uuid.uuid4()
@@ -378,7 +378,7 @@ def test_traditional_report_language_migration(alembic_cfg: Config) -> None:
                 ),
                 {"id": uid},
             )
-        command.downgrade(alembic_cfg, "-1")
+        command.downgrade(alembic_cfg, "c57800000001")
         with engine.connect() as conn:
             assert (
                 conn.execute(
@@ -388,7 +388,7 @@ def test_traditional_report_language_migration(alembic_cfg: Config) -> None:
             )
         with pytest.raises(IntegrityError), engine.begin() as conn:
             conn.execute(text("UPDATE users SET locale = 'zh-Hant' WHERE id = :id"), {"id": uid})
-        command.upgrade(alembic_cfg, "head")
+        command.upgrade(alembic_cfg, "d58200000001")
         with engine.begin() as conn:
             conn.execute(text("UPDATE users SET locale = 'zh-Hant' WHERE id = :id"), {"id": uid})
     finally:

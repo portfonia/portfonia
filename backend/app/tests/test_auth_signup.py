@@ -74,10 +74,10 @@ def test_signup_with_valid_invite_creates_user(
     _fake_auth_provider.assert_called_once()
 
 
-def test_signup_persists_weekly_cadence_and_tos_accepted_at(
+def test_signup_persists_no_cadence_inactive_subscription_and_tos(
     app_client: TestClient, db_session: Session, _fake_auth_provider: MagicMock
 ) -> None:
-    """Ring 1-Onboarding.md §一.6: new users default to weekly, not mwf."""
+    """New accounts remain inactive until they subscribe (#595)."""
     issued = create_invite(db_session, created_by=_CREATOR)
     db_session.flush()
 
@@ -93,7 +93,8 @@ def test_signup_persists_weekly_cadence_and_tos_accepted_at(
     assert resp.status_code == 201
 
     row = db_session.execute(select(User).where(User.email == "weekly@example.com")).scalar_one()
-    assert row.report_cadence == "weekly"
+    assert row.report_cadence == "none"
+    assert row.subscription_status == "inactive"
     assert row.tos_accepted_at is not None
 
 

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, CheckConstraint, Numeric, Text, func, text
+from sqlalchemy import Boolean, CheckConstraint, Date, Numeric, SmallInteger, Text, func, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -14,7 +14,9 @@ from app.schemas.holdings import VALID_CURRENCIES
 
 VALID_USER_STATUSES = ("active", "deleted", "suspended")
 VALID_AUTH_PROVIDERS = ("supabase",)
-VALID_REPORT_CADENCES = ("mwf", "weekly")
+VALID_REPORT_CADENCES = ("mwf", "none", "weekly")
+VALID_SUBSCRIPTION_STATUSES = ("active", "cancelled", "expired", "inactive")
+VALID_SUBSCRIPTION_TYPES = ("mwf", "weekly")
 # Report language codes (issues #308 and #582), separate from UI locales.
 # zh always means Simplified Chinese; zh-Hant uses shared source text and
 # conversion. See the per-user report language mechanism documentation.
@@ -46,6 +48,16 @@ class User(Base):
         CheckConstraint(
             _in_list_sql("base_currency", tuple(VALID_CURRENCIES)), name="base_currency"
         ),
+        CheckConstraint(
+            _in_list_sql("subscription_status", VALID_SUBSCRIPTION_STATUSES),
+            name="subscription_status",
+        ),
+        CheckConstraint(
+            "subscription_type IS NULL OR "
+            + _in_list_sql("subscription_type", VALID_SUBSCRIPTION_TYPES),
+            name="subscription_type",
+        ),
+        CheckConstraint("subscription_anchor_day BETWEEN 1 AND 31", name="subscription_anchor_day"),
         CheckConstraint("credit_cash_balance >= 0", name="credit_cash_balance"),
         CheckConstraint("credit_gift_balance >= 0", name="credit_gift_balance"),
     )
@@ -70,6 +82,17 @@ class User(Base):
     locale: Mapped[str] = mapped_column(Text, nullable=False)
     base_currency: Mapped[str] = mapped_column(Text, nullable=False)
     report_cadence: Mapped[str] = mapped_column(Text, nullable=False)
+    subscription_status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'inactive'")
+    )
+    subscription_type: Mapped[str | None] = mapped_column(Text)
+    subscription_expires_on: Mapped[date | None] = mapped_column(Date)
+    subscription_period_start: Mapped[date | None] = mapped_column(Date)
+    subscription_anchor_day: Mapped[int | None] = mapped_column(SmallInteger)
+    subscription_cancel_pending: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    subscription_adjusted_on: Mapped[date | None] = mapped_column(Date)
     delivery_email: Mapped[str | None] = mapped_column(Text)
     # Denormalized hot-path fields (issue #260, Ring 1-Email Validation design
     # doc §3.2) — set when the corresponding EmailVerification transitions to

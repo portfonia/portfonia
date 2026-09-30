@@ -722,18 +722,10 @@ class UpdateCadenceOut(BaseModel):
 def update_user_cadence(
     user_id: UUID, body: UpdateCadenceBody, session: Session = Depends(get_session)
 ) -> UpdateCadenceOut:
-    """Change a user's report_cadence (issue #191).
-
-    Intended to be reusable later for self-service cadence selection
-    (post-auth, post-billing) — that reuse is out of scope here, this ships
-    the endpoint's read/write/validation logic only.
-    """
-    user = session.get(User, user_id)
-    if user is None:
-        raise HTTPException(status_code=404, detail="user not found")
-    user.report_cadence = body.report_cadence
-    session.commit()
-    return UpdateCadenceOut(id=user.id, email=user.email, report_cadence=user.report_cadence)
+    """Cadence follows the subscription; Ops writes are suspended (#595)."""
+    raise HTTPException(
+        status_code=409, detail="cadence changes are suspended; cadence follows the subscription"
+    )
 
 
 # Literal members must be compile-time, so these are hand-kept copies of
@@ -741,7 +733,7 @@ def update_user_cadence(
 # discipline as UpdateCadenceBody (PR #248); a drift test over both copies
 # lives in test_admin_users.py.
 UserStatusFilter = Literal["active", "deleted", "suspended"]
-ReportCadenceFilter = Literal["mwf", "weekly"]
+ReportCadenceFilter = Literal["mwf", "none", "weekly"]
 
 
 class UserSummaryOut(BaseModel):
@@ -756,6 +748,10 @@ class UserSummaryOut(BaseModel):
     auth_subject_bound: bool
     has_investment_context: bool
     holdings_count: int
+    subscription_status: str
+    subscription_type: str | None
+    subscription_expires_on: date | None
+    subscription_cancel_pending: bool
 
 
 @router.get("/users", response_model=list[UserSummaryOut])
@@ -825,6 +821,10 @@ def list_users_endpoint(
             auth_subject_bound=user.auth_subject is not None,
             has_investment_context=has_context_count > 0,
             holdings_count=holdings_count_value,
+            subscription_status=user.subscription_status,
+            subscription_type=user.subscription_type,
+            subscription_expires_on=user.subscription_expires_on,
+            subscription_cancel_pending=user.subscription_cancel_pending,
         )
         for user, holdings_count_value, has_context_count in rows
     ]

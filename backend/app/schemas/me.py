@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -21,6 +22,33 @@ class PendingVerificationOut(BaseModel):
     status: str
     expires_at: datetime
     last_sent_at: datetime
+
+
+class SubscriptionOut(BaseModel):
+    status: str
+    type: str | None
+    expires_on: date | None
+    cancel_pending: bool
+    next_adjustment_at: datetime | None
+
+
+class SubscriptionBody(BaseModel):
+    type: Literal["weekly", "mwf"]
+
+
+class SubscriptionQuoteOut(BaseModel):
+    action: str
+    type: str
+    fee: str
+    returned: str
+    balance: str
+    balance_after: str
+    sufficient: bool
+    period_start: date | None
+    expires_on: date | None
+    first_report_at: datetime
+    needs_holdings: bool
+    blocked: str | None
 
 
 class MeOut(BaseModel):
@@ -58,3 +86,5 @@ class MeOut(BaseModel):
     # currency sibling of report_language above (same column-naming split:
     # "report currency" at the API boundary, users.base_currency in the DB).
     report_currency: str
+
+    subscription: SubscriptionOut

@@ -9,12 +9,20 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_session
 from app.core.deps import Principal, current_principal
+from app.core.timezones import today_et
 from app.models.email_verification import EmailVerification
 from app.models.holding import Holding
 from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
 from app.schemas.holdings import VALID_CURRENCIES
-from app.schemas.me import MeOut, PendingVerificationOut
+from app.schemas.me import (
+    MeOut,
+    PendingVerificationOut,
+    SubscriptionBody,
+    SubscriptionOut,
+    SubscriptionQuoteOut,
+)
+from app.services import subscription
 from app.services.altcha_challenge import (
     create_change_password_challenge,
     verify_change_password_solution,
@@ -74,6 +82,7 @@ def get_me(
     return MeOut(
         email=user.email,
         credit_balance=user.credit_cash_balance + user.credit_gift_balance,
+        subscription=subscription.summary(user, today_et()),
         delivery_email=user.delivery_email,
         email_verified_at=user.email_verified_at,
         delivery_email_verified_at=user.delivery_email_verified_at,
@@ -208,3 +217,58 @@ def verify_change_password_altcha(
     if not verify_change_password_solution(body.altcha):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid captcha")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/subscription/quote", response_model=SubscriptionQuoteOut)
+def subscription_quote(
+    type: Literal["weekly", "mwf"],
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+) -> SubscriptionQuoteOut:
+    return subscription.quote(session, principal.user_id, today_et(), type)
+
+
+@router.post("/subscription", response_model=SubscriptionOut)
+def set_subscription(
+    body: SubscriptionBody,
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+) -> SubscriptionOut:
+    today = today_et()
+    try:
+        user = subscription.set_plan(session, principal.user_id, today, body.type)
+    except subscription.SubscriptionError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail=exc.code) from None
+    session.commit()
+    return subscription.summary(user, today)
+
+
+@router.post("/subscription/cancel", response_model=SubscriptionOut)
+def cancel_subscription(
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+) -> SubscriptionOut:
+    today = today_et()
+    try:
+        user = subscription.cancel(session, principal.user_id, today)
+    except subscription.SubscriptionError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail=exc.code) from None
+    session.commit()
+    return subscription.summary(user, today)
+
+
+@router.post("/subscription/resume", response_model=SubscriptionOut)
+def resume_subscription(
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+) -> SubscriptionOut:
+    today = today_et()
+    try:
+        user = subscription.resume(session, principal.user_id, today)
+    except subscription.SubscriptionError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail=exc.code) from None
+    session.commit()
+    return subscription.summary(user, today)

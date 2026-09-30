@@ -855,7 +855,7 @@ def _glossary_term(key: str, locale: str) -> str:
 
 
 def _build_portfolio_overview_markdown(
-    snapshot: PortfolioSnapshot, locale: str, next_report_at: datetime
+    snapshot: PortfolioSnapshot, locale: str, next_report_at: datetime | None
 ) -> str:
     copy = _PORTFOLIO_OVERVIEW_COPY.get(
         locale, _PORTFOLIO_OVERVIEW_COPY[_DEFAULT_PORTFOLIO_OVERVIEW_LOCALE]
@@ -900,9 +900,12 @@ def _build_portfolio_overview_markdown(
     lines += [
         "",
         f"**{copy['total_label']}:** {snapshot.base_currency} {snapshot.total_base:,.2f}  ({note})",
-        "",
-        f"**{copy['next_report_label']}** {next_report_at.strftime('%Y-%m-%d %H:%M %Z')}",
     ]
+    if next_report_at is not None:
+        lines += [
+            "",
+            f"**{copy['next_report_label']}** {next_report_at.strftime('%Y-%m-%d %H:%M %Z')}",
+        ]
     return "\n".join(lines)
 
 
@@ -957,7 +960,11 @@ def send_portfolio_overview_email(session: Session, user_id: UUID, base_currency
     )
 
     snapshot = compute_portfolio(session, user_id=user_id, base_currency=base_currency)
-    next_report_at = next_occurrence_for_cadence(user.report_cadence, datetime.now(tz=ET))
+    next_report_at = (
+        None
+        if user.report_cadence == "none"
+        else next_occurrence_for_cadence(user.report_cadence, datetime.now(tz=ET))
+    )
     body_md = _build_portfolio_overview_markdown(snapshot, user.locale, next_report_at)
     footer_md = _build_footer(
         {

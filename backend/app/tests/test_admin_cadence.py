@@ -14,7 +14,7 @@ from typing import get_args
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models.user import VALID_REPORT_CADENCES, User
+from app.models.user import User
 from app.routers.admin import UpdateCadenceBody
 from app.tests.test_admin_router import _headers
 from app.tests.test_user_scope import _user
@@ -30,7 +30,7 @@ def test_update_cadence_literal_matches_valid_report_cadences() -> None:
     test instead of silently accepting/rejecting the wrong values at
     runtime."""
     literal_values = get_args(UpdateCadenceBody.model_fields["report_cadence"].annotation)
-    assert set(literal_values) == set(VALID_REPORT_CADENCES)
+    assert set(literal_values) == {"mwf", "weekly"}
 
 
 def test_update_cadence_requires_ops_token(app_client: TestClient) -> None:
@@ -48,13 +48,11 @@ def test_update_cadence_mwf_to_weekly(app_client: TestClient, db_session: Sessio
         json={"report_cadence": "weekly"},
     )
 
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body == {"id": str(_UID), "email": "seed@example.com", "report_cadence": "weekly"}
+    assert resp.status_code == 409
     db_session.expire_all()
     row = db_session.get(User, _UID)
     assert row is not None
-    assert row.report_cadence == "weekly"
+    assert row.report_cadence == "mwf"
 
 
 def test_update_cadence_weekly_to_mwf(app_client: TestClient, db_session: Session) -> None:
@@ -67,11 +65,11 @@ def test_update_cadence_weekly_to_mwf(app_client: TestClient, db_session: Sessio
         json={"report_cadence": "mwf"},
     )
 
-    assert resp.status_code == 200
+    assert resp.status_code == 409
     db_session.expire_all()
     row = db_session.get(User, _UID)
     assert row is not None
-    assert row.report_cadence == "mwf"
+    assert row.report_cadence == "weekly"
 
 
 def test_update_cadence_rejects_unknown_value(app_client: TestClient, db_session: Session) -> None:
@@ -91,10 +89,10 @@ def test_update_cadence_rejects_unknown_value(app_client: TestClient, db_session
     assert row.report_cadence == "mwf"
 
 
-def test_update_cadence_404_unknown_user(app_client: TestClient) -> None:
+def test_update_cadence_suspended_even_for_unknown_user(app_client: TestClient) -> None:
     resp = app_client.post(
         f"/admin/users/{uuid.uuid4()}/cadence",
         headers=_headers(),
         json={"report_cadence": "weekly"},
     )
-    assert resp.status_code == 404
+    assert resp.status_code == 409
