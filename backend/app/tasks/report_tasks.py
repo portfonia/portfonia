@@ -9,7 +9,7 @@ from typing import Any, NamedTuple
 
 from app.core import operational_events as oe
 from app.core.config import get_settings
-from app.core.timezones import ET
+from app.core.timezones import ET, today_et
 from app.services.email_sender import send_ops_alert
 from app.services.github_issues import create_bug_report
 from app.tasks import celery_app
@@ -108,6 +108,7 @@ def generate_incremental_report(
     # when Celery first imports the task registry.
     from app.core.database import SessionLocal
     from app.services.report_generator import generate_report
+    from app.services.subscription import run_cadence_checks
     from app.services.user_scope import active_users
     from app.services.window_data import MovesCache
 
@@ -184,6 +185,18 @@ def generate_incremental_report(
         session_node,
     )
     session = SessionLocal()
+
+    def check_subscriptions() -> None:
+        try:
+            run_cadence_checks(session, cadence, today_et())
+        except Exception as exc:
+            session.rollback()
+            logger.exception("Subscription check phase failed")
+            send_ops_alert(
+                "Subscription check phase failed",
+                f"cadence={cadence} error={type(exc).__name__}: {exc}",
+            )
+
     try:
         # Issue #308: full User rows, not just ids — each recipient's own
         # locale (report language) rides along. Snapshotted into `_Recipient`
@@ -191,6 +204,7 @@ def generate_incremental_report(
         # touches a live `User` attribute, only this snapshot.
         users = active_users(session, cadence)
         if not users:
+            check_subscriptions()
             logger.info("generate_incremental_report: no active users, nothing to generate")
             oe.end_run("ok", reason_code="no_active_users", attributes={"recipient_count": 0})
             return {"status": "no_active_users", "results": []}
@@ -294,6 +308,8 @@ def generate_incremental_report(
                     severity="ALERT",
                 )
                 results.append({"user_id": str(user_id), "status": "failed"})
+
+        check_subscriptions()
 
         if all(r["status"] == "failed" for r in results):
             # PR #151 review: per-user isolation must not come at the cost of

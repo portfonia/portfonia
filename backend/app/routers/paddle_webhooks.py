@@ -17,6 +17,7 @@ from app.models.user import User
 from app.services.credit_ledger import IdempotencyConflict, record_purchase, reverse_refund
 from app.services.email_sender import send_ops_alert
 from app.services.paddle_client import verify_signature
+from app.services.subscription import maybe_send_low_balance_reminder
 
 router = APIRouter()
 
@@ -99,7 +100,7 @@ def paddle_webhook(
         if credits == 0:
             return {"status": "ok"}
         try:
-            record_purchase(
+            purchase = record_purchase(
                 session,
                 user_id=user_id,
                 credits=credits,
@@ -107,6 +108,8 @@ def paddle_webhook(
                 note=f"{data.get('currency_code')} {totals.get('total')}",
             )
             session.commit()
+            if not purchase.replayed:
+                maybe_send_low_balance_reminder(session, user_id)
         except IdempotencyConflict:
             session.rollback()
             send_ops_alert(

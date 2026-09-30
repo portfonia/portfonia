@@ -161,6 +161,7 @@ _EXTERNAL_NOTIFY_MODULES = (
     "app.services.capture_health",
     "app.routers.paddle_webhooks",
     "app.routers.admin",
+    "app.services.subscription",
 )
 
 
@@ -224,6 +225,10 @@ def _no_external_notifications(monkeypatch: pytest.MonkeyPatch) -> None:
     tests may still re-patch these within a `with` block to assert call args —
     that only shadows this default for the duration of the `with` block.
     """
+    monkeypatch.setattr(
+        "app.services.subscription.send_subscription_notice",
+        MagicMock(return_value="test-provider-id"),
+    )
     for module in _EXTERNAL_NOTIFY_MODULES:
         monkeypatch.setattr(f"{module}.send_ops_alert", MagicMock(), raising=False)
         monkeypatch.setattr(f"{module}.create_bug_report", MagicMock(), raising=False)
@@ -389,6 +394,10 @@ def three_user_holdings(db_session: Session) -> dict[str, uuid.UUID]:
         # Issue #276: the fan-out requires a verified address, and these
         # three are stand-ins for existing books — stamp the account email
         # verified so they still enter active_user_ids().
+        from app.core.timezones import today_et
+        from app.services.subscription import next_expiry
+
+        today = today_et()
         return User(
             id=user_id,
             auth_provider="supabase",
@@ -398,6 +407,11 @@ def three_user_holdings(db_session: Session) -> dict[str, uuid.UUID]:
             locale="zh",
             base_currency="USD",
             report_cadence="mwf",
+            subscription_status="active",
+            subscription_type="mwf",
+            subscription_period_start=today,
+            subscription_anchor_day=today.day,
+            subscription_expires_on=next_expiry(today, today.day),
             email_verified_at=datetime(2026, 8, 31, 12, 0),
         )
 

@@ -241,6 +241,7 @@ def set_subscription(
         session.rollback()
         raise HTTPException(status_code=409, detail=exc.code) from None
     session.commit()
+    subscription.maybe_send_low_balance_reminder(session, principal.user_id)
     return subscription.summary(user, today)
 
 

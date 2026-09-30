@@ -36,6 +36,7 @@ def _active_user_conditions(cadence: str) -> list[Any]:
     on which users qualify (issue #308)."""
     conditions: list[Any] = [
         User.status == "active",
+        User.subscription_status == "active",
         User.report_cadence == cadence,
         or_(User.email_verified_at.isnot(None), User.delivery_email_verified_at.isnot(None)),
     ]
