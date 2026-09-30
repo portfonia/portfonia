@@ -57,19 +57,15 @@ export function isLocale(value: string): value is Locale {
   return LOCALES.some((l) => l.value === value);
 }
 
-// Report output language (issue #308) — a DELIBERATELY separate whitelist
-// from LOCALES/UNREVIEWED_LOCALES above. The two answer different
-// questions and must be free to diverge: this is the UI-chrome locale
-// switcher, that is backend/config/i18n_glossary.yml's report-translation
-// coverage (English + Simplified Chinese only today; zh-Hant/fr/es have
-// zero glossary coverage, independent of whatever this switcher decides).
-// Values are the backend's bare codes (users.locale / MeOut.report_language
-// / VALID_REPORT_LANGUAGES), not this file's BCP-47-ish Locale values.
-export type ReportLanguage = "en" | "zh";
+// Report language codes (issues #308 and #582) remain separate from UI
+// catalog locales. zh means Simplified; zh-Hant uses Simplified source
+// text plus the shared Taiwan Traditional converter.
+export type ReportLanguage = "en" | "zh" | "zh-Hant";
 
 export const REPORT_LANGUAGES: { value: ReportLanguage; label: string }[] = [
   { value: "en", label: "English" },
   { value: "zh", label: "简体中文" },
+  { value: "zh-Hant", label: "\u7e41\u9ad4\u4e2d\u6587" },
 ];
 
 export function isReportLanguage(value: string): value is ReportLanguage {

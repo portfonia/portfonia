@@ -18,19 +18,12 @@ function resolveLocale(formData: FormData) {
   return isLocale(raw) ? raw : DEFAULT_LOCALE;
 }
 
-// Issue #308: maps the frontend's BCP-47-ish UI locale to the backend's bare
-// report-language code (SignupRequest.locale, Literal["en", "zh"] | None).
-// zh-Hant maps to "zh" — VALID_REPORT_LANGUAGES (backend/app/models/user.py)
-// has no separate Traditional-Chinese report language, only en/zh, matching
-// the UI catalog's own Simplified/Traditional split not existing on the
-// report-translation side (see CLAUDE.md's Language Policy). Reachable in
-// production since issue #350 item 4 lifted zh-Hant's UNREVIEWED_LOCALES
-// gate — this mapping predates that lift (defensive-only until then) and
-// needed no change once it happened.
-const UI_LOCALE_TO_BACKEND_LOCALE: Record<Locale, "en" | "zh"> = {
+// Map UI catalog locales to stored report-language codes. Simplified
+// Chinese keeps the existing zh code; Traditional Chinese retains zh-Hant.
+const UI_LOCALE_TO_BACKEND_LOCALE: Record<Locale, "en" | "zh" | "zh-Hant"> = {
   en: "en",
   "zh-Hans": "zh",
-  "zh-Hant": "zh",
+  "zh-Hant": "zh-Hant",
 };
 
 async function signupBackendHeaders(): Promise<Record<string, string>> {
