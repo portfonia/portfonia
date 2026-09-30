@@ -3,7 +3,7 @@ table Beat schedules from, so this and the real schedule can't drift apart."""
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 import pytest
 
@@ -38,3 +38,28 @@ def test_converts_a_non_et_input_to_et_before_computing() -> None:
 def test_unknown_cadence_raises() -> None:
     with pytest.raises(ValueError, match="unknown report cadence"):
         next_occurrence_for_cadence("daily", datetime(2026, 9, 3, tzinfo=ET))
+
+
+@pytest.mark.parametrize(
+    "cadence,now,expected_date,hour,minute",
+    [
+        ("mwf", datetime(2026, 10, 31, 12, tzinfo=ET), date(2026, 11, 2), 17, 0),
+        ("mwf", datetime(2027, 3, 13, 12, tzinfo=ET), date(2027, 3, 15), 17, 0),
+        ("mwf", datetime(2026, 10, 27, 12, tzinfo=ET), date(2026, 10, 28), 17, 0),
+        ("weekly", datetime(2026, 10, 28, 12, tzinfo=ET), date(2026, 10, 31), 19, 0),
+        ("mwf", datetime(2026, 11, 1, 1, 30, tzinfo=ET), date(2026, 11, 2), 17, 0),
+    ],
+    ids=[
+        "fall-transition",
+        "spring-transition",
+        "ordinary-mwf",
+        "ordinary-weekly",
+        "ambiguous-hour",
+    ],
+)
+def test_next_occurrence_et_wall_clock(
+    cadence: str, now: datetime, expected_date: date, hour: int, minute: int
+) -> None:
+    result = next_occurrence_for_cadence(cadence, now)
+    assert result.tzinfo == ET
+    assert (result.date(), result.hour, result.minute) == (expected_date, hour, minute)

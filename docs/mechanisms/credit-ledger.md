@@ -8,7 +8,7 @@ Credit balances use two `NUMERIC(12,2)` columns on `users`: `credit_cash_balance
 
 For each live user and bucket, the stored balance equals both the sum of that user's ledger amounts and the highest-id row's `balance_after` (or zero if no rows exist). Balances and `balance_after` cannot be negative. `app/services/credit_ledger.py` is the only writer of balance columns and new ledger rows. Its public write functions lock the `users` row with `SELECT FOR UPDATE`, refresh the loaded user from the database, flush, and leave commit to their caller. Callers must flush any pending edits to that `User` before calling a credit write function, or the lock query will overwrite those in-memory edits. Balance updates and rows therefore commit together. Ledger rows are never deleted or rewritten; purge may only set `user_deleted_at`.
 
-`_REASON_RULES` assigns bucket and sign: `recharge` and `invite_rebate` credit cash; `signup_grant` credits gift; `admin_adjustment` credits or debits gift; `refund` debits purchased cash credits or reverses a rejected refund; `subscription` and `qa` debit gift and/or cash. To add a reason, update `REASONS` in `app/models/credit_ledger.py` and `_REASON_RULES` in `app/services/credit_ledger.py`, then add a migration that rewrites the `reason` CHECK. Migrations must freeze the reason list rather than importing the live Python tuple.
+`_REASON_RULES` assigns bucket and sign: `recharge` and `invite_rebate` credit cash; `signup_grant` credits gift; `admin_adjustment` credits or debits gift; `refund` debits purchased cash credits or reverses a rejected refund; `subscription` and `qa` debit gift and/or cash; `subscription_return` credits cash and/or gift. To add a reason, update `REASONS` in `app/models/credit_ledger.py` and `_REASON_RULES` in `app/services/credit_ledger.py`, then add a migration that rewrites the `reason` CHECK. Migrations must freeze the reason list rather than importing the live Python tuple.
 
 Paddle purchase rows use `recharge:paddle:{transaction_id}`. Ops refund debits
 use `refund:{transaction_id}:{request_key}` and store the Paddle adjustment id
@@ -21,7 +21,16 @@ local commit then fails, the debit is rolled back and the endpoint sends a
 retry that request; reconcile the adjustment in the Paddle dashboard first,
 because a retry with the same key finds no row and would refund again.
 
-`consume_credits` spends gift first, then cash. It rejects the whole request if the combined balance is short. This PR implements and tests it without adding a product caller.
+`consume_credits` spends gift first, then cash. It rejects the whole request if the combined balance is short. Subscription charges now call it with reason `subscription` and key `subscription:{user_id}:{period_start}:{plan}` (issue #595).
+
+`return_subscription_credits` posts one system credit per non-zero bucket,
+with reason `subscription_return` and key `subscription_return:{old_charge_key}`.
+The subscription service computes the pro-rata return from the original
+charge rows, returns cash first up to that charge's cash portion, and returns
+the remainder as gift. A matching user/reason/summed-amount replay returns the
+original rows; a conflict raises `IdempotencyConflict`, and a zero total writes
+nothing. Ledger writes precede subscription state edits in the same transaction.
+See [Subscription core](subscription.md) for the billing and cancellation rules.
 
 ## Idempotency and deletion
 

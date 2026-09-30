@@ -22,6 +22,7 @@ from app.models.fx_rate import FxRate
 from app.models.holding import Holding
 from app.models.user import User
 from app.services.email_sender import (
+    _PORTFOLIO_OVERVIEW_COPY,
     _build_portfolio_overview_markdown,
     _glossary_term,
     send_portfolio_overview_email,
@@ -377,3 +378,29 @@ def test_send_http_error_returns_false(
     result = send_portfolio_overview_email(db_session, _USER_ID, "USD")
 
     assert result is False
+
+
+@patch(
+    "app.services.email_sender.recipient_email_with_purpose",
+    return_value=("test@example.com", "account_email"),
+)
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
+def test_send_none_cadence_omits_next_report(
+    mock_client_cls: MagicMock,
+    mock_settings: MagicMock,
+    _recipient: MagicMock,
+    db_session: Session,
+) -> None:
+    mock_settings.return_value = _mock_settings()
+    user = db_session.get(User, _USER_ID)
+    assert user is not None
+    user.report_cadence = "none"
+    db_session.commit()
+    mock_client = mock_client_cls.return_value.__enter__.return_value
+    mock_client.post.return_value.json.return_value = {"id": "test-id"}
+    assert send_portfolio_overview_email(db_session, _USER_ID, "USD") is True
+    payload = mock_client.post.call_args.kwargs["json"]
+    labels = [copy["next_report_label"] for copy in _PORTFOLIO_OVERVIEW_COPY.values()]
+    assert all(label not in payload["html"] for label in labels)
+    assert all(label not in payload["text"] for label in labels)

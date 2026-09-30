@@ -164,13 +164,15 @@ def next_occurrence_for_cadence(cadence: str, now: datetime) -> datetime:
     *now_et* or the result silently drifts to whatever the real wall clock
     is when this happens to run, exactly the `_NowIn` problem `_node_cron`
     already solves for Beat's own schedule.
+
+    Add the absolute duration in UTC so timezone transitions preserve the ET fire time.
     """
     for _, _, _, cron_kwargs, row_cadence in _REPORT_CADENCES:
         if row_cadence == cadence:
             now_et = now.astimezone(ET)
             cron = crontab(**cron_kwargs, nowfun=lambda pinned=now_et: pinned)
             delta: timedelta = cron.remaining_estimate(now_et)
-            return now_et + delta
+            return (now_et.astimezone(UTC) + delta).astimezone(ET)
     raise ValueError(f"unknown report cadence: {cadence!r}")
 
 

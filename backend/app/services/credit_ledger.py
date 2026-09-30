@@ -24,6 +24,7 @@ _REASON_RULES = {
     "signup_grant": ({"gift"}, "+"),
     "admin_adjustment": ({"gift"}, "±"),
     "subscription": ({"cash", "gift"}, "-"),
+    "subscription_return": ({"cash", "gift"}, "+"),
     "qa": ({"cash", "gift"}, "-"),
     "refund": ({"cash"}, "±"),
 }
@@ -362,3 +363,39 @@ def reverse_refund(session: Session, *, adjustment_id: str) -> LedgerWrite | Non
         note="refund rejected by Paddle",
     )
     return LedgerWrite([entry], replayed=False)
+
+
+def return_subscription_credits(
+    session: Session,
+    *,
+    user_id: uuid.UUID,
+    cash: Decimal,
+    gift: Decimal,
+    idempotency_key: str,
+    reference: str,
+) -> LedgerWrite:
+    user = _lock_user(session, user_id)
+    existing = _rows_for_key(session, idempotency_key)
+    if existing:
+        if (
+            any(row.user_id != user_id or row.reason != "subscription_return" for row in existing)
+            or sum((row.amount for row in existing), Decimal("0")) != cash + gift
+        ):
+            raise IdempotencyConflict
+        return LedgerWrite(existing, replayed=True)
+    entries = []
+    for bucket, amount in (("cash", cash), ("gift", gift)):
+        if amount != 0:
+            entries.append(
+                _post(
+                    session,
+                    user,
+                    bucket=bucket,
+                    amount=amount,
+                    reason="subscription_return",
+                    actor_type="system",
+                    idempotency_key=idempotency_key,
+                    reference=reference,
+                )
+            )
+    return LedgerWrite(entries, replayed=False)
