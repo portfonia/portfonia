@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import get_args
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -20,6 +21,7 @@ from app.core.database import get_session
 from app.core.deps import current_principal
 from app.main import app
 from app.models.user import VALID_REPORT_LANGUAGES, User
+from app.routers.auth import SignupRequest
 from app.routers.me import UpdateReportLanguageBody
 from app.tests.conftest import TEST_USER_ID
 from app.tests.test_me_router import _seed_user
@@ -55,21 +57,22 @@ def test_update_report_language_without_token_is_401(db_session: Session) -> Non
         app.dependency_overrides.clear()
 
 
+@pytest.mark.parametrize("language", ["en", "zh", "zh-Hant"])
 def test_update_report_language_writes_and_is_reflected_in_get_me(
-    app_client: TestClient, db_session: Session
+    app_client: TestClient, db_session: Session, language: str
 ) -> None:
     _seed_user(db_session, locale="zh")
 
-    resp = app_client.patch("/me/report-language", json={"report_language": "en"})
+    resp = app_client.patch("/me/report-language", json={"report_language": language})
 
     assert resp.status_code == 200
-    assert resp.json()["report_language"] == "en"
+    assert resp.json()["report_language"] == language
     db_session.expire_all()
     row = db_session.get(User, TEST_USER_ID)
     assert row is not None
-    assert row.locale == "en"
+    assert row.locale == language
 
-    assert app_client.get("/me").json()["report_language"] == "en"
+    assert app_client.get("/me").json()["report_language"] == language
 
 
 def test_update_report_language_rejects_unknown_value(
@@ -84,3 +87,9 @@ def test_update_report_language_rejects_unknown_value(
     row = db_session.get(User, TEST_USER_ID)
     assert row is not None
     assert row.locale == "zh"
+
+
+def test_signup_literal_matches_valid_report_languages() -> None:
+    optional = SignupRequest.model_fields["locale"].annotation
+    literal = next(arg for arg in get_args(optional) if get_args(arg))
+    assert set(get_args(literal)) == set(VALID_REPORT_LANGUAGES)

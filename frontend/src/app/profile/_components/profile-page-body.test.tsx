@@ -583,14 +583,14 @@ describe("Report language (issue #308)", () => {
     expect(select).toHaveValue("zh");
   });
 
-  it("offers exactly English and Simplified Chinese, in their own native script", () => {
+  it("offers all three report languages in their own native script", () => {
     renderBody(BASE_ME);
 
     const select = screen.getByRole("combobox", { name: /report language/i });
     const options = within(select)
       .getAllByRole("option")
       .map((o) => o.textContent);
-    expect(options).toEqual(["English", "简体中文"]);
+    expect(options).toEqual(["English", "\u7b80\u4f53\u4e2d\u6587", "\u7e41\u9ad4\u4e2d\u6587"]);
   });
 
   it("calls updateReportLanguage immediately on change, then router.refresh (no Save button, no hard reload)", async () => {
@@ -599,9 +599,9 @@ describe("Report language (issue #308)", () => {
     renderBody({ ...BASE_ME, report_language: "en" });
 
     const select = screen.getByRole("combobox", { name: /report language/i });
-    await user.selectOptions(select, "zh");
+    await user.selectOptions(select, "zh-Hant");
 
-    expect(updateReportLanguage).toHaveBeenCalledWith("zh");
+    expect(updateReportLanguage).toHaveBeenCalledWith("zh-Hant");
     await waitFor(() => expect(routerRefresh).toHaveBeenCalled());
     expect(
       screen.queryByRole("button", { name: /save/i }),

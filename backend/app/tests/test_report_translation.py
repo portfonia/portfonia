@@ -48,6 +48,25 @@ def test_translate_glossary_maps_confidence_labels_to_chinese() -> None:
     assert '"[Speculative]" -> "[推测]"' in captured["system"]
 
 
+def test_translate_zh_hant_uses_simplified_language_name_until_conversion_exists() -> None:
+    """Issue #582: a stored zh-Hant report language must keep the Simplified
+    generation pipeline (translate to Simplified, scan Simplified, convert later
+    in #583). The raw code must never reach the translation prompt."""
+    captured: dict[str, str] = {}
+
+    def _fake_call(_client: object, _model: str, system: str, user: str, **_kw: object) -> str:
+        captured["system"] = system
+        return user
+
+    with (
+        patch.object(rt, "_openrouter_client", return_value=MagicMock()),
+        patch.object(rt, "_call_llm", side_effect=_fake_call),
+    ):
+        rt._translate_md("## \u00a74\nNVDA - chip optimism [Established].\n", "zh-Hant")
+    assert "into Simplified Chinese." in captured["system"]
+    assert "zh-Hant" not in captured["system"]
+
+
 def test_split_sections_chunks_at_section_and_subsection_headings_and_roundtrips() -> None:
     md = (
         "# Title\n\n> data window\n\n## §1 Snapshot\n\n| a | b |\n\n"

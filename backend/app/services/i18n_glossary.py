@@ -51,10 +51,9 @@ from app.core.config import get_settings
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
 _DEFAULT_GLOSSARY_FILE = _BACKEND_DIR / "config" / "i18n_glossary.yml"
 
-# OUTPUT_LANG (env/Settings) -> locale key used inside i18n_glossary.yml.
-# Extend this map, not OUTPUT_LANG's accepted values, when a new locale
-# reuses an existing OUTPUT_LANG code — there is no such case yet.
-_OUTPUT_LANG_TO_LOCALE: dict[str, str] = {"zh": "zh-Hans"}
+# Report language -> glossary source locale. Traditional Chinese selects
+# Simplified source text; consuming code performs conversion separately.
+_OUTPUT_LANG_TO_LOCALE: dict[str, str] = {"zh": "zh-Hans", "zh-Hant": "zh-Hans"}
 
 # Sections shaped {key: {locale: str}} — every key must carry every
 # supported_locales entry (report_glossary/forbidden_renderings/

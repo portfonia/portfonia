@@ -537,7 +537,7 @@ export async function createEmailVerification(
 // button, matching this page's other live controls — and the caller
 // re-fetches GET /me via router.refresh() on success, same discipline as
 // resendEmailVerification/createEmailVerification above.
-export async function updateReportLanguage(reportLanguage: "en" | "zh"): Promise<void> {
+export async function updateReportLanguage(reportLanguage: "en" | "zh" | "zh-Hant"): Promise<void> {
   const res = await fetch("/api/me/report-language", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },

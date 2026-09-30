@@ -15,6 +15,7 @@ from __future__ import annotations
 import uuid
 from typing import get_args
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -47,8 +48,9 @@ def test_update_report_language_by_email_requires_ops_token(app_client: TestClie
     assert resp.status_code == 401
 
 
+@pytest.mark.parametrize("language", ["en", "zh", "zh-Hant"])
 def test_update_report_language_by_email_sets_and_reads_back(
-    app_client: TestClient, db_session: Session
+    app_client: TestClient, db_session: Session, language: str
 ) -> None:
     db_session.add(_user(_UID, "seed@example.com"))
     db_session.flush()
@@ -57,16 +59,16 @@ def test_update_report_language_by_email_sets_and_reads_back(
         "/admin/users/by-email/report-language",
         headers=_headers(),
         params={"email": "seed@example.com"},
-        json={"report_language": "en"},
+        json={"report_language": language},
     )
 
     assert resp.status_code == 200
     body = resp.json()
-    assert body == {"user_id": str(_UID), "email": "seed@example.com", "report_language": "en"}
+    assert body == {"user_id": str(_UID), "email": "seed@example.com", "report_language": language}
     db_session.expire_all()
     row = db_session.get(User, _UID)
     assert row is not None
-    assert row.locale == "en"
+    assert row.locale == language
 
     # Reflected in a subsequent read (mirrors GET /me's own field, via the
     # read-only ops user directory rather than the user's own session).

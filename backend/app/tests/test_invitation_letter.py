@@ -224,6 +224,19 @@ def test_unsubscribe_round_trip(app_client: TestClient, db_session: Session) -> 
     assert app_client.get("/invitation-letters/unsubscribe?token=bad").status_code == 400
 
 
+def test_invitation_letter_rejects_zh_hant(app_client: TestClient, db_session: Session) -> None:
+    with (
+        patch("app.routers.admin.send_invitation_letter", return_value="resend-test"),
+        patch("app.routers.admin.poll_invitation_letter_delivery.apply_async"),
+    ):
+        response = app_client.post(
+            "/admin/invitation-letters",
+            json={"email": "traditional@example.com", "language": "zh-Hant"},
+            headers=_ops_headers(),
+        )
+    assert response.status_code == 422
+
+
 def test_letter_send_persists_invite_and_blocks_unsubscribed(
     app_client: TestClient, db_session: Session
 ) -> None:

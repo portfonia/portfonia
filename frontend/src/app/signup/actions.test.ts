@@ -217,7 +217,7 @@ describe("signup action", () => {
   it.each([
     ["en", "en"],
     ["zh-Hans", "zh"],
-    ["zh-Hant", "zh"],
+    ["zh-Hant", "zh-Hant"],
   ])(
     "maps the UI locale %s to the bare backend code %s and forwards it as `locale` (issue #308)",
     async (uiLocale, backendCode) => {

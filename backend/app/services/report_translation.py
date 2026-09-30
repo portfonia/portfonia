@@ -77,7 +77,11 @@ def _translate_md(md: str, target_lang: str) -> str:
     """
     if target_lang == "en":
         return md
-    lang_name = {"zh": "Simplified Chinese"}.get(target_lang, target_lang)
+    # zh-Hant (issue #582) keeps Simplified generation until the post-scan
+    # conversion in #583 exists; the raw code must never reach the prompt.
+    lang_name = {"zh": "Simplified Chinese", "zh-Hant": "Simplified Chinese"}.get(
+        target_lang, target_lang
+    )
     glossary = _build_glossary_instruction(target_lang)
     settings = get_settings()
     system = (

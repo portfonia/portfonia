@@ -1495,7 +1495,7 @@ class UpdateReportLanguageByEmailBody(BaseModel):
     # drifting whitelist for the ops path"). Keep in sync with
     # app.models.user.VALID_REPORT_LANGUAGES by hand; Pydantic Literal
     # members must be compile-time, not derived from that tuple.
-    report_language: Literal["en", "zh"]
+    report_language: Literal["en", "zh", "zh-Hant"]
 
 
 class UpdateReportLanguageByEmailOut(BaseModel):

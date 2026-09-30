@@ -158,3 +158,15 @@ def test_report_glossary_covers_market_not_supported_marker() -> None:
     glossary = load_i18n_glossary()
     assert "[market not supported]" in glossary.report_glossary
     assert glossary.report_glossary["[market not supported]"]["zh-Hans"]
+
+
+def test_traditional_language_uses_simplified_source() -> None:
+    locale = locale_for_output_lang("zh-Hant")
+    assert locale == "zh-Hans"
+    glossary = load_i18n_glossary()
+    assert glossary.supported_locales == frozenset({"zh-Hans"})
+    assert (
+        glossary.report_glossary["Custodian"][locale]
+        == glossary.report_glossary["Custodian"]["zh-Hans"]
+    )
+    assert all(locale in translations for translations in glossary.templates.values())

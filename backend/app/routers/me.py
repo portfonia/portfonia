@@ -103,7 +103,7 @@ class UpdateReportLanguageBody(BaseModel):
     # same discipline as admin.py's UpdateCadenceBody. Keep in sync with
     # app.models.user.VALID_REPORT_LANGUAGES by hand; Pydantic Literal
     # members must be compile-time, not derived from that tuple.
-    report_language: Literal["en", "zh"]
+    report_language: Literal["en", "zh", "zh-Hant"]
 
 
 class UpdateReportLanguageOut(BaseModel):

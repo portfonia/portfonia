@@ -620,11 +620,12 @@ layer** (per-user, incremental).
   (`VALID_REPORT_CADENCES`, `app/models/user.py`) — the two are kept in
   sync by hand, not derived from one source, since Pydantic's `Literal`
   needs compile-time members.
-- **Per-user report language (issue #308)**: `users.locale` (`NOT NULL`,
+- **Per-user report language (issues #308/#582)**: `users.locale` (`NOT NULL`,
   free `Text` before this issue — read only for an informational Pass 2
   prompt hint and email-verification copy, never driving report
   translation) gains a `CheckConstraint` (`VALID_REPORT_LANGUAGES =
-  ("en", "zh")`, `app/models/user.py`, migration `a2b3c4d5e6f7`) and
+  ("en", "zh", "zh-Hant")`, `app/models/user.py`; original migration
+  `a2b3c4d5e6f7`, widened by `d58200000001`) and
   becomes the actual per-user `output_lang` driver, same shape as the
   cadence entry above: self-service `PATCH /me/report-language`
   (`app/routers/me.py`, `Depends(current_principal)`, no rate limiting —
@@ -665,15 +666,32 @@ layer** (per-user, incremental).
   report", and this repo does not silently change documented ops
   behavior). Signup (`auth.py`) accepts an optional `locale` field,
   forwarded by the frontend's `POST /auth/signup` from the UI locale
-  selected at signup time (mapped `en`→`en`, `zh-Hans`/`zh-Hant`→`zh`);
+  selected at signup time (mapped `en` to `en`, `zh-Hans` to `zh`, and `zh-Hant` to `zh-Hant`);
   absent falls back to the pre-existing hardcoded `"zh"` default
   (defense-in-depth only). Frontend: Profile page's new Report Language
   `<select>` (`frontend/src/locales/index.ts`'s `REPORT_LANGUAGES`, a
   whitelist deliberately separate from the UI-locale `LOCALES` — the two
-  answer different questions and must be free to diverge, e.g. `zh-Hant`
-  has zero `i18n_glossary.yml` coverage regardless of UI-switcher status)
+  answer different questions and must be free to diverge)
   saves immediately on change (no Save button) and calls
   `router.refresh()`, never a hard reload.
+  Issue #582 preserves `zh` as Simplified and does not migrate existing
+  users. Downgrade normalizes only `zh-Hant` rows to `zh` before restoring
+  the two-value CHECK. All three request Literals and the frontend whitelist
+  are drift-tested against the model. `locale_for_output_lang("zh-Hant")`
+  selects `zh-Hans` source text without widening glossary `supported_locales`.
+  The shared `to_traditional()` helper uses cached OpenCC `s2twp` with
+  longest-first overrides from `config/zh_hant_terms.yml`; malformed terms
+  fail at load. Consumers perform conversion in #583 (reports), #584
+  (emails/invitations), and #585 (exports/parser). These rendering changes
+  are outside #582. Until #583 lands, a stored `zh-Hant` report language
+  keeps Simplified generation: `_translate_md` maps it to the same
+  "Simplified Chinese" language name as `zh`, so the Simplified compliance
+  scan still runs on the text that is emailed (the raw code must never reach
+  the translation prompt). Copy dictionaries and export dialects that only
+  know `en`/`zh` fall back to English for `zh-Hant` in the interim; that
+  state is accepted and left for #584/#585. The invitation-letter language
+  stays `Literal["en", "zh"]`. The migration runs in production only during
+  an independently authorized deployment.
 - **Multi-user fan-out (Ring 1 stage A1, issue #128, PR #151; cadence-scoped
   since issue #191)**: `generate_incremental_report` iterates
   `app.services.user_scope.active_user_ids(session, cadence)` — active
