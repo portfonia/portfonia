@@ -290,8 +290,8 @@ export async function reorderHoldings(ids: string[]): Promise<HoldingOut[]> {
   return res.json() as Promise<HoldingOut[]>;
 }
 
-// `locale` is the frontend's UI locale (a Locale value from src/locales —
-// see exportLocaleParam below), taking precedence server-side over the
+// `locale` is an export code (en / zh / zh-Hant): callers map the UI
+// locale zh-Hans to zh and preserve zh-Hant, taking precedence over the
 // report-language fallback (issue #319 item 9). Omit to keep the old
 // report-language behavior.
 export async function downloadHoldingsTemplate(locale?: string): Promise<Blob> {

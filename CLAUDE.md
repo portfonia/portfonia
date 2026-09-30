@@ -147,7 +147,7 @@ area of the code, not just the one-line summary here.
 - [Operational event log: durable batch/attempt/stage evidence](docs/mechanisms/capture-and-reporting.md) — issue #446: generic `operational_events` table + independent-connection writer (`app/core/operational_events.py`), report-pipeline integration (`report_tasks.py`/`report_generator.py`), 90-day retention; report-independent by design (see the doc's capture.fx test example) — no FX/other pipeline hook added.
 - [Capture layer + incremental reporting](docs/mechanisms/capture-and-reporting.md) — ADR-002: capture nodes, report window, multi-user fan-out (Ring 1 A1).
 - [Per-user report cadence (mwf/weekly)](docs/mechanisms/capture-and-reporting.md) — issue #191: per-cadence Beat rows + `active_user_ids()` fan-out, `users.report_cadence` CheckConstraint, Ops cadence endpoint.
-- [Per-user report language](docs/mechanisms/capture-and-reporting.md) — issues #308/#582/#583: `users.locale` accepts `en`, `zh` (Simplified), and `zh-Hant`; Profile/signup and Ops accept all three. Traditional reports scan Simplified glossary output before Taiwan conversion; report email subjects/footer are localized. Transactional emails, invitation letters and the invitation unsubscribe page have hand-authored Traditional copy since #584; exports and parser vocabulary follow in #585. `Settings.OUTPUT_LANG` remains fallback-only.
+- [Per-user report language](docs/mechanisms/capture-and-reporting.md) — issues #308/#582/#583: `users.locale` accepts `en`, `zh` (Simplified), and `zh-Hant`; Profile/signup and Ops accept all three. Traditional reports scan Simplified glossary output before Taiwan conversion; report email subjects/footer are localized. Transactional emails, invitation letters and the invitation unsubscribe page have hand-authored Traditional copy since #584; holdings/template and portfolio exports have hand-authored Traditional copy since #585, and parser vocabulary gains Traditional variants at load time. `Settings.OUTPUT_LANG` remains fallback-only.
 - [On-demand report generation is async](docs/mechanisms/capture-and-reporting.md) — issue #193: `POST /reports/generate` returns 202 + a pollable `report_jobs` row (`GET /reports/jobs/{job_id}`); Celery `generate_report_job` calls the existing pipeline; `/admin/.../reports/generate` stays synchronous.
 - [L2 shared macro-event cache](docs/mechanisms/capture-and-reporting.md) — Ring 1 stage A3, issue #128: per-event-key cache, two daily budgets.
 - [Personalized assembly + fan-out budget fairness](docs/mechanisms/capture-and-reporting.md) — Ring 1 stage A4, issue #128: `report_assembly.py`, `shared_budget.py` fair-share allocation.
@@ -224,7 +224,9 @@ area of the code, not just the one-line summary here.
   subject and unsubscribe footer) is converted to Traditional. Transactional
   emails, invitation letters and their unsubscribe page support hand-authored
   Traditional copy since #584; only glossary-derived overview text is converted.
-  Exports and parser vocabulary remain #585. Driven per-user by
+  Holdings/template and portfolio exports support hand-authored Traditional
+  copy since #585; parser vocabulary adds Traditional variants at load time.
+  Driven per-user by
   `users.locale` since issue #308; `Settings.OUTPUT_LANG` remains the fallback
   default. A UI locale is not a report language.
 - Translation resources live under a dedicated locales directory
@@ -234,9 +236,10 @@ area of the code, not just the one-line summary here.
   verification email, issue #260/PR #261; `_INVITATION_LETTER_COPY` in
   `backend/app/services/email_sender.py` and the unsubscribe page copy
   dict in `backend/app/routers/invitation_letters.py`, issue #569;
-  `_RULES_ZH` / `_EXAMPLES_ZH` in
+  `_RULES_ZH` / `_EXAMPLES_ZH` and `_RULES_ZH_HANT` / `_EXAMPLES_ZH_HANT` in
   `backend/app/services/holdings_export.py` for the holdings
-  export/template dialect keyed off `users.locale`, issue #92/PR #310 —
+  export/template dialect (English, Simplified and Traditional),
+  issue #92/PR #310/#585 —
   six mechanisms, see the Mechanism deep-dives table)
   and are the only places where non-English text legitimately appears in
   the repo. A lint rule (`i18next/no-literal-string` in
@@ -250,11 +253,12 @@ area of the code, not just the one-line summary here.
   BCP-47 `zh-Hans` tag. The holdings export/template strings stay in
   `holdings_export.py` for the same reason: they are a downloaded file
   dialect, not report glossary terms — **since issue #319/PR #321**,
-  `GET /holdings/export`/`GET /holdings/template` specifically (no other
-  route) take an optional `locale` query param sourced from the
-  frontend's UI locale that overrides the `users.locale` (report
-  language) fallback these two endpoints used before; report generation
-  itself is untouched.
+  `GET /holdings/export`/`GET /holdings/template` take an optional
+  `locale` query param sourced from the frontend's UI locale that
+  overrides the `users.locale` (report language) fallback these two
+  endpoints used before; `GET /portfolio/export` (issue #331/PR #335)
+  takes the same optional `locale` with the same precedence. Report
+  generation itself is untouched.
 
 ## Product Boundary (NEVER VIOLATE)
 

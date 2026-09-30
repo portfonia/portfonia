@@ -534,11 +534,19 @@ bank broker. Listed auto tickers are **not** reclassified into Other.
 `GET /holdings/template` emit the `#####` comment-rules dialect (one
 holding per line, export ordered by `position`). **Locale as of issue
 #319 item 9**: an optional `locale` query param (the frontend's current
-UI locale, `zh-Hans` mapped to bare `zh`) takes precedence when given;
+UI locale, `zh-Hans` mapped to bare `zh`, `zh-Hant` preserved) takes
+precedence when given;
 omitted falls back to `users.locale` (report language) as before — the
-two are independently controllable, and this is the only place UI
-locale drives anything other than UI chrome. The positional
-prefix is name / identifier / currency / shares / avg_cost / broker for
+two are independently controllable. Since issue #585, `en`, `zh` and
+`zh-Hant` select English, Simplified Chinese and hand-authored Taiwan
+Traditional Chinese rules/examples; an unknown locale still selects English.
+`_RULES_ZH_HANT` and `_EXAMPLES_ZH_HANT` preserve the Simplified blocks'
+line counts and field keywords. Holding lines remain locale-independent.
+`holding_parser._load_holding_parser_vocab()` adds `to_traditional` variants
+to each vocabulary list, scalar term list and Chinese market-alias key at
+load time, retaining Simplified first and removing duplicates. The YAML
+source, extraction prompt template, model and parsing logic are unchanged.
+The positional prefix is name / identifier / currency / shares / avg_cost / broker for
 auto-priced listed rows; name / identifier / currency / shares / avg_cost /
 current_value / broker when `pricing_mode:manual` — **always all three
 numeric slots**, using the placeholder `-` for one that is unset (round 5
@@ -913,7 +921,7 @@ needed, only `openpyxl.*` added to `pyproject.toml`'s
 `py.typed`).
 
 **Locale**: column headers switch via `_HEADERS_BY_LOCALE`
-(`en`/`zh`, unrecognized falls back to `en`) — a standalone dict, not
+(`en`/`zh`/`zh-Hant`, unrecognized falls back to `en`) — a standalone dict, not
 imported from `holdings_export.py` (different key set, different
 purpose). `locale` query param overrides `users.locale`, same precedence
 as `/holdings/export`/`/holdings/template` (issue #319 item 9); resolved
@@ -921,7 +929,11 @@ by a private `_export_locale()` in `routers/portfolio.py` that mirrors
 `holdings.py`'s `_report_locale()` rather than importing it — this
 repo's established convention is one small locale-fallback helper per
 export module (see also `email_verification.py`'s `_resolve_locale()`),
-not a shared abstraction.
+not a shared abstraction. Issue #585 adds hand-authored Taiwan Traditional
+headers (`_HEADERS_ZH_HANT`) and as-of/base-currency labels in the existing
+locale dictionaries. Column order, metadata rows, data values and both
+formats' layout remain unchanged. Both frontend export helpers map
+`zh-Hans` to `zh` and preserve `zh-Hant`; the two helpers remain separate.
 
 **Frontend**: `ExportPortfolioButtons` (two buttons, "Download .xlsx" /
 "Download .md") on `/portfolio`, next to `SendOverviewButton`, using the

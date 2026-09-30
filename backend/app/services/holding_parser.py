@@ -42,6 +42,7 @@ from app.services.llm_errors import (
     is_retryable,
 )
 from app.services.markets import VALID_HOLDING_MARKETS, resolve_holding_market
+from app.services.zh_hant import to_traditional
 
 _SUPPORTED_EXTENSIONS = {".md", ".txt", ".csv", ".xlsx", ".xls"}
 
@@ -78,21 +79,33 @@ def _load_holding_parser_vocab(path: Path | None = None) -> _HoldingParserVocab:
     target = path or _get_holding_parser_vocab_path()
     with target.open(encoding="utf-8") as fh:
         raw = yaml.safe_load(fh)
+
+    def variants(words: list[str]) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(term for word in words for term in (word, to_traditional(word))))
+
+    def terms(key: str) -> str:
+        return "/".join(variants(raw[key].split("/")))
+
+    aliases = {
+        variant: market
+        for alias, market in raw["market_aliases_zh"].items()
+        for variant in variants([alias])
+    }
     return _HoldingParserVocab(
-        cny_institutions=tuple(raw["cny_institutions"]),
-        common_cn_platforms=tuple(raw["common_cn_platforms"]),
-        futu=raw["futu"],
-        stock_connect=raw["stock_connect"],
-        cash=raw["cash"],
-        margin=raw["margin"],
-        deposit=raw["deposit"],
-        money_market=raw["money_market"],
-        index_fund=raw["index_fund"],
-        wmp_terms=raw["wmp_terms"],
-        a_share_terms=raw["a_share_terms"],
-        us_market_zh=raw["us_market_zh"],
-        hk_market_zh=raw["hk_market_zh"],
-        market_aliases_zh=dict(raw["market_aliases_zh"]),
+        cny_institutions=variants(raw["cny_institutions"]),
+        common_cn_platforms=variants(raw["common_cn_platforms"]),
+        futu=terms("futu"),
+        stock_connect=terms("stock_connect"),
+        cash=terms("cash"),
+        margin=terms("margin"),
+        deposit=terms("deposit"),
+        money_market=terms("money_market"),
+        index_fund=terms("index_fund"),
+        wmp_terms=terms("wmp_terms"),
+        a_share_terms=terms("a_share_terms"),
+        us_market_zh=terms("us_market_zh"),
+        hk_market_zh=terms("hk_market_zh"),
+        market_aliases_zh=aliases,
     )
 
 

@@ -27,6 +27,28 @@ beforeEach(() => {
 });
 
 describe("ExportPortfolioButtons", () => {
+  it.each([
+    ["en", "en"],
+    ["zh-Hans", "zh"],
+    ["zh-Hant", "zh-Hant"],
+  ])("passes UI locale %s to both portfolio downloads as %s (#585)", async (locale, expected) => {
+    const store = new Map([["portfonia:locale", locale]]);
+    Object.defineProperty(window, "localStorage", {
+      value: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => void store.set(key, value),
+        clear: () => store.clear(),
+      }, configurable: true,
+    });
+    exportPortfolio.mockResolvedValue({ blob: new Blob(["data"]), filename: "portfolio.md" });
+    const user = userEvent.setup();
+    render(<LocaleProvider><ExportPortfolioButtons baseCurrency="USD" /></LocaleProvider>);
+    for (const format of ["xlsx", "md"]) {
+      await user.click(screen.getByRole("button", { name: new RegExp(`\\.${format}`, "i") }));
+      await waitFor(() => expect(exportPortfolio).toHaveBeenCalledWith(format, "USD", expected));
+    }
+    store.clear();
+  });
   it("downloads an xlsx file when the xlsx button is clicked", async () => {
     const blob = new Blob(["binary"]);
     exportPortfolio.mockResolvedValue({ blob, filename: "portfolio-x.xlsx" });

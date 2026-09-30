@@ -939,10 +939,9 @@ def test_export_locale_param_takes_precedence_over_report_locale(
 def test_export_locale_param_unrecognized_value_falls_back_to_english(
     app_client: TestClient,
 ) -> None:
-    """A locale render_rules does not recognize (e.g. zh-Hant, still gated
-    out of the frontend switcher) falls back to English rather than 404ing
+    """A locale render_rules does not recognize (e.g. fr) falls back to English rather than 404ing
     or erroring — this endpoint does not itself validate the value."""
-    resp = app_client.get("/holdings/export?locale=zh-Hant")
+    resp = app_client.get("/holdings/export?locale=fr")
     assert resp.status_code == 200
     assert "One holding per line" in resp.text
 
