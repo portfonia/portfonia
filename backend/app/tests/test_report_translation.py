@@ -48,10 +48,8 @@ def test_translate_glossary_maps_confidence_labels_to_chinese() -> None:
     assert '"[Speculative]" -> "[推测]"' in captured["system"]
 
 
-def test_translate_zh_hant_uses_simplified_language_name_until_conversion_exists() -> None:
-    """Issue #582: a stored zh-Hant report language must keep the Simplified
-    generation pipeline (translate to Simplified, scan Simplified, convert later
-    in #583). The raw code must never reach the translation prompt."""
+def test_translate_zh_hant_uses_simplified_language_and_glossary() -> None:
+    """Issue #583: translate to Simplified for scanning before conversion."""
     captured: dict[str, str] = {}
 
     def _fake_call(_client: object, _model: str, system: str, user: str, **_kw: object) -> str:
@@ -65,6 +63,8 @@ def test_translate_zh_hant_uses_simplified_language_name_until_conversion_exists
         rt._translate_md("## \u00a74\nNVDA - chip optimism [Established].\n", "zh-Hant")
     assert "into Simplified Chinese." in captured["system"]
     assert "zh-Hant" not in captured["system"]
+    assert rt._build_glossary_instruction("zh") in captured["system"]
+    assert rt._build_glossary_instruction("zh")
 
 
 def test_split_sections_chunks_at_section_and_subsection_headings_and_roundtrips() -> None:

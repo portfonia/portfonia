@@ -24,7 +24,7 @@ import uuid
 from collections.abc import Generator
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -4059,3 +4059,86 @@ def test_render_full_md_zh_keeps_page_links_out_of_translation() -> None:
     assert full_md.index(zh_links) < full_md.index("## §2")
     assert all("Want a closer look" not in md and zh_links not in md for md in seen)
     assert violations == []
+
+
+# Issue #583: Traditional rendering happens only after both compliance scans.
+@pytest.mark.parametrize("body", ["市场风险值得关注。", "市场风险:强烈买入。"])
+def test_render_zh_hant_scans_before_conversion(body: str) -> None:
+    from app.services.zh_hant import to_traditional
+
+    events: list[str] = []
+    from app.compliance.output_scan import _scan_forbidden_output
+    from app.services.report_sections import _build_footer
+
+    real_scan = _scan_forbidden_output
+
+    def scan(text: str) -> list[str]:
+        events.append("scan")
+        assert "市场风险" in text
+        assert "市場風險" not in text
+        return real_scan(text)
+
+    def convert(text: str) -> str:
+        events.append("convert")
+        assert events[:2] == ["scan", "scan"]
+        return to_traditional(text)
+
+    with (
+        patch.object(rg, "_translate_md", return_value=body) as translate,
+        patch.object(rg, "_scan_forbidden_output", side_effect=scan),
+        patch.object(rg, "to_traditional", side_effect=convert, create=True),
+    ):
+        full_md, violations, dynamic = rg._render_full_md(
+            "2026-09-29", _LINKS_PORTFOLIO, [], body, "zh-Hant"
+        )
+    assert bool(violations) == ("强烈买入" in body)
+    assert "市場風險" in full_md and "市场风险" not in full_md
+    assert to_traditional(full_md) == full_md
+    assert dynamic == to_traditional(dynamic)
+    assert to_traditional(_build_footer(_LINKS_PORTFOLIO, "zh")) in full_md
+    assert events == ["scan", "scan", "convert", "convert"]
+    assert [call.args[1] for call in translate.call_args_list] == ["zh", "zh"]
+
+
+def test_generate_quiet_zh_hant_stores_traditional(db_session: Session) -> None:
+    from app.models.user import User
+    from app.services.user_scope import report_language_for
+    from app.services.zh_hant import to_traditional
+
+    user = db_session.get(User, _USER)
+    assert user is not None
+    user.locale = "zh-Hant"
+    db_session.flush()
+    with (
+        patch.object(rg, "compute_portfolio", return_value=_portfolio_snap()),
+        patch.object(rg, "load_news_window", return_value=[]),
+        patch.object(rg, "detect_macro_signals", return_value=_quiet_signals()),
+        patch.object(rg, "detect_window_anomalies", return_value=([], 0)),
+        patch.object(rg, "_translate_md", return_value="市场风险值得关注。"),
+        patch.object(rg, "_call_llm", side_effect=AssertionError("quiet path must not call LLM")),
+    ):
+        report = rg.generate_report(
+            db_session,
+            user_id=_USER,
+            report_date=_TODAY,
+            output_lang=report_language_for(db_session, _USER, "en"),
+        )
+    db_session.refresh(report)
+    assert report.status == "skipped"
+    assert report.report_md is not None
+    assert "市場風險" in report.report_md
+    assert to_traditional(report.report_md) == report.report_md
+
+
+def test_generate_zh_hant_violation_suppresses_email(db_session: Session) -> None:
+    with contextlib.ExitStack() as stack:
+        for mock_patch in _normal_path_patches():
+            stack.enter_context(cast(contextlib.AbstractContextManager[object], mock_patch))
+        stack.enter_context(patch.object(rg, "_translate_md", return_value="市场风险:强烈买入。"))
+        email = stack.enter_context(patch.object(rg, "send_report_email"))
+        report = rg.generate_report(
+            db_session, user_id=_USER, report_date=_TODAY, output_lang="zh-Hant"
+        )
+    assert report.status == "needs_review"
+    assert report.report_md is not None and "市場風險" in report.report_md
+    email.assert_not_called()

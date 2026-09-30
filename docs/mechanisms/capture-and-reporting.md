@@ -620,7 +620,7 @@ layer** (per-user, incremental).
   (`VALID_REPORT_CADENCES`, `app/models/user.py`) — the two are kept in
   sync by hand, not derived from one source, since Pydantic's `Literal`
   needs compile-time members.
-- **Per-user report language (issues #308/#582)**: `users.locale` (`NOT NULL`,
+- **Per-user report language (issues #308/#582/#583)**: `users.locale` (`NOT NULL`,
   free `Text` before this issue — read only for an informational Pass 2
   prompt hint and email-verification copy, never driving report
   translation) gains a `CheckConstraint` (`VALID_REPORT_LANGUAGES =
@@ -681,15 +681,21 @@ layer** (per-user, incremental).
   selects `zh-Hans` source text without widening glossary `supported_locales`.
   The shared `to_traditional()` helper uses cached OpenCC `s2twp` with
   longest-first overrides from `config/zh_hant_terms.yml`; malformed terms
-  fail at load. Consumers perform conversion in #583 (reports), #584
-  (emails/invitations), and #585 (exports/parser). These rendering changes
-  are outside #582. Until #583 lands, a stored `zh-Hant` report language
-  keeps Simplified generation: `_translate_md` maps it to the same
-  "Simplified Chinese" language name as `zh`, so the Simplified compliance
-  scan still runs on the text that is emailed (the raw code must never reach
-  the translation prompt). Copy dictionaries and export dialects that only
-  know `en`/`zh` fall back to English for `zh-Hant` in the interim; that
-  state is accepted and left for #584/#585. The invitation-letter language
+  fail at load. Issue #583 renders reports through the Simplified path:
+  `_translate_md` requests "Simplified Chinese" with the `zh-Hans` glossary,
+  and `_render_full_md` scans the canonical body and the translated dynamic
+  text before converting the assembled report and `pass2_translated` to
+  Traditional. Title, section labels, page links and the template footer
+  are included in conversion. Generate, quiet-window, on-demand jobs,
+  scheduled fan-out and both regenerate modes share this render boundary.
+  Keeping the scans before conversion preserves the existing Simplified
+  compliance vocabulary and `needs_review` email suppression without new
+  patterns or a round-trip conversion. Report email subjects convert the
+  glossary title and use a dedicated Traditional unsubscribe copy entry.
+  Existing stored reports are unchanged; switching language uses regenerate.
+  Other emails/invitations and exports/parser remain scoped to #584/#585;
+  copy dictionaries and export dialects that only know `en`/`zh` retain
+  their interim fallback behavior. The invitation-letter language
   stays `Literal["en", "zh"]`. The migration runs in production only during
   an independently authorized deployment.
 - **Multi-user fan-out (Ring 1 stage A1, issue #128, PR #151; cadence-scoped

@@ -77,12 +77,11 @@ def _translate_md(md: str, target_lang: str) -> str:
     """
     if target_lang == "en":
         return md
-    # zh-Hant (issue #582) keeps Simplified generation until the post-scan
-    # conversion in #583 exists; the raw code must never reach the prompt.
-    lang_name = {"zh": "Simplified Chinese", "zh-Hant": "Simplified Chinese"}.get(
-        target_lang, target_lang
-    )
-    glossary = _build_glossary_instruction(target_lang)
+    # Traditional reports use Simplified translation and scanning; the renderer
+    # converts the assembled report only after both compliance scans (#583).
+    llm_lang = "zh" if target_lang == "zh-Hant" else target_lang
+    lang_name = {"zh": "Simplified Chinese"}.get(llm_lang, llm_lang)
+    glossary = _build_glossary_instruction(llm_lang)
     settings = get_settings()
     system = (
         "You are a professional financial translator. Translate the user's Markdown "

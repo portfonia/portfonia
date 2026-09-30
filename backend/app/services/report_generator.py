@@ -162,6 +162,7 @@ from app.services.window_data import (
     user_has_done_history,
     user_watermark,
 )
+from app.services.zh_hant import to_traditional
 
 logger = logging.getLogger(__name__)
 
@@ -405,6 +406,7 @@ def _render_full_md(
     analysis to check) and any other caller can opt out simply by not
     passing them.
     """
+    render_lang = "zh" if output_lang == "zh-Hant" else output_lang
     cleaned = _strip_markers(raw_body)
     if report_id is not None and holding_news is not None:
         # Log-only, must never break report generation — issue #173 Design
@@ -454,20 +456,24 @@ def _render_full_md(
     # Translate the snapshot and the body separately so §1's closing page-links
     # line (issue #560) is spliced in already localized and never reaches the
     # LLM. Chunking is by heading, so the chunk set is unchanged.
-    snapshot_out = _translate_md(header + window + section1, output_lang)
-    body_out = _translate_md(cleaned, output_lang)
+    snapshot_out = _translate_md(header + window + section1, render_lang)
+    body_out = _translate_md(cleaned, render_lang)
     dynamic_out = (
-        snapshot_out.rstrip() + "\n\n" + _build_section1_page_links(output_lang) + "\n\n" + body_out
+        snapshot_out.rstrip() + "\n\n" + _build_section1_page_links(render_lang) + "\n\n" + body_out
     )
     # The translator can re-add its own disclaimer paragraph (it runs after the
     # pre-translation strip); remove it so the body carries no disclaimer and the
     # scan does not false-trip on its advisory-sounding wording in either language.
     dynamic_out = _strip_body_disclaimer(dynamic_out)
-    if output_lang != "en":
+    if render_lang != "en":
         # Translation can paraphrase into advisory tone — re-scan the output.
         violations = violations + _scan_forbidden_output(dynamic_out)
 
-    full_md = dynamic_out + _build_footer(portfolio, output_lang)
+    full_md = dynamic_out + _build_footer(portfolio, render_lang)
+    # Both scans must see the canonical/Simplified text before Taiwan conversion.
+    if output_lang == "zh-Hant":
+        full_md = to_traditional(full_md)
+        dynamic_out = to_traditional(dynamic_out)
     return full_md, violations, dynamic_out
 
 
