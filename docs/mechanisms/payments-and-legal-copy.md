@@ -22,7 +22,14 @@ Ops refunds debit unused purchased cash credits within 120 days, then
 create a proportional Paddle adjustment in the same request; a failed Paddle
 call rolls the debit back. A rejected adjustment restores the debit once.
 External adjustments alert Ops without changing the ledger. Monthly plan-fee
-deduction remains future work.
+deduction remains future work. A repeated Buy click on the same pack, within
+the same page visit, reopens the still-unfinished transaction from the
+`checkout.loaded` event instead of creating a second one (issue #592): the
+component remembers the last opened price id and its transaction id in a
+ref (not persisted anywhere), and reuses that transaction id on the next
+Buy for the same pack. It falls back to opening a fresh transaction whenever
+that memory doesn't apply — a different pack, `checkout.completed`,
+`checkout.error`, or the existing 15-second open timeout all clear it.
 This file holds the English source copy and the change map. The zh-Hans and
 zh-Hant translations ship in `frontend/src/locales/`; their reviewed source
 lives in the owner's project notes.

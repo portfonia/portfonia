@@ -31,6 +31,8 @@ export function CreditPurchase() {
   const [notice, setNotice] = useState<Notice>(null);
   const openingRef = useRef<string | null>(null);
   const paddleRef = useRef<Paddle | null>(null);
+  const requestedPriceRef = useRef<string | null>(null);
+  const pendingRef = useRef<{ priceId: string; transactionId: string } | null>(null);
   const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollDeadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -89,18 +91,29 @@ export function CreditPurchase() {
 
   useEffect(() => {
     handlerRef.current = (event) => {
-      if (event.name === "checkout.loaded" || event.name === "checkout.closed") {
+      if (event.name === "checkout.loaded") {
+        const transactionId = event.data?.transaction_id;
+        if (transactionId?.startsWith("txn_") && requestedPriceRef.current !== null) {
+          pendingRef.current = { priceId: requestedPriceRef.current, transactionId };
+        }
+        clearOpenTimer();
+        setOpeningState(null);
+        return;
+      }
+      if (event.name === "checkout.closed") {
         clearOpenTimer();
         setOpeningState(null);
         return;
       }
       if (event.name === "checkout.error") {
+        pendingRef.current = null;
         clearOpenTimer();
         setOpeningState(null);
         setNotice("openFailed");
         return;
       }
       if (event.name !== "checkout.completed") return;
+      pendingRef.current = null;
       const transactionId = event.data?.transaction_id;
       if (!transactionId?.startsWith("txn_")) return;
       clearOpenTimer();
@@ -152,11 +165,20 @@ export function CreditPurchase() {
     setOpeningState(priceId);
     setNotice(null);
     clearOpenTimer();
+    requestedPriceRef.current = priceId;
     openTimerRef.current = setTimeout(() => {
       if (openingRef.current === null) return;
+      pendingRef.current = null;
       setOpeningState(null);
       setNotice("openFailed");
     }, OPEN_TIMEOUT_MS);
+    if (pendingRef.current?.priceId === priceId) {
+      state.paddle.Checkout.open({
+        transactionId: pendingRef.current.transactionId,
+        settings: { displayMode: "overlay", variant: "one-page" },
+      });
+      return;
+    }
     state.paddle.Checkout.open({
       items: [{ priceId, quantity: 1 }],
       customer: { email: state.config.email },
