@@ -26,9 +26,9 @@ def test_overrides_win() -> None:
 
 
 def test_longest_source_wins(monkeypatch: pytest.MonkeyPatch) -> None:
-    terms = load_terms()
-    # Supply an overlapping shorter source independently of the production table.
-    terms["\u6301\u4ed3"] = "shorter match"
+    # Insert the overlapping shorter source first so that only the longest-first
+    # ordering (not dict insertion order) can make the longer production key win.
+    terms = {"\u6301\u4ed3": "shorter match", **load_terms()}
     monkeypatch.setattr(zh_hant, "load_terms", lambda: terms)
     assert to_traditional("\u6301\u4ed3\u673a\u6784") == "\u4fdd\u7ba1\u6a5f\u69cb"
 

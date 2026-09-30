@@ -683,8 +683,15 @@ layer** (per-user, incremental).
   longest-first overrides from `config/zh_hant_terms.yml`; malformed terms
   fail at load. Consumers perform conversion in #583 (reports), #584
   (emails/invitations), and #585 (exports/parser). These rendering changes
-  are outside #582. The migration runs in production only during an
-  independently authorized deployment.
+  are outside #582. Until #583 lands, a stored `zh-Hant` report language
+  keeps Simplified generation: `_translate_md` maps it to the same
+  "Simplified Chinese" language name as `zh`, so the Simplified compliance
+  scan still runs on the text that is emailed (the raw code must never reach
+  the translation prompt). Copy dictionaries and export dialects that only
+  know `en`/`zh` fall back to English for `zh-Hant` in the interim; that
+  state is accepted and left for #584/#585. The invitation-letter language
+  stays `Literal["en", "zh"]`. The migration runs in production only during
+  an independently authorized deployment.
 - **Multi-user fan-out (Ring 1 stage A1, issue #128, PR #151; cadence-scoped
   since issue #191)**: `generate_incremental_report` iterates
   `app.services.user_scope.active_user_ids(session, cadence)` — active
