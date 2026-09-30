@@ -22,6 +22,7 @@ from app.models.fx_rate import FxRate
 from app.models.holding import Holding
 from app.models.user import User
 from app.services.email_sender import (
+    _PORTFOLIO_OVERVIEW_COPY,
     _build_portfolio_overview_markdown,
     _glossary_term,
     send_portfolio_overview_email,
@@ -400,7 +401,6 @@ def test_send_none_cadence_omits_next_report(
     mock_client.post.return_value.json.return_value = {"id": "test-id"}
     assert send_portfolio_overview_email(db_session, _USER_ID, "USD") is True
     payload = mock_client.post.call_args.kwargs["json"]
-    assert "Next report" not in payload["html"]
-    assert "Next report" not in _build_portfolio_overview_markdown(
-        compute_portfolio(db_session, user_id=_USER_ID, base_currency="USD"), "en", None
-    )
+    labels = [copy["next_report_label"] for copy in _PORTFOLIO_OVERVIEW_COPY.values()]
+    assert all(label not in payload["html"] for label in labels)
+    assert all(label not in payload["text"] for label in labels)

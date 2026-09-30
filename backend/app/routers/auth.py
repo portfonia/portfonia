@@ -110,8 +110,8 @@ def signup(
             status="active",
             locale=req.locale or "zh",
             base_currency="USD",
-            # New users default to weekly, not mwf (Ring 1-Onboarding.md §一.6).
-            # Multi-cadence Beat/fan-out wiring is a follow-up issue.
+            # No cadence until the user subscribes (issue #595); the plan
+            # chosen then sets it.
             report_cadence="none",
             tos_accepted_at=datetime.now(UTC),
         )
