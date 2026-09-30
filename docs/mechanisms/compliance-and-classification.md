@@ -35,6 +35,16 @@
   daily — Resend's Idempotency-Key window alone cannot. See
   `capture-and-reporting.md` "Fund NAV staleness observability".
 
+Traditional reports (`zh-Hant`, issue #583) translate using the Simplified
+Chinese glossary. Both scans in `_render_full_md` run before conversion:
+the canonical body first, then the translated dynamic text. Only after
+those scans does `to_traditional()` convert the assembled report, including
+the template footer, and the stored translation snapshot. This preserves
+the existing Simplified scan coverage without additional forbidden patterns
+or a Traditional-to-Simplified round trip. Violations still produce
+`needs_review` and suppress report email; converted content remains stored
+for inspection.
+
 ### EN scan patterns: shared directive/own-voice builders (issue #443, PR #444)
 
 Production hold `73d54b62-ac48-4c76-8900-4d6b26898201` (2026-09-12) blocked a

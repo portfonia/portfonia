@@ -32,6 +32,7 @@ from app.services.report_sections import _build_footer
 from app.services.unsubscribe_token import create_token as create_unsubscribe_token
 from app.services.user_directory import recipient_email_with_purpose
 from app.services.user_scope import report_language_for
+from app.services.zh_hant import to_traditional
 from app.tasks import next_occurrence_for_cadence
 
 logger = logging.getLogger(__name__)
@@ -410,6 +411,8 @@ def send_report_email(report: Report, session: Session) -> bool:
         if locale in glossary.supported_locales
         else report_title_key
     )
+    if recipient_locale == "zh-Hant":
+        report_title = to_traditional(report_title)
     subject = f"{report_title} — {report_date_str}"
     unsub_token = create_unsubscribe_token(
         user_id=report.user_id,
@@ -573,8 +576,9 @@ def send_report_email(report: Report, session: Session) -> bool:
 
 
 # Locale-keyed footer for the report-email unsubscribe link (issue #257).
-# Same bare `en`/`zh` keys as `_VERIFICATION_EMAIL_COPY` below — OUTPUT_LANG,
-# not the frontend BCP-47 tags. The HTML variant is markdown so `_render_html`
+# Keyed by stored report language (`en`/`zh`/`zh-Hant`, issue #583), the same
+# bare-code convention as `_VERIFICATION_EMAIL_COPY` below — OUTPUT_LANG, not
+# the frontend BCP-47 tags. The HTML variant is markdown so `_render_html`
 # turns it into a real <a href> in the footer; the text variant is the same
 # URL as a plain line. Disclaimer/glossary copy already lives in
 # `report.report_md` (assembled by report_sections._build_footer) and is
@@ -606,6 +610,16 @@ _UNSUBSCRIBE_FOOTER_COPY: dict[str, dict[str, str]] = {
         "text": (
             "本报告由 Portfonia 根据您提供的信息,递送到您配置的邮箱。"
             "您可以退订此邮箱,停止在此接收报告:\n{url}"
+        ),
+    },
+    "zh-Hant": {
+        "html_md": (
+            "本報告由 Portfonia 根據您提供的資訊,寄送至您設定的電子信箱。"
+            "您可以[退訂此信箱]({url}),停止在此接收報告。"
+        ),
+        "text": (
+            "本報告由 Portfonia 根據您提供的資訊,寄送至您設定的電子信箱。"
+            "您可以退訂此信箱,停止在此接收報告:\n{url}"
         ),
     },
 }

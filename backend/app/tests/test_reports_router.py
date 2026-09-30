@@ -288,3 +288,29 @@ def test_dependency_overrides_intercepts_current_principal_on_a_write_path(
 
     assert resp.status_code == 200
     assert mock_regen.call_args.kwargs["user_id"] == other_user
+
+
+def test_regenerate_render_zh_hant_returns_traditional(
+    app_client: TestClient, db_session: Session
+) -> None:
+    from app.services.zh_hant import to_traditional
+
+    report = _make_report(db_session, user_id=TEST_USER_ID)
+    report.report_inputs = {
+        "pass2_raw": "Market risk merits observation.",
+        "portfolio_summary": {"holdings": [], "total_value": 0, "base_currency": "USD"},
+    }
+    db_session.flush()
+    with patch("app.services.report_generator._translate_md", return_value="市场风险值得关注。"):
+        response = app_client.post(
+            f"/reports/{report.id}/regenerate",
+            params={"mode": "render", "output_lang": "zh-Hant"},
+        )
+    assert response.status_code == 200
+    md = response.json()["report_md"]
+    assert "市場風險" in md
+    assert to_traditional(md) == md
+    db_session.refresh(report)
+    assert report.report_md == md
+    assert report.report_inputs is not None
+    assert "市場風險" in report.report_inputs["pass2_translated"]

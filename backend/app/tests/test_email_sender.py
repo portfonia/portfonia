@@ -1131,3 +1131,32 @@ def test_send_verification_email_returns_none_on_failure(
     result = send_verification_email("a@example.com", "tok-1")
 
     assert result is None
+
+
+@patch(
+    "app.services.email_sender.recipient_email_with_purpose",
+    return_value=("test@example.com", "account_email"),
+)
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
+def test_send_report_zh_hant_subject_and_unsubscribe_footer(
+    mock_client_cls: MagicMock, mock_settings: MagicMock, mock_recipient: MagicMock
+) -> None:
+    from app.services.email_sender import _UNSUBSCRIBE_FOOTER_COPY
+    from app.services.i18n_glossary import load_i18n_glossary
+    from app.services.zh_hant import to_traditional
+
+    mock_settings.return_value = _mock_settings()
+    post = mock_client_cls.return_value.__enter__.return_value.post
+    post.return_value = MagicMock()
+    session = MagicMock()
+    session.get.return_value = SimpleNamespace(locale="zh-Hant")
+    assert send_report_email(_make_report(), session)
+    payload = post.call_args.kwargs["json"]
+    title = load_i18n_glossary().report_glossary["Portfonia Financial Analysis Report"]["zh-Hans"]
+    assert payload["subject"] == f"{to_traditional(title)} — 2026-06-06"
+    url = payload["headers"]["List-Unsubscribe"][1:-1]
+    copy = _UNSUBSCRIBE_FOOTER_COPY["zh-Hant"]
+    assert payload["text"].endswith(copy["text"].format(url=url))
+    assert to_traditional(copy["text"]) == copy["text"]
+    assert "退訂此信箱" in payload["html"]
