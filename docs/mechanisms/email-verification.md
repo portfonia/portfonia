@@ -61,6 +61,11 @@ sent" — see `frontend-chrome.md`'s Profile redesign entry).
    destroyed a still-working prior link while never actually sending
    anything (round 2 fix, review PR #261). A failed send raises
    `VerificationSendFailed` with zero DB writes — safe to retry.
+   Since issue #584, `_VERIFICATION_EMAIL_COPY` has hand-authored `en`, `zh`
+   and `zh-Hant` entries. `_resolve_locale` preserves the bound user's
+   `users.locale`; an unbound Ops verification uses English. No runtime
+   conversion is applied to verification email copy, and sender addresses
+   and verification URLs are unchanged.
 2. Supersede scope is `(user_id, purpose)` when `user_id` is bound, but
    `(purpose, email)` when it's an unbound `ops_manual` probe
    (`user_id=None`) — `purpose=ops_manual` always carries `user_id=None`

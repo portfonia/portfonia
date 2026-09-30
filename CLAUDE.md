@@ -117,7 +117,7 @@ area of the code, not just the one-line summary here.
 - [Frontend chrome (header/nav) convention](docs/mechanisms/frontend-chrome.md) — issue #146/#148 (shared `SiteHeader`); #214 session re-verification; #209 global i18n catalog; #220 Profile menu entry; #269 Profile section reorder; #390 Holdings+Report management merge; #350 item 4 LocaleSwitcher rebuild.
 - [Profile page: GET /me account summary](docs/mechanisms/identity-and-auth.md) — issue #220/#221: `/profile` summary + full `GET /me` shape; #269 adds verification timestamps.
 - [Waitlist](docs/mechanisms/identity-and-auth.md#waitlist-issue-566) — issue #566: public requests, derived stages, and ops-managed email-bound invite links.
-- [Invitation letter](docs/mechanisms/identity-and-auth.md#invitation-letter-issue-569) — issue #569: ops-triggered letters, unsubscribe, delivery poll, and signup email lock. #572 carries the letter's UI locale as `?lang=` on the signup link.
+- [Invitation letter](docs/mechanisms/identity-and-auth.md#invitation-letter-issue-569) — issue #569: ops-triggered letters, unsubscribe, delivery poll, and signup email lock. #572 carries the letter's UI locale as `?lang=` on the signup link; #584 adds Traditional Chinese letters and unsubscribe pages.
 - [Post-signup onboarding](docs/mechanisms/frontend-chrome.md) — issue #221: ToS gate, `/questionnaire?onboarding=1` → `/welcome` flow; #280 reordered to questionnaire→holdings→welcome; #290 send-stop copy lift; #586 login and post-welcome land on `/portfolio`, with Portfolio header links.
 - [Async holdings upload](docs/mechanisms/holdings-pipeline.md) — issue #77/#82/#85: `POST /holdings/upload` returns 202 + job id, Celery parses, 45s SLA, two-layer hard-kill resolution.
 - [Holdings encryption at rest](docs/mechanisms/holdings-pipeline.md) — issue #31: field-level Fernet via SQLAlchemy `TypeDecorator`, system-wide key, `ORDER BY` moved to Python.
@@ -221,8 +221,10 @@ area of the code, not just the one-line summary here.
   Taiwan conversion using OpenCC `s2twp` and `config/zh_hant_terms.yml`.
   Report rendering landed in #583: both compliance scans run on the
   Simplified text, then the assembled report (plus the report email's
-  subject and unsubscribe footer) is converted to Traditional. Other
-  emails, invitations and exports remain #584/#585. Driven per-user by
+  subject and unsubscribe footer) is converted to Traditional. Transactional
+  emails, invitation letters and their unsubscribe page support hand-authored
+  Traditional copy since #584; only glossary-derived overview text is converted.
+  Exports and parser vocabulary remain #585. Driven per-user by
   `users.locale` since issue #308; `Settings.OUTPUT_LANG` remains the fallback
   default. A UI locale is not a report language.
 - Translation resources live under a dedicated locales directory
@@ -243,8 +245,8 @@ area of the code, not just the one-line summary here.
   than folded into either existing mechanism: the next-intl catalog is
   browser-only and unreachable from this backend module, and
   `i18n_glossary.yml` is built for large LLM-generated report bodies, not
-  a two-line transactional email — bare locale codes (`en`/`zh`), matching
-  `users.locale`/`OUTPUT_LANG`'s convention, not the frontend catalog's
+  a two-line transactional email — stored locale codes (`en`/`zh`/`zh-Hant`),
+  matching `users.locale`/`OUTPUT_LANG`'s convention, not the frontend catalog's
   BCP-47 `zh-Hans` tag. The holdings export/template strings stay in
   `holdings_export.py` for the same reason: they are a downloaded file
   dialect, not report glossary terms — **since issue #319/PR #321**,

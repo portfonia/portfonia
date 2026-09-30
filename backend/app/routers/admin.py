@@ -301,14 +301,14 @@ class CreateInviteBody(BaseModel):
 
 class InvitationLetterBody(BaseModel):
     email: str
-    language: Literal["en", "zh"] | None = None
+    language: Literal["en", "zh", "zh-Hant"] | None = None
     expires_days: int = Field(default=14, ge=1, le=90)
 
 
 class InvitationLetterOut(BaseModel):
     invite_id: UUID
     email: str
-    language: Literal["en", "zh"]
+    language: Literal["en", "zh", "zh-Hant"]
     waitlist_entry_id: UUID | None
     expires_at: datetime
     invite_url: str
@@ -342,8 +342,13 @@ def send_invitation_letter_endpoint(
         select(WaitlistEntry).where(WaitlistEntry.email == email_n).with_for_update()
     )
     now = datetime.now(tz=ET)
-    language: Literal["en", "zh"] = body.language or "en"
-    ui_locale = "zh-Hans" if language == "zh" else "en"
+    language: Literal["en", "zh", "zh-Hant"] = body.language or "en"
+    language_locales: dict[str, tuple[Literal["en", "zh", "zh-Hant"], str]] = {
+        "en": ("en", "en"),
+        "zh": ("zh", "zh-Hans"),
+        "zh-Hant": ("zh-Hant", "zh-Hant"),
+    }
+    language, ui_locale = language_locales[language]
     if entry is not None:
         state = waitlist_view(session, entry)
         if state["stage"] in ("registered", "activated"):
@@ -351,8 +356,12 @@ def send_invitation_letter_endpoint(
         if entry.status == "rejected":
             raise HTTPException(status_code=409, detail="entry rejected")
         _revoke_waitlist_links(session, entry.id, now)
-        language = "zh" if entry.locale.startswith("zh") else "en"
-        ui_locale = entry.locale
+        waitlist_languages: dict[str, Literal["en", "zh", "zh-Hant"]] = {
+            "en": "en",
+            "zh-Hans": "zh",
+            "zh-Hant": "zh-Hant",
+        }
+        language, ui_locale = language_locales[waitlist_languages.get(entry.locale, "en")]
     try:
         issued = create_invite(
             session,

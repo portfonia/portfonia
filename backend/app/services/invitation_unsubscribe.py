@@ -35,7 +35,7 @@ def verify_token(token: str) -> tuple[UUID, str] | None:
         if not hmac.compare_digest(digest, expected):
             return None
         prefix, invite_id, locale = payload.split(":")
-        if prefix != _PREFIX or locale not in ("en", "zh"):
+        if prefix != _PREFIX or locale not in ("en", "zh", "zh-Hant"):
             return None
         return UUID(invite_id), locale
     except (ValueError, UnicodeError, TypeError, binascii.Error):

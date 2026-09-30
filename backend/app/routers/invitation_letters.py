@@ -30,6 +30,12 @@ _COPY = {
         "success": "您已退订 Portfonia 邀请邮件。",
         "invalid": "此退订链接无效。",
     },
+    "zh-Hant": {
+        "confirm": "確定退訂 Portfonia 邀請郵件嗎？",  # noqa: RUF001
+        "button": "退訂",
+        "success": "您已退訂 Portfonia 邀請郵件。",
+        "invalid": "此退訂連結無效。",
+    },
 }
 
 

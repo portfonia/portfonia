@@ -1105,8 +1105,7 @@ def test_send_verification_email_uses_zh_copy_for_zh_locale(
 def test_send_verification_email_falls_back_to_english_for_unknown_locale(
     mock_client_cls: MagicMock, mock_settings: MagicMock
 ) -> None:
-    """zh-Hant isn't in the dict yet (not exposed to users at the UI layer
-    either) — an unrecognized locale must not crash, it degrades to en."""
+    """An unrecognized locale must not crash; it degrades to English."""
     mock_settings.return_value = _mock_settings()
     mock_resp = MagicMock()
     mock_resp.raise_for_status.return_value = None
@@ -1114,7 +1113,7 @@ def test_send_verification_email_falls_back_to_english_for_unknown_locale(
     post_mock = mock_client_cls.return_value.__enter__.return_value.post
     post_mock.return_value = mock_resp
 
-    send_verification_email("a@example.com", "tok-1", locale="zh-Hant")
+    send_verification_email("a@example.com", "tok-1", locale="fr")
 
     payload = post_mock.call_args.kwargs["json"]
     assert payload["subject"] == "Verify your email — Portfonia"
