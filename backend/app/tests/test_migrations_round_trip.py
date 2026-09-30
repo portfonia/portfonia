@@ -356,3 +356,40 @@ def test_accounts_migration_backfill_groups_by_decrypted_plaintext_and_skips_nul
         assert len(accounts) == 5
 
     engine.dispose()
+
+
+def test_traditional_report_language_migration(alembic_cfg: Config) -> None:
+    """The widening preserves existing rows and downgrade normalizes only Traditional."""
+    from sqlalchemy import text
+    from sqlalchemy.exc import IntegrityError
+
+    command.upgrade(alembic_cfg, "head")
+    s = get_settings()
+    engine = create_engine(s.database_url)
+    uid = uuid.uuid4()
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO users (id, auth_provider, email, status, locale, "
+                    "base_currency, report_cadence) VALUES "
+                    "(:id, 'supabase', 'traditional-migration@example.com', 'active', "
+                    "'zh-Hant', 'USD', 'mwf')"
+                ),
+                {"id": uid},
+            )
+        command.downgrade(alembic_cfg, "-1")
+        with engine.connect() as conn:
+            assert (
+                conn.execute(
+                    text("SELECT locale FROM users WHERE id = :id"), {"id": uid}
+                ).scalar_one()
+                == "zh"
+            )
+        with pytest.raises(IntegrityError), engine.begin() as conn:
+            conn.execute(text("UPDATE users SET locale = 'zh-Hant' WHERE id = :id"), {"id": uid})
+        command.upgrade(alembic_cfg, "head")
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE users SET locale = 'zh-Hant' WHERE id = :id"), {"id": uid})
+    finally:
+        engine.dispose()
