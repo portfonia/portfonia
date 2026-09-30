@@ -253,11 +253,12 @@ area of the code, not just the one-line summary here.
   BCP-47 `zh-Hans` tag. The holdings export/template strings stay in
   `holdings_export.py` for the same reason: they are a downloaded file
   dialect, not report glossary terms — **since issue #319/PR #321**,
-  `GET /holdings/export`/`GET /holdings/template` specifically (no other
-  route) take an optional `locale` query param sourced from the
-  frontend's UI locale that overrides the `users.locale` (report
-  language) fallback these two endpoints used before; report generation
-  itself is untouched.
+  `GET /holdings/export`/`GET /holdings/template` take an optional
+  `locale` query param sourced from the frontend's UI locale that
+  overrides the `users.locale` (report language) fallback these two
+  endpoints used before; `GET /portfolio/export` (issue #331/PR #335)
+  takes the same optional `locale` with the same precedence. Report
+  generation itself is untouched.
 
 ## Product Boundary (NEVER VIOLATE)
 

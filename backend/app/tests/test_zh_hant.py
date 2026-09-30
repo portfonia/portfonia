@@ -45,6 +45,22 @@ def test_macro_compounds_use_natural_conversion(source: str, expected: str) -> N
     assert to_traditional(source) == expected
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("代码", "代號"),
+        ("基金代码", "基金代號"),
+        ("股票代码", "股票代號"),
+    ],
+)
+def test_security_code_uses_identifier_term(source: str, expected: str) -> None:
+    # s2twp renders the Simplified word for a ticker/fund code as the Taiwan
+    # word for software source code; the override keeps the identifier sense.
+    assert OpenCC("s2twp").convert(source) != expected
+    assert to_traditional(source) == expected
+    assert to_traditional(expected) == expected
+
+
 @pytest.mark.parametrize("source", ["", "| AAPL | 2.3% | [link](https://example.com)\n"])
 def test_ascii_is_unchanged(source: str) -> None:
     assert to_traditional(source) == source
