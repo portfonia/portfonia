@@ -111,7 +111,7 @@ def _find_live_pending(
 
 
 def _resolve_locale(session: Session, user_id: uuid.UUID | None) -> str:
-    """Bare locale code (`en`/`zh`, same convention as `OUTPUT_LANG` — not
+    """Stored locale code (`en`/`zh`/`zh-Hant`, same convention as `OUTPUT_LANG` — not
     the frontend's BCP-47 `zh-Hans` tag) for the verification email's copy.
     An unbound `ops_manual` probe has no account to read a preference from
     and defaults to `en` (ops itself reads English, per this repo's own

@@ -224,14 +224,16 @@ def test_unsubscribe_round_trip(app_client: TestClient, db_session: Session) -> 
     assert app_client.get("/invitation-letters/unsubscribe?token=bad").status_code == 400
 
 
-def test_invitation_letter_rejects_zh_hant(app_client: TestClient, db_session: Session) -> None:
+def test_invitation_letter_rejects_unsupported_language(
+    app_client: TestClient, db_session: Session
+) -> None:
     with (
         patch("app.routers.admin.send_invitation_letter", return_value="resend-test"),
         patch("app.routers.admin.poll_invitation_letter_delivery.apply_async"),
     ):
         response = app_client.post(
             "/admin/invitation-letters",
-            json={"email": "traditional@example.com", "language": "zh-Hant"},
+            json={"email": "unsupported@example.com", "language": "fr"},
             headers=_ops_headers(),
         )
     assert response.status_code == 422
@@ -329,7 +331,7 @@ def test_waitlist_locale_and_send_failure(app_client: TestClient, db_session: Se
             client_class.return_value.__enter__.return_value.post.call_args.kwargs["json"][
                 "subject"
             ]
-            == "Portfonia 邀请函"
+            == "Portfonia 邀請函"
         )
         poll.assert_not_called()
     db_session.refresh(entry)
@@ -344,7 +346,7 @@ def test_waitlist_locale_and_send_failure(app_client: TestClient, db_session: Se
         response = app_client.post(
             "/admin/invitation-letters", json={"email": entry.email}, headers=headers
         )
-    assert response.status_code == 201 and response.json()["language"] == "zh"
+    assert response.status_code == 201 and response.json()["language"] == "zh-Hant"
     assert response.json()["invite_url"].endswith("&lang=zh-Hant")
     assert (
         escape(response.json()["invite_url"])
@@ -352,7 +354,7 @@ def test_waitlist_locale_and_send_failure(app_client: TestClient, db_session: Se
     )
     assert (
         client_class.return_value.__enter__.return_value.post.call_args.kwargs["json"]["subject"]
-        == "Portfonia 邀请函"
+        == "Portfonia 邀請函"
     )
     db_session.refresh(entry)
     db_session.refresh(old)

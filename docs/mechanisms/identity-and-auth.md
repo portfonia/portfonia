@@ -946,7 +946,10 @@ GET-inert / POST-confirm split this section already established. Its own
 confirm page, `/verify-email`, is listed in `proxy.ts`'s
 `PUBLIC_PATH_PREFIXES` for the same reason `/forgot-password`/
 `/reset-password` are — the token itself is the credential, no session
-required. Full record: [docs/mechanisms/email-verification.md](email-verification.md).
+required. Verification email copy supports `en`, `zh`, and `zh-Hant`
+(issue #584), selected from the bound user's stored locale; unbound Ops
+verification defaults to English. Full record:
+[docs/mechanisms/email-verification.md](email-verification.md).
 
 ### Authenticated change-password reuses this Altcha infrastructure — issue #393
 
@@ -1009,8 +1012,13 @@ letters returns 409. For an eligible waitlist entry it revokes live links,
 mints an email-bound invite, and records `invited`; after Resend accepts the
 letter it sets `link_sent_at` (derived stage `sent`). An address without a
 waitlist entry receives a letter without creating one. The entry's UI locale
-overrides the optional request language. A send failure leaves the committed
-invite unsent; a later call revokes its live waitlist link and mints another.
+overrides the optional request language. Since issue #584, request and response
+`language` accept `en`, `zh`, and `zh-Hant`; unsupported values return 422.
+Waitlist `en` maps to letter `en` / signup `en`, `zh-Hans` to letter `zh` /
+signup `zh-Hans`, and `zh-Hant` to letter `zh-Hant` / signup `zh-Hant`.
+Unknown stored waitlist locales fall back to English. Non-waitlist invitations
+use the explicit language or English by default. Fixed Traditional copy is
+hand-authored. A send failure leaves the committed invite unsent; a later call revokes its live waitlist link and mints another.
 If the waitlist entry changes while Resend is sending, the delivery record is
 saved on that invite but `link_sent_at` is left unchanged. The completion
 write locks the entry again and checks that it is still `invited` and the
@@ -1030,7 +1038,11 @@ calls may leave multiple live email-bound invites by design.
 The letter shows the signup URL and carries RFC 8058 one-click unsubscribe
 headers. `GET /invitation-letters/unsubscribe` only renders a confirmation;
 `POST` sets `invites.letter_unsubscribed_at` idempotently. Unsubscribe affects
-future letters only. A one-shot Resend poll records `letter_delivery_event`;
+future letters only. Confirmation, button and success copy support the same
+three letter languages. The signed `invitation-unsubscribe-v1:uuid:locale`
+payload and HMAC format are unchanged; previously issued `en`/`zh` tokens
+remain valid, and `zh-Hant` now round-trips. A one-shot Resend poll records
+`letter_delivery_event`;
 bounced, complained, suppressed, and failed events trigger an ops alert,
 without changing invite or waitlist state. `GET /auth/invite-email` returns
 the bound email, if any, for signup's read-only email field; redeem and

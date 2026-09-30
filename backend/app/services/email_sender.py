@@ -56,6 +56,14 @@ _INVITATION_LETTER_COPY: dict[str, dict[str, str]] = {
         "paragraph4": "再次感谢您的时间和信任！",  # noqa: RUF001
         "footer": "您收到这封邮件，是因为您受邀加入 Portfonia。如不希望再收到邀请邮件，可以退订：{unsubscribe_url}",  # noqa: RUF001
     },
+    "zh-Hant": {
+        "subject": "Portfonia 邀請函",
+        "paragraph1": "歡迎來到 Portfonia，您已受邀加入本平台，請點擊以下註冊連結，用您的電子郵件地址註冊新帳號。",  # noqa: RUF001
+        "paragraph2": "建立帳號後，我們鼓勵您填寫個人化投資風格問卷，以及您的主要持倉和關注的標的，以便平台為您提供關聯性更高的服務。您的持倉資訊在傳輸全程經 HTTPS 加密，儲存時經 AES-128 認證加密保護。",  # noqa: RUF001
+        "paragraph3": "如果您在日常使用中有意見和建議，可以來信 info@portfonia.com。我們會儘快回覆並妥善處理。",  # noqa: RUF001
+        "paragraph4": "再次感謝您的時間和信任！",  # noqa: RUF001
+        "footer": "您收到這封電子郵件，是因為您受邀加入 Portfonia。如不希望再收到邀請郵件，可以退訂：{unsubscribe_url}",  # noqa: RUF001
+    },
 }
 
 
@@ -632,11 +640,8 @@ _DEFAULT_UNSUBSCRIBE_FOOTER_LOCALE = "en"
 # next-intl catalog (browser-only, unreachable from this backend module) and
 # NOT i18n_glossary.yml (built for large LLM-generated report bodies, not a
 # two-line transactional email). Keys are bare locale codes matching
-# `users.locale`/`OUTPUT_LANG`'s existing convention (`en`/`zh`), not the
-# frontend UI catalog's BCP-47 `zh-Hans` tag. zh-Hant isn't covered — it
-# isn't exposed to users at the UI layer yet either (frontend/src/locales/
-# README.md's "zh-Hant review status"), so there's no reason to get ahead
-# of that here.
+# `users.locale`/`OUTPUT_LANG`'s existing convention (`en`/`zh`/`zh-Hant`), not the
+# frontend UI catalog's BCP-47 `zh-Hans` tag (issue #584).
 _VERIFICATION_EMAIL_COPY: dict[str, dict[str, str]] = {
     "en": {
         "subject": "Verify your email — Portfonia",
@@ -652,6 +657,14 @@ _VERIFICATION_EMAIL_COPY: dict[str, dict[str, str]] = {
             "点击下面的链接,验证这个邮箱地址是否可以用于 Portfonia:\n\n"
             "{url}\n\n"
             "如果这不是你本人的操作,可以忽略这封邮件。"
+        ),
+    },
+    "zh-Hant": {
+        "subject": "驗證您的電子信箱 — Portfonia",
+        "body": (
+            "點擊下方連結,驗證此電子郵件地址是否可以用於 Portfonia:\n\n"
+            "{url}\n\n"
+            "如果這不是您本人的操作,可以忽略這封電子郵件。"
         ),
     },
 }
@@ -764,16 +777,17 @@ def send_ops_alert(
 # ---------------------------------------------------------------------------
 # Portfolio overview email (issue #202) — explicit "Send holdings overview"
 # button on /portfolio, NOT a formal report: no `reports` row, no LLM call,
-# no `_scan_forbidden_output` (nothing LLM-generated to scan). Bare `en`/`zh`
+# no `_scan_forbidden_output` (nothing LLM-generated to scan). Stored locale
 # keys matching `users.locale`/`OUTPUT_LANG`'s convention (not the frontend
 # catalog's BCP-47 tags) — same shape as `_VERIFICATION_EMAIL_COPY` above.
 # Table headers/labels live here rather than reusing report_sections.
 # _build_section1: that function's headers are hardcoded English, translated
 # only by the full report's LLM pass (report_generator._translate_md) — which
 # this lightweight email deliberately skips, so its own headers must already
-# be locale-correct. `_build_footer`'s disclaimer IS reused as-is, passed
-# this user's own `locale` (issue #350 item 3: the footer renders in one
-# language only, matching the report body's own output_lang instead of
+# be locale-correct. Glossary-derived text and `_build_footer` are converted
+# to Traditional for `zh-Hant`; fixed copy is hand-authored (issue #584).
+# The footer otherwise uses this user's own `locale` (issue #350 item 3:
+# the footer renders in one language only, matching the report body's own output_lang instead of
 # always emitting both English and zh-Hans regardless of the recipient's
 # actual language).
 _PORTFOLIO_OVERVIEW_COPY: dict[str, dict[str, str]] = {
@@ -805,8 +819,27 @@ _PORTFOLIO_OVERVIEW_COPY: dict[str, dict[str, str]] = {
         "priced_note": "{n} 项持仓中 {priced} 项已定价,{pending} 项待更新",
         "next_report_label": "您的下一份定期分析报告预计将在此时间前后送达:",
     },
+    "zh-Hant": {
+        "subject": "Portfonia: 您的持倉總覽",
+        "intro": "以下是您目前持倉的快照,價格取自 Portfonia 目前已擷取的最新資料。",
+        "col_holding": "持倉",
+        "col_currency": "幣別",
+        "col_value": "市值",
+        "col_pct": "佔比",
+        "col_custodian": "持倉機構",
+        "col_asset_class": "資產類別",
+        "price_pending": "價格待更新",
+        "total_label": "持倉總值",
+        "priced_note": "{n} 項持倉中 {priced} 項已定價,{pending} 項待更新",
+        "next_report_label": "您的下一份定期分析報告預計將在此時間前後送達:",
+    },
 }
 _DEFAULT_PORTFOLIO_OVERVIEW_LOCALE = "en"
+
+
+def _overview_glossary_text(text: str, locale: str) -> str:
+    """Convert only glossary-derived overview text for Traditional recipients."""
+    return to_traditional(text) if locale == "zh-Hant" else text
 
 
 def _glossary_term(key: str, locale: str) -> str:
@@ -817,7 +850,7 @@ def _glossary_term(key: str, locale: str) -> str:
     glossary = load_i18n_glossary()
     target = locale_for_output_lang(locale)
     if target in glossary.supported_locales and key in glossary.report_glossary:
-        return glossary.report_glossary[key][target]
+        return _overview_glossary_text(glossary.report_glossary[key][target], locale)
     return key
 
 
@@ -931,8 +964,9 @@ def send_portfolio_overview_email(session: Session, user_id: UUID, base_currency
             "base_currency": snapshot.base_currency,
             "fx_rates_as_of": {k: v.isoformat() for k, v in snapshot.fx_rates_as_of.items()},
         },
-        user.locale,
+        "zh" if user.locale == "zh-Hant" else user.locale,
     )
+    footer_md = _overview_glossary_text(footer_md, user.locale)
     full_md = body_md + footer_md
 
     html_body = _render_html(full_md)
