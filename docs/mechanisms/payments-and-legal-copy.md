@@ -25,11 +25,13 @@ External adjustments alert Ops without changing the ledger. Monthly plan-fee
 deduction remains future work. A repeated Buy click on the same pack, within
 the same page visit, reopens the still-unfinished transaction from the
 `checkout.loaded` event instead of creating a second one (issue #592): the
-component remembers the last opened price id and its transaction id in a
-ref (not persisted anywhere), and reuses that transaction id on the next
-Buy for the same pack. It falls back to opening a fresh transaction whenever
-that memory doesn't apply — a different pack, `checkout.completed`,
-`checkout.error`, or the existing 15-second open timeout all clear it.
+component remembers the price id and transaction id carried by the last
+`checkout.loaded` event in a ref (not persisted anywhere), and reuses that
+transaction id on the next Buy for the same pack. `checkout.completed`,
+`checkout.error`, and the existing 15-second open timeout clear the memory,
+so the next Buy opens a fresh transaction. A Buy for a different pack also
+opens a fresh transaction but leaves the memory in place until that
+checkout's own `checkout.loaded` replaces it.
 This file holds the English source copy and the change map. The zh-Hans and
 zh-Hant translations ship in `frontend/src/locales/`; their reviewed source
 lives in the owner's project notes.

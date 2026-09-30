@@ -31,7 +31,6 @@ export function CreditPurchase() {
   const [notice, setNotice] = useState<Notice>(null);
   const openingRef = useRef<string | null>(null);
   const paddleRef = useRef<Paddle | null>(null);
-  const requestedPriceRef = useRef<string | null>(null);
   const pendingRef = useRef<{ priceId: string; transactionId: string } | null>(null);
   const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -93,8 +92,9 @@ export function CreditPurchase() {
     handlerRef.current = (event) => {
       if (event.name === "checkout.loaded") {
         const transactionId = event.data?.transaction_id;
-        if (transactionId?.startsWith("txn_") && requestedPriceRef.current !== null) {
-          pendingRef.current = { priceId: requestedPriceRef.current, transactionId };
+        const priceId = event.data?.items?.[0]?.price_id;
+        if (transactionId?.startsWith("txn_") && priceId) {
+          pendingRef.current = { priceId, transactionId };
         }
         clearOpenTimer();
         setOpeningState(null);
@@ -165,7 +165,6 @@ export function CreditPurchase() {
     setOpeningState(priceId);
     setNotice(null);
     clearOpenTimer();
-    requestedPriceRef.current = priceId;
     openTimerRef.current = setTimeout(() => {
       if (openingRef.current === null) return;
       pendingRef.current = null;
