@@ -59,7 +59,7 @@ _INVITATION_LETTER_COPY: dict[str, dict[str, str]] = {
     "zh-Hant": {
         "subject": "Portfonia 邀請函",
         "paragraph1": "歡迎來到 Portfonia，您已受邀加入本平台，請點擊以下註冊連結，用您的電子郵件地址註冊新帳號。",  # noqa: RUF001
-        "paragraph2": "建立帳號後，我們鼓勵您填寫個人化投資風格問卷，以及您的主要持倉和關注的標的，以便平台為您提供關聯性更高的服務。您的持倉資訊在傳輸全程經 HTTPS 加密，儲存時經 AES-128 驗證加密保護。",  # noqa: RUF001
+        "paragraph2": "建立帳號後，我們鼓勵您填寫個人化投資風格問卷，以及您的主要持倉和關注的標的，以便平台為您提供關聯性更高的服務。您的持倉資訊在傳輸全程經 HTTPS 加密，儲存時經 AES-128 認證加密保護。",  # noqa: RUF001
         "paragraph3": "如果您在日常使用中有意見和建議，可以來信 info@portfonia.com。我們會儘快回覆並妥善處理。",  # noqa: RUF001
         "paragraph4": "再次感謝您的時間和信任！",  # noqa: RUF001
         "footer": "您收到這封電子郵件，是因為您受邀加入 Portfonia。如不希望再收到邀請郵件，可以退訂：{unsubscribe_url}",  # noqa: RUF001
