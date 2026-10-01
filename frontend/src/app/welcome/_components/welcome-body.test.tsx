@@ -11,6 +11,7 @@ import { WelcomeBody } from "./welcome-body";
 
 const _ME: Me = {
   email: "a@b.com",
+  subscription: { status: "inactive", type: null, expires_on: null, cancel_pending: false, next_adjustment_at: null },
   credit_balance: "0.00",
   delivery_email: null,
   email_verified_at: null,
@@ -62,7 +63,10 @@ describe("WelcomeBody", () => {
     expect(
       screen.getByText("Holdings-related sections stay empty until you save holdings."),
     ).toBeInTheDocument();
-    expect(screen.getByText(/Your cadence is weekly/)).toBeInTheDocument();
+    expect(screen.getByText("Portfonia sends scheduled briefings to subscribers. There are two plans: Weekly (0.99 credits per month) and Mon/Wed/Fri (1.99 credits per month).")).toBeInTheDocument();
+    expect(screen.getByText("Until you subscribe, scheduled briefings are not sent and some features may be unavailable. You need a verified email address before you can subscribe.")).toBeInTheDocument();
+    expect(screen.queryByText(/Your cadence is weekly/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     // Must never claim a holdings-confirmation email was sent (Ring
     // 1-Onboarding.md §2.4) or print the stale MWF 17:00 schedule.
     expect(screen.queryByText(/has been sent/i)).not.toBeInTheDocument();
@@ -127,7 +131,7 @@ describe("WelcomeBody", () => {
     expect(links).toHaveLength(2);
     expect(links[0]).toHaveAccessibleName("Portfolio");
     expect(links[0]).toHaveAttribute("href", "/portfolio");
-    expect(links[1]).toHaveAccessibleName("Profile");
+    expect(links[1]).toHaveAccessibleName("Choose a plan");
     expect(links[1]).toHaveAttribute("href", "/profile");
   });
 
@@ -142,7 +146,7 @@ describe("WelcomeBody", () => {
       expect(links).toHaveLength(2);
       expect(links[0]).toHaveAccessibleName(menu.portfolio);
       expect(links[0]).toHaveAttribute("href", "/portfolio");
-      expect(links[1]).toHaveAccessibleName(menu.profile);
+      expect(links[1]).toHaveAccessibleName(catalogs[locale].welcome.choosePlan);
       expect(links[1]).toHaveAttribute("href", "/profile");
     },
   );

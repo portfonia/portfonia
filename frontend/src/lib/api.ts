@@ -468,7 +468,53 @@ export async function putInvestmentContext(
 // see docs/mechanisms/identity-and-auth.md's "GET /me" entry). The Profile
 // page reads email/delivery_email, the verification timestamps (issue
 // #269), `missing` (gap card), and `pending_email_verifications`.
+export type SubscriptionType = "weekly" | "mwf";
+
+export interface Subscription {
+  status: "active" | "inactive" | "expired" | "cancelled";
+  type: SubscriptionType | null;
+  expires_on: string | null;
+  cancel_pending: boolean;
+  next_adjustment_at: string | null;
+}
+
+export interface SubscriptionQuote {
+  action: "subscribe" | "change" | "resume" | "none";
+  type: SubscriptionType;
+  fee: string;
+  returned: string;
+  balance: string;
+  balance_after: string;
+  sufficient: boolean;
+  period_start: string | null;
+  expires_on: string | null;
+  first_report_at: string;
+  needs_holdings: boolean;
+  blocked: "daily_limit" | "email_unverified" | null;
+}
+
+export async function getSubscriptionQuote(type: SubscriptionType): Promise<SubscriptionQuote> {
+  const res = await fetch(`/api/me/subscription/quote?type=${type}`, { cache: "no-store" });
+  if (!res.ok) await throwOnHttpError(res);
+  return res.json() as Promise<SubscriptionQuote>;
+}
+
+export async function setSubscription(type: SubscriptionType): Promise<Subscription> {
+  const res = await fetch("/api/me/subscription", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type }),
+  });
+  if (!res.ok) await throwOnHttpError(res);
+  return res.json() as Promise<Subscription>;
+}
+
+export async function cancelSubscription(): Promise<Subscription> {
+  const res = await fetch("/api/me/subscription/cancel", { method: "POST" });
+  if (!res.ok) await throwOnHttpError(res);
+  return res.json() as Promise<Subscription>;
+}
+
 export interface Me {
+  subscription: Subscription;
   email: string;
   credit_balance: string;
   delivery_email: string | null;

@@ -413,13 +413,9 @@
     "holdingsNavInvestmentStyle": "Investment style",
     "reportManagementHeading": "Report management",
     "reportScheduleHeading": "Report schedule",
-    "reportSchedulePlaceholder": "Not wired up yet — choosing an option here has no effect.",
     "reportScheduleOptions": {
       "weekly": "Weekly",
-      "everyOtherDay": "Every other day",
-      "morning": "Morning",
-      "evening": "Evening",
-      "morningAndEvening": "Morning and evening"
+      "everyOtherDay": "Mon/Wed/Fri"
     },
     "deliveryEmailHeading": "Report delivery email",
     "deliveryEmailFallbackNote": "No separate delivery address set — using your account email.",
@@ -450,7 +446,49 @@
     "emailVerificationResendFailed": "Could not resend the verification email. Please try again.",
     "emailVerificationSendButton": "Send verification",
     "emailVerificationSendTooSoon": "Too many verification requests. Please wait a while and try again.",
-    "emailVerificationSendFailed": "Could not send the verification email. Please try again."
+    "emailVerificationSendFailed": "Could not send the verification email. Please try again.",
+    "subscriptionLabel": "Subscription",
+    "subscriptionNoneOption": "No subscription",
+    "subscriptionVerifyEmail": "Verify your email to subscribe.",
+    "subscriptionCancel": "Cancel subscription",
+    "subscriptionResume": "Resume subscription",
+    "subscriptionRenews": "{plan} - renews after {expires_on}",
+    "subscriptionEnds": "{plan} - ends on {expires_on}",
+    "subscriptionExpired": "Your subscription expired on {expires_on}. Top up credits and it resumes on your next report day.",
+    "subscriptionNone": "No subscription. Features and report delivery may be limited.",
+    "subscriptionTitle": {
+      "weekly": "Weekly briefing",
+      "mwf": "Mon/Wed/Fri briefing"
+    },
+    "subscriptionDescription": {
+      "weekly": "A briefing on your portfolio every Saturday.",
+      "mwf": "A briefing on your portfolio every Monday, Wednesday and Friday."
+    },
+    "subscriptionFee": "Fee: {fee} credits per month.",
+    "subscriptionBalance": "Current balance: {balance} credits.",
+    "subscriptionReturned": "Returned for the unused part of your current plan: {returned} credits.",
+    "subscriptionStartsToday": "The new plan starts today.",
+    "subscriptionBalanceAfter": "Balance after this change: {balance_after} credits.",
+    "subscriptionPaidThrough": "Paid through {expires_on}.",
+    "subscriptionFirstReport": "Your first report on this plan is expected on {first_report_at}.",
+    "subscriptionNeedsHoldings": "This briefing is sent only after you have entered holdings.",
+    "subscriptionDailyRule": "You can adjust your subscription once per day.",
+    "subscriptionContinues": "Your subscription continues with no charge. Paid through {expires_on}.",
+    "subscriptionTopUp": "Your balance is not enough. Top up credits in the Account section first.",
+    "subscriptionDismiss": "Cancel",
+    "subscriptionConfirm": "Confirm",
+    "subscriptionKeep": "Keep subscription",
+    "subscriptionConfirmCancellation": "Confirm cancellation",
+    "subscriptionCancelBody": "Your subscription stays active through {expires_on}. Scheduled briefings stop after that date. Nothing is returned for the remaining days.",
+    "subscriptionDailyLock": "You already adjusted your subscription today. You can adjust again in {hours}h {minutes}m.",
+    "subscriptionError": "Could not update your subscription. Try again.",
+    "subscriptionErrors": {
+      "daily_limit": "You already adjusted your subscription today. You can adjust again after midnight Eastern Time.",
+      "email_unverified": "Verify your email to subscribe.",
+      "insufficient_credits": "Your balance is not enough. Top up credits in the Account section first.",
+      "no_change": "Your subscription already has this setting.",
+      "no_subscription": "There is no active subscription for this operation."
+    }
   },
   "portfolio": {
     "riskPanel": {
@@ -1083,8 +1121,10 @@
     "withoutHoldings": "Holdings-related sections stay empty until you save holdings.",
     "deliveryVerified": "Reports will be sent to {deliveryEmail}.",
     "deliveryUnverified": "Reports will not be sent until {deliveryEmail} is verified.",
-    "cadence": "Your cadence is weekly. The first report follows that schedule.",
-    "errorLoadFailed": "Could not load your account."
+    "errorLoadFailed": "Could not load your account.",
+    "subscriptionPlans": "Portfonia sends scheduled briefings to subscribers. There are two plans: Weekly (0.99 credits per month) and Mon/Wed/Fri (1.99 credits per month).",
+    "subscriptionRequirements": "Until you subscribe, scheduled briefings are not sent and some features may be unavailable. You need a verified email address before you can subscribe.",
+    "choosePlan": "Choose a plan"
   },
   "emailVerification": {
     "heading": "Verify your email",
@@ -1097,7 +1137,7 @@
   },
   "unsubscribe": {
     "heading": "Unsubscribe",
-    "subtitle": "Unsubscribe {email}? This address will stop receiving reports from this platform until it is verified again.",
+    "subtitle": "Unsubscribe {email}? This address will stop receiving reports until it is verified again. If no verified address remains on the account, your subscription stays active until the end of the period already paid, nothing is returned, and it is then cancelled. Verifying an address again does not resume it; you resume it on your Profile page.",
     "confirmButton": "Confirm unsubscribe",
     "confirming": "Unsubscribing...",
     "successBody": "You have unsubscribed {email}. Other verified addresses on this account are unaffected.",
@@ -1116,7 +1156,7 @@
     "resellerNotice": "Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle provides all customer service inquiries and handles returns.",
     "terms": {
       "title": "Terms of Service",
-      "lastUpdated": "Last updated: 2026-09-28",
+      "lastUpdated": "Last updated: 2026-09-30",
       "intro": "These Terms of Service govern your use of Portfonia. Please read them together with our Privacy Policy and Refund Policy.",
       "sections": [
         {
@@ -1143,7 +1183,10 @@
           "heading": "4. Payments and Credits",
           "body": [
             "Paid plans are billed in prepaid service credits. Credits are sold in packs priced in US dollars (1 credit = US$1 at purchase); current plans and packs are listed on the Pricing page.",
-            "Your plan fee is deducted from your credit balance at the start of each monthly billing period, complimentary credits first. If you change or cancel your plan, the unused part of the current month's fee is returned to your credit balance pro rata.",
+            "Your plan fee is deducted from your credit balance at the start of each monthly billing period, complimentary credits first. If you change your plan, the unused part of the current month's fee is returned to your credit balance pro rata and the new plan starts that day. If you cancel, your plan stays active until the end of the period already paid and nothing is returned.",
+            "You can adjust your subscription (subscribe, change plan, cancel, or resume) once per day, Eastern Time.",
+            "If you unsubscribe an address from report email and no verified address remains on your account, your subscription is treated as cancelled: it stays active until the end of the period already paid, nothing is returned, and it does not resume when you verify an address again.",
+            "Balance reminders and expiry notices are sent only to a verified address.",
             "Credits do not expire. They are usable only for Portfonia subscriptions, are non-transferable, and have no cash value except as provided in the Refund Policy.",
             "{resellerNotice} Your purchase is also subject to {merchantOfRecord}'s Buyer Terms."
           ]
@@ -1295,7 +1338,7 @@
     },
     "pricing": {
       "title": "Pricing",
-      "lastUpdated": "Last updated: 2026-09-28",
+      "lastUpdated": "Last updated: 2026-09-30",
       "intro": "Portfonia is a portfolio intelligence service. You choose a briefing plan and pay for it with prepaid service credits.",
       "sections": [
         {
@@ -1327,7 +1370,7 @@
           "body": [
             "Your plan fee is deducted from your credit balance at the start of each monthly billing period. Complimentary credits are used first, then purchased credits.",
             "If your balance will not cover the next month's fee, we email you a reminder in advance. If the balance is still not enough at renewal, your plan stops and its features become unavailable — currently, your scheduled briefings stop.",
-            "If you change or cancel your plan, the unused part of the current month's fee is returned to your credit balance pro rata.",
+            "If you change your plan, the unused part of the current month's fee is returned to your credit balance pro rata and the new plan starts that day. If you cancel, your plan stays active until the end of the period already paid and nothing is returned.",
             "Credits do not expire."
           ]
         },
@@ -1353,7 +1396,7 @@
     },
     "refund": {
       "title": "Refund Policy",
-      "lastUpdated": "Last updated: 2026-09-28",
+      "lastUpdated": "Last updated: 2026-09-30",
       "intro": "This policy explains when credits purchased for Portfonia can be refunded.",
       "sections": [
         {
@@ -1366,7 +1409,7 @@
           "heading": "2. Non-refundable credits",
           "body": [
             "Complimentary, promotional, and referral credits are not refundable.",
-            "Credits already applied to a billing period are not refunded to your payment method. When you change or cancel a plan, the unused part of the current month's fee is returned to your credit balance pro rata.",
+            "Credits already applied to a billing period are not refunded to your payment method. When you change a plan, the unused part of the current month's fee is returned to your credit balance pro rata. When you cancel, nothing is returned for the remaining days.",
             "After 120 days from a purchase, credits from that purchase can no longer be refunded. They do not expire and remain usable for your subscription."
           ]
         },

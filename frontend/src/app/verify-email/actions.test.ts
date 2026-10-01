@@ -3,6 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { confirmEmailVerification } from "./actions";
 
+const { redirect } = vi.hoisted(() => ({ redirect: vi.fn(() => { throw new Error("NEXT_REDIRECT"); }) }));
+vi.mock("next/navigation", () => ({ redirect }));
+
 const originalFetch = global.fetch;
 
 function formData(fields: Record<string, string>) {
@@ -43,7 +46,7 @@ describe("confirmEmailVerification action", () => {
       .mockResolvedValue(new Response(JSON.stringify({ email: "a@b.com" }), { status: 200 }));
     global.fetch = fetchMock;
 
-    await confirmEmailVerification(undefined, formData({ token: "tok-1", altcha: "solved" }));
+    await expect(confirmEmailVerification(undefined, formData({ token: "tok-1", altcha: "solved" }))).rejects.toThrow("NEXT_REDIRECT");
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toContain("/email-verifications/confirm");
@@ -52,18 +55,13 @@ describe("confirmEmailVerification action", () => {
     expect(body.altcha).toBe("solved");
   });
 
-  it("returns the verified email on success", async () => {
+  it("redirects to /profile on successful confirmation", async () => {
     global.fetch = vi
       .fn()
       .mockResolvedValue(new Response(JSON.stringify({ email: "a@b.com" }), { status: 200 }));
 
-    const state = await confirmEmailVerification(
-      undefined,
-      formData({ token: "tok-1", altcha: "solved" }),
-    );
-
-    expect(state?.error).toBeNull();
-    expect(state?.email).toBe("a@b.com");
+    await expect(confirmEmailVerification(undefined, formData({ token: "tok-1", altcha: "solved" }))).rejects.toThrow("NEXT_REDIRECT");
+    expect(redirect).toHaveBeenCalledExactlyOnceWith("/profile");
   });
 
   it("maps a 400 to the invalidOrExpired key, not the raw backend detail", async () => {

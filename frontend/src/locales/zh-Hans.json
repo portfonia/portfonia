@@ -413,13 +413,9 @@
     "holdingsNavInvestmentStyle": "投资风格",
     "reportManagementHeading": "报告管理",
     "reportScheduleHeading": "报告周期",
-    "reportSchedulePlaceholder": "暂未接入——此处选择目前不生效。",
     "reportScheduleOptions": {
-      "weekly": "周报",
-      "everyOtherDay": "隔日报",
-      "morning": "晨报",
-      "evening": "晚报",
-      "morningAndEvening": "早晚报"
+      "weekly": "每周",
+      "everyOtherDay": "周一、三、五"
     },
     "deliveryEmailHeading": "报告接收邮箱",
     "deliveryEmailFallbackNote": "未设置独立接收邮箱，当前使用账户邮箱。",
@@ -450,7 +446,49 @@
     "emailVerificationResendFailed": "验证邮件发送失败，请重试。",
     "emailVerificationSendButton": "发送验证",
     "emailVerificationSendTooSoon": "操作过于频繁，请稍后再试。",
-    "emailVerificationSendFailed": "验证邮件发送失败，请重试。"
+    "emailVerificationSendFailed": "验证邮件发送失败，请重试。",
+    "subscriptionLabel": "订阅",
+    "subscriptionNoneOption": "未订阅",
+    "subscriptionVerifyEmail": "请先验证邮箱，再订阅。",
+    "subscriptionCancel": "取消订阅",
+    "subscriptionResume": "恢复订阅",
+    "subscriptionRenews": "{plan} - 将于 {expires_on} 之后续订",
+    "subscriptionEnds": "{plan} - 于 {expires_on} 结束",
+    "subscriptionExpired": "您的订阅已于 {expires_on} 到期。充值 credits 后，将于下一个报告日恢复订阅。",
+    "subscriptionNone": "当前未订阅。部分功能及报告发送可能受限。",
+    "subscriptionTitle": {
+      "weekly": "每周简报",
+      "mwf": "周一、三、五简报"
+    },
+    "subscriptionDescription": {
+      "weekly": "每周六发送一份关于您投资组合的简报。",
+      "mwf": "每周一、周三和周五发送一份关于您投资组合的简报。"
+    },
+    "subscriptionFee": "费用：每月 {fee} credits。",
+    "subscriptionBalance": "当前余额：{balance} credits。",
+    "subscriptionReturned": "当前套餐未使用部分返还：{returned} credits。",
+    "subscriptionStartsToday": "新套餐从今天开始。",
+    "subscriptionBalanceAfter": "本次变更后余额：{balance_after} credits。",
+    "subscriptionPaidThrough": "已付费至 {expires_on}。",
+    "subscriptionFirstReport": "此套餐的首份报告预计于 {first_report_at} 发送。",
+    "subscriptionNeedsHoldings": "此简报仅在您录入持仓后发送。",
+    "subscriptionDailyRule": "您每天可调整一次订阅。",
+    "subscriptionContinues": "您的订阅继续生效，不收取费用。已付费至 {expires_on}。",
+    "subscriptionTopUp": "您的余额不足。请先在账户区域充值 credits。",
+    "subscriptionDismiss": "取消",
+    "subscriptionConfirm": "确认",
+    "subscriptionKeep": "保留订阅",
+    "subscriptionConfirmCancellation": "确认取消",
+    "subscriptionCancelBody": "您的订阅将持续有效至 {expires_on}，之后停止发送定期简报。剩余天数的费用不予返还。",
+    "subscriptionDailyLock": "您今天已调整过订阅。{hours} 小时 {minutes} 分钟后可再次调整。",
+    "subscriptionError": "无法更新订阅，请重试。",
+    "subscriptionErrors": {
+      "daily_limit": "您今天已调整过订阅。美国东部时间午夜后可再次调整。",
+      "email_unverified": "请先验证邮箱，再订阅。",
+      "insufficient_credits": "您的余额不足。请先在账户区域充值 credits。",
+      "no_change": "您的订阅已采用此设置。",
+      "no_subscription": "当前没有可执行此操作的有效订阅。"
+    }
   },
   "portfolio": {
     "riskPanel": {
@@ -1083,8 +1121,10 @@
     "withoutHoldings": "保存持仓前，持仓相关板块将保持为空。",
     "deliveryVerified": "报告将发送至 {deliveryEmail}。",
     "deliveryUnverified": "在 {deliveryEmail} 完成验证之前，报告不会发送。",
-    "cadence": "你的报告周期是每周一次。首份报告将按此周期发送。",
-    "errorLoadFailed": "无法加载你的账户信息。"
+    "errorLoadFailed": "无法加载你的账户信息。",
+    "subscriptionPlans": "Portfonia 向订阅用户发送定期简报。有两种套餐：每周简报（每月 0.99 credits）和周一、三、五简报（每月 1.99 credits）。",
+    "subscriptionRequirements": "订阅前不会发送定期简报，部分功能也可能无法使用。您需要先验证邮箱，才能订阅。",
+    "choosePlan": "选择套餐"
   },
   "emailVerification": {
     "heading": "验证你的邮箱",
@@ -1097,7 +1137,7 @@
   },
   "unsubscribe": {
     "heading": "退订",
-    "subtitle": "确定要退订 {email} 吗？退订后，该地址将不再接收本平台的报告，重新验证后可恢复。",
+    "subtitle": "确定要退订 {email} 吗？该地址将停止接收报告，直至重新验证。如果账户中不再有已验证的地址，您的订阅将持续有效至已付费周期结束，不返还任何费用，之后取消订阅。重新验证地址不会恢复订阅；您可在个人资料页面恢复订阅。",
     "confirmButton": "确认退订",
     "confirming": "退订中...",
     "successBody": "已退订 {email}。本账户下其它已验证邮箱不受影响。",
@@ -1116,7 +1156,7 @@
     "resellerNotice": "我们的订单流程由在线经销商 Paddle.com 执行。Paddle.com 是我们所有订单的记录商户（Merchant of Record），负责处理所有客户服务咨询及退货。",
     "terms": {
       "title": "服务条款",
-      "lastUpdated": "最后更新：2026-09-28",
+      "lastUpdated": "最后更新：2026-09-30",
       "intro": "本服务条款规范您对 Portfonia 的使用。请与我们的隐私政策及退款政策一并阅读。",
       "sections": [
         {
@@ -1143,7 +1183,10 @@
           "heading": "4. 付款与 Credits",
           "body": [
             "付费套餐以预付服务点数（credits）计费。Credits 以美元定价的点数包出售（购买时 1 credit = US$1）；现行套餐与点数包见定价页面。",
-            "每个月度计费周期开始时，从您的 credits 余额中扣除套餐费用，优先扣除赠送的 credits。更换或取消套餐时，当月费用中未使用的部分将按比例返还至您的 credits 余额。",
+            "每个月度计费周期开始时，从您的 credits 余额中扣除套餐费用，优先扣除赠送的 credits。更换套餐时，当月费用中未使用的部分将按比例返还至您的 credits 余额，新套餐从当天开始。取消套餐时，套餐将持续有效至已付费周期结束，不返还任何费用。",
+            "您每天可调整一次订阅（订阅、更换套餐、取消或恢复），以美国东部时间为准。",
+            "如果您退订某个地址的报告邮件，且账户中不再有已验证的地址，您的订阅将视为已取消：订阅持续有效至已付费周期结束，不返还任何费用，重新验证地址后也不会恢复。",
+            "余额提醒和到期通知仅发送至已验证的地址。",
             "Credits 不会过期，仅可用于 Portfonia 订阅，不可转让，除退款政策规定外无现金价值。",
             "{resellerNotice}您的购买同时受 {merchantOfRecord} 买方条款约束。"
           ]
@@ -1295,7 +1338,7 @@
     },
     "pricing": {
       "title": "定价",
-      "lastUpdated": "最后更新：2026-09-28",
+      "lastUpdated": "最后更新：2026-09-30",
       "intro": "Portfonia 是一项持仓情报服务。您选择简报套餐，并以预付服务点数（credits）支付。",
       "sections": [
         {
@@ -1327,7 +1370,7 @@
           "body": [
             "每个月度计费周期开始时，从您的 credits 余额中扣除套餐费用。优先扣除赠送的 credits，其次扣除购买的 credits。",
             "如果您的余额不足以支付下个月的费用，我们会提前发送邮件提醒您。续费时余额仍不足的，您的套餐将停止，相关功能将无法使用——目前即定期简报停发。",
-            "更换或取消套餐时，当月费用中未使用的部分将按比例返还至您的 credits 余额。",
+            "更换套餐时，当月费用中未使用的部分将按比例返还至您的 credits 余额，新套餐从当天开始。取消套餐时，套餐将持续有效至已付费周期结束，不返还任何费用。",
             "Credits 不会过期。"
           ]
         },
@@ -1353,7 +1396,7 @@
     },
     "refund": {
       "title": "退款政策",
-      "lastUpdated": "最后更新：2026-09-28",
+      "lastUpdated": "最后更新：2026-09-30",
       "intro": "本政策说明为 Portfonia 购买的 credits 在何种情况下可以退款。",
       "sections": [
         {
@@ -1366,7 +1409,7 @@
           "heading": "2. 不可退款的 credits",
           "body": [
             "赠送、促销及推荐返利所得的 credits 不可退款。",
-            "已用于某一计费周期的 credits 不会原路退回至支付方式。更换或取消套餐时，当月费用中未使用的部分将按比例返还至您的 credits 余额。",
+            "已用于某一计费周期的 credits 不会原路退回至支付方式。更换套餐时，当月费用中未使用的部分将按比例返还至您的 credits 余额。取消套餐时，剩余天数的费用不予返还。",
             "自购买之日起超过 120 天，该笔购买的 credits 不再可退款。它们不会过期，仍可用于您的订阅。"
           ]
         },

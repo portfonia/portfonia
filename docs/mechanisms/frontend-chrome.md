@@ -143,8 +143,8 @@ for the full before/after and decision rationale.
   `/portfolio/performance`, `/holdings`, `/questionnaire`); Report
   language & currency + Report schedule + Report delivery email collapse
   into one **Report management** card (row 1: language/currency/cadence
-  selects; row 2: delivery-email display/resend/fallback). Cadence,
-  invite, and delete stay unfinished placeholders. Current order: gap
+  selects; row 2: delivery-email display/resend/fallback). Invite and delete stay unfinished placeholders; #597 makes cadence a
+  subscription selector. Current order: gap
   card → Email Verification → Account → Holdings → Report management →
   Invite → Change password → Delete account. Issue #393 moved the
   inline Change password form to `/profile/change-password` (Altcha PoW
@@ -178,7 +178,7 @@ for the full before/after and decision rationale.
   password gets checked. Altcha PoW is verified against
   `POST /me/change-password/altcha-verify` first; missing/invalid PoW never
   reaches the Auth provider. `/profile` itself only links to that page.
-- **Every non-implemented Profile section (report schedule, delivery-email
+- **Every non-implemented Profile section (delivery-email
   change, invite generation, delete account) is rendered with disabled
   controls**, never a submittable form — issue #220's requirement that
   these stay visible placeholders, not silently absent or falsely
@@ -187,7 +187,45 @@ for the full before/after and decision rationale.
   `docs/mechanisms/holdings-pipeline.md`'s C2 section). Issue #390 moved
   that link into the Holdings nav row (with Performance, Holdings
   management, and Investment style) and moved the cadence placeholder
-  into Report management; the cadence select is still disabled.
+  into Report management; #597 replaces the disabled cadence placeholder
+  with the subscription selector below.
+
+### Profile subscription controls and guidance (issue #597)
+
+Profile reads `GET /me.subscription` and the two verification timestamps.
+Report management offers Weekly, Mon/Wed/Fri and, only for an active plan
+without pending cancellation, Cancel subscription. Without a verified address
+it disables the selector but keeps the current type for an active subscription;
+other states show a disabled No subscription placeholder. Selections never
+optimistically change the displayed server state.
+
+`use-subscription.ts` checks `next_adjustment_at` before any action and shows
+remaining hours/minutes during the ET daily lock. It reads a quote before a
+plan dialog (and the current-plan quote for cancellation's expiry). Dialog
+amounts and dates come from that response, with the first-report instant
+formatted in ET. An insufficient quote disables Confirm and directs the
+user to credits in Account; Mon/Wed/Fri without holdings adds its warning.
+All plan confirmations, including Account's Resume button, call
+`setSubscription(type)`. The quote determines whether this is a no-charge
+resume or a fresh charge after expiry. Cancellation calls `cancelSubscription()`.
+The frontend does not call the backend resume endpoint. Five HTTP 409 codes
+have translated messages; other failures use the generic error. Every successful
+write closes its dialog and calls `router.refresh()`.
+
+Account shows the subscription below Credits, with Cancel or Resume for an
+active plan, an expired notice or a no-subscription notice otherwise. Notices
+use the existing Badge. Welcome replaces the old weekly cadence sentence with
+two plan/verification paragraphs and Choose a plan linking to `/profile`;
+Portfolio remains the skip link. There is no selector on Welcome.
+
+Successful email confirmation redirects from the server action to `/profile`.
+The already-verified link state retains `emailVerification.successMessage`;
+failed confirmation states are unchanged. Accepted limitations: ops-manual
+verification also goes to Profile; a signed-out visitor reaches the existing
+login redirect and, after login, Portfolio, with no return-path parameter.
+The unsubscribe page explains stopped delivery, end-of-paid-period cancellation
+when no verified address remains, no return, and no automatic resume after
+re-verification. These controls and copy ship with #595/#596/#599.
 
 ### Post-signup onboarding: ToS gate, questionnaire → holdings → welcome, Profile gap card (issue #221, 2026-08-27)
 
@@ -237,9 +275,9 @@ Canonical design: Obsidian `Hermes/Portfonia/Docs/Ring 1-Onboarding.md`.
   client-only-reveal pattern as `locale-provider.tsx`'s restore effect —
   needs the same `eslint-disable-next-line react-hooks/set-state-in-effect`
   for the same hydration-mismatch reason) and `router.replace("/portfolio")`s a
-  second same-session visit instead of re-rendering. Under the cadence line
-  sit two buttons, Portfolio (`/portfolio`) and Profile (`/profile`), using
-  the existing `menu` labels; the load-error branch renders neither. There
+  second same-session visit instead of re-rendering. Under the guidance
+  sit Portfolio (`/portfolio`, the `menu` label) and Choose a plan
+  (`/profile`, #597); the load-error branch renders neither. There
   is no Profile menu entry to `/welcome` — reachable only from the
   holdings onboarding Save and Skip flows (issue #280 moved the
   questionnaire's onboarding Save to `/holdings?onboarding=1`, so it is no
@@ -275,7 +313,7 @@ Canonical design: Obsidian `Hermes/Portfonia/Docs/Ring 1-Onboarding.md`.
   onboarding is resumed from Profile's gap cards in edit mode. The
   pre-existing `/me` round-trip in `login/actions.ts` was removed with the
   branch. **Update (issue #586)**: that landing is `/portfolio`. `/welcome`
-  shows the Portfolio and Profile buttons above, and a same-session revisit
+  shows Portfolio and Choose a plan (#597) above, and a same-session revisit
   replaces to `/portfolio`. The Portfolio page title row adds Edit holdings
   (`/holdings/edit`) and Investment style (`/questionnaire`, no query)
   beside View performance, reusing the existing `menu` labels. Edit-mode
