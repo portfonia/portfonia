@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 type PaddleEvent = {
   name?: string;
@@ -425,4 +425,101 @@ it("pairs a late checkout.loaded with its own pack, not the pack clicked last", 
   } finally {
     vi.useRealTimers();
   }
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+// Keep history effects isolated from jsdom's asynchronous navigation.
+function spyCheckoutHistory() {
+  return {
+    pushState: vi.spyOn(window.history, "pushState").mockImplementation(() => {}),
+    back: vi.spyOn(window.history, "back").mockImplementation(() => {}),
+  };
+}
+
+async function openLoadedCheckout() {
+  await renderReady();
+  fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
+  act(() => {
+    onEvent?.({ name: "checkout.loaded", data: { transaction_id: "txn_a", items: [{ price_id: "pri_test" }] } });
+  });
+}
+
+it("adds one same-URL history entry when checkout loads", async () => {
+  const { pushState } = spyCheckoutHistory();
+  await openLoadedCheckout();
+  expect(pushState).toHaveBeenCalledExactlyOnceWith(null, "", window.location.href);
+});
+
+it.each([false, true])("closes checkout on Back without navigating again (closed event: %s)", async (emitsClosed) => {
+  const { back } = spyCheckoutHistory();
+  await openLoadedCheckout();
+  if (emitsClosed) checkoutClose.mockImplementation(() => { onEvent?.({ name: "checkout.closed" }); });
+  act(() => { window.dispatchEvent(new PopStateEvent("popstate")); });
+  expect(checkoutClose).toHaveBeenCalledTimes(1);
+  expect(back).not.toHaveBeenCalled();
+  act(() => { window.dispatchEvent(new PopStateEvent("popstate")); });
+  expect(checkoutClose).toHaveBeenCalledTimes(1);
+});
+
+it("reuses the remembered transaction after Back closes checkout", async () => {
+  spyCheckoutHistory();
+  await openLoadedCheckout();
+  act(() => { window.dispatchEvent(new PopStateEvent("popstate")); });
+  expect(checkoutClose).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
+  expect(checkoutOpen).toHaveBeenNthCalledWith(2, {
+    transactionId: "txn_a",
+    settings: { displayMode: "overlay", variant: "one-page" },
+  });
+  expect(checkoutOpen.mock.calls[1][0]).not.toHaveProperty("items");
+});
+
+it("removes the entry on Paddle close and ignores the resulting popstate", async () => {
+  const { pushState, back } = spyCheckoutHistory();
+  await openLoadedCheckout();
+  act(() => { onEvent?.({ name: "checkout.closed" }); });
+  expect(back).toHaveBeenCalledTimes(1);
+  act(() => { window.dispatchEvent(new PopStateEvent("popstate")); });
+  expect(checkoutClose).not.toHaveBeenCalled();
+  // Another open/close cycle adds and removes exactly one more entry.
+  fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
+  act(() => { onEvent?.({ name: "checkout.loaded" }); });
+  act(() => { onEvent?.({ name: "checkout.closed" }); });
+  expect(pushState).toHaveBeenCalledTimes(2);
+  expect(back).toHaveBeenCalledTimes(2);
+  act(() => { window.dispatchEvent(new PopStateEvent("popstate")); });
+  expect(checkoutClose).not.toHaveBeenCalled();
+});
+
+it.each([false, true])("removes the entry only once on completion then close (synchronous closed event: %s)", async (emitsClosed) => {
+  const { back } = spyCheckoutHistory();
+  getPurchaseStatus.mockResolvedValue({ transaction_id: "txn_a", credited: false, credits: null });
+  await openLoadedCheckout();
+  if (emitsClosed) checkoutClose.mockImplementation(() => { onEvent?.({ name: "checkout.closed" }); });
+  act(() => { onEvent?.({ name: "checkout.completed", data: { transaction_id: "txn_a" } }); });
+  expect(back).toHaveBeenCalledTimes(1);
+  expect(checkoutClose).toHaveBeenCalledTimes(1);
+  act(() => { onEvent?.({ name: "checkout.closed" }); });
+  act(() => { window.dispatchEvent(new PopStateEvent("popstate")); });
+  expect(back).toHaveBeenCalledTimes(1);
+  expect(checkoutClose).toHaveBeenCalledTimes(1);
+});
+
+it("does not add a second history entry for a repeated loaded event", async () => {
+  const { pushState } = spyCheckoutHistory();
+  await openLoadedCheckout();
+  act(() => { onEvent?.({ name: "checkout.loaded" }); });
+  expect(pushState).toHaveBeenCalledTimes(1);
+});
+
+it("ignores popstate before any checkout was opened", async () => {
+  const { pushState, back } = spyCheckoutHistory();
+  await renderReady();
+  act(() => { window.dispatchEvent(new PopStateEvent("popstate")); });
+  expect(checkoutClose).not.toHaveBeenCalled();
+  expect(back).not.toHaveBeenCalled();
+  expect(pushState).not.toHaveBeenCalled();
 });
