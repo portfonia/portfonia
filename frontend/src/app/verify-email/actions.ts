@@ -1,5 +1,7 @@
 "use server";
 
+import { redirect } from "next/navigation";
+
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
 export interface ConfirmEmailVerificationState {
@@ -40,6 +42,5 @@ export async function confirmEmailVerification(
     return { error: res.status === 400 ? "invalidOrExpired" : "genericError" };
   }
 
-  const body = (await res.json()) as { email: string };
-  return { error: null, email: body.email };
+  redirect("/profile");
 }

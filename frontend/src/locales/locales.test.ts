@@ -111,3 +111,22 @@ describe("legal copy for Paddle review", () => {
     expect(catalogs.en.legal.privacy.sections).toHaveLength(12);
   });
 });
+
+
+describe("subscription public billing copy (#597)", () => {
+  it("distinguishes changes from cancellation and documents limits and notices", () => {
+    const change = "If you change your plan, the unused part of the current month's fee is returned to your credit balance pro rata and the new plan starts that day. If you cancel, your plan stays active until the end of the period already paid and nothing is returned.";
+    expect(catalogs.en.legal.pricing.sections[3].body[2]).toBe(change);
+    expect(catalogs.en.legal.terms.sections[3].body[1]).toBe("Your plan fee is deducted from your credit balance at the start of each monthly billing period, complimentary credits first. " + change);
+    expect(catalogs.en.legal.refund.sections[1].body[1]).toBe("Credits already applied to a billing period are not refunded to your payment method. When you change a plan, the unused part of the current month's fee is returned to your credit balance pro rata. When you cancel, nothing is returned for the remaining days.");
+    expect(catalogs.en.legal.terms.sections[3].body).toContain("You can adjust your subscription (subscribe, change plan, cancel, or resume) once per day, Eastern Time.");
+    expect(catalogs.en.legal.terms.sections[3].body).toContain("If you unsubscribe an address from report email and no verified address remains on your account, your subscription is treated as cancelled: it stays active until the end of the period already paid, nothing is returned, and it does not resume when you verify an address again.");
+    expect(catalogs.en.legal.terms.sections[3].body).toContain("Balance reminders and expiry notices are sent only to a verified address.");
+  });
+  it.each(LOCALE_VALUES)("%s removes schedule placeholders and preserves matching billing structure", locale => {
+    expect(catalogs[locale].profile).not.toHaveProperty("reportSchedulePlaceholder");
+    expect(Object.keys(catalogs[locale].profile.reportScheduleOptions)).toEqual(["weekly", "everyOtherDay"]);
+    expect(catalogs[locale].welcome).not.toHaveProperty("cadence");
+    expect(catalogs[locale].legal.terms.sections[3].body).toHaveLength(7);
+  });
+});

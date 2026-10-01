@@ -413,13 +413,9 @@
     "holdingsNavInvestmentStyle": "投資風格",
     "reportManagementHeading": "報告管理",
     "reportScheduleHeading": "報告週期",
-    "reportSchedulePlaceholder": "尚未接上——此處選擇目前不生效。",
     "reportScheduleOptions": {
-      "weekly": "週報",
-      "everyOtherDay": "隔日報",
-      "morning": "晨報",
-      "evening": "晚報",
-      "morningAndEvening": "早晚報"
+      "weekly": "每週",
+      "everyOtherDay": "週一、三、五"
     },
     "deliveryEmailHeading": "報告接收信箱",
     "deliveryEmailFallbackNote": "尚未設定獨立接收信箱，目前使用帳戶電子郵件。",
@@ -450,7 +446,49 @@
     "emailVerificationResendFailed": "驗證郵件發送失敗，請重試。",
     "emailVerificationSendButton": "發送驗證",
     "emailVerificationSendTooSoon": "操作過於頻繁，請稍後再試。",
-    "emailVerificationSendFailed": "驗證郵件發送失敗，請重試。"
+    "emailVerificationSendFailed": "驗證郵件發送失敗，請重試。",
+    "subscriptionLabel": "訂閱",
+    "subscriptionNoneOption": "未訂閱",
+    "subscriptionVerifyEmail": "請先驗證信箱，再訂閱。",
+    "subscriptionCancel": "取消訂閱",
+    "subscriptionResume": "恢復訂閱",
+    "subscriptionRenews": "{plan} - 將於 {expires_on} 之後續訂",
+    "subscriptionEnds": "{plan} - 於 {expires_on} 結束",
+    "subscriptionExpired": "您的訂閱已於 {expires_on} 到期。儲值 credits 後，將於下一個報告日恢復訂閱。",
+    "subscriptionNone": "目前未訂閱。部分功能及報告寄送可能受限。",
+    "subscriptionTitle": {
+      "weekly": "每週簡報",
+      "mwf": "週一、三、五簡報"
+    },
+    "subscriptionDescription": {
+      "weekly": "每週六寄送一份關於您投資組合的簡報。",
+      "mwf": "每週一、週三和週五寄送一份關於您投資組合的簡報。"
+    },
+    "subscriptionFee": "費用：每月 {fee} credits。",
+    "subscriptionBalance": "目前餘額：{balance} credits。",
+    "subscriptionReturned": "目前方案未使用部分退回：{returned} credits。",
+    "subscriptionStartsToday": "新方案從今天開始。",
+    "subscriptionBalanceAfter": "本次變更後餘額：{balance_after} credits。",
+    "subscriptionPaidThrough": "已付費至 {expires_on}。",
+    "subscriptionFirstReport": "此方案的首份報告預計於 {first_report_at} 寄送。",
+    "subscriptionNeedsHoldings": "此簡報僅在您輸入持倉後寄送。",
+    "subscriptionDailyRule": "您每天可調整一次訂閱。",
+    "subscriptionContinues": "您的訂閱繼續生效，不收取費用。已付費至 {expires_on}。",
+    "subscriptionTopUp": "您的餘額不足。請先在帳戶區域儲值 credits。",
+    "subscriptionDismiss": "取消",
+    "subscriptionConfirm": "確認",
+    "subscriptionKeep": "保留訂閱",
+    "subscriptionConfirmCancellation": "確認取消",
+    "subscriptionCancelBody": "您的訂閱將持續有效至 {expires_on}，之後停止寄送定期簡報。剩餘天數的費用不予退回。",
+    "subscriptionDailyLock": "您今天已調整過訂閱。{hours} 小時 {minutes} 分鐘後可再次調整。",
+    "subscriptionError": "無法更新訂閱，請重試。",
+    "subscriptionErrors": {
+      "daily_limit": "您今天已調整過訂閱。美國東部時間午夜後可再次調整。",
+      "email_unverified": "請先驗證信箱，再訂閱。",
+      "insufficient_credits": "您的餘額不足。請先在帳戶區域儲值 credits。",
+      "no_change": "您的訂閱已採用此設定。",
+      "no_subscription": "目前沒有可執行此操作的有效訂閱。"
+    }
   },
   "portfolio": {
     "riskPanel": {
@@ -1083,8 +1121,10 @@
     "withoutHoldings": "儲存持倉前，持倉相關區塊將保持為空。",
     "deliveryVerified": "報告將發送至 {deliveryEmail}。",
     "deliveryUnverified": "在 {deliveryEmail} 完成驗證之前，報告不會發送。",
-    "cadence": "你的報告週期是每週一次。首份報告將按此週期發送。",
-    "errorLoadFailed": "無法載入你的帳戶資訊。"
+    "errorLoadFailed": "無法載入你的帳戶資訊。",
+    "subscriptionPlans": "Portfonia 向訂閱使用者寄送定期簡報。有兩種方案：每週簡報（每月 0.99 credits）和週一、三、五簡報（每月 1.99 credits）。",
+    "subscriptionRequirements": "訂閱前不會寄送定期簡報，部分功能也可能無法使用。您需要先驗證信箱，才能訂閱。",
+    "choosePlan": "選擇方案"
   },
   "emailVerification": {
     "heading": "驗證你的信箱",
@@ -1097,7 +1137,7 @@
   },
   "unsubscribe": {
     "heading": "退訂",
-    "subtitle": "確定要退訂 {email} 嗎？退訂後，該地址將不再接收本平台的報告，重新驗證後可恢復。",
+    "subtitle": "確定要退訂 {email} 嗎？該地址將停止接收報告，直到重新驗證。如果帳戶中不再有已驗證的地址，您的訂閱將持續有效至已付費週期結束，不退回任何費用，之後取消訂閱。重新驗證地址不會恢復訂閱；您可在個人資料頁面恢復訂閱。",
     "confirmButton": "確認退訂",
     "confirming": "退訂中...",
     "successBody": "已退訂 {email}。本帳戶下其它已驗證信箱不受影響。",
@@ -1116,7 +1156,7 @@
     "resellerNotice": "我們的訂單流程由線上經銷商 Paddle.com 執行。Paddle.com 是我們所有訂單的記錄商戶（Merchant of Record），負責處理所有客戶服務詢問及退貨。",
     "terms": {
       "title": "服務條款",
-      "lastUpdated": "最後更新：2026-09-28",
+      "lastUpdated": "最後更新：2026-09-30",
       "intro": "本服務條款規範您對 Portfonia 的使用。請與我們的隱私政策及退款政策一併閱讀。",
       "sections": [
         {
@@ -1143,7 +1183,10 @@
           "heading": "4. 付款與 Credits",
           "body": [
             "付費方案以預付服務點數（credits）計費。Credits 以美元定價的點數包出售（購買時 1 credit = US$1）；現行方案與點數包見定價頁面。",
-            "每個月度計費週期開始時，從您的 credits 餘額中扣除方案費用，優先扣除贈送的 credits。變更或取消方案時，當月費用中未使用的部分將按比例退回至您的 credits 餘額。",
+            "每個月度計費週期開始時，從您的 credits 餘額中扣除方案費用，優先扣除贈送的 credits。變更方案時，當月費用中未使用的部分將按比例退回至您的 credits 餘額，新方案從當天開始。取消方案時，方案將持續有效至已付費週期結束，不退回任何費用。",
+            "您每天可調整一次訂閱（訂閱、變更方案、取消或恢復），以美國東部時間為準。",
+            "如果您退訂某個地址的報告郵件，且帳戶中不再有已驗證的地址，您的訂閱將視為已取消：訂閱持續有效至已付費週期結束，不退回任何費用，重新驗證地址後也不會恢復。",
+            "餘額提醒和到期通知僅寄送至已驗證的地址。",
             "Credits 不會過期，僅可用於 Portfonia 訂閱，不可轉讓，除退款政策規定外無現金價值。",
             "{resellerNotice}您的購買同時受 {merchantOfRecord} 買方條款約束。"
           ]
@@ -1295,7 +1338,7 @@
     },
     "pricing": {
       "title": "定價",
-      "lastUpdated": "最後更新：2026-09-28",
+      "lastUpdated": "最後更新：2026-09-30",
       "intro": "Portfonia 是一項持倉情報服務。您選擇簡報方案，並以預付服務點數（credits）支付。",
       "sections": [
         {
@@ -1327,7 +1370,7 @@
           "body": [
             "每個月度計費週期開始時，從您的 credits 餘額中扣除方案費用。優先扣除贈送的 credits，其次扣除購買的 credits。",
             "如果您的餘額不足以支付下個月的費用，我們會提前寄送電子郵件提醒您。續費時餘額仍不足者，您的方案將停止，相關功能將無法使用——目前即定期簡報停發。",
-            "變更或取消方案時，當月費用中未使用的部分將按比例退回至您的 credits 餘額。",
+            "變更方案時，當月費用中未使用的部分將按比例退回至您的 credits 餘額，新方案從當天開始。取消方案時，方案將持續有效至已付費週期結束，不退回任何費用。",
             "Credits 不會過期。"
           ]
         },
@@ -1353,7 +1396,7 @@
     },
     "refund": {
       "title": "退款政策",
-      "lastUpdated": "最後更新：2026-09-28",
+      "lastUpdated": "最後更新：2026-09-30",
       "intro": "本政策說明為 Portfonia 購買的 credits 在何種情況下可以退款。",
       "sections": [
         {
@@ -1366,7 +1409,7 @@
           "heading": "2. 不可退款的 credits",
           "body": [
             "贈送、促銷及推薦回饋所得的 credits 不可退款。",
-            "已用於某一計費週期的 credits 不會原路退回至付款方式。變更或取消方案時，當月費用中未使用的部分將按比例退回至您的 credits 餘額。",
+            "已用於某一計費週期的 credits 不會原路退回至付款方式。變更方案時，當月費用中未使用的部分將按比例退回至您的 credits 餘額。取消方案時，剩餘天數的費用不予退回。",
             "自購買之日起超過 120 天，該筆購買的 credits 不再可退款。它們不會過期，仍可用於您的訂閱。"
           ]
         },

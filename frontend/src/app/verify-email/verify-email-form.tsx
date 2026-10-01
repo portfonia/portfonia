@@ -26,14 +26,6 @@ export function VerifyEmailForm({ token, status }: Props) {
     FormData
   >(confirmEmailVerification, undefined);
 
-  if (state?.email) {
-    return (
-      <p className="text-center text-sm text-foreground/80" role="status">
-        {t("successMessage", { email: state.email })}
-      </p>
-    );
-  }
-
   if (!status.found || TERMINAL_NON_PENDING_STATUSES.has(status.status ?? "")) {
     return (
       <p className="text-center text-sm text-destructive" role="alert">

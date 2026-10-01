@@ -52,7 +52,7 @@ describe("VerifyEmailForm", () => {
   });
 
   it("renders the confirm form for a pending token, submitting the token", async () => {
-    confirmEmailVerification.mockResolvedValue({ error: null, email: "a@b.com" });
+    confirmEmailVerification.mockResolvedValue(undefined);
     const user = userEvent.setup();
     renderForm({ found: true, status: "pending", email: "a@b.com" }, "tok-1");
 
@@ -63,14 +63,15 @@ describe("VerifyEmailForm", () => {
     expect(submittedForm.get("token")).toBe("tok-1");
   });
 
-  it("shows the success message once the backend confirms", async () => {
-    confirmEmailVerification.mockResolvedValue({ error: null, email: "a@b.com" });
+  it("does not render a success state while the action redirects", async () => {
+    confirmEmailVerification.mockResolvedValue(undefined);
     const user = userEvent.setup();
     renderForm({ found: true, status: "pending", email: "a@b.com" });
 
     await user.click(screen.getByRole("button", { name: /confirm/i }));
 
-    expect(await screen.findByRole("status")).toHaveTextContent("a@b.com");
+    await waitFor(() => expect(confirmEmailVerification).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("shows a translated error and keeps the form when the action rejects", async () => {
