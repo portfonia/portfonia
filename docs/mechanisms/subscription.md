@@ -1,4 +1,4 @@
-# Subscription core and lifecycle (issues #595, #596 and #600)
+# Subscription core and lifecycle (issues #595, #596, #600 and #610)
 
 This backend implements user subscription operations and the scheduled
 lifecycle. Profile provides quote-backed plan, cancel and resume controls in #597,
@@ -144,18 +144,23 @@ require separate owner authorization. The Ops reference note is not updated
 without authorization for that note.
 
 
-## Scheduled lifecycle (issue #596)
+## Scheduled lifecycle (issues #596 and #610)
 
 `active_users` and `active_user_ids` require `subscription_status == active`,
 in addition to the existing account, cadence, email and holdings gates.
 Cancel-pending active subscriptions still receive reports. On-demand and Ops
 report generation are unaffected.
 
-`generate_incremental_report` calls `run_cadence_checks(session, cadence,
-today_et())` after the recipient loop, before the all-failed retry decision,
-and also when there are no recipients. Stale-trigger skips do not check.
-Check-phase failures are logged and ops-alerted without changing report
-results or retry decisions.
+`generate_incremental_report` first calls `run_cadence_checks(session, cadence,
+today_et(), statuses=("expired",))` before reading recipients. A resumed user
+receives that day's report in the same batch, subject to the existing dispatch
+gates. Active renewal, expiry and cancellation still happen only in the full
+check after the recipient loop, before the all-failed retry decision, and also
+when there are no recipients. The default `statuses` is `("active", "expired")`.
+Stale-trigger skips do not check. Check-phase failures are logged and ops-alerted
+without changing report results or retry decisions; each failed phase sends its
+own alert. If pre-dispatch recovery fails, the full check can resume the user
+after the loop, without a report for that user in that batch.
 
 Checks read sorted ids of active accounts on that cadence with active or
 expired subscriptions, regardless of holdings or verified email. Each user
@@ -186,7 +191,7 @@ period 2026-11-17..2026-12-17. Expiry 2026-08-17, checked 2026-11-21 ->
 one 0.99 charge keyed 2026-11-21, period 2026-11-21..2026-12-21, anchor 21.
 Expired with balance 0.40 stays expired; after a 5.00 grant, a check on
 2026-12-05 charges 0.99, leaves 4.41, and resumes through 2027-01-05.
-The resume-day report was already skipped; delivery begins next report day.
+The resumed user receives the 2026-12-05 report in the same batch.
 
 `maybe_send_low_balance_reminder` runs after the commit of a successful
 `POST /me/subscription`, scheduled renewal/resume, or non-replayed Paddle

@@ -301,13 +301,19 @@ def _check_user(session: Session, user: User, today: date) -> str:
         return "expired"
 
 
-def run_cadence_checks(session: Session, cadence: str, today: date) -> list[CheckOutcome]:
+def run_cadence_checks(
+    session: Session,
+    cadence: str,
+    today: date,
+    *,
+    statuses: tuple[str, ...] = ("active", "expired"),
+) -> list[CheckOutcome]:
     ids = sorted(
         session.scalars(
             select(User.id).where(
                 User.status == "active",
                 User.report_cadence == cadence,
-                User.subscription_status.in_(("active", "expired")),
+                User.subscription_status.in_(statuses),
             )
         ).all()
     )

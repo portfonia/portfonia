@@ -3,6 +3,7 @@
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -396,12 +397,11 @@ def test_task_checks_empty_and_all_failed_retry(
                 task.generate_incremental_report.run(cadence="weekly")
             retry.assert_called_once()
         else:
-            assert task.generate_incremental_report.run(cadence="weekly") == {
-                "status": "no_active_users",
-                "results": [],
-            }
-            retry.assert_not_called()
-            generate.assert_not_called()
+            with pytest.raises(RuntimeError, match="retry"):
+                task.generate_incremental_report.run(cadence="weekly")
+            retry.assert_called_once()
+            generate.assert_called_once()
+            assert generate.call_args.kwargs["user_id"] == u.id
         db_session.refresh(u)
         assert u.subscription_status == "active"
         assert len(charges(db_session, u)) == 1
@@ -409,6 +409,23 @@ def test_task_checks_empty_and_all_failed_retry(
             with pytest.raises(RuntimeError, match="retry"):
                 task.generate_incremental_report.run(cadence="weekly")
             assert len(charges(db_session, u)) == 1
+        else:
+            (row,) = charges(db_session, u)
+            assert row.idempotency_key == s.charge_key(u.id, TODAY, "weekly")
+            assert u.credit_gift_balance == Decimal("4.01")
+            assert (
+                u.subscription_period_start,
+                u.subscription_expires_on,
+                u.subscription_anchor_day,
+            ) == (TODAY, date(2026, 12, 21), 21)
+            retry.reset_mock()
+            with pytest.raises(RuntimeError, match="retry"):
+                task.generate_incremental_report.run(cadence="weekly")
+            retry.assert_called_once()
+            db_session.refresh(u)
+            assert len(charges(db_session, u)) == 1
+            assert u.credit_gift_balance == Decimal("4.01")
+            assert generate.call_count == 2
 
 
 def test_task_stale_trigger_skips_checks(
@@ -446,8 +463,8 @@ def test_task_check_phase_failure_preserves_report_result(db_session: Session) -
     ):
         result = task.generate_incremental_report.run(cadence="weekly")
         assert result["status"] == "completed" and result["results"][0]["status"] == "success"
-        alert.assert_called_once()
-        assert "phase failed" in str(alert.call_args)
+        assert alert.call_count == 2
+        assert all("phase failed" in str(call) for call in alert.call_args_list)
 
 
 @pytest.mark.parametrize("locale", ["en", "zh", "zh-Hant", "fr"])
@@ -624,3 +641,242 @@ def test_task_examples_1_2_3_6_report_precedes_check(
                 "results": [],
             }
             generate.assert_not_called()
+
+
+@pytest.mark.parametrize("balance,remaining", [("5.40", "4.41"), ("1.49", "0.50")])
+def test_task_expired_resume_receives_same_batch(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch, balance: str, remaining: str
+) -> None:
+    from app.tasks import report_tasks as task
+
+    today = date(2026, 12, 5)
+    expiry = date(2027, 1, 5)
+    u = subscriber(db_session, balance, "expired")
+    user_id = u.id
+    monkeypatch.setattr(task, "today_et", lambda: today)
+    report = SimpleNamespace(id=uuid.uuid4(), status="success")
+
+    def generated(session: Session, **kwargs: Any) -> SimpleNamespace:
+        checked = session.get(User, kwargs["user_id"])
+        assert checked is not None and checked.subscription_status == "active"
+        assert (
+            checked.subscription_period_start,
+            checked.subscription_expires_on,
+            checked.subscription_anchor_day,
+        ) == (today, expiry, 5)
+        assert checked.credit_gift_balance == Decimal(remaining)
+        (row,) = charges(session, checked)
+        assert (row.amount, row.bucket, row.balance_after, row.idempotency_key, row.reference) == (
+            Decimal("-0.99"),
+            "gift",
+            Decimal(remaining),
+            s.charge_key(user_id, today, "weekly"),
+            "weekly",
+        )
+        return report
+
+    with (
+        patch("app.services.report_generator.generate_report", side_effect=generated) as generate,
+        patch.object(s, "send_subscription_notice") as notice,
+    ):
+        result = task.generate_incremental_report.run(cadence="weekly")
+        assert result == {
+            "status": "completed",
+            "results": [{"user_id": str(u.id), "report_id": str(report.id), "status": "success"}],
+        }
+        generate.assert_called_once()
+        kwargs = generate.call_args.kwargs
+        assert (
+            kwargs["user_id"],
+            kwargs["output_lang"],
+            kwargs["base_currency"],
+            kwargs["report_type"],
+            kwargs["session_node"],
+            kwargs["users_remaining"],
+        ) == (
+            u.id,
+            u.locale,
+            u.base_currency,
+            "incremental",
+            "after_close",
+            1,
+        )
+        db_session.refresh(u)
+        assert (
+            u.subscription_status,
+            u.subscription_type,
+            u.report_cadence,
+            u.subscription_period_start,
+            u.subscription_expires_on,
+            u.subscription_anchor_day,
+        ) == ("active", "weekly", "weekly", today, expiry, 5)
+        assert u.credit_gift_balance == Decimal(remaining)
+        assert u.credit_cash_balance == Decimal("0.00")
+        assert len(charges(db_session, u)) == 1
+        if remaining == "0.50":
+            notice.assert_called_once_with(
+                u.email, "low_balance", **expected_notice(u, remaining, expiry)
+            )
+        else:
+            notice.assert_not_called()
+
+
+@pytest.mark.parametrize("balance,verified", [("0.40", True), ("5.40", False)])
+def test_task_expired_not_resumed_is_not_dispatched(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch, balance: str, verified: bool
+) -> None:
+    from app.tasks import report_tasks as task
+
+    u = subscriber(db_session, balance, "expired", verified=verified)
+    monkeypatch.setattr(task, "today_et", lambda: date(2026, 12, 5))
+    with (
+        patch("app.services.report_generator.generate_report") as generate,
+        patch.object(s, "send_subscription_notice") as notice,
+    ):
+        assert task.generate_incremental_report.run(cadence="weekly") == {
+            "status": "no_active_users",
+            "results": [],
+        }
+        generate.assert_not_called()
+        notice.assert_not_called()
+    db_session.refresh(u)
+    assert (
+        u.subscription_status,
+        u.subscription_type,
+        u.report_cadence,
+        u.subscription_period_start,
+        u.subscription_expires_on,
+        u.subscription_anchor_day,
+    ) == (
+        "expired",
+        "weekly",
+        "weekly",
+        date(2026, 10, 17),
+        OLD,
+        17,
+    )
+    assert u.credit_gift_balance == Decimal(balance)
+    assert u.credit_cash_balance == Decimal("0.00")
+    assert not charges(db_session, u)
+
+
+def test_expired_only_check_leaves_overdue_active_untouched(db_session: Session) -> None:
+    active = subscriber(db_session, "5.40")
+    expired = subscriber(db_session, "5.40", "expired")
+    with patch.object(s, "send_subscription_notice") as notice:
+        assert s.run_cadence_checks(db_session, "weekly", TODAY, statuses=("expired",)) == [
+            s.CheckOutcome(expired.id, "resumed")
+        ]
+        db_session.refresh(active)
+        assert (
+            active.subscription_status,
+            active.subscription_period_start,
+            active.subscription_expires_on,
+            active.subscription_anchor_day,
+        ) == (
+            "active",
+            date(2026, 10, 17),
+            OLD,
+            17,
+        )
+        assert active.credit_gift_balance == Decimal("5.40")
+        assert not charges(db_session, active)
+        assert expired.subscription_status == "active"
+        assert expired.credit_gift_balance == Decimal("4.41")
+        (row,) = charges(db_session, expired)
+        assert row.idempotency_key == s.charge_key(expired.id, TODAY, "weekly")
+        outcomes = s.run_cadence_checks(db_session, "weekly", TODAY)
+        assert {item.user_id: item.outcome for item in outcomes} == {
+            active.id: "renewed",
+            expired.id: "unchanged",
+        }
+        assert (
+            active.subscription_period_start,
+            active.subscription_expires_on,
+            active.subscription_anchor_day,
+        ) == (OLD, date(2026, 12, 17), 17)
+        assert active.credit_gift_balance == Decimal("4.41")
+        (row,) = charges(db_session, active)
+        assert row.idempotency_key == s.charge_key(active.id, OLD, "weekly")
+        assert len(charges(db_session, expired)) == 1
+        notice.assert_not_called()
+
+
+def test_task_pre_dispatch_failure_falls_back_to_post_loop_resume(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.tasks import report_tasks as task
+
+    active = subscriber(db_session, "5.40")
+    expired = subscriber(db_session, "5.40", "expired")
+    monkeypatch.setattr(task, "today_et", lambda: TODAY)
+    active_id, expired_id = active.id, expired.id
+    original = s.run_cadence_checks
+    report = SimpleNamespace(id=uuid.uuid4(), status="success")
+
+    def checks(
+        session: Session,
+        cadence: str,
+        today: date,
+        *,
+        statuses: tuple[str, ...] = ("active", "expired"),
+    ) -> list[s.CheckOutcome]:
+        if statuses == ("expired",):
+            raise RuntimeError("pre-dispatch failed")
+        return original(session, cadence, today, statuses=statuses)
+
+    def generated(session: Session, **kwargs: Any) -> SimpleNamespace:
+        assert kwargs["user_id"] == active_id
+        checked = session.get(User, expired_id)
+        assert checked is not None and checked.subscription_status == "expired"
+        checked_active = session.get(User, active_id)
+        assert checked_active is not None
+        assert not charges(session, checked_active) and not charges(session, checked)
+        return report
+
+    with (
+        patch.object(s, "run_cadence_checks", side_effect=checks) as check,
+        patch("app.services.report_generator.generate_report", side_effect=generated) as generate,
+        patch.object(task, "send_ops_alert") as alert,
+        patch.object(s, "send_subscription_notice") as notice,
+        patch.object(task.generate_incremental_report, "retry") as retry,
+    ):
+        result = task.generate_incremental_report.run(cadence="weekly")
+        assert result == {
+            "status": "completed",
+            "results": [
+                {"user_id": str(active.id), "report_id": str(report.id), "status": "success"}
+            ],
+        }
+        generate.assert_called_once()
+        assert generate.call_args.kwargs["user_id"] == active.id
+        assert [call.kwargs["statuses"] for call in check.call_args_list] == [
+            ("expired",),
+            ("active", "expired"),
+        ]
+        alert.assert_called_once()
+        assert "pre-dispatch failed" in str(alert.call_args)
+        retry.assert_not_called()
+        notice.assert_not_called()
+    for u, start, expiry, anchor in (
+        (active, OLD, date(2026, 12, 17), 17),
+        (expired, TODAY, date(2026, 12, 21), 21),
+    ):
+        db_session.refresh(u)
+        assert (
+            u.subscription_status,
+            u.subscription_period_start,
+            u.subscription_expires_on,
+            u.subscription_anchor_day,
+        ) == (
+            "active",
+            start,
+            expiry,
+            anchor,
+        )
+        assert u.credit_gift_balance == Decimal("4.41")
+        (row,) = charges(db_session, u)
+        assert (row.amount, row.idempotency_key) == (
+            Decimal("-0.99"),
+            s.charge_key(u.id, start, "weekly"),
+        )
