@@ -186,9 +186,9 @@ def generate_incremental_report(
     )
     session = SessionLocal()
 
-    def check_subscriptions() -> None:
+    def check_subscriptions(statuses: tuple[str, ...] = ("active", "expired")) -> None:
         try:
-            run_cadence_checks(session, cadence, today_et())
+            run_cadence_checks(session, cadence, today_et(), statuses=statuses)
         except Exception as exc:
             session.rollback()
             logger.exception("Subscription check phase failed")
@@ -198,6 +198,8 @@ def generate_incremental_report(
             )
 
     try:
+        # Issue #610: recover Expired subscriptions before reading recipients.
+        check_subscriptions(("expired",))
         # Issue #308: full User rows, not just ids — each recipient's own
         # locale (report language) rides along. Snapshotted into `_Recipient`
         # NamedTuples immediately (see its docstring) — the loop below never
