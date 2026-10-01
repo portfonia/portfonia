@@ -30,8 +30,10 @@ export function SubscriptionDialog({ state }: { state: ReturnType<typeof useSubs
                 <p>{t("subscriptionReturned", { returned: quote.returned })}</p>
                 <p>{t("subscriptionStartsToday")}</p>
               </>}
-              <p>{t("subscriptionBalanceAfter", { balance_after: quote.balance_after })}</p>
-              <p>{t("subscriptionPaidThrough", { expires_on: quote.expires_on ?? "" })}</p>
+              {quote.action !== "resume" && <>
+                <p>{t("subscriptionBalanceAfter", { balance_after: quote.balance_after })}</p>
+                <p>{t("subscriptionPaidThrough", { expires_on: quote.expires_on ?? "" })}</p>
+              </>}
               <p>{t("subscriptionFirstReport", { first_report_at: firstReport })}</p>
               {quote.needs_holdings && <p>{t("subscriptionNeedsHoldings")}</p>}
               <p>{t("subscriptionDailyRule")}</p>

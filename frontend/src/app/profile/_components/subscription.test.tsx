@@ -62,9 +62,14 @@ describe("subscription dialogs and writes", () => {
       "subscriptionDescription.mwf",
       ...(action === "resume" ? ['subscriptionContinues{"expires_on":"2026-11-30"}'] : ['subscriptionFee{"fee":"1.99"}', 'subscriptionBalance{"balance":"4.01"}']),
       ...(action === "change" ? ['subscriptionReturned{"returned":"0.50"}', "subscriptionStartsToday"] : []),
-      'subscriptionBalanceAfter{"balance_after":"2.52"}', 'subscriptionPaidThrough{"expires_on":"2026-11-30"}',
+      ...(action === "resume" ? [] : ['subscriptionBalanceAfter{"balance_after":"2.52"}', 'subscriptionPaidThrough{"expires_on":"2026-11-30"}']),
       'subscriptionFirstReport{"first_report_at":"2026-11-02 17:00 ET"}', "subscriptionNeedsHoldings", "subscriptionDailyRule",
     ]);
+    if (action === "resume") {
+      expect(within(dialog).getAllByText('subscriptionContinues{"expires_on":"2026-11-30"}')).toHaveLength(1);
+      expect(within(dialog).queryByText(/^subscriptionBalanceAfter/)).not.toBeInTheDocument();
+      expect(within(dialog).queryByText(/^subscriptionPaidThrough/)).not.toBeInTheDocument();
+    }
     expect(within(dialog).getByRole("heading")).toHaveTextContent("subscriptionTitle.mwf");
     expect(within(dialog).getByRole("button", { name: "subscriptionConfirm" })).toBeEnabled();
     expect(getSubscriptionQuote).toHaveBeenCalledExactlyOnceWith("mwf");
