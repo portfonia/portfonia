@@ -22,7 +22,7 @@ _REASON_RULES = {
     "recharge": ({"cash"}, "+"),
     "invite_rebate": ({"cash"}, "+"),
     "signup_grant": ({"gift"}, "+"),
-    "admin_adjustment": ({"gift"}, "±"),
+    "admin_adjustment": ({"cash", "gift"}, "±"),
     "subscription": ({"cash", "gift"}, "-"),
     "subscription_return": ({"cash", "gift"}, "+"),
     "qa": ({"cash", "gift"}, "-"),
@@ -169,13 +169,17 @@ def adjust_by_admin(
     note: str,
     idempotency_key: str,
     reference: str | None = None,
+    bucket: str = "gift",
 ) -> LedgerWrite:
     stored_key = "admin_adjustment:" + idempotency_key
     user = _lock_user(session, user_id)
     existing = _rows_for_key(session, stored_key)
     if existing:
         if (
-            any(row.user_id != user_id or row.reason != "admin_adjustment" for row in existing)
+            any(
+                row.user_id != user_id or row.reason != "admin_adjustment" or row.bucket != bucket
+                for row in existing
+            )
             or sum((row.amount for row in existing), Decimal("0")) != amount
         ):
             raise IdempotencyConflict
@@ -183,7 +187,7 @@ def adjust_by_admin(
     entry = _post(
         session,
         user,
-        bucket="gift",
+        bucket=bucket,
         amount=amount,
         reason="admin_adjustment",
         actor_type="admin",
