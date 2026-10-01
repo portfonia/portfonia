@@ -1,7 +1,8 @@
 # Subscription core and lifecycle (issues #595, #596 and #600)
 
 This backend implements user subscription operations and the scheduled
-lifecycle. Frontend and public copy belong to #597; cash purge/adjustments
+lifecycle. Profile provides quote-backed plan, cancel and resume controls in #597,
+with Welcome guidance and public billing copy; cash purge/adjustments
 belong to #599. These issues are deployed together. No production operation is part
 of this implementation.
 

@@ -15,7 +15,7 @@ required, ask the product owner before designing or implementing it.
 
 - [Documentation governance](docs/playbooks/documentation-governance.md): document ownership, Obsidian authorization, executable design contracts, evidence labels, and note-access conventions.
 - [Shared engineering rules](CLAUDE.md): language, security, testing, and deployment conventions.
-- [Subscription core](docs/mechanisms/subscription.md): subscription state, monthly credit charges/returns, user operations, quotes, unsubscribe integration, scheduled lifecycle, notices, and launch activation (issues #595/#596/#600).
+- [Subscription core](docs/mechanisms/subscription.md): subscription state, monthly credit charges/returns, user operations, quotes, unsubscribe integration, scheduled lifecycle, notices, Profile controls and public-copy integration, and launch activation (issues #595/#596/#597/#600).
 - [Git and review identities](docs/playbooks/git-and-review-incidents.md): token-only `gh api` (REST) writes, reviewer-token boundaries, and workflow history — includes why OAuth was retracted 2026-09-18.
 
 ## GitHub and Obsidian access

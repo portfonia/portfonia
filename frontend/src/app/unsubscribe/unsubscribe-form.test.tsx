@@ -76,7 +76,7 @@ describe("UnsubscribeForm", () => {
 
     expect(screen.getByRole("heading", { name: /^unsubscribe$/i })).toBeInTheDocument();
     expect(
-      screen.getByText(/this address will stop receiving reports from this platform until it is verified again/i),
+      screen.getByText(/this address will stop receiving reports until it is verified again/i),
     ).toBeInTheDocument();
     expect(screen.queryByText(/revoke verification/i)).not.toBeInTheDocument();
 
@@ -85,4 +85,9 @@ describe("UnsubscribeForm", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(/you have unsubscribed a@b\.com/i);
     expect(screen.queryByText(/revoke verification/i)).not.toBeInTheDocument();
   });
+});
+
+ it("explains all subscription consequences before confirmation", () => {
+  renderForm({ found: true, email: "a@b.com" });
+  expect(screen.getByText("Unsubscribe a@b.com? This address will stop receiving reports until it is verified again. If no verified address remains on the account, your subscription stays active until the end of the period already paid, nothing is returned, and it is then cancelled. Verifying an address again does not resume it; you resume it on your Profile page.")).toBeInTheDocument();
 });

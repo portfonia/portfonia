@@ -99,6 +99,7 @@ const PENDING: PendingEmailVerification = {
 
 const BASE_ME: Me = {
   email: "user@example.com",
+  subscription: { status: "inactive", type: null, expires_on: null, cancel_pending: false, next_adjustment_at: null },
   credit_balance: "5.00",
   delivery_email: null,
   email_verified_at: null,
@@ -182,7 +183,7 @@ describe("ProfilePageBody", () => {
     );
   });
 
-  it("renders every placeholder section as visibly non-interactive", () => {
+  it("keeps unverified subscription selection and unfinished sections non-interactive", () => {
     renderBody(BASE_ME);
 
     expect(screen.getByRole("combobox", { name: /report schedule/i })).toBeDisabled();
@@ -224,7 +225,7 @@ describe("ProfilePageBody", () => {
     expect(within(card).getByRole("combobox", { name: /report language/i })).toBeEnabled();
     expect(within(card).getByRole("combobox", { name: /report currency/i })).toBeEnabled();
     expect(within(card).getByRole("combobox", { name: /report schedule/i })).toBeDisabled();
-    expect(within(card).getByText(/not wired up yet/i)).toBeInTheDocument();
+    expect(within(card).getByText("Verify your email to subscribe.")).toBeInTheDocument();
     expect(within(card).getByText(/no separate delivery address set/i)).toBeInTheDocument();
   });
 

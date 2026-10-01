@@ -4,13 +4,16 @@ import Link from "next/link";
 import { useTranslations } from "next-intl";
 
 import { BASE_CURRENCIES, type BaseCurrency } from "@/app/portfolio/_components/currencies";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { Me } from "@/lib/api";
+import type { Me, SubscriptionType } from "@/lib/api";
 import { REPORT_LANGUAGES, type ReportLanguage } from "@/locales";
 import { PendingVerificationsList } from "./pending-verifications-list";
 import { CreditPurchase } from "./credit-purchase";
 import { useReportCurrency } from "./use-report-currency";
+import { SubscriptionDialog } from "./subscription-dialog";
+import { useSubscription } from "./use-subscription";
 import { useReportLanguage } from "./use-report-language";
 import { useVerificationResend } from "./use-verification-resend";
 import { useVerificationSend } from "./use-verification-send";
@@ -39,6 +42,7 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
   // Issue #350 item 1: the Report Currency control's save-immediately flow,
   // sharing the same card as Report Language.
   const reportCurrency = useReportCurrency();
+  const subscription = useSubscription(me?.subscription);
 
   if (hadLoadError || !me) {
     return (
@@ -97,6 +101,8 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
 
   return (
     <div className="flex flex-col gap-6">
+      <SubscriptionDialog state={subscription} />
+      {subscription.error && !subscription.dialog && <p className="text-sm text-destructive" role="alert">{subscription.error}</p>}
       <header>
         <h1 className="font-heading text-2xl font-semibold">{t("pageTitle")}</h1>
       </header>
@@ -208,6 +214,25 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
             <span className="text-sm text-foreground/80">{t("accountCreditsLabel")}</span>
             <span className="text-sm">{me.credit_balance}</span>
           </div>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm text-foreground/80">{t("subscriptionLabel")}</span>
+            {me.subscription.status === "active" ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm">{t(me.subscription.cancel_pending ? "subscriptionEnds" : "subscriptionRenews", {
+                  plan: t(me.subscription.type === "weekly" ? "reportScheduleOptions.weekly" : "reportScheduleOptions.everyOtherDay"),
+                  expires_on: me.subscription.expires_on ?? "",
+                })}</span>
+                <Button variant="outline" disabled={subscription.pending} onClick={() => {
+                  if (me.subscription.cancel_pending && me.subscription.type) void subscription.choose(me.subscription.type);
+                  else void subscription.choose("cancel");
+                }}>{t(me.subscription.cancel_pending ? "subscriptionResume" : "subscriptionCancel")}</Button>
+              </div>
+            ) : (
+              <Badge className="h-auto whitespace-normal">{me.subscription.status === "expired"
+                ? t("subscriptionExpired", { expires_on: me.subscription.expires_on ?? "" })
+                : t("subscriptionNone")}</Badge>
+            )}
+          </div>
           <CreditPurchase />
         </CardContent>
       </Card>
@@ -239,12 +264,7 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
         </CardContent>
       </Card>
 
-      {/* Issue #390: language (#308) + currency (#350) + cadence placeholder
-          + delivery email (#269 §6) share one Report management card.
-          Cadence stays disabled. Delivery-email unverified treatment is
-          unchanged: gray italic + note + inline Resend when a matching
-          record exists. Overlap with the Email Verification list is still
-          intentional. */}
+      {/* Report preferences and subscription share Report management. */}
       <Card>
         <CardHeader>
           <CardTitle>{t("reportManagementHeading")}</CardTitle>
@@ -297,20 +317,20 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
             </div>
             <div className="flex flex-col gap-1.5">
               <select
-                disabled
+                disabled={noVerifiedRecipient || subscription.pending}
                 aria-label={t("reportScheduleHeading")}
-                className="w-full rounded-md border border-white/10 bg-transparent px-2 py-1.5 text-sm text-foreground/60"
-                defaultValue="weekly"
+                className="w-full rounded-md border border-white/10 bg-transparent px-2 py-1.5 text-sm"
+                value={me.subscription.status === "active" ? me.subscription.type ?? "" : ""}
+                onChange={(e) => void subscription.choose(e.target.value as SubscriptionType | "cancel")}
               >
+                <option value="" disabled>{t("subscriptionNoneOption")}</option>
                 <option value="weekly">{t("reportScheduleOptions.weekly")}</option>
-                <option value="everyOtherDay">{t("reportScheduleOptions.everyOtherDay")}</option>
-                <option value="morning">{t("reportScheduleOptions.morning")}</option>
-                <option value="evening">{t("reportScheduleOptions.evening")}</option>
-                <option value="morningAndEvening">
-                  {t("reportScheduleOptions.morningAndEvening")}
-                </option>
+                <option value="mwf">{t("reportScheduleOptions.everyOtherDay")}</option>
+                {!noVerifiedRecipient && me.subscription.status === "active" && !me.subscription.cancel_pending && (
+                  <option value="cancel">{t("subscriptionCancel")}</option>
+                )}
               </select>
-              <p className="text-sm text-muted-foreground">{t("reportSchedulePlaceholder")}</p>
+              {noVerifiedRecipient && <p className="text-sm text-muted-foreground">{t("subscriptionVerifyEmail")}</p>}
             </div>
           </div>
           <div className="flex flex-col gap-1.5">

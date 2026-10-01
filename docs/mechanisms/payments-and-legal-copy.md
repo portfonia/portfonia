@@ -1,6 +1,6 @@
 # Payments and legal copy for Paddle review (issue #574)
 
-**Status: purchase and refund implemented in issue #578; plan-fee deduction not implemented.**
+**Status: purchase and refund implemented in #578; subscription operations and lifecycle in #595/#596; frontend and public billing copy in #597.**
 
 ## Purchase and refund flow (#578)
 
@@ -22,7 +22,7 @@ Ops refunds debit unused purchased cash credits within 120 days, then
 create a proportional Paddle adjustment in the same request; a failed Paddle
 call rolls the debit back. A rejected adjustment restores the debit once.
 External adjustments alert Ops without changing the ledger. Monthly plan-fee
-deduction remains future work. A repeated Buy click on the same pack, within
+deduction and renewal are implemented in #595/#596. A repeated Buy click on the same pack, within
 the same page visit, reopens the still-unfinished transaction from the
 `checkout.loaded` event instead of creating a second one (issue #592): the
 component remembers the price id and transaction id carried by the last
@@ -79,8 +79,10 @@ a cash-redeemable balance. Full rationale and sources: issue #574
   included in both.
 - Low balance: users are emailed a reminder in advance when their balance
   will not cover the next monthly fee.
-- Plan change or cancellation: the already-charged fee for the current
-  month is returned pro rata for the unused part of the month.
+- Plan change or cancellation (2026-09-28): the already-charged fee for the
+  current month was to be returned pro rata for the unused part. **The cancellation
+  portion was superseded on 2026-09-30 (#597): cancellation runs through the
+  paid period with no return. Plan changes still return the unused part pro rata.**
 - Credits do not expire. After a purchase's 120-day refund window there is
   no other refund channel; the credits stay usable.
 - Account deletion removes holdings, investment-style settings, and other
@@ -139,6 +141,10 @@ No open owner decisions remain for this copy.
 | `legal.refund` | new document (below) |
 | `legal.terms` | revised document (below); old §4 removed, sections renumbered |
 | `legal.privacy` | revised document (below) |
+| `legal.terms.sections[3].body[1..4]` | #597: change/cancel rules, ET daily limit, unsubscribe consequences, verified-only notices |
+| `legal.pricing.sections[3].body[2]` | #597: changes return pro rata; cancellation has no return |
+| `legal.refund.sections[1].body[1]` | #597: cancellation does not return remaining-day credits |
+| `legal.{terms,pricing,refund}.lastUpdated` | #597: 2026-09-30 |
 | `home.hero.eyebrow` | "MVP · Multi-user closed beta" → "Limited public service" |
 | `home.preview.footnote` | "Actual content varies depending on your subscription tier." → "Briefing frequency depends on your plan." |
 | `home` FAQ "What does it cost?" answer | closed-beta text → see Home copy below |
@@ -183,8 +189,7 @@ added wherever Terms and Privacy are linked today (home footer, Profile,
      reminder in advance. If the balance is still not enough at renewal,
      your plan stops and its features become unavailable — currently, your
      scheduled briefings stop.
-   - If you change or cancel your plan, the unused part of the current
-     month's fee is returned to your credit balance pro rata.
+   - If you change your plan, the unused part of the current month's fee is returned to your credit balance pro rata and the new plan starts that day. If you cancel, your plan stays active until the end of the period already paid and nothing is returned.
    - Credits do not expire.
 5. **Refunds**
    - Unused purchased credits can be refunded within 120 days of purchase.
@@ -211,9 +216,7 @@ added wherever Terms and Privacy are linked today (home footer, Profile,
      payment method.
 2. **Non-refundable credits**
    - Complimentary, promotional, and referral credits are not refundable.
-   - Credits already applied to a billing period are not refunded to your
-     payment method. When you change or cancel a plan, the unused part of
-     the current month's fee is returned to your credit balance pro rata.
+   - Credits already applied to a billing period are not refunded to your payment method. When you change a plan, the unused part of the current month's fee is returned to your credit balance pro rata. When you cancel, nothing is returned for the remaining days.
    - After 120 days from a purchase, credits from that purchase can no
      longer be refunded. They do not expire and remain usable for your
      subscription.
@@ -260,10 +263,10 @@ existing text for them verbatim.
    - Paid plans are billed in prepaid service credits. Credits are sold in
      packs priced in US dollars (1 credit = US$1 at purchase); current
      plans and packs are listed on the Pricing page.
-   - Your plan fee is deducted from your credit balance at the start of
-     each monthly billing period, complimentary credits first. If you
-     change or cancel your plan, the unused part of the current month's
-     fee is returned to your credit balance pro rata.
+   - Your plan fee is deducted from your credit balance at the start of each monthly billing period, complimentary credits first. If you change your plan, the unused part of the current month's fee is returned to your credit balance pro rata and the new plan starts that day. If you cancel, your plan stays active until the end of the period already paid and nothing is returned.
+   - You can adjust your subscription (subscribe, change plan, cancel, or resume) once per day, Eastern Time.
+   - If you unsubscribe an address from report email and no verified address remains on your account, your subscription is treated as cancelled: it stays active until the end of the period already paid, nothing is returned, and it does not resume when you verify an address again.
+   - Balance reminders and expiry notices are sent only to a verified address.
    - Credits do not expire. They are usable only for Portfonia
      subscriptions, are non-transferable, and have no cash value except as
      provided in the Refund Policy.

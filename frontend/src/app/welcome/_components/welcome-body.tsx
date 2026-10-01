@@ -87,11 +87,12 @@ export function WelcomeBody({ me, hadLoadError }: { me: Me | null; hadLoadError:
           ? t("deliveryUnverified", { deliveryEmail })
           : t("deliveryVerified", { deliveryEmail: deliveryAddress })}
       </p>
-      <p className="text-sm text-foreground/80">{t("cadence")}</p>
+      <p className="text-sm text-foreground/80">{t("subscriptionPlans")}</p>
+      <p className="text-sm text-foreground/80">{t("subscriptionRequirements")}</p>
       <div className="flex flex-wrap gap-3">
         <Button render={<Link href="/portfolio" />}>{tMenu("portfolio")}</Button>
         <Button variant="outline" render={<Link href="/profile" />}>
-          {tMenu("profile")}
+          {t("choosePlan")}
         </Button>
       </div>
     </div>

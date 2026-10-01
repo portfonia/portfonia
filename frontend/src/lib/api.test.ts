@@ -8,6 +8,9 @@ vi.mock("@/lib/auth-actions", () => ({ logout }));
 
 import {
   ApiError,
+  getSubscriptionQuote,
+  setSubscription,
+  cancelSubscription,
   exportHoldings,
   exportPortfolio,
   getPortfolioPerformance,
@@ -218,3 +221,25 @@ describe("getPortfolioPerformance", () => {
   });
 });
 
+
+
+describe("subscription API helpers", () => {
+  afterEach(() => { global.fetch = originalFetch; vi.resetAllMocks(); });
+  it("quotes without caching, sets a plan, and cancels through the existing proxy", async () => {
+    const body = { status: "active", type: "weekly" };
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify(body))));
+    global.fetch = fetchMock;
+    await expect(getSubscriptionQuote("mwf")).resolves.toEqual(body);
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/me/subscription/quote?type=mwf", { cache: "no-store" });
+    await setSubscription("weekly");
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/me/subscription", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "weekly" }) });
+    await cancelSubscription();
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/me/subscription/cancel", { method: "POST" });
+    expect(fetchMock.mock.calls.flat().join(" ")).not.toContain("/resume");
+  });
+  it.each(["daily_limit", "email_unverified", "insufficient_credits", "no_change", "no_subscription"])("preserves 409 %s for translated UI handling", async code => {
+    global.fetch = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ detail: code }), { status: 409 })));
+    await expect(setSubscription("weekly")).rejects.toMatchObject({ status: 409, message: code });
+    await expect(cancelSubscription()).rejects.toMatchObject({ status: 409, message: code });
+  });
+});
