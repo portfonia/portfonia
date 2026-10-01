@@ -137,6 +137,8 @@ it("polls the purchase after checkout.completed and refreshes once it is credite
 });
 
 it("does not start another purchase-status request while one is in flight", async () => {
+  // Render before faking timers: RTL only auto-advances fake timers when a `jest`
+  // global exists, so findByText would hang on a frozen vitest clock.
   await renderReady();
   // No shouldAdvanceTime here: wall-clock drift would move the fake clock past
   // the exact 3,000 ms poll boundary asserted below when the machine is busy (#608).
