@@ -26,19 +26,18 @@ from unittest.mock import MagicMock, patch
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.timezones import ET
 from app.models.price_snapshot import PriceSnapshot
 from app.models.report import Report
 from app.models.search_cache import SearchCache
 from app.models.ticker_intel import TickerIntel
 from app.services.macro_detector import MacroSignals
 from app.services.portfolio_calculator import Concentration, PortfolioSnapshot
-from app.services.window_data import BOOTSTRAP_WATERMARK
+from app.tests.conftest import SHARED_COMPUTE_NOW
 
 # Same fixture shape as test_shared_compute_a1.py: NVDA/AAPL shared by
 # U1+U2, SGOL/gold isolated to U3.
-_BASELINE_DATE = date(2026, 6, 1)
-_BASELINE_AT = BOOTSTRAP_WATERMARK
+_BASELINE_DATE = (SHARED_COMPUTE_NOW - timedelta(days=7)).date()
+_BASELINE_AT = (SHARED_COMPUTE_NOW - timedelta(days=7)).replace(hour=16)
 
 
 def _close_at(ticker: str, d: date, close: float, captured_at: datetime) -> PriceSnapshot:
@@ -64,16 +63,11 @@ def _seed_price_snapshots(db_session: Session) -> None:
     one anomaly, so none of them hits the quiet-day skip (which would bypass
     Pass 1/Tavily/L1 entirely and confound these tests' assertions).
 
-    `_run_batch` uses the real (unfrozen) clock, so `eff_date` is whatever
-    ET calendar date the test actually runs on — L1's day-scoped window
-    (design doc §4.8, second addendum) needs a REAL close captured on that
-    exact date, or `day_pct` is None and L1 skips every candidate (round 6
-    review fix: a headline-only candidate is no longer analyzed/cached at
-    all). The rest of the series stays fixed in the historical past — only
-    anomaly detection (which reads each user's own, still-wide watermark
-    window) needs the longer run; L1 only ever looks at "yesterday's close
-    -> today's close"."""
-    today = datetime.now(tz=ET).date()
+    The batch clock is frozen through three_user_holdings. Seed the latest
+    two closes relative to that clock for L1's day-scoped window, and keep
+    the prior series inside the seven-calendar-day report window (#611).
+    """
+    today = SHARED_COMPUTE_NOW.date()
     yesterday = today - timedelta(days=1)
     yesterday_close_at = datetime.combine(yesterday, time(20, 0), tzinfo=UTC)
     db_session.add_all(

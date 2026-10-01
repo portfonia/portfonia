@@ -12,7 +12,7 @@ plumbing between mocks lines up.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
@@ -24,25 +24,14 @@ from app.models.report import Report
 from app.services import window_data
 from app.services.macro_detector import MacroSignals
 from app.services.portfolio_calculator import Concentration, PortfolioSnapshot
-from app.services.window_data import BOOTSTRAP_WATERMARK
+from app.tests.conftest import SHARED_COMPUTE_NOW
 
-# The real (unfrozen) clock is used throughout this file (PR #151 review):
-# generate_incremental_report stamps ONE `now` for the whole batch and passes
-# it into every user's generate_report call (report_tasks.py), which is what
-# actually makes moves_cache hit across users — not test-side clock-freezing.
-# An earlier version of this file froze report_generator.datetime.now to a
-# fixed value, which made test_compute_global_moves_runs_once_for_the_whole_
-# batch pass for the WRONG reason (each generate_report call independently
-# landing on the same mocked instant) even before generate_incremental_report
-# stamped a shared `now` itself — see window_data.MovesCache /
-# detect_window_anomalies' docstring. period_start for all three users is
-# BOOTSTRAP_WATERMARK (2026-06-01 16:00 ET) since none of them has a prior
-# report — cold start, so it's identical regardless of the real clock too.
-# Snapshot dates below are fixed in the past; period_end being "whenever this
-# test actually runs" only widens the window past the last seeded snapshot,
-# it does not change which snapshots fall inside it.
-_BASELINE_DATE = date(2026, 6, 1)
-_BASELINE_AT = BOOTSTRAP_WATERMARK
+# Freeze only the task batch clock through three_user_holdings. The generator
+# clock stays independent, so omitting the shared batch timestamp still defeats
+# moves_cache and fails the once-per-distinct-window assertion (PR #151).
+# All seeded dates are inside the seven-calendar-day report window (#611).
+_BASELINE_DATE = (SHARED_COMPUTE_NOW - timedelta(days=7)).date()
+_BASELINE_AT = (SHARED_COMPUTE_NOW - timedelta(days=7)).replace(hour=16)
 
 
 def _close(ticker: str, d: date, close: float) -> PriceSnapshot:
@@ -64,7 +53,7 @@ def _close_at(ticker: str, d: date, close: float, captured_at: datetime) -> Pric
 
 def _seed_price_snapshots(db_session: Session) -> None:
     """Baseline dated _BASELINE_DATE (6/1), captured exactly at
-    BOOTSTRAP_WATERMARK so it's picked up as the pre-window close, not a
+    (SHARED_COMPUTE_NOW - timedelta(days=7)).replace(hour=16) so it's picked up as the pre-window close, not a
     window member. Series runs 6/2-6/6 (5 trading days).
 
     NVDA: single-day +7.5% (single_day trigger, identical for U1/U2 — both
@@ -155,10 +144,8 @@ def _run_batch(db_session: Session) -> None:
     makes the test hang on a real OpenRouter network call instead of
     failing fast.
 
-    Deliberately does NOT freeze `datetime.now` (PR #151 review) — the real
-    clock exercises generate_incremental_report's own `batch_now` stamp,
-    which is what actually has to make moves_cache hit across users, not a
-    test-controlled clock.
+    Only the task batch clock is frozen. Each generator would still stamp a
+    distinct timestamp if the task stopped passing its shared batch `now`.
     """
     from app.tasks.report_tasks import generate_incremental_report
 
@@ -252,16 +239,12 @@ def test_compute_global_moves_runs_once_per_distinct_window_not_per_user(
 ) -> None:
     """UAT-2: the global move computation must not scale with user count —
     three users sharing one window trigger exactly one compute_global_moves
-    call for that window, not three. Runs against the real (unfrozen) clock
-    via _run_batch (PR #151 review) — this is the actual regression for the
-    bug where each user's independent `datetime.now()` call defeated
-    moves_cache's cache key in production even though a test that froze the
-    clock stayed green.
+    call for that window, not three. The task clock is frozen; the generator
+    clock is independent, preserving the missing-shared-now regression.
 
     1 + L1_LOOKBACK_TRADING_DAYS calls, not 1 (design doc §4.8 + issue #128
     lookback): the batch's shared report window (`period_start`/`period_end`,
-    identical for all three users here — cold start, same
-    BOOTSTRAP_WATERMARK) accounts for one call, and L1's weekday lookback
+    identical for all three users here — same seeded prior end) accounts for one call, and L1's weekday lookback
     (`lookback_trading_dates(eff_date)`) accounts for one single-day window
     each. All of those keys are still shared across all three users via the
     same `moves_cache`, so the count stays fixed regardless of user count —
@@ -275,3 +258,10 @@ def test_compute_global_moves_runs_once_per_distinct_window_not_per_user(
         _run_batch(db_session)
 
     assert spy.call_count == 1 + window_data.L1_LOOKBACK_TRADING_DAYS
+    reports = (
+        db_session.execute(select(Report).where(Report.session_node != "fixture_seed"))
+        .scalars()
+        .all()
+    )
+    assert len(reports) == 3
+    assert all(report.period_end == SHARED_COMPUTE_NOW for report in reports)

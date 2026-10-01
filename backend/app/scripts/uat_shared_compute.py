@@ -12,7 +12,7 @@ runtime patches stay inside this process. Never delete ticker_intel /
 macro_event_intel / search_cache.
 
 If THIS user has no prior report, the period is one complete trading week
-(five weekdays back, ET midnight) — not BOOTSTRAP_WATERMARK, not another
+(seven calendar days back, ET midnight) — not BOOTSTRAP_WATERMARK, not another
 user's watermark.
 
     docker compose exec backend python -m app.scripts.uat_shared_compute \
@@ -250,7 +250,7 @@ def seed_holdings(session: Session) -> None:
 
 
 def one_trading_week_start(now: datetime) -> datetime:
-    """ET midnight five weekdays before `now` — one complete trading week.
+    """ET midnight seven calendar days before `now` — the report window cap.
 
     Delegates to the production cold-start helper so UAT and live reports
     cannot drift (Ring 1-B §6.6).

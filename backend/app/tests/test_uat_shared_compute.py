@@ -424,12 +424,12 @@ def test_install_email_guards_replaces_every_notify_target() -> None:
             p.stop()
 
 
-def test_one_trading_week_start_is_five_weekdays_back_at_et_midnight() -> None:
-    # Monday 17 Aug 2026 23:45 ET → five weekdays back is Monday 10 Aug.
+def test_one_trading_week_start_is_seven_calendar_days_back_at_et_midnight() -> None:
+    # Monday 17 Aug 2026 23:45 ET → seven calendar days back is Monday 10 Aug.
     now = datetime(2026, 8, 17, 23, 45, tzinfo=ET)
     start = uat.one_trading_week_start(now)
     assert start == datetime(2026, 8, 10, 0, 0, tzinfo=ET)
-    # Wednesday: skip Tue/Mon/Fri/Thu/Wed → previous Wednesday.
+    # Wednesday → previous Wednesday.
     wed = datetime(2026, 8, 19, 12, 0, tzinfo=ET)
     assert uat.one_trading_week_start(wed) == datetime(2026, 8, 12, 0, 0, tzinfo=ET)
 
@@ -481,9 +481,11 @@ def test_window_alignment_uses_one_trading_week_not_another_users_watermark(
     assert result["aligned"] is True
     assert result["source"] == "one_trading_week"
     for uid in uat.UAT_USER_IDS:
-        assert user_watermark(db_session, uid, "incremental") == week_start
-        assert user_watermark(db_session, uid, "incremental") != BOOTSTRAP_WATERMARK
-        assert user_watermark(db_session, uid, "incremental") != other_user_report.period_end
+        assert user_watermark(db_session, uid, "incremental", now=now) == week_start
+        assert user_watermark(db_session, uid, "incremental", now=now) != BOOTSTRAP_WATERMARK
+        assert (
+            user_watermark(db_session, uid, "incremental", now=now) != other_user_report.period_end
+        )
         marked = {
             m.news_id
             for m in db_session.execute(
