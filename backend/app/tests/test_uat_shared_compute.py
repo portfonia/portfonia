@@ -481,9 +481,11 @@ def test_window_alignment_uses_one_trading_week_not_another_users_watermark(
     assert result["aligned"] is True
     assert result["source"] == "one_trading_week"
     for uid in uat.UAT_USER_IDS:
-        assert user_watermark(db_session, uid, "incremental") == week_start
-        assert user_watermark(db_session, uid, "incremental") != BOOTSTRAP_WATERMARK
-        assert user_watermark(db_session, uid, "incremental") != other_user_report.period_end
+        assert user_watermark(db_session, uid, "incremental", now=now) == week_start
+        assert user_watermark(db_session, uid, "incremental", now=now) != BOOTSTRAP_WATERMARK
+        assert (
+            user_watermark(db_session, uid, "incremental", now=now) != other_user_report.period_end
+        )
         marked = {
             m.news_id
             for m in db_session.execute(

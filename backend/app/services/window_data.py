@@ -1,7 +1,7 @@
 """Incremental-report window data (ADR-002 report layer).
 
 The report covers `[period_start, period_end]` where period_start is the user's
-watermark (previous report's period_end, derived — not a stored pointer) and
+watermark (previous report's period_end capped at the seven-calendar-day floor) and
 period_end is the run cutoff. News and price moves over that window are read from
 the capture-layer stores, never re-fetched live.
 """
@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 # fixed fixture timestamp for tests that need a historical baseline — a new
 # user with no DONE reports now uses `cold_start_watermark(now)` instead.
 BOOTSTRAP_WATERMARK = datetime(2026, 6, 1, 16, 0, tzinfo=ET)
-COLD_START_WEEKDAYS = 5
+WINDOW_MAX_DAYS = 7
 
 _RATIO = Decimal("0.0001")  # 4 dp for pct_change
 
@@ -66,40 +66,13 @@ _DONE_STATUSES = ("success", "skipped", "needs_review")
 
 
 def cold_start_watermark(now: datetime) -> datetime:
-    """ET midnight of the date ``COLD_START_WEEKDAYS`` weekdays before ``now``.
+    """ET midnight of the calendar date WINDOW_MAX_DAYS days before ``now``.
 
-    Pure function of the given timestamp — must not call ``datetime.now()``.
-    ``generate_report`` already stamps a batch ``now``; using wall-clock here
-    would desync the window from that batch (Ring 1-B design.md §2.3 / §6.6).
+    The earliest start of any report window: a new user's first report, and
+    the cap after a gap. Pure function of ``now``.
     """
-    cursor = now.astimezone(ET).date()
-    remaining = COLD_START_WEEKDAYS
-    while remaining > 0:
-        cursor -= timedelta(days=1)
-        if cursor.weekday() < 5:
-            remaining -= 1
-    return datetime(cursor.year, cursor.month, cursor.day, tzinfo=ET)
-
-
-def user_has_done_history(
-    session: Session,
-    user_id: object,
-    report_type: str,
-    exclude_report_id: object | None = None,
-) -> bool:
-    """True if this user has any DONE report of this type (optionally excluding one)."""
-    stmt = (
-        select(func.count())
-        .select_from(Report)
-        .where(
-            Report.user_id == user_id,
-            Report.report_type == report_type,
-            Report.status.in_(_DONE_STATUSES),
-        )
-    )
-    if exclude_report_id is not None:
-        stmt = stmt.where(Report.id != exclude_report_id)
-    return int(session.execute(stmt).scalar_one()) > 0
+    day = now.astimezone(ET).date() - timedelta(days=WINDOW_MAX_DAYS)
+    return datetime(day.year, day.month, day.day, tzinfo=ET)
 
 
 def user_watermark(
@@ -107,10 +80,12 @@ def user_watermark(
     user_id: object,
     report_type: str,
     exclude_report_id: object | None = None,
-    now: datetime | None = None,
+    *,
+    now: datetime,
 ) -> datetime:
     """period_start for the next report = max(period_end) over the user's completed
-    reports of this type, or five weekdays before ``now`` when there are none.
+    reports of this type, capped at ET midnight seven calendar days before ``now``.
+    With no completed history, use that same floor.
 
     ``exclude_report_id`` drops the report currently being (re)generated from the
     watermark. Without it, regenerating an existing failed/needs_review/skipped row
@@ -119,7 +94,7 @@ def user_watermark(
     status reset is not yet visible to this query). Always pass the row's id when
     regenerating in place.
 
-    ``now`` is required on the cold-start path and must be the same timestamp
+    ``now`` is required for every window and must be the same timestamp
     ``generate_report`` already computed for the batch — do not omit it and
     do not let this function read the wall clock.
     """
@@ -131,18 +106,15 @@ def user_watermark(
     if exclude_report_id is not None:
         stmt = stmt.where(Report.id != exclude_report_id)
     latest = session.execute(stmt).scalar_one_or_none()
-    if latest is not None:
-        return latest
-    if now is None:
-        raise ValueError("now is required to compute a cold-start watermark")
-    return cold_start_watermark(now)
+    floor = cold_start_watermark(now)
+    return max(latest, floor) if latest is not None else floor
 
 
 def backfill_news_surfaced_before(session: Session, user_id: uuid.UUID, cutoff: datetime) -> int:
     """Mark news published strictly before ``cutoff`` as already surfaced.
 
-    Used for a brand-new user so ``load_news_window`` (no lower bound) does
-    not swallow the whole capture table on their first report. ``report_id``
+    Used at signup and whenever a newly computed window starts at the floor
+    so ``load_news_window`` (no lower bound) does not swallow older history. ``report_id``
     on these rows is the user's own id — not a real Report — because
     ``news_surfaced.report_id`` has no FK and this backfill is not attached
     to a generated report. ``ON CONFLICT DO NOTHING`` makes a later

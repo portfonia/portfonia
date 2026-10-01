@@ -589,12 +589,23 @@ layer** (per-user, incremental).
   optional `fund_codes` filter (`None` = full universe) and uniques by
   fund_code before fetch — two holdings of the same fund must not propose
   the same upsert key twice.
-- **Report window** = `[previous report.period_end, now]`; watermark =
-  `max(period_end)` over the user's completed reports (deleting a report
-  rolls it back; regenerate keeps the stored period). News/anomalies are read
-  from the stores via `window_data`, never live RSS or last-two-closes.
-  News selection is NOT range-bounded by this watermark on the lower end —
-  see "News dedup ledger" below (issue #30) for why.
+- **Report window (issue #611)** = `[max(previous report.period_end, floor), now]`,
+  where `floor` is ET midnight of the ET calendar date seven days before the
+  batch timestamp (`WINDOW_MAX_DAYS = 7`). With no completed history, start
+  at the same floor. The previous end is `max(period_end)` over this user's
+  completed reports of the same type (`success`/`skipped`/`needs_review`),
+  excluding the row being generated. `user_watermark` requires the batch
+  `now`; calendar arithmetic and the timezone database preserve ET midnight
+  across DST changes. Normal Saturday Weekly and Mon/Wed/Fri windows keep
+  their previous end unchanged. The cap takes priority over gap recovery:
+  content from a failed week can be discarded after a longer gap.
+  Stored windows on retries and regenerations stay frozen. News/anomalies
+  are read from capture stores, never live RSS or last-two-closes.
+  When a newly computed start equals the floor, `generate_report` marks
+  news published strictly before that start as surfaced for this user before
+  loading news; signup uses the same floor. Uncapped windows receive no
+  backfill, preserving #30 late-ingest protection. `load_news_window` itself
+  still has no lower bound; see the news dedup mechanism.
 - **Cadence (issue #191, per-user `users.report_cadence`, 2026-08-28)**:
   `_REPORT_CADENCES` (`app/tasks/__init__.py`) is a table of Beat rows, each
   naming a `cadence` that scopes its own `active_user_ids` fan-out — not a

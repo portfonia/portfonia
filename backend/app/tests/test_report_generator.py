@@ -1228,8 +1228,8 @@ def test_generate_report_l1_facts_are_independent_of_the_calling_users_watermark
     user's), so whichever one's `generate_report` call reached L1 first
     would cache THEIR window's price move for every other user that day.
 
-    User A's watermark predates all seeded history by over a month (an
-    old/cold-start-like user); User B's watermark is midday two days before
+    User A's watermark starts near the seven-calendar-day floor (an
+    earlier-reporting user); User B's watermark is midday two days before
     `eff_date` (a long-running user who reported more recently). Under the
     old per-user-window code, these two would compute genuinely different
     multi-day `net_pct` figures for NVDA — this is verified directly below
@@ -1241,7 +1241,7 @@ def test_generate_report_l1_facts_are_independent_of_the_calling_users_watermark
 
     All captured_at values are pinned to 16:00 ET (20:00 UTC, unambiguously
     the same ET calendar day as their trade_date, no DST-boundary surprises
-    for this June/early-May range) so the window math below is exact and
+    for this June/late-May range) so the window math below is exact and
     independent of when this test actually runs."""
     from app.models.holding import Holding
     from app.models.price_snapshot import PriceSnapshot
@@ -1253,7 +1253,7 @@ def test_generate_report_l1_facts_are_independent_of_the_calling_users_watermark
     user_b = uuid.UUID("00000000-0000-0000-0000-0000000000a2")
     seed_user(db_session, user_a)
     seed_user(db_session, user_b)
-    watermark_a = datetime(2026, 5, 1, 12, 0, tzinfo=UTC)  # before ALL seeded closes
+    watermark_a = datetime(2026, 5, 28, 12, 0, tzinfo=UTC)  # before ALL seeded closes
     watermark_b = datetime(2026, 6, 2, 12, 0, tzinfo=UTC)  # after 6/1's close, before 6/3's
 
     def _nvda_close(trade_date: date, close: str) -> PriceSnapshot:
@@ -1281,7 +1281,7 @@ def test_generate_report_l1_facts_are_independent_of_the_calling_users_watermark
             ),
             Report(
                 user_id=user_a,
-                report_date=date(2026, 4, 30),
+                report_date=date(2026, 5, 28),
                 report_type="incremental",
                 session_node="after_close",
                 status="success",
@@ -1295,7 +1295,7 @@ def test_generate_report_l1_facts_are_independent_of_the_calling_users_watermark
                 status="success",
                 period_end=watermark_b,
             ),
-            _nvda_close(date(2026, 4, 25), "190"),  # baseline for user A's own window
+            _nvda_close(date(2026, 5, 27), "190"),  # baseline for user A's own window
             _nvda_close(date(2026, 6, 1), "200"),  # baseline for user B's own window
             _nvda_close(date(2026, 6, 3), "210"),  # baseline for L1's day-scoped window
             _nvda_close(_TODAY, "220"),  # 2026-06-04 — the day-scoped "latest"
@@ -1338,7 +1338,7 @@ def test_generate_report_l1_facts_are_independent_of_the_calling_users_watermark
             patch("app.services.ticker_intel._call_llm", side_effect=_capture_l1_llm),
         ):
             report = rg.generate_report(
-                db_session, user_id=user_id, report_date=_TODAY, session_node="manual"
+                db_session, user_id=user_id, report_date=_TODAY, session_node="manual", now=end
             )
         assert report.status == "success"
 
@@ -4246,3 +4246,104 @@ def test_generate_zh_hant_violation_suppresses_email(db_session: Session) -> Non
     assert report.status == "needs_review"
     assert report.report_md is not None and "市場風險" in report.report_md
     email.assert_not_called()
+
+
+@pytest.mark.parametrize("capped", [True, False])
+def test_generate_report_window_cap_news_backfill(db_session: Session, capped: bool) -> None:
+    from app.core.timezones import ET
+    from app.models.news import News
+    from app.services.window_data import backfill_news_surfaced_before
+
+    now = datetime(2026, 12, 5, 19, tzinfo=ET) if capped else datetime(2026, 10, 10, 19, tzinfo=ET)
+    previous = (
+        datetime(2026, 11, 14, 19, 0, 1, tzinfo=ET)
+        if capped
+        else datetime(2026, 10, 3, 19, 0, 1, tzinfo=ET)
+    )
+    expected = datetime(2026, 11, 28, tzinfo=ET) if capped else previous
+    old = datetime(2026, 11, 20, tzinfo=ET) if capped else datetime(2026, 10, 2, tzinfo=ET)
+    recent = datetime(2026, 12, 1, tzinfo=ET) if capped else datetime(2026, 10, 8, tzinfo=ET)
+    db_session.add(
+        Report(
+            user_id=_USER,
+            report_date=previous.date(),
+            report_type="incremental",
+            session_node="after_close",
+            status="success",
+            period_end=previous,
+        )
+    )
+    for title, published in [("old", old), ("recent", recent), ("boundary", expected)]:
+        db_session.add(
+            News(
+                url_hash=title,
+                title=title,
+                source="TEST",
+                url=f"https://example.com/{title}",
+                published_at=published,
+                summary=title,
+            )
+        )
+    db_session.flush()
+    with (
+        patch.object(rg, "datetime", wraps=datetime) as clock,
+        patch.object(
+            rg, "backfill_news_surfaced_before", wraps=backfill_news_surfaced_before
+        ) as backfill,
+        patch.object(rg, "compute_portfolio", return_value=_portfolio_snap()),
+        patch.object(rg, "detect_macro_signals", return_value=_quiet_signals()),
+        patch.object(rg, "detect_window_anomalies", return_value=([], 0)),
+        patch.object(rg, "_openrouter_client", return_value=MagicMock()),
+        patch.object(rg, "_call_llm", side_effect=_mock_llm),
+        patch.object(rg, "_run_tavily_search", return_value=[]),
+    ):
+        clock.now.return_value = now
+        report = rg.generate_report(
+            db_session, user_id=_USER, report_date=now.date(), output_lang="en"
+        )
+    db_session.refresh(report)
+    assert report.period_start == expected
+    assert report.period_end == now
+    assert report.report_inputs is not None
+    assert {item["title"] for item in report.report_inputs["news_items"]} == (
+        {"recent", "boundary"} if capped else {"old", "recent", "boundary"}
+    )
+    if capped:
+        backfill.assert_called_once_with(db_session, _USER, expected)
+    else:
+        backfill.assert_not_called()
+
+
+def test_failed_retry_keeps_window_older_than_floor(db_session: Session) -> None:
+    from app.core.timezones import ET
+
+    now = datetime(2026, 12, 5, 19, tzinfo=ET)
+    start = datetime(2026, 11, 14, 19, 0, 1, tzinfo=ET)
+    end = datetime(2026, 11, 21, 19, tzinfo=ET)
+    failed = Report(
+        user_id=_USER,
+        report_date=now.date(),
+        report_type="incremental",
+        session_node="manual",
+        status="failed",
+        period_start=start,
+        period_end=end,
+    )
+    db_session.add(failed)
+    db_session.flush()
+    with (
+        patch.object(rg, "datetime", wraps=datetime) as clock,
+        patch.object(rg, "backfill_news_surfaced_before") as backfill,
+        patch.object(rg, "compute_portfolio", return_value=_portfolio_snap()),
+        patch.object(rg, "detect_macro_signals", return_value=_quiet_signals()),
+        patch.object(rg, "detect_window_anomalies", return_value=([], 0)),
+    ):
+        clock.now.return_value = now
+        report = rg.generate_report(
+            db_session, user_id=_USER, report_date=now.date(), output_lang="en"
+        )
+    db_session.refresh(report)
+    assert report.id == failed.id
+    assert report.period_start == start
+    assert report.period_end == end
+    backfill.assert_not_called()

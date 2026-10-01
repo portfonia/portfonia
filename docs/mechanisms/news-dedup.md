@@ -23,6 +23,20 @@ more likely, not less.
   the same set `user_watermark()` already uses), it's excluded from every
   future selection **for that user**, regardless of how old its
   `published_at` is.
+- **Seven-calendar-day window floor (issue #611)**: newly computed report
+  windows start at the later of the latest completed report end and ET midnight
+  seven ET calendar dates before the batch time. Without history they use the
+  same floor. Signup backfills with this cutoff; `generate_report` backfills
+  exactly when its newly computed start equals the floor, including after a
+  gap. It marks news published strictly before the cutoff as surfaced for that
+  user before loading news; an item exactly at the cutoff remains eligible.
+  Normal Weekly and Mon/Wed/Fri windows keep their previous end and receive no
+  backfill, so late-ingested, unsurfaced news before that end still loads (#30).
+  The seven-day cap takes priority over recovering a failed week's content.
+  Retries with a stored window reuse it without recomputing or backfilling;
+  regenerations continue using stored inputs. The no-lower-bound selector and
+  normal ledger marking semantics are unchanged; no migration or retroactive
+  report regeneration is involved.
 - **Uniqueness is `(user_id, news_id)`, not `news_id` alone** (PR #139
   review round 1, a real gap in the first draft): `news` is a global
   capture-layer store, but reports are per-user with independent

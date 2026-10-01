@@ -18,7 +18,7 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import Generator
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import cast
 from unittest.mock import MagicMock, patch
@@ -35,11 +35,11 @@ from alembic import command
 from app.core.config import get_settings
 from app.core.database import TEST_DATABASE_NAME, get_engine, reset_engine
 from app.core.deps import Principal, current_principal
+from app.core.timezones import ET
 from app.main import app
 from app.models.holding import Holding
 from app.models.report import Report
 from app.models.user import User
-from app.services.window_data import BOOTSTRAP_WATERMARK
 
 
 @pytest.fixture(autouse=True)
@@ -366,8 +366,30 @@ def db_session(
         connection.close()
 
 
+SHARED_COMPUTE_NOW = datetime(2026, 6, 8, 17, tzinfo=ET)
+
+
 @pytest.fixture
-def three_user_holdings(db_session: Session) -> dict[str, uuid.UUID]:
+def shared_compute_clock() -> Generator[datetime, None, None]:
+    """Freeze the task's batch clock, leaving the generator clock independent.
+
+    A missing batch-now argument must still yield distinct generator timestamps
+    and fail the A1 shared-cache assertion rather than being hidden by a global
+    clock freeze.
+    """
+    with (
+        patch("app.tasks.report_tasks.datetime", wraps=datetime) as clock,
+        patch("app.core.timezones.datetime", wraps=datetime) as et_clock,
+    ):
+        clock.now.return_value = SHARED_COMPUTE_NOW
+        et_clock.now.return_value = SHARED_COMPUTE_NOW
+        yield SHARED_COMPUTE_NOW
+
+
+@pytest.fixture
+def three_user_holdings(
+    db_session: Session, shared_compute_clock: datetime
+) -> dict[str, uuid.UUID]:
     """U1/U2/U3 holdings (design doc §7.1) shared across Ring 1 stage-A
     checkpoints. Ticker/asset_class choices, verbatim from the design doc:
 
@@ -423,19 +445,21 @@ def three_user_holdings(db_session: Session) -> dict[str, uuid.UUID]:
         ]
     )
     # These three are stand-ins for existing books, not brand-new signups.
-    # Seed a DONE report at the historical baseline so A1-A4 keep a stable
-    # window; new-user cold start is covered by test_window_data.py.
+    # Seed a DONE report seven calendar days before the frozen batch, at
+    # 16:00 ET so the normal window remains strictly later than the floor.
+    # New-user cold start is covered by test_window_data.py.
+    baseline = (shared_compute_clock - timedelta(days=7)).replace(hour=16)
     for uid in (U1_USER_ID, U2_USER_ID, U3_USER_ID):
         db_session.add(
             Report(
                 user_id=uid,
-                report_date=date(2026, 6, 1),
+                report_date=baseline.date(),
                 report_type="incremental",
                 session_node="fixture_seed",
                 status="success",
                 report_md="fixture watermark seed",
-                period_start=BOOTSTRAP_WATERMARK,
-                period_end=BOOTSTRAP_WATERMARK,
+                period_start=baseline,
+                period_end=baseline,
             )
         )
     db_session.add_all(

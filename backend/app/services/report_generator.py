@@ -150,6 +150,7 @@ from app.services.window_data import (
     HoldingMove,
     MovesCache,
     backfill_news_surfaced_before,
+    cold_start_watermark,
     day_window_bounds,
     detect_window_anomalies,
     latest_window_close_date,
@@ -159,7 +160,6 @@ from app.services.window_data import (
     mark_news_surfaced,
     resolve_global_moves,
     unmark_news_surfaced,
-    user_has_done_history,
     user_watermark,
 )
 from app.services.zh_hant import to_traditional
@@ -1054,7 +1054,7 @@ def generate_report(
         period_end = now
         report.period_start = period_start
         report.period_end = period_end
-        if not user_has_done_history(session, user_id, report_type, exclude_report_id=exclude_id):
+        if period_start == cold_start_watermark(now):
             backfill_news_surfaced_before(session, user_id, period_start)
         session.flush()  # get the id without committing
         logger.info(

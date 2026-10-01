@@ -30,10 +30,10 @@ from app.models.news import News
 from app.models.price_snapshot import PriceSnapshot
 from app.models.report import Report
 from app.services.portfolio_calculator import Concentration, PortfolioSnapshot
-from app.services.window_data import BOOTSTRAP_WATERMARK
+from app.tests.conftest import SHARED_COMPUTE_NOW
 
-_BASELINE_DATE = date(2026, 6, 1)
-_BASELINE_AT = BOOTSTRAP_WATERMARK
+_BASELINE_DATE = (SHARED_COMPUTE_NOW - timedelta(days=7)).date()
+_BASELINE_AT = (SHARED_COMPUTE_NOW - timedelta(days=7)).replace(hour=16)
 
 _L2_MARKER = "ZZZ_L2_SHARED_EVENT_MARKER_ZZZ"
 
@@ -59,7 +59,7 @@ def _seed_price_snapshots(db_session: Session) -> None:
     """Same shape as _a2.py's fixture: every user gets at least one anomaly so
     nobody hits the quiet-day skip (which returns before Pass 1 and L1/L2 run
     at all)."""
-    today = datetime.now(tz=ET).date()
+    today = SHARED_COMPUTE_NOW.date()
     yesterday = today - timedelta(days=1)
     yesterday_close_at = datetime.combine(yesterday, time(20, 0), tzinfo=UTC)
     db_session.add_all(
@@ -82,12 +82,8 @@ def _seed_day_news(db_session: Session) -> None:
     货币政策 theme ("Fed" is a word-boundary keyword). Every user's own
     `load_news_window` sees it too (none of them has surfaced it yet), so all
     three select the same theme — the exact overlap L2 must collapse."""
-    now = datetime.now(tz=ET)
-    # Must satisfy BOTH selectors at once, and `_run_batch` uses the real
-    # clock: `load_news_window` takes `published_at <= period_end` (= now, so
-    # a fixed noon stamp is in the FUTURE for any run before noon ET and the
-    # theme never hits), while `load_day_news` takes today's ET calendar day
-    # (so subtracting an hour must not fall off the back of midnight).
+    now = SHARED_COMPUTE_NOW
+    # Satisfy both the per-user cutoff and L1's frozen ET calendar day.
     published = max(now - timedelta(hours=1), datetime.combine(now.date(), time.min, tzinfo=ET))
     db_session.add(
         News(

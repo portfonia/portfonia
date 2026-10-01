@@ -511,3 +511,63 @@ def test_signup_returns_201_even_if_enqueue_raises(
     assert row is not None
     _fake_auth_provider.assert_called_once()  # no compensation delete ran
     delay.assert_called_once()
+
+
+def test_signup_sunday_backfills_seven_calendar_days(
+    app_client: TestClient, db_session: Session, _fake_auth_provider: MagicMock
+) -> None:
+    from datetime import datetime
+    from unittest.mock import patch
+
+    from app.core.timezones import ET
+    from app.models.news import News
+    from app.models.news_surfaced import NewsSurfaced
+    from app.services.window_data import backfill_news_surfaced_before
+
+    now = datetime(2026, 10, 4, 19, tzinfo=ET)
+    cutoff = datetime(2026, 9, 27, tzinfo=ET)
+    issued = create_invite(db_session, created_by=_CREATOR)
+    for title, published in [
+        ("before", datetime(2026, 9, 26, 23, 59, 59, tzinfo=ET)),
+        ("boundary", cutoff),
+        ("inside", datetime(2026, 9, 27, 12, tzinfo=ET)),
+    ]:
+        db_session.add(
+            News(
+                url_hash=title,
+                title=title,
+                source="TEST",
+                url=f"https://example.com/{title}",
+                published_at=published,
+            )
+        )
+    db_session.flush()
+    with (
+        patch("app.routers.auth.datetime", wraps=datetime) as clock,
+        patch(
+            "app.routers.auth.backfill_news_surfaced_before", wraps=backfill_news_surfaced_before
+        ) as backfill,
+    ):
+        clock.now.return_value = now
+        response = app_client.post(
+            "/auth/signup",
+            json={
+                "invite_token": issued.token,
+                "email": "sunday@example.com",
+                "password": "a-long-enough-password",
+                "tos_accepted": True,
+            },
+        )
+    assert response.status_code == 201
+    user = db_session.execute(select(User).where(User.email == "sunday@example.com")).scalar_one()
+    backfill.assert_called_once_with(db_session, user.id, cutoff)
+    marked = (
+        db_session.execute(
+            select(News.title)
+            .join(NewsSurfaced, News.id == NewsSurfaced.news_id)
+            .where(NewsSurfaced.user_id == user.id)
+        )
+        .scalars()
+        .all()
+    )
+    assert marked == ["before"]

@@ -82,13 +82,13 @@ def _close_at(ticker: str, d: date, close: float, captured_at: datetime) -> Pric
 # --- watermark ---------------------------------------------------------------
 
 
-def test_cold_start_watermark_is_five_weekdays_before_now() -> None:
+def test_cold_start_watermark_is_seven_calendar_days_before_now() -> None:
     """B-UAT-11: a Wednesday 17:00 ET run opens at the prior Wednesday midnight."""
     now = datetime(2026, 8, 19, 17, 0, tzinfo=ET)
     assert cold_start_watermark(now) == datetime(2026, 8, 12, tzinfo=ET)
 
 
-def test_cold_start_watermark_skips_weekend() -> None:
+def test_cold_start_watermark_monday() -> None:
     """A Monday run lands on the previous Monday, not the intervening weekend."""
     now = datetime(2026, 8, 17, 17, 0, tzinfo=ET)
     assert cold_start_watermark(now) == datetime(2026, 8, 10, tzinfo=ET)
@@ -113,8 +113,8 @@ def test_watermark_cold_start_uses_batch_now(db_session: Session) -> None:
 
 
 def test_watermark_cold_start_requires_now_when_no_history(db_session: Session) -> None:
-    with pytest.raises(ValueError, match="now"):
-        user_watermark(db_session, _USER, "incremental")
+    with pytest.raises(TypeError, match="now"):
+        user_watermark(db_session, _USER, "incremental")  # type: ignore[call-arg]  # Required argument regression.
 
 
 def test_watermark_from_last_report(db_session: Session) -> None:
@@ -130,7 +130,10 @@ def test_watermark_from_last_report(db_session: Session) -> None:
         )
     )
     db_session.flush()
-    assert user_watermark(db_session, _USER, "incremental") == end
+    assert (
+        user_watermark(db_session, _USER, "incremental", now=datetime(2026, 6, 11, 17, tzinfo=ET))
+        == end
+    )
 
 
 def test_watermark_excludes_the_report_being_regenerated(db_session: Session) -> None:
@@ -160,9 +163,21 @@ def test_watermark_excludes_the_report_being_regenerated(db_session: Session) ->
     db_session.flush()
 
     # Without exclusion the watermark is the regen row's own period_end (6/8).
-    assert user_watermark(db_session, _USER, "incremental") == regen.period_end
+    assert (
+        user_watermark(db_session, _USER, "incremental", now=datetime(2026, 6, 9, 17, tzinfo=ET))
+        == regen.period_end
+    )
     # Excluding it falls back to the prior 6/5 report.
-    assert user_watermark(db_session, _USER, "incremental", exclude_report_id=regen.id) == prior_end
+    assert (
+        user_watermark(
+            db_session,
+            _USER,
+            "incremental",
+            exclude_report_id=regen.id,
+            now=datetime(2026, 6, 9, 17, tzinfo=ET),
+        )
+        == prior_end
+    )
 
 
 # --- news window -------------------------------------------------------------
@@ -1425,3 +1440,71 @@ def test_merge_theme_anomalies_uses_real_auto_valuation_when_shares_priced() -> 
     by_identifier = {c.identifier: c for c in merged.constituents}
     assert by_identifier["AUTO"].current_value == Decimal("1000.0")
     assert by_identifier["MANL"].current_value == Decimal("1000")
+
+
+@pytest.mark.parametrize(
+    "now, expected",
+    [
+        (datetime(2026, 10, 10, 19, tzinfo=ET), datetime(2026, 10, 3, tzinfo=ET)),
+        (datetime(2026, 11, 7, 19, tzinfo=ET), datetime(2026, 10, 31, tzinfo=ET)),
+        (datetime(2026, 10, 5, 2, tzinfo=UTC), datetime(2026, 9, 27, tzinfo=ET)),
+    ],
+)
+def test_cold_start_calendar_floor_weekend_dst_and_utc(now: datetime, expected: datetime) -> None:
+    actual = cold_start_watermark(now)
+    assert actual == expected
+    assert actual.utcoffset() == expected.utcoffset()
+    assert actual.hour == 0
+
+
+@pytest.mark.parametrize(
+    "previous, now, expected",
+    [
+        (
+            datetime(2026, 10, 3, 19, 0, 1, tzinfo=ET),
+            datetime(2026, 10, 10, 19, tzinfo=ET),
+            datetime(2026, 10, 3, 19, 0, 1, tzinfo=ET),
+        ),
+        (
+            datetime(2026, 10, 2, 17, 0, 1, tzinfo=ET),
+            datetime(2026, 10, 5, 17, tzinfo=ET),
+            datetime(2026, 10, 2, 17, 0, 1, tzinfo=ET),
+        ),
+        (
+            datetime(2026, 11, 14, 19, 0, 1, tzinfo=ET),
+            datetime(2026, 12, 5, 19, tzinfo=ET),
+            datetime(2026, 11, 28, tzinfo=ET),
+        ),
+    ],
+)
+def test_watermark_preserves_cadences_and_caps_gap(
+    db_session: Session, previous: datetime, now: datetime, expected: datetime
+) -> None:
+    db_session.add(
+        Report(
+            user_id=_USER,
+            report_date=previous.date(),
+            report_type="incremental",
+            session_node="after_close",
+            status="success",
+            period_end=previous,
+        )
+    )
+    db_session.flush()
+    assert user_watermark(db_session, _USER, "incremental", now=now) == expected
+
+
+def test_watermark_requires_now_with_history(db_session: Session) -> None:
+    db_session.add(
+        Report(
+            user_id=_USER,
+            report_date=date(2026, 6, 10),
+            report_type="incremental",
+            session_node="after_close",
+            status="success",
+            period_end=datetime(2026, 6, 10, 17, tzinfo=ET),
+        )
+    )
+    db_session.flush()
+    with pytest.raises(TypeError, match="now"):
+        user_watermark(db_session, _USER, "incremental")  # type: ignore[call-arg]  # Required argument regression.

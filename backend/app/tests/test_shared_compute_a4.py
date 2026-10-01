@@ -26,13 +26,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.timezones import ET
 from app.models.price_snapshot import PriceSnapshot
 from app.models.report import Report
 from app.services import report_generator as rg
-from app.services.window_data import BOOTSTRAP_WATERMARK
+from app.tests.conftest import SHARED_COMPUTE_NOW
 
-_BASELINE_DATE = date(2026, 6, 1)
+_BASELINE_DATE = (SHARED_COMPUTE_NOW - timedelta(days=7)).date()
 _ASSEMBLY_MODEL = "shadow/cheap"
 
 _PASS2_FILLER = "Filler context. " * 130
@@ -75,16 +74,26 @@ def _seed_price_snapshots(db_session: Session) -> None:
     NVDA belongs to U1+U2, SGOL only to U3 — the overlap/disjoint split the
     isolation assertions below rely on.
     """
-    today = datetime.now(tz=ET).date()
+    today = SHARED_COMPUTE_NOW.date()
     yesterday = today - timedelta(days=1)
     yesterday_at = datetime.combine(yesterday, time(20, 0), tzinfo=UTC)
     db_session.add_all(
         [
-            _close_at("NVDA", _BASELINE_DATE, 200.0, BOOTSTRAP_WATERMARK),
+            _close_at(
+                "NVDA",
+                _BASELINE_DATE,
+                200.0,
+                (SHARED_COMPUTE_NOW - timedelta(days=7)).replace(hour=16),
+            ),
             _close("NVDA", date(2026, 6, 2), 215.0),
             _close_at("NVDA", yesterday, 215.0, yesterday_at),
             _close("NVDA", today, 215.0),
-            _close_at("SGOL", _BASELINE_DATE, 180.0, BOOTSTRAP_WATERMARK),
+            _close_at(
+                "SGOL",
+                _BASELINE_DATE,
+                180.0,
+                (SHARED_COMPUTE_NOW - timedelta(days=7)).replace(hour=16),
+            ),
             _close("SGOL", date(2026, 6, 2), 190.0),
             _close_at("SGOL", yesterday, 190.0, yesterday_at),
             _close("SGOL", today, 190.0),
@@ -107,12 +116,17 @@ def _seed_second_mover_for_u1(db_session: Session) -> None:
     one-mover-per-user seeding there is nothing for the narrowing step to get
     wrong.
     """
-    today = datetime.now(tz=ET).date()
+    today = SHARED_COMPUTE_NOW.date()
     yesterday = today - timedelta(days=1)
     yesterday_at = datetime.combine(yesterday, time(20, 0), tzinfo=UTC)
     db_session.add_all(
         [
-            _close_at("AAPL", _BASELINE_DATE, 150.0, BOOTSTRAP_WATERMARK),
+            _close_at(
+                "AAPL",
+                _BASELINE_DATE,
+                150.0,
+                (SHARED_COMPUTE_NOW - timedelta(days=7)).replace(hour=16),
+            ),
             _close("AAPL", date(2026, 6, 2), 168.0),
             _close_at("AAPL", yesterday, 168.0, yesterday_at),
             _close("AAPL", today, 168.0),
@@ -392,7 +406,7 @@ def _seed_hoggable_price_snapshots(db_session: Session) -> None:
     whether U3 gets served is governed ONLY by whether U1 was capped at its
     fair share of 1 (with the fix) or could take both (without it).
     """
-    today = datetime.now(tz=ET).date()
+    today = SHARED_COMPUTE_NOW.date()
     yesterday = today - timedelta(days=1)
     yesterday_at = datetime.combine(yesterday, time(20, 0), tzinfo=UTC)
     # Same shape as the project's other anomaly fixtures (7.5%/5.5%
@@ -401,7 +415,12 @@ def _seed_hoggable_price_snapshots(db_session: Session) -> None:
     # newly-guessed magnitude.
     db_session.add_all(
         [
-            _close_at("QQQM", _BASELINE_DATE, 300.0, BOOTSTRAP_WATERMARK),
+            _close_at(
+                "QQQM",
+                _BASELINE_DATE,
+                300.0,
+                (SHARED_COMPUTE_NOW - timedelta(days=7)).replace(hour=16),
+            ),
             _close("QQQM", date(2026, 6, 2), 322.5),
             _close_at("QQQM", yesterday, 322.5, yesterday_at),
             _close("QQQM", today, 322.5),
@@ -411,12 +430,17 @@ def _seed_hoggable_price_snapshots(db_session: Session) -> None:
                 session_node="close",
                 trade_date=_BASELINE_DATE,
                 close=Decimal("100"),
-                captured_at=BOOTSTRAP_WATERMARK,
+                captured_at=(SHARED_COMPUTE_NOW - timedelta(days=7)).replace(hour=16),
             ),
             _close("110011", date(2026, 6, 2), 107.5),
             _close_at("110011", yesterday, 107.5, yesterday_at),
             _close("110011", today, 107.5),
-            _close_at("SGOL", _BASELINE_DATE, 180.0, BOOTSTRAP_WATERMARK),
+            _close_at(
+                "SGOL",
+                _BASELINE_DATE,
+                180.0,
+                (SHARED_COMPUTE_NOW - timedelta(days=7)).replace(hour=16),
+            ),
             _close("SGOL", date(2026, 6, 2), 190.0),
             _close_at("SGOL", yesterday, 190.0, yesterday_at),
             _close("SGOL", today, 190.0),
