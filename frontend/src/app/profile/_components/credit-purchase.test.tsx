@@ -137,7 +137,12 @@ it("polls the purchase after checkout.completed and refreshes once it is credite
 });
 
 it("does not start another purchase-status request while one is in flight", async () => {
-  vi.useFakeTimers({ shouldAdvanceTime: true });
+  // Render before faking timers: RTL only auto-advances fake timers when a `jest`
+  // global exists, so findByText would hang on a frozen vitest clock.
+  await renderReady();
+  // No shouldAdvanceTime here: wall-clock drift would move the fake clock past
+  // the exact 3,000 ms poll boundary asserted below when the machine is busy (#608).
+  vi.useFakeTimers();
   try {
     let resolvePending: (value: { transaction_id: string; credited: boolean; credits: null }) => void = () => {};
     const pending = new Promise<{ transaction_id: string; credited: boolean; credits: null }>((resolve) => {
@@ -145,7 +150,6 @@ it("does not start another purchase-status request while one is in flight", asyn
     });
     getPurchaseStatus.mockResolvedValue({ transaction_id: "txn_A", credited: false, credits: null });
     getPurchaseStatus.mockReturnValueOnce(pending);
-    await renderReady();
     fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
     act(() => { onEvent?.({ name: "checkout.completed", data: { transaction_id: "txn_A" } }); });
     expect(getPurchaseStatus).toHaveBeenCalledTimes(1);
