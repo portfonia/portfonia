@@ -385,7 +385,7 @@ def test_admin_endpoint_contract(app_client: TestClient, db_session: Session) ->
     short = app_client.post(
         url, json={**body, "amount": "-20.00", "idempotency_key": "two"}, headers=headers
     )
-    assert short.status_code == 409 and short.json()["detail"] == "insufficient gift balance"
+    assert short.status_code == 409 and short.json()["detail"] == "insufficient balance"
     db_session.refresh(user)
     assert user.credit_gift_balance == Decimal("15.00")
     assert user.credit_cash_balance == Decimal("0.00")

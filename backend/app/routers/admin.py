@@ -1157,6 +1157,12 @@ def _purge_local_user(session: Session, user: User, confirm: str | None) -> Purg
     if _normalize_email(confirm) != _normalize_email(user.email):
         raise HTTPException(status_code=409, detail="confirm does not match user email")
 
+    if user.credit_cash_balance > 0:
+        raise HTTPException(
+            status_code=409,
+            detail="user has a cash balance; refund or adjust it to zero first",
+        )
+
     auth_deleted = False
     if user.auth_subject is not None:
         auth_deleted = _auth_delete_or_502(user.auth_subject)
@@ -1268,6 +1274,7 @@ def purge_user_by_email_endpoint(
 
 
 class CreditAdjustmentBody(BaseModel):
+    bucket: Literal["gift", "cash"] = "gift"
     email: str
     amount: Decimal = Field(max_digits=12, decimal_places=2)
     note: str = Field(min_length=1, max_length=500)
@@ -1461,6 +1468,7 @@ def credit_adjustment_by_email(
             session,
             user_id=user.id,
             amount=body.amount,
+            bucket=body.bucket,
             note=body.note,
             idempotency_key=body.idempotency_key,
             reference=body.reference,
@@ -1468,7 +1476,7 @@ def credit_adjustment_by_email(
         session.commit()
     except InsufficientCredits as exc:
         session.rollback()
-        raise HTTPException(status_code=409, detail="insufficient gift balance") from exc
+        raise HTTPException(status_code=409, detail="insufficient balance") from exc
     except (IdempotencyConflict, IntegrityError) as exc:
         session.rollback()
         raise HTTPException(
