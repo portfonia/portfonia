@@ -1417,6 +1417,110 @@ def test_generate_report_retry_clears_stale_provider_message_id(db_session: Sess
 # ---------------------------------------------------------------------------
 
 
+_REJECTED_PASS2 = "x" * 3000
+
+
+@pytest.fixture
+def rejected_pass2_llm() -> Generator[MagicMock, None, None]:
+    """Mock external inputs while keeping orchestration and DB persistence real."""
+    settings = get_settings().model_copy(
+        update={"SHARED_COMPUTE_ENABLED": False, "ASSEMBLY_SHADOW_MODELS": ""}
+    )
+    with (
+        patch.object(rg, "get_settings", return_value=settings),
+        patch.object(rg, "compute_portfolio", return_value=_portfolio_snap()),
+        patch.object(rg, "load_news_window", return_value=[_news_item("Fed raises rates")]),
+        patch.object(rg, "detect_macro_signals", return_value=_macro_hit()),
+        patch.object(rg, "detect_window_anomalies", return_value=([_anomaly()], 2)),
+        patch.object(rg, "_openrouter_client", return_value=MagicMock()),
+        patch.object(rg, "_run_tavily_search", return_value=[]),
+        patch.object(rg, "_call_llm", side_effect=[_FAKE_LLM_PASS1, _REJECTED_PASS2]) as llm,
+    ):
+        yield llm
+
+
+def _generate_rejected_pass2(db_session: Session) -> Report:
+    with pytest.raises(RuntimeError, match="Pass 2 output looks truncated") as exc:
+        rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+    row = db_session.execute(
+        select(Report).where(Report.user_id == _USER, Report.report_date == _TODAY)
+    ).scalar_one()
+    db_session.refresh(row)
+    assert str(exc.value) == (
+        f"report {row.id}: Pass 2 output looks truncated (3000 chars, missing one of §3/§4)"
+    )
+    assert row.status == "failed"
+    assert row.report_inputs is not None
+    assert row.report_inputs["pass2_raw"] == ""
+    assert row.report_inputs["assembly_raw"] == ""
+    assert row.report_md is None
+    assert row.email_sent_at is None
+    return row
+
+
+def test_rejected_pass2_persists_failed_output(
+    db_session: Session, rejected_pass2_llm: MagicMock, _no_email: MagicMock
+) -> None:
+    row = _generate_rejected_pass2(db_session)
+    assert rejected_pass2_llm.call_count == 2
+    _no_email.assert_not_called()
+    assert row.report_inputs is not None
+    assert row.report_inputs["rejected_pass2_raw"] == _REJECTED_PASS2
+
+
+def test_rejected_pass2_retry_reruns_without_resume(
+    db_session: Session, rejected_pass2_llm: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    row = _generate_rejected_pass2(db_session)
+    assert row.report_inputs is not None
+    assert row.report_inputs["rejected_pass2_raw"] == _REJECTED_PASS2
+    assert row.prompt_version == rg._PROMPT_VERSION
+    assert row.disclaimer_version == rg._DISCLAIMER_VERSION
+    rejected_pass2_llm.reset_mock(side_effect=True)
+    rejected_pass2_llm.side_effect = [_FAKE_LLM_PASS1, _FAKE_LLM_PASS2]
+    logging.getLogger(rg.__name__).disabled = False
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger=rg.__name__):
+        retried = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+    db_session.refresh(retried)
+    assert retried.id == row.id
+    assert retried.status == "success"
+    assert "resuming from stored Pass 2/assembly body" not in caplog.text
+    assert rejected_pass2_llm.call_count == 2
+    assert rejected_pass2_llm.call_args.kwargs["with_holdings"] is True
+    assert retried.report_inputs is not None
+    assert retried.report_inputs["pass2_raw"] == _FAKE_LLM_PASS2
+    assert retried.report_inputs["rejected_pass2_raw"] == ""
+
+
+def test_rejected_pass2_regenerate_has_no_stored_body(
+    db_session: Session, rejected_pass2_llm: MagicMock
+) -> None:
+    row = _generate_rejected_pass2(db_session)
+    assert row.report_inputs is not None
+    assert row.report_inputs["rejected_pass2_raw"] == _REJECTED_PASS2
+    rejected_pass2_llm.reset_mock()
+    for mode in ("render", "analyze"):
+        with pytest.raises(ValueError, match="has no stored report body"):
+            rg.regenerate_report(db_session, row.id, user_id=_USER, mode=mode)
+    rejected_pass2_llm.assert_not_called()
+    db_session.refresh(row)
+    assert row.status == "failed"
+    assert row.report_inputs["rejected_pass2_raw"] == _REJECTED_PASS2
+
+
+def test_rejected_pass2_success_has_no_rejected_content(
+    db_session: Session, rejected_pass2_llm: MagicMock
+) -> None:
+    rejected_pass2_llm.side_effect = [_FAKE_LLM_PASS1, _FAKE_LLM_PASS2]
+    report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+    db_session.refresh(report)
+    assert report.status == "success"
+    assert report.report_inputs is not None
+    assert report.report_inputs["pass2_raw"] == _FAKE_LLM_PASS2
+    assert report.report_inputs["rejected_pass2_raw"] == ""
+
+
 def test_generate_report_retry_after_render_failure_skips_pass1_pass2(
     db_session: Session, _no_email: MagicMock
 ) -> None:
