@@ -424,12 +424,12 @@ def test_install_email_guards_replaces_every_notify_target() -> None:
             p.stop()
 
 
-def test_one_trading_week_start_is_five_weekdays_back_at_et_midnight() -> None:
-    # Monday 17 Aug 2026 23:45 ET → five weekdays back is Monday 10 Aug.
+def test_one_trading_week_start_is_seven_calendar_days_back_at_et_midnight() -> None:
+    # Monday 17 Aug 2026 23:45 ET → seven calendar days back is Monday 10 Aug.
     now = datetime(2026, 8, 17, 23, 45, tzinfo=ET)
     start = uat.one_trading_week_start(now)
     assert start == datetime(2026, 8, 10, 0, 0, tzinfo=ET)
-    # Wednesday: skip Tue/Mon/Fri/Thu/Wed → previous Wednesday.
+    # Wednesday → previous Wednesday.
     wed = datetime(2026, 8, 19, 12, 0, tzinfo=ET)
     assert uat.one_trading_week_start(wed) == datetime(2026, 8, 12, 0, 0, tzinfo=ET)
 
