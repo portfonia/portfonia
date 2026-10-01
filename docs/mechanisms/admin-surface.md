@@ -167,6 +167,42 @@ capability existing.
     already resolves `user_id` by email, but there is no read endpoint to
     list a user's `reports` rows by date; add one only if caller
     ergonomics turn out to need it.
+- **Retrying a scheduled report that failed before any body was stored — no
+  Ops endpoint, deliberate (issue #603 follow-up, 2026-09-30).** A scheduled
+  `after_close` report can end `status="failed"` with no `pass2_raw`/
+  `assembly_raw` (observed on 2026-09-30, when the Pass 2 completeness guard
+  rejected the model output; `operational_events` only goes back to
+  2026-09-14, and a failed row that later succeeds on retry is overwritten,
+  so earlier occurrences cannot be ruled out). Neither existing route can
+  retry that row:
+  - `POST /admin/users/{user_id}/reports/generate` hardcodes
+    `session_node="manual"`, so it creates a **new** `manual` row with a
+    freshly computed window instead of reusing the failed row and its frozen
+    window, and it reads the global `Settings.OUTPUT_LANG` rather than the
+    user's own locale/base currency.
+  - `POST .../reports/{report_id}/rerun` goes through `regenerate_report`,
+    which needs a stored body; with none it returns `404` ("no stored report
+    body to regenerate from").
+  - **Recipe** (a one-off, the same SSH + `docker compose exec -T backend
+    python < script` shape as the 2026-09-02 case above, launched detached
+    per `docs/deployment.md` because the dev-machine link drops): call
+    `generate_report(session, user_id=<id>, report_date=<the failed row's
+    report_date>, report_type="incremental", session_node="after_close",
+    output_lang=report_language_for(session, user_id, Settings.OUTPUT_LANG),
+    base_currency=report_currency_for(session, user_id, "USD"))`. The
+    failed row is not resumable (no stored body, so the #61 resume path does
+    not trigger), so it takes the full-reset path, reuses the row's frozen
+    `period_start`/`period_end`, and sends the email itself on success.
+    Cost is one full report (about $0.06 at current Pass 2 pricing); the
+    daily Tavily budget may be nearly spent, so intel can be thinner than the
+    original attempt.
+  - **Done means `reports.email_sent_at` is non-null** on that row, not that
+    the call returned. Verify the row (`status`, `email_sent_at`,
+    `period_start`/`period_end` unchanged) after the run.
+  - **Escalation**: this is a recurrence-gated decision, not a TODO. If a
+    second such retry is needed, open an issue to extend the existing
+    `generate` endpoint with optional `report_date` and `session_node`
+    parameters (reusing the failed row) rather than adding a new route.
 - **Auth**: `ADMIN_API_TOKEN` (`Settings`, `SecretStr`, required — no unset
   state, same discipline as `HOLDINGS_ENCRYPTION_KEY`) + optional
   `ADMIN_API_TOKEN_PREV` for a no-downtime rotation window (identical
