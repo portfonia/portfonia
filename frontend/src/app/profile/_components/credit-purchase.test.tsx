@@ -432,10 +432,13 @@ afterEach(() => {
 });
 
 // Keep history effects isolated from jsdom's asynchronous navigation.
+// Synchronous popstate locks the requirement to clear the entry flag before back().
 function spyCheckoutHistory() {
   return {
     pushState: vi.spyOn(window.history, "pushState").mockImplementation(() => {}),
-    back: vi.spyOn(window.history, "back").mockImplementation(() => {}),
+    back: vi.spyOn(window.history, "back").mockImplementation(() => {
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    }),
   };
 }
 
@@ -482,7 +485,6 @@ it("removes the entry on Paddle close and ignores the resulting popstate", async
   await openLoadedCheckout();
   act(() => { onEvent?.({ name: "checkout.closed" }); });
   expect(back).toHaveBeenCalledTimes(1);
-  act(() => { window.dispatchEvent(new PopStateEvent("popstate")); });
   expect(checkoutClose).not.toHaveBeenCalled();
   // Another open/close cycle adds and removes exactly one more entry.
   fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
@@ -490,7 +492,6 @@ it("removes the entry on Paddle close and ignores the resulting popstate", async
   act(() => { onEvent?.({ name: "checkout.closed" }); });
   expect(pushState).toHaveBeenCalledTimes(2);
   expect(back).toHaveBeenCalledTimes(2);
-  act(() => { window.dispatchEvent(new PopStateEvent("popstate")); });
   expect(checkoutClose).not.toHaveBeenCalled();
 });
 
