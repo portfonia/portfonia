@@ -67,6 +67,7 @@ class ReportInputsDict(TypedDict, total=False):
     pass2_model: str
     pass2_prompt: str
     pass2_raw: str
+    rejected_pass2_raw: str
     llm_calls: list[dict[str, Any]]
     pass2_translated: str
     ticker_intel: dict[str, str]
@@ -143,6 +144,9 @@ class ReportContext:
     pass2_model: str = ""
     pass2_prompt: str = ""
     pass2_raw: str = ""
+    # Output rejected by the completeness guard, written only on the failure
+    # path. Must never be read as a report body.
+    rejected_pass2_raw: str = ""
     # LLM call records (Pass 1 + Pass 2 + L1 shared-intel analyses, issue
     # #128 A2 — `get_l1_intel_batch(..., usage_sink=ctx.llm_calls)`;
     # translation chunks excluded as they are cheap/many and the per-chunk
