@@ -2003,6 +2003,7 @@ def generate_report(
             # assembly path there is nothing left to fall back TO, so this stays
             # a raise.
             if body_is_incomplete(raw_pass2):
+                ctx.rejected_pass2_raw = raw_pass2
                 _stage_state["pass2_analysis"] = "failed"
                 oe.end_span(_pass2_span, "failed", reason_code="truncated_body")
                 raise RuntimeError(

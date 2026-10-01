@@ -32,6 +32,14 @@ transaction id on the next Buy for the same pack. `checkout.completed`,
 so the next Buy opens a fresh transaction. A Buy for a different pack also
 opens a fresh transaction but leaves the memory in place until that
 checkout's own `checkout.loaded` replaces it.
+While the overlay is open, `checkout.loaded` adds one history entry at the
+current URL (issue #594); repeated loaded events add nothing. Browser Back
+pops that entry and closes the overlay, keeping the pending transaction
+available for the next Buy on the same pack. Paddle's own close control and
+checkout completion remove the entry with `history.back()` after clearing
+the tracking flag, so the resulting `popstate` does not close it again.
+`checkout.error` leaves the entry alone; Forward does not reopen checkout,
+and unmount does not remove the entry.
 This file holds the English source copy and the change map. The zh-Hans and
 zh-Hant translations ship in `frontend/src/locales/`; their reviewed source
 lives in the owner's project notes.

@@ -126,7 +126,14 @@ locking on the first failure.
   (recomputing made retried content non-deterministic).
 - Pass 2 completeness guard: missing `## §3`/`## §4` markers or body
   <2000 chars raises `RuntimeError` so Celery retries instead of persisting a
-  silently-truncated `status=success` report.
+  silently-truncated `status=success` report. When this guard rejects Pass 2
+  in `generate_report`, the failed row preserves the exact rejected output in
+  `report_inputs.rejected_pass2_raw` (issue #603) through the existing failure
+  handler. This diagnostic key is never consumed as a report body by any read
+  path; `pass2_raw` and `assembly_raw` remain empty on this failure path.
+  Neither #61 resume nor `regenerate_report` accepts it as stored body content.
+  A full retry resets the inputs and builds a fresh context, leaving the new
+  key empty on success. Existing rows need no migration or new key.
 - `_call_llm` (`app/services/report_llm.py` — split from `report_generator.py`
   in issue #37) logs model/finish_reason/tokens/cost on every call and warns on
   non-`stop` finish; raises `LLMEmptyResponseError` on empty `choices` and

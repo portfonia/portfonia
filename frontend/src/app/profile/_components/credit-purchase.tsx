@@ -31,6 +31,7 @@ export function CreditPurchase() {
   const [notice, setNotice] = useState<Notice>(null);
   const openingRef = useRef<string | null>(null);
   const paddleRef = useRef<Paddle | null>(null);
+  const backEntryRef = useRef(false);
   const pendingRef = useRef<{ priceId: string; transactionId: string } | null>(null);
   const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -41,6 +42,13 @@ export function CreditPurchase() {
     if (openTimerRef.current !== null) {
       clearTimeout(openTimerRef.current);
       openTimerRef.current = null;
+    }
+  }
+
+  function dropBackEntry() {
+    if (backEntryRef.current) {
+      backEntryRef.current = false;
+      window.history.back();
     }
   }
 
@@ -98,11 +106,16 @@ export function CreditPurchase() {
         }
         clearOpenTimer();
         setOpeningState(null);
+        if (!backEntryRef.current) {
+          window.history.pushState(null, "", window.location.href);
+          backEntryRef.current = true;
+        }
         return;
       }
       if (event.name === "checkout.closed") {
         clearOpenTimer();
         setOpeningState(null);
+        dropBackEntry();
         return;
       }
       if (event.name === "checkout.error") {
@@ -118,6 +131,7 @@ export function CreditPurchase() {
       if (!transactionId?.startsWith("txn_")) return;
       clearOpenTimer();
       setOpeningState(null);
+      dropBackEntry();
       paddleRef.current?.Checkout.close();
       setNotice("pending");
       startPolling(transactionId);
@@ -126,6 +140,13 @@ export function CreditPurchase() {
 
   useEffect(() => {
     let mounted = true;
+    function onPopState() {
+      if (backEntryRef.current) {
+        backEntryRef.current = false;
+        paddleRef.current?.Checkout.close();
+      }
+    }
+    window.addEventListener("popstate", onPopState);
     async function load() {
       try {
         const config = await getCheckoutConfig();
@@ -153,6 +174,7 @@ export function CreditPurchase() {
     void load();
     return () => {
       mounted = false;
+      window.removeEventListener("popstate", onPopState);
       handlerRef.current = () => {};
       pollGeneration.current += 1;
       clearOpenTimer();
