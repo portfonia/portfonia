@@ -676,7 +676,11 @@ paid endpoint and use real Postgres, including migration and concurrency gates.
 Migration `d62100000001` adds three tables; downgrade drops those derived
 articles and usage. Deploy with #620 and #622 only on separate owner approval.
 Report-side cache reads, removal of report-time search and footer changes are
-reserved for #622; this issue leaves report generation unchanged.
+reserved for #622. Until #622, the report path still calls
+`get_l1_intel_batch` and `get_day_synthesis`, inheriting the new L1 daily
+cap (`INTEL_L1_MAX_PER_DAY`, default 40, replacing the previous constant 15)
+and L3 selection of the strongest 25 briefings by absolute day move. These
+changes deploy together with #620 and #622.
 
 ### Capture layer + incremental reporting (ADR-002)
 

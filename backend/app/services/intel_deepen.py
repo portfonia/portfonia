@@ -242,9 +242,10 @@ class DeepenRun:
             with self.lock:
                 if self.searches >= self.search_cap:
                     return chosen, []
-                self.searches += 1
-            start = unit.window_start or self.previous.astimezone(ET).date()
-            outcome = self._call(chosen, "search", query, start=start)
+                start = unit.window_start or self.previous.astimezone(ET).date()
+                outcome = self._call(chosen, "search", query, start=start)
+                if outcome and (outcome[1].http_status is not None or outcome[1].sent_timeout):
+                    self.searches += 1
             if not outcome:
                 return chosen, []
             _, result = outcome
@@ -350,7 +351,7 @@ class DeepenRun:
     ) -> None:
         provider = self._provider(wanted)
         if not provider:
-            self.usage.reserve(wanted, Decimal(1) if wanted == "tavily" else Decimal(".001"))
+            self.usage.skip(wanted)
             with self.lock:
                 self.metrics[wanted]["budget"] = int(self.metrics[wanted]["budget"]) + len(batch)
             return
@@ -498,7 +499,7 @@ class DeepenRun:
                 self.cfg,
                 weekend=self.weekend,
                 theme_history=histories,
-                window_start=self.previous.astimezone(ET).date(),
+                window_start=self.previous.astimezone(ET).date() if self.weekend else None,
             )
             if u.kind != "mover"
         ]

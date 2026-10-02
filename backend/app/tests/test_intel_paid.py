@@ -286,3 +286,48 @@ def test_22_concurrent_paid_calls(db_session: Session) -> None:
             sent = list(pool.map(call, range(4)))
     assert post.call_count == sum(sent) == 2
     assert usage.skipped["tavily"] == 2
+
+
+def test_tavily_reported_credits_use_estimate_floor() -> None:
+    for reported, expected in [(0, 1), (1, 1), (3, 3)]:
+        with patch(
+            "app.services.paid_search.post",
+            return_value=httpx.Response(200, json={"usage": {"credits": reported}, "results": []}),
+        ):
+            result = TavilyClient(get_settings(), 3).extract(
+                [f"https://example.com/{i}" for i in range(4)], "AAA"
+            )
+        assert result.units == expected
+        assert result.cost_usd == Decimal(expected) * Decimal(".008")
+
+
+def test_complete_settles_estimate_floor(db_session: Session) -> None:
+    usage = PaidUsage(db_session, slot(db_session), get_settings(), False, NOW)
+    for provider, estimate, units in [("tavily", Decimal(1), 0), ("parallel", Decimal(".004"), 4)]:
+        reservation = usage.reserve(provider, estimate)
+        assert reservation
+        usage.complete(reservation, "extract", units, Decimal(0), 200)
+        row = db_session.scalars(
+            select(PaidApiUsage).where(PaidApiUsage.provider == provider)
+        ).one()
+        assert row.units == (1 if provider == "tavily" else 4)
+        assert row.cost_usd == (Decimal(".008") if provider == "tavily" else estimate)
+        assert usage.run_used[provider] == usage.month_used[provider] == estimate
+        assert usage.reserved[provider] == 0
+
+
+def test_tavily_later_credits_are_not_added_to_prior_estimates(db_session: Session) -> None:
+    usage = PaidUsage(db_session, slot(db_session), get_settings(), False, NOW)
+    with patch(
+        "app.services.paid_search.post",
+        side_effect=[
+            httpx.Response(200, json={"usage": {"credits": n}, "results": []}) for n in [0, 1]
+        ],
+    ):
+        for _ in range(2):
+            reservation = usage.reserve("tavily", Decimal(1))
+            assert reservation
+            result = TavilyClient(get_settings(), 3).extract(["https://example.com/a"] * 4, "AAA")
+            usage.complete(reservation, "extract", result.units, result.cost_usd, 200)
+    assert usage.run_used["tavily"] == 2
+    assert [r.units for r in db_session.scalars(select(PaidApiUsage))] == [1, 1]

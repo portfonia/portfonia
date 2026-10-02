@@ -107,7 +107,7 @@ class PaidClient:
                 and isinstance(usage, dict)
                 and isinstance(usage.get("credits"), (int, float))
             ):
-                result.units = Decimal(str(usage["credits"]))
+                result.units = max(units, Decimal(str(usage["credits"])))
                 result.cost_usd = result.units * Decimal(".008")
             for row in rows(data.get("results", [])):
                 url = text_value(row.get("url"))

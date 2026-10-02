@@ -688,3 +688,177 @@ def test_timeout_accounting(db_session: Session, sent: bool) -> None:
     assert len(db_session.scalars(select(PaidApiUsage)).all()) == int(sent)
     assert worker.usage.run_used["tavily"] == int(sent)
     assert worker.usage.reserved["tavily"] == 0
+
+
+def test_zero_credit_extract_blocks_second_batch(db_session: Session) -> None:
+    from decimal import Decimal
+
+    from app.services.intel_leads import Lead
+
+    with (
+        patch.object(
+            deepen,
+            "get_settings",
+            return_value=get_settings().model_copy(
+                update={"PARALLEL_API_KEY": None, "TAVILY_RUN_CREDIT_CAP": 1}
+            ),
+        ),
+        patch.object(deepen, "SessionLocal", side_effect=lambda: factory(db_session)),
+        patch(
+            "app.services.paid_search.post",
+            return_value=httpx.Response(200, json={"usage": {"credits": 0}, "results": []}),
+        ) as post,
+    ):
+        worker = deepen.DeepenRun(
+            db_session,
+            slot(db_session),
+            load_intel_deepen_config(),
+            False,
+            NOW,
+            NOW - timedelta(hours=24),
+            [],
+            {},
+        )
+        try:
+            for batch_id in range(2):
+                worker._extract_batch(
+                    "tavily",
+                    [
+                        (
+                            WorkUnit("quiet", "AAA"),
+                            Lead(f"https://example.com/{batch_id}/{i}", "AAA"),
+                        )
+                        for i in range(4)
+                    ],
+                )
+        finally:
+            worker.close()
+    assert post.call_count == 1
+    row = db_session.scalars(select(PaidApiUsage)).one()
+    assert row.units == 1 and row.cost_usd == Decimal(".008")
+    assert worker.usage.run_used["tavily"] == worker.usage.month_used["tavily"] == 1
+    assert worker.metrics["tavily"]["budget"] == 4
+
+
+def test_no_provider_does_not_reserve(db_session: Session) -> None:
+    from app.services.intel_leads import Lead
+
+    with patch.object(deepen, "get_settings", return_value=settings()):
+        worker = deepen.DeepenRun(
+            db_session,
+            slot(db_session),
+            load_intel_deepen_config(),
+            False,
+            NOW,
+            NOW - timedelta(hours=24),
+            [],
+            {},
+        )
+    before = worker.usage.reserved.copy()
+    try:
+        with patch.object(worker, "_provider", return_value=None):
+            worker._extract_batch(
+                "tavily", [(WorkUnit("quiet", "AAA"), Lead("https://example.com/a", "AAA"))]
+            )
+        assert worker.usage.reserved == before
+        assert worker.usage.skipped["tavily"] == 1
+        assert worker.metrics["tavily"]["budget"] == 1
+    finally:
+        worker.close()
+
+
+def test_budget_skip_does_not_consume_search_slot(db_session: Session) -> None:
+    from decimal import Decimal
+
+    with (
+        patch.object(
+            deepen,
+            "get_settings",
+            return_value=get_settings().model_copy(
+                update={"PARALLEL_API_KEY": None, "TAVILY_RUN_CREDIT_CAP": 1}
+            ),
+        ),
+        patch.object(deepen, "SessionLocal", side_effect=lambda: factory(db_session)),
+        patch(
+            "app.services.paid_search.post", return_value=httpx.Response(200, json={"results": []})
+        ) as post,
+    ):
+        worker = deepen.DeepenRun(
+            db_session,
+            slot(db_session),
+            load_intel_deepen_config(),
+            False,
+            NOW,
+            NOW - timedelta(hours=24),
+            [],
+            {},
+        )
+        worker.usage.run_used["tavily"] = Decimal(".5")
+        try:
+            worker._search("tavily", WorkUnit("quiet", "AAA"))
+            assert worker.searches == 0
+            post.assert_not_called()
+            worker.usage.run_used["tavily"] = Decimal(0)
+            worker._search("tavily", WorkUnit("quiet", "AAA"))
+            assert worker.searches == post.call_count == 1
+        finally:
+            worker.close()
+
+
+@pytest.mark.parametrize("weekend", [False, True])
+def test_macro_lead_window_weekday_and_weekend(db_session: Session, weekend: bool) -> None:
+    from app.core.timezones import ET
+    from app.models.news import News
+    from app.services.macro_detector import detect_macro_signals
+    from app.services.news_fetcher import NewsItem
+
+    now = (
+        datetime(2026, 10, 3, 16, 15, tzinfo=ET)
+        if weekend
+        else datetime(2026, 9, 30, 16, 15, tzinfo=ET)
+    )
+    previous = now.replace(hour=7, minute=30)
+    published = datetime(2026, 9, 29, 12, tzinfo=ET)
+    run = slot(db_session)
+    run.run_date, run.started_at = now.date(), now
+    pool = []
+    for i in range(10):
+        url = f"https://energy{i}.example/a"
+        pool.append(NewsItem(url_key(url), "oil agreement", url, "fixture", published, None))
+        db_session.add(
+            News(
+                url_hash=url_key(url),
+                record={"title": "oil agreement"},
+                published_at=published,
+                fetched_at=now,
+            )
+        )
+    db_session.flush()
+    with (
+        patch.object(
+            deepen,
+            "get_settings",
+            return_value=get_settings().model_copy(
+                update={"PARALLEL_API_KEY": None, "INTEL_PAID_WORKERS": 1}
+            ),
+        ),
+        patch.object(deepen, "SessionLocal", side_effect=lambda: factory(db_session)),
+        patch.object(
+            deepen,
+            "detect_macro_signals",
+            side_effect=lambda articles, **kw: detect_macro_signals(
+                articles, keyword_table={"energy": ["oil"]}, **kw
+            ),
+        ),
+        patch(
+            "app.services.paid_search.post", return_value=httpx.Response(200, json={"results": []})
+        ) as post,
+    ):
+        worker = deepen.DeepenRun(
+            db_session, run, load_intel_deepen_config(), weekend, now, previous, [], {}
+        )
+        worker.finish(db_session, {}, pool)
+    assert worker.selected[0].window_start == (previous.date() if weekend else None)
+    assert post.call_count == (0 if weekend else 1)
+    if not weekend:
+        assert len(post.call_args.kwargs["json"]["urls"]) == 3

@@ -122,6 +122,10 @@ class PaidUsage:
             self.skipped[provider] += 1
             return None
 
+    def skip(self, provider: str) -> None:
+        with _LOCK:
+            self.skipped[provider] += 1
+
     def extract_size(self, provider: str, count: int) -> int:
         with _LOCK:
             left = min(
@@ -148,6 +152,11 @@ class PaidUsage:
     ) -> None:
         with _LOCK:
             provider = reservation.provider
+            if provider == "tavily":
+                units = max(Decimal(units), reservation.amount)
+                cost = Decimal(units) * Decimal(".008")
+            else:
+                cost = max(cost, reservation.amount)
             target = session or self.session
             target.add(
                 PaidApiUsage(

@@ -240,3 +240,14 @@ def test_03_fresh_associations_and_recorded_history(db_session: Session) -> None
         now=NOW,
     )["AAA"]
     assert signal.fresh == 8 and signal.news_spike
+
+
+def test_mechanism_documents_inherited_report_behavior() -> None:
+    text = (
+        Path(__file__).resolve().parents[3] / "docs/mechanisms/capture-and-reporting.md"
+    ).read_text()
+    section = text.split("Migration `d62100000001`")[1].split("### Capture layer")[0]
+    assert "this issue leaves report generation unchanged" not in section
+    assert "get_l1_intel_batch" in section and "get_day_synthesis" in section
+    assert "previous constant 15" in section and "strongest 25" in section
+    assert "until #622" in section.lower()
