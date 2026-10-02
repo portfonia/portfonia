@@ -301,18 +301,18 @@ def test_tavily_reported_credits_use_estimate_floor() -> None:
         assert result.cost_usd == Decimal(expected) * Decimal(".008")
 
 
-def test_complete_settles_estimate_floor(db_session: Session) -> None:
+def test_complete_settles_passed_charge(db_session: Session) -> None:
     usage = PaidUsage(db_session, slot(db_session), get_settings(), False, NOW)
-    for provider, estimate, units in [("tavily", Decimal(1), 0), ("parallel", Decimal(".004"), 4)]:
+    for provider, estimate, units in [("tavily", Decimal(1), 0), ("parallel", Decimal(".004"), 0)]:
         reservation = usage.reserve(provider, estimate)
         assert reservation
-        usage.complete(reservation, "extract", units, Decimal(0), 200)
+        usage.complete(reservation, "extract", units, Decimal(0), 500)
         row = db_session.scalars(
             select(PaidApiUsage).where(PaidApiUsage.provider == provider)
         ).one()
-        assert row.units == (1 if provider == "tavily" else 4)
-        assert row.cost_usd == (Decimal(".008") if provider == "tavily" else estimate)
-        assert usage.run_used[provider] == usage.month_used[provider] == estimate
+        assert row.units == 0
+        assert row.cost_usd == 0
+        assert usage.run_used[provider] == usage.month_used[provider] == 0
         assert usage.reserved[provider] == 0
 
 

@@ -242,9 +242,10 @@ class DeepenRun:
             with self.lock:
                 if self.searches >= self.search_cap:
                     return chosen, []
-                start = unit.window_start or self.previous.astimezone(ET).date()
-                outcome = self._call(chosen, "search", query, start=start)
-                if outcome and (outcome[1].http_status is not None or outcome[1].sent_timeout):
+            start = unit.window_start or self.previous.astimezone(ET).date()
+            outcome = self._call(chosen, "search", query, start=start)
+            if outcome and (outcome[1].http_status is not None or outcome[1].sent_timeout):
+                with self.lock:
                     self.searches += 1
             if not outcome:
                 return chosen, []

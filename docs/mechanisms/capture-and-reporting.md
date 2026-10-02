@@ -628,8 +628,12 @@ for Parallel Search returned HTTP 422 in the live probe; current vendor
 documentation omits `max_results`, so the adapter omits it and keeps at most
 three results locally. The corrected request was not probed again. Tavily returns
 query-focused chunks in `raw_content` and may report actual credits in
-`usage.credits`; accounting uses that charge when present. Parallel dates use
-`publish_date`. No new dependency is required.
+`usage.credits`. Successful (2xx) responses are charged the maximum of the
+pre-send estimate and reported credits; even a reported 0 cannot lower extract
+usage below `ceil(urls / 5)`. This floor is applied during successful response
+parsing only. Non-success responses with ledger rows record 0 units and cost
+and add nothing to run or month usage. Read timeouts after sending retain the
+pre-send estimate. Parallel dates use `publish_date`. No new dependency is required.
 
 Body cleaning removes Yahoo navigation, reduces Markdown links to link text,
 removes bare HTTP(S) URLs, normalizes whitespace and truncates to 2,000

@@ -152,11 +152,6 @@ class PaidUsage:
     ) -> None:
         with _LOCK:
             provider = reservation.provider
-            if provider == "tavily":
-                units = max(Decimal(units), reservation.amount)
-                cost = Decimal(units) * Decimal(".008")
-            else:
-                cost = max(cost, reservation.amount)
             target = session or self.session
             target.add(
                 PaidApiUsage(

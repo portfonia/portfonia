@@ -1,4 +1,6 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+from decimal import Decimal
 from threading import Event
 from typing import Any
 from unittest.mock import patch
@@ -862,3 +864,127 @@ def test_macro_lead_window_weekday_and_weekend(db_session: Session, weekend: boo
     assert post.call_count == (0 if weekend else 1)
     if not weekend:
         assert len(post.call_args.kwargs["json"]["urls"]) == 3
+
+
+@pytest.mark.parametrize("provider", ["tavily", "parallel"])
+@pytest.mark.parametrize("status", [402, 429, 432, 433, 400, 500])
+def test_failed_search_settles_zero(db_session: Session, provider: str, status: int) -> None:
+    with (
+        patch.object(deepen, "get_settings", return_value=settings()),
+        patch.object(deepen, "SessionLocal", side_effect=lambda: factory(db_session)),
+        patch("app.services.paid_search.post", return_value=httpx.Response(status)),
+    ):
+        worker = deepen.DeepenRun(
+            db_session,
+            slot(db_session),
+            load_intel_deepen_config(),
+            False,
+            NOW,
+            NOW - timedelta(hours=24),
+            [],
+            {},
+        )
+        before_run = worker.usage.run_used[provider]
+        before_month = worker.usage.month_used[provider]
+        try:
+            worker._call(provider, "search", "AAA news", start=NOW.date())
+        finally:
+            worker.close()
+    row = db_session.scalars(select(PaidApiUsage)).one()
+    assert row.provider == provider and row.http_status == status
+    assert row.units == row.cost_usd == 0
+    assert worker.usage.run_used[provider] == before_run
+    assert worker.usage.month_used[provider] == before_month
+    assert worker.usage.reserved[provider] == 0
+
+
+@pytest.mark.parametrize("provider,used", [("tavily", Decimal(799)), ("parallel", Decimal(".799"))])
+def test_failed_search_does_not_trigger_monthly_warning(
+    db_session: Session,
+    provider: str,
+    used: Decimal,
+) -> None:
+    configured = get_settings().model_copy(
+        update={
+            "PARALLEL_API_KEY": SecretStr("fixture"),
+            "PARALLEL_MONTHLY_USD_LIMIT": Decimal(1),
+        }
+    )
+    db_session.add(
+        PaidApiUsage(
+            provider=provider,
+            operation="search",
+            units=used if provider == "tavily" else 1,
+            cost_usd=used * Decimal(".008") if provider == "tavily" else used,
+            http_status=200,
+            created_at=NOW,
+        )
+    )
+    db_session.flush()
+    with (
+        patch.object(deepen, "get_settings", return_value=configured),
+        patch.object(deepen, "SessionLocal", side_effect=lambda: factory(db_session)),
+        patch("app.services.paid_search.post", return_value=httpx.Response(500)),
+        patch("app.services.paid_usage.send_ops_alert", return_value=True) as alert,
+    ):
+        worker = deepen.DeepenRun(
+            db_session,
+            slot(db_session),
+            load_intel_deepen_config(),
+            False,
+            NOW,
+            NOW - timedelta(hours=24),
+            [],
+            {},
+        )
+        try:
+            worker._call(provider, "search", "AAA news", start=NOW.date())
+        finally:
+            worker.close()
+    assert worker.usage.month_used[provider] == used
+    alert.assert_not_called()
+
+
+def test_search_http_does_not_block_collected(db_session: Session) -> None:
+    posted, release, collected = Event(), Event(), Event()
+
+    def post(*args: object, **kwargs: object) -> httpx.Response:
+        posted.set()
+        assert release.wait(5)
+        return httpx.Response(200, json={"results": []})
+
+    with (
+        patch.object(deepen, "get_settings", return_value=settings()),
+        patch.object(deepen, "SessionLocal", side_effect=lambda: factory(db_session)),
+        patch("app.services.paid_search.post", side_effect=post),
+    ):
+        worker = deepen.DeepenRun(
+            db_session,
+            slot(db_session),
+            load_intel_deepen_config(),
+            False,
+            NOW,
+            NOW - timedelta(hours=24),
+            [],
+            {},
+        )
+
+        def collect() -> None:
+            worker.collected("BBB", [])
+            collected.set()
+
+        try:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                search = pool.submit(worker._search, "tavily", WorkUnit("quiet", "AAA"))
+                try:
+                    assert posted.wait(5)
+                    collection = pool.submit(collect)
+                    assert collected.wait(1), "collected() blocked during the HTTP post"
+                    assert not release.is_set()
+                    collection.result(timeout=5)
+                finally:
+                    release.set()
+                    search.result(timeout=5)
+        finally:
+            worker.close()
+    assert worker.searches == 1
