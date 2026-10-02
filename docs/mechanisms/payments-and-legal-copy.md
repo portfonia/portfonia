@@ -1,6 +1,6 @@
 # Payments and legal copy for Paddle review (issue #574)
 
-**Status: purchase and refund implemented in #578; subscription operations and lifecycle in #595/#596; frontend and public billing copy in #597.**
+**Status: purchase and refund implemented in #578; subscription operations and lifecycle in #595/#596; frontend and public billing copy in #597; self-description wording in #615.**
 
 ## Purchase and refund flow (#578)
 
@@ -53,7 +53,7 @@ description, pricing, key features, Terms / Refund Policy / Privacy Policy
 reachable from navigation, and the seller's name in the Terms. Paddle's
 Acceptable Use Policy prohibits investment or financial advice and
 payment/money-transfer services, so the copy keeps the existing
-"intelligence, not advice" boundary explicit and never presents credits as
+"software tool, not advice" boundary explicit and never presents credits as
 a cash-redeemable balance. Full rationale and sources: issue #574
 (Reasons, Exploration).
 
@@ -153,6 +153,8 @@ No open owner decisions remain for this copy.
 | `legal.pricing.sections[3].body[2]` | #597: changes return pro rata; cancellation has no return |
 | `legal.refund.sections[1].body[1]` | #597: cancellation does not return remaining-day credits |
 | `legal.{terms,pricing,refund}.lastUpdated` | #597: 2026-09-30 |
+| `legal.pricing.intro`, `legal.pricing.sections[6].body[0]`, `legal.terms.sections[1].body[0]`, `legal.terms.sections[4].body[1]`, `legal.terms.sections[7].body[0]`, `legal.privacy.sections[4].body[0]`, `home.status` and other homepage self-description keys | #615: single self-descriptor "software tool"; generated output described as report text, not "analysis"; decision-support framing removed. Exact text: issue #615 Design D2 |
+| `legal.{terms,privacy,pricing}.lastUpdated` | #615: 2026-10-01 |
 | `home.hero.eyebrow` | "MVP · Multi-user closed beta" → "Limited public service" |
 | `home.preview.footnote` | "Actual content varies depending on your subscription tier." → "Briefing frequency depends on your plan." |
 | `home` FAQ "What does it cost?" answer | closed-beta text → see Home copy below |
@@ -165,7 +167,7 @@ added wherever Terms and Privacy are linked today (home footer, Profile,
 ## Pricing (`legal.pricing`)
 
 - **title**: Pricing
-- **intro**: Portfonia is a portfolio intelligence service. You choose a
+- **intro**: Portfonia is a software tool. You choose a
   briefing plan and pay for it with prepaid service credits.
 
 1. **Plans**
@@ -207,7 +209,7 @@ added wherever Terms and Privacy are linked today (home footer, Profile,
      Paddle.com is the Merchant of Record for all our orders. Paddle
      provides all customer service inquiries and handles returns.
 7. **Not investment advice**
-   - Portfonia is an information service. It does not provide investment,
+   - Portfonia is a software tool. It does not provide investment,
      legal, or tax advice, and does not tell you what to buy, sell, or
      hold.
 
@@ -372,10 +374,9 @@ purchase's 120-day refund window.
   weekly briefing, or 1.99 credits per month for Monday / Wednesday /
   Friday briefings. Credits are sold in US$10 and US$20 packs — see
   Pricing.
-- `home.status`: Limited public service. Portfonia maps market context
-  back to your real holdings so you can make timely, well-informed
-  decisions. AI-generated content, for information only — not investment
-  advice.
+- `home.status`: Limited public service. Portfonia maps public market
+  information onto the holdings you enter. AI-generated content, for
+  information only — not investment advice.
 
 ## Paddle submission checklist (owner, after implementation ships)
 
