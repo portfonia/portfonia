@@ -205,3 +205,100 @@ def test_acceptance_26_full_slot_has_no_persisted_urls(
                         ) and "fixturepublisher.example" not in str(value)
     assert "https://" not in caplog.text and "http://" not in caplog.text
     assert "https://" not in send.call_args.args[1]
+
+
+@pytest.mark.parametrize("slot,hour,minute", [("post_close", 0, 40), ("pre_open", 3, 0)])
+def test_midnight_stale_does_not_block_real_slot(
+    db_session: Session, slot: str, hour: int, minute: int
+) -> None:
+    early = NOW.replace(hour=hour, minute=minute)
+    real = NOW.replace(hour=7, minute=30) if slot == "pre_open" else NOW
+    with (
+        patch.object(task, "SessionLocal", return_value=db_session),
+        patch.object(task, "today_et", return_value=NOW.date()),
+        patch.object(task, "now_et", return_value=early) as clock,
+        patch.object(task, "resolve_profiles", return_value=[]),
+        patch.object(task, "capture_news", return_value=PoolCaptureResult(0, [])) as pool,
+        patch.object(
+            task, "collect_slot_news", return_value=IntelCollectionRun(status="ok")
+        ) as collect,
+        patch.object(task, "send_ops_alert", return_value=True) as send,
+    ):
+        assert task.intel_slot_task(slot) == {"status": "stale_trigger"}
+        row = db_session.scalars(select(IntelSlotRun)).one()
+        assert row.status == "failed" and row.details == {"reason": "stale_trigger"}
+        pool.assert_not_called()
+        send.assert_not_called()
+        clock.return_value = real
+        assert task.intel_slot_task(slot) == {"status": "ok"}
+        assert pool.call_count == collect.call_count == send.call_count == 1
+    assert len(db_session.scalars(select(IntelSlotRun)).all()) == 1
+
+
+@pytest.mark.parametrize(
+    "offset,expected",
+    [
+        (-301, "stale_trigger"),
+        (-300, "ok"),
+        (0, "ok"),
+        (3300, "ok"),
+        (3600, "ok"),
+        (3601, "stale_trigger"),
+    ],
+)
+def test_slot_trigger_tolerance_boundaries(db_session: Session, offset: int, expected: str) -> None:
+    with (
+        patch.object(task, "SessionLocal", return_value=db_session),
+        patch.object(task, "today_et", return_value=NOW.date()),
+        patch.object(task, "now_et", return_value=NOW + timedelta(seconds=offset)),
+        patch.object(task, "resolve_profiles", return_value=[]),
+        patch.object(task, "capture_news", return_value=PoolCaptureResult(0, [])),
+        patch.object(task, "collect_slot_news", return_value=IntelCollectionRun(status="ok")),
+        patch.object(task, "send_ops_alert", return_value=True),
+    ):
+        assert task.intel_slot_task("post_close") == {"status": expected}
+
+
+def test_failed_name_lookup_once_per_slot_after_run_creation(db_session: Session) -> None:
+    from app.services import instrument_news_capture as cap
+    from app.services import instrument_profiles as profiles
+    from app.services.instrument_universe import UniverseEntry
+
+    entry = UniverseEntry("UNRESOLVED", "UNRESOLVED", "UK")
+    seen: list[int] = []
+
+    def lookup(*args: object) -> None:
+        seen.append(
+            len(
+                db_session.scalars(
+                    select(IntelCollectionRun).where(
+                        IntelCollectionRun.kind == "instrument",
+                        IntelCollectionRun.status == "running",
+                    )
+                ).all()
+            )
+        )
+        raise ValueError("name lookup failed")
+
+    def factory() -> Session:
+        return Session(bind=db_session.connection(), join_transaction_mode="create_savepoint")
+
+    with (
+        patch.object(task, "SessionLocal", return_value=db_session),
+        patch.object(task, "now_et", return_value=NOW),
+        patch.object(task, "today_et", return_value=NOW.date()),
+        patch.object(task, "intel_universe", return_value=[entry]),
+        patch.object(cap, "intel_universe", return_value=[entry]),
+        patch.object(profiles, "load_entity_aliases", return_value={}),
+        patch("app.services.instrument_profiles.yf.Ticker", side_effect=lookup) as query,
+        patch.object(cap, "sources_for", return_value=[]),
+        patch.object(cap, "SessionLocal", side_effect=factory),
+        patch.object(task, "capture_news", return_value=PoolCaptureResult(0, [])),
+        patch.object(task, "send_ops_alert", return_value=True),
+    ):
+        assert task.intel_slot_task("post_close") == {"status": "partial"}
+    assert query.call_count == 1
+    assert seen == [1]
+    collection = db_session.scalars(select(IntelCollectionRun)).one()
+    assert collection.instruments_total == collection.instruments_processed == 1
+    assert collection.errors == ["profile: ValueError"]

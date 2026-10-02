@@ -46,9 +46,17 @@ def test_acceptance_02_migration_and_downgrade(alembic_cfg: Config) -> None:
         assert not {"url", "source", "title", "summary"} & {
             c["name"] for c in inspect(conn).get_columns("news")
         }
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO news(url_hash,origin,kind,published_at,record) SELECT 'instrument-only','instrument',kind,published_at,record FROM news"
+            )
+        )
+        assert conn.scalar(text("SELECT count(*) FROM news")) == 2
     command.downgrade(alembic_cfg, "s59500000001")
     with engine.connect() as conn:
         row = conn.execute(text("SELECT * FROM news")).mappings().one()
+        assert row["url_hash"] == "3"
         assert row["title"] == "Old headline" and row["summary"] == "Old summary"
         assert row["url"] == row["source"] == ""
     engine.dispose()

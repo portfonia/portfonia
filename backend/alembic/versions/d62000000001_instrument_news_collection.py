@@ -137,6 +137,7 @@ def downgrade() -> None:
         "intel_slot_runs",
     ]:
         op.drop_table(t)
+    op.execute("DELETE FROM news WHERE origin = 'instrument'")
     for c in ["title", "summary", "source", "url"]:
         op.add_column(
             "news",

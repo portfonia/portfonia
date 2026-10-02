@@ -170,7 +170,9 @@ def collect_instrument_news(
             result.errors.append(failed)
         for i, batch_label in batch.items():
             labels[chunk[i][0]] = batch_label
-    for i, (name, item) in enumerate(candidates):
+    for i, (name, item) in sorted(
+        enumerate(candidates), key=lambda candidate: candidate[1][1].headline().url_hash
+    ):
         label = labels.get(i)
         if label in ("promo", "unrelated"):
             llm_reason = label + "_llm"
@@ -179,13 +181,14 @@ def collect_instrument_news(
             if len(sample) < 3:
                 sample.append(item.title)
             continue
-        if label is None:
+        if item.kind == "filing":
+            result.cleaning["filings_stored"] = result.cleaning.get("filings_stored", 0) + 1
+        elif label is None:
             result.cleaning["stored_null_label"] = result.cleaning.get("stored_null_label", 0) + 1
-        existed = session.scalar(select(News.id).where(News.url_hash == item.headline().url_hash))
-        nid = store_headline(
+        nid, inserted = store_headline(
             session, item.headline(), "instrument", item.kind, label, filing_form=item.filing_form
         )
-        result.stats[name]["inserted"] += int(existed is None)
+        result.stats[name]["inserted"] += int(inserted)
         result.stats[name]["linked"] += link_instrument(session, nid, entry.identifier)
         item.news_id = nid
         item.identifier = entry.identifier
@@ -201,28 +204,47 @@ def collect_instrument_news(
     return result
 
 
-def collect_slot_news(
-    session: Session,
-    slot_run: IntelSlotRun,
-    now: datetime,
-    time_budget_s: int,
-    on_instrument_done: Callable[[str, list[CollectedItem]], None],
+def create_instrument_run(
+    session: Session, slot_run: IntelSlotRun, now: datetime
 ) -> IntelCollectionRun:
-    start = time.monotonic()
-    entries = intel_universe(session)
-    errors = resolve_profiles(session, entries, now=now)
     run = IntelCollectionRun(
         kind="instrument",
         slot_run_id=slot_run.id,
         started_at=now,
         status="running",
-        instruments_total=len(entries),
+        instruments_total=0,
         instruments_processed=0,
         stats={},
         errors=[],
     )
     session.add(run)
     session.flush()
+    return run
+
+
+def collect_slot_news(
+    session: Session,
+    slot_run: IntelSlotRun,
+    now: datetime,
+    time_budget_s: int,
+    on_instrument_done: Callable[[str, list[CollectedItem]], None],
+    *,
+    collection_run: IntelCollectionRun | None = None,
+    profile_errors: list[str] | None = None,
+) -> IntelCollectionRun:
+    start = time.monotonic()
+    run = (
+        collection_run
+        if collection_run is not None
+        else create_instrument_run(session, slot_run, now)
+    )
+    entries = intel_universe(session)
+    run.instruments_total = len(entries)
+    errors = (
+        resolve_profiles(session, entries, now=now)
+        if profile_errors is None
+        else list(profile_errors)
+    )
     markets: dict[str, dict[str, int]] = {}
     for e in entries:
         markets.setdefault(e.market, {"total": 0, "processed": 0})["total"] += 1

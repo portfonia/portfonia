@@ -94,8 +94,10 @@ def test_acceptance_03_pool_only_loaders(db_session: Session) -> None:
 
 
 def test_acceptance_07_conflict_links_existing_pool(db_session: Session) -> None:
-    first = store_headline(db_session, item(), "pool", "article", None)
-    assert store_headline(db_session, item(), "instrument", "article", "keep") == first
+    first, inserted = store_headline(db_session, item(), "pool", "article", None)
+    assert inserted
+    assert store_headline(db_session, item(), "instrument", "article", "keep") == (first, False)
+    assert store_headline(db_session, item(), "pool", "article", None) == (first, False)
     assert link_instrument(db_session, first, "NVDA") == 1
     assert link_instrument(db_session, first, "NVDA") == 0
     assert len(db_session.scalars(select(News)).all()) == 1
@@ -131,7 +133,9 @@ def test_acceptance_27_retention_cascades(db_session: Session) -> None:
     for age in [31, 29]:
         i = item(str(age), f"https://fixture.example/{age}")
         i = NewsItem(i.url_hash, i.title, i.url, i.source, NOW - timedelta(days=age), None)
-        link_instrument(db_session, store_headline(db_session, i, "pool", "article", None), "NVDA")
+        link_instrument(
+            db_session, store_headline(db_session, i, "pool", "article", None)[0], "NVDA"
+        )
     sweep_intel(db_session, NOW)
     assert len(db_session.scalars(select(News)).all()) == 1
     assert len(db_session.scalars(select(NewsInstrument)).all()) == 1
@@ -150,3 +154,30 @@ def test_acceptance_32_serialization_preserves_hash() -> None:
     data = _serialize_news([item()])[0]
     assert data["url_hash"] == item().url_hash
     assert "url" not in data and "source" not in data
+
+
+def test_acceptance_07_instrument_first_promoted_by_rss(db_session: Session) -> None:
+    from unittest.mock import patch
+
+    from app.services import news_capture as nc
+    from app.services.news_fetcher import FetchNewsResult
+
+    seed_user(db_session, TEST_USER_ID)
+    nid, _ = store_headline(db_session, item(), "instrument", "article", "mention")
+    link_instrument(db_session, nid, "NVDA")
+    original = dict(db_session.get(News, nid).record)  # type: ignore[union-attr]
+    with patch.object(
+        nc, "fetch_news", return_value=FetchNewsResult([item("RSS replacement")], [])
+    ):
+        result = nc.capture_news(db_session)
+    db_session.expire_all()
+    row = db_session.get(News, nid)
+    assert row is not None and row.origin == "pool"
+    assert row.record == original and row.intel_label == "mention"
+    assert result.inserted == 0
+    assert len(db_session.scalars(select(News)).all()) == 1
+    assert db_session.scalars(select(NewsInstrument)).one().news_id == nid
+    assert [
+        x.title for x in load_news_window(db_session, NOW - timedelta(days=1), NOW, TEST_USER_ID)
+    ] == ["Nvidia earnings"]
+    assert len(load_day_news(db_session, NOW.date())) == 1

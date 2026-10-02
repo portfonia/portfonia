@@ -133,7 +133,9 @@ def test_acceptance_20_per_instrument_chunks(db_session: Session) -> None:
     ) -> tuple[dict[int, str], float, str | None]:
         return {i: "keep" for i in range(len(items))}, 0, None
 
+    settings = get_settings().model_copy(update={"INTEL_CLASSIFIER_BATCH": 150})
     with (
+        patch.object(cap, "get_settings", return_value=settings),
         patch.object(cap, "sources_for", return_value=[("yahoo", lambda: leads(230))]),
         patch.object(cap, "block_reason", return_value=None),
         patch.object(cap, "classify_headlines", side_effect=classify) as classifier,
@@ -267,7 +269,7 @@ def test_acceptance_28_parallel_jobs_and_completion_order(session_test_db: None)
             lead = CollectedItem(
                 e.identifier + " development", now, "https://fixture.example/" + e.identifier
             )
-            nid = store_headline(
+            nid, _ = store_headline(
                 worker,
                 NewsItem(url_hash(lead.url), lead.title, lead.url, "", now, None),
                 "instrument",
@@ -485,3 +487,143 @@ def test_acceptance_19_missing_label_is_stored_null(db_session: Session) -> None
         result = cap.collect_instrument_news(db_session, ENTRY, NOW, load_cleaning_config())
     assert len(result.leads) == 2
     assert {row.intel_label for row in db_session.scalars(select(News))} == {"keep", None}
+
+
+def test_crossed_url_order_two_postgres_sessions(session_test_db: None) -> None:
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from sqlalchemy import delete, text
+
+    from app.core.database import get_engine
+    from app.models.intel import NewsInstrument
+
+    entries = [UniverseEntry(i, i, "US") for i in ["CROSSA", "CROSSB"]]
+    items = [
+        CollectedItem("Shared earnings", NOW, "https://fixture.example/cross-x"),
+        CollectedItem("Shared acquisition", NOW, "https://fixture.example/cross-y"),
+    ]
+    rendezvous = threading.Barrier(2)
+    first_done = {e.identifier: threading.Event() for e in entries}
+    calls: dict[int, int] = {}
+    from app.services.intel_records import store_headline as real_store
+
+    def store(session: Session, *args: object, **kwargs: object) -> object:
+        key = id(session)
+        count = calls.get(key, 0)
+        calls[key] = count + 1
+        ident = str(session.info["identifier"])
+        other = entries[1 if ident == entries[0].identifier else 0].identifier
+        if count == 0:
+            rendezvous.wait(timeout=5)
+        result = real_store(session, *args, **kwargs)  # type: ignore[arg-type]
+        if count == 0:
+            first_done[ident].set()
+            first_done[other].wait(timeout=0.3)
+        return result
+
+    def sources(
+        e: UniverseEntry, *args: object
+    ) -> list[tuple[str, Callable[[], list[CollectedItem]]]]:
+        ordered = items if e.identifier == entries[0].identifier else list(reversed(items))
+        return [("yahoo", lambda: ordered)]
+
+    def classify(items: list[CollectedItem], *args: object) -> tuple[dict[int, str], float, None]:
+        return (
+            {i: "keep" if x.title == "Shared earnings" else "mention" for i, x in enumerate(items)},
+            0,
+            None,
+        )
+
+    def worker(e: UniverseEntry) -> cap.InstrumentResult:
+        with Session(get_engine()) as session:
+            session.execute(text("SET LOCAL statement_timeout = '8s'"))
+            session.info["identifier"] = e.identifier
+            result = cap.collect_instrument_news(session, e, NOW, load_cleaning_config())
+            session.commit()
+            return result
+
+    with Session(get_engine()) as session:
+        for e in entries:
+            profile(session, e.identifier)
+        session.commit()
+        try:
+            with (
+                patch.object(cap, "sources_for", side_effect=sources),
+                patch.object(cap, "block_reason", return_value=None),
+                patch.object(cap, "classify_headlines", side_effect=classify),
+                patch.object(cap, "store_headline", side_effect=store),
+                ThreadPoolExecutor(max_workers=2) as pool,
+            ):
+                futures = [pool.submit(worker, e) for e in entries]
+                results = [future.result(timeout=12) for future in futures]
+            assert sum(r.stats["yahoo"]["inserted"] for r in results) == 2
+            rows = session.scalars(
+                select(News).where(News.url_hash.in_([x.headline().url_hash for x in items]))
+            ).all()
+            assert len(rows) == 2
+            assert {str(r.record["title"]): r.intel_label for r in rows} == {
+                "Shared earnings": "keep",
+                "Shared acquisition": "mention",
+            }
+            links = session.scalars(
+                select(NewsInstrument).where(NewsInstrument.news_id.in_([r.id for r in rows]))
+            ).all()
+            assert len(links) == 4
+            assert {x.identifier for x in links} == {e.identifier for e in entries}
+        finally:
+            session.execute(
+                delete(News).where(News.url_hash.in_([x.headline().url_hash for x in items]))
+            )
+            session.execute(
+                delete(InstrumentProfile).where(
+                    InstrumentProfile.identifier.in_([e.identifier for e in entries])
+                )
+            )
+            session.commit()
+
+
+def test_filings_count_separately_from_missing_classifier_labels(db_session: Session) -> None:
+    from app.models.intel import IntelCollectionRun
+    from app.services.intel_digest import build_slot_digest
+
+    profile(db_session)
+    filing = CollectedItem(
+        "8-K announcement", NOW, "https://fixture.example/filing", kind="filing", filing_form="8-K"
+    )
+    with (
+        patch.object(
+            cap,
+            "sources_for",
+            return_value=[("sec", lambda: [filing]), ("yahoo", lambda: leads(1))],
+        ),
+        patch.object(cap, "block_reason", return_value=None),
+        patch.object(cap, "classify_headlines", return_value=({}, 0, None)) as classify,
+    ):
+        result = cap.collect_instrument_news(db_session, ENTRY, NOW, load_cleaning_config())
+    assert result.cleaning["stored_null_label"] == 1
+    assert result.cleaning["filings_stored"] == 1
+    assert len(classify.call_args.args[0]) == 1
+    slot = IntelSlotRun(
+        slot="post_close",
+        run_date=NOW.date(),
+        started_at=NOW,
+        finished_at=NOW + timedelta(minutes=1),
+        status="ok",
+    )
+    db_session.add(slot)
+    db_session.flush()
+    db_session.add(
+        IntelCollectionRun(
+            kind="instrument",
+            slot_run_id=slot.id,
+            started_at=NOW,
+            finished_at=NOW,
+            status="ok",
+            stats={"cleaning": result.cleaning},
+            errors=[],
+        )
+    )
+    db_session.flush()
+    body = build_slot_digest(db_session, slot)[1]
+    assert "stored_null_label: 1" in body and "filings_stored: 1" in body

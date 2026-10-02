@@ -10,7 +10,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.intel import InstrumentProfile, IntelCollectionRun
-from app.models.news import News
 from app.services.headline_cleaning import block_reason, load_cleaning_config
 from app.services.instrument_news_sources import CollectedItem
 from app.services.instrument_profiles import match_instruments
@@ -65,9 +64,8 @@ def capture_news(
             if len(samples[reason]) < 3:
                 samples[reason].append(item.title)
             continue
-        existed = session.scalar(select(News.id).where(News.url_hash == item.url_hash))
-        nid = store_headline(session, item, "pool", "article", None)
-        inserted += int(existed is None)
+        nid, is_inserted = store_headline(session, item, "pool", "article", None)
+        inserted += int(is_inserted)
         for ident in match_instruments(item.title + " " + (item.summary or ""), aliases):
             linked += link_instrument(session, nid, ident)
         kept.append(item)

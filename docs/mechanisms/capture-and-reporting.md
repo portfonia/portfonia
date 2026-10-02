@@ -535,9 +535,10 @@ contain only public tickers, company names, dates and fixed query words.
 
 `instrument_profiles.py` resolves public names from configured aliases,
 Finnhub, yfinance and Eastmoney, refreshing after 30 days. The slot task resolves
-profiles before fetching the RSS pool, so new instruments receive links from
-that same pool fetch. Latin and CJK alias matching creates idempotent
-`news_instruments` links without reading private holding names.
+profiles once before fetching the RSS pool, so new instruments receive links
+from that same pool fetch. The instrument collection run is created before
+resolution; collection reuses its resolution errors, including failed lookups.
+Latin and CJK alias matching creates idempotent `news_instruments` links without reading private holding names.
 
 `instrument_news_sources.py` adapts Finnhub, Google News RSS, Yahoo search,
 SEC 8-K Atom and Eastmoney announcements over a 48-hour window. Requests use
@@ -555,12 +556,16 @@ receive only the path and low-value-title rules and are never classified.
 
 `intel_slot_task` runs every day at 07:30 and 16:15 ET, including weekends.
 The unique `(slot, run_date)` key prevents repeated non-failed runs. Triggers
-more than 60 minutes late record `stale_trigger` and perform no collection or
-email. Existing market-node RSS schedules continue unchanged.
+more than five minutes early or 60 minutes late record `stale_trigger` and
+perform no collection or email. Existing market-node RSS schedules continue
+unchanged.
 
-Collection uses six workers with independent database sessions. Without the
-future price priority, market rank precedes oldest collection time and then
-identifier. Pre-open order is Japan, Korea, HK, A-Share, US, UK, Europe;
+Collection uses six workers with independent database sessions. Each worker
+stores candidates in URL-hash order, retaining their classifier label mapping,
+to avoid crossed-order dedup deadlocks. Insert counts come from the statement
+RETURNING result, so concurrent conflicts and pool promotions are not new rows.
+Without the future price priority, market rank precedes oldest collection time
+and then identifier. Pre-open order is Japan, Korea, HK, A-Share, US, UK, Europe;
 post-close order is US, UK, Europe, HK, A-Share, Japan, Korea. Unreached
 instruments take precedence only inside their market. After the 1800-second
 pre-open or 900-second post-close budget, submission stops and running jobs
@@ -571,15 +576,16 @@ before `on_instrument_done(identifier, leads)` runs.
 `intel_slot_runs` and `intel_collection_runs` retain slot, coverage, source,
 cleaning and classifier evidence. The digest combines the slot collection and
 RSS node runs since the previous slot, with ET timestamps, source totals,
-up to three cleaning samples per reason and classifier cost. Run records
+up to three cleaning samples per reason and classifier cost. Cleaning counts
+separate `filings_stored` from article-only `stored_null_label`. Run records
 expire after 90 days; news and cascading links expire after 30 days.
 
 Migration `d62000000001` deletes news older than 30 days, converts retained
 rows to a closed v1 JSON record, drops title/summary/source/URL columns and
 creates the profile/link/run tables. Deleted rows and discarded URLs/sources
-cannot be recovered by downgrade; downgrade restores title/summary from JSON
-and empty URL/source columns. Run it only during separately authorized
-deployment with a current-day backup, together with issues #621 and #622.
+cannot be recovered by downgrade; downgrade deletes instrument-origin rows
+before restoring title/summary from JSON and empty URL/source columns. Run it
+only during separately authorized deployment with a current-day backup, together with issues #621 and #622.
 Paid deepening, body extraction and report intelligence assembly remain in
 those later issues. The hook, in-memory leads, slot details and digest builder
 are their extension points.

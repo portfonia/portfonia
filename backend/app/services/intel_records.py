@@ -6,7 +6,7 @@ import re
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import delete, select
+from sqlalchemy import Boolean, delete, literal_column, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -50,24 +50,31 @@ def store_headline(
     label: str | None,
     *,
     filing_form: str | None = None,
-) -> uuid.UUID:
-    stmt = (
-        insert(News)
-        .values(
-            url_hash=item.url_hash,
-            origin=origin,
-            kind=kind,
-            intel_label=label,
-            published_at=item.published_at,
-            record=build_headline_record(item, kind, label, filing_form=filing_form),
-        )
-        .on_conflict_do_nothing(constraint="uq_news_url_hash")
-        .returning(News.id)
+) -> tuple[uuid.UUID, bool]:
+    stmt = insert(News).values(
+        url_hash=item.url_hash,
+        origin=origin,
+        kind=kind,
+        intel_label=label,
+        published_at=item.published_at,
+        record=build_headline_record(item, kind, label, filing_form=filing_form),
     )
-    nid = session.execute(stmt).scalar_one_or_none()
-    if nid is None:
-        nid = session.execute(select(News.id).where(News.url_hash == item.url_hash)).scalar_one()
-    return nid
+    if origin == "pool":
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_news_url_hash",
+            set_={"origin": "pool"},
+            where=News.origin == "instrument",
+        )
+    else:
+        stmt = stmt.on_conflict_do_nothing(constraint="uq_news_url_hash")
+    # xmax distinguishes a newly inserted tuple from the pool promotion UPDATE.
+    row = session.execute(
+        stmt.returning(News.id, literal_column("xmax = 0", Boolean))
+    ).one_or_none()
+    if row is not None:
+        return row[0], row[1]
+    nid = session.execute(select(News.id).where(News.url_hash == item.url_hash)).scalar_one()
+    return nid, False
 
 
 def link_instrument(session: Session, news_id: uuid.UUID, identifier: str) -> int:

@@ -12,12 +12,18 @@ from app.core.database import SessionLocal
 from app.core.timezones import ET, today_et
 from app.models.intel import IntelCollectionRun, IntelSlotRun
 from app.services.email_sender import send_ops_alert
-from app.services.instrument_news_capture import collect_slot_news, error_text
+from app.services.instrument_news_capture import (
+    collect_slot_news,
+    create_instrument_run,
+    error_text,
+)
 from app.services.instrument_profiles import resolve_profiles
 from app.services.instrument_universe import intel_universe
 from app.services.intel_digest import build_slot_digest
 from app.services.news_capture import capture_news
 from app.tasks import celery_app
+
+EARLY_TRIGGER_TOLERANCE_S = 5 * 60
 
 
 def now_et() -> datetime:
@@ -44,9 +50,10 @@ def intel_slot_task(slot: str) -> dict[str, str]:
         if nid is None and run.status != "failed":
             return {"status": "already_run"}
         hour, minute = (7, 30) if slot == "pre_open" else (16, 15)
-        if (
+        delay = (
             now - now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-        ).total_seconds() > 3600:
+        ).total_seconds()
+        if not -EARLY_TRIGGER_TOLERANCE_S <= delay <= 3600:
             run.status = "failed"
             run.details = {"reason": "stale_trigger"}
             run.finished_at = now
@@ -57,6 +64,7 @@ def intel_slot_task(slot: str) -> dict[str, str]:
         run.details = {}
         session.commit()
         try:
+            collection = create_instrument_run(session, run, now)
             profile_errors = resolve_profiles(session, intel_universe(session), now=now)
             pool = capture_news(session, slot_run_id=run.id, node="slot-" + slot)
             settings = get_settings()
@@ -66,7 +74,13 @@ def intel_slot_task(slot: str) -> dict[str, str]:
                 else settings.INTEL_COLLECT_BUDGET_POST_CLOSE_S
             )
             collection = collect_slot_news(
-                session, run, now, budget, lambda identifier, items: None
+                session,
+                run,
+                now,
+                budget,
+                lambda identifier, items: None,
+                collection_run=collection,
+                profile_errors=profile_errors,
             )
             rss = session.scalar(
                 select(IntelCollectionRun)

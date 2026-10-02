@@ -13,8 +13,8 @@ class _TransportFilter(logging.Filter):
         return not _active.get()
 
 
-for _name in ("httpx", "httpcore"):
-    logging.getLogger(_name).addFilter(_TransportFilter())
+# httpcore records come from child loggers and contain host/port, not URLs.
+logging.getLogger("httpx").addFilter(_TransportFilter())
 
 
 @contextmanager

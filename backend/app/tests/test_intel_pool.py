@@ -74,3 +74,15 @@ def test_acceptance_30_pool_google_suffix() -> None:
     ):
         rows = nf._fetch_feed("Reuters", "https://news.google.com/rss", NOW)
     assert rows[0].title == "Nvidia beats estimates"
+
+
+def test_transport_filter_only_on_url_bearing_httpx() -> None:
+    from app.services.intel_http import _TransportFilter, quiet_transport
+
+    assert not any(isinstance(f, _TransportFilter) for f in logging.getLogger("httpcore").filters)
+    httpx_logger = logging.getLogger("httpx")
+    record = logging.LogRecord("httpx", logging.INFO, "", 0, "URL", (), None)
+    assert httpx_logger.filter(record)
+    with quiet_transport():
+        assert not httpx_logger.filter(record)
+    assert httpx_logger.filter(record)
