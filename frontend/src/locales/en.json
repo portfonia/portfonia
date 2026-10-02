@@ -713,7 +713,7 @@
       "titleLine1": "What's worth noticing",
       "titleAccent": "in your holdings.",
       "tagline": "Holdings-relevant depth and breadth — with you through the cycle, as lasting judgment compounds.",
-      "sub": "Portfonia is holdings intelligence built to last through market cycles. We keep watching the news, the macro, and company developments, and map them systematically onto every position you actually hold — depth and breadth that stay close to what you care about. Cycles rise and fall; the judgment worth keeping for years needs information you can trust for years. That is why we exist.",
+      "sub": "Portfonia is a software tool built to last through market cycles. It keeps watching the news, the macro, and company developments, and maps them systematically onto every position you have entered — depth and breadth that stay close to what you care about. Cycles rise and fall; information you can rely on has to be there for years. That is why we exist.",
       "ctaPrimary": "Get started",
       "ctaSecondary": "See how it works"
     },
@@ -946,7 +946,7 @@
       ],
       "analysisTitle": "Holding analysis",
       "analysisHeading": "TSMC — 20.9% of the portfolio, the single largest position",
-      "analysisBody": "TSMC stands out this period not for a company-specific event but for its disproportionate weight and its exposure to several macro themes at once. The monetary-policy theme reaches it through the equity-duration channel: as a pure-play foundry, its forward multiples already embed years of capex-driven growth from advanced nodes, so its valuation is mechanically sensitive to rate expectations. The AI-infrastructure demand narrative underpinning the position is unchanged; what is new is a less predictable policy path adding an intermittent source of valuation volatility. The causal link between holding TSMC and the monetary-policy signal runs through that well-documented duration mechanism [Probable] — though no anomaly was observed in this window to confirm the market actually traded on it.",
+      "analysisBody": "TSMC stands out this period not for a company-specific event but for its disproportionate weight and its exposure to several macro themes at once. … No anomaly was observed in this window to confirm the market actually traded on the monetary-policy theme.",
       "radarTitle": "Risk radar",
       "concentrationBody": "The top three holdings together account for 50.0% of portfolio value — at the 50% watch threshold. The largest single asset-class bucket (stocks) sits at 48.1%, just below it. Single-position concentration is dominated by TSMC at 20.9%; the two broad ETF positions diversify within US equities while raising correlation to US monetary-policy developments.",
       "anomalyColumns": [
@@ -1034,14 +1034,14 @@
     "audience": {
       "heading": "For investors who stay through the cycle",
       "paragraphs": [
-        "Portfonia is holdings intelligence that stays with investors through the cycle. We believe that decisions of real quality rest on a deep reading of trends, cycles, and fundamentals — a reading that takes time, and that needs information closely tied to what you hold, delivered continuously and reliably.",
+        "Portfonia is a software tool for investors who stay through the cycle. A deep reading of trends, cycles, and fundamentals takes time, and it needs information closely tied to what you hold, delivered continuously and reliably.",
         "Our work is to take what is scattered across news, macro events, and company developments, and map it back, systematically, onto every position you hold. That is how you get depth and breadth that actually fit the names you follow — so you can see where an asset sits, what is changing around it, and which signals are worth a closer look. Judgment stays yours. We make sure that judgment sits on solid information.",
-        "Market cycles rise and fall. What Portfonia stays with is the decision that spans a cycle and still holds up when time has had its say."
+        "Market cycles rise and fall. Portfonia keeps the information flowing through every one of them."
       ]
     },
     "boundary": {
       "heading": "Deliberately out of scope",
-      "body": "Portfonia is an intelligence service, not an advisory one. The boundary is enforced at the template and prompt layer — not left to the model's judgment.",
+      "body": "Portfonia is a software tool, not an advisory service. The boundary is enforced in code at the template and prompt layer — not left to the model's judgment.",
       "items": [
         "No buy / sell / hold / reduce / increase / target-price language. Ever.",
         "No trade execution, no broker integrations beyond ingest-only.",
@@ -1057,7 +1057,7 @@
       "items": [
         {
           "q": "Is this investment advice?",
-          "a": "No. Portfonia is an intelligence service — it tells you what happened and why it might matter, helping you make timely, well-informed decisions. See “Deliberately out of scope” above."
+          "a": "No. Portfonia is a software tool — it gathers what happened in public markets and maps it onto the holdings you have entered. See “Deliberately out of scope” above."
         },
         {
           "q": "Is my holdings data safe?",
@@ -1073,7 +1073,7 @@
         }
       ]
     },
-    "status": "Limited public service. Portfonia maps market context back to your real holdings so you can make timely, well-informed decisions. AI-generated content, for information only — not investment advice.",
+    "status": "Limited public service. Portfonia maps public market information onto the holdings you enter. AI-generated content, for information only — not investment advice.",
     "footer": {
       "stack1": "Next.js · FastAPI · Celery · PostgreSQL",
       "stack2": "Pluggable LLM providers via OpenRouter"
@@ -1156,7 +1156,7 @@
     "resellerNotice": "Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle provides all customer service inquiries and handles returns.",
     "terms": {
       "title": "Terms of Service",
-      "lastUpdated": "Last updated: 2026-09-30",
+      "lastUpdated": "Last updated: 2026-10-01",
       "intro": "These Terms of Service govern your use of Portfonia. Please read them together with our Privacy Policy and Refund Policy.",
       "sections": [
         {
@@ -1168,7 +1168,7 @@
         {
           "heading": "2. What Portfonia Is (and Is Not)",
           "body": [
-            "Portfonia is a portfolio intelligence service. It surfaces what happened in markets, how that relates to the holdings you've told it about, and signals that may be worth your own further attention.",
+            "Portfonia is a software tool. It surfaces what happened in markets, how that relates to the holdings you've entered, and signals that may be worth your own further attention.",
             "Portfonia is not an investment adviser, broker-dealer, or financial planner, and nothing in the Service is investment, legal, or tax advice. The Service does not tell you what to buy, sell, or hold, and does not generate trade recommendations, target prices, or ratings of any kind. Decisions about your money are yours alone; consult a licensed professional before acting on anything you read here."
           ]
         },
@@ -1195,7 +1195,7 @@
           "heading": "5. Your Holdings Data",
           "body": [
             "You are responsible for the accuracy of the holdings, account, and investment-preference information you upload or enter. Portfonia processes what you provide; it does not independently verify your positions against any custodian or brokerage.",
-            "You retain ownership of your holdings data. You grant Portfonia a limited license to process it solely to generate reports and analysis for your account, as described in the Privacy Policy."
+            "You retain ownership of your holdings data. You grant Portfonia a limited license to process it solely to generate reports for your account, as described in the Privacy Policy."
           ]
         },
         {
@@ -1213,7 +1213,7 @@
         {
           "heading": "8. Disclaimers",
           "body": [
-            "The Service is provided \"as is\" and \"as available,\" without warranties of any kind, express or implied, including accuracy, timeliness, or fitness for a particular purpose. Market data, news, and analysis may be delayed, incomplete, or wrong. Nothing generated by the Service should be your sole basis for a financial decision."
+            "The Service is provided \"as is\" and \"as available,\" without warranties of any kind, express or implied, including accuracy, timeliness, or fitness for a particular purpose. Market data, news, and generated report text may be delayed, incomplete, or wrong. Nothing generated by the Service should be your sole basis for a financial decision."
           ]
         },
         {
@@ -1251,7 +1251,7 @@
     },
     "privacy": {
       "title": "Privacy Policy",
-      "lastUpdated": "Last updated: 2026-09-28",
+      "lastUpdated": "Last updated: 2026-10-01",
       "intro": "Your privacy matters to us. This policy explains what we collect, why, and how it's protected.",
       "sections": [
         {
@@ -1286,7 +1286,7 @@
         {
           "heading": "5. Third-Party Processing",
           "body": [
-            "Generating a report involves sending portions of your data to third-party large-language-model providers for analysis. By default, every such call is configured to opt out of the provider using your data for model training.",
+            "Generating a report involves sending portions of your data to third-party large-language-model providers to compose the report text. By default, every such call is configured to opt out of the provider using your data for model training.",
             "A narrow, owner-approved exception applies to two specific, non-analytical processing steps: public-market search-query generation, and translating a finished report into your display language. These two steps are routed directly to a single named provider's own first-party API instead of through the training opt-out described above, because that is the only way to reach that specific low-cost model. That provider's standard API terms permit using submitted data to improve its models, so this exception accepts that risk for those two steps only — it is not backed by a no-training data agreement. To limit the exception's reach, the routing is hard-pinned with no automatic fallback to a different provider if it becomes unavailable. The translation step does process report text derived from your holdings, since it translates the finished report itself; the search-query step does not, since it only uses public market/macro themes.",
             "Payments are processed by {merchantOfRecord}, which acts as Merchant of Record and handles your payment information under its own privacy notice."
           ]
@@ -1338,8 +1338,8 @@
     },
     "pricing": {
       "title": "Pricing",
-      "lastUpdated": "Last updated: 2026-09-30",
-      "intro": "Portfonia is a portfolio intelligence service. You choose a briefing plan and pay for it with prepaid service credits.",
+      "lastUpdated": "Last updated: 2026-10-01",
+      "intro": "Portfonia is a software tool. You choose a briefing plan and pay for it with prepaid service credits.",
       "sections": [
         {
           "heading": "1. Plans",
@@ -1389,7 +1389,7 @@
         {
           "heading": "7. Not investment advice",
           "body": [
-            "Portfonia is an information service. It does not provide investment, legal, or tax advice, and does not tell you what to buy, sell, or hold."
+            "Portfonia is a software tool. It does not provide investment, legal, or tax advice, and does not tell you what to buy, sell, or hold."
           ]
         }
       ]

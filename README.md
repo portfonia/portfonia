@@ -1,6 +1,6 @@
 # Portfonia
 
-An AI portfolio-intelligence service that maps market events to an individual's actual holdings — and stops there.
+A software tool that maps public market events onto an individual's self-entered holdings — and stops there.
 
 ## Why
 
@@ -14,12 +14,12 @@ Portfonia exists to close that gap with a narrow scope: take a user's real holdi
 - Upload a CSV or Markdown sheet describing positions across US equities, Hong Kong equities, A-shares, public mutual funds, cash, and foreign currency. An LLM normalizes it into structured records.
 - Broker/account/portfolio are normalized into a real accounts model (not just free-text tags) with report grouping by custodian. Identity and amount fields are encrypted at rest.
 
-**Multi-user shared intelligence layer.** With more than one user, most of what moves markets is shared across them (the same tickers, the same macro events) — so the pipeline computes it once and personalizes only the last mile, instead of re-running search and analysis per user:
+**Multi-user shared compute layer.** With more than one user, most of what moves markets is shared across them (the same tickers, the same macro events) — so the pipeline computes it once and personalizes only the last mile, instead of re-running search and analysis per user:
 - Global price-anomaly detection runs once across the union of every user's holdings, then fans out per-user against each user's own thresholds.
 - Shared caches for per-ticker intel and macro-event research, so two users holding the same name don't pay for the same research twice.
 - A cross-name synthesis pass builds the day's market narrative once, then a personalized assembly layer allocates it per user under a fair-share budget.
 
-**Analysis framework baseline.** Every report is generated under a fixed, server-side investment-philosophy baseline (what to pay attention to, not what to do about it) — invisible to the user, layered underneath the compliance boundary described below, never loosening it.
+**Report baseline.** Every report is generated under a fixed, server-side editorial baseline (what to pay attention to, not what to do about it) — invisible to the user, layered underneath the compliance boundary described below, never loosening it.
 
 **Market and macro tracking.** Daily price, FX, and curated macro keyword scanning across reputable news sources (English-language primary, with Chinese-language sources for region-specific instruments).
 
@@ -38,7 +38,7 @@ Portfonia exists to close that gap with a narrow scope: take a user's real holdi
 
 ## What It Does NOT Do
 
-Portfonia is an intelligence service, not an advisory service. The following are out of scope by design:
+Portfonia is a software tool, not an advisory service. The following are out of scope by design:
 
 - No buy / sell / hold / reduce / increase / target-price language. Ever.
 - No trade execution, no broker integrations beyond ingest-only.
@@ -60,7 +60,7 @@ Every report carries a single bilingual disclaimer in its footer (injected at th
 
 ## Status
 
-Ring 1 — invite-only closed beta, multi-user. Ring 0 validated the core hypothesis: an LLM mapping market information onto an individual portfolio produces *cognitive lift* the user does not already get from their broker app, the financial press, or generic newsletters. Ring 1 built what running that for more than one person requires — real accounts, the shared intelligence layer above, and an admin channel to operate it. See the [v0.8.0 release](https://github.com/portfonia/portfonia/releases/tag/v0.8.0) for what shipped.
+Ring 1 — invite-only closed beta, multi-user. Ring 0 validated the core hypothesis: an LLM mapping market information onto an individual portfolio produces *cognitive lift* the user does not already get from their broker app, the financial press, or generic newsletters. Ring 1 built what running that for more than one person requires — real accounts, the shared compute layer above, and an admin channel to operate it. See the [v0.8.0 release](https://github.com/portfonia/portfonia/releases/tag/v0.8.0) for what shipped.
 
 Public sign-up depends on the beta holding up across real invited users.
 

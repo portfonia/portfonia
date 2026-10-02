@@ -183,18 +183,18 @@ describe("HomeSections sample briefing", () => {
     },
   );
 
-  it("keeps zh-Hans homepage copy verbatim from the 2026-09-06 vault wording (issue #364)", () => {
+  it("locks current zh-Hans hero and audience copy with the software-tool wording (issue #615)", () => {
     const home = catalogs["zh-Hans"].home;
     expect(home.hero.tagline).toBe(
       "以高相关的信息深度与广度，陪你穿越周期，沉淀长久的价值回报。",
     );
     expect(home.hero.sub).toBe(
-      "Portfonia 是一份为穿越周期而生的持仓情报服务。我们持续追踪新闻、宏观事件与公司动态，把它们系统地映射到你手中的每一笔持仓，带来与你的关注高度相关的信息深度和广度。周期有涨有落，但值得长久持有的判断力，需要同样值得长久信赖的信息陪伴——这是我们存在的理由。",
+      "Portfonia 是一款为穿越市场周期而生的软件工具。它持续追踪新闻、宏观事件与公司动态，把它们系统地映射到你录入的每一笔持仓，带来与你的关注紧密相关的信息深度与广度。周期有涨有落，值得信赖的信息需要长年相伴——这是我们存在的理由。",
     );
     expect(home.audience.paragraphs).toEqual([
-      "Portfonia 是一份陪伴投资者穿越周期的持仓情报服务。我们相信，真正有质量的投资决策，建立在对趋势、周期与基本面的深度理解之上，而这份理解需要时间沉淀，也需要与你的持仓高度相关的信息，持续、可靠地支撑。",
+      "Portfonia 是一款面向穿越周期的投资者的软件工具。深入理解趋势、周期与基本面需要时间，也需要与你的持仓紧密相关的信息，持续、可靠地送达。",
       "我们的工作，是把分散在新闻、宏观事件与公司动态里的信息，系统地映射回你的每一笔持仓，带来真正贴合你所关注标的的信息深度与广度，让你随时看清资产所处的位置、正在经历的变化，以及值得留意的信号。你保有完整的判断与决策权，我们负责让这份判断，建立在扎实的信息基础之上。",
-      "市场周期有起有落，Portfonia 陪伴的，是每一次跨越周期、经得起时间检验的决定。",
+      "市场周期有起有落。Portfonia 在每个周期中持续提供信息。",
     ]);
   });
 
@@ -205,10 +205,10 @@ describe("HomeSections sample briefing", () => {
     expect(catalogs["zh-Hant"].home.hero.titleAccent).toBe("就藏在你的持倉裡。");
   });
 
-  it("leaves Layer-3 compliance boundary copy unchanged (issue #364)", () => {
+  it("locks the software-tool boundary copy while preserving boundary items (issue #615)", () => {
     expect(catalogs.en.home.boundary).toEqual({
       heading: "Deliberately out of scope",
-      body: "Portfonia is an intelligence service, not an advisory one. The boundary is enforced at the template and prompt layer — not left to the model's judgment.",
+      body: "Portfonia is a software tool, not an advisory service. The boundary is enforced in code at the template and prompt layer — not left to the model's judgment.",
       items: [
         "No buy / sell / hold / reduce / increase / target-price language. Ever.",
         "No trade execution, no broker integrations beyond ingest-only.",
@@ -220,7 +220,7 @@ describe("HomeSections sample briefing", () => {
     });
     expect(catalogs["zh-Hans"].home.boundary).toEqual({
       heading: "明确不做的事",
-      body: "Portfonia 是情报服务，不是投顾服务。这条边界在模板和 prompt 层强制执行——不依赖模型自己判断。",
+      body: "Portfonia 是软件工具，不是投顾服务。这条边界通过代码在模板和 prompt 层强制执行——不依赖模型自己判断。",
       items: [
         "不出现买入 / 卖出 / 持有 / 减仓 / 加仓 / 目标价这类措辞。绝不会有。",
         "不做交易执行，除录入外不对接券商。",
@@ -232,7 +232,7 @@ describe("HomeSections sample briefing", () => {
     });
     expect(catalogs["zh-Hant"].home.boundary).toEqual({
       heading: "刻意不做的事",
-      body: "Portfonia 是情報服務，不是投顧服務。這條界線在範本與 prompt 層強制執行——不依賴模型自行判斷。",
+      body: "Portfonia 是軟體工具，不是投顧服務。這條界線透過程式碼在範本與 prompt 層強制執行——不依賴模型自行判斷。",
       items: [
         "不出現買入 / 賣出 / 持有 / 減碼 / 加碼 / 目標價這類措辭。絕不會有。",
         "不執行交易，除匯入功能外不對接券商。",
