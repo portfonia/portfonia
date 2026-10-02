@@ -260,8 +260,8 @@ def capture_news_task(self: Any) -> dict[str, int]:
 
     session = SessionLocal()
     try:
-        inserted = capture_news(session)
-        return {"inserted": inserted}
+        result = capture_news(session)
+        return {"inserted": result.inserted}
     except Exception as exc:
         logger.exception("capture_news_task: failed, scheduling retry")
         if self.request.retries >= self.max_retries:

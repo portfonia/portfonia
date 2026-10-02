@@ -12,27 +12,39 @@ from sqlalchemy.orm import Session
 
 from app.models.news import News
 from app.models.price_snapshot import PriceSnapshot
+from app.services.intel_records import build_headline_record
+from app.services.news_fetcher import NewsItem
 
 
 def test_news_url_hash_unique(db_session: Session) -> None:
     db_session.add(
         News(
             url_hash="abc123",
-            title="Fed holds rates",
-            source="Reuters",
-            url="https://example.com/a",
-            summary="...",
             published_at=datetime(2026, 6, 6, 12, 0, tzinfo=UTC),
+            record=build_headline_record(
+                NewsItem(
+                    "abc123",
+                    "Fed holds rates",
+                    "",
+                    "",
+                    datetime(2026, 6, 6, 12, 0, tzinfo=UTC),
+                    "...",
+                ),
+                "article",
+                None,
+            ),
         )
     )
     db_session.flush()
     db_session.add(
         News(
-            url_hash="abc123",  # duplicate
-            title="dup",
-            source="X",
-            url="https://example.com/b",
+            url_hash="abc123",
             published_at=datetime(2026, 6, 6, 13, 0, tzinfo=UTC),
+            record=build_headline_record(
+                NewsItem("abc123", "dup", "", "", datetime(2026, 6, 6, 13, 0, tzinfo=UTC), None),
+                "article",
+                None,
+            ),
         )
     )
     with pytest.raises(IntegrityError):

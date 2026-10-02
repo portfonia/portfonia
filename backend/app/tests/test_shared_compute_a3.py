@@ -29,6 +29,8 @@ from app.models.macro_event_intel import MacroEventIntel
 from app.models.news import News
 from app.models.price_snapshot import PriceSnapshot
 from app.models.report import Report
+from app.services.intel_records import build_headline_record
+from app.services.news_fetcher import NewsItem
 from app.services.portfolio_calculator import Concentration, PortfolioSnapshot
 from app.tests.conftest import SHARED_COMPUTE_NOW
 
@@ -88,11 +90,19 @@ def _seed_day_news(db_session: Session) -> None:
     db_session.add(
         News(
             url_hash="https://x.test/fed",
-            title="Fed holds rates steady at its latest meeting",
-            source="S",
-            url="https://x.test/fed",
-            summary="",
             published_at=published,
+            record=build_headline_record(
+                NewsItem(
+                    "https://x.test/fed",
+                    "Fed holds rates steady at its latest meeting",
+                    "",
+                    "",
+                    published,
+                    "",
+                ),
+                "article",
+                None,
+            ),
         )
     )
     db_session.flush()

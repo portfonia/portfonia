@@ -24,6 +24,7 @@ celery_app = Celery(
         "app.tasks.holdings_tasks",
         "app.tasks.backup_tasks",
         "app.tasks.cache_tasks",
+        "app.tasks.intel_tasks",
         "app.tasks.admin_tasks",
         "app.tasks.email_verification_tasks",
         "app.tasks.report_delivery_tasks",
@@ -335,6 +336,12 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "schedule": crontab(hour=5, minute=0, nowfun=_NowIn(UTC)),
     },
 }
+for _slot, _hour, _minute in [("pre_open", 7, 30), ("post_close", 16, 15)]:
+    _beat_schedule["intel-slot-" + _slot] = {
+        "task": "app.tasks.intel_tasks.intel_slot_task",
+        "schedule": crontab(hour=_hour, minute=_minute),
+        "args": (_slot,),
+    }
 _beat_schedule.update(_build_report_schedule())
 _beat_schedule.update(_build_capture_schedule())
 

@@ -25,6 +25,8 @@ from app.models.news_surfaced import NewsSurfaced
 from app.models.report import Report
 from app.models.user import User
 from app.scripts import uat_shared_compute as uat
+from app.services.intel_records import build_headline_record
+from app.services.news_fetcher import NewsItem
 from app.services.window_data import BOOTSTRAP_WATERMARK, user_watermark
 from app.tests.conftest import TEST_USER_ID, U1_USER_ID, U2_USER_ID, U3_USER_ID, seed_user
 
@@ -447,17 +449,21 @@ def test_window_alignment_uses_one_trading_week_not_another_users_watermark(
     week_start = uat.one_trading_week_start(now)
     older = News(
         url_hash="uat-old",
-        title="old",
-        source="x",
-        url="https://example.test/old",
         published_at=datetime(2026, 8, 7, 12, 0, tzinfo=ET),
+        record=build_headline_record(
+            NewsItem("uat-old", "old", "", "", datetime(2026, 8, 7, 12, 0, tzinfo=ET), None),
+            "article",
+            None,
+        ),
     )
     inside = News(
         url_hash="uat-new",
-        title="new",
-        source="x",
-        url="https://example.test/new",
         published_at=datetime(2026, 8, 13, 12, 0, tzinfo=ET),
+        record=build_headline_record(
+            NewsItem("uat-new", "new", "", "", datetime(2026, 8, 13, 12, 0, tzinfo=ET), None),
+            "article",
+            None,
+        ),
     )
     other_user_report = Report(
         user_id=TEST_USER_ID,

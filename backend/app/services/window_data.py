@@ -29,6 +29,7 @@ from app.models.report import Report
 from app.models.ticker_theme import TickerTheme
 from app.services.asset_class_config import load_asset_class_config
 from app.services.instrument_symbols import InstrumentKey, intelligence_identifier
+from app.services.intel_records import headline_from_row
 from app.services.news_fetcher import NewsItem
 from app.services.price_anomaly_detector import ConstituentMove, PriceAnomaly
 from app.services.ticker_leverage import load_leverage_map
@@ -134,17 +135,6 @@ def backfill_news_surfaced_before(session: Session, user_id: uuid.UUID, cutoff: 
     return len(news_ids)
 
 
-def _news_item(r: News) -> NewsItem:
-    return NewsItem(
-        url_hash=r.url_hash,
-        title=r.title,
-        url=r.url,
-        source=r.source,
-        published_at=r.published_at,
-        summary=r.summary or "",
-    )
-
-
 def day_window_bounds(trade_date: date) -> tuple[datetime, datetime]:
     """The [00:00, 24:00) ET bounds of one ET calendar day — L1's own window
     (design doc §4.8, second addendum), a pure function of `trade_date` alone.
@@ -220,13 +210,13 @@ def load_day_news(session: Session, trade_date: date) -> list[NewsItem]:
     rows = (
         session.execute(
             select(News)
-            .where(News.published_at >= start, News.published_at <= end)
+            .where(News.origin == "pool", News.published_at >= start, News.published_at <= end)
             .order_by(News.published_at.desc())
         )
         .scalars()
         .all()
     )
-    return [_news_item(r) for r in rows]
+    return [headline_from_row(r) for r in rows]
 
 
 def load_news_window(
@@ -255,13 +245,13 @@ def load_news_window(
     rows = (
         session.execute(
             select(News)
-            .where(News.published_at <= end, News.id.not_in(surfaced))
+            .where(News.origin == "pool", News.published_at <= end, News.id.not_in(surfaced))
             .order_by(News.published_at.desc())
         )
         .scalars()
         .all()
     )
-    return [_news_item(r) for r in rows]
+    return [headline_from_row(r) for r in rows]
 
 
 def mark_news_surfaced(

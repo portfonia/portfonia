@@ -87,6 +87,9 @@ def test_cleanup_expired_deletes_only_rows_older_than_90_days(db_session: Sessio
     result = cache_tasks._cleanup_expired(db_session, cutoff)
 
     assert result == {
+        "news_deleted": 0,
+        "intel_collection_runs_deleted": 0,
+        "intel_slot_runs_deleted": 0,
         "ticker_intel_deleted": 1,
         "search_cache_deleted": 1,
         "macro_event_intel_deleted": 1,
@@ -119,6 +122,9 @@ def test_cleanup_expired_noop_when_nothing_is_stale(db_session: Session) -> None
     result = cache_tasks._cleanup_expired(db_session, cutoff)
 
     assert result == {
+        "news_deleted": 0,
+        "intel_collection_runs_deleted": 0,
+        "intel_slot_runs_deleted": 0,
         "ticker_intel_deleted": 0,
         "search_cache_deleted": 0,
         "macro_event_intel_deleted": 0,
@@ -135,6 +141,9 @@ def test_task_computes_cutoff_and_closes_session(mock_session_cls: MagicMock) ->
     result = cache_tasks.sweep_stale_shared_intel_cache.run()
 
     assert result == {
+        "news_deleted": 0,
+        "intel_collection_runs_deleted": 0,
+        "intel_slot_runs_deleted": 0,
         "ticker_intel_deleted": 0,
         "search_cache_deleted": 0,
         "macro_event_intel_deleted": 0,

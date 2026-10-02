@@ -65,8 +65,12 @@ def _cleanup_expired(session: Session, cutoff: date) -> dict[str, int]:
         CursorResult[Any],
         session.execute(delete(CrossNameIntel).where(CrossNameIntel.trade_date < cutoff)),
     )
+    from app.services.intel_records import sweep_intel
+
+    intel_counts = sweep_intel(session, datetime.now(UTC))
     session.commit()
     return {
+        **intel_counts,
         "ticker_intel_deleted": ti_result.rowcount or 0,
         "search_cache_deleted": sc_result.rowcount or 0,
         "macro_event_intel_deleted": mei_result.rowcount or 0,
@@ -92,8 +96,9 @@ def sweep_stale_shared_intel_cache(self: Any) -> dict[str, int]:
     to prevent. Matches backup_database_task's pattern.
     """
     from app.core.database import SessionLocal
+    from app.core.timezones import today_et
 
-    cutoff = (datetime.now(UTC) - timedelta(days=_RETENTION_DAYS)).date()
+    cutoff = today_et() - timedelta(days=_RETENTION_DAYS)
     session = SessionLocal()
     try:
         result = _cleanup_expired(session, cutoff)

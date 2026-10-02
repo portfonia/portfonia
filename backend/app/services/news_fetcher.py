@@ -26,6 +26,8 @@ from typing import Any
 import feedparser
 import httpx
 
+from app.services.intel_http import quiet_transport
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -34,25 +36,27 @@ logger = logging.getLogger(__name__)
 
 # (display_name, rss_url) — update URLs here when feeds move.
 _RSS_SOURCES: list[tuple[str, str]] = [
-    ("NYT", "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml"),
     ("FT", "https://www.ft.com/?format=rss"),
-    # Reuters direct feed retired ~2020; routed via Google News RSS (DI-validated, ~30 items).
     (
         "Reuters",
         "https://news.google.com/rss/search?q=site:reuters.com+business&hl=en-US&gl=US&ceid=US:en",
     ),
-    # Added 2026-06-10 (R-3b): NYT/FT/Reuters are macro-heavy and missed
-    # single-stock catalysts (e.g. INTC's Google-foundry order). CNBC + Google
-    # News Business topic broaden company-level coverage; dedup by URL hash makes
-    # any overlap free.
     (
         "CNBC",
         "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114",
     ),
+    ("MarketWatch", "https://feeds.marketwatch.com/marketwatch/topstories/"),
+    ("Digitimes", "https://www.digitimes.com/rss/daily.xml"),
     (
-        "GoogleBiz",
-        "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en",
+        "CNA Business",
+        "https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml&category=6936",
     ),
+    ("The Business Times", "https://www.businesstimes.com.sg/rss/top-stories"),
+    ("The Straits Times Business", "https://www.straitstimes.com/news/business/rss.xml"),
+    ("SCMP Business", "https://www.scmp.com/rss/92/feed"),
+    ("City AM", "https://www.cityam.com/feed/"),
+    ("Sky News Business", "https://feeds.skynews.com/feeds/rss/business.xml"),
+    ("Euronews Business", "https://www.euronews.com/rss?level=vertical&name=business"),
 ]
 
 _REQUEST_TIMEOUT = 15  # seconds per feed
@@ -83,6 +87,29 @@ class NewsItem:
 # ---------------------------------------------------------------------------
 
 
+@dataclass
+class FeedStat:
+    name: str
+    items: int = 0
+    errors: int = 0
+    error: str | None = None
+
+
+@dataclass
+class FetchNewsResult:
+    items: list[NewsItem]
+    feeds: list[FeedStat]
+
+
+def strip_google_suffix(title: str, source: object) -> str:
+    """Remove only the exact RSS publisher suffix, preserving prose."""
+    if isinstance(source, dict):
+        name = source.get("title")
+        if isinstance(name, str) and name and title.endswith(" - " + name):
+            return title[: -len(" - " + name)]
+    return title
+
+
 def url_hash(url: str) -> str:
     """Return the first 16 hex chars of MD5(url).  Not security-sensitive."""
     return hashlib.md5(url.encode(), usedforsecurity=False).hexdigest()[:16]
@@ -101,7 +128,7 @@ def _parse_entry_dt(entry: Any) -> datetime | None:
     Falls back to the raw `published` / `updated` string (RFC 2822) if the
     struct is missing.  Returns None if no parseable date is found.
     """
-    struct = getattr(entry, "published_parsed", None)
+    struct = getattr(entry, "published_parsed", None) or getattr(entry, "updated_parsed", None)
     if isinstance(struct, time.struct_time):
         try:
             return datetime(
@@ -126,7 +153,9 @@ def _parse_entry_dt(entry: Any) -> datetime | None:
     return None
 
 
-def _fetch_feed(source: str, url: str, cutoff: datetime) -> list[NewsItem]:
+def _fetch_feed(
+    source: str, url: str, cutoff: datetime, stat: FeedStat | None = None
+) -> list[NewsItem]:
     """
     Fetch one RSS/Atom feed and return items published at or after cutoff.
 
@@ -134,7 +163,7 @@ def _fetch_feed(source: str, url: str, cutoff: datetime) -> list[NewsItem]:
     single broken feed does not fail the whole news run).
     """
     try:
-        with httpx.Client(timeout=_REQUEST_TIMEOUT) as client:
+        with quiet_transport(), httpx.Client(timeout=_REQUEST_TIMEOUT) as client:
             resp = client.get(
                 url,
                 headers={
@@ -145,14 +174,15 @@ def _fetch_feed(source: str, url: str, cutoff: datetime) -> list[NewsItem]:
             )
             resp.raise_for_status()
             raw_bytes = resp.content
-    except httpx.HTTPStatusError as exc:
-        logger.warning("HTTP %s fetching %s feed: %s", exc.response.status_code, source, url)
-        return []
-    except httpx.HTTPError:
-        logger.warning("Network error fetching %s feed: %s", source, url)
-        return []
-    except Exception:
-        logger.exception("Unexpected error fetching %s feed: %s", source, url)
+    except Exception as exc:
+        status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+        error = f"{source}: {type(exc).__name__}" + (
+            f" HTTP {status}" if status is not None else ""
+        )
+        if stat is not None:
+            stat.errors = 1
+            stat.error = error
+        logger.warning("%s", error)
         return []
 
     feed: Any = feedparser.parse(raw_bytes)
@@ -161,12 +191,11 @@ def _fetch_feed(source: str, url: str, cutoff: datetime) -> list[NewsItem]:
     # it for minor issues (encoding declarations etc.) while still yielding
     # valid entries.  Only bail out when bozo AND no entries were parsed.
     if getattr(feed, "bozo", False) and not list(feed.entries):
-        logger.warning(
-            "feedparser bozo flag for %s (%s): %s",
-            source,
-            url,
-            getattr(feed, "bozo_exception", "unknown"),
-        )
+        error = f"{source}: {type(getattr(feed, 'bozo_exception', None)).__name__}"
+        if stat is not None:
+            stat.errors = 1
+            stat.error = error
+        logger.warning("%s", error)
         return []
 
     items: list[NewsItem] = []
@@ -191,7 +220,9 @@ def _fetch_feed(source: str, url: str, cutoff: datetime) -> list[NewsItem]:
         items.append(
             NewsItem(
                 url_hash=url_hash(link),
-                title=title_str.strip(),
+                title=strip_google_suffix(title_str.strip(), getattr(entry, "source", None))
+                if "news.google.com" in url
+                else title_str.strip(),
                 url=link,
                 source=source,
                 published_at=pub,
@@ -199,6 +230,8 @@ def _fetch_feed(source: str, url: str, cutoff: datetime) -> list[NewsItem]:
             )
         )
 
+    if stat is not None:
+        stat.items = len(items)
     logger.info(
         "%s: %d items in window (total entries in feed: %d)",
         source,
@@ -213,7 +246,7 @@ def _fetch_feed(source: str, url: str, cutoff: datetime) -> list[NewsItem]:
 # ---------------------------------------------------------------------------
 
 
-def fetch_news(window_hours: int = 24) -> list[NewsItem]:
+def fetch_news(window_hours: int = 24) -> FetchNewsResult:
     """
     Fetch news from all configured RSS sources.
 
@@ -225,8 +258,11 @@ def fetch_news(window_hours: int = 24) -> list[NewsItem]:
     seen: set[str] = set()
     all_items: list[NewsItem] = []
 
+    feeds: list[FeedStat] = []
     for source, url in _RSS_SOURCES:
-        for item in _fetch_feed(source, url, cutoff):
+        stat = FeedStat(source)
+        feeds.append(stat)
+        for item in _fetch_feed(source, url, cutoff, stat):
             if item.url_hash not in seen:
                 seen.add(item.url_hash)
                 all_items.append(item)
@@ -237,4 +273,4 @@ def fetch_news(window_hours: int = 24) -> list[NewsItem]:
         len(all_items),
         len(_RSS_SOURCES),
     )
-    return all_items
+    return FetchNewsResult(all_items, feeds)

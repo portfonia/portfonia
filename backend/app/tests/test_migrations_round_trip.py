@@ -60,7 +60,6 @@ def test_news_surfaced_backfill_reconstructs_from_report_history(alembic_cfg: Co
     `failed` report and an item with no matching News row, then confirm the
     backfill resolves only the real one — by url, hashed the same way
     news_fetcher.url_hash does — to a news_surfaced row."""
-    from app.models.news import News
     from app.models.news_surfaced import NewsSurfaced
     from app.models.report import Report
 
@@ -70,12 +69,12 @@ def test_news_surfaced_backfill_reconstructs_from_report_history(alembic_cfg: Co
     user_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
     surfaced_url = "https://example.com/fed-raises-rates"
     with Session(engine) as seed_session:
-        seed_session.add(
-            News(
-                url_hash="abc123",  # deliberately NOT the real hash of surfaced_url —
-                # the backfill must resolve by re-hashing the stored url, not by
-                # trusting any url_hash-shaped field in report_inputs (there isn't
-                # one; this proves the lookup path, not a coincidental match).
+        from sqlalchemy import MetaData, Table
+
+        legacy_news = Table("news", MetaData(), autoload_with=engine)
+        seed_session.execute(
+            insert(legacy_news).values(
+                url_hash="abc123",
                 title="unrelated",
                 source="TEST",
                 url="https://example.com/unrelated",
@@ -83,20 +82,18 @@ def test_news_surfaced_backfill_reconstructs_from_report_history(alembic_cfg: Co
                 published_at=datetime(2026, 6, 4, tzinfo=UTC),
             )
         )
-        real_news = News(
-            url_hash="placeholder",
-            title="Fed raises rates",
-            source="TEST",
-            url=surfaced_url,
-            summary="s",
-            published_at=datetime(2026, 6, 4, tzinfo=UTC),
-        )
-        seed_session.add(real_news)
-        seed_session.flush()
-        # Overwrite with the real hash the app would have stored — done after
-        # insert so the fixture data makes the "resolve by re-hashing" property
-        # unambiguous rather than accidentally matching an inserted literal.
-        real_news.url_hash = "1fc36081a0529bad"  # md5(surfaced_url)[:16], verified via hashlib
+        real_news_id = seed_session.execute(
+            insert(legacy_news)
+            .values(
+                url_hash="1fc36081a0529bad",
+                title="Fed raises rates",
+                source="TEST",
+                url=surfaced_url,
+                summary="s",
+                published_at=datetime(2026, 6, 4, tzinfo=UTC),
+            )
+            .returning(legacy_news.c.id)
+        ).scalar_one()
         # Core insert with an explicit column list, not `seed_session.add
         # (Report(...))` — the live `Report` ORM class always reflects every
         # column the CURRENT codebase has (e.g. issue #104's recipient_email/
@@ -144,7 +141,6 @@ def test_news_surfaced_backfill_reconstructs_from_report_history(alembic_cfg: Co
             ],
         )
         seed_session.commit()
-        real_news_id = real_news.id
 
     command.upgrade(alembic_cfg, "f1a2b3c4d5e6")
 

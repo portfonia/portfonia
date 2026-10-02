@@ -1,0 +1,17 @@
+non_article_path_segments: ["/video/", "/videos/", "/watch", "/gallery/", "/podcast", "/slideshow/"]
+low_value_title_patterns:
+  - 'stocks? to (buy|watch|sell|own)'
+  - 'should you (buy|sell)'
+  - '\bbuy (now|the dip)\b'
+  - 'better buy'
+  - '\bvs\.?\s'
+  - 'millionaire'
+  - 'could (soar|double|triple)'
+  - 'price prediction'
+  - '^prediction:'
+  - 'top \d+ .*stocks'
+  - '\d+ (high-yield |dividend |ai |growth )?stocks? (to|that)'
+  - 'is it (a buy|time to)'
+  - 'worth by 20\d\d'
+near_duplicate_jaccard: 0.8
+near_duplicate_hours: 48

@@ -249,7 +249,9 @@ def test_fetch_feed_all_items_outside_window_returns_empty() -> None:
 def _make_feed_side_effect(feed_map: dict[str, bytes]):  # type: ignore[no-untyped-def]
     """Return a side_effect callable for _fetch_feed based on source name."""
 
-    def _side_effect(source: str, url: str, cutoff: datetime) -> list[NewsItem]:
+    def _side_effect(
+        source: str, url: str, cutoff: datetime, stat: object = None
+    ) -> list[NewsItem]:
         if source not in feed_map:
             return []
         cutoff_inner = cutoff
@@ -273,7 +275,7 @@ def test_fetch_news_deduplicates_same_url_across_sources() -> None:
         patch("app.services.news_fetcher._RSS_SOURCES", [("A", "urlA"), ("B", "urlB")]),
         patch("app.services.news_fetcher._fetch_feed", side_effect=side_effect),
     ):
-        items = fetch_news(window_hours=24)
+        items = fetch_news(window_hours=24).items
 
     urls = [i.url for i in items]
     assert urls.count(shared_url) == 1  # deduplicated
@@ -293,7 +295,9 @@ def test_fetch_news_sorted_newest_first() -> None:
         ]
     )
 
-    def _side_effect(source: str, url: str, cutoff: datetime) -> list[NewsItem]:
+    def _side_effect(
+        source: str, url: str, cutoff: datetime, stat: object = None
+    ) -> list[NewsItem]:
         with _patch_httpx(_mock_http_response(feed)):
             return _fetch_feed(source, url, cutoff)
 
@@ -301,7 +305,7 @@ def test_fetch_news_sorted_newest_first() -> None:
         patch("app.services.news_fetcher._RSS_SOURCES", [("TEST", "url")]),
         patch("app.services.news_fetcher._fetch_feed", side_effect=_side_effect),
     ):
-        items = fetch_news(window_hours=24)
+        items = fetch_news(window_hours=24).items
 
     assert len(items) == 2
     assert items[0].title == "Newer"
@@ -313,7 +317,9 @@ def test_fetch_news_failed_source_does_not_abort_others() -> None:
         [("Good", "https://example.com/g", _pubdate(datetime.now(tz=UTC) - timedelta(hours=1)))]
     )
 
-    def _side_effect(source: str, url: str, cutoff: datetime) -> list[NewsItem]:
+    def _side_effect(
+        source: str, url: str, cutoff: datetime, stat: object = None
+    ) -> list[NewsItem]:
         if source == "BAD":
             return []  # simulates network error in _fetch_feed
         with _patch_httpx(_mock_http_response(good_feed)):
@@ -323,7 +329,7 @@ def test_fetch_news_failed_source_does_not_abort_others() -> None:
         patch("app.services.news_fetcher._RSS_SOURCES", [("BAD", "urlBAD"), ("GOOD", "urlGOOD")]),
         patch("app.services.news_fetcher._fetch_feed", side_effect=_side_effect),
     ):
-        items = fetch_news(window_hours=24)
+        items = fetch_news(window_hours=24).items
 
     assert len(items) == 1
     assert items[0].source == "GOOD"
@@ -334,5 +340,5 @@ def test_fetch_news_empty_when_all_sources_fail() -> None:
         patch("app.services.news_fetcher._RSS_SOURCES", [("X", "url")]),
         patch("app.services.news_fetcher._fetch_feed", return_value=[]),
     ):
-        items = fetch_news(window_hours=24)
+        items = fetch_news(window_hours=24).items
     assert items == []

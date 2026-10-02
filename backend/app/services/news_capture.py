@@ -1,55 +1,90 @@
-"""Persist fetched news into the long-term `news` table (ADR-002 capture layer).
-
-Credit-free: RSS only, no LLM. Idempotent via ON CONFLICT (url_hash) DO NOTHING,
-so overlapping windows and catch-up re-runs never duplicate. RSS feeds only carry
-~1-2 days, so a longer window is a best-effort catch-up, not a guarantee.
-"""
+"""Clean and persist the shared RSS pool; retain leads only in memory."""
 
 from __future__ import annotations
 
-import logging
+import uuid
+from dataclasses import dataclass
+from datetime import UTC, datetime
 
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.news import News
-from app.services.news_fetcher import fetch_news
+from app.models.intel import InstrumentProfile, IntelCollectionRun
+from app.services.headline_cleaning import block_reason, load_cleaning_config
+from app.services.instrument_news_sources import CollectedItem
+from app.services.instrument_profiles import match_instruments
+from app.services.intel_records import link_instrument, store_headline
+from app.services.news_fetcher import NewsItem, fetch_news
 
-logger = logging.getLogger(__name__)
+
+@dataclass
+class PoolCaptureResult:
+    inserted: int
+    items: list[NewsItem]
 
 
-def capture_news(session: Session, window_hours: int = 48) -> int:
-    """Fetch recent news and upsert into `news`. Returns rows newly inserted.
-
-    A 48h default gives a small catch-up cushion over the per-run interval;
-    duplicates are dropped by the url_hash conflict, so the window can overlap
-    freely.
-    """
-    items = fetch_news(window_hours=window_hours)
-    if not items:
-        logger.info("capture_news: no items fetched")
-        return 0
-
-    rows = [
-        {
-            "url_hash": it.url_hash,
-            "title": it.title,
-            "source": it.source,
-            "url": it.url,
-            "summary": it.summary,
-            "published_at": it.published_at,
-        }
-        for it in items
-    ]
-    # RETURNING yields only the rows actually inserted (conflicts are skipped),
-    # which is reliable where cursor.rowcount is not for a multi-row upsert.
-    stmt = (
-        pg_insert(News)
-        .values(rows)
-        .on_conflict_do_nothing(constraint="uq_news_url_hash")
-        .returning(News.id)
+def capture_news(
+    session: Session,
+    window_hours: int = 48,
+    *,
+    slot_run_id: uuid.UUID | None = None,
+    node: str | None = None,
+) -> PoolCaptureResult:
+    now = datetime.now(UTC)
+    run = IntelCollectionRun(
+        kind="rss",
+        slot_run_id=slot_run_id,
+        node=node or "capture-news",
+        started_at=now,
+        status="running",
+        stats={},
+        errors=[],
     )
-    inserted = len(session.execute(stmt).fetchall())
+    session.add(run)
+    session.flush()
+    config = load_cleaning_config()
+    fetched = fetch_news(window_hours=window_hours)
+    aliases = {p.identifier: p.aliases for p in session.scalars(select(InstrumentProfile))}
+    cleaning: dict[str, int] = {}
+    samples: dict[str, list[str]] = {}
+    kept = []
+    inserted = 0
+    linked = 0
+    for item in fetched.items:
+        reason = block_reason(
+            CollectedItem(item.title, item.published_at, item.url, item.summary),
+            [],
+            [],
+            config,
+            pool=True,
+        )
+        if reason:
+            cleaning[reason] = cleaning.get(reason, 0) + 1
+            samples.setdefault(reason, [])
+            if len(samples[reason]) < 3:
+                samples[reason].append(item.title)
+            continue
+        nid, is_inserted = store_headline(session, item, "pool", "article", None)
+        inserted += int(is_inserted)
+        for ident in match_instruments(item.title + " " + (item.summary or ""), aliases):
+            linked += link_instrument(session, nid, ident)
+        kept.append(item)
+    errors = [f.error for f in fetched.feeds if f.error]
+    run.stats = {
+        "rss": {
+            "calls": len(fetched.feeds),
+            "items": len(fetched.items),
+            "inserted": inserted,
+            "linked": linked,
+            "errors": len(errors),
+            "skipped_no_name": 0,
+        },
+        "feeds": {f.name: {"items": f.items, "errors": f.errors} for f in fetched.feeds},
+        "cleaning": cleaning,
+        "cleaning_samples": samples,
+    }
+    run.errors = errors[:50]
+    run.finished_at = datetime.now(UTC)
+    run.status = "partial" if errors else "ok"
     session.commit()
-    logger.info("capture_news: fetched %d, inserted %d new", len(items), inserted)
-    return inserted
+    return PoolCaptureResult(inserted, kept)
