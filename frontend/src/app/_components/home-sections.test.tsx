@@ -183,18 +183,18 @@ describe("HomeSections sample briefing", () => {
     },
   );
 
-  it("keeps zh-Hans homepage copy verbatim from the 2026-09-06 vault wording (issue #364)", () => {
+  it("locks current zh-Hans hero and audience copy with the software-tool wording (issue #615)", () => {
     const home = catalogs["zh-Hans"].home;
     expect(home.hero.tagline).toBe(
       "以高相关的信息深度与广度，陪你穿越周期，沉淀长久的价值回报。",
     );
     expect(home.hero.sub).toBe(
-      "Portfonia \u662f\u4e00\u6b3e\u4e3a\u7a7f\u8d8a\u5e02\u573a\u5468\u671f\u800c\u751f\u7684\u8f6f\u4ef6\u5de5\u5177\u3002\u5b83\u6301\u7eed\u8ffd\u8e2a\u65b0\u95fb\u3001\u5b8f\u89c2\u4e8b\u4ef6\u4e0e\u516c\u53f8\u52a8\u6001\uff0c\u628a\u5b83\u4eec\u7cfb\u7edf\u5730\u6620\u5c04\u5230\u4f60\u5f55\u5165\u7684\u6bcf\u4e00\u7b14\u6301\u4ed3\uff0c\u5e26\u6765\u4e0e\u4f60\u7684\u5173\u6ce8\u7d27\u5bc6\u76f8\u5173\u7684\u4fe1\u606f\u6df1\u5ea6\u4e0e\u5e7f\u5ea6\u3002\u5468\u671f\u6709\u6da8\u6709\u843d\uff0c\u503c\u5f97\u4fe1\u8d56\u7684\u4fe1\u606f\u9700\u8981\u957f\u5e74\u76f8\u4f34\u2014\u2014\u8fd9\u662f\u6211\u4eec\u5b58\u5728\u7684\u7406\u7531\u3002",
+      "Portfonia 是一款为穿越市场周期而生的软件工具。它持续追踪新闻、宏观事件与公司动态，把它们系统地映射到你录入的每一笔持仓，带来与你的关注紧密相关的信息深度与广度。周期有涨有落，值得信赖的信息需要长年相伴——这是我们存在的理由。",
     );
     expect(home.audience.paragraphs).toEqual([
-      "Portfonia \u662f\u4e00\u6b3e\u9762\u5411\u7a7f\u8d8a\u5468\u671f\u7684\u6295\u8d44\u8005\u7684\u8f6f\u4ef6\u5de5\u5177\u3002\u6df1\u5165\u7406\u89e3\u8d8b\u52bf\u3001\u5468\u671f\u4e0e\u57fa\u672c\u9762\u9700\u8981\u65f6\u95f4\uff0c\u4e5f\u9700\u8981\u4e0e\u4f60\u7684\u6301\u4ed3\u7d27\u5bc6\u76f8\u5173\u7684\u4fe1\u606f\uff0c\u6301\u7eed\u3001\u53ef\u9760\u5730\u9001\u8fbe\u3002",
+      "Portfonia 是一款面向穿越周期的投资者的软件工具。深入理解趋势、周期与基本面需要时间，也需要与你的持仓紧密相关的信息，持续、可靠地送达。",
       "我们的工作，是把分散在新闻、宏观事件与公司动态里的信息，系统地映射回你的每一笔持仓，带来真正贴合你所关注标的的信息深度与广度，让你随时看清资产所处的位置、正在经历的变化，以及值得留意的信号。你保有完整的判断与决策权，我们负责让这份判断，建立在扎实的信息基础之上。",
-      "\u5e02\u573a\u5468\u671f\u6709\u8d77\u6709\u843d\u3002Portfonia \u5728\u6bcf\u4e2a\u5468\u671f\u4e2d\u6301\u7eed\u63d0\u4f9b\u4fe1\u606f\u3002",
+      "市场周期有起有落。Portfonia 在每个周期中持续提供信息。",
     ]);
   });
 
@@ -205,7 +205,7 @@ describe("HomeSections sample briefing", () => {
     expect(catalogs["zh-Hant"].home.hero.titleAccent).toBe("就藏在你的持倉裡。");
   });
 
-  it("leaves Layer-3 compliance boundary copy unchanged (issue #364)", () => {
+  it("locks the software-tool boundary copy while preserving boundary items (issue #615)", () => {
     expect(catalogs.en.home.boundary).toEqual({
       heading: "Deliberately out of scope",
       body: "Portfonia is a software tool, not an advisory service. The boundary is enforced in code at the template and prompt layer — not left to the model's judgment.",
@@ -220,7 +220,7 @@ describe("HomeSections sample briefing", () => {
     });
     expect(catalogs["zh-Hans"].home.boundary).toEqual({
       heading: "明确不做的事",
-      body: "Portfonia \u662f\u8f6f\u4ef6\u5de5\u5177\uff0c\u4e0d\u662f\u6295\u987e\u670d\u52a1\u3002\u8fd9\u6761\u8fb9\u754c\u901a\u8fc7\u4ee3\u7801\u5728\u6a21\u677f\u548c prompt \u5c42\u5f3a\u5236\u6267\u884c\u2014\u2014\u4e0d\u4f9d\u8d56\u6a21\u578b\u81ea\u5df1\u5224\u65ad\u3002",
+      body: "Portfonia 是软件工具，不是投顾服务。这条边界通过代码在模板和 prompt 层强制执行——不依赖模型自己判断。",
       items: [
         "不出现买入 / 卖出 / 持有 / 减仓 / 加仓 / 目标价这类措辞。绝不会有。",
         "不做交易执行，除录入外不对接券商。",
@@ -232,7 +232,7 @@ describe("HomeSections sample briefing", () => {
     });
     expect(catalogs["zh-Hant"].home.boundary).toEqual({
       heading: "刻意不做的事",
-      body: "Portfonia \u662f\u8edf\u9ad4\u5de5\u5177\uff0c\u4e0d\u662f\u6295\u9867\u670d\u52d9\u3002\u9019\u689d\u754c\u7dda\u900f\u904e\u7a0b\u5f0f\u78bc\u5728\u7bc4\u672c\u8207 prompt \u5c64\u5f37\u5236\u57f7\u884c\u2014\u2014\u4e0d\u4f9d\u8cf4\u6a21\u578b\u81ea\u884c\u5224\u65b7\u3002",
+      body: "Portfonia 是軟體工具，不是投顧服務。這條界線透過程式碼在範本與 prompt 層強制執行——不依賴模型自行判斷。",
       items: [
         "不出現買入 / 賣出 / 持有 / 減碼 / 加碼 / 目標價這類措辭。絕不會有。",
         "不執行交易，除匯入功能外不對接券商。",
