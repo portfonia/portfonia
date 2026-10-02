@@ -9,6 +9,7 @@ import pytest
 from celery.exceptions import Retry  # type: ignore[import-untyped]
 
 from app.core.timezones import ET, HKT
+from app.services.news_capture import PoolCaptureResult
 from app.tasks import celery_app
 
 # ---------------------------------------------------------------------------
@@ -61,7 +62,7 @@ def test_node_cron_uses_market_local_timezone() -> None:
 
 
 @patch("app.core.database.SessionLocal")
-@patch("app.services.news_capture.capture_news", return_value=4)
+@patch("app.services.news_capture.capture_news", return_value=PoolCaptureResult(4, []))
 def test_capture_news_task(mock_cap: MagicMock, mock_session_cls: MagicMock) -> None:
     from app.tasks.capture_tasks import capture_news_task
 

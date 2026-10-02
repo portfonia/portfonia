@@ -148,6 +148,7 @@ _EXTERNAL_NOTIFY_MODULES = (
     "app.tasks.capture_tasks",
     "app.tasks.backup_tasks",
     "app.tasks.cache_tasks",
+    "app.tasks.intel_tasks",
     "app.tasks.admin_tasks",
     # issue #264: holdings_tasks.cleanup_upload_jobs calls send_ops_alert on
     # retry exhaustion (same pattern as cache_tasks).

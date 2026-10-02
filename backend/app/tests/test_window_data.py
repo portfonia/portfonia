@@ -21,6 +21,8 @@ from app.models.report import Report
 from app.models.ticker_leverage import TickerLeverageOverride
 from app.models.ticker_theme import TickerTheme
 from app.services import window_data
+from app.services.intel_records import build_headline_record
+from app.services.news_fetcher import NewsItem
 from app.services.price_anomaly_detector import PriceAnomaly
 from app.services.window_data import (
     BOOTSTRAP_WATERMARK,
@@ -55,7 +57,11 @@ def _seed_users(db_session: Session) -> None:
 
 
 def _news(url: str, when: datetime) -> News:
-    return News(url_hash=url, title="t", source="S", url=url, summary="s", published_at=when)
+    return News(
+        url_hash=url,
+        published_at=when,
+        record=build_headline_record(NewsItem(url, "t", "", "", when, "s"), "article", None),
+    )
 
 
 def _close(ticker: str, d: date, close: float) -> PriceSnapshot:
@@ -203,7 +209,7 @@ def test_cold_start_news_backfill_hides_history_before_cutoff(db_session: Sessio
     assert n == 1
 
     items = load_news_window(db_session, cutoff, datetime(2026, 8, 19, tzinfo=ET), _USER)
-    assert {i.url for i in items} == {
+    assert {i.url_hash for i in items} == {
         "https://on-cutoff.example/1",
         "https://new.example/1",
     }

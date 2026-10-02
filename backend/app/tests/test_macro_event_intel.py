@@ -28,12 +28,18 @@ from app.models.forward_event import ForwardEvent
 from app.models.macro_event_intel import MacroEventIntel
 from app.models.news import News
 from app.services import macro_event_intel as l2
+from app.services.intel_records import build_headline_record
+from app.services.news_fetcher import NewsItem
 
 _DATE = date(2026, 8, 14)
 
 
 def _news(url: str, title: str, when: datetime) -> News:
-    return News(url_hash=url, title=title, source="S", url=url, summary="", published_at=when)
+    return News(
+        url_hash=url,
+        published_at=when,
+        record=build_headline_record(NewsItem(url, title, "", "", when, ""), "article", None),
+    )
 
 
 def _on_day(hour: int = 12) -> datetime:

@@ -12,7 +12,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.user import User
+from app.services.intel_records import build_headline_record
 from app.services.invites import INVITE_REJECTED_MESSAGE, create_invite
+from app.services.news_fetcher import NewsItem
 
 _CREATOR = uuid.UUID("00000000-0000-0000-0000-0000000000aa")
 
@@ -535,10 +537,10 @@ def test_signup_sunday_backfills_seven_calendar_days(
         db_session.add(
             News(
                 url_hash=title,
-                title=title,
-                source="TEST",
-                url=f"https://example.com/{title}",
                 published_at=published,
+                record=build_headline_record(
+                    NewsItem(title, title, "", "", published, None), "article", None
+                ),
             )
         )
     db_session.flush()
@@ -563,7 +565,7 @@ def test_signup_sunday_backfills_seven_calendar_days(
     backfill.assert_called_once_with(db_session, user.id, cutoff)
     marked = (
         db_session.execute(
-            select(News.title)
+            select(News.record["title"].astext)
             .join(NewsSurfaced, News.id == NewsSurfaced.news_id)
             .where(NewsSurfaced.user_id == user.id)
         )

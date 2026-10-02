@@ -1,5 +1,31 @@
 # News dedup ledger
 
+### Collection origins and headline records (issue #620)
+
+`news` remains globally unique by `url_hash`. RSS rows use `origin=pool`;
+per-instrument rows use `origin=instrument`. Both `load_day_news` and
+`load_news_window` select only pool rows, preserving the existing report feed.
+An instrument fetch conflicting with a pool hash links the existing row rather
+than changing its origin or inserting a duplicate. `news_instruments` is unique
+by `(news_id, identifier)` and cascades when news expires.
+
+Each row stores a closed v1 JSON `record` with `v`, `kind`, `title`, `summary`,
+`published_at`, `collected_at`, `label` and `filing_form`. Text is HTML-stripped
+and whitespace-normalized; summaries are capped at 500 characters. The database
+stores neither URLs nor publisher metadata. Readers reconstruct `NewsItem`
+with empty URL/source, while serialization preserves `url_hash`. The #61
+render-resume path marks that stored hash surfaced, falling back to hashing
+`url` for older saved inputs. Report prompts omit empty source labels.
+
+The daily sweep deletes news older than 30 days, including associated links
+and surfaced-ledger entries. This replaces the previous one-year news retention;
+price retention remains unchanged. Run evidence is retained for 90 days.
+Migration `d62000000001` applies the same 30-day cutoff and irreversibly discards
+expired news and retained URL/source columns. Downgrade reconstructs titles and
+summaries but restores empty URL/source values. Deployment and migration require
+separate owner authorization and a current-day backup, with #621 and #622.
+Existing report-time Tavily/search-cache inputs are handled by #622.
+
 ### News dedup ledger: closing the window-boundary permanent-miss gap (issue #30)
 
 `load_news_window` (`app/services/window_data.py`) used to select

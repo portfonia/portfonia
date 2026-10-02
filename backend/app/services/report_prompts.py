@@ -459,14 +459,14 @@ def _build_pass1_prompt(
             kw_str = ", ".join(h.keywords_found[:5])
             lines.append(f"Theme: {h.theme} (keywords: {kw_str})")
             for a in h.articles[:2]:
-                lines.append(f"  - [{a.source}] {a.title}")
+                lines.append(f"  - {f'[{a.source}] ' if a.source else ''}{a.title}")
     else:
         lines.append("(no macro themes triggered)")
 
     lines.append("")
     lines.append("=== TOP HEADLINES (past 24 h) ===")
     for item in news[:15]:
-        lines.append(f"  [{item.source}] {item.title}")
+        lines.append(f"  {f'[{item.source}] ' if item.source else ''}{item.title}")
 
     lines.append("")
     lines.append(
@@ -559,7 +559,7 @@ def _build_holding_news_block(holding_news: dict[str, list[dict[str, Any]]]) -> 
         for it in items:
             src = it.get("source", "")
             title = it.get("title", "")
-            lines.append(f"  [{src}] {title}")
+            lines.append(f"  {f'[{src}] ' if src else ''}{title}")
             summary = it.get("summary")
             if summary:
                 lines.append(f"    {summary[:300]}")
@@ -710,7 +710,9 @@ def _build_macro_signal_themes_block(macro: dict[str, Any]) -> str:
                 f"Theme: {hit['theme']} — keywords: {', '.join(hit.get('keywords_found', []))}"
             )
             for art in hit.get("top_articles", []):
-                lines.append(f"  [{art['source']}] {art['title']}")
+                lines.append(
+                    f"  {'[' + art['source'] + '] ' if art.get('source') else ''}{art['title']}"
+                )
     else:
         lines.append(
             "(no keyword theme triggered this window — this is recall material, "

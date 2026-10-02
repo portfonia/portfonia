@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models.news import News
 from app.services.news_capture import capture_news
-from app.services.news_fetcher import NewsItem, url_hash
+from app.services.news_fetcher import FetchNewsResult, NewsItem, url_hash
 
 
 def _item(title: str) -> NewsItem:
@@ -27,22 +27,22 @@ def _item(title: str) -> NewsItem:
 
 def test_capture_news_inserts_and_dedups(db_session: Session) -> None:
     items = [_item("Fed holds"), _item("Chips rally")]
-    with patch("app.services.news_capture.fetch_news", return_value=items):
+    with patch("app.services.news_capture.fetch_news", return_value=FetchNewsResult(items, [])):
         first = capture_news(db_session)
-    assert first == 2
+    assert first.inserted == 2
 
     # Re-running with overlapping items inserts only the new one.
     with patch(
         "app.services.news_capture.fetch_news",
-        return_value=[_item("Fed holds"), _item("New story")],
+        return_value=FetchNewsResult([_item("Fed holds"), _item("New story")], []),
     ):
         second = capture_news(db_session)
-    assert second == 1
+    assert second.inserted == 1
 
     total = db_session.execute(select(func.count()).select_from(News)).scalar_one()
     assert total == 3
 
 
 def test_capture_news_empty(db_session: Session) -> None:
-    with patch("app.services.news_capture.fetch_news", return_value=[]):
-        assert capture_news(db_session) == 0
+    with patch("app.services.news_capture.fetch_news", return_value=FetchNewsResult([], [])):
+        assert capture_news(db_session).inserted == 0

@@ -661,9 +661,8 @@ def _finish_report(
     `.url_hash`). The full pipeline has it from `load_news_window`; the
     stage-skip path skips that call entirely (nothing upstream of the stored
     body is re-fetched), so it passes None here and url_hash is instead
-    recomputed from `ctx.news_items`' stored `url` field via the same
-    `url_hash` the original fetch used — a pure function of the URL, so
-    this reproduces the same hashes without a DB round-trip.
+    read from `ctx.news_items`' stored `url_hash`, falling back to hashing
+    `url` for inputs stored before issue #620.
 
     NOT reused by `regenerate_report()` (PR #341 review): that function
     deliberately never emails and never calls `mark_news_surfaced` — it is
@@ -741,7 +740,10 @@ def _finish_report(
     url_hashes = (
         [item.url_hash for item in news_items]
         if news_items is not None
-        else [url_hash(item["url"]) for item in ctx.news_items]
+        else [
+            item["url_hash"] if "url_hash" in item else url_hash(item["url"])
+            for item in ctx.news_items
+        ]
     )
     mark_news_surfaced(session, user_id, report.id, url_hashes)
     session.commit()

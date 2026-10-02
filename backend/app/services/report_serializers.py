@@ -20,8 +20,7 @@ def _serialize_news(items: list[NewsItem]) -> list[dict[str, Any]]:
     return [
         {
             "title": it.title,
-            "source": it.source,
-            "url": it.url,
+            "url_hash": it.url_hash,
             "published_at": it.published_at.isoformat(),
             "summary": it.summary,
         }
@@ -37,7 +36,7 @@ def _serialize_macro(signals: MacroSignals) -> dict[str, Any]:
                 "theme": h.theme,
                 "keywords_found": h.keywords_found,
                 "article_count": len(h.articles),
-                "top_articles": [{"title": a.title, "source": a.source} for a in h.articles[:3]],
+                "top_articles": [{"title": a.title} for a in h.articles[:3]],
             }
         )
     return {

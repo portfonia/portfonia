@@ -28,7 +28,9 @@ from app.models.upload_job import UploadJob
 from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
 from app.services.auth_provider import AuthProviderError, AuthUserInfo
+from app.services.intel_records import build_headline_record
 from app.services.invites import hash_invite_token
+from app.services.news_fetcher import NewsItem
 from app.services.questionnaire_taxonomy import QUESTIONNAIRE_VERSION
 from app.tests.test_admin_router import _headers
 from app.tests.test_user_scope import _h, _user
@@ -186,10 +188,14 @@ def test_purge_refuses_user_who_created_invites(
 def test_purge_happy_path_two_users(app_client: TestClient, db_session: Session) -> None:
     news = News(
         url_hash="purge-news-hash",
-        title="Fed holds rates",
-        source="Reuters",
-        url="https://example.com/fed",
         published_at=datetime(2026, 8, 1, tzinfo=UTC),
+        record=build_headline_record(
+            NewsItem(
+                "purge-news-hash", "Fed holds rates", "", "", datetime(2026, 8, 1, tzinfo=UTC), None
+            ),
+            "article",
+            None,
+        ),
     )
     snap = PriceSnapshot(
         ticker="NVDA",
@@ -609,10 +615,14 @@ def test_deleting_upload_jobs_user_id_out_of_order_hits_fk(db_session: Session) 
 def test_deleting_news_surfaced_user_id_out_of_order_hits_fk(db_session: Session) -> None:
     news = News(
         url_hash="b7-fk-news-hash",
-        title="Fed holds rates",
-        source="Reuters",
-        url="https://example.com/fed-b7",
         published_at=datetime(2026, 8, 1, tzinfo=UTC),
+        record=build_headline_record(
+            NewsItem(
+                "b7-fk-news-hash", "Fed holds rates", "", "", datetime(2026, 8, 1, tzinfo=UTC), None
+            ),
+            "article",
+            None,
+        ),
     )
     user = _user(_A, "a@example.com")
     report = _report(_A)

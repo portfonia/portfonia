@@ -36,6 +36,7 @@ from app.models.forward_event import ForwardEvent
 from app.models.report import Report
 from app.services import report_generator as rg
 from app.services import section3_proportionality as s3p
+from app.services.intel_records import build_headline_record
 from app.services.macro_detector import MacroSignals, ThemeHit
 from app.services.news_fetcher import NewsItem
 from app.services.portfolio_calculator import (
@@ -1521,8 +1522,9 @@ def test_rejected_pass2_success_has_no_rejected_content(
     assert report.report_inputs["rejected_pass2_raw"] == ""
 
 
+@pytest.mark.parametrize("legacy", [False, True])
 def test_generate_report_retry_after_render_failure_skips_pass1_pass2(
-    db_session: Session, _no_email: MagicMock
+    db_session: Session, _no_email: MagicMock, legacy: bool
 ) -> None:
     """#61: Pass 2 succeeds, render raises -> the failed row's report_inputs
     already carries a complete pass2_raw (persisted by the outer except
@@ -1559,7 +1561,18 @@ def test_generate_report_retry_after_render_failure_skips_pass1_pass2(
     assert row.report_inputs is not None
     assert row.report_inputs.get("pass2_raw")
 
+    if legacy:
+        inputs = dict(row.report_inputs)
+        inputs["news_items"] = [
+            {**n, "url": _news_item("Fed raises rates").url} for n in inputs["news_items"]
+        ]
+        for n in inputs["news_items"]:
+            n.pop("url_hash")
+        row.report_inputs = inputs
+        db_session.commit()
+
     with (
+        patch("app.services.report_generator.mark_news_surfaced") as mark,
         patch("app.services.report_generator.compute_portfolio") as mock_portfolio2,
         patch("app.services.report_generator.load_news_window") as mock_news2,
         patch("app.services.report_generator.detect_macro_signals") as mock_macro2,
@@ -1579,6 +1592,8 @@ def test_generate_report_retry_after_render_failure_skips_pass1_pass2(
     mock_news2.assert_not_called()
     mock_macro2.assert_not_called()
     mock_anom2.assert_not_called()
+
+    assert mark.call_args.args[3] == [_news_item("Fed raises rates").url_hash]
 
 
 def test_generate_report_retry_after_prompt_version_bump_reruns_pass1_pass2(
@@ -4278,11 +4293,10 @@ def test_generate_report_window_cap_news_backfill(db_session: Session, capped: b
         db_session.add(
             News(
                 url_hash=title,
-                title=title,
-                source="TEST",
-                url=f"https://example.com/{title}",
                 published_at=published,
-                summary=title,
+                record=build_headline_record(
+                    NewsItem(title, title, "", "", published, title), "article", None
+                ),
             )
         )
     db_session.flush()

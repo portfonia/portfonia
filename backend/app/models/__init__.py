@@ -6,6 +6,7 @@ from app.models.cross_name_intel import CrossNameIntel
 from app.models.forward_event import ForwardEvent
 from app.models.fx_rate import FxRate
 from app.models.holding import Holding
+from app.models.intel import InstrumentProfile, IntelCollectionRun, IntelSlotRun, NewsInstrument
 from app.models.invite import Invite
 from app.models.macro_coverage import MacroCoverage
 from app.models.macro_event_intel import MacroEventIntel
@@ -35,10 +36,14 @@ __all__ = [
     "ForwardEvent",
     "FxRate",
     "Holding",
+    "InstrumentProfile",
+    "IntelCollectionRun",
+    "IntelSlotRun",
     "Invite",
     "MacroCoverage",
     "MacroEventIntel",
     "News",
+    "NewsInstrument",
     "NewsSurfaced",
     "OperationalEvent",
     "PortfolioSnapshotBatch",
