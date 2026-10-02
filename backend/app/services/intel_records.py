@@ -19,6 +19,24 @@ def clean_text(value: str) -> str:
     return re.sub(r"\s+", " ", _strip_html(value)).strip()
 
 
+def build_article_record(
+    title: str, published_at: datetime | None, fetched_at: datetime, body: str
+) -> dict[str, object]:
+    from app.services.intel_body import without_urls
+
+    def stamp(value: datetime) -> str:
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+    return {
+        "v": 1,
+        "kind": "article_body",
+        "title": without_urls(clean_text(title)),
+        "published_at": stamp(published_at) if published_at else None,
+        "fetched_at": stamp(fetched_at),
+        "body": body,
+    }
+
+
 def build_headline_record(
     item: NewsItem,
     kind: str,
@@ -101,8 +119,12 @@ def headline_from_row(row: News) -> NewsItem:
 
 
 def sweep_intel(session: Session, now: datetime) -> dict[str, int]:
+    from app.models.paid_intel import IntelArticle, PaidApiUsage
+
     counts = {}
     for model, column, days in [
+        (IntelArticle, IntelArticle.fetched_at, 30),
+        (PaidApiUsage, PaidApiUsage.created_at, 400),
         (News, News.published_at, 30),
         (IntelCollectionRun, IntelCollectionRun.started_at, 90),
         (IntelSlotRun, IntelSlotRun.started_at, 90),

@@ -163,6 +163,7 @@ _EXTERNAL_NOTIFY_MODULES = (
     "app.routers.paddle_webhooks",
     "app.routers.admin",
     "app.services.subscription",
+    "app.services.paid_usage",
 )
 
 
@@ -229,6 +230,11 @@ def _no_external_notifications(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "app.services.subscription.send_subscription_notice",
         MagicMock(return_value="test-provider-id"),
+    )
+    # Every paid endpoint must be explicitly mocked by its test.
+    monkeypatch.setattr(
+        "app.services.paid_search.post",
+        MagicMock(side_effect=AssertionError("paid API network is forbidden in tests")),
     )
     for module in _EXTERNAL_NOTIFY_MODULES:
         monkeypatch.setattr(f"{module}.send_ops_alert", MagicMock(), raising=False)

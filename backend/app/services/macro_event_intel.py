@@ -127,8 +127,6 @@ _FORWARD_PREFIX = "fwd:"
 # key retried under #160 spends as much of its kind's budget as two distinct
 # keys would — otherwise the ceiling silently loosens by a factor of
 # `_MAX_ATTEMPTS_PER_KEY` on exactly the day that ceiling matters most.
-_MAX_L2_THEME_ANALYSES_PER_DAY = 10
-_MAX_L2_FORWARD_ANALYSES_PER_DAY = 15
 
 # Attempts the SYSTEM (not each user) may spend on one event_key in one
 # trade_date before its marker row is final — same contract, same value, and
@@ -665,11 +663,12 @@ def get_l2_intel_batch(
     # collapse them back into a single pot.
     fresh_budget = {
         _THEME_PREFIX: fair_share_budget(
-            _MAX_L2_THEME_ANALYSES_PER_DAY - _attempts_today(session, trade_date, _THEME_PREFIX),
+            get_settings().INTEL_L2_THEME_MAX_PER_DAY
+            - _attempts_today(session, trade_date, _THEME_PREFIX),
             users_remaining,
         ),
         _FORWARD_PREFIX: fair_share_budget(
-            _MAX_L2_FORWARD_ANALYSES_PER_DAY
+            get_settings().INTEL_L2_FORWARD_MAX_PER_DAY
             - _attempts_today(session, trade_date, _FORWARD_PREFIX),
             users_remaining,
         ),

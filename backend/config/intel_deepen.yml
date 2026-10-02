@@ -1,0 +1,35 @@
+thresholds:
+  single_day: 0.05
+  d3: 0.15
+  d5: 0.20
+  near_d3: 0.08
+  near_d5: 0.09
+  news_spike_min_fresh: 8
+  news_spike_ratio: 2.0
+  news_spike_min_history: 5
+  news_spike_history_runs: 10
+  weekend_min_history: 4
+  weekend_macro_min_items: 10
+caps:
+  movers: 20
+  quiet: 10
+  macro_themes: 3
+  macro_links_per_theme: 3
+  leads_per_mover: 2
+  leads_per_quiet: 3
+  searches_per_run: 6
+  ab_dual_top: 3
+  accepted_url_skip_days: 7
+  weekend_quiet: 5
+  weekend_macro_themes: 2
+  weekend_searches: 3
+extract:
+  tavily_batch_max_urls: 20
+  tavily_chunks_per_source: 3
+  body_max_chars: 2000
+  min_body_chars: 300
+  max_boilerplate_ratio: 0.35
+excluded_domains: [news.google.com, ft.com, wsj.com, barrons.com, foreignpolicy.com, marketwatch.com]
+boilerplate_markers: ["Most active", "Day gainers", "Day losers", "Stock splits", "Oops, something went wrong", "Private companies", "Trending tickers", "This article is an Insider exclusive", "All rights reserved", "Companies Mentioned", "Copyright"]
+paywall_markers: ["Subscribe to continue", "subscribers only", "Upgrade options", "Sign in to read"]
+yahoo_nav_markers: ["Most active", "Day gainers", "Day losers", "Stock splits", "Oops, something went wrong", "Private companies", "Trending tickers"]

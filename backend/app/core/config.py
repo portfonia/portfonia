@@ -224,6 +224,19 @@ class Settings(BaseSettings):
     # Search
     TAVILY_API_KEY: SecretStr
     TAVILY_DAILY_BUDGET: int = 10
+    PARALLEL_API_KEY: SecretStr | None = None
+    TAVILY_MONTHLY_CREDIT_LIMIT: int = 1000
+    TAVILY_RUN_CREDIT_CAP: int = 20
+    PARALLEL_MONTHLY_USD_LIMIT: Decimal = Decimal("10.00")
+    PARALLEL_RUN_USD_CAP: Decimal = Decimal("0.50")
+    TAVILY_WEEKEND_RUN_CREDIT_CAP: int = 8
+    PARALLEL_WEEKEND_RUN_USD_CAP: Decimal = Decimal("0.20")
+    INTEL_PAID_WORKERS: int = 4
+    PAID_API_WARN_RATIO: float = 0.8
+    INTEL_AB_MODE: Literal["ab", "tavily", "parallel"] = "ab"
+    INTEL_L1_MAX_PER_DAY: int = 40
+    INTEL_L2_THEME_MAX_PER_DAY: int = 10
+    INTEL_L2_FORWARD_MAX_PER_DAY: int = 15
 
     # Forward calendar (#1). Optional: when unset, the macro release dates from
     # FRED are skipped and the forward block falls back to FOMC + earnings only.

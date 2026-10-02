@@ -88,6 +88,8 @@ def test_cleanup_expired_deletes_only_rows_older_than_90_days(db_session: Sessio
 
     assert result == {
         "news_deleted": 0,
+        "intel_articles_deleted": 0,
+        "paid_api_usage_deleted": 0,
         "intel_collection_runs_deleted": 0,
         "intel_slot_runs_deleted": 0,
         "ticker_intel_deleted": 1,
@@ -123,6 +125,8 @@ def test_cleanup_expired_noop_when_nothing_is_stale(db_session: Session) -> None
 
     assert result == {
         "news_deleted": 0,
+        "intel_articles_deleted": 0,
+        "paid_api_usage_deleted": 0,
         "intel_collection_runs_deleted": 0,
         "intel_slot_runs_deleted": 0,
         "ticker_intel_deleted": 0,
@@ -142,6 +146,8 @@ def test_task_computes_cutoff_and_closes_session(mock_session_cls: MagicMock) ->
 
     assert result == {
         "news_deleted": 0,
+        "intel_articles_deleted": 0,
+        "paid_api_usage_deleted": 0,
         "intel_collection_runs_deleted": 0,
         "intel_slot_runs_deleted": 0,
         "ticker_intel_deleted": 0,

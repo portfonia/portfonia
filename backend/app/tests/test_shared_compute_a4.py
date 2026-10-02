@@ -488,7 +488,7 @@ def test_the_first_user_cannot_exhaust_the_days_l1_budget(
         for p in _boundary_patches():
             stack.enter_context(p)  # type: ignore[arg-type]
         stack.enter_context(patch.object(settings, "SHARED_COMPUTE_ENABLED", False))
-        stack.enter_context(patch("app.services.ticker_intel._MAX_L1_ANALYSES_PER_DAY", 2))
+        stack.enter_context(patch.object(get_settings(), "INTEL_L1_MAX_PER_DAY", 2))
         mock_l1 = stack.enter_context(
             patch(
                 "app.services.ticker_intel._call_llm",

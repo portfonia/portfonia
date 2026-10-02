@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+import logging
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -19,11 +20,17 @@ from app.services.instrument_news_capture import (
 )
 from app.services.instrument_profiles import resolve_profiles
 from app.services.instrument_universe import intel_universe
+from app.services.intel_deepen import DeepenRun
+from app.services.intel_deepen_config import load_intel_deepen_config
 from app.services.intel_digest import build_slot_digest
+from app.services.intel_selection import select_units
+from app.services.intel_shared_analysis import run_post_close_analysis
+from app.services.intel_signals import compute_signals
 from app.services.news_capture import capture_news
 from app.tasks import celery_app
 
 EARLY_TRIGGER_TOLERANCE_S = 5 * 60
+logger = logging.getLogger(__name__)
 
 
 def now_et() -> datetime:
@@ -63,10 +70,44 @@ def intel_slot_task(slot: str) -> dict[str, str]:
         run.status = "running"
         run.details = {}
         session.commit()
+        deepen = None
+        deepen_errors = []
+        evidence: dict[str, object] = {}
         try:
             collection = create_instrument_run(session, run, now)
-            profile_errors = resolve_profiles(session, intel_universe(session), now=now)
+            universe = intel_universe(session)
+            profile_errors = resolve_profiles(session, universe, now=now)
+            previous = session.scalar(
+                select(IntelSlotRun.started_at)
+                .where(IntelSlotRun.started_at < now)
+                .order_by(IntelSlotRun.started_at.desc())
+                .limit(1)
+            ) or now - timedelta(hours=24)
+            weekend = run_date.weekday() >= 5
+            priority: list[str] = []
+            try:
+                cfg = load_intel_deepen_config()
+                signals = compute_signals(
+                    session, universe, run_date, previous, cfg, slot=slot, now=now, weekend=weekend
+                )
+                priority = (
+                    [
+                        u.identifier
+                        for u in select_units(signals, {}, cfg)
+                        if u.kind == "mover" or u.reason.startswith("near_")
+                    ]
+                    if not weekend
+                    else []
+                )
+                deepen = DeepenRun(session, run, cfg, weekend, now, previous, universe, signals)
+            except Exception as exc:
+                deepen_errors.append(f"deepening: {type(exc).__name__}")
+                logger.error(
+                    "intel deepening configuration or signal step failed: %s", type(exc).__name__
+                )
             pool = capture_news(session, slot_run_id=run.id, node="slot-" + slot)
+            if deepen is not None:
+                deepen.pool_items = pool.items
             settings = get_settings()
             budget = (
                 settings.INTEL_COLLECT_BUDGET_PRE_OPEN_S
@@ -78,10 +119,40 @@ def intel_slot_task(slot: str) -> dict[str, str]:
                 run,
                 now,
                 budget,
-                lambda identifier, items: None,
+                deepen.collected if deepen is not None else lambda identifier, items: None,
                 collection_run=collection,
                 profile_errors=profile_errors,
+                priority=priority,
             )
+            if deepen is not None:
+                try:
+                    signals = compute_signals(
+                        session,
+                        universe,
+                        run_date,
+                        previous,
+                        cfg,
+                        slot=slot,
+                        now=now,
+                        weekend=weekend,
+                    )
+                    deepen.finish(session, signals, pool.items)
+                    evidence.update(
+                        {
+                            "fresh_counts": {i: s.fresh for i, s in signals.items() if s.fresh > 0},
+                            "universe": [e.identifier for e in universe],
+                            "theme_counts": deepen.theme_counts,
+                            "deepening": deepen.details(),
+                        }
+                    )
+                    deepen_errors.extend(deepen.errors)
+                except Exception as exc:
+                    deepen.close()
+                    deepen_errors.append(f"deepening: {type(exc).__name__}")
+                if not weekend and slot == "post_close":
+                    evidence["shared_analysis"] = run_post_close_analysis(
+                        session, run, deepen.selected, universe
+                    )
             rss = session.scalar(
                 select(IntelCollectionRun)
                 .where(IntelCollectionRun.slot_run_id == run.id, IntelCollectionRun.kind == "rss")
@@ -93,12 +164,18 @@ def intel_slot_task(slot: str) -> dict[str, str]:
                 run.status = "partial"
             if rss and rss.status == "partial" and run.status == "ok":
                 run.status = "partial"
+            if deepen_errors and run.status == "ok":
+                run.status = "partial"
+            evidence["deepening_errors"] = deepen_errors
+            run.details = evidence
             if profile_errors:
                 collection.errors = list(dict.fromkeys((collection.errors or []) + profile_errors))[
                     :50
                 ]
             del pool
         except Exception as exc:
+            if deepen is not None:
+                deepen.close()
             session.rollback()
             run.status = "failed"
             run.details = {"reason": error_text("slot", exc)}

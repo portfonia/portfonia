@@ -130,6 +130,48 @@ def build_slot_digest(
     lines.append(
         "Classifier: " + ", ".join(f"{key}={value:g}" for key, value in classifier.items())
     )
+    deep = obj(slot.details.get("deepening"))
+    deep_errors = slot.details.get("deepening_errors", [])
+    if deep_errors or deep.get("errors"):
+        severity = "WARNING"
+        lines += ["", "Deepening errors:", str(deep_errors), str(deep.get("errors", []))]
+    if deep:
+        selections = deep.get("selections", [])
+        lines += ["", "Selections:"]
+        if deep.get("weekend") and not selections:
+            lines.append("weekend: no unit met the conditions")
+        for raw in selections if isinstance(selections, list) else []:
+            unit = obj(raw)
+            lines.append(
+                f"{unit.get('kind')}: {unit.get('identifier') or unit.get('theme')}; {unit.get('reason')}; providers={unit.get('providers')}"
+            )
+        lines += [
+            "",
+            f"Paid usage: mode={deep.get('mode')}; warning_ratio={deep.get('warning_ratio')}",
+        ]
+        for provider, raw in obj(deep.get("usage")).items():
+            usage = obj(raw)
+            prefix = "Tavily" if provider == "tavily" else "Parallel"
+            dollar = "" if provider == "tavily" else "$"
+            used = number(usage.get("month"))
+            limit = number(usage.get("month_limit"))
+            lines.append(
+                f"{prefix} {dollar}{number(usage.get('run')):g}/{dollar}{number(usage.get('run_cap')):g} run, {dollar}{used:g}/{dollar}{limit:g} month ({used / limit * 100 if limit else 0:.0f}%); key configured={'yes' if usage.get('configured') else 'no'}"
+            )
+        lines += ["", "A/B metrics:"]
+        for provider, raw in obj(deep.get("metrics")).items():
+            lines.append(
+                f"{provider}: " + ", ".join(f"{key}={value}" for key, value in obj(raw).items())
+            )
+    shared = obj(slot.details.get("shared_analysis"))
+    if shared:
+        lines += [
+            "",
+            "Shared analysis:",
+            ", ".join(f"{key}={value}" for key, value in shared.items()),
+        ]
+        if shared.get("errors"):
+            severity = "WARNING"
     return (
         f"[Portfonia] Intel slot {slot.slot} {slot.run_date} - {slot.status}",
         "\n".join(lines),
