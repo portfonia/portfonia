@@ -739,3 +739,13 @@ def test_assembly_prompt_omits_not_processed_holdings() -> None:
     assert "Apple" in prompt
     assert "BHP.AX" not in prompt
     assert "BHP Group" not in prompt
+
+
+def test_assembly_prompt_uses_holdings_briefing_section_titles() -> None:
+    prompt = _prompt()
+    for heading in (
+        "## §2 Macro Events",
+        "## §3 Holdings Context",
+        "## §4 Exposure & Price Data",
+    ):
+        assert heading in prompt

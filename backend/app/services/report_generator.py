@@ -444,7 +444,7 @@ def _render_full_md(
     # stored metrics, so re-render reproduces it without touching the DB.
     if technical:
         cleaned = cleaned.rstrip() + "\n\n" + _build_section44_technical(technical)
-    header = f"# Portfonia Financial Analysis Report — {_header_timestamp(report_date_str, period_end)}\n\n"
+    header = f"# Portfonia Holdings Briefing — {_header_timestamp(report_date_str, period_end)}\n\n"
     window = _build_data_window(
         news_items, portfolio, period_start, period_end, trading_days, price_data_through
     )
@@ -1312,13 +1312,13 @@ def generate_report(
             # nothing at all to report from, not just that a keyword table
             # missed.
             quiet_body = (
-                "## §2 Macro Signals\n\n"
+                "## §2 Macro Events\n\n"
                 "No macro developments to report this period: no keyword theme "
                 "matched, no window news was captured, and no continuing topic "
                 "was due for revisit.\n\n"
-                "## §3 Holdings Analysis\n\n"
+                "## §3 Holdings Context\n\n"
                 "No significant market developments detected for monitored holdings.\n\n"
-                "## §4 Risk Radar\n\n"
+                "## §4 Exposure & Price Data\n\n"
                 "No price anomalies or concentration alerts in this report period."
             )
             quiet_md, _, _ = _render_full_md(

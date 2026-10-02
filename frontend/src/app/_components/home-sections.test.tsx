@@ -96,10 +96,10 @@ describe("HomeSections sample briefing", () => {
     );
 
     expect(screen.getByText("Portfolio snapshot")).toBeInTheDocument();
-    expect(screen.getByText("Macro signals")).toBeInTheDocument();
+    expect(screen.getByText("Macro events")).toBeInTheDocument();
     expect(screen.getByText("Forward calendar")).toBeInTheDocument();
-    expect(screen.getByText("Holding analysis")).toBeInTheDocument();
-    expect(screen.getByText("Risk radar")).toBeInTheDocument();
+    expect(screen.getByText("Holdings context")).toBeInTheDocument();
+    expect(screen.getByText("Exposure & price data")).toBeInTheDocument();
     expect(screen.getByText("Briefing frequency depends on your plan.")).toBeInTheDocument();
   });
 

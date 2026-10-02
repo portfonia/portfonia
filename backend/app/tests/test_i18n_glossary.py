@@ -149,7 +149,7 @@ def test_build_glossary_instruction_unknown_target_lang_returns_empty() -> None:
 
 def test_build_glossary_instruction_zh_contains_full_fixed_term_set() -> None:
     instruction = rt._build_glossary_instruction("zh")
-    assert '"Portfonia Financial Analysis Report" -> "Portfonia 财经分析报告"' in instruction
+    assert '"Portfonia Holdings Briefing" -> "Portfonia 持仓简报"' in instruction
     assert 'Never render any word as "智能"' in instruction
 
 
@@ -170,3 +170,17 @@ def test_traditional_language_uses_simplified_source() -> None:
         == glossary.report_glossary["Custodian"]["zh-Hans"]
     )
     assert all(locale in translations for translations in glossary.templates.values())
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "Portfonia Holdings Briefing",
+        "holdings briefing",
+        "Macro Events",
+        "Holdings Context",
+        "Exposure & Price Data",
+    ],
+)
+def test_report_glossary_covers_holdings_briefing_names(key: str) -> None:
+    assert load_i18n_glossary().report_glossary[key]["zh-Hans"].strip()

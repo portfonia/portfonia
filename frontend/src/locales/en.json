@@ -914,7 +914,7 @@
         "**By asset class:** Stocks 48.1%, US tech ETF 16.0%, US broad ETF 13.1%, Bond funds 4.8%, Precious metals 0.2%, China equities 0.1%, Cash equivalents 17.7%",
         "**FX rates used:** HKD 7.80, CNH 7.15 vs USD"
       ],
-      "macroTitle": "Macro signals",
+      "macroTitle": "Macro events",
       "macroBody": "Markets repriced the policy path after the latest FOMC minutes showed a split committee. The transmission into this portfolio runs through the equity-duration channel: long-duration growth names (TSMC, Microsoft, Alphabet) and the broad ETFs are mechanically sensitive to shifts in rate expectations embedded in the yield curve. No price anomaly was triggered in this window to confirm a repricing in any specific holding, so this direction stands as structural exposure to monitor rather than an observed event. [Probable]",
       "calendarTitle": "Forward calendar",
       "calendarNote": "Scheduled US events over the coming days and the holdings they bear on. Calendar facts only — not forecasts.",
@@ -944,10 +944,10 @@
           "Factory-sector momentum"
         ]
       ],
-      "analysisTitle": "Holding analysis",
+      "analysisTitle": "Holdings context",
       "analysisHeading": "TSMC — 20.9% of the portfolio, the single largest position",
       "analysisBody": "TSMC stands out this period not for a company-specific event but for its disproportionate weight and its exposure to several macro themes at once. … No anomaly was observed in this window to confirm the market actually traded on the monetary-policy theme.",
-      "radarTitle": "Risk radar",
+      "radarTitle": "Exposure & price data",
       "concentrationBody": "The top three holdings together account for 50.0% of portfolio value — at the 50% watch threshold. The largest single asset-class bucket (stocks) sits at 48.1%, just below it. Single-position concentration is dominated by TSMC at 20.9%; the two broad ETF positions diversify within US equities while raising correlation to US monetary-policy developments.",
       "anomalyColumns": [
         "Holding",

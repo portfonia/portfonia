@@ -73,17 +73,17 @@ def test_score_evidence_strength_matches_chinese_terms() -> None:
 
 
 def test_extract_section3_slices_between_headings() -> None:
-    md = "## §2 Macro Signals\n\nSome macro text.\n\n## §3 Holdings Analysis\n\nAAPL grew.\n\n## §4 Risk Radar\n\nStuff."
+    md = "## §2 Macro Events\n\nSome macro text.\n\n## §3 Holdings Context\n\nAAPL grew.\n\n## §4 Exposure & Price Data\n\nStuff."
     assert extract_section3(md).strip() == "AAPL grew."
 
 
 def test_extract_section3_to_end_of_string_when_no_next_heading() -> None:
-    md = "## §3 Holdings Analysis\n\nOnly content here."
+    md = "## §3 Holdings Context\n\nOnly content here."
     assert extract_section3(md).strip() == "Only content here."
 
 
 def test_extract_section3_missing_heading_returns_empty() -> None:
-    assert extract_section3("## §2 Macro Signals\n\nNo §3 here.") == ""
+    assert extract_section3("## §2 Macro Events\n\nNo §3 here.") == ""
 
 
 # ---------------------------------------------------------------------------
@@ -157,9 +157,9 @@ def _full_body(section3_text: str) -> str:
     (report_generator.py passes the full rendered body, and the function
     slices §3 out via `extract_section3`)."""
     return (
-        "## §2 Macro Signals\n\nNothing notable.\n\n"
-        f"## §3 Holdings Analysis\n\n{section3_text}\n\n"
-        "## §4 Risk Radar\n\nNothing notable."
+        "## §2 Macro Events\n\nNothing notable.\n\n"
+        f"## §3 Holdings Context\n\n{section3_text}\n\n"
+        "## §4 Exposure & Price Data\n\nNothing notable."
     )
 
 

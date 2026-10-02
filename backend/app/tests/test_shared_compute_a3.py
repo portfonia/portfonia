@@ -129,9 +129,9 @@ def _empty_portfolio_snap() -> PortfolioSnapshot:
 
 _PASS2_FILLER = "Filler context. " * 130
 _FAKE_LLM_PASS2 = (
-    "## §2 Macro Signals\n\nNothing macro.\n\n"
+    "## §2 Macro Events\n\nNothing macro.\n\n"
     "## §3 Holdings Intelligence\n\nSee anomalies.\n\n"
-    "## §4 Risk Radar\n\nSee anomalies.\n\n" + _PASS2_FILLER
+    "## §4 Exposure & Price Data\n\nSee anomalies.\n\n" + _PASS2_FILLER
 )
 
 

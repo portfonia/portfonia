@@ -628,7 +628,7 @@ def test_strip_markers_removes_model_emitted_disclaimer() -> None:
     prompt; it must be dropped (the footer owns the single disclaimer) — otherwise
     its '投资建议' / 'investment advice' wording false-trips the compliance scan."""
     body = (
-        "## §4 Risk Radar\n\n"
+        "## §4 Exposure & Price Data\n\n"
         "USD exposure is 68.7%.\n\n"
         "---\n\n"
         "*本报告仅供信息参考，不构成任何投资建议或买卖指令。This report is for "  # noqa: RUF001

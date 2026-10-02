@@ -90,9 +90,9 @@ def test_overview_traditional_copy(db_session: Session) -> None:
     assert email_sender._glossary_term("STOCK", "zh-Hant") == to_traditional(
         email_sender._glossary_term("STOCK", "zh")
     )
-    assert email_sender._glossary_term(
-        "Portfonia Financial Analysis Report", "zh-Hant"
-    ) == to_traditional(email_sender._glossary_term("Portfonia Financial Analysis Report", "zh"))
+    assert email_sender._glossary_term("Portfonia Holdings Briefing", "zh-Hant") == to_traditional(
+        email_sender._glossary_term("Portfonia Holdings Briefing", "zh")
+    )
 
 
 def test_invitation_traditional_copy() -> None:

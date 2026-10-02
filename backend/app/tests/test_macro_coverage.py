@@ -73,7 +73,7 @@ def _raw_item(**overrides: object) -> dict[str, object]:
 
 
 def test_extract_macro_sidecar_strips_and_parses() -> None:
-    body = "## §2 Macro Signals\n\nSome prose.\n\n" + _sidecar([_raw_item()])
+    body = "## §2 Macro Events\n\nSome prose.\n\n" + _sidecar([_raw_item()])
     visible, items = mc.extract_macro_sidecar(body)
 
     assert mc._SIDECAR_START not in visible
@@ -89,7 +89,7 @@ def test_extract_macro_sidecar_strips_and_parses() -> None:
 def test_extract_macro_sidecar_missing_returns_body_unchanged() -> None:
     """No sidecar at all (an older prompt version, or a model that ignored
     the instruction) — must not raise, must not touch the body."""
-    body = "## §2 Macro Signals\n\nSome prose with no sidecar."
+    body = "## §2 Macro Events\n\nSome prose with no sidecar."
     visible, items = mc.extract_macro_sidecar(body)
     assert visible == body
     assert items == []
@@ -123,7 +123,7 @@ def test_extract_macro_sidecar_strips_a_stray_second_block() -> None:
     survive into the rendered report either — every delimited block is
     stripped, even though only the first is parsed for items."""
     body = (
-        "## §2 Macro Signals\n\nProse.\n\n"
+        "## §2 Macro Events\n\nProse.\n\n"
         + _sidecar([_raw_item(development_key="first")])
         + "\n"
         + _sidecar([_raw_item(development_key="stray-second")])

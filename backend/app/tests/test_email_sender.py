@@ -213,12 +213,12 @@ def test_render_html_cjk_content_survives_bs4_round_trip() -> None:
     default (Ring 0) — existing tests only used ASCII, so a BeautifulSoup
     serialization quirk on Chinese text wouldn't be caught. Also checks a
     literal ampersand round-trips as an entity rather than raw."""
-    md = "# 财经分析报告\n\n持仓 A & B 的表现"
+    md = "# 持仓简报\n\n持仓 A & B 的表现"
     html = _render_html(md)
 
     soup = BeautifulSoup(html, "html.parser")
     h1 = soup.find("h1")
-    assert h1 is not None and h1.get_text() == "财经分析报告"
+    assert h1 is not None and h1.get_text() == "持仓简报"
     p = soup.find("p")
     assert p is not None and p.get_text() == "持仓 A & B 的表现"
     assert "&amp;" in html
@@ -699,7 +699,7 @@ def test_send_subject_format(
 
     call_kwargs = post_mock.call_args
     payload = call_kwargs.kwargs["json"] if "json" in call_kwargs.kwargs else call_kwargs[1]["json"]
-    assert payload["subject"] == "Portfonia 财经分析报告 — 2026-06-06"
+    assert payload["subject"] == "Portfonia 持仓简报 — 2026-06-06"
     assert payload["to"] == ["test@example.com"]
 
 
@@ -728,7 +728,7 @@ def test_send_subject_resolves_via_output_lang(
 
     call_kwargs = post_mock.call_args
     payload = call_kwargs.kwargs["json"] if "json" in call_kwargs.kwargs else call_kwargs[1]["json"]
-    assert payload["subject"] == "Portfonia Financial Analysis Report — 2026-06-06"
+    assert payload["subject"] == "Portfonia Holdings Briefing — 2026-06-06"
 
 
 @patch(
@@ -770,7 +770,7 @@ def test_send_subject_and_footer_follow_recipients_own_locale_not_global_output_
     send_report_email(report, session)
 
     payload = post_mock.call_args.kwargs["json"]
-    assert payload["subject"] == "Portfonia Financial Analysis Report — 2026-06-06"
+    assert payload["subject"] == "Portfonia Holdings Briefing — 2026-06-06"
     assert "This report was delivered by Portfonia to the address you configured" in payload["html"]
 
 
@@ -1152,7 +1152,7 @@ def test_send_report_zh_hant_subject_and_unsubscribe_footer(
     session.get.return_value = SimpleNamespace(locale="zh-Hant")
     assert send_report_email(_make_report(), session)
     payload = post.call_args.kwargs["json"]
-    title = load_i18n_glossary().report_glossary["Portfonia Financial Analysis Report"]["zh-Hans"]
+    title = load_i18n_glossary().report_glossary["Portfonia Holdings Briefing"]["zh-Hans"]
     assert payload["subject"] == f"{to_traditional(title)} — 2026-06-06"
     url = payload["headers"]["List-Unsubscribe"][1:-1]
     copy = _UNSUBSCRIBE_FOOTER_COPY["zh-Hant"]

@@ -39,14 +39,14 @@ _PASS2_MARKER = "ZZZ_PASS2_BODY_ZZZ"
 _ASSEMBLY_MARKER = "ZZZ_ASSEMBLED_BODY_ZZZ"
 
 _FAKE_PASS2_BODY = (
-    f"## §2 Macro Signals\n\n{_PASS2_MARKER} nothing macro.\n\n"
+    f"## §2 Macro Events\n\n{_PASS2_MARKER} nothing macro.\n\n"
     "## §3 Holdings Intelligence\n\nSee anomalies.\n\n"
-    "## §4 Risk Radar\n\nSee anomalies.\n\n" + _PASS2_FILLER
+    "## §4 Exposure & Price Data\n\nSee anomalies.\n\n" + _PASS2_FILLER
 )
 _FAKE_ASSEMBLED_BODY = (
-    f"## §2 Macro Signals\n\n{_ASSEMBLY_MARKER} rates repriced.\n\n"
-    "## §3 Holdings Analysis\n\nThe heaviest position moved. [Established]\n\n"
-    "## §4 Risk Radar\n\nSee anomalies. [Established]\n\n" + _PASS2_FILLER
+    f"## §2 Macro Events\n\n{_ASSEMBLY_MARKER} rates repriced.\n\n"
+    "## §3 Holdings Context\n\nThe heaviest position moved. [Established]\n\n"
+    "## §4 Exposure & Price Data\n\nSee anomalies. [Established]\n\n" + _PASS2_FILLER
 )
 
 

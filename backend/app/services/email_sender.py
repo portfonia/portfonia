@@ -412,7 +412,7 @@ def send_report_email(report: Report, session: Session) -> bool:
     # the same helper `routers/reports.py`'s generate/regenerate use, so
     # this and those two stay in sync by construction, not by hand.
     recipient_locale = report_language_for(session, report.user_id, settings.OUTPUT_LANG)
-    report_title_key = "Portfonia Financial Analysis Report"
+    report_title_key = "Portfonia Holdings Briefing"
     glossary = load_i18n_glossary()
     locale = locale_for_output_lang(recipient_locale)
     report_title = (

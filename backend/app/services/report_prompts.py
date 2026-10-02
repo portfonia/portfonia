@@ -87,7 +87,7 @@ _pass2_cross_ref = load_i18n_glossary().templates["cross_reference_example"]
 # two copies of _FORWARD_WINDOW_DAYS in PR #157). Composition below is a pure
 # rearrangement: _PASS2_SYSTEM's text is byte-identical to its pre-A4 value.
 _RULE_BRIEFING_ROLE = (
-    "\nYou are writing a structured financial analysis briefing for a "
+    "\nYou are writing a structured holdings briefing for a "
     "private investor. Use Markdown. Be concise and factual. Write clean prose "
     "with no bracketed tags or citations.\n"
 )
@@ -302,7 +302,7 @@ def body_is_incomplete(body: str) -> bool:
 # few short updates rather than N interchangeable paragraphs. See Design
 # §1/§3 and Requirements for the full rationale this codifies.
 _SECTION2_INSTRUCTIONS = (
-    "## §2 Macro Signals\n"
+    "## §2 Macro Events\n"
     "Macro coverage is not gated on a direct holdings match — a systemically "
     "important development earns space on its own merits; explicit holdings, "
     "watched instruments, and the reader's own stated interests (see any "
@@ -366,7 +366,7 @@ _SECTION2_INSTRUCTIONS = (
     "ANOMALIES before stating a holding already moved a given direction.\n\n"
 )
 _SECTION3_INSTRUCTIONS = (
-    "## §3 Holdings Analysis\n"
+    "## §3 Holdings Context\n"
     "Select the holdings most affected this period and, for each, go beyond "
     "'position size + what happened'. Explain WHY it surfaced (which signal/move "
     "implicates it), the mechanism linking the development to that specific "
@@ -377,7 +377,7 @@ _SECTION3_INSTRUCTIONS = (
     "LABELS above).\n\n"
 )
 _SECTION4_INSTRUCTIONS = (
-    "## §4 Risk Radar\n"
+    "## §4 Exposure & Price Data\n"
     "### 4.1 Concentration — state the flagged ratios EXACTLY as supplied "
     "(see CONCENTRATION NUMBERS ARE SUPPLIED, NOT COMPUTED above); do not "
     "recompute a different top-3 or concentration percentage here.\n"
@@ -422,7 +422,7 @@ _RULE_CONFIDENCE_LABELS = (
 )
 
 _PASS2_PREAMBLE_TEMPLATE = (
-    "Write {sections_clause} of the financial analysis briefing in Markdown.\n"
+    "Write {sections_clause} of the holdings briefing in Markdown.\n"
     "Use the portfolio and signal data above. Do NOT emit bracketed tags, "
     "citations, or per-sentence disclaimers — write clean prose.\n\n"
     + _RULE_TIME_REFERENCES

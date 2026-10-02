@@ -98,7 +98,7 @@ def test_translate_chunk_uses_byok_hard_pin_no_deny_no_reasoning() -> None:
     client.chat.completions.create.return_value = _fake_llm_response(
         "## §3 持仓分析\n\n" + ("该持仓非常重要并值得密切关注。" * 20)
     )
-    source = "## §3 Holdings Analysis\n\n" + ("This holding matters. " * 20)
+    source = "## §3 Holdings Context\n\n" + ("This holding matters. " * 20)
     rt._translate_chunk(client, "m", "sys", source)
 
     kwargs = client.chat.completions.create.call_args.kwargs
@@ -110,7 +110,7 @@ def test_translate_chunk_uses_byok_hard_pin_no_deny_no_reasoning() -> None:
 
 
 def test_translate_chunk_falls_back_to_source_when_truncated() -> None:
-    source = "## §3 Holdings Analysis\n\n" + ("This holding matters because " * 20)
+    source = "## §3 Holdings Context\n\n" + ("This holding matters because " * 20)
     calls = {"n": 0}
 
     def _truncating(_c: object, _m: str, _s: str, _u: str, **_k: object) -> str:
@@ -129,7 +129,7 @@ def test_translate_chunk_falls_back_to_source_on_real_empty_response() -> None:
     response must resolve via _translate_chunk's own short-then-retry-then-
     fallback logic, not propagate as LLMEmptyResponseError and fail the
     whole translation pass over one chunk."""
-    source = "## §3 Holdings Analysis\n\n" + ("This holding matters because " * 20)
+    source = "## §3 Holdings Context\n\n" + ("This holding matters because " * 20)
     client = MagicMock()
     client.chat.completions.create.return_value = _fake_llm_response("   ")
 
@@ -141,7 +141,7 @@ def test_translate_chunk_falls_back_to_source_on_real_empty_response() -> None:
 
 
 def test_translate_chunk_keeps_good_translation() -> None:
-    source = "## §3 Holdings Analysis\n\n" + ("This holding matters. " * 20)
+    source = "## §3 Holdings Context\n\n" + ("This holding matters. " * 20)
 
     def _ok(_c: object, _m: str, _s: str, _u: str, **_k: object) -> str:
         return "## §3 持仓分析\n\n" + ("该持仓非常重要并值得密切关注。" * 20)

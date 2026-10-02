@@ -22,20 +22,20 @@ supported_locales: [zh-Hans]
 report_glossary:
   # Fixed EN -> locale nouns the translation pass (report_generator._translate_md)
   # renders exactly; loaded to build the LLM's glossary instruction.
-  "Portfonia Financial Analysis Report":
-    zh-Hans: Portfonia 财经分析报告
-  "financial analysis briefing":
-    zh-Hans: 财经分析简报
+  "Portfonia Holdings Briefing":
+    zh-Hans: Portfonia 持仓简报
+  "holdings briefing":
+    zh-Hans: 持仓简报
   "Portfolio Snapshot":
     zh-Hans: 投资组合快照
-  "Holdings Analysis":
-    zh-Hans: 持仓分析
+  "Holdings Context":
+    zh-Hans: 持仓背景
   "Custodian":
     zh-Hans: 持仓机构
-  "Macro Signals":
-    zh-Hans: 宏观信号
-  "Risk Radar":
-    zh-Hans: 风险雷达
+  "Macro Events":
+    zh-Hans: 宏观事件
+  "Exposure & Price Data":
+    zh-Hans: 敞口与价格数据
   "[Established]":
     zh-Hans: "[确定]"
   "[Probable]":
