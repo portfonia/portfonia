@@ -78,6 +78,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.compliance.output_scan import _scan_forbidden_output, _strip_markers
+from app.core.config import get_settings
 from app.models.ticker_intel import TickerIntel
 from app.services.email_sender import send_ops_alert
 from app.services.instrument_symbols import InstrumentKey, intelligence_identifier
@@ -115,7 +116,6 @@ _L1_MODEL = "openai/gpt-5.6-luna"
 # in ATTEMPTS (`SUM(attempt_count)`), not rows: a key retried under #160 must
 # not get its extra attempts for free, or this cap silently loosens by a
 # factor of _MAX_ATTEMPTS_PER_KEY on exactly the day it matters most.
-_MAX_L1_ANALYSES_PER_DAY = 15
 
 # How many times the SYSTEM — not each user — may attempt one identifier in
 # one trade_date before its marker row becomes final (issue #160). N=3
@@ -537,8 +537,9 @@ def get_l1_intel_batch(
     next user's share is computed from.
     """
     result: dict[str, str] = {}
+    max_per_day = get_settings().INTEL_L1_MAX_PER_DAY
     fresh_budget = fair_share_budget(
-        _MAX_L1_ANALYSES_PER_DAY - _attempts_today(session, trade_date), users_remaining
+        max_per_day - _attempts_today(session, trade_date), users_remaining
     )
     for identifier in identifiers:
         cached = _fetch_cached(session, identifier, trade_date)
@@ -556,7 +557,7 @@ def get_l1_intel_batch(
         if fresh_budget <= 0:
             logger.info(
                 "ticker_intel: daily L1 analysis cap (%d) reached, skipping %s",
-                _MAX_L1_ANALYSES_PER_DAY,
+                max_per_day,
                 identifier,
             )
             continue

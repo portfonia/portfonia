@@ -23,6 +23,7 @@ import openai
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.timezones import ET
 from app.models.forward_event import ForwardEvent
 from app.models.macro_event_intel import MacroEventIntel
@@ -305,23 +306,23 @@ def _forward_facts(keys: list[str]) -> dict[str, l2.L2Facts]:
 
 def test_daily_theme_cap_stops_fresh_inferences(db_session: Session) -> None:
     _seed_day_news(db_session)
-    keys = [f"theme:t{i}" for i in range(l2._MAX_L2_THEME_ANALYSES_PER_DAY + 3)]
+    keys = [f"theme:t{i}" for i in range(get_settings().INTEL_L2_THEME_MAX_PER_DAY + 3)]
 
     client_patch, call_patch = _patched_llm(_mock_llm_ok)
     with client_patch, call_patch as mock_call:
         l2.get_l2_intel_batch(db_session, keys, _DATE, _theme_facts(keys))
 
-    assert mock_call.call_count == l2._MAX_L2_THEME_ANALYSES_PER_DAY
+    assert mock_call.call_count == get_settings().INTEL_L2_THEME_MAX_PER_DAY
 
 
 def test_daily_forward_cap_stops_fresh_inferences(db_session: Session) -> None:
-    keys = [f"fwd:f{i}" for i in range(l2._MAX_L2_FORWARD_ANALYSES_PER_DAY + 3)]
+    keys = [f"fwd:f{i}" for i in range(get_settings().INTEL_L2_FORWARD_MAX_PER_DAY + 3)]
 
     client_patch, call_patch = _patched_llm(_mock_llm_ok)
     with client_patch, call_patch as mock_call:
         l2.get_l2_intel_batch(db_session, keys, _DATE, _forward_facts(keys))
 
-    assert mock_call.call_count == l2._MAX_L2_FORWARD_ANALYSES_PER_DAY
+    assert mock_call.call_count == get_settings().INTEL_L2_FORWARD_MAX_PER_DAY
 
 
 def test_forward_events_cannot_starve_themes_of_the_daily_budget(
@@ -339,7 +340,7 @@ def test_forward_events_cannot_starve_themes_of_the_daily_budget(
     Budgets are per event KIND now, so an earnings-season calendar cannot
     crowd out macro themes. (Truncation WITHIN a kind is still possible —
     that is a genuine cost ceiling, not a fairness defect.)"""
-    forward_keys = [f"fwd:f{i}" for i in range(l2._MAX_L2_FORWARD_ANALYSES_PER_DAY + 5)]
+    forward_keys = [f"fwd:f{i}" for i in range(get_settings().INTEL_L2_FORWARD_MAX_PER_DAY + 5)]
 
     client_patch, call_patch = _patched_llm(_mock_llm_ok)
     with client_patch, call_patch:
@@ -571,7 +572,7 @@ def test_a_lock_charges_the_daily_budget_what_it_writes(db_session: Session) -> 
 
     client_patch, call_patch = _patched_llm(_advisory)
     with (
-        patch("app.services.macro_event_intel._MAX_L2_THEME_ANALYSES_PER_DAY", 4),
+        patch.object(get_settings(), "INTEL_L2_THEME_MAX_PER_DAY", 4),
         client_patch,
         call_patch as mock_call,
         patch("app.services.macro_event_intel.send_ops_alert"),
@@ -590,7 +591,7 @@ def test_retry_attempts_count_against_the_daily_budget(db_session: Session) -> N
 
     client_patch, call_patch = _patched_llm(_connection_error())
     with (
-        patch("app.services.macro_event_intel._MAX_L2_THEME_ANALYSES_PER_DAY", 2),
+        patch.object(get_settings(), "INTEL_L2_THEME_MAX_PER_DAY", 2),
         client_patch,
         call_patch as mock_call,
     ):
@@ -702,7 +703,7 @@ def test_first_user_in_a_fanout_cannot_spend_the_whole_theme_budget(
 
     client_patch, call_patch = _patched_llm(_mock_llm_ok)
     with (
-        patch("app.services.macro_event_intel._MAX_L2_THEME_ANALYSES_PER_DAY", 9),
+        patch.object(get_settings(), "INTEL_L2_THEME_MAX_PER_DAY", 9),
         client_patch,
         call_patch as mock_call,
     ):
@@ -728,8 +729,8 @@ def test_fanout_share_applies_to_each_event_kind_independently(
 
     client_patch, call_patch = _patched_llm(_mock_llm_ok)
     with (
-        patch("app.services.macro_event_intel._MAX_L2_THEME_ANALYSES_PER_DAY", 6),
-        patch("app.services.macro_event_intel._MAX_L2_FORWARD_ANALYSES_PER_DAY", 6),
+        patch.object(get_settings(), "INTEL_L2_THEME_MAX_PER_DAY", 6),
+        patch.object(get_settings(), "INTEL_L2_FORWARD_MAX_PER_DAY", 6),
         client_patch,
         call_patch as mock_call,
     ):
@@ -753,7 +754,7 @@ def test_default_call_site_is_unrestricted_by_the_fanout_share(
 
     client_patch, call_patch = _patched_llm(_mock_llm_ok)
     with (
-        patch("app.services.macro_event_intel._MAX_L2_THEME_ANALYSES_PER_DAY", 4),
+        patch.object(get_settings(), "INTEL_L2_THEME_MAX_PER_DAY", 4),
         client_patch,
         call_patch as mock_call,
     ):

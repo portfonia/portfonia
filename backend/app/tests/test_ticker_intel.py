@@ -14,6 +14,7 @@ import openai
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.ticker_intel import TickerIntel
 from app.services import ticker_intel as ti
 from app.services.window_data import HoldingMove
@@ -319,7 +320,7 @@ def test_llm_failure_is_not_retried_by_a_later_call(db_session: Session) -> None
 
 def test_daily_cap_blocks_fresh_analyses_but_not_cache_hits(db_session: Session) -> None:
     with (
-        patch("app.services.ticker_intel._MAX_L1_ANALYSES_PER_DAY", 1),
+        patch.object(get_settings(), "INTEL_L1_MAX_PER_DAY", 1),
         patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
         patch("app.services.ticker_intel._call_llm", side_effect=_mock_llm_ok) as mock_call,
     ):
@@ -371,7 +372,7 @@ def test_headline_only_facts_are_not_cached_and_dont_consume_the_daily_cap(
 
 def test_headline_only_skip_does_not_consume_the_daily_cap(db_session: Session) -> None:
     with (
-        patch("app.services.ticker_intel._MAX_L1_ANALYSES_PER_DAY", 1),
+        patch.object(get_settings(), "INTEL_L1_MAX_PER_DAY", 1),
         patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
         patch("app.services.ticker_intel._call_llm", side_effect=_mock_llm_ok) as mock_call,
     ):
@@ -416,7 +417,7 @@ def test_a_blocked_attempt_counts_against_the_daily_cap(db_session: Session) -> 
         return "You should buy NVDA now."
 
     with (
-        patch("app.services.ticker_intel._MAX_L1_ANALYSES_PER_DAY", 1),
+        patch.object(get_settings(), "INTEL_L1_MAX_PER_DAY", 1),
         patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
         patch("app.services.ticker_intel._call_llm", side_effect=_bad_llm) as mock_call,
         patch("app.services.ticker_intel.send_ops_alert"),
@@ -561,7 +562,7 @@ def test_a_lock_charges_the_daily_budget_what_it_writes(db_session: Session) -> 
 
     identifiers = ["NVDA", "AAPL", "MSFT", "GOOG", "AMZN"]
     with (
-        patch("app.services.ticker_intel._MAX_L1_ANALYSES_PER_DAY", 4),
+        patch.object(get_settings(), "INTEL_L1_MAX_PER_DAY", 4),
         patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
         patch("app.services.ticker_intel._call_llm", side_effect=_bad_llm) as mock_call,
         patch("app.services.ticker_intel.send_ops_alert"),
@@ -585,7 +586,7 @@ def test_retry_attempts_count_against_the_daily_budget(db_session: Session) -> N
     its extra attempts for free, or the cap silently loosens by a factor of
     `_MAX_ATTEMPTS_PER_KEY` on a bad day."""
     with (
-        patch("app.services.ticker_intel._MAX_L1_ANALYSES_PER_DAY", 2),
+        patch.object(get_settings(), "INTEL_L1_MAX_PER_DAY", 2),
         patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
         patch("app.services.ticker_intel._call_llm", side_effect=_connection_error()) as mock_call,
     ):
@@ -1134,7 +1135,7 @@ def test_first_user_in_a_fanout_cannot_spend_the_whole_daily_cap(
     idents = [f"T{i}" for i in range(9)]
     facts = {i: _facts() for i in idents}
     with (
-        patch("app.services.ticker_intel._MAX_L1_ANALYSES_PER_DAY", 9),
+        patch.object(get_settings(), "INTEL_L1_MAX_PER_DAY", 9),
         patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
         patch("app.services.ticker_intel._call_llm", side_effect=_mock_llm_ok) as mock_call,
     ):
@@ -1160,7 +1161,7 @@ def test_unused_share_flows_forward_instead_of_being_stranded(
     remainder: the next user's share is recomputed from what is actually
     left, not from a fixed per-user quota."""
     with (
-        patch("app.services.ticker_intel._MAX_L1_ANALYSES_PER_DAY", 9),
+        patch.object(get_settings(), "INTEL_L1_MAX_PER_DAY", 9),
         patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
         patch("app.services.ticker_intel._call_llm", side_effect=_mock_llm_ok) as mock_call,
     ):
@@ -1183,7 +1184,7 @@ def test_default_call_site_is_unrestricted_by_the_fanout_share(
     budget — this mechanism may not change single-user behavior."""
     idents = [f"V{i}" for i in range(4)]
     with (
-        patch("app.services.ticker_intel._MAX_L1_ANALYSES_PER_DAY", 4),
+        patch.object(get_settings(), "INTEL_L1_MAX_PER_DAY", 4),
         patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
         patch("app.services.ticker_intel._call_llm", side_effect=_mock_llm_ok) as mock_call,
     ):

@@ -13,6 +13,7 @@ from app.models.macro_event_intel import MacroEventIntel
 from app.models.news import News
 from app.models.news_surfaced import NewsSurfaced
 from app.models.operational_event import OperationalEvent
+from app.models.paid_intel import IntelArticle, IntelArticleLink, PaidApiUsage
 from app.models.portfolio_snapshot_batch import PortfolioSnapshotBatch
 from app.models.portfolio_snapshot_outbox import PortfolioSnapshotOutbox
 from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
@@ -37,6 +38,8 @@ __all__ = [
     "FxRate",
     "Holding",
     "InstrumentProfile",
+    "IntelArticle",
+    "IntelArticleLink",
     "IntelCollectionRun",
     "IntelSlotRun",
     "Invite",
@@ -46,6 +49,7 @@ __all__ = [
     "NewsInstrument",
     "NewsSurfaced",
     "OperationalEvent",
+    "PaidApiUsage",
     "PortfolioSnapshotBatch",
     "PortfolioSnapshotOutbox",
     "PortfolioValueSnapshot",

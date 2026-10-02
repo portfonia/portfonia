@@ -115,6 +115,7 @@ This table is the pointer index — read the linked file before touching that
 area of the code, not just the one-line summary here.
 
 - [Instrument news collection](docs/mechanisms/capture-and-reporting.md#instrument-news-collection) — issue #620: free per-instrument sources, daily ET slots, per-instrument classification, URL-free records, coverage digest and 30-day retention.
+- [Intel deepening and paid usage](docs/mechanisms/capture-and-reporting.md#intel-deepening-and-paid-usage) — issue #621: global selection, current-slot links, cleaned article bodies, paid limits and A/B metrics, weekday post-close L1/L2/L3.
 - [Frontend chrome (header/nav) convention](docs/mechanisms/frontend-chrome.md) — issue #146/#148 (shared `SiteHeader`); #214 session re-verification; #209 global i18n catalog; #220 Profile menu entry; #269 Profile section reorder; #390 Holdings+Report management merge; #350 item 4 LocaleSwitcher rebuild.
 - [Profile page: GET /me account summary](docs/mechanisms/identity-and-auth.md) — issue #220/#221: `/profile` summary + full `GET /me` shape; #269 adds verification timestamps.
 - [Waitlist](docs/mechanisms/identity-and-auth.md#waitlist-issue-566) — issue #566: public requests, derived stages, and ops-managed email-bound invite links.

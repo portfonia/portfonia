@@ -294,6 +294,9 @@ def _load_day_briefings(session: Session, trade_date: date) -> dict[str, str]:
         .scalars()
         .all()
     )
+    rows = sorted(
+        rows, key=lambda row: (-abs(float(row.facts.get("day_pct") or 0)), row.identifier)
+    )
     out: dict[str, str] = {}
     for row in rows:
         analysis = (row.analysis or "").strip()

@@ -231,6 +231,7 @@ def collect_slot_news(
     *,
     collection_run: IntelCollectionRun | None = None,
     profile_errors: list[str] | None = None,
+    priority: list[str] | None = None,
 ) -> IntelCollectionRun:
     start = time.monotonic()
     run = (
@@ -260,7 +261,10 @@ def collect_slot_news(
             entry.identifier,
         )
 
-    entries.sort(key=order)
+    priority_ranks = {identifier: index for index, identifier in enumerate(priority or [])}
+    entries.sort(
+        key=lambda entry: (priority_ranks.get(entry.identifier, len(priority_ranks)), *order(entry))
+    )
     stats: dict[str, object] = {"markets": markets}
     source_stats: dict[str, dict[str, int]] = {}
     cleaning: dict[str, int] = {}

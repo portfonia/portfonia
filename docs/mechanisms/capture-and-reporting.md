@@ -586,9 +586,97 @@ creates the profile/link/run tables. Deleted rows and discarded URLs/sources
 cannot be recovered by downgrade; downgrade deletes instrument-origin rows
 before restoring title/summary from JSON and empty URL/source columns. Run it
 only during separately authorized deployment with a current-day backup, together with issues #621 and #622.
-Paid deepening, body extraction and report intelligence assembly remain in
-those later issues. The hook, in-memory leads, slot details and digest builder
-are their extension points.
+Paid deepening and body extraction are added by #621 below; report intelligence
+assembly remains in #622. The hook, in-memory leads, slot details and digest
+builder are their extension points.
+
+### Intel deepening and paid usage
+
+Issue #621 extends the daily intelligence slots with rule-based paid deepening.
+`config/intel_deepen.yml` is validated and loaded afresh for each slot. The
+single-day threshold is fixed at 5%, independently of per-user asset-class
+thresholds. Other mover thresholds are 15% over three captured sessions and
+20% over five. Near candidates use 8%/9%, followed by fresh filings and news
+spikes against the last ten same-slot counts. Counts include zero only when
+the instrument was in that run's recorded universe. Weekends use filings,
+weekend news spikes and macro spikes only; there is no price selection or
+shared analysis. Weekend macro selection requires at least ten fresh items
+and, with sufficient history, twice the weekend median.
+
+`instrument_news_capture.collect_slot_news` accepts mover/near priority order;
+the remaining instruments retain market, oldest collection and identifier
+ordering. Committed instrument jobs hand their in-memory leads to `DeepenRun`.
+Once all selected movers finish, wave one runs while other collection jobs
+continue. Wave two contains quiet instruments and macro themes. Four paid
+workers use independent sessions. Pool headlines are rematched in memory with
+the public alias matcher; only link timestamps and headline hashes are read
+to identify fresh associations. URLs are never reconstructed from storage.
+
+Leads require a matching title alias, the unit's date window, distinct landing
+domains and an accepted-body hash not seen in the last seven days. Non-Yahoo
+leads come first. Finnhub links resolve with a streamed GET closed after the
+headers; Google News and configured paywall domains are excluded. Filing
+links are not extracted. Instruments without usable links may search within
+the run's search cap. Queries contain public names, tickers, themes, title
+words and dates only. The three strongest movers go to both providers;
+remaining units alternate within each wave. Unavailable providers fall back
+to the other provider.
+
+REST adapters use Tavily basic news search and query-focused extraction;
+Parallel uses search objectives and extraction excerpts/full content. The Design request
+for Parallel Search returned HTTP 422 in the live probe; current vendor
+documentation omits `max_results`, so the adapter omits it and keeps at most
+three results locally. The corrected request was not probed again. Tavily returns
+query-focused chunks in `raw_content` and may report actual credits in
+`usage.credits`; accounting uses that charge when present. Parallel dates use
+`publish_date`. No new dependency is required.
+
+Body cleaning removes Yahoo navigation, reduces Markdown links to link text,
+removes bare HTTP(S) URLs, normalizes whitespace and truncates to 2,000
+characters. The gate rejects empty/short text, paywall notices and excessive
+boilerplate. Publisher names inside original prose remain. Accepted rows
+contain exactly `v`, `kind`, `title`, `published_at`, `fetched_at`, `body`;
+rejected/failed rows contain no body record. `intel_articles` is unique by
+normalized MD5-16 `url_key` and processing provider; `intel_article_links`
+records instrument or theme ownership. Neither table stores source metadata
+or URLs. Accepted bodies expire after 30 days with cascading links; usage
+expires after 400 days. Usage retains a nullable slot reference, detached on
+the existing 90-day slot sweep.
+
+`PaidUsage` reserves each estimated call charge under a process-wide lock
+before sending it, then substitutes the actual charge when recording a
+response. A response except 401/403, or a read timeout after sending, produces
+one ledger row. Pre-send failures release the reservation. Tavily batches
+are bounded to 20 URLs; small units merge up to five per batch. Budget-limited
+batches drop lower-priority URLs. Parallel sends one extract per unit.
+Invalid keys or quota/rate responses disable that provider for the run.
+Alerts use durable dedup: warning/limit once per provider per ET month and
+provider error once per status class per ET day. Failed steps still send the
+slot digest, with WARNING severity and URL-free error classifications.
+
+Optional Settings overrides (keys stay outside repository files):
+
+| Setting | Default |
+|---|---|
+| `PARALLEL_API_KEY` | unset |
+| `TAVILY_MONTHLY_CREDIT_LIMIT` / `TAVILY_RUN_CREDIT_CAP` | 1000 / 20 credits |
+| `PARALLEL_MONTHLY_USD_LIMIT` / `PARALLEL_RUN_USD_CAP` | 10.00 / 0.50 USD |
+| `TAVILY_WEEKEND_RUN_CREDIT_CAP` / `PARALLEL_WEEKEND_RUN_USD_CAP` | 8 credits / 0.20 USD |
+| `INTEL_PAID_WORKERS` | 4 |
+| `PAID_API_WARN_RATIO` | 0.8 |
+| `INTEL_AB_MODE` | `ab` (`ab`, `tavily`, `parallel`) |
+| `INTEL_L1_MAX_PER_DAY` | 40 |
+| `INTEL_L2_THEME_MAX_PER_DAY` / `INTEL_L2_FORWARD_MAX_PER_DAY` | 10 / 15 |
+
+The existing `TAVILY_API_KEY` remains required. The digest reports selections
+and reasons, run/month totals and limits, configured keys (yes/no), per-provider
+accept/reject/search/cost metrics and unique accepted hashes, plus L1/L2/L3
+counts and errors. No key value or URL appears in the digest. Tests mock every
+paid endpoint and use real Postgres, including migration and concurrency gates.
+Migration `d62100000001` adds three tables; downgrade drops those derived
+articles and usage. Deploy with #620 and #622 only on separate owner approval.
+Report-side cache reads, removal of report-time search and footer changes are
+reserved for #622; this issue leaves report generation unchanged.
 
 ### Capture layer + incremental reporting (ADR-002)
 
@@ -818,6 +906,11 @@ layer** (per-user, incremental).
   `price_snapshots`, falling back to `holding.market_price` only for funds
   (no ticker). FX anomalies are not computed (FX stays daily in `fx_rates`).
 - **L1 shared ticker-intel cache (Ring 1 stage A2, issue #128, PR #155)**:
+  Issue #621 additionally computes L1 in weekday post-close slots. Candidates
+  are movers, quiet selections and each active user's latest snapshot's large
+  holdings, unioned as identifiers only. Linked headlines are ET-date-prefixed;
+  moves and technical facts remain global. The daily attempt cap is now
+  `Settings.INTEL_L1_MAX_PER_DAY` (40). Report-side relocation completes in #622.
   a new analysis stage (not a refactor — before A2, per-identifier "what
   happened to this security" narrative only existed inside each user's own
   Pass 2 call). `ticker_intel.get_l1_intel_batch` computes one LLM analysis
@@ -871,6 +964,12 @@ layer** (per-user, incremental).
 
 
 ### L2 shared macro-event cache (Ring 1 stage A3, issue #128)
+
+Issue #621 computes L2 in weekday post-close slots over every theme in the
+day's pool news and forward-calendar events, reusing `_serialize_macro` from
+`report_serializers`. The two daily attempt caps now come from Settings
+(theme 10, forward 15). Failures are isolated from L1/L3 and the slot digest.
+Report-side calls remain until #622.
 
 The second shared-analysis layer, same shape as A2's L1 but keyed on EVENTS
 instead of identifiers: `macro_event_intel.get_l2_intel_batch` computes one
@@ -1030,6 +1129,12 @@ reduction, and the shape becomes `O(|identifier union|) + O(N)`.
 
 
 ### L3 day-level cross-name synthesis (Ring 1 quality gate, issue #128, PR #167)
+
+Issue #621 invokes L3 after slot-time L1 and L2 in weekday post-close slots.
+When more than 25 servable L1 rows exist, input selection takes the largest
+absolute `facts.day_pct`, with identifier ties deterministic. Existing
+fingerprinting, caps and compliance checks remain. Report-side calls remain
+until #622.
 
 The gap A1–A4 left open: L1 (per identifier) and L2 (per event) structurally
 cannot express "these identifiers moved together today for one mechanism" —
