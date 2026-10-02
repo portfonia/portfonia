@@ -628,7 +628,7 @@ def test_strip_markers_removes_model_emitted_disclaimer() -> None:
     prompt; it must be dropped (the footer owns the single disclaimer) — otherwise
     its '投资建议' / 'investment advice' wording false-trips the compliance scan."""
     body = (
-        "## §4 Risk Radar\n\n"
+        "## §4 Exposure & Price Data\n\n"
         "USD exposure is 68.7%.\n\n"
         "---\n\n"
         "*本报告仅供信息参考，不构成任何投资建议或买卖指令。This report is for "  # noqa: RUF001
@@ -646,7 +646,7 @@ def test_strip_body_disclaimer_runs_post_translation() -> None:
     """A disclaimer the translator re-adds (after the pre-translation strip) must
     still be removed by the standalone post-translation pass."""
     translated = (
-        "## §4 风险雷达\n\n美元敞口为 68.7%。\n\n---\n\n"
+        "## §4 敞口与价格数据\n\n美元敞口为 68.7%。\n\n---\n\n"
         "*本报告仅供参考，不构成投资建议。*"  # noqa: RUF001
     )
     out = scan._strip_body_disclaimer(translated)

@@ -194,14 +194,14 @@ def test_build_section42_table_handles_missing_arc_fields() -> None:
 
 
 def test_inject_section42_table_inserts_after_heading() -> None:
-    body = "## §4 Risk Radar\n### 4.2 Price anomalies\nNVDA — chip-cycle optimism.\n"
+    body = "## §4 Exposure & Price Data\n### 4.2 Price anomalies\nNVDA — chip-cycle optimism.\n"
     out = sec._inject_section42_table(body, "TABLE_ROWS")
     assert out.index("TABLE_ROWS") < out.index("NVDA — chip-cycle optimism")
     assert out.index("### 4.2") < out.index("TABLE_ROWS")  # table sits under the heading
 
 
 def test_inject_section42_table_fallback_appends_when_heading_absent() -> None:
-    body = "## §4 Risk Radar\n### 4.1 Concentration\nflagged.\n"
+    body = "## §4 Exposure & Price Data\n### 4.1 Concentration\nflagged.\n"
     out = sec._inject_section42_table(body, "TABLE_ROWS")
     assert "### 4.2 Price anomalies" in out
     assert "TABLE_ROWS" in out
@@ -352,7 +352,7 @@ def test_build_forward_block_renders_table_and_delay_caveat() -> None:
 
 
 def test_inject_forward_block_inserts_before_section3() -> None:
-    body = "## §2 Macro Signals\nstuff\n## §3 Holdings Analysis\nmore"
+    body = "## §2 Macro Events\nstuff\n## §3 Holdings Context\nmore"
     out = sec._inject_forward_block(body, "## §2.5 Forward Calendar\nX")
     assert out.index("§2.5") < out.index("## §3")
     assert out.index("## §2 ") < out.index("§2.5")
@@ -453,9 +453,9 @@ def test_today_events_block_empty_when_none_today() -> None:
 
 
 def test_inject_today_events_lands_under_section2_heading() -> None:
-    body = "## §2 Macro Signals\nprose\n## §3 Holdings\nmore"
+    body = "## §2 Macro Events\nprose\n## §3 Holdings\nmore"
     out = sec._inject_today_events(body, "**Today's scheduled events**: CPI")
-    assert out.index("## §2 Macro Signals") < out.index("Today's scheduled events")
+    assert out.index("## §2 Macro Events") < out.index("Today's scheduled events")
     assert out.index("Today's scheduled events") < out.index("## §3")
 
 

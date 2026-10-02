@@ -85,8 +85,8 @@ function isCurrency(cell: string, code: keyof typeof CURRENCY_NAMES): boolean {
 }
 
 // The sample-briefing section must show EVERY report section (owner ask,
-// issue #207 follow-up): snapshot, macro signals, forward calendar, holding
-// analysis, risk radar — plus the subscription-tier footnote.
+// issue #207 follow-up): snapshot, macro events, forward calendar, holdings
+// context, exposure & price data — plus the subscription-tier footnote.
 describe("HomeSections sample briefing", () => {
   it("renders every report section in the anonymized real-report sample", () => {
     render(
@@ -96,10 +96,10 @@ describe("HomeSections sample briefing", () => {
     );
 
     expect(screen.getByText("Portfolio snapshot")).toBeInTheDocument();
-    expect(screen.getByText("Macro signals")).toBeInTheDocument();
+    expect(screen.getByText("Macro events")).toBeInTheDocument();
     expect(screen.getByText("Forward calendar")).toBeInTheDocument();
-    expect(screen.getByText("Holding analysis")).toBeInTheDocument();
-    expect(screen.getByText("Risk radar")).toBeInTheDocument();
+    expect(screen.getByText("Holdings context")).toBeInTheDocument();
+    expect(screen.getByText("Exposure & price data")).toBeInTheDocument();
     expect(screen.getByText("Briefing frequency depends on your plan.")).toBeInTheDocument();
   });
 

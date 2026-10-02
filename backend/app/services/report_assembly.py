@@ -568,9 +568,9 @@ def build_assembly_prompt(
 
     lines.append("")
     lines.append(
-        "Write sections §2, §3 and §4 of the financial analysis briefing in Markdown, "
-        "using the headings '## §2 Macro Signals', '## §3 Holdings Analysis' and "
-        "'## §4 Risk Radar'.\n"
+        "Write sections §2, §3 and §4 of the holdings briefing in Markdown, "
+        "using the headings '## §2 Macro Events', '## §3 Holdings Context' and "
+        "'## §4 Exposure & Price Data'.\n"
         "Your job is assembly, not investigation: the analysis above has already "
         "established what happened and why. Select what matters for THIS portfolio, "
         "connect each supplied conclusion to the specific holdings it bears on "
@@ -582,7 +582,7 @@ def build_assembly_prompt(
         "not three unrelated notes. Do not introduce new facts.\n\n"
         + _RULE_TIME_REFERENCES
         + _RULE_CONFIDENCE_LABELS
-        + "## §2 Macro Signals\n"
+        + "## §2 Macro Events\n"
         "Macro coverage is not gated on a direct holdings match — a systemically "
         "important development in MACRO SIGNAL THEMES or SHARED MACRO EVENT INTEL "
         "earns space on its own merits; holdings/watches/preferences shape depth "
@@ -606,7 +606,7 @@ def build_assembly_prompt(
         "the same depth. Do not label paragraphs 'short/medium/long-term' and do "
         "not add a sub-heading before naming holdings. Report what to WATCH, "
         "never what to DO.\n\n"
-        "## §3 Holdings Analysis\n"
+        "## §3 Holdings Context\n"
         "Take the holdings the supplied intel actually covers, heaviest weight "
         "first. For each: why it surfaced, the mechanism linking the development to "
         "that holding, how it sits against the rest of the portfolio "
@@ -617,7 +617,7 @@ def build_assembly_prompt(
         + "A holding marked TRACKING POSITION gets ONE line at most and never a "
         "heading of its own — it is a deliberate watch-only stake, so it stays "
         "visible but must not take the space of a real position.\n\n"
-        "## §4 Risk Radar\n"
+        "## §4 Exposure & Price Data\n"
         "### 4.1 Concentration — state the flagged ratios above.\n"
         "### 4.2 Price anomalies — a numeric table is inserted by the system "
         "directly under this heading; do NOT restate those numbers. Write ONE line "

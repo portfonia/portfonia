@@ -197,7 +197,7 @@ export function HomeSections() {
               ))}
             </div>
 
-            {/* §2 Macro signals */}
+            {/* §2 Macro events */}
             <div className="space-y-2 border-t border-white/10 pt-6">
               <h3 className="font-serif text-base">{t.preview.macroTitle}</h3>
               <p className="text-sm leading-relaxed text-foreground/70">{t.preview.macroBody}</p>
@@ -229,14 +229,14 @@ export function HomeSections() {
               </div>
             </div>
 
-            {/* §3 Holding analysis */}
+            {/* §3 Holdings context */}
             <div className="mt-6 space-y-2 border-t border-white/10 pt-6">
               <h3 className="font-serif text-base">{t.preview.analysisTitle}</h3>
               <p className="text-sm font-medium text-foreground/85">{t.preview.analysisHeading}</p>
               <p className="text-sm leading-relaxed text-foreground/70">{t.preview.analysisBody}</p>
             </div>
 
-            {/* §4 Risk radar */}
+            {/* §4 Exposure & price data */}
             <div className="mt-6 space-y-3 border-t border-white/10 pt-6">
               <h3 className="font-serif text-base">{t.preview.radarTitle}</h3>
               <p className="text-sm leading-relaxed text-foreground/70">{t.preview.concentrationBody}</p>

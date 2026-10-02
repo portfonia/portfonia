@@ -265,21 +265,21 @@ _FAKE_LLM_PASS1 = (
     '{"queries": ["Federal Reserve rate decision impact", "NVIDIA earnings semiconductor"]}'
 )
 _FAKE_LLM_PASS2 = (
-    "## §2 Macro Signals\n\nFed raised rates. [For information only — not investment advice]\n\n"
+    "## §2 Macro Events\n\nFed raised rates. [For information only — not investment advice]\n\n"
     "## §3 Holdings Intelligence\n\nNVIDIA up 9%. [For information only — not investment advice]\n\n"
-    "## §4 Risk Radar\n\nConcentration watch. [For information only — not investment advice]\n\n"
+    "## §4 Exposure & Price Data\n\nConcentration watch. [For information only — not investment advice]\n\n"
     + _PASS2_FILLER
 )
 
 # F2-specific fake: includes [S#] citations and AAPL references to exercise annotations.
 _FAKE_LLM_PASS2_F2 = (
-    "## §2 Macro Signals\n\n"
+    "## §2 Macro Events\n\n"
     "Fed raised rates significantly according to recent reports [S1]. "
     "[For information only — not investment advice]\n\n"
     "## §3 Holdings Intelligence\n\n"
     "AAPL represents a large portion of the portfolio and is sensitive to rate changes. "
     "[For information only — not investment advice]\n\n"
-    "## §4 Risk Radar\n\n"
+    "## §4 Exposure & Price Data\n\n"
     "Concentration above thresholds. [For information only — not investment advice]\n\n"
     + _PASS2_FILLER
 )
@@ -340,9 +340,9 @@ def test_generate_report_normal_path(db_session: Session) -> None:
     assert report.report_type == "incremental"
     assert report.report_md is not None
     assert "§1 Portfolio Snapshot" in report.report_md
-    assert "§2 Macro Signals" in report.report_md
+    assert "§2 Macro Events" in report.report_md
     assert "§3 Holdings Intelligence" in report.report_md
-    assert "§4 Risk Radar" in report.report_md
+    assert "§4 Exposure & Price Data" in report.report_md
     assert report.generated_at is not None
     assert report.report_inputs is not None
     assert report.report_inputs["pass2_model"] != ""
@@ -1572,7 +1572,7 @@ def test_generate_report_retry_after_render_failure_skips_pass1_pass2(
     assert retried.id == row.id
     assert retried.status == "success"
     assert retried.report_md is not None
-    assert "§4 Risk Radar" in retried.report_md
+    assert "§4 Exposure & Price Data" in retried.report_md
     mock_llm2.assert_not_called()
     mock_client2.assert_not_called()
     mock_portfolio2.assert_not_called()
@@ -2038,10 +2038,10 @@ def _mock_llm_noncompliant(
 ) -> str:
     if with_holdings:
         return (
-            "## §2 Macro Signals\n\nYou should buy more semiconductors now. "
+            "## §2 Macro Events\n\nYou should buy more semiconductors now. "
             "[For information only — not investment advice]\n\n"
             "## §3 Holdings Intelligence\n\nNVIDIA up 9%. [For information only — not investment advice]\n\n"
-            "## §4 Risk Radar\n\nConcentration watch. [For information only — not investment advice]\n\n"
+            "## §4 Exposure & Price Data\n\nConcentration watch. [For information only — not investment advice]\n\n"
             + _PASS2_FILLER
         )
     return _FAKE_LLM_PASS1
@@ -2197,9 +2197,9 @@ def test_regenerate_analyze_reruns_pass2_from_stored_intel(db_session: Session) 
     rid = report.id
 
     new_body = (
-        "## §2 Macro Signals\n\nReanalyzed view. [For information only — not investment advice]\n\n"
+        "## §2 Macro Events\n\nReanalyzed view. [For information only — not investment advice]\n\n"
         "## §3 Holdings Intelligence\n\nNVIDIA up 9%. [For information only — not investment advice]\n\n"
-        "## §4 Risk Radar\n\nConcentration watch. [For information only — not investment advice]\n\n"
+        "## §4 Exposure & Price Data\n\nConcentration watch. [For information only — not investment advice]\n\n"
         + _PASS2_FILLER
     )
     with (
@@ -2278,9 +2278,9 @@ def test_regenerate_analyze_replaces_macro_coverage_dropping_removed_topics(
         f"\n{mc._SIDECAR_END}"
     )
     new_body = (
-        "## §2 Macro Signals\n\nReanalyzed view. [For information only — not investment advice]\n\n"
+        "## §2 Macro Events\n\nReanalyzed view. [For information only — not investment advice]\n\n"
         "## §3 Holdings Intelligence\n\nNVIDIA up 9%. [For information only — not investment advice]\n\n"
-        "## §4 Risk Radar\n\nConcentration watch. [For information only — not investment advice]\n\n"
+        "## §4 Exposure & Price Data\n\nConcentration watch. [For information only — not investment advice]\n\n"
         + _PASS2_FILLER
         + second_sidecar
     )
@@ -2545,10 +2545,11 @@ def test_generate_report_forwards_moves_cache_to_detect_window_anomalies(
 # ---------------------------------------------------------------------------
 
 _FAKE_ASSEMBLED_BODY = (
-    "## §2 Macro Signals\n\nRates repriced; the portfolio's US equity sleeve is exposed.\n\n"
-    "## §3 Holdings Analysis\n\nNVIDIA, the heaviest position, rose on an earnings beat. "
+    "## §2 Macro Events\n\nRates repriced; the portfolio's US equity sleeve is exposed.\n\n"
+    "## §3 Holdings Context\n\nNVIDIA, the heaviest position, rose on an earnings beat. "
     "[Established]\n\n"
-    "## §4 Risk Radar\n\nNVDA — earnings beat drove the move [Established]\n\n" + _PASS2_FILLER
+    "## §4 Exposure & Price Data\n\nNVDA — earnings beat drove the move [Established]\n\n"
+    + _PASS2_FILLER
 )
 
 
@@ -2775,9 +2776,9 @@ def test_generate_report_scans_the_assembled_body_for_compliance(
     Layer-4 backstop, so a forbidden phrase holds the report as needs_review
     and it is never emailed."""
     bad_body = (
-        "## §2 Macro Signals\n\nRates moved.\n\n"
-        "## §3 Holdings Analysis\n\nWe recommend you buy more NVDA immediately.\n\n"
-        "## §4 Risk Radar\n\nNVDA — moved [Established]\n\n" + _PASS2_FILLER
+        "## §2 Macro Events\n\nRates moved.\n\n"
+        "## §3 Holdings Context\n\nWe recommend you buy more NVDA immediately.\n\n"
+        "## §4 Exposure & Price Data\n\nNVDA — moved [Established]\n\n" + _PASS2_FILLER
     )
     with contextlib.ExitStack() as stack:
         for p in _assembly_ready_patches(
@@ -2956,9 +2957,9 @@ def test_regenerate_analyze_reruns_the_pass_that_wrote_the_body(
         report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     reanalyzed = (
-        "## §2 Macro Signals\n\nReanalyzed macro read.\n\n"
-        "## §3 Holdings Analysis\n\nReanalyzed holdings read. [Probable]\n\n"
-        "## §4 Risk Radar\n\nNVDA — reanalyzed [Probable]\n\n" + _PASS2_FILLER
+        "## §2 Macro Events\n\nReanalyzed macro read.\n\n"
+        "## §3 Holdings Context\n\nReanalyzed holdings read. [Probable]\n\n"
+        "## §4 Exposure & Price Data\n\nNVDA — reanalyzed [Probable]\n\n" + _PASS2_FILLER
     )
     with (
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
@@ -3753,9 +3754,9 @@ _S3_CHECK_PORTFOLIO: dict[str, Any] = {
     "total_base": 1000.0,
 }
 _S3_CHECK_RAW_BODY = (
-    "## §2 Macro Signals\n\nNothing notable this period.\n\n"
-    "## §3 Holdings Analysis\n\nAAPL had a quiet day.\n\n"
-    "## §4 Risk Radar\n\nNothing notable."
+    "## §2 Macro Events\n\nNothing notable this period.\n\n"
+    "## §3 Holdings Context\n\nAAPL had a quiet day.\n\n"
+    "## §4 Exposure & Price Data\n\nNothing notable."
 )
 
 
@@ -4347,3 +4348,18 @@ def test_failed_retry_keeps_window_older_than_floor(db_session: Session) -> None
     assert report.period_start == start
     assert report.period_end == end
     backfill.assert_not_called()
+
+
+def test_render_full_md_holdings_briefing_header_uses_period_end() -> None:
+    from app.core.timezones import ET
+
+    full_md, violations, _translated = rg._render_full_md(
+        "2026-10-05",
+        _LINKS_PORTFOLIO,
+        [],
+        "## §2 Macro Events\n\nRates were steady.\n",
+        "en",
+        period_end=datetime(2026, 10, 5, 16, 0, tzinfo=ET).isoformat(),
+    )
+    assert full_md.splitlines()[0] == "# Portfonia Holdings Briefing — 2026-10-05 16:00 ET"
+    assert not violations

@@ -149,9 +149,9 @@ def test_stale_ticker_hint_in_pass2_prompt() -> None:
 
 def test_pass2_prompt_default_requests_all_three_narrative_sections() -> None:
     prompt = rp._build_pass2_prompt(rs._serialize_portfolio(_portfolio_snap()), {}, [], [])
-    assert "## §2 Macro Signals" in prompt
-    assert "## §3 Holdings Analysis" in prompt
-    assert "## §4 Risk Radar" in prompt
+    assert "## §2 Macro Events" in prompt
+    assert "## §3 Holdings Context" in prompt
+    assert "## §4 Exposure & Price Data" in prompt
 
 
 def test_pass2_prompt_enabled_sections_restricts_instructions() -> None:
@@ -163,9 +163,9 @@ def test_pass2_prompt_enabled_sections_restricts_instructions() -> None:
         [],
         enabled_sections=frozenset({"§2"}),
     )
-    assert "## §2 Macro Signals" in prompt
-    assert "## §3 Holdings Analysis" not in prompt
-    assert "## §4 Risk Radar" not in prompt
+    assert "## §2 Macro Events" in prompt
+    assert "## §3 Holdings Context" not in prompt
+    assert "## §4 Exposure & Price Data" not in prompt
 
 
 def test_section2_instructs_selection_not_mechanical_coverage() -> None:
@@ -684,3 +684,7 @@ def test_pass2_prompt_unpriced_holding_is_unvalued_not_zero_weight() -> None:
     assert "no price captured" in unpriced_line
     assert "(unvalued)" in unpriced_line
     assert "0.0% of portfolio" not in unpriced_line
+
+
+def test_pass2_system_describes_structured_holdings_briefing() -> None:
+    assert "structured holdings briefing" in rp._build_pass2_system()
