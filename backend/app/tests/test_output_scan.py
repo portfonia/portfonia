@@ -646,7 +646,7 @@ def test_strip_body_disclaimer_runs_post_translation() -> None:
     """A disclaimer the translator re-adds (after the pre-translation strip) must
     still be removed by the standalone post-translation pass."""
     translated = (
-        "## §4 风险雷达\n\n美元敞口为 68.7%。\n\n---\n\n"
+        "## §4 敞口与价格数据\n\n美元敞口为 68.7%。\n\n---\n\n"
         "*本报告仅供参考，不构成投资建议。*"  # noqa: RUF001
     )
     out = scan._strip_body_disclaimer(translated)

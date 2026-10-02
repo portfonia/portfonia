@@ -96,7 +96,7 @@ def test_translate_chunk_uses_byok_hard_pin_no_deny_no_reasoning() -> None:
     re-enabling paid reasoning tokens on this cheap tier."""
     client = MagicMock()
     client.chat.completions.create.return_value = _fake_llm_response(
-        "## §3 持仓分析\n\n" + ("该持仓非常重要并值得密切关注。" * 20)
+        "## §3 持仓背景\n\n" + ("该持仓非常重要并值得密切关注。" * 20)
     )
     source = "## §3 Holdings Context\n\n" + ("This holding matters. " * 20)
     rt._translate_chunk(client, "m", "sys", source)
@@ -144,8 +144,8 @@ def test_translate_chunk_keeps_good_translation() -> None:
     source = "## §3 Holdings Context\n\n" + ("This holding matters. " * 20)
 
     def _ok(_c: object, _m: str, _s: str, _u: str, **_k: object) -> str:
-        return "## §3 持仓分析\n\n" + ("该持仓非常重要并值得密切关注。" * 20)
+        return "## §3 持仓背景\n\n" + ("该持仓非常重要并值得密切关注。" * 20)
 
     with patch.object(rt, "_call_llm", side_effect=_ok):
         out = rt._translate_chunk(MagicMock(), "m", "sys", source)
-    assert out.startswith("## §3 持仓分析")
+    assert out.startswith("## §3 持仓背景")

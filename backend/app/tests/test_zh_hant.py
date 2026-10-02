@@ -67,6 +67,17 @@ def test_ascii_is_unchanged(source: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("宏观事件", "總經事件"),
+        ("敞口与价格数据", "曝險與價格資料"),
+    ],
+)
+def test_report_headings_use_taiwan_terms(source: str, expected: str) -> None:
+    assert to_traditional(source) == expected
+
+
+@pytest.mark.parametrize(
     "content", ["source: ''", "source: one\nsource: two", "'': target", "source: 42"]
 )
 def test_invalid_override_file_raises(tmp_path: Path, content: str) -> None:
