@@ -227,7 +227,7 @@ class Settings(BaseSettings):
     PARALLEL_API_KEY: SecretStr | None = None
     TAVILY_MONTHLY_CREDIT_LIMIT: int = 1000
     TAVILY_RUN_CREDIT_CAP: int = 20
-    PARALLEL_MONTHLY_USD_LIMIT: Decimal = Decimal("10.00")
+    PARALLEL_MONTHLY_USD_LIMIT: Decimal = Decimal("5.00")
     PARALLEL_RUN_USD_CAP: Decimal = Decimal("0.50")
     TAVILY_WEEKEND_RUN_CREDIT_CAP: int = 8
     PARALLEL_WEEKEND_RUN_USD_CAP: Decimal = Decimal("0.20")
