@@ -447,9 +447,28 @@ def test_acceptance_09_footer_locales_are_source_free() -> None:
 
 
 def test_acceptance_10_legacy_render_uses_stored_report_body(db_session: Session) -> None:
-    from app.tests.test_report_generator import test_regenerate_render_is_token_free
+    import contextlib
 
-    assert callable(test_regenerate_render_is_token_free)
+    from app.tests.conftest import seed_user
+    from app.tests.test_report_generator import _USER, _normal_path_patches
+
+    seed_user(db_session, _USER)
+    with contextlib.ExitStack() as stack:
+        for patcher in _normal_path_patches():
+            stack.enter_context(patcher)  # type: ignore[arg-type]
+        report = rg.generate_report(db_session, user_id=_USER, report_date=date(2026, 9, 30))
+    assert report.report_inputs is not None and report.report_md is not None
+    report.report_inputs.update(
+        {"pass1_model": "retired", "pass1_prompt": "retired", "pass1_raw": "retired"}
+    )
+    db_session.flush()
+    original_body = report.report_md.split("\n---\n", 1)[0]
+    with patch(
+        "app.services.report_generator._call_llm", side_effect=AssertionError("render is read-only")
+    ):
+        rebuilt = rg.regenerate_report(db_session, report.id, user_id=_USER, mode="render")
+    assert rebuilt.report_md is not None
+    assert rebuilt.report_md.split("\n---\n", 1)[0] == original_body
 
 
 def test_acceptance_11_background_research_is_long_and_versioned() -> None:
