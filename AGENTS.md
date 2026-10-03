@@ -15,7 +15,7 @@ required, ask the product owner before designing or implementing it.
 
 - [Documentation governance](docs/playbooks/documentation-governance.md): document ownership, Obsidian authorization, executable design contracts, evidence labels, and note-access conventions.
 - [Shared engineering rules](CLAUDE.md): language, security, testing, and deployment conventions.
-- [Capture and reporting](docs/mechanisms/capture-and-reporting.md): free instrument collection, paid intel deepening and usage limits, and slot-time shared analysis (issues #620/#621).
+- [Capture and reporting](docs/mechanisms/capture-and-reporting.md): free instrument collection, paid intel deepening and usage limits, and slot-time shared analysis (issues #620/#621); paid-search headline filtering and public profile-name consistency (issue #628).
 - [Subscription core](docs/mechanisms/subscription.md): subscription state, monthly credit charges/returns, user operations, quotes, unsubscribe integration, scheduled lifecycle, notices, Profile controls and public-copy integration, and launch activation (issues #595/#596/#597/#600/#610).
 - [Git and review identities](docs/playbooks/git-and-review-incidents.md): token-only `gh api` (REST) writes, reviewer-token boundaries, and workflow history — includes why OAuth was retracted 2026-09-18.
 

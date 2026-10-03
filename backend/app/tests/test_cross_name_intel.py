@@ -694,10 +694,13 @@ def test_denylist_catches_a_configured_alias_not_just_the_ticker() -> None:
 
 
 def test_issue_628_google_alias_filters_only_unheld_reader() -> None:
-    clusters = [_cluster(["TSM", "GOOGL"], summary="TSM and Google rose together.")]
-    assert l3.clusters_for_user(clusters, ["TSM"], ["TSM", "GOOGL"]) == []
-    out = l3.clusters_for_user(clusters, ["TSM", "GOOGL"], ["TSM", "GOOGL"])
-    assert len(out) == 1 and out[0]["identifiers"] == ["TSM", "GOOGL"]
+    clusters = [_cluster(["TSM", "NVDA", "GOOGL"], summary="Chip demand at Google rose.")]
+    # Two held members survive the size gate, isolating the Google prose guard.
+    assert l3.clusters_for_user(clusters, ["TSM", "NVDA"], ["TSM", "NVDA", "GOOGL"]) == []
+    assert (
+        l3.clusters_for_user(clusters, ["TSM", "NVDA", "GOOGL"], ["TSM", "NVDA", "GOOGL"])
+        == clusters
+    )
 
 
 def test_denylist_does_not_over_drop_on_theme_vocabulary_a_summary_may_legitimately_use() -> None:

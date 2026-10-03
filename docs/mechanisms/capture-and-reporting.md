@@ -555,11 +555,13 @@ labels remain null; promo and unrelated labels are dropped. RSS pool items
 receive only the path and low-value-title rules and are never classified.
 
 Paid-search leads use the same path, alias-relevance and low-value-title chain
-before the provider's newest-first limit. Surviving search titles go through
-the headline classifier; only `keep` and `mention` continue to extraction.
+before the provider's newest-first limit, with no near-duplicate check.
+Surviving search titles go through the headline classifier; only `keep` and `mention` continue to extraction.
 `promo`, `unrelated`, missing labels and classifier failures are dropped, and a
-classifier failure drops every survivor from that search. The search provider
-metrics expose rule/classifier drop counts in `search_filtered` and the
+classifier failure drops every survivor from that search without retry or a
+replacement search. Invalid cleaning configuration disables search for the run
+and records `search_filter: ValueError`; available collected and pool leads
+still follow the existing deepening path. The search provider metrics expose rule/classifier drop counts in `search_filtered` and the
 classifier charge in `search_classifier_cost_usd`; paid-provider `cost_usd`
 does not include the classifier charge.
 

@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -24,6 +25,16 @@ from app.services.intel_selection import WorkUnit, select_units
 from app.services.paid_search import PaidResult
 from app.tests.test_intel_deepen_rules import NOW
 from app.tests.test_intel_paid import slot
+
+
+@pytest.fixture(autouse=True)
+def no_unmocked_search_classifier() -> Iterator[None]:
+    with patch.object(
+        deepen,
+        "classify_headlines",
+        side_effect=AssertionError("search classifier must be mocked"),
+    ):
+        yield
 
 
 def settings() -> object:
@@ -450,6 +461,11 @@ def test_18_worked_example_paid_waves(db_session: Session) -> None:
             ),
         ),
         patch("app.services.paid_search.post", side_effect=post),
+        patch.object(
+            deepen,
+            "classify_headlines",
+            return_value=({0: "keep", 1: "keep"}, 0.0, None),
+        ) as classifier,
     ):
         worker = deepen.DeepenRun(
             db_session,
@@ -481,6 +497,7 @@ def test_18_worked_example_paid_waves(db_session: Session) -> None:
             {t: [t] for t in owned},
         )
         worker.close()
+    assert classifier.call_count == 2
     assert worker.usage.run_used == {"tavily": Decimal(4), "parallel": Decimal(".013")}
     assert [len(p["urls"]) for u, p in requests if "tavily" in u and u.endswith("extract")] == [
         4,
@@ -859,7 +876,8 @@ def test_issue_628_search_filters_rules_and_classifier(db_session: Session) -> N
         assert chosen == "tavily"
         assert [lead.url for lead in kept] == ["https://fixture.example/keep"]
         classify.assert_called_once()
-        assert len(classify.call_args.args[0]) == 1
+        assert [item.title for item in classify.call_args.args[0]] == [leads[2].title]
+        assert classify.call_args.args[1:] == ("AAOI", ["Applied Optoelectronics", "AAOI"])
         assert worker.metrics["tavily"]["search_filtered"] == {"low_value_rule": 2}
         assert worker.metrics["tavily"]["search_classifier_cost_usd"] == 0.0002
         assert worker.metrics["tavily"]["cost_usd"] == 0.0
@@ -896,11 +914,13 @@ def test_issue_628_classifier_failure_drops_all_without_retry(db_session: Sessio
                 deepen,
                 "classify_headlines",
                 return_value=({}, 0.0, "classifier: HTTPStatusError HTTP 502"),
-            ),
+            ) as classifier,
         ):
             _, kept = worker._search("tavily", WorkUnit("quiet", "AMKR"))
         assert kept == []
         assert search.call_count == 1
+        classifier.assert_called_once()
+        assert worker.searches == 1
         assert worker.metrics["tavily"]["search_filtered"] == {"classifier_failed": 2}
         assert "classifier: HTTPStatusError HTTP 502" in worker.errors
     finally:
@@ -943,9 +963,12 @@ def test_issue_628_search_drops_unrelated_and_promo(db_session: Session) -> None
             patch.object(
                 deepen, "classify_headlines", return_value=({0: "promo"}, 0.0, None)
             ) as classify,
+            patch.object(worker, "_extract_batch") as extract,
+            patch.object(deepen, "SessionLocal", side_effect=lambda: factory(db_session)),
         ):
-            _, kept = worker._search("tavily", WorkUnit("quiet", "AMKR"))
-        assert kept == []
+            worker.run_wave([WorkUnit("quiet", "AMKR", providers=("tavily",))], {}, worker.aliases)
+        classify.assert_called_once()
+        extract.assert_not_called()
         assert len(classify.call_args.args[0]) == 1
         assert worker.metrics["tavily"]["search_filtered"] == {
             "unrelated_rule": 1,
@@ -1278,3 +1301,152 @@ def test_search_http_does_not_block_collected(db_session: Session) -> None:
         finally:
             worker.close()
     assert worker.searches == 1
+
+
+def test_issue_628_classifier_cost_is_separate_from_paid_usage(db_session: Session) -> None:
+    db_session.add(InstrumentProfile(identifier="AAOI", market="US", aliases=["AAOI"]))
+    db_session.flush()
+    run = slot(db_session)
+    with (
+        patch.object(deepen, "SessionLocal", side_effect=lambda: factory(db_session)),
+        patch.object(deepen, "get_settings", return_value=settings()),
+        patch(
+            "app.services.paid_search.post",
+            return_value=httpx.Response(
+                200,
+                json={
+                    "results": [
+                        {
+                            "url": "https://fixture.example/orders",
+                            "title": "AAOI Stock Rallies As Hyperscale AI Orders Boost Outlook",
+                        }
+                    ]
+                },
+            ),
+        ) as search,
+        patch.object(deepen, "classify_headlines", return_value=({0: "keep"}, 0.0002, None)),
+    ):
+        worker = deepen.DeepenRun(
+            db_session,
+            run,
+            load_intel_deepen_config(),
+            False,
+            NOW,
+            NOW - timedelta(hours=24),
+            [],
+            {},
+        )
+        try:
+            _, kept = worker._search("tavily", WorkUnit("quiet", "AAOI"))
+            assert len(kept) == 1
+            assert worker.metrics["tavily"]["search_classifier_cost_usd"] == 0.0002
+            assert worker.metrics["tavily"]["cost_usd"] == 0.008
+            assert worker.metrics["tavily"]["searches"] == worker.searches == 1
+            assert worker.usage.run_used["tavily"] == Decimal(1)
+            usage = list(db_session.scalars(select(PaidApiUsage)))
+            assert len(usage) == 1 and usage[0].cost_usd == Decimal(".008")
+            run.details = {"deepening": worker.details()}
+            digest = intel_digest.build_slot_digest(db_session, run)[1]
+            assert "search_classifier_cost_usd=0.0002" in digest
+            assert "search_filtered={}" in digest
+            search.assert_called_once()
+        finally:
+            worker.close()
+
+
+def test_issue_628_invalid_cleaning_disables_only_search(db_session: Session) -> None:
+    with patch.object(deepen, "load_cleaning_config", side_effect=ValueError("fixture")):
+        worker = deepen.DeepenRun(
+            db_session,
+            slot(db_session),
+            load_intel_deepen_config(),
+            False,
+            NOW,
+            NOW - timedelta(hours=24),
+            [],
+            {},
+        )
+    item = CollectedItem("AAA agreement", NOW, "https://fixture.example/direct")
+    try:
+        with (
+            patch.object(worker, "_provider", return_value="tavily"),
+            patch.object(worker, "_call") as provider,
+            patch.object(deepen, "classify_headlines") as classifier,
+            patch.object(worker, "_extract_batch") as extract,
+            patch.object(deepen, "SessionLocal", side_effect=lambda: factory(db_session)),
+        ):
+            assert worker._search("tavily", WorkUnit("quiet", "AAA")) == ("tavily", [])
+            provider.assert_not_called()
+            classifier.assert_not_called()
+            assert worker.searches == 0
+            assert worker.errors == ["search_filter: ValueError"]
+            worker.run_wave(
+                [WorkUnit("quiet", "AAA", providers=("tavily",))],
+                {"AAA": [item]},
+                {"AAA": ["AAA"]},
+            )
+            extract.assert_called_once()
+            assert extract.call_args.args[1][0][1].url == item.url
+    finally:
+        worker.close()
+
+
+@pytest.mark.parametrize("provider", ["tavily", "parallel"])
+def test_issue_628_filters_before_limit_without_duplicate_check(
+    db_session: Session,
+    provider: str,
+) -> None:
+    db_session.add(InstrumentProfile(identifier="AMKR", market="US", aliases=["Amkor"]))
+    db_session.flush()
+    # The newest rejected result must not consume a slot; identical survivors
+    # deliberately prove that this search does not use the near-duplicate gate.
+    leads = [
+        Lead("https://fixture.example/first", "Amkor announces a new agreement", NOW),
+        Lead("https://fixture.example/second", "Amkor expands capacity", NOW - timedelta(hours=1)),
+        Lead("https://fixture.example/third", "Amkor expands capacity", NOW - timedelta(hours=2)),
+    ]
+    worker = deepen.DeepenRun(
+        db_session,
+        slot(db_session),
+        load_intel_deepen_config(),
+        False,
+        NOW,
+        NOW - timedelta(hours=24),
+        [],
+        {},
+    )
+    try:
+        with (
+            patch.object(worker, "_provider", return_value=provider),
+            patch.object(
+                worker,
+                "_call",
+                return_value=(
+                    provider,
+                    PaidResult(
+                        200,
+                        Decimal(1),
+                        Decimal(".008"),
+                        leads=leads,
+                    ),
+                ),
+            ),
+            patch.object(
+                deepen,
+                "classify_headlines",
+                return_value=(
+                    {0: "unrelated", 1: "keep", 2: "mention"},
+                    0.0,
+                    None,
+                ),
+            ) as classifier,
+        ):
+            chosen, kept = worker._search(provider, WorkUnit("quiet", "AMKR"))
+        assert chosen == provider
+        assert kept == leads[1:]
+        assert [item.title for item in classifier.call_args.args[0]] == [
+            lead.title for lead in leads
+        ]
+        assert worker.metrics[provider]["search_filtered"] == {"unrelated_llm": 1}
+    finally:
+        worker.close()
