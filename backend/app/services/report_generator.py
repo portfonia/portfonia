@@ -74,7 +74,7 @@ from app.services.macro_event_intel import (
     read_l2_intel,
     user_event_exposure,
 )
-from app.services.news_fetcher import NewsItem, url_hash
+from app.services.news_fetcher import NewsItem
 from app.services.portfolio_calculator import compute_portfolio
 from app.services.price_anomaly_detector import PriceAnomaly
 from app.services.report_assembly import (
@@ -169,26 +169,6 @@ def _serialize_holding_move(move: HoldingMove) -> dict[str, Any]:
 
 _DISCLAIMER_VERSION = "f3-bilingual-v2"
 
-# L1 leftover-budget top-up (issue #128 quality gate, design doc §6.7 item 3).
-# An L1 candidate that moved this much with NOTHING recalled is the case that
-# is guaranteed to come back [Speculative]; below it, an unexplained move is
-# ordinary noise and not worth a scarce shared search. Two per report keeps the
-# spend bounded when a whole sleeve moves at once — the daily Tavily budget is
-# shared across the fan-out, so this must stay a top-up, never a sweep.
-_L1_SEARCH_MIN_MOVE = 0.03
-_MAX_L1_TOPUP_SEARCHES = 2
-
-# Weight-driven material for Pass 2 itself, not just L1 (issue #128
-# narrative-layer redesign, 2026-08-20 — design doc "step 1"). Anomaly-only
-# material-gathering left large no-anomaly holdings (TSM at 22.5%, +1.22% on
-# the 2026-08-17 anchor report) with zero recalled news and zero targeted
-# search in Pass 2's OWN prompt — not just L1's shared cache, which already
-# had a weight channel. Capped at the same top-K L1 already uses for its own
-# weight channel (`ticker_intel._L1_TOP_K_BY_WEIGHT`): a holding large enough
-# to need material without an anomaly is, by definition, a small set per
-# report.
-_MAX_WEIGHT_TARGETED_SEARCHES = 5
-
 
 def intel_trade_date(session: Session, eff_date: date) -> date | None:
     """Return the latest completed post-close slot available to a report."""
@@ -256,6 +236,7 @@ def _load_report_articles(
         IntelSlotRun.started_at <= period_end,
     )
     seen_articles: set[uuid.UUID] = set()
+    seen_url_keys: set[str] = set()
     entries: list[dict[str, Any]] = []
     for identifier in _holding_order(ctx):
         rows = session.execute(
@@ -270,7 +251,11 @@ def _load_report_articles(
         ).scalars()
         local_keys: set[str] = set()
         for article in rows:
-            if article.id in seen_articles or article.url_key in local_keys:
+            if (
+                article.id in seen_articles
+                or article.url_key in local_keys
+                or article.url_key in seen_url_keys
+            ):
                 continue
             entry = _article_entry(article, identifier, len(entries) + 1)
             if entry is None:
@@ -278,6 +263,7 @@ def _load_report_articles(
             entries.append(entry)
             seen_articles.add(article.id)
             local_keys.add(article.url_key)
+            seen_url_keys.add(article.url_key)
             if len(local_keys) >= 2 or len(entries) >= 15:
                 break
         if len(entries) >= 15:
@@ -302,13 +288,14 @@ def _load_report_articles(
         ).scalars()
         local = 0
         for article in rows:
-            if article.id in seen_articles:
+            if article.id in seen_articles or article.url_key in seen_url_keys:
                 continue
             entry = _article_entry(article, f"theme:{theme}", len(entries) + 1)
             if entry is None:
                 continue
             entries.append(entry)
             seen_articles.add(article.id)
+            seen_url_keys.add(article.url_key)
             local += 1
             macro_count += 1
             if local >= 2 or macro_count >= 6:
@@ -319,7 +306,7 @@ def _load_report_articles(
 
 
 def _normalized_news_title(title: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", title.casefold()).strip()
+    return re.sub(r"[\W_]+", " ", title.casefold()).strip()
 
 
 def _merge_holding_news(
@@ -340,10 +327,11 @@ def _merge_holding_news(
         selected: list[NewsItem] = []
         for item in sorted(matched, key=lambda item: item.published_at, reverse=True):
             normalized = _normalized_news_title(item.title)
-            if item.url_hash in seen_hashes or normalized in seen_titles:
+            if item.url_hash in seen_hashes or (normalized and normalized in seen_titles):
                 continue
             seen_hashes.add(item.url_hash)
-            seen_titles.add(normalized)
+            if normalized:
+                seen_titles.add(normalized)
             selected.append(item)
             if len(selected) == 6:
                 break
@@ -820,9 +808,8 @@ def _finish_report(
     `news_items` is the NewsItem list `mark_news_surfaced` needs (it reads
     `.url_hash`). The full pipeline has it from `load_news_window`; the
     stage-skip path skips that call entirely (nothing upstream of the stored
-    body is re-fetched), so it passes None here and url_hash is instead
-    read from `ctx.news_items`' stored `url_hash`, falling back to hashing
-    `url` for inputs stored before issue #620.
+    body is re-fetched), so it passes None here and reads stored `url_hash`
+    values from both the report news pool and the recalled holding news.
 
     NOT reused by `regenerate_report()` (PR #341 review): that function
     deliberately never emails and never calls `mark_news_surfaced` — it is
@@ -897,14 +884,21 @@ def _finish_report(
     )
     # H-DEBT-3 (#30): mark this window's news as surfaced in the same
     # transaction as the status commit, so the two can never diverge.
-    url_hashes = (
-        [item.url_hash for item in news_items]
-        if news_items is not None
-        else [
-            item["url_hash"] if "url_hash" in item else url_hash(item["url"])
+    if news_items is not None:
+        url_hashes = [item.url_hash for item in news_items]
+    else:
+        url_hashes = [
+            item["url_hash"]
             for item in ctx.news_items
+            if isinstance(item, dict) and isinstance(item.get("url_hash"), str)
         ]
-    )
+        url_hashes.extend(
+            item["url_hash"]
+            for items in ctx.holding_news.values()
+            for item in items
+            if isinstance(item, dict) and isinstance(item.get("url_hash"), str)
+        )
+    url_hashes = list(dict.fromkeys(url_hashes))
     if extra_url_hashes:
         url_hashes = list(dict.fromkeys([*url_hashes, *extra_url_hashes]))
     mark_news_surfaced(session, user_id, report.id, url_hashes)
@@ -1614,9 +1608,8 @@ def generate_report(
         _stage_state["l1_intel"] = "ok"
         _stage_state["l3_synthesis"] = "ok"
 
-        # The old collection path below is retained only as unreachable source
-        # context for the compatibility tests; all report calls return through
-        # the scheduled-intel path above.
+        # The current report body path reads scheduled intel and selects the
+        # assembly or Pass 2 route below; this block owns that report path.
         if True:
             investor_prefs = load_investor_preferences(session, user_id)
             ctx.investor_questionnaire_snapshot = investor_prefs.questionnaire

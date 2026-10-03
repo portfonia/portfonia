@@ -789,7 +789,7 @@ def test_rejected_pass2_success_has_no_rejected_content(
 def test_generate_report_retry_after_render_failure_skips_pass1_pass2(
     db_session: Session, _no_email: MagicMock, legacy: bool
 ) -> None:
-    """#61: Pass 2 succeeds, render raises -> the failed row's report_inputs
+    """#61: Pass 2 succeeds, translation raises -> the failed row's report_inputs
     already carries a complete pass2_raw (persisted by the outer except
     handler). A retry must resume straight from render using that stored
     body instead of redoing Pass 1 + Pass 2 (a real, costly LLM call) and
@@ -808,12 +808,14 @@ def test_generate_report_retry_after_render_failure_skips_pass1_pass2(
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm) as mock_llm,
         patch("app.services.report_generator._run_tavily_search", return_value=[]),
         patch(
-            "app.services.report_generator._render_full_md",
-            side_effect=RuntimeError("render boom"),
+            "app.services.report_generator._translate_md",
+            side_effect=RuntimeError("translation boom"),
         ),
-        pytest.raises(RuntimeError, match="render boom"),
+        patch("app.services.report_generator.mark_news_surfaced") as first_mark,
+        pytest.raises(RuntimeError, match="translation boom"),
     ):
         rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+    first_mark.assert_not_called()
 
     assert mock_llm.call_count == 1  # Pass 2 ran exactly once
 
@@ -823,6 +825,14 @@ def test_generate_report_retry_after_render_failure_skips_pass1_pass2(
     assert row.status == "failed"
     assert row.report_inputs is not None
     assert row.report_inputs.get("pass2_raw")
+    pool_hash = _news_item("Fed raises rates").url_hash
+    holding_hash = "holding-only-hash"
+    stored_inputs = dict(row.report_inputs)
+    stored_item = dict(stored_inputs["news_items"][0])
+    stored_item["url_hash"] = holding_hash
+    stored_inputs["holding_news"] = {"NVDA": [stored_item]}
+    row.report_inputs = stored_inputs
+    db_session.commit()
 
     if legacy:
         inputs = dict(row.report_inputs)
@@ -856,7 +866,7 @@ def test_generate_report_retry_after_render_failure_skips_pass1_pass2(
     mock_macro2.assert_not_called()
     mock_anom2.assert_not_called()
 
-    assert mark.call_args.args[3] == [_news_item("Fed raises rates").url_hash]
+    assert mark.call_args.args[3] == ([holding_hash] if legacy else [pool_hash, holding_hash])
 
 
 def test_generate_report_retry_after_prompt_version_bump_reruns_pass1_pass2(

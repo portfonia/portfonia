@@ -226,6 +226,24 @@ def test_historical_report_input_scrub_preserves_non_target_fields() -> None:
     }
 
 
+def test_scrub_missing_keys_and_null_macro_hits_are_unchanged() -> None:
+    import importlib.util
+    from pathlib import Path
+
+    migration_path = (
+        Path(__file__).parents[2] / "alembic/versions/d62200000001_scrub_report_inputs.py"
+    )
+    spec = importlib.util.spec_from_file_location("d622_scrub_missing", migration_path)
+    assert spec and spec.loader
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+
+    missing = {"keep": {"nested": True}}
+    null_hits = {"macro_signals": {"hits": None}, "keep": ["value"]}
+    assert migration._scrub(missing) == missing
+    assert migration._scrub(null_hits) == null_hits
+
+
 def test_settings_ignores_removed_report_budget_key() -> None:
     from app.core.config import Settings
 
@@ -281,6 +299,20 @@ def test_acceptance_02_uses_latest_completed_post_close_slot(db_session: Session
             ),
             IntelSlotRun(
                 slot="post_close",
+                run_date=date(2026, 10, 3),
+                started_at=datetime(2026, 10, 3, tzinfo=UTC),
+                status="ok",
+                details={},
+            ),
+            IntelSlotRun(
+                slot="post_close",
+                run_date=date(2026, 10, 4),
+                started_at=datetime(2026, 10, 4, tzinfo=UTC),
+                status="partial",
+                details={},
+            ),
+            IntelSlotRun(
+                slot="post_close",
                 run_date=date(2026, 10, 2),
                 started_at=datetime(2026, 10, 2, tzinfo=UTC),
                 status="failed",
@@ -289,7 +321,8 @@ def test_acceptance_02_uses_latest_completed_post_close_slot(db_session: Session
         ]
     )
     db_session.flush()
-    assert intel_trade_date(db_session, date(2026, 10, 3)) == date(2026, 10, 1)
+    assert intel_trade_date(db_session, date(2026, 10, 3)) == date(2026, 10, 3)
+    assert intel_trade_date(db_session, date(2026, 10, 4)) == date(2026, 10, 4)
     assert intel_trade_date(db_session, date(2026, 9, 30)) is None
 
 
@@ -327,6 +360,43 @@ def test_acceptance_03_worked_example_orders_five_search_results(db_session: Ses
         "theme:energy",
     ]
     assert all("OTHER" not in entry["title"] for entry in entries)
+
+
+def test_theme_articles_deduplicate_shared_url_keys(db_session: Session) -> None:
+    start = datetime(2026, 9, 28, tzinfo=UTC)
+    end = datetime(2026, 9, 30, tzinfo=UTC)
+    run = IntelSlotRun(
+        slot="post_close", run_date=date(2026, 9, 30), started_at=end, status="ok", details={}
+    )
+    db_session.add(run)
+    db_session.flush()
+    for provider in ("tavily", "parallel"):
+        article = IntelArticle(
+            slot_run_id=run.id,
+            provider=provider,
+            url_key="shared-url-key",
+            status="accepted",
+            record={
+                "v": 1,
+                "kind": "article",
+                "title": f"{provider} title",
+                "published_at": end.isoformat(),
+                "fetched_at": end.isoformat(),
+                "body": "body",
+            },
+            fetched_at=end,
+        )
+        db_session.add(article)
+        db_session.flush()
+        db_session.add(IntelArticleLink(article_id=article.id, theme="energy", role="macro"))
+    db_session.flush()
+    ctx = ReportContext(
+        portfolio_summary={"holdings": [], "total_base": 0},
+        price_anomalies=[],
+        macro_signals={"hits": [{"theme": "energy"}]},
+    )
+    entries = _load_report_articles(db_session, ctx, start, end)
+    assert len(entries) == 1
 
 
 def test_acceptance_04_caps_twenty_holdings_at_fifteen_results(db_session: Session) -> None:
@@ -394,6 +464,29 @@ def test_acceptance_06_nvda_recall_merges_six_newest_unique_items() -> None:
     assert len(hashes) == len({item.url_hash for item in items})
 
 
+def test_news_title_dedup_keeps_distinct_cjk_and_collapses_english_variants() -> None:
+    from app.services.news_fetcher import NewsItem, url_hash
+
+    def item(title: str, slug: str) -> NewsItem:
+        url = f"https://example.com/{slug}"
+        return NewsItem(
+            url_hash(url), title, url, "TEST", datetime(2026, 9, 30, tzinfo=UTC), "body"
+        )
+
+    cjk_one = item("中国公司发布新公告", "cjk-one")
+    cjk_two = item("中国公司发布业绩预告", "cjk-two")
+    english_one = item("NVDA raises outlook!", "english-one")
+    english_two = item("nvda raises outlook", "english-two")
+    recalled, _ = rg._merge_holding_news(
+        [], {"NVDA": [cjk_one, cjk_two, english_one, english_two]}, ["NVDA"]
+    )
+    assert [entry.title for entry in recalled["NVDA"]] == [
+        "中国公司发布新公告",
+        "中国公司发布业绩预告",
+        "NVDA raises outlook!",
+    ]
+
+
 def test_acceptance_07_next_window_does_not_reuse_prior_surfaced_news(db_session: Session) -> None:
     from app.models.news_surfaced import NewsSurfaced
     from app.models.report import Report
@@ -436,7 +529,10 @@ def test_acceptance_08_missing_l1_row_makes_no_llm_call(db_session: Session) -> 
 
 
 def test_acceptance_09_footer_locales_are_source_free() -> None:
-    portfolio = {"base_currency": "USD", "fx_rates_as_of": {}}
+    portfolio = {
+        "base_currency": "USD",
+        "fx_rates_as_of": {"USD": "2026-10-01", "HKD": "2026-10-02"},
+    }
     for lang in ("en", "zh", "zh-Hant"):
         footer = _build_footer(portfolio, lang)
         assert all(
@@ -444,6 +540,13 @@ def test_acceptance_09_footer_locales_are_source_free() -> None:
         )
     assert "Notes & Disclaimer" in _build_footer(portfolio, "en")
     assert "说明与免责声明" in _build_footer(portfolio, "zh")
+    english = _build_footer(portfolio, "en")
+    chinese = _build_footer(portfolio, "zh")
+    assert "Exchange rates: " in english
+    assert "Exchange rates as of" not in english
+    assert "Exchange rates as of USD as of" not in english
+    assert "汇率日期：" in chinese  # noqa: RUF001
+    assert "截至" not in chinese
 
 
 def test_acceptance_10_legacy_render_uses_stored_report_body(db_session: Session) -> None:

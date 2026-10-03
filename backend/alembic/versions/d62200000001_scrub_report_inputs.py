@@ -36,17 +36,23 @@ def _scrub(value: Any) -> Any:
         return value
     result = deepcopy(value)
     for key in ("news_items", "search_results"):
-        result[key] = _strip_entries(result.get(key))
+        if key in result and isinstance(result[key], list):
+            result[key] = _strip_entries(result[key])
     holding_news = result.get("holding_news")
     if isinstance(holding_news, dict):
         result["holding_news"] = {
-            name: _strip_entries(entries) for name, entries in holding_news.items()
+            name: _strip_entries(entries) if isinstance(entries, list) else entries
+            for name, entries in holding_news.items()
         }
     macro_signals = result.get("macro_signals")
     if isinstance(macro_signals, dict):
-        for hit in macro_signals.get("hits", []):
+        hits = macro_signals.get("hits")
+        if not isinstance(hits, list):
+            return result
+        for hit in hits:
             if isinstance(hit, dict):
-                hit["top_articles"] = _strip_entries(hit.get("top_articles"))
+                if "top_articles" in hit and isinstance(hit["top_articles"], list):
+                    hit["top_articles"] = _strip_entries(hit["top_articles"])
     return result
 
 

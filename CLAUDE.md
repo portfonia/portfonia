@@ -455,7 +455,7 @@ legitimate local state is `.env` (uploaded via `scp`).
   — passes `enforce_data_collection=False`
   + `allow_fallbacks=False` (routed via OpenRouter BYOK straight to
   DeepSeek's first-party backend; a scoped, sign-off compliance tradeoff for
-  these two call sites only). Never extend to another call site without the
+  translation rendering only). Never extend to another call site without the
   same sign-off, never drop the `allow_fallbacks=False` pairing. After that
   BYOK leg exhausts `_call_llm`'s retry budget on a retryable error, issue
   #477 adds one independent `FALLBACK_LLM_MODEL` marketplace call with
