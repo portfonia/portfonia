@@ -21,29 +21,22 @@ from app.tests.test_intel_deepen_rules import NOW
 from app.tests.test_intel_paid import slot
 
 
-def test_630_10_search_title_suffix(db_session: Session) -> None:
+def test_630_10_search_titles_unchanged(db_session: Session) -> None:
     aliases = ["Lumentum", "LITE", "AAOI"]
     db_session.add(InstrumentProfile(identifier="LITE", market="US", aliases=aliases))
     db_session.flush()
     cases = [
-        (
-            "Lumentum Holdings (LITE) Jumped, But What Is Driving Attention Today? - Simply Wall St News",
-            "Lumentum Holdings (LITE) Jumped, But What Is Driving Attention Today?",
-        ),
-        (
-            "AAOI Stock Rallies As Hyperscale AI Orders Boost Outlook - StocksToTrade",
-            "AAOI Stock Rallies As Hyperscale AI Orders Boost Outlook",
-        ),
-        (
-            "Lumentum officer Wajid Ali proposes $2.57M share sale | LITE SEC Filing - Form 144",
-            "Lumentum officer Wajid Ali proposes $2.57M share sale | LITE SEC Filing - Form 144",
-        ),
+        "Lumentum Holdings (LITE) Jumped, But What Is Driving Attention Today? - Simply Wall St News",
+        "AAOI Stock Rallies As Hyperscale AI Orders Boost Outlook - StocksToTrade",
+        "Lumentum officer Wajid Ali proposes $2.57M share sale | LITE SEC Filing - Form 144",
+        "Lumentum financing agreement - What investors should know",
+        "Lumentum expands capacity | AI demand",
     ]
     worker = deepen.DeepenRun(
         db_session, slot(db_session), load_intel_deepen_config(), False, NOW, NOW, [], {}
     )
     try:
-        for raw, expected in cases:
+        for raw in cases:
             lead = Lead("https://fixture.example/article", raw, NOW)
             with (
                 patch.object(worker, "_provider", return_value="tavily"),
@@ -61,7 +54,7 @@ def test_630_10_search_title_suffix(db_session: Session) -> None:
             ):
                 provider, kept = worker._search("tavily", WorkUnit("quiet", "LITE"))
             assert provider == "tavily" and len(kept) == 1
-            assert kept[0].title == expected
+            assert kept[0].title == raw
             assert kept[0].url == lead.url and kept[0].published_at == lead.published_at
             assert lead.title == raw
             assert classifier.call_args.args[0][0].title == raw

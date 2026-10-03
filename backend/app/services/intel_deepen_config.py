@@ -50,6 +50,7 @@ class ExtractRules(BaseModel):
 
 class BodyCleaning(BaseModel):
     paragraph_min_words: Count
+    paragraph_min_cjk_chars: Count
     residue_line_patterns: list[str]
     section_block_headings: list[str]
     _patterns: list[re.Pattern[str]] = PrivateAttr(default_factory=list)
@@ -65,8 +66,12 @@ class BodyCleaning(BaseModel):
             raise ValueError("invalid body cleaning configuration") from exc
         return self
 
-    def residue(self, line: str) -> bool:
-        return any(pattern.search(line) for pattern in self._patterns)
+    def residue(self, line: str, paragraph: bool) -> bool:
+        return any(
+            pattern.search(line)
+            for pattern in self._patterns
+            if not (paragraph and pattern.pattern == r"^(published|updated)\s+\w+\s+\d")
+        )
 
     def section(self, line: str) -> bool:
         return self._headings.match(line) is not None

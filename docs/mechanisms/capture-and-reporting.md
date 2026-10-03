@@ -671,10 +671,15 @@ Body cleaning removes Yahoo navigation, reduces Markdown links to link text
 and removes HTTP(S) URLs. Issue #630 then cleans residue before the unchanged
 2,000-character truncation. Validated `body_cleaning` rules remove navigation,
 metadata, signup prompts, photos, timestamps, ticker strips, games and copyright
-lines. Related/most-read blocks are skipped until prose resumes. A paragraph
-has at least 12 whitespace-separated words and sentence punctuation; the body
-spans its first through last paragraph, retaining a leading Markdown title
-from the first 15 surviving lines and dropping short numbered menu entries.
+lines. Section headings and published/updated timestamps apply only to non-prose
+lines; trading disclosures are anchored at the start of a line. The standalone
+`# Yahoo Finance` heading is removed. Related/most-read blocks are skipped until
+prose resumes. A paragraph has at least 12 whitespace-separated words and the
+existing English sentence punctuation, or at least 30 CJK characters (U+3400–U+9FFF
+or U+F900–U+FAFF) and a full-width period, exclamation mark or question mark
+(U+3002, U+FF01 or U+FF1F). The body spans its first through last paragraph,
+retaining the last `# ` title before the first paragraph and dropping short
+numbered menu entries.
 No paragraph yields an empty rejection. Domain-only lines, optionally behind
 a short source prefix, are dropped; domain-with-path tokens are removed within
 prose. Sentence-contained domains without paths, such as company names, stay.
@@ -682,10 +687,8 @@ The paywall markers include `available only for our paid subscribers`.
 Invalid residue regexes raise `ValueError` during slot configuration loading;
 collection continues and the digest records `deepening: ValueError`.
 
-Kept paid-search titles lose only the final short outlet suffix (at most four
-words, no digits or instrument aliases), by constructing a replacement frozen
-`Lead`. Collected titles keep their existing treatment. Search classification
-requests no duplicate detection. No LLM cleans bodies; the 300-character
+Search classification requests no duplicate detection. Paid-search titles are
+preserved unchanged. No LLM cleans bodies; the 300-character
 minimum, 0.35 boilerplate ratio and 1,500-character report display cap stay.
 No schema, migration, Settings field or stored-row rewrite is introduced by
 issue #630; old content expires through the existing retention policy. The gate rejects empty/short text, paywall notices and excessive

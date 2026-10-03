@@ -4,7 +4,7 @@ import re
 import threading
 from collections import defaultdict
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from datetime import datetime, timedelta
 from decimal import Decimal
 from math import ceil
@@ -29,7 +29,7 @@ from app.services.headline_cleaning import (
 from app.services.instrument_news_sources import CollectedItem
 from app.services.instrument_profiles import match_instruments
 from app.services.instrument_universe import UniverseEntry
-from app.services.intel_body import body_verdict, clean_body, strip_outlet_suffix, without_urls
+from app.services.intel_body import body_verdict, clean_body, without_urls
 from app.services.intel_deepen_config import DeepenConfig
 from app.services.intel_leads import Lead, accepted_recently, excluded, select_leads, url_key
 from app.services.intel_records import build_article_record
@@ -315,9 +315,7 @@ class DeepenRun:
                     for index, (lead, _item) in enumerate(survivors):
                         label = labels.get(index)
                         if label in ("keep", "mention"):
-                            kept.append(
-                                replace(lead, title=strip_outlet_suffix(lead.title, aliases))
-                            )
+                            kept.append(lead)
                             continue
                         reason = (
                             "unlabeled_llm"
