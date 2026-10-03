@@ -13,5 +13,8 @@ low_value_title_patterns:
   - '\d+ (high-yield |dividend |ai |growth )?stocks? (to|that)'
   - 'is it (a buy|time to)'
   - 'worth by 20\d\d'
+  - 'too late to buy'
+  - 'stock price, news, quote'
+  - '\bnews today\b'
 near_duplicate_jaccard: 0.8
 near_duplicate_hours: 48

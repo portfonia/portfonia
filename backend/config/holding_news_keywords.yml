@@ -84,6 +84,24 @@ holdings:
 # WOULD be naming the identifier. Keep this list short; when in doubt, leave
 # a term out of it and in `holdings` only.
 entity_aliases:
+  MU:
+    - "Micron"
+  AMZN:
+    - "Amazon"
+  GOOGL:
+    - "Alphabet"
+    - "Google"
+  SPCX:
+    - "SpaceX"
+    - "Space Exploration Technologies"
+  AMD:
+    - "Advanced Micro Devices"
+  ASML:
+    - "ASML"
+  "2333.HK":
+    - "Great Wall Motor"
+  PSH.L:
+    - "Pershing Square Holdings"
   INTC:
     - "Intel"
   NVDA:

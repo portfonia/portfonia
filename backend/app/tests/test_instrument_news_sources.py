@@ -6,6 +6,7 @@ from itertools import pairwise
 from unittest.mock import patch
 
 import httpx
+import pytest
 from pydantic import SecretStr
 from sqlalchemy.orm import Session
 
@@ -167,13 +168,190 @@ def test_acceptance_06_profile_chinese_name(db_session: Session) -> None:
         assert resolve_profiles(db_session, [entry], now=NOW) == []
         profile = db_session.get(InstrumentProfile, entry.identifier)
         assert profile is not None and profile.name_zh == "Tencent Chinese"
-        assert profile.name_en == "Tencent Holdings"
+        assert profile.name_en == "Tencent"
         resolve_profiles(db_session, [entry], now=NOW + timedelta(days=29))
         assert announcements.call_count == 1
         ticker.return_value.info = {}
         announcements.return_value = []
         assert resolve_profiles(db_session, [entry], now=NOW + timedelta(days=31))
         assert profile.name_resolved_at == NOW and profile.name_zh == "Tencent Chinese"
+
+
+def test_issue_628_yfinance_prefers_long_name(db_session: Session) -> None:
+    from app.models.intel import InstrumentProfile
+    from app.services.instrument_profiles import resolve_profiles
+    from app.services.instrument_universe import UniverseEntry
+
+    with (
+        patch("app.services.instrument_profiles.load_entity_aliases", return_value={}),
+        patch("app.services.instrument_profiles.yf.Ticker") as ticker,
+        patch(
+            "app.core.config.get_settings",
+            return_value=get_settings().model_copy(update={"FINNHUB_API_KEY": None}),
+        ),
+    ):
+        ticker.return_value.info = {
+            "shortName": "ASML Holding N.V. - New York Re",
+            "longName": "ASML Holding N.V.",
+        }
+        entry = UniverseEntry("ASML", "ASML", "US")
+        assert resolve_profiles(db_session, [entry], now=NOW) == []
+    profile = db_session.get(InstrumentProfile, "ASML")
+    assert profile is not None and profile.name_en == "ASML"
+
+
+def test_issue_628_manual_alias_is_name_override(db_session: Session) -> None:
+    from app.models.intel import InstrumentProfile
+    from app.services.instrument_profiles import resolve_profiles
+    from app.services.instrument_universe import UniverseEntry
+
+    with patch("app.services.instrument_profiles.yf.Ticker") as ticker:
+        entry = UniverseEntry("MU", "MU", "US")
+        assert resolve_profiles(db_session, [entry], now=NOW) == []
+        ticker.assert_not_called()
+    profile = db_session.get(InstrumentProfile, "MU")
+    assert profile is not None
+    assert profile.name_en == "Micron"
+    assert profile.name_source == "config"
+    assert profile.aliases == ["Micron", "MU"]
+
+
+def test_issue_628_invalidates_only_inconsistent_fresh_profiles(db_session: Session) -> None:
+    from app.models.intel import InstrumentProfile
+    from app.services.instrument_profiles import resolve_profiles
+    from app.services.instrument_universe import UniverseEntry
+
+    for identifier, name in {
+        "MU": "Micron Technology,",
+        "LITE": "Lumentum Holdings",
+        "INTC": "Intel",
+        "AVGO": "Broadcom",
+    }.items():
+        db_session.add(
+            InstrumentProfile(
+                identifier=identifier,
+                market="US",
+                name_en=name,
+                name_source="config" if identifier == "INTC" else "yfinance",
+                aliases=[name, identifier],
+                name_resolved_at=NOW - timedelta(days=1),
+                updated_at=NOW - timedelta(days=1),
+            )
+        )
+    db_session.flush()
+    info = {
+        "MU": {"longName": "Micron Technology,", "shortName": "Micron"},
+        "LITE": {"longName": "Lumentum Holdings Inc.", "shortName": "Lumentum"},
+    }
+    entries = [UniverseEntry(identifier, identifier, "US") for identifier in info]
+    entries.extend([UniverseEntry("INTC", "INTC", "US"), UniverseEntry("AVGO", "AVGO", "US")])
+    with (
+        patch("app.services.instrument_profiles.load_entity_aliases", return_value={}),
+        patch("app.services.instrument_profiles.yf.Ticker") as ticker,
+        patch(
+            "app.core.config.get_settings",
+            return_value=get_settings().model_copy(update={"FINNHUB_API_KEY": None}),
+        ),
+    ):
+        ticker.side_effect = lambda symbol: type("Ticker", (), {"info": info.get(symbol, {})})()
+        assert resolve_profiles(db_session, entries, now=NOW) == []
+        assert ticker.call_count == 2
+        mu = db_session.get(InstrumentProfile, "MU")
+        lite = db_session.get(InstrumentProfile, "LITE")
+        assert mu is not None and mu.name_en == "Micron Technology"
+        assert lite is not None and lite.name_en == "Lumentum"
+        assert mu.name_source == lite.name_source == "yfinance"
+        assert mu.aliases == ["Micron Technology", "MU"]
+        assert lite.aliases == ["Lumentum", "LITE"]
+        assert [call.args[0] for call in ticker.call_args_list] == ["MU", "LITE"]
+        for identifier, name, source in [
+            ("INTC", "Intel", "config"),
+            ("AVGO", "Broadcom", "yfinance"),
+        ]:
+            cached = db_session.get(InstrumentProfile, identifier)
+            assert cached is not None
+            assert (
+                cached.name_en,
+                cached.name_source,
+                cached.aliases,
+                cached.name_resolved_at,
+            ) == (name, source, [name, identifier], NOW - timedelta(days=1))
+        ticker.reset_mock()
+        assert resolve_profiles(db_session, entries, now=NOW) == []
+        ticker.assert_not_called()
+
+
+def test_issue_628_invalidates_fresh_profile_for_manual_alias_prefix(db_session: Session) -> None:
+    from app.models.intel import InstrumentProfile
+    from app.services.instrument_profiles import clean_name, resolve_profiles
+    from app.services.instrument_universe import UniverseEntry
+
+    for identifier, name in [("GOOGL", "Alphabet"), ("AVGO", "Broadcom")]:
+        assert clean_name(name, identifier) == name
+        db_session.add(
+            InstrumentProfile(
+                identifier=identifier,
+                market="US",
+                name_en=name,
+                name_source="yfinance",
+                aliases=[name, identifier],
+                name_resolved_at=NOW - timedelta(days=1),
+                updated_at=NOW - timedelta(days=1),
+            )
+        )
+    db_session.flush()
+    entries = [UniverseEntry(identifier, identifier, "US") for identifier in ["GOOGL", "AVGO"]]
+    with (
+        patch("app.services.instrument_profiles.yf.Ticker") as ticker,
+        patch.object(src, "request") as finnhub,
+        patch.object(src, "eastmoney_rows") as eastmoney,
+    ):
+        assert resolve_profiles(db_session, entries, now=NOW) == []
+        profile = db_session.get(InstrumentProfile, "GOOGL")
+        assert profile is not None
+        assert profile.name_en == "Alphabet"
+        assert profile.name_source == "config"
+        assert profile.aliases == ["Alphabet", "Google", "GOOGL"]
+        assert profile.name_resolved_at == NOW
+        avgo = db_session.get(InstrumentProfile, "AVGO")
+        assert avgo is not None
+        assert (avgo.name_en, avgo.name_source, avgo.aliases, avgo.name_resolved_at) == (
+            "Broadcom",
+            "yfinance",
+            ["Broadcom", "AVGO"],
+            NOW - timedelta(days=1),
+        )
+        ticker.assert_not_called()
+        finnhub.assert_not_called()
+        eastmoney.assert_not_called()
+        assert resolve_profiles(db_session, entries, now=NOW) == []
+        ticker.assert_not_called()
+        finnhub.assert_not_called()
+        eastmoney.assert_not_called()
+
+
+def test_issue_628_d4_profiles_drive_matching(db_session: Session) -> None:
+    from app.models.intel import InstrumentProfile
+    from app.services.instrument_profiles import match_instruments, resolve_profiles
+    from app.services.instrument_universe import UniverseEntry
+
+    entries = [
+        UniverseEntry(identifier, identifier, "US")
+        for identifier in ["AMZN", "NVDA", "SPCX", "MU", "MUU"]
+    ]
+    with patch("app.services.instrument_profiles.yf.Ticker") as ticker:
+        ticker.return_value.info = {}
+        assert resolve_profiles(db_session, entries, now=NOW) == []
+    profiles = {
+        entry.identifier: db_session.get(InstrumentProfile, entry.identifier) for entry in entries
+    }
+    aliases = {identifier: profile.aliases for identifier, profile in profiles.items() if profile}
+    assert match_instruments("Amazon seeks to offload $8bn of Nvidia chips", aliases) == {
+        "AMZN",
+        "NVDA",
+    }
+    assert match_instruments("SpaceX Stock Surges: What's Going On?", aliases) == {"SPCX"}
+    assert match_instruments("Micron shares climb on HBM demand", aliases) == {"MU", "MUU"}
 
 
 def test_acceptance_15_all_source_parameters_are_public() -> None:
@@ -337,3 +515,91 @@ def test_acceptance_04_06_provider_leads_persist_without_metadata(db_session: Se
     filing = next(n for n in stored if n.kind == "filing")
     assert filing.record["filing_form"] == "announcement"
     assert filing.url_hash == url_hash("https://data.eastmoney.com/notices/detail/00700/AN1.html")
+
+
+def test_issue_628_manual_names_are_trimmed_without_suffix_cleaning(db_session: Session) -> None:
+    from app.models.intel import InstrumentProfile
+    from app.services.instrument_profiles import resolve_profiles
+    from app.services.instrument_universe import UniverseEntry
+
+    with (
+        patch(
+            "app.services.instrument_profiles.load_entity_aliases",
+            return_value={"PSH.L": ["  Pershing Square Holdings  ", "  "]},
+        ),
+        patch("app.services.instrument_profiles.yf.Ticker") as ticker,
+        patch.object(src, "request") as request,
+    ):
+        assert resolve_profiles(db_session, [UniverseEntry("PSH.L", "PSH.L", "UK")], now=NOW) == []
+        ticker.assert_not_called()
+        request.assert_not_called()
+    profile = db_session.get(InstrumentProfile, "PSH.L")
+    assert profile is not None
+    assert (profile.name_en, profile.name_source, profile.aliases) == (
+        "Pershing Square Holdings",
+        "config",
+        ["Pershing Square Holdings", "PSH"],
+    )
+
+
+@pytest.mark.parametrize("chinese_available", [False, True])
+def test_issue_628_code_name_rejection_preserves_old_or_uses_chinese(
+    db_session: Session,
+    chinese_available: bool,
+) -> None:
+    from app.models.intel import InstrumentProfile
+    from app.services.instrument_profiles import resolve_profiles
+    from app.services.instrument_universe import UniverseEntry
+
+    profile = InstrumentProfile(
+        identifier="300394.SZ",
+        market="A-Share",
+        name_en="TFC",
+        name_source="yfinance",
+        aliases=["TFC", "300394"],
+        name_resolved_at=NOW - timedelta(days=1),
+        updated_at=NOW - timedelta(days=1),
+    )
+    db_session.add(profile)
+    db_session.flush()
+    announcements = [{"codes": [{"stock_code": "300394", "short_name": "Public Chinese"}]}]
+    with (
+        patch("app.services.instrument_profiles.load_entity_aliases", return_value={}),
+        patch("app.services.instrument_profiles.yf.Ticker") as ticker,
+        patch.object(
+            src, "eastmoney_rows", return_value=announcements if chinese_available else []
+        ),
+        patch.object(src, "request") as request,
+    ):
+        ticker.return_value.info = {"longName": "TFC"}
+        errors = resolve_profiles(
+            db_session,
+            [UniverseEntry("300394.SZ", "300394.SZ", "A-Share")],
+            now=NOW,
+        )
+        ticker.assert_called_once_with("300394.SZ")
+        request.assert_not_called()
+    if chinese_available:
+        assert errors == []
+        assert (profile.name_en, profile.name_zh, profile.name_source, profile.aliases) == (
+            None,
+            "Public Chinese",
+            "eastmoney",
+            ["Public Chinese", "300394"],
+        )
+        assert profile.name_resolved_at == NOW
+    else:
+        assert errors == ["profile: ValueError"]
+        assert (
+            profile.name_en,
+            profile.name_source,
+            profile.aliases,
+            profile.name_resolved_at,
+            profile.updated_at,
+        ) == (
+            "TFC",
+            "yfinance",
+            ["TFC", "300394"],
+            NOW - timedelta(days=1),
+            NOW - timedelta(days=1),
+        )

@@ -34,9 +34,27 @@ def match_instruments(text: str, alias_map: Mapping[str, Sequence[str]]) -> set[
 
 
 _SUFFIX = re.compile(
-    r"\s+(Corp(oration)?|Inc(orporated)?|Holdings?|Ltd|Limited|PLC|Co|AG|SE|SA|NV|KK|Co\.,? Ltd)\.?$",
+    r",?\s+(Corp(oration)?|Inc(orporated)?|Holdings?|Ltd|Limited|PLC|Co|AG|SE|SA|N\.?V|KK|Co\.,? Ltd)\.?$",
     re.IGNORECASE,
 )
+_TRAILING = " ,.;:-"
+
+
+def clean_name(raw: str | None, ticker_stem: str) -> str | None:
+    if not raw:
+        return None
+    name = " ".join(raw.split())
+    for _ in range(3):
+        stripped = _SUFFIX.sub("", name).rstrip(_TRAILING)
+        if stripped == name:
+            break
+        name = stripped
+    name = name.rstrip(_TRAILING)
+    if not name:
+        return None
+    if re.fullmatch(r"[A-Z0-9]+", name) and name != ticker_stem.upper():
+        return None
+    return name
 
 
 def resolve_profiles(
@@ -56,10 +74,17 @@ def resolve_profiles(
     errors = []
     for entry in entries:
         old = session.get(InstrumentProfile, entry.identifier)
+        manual = [a.strip() for a in overrides.get(entry.identifier, []) if a.strip()]
+        stem = entry.ticker.split(".")[0]
         if old and old.name_resolved_at and old.name_resolved_at >= now - timedelta(days=30):
-            continue
+            consistent = list(old.aliases or [])[: len(manual)] == manual and (
+                old.name_source not in ("finnhub", "yfinance")
+                or old.name_en is None
+                or clean_name(old.name_en, stem) == old.name_en
+            )
+            if consistent:
+                continue
         try:
-            manual = overrides.get(entry.identifier, [])
             name_en = None
             name_zh = None
             source = None
@@ -85,13 +110,15 @@ def resolve_profiles(
                     with _quiet_yfinance_logs():
                         data = mapping(yf.Ticker(entry.ticker).info)
                     name_en = (
-                        text_value(data.get("shortName"))
-                        or text_value(data.get("longName"))
+                        text_value(data.get("longName"))
+                        or text_value(data.get("shortName"))
                         or None
                     )
                     source = "yfinance" if name_en else None
-            if name_en:
-                name_en = _SUFFIX.sub("", name_en)
+            if source in ("finnhub", "yfinance"):
+                name_en = clean_name(name_en, stem)
+                if name_en is None:
+                    source = None
             if entry.market in ("A-Share", "HK"):
                 code = entry.ticker.split(".")[0].zfill(5 if entry.market == "HK" else 6)
                 announcements = eastmoney_rows(code, "H" if entry.market == "HK" else "A")
@@ -108,11 +135,7 @@ def resolve_profiles(
             p.name_en = name_en
             p.name_zh = name_zh
             p.name_source = source
-            p.aliases = list(
-                dict.fromkeys(
-                    [a for a in [*manual, name_en, name_zh, entry.ticker.split(".")[0]] if a]
-                )
-            )
+            p.aliases = list(dict.fromkeys([a for a in [*manual, name_en, name_zh, stem] if a]))
             p.name_resolved_at = now
             p.updated_at = now
             session.add(p)

@@ -11,6 +11,7 @@ from pydantic import SecretStr
 from app.core.config import get_settings
 from app.services import headline_cleaning as hc
 from app.services.instrument_news_sources import CollectedItem
+from app.services.instrument_profiles import clean_name
 from app.tests.test_intel_records import NOW
 
 
@@ -133,3 +134,56 @@ def test_acceptance_23_invalid_regex(tmp_path: Path) -> None:
     p.write_text("low_value_title_patterns: ['[']")
     with pytest.raises(ValueError):
         hc.load_cleaning_config(p)
+
+
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [
+        (
+            "Applied Optoelectronics Is Up 205% This Year. Is It Too Late to Buy AAOI Stock Now?",
+            "low_value_rule",
+        ),
+        (
+            "AAOI News Today | Why did Applied Optoelectronics stock go up today? $AAOI",
+            "low_value_rule",
+        ),
+        (
+            "Great Wall Motor Company Limited (2333.HK) Stock Price, News, Quote & History",
+            "low_value_rule",
+        ),
+        ("Nvidia beats estimates as data-center sales jump", None),
+        ("AAOI Stock Rallies As Hyperscale AI Orders Boost Outlook", None),
+    ],
+)
+def test_issue_628_low_value_patterns(title: str, expected: str | None) -> None:
+    config = hc.load_cleaning_config()
+    item = CollectedItem(title, NOW, "https://example.com/story")
+    assert (
+        hc.block_reason(
+            item,
+            ["Applied Optoelectronics", "AAOI", "Great Wall Motor", "2333", "Nvidia"],
+            [],
+            config,
+        )
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("raw", "stem", "expected"),
+    [
+        ("Micron Technology, Inc.", "MU", "Micron Technology"),
+        ("Micron Technology,", "MU", "Micron Technology"),
+        ("Lumentum Holdings Inc.", "LITE", "Lumentum"),
+        ("Alphabet Inc.", "GOOGL", "Alphabet"),
+        ("Space Exploration Technologies ", "SPCX", "Space Exploration Technologies"),
+        ("ASML Holding N.V.", "ASML", "ASML"),
+        ("Pershing Square Holdings, Ltd.", "PSH", "Pershing Square"),
+        ("GWMOTOR", "2333", None),
+        ("TFC", "300394", None),
+        ("NINGBO TUOPU GROUP CO", "601689", "NINGBO TUOPU GROUP"),
+        ("SK hynix", "SKHY", "SK hynix"),
+    ],
+)
+def test_issue_628_clean_name(raw: str, stem: str, expected: str | None) -> None:
+    assert clean_name(raw, stem) == expected
