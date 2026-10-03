@@ -84,6 +84,7 @@ def block_reason(
     config: CleaningConfig,
     *,
     pool: bool = False,
+    earlier: Sequence[str] = (),
 ) -> str | None:
     if any(s in urlparse(item.url).path for s in config.segments):
         return "non_article"
@@ -97,11 +98,12 @@ def block_reason(
         return "low_value_rule"
     if not pool:
         current = tokens(item.title)
-        for title in previous:
-            other = tokens(title)
-            union = current | other
-            if union and len(current & other) / len(union) >= config.threshold:
-                return "duplicate"
+        for titles, reason in ((earlier, "duplicate_earlier"), (previous, "duplicate")):
+            for title in titles:
+                other = tokens(title)
+                union = current | other
+                if union and len(current & other) / len(union) >= config.threshold:
+                    return reason
     return None
 
 

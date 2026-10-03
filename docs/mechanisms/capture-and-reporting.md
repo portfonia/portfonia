@@ -538,7 +538,7 @@ Finnhub, yfinance and Eastmoney, refreshing after 30 days. The slot task resolve
 profiles once before fetching the RSS pool, so new instruments receive links
 from that same pool fetch. The instrument collection run is created before
 resolution; collection reuses its resolution errors, including failed lookups.
-Latin and CJK alias matching creates idempotent `news_instruments` links without reading private holding names.
+Latin and CJK alias matching creates idempotent `news_instruments` links without reading private holding names. Issue #635 lets aliases containing CJK characters match adjacent Latin letters or digits; English word boundaries and short-alias case sensitivity are unchanged.
 
 `instrument_news_sources.py` adapts Finnhub, Google News RSS, Yahoo search,
 SEC 8-K Atom and Eastmoney announcements over a 48-hour window. Requests use
@@ -576,7 +576,7 @@ other feed summaries are unchanged. News-spike code and thresholds remain
 unchanged, so their stored-row counts naturally reflect the ingestion changes.
 
 Paid-search leads use the same path, alias-relevance and low-value-title chain
-before the provider's newest-first limit, with no near-duplicate check.
+before selecting the first survivor in provider order, with no near-duplicate check.
 Surviving search titles go through the headline classifier; only `keep` and `mention` continue to extraction.
 `promo`, `unrelated`, missing labels and classifier failures are dropped, and a
 classifier failure drops every survivor from that search without retry or a
@@ -589,8 +589,7 @@ does not include the classifier charge.
 `intel_slot_task` runs every day at 07:30 and 16:15 ET, including weekends.
 The unique `(slot, run_date)` key prevents repeated non-failed runs. Triggers
 more than five minutes early or 60 minutes late record `stale_trigger` and
-perform no collection or email. Existing market-node RSS schedules continue
-unchanged.
+perform no collection and send a WARNING batch report. Existing market-node RSS schedules continue unchanged.
 
 Collection uses six workers with independent database sessions. Each worker
 stores candidates in URL-hash order, retaining their classifier label mapping,
@@ -606,11 +605,31 @@ market; digest coverage repeats those identifiers. Completed jobs commit
 before `on_instrument_done(identifier, leads)` runs.
 
 `intel_slot_runs` and `intel_collection_runs` retain slot, coverage, source,
-cleaning and classifier evidence. The digest combines the slot collection and
-RSS node runs since the previous slot, with ET timestamps, source totals,
-up to three cleaning samples per reason and classifier cost. Cleaning counts
-separate `filings_stored` from article-only `stored_null_label`. Run records
-expire after 90 days; news and cascading links expire after 30 days.
+cleaning and classifier evidence. Issue #635 replaces the time-window digest
+with one plain-English report per attempt, including stale triggers. It reads
+only runs with the same `slot_run_id` and `started_at >= slot_run.started_at`;
+failed attempts reuse the slot row, so earlier attempts are excluded. The key
+is `intel-report-<slot_run.id>-<int(attempt_start.timestamp())>`. An
+`already_run` exit sends nothing. `details.trigger == "manual"` displays
+"manual"; other batches display "scheduled". Issue #627 owns manual triggering.
+
+Part 1 reports instrument sources and RSS item/error totals separately. Only
+instrument sources reconcile fetched items with rule/classifier drops plus
+`kept`, including filings and null labels. Source adapters retain the 48-hour
+window; the collector counts unexpected `out_of_window` items internally,
+without printing an age-drop line. `duplicate_earlier` means a matching stored
+title was linked before the attempt start. Stored titles linked during the
+attempt, including its RSS pool, seed the same-batch `previous` list and count
+as `duplicate`. Rule-passing candidates still enter that list before
+classification. The report merges corresponding rule/AI reasons and quotes
+up to three distinct stored samples; those original titles may be Chinese.
+It prints articles and filings separately, with their combined inserted count.
+
+Part 2 reports selections in words, per-unit/provider outcomes, paid run/month
+spend, cost per kept article, and weekday post-close shared-analysis counts.
+Macro display names come from each theme's `name_en`; matching keywords remain
+unchanged. Problems are rendered as URL-free plain reasons. Run records expire
+after 90 days; news and cascading links expire after 30 days.
 
 Migration `d62000000001` deletes news older than 30 days, converts retained
 rows to a closed v1 JSON record, drops title/summary/source/URL columns and
@@ -648,17 +667,29 @@ Leads require a matching title alias, the unit's date window, distinct landing
 domains and an accepted-body hash not seen in the last seven days. Non-Yahoo
 leads come first. Finnhub links resolve with a streamed GET closed after the
 headers; Google News and configured paywall domains are excluded. Filing
-links are not extracted. Instruments without usable links may search within
-the run's search cap. Queries contain public names, tickers, themes, title
-words and dates only. The three strongest movers go to both providers;
+links are not extracted. Issue #635 removes both generic instrument searches. Without a direct lead,
+`select_headlines` chooses current eligible Google News articles, ordered by
+`keep`, then `mention`, then null labels, newest first within each label.
+`caps.headlines_per_unit` is 2. Date, title-alias and fresh-association filters
+match direct lead selection. Search uses the original stripped headline only,
+from its ET date minus one day through the lesser of its date plus one day and
+the run date. Results before the start date, recently accepted URLs and URLs
+already selected for this unit are excluded; the existing rule/classifier
+chain then selects the first survivor in provider order. The shared search
+cap and provider fallback remain. A unit with neither a direct lead nor an
+eligible headline records `no_news` and makes no paid call, including movers.
+Filings still trigger selection; their links are not extracted. Macro
+deepening is unchanged. Extract objectives retain public names, tickers,
+themes and title words only. The three strongest movers go to both providers;
 remaining units alternate within each wave. Unavailable providers fall back
 to the other provider.
 
 REST adapters use Tavily basic news search and query-focused extraction;
-Parallel uses search objectives and extraction excerpts/full content. The Design request
-for Parallel Search returned HTTP 422 in the live probe; current vendor
-documentation omits `max_results`, so the adapter omits it and keeps at most
-three results locally. The corrected request was not probed again. Tavily returns
+Parallel requests `full_content: true` and its parser prefers full content.
+Search sends `advanced_settings.source_policy.after_date` and nested
+`advanced_settings.max_results: 3`, without top-level `max_results`. These
+#635 payloads follow the vendor facts in the issue's Exploration; no real
+paid API probe was authorized for this implementation. Tavily returns
 query-focused chunks in `raw_content` and may report actual credits in
 `usage.credits`. Successful (2xx) responses are charged the maximum of the
 pre-send estimate and reported credits; even a reported 0 cannot lower extract
@@ -735,11 +766,12 @@ Optional Settings overrides (keys stay outside repository files):
 | `INTEL_L1_MAX_PER_DAY` | 40 |
 | `INTEL_L2_THEME_MAX_PER_DAY` / `INTEL_L2_FORWARD_MAX_PER_DAY` | 10 / 15 |
 
-The existing `TAVILY_API_KEY` remains required. The digest reports selections
-and reasons, run/month totals and limits, configured keys (yes/no), per-provider
-accept/reject/search/cost metrics and unique accepted hashes, plus L1/L2/L3
-counts and errors. No key value or URL appears in the digest. Tests mock every
-paid endpoint and use real Postgres, including migration and concurrency gates.
+The existing `TAVILY_API_KEY` remains required. The batch report contains
+no raw stats keys, URLs or key values. Apart from quoted stored sample titles,
+its text is English. #635 adds no table, column, migration, Settings field or
+dependency; its only new configuration keys are `caps.headlines_per_unit` and
+macro `name_en`. Tests mock every paid endpoint and use real Postgres,
+including migration and concurrency gates.
 Migration `d62100000001` adds three tables; downgrade drops those derived
 articles and usage. Deploy with #620 and #622 only on separate owner approval.
 Issue #622 moves report-side intelligence to read-only cache access. The report

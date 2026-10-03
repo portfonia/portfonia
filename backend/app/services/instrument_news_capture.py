@@ -115,8 +115,8 @@ def collect_instrument_news(
     p = session.get(InstrumentProfile, entry.identifier)
     aliases = p.aliases if p else [entry.ticker.split(".")[0]]
     stored = list(
-        session.scalars(
-            select(News)
+        session.execute(
+            select(News, NewsInstrument.created_at)
             .join(NewsInstrument, NewsInstrument.news_id == News.id)
             .where(
                 NewsInstrument.identifier == entry.identifier,
@@ -125,10 +125,11 @@ def collect_instrument_news(
             )
         )
     )
-    previous = [headline_from_row(row).title for row in stored]
+    earlier = [headline_from_row(row).title for row, linked_at in stored if linked_at < now]
+    previous = [headline_from_row(row).title for row, linked_at in stored if linked_at >= now]
     stored_recent = [
         headline_from_row(row).title
-        for row in sorted(stored, key=lambda row: row.published_at, reverse=True)[:100]
+        for row, _ in sorted(stored, key=lambda pair: pair[0].published_at, reverse=True)[:100]
     ]
     fetched: list[tuple[str, CollectedItem]] = []
     candidates: list[tuple[str, CollectedItem]] = []
@@ -144,10 +145,11 @@ def collect_instrument_news(
         stat["items"] += len(items)
         for item in items:
             if item.kind != "filing" and not now - timedelta(hours=48) <= item.published_at <= now:
+                result.cleaning["out_of_window"] = result.cleaning.get("out_of_window", 0) + 1
                 continue
             fetched.append((name, item))
     for name, item in sorted(fetched, key=lambda pair: pair[1].published_at):
-        reason = block_reason(item, aliases, previous, config)
+        reason = block_reason(item, aliases, previous, config, earlier=earlier)
         if reason:
             result.cleaning[reason] = result.cleaning.get(reason, 0) + 1
             sample = result.samples.setdefault(reason, [])
@@ -203,6 +205,7 @@ def collect_instrument_news(
             result.cleaning["filings_stored"] = result.cleaning.get("filings_stored", 0) + 1
         elif label is None:
             result.cleaning["stored_null_label"] = result.cleaning.get("stored_null_label", 0) + 1
+        result.cleaning["kept"] = result.cleaning.get("kept", 0) + 1
         nid, inserted = store_headline(
             session, item.headline(), "instrument", item.kind, label, filing_form=item.filing_form
         )
@@ -210,6 +213,7 @@ def collect_instrument_news(
         result.stats[name]["linked"] += link_instrument(session, nid, entry.identifier)
         item.news_id = nid
         item.identifier = entry.identifier
+        item.label = label
         result.leads.append(item)
     if p is None:
         p = InstrumentProfile(

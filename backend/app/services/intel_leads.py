@@ -154,3 +154,41 @@ def select_leads(
         if len(out) >= limit:
             break
     return out
+
+
+def select_headlines(
+    session: Session,
+    unit: WorkUnit,
+    items: list[CollectedItem],
+    aliases: list[str],
+    cfg: DeepenConfig,
+    previous: datetime,
+) -> list[CollectedItem]:
+    candidates = []
+    for item in items:
+        if item.url_kind != "google_news" or item.kind == "filing":
+            continue
+        if unit.window_start and item.published_at.astimezone(ET).date() < unit.window_start:
+            continue
+        if unit.identifier and not match_instruments(item.title, {unit.identifier: aliases}):
+            continue
+        if unit.reason.startswith(("new_filing", "news_spike")) and (
+            not item.news_id
+            or session.scalar(
+                select(NewsInstrument.id).where(
+                    NewsInstrument.news_id == item.news_id,
+                    NewsInstrument.identifier == unit.identifier,
+                    NewsInstrument.created_at > previous,
+                )
+            )
+            is None
+        ):
+            continue
+        candidates.append(item)
+    candidates.sort(
+        key=lambda item: (
+            0 if item.label == "keep" else 1 if item.label == "mention" else 2,
+            -item.published_at.timestamp(),
+        )
+    )
+    return candidates[: cfg.caps.headlines_per_unit]
