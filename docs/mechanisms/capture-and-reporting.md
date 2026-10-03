@@ -680,8 +680,8 @@ paid endpoint and use real Postgres, including migration and concurrency gates.
 Migration `d62100000001` adds three tables; downgrade drops those derived
 articles and usage. Deploy with #620 and #622 only on separate owner approval.
 Issue #622 moves report-side intelligence to read-only cache access. The report
-path selects the latest completed `post_close` slot at or before the effective
-report date, reads URL-free accepted articles and current-version L1/L2/L3
+path selects the latest completed weekday `post_close` slot at or before the
+effective report date, reads URL-free accepted articles and current-version L1/L2/L3
 rows, and never invokes report-time search or lazy shared-intel computation.
 These changes deploy with #620 and #621; the report-input scrub migration
 requires the backup and owner authorization described in the deployment runbook.
@@ -689,10 +689,13 @@ requires the backup and owner authorization described in the deployment runbook.
 ### Scheduled report intelligence reads
 
 Issue #622 completes the Ring 2 report path. `generate_report` selects the
-latest completed `post_close` slot at or before the effective report date and
-reads its URL-free accepted article bodies, scoped to the user's holding
+latest completed weekday `post_close` slot at or before the effective report
+date and reads its URL-free accepted article bodies, scoped to the user's holding
 identifiers and macro themes. It reads L1, L2 and L3 only for that trade date;
 missing rows remain absent and never trigger a report-time computation.
+Slots run every day, but only weekday `post_close` runs compute L1/L2/L3, so
+weekend runs are skipped when choosing the trade date: a Saturday weekly report
+and a Sunday manual report read Friday's caches.
 
 The report path performs no Pass 1 query-generation call and no Tavily or
 Parallel request. `search_results` stores only title, body, date, index and
