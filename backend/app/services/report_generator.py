@@ -36,7 +36,7 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
-from sqlalchemy import select
+from sqlalchemy import extract, select
 from sqlalchemy.orm import Session
 
 from app.compliance.output_scan import (
@@ -171,13 +171,19 @@ _DISCLAIMER_VERSION = "f3-bilingual-v2"
 
 
 def intel_trade_date(session: Session, eff_date: date) -> date | None:
-    """Return the latest completed post-close slot available to a report."""
+    """Return the latest completed weekday post-close slot available to a report.
+
+    Slots run every day, but only weekday post_close runs compute L1/L2/L3
+    (`intel_tasks`: `not weekend and slot == "post_close"`), so a weekend run
+    is skipped here; a Saturday weekly report reads Friday's caches.
+    """
     return session.scalar(
         select(IntelSlotRun.run_date)
         .where(
             IntelSlotRun.slot == "post_close",
             IntelSlotRun.status.in_(["ok", "partial"]),
             IntelSlotRun.run_date <= eff_date,
+            extract("isodow", IntelSlotRun.run_date) <= 5,
         )
         .order_by(IntelSlotRun.run_date.desc())
         .limit(1)

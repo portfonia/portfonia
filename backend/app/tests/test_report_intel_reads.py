@@ -288,42 +288,44 @@ def test_acceptance_01_generate_report_uses_only_scheduled_intel(db_session: Ses
 def test_acceptance_02_uses_latest_completed_post_close_slot(db_session: Session) -> None:
     from app.services.report_generator import intel_trade_date
 
-    db_session.add_all(
-        [
-            IntelSlotRun(
-                slot="post_close",
-                run_date=date(2026, 10, 1),
-                started_at=datetime(2026, 10, 1, tzinfo=UTC),
-                status="ok",
-                details={},
-            ),
-            IntelSlotRun(
-                slot="post_close",
-                run_date=date(2026, 10, 3),
-                started_at=datetime(2026, 10, 3, tzinfo=UTC),
-                status="ok",
-                details={},
-            ),
-            IntelSlotRun(
-                slot="post_close",
-                run_date=date(2026, 10, 4),
-                started_at=datetime(2026, 10, 4, tzinfo=UTC),
-                status="partial",
-                details={},
-            ),
-            IntelSlotRun(
-                slot="post_close",
-                run_date=date(2026, 10, 2),
-                started_at=datetime(2026, 10, 2, tzinfo=UTC),
-                status="failed",
-                details={},
-            ),
-        ]
-    )
+    # 2026-10-01 Thu, 10-02 Fri, 10-03 Sat, 10-04 Sun, 10-05 Mon. Weekend
+    # post_close runs exist (slots run daily) but compute no L1/L2/L3, so a
+    # weekend report must fall back to the latest completed weekday run.
+    def _run(day: int, status: str) -> IntelSlotRun:
+        return IntelSlotRun(
+            slot="post_close",
+            run_date=date(2026, 10, day),
+            started_at=datetime(2026, 10, day, 20, 15, tzinfo=UTC),
+            status=status,
+            details={},
+        )
+
+    db_session.add_all([_run(1, "ok"), _run(2, "failed"), _run(3, "ok")])
     db_session.flush()
-    assert intel_trade_date(db_session, date(2026, 10, 3)) == date(2026, 10, 3)
-    assert intel_trade_date(db_session, date(2026, 10, 4)) == date(2026, 10, 4)
+    # Contract case: Thu ok, Fri failed, weekend run ok -> Saturday uses Thursday.
+    assert intel_trade_date(db_session, date(2026, 10, 3)) == date(2026, 10, 1)
     assert intel_trade_date(db_session, date(2026, 9, 30)) is None
+
+
+def test_acceptance_02_weekend_reports_use_latest_weekday_slot(db_session: Session) -> None:
+    from app.services.report_generator import intel_trade_date
+
+    def _run(day: int, status: str) -> IntelSlotRun:
+        return IntelSlotRun(
+            slot="post_close",
+            run_date=date(2026, 10, day),
+            started_at=datetime(2026, 10, day, 20, 15, tzinfo=UTC),
+            status=status,
+            details={},
+        )
+
+    db_session.add_all([_run(2, "ok"), _run(3, "ok"), _run(4, "partial"), _run(5, "partial")])
+    db_session.flush()
+    # Saturday weekly report and a Sunday manual report read Friday's caches.
+    assert intel_trade_date(db_session, date(2026, 10, 3)) == date(2026, 10, 2)
+    assert intel_trade_date(db_session, date(2026, 10, 4)) == date(2026, 10, 2)
+    # A weekday run on eff_date itself is used, including status partial.
+    assert intel_trade_date(db_session, date(2026, 10, 5)) == date(2026, 10, 5)
 
 
 def test_acceptance_03_worked_example_orders_five_search_results(db_session: Session) -> None:
