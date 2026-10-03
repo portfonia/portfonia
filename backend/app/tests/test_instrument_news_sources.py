@@ -255,9 +255,67 @@ def test_issue_628_invalidates_only_inconsistent_fresh_profiles(db_session: Sess
         ticker.side_effect = lambda symbol: type("Ticker", (), {"info": info.get(symbol, {})})()
         assert resolve_profiles(db_session, entries, now=NOW) == []
         assert ticker.call_count == 2
+        mu = db_session.get(InstrumentProfile, "MU")
+        lite = db_session.get(InstrumentProfile, "LITE")
+        assert mu is not None and mu.name_en == "Micron Technology"
+        assert lite is not None and lite.name_en == "Lumentum"
         ticker.reset_mock()
         assert resolve_profiles(db_session, entries, now=NOW) == []
         ticker.assert_not_called()
+
+
+def test_issue_628_invalidates_fresh_profile_for_manual_alias_prefix(db_session: Session) -> None:
+    from app.models.intel import InstrumentProfile
+    from app.services.instrument_profiles import resolve_profiles
+    from app.services.instrument_universe import UniverseEntry
+
+    db_session.add(
+        InstrumentProfile(
+            identifier="MU",
+            market="US",
+            name_en="Micron Technology,",
+            name_source="yfinance",
+            aliases=["Micron Technology,", "MU"],
+            name_resolved_at=NOW - timedelta(days=1),
+            updated_at=NOW - timedelta(days=1),
+        )
+    )
+    db_session.flush()
+    entry = UniverseEntry("MU", "MU", "US")
+    with patch("app.services.instrument_profiles.yf.Ticker") as ticker:
+        assert resolve_profiles(db_session, [entry], now=NOW) == []
+        ticker.assert_not_called()
+        profile = db_session.get(InstrumentProfile, "MU")
+        assert profile is not None
+        assert profile.name_en == "Micron"
+        assert profile.name_source == "config"
+        assert profile.aliases == ["Micron", "MU"]
+        assert resolve_profiles(db_session, [entry], now=NOW) == []
+        ticker.assert_not_called()
+
+
+def test_issue_628_d4_profiles_drive_matching(db_session: Session) -> None:
+    from app.models.intel import InstrumentProfile
+    from app.services.instrument_profiles import match_instruments, resolve_profiles
+    from app.services.instrument_universe import UniverseEntry
+
+    entries = [
+        UniverseEntry(identifier, identifier, "US")
+        for identifier in ["AMZN", "NVDA", "SPCX", "MU", "MUU"]
+    ]
+    with patch("app.services.instrument_profiles.yf.Ticker") as ticker:
+        ticker.return_value.info = {}
+        assert resolve_profiles(db_session, entries, now=NOW) == []
+    profiles = {
+        entry.identifier: db_session.get(InstrumentProfile, entry.identifier) for entry in entries
+    }
+    aliases = {identifier: profile.aliases for identifier, profile in profiles.items() if profile}
+    assert match_instruments("Amazon seeks to offload $8bn of Nvidia chips", aliases) == {
+        "AMZN",
+        "NVDA",
+    }
+    assert match_instruments("SpaceX Stock Surges: What's Going On?", aliases) == {"SPCX"}
+    assert match_instruments("Micron shares climb on HBM demand", aliases) == {"MU", "MUU"}
 
 
 def test_acceptance_15_all_source_parameters_are_public() -> None:

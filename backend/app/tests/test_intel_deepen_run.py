@@ -907,6 +907,196 @@ def test_issue_628_classifier_failure_drops_all_without_retry(db_session: Sessio
         worker.close()
 
 
+def test_issue_628_search_drops_unrelated_and_promo(db_session: Session) -> None:
+    db_session.add(InstrumentProfile(identifier="AMKR", market="US", aliases=["Amkor", "AMKR"]))
+    db_session.flush()
+    leads = [
+        Lead(
+            "https://fixture.example/amkr",
+            "Amkor (AMKR) Stock Could Be 45% Undervalued On Cash Flow",
+            NOW,
+        ),
+        Lead(
+            "https://fixture.example/dell",
+            "Dell Stocks Slip as Japan Plans $15 Billion AI Campus",
+            NOW,
+        ),
+    ]
+    worker = deepen.DeepenRun(
+        db_session,
+        slot(db_session),
+        load_intel_deepen_config(),
+        False,
+        NOW,
+        NOW - timedelta(hours=24),
+        [],
+        {},
+    )
+    try:
+        with (
+            patch.object(worker, "_provider", return_value="tavily"),
+            patch.object(
+                worker,
+                "_call",
+                return_value=("tavily", PaidResult(200, Decimal(1), Decimal(".008"), leads=leads)),
+            ),
+            patch.object(
+                deepen, "classify_headlines", return_value=({0: "promo"}, 0.0, None)
+            ) as classify,
+        ):
+            _, kept = worker._search("tavily", WorkUnit("quiet", "AMKR"))
+        assert kept == []
+        assert len(classify.call_args.args[0]) == 1
+        assert worker.metrics["tavily"]["search_filtered"] == {
+            "unrelated_rule": 1,
+            "promo_llm": 1,
+        }
+    finally:
+        worker.close()
+
+
+def test_issue_628_search_drops_quote_page_without_classifier(db_session: Session) -> None:
+    db_session.add(
+        InstrumentProfile(identifier="2333.HK", market="HK", aliases=["Great Wall Motor", "2333"])
+    )
+    db_session.flush()
+    lead = Lead(
+        "https://fixture.example/quote",
+        "Great Wall Motor Company Limited (2333.HK) Stock Price, News, Quote & History",
+        NOW,
+    )
+    worker = deepen.DeepenRun(
+        db_session,
+        slot(db_session),
+        load_intel_deepen_config(),
+        False,
+        NOW,
+        NOW - timedelta(hours=24),
+        [],
+        {},
+    )
+    try:
+        with (
+            patch.object(worker, "_provider", return_value="tavily"),
+            patch.object(
+                worker,
+                "_call",
+                return_value=("tavily", PaidResult(200, Decimal(1), Decimal(".008"), leads=[lead])),
+            ),
+            patch.object(deepen, "classify_headlines") as classify,
+        ):
+            _, kept = worker._search("tavily", WorkUnit("quiet", "2333.HK"))
+        assert kept == []
+        classify.assert_not_called()
+        assert worker.metrics["tavily"]["search_filtered"] == {"low_value_rule": 1}
+    finally:
+        worker.close()
+
+
+def test_issue_628_search_drops_missing_classifier_label(db_session: Session) -> None:
+    db_session.add(InstrumentProfile(identifier="AMKR", market="US", aliases=["Amkor", "AMKR"]))
+    db_session.flush()
+    leads = [
+        Lead("https://fixture.example/a", "Amkor announces a new agreement", NOW),
+        Lead("https://fixture.example/b", "Amkor expands capacity", NOW),
+    ]
+    worker = deepen.DeepenRun(
+        db_session,
+        slot(db_session),
+        load_intel_deepen_config(),
+        False,
+        NOW,
+        NOW - timedelta(hours=24),
+        [],
+        {},
+    )
+    try:
+        with (
+            patch.object(worker, "_provider", return_value="tavily"),
+            patch.object(
+                worker,
+                "_call",
+                return_value=("tavily", PaidResult(200, Decimal(1), Decimal(".008"), leads=leads)),
+            ),
+            patch.object(deepen, "classify_headlines", return_value=({1: "mention"}, 0.0, None)),
+        ):
+            _, kept = worker._search("tavily", WorkUnit("quiet", "AMKR"))
+        assert [lead.url for lead in kept] == ["https://fixture.example/b"]
+        assert worker.metrics["tavily"]["search_filtered"] == {"unlabeled_llm": 1}
+    finally:
+        worker.close()
+
+
+def test_issue_628_search_classifier_failures_accumulate(db_session: Session) -> None:
+    db_session.add(InstrumentProfile(identifier="AMKR", market="US", aliases=["Amkor", "AMKR"]))
+    db_session.flush()
+    leads = [
+        Lead("https://fixture.example/a", "Amkor announces a new agreement", NOW),
+        Lead("https://fixture.example/b", "Amkor expands capacity", NOW),
+    ]
+    worker = deepen.DeepenRun(
+        db_session,
+        slot(db_session),
+        load_intel_deepen_config(),
+        False,
+        NOW,
+        NOW - timedelta(hours=24),
+        [],
+        {},
+    )
+    try:
+        with (
+            patch.object(worker, "_provider", return_value="tavily"),
+            patch.object(
+                worker,
+                "_call",
+                return_value=("tavily", PaidResult(200, Decimal(1), Decimal(".008"), leads=leads)),
+            ),
+            patch.object(
+                deepen,
+                "classify_headlines",
+                return_value=({}, 0.0, "classifier: HTTPStatusError HTTP 502"),
+            ),
+        ):
+            worker._search("tavily", WorkUnit("quiet", "AMKR"))
+            worker._search("tavily", WorkUnit("quiet", "AMKR"))
+        assert worker.metrics["tavily"]["search_filtered"] == {"classifier_failed": 4}
+    finally:
+        worker.close()
+
+
+def test_issue_628_collected_direct_lead_skips_search_and_classifier(
+    db_session: Session,
+) -> None:
+    worker = deepen.DeepenRun(
+        db_session,
+        slot(db_session),
+        load_intel_deepen_config(),
+        False,
+        NOW,
+        NOW - timedelta(hours=24),
+        [],
+        {},
+    )
+    item = CollectedItem("AAA agreement", NOW, "https://fixture.example/a")
+    try:
+        with (
+            patch.object(worker, "_search") as search,
+            patch.object(deepen, "classify_headlines") as classify,
+            patch.object(worker, "_extract_batch"),
+            patch.object(deepen, "SessionLocal", side_effect=lambda: factory(db_session)),
+        ):
+            worker.run_wave(
+                [WorkUnit("quiet", "AAA", providers=("tavily",))],
+                {"AAA": [item]},
+                {"AAA": ["AAA"]},
+            )
+        search.assert_not_called()
+        classify.assert_not_called()
+    finally:
+        worker.close()
+
+
 @pytest.mark.parametrize("weekend", [False, True])
 def test_macro_lead_window_weekday_and_weekend(db_session: Session, weekend: bool) -> None:
     from app.core.timezones import ET

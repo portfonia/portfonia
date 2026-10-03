@@ -304,8 +304,10 @@ class DeepenRun:
                 if failed:
                     with self.lock:
                         filtered = self.metrics[chosen]["search_filtered"]
-                        filtered["classifier_failed"] = len(survivors)
-                    self.errors.append(failed)
+                        filtered["classifier_failed"] = filtered.get("classifier_failed", 0) + len(
+                            survivors
+                        )
+                        self.errors.append(failed)
                     survivors = []
                     leads = []
                 else:

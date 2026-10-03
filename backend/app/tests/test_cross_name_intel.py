@@ -693,6 +693,13 @@ def test_denylist_catches_a_configured_alias_not_just_the_ticker() -> None:
     assert out == []
 
 
+def test_issue_628_google_alias_filters_only_unheld_reader() -> None:
+    clusters = [_cluster(["TSM", "GOOGL"], summary="TSM and Google rose together.")]
+    assert l3.clusters_for_user(clusters, ["TSM"], ["TSM", "GOOGL"]) == []
+    out = l3.clusters_for_user(clusters, ["TSM", "GOOGL"], ["TSM", "GOOGL"])
+    assert len(out) == 1 and out[0]["identifiers"] == ["TSM", "GOOGL"]
+
+
 def test_denylist_does_not_over_drop_on_theme_vocabulary_a_summary_may_legitimately_use() -> None:
     """PR #167 review round 2, suggestion: round 1's fix dumped EVERY
     `holding_news_keywords.yml` alias for an excluded identifier into the
