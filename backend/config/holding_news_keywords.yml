@@ -100,6 +100,7 @@ entity_aliases:
     - "ASML"
   "2333.HK":
     - "Great Wall Motor"
+    - "長城汽車"
   PSH.L:
     - "Pershing Square Holdings"
     - "Pershing Square"
@@ -115,6 +116,7 @@ entity_aliases:
     - "Amkor"
   "0700.HK":
     - "Tencent"
+    - "騰訊"
   TSM:
     - "TSMC"
     - "Taiwan Semiconductor"
