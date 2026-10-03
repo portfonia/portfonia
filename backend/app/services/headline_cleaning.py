@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
@@ -104,17 +105,32 @@ def block_reason(
     return None
 
 
-SYSTEM_PROMPT = 'You classify financial news headlines for one company each. For every item return one label:\nkeep = the item reports a concrete development about THIS company (earnings, deals, products, guidance, legal/regulatory, management, analyst actions, notable price moves with a stated cause);\nmention = the company is only mentioned in passing or is one of many in a broad market piece;\npromo = stock-pick, buy/sell, comparison, prediction or listicle content;\nunrelated = not about this company.\nOutput ONLY JSON: {"labels": [{"id": int, "label": "keep|mention|promo|unrelated"}]}'
+SYSTEM_PROMPT = 'You classify financial news headlines for one company each. For every item return one label:\nkeep = the item reports a concrete development about THIS company (earnings, deals, products, guidance, legal/regulatory, management, analyst actions, notable price moves with a stated cause);\nmention = the company is only mentioned in passing or is one of many in a broad market piece;\npromo = stock-pick, buy/sell, comparison, prediction or listicle content; institutional holding-change notices (a fund bought, sold or changed its stake); routine price-move recaps with no stated company-specific cause;\nunrelated = not about this company.\nOutput ONLY JSON: {"labels": [{"id": int, "label": "keep|mention|promo|unrelated"}]}'
 
 
 def classify_headlines(
-    items: list[CollectedItem], ticker: str, aliases: list[str]
+    items: list[CollectedItem],
+    ticker: str,
+    aliases: list[str],
+    recent_titles: Sequence[str] | None = None,
 ) -> tuple[dict[int, str], float, str | None]:
     settings = get_settings()
     content = "\n".join(
         f"{i}\t{ticker} ({', '.join(aliases)})\t{x.title}\t{(x.summary or '')[:160]}"
         for i, x in enumerate(items)
     )
+    prompt = SYSTEM_PROMPT
+    if recent_titles is not None:
+        prompt = prompt.replace(
+            '"label": "keep|mention|promo|unrelated"}',
+            '"label": "keep|mention|promo|unrelated", "duplicate_of": "e<k>" | int | null}',
+        )
+        prompt += '\nSome items may repeat an event already covered. EXISTING lists earlier headlines for this company. For each item, set "duplicate_of" to the id of an EXISTING headline ("e0", "e1", ...) or of a lower-numbered item in this batch that reports the same event with no new material fact (no new figure, party, or stage). Otherwise set it to null. A follow-up with new facts is not a duplicate.'
+        content = (
+            "EXISTING:\n"
+            + "".join(f"e{i}\t{title}\n" for i, title in enumerate(recent_titles))
+            + content
+        )
     payload = {
         "model": settings.INTEL_CLASSIFIER_MODEL,
         "reasoning": {"effort": "low"},
@@ -123,7 +139,7 @@ def classify_headlines(
         "provider": {"data_collection": "deny"},
         "usage": {"include": True},
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": prompt},
             {"role": "user", "content": content},
         ],
     }
@@ -149,11 +165,19 @@ def classify_headlines(
         labels = {}
         for row in rows(parsed["labels"]):
             idx, label = row.get("id"), row.get("label")
-            if (
-                isinstance(idx, int)
-                and 0 <= idx < len(items)
-                and label in ("keep", "mention", "promo", "unrelated")
+            if not isinstance(idx, int) or not 0 <= idx < len(items):
+                continue
+            duplicate = row.get("duplicate_of")
+            if recent_titles is not None and (
+                (type(duplicate) is int and 0 <= duplicate < idx)
+                or (
+                    isinstance(duplicate, str)
+                    and re.fullmatch(r"e[0-9]+", duplicate)
+                    and int(duplicate[1:]) < len(recent_titles)
+                )
             ):
+                labels[idx] = "duplicate"
+            elif label in ("keep", "mention", "promo", "unrelated"):
                 labels[idx] = str(label)
         usage = mapping(data.get("usage") or {})
         cost = usage.get("cost", 0)

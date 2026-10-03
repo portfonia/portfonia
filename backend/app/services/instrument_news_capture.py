@@ -114,9 +114,8 @@ def collect_instrument_news(
     result = InstrumentResult()
     p = session.get(InstrumentProfile, entry.identifier)
     aliases = p.aliases if p else [entry.ticker.split(".")[0]]
-    previous = [
-        headline_from_row(row).title
-        for row in session.scalars(
+    stored = list(
+        session.scalars(
             select(News)
             .join(NewsInstrument, NewsInstrument.news_id == News.id)
             .where(
@@ -125,7 +124,13 @@ def collect_instrument_news(
                 News.published_at <= now,
             )
         )
+    )
+    previous = [headline_from_row(row).title for row in stored]
+    stored_recent = [
+        headline_from_row(row).title
+        for row in sorted(stored, key=lambda row: row.published_at, reverse=True)[:100]
     ]
+    fetched: list[tuple[str, CollectedItem]] = []
     candidates: list[tuple[str, CollectedItem]] = []
     for name, fetch in sources_for(entry, p, now - timedelta(hours=48), now):
         stat = result.stats.setdefault(name, source_stat())
@@ -140,15 +145,17 @@ def collect_instrument_news(
         for item in items:
             if item.kind != "filing" and not now - timedelta(hours=48) <= item.published_at <= now:
                 continue
-            reason = block_reason(item, aliases, previous, config)
-            if reason:
-                result.cleaning[reason] = result.cleaning.get(reason, 0) + 1
-                sample = result.samples.setdefault(reason, [])
-                if len(sample) < 3:
-                    sample.append(item.title)
-                continue
-            previous.append(item.title)
-            candidates.append((name, item))
+            fetched.append((name, item))
+    for name, item in sorted(fetched, key=lambda pair: pair[1].published_at):
+        reason = block_reason(item, aliases, previous, config)
+        if reason:
+            result.cleaning[reason] = result.cleaning.get(reason, 0) + 1
+            sample = result.samples.setdefault(reason, [])
+            if len(sample) < 3:
+                sample.append(item.title)
+            continue
+        previous.append(item.title)
+        candidates.append((name, item))
     if not p or not p.name_en:
         if entry.market != "A-Share":
             result.stats.setdefault("google_news", source_stat())["skipped_no_name"] += 1
@@ -159,9 +166,15 @@ def collect_instrument_news(
     labels: dict[int, str] = {}
     articles = [(i, item) for i, (_, item) in enumerate(candidates) if item.kind != "filing"]
     size = min(100, max(1, get_settings().INTEL_CLASSIFIER_BATCH))
+    kept_titles: list[str] = []
     for start in range(0, len(articles), size):
         chunk = articles[start : start + size]
-        batch, cost, failed = classify_headlines([item for _, item in chunk], entry.ticker, aliases)
+        batch, cost, failed = classify_headlines(
+            [item for _, item in chunk],
+            entry.ticker,
+            aliases,
+            recent_titles=(list(reversed(kept_titles)) + stored_recent)[:100],
+        )
         result.classifier["batches"] += 1
         result.classifier["items"] += len(chunk)
         result.classifier["cost_usd"] += cost
@@ -170,11 +183,16 @@ def collect_instrument_news(
             result.errors.append(failed)
         for i, batch_label in batch.items():
             labels[chunk[i][0]] = batch_label
+        kept_titles.extend(
+            item.title
+            for i, (_, item) in enumerate(chunk)
+            if batch.get(i) not in ("promo", "unrelated", "duplicate")
+        )
     for i, (name, item) in sorted(
         enumerate(candidates), key=lambda candidate: candidate[1][1].headline().url_hash
     ):
         label = labels.get(i)
-        if label in ("promo", "unrelated"):
+        if label in ("promo", "unrelated", "duplicate"):
             llm_reason = label + "_llm"
             result.cleaning[llm_reason] = result.cleaning.get(llm_reason, 0) + 1
             sample = result.samples.setdefault(llm_reason, [])

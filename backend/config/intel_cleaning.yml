@@ -16,5 +16,11 @@ low_value_title_patterns:
   - 'too late to buy'
   - 'stock price, news, quote'
   - '\bnews today\b'
+  - '\b(purchases|buys|acquires|sells|sold|acquired|purchased)\s+[\d,]+\s+shares\s+of\b'
+  - '\b(stake|position|holdings)\s+(increased|decreased|raised|lowered|trimmed|boosted|cut)\s+by\b'
+  - '\b(grows|raises|lifts|trims|cuts|boosts|increases|decreases|reduces)\s+(its\s+)?(stake|position|holdings)\s+in\b'
+  - '\$[A-Z]{1,5}\s+(stock|shares|position)\s+(acquired|sold|purchased|bought)\s+by\b'
+  - '\b(stock|shares)\s+(price\s+)?(up|down)\s+[\d.]+%\s*-\s*here.?s\s+(what happened|why)\b'
+  - '\b(out|under)performs\b.*\bcompetitors\b|\bstock\s+(pre-market|after-hours)\s+at\b'
 near_duplicate_jaccard: 0.8
 near_duplicate_hours: 48

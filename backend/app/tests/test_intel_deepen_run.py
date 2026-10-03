@@ -442,8 +442,16 @@ def test_18_worked_example_paid_waves(db_session: Session) -> None:
                 "results": [
                     {
                         "url": u,
-                        "raw_content": "x" * (280 if "bbb1" in u else 600),
-                        "full_content": "x" * (280 if "bbb1" in u else 600),
+                        "raw_content": (
+                            "The company announced a financing agreement supporting new factory construction. "
+                            * 10
+                        )[: (279 if "bbb1" in u else 599)]
+                        + ".",
+                        "full_content": (
+                            "The company announced a financing agreement supporting new factory construction. "
+                            * 10
+                        )[: (279 if "bbb1" in u else 599)]
+                        + ".",
                     }
                     for u in payload["urls"]
                 ]

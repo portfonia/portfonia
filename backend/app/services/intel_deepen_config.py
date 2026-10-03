@@ -1,10 +1,11 @@
 """Validated deepening rules, reloaded for every slot."""
 
+import re
 from pathlib import Path
 from typing import Annotated
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 Positive = Annotated[float, Field(gt=0)]
 Count = Annotated[int, Field(gt=0)]
@@ -47,7 +48,32 @@ class ExtractRules(BaseModel):
     max_boilerplate_ratio: Annotated[float, Field(gt=0, le=1)]
 
 
+class BodyCleaning(BaseModel):
+    paragraph_min_words: Count
+    residue_line_patterns: list[str]
+    section_block_headings: list[str]
+    _patterns: list[re.Pattern[str]] = PrivateAttr(default_factory=list)
+    _headings: re.Pattern[str] = PrivateAttr()
+
+    def compile_patterns(self) -> "BodyCleaning":
+        try:
+            self._patterns = [re.compile(p, re.IGNORECASE) for p in self.residue_line_patterns]
+            self._headings = re.compile(
+                r"^#*\s*(" + "|".join(self.section_block_headings) + r")\b", re.IGNORECASE
+            )
+        except re.error as exc:
+            raise ValueError("invalid body cleaning configuration") from exc
+        return self
+
+    def residue(self, line: str) -> bool:
+        return any(pattern.search(line) for pattern in self._patterns)
+
+    def section(self, line: str) -> bool:
+        return self._headings.match(line) is not None
+
+
 class DeepenConfig(BaseModel):
+    body_cleaning: BodyCleaning
     thresholds: Thresholds
     caps: Caps
     extract: ExtractRules
@@ -59,4 +85,6 @@ class DeepenConfig(BaseModel):
 
 def load_intel_deepen_config(path: Path | None = None) -> DeepenConfig:
     path = path or Path(__file__).resolve().parents[2] / "config/intel_deepen.yml"
-    return DeepenConfig.model_validate(yaml.safe_load(path.read_text()))
+    config = DeepenConfig.model_validate(yaml.safe_load(path.read_text()))
+    config.body_cleaning.compile_patterns()
+    return config

@@ -3,6 +3,7 @@
 import re
 from urllib.parse import urlsplit
 
+from app.services.instrument_profiles import match_instruments
 from app.services.intel_deepen_config import DeepenConfig
 
 
@@ -30,7 +31,50 @@ def clean_body(url: str, text: str, cfg: DeepenConfig) -> str:
             and not re.search(events, text, re.IGNORECASE)
         ):
             text = ""
-    return without_urls(text)[: cfg.extract.body_max_chars]
+    return strip_residue(without_urls(text), cfg)[: cfg.extract.body_max_chars]
+
+
+_TLD = r"(?:com|net|org|co|io|news|info|biz|uk|sg|hk|cn|jp|de|fr|eu|au|ca|in)"
+_HOST = r"(?:[A-Za-z0-9-]+\.)+" + _TLD
+BARE_DOMAIN_LINE = re.compile(r"^(?:[^|]{0,40}\|\s*)?" + _HOST + r"(?:/\S*)?$", re.IGNORECASE)
+DOMAIN_WITH_PATH = re.compile(r"\b" + _HOST + r"/\S*", re.IGNORECASE)
+
+
+def strip_residue(text: str, cfg: DeepenConfig) -> str:
+    rules = cfg.body_cleaning
+
+    def is_para(line: str) -> bool:
+        return len(line.split()) >= rules.paragraph_min_words and bool(
+            re.search(r'[.!?"\u201d\u2019)]$|\. ', line)
+        )
+
+    out: list[str] = []
+    skipping = False
+    for line in (line.strip() for line in text.splitlines()):
+        if not line:
+            continue
+        if BARE_DOMAIN_LINE.fullmatch(line):
+            continue
+        if rules.section(line):
+            skipping = True
+            continue
+        if skipping and not is_para(line):
+            continue
+        skipping = False
+        if rules.residue(line):
+            continue
+        out.append(line)
+    title = next((line for line in out[:15] if line.startswith("# ")), None)
+    paras = [i for i, line in enumerate(out) if is_para(line)]
+    if not paras:
+        return ""
+    body = [
+        line
+        for line in out[paras[0] : paras[-1] + 1]
+        if not re.match(r"^\d+\.\s+(\d+\.\s+)?\S.{0,40}$", line)
+    ]
+    result = "\n".join(([title] if title and title not in body else []) + body)
+    return DOMAIN_WITH_PATH.sub("", result)
 
 
 def body_verdict(text: str, cfg: DeepenConfig) -> tuple[bool, str | None]:
@@ -50,3 +94,15 @@ def body_verdict(text: str, cfg: DeepenConfig) -> tuple[bool, str | None]:
     if total and boilerplate / total > cfg.extract.max_boilerplate_ratio:
         return False, "boilerplate"
     return True, None
+
+
+def strip_outlet_suffix(title: str, aliases: list[str]) -> str:
+    match = re.match(r"^(.*\S)\s+[-|]\s+([^-|]+)$", title)
+    if (
+        match
+        and len(match[2].split()) <= 4
+        and not re.search(r"\d", match[2])
+        and not match_instruments(match[2], {"x": aliases})
+    ):
+        return match[1]
+    return title
