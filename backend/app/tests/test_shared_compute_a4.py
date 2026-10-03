@@ -61,7 +61,7 @@ def _run_batch(*, shared: bool, clusters: bool = False) -> None:
                 return_value=[
                     {
                         "identifiers": ["NVDA", "AAPL", "SGOL"],
-                        "summary": "shared",
+                        "summary": "The long end repriced and the whole channel followed.",
                         "confidence": "Probable",
                     }
                 ]
@@ -132,10 +132,14 @@ def test_cross_name_clusters_never_carry_another_users_holdings(
     assert u1.report_inputs is not None and u3.report_inputs is not None
     assert u1.report_inputs["cross_name_intel"]
     assert sorted(u1.report_inputs["cross_name_intel"][0]["identifiers"]) == ["AAPL", "NVDA"]
-    for cluster in u1.report_inputs["cross_name_intel"]:
-        assert "SGOL" not in cluster["identifiers"]
-    for cluster in u3.report_inputs["cross_name_intel"]:
-        assert "NVDA" not in cluster["identifiers"]
+    for report, foreign in ((u1, "SGOL"), (u3, "NVDA")):
+        inputs = report.report_inputs
+        assert inputs is not None
+        for cluster in inputs["cross_name_intel"]:
+            assert foreign not in cluster["identifiers"]
+            assert foreign not in cluster["summary"]
+        assert report.report_md is not None
+        assert foreign not in report.report_md
 
 
 def test_uat9_assembled_report_rerenders_with_zero_llm_calls(
