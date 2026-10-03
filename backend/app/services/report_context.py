@@ -64,6 +64,7 @@ class ReportInputsDict(TypedDict, total=False):
     pass1_raw: str
     search_queries: list[str]
     search_results: list[dict[str, Any]]
+    intel_trade_date: str
     pass2_model: str
     pass2_prompt: str
     pass2_raw: str
@@ -141,6 +142,7 @@ class ReportContext:
     pass1_raw: str = ""
     search_queries: list[str] = field(default_factory=list)
     search_results: list[dict[str, Any]] = field(default_factory=list)
+    intel_trade_date: str = ""
     pass2_model: str = ""
     pass2_prompt: str = ""
     pass2_raw: str = ""

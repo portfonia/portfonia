@@ -123,33 +123,23 @@ templates:
   # v2`) and IS byte-exact against the prior inline Python string — verified,
   # not just visually reviewed.
   #
-  # `data_sources_note`'s EN value is NOT byte-identical to the prior inline
-  # string (PR #91 review, 2026-08-07): the old EN sentence read "Fund NAV —
-  # 天天基金 (Tiantian)." — a Chinese vendor name inline inside an otherwise-
-  # English sentence, left over from before this vendor name had its own
-  # i18n_glossary.yml entry. Cleaned up to "Fund NAV — Tiantian Fund." as
-  # part of this move. This is a deliberate, in-scope wording fix, not an
-  # accidental drift — flagging it explicitly per review, since silently
-  # changing user-visible footer wording inside a "just relocate literals"
-  # PR is exactly the kind of thing a byte-exact-preservation claim should
-  # not have papered over. zh-Hans wording for this field is unchanged.
+  # The data note is intentionally vendor-free; source names may remain in
+  # collected article text rendered in the report body.
   footer_header:
-    en: Data Sources & Disclaimer
-    zh-Hans: 数据来源与免责声明
+    en: Notes & Disclaimer
+    zh-Hans: 说明与免责声明
   data_sources_label:
-    en: "Data sources:"
-    zh-Hans: "数据来源："
+    en: "Data notes:"
+    zh-Hans: "数据说明："
   disclaimer_label:
     en: "Disclaimer:"
     zh-Hans: "免责声明："
-  # $fx_date's value is itself a "CCY as of DATE[, CCY as of DATE...]" list
-  # (issue #354: one shared FX date became a per-currency map once pairs
-  # started resolving independently) or "n/a" when no conversion happened —
-  # both wordings below wrap it in parentheses rather than another "as of"/
-  # "截至" connector to avoid stacking two of the same phrase back to back.
+  # $fx_date is a "CCY as of DATE[, CCY as of DATE...]" list or "n/a" when
+  # no conversion happened. The surrounding sentence uses a label so the
+  # value's own "as of" wording is not repeated.
   data_sources_note:
-    en: "Equity/ETF prices — yfinance (end-of-day session closes, US/HK/CN/UK/Europe/Japan/Korea exchanges). Fund NAV — Tiantian Fund. News — RSS feeds (Reuters, CNBC, Google News Business). Exchange rates — yfinance daily closes ($fx_date); all portfolio valuations converted to $base_ccy. Intraday and premarket data are not used."
-    zh-Hans: "股票/ETF价格 — yfinance（美/港/A股/英/欧/日/韩交易所收盘价）。基金净值 — 天天基金。新闻 — RSS订阅（路透社、CNBC、Google财经新闻）。汇率 — yfinance每日收盘价（$fx_date）；所有持仓估值已换算为 $base_ccy。不使用盘前或盘中数据。"
+    en: "Prices are exchange closing prices; funds use the latest published NAV. Exchange rates: $fx_date; all valuations converted to $base_ccy. Pre-market and intraday data are not used."
+    zh-Hans: "价格为各交易所收盘价，基金为最新公布净值；汇率日期：$fx_date；所有估值已换算为 $base_ccy；不使用盘前或盘中数据。"
   disclaimer:
     en: "This report is generated automatically by an AI large language model (LLM) system. AI-generated content may contain imprecise, incomplete, or inaccurate language and does not represent the views or opinions of the sender. This report is provided for informational purposes only. It does not constitute investment advice, a recommendation to buy or sell any security, or a solicitation of any investment. Past performance is not indicative of future results. The sender accepts no responsibility for any decisions made based on this content. Always consult a qualified financial advisor before making investment decisions."
     zh-Hans: "本报告由AI大型语言模型（LLM）系统自动生成。AI生成内容可能包含不精确、不完整或不准确的措辞，不代表发送方的观点或意见。本报告仅供参考，不构成投资建议、证券买卖推荐或投资招揽。历史业绩不代表未来表现。对于基于本内容所作出的任何决策，发送方不承担任何责任。在做出任何投资决策前，请咨询持牌财务顾问。"

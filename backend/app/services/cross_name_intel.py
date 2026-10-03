@@ -735,6 +735,21 @@ def get_day_synthesis(
     return clusters
 
 
+def read_day_synthesis(session: Session, trade_date: date) -> list[dict[str, Any]]:
+    """Read the latest servable L3 synthesis for a date without computing it."""
+    row = session.scalars(
+        select(CrossNameIntel)
+        .where(
+            CrossNameIntel.trade_date == trade_date,
+            CrossNameIntel.prompt_version == _PROMPT_VERSION,
+            CrossNameIntel.clusters.is_not(None),
+        )
+        .order_by(CrossNameIntel.created_at.desc())
+        .limit(1)
+    ).first()
+    return list(row.clusters) if row is not None and row.clusters is not None else []
+
+
 def day_briefed_identifiers(session: Session, trade_date: date) -> list[str]:
     """Every identifier with a servable L1 briefing on `trade_date`, under
     L1's current prompt contract — the full universe the L3 synthesis prompt

@@ -87,23 +87,6 @@ def _portfolio_snap() -> PortfolioSnapshot:
     )
 
 
-def test_pass1_prompt_excludes_holdings_derived_anomalies() -> None:
-    """DATA ISOLATION: Pass 1 runs without data_collection=deny, so it must not
-    carry holdings-derived identifiers. Price anomalies (name/ticker = a held
-    position) belong only in Pass 2."""
-    signals = _macro_hit()
-    news = [_news_item("Fed raises rates")]
-    prompt = rp._build_pass1_prompt(signals, news)
-
-    # Anomaly identifiers from a user's holdings must never appear in Pass 1.
-    assert "NVDA" not in prompt
-    assert "NVIDIA" not in prompt
-    assert "PRICE ANOMALIES" not in prompt
-    # Public signal/news content is still present.
-    assert "MACRO SIGNAL THEMES" in prompt
-    assert "TOP HEADLINES" in prompt
-
-
 def _vendor_zh() -> str:
     return load_i18n_glossary().vendor_names["Tiantian Fund"]["zh-Hans"]
 

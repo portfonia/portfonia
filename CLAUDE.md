@@ -94,7 +94,7 @@ This file holds **conventions and mechanisms**, not a project status board.
 
 | Item | Value |
 |------|-------|
-| LLM model | OpenRouter, split by call shape (issue #78). Structured/JSON (holdings parsing) = `STRUCTURED_LLM_MODEL` (`openai/gpt-5.6-luna`, `reasoning_effort=none`, `data_collection=deny`). Unstructured/free-text (Pass 1 search-query gen + translation render) = `LOW_COST_LLM_MODEL` (`~deepseek/deepseek-v4-flash-latest`, OpenRouter BYOK to DeepSeek direct, `enforce_data_collection=False` + `allow_fallbacks=False` — scoped compliance exception, these two call sites only). After that BYOK leg exhausts `_call_llm`'s retry budget on a retryable error, `_call_llm_byok_with_fallback` makes one additional `FALLBACK_LLM_MODEL` call (`openai/gpt-5.6-luna`, `reasoning_effort=high`, `data_collection=deny`, no BYOK — issue #477); a non-retryable primary failure is not retried this way. PRIMARY (Pass 2 + regenerate) = `deepseek/deepseek-v4-pro`, `data_collection=deny`, no BYOK — never `anthropic/*` here (too expensive; config drift if seen). *Full reasoning (why gemma was dropped, why the BYOK exception, the `allow_fallbacks` pairing) in playbook `docs/playbooks/llm-and-data-handling.md`.* |
+| LLM model | OpenRouter, split by call shape (issue #78). Structured/JSON (holdings parsing) = `STRUCTURED_LLM_MODEL` (`openai/gpt-5.6-luna`, `reasoning_effort=none`, `data_collection=deny`). Unstructured/free-text translation render only = `LOW_COST_LLM_MODEL` (`~deepseek/deepseek-v4-flash-latest`, OpenRouter BYOK to DeepSeek direct, `enforce_data_collection=False` + `allow_fallbacks=False` — the scoped translation exception). After that BYOK leg exhausts `_call_llm`'s retry budget on a retryable error, `_call_llm_byok_with_fallback` makes one additional `FALLBACK_LLM_MODEL` call (`openai/gpt-5.6-luna`, `reasoning_effort=high`, `data_collection=deny`, no BYOK — issue #477); a non-retryable primary failure is not retried this way. PRIMARY (Pass 2 + regenerate) = `deepseek/deepseek-v4-pro`, `data_collection=deny`, no BYOK — never `anthropic/*` here (too expensive; config drift if seen). *Full reasoning in `docs/playbooks/llm-and-data-handling.md`.* |
 | Infrastructure | Homebrew PostgreSQL@16 + Redis (native, not Docker); `make infra-up` not needed |
 | **App runtime retired locally (2026-08-10)** | No local uvicorn/celery worker/celery beat/Next.js dev server anymore — running the app for manual verification happens only via production deploy (see Three-layer deployment flow below). Homebrew Postgres/Redis stay running locally, but only as backing services for `pytest` (real-Postgres integration tests per the Tests section) — never as targets for a locally-running app process. Do **not** start `uvicorn`/`celery worker`/`celery beat`/`next dev` on this machine; if a task needs to be seen working, that means deploying to production, not spinning up a local server. The old "kill and restart uvicorn/celery after any model/migration/router change" drill no longer applies — there is no long-lived local process to go stale. |
 | Output language | reason in EN, render in `output_lang` via a translation pass with a fixed-term glossary — locale-keyed, single source of truth in `backend/config/i18n_glossary.yml` (`report_glossary`/`forbidden_renderings`; only `zh-Hans` populated today, schema reserves `zh-Hant`/`fr`/`es` for later); `en` = no-op. **Per-user since issue #308**: self-service generate/regenerate and the scheduled fan-out read the requesting/recipient user's own `users.locale` (`VALID_REPORT_LANGUAGES = ("en", "zh", "zh-Hant")`, self-service `PATCH /me/report-language`, Ops `POST /admin/users/by-email/report-language`) — `Settings.OUTPUT_LANG` (default `zh`) is now only the fallback for a missing principal row and the value the admin manual-generate endpoint still deliberately uses unchanged. |
@@ -116,6 +116,7 @@ area of the code, not just the one-line summary here.
 
 - [Instrument news collection](docs/mechanisms/capture-and-reporting.md#instrument-news-collection) — issue #620: free per-instrument sources, daily ET slots, per-instrument classification, URL-free records, coverage digest and 30-day retention.
 - [Intel deepening and paid usage](docs/mechanisms/capture-and-reporting.md#intel-deepening-and-paid-usage) — issue #621: global selection, current-slot links, cleaned article bodies, paid limits and A/B metrics, weekday post-close L1/L2/L3.
+- [Scheduled report intelligence reads](docs/mechanisms/capture-and-reporting.md#scheduled-report-intelligence-reads) — issue #622: report-time read-only L1/L2/L3 and URL-free article material; report-time search and Pass 1 are removed.
 - [Frontend chrome (header/nav) convention](docs/mechanisms/frontend-chrome.md) — issue #146/#148 (shared `SiteHeader`); #214 session re-verification; #209 global i18n catalog; #220 Profile menu entry; #269 Profile section reorder; #390 Holdings+Report management merge; #350 item 4 LocaleSwitcher rebuild.
 - [Profile page: GET /me account summary](docs/mechanisms/identity-and-auth.md) — issue #220/#221: `/profile` summary + full `GET /me` shape; #269 adds verification timestamps.
 - [Waitlist](docs/mechanisms/identity-and-auth.md#waitlist-issue-566) — issue #566: public requests, derived stages, and ops-managed email-bound invite links.
@@ -445,18 +446,16 @@ legitimate local state is `.env` (uploaded via `scp`).
   holdings in training data, LLM fine-tuning datasets, or third-party logs.
 - When sending holdings to an external LLM, scope the payload to what the
   current report needs. Do not attach the full portfolio history "just in case".
-- **Two-pass isolation (enforced):** Pass 1 (search-query generation, low-cost
-  model) must carry only public data — macro themes + news headlines.
-  Holdings-derived data, including **price anomalies**, belongs only in
-  Pass 2. Regression locked by `test_pass1_prompt_excludes_holdings_derived_
-  anomalies` and `test_generate_report_pass1_call_has_no_holdings`. Do not
-  reintroduce holdings into `_build_pass1_prompt`.
+- **Scheduled intelligence isolation (enforced):** collection and paid
+  deepening run in the scheduled intel slot. The report path reads only
+  URL-free accepted bodies linked to the requesting user's identifiers and
+  macro themes; it performs no outbound search and no collection LLM call.
 - **`data_collection=deny` on every LLM call by default**, as defense in
-  depth. **Exception (issue #78)**: Pass 1 search-query gen + translation
-  render — both `LOW_COST_LLM_MODEL` — pass `enforce_data_collection=False`
+  depth. **Exception (issue #78)**: translation render — `LOW_COST_LLM_MODEL`
+  — passes `enforce_data_collection=False`
   + `allow_fallbacks=False` (routed via OpenRouter BYOK straight to
   DeepSeek's first-party backend; a scoped, sign-off compliance tradeoff for
-  these two call sites only). Never extend to another call site without the
+  translation rendering only). Never extend to another call site without the
   same sign-off, never drop the `allow_fallbacks=False` pairing. After that
   BYOK leg exhausts `_call_llm`'s retry budget on a retryable error, issue
   #477 adds one independent `FALLBACK_LLM_MODEL` marketplace call with

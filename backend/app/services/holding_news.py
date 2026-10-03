@@ -32,7 +32,7 @@ _BACKEND_DIR = Path(__file__).resolve().parents[2]
 _DEFAULT_KEYWORDS_FILE = _BACKEND_DIR / "config" / "holding_news_keywords.yml"
 
 # Cap recalled items per holding so a noisy alias cannot flood the Pass 2 prompt.
-_MAX_NEWS_PER_HOLDING = 3
+_MAX_NEWS_PER_HOLDING = 6
 
 
 def _get_keywords_path() -> Path:

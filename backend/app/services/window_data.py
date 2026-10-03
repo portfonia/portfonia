@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.core.timezones import ET
 from app.models.holding import Holding
+from app.models.intel import NewsInstrument
 from app.models.news import News
 from app.models.news_surfaced import NewsSurfaced
 from app.models.price_snapshot import PriceSnapshot
@@ -252,6 +253,49 @@ def load_news_window(
         .all()
     )
     return [headline_from_row(r) for r in rows]
+
+
+def load_instrument_news_window(
+    session: Session, _start: datetime, end: datetime, user_id: uuid.UUID, identifiers: list[str]
+) -> list[NewsItem]:
+    """Load linked instrument headlines not yet surfaced to this user."""
+    if not identifiers:
+        return []
+    surfaced = select(NewsSurfaced.news_id).where(NewsSurfaced.user_id == user_id)
+    rows = session.scalars(
+        select(News)
+        .join(NewsInstrument, NewsInstrument.news_id == News.id)
+        .where(
+            NewsInstrument.identifier.in_(identifiers),
+            News.published_at <= end,
+            News.id.not_in(surfaced),
+        )
+        .order_by(News.published_at.desc())
+    ).all()
+    return [headline_from_row(row) for row in rows]
+
+
+def load_instrument_news_by_identifier(
+    session: Session, _start: datetime, end: datetime, user_id: uuid.UUID, identifiers: list[str]
+) -> dict[str, list[NewsItem]]:
+    """Load linked headlines grouped by their owning identifier."""
+    if not identifiers:
+        return {}
+    surfaced = select(NewsSurfaced.news_id).where(NewsSurfaced.user_id == user_id)
+    result: dict[str, list[NewsItem]] = {identifier: [] for identifier in identifiers}
+    rows = session.execute(
+        select(NewsInstrument.identifier, News)
+        .join(News, News.id == NewsInstrument.news_id)
+        .where(
+            NewsInstrument.identifier.in_(identifiers),
+            News.published_at <= end,
+            News.id.not_in(surfaced),
+        )
+        .order_by(News.published_at.desc())
+    )
+    for identifier, row in rows:
+        result[identifier].append(headline_from_row(row))
+    return result
 
 
 def mark_news_surfaced(

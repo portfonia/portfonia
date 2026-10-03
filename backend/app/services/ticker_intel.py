@@ -570,6 +570,21 @@ def get_l1_intel_batch(
     return result
 
 
+def read_l1_intel(session: Session, identifiers: list[str], trade_date: date) -> dict[str, str]:
+    """Read servable L1 rows without computing or charging anything."""
+    if not identifiers:
+        return {}
+    rows = session.scalars(
+        select(TickerIntel).where(
+            TickerIntel.identifier.in_(identifiers),
+            TickerIntel.trade_date == trade_date,
+            TickerIntel.prompt_version == _PROMPT_VERSION,
+            TickerIntel.analysis.is_not(None),
+        )
+    )
+    return {row.identifier: row.analysis for row in rows if row.analysis is not None}
+
+
 # Extra L1 selection (issue #128 quality gate, 2026-08-18): anomaly-only
 # candidates left a 22% TSMC line with nothing for assembly to restate.
 # These are SELECTION knobs — they still only emit identifier strings.
