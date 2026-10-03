@@ -3255,6 +3255,57 @@ def test_failed_retry_keeps_window_older_than_floor(db_session: Session) -> None
     backfill.assert_not_called()
 
 
+def test_large_weight_holding_window_price_reaches_pass2_prompt(db_session: Session) -> None:
+    aapl_move = HoldingMove(
+        identifier="AAPL",
+        market="US",
+        current_price=Decimal("101.22"),
+        prev_price=Decimal("100.0"),
+        net_pct=Decimal("0.0011"),
+        max_day_pct=Decimal("0.0122"),
+        max_day_date=_TODAY,
+        baseline_date=_TODAY,
+        latest_date=_TODAY,
+        prev_close=None,
+        day_open=None,
+        day_high=None,
+        day_low=None,
+        day_close=None,
+        after_hours=None,
+    )
+    captured: dict[str, str] = {}
+
+    def _capture_pass2(*args: object, **kwargs: object) -> str:
+        if kwargs.get("with_holdings"):
+            captured["prompt"] = str(args[3])
+        return _FAKE_LLM_PASS2
+
+    with (
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch("app.services.report_generator.load_news_window", return_value=[]),
+        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
+        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 2)),
+        patch(
+            "app.services.report_generator.resolve_global_moves",
+            return_value=({"AAPL": aapl_move}, 2),
+        ),
+        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
+        patch("app.services.report_generator._call_llm", side_effect=_capture_pass2),
+        patch("app.services.report_generator._run_tavily_search", return_value=[]),
+    ):
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+
+    assert report.status == "success"
+    assert report.report_inputs is not None
+    stored = report.report_inputs["large_holding_moves"]
+    assert stored["AAPL"]["net_pct"] == pytest.approx(0.0011)
+    assert stored["AAPL"]["max_day_pct"] == pytest.approx(0.0122)
+    assert stored["AAPL"]["max_day_date"] == _TODAY.isoformat()
+    assert "LARGE HOLDINGS WINDOW PRICE" in captured["prompt"]
+    assert "AAPL: +0.11% net this report period" in captured["prompt"]
+    assert f"largest single day +1.22% on {_TODAY.isoformat()}" in captured["prompt"]
+
+
 def test_render_full_md_holdings_briefing_header_uses_period_end() -> None:
     from app.core.timezones import ET
 
