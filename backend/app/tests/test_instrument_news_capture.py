@@ -2,7 +2,7 @@
 
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
@@ -78,7 +78,7 @@ def test_acceptance_10_source_isolation(db_session: Session) -> None:
         patch.object(
             cap,
             "classify_headlines",
-            side_effect=lambda items, ticker, aliases: (
+            side_effect=lambda items, ticker, aliases, recent_titles=None: (
                 {i: "keep" for i in range(len(items))},
                 0,
                 None,
@@ -129,7 +129,10 @@ def test_acceptance_20_per_instrument_chunks(db_session: Session) -> None:
     profile(db_session)
 
     def classify(
-        items: list[CollectedItem], ticker: str, aliases: list[str]
+        items: list[CollectedItem],
+        ticker: str,
+        aliases: list[str],
+        recent_titles: Sequence[str] | None = None,
     ) -> tuple[dict[int, str], float, str | None]:
         return {i: "keep" for i in range(len(items))}, 0, None
 
@@ -427,7 +430,10 @@ def test_acceptance_20_separate_instrument_calls(db_session: Session) -> None:
         ]
 
     def classify(
-        items: list[CollectedItem], ticker: str, aliases: list[str]
+        items: list[CollectedItem],
+        ticker: str,
+        aliases: list[str],
+        recent_titles: Sequence[str] | None = None,
     ) -> tuple[dict[int, str], float, str | None]:
         assert len(items) == 5
         events.append(("classified", ticker))
@@ -528,7 +534,9 @@ def test_crossed_url_order_two_postgres_sessions(session_test_db: None) -> None:
         ordered = items if e.identifier == entries[0].identifier else list(reversed(items))
         return [("yahoo", lambda: ordered)]
 
-    def classify(items: list[CollectedItem], *args: object) -> tuple[dict[int, str], float, None]:
+    def classify(
+        items: list[CollectedItem], *args: object, **kwargs: object
+    ) -> tuple[dict[int, str], float, None]:
         return (
             {i: "keep" if x.title == "Shared earnings" else "mention" for i, x in enumerate(items)},
             0,

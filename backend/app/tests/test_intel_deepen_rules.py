@@ -143,7 +143,7 @@ def test_10_body_verdict() -> None:
     assert body_verdict("x" * 400 + "Subscribe to continue", cfg) == (False, "paywall")
     assert body_verdict("Copyright " + "x" * 600 + "\n" + "y" * 400, cfg) == (False, "boilerplate")
     cleaned = clean_body(
-        "https://finance.yahoo.com/a", "Most active\n[...]\n" + "article " * 150, cfg
+        "https://finance.yahoo.com/a", "Most active\n[...]\n" + "article " * 150 + ".", cfg
     )
     assert "Most active" not in cleaned
     assert body_verdict(cleaned, cfg) == (True, None)
@@ -170,7 +170,14 @@ def test_25_body_url_removal() -> None:
     assert "Read more" in cleaned and "Reuters" in cleaned and "http" not in cleaned
     assert body_verdict(cleaned, cfg)[0]
     assert body_verdict(
-        clean_body("https://example.com/a", "x" * 280 + " https://example.com/" + "y" * 100, cfg),
+        clean_body(
+            "https://example.com/a",
+            "Agreement terms will support a new factory and expand production capacity this year. "
+            * 3
+            + " https://example.com/"
+            + "y" * 100,
+            cfg,
+        ),
         cfg,
     ) == (False, "too_short")
 

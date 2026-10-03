@@ -213,7 +213,7 @@ def _fetch_feed(
 
         raw_summary: object = getattr(entry, "summary", None) or getattr(entry, "description", None)
         summary: str | None = None
-        if isinstance(raw_summary, str) and raw_summary:
+        if "news.google.com" not in url and isinstance(raw_summary, str) and raw_summary:
             stripped = _strip_html(raw_summary)
             summary = stripped[:_SUMMARY_MAX_LEN] if stripped else None
 

@@ -563,3 +563,23 @@ def app_client(db_session: Session) -> Generator[TestClient, None, None]:
         yield TestClient(ProxyHeadersMiddleware(app, trusted_hosts="*"))  # type: ignore[arg-type]
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def _no_unmocked_intel_classifiers() -> Generator[None, None, None]:
+    """Every collection/search test must explicitly mock its classifier boundary."""
+    from app.services import instrument_news_capture, intel_deepen
+
+    with (
+        patch.object(
+            instrument_news_capture,
+            "classify_headlines",
+            side_effect=AssertionError("collection classifier must be mocked"),
+        ),
+        patch.object(
+            intel_deepen,
+            "classify_headlines",
+            side_effect=AssertionError("search classifier must be mocked"),
+        ),
+    ):
+        yield

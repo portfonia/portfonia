@@ -31,5 +31,42 @@ extract:
   max_boilerplate_ratio: 0.35
 excluded_domains: [news.google.com, ft.com, wsj.com, barrons.com, foreignpolicy.com, marketwatch.com]
 boilerplate_markers: ["Most active", "Day gainers", "Day losers", "Stock splits", "Oops, something went wrong", "Private companies", "Trending tickers", "This article is an Insider exclusive", "All rights reserved", "Companies Mentioned", "Copyright"]
-paywall_markers: ["Subscribe to continue", "subscribers only", "Upgrade options", "Sign in to read"]
+paywall_markers: ["Subscribe to continue", "subscribers only", "Upgrade options", "Sign in to read", "available only for our paid subscribers"]
 yahoo_nav_markers: ["Most active", "Day gainers", "Day losers", "Stock splits", "Oops, something went wrong", "Private companies", "Trending tickers"]
+body_cleaning:
+  paragraph_min_words: 12
+  paragraph_min_cjk_chars: 30
+  residue_line_patterns:
+    - '^sign up now'
+    - '^skip to'
+    - '^#*\s*trading disclosure'
+    - '^#\s*yahoo finance$'
+    - '^trade \S+ on '
+    - 'download the app'
+    - 'header logo'
+    - '^choose edition'
+    - 'advertise with us'
+    - '^(e-paper|newsletters|podcasts|rss feed)\b'
+    - '^photo:'
+    - '^credit:'
+    - '^(published|updated)\s+\w+\s+\d'
+    - '^set as preferred'
+    - '^reviewed by'
+    - '^copyright\b|all rights reserved'
+    - '^(listen|summarise|summarize)$'
+    - '^(cna games|guess word|buzzword|crack the word)'
+    - '^#*\s*(description|title|image):'
+    - '^\*?\s*[A-Z0-9.^]{1,10}\s+[+-]\d+(\.\d+)?%$'
+    - '^#*\s*u\.s\. markets (closed|open)'
+    - '^advertisement$'
+    - '^\.\.\.$'
+    - '^learn more$'
+  section_block_headings:
+    - 'most read'
+    - 'related'
+    - 'see more on'
+    - 'more from'
+    - 'recommended'
+    - 'trending'
+    - 'read more'
+    - 'also read'

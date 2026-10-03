@@ -175,7 +175,7 @@ def fetch_google_news(
                     strip_google_suffix(str(entry.get("title", "")), entry.get("source")),
                     pub,
                     str(entry["link"]),
-                    _strip_html(str(entry.get("summary", "")))[:500] or None,
+                    None,
                     "google_news",
                 )
             )

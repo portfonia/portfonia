@@ -554,6 +554,27 @@ and `data_collection: deny`. Filings bypass classification. Failed or missing
 labels remain null; promo and unrelated labels are dropped. RSS pool items
 receive only the path and low-value-title rules and are never classified.
 
+Issue #630 gathers all instrument sources before applying the rule chain and
+stably orders candidates by publication time, oldest first. The existing
+Jaccard prefilter still reads the complete 48-hour history. Collection
+classification also detects event versions with no new figure, party or stage
+in that same request: `EXISTING` contains up to 100 stored titles, newest
+first, preceded by surviving titles from earlier batches, also newest first.
+Valid references to those titles or a lower-numbered batch item produce
+`duplicate_llm`; duplicates are dropped before storage and counted with up to
+three digest samples. Invalid references fall back to normal label parsing.
+Classifier failures still store null labels without retry. Filings retain the
+existing rule chain and bypass classification.
+
+The low-value rules additionally drop institutional holding-change notices
+and routine price recaps, including causeless percentage moves, competitor
+comparisons and pre-market/after-hours quotes. The classifier's `promo`
+definition covers holding notices and causeless recaps; moves with a stated
+company-specific cause remain eligible. Per-instrument Google News summaries
+and summaries from RSS feeds whose URL contains `news.google.com` are null;
+other feed summaries are unchanged. News-spike code and thresholds remain
+unchanged, so their stored-row counts naturally reflect the ingestion changes.
+
 Paid-search leads use the same path, alias-relevance and low-value-title chain
 before the provider's newest-first limit, with no near-duplicate check.
 Surviving search titles go through the headline classifier; only `keep` and `mention` continue to extraction.
@@ -646,9 +667,31 @@ parsing only. Non-success responses with ledger rows record 0 units and cost
 and add nothing to run or month usage. Read timeouts after sending retain the
 pre-send estimate. Parallel dates use `publish_date`. No new dependency is required.
 
-Body cleaning removes Yahoo navigation, reduces Markdown links to link text,
-removes bare HTTP(S) URLs, normalizes whitespace and truncates to 2,000
-characters. The gate rejects empty/short text, paywall notices and excessive
+Body cleaning removes Yahoo navigation, reduces Markdown links to link text
+and removes HTTP(S) URLs. Issue #630 then cleans residue before the unchanged
+2,000-character truncation. Validated `body_cleaning` rules remove navigation,
+metadata, signup prompts, photos, timestamps, ticker strips, games and copyright
+lines. Section headings and published/updated timestamps apply only to non-prose
+lines; trading disclosures are anchored at the start of a line. The standalone
+`# Yahoo Finance` heading is removed. Related/most-read blocks are skipped until
+prose resumes. A paragraph has at least 12 whitespace-separated words and the
+existing English sentence punctuation, or at least 30 CJK characters (U+3400–U+9FFF
+or U+F900–U+FAFF) and a full-width period, exclamation mark or question mark
+(U+3002, U+FF01 or U+FF1F). The body spans its first through last paragraph,
+retaining the last `# ` title before the first paragraph and dropping short
+numbered menu entries.
+No paragraph yields an empty rejection. Domain-only lines, optionally behind
+a short source prefix, are dropped; domain-with-path tokens are removed within
+prose. Sentence-contained domains without paths, such as company names, stay.
+The paywall markers include `available only for our paid subscribers`.
+Invalid residue regexes raise `ValueError` during slot configuration loading;
+collection continues and the digest records `deepening: ValueError`.
+
+Search classification requests no duplicate detection. Paid-search titles are
+preserved unchanged. No LLM cleans bodies; the 300-character
+minimum, 0.35 boilerplate ratio and 1,500-character report display cap stay.
+No schema, migration, Settings field or stored-row rewrite is introduced by
+issue #630; old content expires through the existing retention policy. The gate rejects empty/short text, paywall notices and excessive
 boilerplate. Publisher names inside original prose remain. Accepted rows
 contain exactly `v`, `kind`, `title`, `published_at`, `fetched_at`, `body`;
 rejected/failed rows contain no body record. `intel_articles` is unique by
