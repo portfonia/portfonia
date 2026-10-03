@@ -72,7 +72,9 @@ def problem_lines(errors: list[str]) -> list[str]:
         prefix = error.split(":", 1)[0].split(" ", 1)[0]
         source = SOURCES.get(prefix, "News source")
         http = re.search(r"HTTP (\d{3})", error)
-        if "key not set" in error:
+        if error.startswith("classifier:"):
+            reason = "AI review failed" + (f" (HTTP {http[1]})" if http else "")
+        elif "key not set" in error:
             reason = "API key is not configured"
         elif http:
             reason = f"request failed (HTTP {http[1]})"
@@ -219,7 +221,7 @@ def build_batch_report(
     def unit_name(unit: dict[str, object]) -> str:
         return str(unit.get("identifier") or labels.get(str(unit.get("theme")), "Macro theme"))
 
-    picked = []
+    picked: dict[str, list[str]] = {}
     for unit in objects(deep.get("selections")):
         reason = str(unit.get("reason", ""))
         if unit.get("kind") == "macro":
@@ -233,8 +235,15 @@ def build_batch_report(
             words = f"unusual news volume ({reason.split(' ', 1)[1]} usual)"
         else:
             words = "close to the multi-day move threshold"
-        picked.append(f"{unit_name(unit)} ({words})")
-    lines.append("Picked: " + ("; ".join(picked) if picked else "none"))
+        picked.setdefault(words, []).append(unit_name(unit))
+    lines.append(
+        "Picked: "
+        + (
+            "; ".join(f"{', '.join(names)} ({reason})" for reason, names in picked.items())
+            if picked
+            else "none"
+        )
+    )
     for outcome in objects(deep.get("outcomes")):
         name = unit_name(outcome)
         accepted = number(outcome.get("accepted"))

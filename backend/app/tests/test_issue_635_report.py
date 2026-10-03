@@ -237,3 +237,63 @@ def test_635_report_fixture_example(db_session: Session) -> None:
     assert "Kept: 2 headlines and 0 company filings (2 of them new to the database)." in sample
     assert "AAA  Tavily  1 articles kept (headline search)" in sample
     print(sample)
+
+
+def test_638_task_preserves_trigger_written_after_reset(db_session: Session) -> None:
+    def collect(
+        session: Session, run: IntelSlotRun, *args: object, **kwargs: object
+    ) -> IntelCollectionRun:
+        run.details = {"trigger": "manual"}
+        return IntelCollectionRun(status="ok")
+
+    with (
+        patch.object(task, "SessionLocal", return_value=db_session),
+        patch.object(task, "now_et", return_value=NOW),
+        patch.object(task, "today_et", return_value=NOW.date()),
+        patch.object(task, "resolve_profiles", return_value=[]),
+        patch.object(task, "capture_news", return_value=PoolCaptureResult(0, [])),
+        patch.object(task, "collect_slot_news", side_effect=collect),
+        patch.object(task, "load_intel_deepen_config", side_effect=ValueError("fixture")),
+        patch.object(task, "send_ops_alert", return_value=True) as send,
+    ):
+        task.intel_slot_task("post_close")
+    assert "(manual)" in send.call_args.args[0]
+    assert db_session.query(IntelSlotRun).one().details["trigger"] == "manual"
+
+
+def test_638_classifier_error_is_plain_failure() -> None:
+    assert digest.problem_lines(["classifier: ValueError"]) == [
+        "Problems:",
+        "  AI review: AI review failed (1 times)",
+    ]
+
+
+def test_638_documentation_distinguishes_stored_and_rendered_error() -> None:
+    from pathlib import Path
+
+    document = (
+        Path(__file__).resolve().parents[3] / "docs/mechanisms/capture-and-reporting.md"
+    ).read_text()
+    assert "stored error remains `deepening: ValueError`" in document
+    assert "`Paid deepening: unexpected error (ValueError)`" in document
+
+
+def test_638_picked_groups_names_by_reason_in_first_seen_order(db_session: Session) -> None:
+    themes = yaml.safe_load(_get_keywords_path().read_text())["themes"]
+    run = slot(db_session)
+    run.details = {
+        "deepening": {
+            "selections": [
+                {"kind": "quiet", "identifier": "0700.HK", "reason": "new_filing"},
+                {"kind": "macro", "theme": themes[0]["name"], "reason": "theme 11 items"},
+                {"kind": "quiet", "identifier": "2333.HK", "reason": "new_filing"},
+            ]
+        }
+    }
+    line = next(
+        line for line in report(db_session, run)[1].splitlines() if line.startswith("Picked:")
+    )
+    assert (
+        line
+        == "Picked: 0700.HK, 2333.HK (new company filing); Monetary policy (11 matching headlines)"
+    )

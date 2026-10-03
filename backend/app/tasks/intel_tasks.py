@@ -176,6 +176,8 @@ def intel_slot_task(slot: str) -> dict[str, str]:
             if deepen_errors and run.status == "ok":
                 run.status = "partial"
             evidence["deepening_errors"] = deepen_errors
+            if "trigger" in run.details:
+                evidence["trigger"] = run.details["trigger"]
             run.details = evidence
             if profile_errors:
                 collection.errors = list(dict.fromkeys((collection.errors or []) + profile_errors))[

@@ -716,7 +716,8 @@ a short source prefix, are dropped; domain-with-path tokens are removed within
 prose. Sentence-contained domains without paths, such as company names, stay.
 The paywall markers include `available only for our paid subscribers`.
 Invalid residue regexes raise `ValueError` during slot configuration loading;
-collection continues and the digest records `deepening: ValueError`.
+collection continues. The stored error remains `deepening: ValueError`; the
+email displays `Paid deepening: unexpected error (ValueError)`.
 
 Search classification requests no duplicate detection. Paid-search titles are
 preserved unchanged. No LLM cleans bodies; the 300-character

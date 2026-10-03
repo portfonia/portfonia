@@ -52,11 +52,12 @@ def resolve_fixture(
 ) -> tuple[str, list[Lead]]:
     """Retain search-boundary coverage with one explicit Pass 0 headline."""
     title = worker.aliases.get(unit.identifier, [unit.identifier])[0] + " agreement"
-    return worker._resolve(
+    chosen, resolved = worker._resolve(
         provider,
         unit,
         [CollectedItem(title, NOW, "https://news.google.com/fixture", url_kind="google_news")],
     )
+    return chosen, [lead for _, lead in resolved]
 
 
 def test_14_invalid_key_fallback_and_ledger(db_session: Session) -> None:

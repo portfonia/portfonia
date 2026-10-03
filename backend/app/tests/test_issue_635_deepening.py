@@ -217,3 +217,80 @@ def test_635_extract_fallback_retains_headline_outcome(worker: deepen.DeepenRun)
     assert [(outcome["provider"], outcome["via"]) for outcome in accepted] == [
         ("parallel", "search")
     ]
+
+
+def test_638_search_fallback_preserves_provider_attribution(
+    worker: deepen.DeepenRun, db_session: Session
+) -> None:
+    from sqlalchemy import select
+
+    from app.models.paid_intel import IntelArticle, PaidApiUsage
+
+    worker.usage.configured["parallel"] = True
+    a = Lead("https://fixture.example/a", "AAA agreement", NOW)
+    b = Lead("https://fixture.example/b", "AAA factory", NOW)
+    body = (
+        "The company announced an agreement to build a new factory and expand manufacturing capacity. "
+        * 10
+    )
+    with (
+        patch(
+            "app.services.paid_search.TavilyClient.search",
+            side_effect=[
+                PaidResult(200, Decimal(1), Decimal(".008"), leads=[a]),
+                PaidResult(429, Decimal(0), Decimal(0), "quota_or_rate"),
+            ],
+        ),
+        patch(
+            "app.services.paid_search.ParallelClient.search",
+            return_value=PaidResult(200, Decimal(1), Decimal(".005"), leads=[b]),
+        ),
+        patch("app.services.paid_search.TavilyClient.extract") as tavily_extract,
+        patch(
+            "app.services.paid_search.ParallelClient.extract",
+            side_effect=lambda urls, query: PaidResult(
+                200,
+                Decimal(len(urls)),
+                Decimal(".001") * len(urls),
+                bodies={url: body for url in urls},
+            ),
+        ) as parallel_extract,
+        patch.object(deepen, "classify_headlines", return_value=({0: "keep"}, 0, None)),
+        patch("app.services.paid_usage.send_ops_alert", return_value=True),
+        patch.object(worker, "_extract_batch", wraps=worker._extract_batch) as batches,
+    ):
+        worker.run_wave(
+            [WorkUnit("quiet", "AAA", providers=("tavily",))],
+            {"AAA": [headline("AAA agreement"), headline("AAA factory")]},
+            {"AAA": ["AAA"]},
+        )
+    outcomes = {entry["provider"]: entry for entry in worker.outcomes}
+    assert {provider: entry["searches"] for provider, entry in outcomes.items()} == {
+        "tavily": 2,
+        "parallel": 1,
+    }
+    assert len(worker.outcomes) == 2
+    assert outcomes["tavily"]["accepted"] == 0
+    assert outcomes["parallel"]["accepted"] == 2
+    assert worker.metrics["tavily"]["headlines_resolved"] == 1
+    assert worker.metrics["parallel"]["headlines_resolved"] == 1
+    assert [
+        (call.args[0], [lead.url for _, lead in call.args[1]]) for call in batches.call_args_list
+    ] == [("tavily", [a.url]), ("parallel", [b.url])]
+    assert "tavily" in worker.usage.disabled
+    tavily_extract.assert_not_called()
+    assert sorted(url for call in parallel_extract.call_args_list for url in call.args[0]) == [
+        a.url,
+        b.url,
+    ]
+    ledger = db_session.scalars(select(PaidApiUsage)).all()
+    assert [(row.provider, row.cost_usd) for row in ledger if row.operation == "extract"] == [
+        ("parallel", Decimal(".001")),
+        ("parallel", Decimal(".001")),
+    ]
+    assert worker.metrics["tavily"]["cost_usd"] == 0.008
+    assert worker.metrics["parallel"]["cost_usd"] == 0.007
+    assert [row.status for row in db_session.scalars(select(IntelArticle)).all()] == [
+        "accepted",
+        "accepted",
+    ]

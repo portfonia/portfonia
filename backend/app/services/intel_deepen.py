@@ -296,30 +296,30 @@ class DeepenRun:
 
     def _resolve(
         self, provider: str, unit: WorkUnit, headlines: list[CollectedItem]
-    ) -> tuple[str, list[Lead]]:
-        owned: list[Lead] = []
+    ) -> tuple[str, list[tuple[str, Lead]]]:
+        owned: list[tuple[str, Lead]] = []
         chosen = self._provider(provider) or provider
-        outcome = self._outcome(unit, chosen, "search")
         for headline in headlines:
+            outcome = self._outcome(unit, chosen, "search")
             with self.lock:
                 if self.searches >= self.search_cap:
                     outcome["note"] = "cap_reached"
                     break
             chosen, leads = self._search_headline(
-                chosen, unit, headline, {url_key(lead.url) for lead in owned}, outcome
+                chosen, unit, headline, {url_key(lead.url) for _, lead in owned}
             )
-            # A disabled provider can fall back during a search.
-            if chosen != outcome["provider"]:
-                outcome["provider"] = chosen
+            outcome = self._outcome(unit, chosen, "search")
             if leads:
-                owned.append(leads[0])
+                owned.append((chosen, leads[0]))
             else:
                 if outcome["note"] != "cap_reached":
                     outcome["note"] = "no_result"
             with self.lock:
                 self.metrics[chosen]["headlines_resolved" if leads else "headlines_unresolved"] += 1
-        if owned and outcome["note"] == "no_result":
-            outcome["note"] = None
+        for owner, _ in owned:
+            outcome = self._outcome(unit, owner, "search")
+            if outcome["note"] == "no_result":
+                outcome["note"] = None
         return chosen, owned
 
     def _search_headline(
@@ -328,16 +328,17 @@ class DeepenRun:
         unit: WorkUnit,
         headline: CollectedItem,
         selected: set[str],
-        report: UnitOutcome,
     ) -> tuple[str, list[Lead]]:
         query = headline.title
         start = headline.published_at.astimezone(ET).date() - timedelta(days=1)
         end = min(headline.published_at.astimezone(ET).date() + timedelta(days=1), self.run_date)
         for attempt in range(2):
+            report = self._outcome(unit, provider, "search")
             chosen = self._provider(provider)
             if not chosen:
                 report["note"] = "cap_reached"
                 return provider, []
+            report = self._outcome(unit, chosen, "search")
             if self.cleaning is None:
                 return chosen, []
             with self.lock:
@@ -488,14 +489,17 @@ class DeepenRun:
                 if not unit.providers:
                     self._outcome(unit, None, "none")["note"] = "cap_reached"
                 for provider in unit.providers:
-                    chosen = provider
-                    owned = leads
-                    if not owned and unit.identifier:
-                        chosen, owned = self._resolve(provider, unit, headlines)
+                    if not leads and unit.identifier:
+                        _, resolved = self._resolve(provider, unit, headlines)
+                        by_provider: dict[str, list[tuple[WorkUnit, Lead]]] = defaultdict(list)
+                        for owner, lead in resolved:
+                            by_provider[owner].append((unit, lead))
+                        for owner, batch in by_provider.items():
+                            groups[owner].append(batch)
                     else:
-                        self._outcome(unit, chosen, "direct")
-                    if owned:
-                        groups[chosen].append([(unit, lead) for lead in owned])
+                        self._outcome(unit, provider, "direct")
+                        if leads:
+                            groups[provider].append([(unit, lead) for lead in leads])
         jobs = []
         for provider, provider_groups in groups.items():
             batches = (
