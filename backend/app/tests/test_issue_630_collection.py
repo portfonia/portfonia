@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.intel import InstrumentProfile, IntelSlotRun
+from app.models.intel import InstrumentProfile, IntelSlotRun, NewsInstrument
 from app.models.news import News
 from app.services import headline_cleaning as hc
 from app.services import instrument_news_capture as cap
@@ -45,6 +45,9 @@ def stored(session: Session, title: str, index: int = 0) -> None:
     )
     nid, _ = store_headline(session, lead.headline(), "instrument", "article", "keep")
     link_instrument(session, nid, "AVGO")
+    session.query(NewsInstrument).filter_by(news_id=nid, identifier="AVGO").one().created_at = (
+        NOW - timedelta(days=1)
+    )
     session.flush()
 
 
@@ -104,7 +107,7 @@ def test_630_12_jaccard_keeps_full_history(db_session: Session) -> None:
         patch.object(cap, "classify_headlines") as classifier,
     ):
         result = cap.collect_instrument_news(db_session, ENTRY, NOW, hc.load_cleaning_config())
-    assert result.cleaning["duplicate"] == 1
+    assert result.cleaning["duplicate_earlier"] == 1
     assert not result.leads
     classifier.assert_not_called()
 
@@ -271,7 +274,7 @@ def test_630_09_invalid_config_slot_keeps_headlines(db_session: Session, tmp_pat
     assert db_session.scalars(select(IntelSlotRun)).one().details["deepening_errors"] == [
         "deepening: ValueError"
     ]
-    assert "deepening: ValueError" in send.call_args.args[1]
+    assert "Paid deepening: unexpected error (ValueError)" in send.call_args.args[1]
 
 
 def test_630_21_spike_counts_stored_events(db_session: Session) -> None:

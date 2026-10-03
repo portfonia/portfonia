@@ -1,4 +1,4 @@
-"""Daily intelligence slots; collect once and send one digest per slot/date."""
+"""Daily intelligence slots with one collection report per attempt."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from app.services.instrument_profiles import resolve_profiles
 from app.services.instrument_universe import intel_universe
 from app.services.intel_deepen import DeepenRun
 from app.services.intel_deepen_config import load_intel_deepen_config
-from app.services.intel_digest import build_slot_digest
+from app.services.intel_digest import batch_subject, build_batch_report
 from app.services.intel_selection import select_units
 from app.services.intel_shared_analysis import run_post_close_analysis
 from app.services.intel_signals import compute_signals
@@ -61,10 +61,19 @@ def intel_slot_task(slot: str) -> dict[str, str]:
             now - now.replace(hour=hour, minute=minute, second=0, microsecond=0)
         ).total_seconds()
         if not -EARLY_TRIGGER_TOLERANCE_S <= delay <= 3600:
+            run.started_at = now
             run.status = "failed"
             run.details = {"reason": "stale_trigger"}
             run.finished_at = now
             session.commit()
+            if send_ops_alert(
+                batch_subject(run, failed=True),
+                f"Batch did not run: the trigger arrived too late ({timedelta(seconds=delay)} after the scheduled time).",
+                idempotency_key=f"intel-report-{run.id}-{int(now.timestamp())}",
+                severity="WARNING",
+            ):
+                run.digest_sent_at = now_et()
+                session.commit()
             return {"status": "stale_trigger"}
         run.started_at = now
         run.status = "running"
@@ -167,6 +176,8 @@ def intel_slot_task(slot: str) -> dict[str, str]:
             if deepen_errors and run.status == "ok":
                 run.status = "partial"
             evidence["deepening_errors"] = deepen_errors
+            if "trigger" in run.details:
+                evidence["trigger"] = run.details["trigger"]
             run.details = evidence
             if profile_errors:
                 collection.errors = list(dict.fromkeys((collection.errors or []) + profile_errors))[
@@ -181,9 +192,12 @@ def intel_slot_task(slot: str) -> dict[str, str]:
             run.details = {"reason": error_text("slot", exc)}
         run.finished_at = now_et()
         session.commit()
-        subject, body, severity = build_slot_digest(session, run)
+        subject, body, severity = build_batch_report(session, run)
         if send_ops_alert(
-            subject, body, idempotency_key=f"intel-digest-{run_date}-{slot}", severity=severity
+            subject,
+            body,
+            idempotency_key=f"intel-report-{run.id}-{int(now.timestamp())}",
+            severity=severity,
         ):
             run.digest_sent_at = now_et()
             session.commit()

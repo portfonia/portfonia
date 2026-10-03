@@ -110,7 +110,7 @@ def test_acceptance_08_alias_boundaries() -> None:
     assert not match_instruments("NVDAX fund launch", aliases)
     assert not match_instruments("nvda rises", aliases)
     assert match_instruments("新贵州茅台公告", {"CN": ["贵州茅台"]}) == {"CN"}
-    assert not match_instruments("X贵州茅台2", {"CN": ["贵州茅台"]})
+    assert match_instruments("X贵州茅台2", {"CN": ["贵州茅台"]}) == {"CN"}
 
 
 def test_standard_record_is_clean_and_closed() -> None:

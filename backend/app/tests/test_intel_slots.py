@@ -11,7 +11,7 @@ from app.core.config import get_settings
 from app.models.holding import Holding
 from app.models.intel import InstrumentProfile, IntelCollectionRun, IntelSlotRun, NewsInstrument
 from app.models.news import News
-from app.services.intel_digest import build_slot_digest
+from app.services.intel_digest import build_batch_report
 from app.services.news_capture import PoolCaptureResult
 from app.services.news_fetcher import FetchNewsResult
 from app.tasks import celery_app
@@ -60,7 +60,7 @@ def test_acceptance_12_stale_trigger(db_session: Session) -> None:
     slot = db_session.scalars(select(IntelSlotRun)).one()
     assert slot.status == "failed" and slot.details["reason"] == "stale_trigger"
     pool.assert_not_called()
-    send.assert_not_called()
+    assert send.call_count == 1 and send.call_args.kwargs["severity"] == "WARNING"
 
 
 def test_acceptance_13_24_digest(db_session: Session) -> None:
@@ -86,8 +86,9 @@ def test_acceptance_13_24_digest(db_session: Session) -> None:
         db_session.add(
             IntelCollectionRun(
                 kind="rss",
+                slot_run_id=slot.id,
                 node=node,
-                started_at=NOW - timedelta(hours=1),
+                started_at=NOW,
                 finished_at=NOW,
                 status="ok",
                 stats={"feeds": {"FT": {"items": 2, "errors": 0}}},
@@ -95,13 +96,21 @@ def test_acceptance_13_24_digest(db_session: Session) -> None:
             )
         )
     db_session.flush()
-    _, body, severity = build_slot_digest(db_session, slot)
-    assert "33.3%" in body and "INTC,AMKR" in body and "US-close" in body and "Japan-close" in body
-    assert body.index("Instrument collection:") < body.index("RSS node US-close")
-    assert "ET" in body and severity == "INFO"
-    assert "non_article: 5" in body and "four" not in body and "0.002" in body
+    _, body, severity = build_batch_report(db_session, slot)
+    assert (
+        "Instruments covered: 1 of 3" in body
+        and "INTC,AMKR" in body
+        and "RSS feeds (2) ...... 4, no errors" in body
+    )
+    assert body.index("PART 1 - FREE NEWS COLLECTION") < body.index("PART 2 - PAID DEEPENING")
+    assert "ET" in build_batch_report(db_session, slot)[0] and severity == "INFO"
+    assert (
+        "Not an article page ...................... 5" in body
+        and "four" not in body
+        and "0.002" in body
+    )
     slot.status = "failed"
-    assert build_slot_digest(db_session, slot)[2] == "WARNING"
+    assert build_batch_report(db_session, slot)[2] == "WARNING"
 
 
 def test_acceptance_14_daily_schedule() -> None:
@@ -228,10 +237,11 @@ def test_midnight_stale_does_not_block_real_slot(
         row = db_session.scalars(select(IntelSlotRun)).one()
         assert row.status == "failed" and row.details == {"reason": "stale_trigger"}
         pool.assert_not_called()
-        send.assert_not_called()
+        assert send.call_count == 1
         clock.return_value = real
         assert task.intel_slot_task(slot) == {"status": "ok"}
-        assert pool.call_count == collect.call_count == send.call_count == 1
+        assert pool.call_count == collect.call_count == 1
+        assert send.call_count == 2
     assert len(db_session.scalars(select(IntelSlotRun)).all()) == 1
 
 

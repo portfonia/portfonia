@@ -151,7 +151,14 @@ class PaidClient:
                 "include_usage": True,
             }
             if self.provider == "tavily"
-            else {"objective": query, "search_queries": [query]}
+            else {
+                "objective": query,
+                "search_queries": [query],
+                "advanced_settings": {
+                    "source_policy": {"after_date": start.isoformat()},
+                    "max_results": 3,
+                },
+            }
         )
         result = self._call("search", payload, 1)
         result.leads = result.leads[:3]
@@ -161,7 +168,7 @@ class PaidClient:
         payload: dict[str, object] = (
             {"urls": urls, "query": query, "chunks_per_source": self.chunks, "include_usage": True}
             if self.provider == "tavily"
-            else {"urls": urls, "objective": query}
+            else {"urls": urls, "objective": query, "full_content": True}
         )
         return self._call("extract", payload, len(urls))
 

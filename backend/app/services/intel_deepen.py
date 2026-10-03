@@ -5,7 +5,7 @@ import threading
 from collections import defaultdict
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from math import ceil
 from typing import TypedDict, cast
@@ -31,7 +31,14 @@ from app.services.instrument_profiles import match_instruments
 from app.services.instrument_universe import UniverseEntry
 from app.services.intel_body import body_verdict, clean_body, without_urls
 from app.services.intel_deepen_config import DeepenConfig
-from app.services.intel_leads import Lead, accepted_recently, excluded, select_leads, url_key
+from app.services.intel_leads import (
+    Lead,
+    accepted_recently,
+    excluded,
+    select_headlines,
+    select_leads,
+    url_key,
+)
 from app.services.intel_records import build_article_record
 from app.services.intel_selection import WorkUnit, assign_providers, select_units
 from app.services.intel_signals import Signal, slot_history
@@ -72,6 +79,21 @@ class ProviderMetrics(TypedDict):
     budget: int
     search_filtered: dict[str, int]
     search_classifier_cost_usd: float
+    headlines_resolved: int
+    headlines_unresolved: int
+
+
+class UnitOutcome(TypedDict):
+    kind: str
+    identifier: str
+    theme: str
+    reason: str
+    provider: str | None
+    via: str
+    searches: int
+    accepted: int
+    rejected: dict[str, int]
+    note: str | None
 
 
 class DeepenRun:
@@ -119,6 +141,7 @@ class DeepenRun:
         self.pool_items: list[NewsItem] = []
         self.futures: list[Future[None]] = []
         self.selected: list[WorkUnit] = []
+        self.outcomes: list[UnitOutcome] = []
         self.errors: list[str] = []
         if self.cleaning is None:
             self.errors.append("search_filter: ValueError")
@@ -135,6 +158,8 @@ class DeepenRun:
                 "budget": 0,
                 "search_filtered": {},
                 "search_classifier_cost_usd": 0.0,
+                "headlines_resolved": 0,
+                "headlines_unresolved": 0,
             }
             for p in ("tavily", "parallel")
         }
@@ -181,7 +206,8 @@ class DeepenRun:
         operation: str,
         query: str,
         *,
-        start: object = None,
+        start: date | None = None,
+        end: date | None = None,
         leads: list[Lead] | None = None,
     ) -> tuple[str, PaidResult] | None:
         count = len(leads or []) if operation == "extract" else 1
@@ -201,12 +227,10 @@ class DeepenRun:
             else ParallelClient(self.settings, self.cfg.extract.tavily_chunks_per_source)
         )
         try:
-            from datetime import date
-
             result = (
                 client.extract([lead.url for lead in leads or []], query)
                 if operation == "extract"
-                else client.search(query, cast(date, start), self.run_date)
+                else client.search(query, cast(date, start), end or self.run_date)
             )
             if result.http_status not in (None, 401, 403) or result.sent_timeout:
                 with SessionLocal() as session:
@@ -245,28 +269,89 @@ class DeepenRun:
             else next((p for p in ("tavily", "parallel") if p in available), None)
         )
 
-    def _search(self, provider: str, unit: WorkUnit) -> tuple[str, list[Lead]]:
-        name = self.names.get(unit.identifier, unit.identifier)
-        query = (
-            f"Why is {name} stock {'down' if '-' in unit.reason else 'up'}"
-            if unit.kind == "mover"
-            else f"{name} {unit.identifier} news"
-        )
+    def _outcome(self, unit: WorkUnit, provider: str | None, via: str) -> UnitOutcome:
+        with self.lock:
+            for outcome in self.outcomes:
+                if (
+                    outcome["kind"],
+                    outcome["identifier"],
+                    outcome["theme"],
+                    outcome["provider"],
+                ) == (unit.kind, unit.identifier, unit.theme, provider):
+                    return outcome
+            outcome = UnitOutcome(
+                kind=unit.kind,
+                identifier=unit.identifier,
+                theme=unit.theme,
+                reason=unit.reason,
+                provider=provider,
+                via=via,
+                searches=0,
+                accepted=0,
+                rejected={},
+                note=None,
+            )
+            self.outcomes.append(outcome)
+            return outcome
+
+    def _resolve(
+        self, provider: str, unit: WorkUnit, headlines: list[CollectedItem]
+    ) -> tuple[str, list[tuple[str, Lead]]]:
+        owned: list[tuple[str, Lead]] = []
+        chosen = self._provider(provider) or provider
+        for headline in headlines:
+            outcome = self._outcome(unit, chosen, "search")
+            with self.lock:
+                if self.searches >= self.search_cap:
+                    outcome["note"] = "cap_reached"
+                    break
+            chosen, leads = self._search_headline(
+                chosen, unit, headline, {url_key(lead.url) for _, lead in owned}
+            )
+            outcome = self._outcome(unit, chosen, "search")
+            if leads:
+                owned.append((chosen, leads[0]))
+            else:
+                if outcome["note"] != "cap_reached":
+                    outcome["note"] = "no_result"
+            with self.lock:
+                self.metrics[chosen]["headlines_resolved" if leads else "headlines_unresolved"] += 1
+        for owner, _ in owned:
+            outcome = self._outcome(unit, owner, "search")
+            if outcome["note"] == "no_result":
+                outcome["note"] = None
+        return chosen, owned
+
+    def _search_headline(
+        self,
+        provider: str,
+        unit: WorkUnit,
+        headline: CollectedItem,
+        selected: set[str],
+    ) -> tuple[str, list[Lead]]:
+        query = headline.title
+        start = headline.published_at.astimezone(ET).date() - timedelta(days=1)
+        end = min(headline.published_at.astimezone(ET).date() + timedelta(days=1), self.run_date)
         for attempt in range(2):
+            report = self._outcome(unit, provider, "search")
             chosen = self._provider(provider)
             if not chosen:
+                report["note"] = "cap_reached"
                 return provider, []
+            report = self._outcome(unit, chosen, "search")
             if self.cleaning is None:
                 return chosen, []
             with self.lock:
                 if self.searches >= self.search_cap:
+                    report["note"] = "cap_reached"
                     return chosen, []
-            start = unit.window_start or self.previous.astimezone(ET).date()
-            outcome = self._call(chosen, "search", query, start=start)
+            outcome = self._call(chosen, "search", query, start=start, end=end)
             if outcome and (outcome[1].http_status is not None or outcome[1].sent_timeout):
                 with self.lock:
                     self.searches += 1
+                    report["searches"] += 1
             if not outcome:
+                report["note"] = "cap_reached"
                 return chosen, []
             _, result = outcome
             if result.status_class in ("invalid_key", "quota_or_rate") and attempt == 0:
@@ -279,9 +364,10 @@ class DeepenRun:
                     if not excluded(lead.url, self.cfg)
                     and (
                         lead.published_at is None
-                        or lead.published_at.astimezone(ET).date() >= start - timedelta(days=7)
+                        or lead.published_at.astimezone(ET).date() >= start
                     )
                     and not accepted_recently(session, lead.url, self.cfg, self.now)
+                    and url_key(lead.url) not in selected
                 ]
             aliases = self.aliases.get(unit.identifier, [unit.identifier])
             survivors: list[tuple[Lead, CollectedItem]] = []
@@ -331,13 +417,7 @@ class DeepenRun:
                     leads = kept
             else:
                 leads = []
-            leads.sort(
-                key=lambda lead: (
-                    lead.published_at is None,
-                    -lead.published_at.timestamp() if lead.published_at else 0,
-                )
-            )
-            return chosen, leads[:2]
+            return chosen, leads[:1]
         return provider, []
 
     def run_wave(
@@ -391,13 +471,35 @@ class DeepenRun:
                 if len(unit.providers) == 2:
                     with self.lock:
                         self.dual_keys.update(url_key(lead.url) for lead in leads)
+                headlines = (
+                    select_headlines(
+                        session,
+                        unit,
+                        candidates,
+                        aliases.get(unit.identifier, [unit.identifier]),
+                        self.cfg,
+                        self.previous,
+                    )
+                    if not leads and unit.identifier
+                    else []
+                )
+                if not leads and not headlines:
+                    self._outcome(unit, None, "none")["note"] = "no_news"
+                    continue
+                if not unit.providers:
+                    self._outcome(unit, None, "none")["note"] = "cap_reached"
                 for provider in unit.providers:
-                    chosen = provider
-                    owned = leads
-                    if not owned and unit.identifier:
-                        chosen, owned = self._search(provider, unit)
-                    if owned:
-                        groups[chosen].append([(unit, lead) for lead in owned])
+                    if not leads and unit.identifier:
+                        _, resolved = self._resolve(provider, unit, headlines)
+                        by_provider: dict[str, list[tuple[WorkUnit, Lead]]] = defaultdict(list)
+                        for owner, lead in resolved:
+                            by_provider[owner].append((unit, lead))
+                        for owner, batch in by_provider.items():
+                            groups[owner].append(batch)
+                    else:
+                        self._outcome(unit, provider, "direct")
+                        if leads:
+                            groups[provider].append([(unit, lead) for lead in leads])
         jobs = []
         for provider, provider_groups in groups.items():
             batches = (
@@ -467,6 +569,16 @@ class DeepenRun:
             ) + len(batch)
         with SessionLocal() as session:
             for unit, lead in batch:
+                via = next(
+                    (
+                        entry["via"]
+                        for entry in self.outcomes
+                        if (entry["kind"], entry["identifier"], entry["theme"])
+                        == (unit.kind, unit.identifier, unit.theme)
+                    ),
+                    "direct",
+                )
+                unit_outcome = self._outcome(unit, provider, via)
                 text = clean_body(lead.url, result.bodies.get(lead.url, ""), self.cfg)
                 accepted, reason = body_verdict(text, self.cfg)
                 if result.status_class != "success" or lead.url not in result.bodies:
@@ -523,11 +635,16 @@ class DeepenRun:
                 )
                 with self.lock:
                     if accepted:
+                        unit_outcome["accepted"] += 1
                         self.accepted[provider].add(url_key(lead.url))
                         self.metrics[provider]["accepted"] = (
                             int(self.metrics[provider]["accepted"]) + 1
                         )
                     else:
+                        unit_rejected = unit_outcome["rejected"]
+                        unit_rejected[reason or "empty"] = (
+                            unit_rejected.get(reason or "empty", 0) + 1
+                        )
                         rejected = self.metrics[provider]["rejected"]
                         rejected[reason or "empty"] = rejected.get(reason or "empty", 0) + 1
             session.commit()
@@ -601,6 +718,7 @@ class DeepenRun:
                 ),
             }
         return {
+            "outcomes": self.outcomes,
             "selections": [
                 {
                     **asdict(u),

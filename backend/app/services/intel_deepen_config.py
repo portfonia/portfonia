@@ -33,6 +33,7 @@ class Caps(BaseModel):
     leads_per_mover: Count
     leads_per_quiet: Count
     searches_per_run: Count
+    headlines_per_unit: Count
     ab_dual_top: Count
     accepted_url_skip_days: Count
     weekend_quiet: Count

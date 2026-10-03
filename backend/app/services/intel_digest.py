@@ -1,8 +1,9 @@
-"""Plain-text collection digest, assembled only from URL-free run evidence."""
+"""Plain-English collection reports for one attempt of an intelligence batch."""
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import re
+from collections import Counter
 from typing import Literal, cast
 
 from sqlalchemy import select
@@ -10,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from app.core.timezones import ET
 from app.models.intel import IntelCollectionRun, IntelSlotRun
+from app.services.intel_body import without_urls
+from app.services.macro_detector import macro_theme_labels
 
 
 def obj(value: object) -> dict[str, object]:
@@ -20,160 +23,279 @@ def number(value: object) -> float:
     return float(value) if isinstance(value, (float, int)) else 0
 
 
-def build_slot_digest(
+def objects(value: object) -> list[dict[str, object]]:
+    return [obj(v) for v in value] if isinstance(value, list) else []
+
+
+SOURCES = {
+    "finnhub": "Finnhub",
+    "google_news": "Google News",
+    "yahoo": "Yahoo",
+    "sec": "SEC filings",
+    "eastmoney": "Eastmoney filings",
+    "rss": "RSS feeds",
+    "classifier": "AI review",
+    "tavily": "Tavily",
+    "parallel": "Parallel",
+    "deepening": "Paid deepening",
+    "search_filter": "Headline checks",
+    "slot": "Batch",
+    "profile": "Company names",
+    "collection": "News collection",
+    "cleaning": "Headline checks",
+    "L1": "Instrument briefs",
+    "L2": "Macro-event notes",
+    "L3": "Cross-instrument themes",
+}
+SOURCE_LINES = {
+    "finnhub": "Finnhub ...........",
+    "google_news": "Google News .......",
+    "yahoo": "Yahoo ...............",
+    "sec": "SEC filings ...........",
+    "eastmoney": "Eastmoney filings .....",
+}
+DROPS = (
+    ("Do not name the company ................", ("unrelated_rule", "unrelated_llm")),
+    ("Already collected in an earlier batch ....", ("duplicate_earlier",)),
+    ("Same story as another headline, reworded .", ("duplicate", "duplicate_llm")),
+    ("Stock picks, promotion, routine price recaps", ("low_value_rule", "promo_llm")),
+    ("Not an article page ......................", ("non_article",)),
+)
+MARKETS = {"HK": "Hong Kong", "A-Share": "China A-share"}
+
+
+def problem_lines(errors: list[str]) -> list[str]:
+    if not errors:
+        return ["Problems: none"]
+    counts: Counter[tuple[str, str]] = Counter()
+    for error in errors:
+        prefix = error.split(":", 1)[0].split(" ", 1)[0]
+        source = SOURCES.get(prefix, "News source")
+        http = re.search(r"HTTP (\d{3})", error)
+        if error.startswith("classifier:"):
+            reason = "AI review failed" + (f" (HTTP {http[1]})" if http else "")
+        elif "key not set" in error:
+            reason = "API key is not configured"
+        elif http:
+            reason = f"request failed (HTTP {http[1]})"
+        elif "timeout" in error.lower():
+            reason = "timed out"
+        elif "classifier_failed" in error:
+            reason = "AI review failed"
+        elif "invalid_key" in error:
+            reason = "API key is invalid"
+        elif "quota_or_rate" in error:
+            reason = "provider quota or request limit reached"
+        else:
+            exception = re.search(r"\b[A-Za-z]+(?:Error|Exception)\b", error)
+            reason = f"unexpected error ({exception[0] if exception else 'Error'})"
+        counts[source, reason] += 1
+    return [
+        "Problems:",
+        *[f"  {source}: {reason} ({count} times)" for (source, reason), count in counts.items()],
+    ]
+
+
+def errors_from(value: object) -> list[str]:
+    return [v for v in value if isinstance(v, str)] if isinstance(value, list) else []
+
+
+def batch_subject(slot: IntelSlotRun, *, failed: bool = False) -> str:
+    stamp = slot.started_at.astimezone(ET).strftime("%a %Y-%m-%d %H:%M")
+    trigger = "manual" if slot.details.get("trigger") == "manual" else "scheduled"
+    status = (
+        "Failed"
+        if failed or slot.status == "failed"
+        else "OK"
+        if slot.status == "ok"
+        else "Partial"
+    )
+    return f"[Portfonia] Intel batch {stamp} ET ({trigger}) - {status}"
+
+
+def build_batch_report(
     session: Session, slot: IntelSlotRun
 ) -> tuple[str, str, Literal["INFO", "WARNING"]]:
-    previous = session.scalar(
-        select(IntelSlotRun.started_at)
-        .where(IntelSlotRun.started_at < slot.started_at)
-        .order_by(IntelSlotRun.started_at.desc())
-        .limit(1)
-    )
-    cutoff = previous or slot.started_at - timedelta(hours=24)
     runs = list(
         session.scalars(
             select(IntelCollectionRun)
             .where(
-                IntelCollectionRun.started_at >= cutoff,
-                IntelCollectionRun.started_at <= slot.finished_at
-                if slot.finished_at
-                else IntelCollectionRun.started_at <= slot.started_at,
+                IntelCollectionRun.slot_run_id == slot.id,
+                IntelCollectionRun.started_at >= slot.started_at,
             )
             .order_by(IntelCollectionRun.started_at)
         )
     )
-    runs.sort(
-        key=lambda run: (
-            not (run.kind == "instrument" and run.slot_run_id == slot.id),
-            run.started_at,
-        )
-    )
     severity: Literal["INFO", "WARNING"] = "WARNING" if slot.status == "failed" else "INFO"
-
-    def fmt(dt: datetime) -> str:
-        return dt.astimezone(ET).strftime("%Y-%m-%d %H:%M:%S ET")
-
-    lines = [
-        f"Slot: {slot.slot} {slot.run_date}",
-        f"Start: {fmt(slot.started_at)}",
-        f"Finish: {fmt(slot.finished_at) if slot.finished_at else 'running'}",
-        f"Status: {slot.status}",
-        "",
-        "Collection and RSS nodes:",
-    ]
-    totals: dict[str, dict[str, float]] = {}
-    feeds: dict[str, dict[str, float]] = {}
-    cleaning: dict[str, float] = {}
+    totals: dict[str, Counter[str]] = {}
+    markets: dict[str, Counter[str]] = {}
+    cleaning: Counter[str] = Counter()
+    classifier: Counter[str] = Counter()
     samples: dict[str, list[str]] = {}
-    classifier: dict[str, float] = {}
-    errors = []
-    reserved = {"markets", "feeds", "cleaning", "cleaning_samples", "classifier", "unreached"}
+    unreached: dict[str, list[str]] = {}
+    free_errors: list[str] = []
+    rss_items = rss_errors = rss_feeds = 0
+    duration = 0.0
     for run in runs:
-        duration = (run.finished_at - run.started_at).total_seconds() if run.finished_at else 0
-        if run.kind == "rss":
-            lines.append(
-                f"RSS node {run.node or 'capture-news'}: {fmt(run.started_at)} {run.status}; {duration:.1f}s"
-            )
-        elif run.slot_run_id == slot.id:
-            lines.append(f"Instrument collection: {run.status}; {duration:.1f}s")
-            unreached = obj(run.stats.get("unreached"))
-            for market, raw in obj(run.stats.get("markets")).items():
-                values = obj(raw)
-                processed = number(values.get("processed"))
-                total = number(values.get("total"))
-                ids = unreached.get(market, [])
-                text = ",".join(str(i) for i in ids) if isinstance(ids, list) else ""
-                lines.append(
-                    f"{market}: {processed:g}/{total:g} ({processed / total * 100 if total else 100:.1f}%); unreached: {text or 'none'}"
-                )
+        free_errors.extend(run.errors)
         if run.status == "failed":
             severity = "WARNING"
-        for source, raw in run.stats.items():
-            if source in reserved:
-                continue
-            values = obj(raw)
-            calls = number(values.get("calls"))
-            failures = number(values.get("errors"))
-            if calls and failures >= calls:
+        if run.kind == "rss":
+            feeds = obj(run.stats.get("feeds"))
+            rss_feeds += len(feeds)
+            rss_items += int(sum(number(obj(v).get("items")) for v in feeds.values()))
+            rss_errors += int(sum(number(obj(v).get("errors")) for v in feeds.values()))
+            rss = obj(run.stats.get("rss"))
+            if number(rss.get("calls")) and number(rss.get("errors")) >= number(rss.get("calls")):
                 severity = "WARNING"
-            target = totals.setdefault(source, {})
-            for key, value in values.items():
-                target[key] = target.get(key, 0) + number(value)
-        for feed, raw in obj(run.stats.get("feeds")).items():
-            target = feeds.setdefault(feed, {})
-            for key, value in obj(raw).items():
-                target[key] = target.get(key, 0) + number(value)
-        for key, value in obj(run.stats.get("cleaning")).items():
-            cleaning[key] = cleaning.get(key, 0) + number(value)
-        for key, value in obj(run.stats.get("classifier")).items():
-            classifier[key] = classifier.get(key, 0) + number(value)
-        for key, value in obj(run.stats.get("cleaning_samples")).items():
-            if isinstance(value, list):
-                samples[key] = (samples.get(key, []) + [str(x) for x in value])[:3]
-        errors.extend(run.errors)
-    lines += ["", "Per-source totals:"]
-    for source, source_totals in totals.items():
+            continue
+        if run.finished_at:
+            duration += (run.finished_at - run.started_at).total_seconds()
+        for source in SOURCE_LINES:
+            source_values = obj(run.stats.get(source))
+            target = totals.setdefault(source, Counter())
+            target.update({k: number(v) for k, v in source_values.items()})
+            if number(source_values.get("calls")) and number(source_values.get("errors")) >= number(
+                source_values.get("calls")
+            ):
+                severity = "WARNING"
+        for market, raw in obj(run.stats.get("markets")).items():
+            markets.setdefault(market, Counter()).update(
+                {k: number(v) for k, v in obj(raw).items()}
+            )
+        for market, raw in obj(run.stats.get("unreached")).items():
+            if isinstance(raw, list):
+                unreached.setdefault(market, []).extend(str(v) for v in raw)
+        cleaning.update({k: number(v) for k, v in obj(run.stats.get("cleaning")).items()})
+        classifier.update({k: number(v) for k, v in obj(run.stats.get("classifier")).items()})
+        for reason, raw in obj(run.stats.get("cleaning_samples")).items():
+            if isinstance(raw, list):
+                samples.setdefault(reason, []).extend(str(v) for v in raw)
+    processed = sum(m["processed"] for m in markets.values())
+    total = sum(m["total"] for m in markets.values())
+    coverage = ", ".join(f"{MARKETS.get(k, k)} {v['processed']:g}" for k, v in markets.items())
+    lines = [
+        "PART 1 - FREE NEWS COLLECTION",
+        f"Instruments covered: {processed:g} of {total:g}"
+        + (f" ({coverage})" if coverage else "")
+        + f". Took {duration:.0f} seconds.",
+    ]
+    for market, identifiers in unreached.items():
         lines.append(
-            source + ": " + ", ".join(f"{key}={value:g}" for key, value in source_totals.items())
+            f"Not reached in the time limit: {MARKETS.get(market, market)}: {','.join(dict.fromkeys(identifiers))}."
         )
-    lines += ["", "RSS feeds:"]
-    for feed, feed_totals in feeds.items():
-        lines.append(
-            f"{feed}: items={feed_totals.get('items', 0):g}, errors={feed_totals.get('errors', 0):g}"
-        )
-    lines += ["", "Errors:", *list(dict.fromkeys(errors))[:20], "", "Cleaning:"]
-    for reason, count in cleaning.items():
-        lines.append(
-            f"{reason}: {count:g}"
-            + ("; samples: " + "; ".join(samples[reason]) if samples.get(reason) else "")
-        )
+    lines += ["", "Headlines fetched (published in the last 48 hours):"]
+    for source, label in SOURCE_LINES.items():
+        values = totals.get(source, Counter())
+        lines.append(f"  {label} {values['items']:,.0f} ({values['calls']:g} requests)")
+        if values["skipped_no_name"]:
+            lines.append(
+                f"  Not queried (no company name on file): {SOURCES[source]} for {values['skipped_no_name']:g} instruments."
+            )
     lines.append(
-        "Classifier: " + ", ".join(f"{key}={value:g}" for key, value in classifier.items())
+        f"  RSS feeds ({rss_feeds}) ...... {rss_items:,}, "
+        + (f"{rss_errors} errors" if rss_errors else "no errors")
     )
+    lines += ["", "Headlines dropped:"]
+    for label, reasons in DROPS:
+        count = sum(cleaning[r] for r in reasons)
+        titles = list(dict.fromkeys(without_urls(t) for r in reasons for t in samples.get(r, [])))[
+            :3
+        ]
+        lines.append(
+            f"  {label} {count:,.0f}"
+            + ("  e.g. " + "; ".join(f'"{t}"' for t in titles) if titles else "")
+        )
+    inserted = sum(t["inserted"] for t in totals.values())
+    lines += [
+        "",
+        f"Kept: {cleaning['kept'] - cleaning['filings_stored']:g} headlines and {cleaning['filings_stored']:g} company filings ({inserted:g} of them new to the database).",
+        f"AI review: checked {classifier['items']:g} headlines in {classifier['batches']:g} calls, cost ${classifier['cost_usd']:.3f}, {classifier['failed_batches']:g} failed calls; {cleaning['stored_null_label']:g} kept without a label.",
+        *problem_lines(free_errors),
+        "",
+        "PART 2 - PAID DEEPENING",
+    ]
     deep = obj(slot.details.get("deepening"))
-    deep_errors = slot.details.get("deepening_errors", [])
-    if deep_errors or deep.get("errors"):
-        severity = "WARNING"
-        lines += ["", "Deepening errors:", str(deep_errors), str(deep.get("errors", []))]
-    if deep:
-        selections = deep.get("selections", [])
-        lines += ["", "Selections:"]
-        if deep.get("weekend") and not selections:
-            lines.append("weekend: no unit met the conditions")
-        for raw in selections if isinstance(selections, list) else []:
-            unit = obj(raw)
-            lines.append(
-                f"{unit.get('kind')}: {unit.get('identifier') or unit.get('theme')}; {unit.get('reason')}; providers={unit.get('providers')}"
-            )
-        lines += [
-            "",
-            f"Paid usage: mode={deep.get('mode')}; warning_ratio={deep.get('warning_ratio')}",
-        ]
-        for provider, raw in obj(deep.get("usage")).items():
-            usage = obj(raw)
-            prefix = "Tavily" if provider == "tavily" else "Parallel"
-            dollar = "" if provider == "tavily" else "$"
-            used = number(usage.get("month"))
-            limit = number(usage.get("month_limit"))
-            lines.append(
-                f"{prefix} {dollar}{number(usage.get('run')):g}/{dollar}{number(usage.get('run_cap')):g} run, {dollar}{used:g}/{dollar}{limit:g} month ({used / limit * 100 if limit else 0:.0f}%); key configured={'yes' if usage.get('configured') else 'no'}"
-            )
-        lines += ["", "A/B metrics:"]
-        for provider, raw in obj(deep.get("metrics")).items():
-            lines.append(
-                f"{provider}: " + ", ".join(f"{key}={value}" for key, value in obj(raw).items())
-            )
-    shared = obj(slot.details.get("shared_analysis"))
-    if shared:
-        lines += [
-            "",
-            "Shared analysis:",
-            ", ".join(f"{key}={value}" for key, value in shared.items()),
-        ]
-        if shared.get("errors"):
-            severity = "WARNING"
-    return (
-        f"[Portfonia] Intel slot {slot.slot} {slot.run_date} - {slot.status}",
-        "\n".join(lines),
-        severity,
+    labels = macro_theme_labels()
+
+    def unit_name(unit: dict[str, object]) -> str:
+        return str(unit.get("identifier") or labels.get(str(unit.get("theme")), "Macro theme"))
+
+    picked: dict[str, list[str]] = {}
+    for unit in objects(deep.get("selections")):
+        reason = str(unit.get("reason", ""))
+        if unit.get("kind") == "macro":
+            theme_count = re.search(r"theme (\d+) items", reason)
+            words = f"{theme_count[1] if theme_count else '0'} matching headlines"
+        elif unit.get("kind") == "mover":
+            words = f"price move ({reason})"
+        elif reason == "new_filing":
+            words = "new company filing"
+        elif reason.startswith("news_spike "):
+            words = f"unusual news volume ({reason.split(' ', 1)[1]} usual)"
+        else:
+            words = "close to the multi-day move threshold"
+        picked.setdefault(words, []).append(unit_name(unit))
+    lines.append(
+        "Picked: "
+        + (
+            "; ".join(f"{', '.join(names)} ({reason})" for reason, names in picked.items())
+            if picked
+            else "none"
+        )
     )
+    for outcome in objects(deep.get("outcomes")):
+        name = unit_name(outcome)
+        accepted = number(outcome.get("accepted"))
+        provider = "Tavily" if outcome.get("provider") == "tavily" else "Parallel"
+        if accepted:
+            via = "headline search" if outcome.get("via") == "search" else "direct links"
+            lines.append(f"  {name}  {provider}  {accepted:g} articles kept ({via})")
+        elif outcome.get("note") == "no_news":
+            lines.append(f"  {name}  no news to follow up, no paid call")
+        else:
+            reason = (
+                "batch limit reached"
+                if outcome.get("note") == "cap_reached"
+                else "no usable article found"
+            )
+            lines.append(f"  {name}  nothing usable ({reason})")
+    metrics = {p: obj(v) for p, v in obj(deep.get("metrics")).items()}
+    kept = sum(number(m.get("accepted")) for m in metrics.values())
+    failed = sum(number(obj(m.get("rejected")).get("provider_error")) for m in metrics.values())
+    rejected = sum(
+        sum(number(n) for r, n in obj(m.get("rejected")).items() if r != "provider_error")
+        for m in metrics.values()
+    )
+    usage = obj(deep.get("usage"))
+    tavily, parallel = obj(usage.get("tavily")), obj(usage.get("parallel"))
+    lines += [
+        f"Articles kept: {kept:g}. Rejected: {rejected:g}. Failed: {failed:g}.",
+        f"Spend this batch: Tavily {number(tavily.get('run')):g} credits, Parallel ${number(parallel.get('run')):.3f}.",
+    ]
+    tused, tlimit = number(tavily.get("month")), number(tavily.get("month_limit"))
+    pused, plimit = number(parallel.get("month")), number(parallel.get("month_limit"))
+    lines.append(
+        f"Spend this month: Tavily {tused:g} of {tlimit:,.0f} credits ({tused / tlimit * 100 if tlimit else 0:.0f}%), Parallel ${pused:.2f} of ${plimit:.2f} ({pused / plimit * 100 if plimit else 0:.0f}%)."
+    )
+    costs = []
+    for provider in ("tavily", "parallel"):
+        metric = metrics.get(provider, {})
+        accepted = number(metric.get("accepted"))
+        costs.append(
+            f"${number(metric.get('cost_usd')) / accepted:.4f}" if accepted else "not available"
+        )
+    lines.append(f"Tavily vs Parallel: cost per kept article {costs[0]} vs {costs[1]}.")
+    shared = obj(slot.details.get("shared_analysis"))
+    if slot.slot == "post_close" and slot.run_date.weekday() < 5:
+        lines.append(
+            f"Analysis written: {number(shared.get('l1_written')):g} instrument briefs ({number(shared.get('l1_cache_hits')):g} reused), {number(shared.get('l2_written')):g} macro-event notes, {number(shared.get('l3_clusters')):g} cross-instrument themes."
+        )
+    deep_errors = errors_from(slot.details.get("deepening_errors")) or errors_from(
+        deep.get("errors")
+    )
+    analysis_errors = errors_from(shared.get("errors"))
+    if deep_errors or analysis_errors:
+        severity = "WARNING"
+    lines += problem_lines(deep_errors + analysis_errors)
+    return batch_subject(slot), "\n".join(lines), severity

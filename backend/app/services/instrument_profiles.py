@@ -22,11 +22,7 @@ def match_instruments(text: str, alias_map: Mapping[str, Sequence[str]]) -> set[
             if not alias:
                 continue
             cjk = bool(re.search(r"[\u3400-\u9fff]", alias))
-            pattern = (
-                (r"(?<![A-Za-z0-9])" + re.escape(alias) + r"(?![A-Za-z0-9])")
-                if cjk
-                else r"\b" + re.escape(alias) + r"\b"
-            )
+            pattern = re.escape(alias) if cjk else r"\b" + re.escape(alias) + r"\b"
             if re.search(pattern, text, 0 if cjk or len(alias) <= 4 else re.IGNORECASE):
                 matches.add(identifier)
                 break

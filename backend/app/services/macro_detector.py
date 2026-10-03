@@ -167,3 +167,9 @@ def detect_macro_signals(
         signals.total_matched_articles,
     )
     return signals
+
+
+def macro_theme_labels() -> dict[str, str]:
+    """English display names for collection reports; keyword matching is unchanged."""
+    data = yaml.safe_load(_get_keywords_path().read_text(encoding="utf-8"))
+    return {str(t["name"]): str(t["name_en"]) for t in data["themes"]}
