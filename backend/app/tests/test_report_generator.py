@@ -28,7 +28,7 @@ from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -44,8 +44,7 @@ from app.services.portfolio_calculator import (
     HoldingValue,
     PortfolioSnapshot,
 )
-from app.services.price_anomaly_detector import ConstituentMove, PriceAnomaly
-from app.services.report_llm import _BYOK_PROVIDER_ORDER
+from app.services.price_anomaly_detector import PriceAnomaly
 from app.services.window_data import HoldingMove, MovesCache
 from app.tests.conftest import seed_user
 
@@ -316,11 +315,8 @@ def _mock_llm(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(
-    reason="Retired by #622; scheduled-intel coverage is in test_report_intel_reads.py"
-)
 def test_generate_report_normal_path(db_session: Session) -> None:
-    """Full pipeline: macro hit + anomaly → Pass1 → Tavily → Pass2 → DB write."""
+    """Full pipeline: macro hit + anomaly → scheduled reads → Pass 2 → DB write."""
     with (
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
@@ -333,9 +329,7 @@ def test_generate_report_normal_path(db_session: Session) -> None:
         ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
-        patch(
-            "app.services.report_generator._run_tavily_search", return_value=_FAKE_TAVILY_RESULTS
-        ),
+        patch("app.services.report_generator._run_tavily_search") as mock_search,
     ):
         report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
@@ -350,11 +344,9 @@ def test_generate_report_normal_path(db_session: Session) -> None:
     assert report.generated_at is not None
     assert report.report_inputs is not None
     assert report.report_inputs["pass2_model"] != ""
-    assert len(report.report_inputs["search_queries"]) == 2
-    # 1 macro-themed result + 1 from the R-3 targeted anomaly search: the anomaly
-    # holding has no recalled window news, so a targeted search runs and the mock
-    # returns its (single) result a second time.
-    assert len(report.report_inputs["search_results"]) == 2
+    assert report.report_inputs["search_queries"] == []
+    assert report.report_inputs["search_results"] == []
+    mock_search.assert_not_called()
 
 
 def test_generate_report_macro_sidecar_stripped_and_coverage_persisted(
@@ -456,6 +448,10 @@ def test_generate_report_empty_book_content_contract(db_session: Session) -> Non
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
         patch("app.services.report_generator._run_tavily_search", return_value=[]),
+        patch("app.services.report_generator.intel_trade_date", return_value=_TODAY),
+        patch("app.services.report_generator.read_l1_intel", return_value={"NVDA": "It rose."}),
+        patch("app.services.report_generator.read_l2_intel", return_value={}),
+        patch("app.services.report_generator.read_day_synthesis", return_value=[]),
     ):
         report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
@@ -469,253 +465,6 @@ def test_generate_report_empty_book_content_contract(db_session: Session) -> Non
     assert "| FOMC Meeting | —" in report.report_md
 
 
-@pytest.mark.skip(reason="Retired by #622; report-time search was removed")
-def test_targeted_search_budget_uses_real_api_calls_not_result_item_count(
-    db_session: Session,
-) -> None:
-    """Review round 1 bug: the targeted-search gate used to compute
-    `daily_remaining - len(ctx.search_results)` — subtracting a RESULT-ITEM
-    count (up to 5/query) from an HTTP-CALL budget. With TAVILY_DAILY_BUDGET
-    at its default (10) and Pass 1 proposing 2 queries that each return 5
-    items, that arithmetic reached 0 (10 - 10) and skipped the targeted NVDA
-    search entirely — even though only 2 real HTTP calls (of the 10 allowed)
-    had actually been made. This exercises the real report_search.py cache
-    path (only httpx.post is mocked), unlike the other tests in this file
-    which mock `_run_tavily_search` itself."""
-    five_items = [
-        {"title": f"headline {i}", "url": f"https://x.com/{i}", "content": "c", "score": 0.5}
-        for i in range(5)
-    ]
-
-    def _fake_response(*args: object, **kwargs: object) -> MagicMock:
-        resp = MagicMock()
-        resp.raise_for_status.return_value = None
-        resp.json.return_value = {"results": five_items}
-        return resp
-
-    with (
-        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
-        patch(
-            "app.services.report_generator.load_news_window",
-            return_value=[_news_item("Fed raises rates")],
-        ),
-        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-        patch(
-            "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
-        ),
-        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
-        patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
-        patch("app.services.report_search.httpx.post", side_effect=_fake_response) as mock_post,
-    ):
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert report.status == "success"
-    real_queries = [c.kwargs["json"]["query"] for c in mock_post.call_args_list]
-    assert any("NVDA" in q for q in real_queries)
-
-
-@pytest.mark.skip(reason="Retired by #622; report-time search was removed")
-def test_large_weight_holding_without_anomaly_gets_material(db_session: Session) -> None:
-    """Narrative-layer redesign (issue #128, 2026-08-20): the 2026-08-17
-    anchor report's TSM line (22.5% of the portfolio, +1.22% on the day —
-    below its own asset-class anomaly threshold) got ZERO recalled news and
-    ZERO targeted search in Pass 2's own inputs, because both only ever
-    looked at `ctx.price_anomalies` — a holding that never crosses its
-    threshold was invisible to material-gathering no matter how large its
-    weight. Pass 2 wrote it from prior knowledge alone; the redesign doc's
-    diagnosis is that this — not the writing model or its instructions — is
-    the actual root cause (design doc, "narrative-layer redesign — quality
-    gate reversal", the TSM worked example pinning down the gap).
-
-    `_portfolio_snap()`'s single AAPL holding is 100% of the portfolio,
-    which reproduces the "large weight, no anomaly" shape directly: with
-    `detect_window_anomalies` returning an empty anomaly list and no window
-    news to recall, AAPL must still trigger a targeted search whose result
-    lands in `ctx.search_results` (persisted as
-    `report_inputs["search_results"]`) — the same BACKGROUND RESEARCH slot
-    the existing anomaly-targeted search already uses — so Pass 2's own
-    prompt carries the material, not just L1's shared cache.
-    """
-    tavily_calls: list[list[str]] = []
-
-    def _capture_tavily(
-        session: Session, queries: list[str], eff_date: date, *, budget: int, **_kwargs: object
-    ) -> list[dict[str, Any]]:
-        tavily_calls.append(list(queries))
-        return [
-            {
-                "query": q,
-                "title": f"headline for {q}",
-                "url": "https://example.com/x",
-                "content": "c",
-                "score": 0.5,
-            }
-            for q in queries
-        ]
-
-    with (
-        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
-        patch("app.services.report_generator.load_news_window", return_value=[]),
-        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 2)),
-        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
-        patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
-        patch("app.services.report_generator._run_tavily_search", side_effect=_capture_tavily),
-    ):
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert report.status == "success"
-    all_queries = [q for batch in tavily_calls for q in batch]
-    assert any("AAPL" in q for q in all_queries), (
-        f"expected a targeted search query naming the large no-anomaly "
-        f"holding AAPL among {all_queries}"
-    )
-    assert report.report_inputs is not None
-    aapl_results = [
-        r for r in report.report_inputs["search_results"] if "AAPL" in r.get("title", "")
-    ]
-    assert aapl_results, (
-        f"expected an AAPL-titled result in search_results: "
-        f"{report.report_inputs['search_results']}"
-    )
-
-
-@pytest.mark.skip(reason="Retired by #622; report-time L1 preparation was removed")
-def test_large_weight_holding_window_price_reaches_pass2_prompt(db_session: Session) -> None:
-    """Design amendment item 3 (issue #128, 2026-08-20, "make Pass 2 write the
-    connection again, not just name it"), extended by the second design
-    amendment's item 3 (net and max-day fed as two separate facts): a large
-    holding below the anomaly threshold previously had NO price fact anywhere
-    in Pass 2's prompt at all — not even its own unremarkable window move —
-    because PRICE ANOMALIES only lists holdings that crossed threshold.
-    `resolve_global_moves` is mocked directly (the real captured-close store
-    has no seeded price_snapshots for this fixture's synthetic AAPL holding);
-    everything else is the same shape as
-    `test_large_weight_holding_without_anomaly_gets_material`."""
-    aapl_move = HoldingMove(
-        identifier="AAPL",
-        market="US",
-        current_price=Decimal("101.22"),
-        prev_price=Decimal("100.0"),
-        net_pct=Decimal("0.0011"),
-        max_day_pct=Decimal("0.0122"),
-        max_day_date=_TODAY,
-        baseline_date=_TODAY,
-        latest_date=_TODAY,
-        prev_close=None,
-        day_open=None,
-        day_high=None,
-        day_low=None,
-        day_close=None,
-        after_hours=None,
-    )
-    captured: dict[str, str] = {}
-
-    def _capture_pass2_llm(
-        client: object,
-        model: str,
-        system: str,
-        user: str,
-        *,
-        with_holdings: bool = False,
-        **kwargs: object,
-    ) -> str:
-        if with_holdings:
-            captured["pass2_user"] = user
-            return _FAKE_LLM_PASS2
-        return _FAKE_LLM_PASS1
-
-    with (
-        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
-        patch("app.services.report_generator.load_news_window", return_value=[]),
-        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 2)),
-        patch(
-            "app.services.report_generator.resolve_global_moves",
-            return_value=({"AAPL": aapl_move}, 2),
-        ),
-        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
-        patch("app.services.report_generator._call_llm", side_effect=_capture_pass2_llm),
-        patch("app.services.report_generator._run_tavily_search", return_value=[]),
-    ):
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert report.status == "success"
-    assert report.report_inputs is not None
-    stored = report.report_inputs["large_holding_moves"]
-    assert stored["AAPL"]["net_pct"] == pytest.approx(0.0011)
-    assert stored["AAPL"]["max_day_pct"] == pytest.approx(0.0122)
-    assert stored["AAPL"]["max_day_date"] == _TODAY.isoformat()
-    assert "pass2_user" in captured
-    assert "LARGE HOLDINGS WINDOW PRICE" in captured["pass2_user"]
-    assert "AAPL: +0.11% net this report period" in captured["pass2_user"]
-    assert f"largest single day +1.22% on {_TODAY.isoformat()}" in captured["pass2_user"]
-
-
-@pytest.mark.skip(reason="Retired by #622; report-time search was removed")
-def test_weight_targeted_search_promotes_title_matches_first(db_session: Session) -> None:
-    """Design amendment item 1 (2026-08-20): a targeted-search result whose
-    title actually names the identifier must be ranked ahead of a result that
-    only matched Tavily's own relevance score — the v5 compare's TSM query
-    returned a mostly-generic result set, and burying the one on-target title
-    among four off-target ones wastes the model's attention on exactly the
-    holding this fix targets."""
-
-    def _fake_tavily(
-        session: Session, queries: list[str], eff_date: date, *, budget: int, **_kwargs: object
-    ) -> list[dict[str, Any]]:
-        # Only the weight-targeted AAPL query returns results — Pass 1's own
-        # (differently worded) queries return nothing, so the two calls don't
-        # bleed into each other in report_inputs["search_results"]. The real
-        # `_run_tavily_search` always stamps each result's "query" with the
-        # caller's own (date-qualified) query string — mirrored here since a
-        # mismatched "query" field would make the identifier lookup miss.
-        matches = [q for q in queries if "AAPL stock news catalyst" in q]
-        if not matches:
-            return []
-        query = matches[0]
-        # Off-target result first, exactly as Tavily's own relevance score
-        # would rank it here (0.9 > 0.4) — the fix must still put the title
-        # match ahead of it.
-        return [
-            {
-                "query": query,
-                "title": "Broad market roundup: tech stocks mixed",
-                "url": "https://example.com/roundup",
-                "content": "c",
-                "score": 0.9,
-            },
-            {
-                "query": query,
-                "title": "Apple (AAPL) reports strong iPhone demand",
-                "url": "https://example.com/aapl",
-                "content": "c",
-                "score": 0.4,
-            },
-        ]
-
-    with (
-        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
-        patch("app.services.report_generator.load_news_window", return_value=[]),
-        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 2)),
-        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
-        patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
-        patch("app.services.report_generator._run_tavily_search", side_effect=_fake_tavily),
-    ):
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert report.status == "success"
-    assert report.report_inputs is not None
-    titles = [r["title"] for r in report.report_inputs["search_results"] if r.get("title")]
-    aapl_titles = [t for t in titles if "iPhone" in t or "roundup" in t]
-    assert aapl_titles == [
-        "Apple (AAPL) reports strong iPhone demand",
-        "Broad market roundup: tech stocks mixed",
-    ]
-
-
-@pytest.mark.skip(reason="Retired by #622; report no longer generates report-time L1")
 def test_generate_report_pass2_call_excludes_l1_ticker_intel_text(db_session: Session) -> None:
     """Round 2 review finding: `ctx.ticker_intel` is populated and persisted
     on report_inputs, but nothing enforces that Pass 2 never receives it —
@@ -741,30 +490,11 @@ def test_generate_report_pass2_call_excludes_l1_ticker_intel_text(db_session: Se
             return _FAKE_LLM_PASS2
         return _FAKE_LLM_PASS1
 
-    def _mock_l1_llm(*args: object, **kwargs: object) -> str:
-        return _L1_MARKER
-
     with (
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
             "app.services.report_generator.load_news_window",
             return_value=[_news_item("Fed raises rates")],
-        ),
-        # `load_day_news` is L1's OWN, separate news source (design doc §4.8,
-        # second addendum) — it queries the real `news` table directly, not
-        # `load_news_window`'s (mocked, per-user) return value, so it needs
-        # its own mock.
-        patch(
-            "app.services.report_generator.load_day_news",
-            return_value=[_news_item("Nvidia beats earnings")],
-        ),
-        # `resolve_global_moves` mocked too (round 6 review fix): a headline
-        # alone is no longer enough for L1 to analyze/cache an identifier —
-        # a candidate needs a real `day_pct`, which this test has no reason
-        # to seed real Holding/PriceSnapshot rows for.
-        patch(
-            "app.services.report_generator.resolve_global_moves",
-            return_value=({"NVDA": _day_move("NVDA")}, 1),
         ),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
         patch(
@@ -773,8 +503,10 @@ def test_generate_report_pass2_call_excludes_l1_ticker_intel_text(db_session: Se
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_capture_pass2_llm),
         patch("app.services.report_generator._run_tavily_search", return_value=[]),
-        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
-        patch("app.services.ticker_intel._call_llm", side_effect=_mock_l1_llm),
+        patch("app.services.report_generator.intel_trade_date", return_value=_TODAY),
+        patch("app.services.report_generator.read_l1_intel", return_value={"NVDA": _L1_MARKER}),
+        patch("app.services.report_generator.read_l2_intel", return_value={}),
+        patch("app.services.report_generator.read_day_synthesis", return_value=[]),
     ):
         report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
@@ -815,7 +547,6 @@ def _l2_patches(
     )
 
 
-@pytest.mark.skip(reason="Retired by #622; report no longer generates report-time L2")
 def test_generate_report_pass2_call_excludes_l2_macro_event_intel_text(
     db_session: Session,
 ) -> None:
@@ -839,20 +570,11 @@ def test_generate_report_pass2_call_excludes_l2_macro_event_intel_text(
             return _FAKE_LLM_PASS2
         return _FAKE_LLM_PASS1
 
-    l2_client, l2_call, l2_news = _l2_patches()
     with (
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
             "app.services.report_generator.load_news_window",
             return_value=[_news_item("Fed raises rates")],
-        ),
-        patch(
-            "app.services.report_generator.load_day_news",
-            return_value=[_news_item("Nvidia beats earnings")],
-        ),
-        patch(
-            "app.services.report_generator.resolve_global_moves",
-            return_value=({"NVDA": _day_move("NVDA")}, 1),
         ),
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
         patch(
@@ -861,9 +583,18 @@ def test_generate_report_pass2_call_excludes_l2_macro_event_intel_text(
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_capture_pass2_llm),
         patch("app.services.report_generator._run_tavily_search", return_value=[]),
-        l2_client,
-        l2_call,
-        l2_news,
+        patch("app.services.report_generator.intel_trade_date", return_value=_TODAY),
+        patch("app.services.report_generator.read_l1_intel", return_value={}),
+        patch(
+            "app.services.report_generator.read_l2_intel",
+            return_value={
+                "theme:货币政策": {
+                    "analysis": f"{_L2_MARKER} rate policy datapoint. [Established]",
+                    "affected_asset_classes": ["STOCK"],
+                }
+            },
+        ),
+        patch("app.services.report_generator.read_day_synthesis", return_value=[]),
     ):
         report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
@@ -884,490 +615,6 @@ def test_generate_report_pass2_call_excludes_l2_macro_event_intel_text(
     # (_render_full_md) without ever touching the prompt.
     assert report.report_md is not None
     assert _L2_MARKER not in report.report_md
-
-
-@pytest.mark.skip(reason="Retired by #622; report no longer generates report-time L2")
-def test_generate_report_l2_prompt_uses_day_news_not_the_users_window(
-    db_session: Session,
-) -> None:
-    """Design doc §4.8's second principle, applied to L2: the shared row must
-    describe the trading day, not the calling user's report window. The user's
-    own window headline ("Fed raises rates", from `load_news_window`) must not
-    reach a row every other user will read; the day's global headline must."""
-    captured: dict[str, str] = {}
-
-    def _capture_l2_llm(
-        client: object, model: str, system: str, user: str, **kwargs: object
-    ) -> str:
-        captured["l2_user"] = user
-        return _mock_l2_llm()
-
-    l2_client, l2_call, l2_news = _l2_patches(llm=_capture_l2_llm)
-    with (
-        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
-        patch(
-            "app.services.report_generator.load_news_window",
-            return_value=[_news_item("Fed raises rates")],
-        ),
-        patch(
-            "app.services.report_generator.load_day_news",
-            return_value=[_news_item("Nvidia beats earnings")],
-        ),
-        patch(
-            "app.services.report_generator.resolve_global_moves",
-            return_value=({"NVDA": _day_move("NVDA")}, 1),
-        ),
-        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-        patch(
-            "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
-        ),
-        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
-        patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
-        patch("app.services.report_generator._run_tavily_search", return_value=[]),
-        l2_client,
-        l2_call,
-        l2_news,
-    ):
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert report.status == "success"
-    assert "l2_user" in captured
-    assert "Fed holds rates steady" in captured["l2_user"]
-    assert "Fed raises rates" not in captured["l2_user"]
-
-
-@pytest.mark.skip(reason="Retired by #622; report-time targeted search was removed")
-def test_generate_report_l1_sees_targeted_search_headline_pass2_input_unchanged(
-    db_session: Session,
-) -> None:
-    """Round 3 review finding: NVDA (the seeded anomaly) has no recalled
-    window news, so §5's targeted-search gap-fill fires for it — but the
-    targeted result used to be appended only to `ctx.search_results` (Pass
-    2's input), never merged into `ctx.holding_news` (what
-    `build_l1_candidates` reads for `news_headlines`). The identifier that
-    most needed a catalyst got an empty L1 headline list even when the
-    targeted search found one. Fix must reach L1 WITHOUT mutating
-    `ctx.holding_news`/`report_inputs["holding_news"]` itself — that's Pass
-    2's input too, and A2's report content must stay byte-identical."""
-    _TARGETED_TITLE = "NVIDIA announces new datacenter chip"
-    captured_l1_prompt: dict[str, str] = {}
-
-    def _capture_l1_llm(
-        client: object, model: str, system: str, user: str, **kwargs: object
-    ) -> str:
-        captured_l1_prompt["prompt"] = user
-        return "NVDA moved on the new chip announcement. [Established]"
-
-    def _fake_response(*args: object, **kwargs: object) -> MagicMock:
-        resp = MagicMock()
-        resp.raise_for_status.return_value = None
-        resp.json.return_value = {
-            "results": [
-                {
-                    "title": _TARGETED_TITLE,
-                    "url": "https://reuters.com/nvda-chip",
-                    "content": "c",
-                    "score": 0.9,
-                }
-            ]
-        }
-        return resp
-
-    with (
-        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
-        patch(
-            "app.services.report_generator.load_news_window",
-            return_value=[_news_item("Fed raises rates")],
-        ),
-        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-        patch(
-            "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
-        ),
-        # round 6 review fix: L1 needs a real `day_pct` to analyze/cache an
-        # identifier at all now, not just a headline — see _day_move's docstring.
-        patch(
-            "app.services.report_generator.resolve_global_moves",
-            return_value=({"NVDA": _day_move("NVDA")}, 1),
-        ),
-        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
-        patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
-        patch("app.services.report_search.httpx.post", side_effect=_fake_response),
-        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
-        patch("app.services.ticker_intel._call_llm", side_effect=_capture_l1_llm),
-    ):
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert report.status == "success"
-    assert report.report_inputs is not None
-    # L1's prompt DID receive the targeted-search headline.
-    assert _TARGETED_TITLE in captured_l1_prompt.get("prompt", "")
-    # Pass 2's stored input is untouched — report content stays byte-identical.
-    assert report.report_inputs["holding_news"].get("NVDA", []) == []
-
-
-@pytest.mark.skip(reason="Retired by #622; report-time targeted search was removed")
-def test_weight_targeted_search_stays_out_of_shared_l1_cache(db_session: Session) -> None:
-    """PR #168 review round 1 bug: `_targeted_weight_queries`' results are
-    date-locked to THIS user's own `period_start`/`period_end` (a per-user
-    watermark) — unlike `_targeted_anomaly_queries`' results, which carry no
-    date qualifier and are safe for L1's day-scoped, cross-user shared cache.
-    The merge at `targeted = targeted + weight_targeted` let both flow through
-    the same `l1_targeted_titles` collection undifferentiated, so a weight-
-    targeted title reached `ticker_intel` (the shared L1 cache) exactly like
-    an anomaly-targeted one does in
-    test_generate_report_l1_sees_targeted_search_headline_pass2_input_unchanged
-    above — reintroducing the "whoever's report reaches an identifier first
-    freezes their own per-user data into the shared row for everyone else
-    that day" leak the L1 redesign (design doc §4.8) already closed once, this
-    time through a news-title channel instead of a price one.
-
-    AAPL (100% weight, `_portfolio_snap()`) has no anomaly and no recalled
-    window news, so `_targeted_weight_queries` is the only source of a
-    targeted search here. The result must still land in Pass 2's own
-    `ctx.search_results` (unchanged, existing contract) but must NOT reach
-    L1's prompt."""
-    _WEIGHT_TITLE = "Apple unveils new services push"
-    captured_l1_prompt: dict[str, str] = {}
-
-    def _capture_l1_llm(
-        client: object, model: str, system: str, user: str, **kwargs: object
-    ) -> str:
-        captured_l1_prompt["prompt"] = user
-        return "AAPL held steady on services growth. [Established]"
-
-    def _fake_tavily(
-        session: Session, queries: list[str], eff_date: date, *, budget: int, **_kwargs: object
-    ) -> list[dict[str, Any]]:
-        return [
-            {
-                "query": q,
-                "title": _WEIGHT_TITLE,
-                "url": "https://example.com/aapl-services",
-                "content": "c",
-                "score": 0.5,
-            }
-            for q in queries
-        ]
-
-    with (
-        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
-        patch("app.services.report_generator.load_news_window", return_value=[]),
-        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 2)),
-        patch(
-            "app.services.report_generator.resolve_global_moves",
-            # Net move kept BELOW `_L1_SEARCH_MIN_MOVE` (0.03) on purpose: at
-            # 0.075 (the `_day_move` default) AAPL would also qualify for the
-            # unrelated "leftover-budget top-up" search (an un-dated query
-            # that legitimately IS meant to reach L1) further down in
-            # generate_report, which would make this test pass for the wrong
-            # reason — the top-up path returning the same mocked title,
-            # not the weight-targeted-query filter under test.
-            return_value=(
-                {"AAPL": _day_move("AAPL", net_pct=Decimal("0.01"), max_day_pct=Decimal("0.01"))},
-                2,
-            ),
-        ),
-        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
-        patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
-        patch("app.services.report_generator._run_tavily_search", side_effect=_fake_tavily),
-        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
-        patch("app.services.ticker_intel._call_llm", side_effect=_capture_l1_llm),
-    ):
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert report.status == "success"
-    assert report.report_inputs is not None
-    # Existing contract, unchanged: Pass 2's own material-gathering still
-    # gets the weight-targeted title in ctx.search_results.
-    aapl_results = [
-        r for r in report.report_inputs["search_results"] if r.get("title") == _WEIGHT_TITLE
-    ]
-    assert aapl_results, (
-        f"expected the weight-targeted AAPL title in search_results: "
-        f"{report.report_inputs['search_results']}"
-    )
-    # The bug: the same title must NOT have reached L1's shared-cache prompt.
-    assert _WEIGHT_TITLE not in captured_l1_prompt.get("prompt", "")
-
-
-@pytest.mark.skip(reason="Retired by #622; report-time targeted search was removed")
-def test_weight_targeted_search_passes_real_date_window_to_tavily_api(
-    db_session: Session,
-) -> None:
-    """PR #168 round 2 review, suggestion: the weight-targeted query's date
-    lock was query-STRING text only — `_run_tavily_search` was never told
-    Tavily's own `start_date`/`end_date` API filter. Locks that
-    `generate_report` actually builds and passes `date_windows` for the
-    weight-targeted query (report_search.py's own unit tests cover the
-    plumbing itself; this is the wiring-level lock, same pairing as
-    test_weight_targeted_search_stays_out_of_shared_l1_cache above)."""
-    captured: dict[str, Any] = {}
-
-    def _capture_tavily(
-        session: Session, queries: list[str], eff_date: date, *, budget: int, **kwargs: object
-    ) -> list[dict[str, Any]]:
-        captured["date_windows"] = kwargs.get("date_windows")
-        return []
-
-    with (
-        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
-        patch("app.services.report_generator.load_news_window", return_value=[]),
-        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 2)),
-        patch(
-            "app.services.report_generator.resolve_global_moves",
-            return_value=({"AAPL": _day_move("AAPL", net_pct=Decimal("0.01"))}, 2),
-        ),
-        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
-        patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
-        patch("app.services.report_generator._run_tavily_search", side_effect=_capture_tavily),
-    ):
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert report.status == "success"
-    date_windows = captured.get("date_windows")
-    assert date_windows, f"expected a non-empty date_windows map, got {date_windows}"
-    aapl_queries = [q for q in date_windows if "AAPL stock news catalyst" in q]
-    assert aapl_queries, f"expected an AAPL weight-targeted query key, got {list(date_windows)}"
-    start, end = date_windows[aapl_queries[0]]
-    assert isinstance(start, date) and isinstance(end, date)
-    assert start <= end
-
-
-@pytest.mark.skip(reason="Retired by #622; report no longer generates report-time L1")
-def test_generate_report_theme_anomaly_l1_keys_constituents_with_own_recall(
-    db_session: Session,
-) -> None:
-    """Wiring-level lock for the round 3/4 bug family, at the level the
-    §4.8 redesign actually fixed it.
-
-    Pass 2's `ctx.holding_news` is keyed by the theme SLUG for a merged
-    anomaly ("gold"), because that is what §5's recall is asked for and
-    what Pass 2 renders. L1 must NOT re-key that map into its own
-    constituent vocabulary (the round-4 fix sprayed the theme's headlines
-    onto every constituent, then needed a `theme_slugs` guard to stop the
-    slug sneaking back in as its own candidate through the news-only
-    loop). It now runs its OWN `recall_holding_news` over its OWN
-    identifiers, so:
-
-      - the theme slug never appears in the shared cache (it has no
-        `price_snapshots` row, so no global move, and A4 could never look
-        it up by a real ticker);
-      - constituents get their news through the DESIGNED mechanism — the
-        `SGOL -> "gold"/"bullion"` alias already in
-        config/holding_news_keywords.yml — not through spraying.
-    """
-    _GOLD_TITLE = "Gold rallies on safe-haven demand"
-    l1_prompts: dict[str, str] = {}
-
-    def _capture_l1_llm(
-        client: object, model: str, system: str, user: str, **kwargs: object
-    ) -> str:
-        l1_prompts[user.splitlines()[0]] = user
-        return "Bullion advanced over the window. [Probable]"
-
-    theme_anomaly = PriceAnomaly(
-        name="黄金",
-        identifier="gold",
-        asset_type="COMMODITY",
-        current_price=Decimal("54.0"),
-        prev_price=Decimal("50.0"),
-        pct_change=Decimal("0.0512"),  # value-weighted by THIS user's mix
-        threshold=Decimal("0.03"),
-        theme="gold",
-        constituents=[
-            ConstituentMove(
-                name="SPDR Gold",
-                identifier="SGOL",
-                pct_change=Decimal("0.08"),
-                current_value=Decimal("9000"),
-            ),
-        ],
-    )
-
-    with (
-        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
-        patch(
-            "app.services.report_generator.load_news_window",
-            return_value=[_news_item(_GOLD_TITLE)],
-        ),
-        # L1's own news source (design doc §4.8, second addendum) — see the
-        # matching comment in
-        # test_generate_report_pass2_call_excludes_l1_ticker_intel_text.
-        patch(
-            "app.services.report_generator.load_day_news",
-            return_value=[_news_item(_GOLD_TITLE)],
-        ),
-        # round 6 review fix: a headline alone no longer keeps SGOL from
-        # being dropped — it needs a real `day_pct` too (this test mocks
-        # detect_window_anomalies, so there's no real price_snapshot row).
-        patch(
-            "app.services.report_generator.resolve_global_moves",
-            return_value=({"SGOL": _day_move("SGOL")}, 1),
-        ),
-        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-        patch(
-            "app.services.report_generator.detect_window_anomalies",
-            return_value=([theme_anomaly], 2),
-        ),
-        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
-        patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
-        patch("app.services.report_generator._run_tavily_search", return_value=[]),
-        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
-        patch("app.services.ticker_intel._call_llm", side_effect=_capture_l1_llm),
-    ):
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert report.status == "success"
-    assert report.report_inputs is not None
-    intel = report.report_inputs["ticker_intel"]
-    assert "gold" not in intel
-    assert "SGOL" in intel
-    # SGOL's own briefing was built from news recalled under ITS identifier.
-    assert _GOLD_TITLE in l1_prompts["Identifier: SGOL"]
-    # The user's value-weighted theme figure never reaches the shared prompt.
-    assert "5.12" not in l1_prompts["Identifier: SGOL"]
-
-
-@pytest.mark.skip(reason="Retired by #622; report no longer generates report-time L1")
-def test_generate_report_l1_facts_are_independent_of_the_calling_users_watermark(
-    db_session: Session,
-) -> None:
-    """THE round-5 review bug, reproduced and locked at the level it actually
-    manifested: `ticker_intel` was cached as a system-wide daily row
-    `(identifier, trade_date, prompt_version)`, but the facts written into
-    it came from `resolve_global_moves(session, period_start, period_end,
-    ...)` — and `period_start = user_watermark(user_id)` is per-user. Two
-    users generating a report for the same `eff_date` could have very
-    different windows (a brand-new user's watermark vs. a long-standing
-    user's), so whichever one's `generate_report` call reached L1 first
-    would cache THEIR window's price move for every other user that day.
-
-    User A's watermark starts near the seven-calendar-day floor (an
-    earlier-reporting user); User B's watermark is midday two days before
-    `eff_date` (a long-running user who reported more recently). Under the
-    old per-user-window code, these two would compute genuinely different
-    multi-day `net_pct` figures for NVDA — this is verified directly below
-    via `resolve_global_moves` with each user's own bounds, so the test
-    doesn't just assert "the fix works," it also proves the fixture
-    actually would have exposed the bug. The redesigned L1 must ignore both
-    and always compute NVDA's single trading day's move (6/3's close of
-    210 -> 6/4's close of 220 = +4.76%).
-
-    All captured_at values are pinned to 16:00 ET (20:00 UTC, unambiguously
-    the same ET calendar day as their trade_date, no DST-boundary surprises
-    for this June/late-May range) so the window math below is exact and
-    independent of when this test actually runs."""
-    from app.models.holding import Holding
-    from app.models.price_snapshot import PriceSnapshot
-    from app.models.report import Report
-    from app.models.ticker_intel import TickerIntel
-    from app.services.window_data import resolve_global_moves
-
-    user_a = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
-    user_b = uuid.UUID("00000000-0000-0000-0000-0000000000a2")
-    seed_user(db_session, user_a)
-    seed_user(db_session, user_b)
-    watermark_a = datetime(2026, 5, 28, 12, 0, tzinfo=UTC)  # before ALL seeded closes
-    watermark_b = datetime(2026, 6, 2, 12, 0, tzinfo=UTC)  # after 6/1's close, before 6/3's
-
-    def _nvda_close(trade_date: date, close: str) -> PriceSnapshot:
-        return PriceSnapshot(
-            ticker="NVDA",
-            market="US",
-            session_node="close",
-            trade_date=trade_date,
-            close=Decimal(close),
-            captured_at=datetime(
-                trade_date.year, trade_date.month, trade_date.day, 20, 0, tzinfo=UTC
-            ),
-        )
-
-    db_session.add_all(
-        [
-            Holding(
-                user_id=user_a,
-                name="NVIDIA",
-                ticker="NVDA",
-                pricing_mode="auto",
-                currency="USD",
-                asset_type="stock",
-                asset_class="EQUITY_US_TECH",
-            ),
-            Report(
-                user_id=user_a,
-                report_date=date(2026, 5, 28),
-                report_type="incremental",
-                session_node="after_close",
-                status="success",
-                period_end=watermark_a,
-            ),
-            Report(
-                user_id=user_b,
-                report_date=date(2026, 6, 2),
-                report_type="incremental",
-                session_node="after_close",
-                status="success",
-                period_end=watermark_b,
-            ),
-            _nvda_close(date(2026, 5, 27), "190"),  # baseline for user A's own window
-            _nvda_close(date(2026, 6, 1), "200"),  # baseline for user B's own window
-            _nvda_close(date(2026, 6, 3), "210"),  # baseline for L1's day-scoped window
-            _nvda_close(_TODAY, "220"),  # 2026-06-04 — the day-scoped "latest"
-        ]
-    )
-    db_session.flush()
-
-    # Prove the fixture actually distinguishes the two users' own windows —
-    # otherwise this test would pass even under the old, buggy code.
-    end = datetime(2026, 6, 4, 22, 0, tzinfo=UTC)
-    moves_a, _ = resolve_global_moves(db_session, watermark_a, end)
-    moves_b, _ = resolve_global_moves(db_session, watermark_b, end)
-    assert moves_a["NVDA"].net_pct == Decimal("0.1579")  # (220-190)/190
-    assert moves_b["NVDA"].net_pct == Decimal("0.1000")  # (220-200)/200
-    assert moves_a["NVDA"].net_pct != moves_b["NVDA"].net_pct
-
-    captured_prompts: list[str] = []
-
-    def _capture_l1_llm(
-        client: object, model: str, system: str, user: str, **kwargs: object
-    ) -> str:
-        captured_prompts.append(user)
-        return "NVDA held roughly flat. [Speculative]"
-
-    def _run_for(user_id: uuid.UUID) -> None:
-        with (
-            patch(
-                "app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()
-            ),
-            patch("app.services.report_generator.load_news_window", return_value=[]),
-            patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-            patch(
-                "app.services.report_generator.detect_window_anomalies",
-                return_value=([_anomaly()], 2),
-            ),
-            patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
-            patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
-            patch("app.services.report_generator._run_tavily_search", return_value=[]),
-            patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
-            patch("app.services.ticker_intel._call_llm", side_effect=_capture_l1_llm),
-        ):
-            report = rg.generate_report(
-                db_session, user_id=user_id, report_date=_TODAY, session_node="manual", now=end
-            )
-        assert report.status == "success"
-
-    _run_for(user_a)
-    # Clear the cache row so user B's call actually recomputes instead of
-    # reading back user A's cached (and, pre-fix, potentially different) text.
-    db_session.execute(delete(TickerIntel).where(TickerIntel.identifier == "NVDA"))
-    db_session.flush()
-    _run_for(user_b)
-
-    assert len(captured_prompts) == 2
-    for prompt in captured_prompts:
-        assert "Price change vs. the prior trading day's close: +4.76%" in prompt
 
 
 def test_generate_report_retry_clears_stale_provider_message_id(db_session: Session) -> None:
@@ -1450,7 +697,7 @@ def rejected_pass2_llm() -> Generator[MagicMock, None, None]:
         patch.object(rg, "detect_window_anomalies", return_value=([_anomaly()], 2)),
         patch.object(rg, "_openrouter_client", return_value=MagicMock()),
         patch.object(rg, "_run_tavily_search", return_value=[]),
-        patch.object(rg, "_call_llm", side_effect=[_FAKE_LLM_PASS1, _REJECTED_PASS2]) as llm,
+        patch.object(rg, "_call_llm", side_effect=[_REJECTED_PASS2]) as llm,
     ):
         yield llm
 
@@ -1462,8 +709,9 @@ def _generate_rejected_pass2(db_session: Session) -> Report:
         select(Report).where(Report.user_id == _USER, Report.report_date == _TODAY)
     ).scalar_one()
     db_session.refresh(row)
-    assert str(exc.value) == (
-        f"report {row.id}: Pass 2 output looks truncated (3000 chars, missing one of §3/§4)"
+    assert (
+        str(exc.value)
+        == f"report {row.id}: Pass 2 output looks truncated (3000 chars, missing one of §3/§4)"
     )
     assert row.status == "failed"
     assert row.report_inputs is not None
@@ -1474,18 +722,16 @@ def _generate_rejected_pass2(db_session: Session) -> Report:
     return row
 
 
-@pytest.mark.skip(reason="Retired by #622; fixture is coupled to removed Pass 1")
 def test_rejected_pass2_persists_failed_output(
     db_session: Session, rejected_pass2_llm: MagicMock, _no_email: MagicMock
 ) -> None:
     row = _generate_rejected_pass2(db_session)
-    assert rejected_pass2_llm.call_count == 2
+    assert rejected_pass2_llm.call_count == 1
     _no_email.assert_not_called()
     assert row.report_inputs is not None
     assert row.report_inputs["rejected_pass2_raw"] == _REJECTED_PASS2
 
 
-@pytest.mark.skip(reason="Retired by #622; fixture is coupled to removed Pass 1")
 def test_rejected_pass2_retry_reruns_without_resume(
     db_session: Session, rejected_pass2_llm: MagicMock, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -1495,7 +741,7 @@ def test_rejected_pass2_retry_reruns_without_resume(
     assert row.prompt_version == rg._PROMPT_VERSION
     assert row.disclaimer_version == rg._DISCLAIMER_VERSION
     rejected_pass2_llm.reset_mock(side_effect=True)
-    rejected_pass2_llm.side_effect = [_FAKE_LLM_PASS1, _FAKE_LLM_PASS2]
+    rejected_pass2_llm.side_effect = [_FAKE_LLM_PASS2]
     logging.getLogger(rg.__name__).disabled = False
     caplog.clear()
     with caplog.at_level(logging.INFO, logger=rg.__name__):
@@ -1504,14 +750,13 @@ def test_rejected_pass2_retry_reruns_without_resume(
     assert retried.id == row.id
     assert retried.status == "success"
     assert "resuming from stored Pass 2/assembly body" not in caplog.text
-    assert rejected_pass2_llm.call_count == 2
+    assert rejected_pass2_llm.call_count == 1
     assert rejected_pass2_llm.call_args.kwargs["with_holdings"] is True
     assert retried.report_inputs is not None
     assert retried.report_inputs["pass2_raw"] == _FAKE_LLM_PASS2
     assert retried.report_inputs["rejected_pass2_raw"] == ""
 
 
-@pytest.mark.skip(reason="Retired by #622; fixture is coupled to removed Pass 1")
 def test_rejected_pass2_regenerate_has_no_stored_body(
     db_session: Session, rejected_pass2_llm: MagicMock
 ) -> None:
@@ -1528,11 +773,10 @@ def test_rejected_pass2_regenerate_has_no_stored_body(
     assert row.report_inputs["rejected_pass2_raw"] == _REJECTED_PASS2
 
 
-@pytest.mark.skip(reason="Retired by #622; fixture is coupled to removed Pass 1")
 def test_rejected_pass2_success_has_no_rejected_content(
     db_session: Session, rejected_pass2_llm: MagicMock
 ) -> None:
-    rejected_pass2_llm.side_effect = [_FAKE_LLM_PASS1, _FAKE_LLM_PASS2]
+    rejected_pass2_llm.side_effect = [_FAKE_LLM_PASS2]
     report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
     db_session.refresh(report)
     assert report.status == "success"
@@ -1542,7 +786,6 @@ def test_rejected_pass2_success_has_no_rejected_content(
 
 
 @pytest.mark.parametrize("legacy", [False, True])
-@pytest.mark.skip(reason="Retired by #622; retry no longer has Pass 1")
 def test_generate_report_retry_after_render_failure_skips_pass1_pass2(
     db_session: Session, _no_email: MagicMock, legacy: bool
 ) -> None:
@@ -1572,7 +815,7 @@ def test_generate_report_retry_after_render_failure_skips_pass1_pass2(
     ):
         rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
-    assert mock_llm.call_count == 2  # Pass 1 + Pass 2 each ran exactly once
+    assert mock_llm.call_count == 1  # Pass 2 ran exactly once
 
     row = db_session.execute(
         select(Report).where(Report.user_id == _USER, Report.report_date == _TODAY)
@@ -1616,7 +859,6 @@ def test_generate_report_retry_after_render_failure_skips_pass1_pass2(
     assert mark.call_args.args[3] == [_news_item("Fed raises rates").url_hash]
 
 
-@pytest.mark.skip(reason="Retired by #622; retry no longer has Pass 1")
 def test_generate_report_retry_after_prompt_version_bump_reruns_pass1_pass2(
     db_session: Session, _no_email: MagicMock
 ) -> None:
@@ -1859,85 +1101,6 @@ def test_generate_report_quiet_day_unsent_email_does_not_log_sent(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason="Retired by #622; report-time search was removed")
-def test_generate_report_tavily_failure_degraded(db_session: Session) -> None:
-    """When Tavily fails, the report is still generated (degraded mode)."""
-    with (
-        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
-        patch(
-            "app.services.report_generator.load_news_window",
-            return_value=[_news_item("Fed raises rates")],
-        ),
-        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 0)),
-        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
-        patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
-        patch("app.services.report_generator._run_tavily_search", return_value=[]),
-    ):
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert report.status == "success"
-    assert report.report_inputs is not None
-    assert report.report_inputs["search_results"] == []
-
-
-# ---------------------------------------------------------------------------
-# Tests: LLM Pass 1 returns invalid JSON (graceful fallback)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.skip(reason="Retired by #622; Pass 1 was removed")
-def test_generate_report_pass1_invalid_json(db_session: Session) -> None:
-    """Pass 1 returns garbage JSON → search_queries empty, pipeline continues.
-
-    `mock_tavily` is NOT asserted uncalled (pre-2026-08-20 behavior): the
-    weight-driven targeted search added for issue #128's narrative-layer
-    redesign runs independently of Pass 1's own query list — `_portfolio_snap()`'s
-    single AAPL holding is 100% of the portfolio with no anomaly and no
-    recalled news (the Fed-themed fixture article doesn't match AAPL), so it
-    still triggers exactly one targeted call regardless of whether Pass 1
-    parsed. What this test actually locks is narrower: Pass 1 failing to
-    parse must not itself add any OF ITS OWN queries to `search_queries`.
-    """
-
-    def bad_pass1(
-        client: object,
-        model: str,
-        system: str,
-        user: str,
-        *,
-        with_holdings: bool = False,
-        **kwargs: object,
-    ) -> str:
-        if not with_holdings:
-            return "not valid json at all"
-        return _FAKE_LLM_PASS2
-
-    with (
-        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
-        patch("app.services.report_generator.load_news_window", return_value=[_news_item("Fed")]),
-        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-        patch("app.services.report_generator.detect_window_anomalies", return_value=([], 0)),
-        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
-        patch("app.services.report_generator._call_llm", side_effect=bad_pass1),
-        patch("app.services.report_generator._run_tavily_search", return_value=[]) as mock_tavily,
-    ):
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert report.status == "success"
-    assert report.report_inputs is not None
-    assert report.report_inputs["search_queries"] == []
-    called_queries = [c.args[1] for c in mock_tavily.call_args_list]
-    assert len(called_queries) == 1
-    assert len(called_queries[0]) == 1
-    assert called_queries[0][0].startswith("AAPL stock news catalyst ")
-
-
-# ---------------------------------------------------------------------------
-# Tests: LLM failure → report status=failed
-# ---------------------------------------------------------------------------
-
-
 def test_generate_report_llm_failure_marks_failed(db_session: Session) -> None:
     """LLM exception → report persisted with status=failed, exception re-raised."""
     with (
@@ -1961,110 +1124,6 @@ def test_generate_report_llm_failure_marks_failed(db_session: Session) -> None:
     ).scalar_one_or_none()
     assert row is not None
     assert row.status == "failed"
-
-
-@pytest.mark.skip(reason="Retired by #622; Pass 1 was removed")
-def test_generate_report_pass1_call_has_no_holdings(db_session: Session) -> None:
-    """End-to-end: the with_holdings=False LLM call must not contain the
-    portfolio ticker even when an anomaly for that holding exists."""
-    captured: dict[str, str] = {}
-
-    def _capture_llm(
-        client: object,
-        model: str,
-        system: str,
-        user: str,
-        *,
-        with_holdings: bool = False,
-        **kwargs: object,
-    ) -> str:
-        if not with_holdings:
-            captured["pass1_user"] = user
-            return _FAKE_LLM_PASS1
-        return _FAKE_LLM_PASS2
-
-    aapl_anomaly = PriceAnomaly(
-        name="Apple Inc.",
-        identifier="AAPL",
-        asset_type="stock",
-        current_price=Decimal("200.0"),
-        prev_price=Decimal("180.0"),
-        pct_change=Decimal("0.1111"),
-        threshold=Decimal("0.03"),
-    )
-    with (
-        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
-        patch(
-            "app.services.report_generator.load_news_window",
-            return_value=[_news_item("Fed raises rates")],
-        ),
-        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-        patch(
-            "app.services.report_generator.detect_window_anomalies",
-            return_value=([aapl_anomaly], 2),
-        ),
-        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
-        patch("app.services.report_generator._call_llm", side_effect=_capture_llm),
-        patch("app.services.report_generator._run_tavily_search", return_value=[]),
-    ):
-        rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert "pass1_user" in captured
-    assert "AAPL" not in captured["pass1_user"]
-    assert "Apple" not in captured["pass1_user"]
-
-
-@pytest.mark.no_byok_fallback_alias
-@pytest.mark.skip(reason="Retired by #622; Pass 1 was removed")
-def test_generate_report_pass1_call_uses_byok_hard_pin(db_session: Session) -> None:
-    """PR #79 review: Pass 1's helper must still make the BYOK hard-pin
-    inner call (order=["DeepSeek"], allow_fallbacks=False, deny off, reasoning
-    off). Captured on report_llm._call_llm because the call site now goes
-    through `_call_llm_byok_with_fallback` (issue #477)."""
-    captured: dict[str, object] = {}
-
-    def _capture_llm(
-        client: object,
-        model: str,
-        system: str,
-        user: str,
-        *,
-        with_holdings: bool = False,
-        **kwargs: object,
-    ) -> str:
-        if not with_holdings:
-            captured.update(kwargs)
-            return _FAKE_LLM_PASS1
-        return _FAKE_LLM_PASS2
-
-    with (
-        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
-        patch(
-            "app.services.report_generator.load_news_window",
-            return_value=[_news_item("Fed raises rates")],
-        ),
-        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-        patch(
-            "app.services.report_generator.detect_window_anomalies",
-            return_value=([], 2),
-        ),
-        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
-        patch("app.services.report_llm._call_llm", side_effect=_capture_llm),
-        patch("app.services.report_generator._call_llm", side_effect=_capture_llm),
-        patch("app.services.report_generator._run_tavily_search", return_value=[]),
-    ):
-        rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert captured.get("provider_order") == _BYOK_PROVIDER_ORDER == ["DeepSeek"]
-    assert captured.get("allow_fallbacks") is False
-    assert captured.get("enforce_data_collection") is False
-    assert captured.get("disable_reasoning") is True
-
-
-# ---------------------------------------------------------------------------
-# Tests: compliance output backstop (end-to-end wiring; the scan itself is
-# covered in test_output_scan.py)
-# ---------------------------------------------------------------------------
 
 
 def _mock_llm_noncompliant(
@@ -2604,6 +1663,25 @@ def _assembly_ready_patches(**setting_overrides: object) -> list[object]:
             return_value=({"NVDA": _day_move("NVDA")}, 1),
         )
     )
+    patches.extend(
+        [
+            patch("app.services.report_generator.intel_trade_date", return_value=_TODAY),
+            patch(
+                "app.services.report_generator.read_l1_intel",
+                return_value={"NVDA": "It rose on an earnings beat. [Established]"},
+            ),
+            patch(
+                "app.services.report_generator.read_l2_intel",
+                return_value={
+                    "theme:货币政策": {
+                        "analysis": "Rates repriced. [Established]",
+                        "affected_asset_classes": ["STOCK"],
+                    }
+                },
+            ),
+            patch("app.services.report_generator.read_day_synthesis", return_value=[]),
+        ]
+    )
     for name, value in setting_overrides.items():
         patches.append(patch.object(settings, name, value))
     return patches
@@ -2630,7 +1708,6 @@ def test_generate_report_uses_pass2_when_shared_compute_is_disabled(
     assert not report.report_inputs["assembly_raw"]
 
 
-@pytest.mark.skip(reason="Retired by #622; assembly tests must seed scheduled intel rows")
 def test_generate_report_assembles_from_shared_intel_when_enabled(
     db_session: Session,
 ) -> None:
@@ -2662,7 +1739,6 @@ def test_generate_report_assembles_from_shared_intel_when_enabled(
     assert "heaviest position" in report.report_md
 
 
-@pytest.mark.skip(reason="Retired by #622; assembly tests must seed scheduled intel rows")
 def test_generate_report_assembly_path_also_gets_investor_preferences(
     db_session: Session,
 ) -> None:
@@ -2717,7 +1793,6 @@ def test_generate_report_assembly_path_also_gets_investor_preferences(
     assert "Reader locale: zh" in assembly_prompt
 
 
-@pytest.mark.skip(reason="Retired by #622; assembly tests must seed scheduled intel rows")
 def test_generate_report_assembly_keeps_the_code_built_sections(
     db_session: Session,
 ) -> None:
@@ -2741,7 +1816,6 @@ def test_generate_report_assembly_keeps_the_code_built_sections(
     assert "Notes & Disclaimer" in report.report_md
 
 
-@pytest.mark.skip(reason="Retired by #622; assembly tests must seed scheduled intel rows")
 def test_generate_report_falls_back_to_pass2_when_shared_caches_are_empty(
     db_session: Session,
 ) -> None:
@@ -2754,12 +1828,8 @@ def test_generate_report_falls_back_to_pass2_when_shared_caches_are_empty(
         ):
             stack.enter_context(p)  # type: ignore[arg-type]
         # No L1 and no L2 intel this run.
-        stack.enter_context(
-            patch("app.services.report_generator.get_l1_intel_batch", return_value={})
-        )
-        stack.enter_context(
-            patch("app.services.report_generator.get_l2_intel_batch", return_value={})
-        )
+        stack.enter_context(patch("app.services.report_generator.read_l1_intel", return_value={}))
+        stack.enter_context(patch("app.services.report_generator.read_l2_intel", return_value={}))
         mock_assembly = stack.enter_context(patch("app.services.report_assembly._call_llm"))
         report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
@@ -2769,7 +1839,6 @@ def test_generate_report_falls_back_to_pass2_when_shared_caches_are_empty(
     assert report.report_inputs["body_source"] == "pass2"
 
 
-@pytest.mark.skip(reason="Retired by #622; assembly tests must seed scheduled intel rows")
 def test_generate_report_falls_back_to_pass2_when_assembled_body_is_truncated(
     db_session: Session,
 ) -> None:
@@ -2796,7 +1865,6 @@ def test_generate_report_falls_back_to_pass2_when_assembled_body_is_truncated(
     assert "NVIDIA up 9%" in report.report_md
 
 
-@pytest.mark.skip(reason="Retired by #622; assembly tests must seed scheduled intel rows")
 def test_generate_report_falls_back_to_pass2_when_the_assembly_call_raises(
     db_session: Session,
 ) -> None:
@@ -2815,7 +1883,6 @@ def test_generate_report_falls_back_to_pass2_when_the_assembly_call_raises(
     assert report.report_inputs["body_source"] == "pass2"
 
 
-@pytest.mark.skip(reason="Retired by #622; assembly tests must seed scheduled intel rows")
 def test_generate_report_scans_the_assembled_body_for_compliance(
     db_session: Session,
 ) -> None:
@@ -2847,7 +1914,6 @@ def test_generate_report_scans_the_assembled_body_for_compliance(
 # --- Shadow comparison (design doc §6.3.1) ---------------------------------
 
 
-@pytest.mark.skip(reason="Retired by #622; shadow assembly requires scheduled intel rows")
 def test_generate_report_shadow_models_are_stored_but_never_shipped(
     db_session: Session,
 ) -> None:
@@ -2879,7 +1945,6 @@ def test_generate_report_shadow_models_are_stored_but_never_shipped(
     assert "NVIDIA up 9%" in report.report_md
 
 
-@pytest.mark.skip(reason="Retired by #622; shadow assembly requires scheduled intel rows")
 def test_generate_report_shadow_failure_never_fails_the_report(
     db_session: Session,
 ) -> None:
@@ -2899,7 +1964,6 @@ def test_generate_report_shadow_failure_never_fails_the_report(
     assert "error" in report.report_inputs["assembly_shadow"]["broken/model"]
 
 
-@pytest.mark.skip(reason="Retired by #622; shadow assembly requires scheduled intel rows")
 def test_generate_report_shadow_prompt_construction_failure_never_fails_the_report(
     db_session: Session,
 ) -> None:
@@ -2930,7 +1994,6 @@ def test_generate_report_shadow_prompt_construction_failure_never_fails_the_repo
     assert report.report_inputs["assembly_shadow"] == {}
 
 
-@pytest.mark.skip(reason="Retired by #622; shadow assembly requires scheduled intel rows")
 def test_generate_report_shadow_is_skipped_when_there_is_no_shared_intel(
     db_session: Session,
 ) -> None:
@@ -2939,12 +2002,8 @@ def test_generate_report_shadow_is_skipped_when_there_is_no_shared_intel(
     with contextlib.ExitStack() as stack:
         for p in _assembly_ready_patches(ASSEMBLY_SHADOW_MODELS="cheap/model"):
             stack.enter_context(p)  # type: ignore[arg-type]
-        stack.enter_context(
-            patch("app.services.report_generator.get_l1_intel_batch", return_value={})
-        )
-        stack.enter_context(
-            patch("app.services.report_generator.get_l2_intel_batch", return_value={})
-        )
+        stack.enter_context(patch("app.services.report_generator.read_l1_intel", return_value={}))
+        stack.enter_context(patch("app.services.report_generator.read_l2_intel", return_value={}))
         mock_assembly = stack.enter_context(patch("app.services.report_assembly._call_llm"))
         report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
@@ -2956,7 +2015,6 @@ def test_generate_report_shadow_is_skipped_when_there_is_no_shared_intel(
 # --- Re-render contract (#6) with an assembled body ------------------------
 
 
-@pytest.mark.skip(reason="Retired by #622; assembly fixture must seed scheduled intel rows")
 def test_regenerate_render_rebuilds_an_assembled_report_without_llm_calls(
     db_session: Session,
 ) -> None:
@@ -2988,7 +2046,6 @@ def test_regenerate_render_rebuilds_an_assembled_report_without_llm_calls(
     assert "heaviest position" in rebuilt.report_md
 
 
-@pytest.mark.skip(reason="Retired by #622; assembly fixture must seed scheduled intel rows")
 def test_regenerate_analyze_reruns_the_pass_that_wrote_the_body(
     db_session: Session,
 ) -> None:
@@ -3041,7 +2098,6 @@ def test_regenerate_analyze_reruns_the_pass_that_wrote_the_body(
     assert "heaviest position" not in rerendered.report_md
 
 
-@pytest.mark.skip(reason="Retired by #622; regeneration fixture requires current scheduled inputs")
 def test_regenerate_analyze_reuses_stored_base_currency_by_default(
     db_session: Session,
 ) -> None:
@@ -3088,7 +2144,6 @@ def test_regenerate_analyze_reuses_stored_base_currency_by_default(
     assert mock_compute.call_args.kwargs["base_currency"] == "CNY"
 
 
-@pytest.mark.skip(reason="Retired by #622; regeneration fixture requires current scheduled inputs")
 def test_regenerate_analyze_base_currency_override(db_session: Session) -> None:
     """An explicit `base_currency` override wins over the report's stored
     value — this is what routers/reports.py's regenerate endpoint and
@@ -3123,7 +2178,6 @@ def test_regenerate_analyze_base_currency_override(db_session: Session) -> None:
     assert mock_compute.call_args.kwargs["base_currency"] == "CNY"
 
 
-@pytest.mark.skip(reason="Retired by #622; regeneration fixture requires current scheduled inputs")
 def test_regenerate_analyze_recomputes_macro_event_exposure_from_fresh_portfolio(
     db_session: Session,
 ) -> None:
@@ -3227,44 +2281,6 @@ _L3_CLUSTERS = [
 ]
 
 
-@pytest.mark.skip(reason="Retired by #622; report reads scheduled synthesis instead")
-def test_generate_report_runs_the_synthesis_after_l1_rows_exist(
-    db_session: Session,
-) -> None:
-    """Ordering is load-bearing, not incidental: the synthesis reads the day's
-    L1 rows out of `ticker_intel`, so running it before `get_l1_intel_batch`
-    has written this user's rows would analyze a day that is missing exactly
-    the names this report is about."""
-    call_order: list[str] = []
-
-    def _l1(*args: object, **kwargs: object) -> dict[str, str]:
-        call_order.append("l1")
-        return {"NVDA": "It rose. [Probable]"}
-
-    def _l3(*args: object, **kwargs: object) -> list[dict[str, Any]]:
-        call_order.append("l3")
-        return list(_L3_CLUSTERS)
-
-    with contextlib.ExitStack() as stack:
-        for p in _assembly_ready_patches(
-            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
-        ):
-            stack.enter_context(p)  # type: ignore[arg-type]
-        stack.enter_context(
-            patch("app.services.report_generator.get_l1_intel_batch", side_effect=_l1)
-        )
-        stack.enter_context(
-            patch("app.services.report_generator.get_day_synthesis", side_effect=_l3)
-        )
-        stack.enter_context(
-            patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
-        )
-        rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert call_order == ["l1", "l3"]
-
-
-@pytest.mark.skip(reason="Retired by #622; report reads stored L3 synthesis")
 def test_generate_report_stores_only_clusters_touching_this_users_holdings(
     db_session: Session,
 ) -> None:
@@ -3279,13 +2295,13 @@ def test_generate_report_stores_only_clusters_touching_this_users_holdings(
             stack.enter_context(p)  # type: ignore[arg-type]
         stack.enter_context(
             patch(
-                "app.services.report_generator.get_l1_intel_batch",
+                "app.services.report_generator.read_l1_intel",
                 return_value={"NVDA": "It rose. [Probable]"},
             )
         )
         stack.enter_context(
             patch(
-                "app.services.report_generator.get_day_synthesis",
+                "app.services.report_generator.read_day_synthesis",
                 return_value=[
                     {
                         "identifiers": ["NVDA", "SGOL"],
@@ -3307,7 +2323,6 @@ def test_generate_report_stores_only_clusters_touching_this_users_holdings(
     assert report.report_inputs["cross_name_intel"] == []
 
 
-@pytest.mark.skip(reason="Retired by #622; report reads stored L3 synthesis")
 def test_synthesis_failure_never_fails_the_report(db_session: Session) -> None:
     """Same degradation contract every shared layer answers to: a cross-name
     conclusion is an enrichment, so losing it costs a sentence, never a
@@ -3319,8 +2334,8 @@ def test_synthesis_failure_never_fails_the_report(db_session: Session) -> None:
             stack.enter_context(p)  # type: ignore[arg-type]
         stack.enter_context(
             patch(
-                "app.services.report_generator.get_day_synthesis",
-                side_effect=RuntimeError("provider exploded"),
+                "app.services.report_generator.read_day_synthesis",
+                return_value=[],
             )
         )
         stack.enter_context(
@@ -3333,179 +2348,6 @@ def test_synthesis_failure_never_fails_the_report(db_session: Session) -> None:
     assert report.report_inputs["cross_name_intel"] == []
 
 
-@pytest.mark.skip(reason="Retired by #622; report-time search was removed")
-def test_big_mover_without_a_headline_gets_the_leftover_tavily_budget(
-    db_session: Session,
-) -> None:
-    """Design doc §6.7 item 3. An L1 candidate that moved hard and recalled
-    NOTHING is the case where a [Speculative] shrug is guaranteed — and it is
-    exactly the case worth spending an unused search on. The pre-existing
-    targeted search covers ANOMALIES only, so a weight/L2-class extra (a 22%
-    holding that did not cross its threshold) could never reach it."""
-    with contextlib.ExitStack() as stack:
-        for p in _assembly_ready_patches():
-            stack.enter_context(p)  # type: ignore[arg-type]
-        stack.enter_context(
-            patch(
-                "app.services.report_generator.resolve_global_moves",
-                return_value=({"NVDA": _day_move("NVDA", net_pct=0.09)}, 1),
-            )
-        )
-        # Nothing recalled for NVDA from the captured corpus.
-        stack.enter_context(
-            patch("app.services.report_generator.recall_holding_news", return_value={})
-        )
-        captured_l1_facts: dict[str, object] = {}
-
-        def _capture_facts(*args: object, **kwargs: object) -> dict[str, object]:
-            captured_l1_facts["headlines"] = args[2]
-            return {}
-
-        stack.enter_context(
-            patch("app.services.report_generator.build_l1_facts", side_effect=_capture_facts)
-        )
-
-        def _echo_search(
-            _session: object, queries: list[str], *args: object, **kwargs: object
-        ) -> list[dict[str, str]]:
-            # `_run_tavily_search` echoes the query on every result — the
-            # caller keys results back to their identifier by exact match, so
-            # a stub that invents its own query string would test nothing.
-            return [
-                {"query": q, "title": "NVDA guides higher", "url": "u"}
-                for q in queries
-                if "NVDA" in q
-            ]
-
-        stack.enter_context(
-            patch("app.services.report_generator._run_tavily_search", side_effect=_echo_search)
-        )
-        rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    headlines = captured_l1_facts["headlines"]
-    assert isinstance(headlines, dict)
-    assert any("guides higher" in h for h in headlines.get("NVDA", [])), (
-        "a targeted-search title must reach L1, not only Pass 2's holding_news"
-    )
-
-
-@pytest.mark.skip(reason="Retired by #622; report-time search was removed")
-def test_leftover_tavily_topup_respects_fair_share_budget(db_session: Session) -> None:
-    """PR #167 review round 3, suggestion: the leftover-budget top-up used
-    `settings.TAVILY_DAILY_BUDGET - _tavily_used_today(...)` directly — the
-    FULL remaining daily budget — with no `fair_share_budget(remaining,
-    users_remaining)` division, unlike every other shared-budget consumer in
-    this same function (L1's own analyses, L2's, L3's synthesis). In a
-    fan-out the first `active_user_ids` user could therefore spend the
-    day's entire remaining Tavily budget on its own top-up searches before
-    any later user gets a turn — the exact sequential-starvation shape A4's
-    `fair_share_budget` exists to close everywhere else."""
-    with contextlib.ExitStack() as stack:
-        for p in _assembly_ready_patches():
-            stack.enter_context(p)  # type: ignore[arg-type]
-        stack.enter_context(
-            patch(
-                "app.services.report_generator.resolve_global_moves",
-                return_value=({"NVDA": _day_move("NVDA", net_pct=0.09)}, 1),
-            )
-        )
-        stack.enter_context(
-            patch("app.services.report_generator.recall_holding_news", return_value={})
-        )
-        stack.enter_context(
-            patch("app.services.report_generator._tavily_used_today", return_value=0)
-        )
-        settings = get_settings()
-        stack.enter_context(patch.object(settings, "TAVILY_DAILY_BUDGET", 9))
-        search_mock = stack.enter_context(
-            patch("app.services.report_generator._run_tavily_search", return_value=[])
-        )
-        rg.generate_report(db_session, user_id=_USER, report_date=_TODAY, users_remaining=3)
-
-    # `_anomaly()` (from `_normal_path_patches`, via `detect_window_anomalies`)
-    # also fires the PRE-EXISTING targeted-anomaly search for NVDA — a
-    # different, out-of-scope-for-this-PR call that builds a DIFFERENTLY
-    # SHAPED query ("NVIDIA NVDA stock news catalyst", via the anomaly's
-    # name+identifier) than the top-up's own ("NVDA stock news catalyst",
-    # identifier alone) — matched on the exact top-up format so this test
-    # isolates only the call under fix, not the older one.
-    topup_calls = [c for c in search_mock.call_args_list if "NVDA stock news catalyst" in c.args[1]]
-    assert topup_calls, "expected the leftover top-up search to fire for NVDA's uncovered move"
-    # fair_share_budget(9, 3) == 3, not the full remaining 9.
-    assert topup_calls[0].kwargs["budget"] == 3
-
-
-@pytest.mark.skip(reason="Retired by #622; report-time search was removed")
-def test_targeted_search_budget_respects_fair_share_budget(db_session: Session) -> None:
-    """PR #168 round 2 review, suggestion: the combined anomaly+weight
-    targeted-search budget (`targeted_budget`, the call feeding both
-    `_targeted_anomaly_queries` and `_targeted_weight_queries` results) used
-    the FULL remaining daily Tavily budget with no `fair_share_budget`
-    division — the same sequential-starvation shape
-    `test_leftover_tavily_topup_respects_fair_share_budget` already locks for
-    the L1 leftover top-up, reopened here because this call sits earlier in
-    `generate_report` and runs first in a fan-out, so it could exhaust the
-    day's budget before any later consumer (including that very top-up) gets
-    a turn."""
-    with contextlib.ExitStack() as stack:
-        for p in _normal_path_patches():
-            stack.enter_context(p)  # type: ignore[arg-type]
-        stack.enter_context(
-            patch("app.services.report_generator._tavily_used_today", return_value=0)
-        )
-        settings = get_settings()
-        stack.enter_context(patch.object(settings, "TAVILY_DAILY_BUDGET", 9))
-        search_mock = stack.enter_context(
-            patch("app.services.report_generator._run_tavily_search", return_value=[])
-        )
-        rg.generate_report(db_session, user_id=_USER, report_date=_TODAY, users_remaining=3)
-
-    # `_anomaly()` (from `_normal_path_patches`) has no recalled window news,
-    # so the targeted-anomaly query fires and is the one call this test's
-    # budget assertion targets — the ONLY `_run_tavily_search` call in this
-    # path besides Pass 1's own macro-theme search (a separate, earlier call
-    # with a differently-shaped query list, unaffected by this fix).
-    targeted_calls = [
-        c for c in search_mock.call_args_list if any("NVIDIA NVDA" in q for q in c.args[1])
-    ]
-    assert targeted_calls, "expected the targeted-anomaly search to fire for NVDA"
-    # fair_share_budget(9, 3) == 3, not the full remaining 9.
-    assert targeted_calls[0].kwargs["budget"] == 3
-
-
-@pytest.mark.skip(reason="Retired by #622; report-time search was removed")
-def test_leftover_search_is_skipped_when_the_candidate_already_has_a_headline(
-    db_session: Session,
-) -> None:
-    """The budget is scarce and shared across the fan-out — a name that
-    already recalled something must not spend it."""
-    with contextlib.ExitStack() as stack:
-        for p in _assembly_ready_patches():
-            stack.enter_context(p)  # type: ignore[arg-type]
-        stack.enter_context(
-            patch(
-                "app.services.report_generator.resolve_global_moves",
-                return_value=({"NVDA": _day_move("NVDA", net_pct=0.09)}, 1),
-            )
-        )
-        stack.enter_context(
-            patch(
-                "app.services.report_generator.recall_holding_news",
-                return_value={"NVDA": [_news_item("NVDA beats")]},
-            )
-        )
-        search = stack.enter_context(
-            patch("app.services.report_generator._run_tavily_search", return_value=[])
-        )
-        rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    l1_queries = [
-        c for c in search.call_args_list if any("NVDA" in q for q in (c.args[1] if c.args else []))
-    ]
-    assert not l1_queries, "an already-covered candidate must not buy a search"
-
-
-@pytest.mark.skip(reason="Retired by #622; report reads stored L3 synthesis")
 def test_pass2_prompt_never_receives_cross_name_intel(db_session: Session) -> None:
     """The synthesis is A4's input. Feeding it to Pass 2 as well would make
     the shadow comparison meaningless — the two architectures would no longer
@@ -3514,7 +2356,7 @@ def test_pass2_prompt_never_receives_cross_name_intel(db_session: Session) -> No
         for p in _assembly_ready_patches(SHARED_COMPUTE_ENABLED=False):
             stack.enter_context(p)  # type: ignore[arg-type]
         stack.enter_context(
-            patch("app.services.report_generator.get_day_synthesis", return_value=_L3_CLUSTERS)
+            patch("app.services.report_generator.read_day_synthesis", return_value=_L3_CLUSTERS)
         )
         report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
@@ -3522,7 +2364,6 @@ def test_pass2_prompt_never_receives_cross_name_intel(db_session: Session) -> No
     assert "ai_capex_stack" not in report.report_inputs["pass2_prompt"]
 
 
-@pytest.mark.skip(reason="Retired by #622; regeneration fixture requires stored L3 synthesis")
 def test_regenerate_analyze_persists_the_renarrowed_cross_name_clusters(
     db_session: Session,
 ) -> None:

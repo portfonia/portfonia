@@ -25,11 +25,11 @@ from datetime import date
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
-import pytest
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.database import get_engine
 from app.models.operational_event import OperationalEvent
 from app.models.user import User
@@ -90,12 +90,13 @@ def _events_for_report(db_session: Session, report_id: uuid.UUID) -> list[Operat
     )
 
 
-@pytest.mark.skip(
-    reason="Retired by #622; stage names are covered by scheduled-intel telemetry tests"
-)
 def test_generate_report_full_path_emits_matched_stage_spans(db_session: Session) -> None:
     _seed_real_user(_USER)
+    settings = get_settings().model_copy(
+        update={"SHARED_COMPUTE_ENABLED": False, "ASSEMBLY_SHADOW_MODELS": ""}
+    )
     with (
+        patch.object(rg, "get_settings", return_value=settings),
         patch("app.services.report_generator.send_report_email", return_value=True),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
@@ -108,6 +109,10 @@ def test_generate_report_full_path_emits_matched_stage_spans(db_session: Session
         ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
+        patch("app.services.report_generator.intel_trade_date", return_value=_TODAY),
+        patch("app.services.report_generator.read_l1_intel", return_value={"NVDA": "It rose."}),
+        patch("app.services.report_generator.read_l2_intel", return_value={}),
+        patch("app.services.report_generator.read_day_synthesis", return_value=[]),
         patch(
             "app.services.report_generator._run_tavily_search",
             side_effect=lambda *a, **kw: copy.deepcopy(_FAKE_TAVILY_RESULTS),
@@ -146,9 +151,8 @@ def test_generate_report_full_path_emits_matched_stage_spans(db_session: Session
     # Every major named stage entered has a matched start/end pair.
     for stage in (
         "preparation",
-        "l2_intel",
-        "l1_intel",
-        "l3_synthesis",
+        "pass2_analysis",
+        "shadow_assembly",
         "render_and_compliance",
         "persist_report",
         "email_send",
@@ -157,10 +161,6 @@ def test_generate_report_full_path_emits_matched_stage_spans(db_session: Session
         assert kinds == {"start", "end"}, f"{stage}: {kinds}"
 
     assert not by_operation.get("tavily_search")
-
-    # The report path has only the Pass 2 call here.
-    llm_calls = [e for e in by_operation.get("llm_call", []) if e.event_kind == "start"]
-    assert len(llm_calls) >= 1
 
     # Every event on this run/attempt carries the seeded user_id.
     assert all(e.user_id == _USER for e in events)
@@ -180,9 +180,6 @@ def test_generate_report_full_path_emits_matched_stage_spans(db_session: Session
     )
 
 
-@pytest.mark.skip(
-    reason="Retired by #622; Pass 2 failure path remains covered by current report tests"
-)
 def test_generate_report_pass2_truncation_leaves_pass2_span_failed_and_later_stages_not_reached(
     db_session: Session,
 ) -> None:
@@ -200,9 +197,16 @@ def test_generate_report_pass2_truncation_leaves_pass2_span_failed_and_later_sta
         with_holdings: bool = False,
         **kw: object,
     ) -> str:
-        return "too short" if with_holdings else '{"queries": ["q1"]}'
+        return "too short" if with_holdings else str(_FAKE_TAVILY_RESULTS[0]["content"])
 
     with (
+        patch.object(
+            rg,
+            "get_settings",
+            return_value=get_settings().model_copy(
+                update={"SHARED_COMPUTE_ENABLED": False, "ASSEMBLY_SHADOW_MODELS": ""}
+            ),
+        ),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
             "app.services.report_generator.load_news_window",
@@ -214,6 +218,10 @@ def test_generate_report_pass2_truncation_leaves_pass2_span_failed_and_later_sta
         ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_truncated_llm),
+        patch("app.services.report_generator.intel_trade_date", return_value=_TODAY),
+        patch("app.services.report_generator.read_l1_intel", return_value={"NVDA": "It rose."}),
+        patch("app.services.report_generator.read_l2_intel", return_value={}),
+        patch("app.services.report_generator.read_day_synthesis", return_value=[]),
         patch(
             "app.services.report_generator._run_tavily_search",
             side_effect=lambda *a, **kw: copy.deepcopy(_FAKE_TAVILY_RESULTS),
@@ -232,7 +240,10 @@ def test_generate_report_pass2_truncation_leaves_pass2_span_failed_and_later_sta
     assert root_end.outcome == "failed"
     stage_state = cast(dict[str, Any], root_end.attributes.get("stage_state") or {})
     assert stage_state.get("preparation") == "ok"
-    assert stage_state.get("pass2_analysis") == "failed"
+    assert stage_state.get("pass2_analysis") == "not_reached"
+    pass2_events = [e for e in events if e.operation == "pass2_analysis"]
+    assert {e.event_kind for e in pass2_events} == {"start", "end"}
+    assert next(e for e in pass2_events if e.event_kind == "end").outcome == "failed"
     assert stage_state.get("render_and_compliance") == "not_reached"
     assert stage_state.get("persist_report") == "not_reached"
     assert stage_state.get("email_send") == "not_reached"
