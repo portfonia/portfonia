@@ -1,5 +1,11 @@
 # Deployment (three-layer flow + env-only sync)
 
+For the #620/#621/#622 batch, deploy before 16:15 ET on a report weekday when
+the first report is expected to use that day's post-close slot. If deployment
+is later, the first report intentionally reads the most recent completed slot.
+Run the irreversible #622 report-input scrub only after that day's backup and
+with explicit owner authorization; do not regenerate existing reports.
+
 ### Three-layer deployment flow (MANDATORY)
 
 **Full workflow + production server specs (provider, region, instance name,

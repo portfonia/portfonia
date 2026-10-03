@@ -28,7 +28,11 @@ expired news and retained URL/source columns. Downgrade deletes instrument
 rows before reconstructing pool titles and summaries but restores empty
 URL/source values. Deployment and migration require
 separate owner authorization and a current-day backup, with #621 and #622.
-Existing report-time Tavily/search-cache inputs are handled by #622.
+Issue #622 removes report-time search. Instrument-linked news is read through
+the same per-user surfaced ledger and every recalled hash is marked together
+with the terminal report status. Historical `report_inputs` URL/source keys
+are scrubbed by the #622 migration in batches of 500; the downgrade is a
+no-op because the data is not recoverable.
 
 ### News dedup ledger: closing the window-boundary permanent-miss gap (issue #30)
 
@@ -147,5 +151,4 @@ more likely, not less.
   first review), `ruff format`/`ruff check`/`mypy --strict` clean. Merged
   2026-08-13 (`2946d0a`); deployed to production (confirmed an ancestor of
   the 2026-08-25 production deploy, `bf74971`).
-
 

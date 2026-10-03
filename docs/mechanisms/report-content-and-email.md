@@ -26,10 +26,10 @@ re-render-safe); the LLM writes only prose/attribution. Current shape:
   scope. T+0 events get a lead-note promotion under §2 ("results not yet in
   this report's data").
 - **Holding-relevant news** (`holding_news.py` + `config/holding_news_keywords.yml`) —
-  recalls window news per moved holding by ticker/alias after anomaly
-  detection (fixes macro-theme-only misses); top-3 unmatched anomalies get a
-  targeted Tavily search bounded by remaining daily budget. Holdings-derived,
-  so this runs AFTER Pass 1 / feeds ONLY Pass 2 (isolation preserved).
+  merges pool keyword recall with scheduled instrument-news links for the
+  user's anomaly and large-weight holdings, deduplicates by URL hash and
+  normalized title, and keeps six headlines per holding. The report path does
+  not search or call Pass 1.
 - **Data window wording** — footer states the real price cutoff (session-close
   snapshots only, no intraday) and flags `[!] FX rate is stale` when FX trails
   the window by >4 calendar days (issue #299 — a weekend/holiday gap of up
@@ -191,10 +191,9 @@ report rendering (log-only invariant).
 **Invariants verified**: `check_section3_proportionality` never mutates
 `full_body_markdown`, has no return path back into `report.status`/email,
 and runs independent of `_scan_forbidden_output` (no shared state,
-separate call). Two-pass isolation untouched — nothing here reads or
-writes `_build_pass1_prompt`; regression tests
-`test_pass1_prompt_excludes_holdings_derived_anomalies` and
-`test_generate_report_pass1_call_has_no_holdings` stay green.
+separate call). Scheduled-intelligence isolation is enforced by the report
+path; no report-time query-generation prompt exists. Regression coverage is
+in `test_report_intel_reads.py` and the outbound-request isolation test.
 
 **Not built here** (deliberately, per Design item 3): re-prompt,
 truncate, or any other enforcement of the check's verdict. This is the
@@ -203,6 +202,12 @@ the log data from real reports says whether it's warranted.
 
 
 ### Report footer disclaimer: single-language, not always bilingual (issue #350 item 3)
+
+Issue #622 changes the fixed header to `Notes & Disclaimer` and the label to
+`Data notes:`. The data note contains only closing-price, latest-NAV, FX-date,
+base-currency and no-intraday disclosures; it names no vendor. The approved
+Simplified Chinese copy lives in `config/i18n_glossary.yml`, and Traditional
+Chinese continues to use the existing conversion.
 
 `report_sections._build_footer` unconditionally emitted both English and
 zh-Hans for every report — `footer_header`/`data_sources_label`/

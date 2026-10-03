@@ -118,8 +118,8 @@ class Settings(BaseSettings):
     # split below (issue #78) — stays on OPENROUTER_PROVIDER_ORDER (marketplace
     # pin) with OPENROUTER_DATA_COLLECTION=deny enforced, no exception.
     PRIMARY_LLM_MODEL: str
-    # Unstructured (free-text) calls only: Pass 1 search-query generation and
-    # report translation (report_generator.py). Structured/JSON extraction
+    # Unstructured (free-text) calls only: report translation (report_generator.py).
+    # Structured/JSON extraction
     # (holdings parsing) does NOT use this — see STRUCTURED_LLM_MODEL below.
     # These two call sites route via OpenRouter BYOK (order=["DeepSeek"],
     # allow_fallbacks forced False — no marketplace fallback) straight to
@@ -149,7 +149,8 @@ class Settings(BaseSettings):
     # while still meeting the "not used for training" requirement (we never hit the
     # DeepSeek first-party API, whose terms allow training). See §8.8. Set to empty
     # only to disable this guard (not recommended for holdings-bearing calls).
-    # NOT applied to Pass 1 / translation — see LOW_COST_LLM_MODEL comment above.
+    # Applied to every holdings-bearing call; translation remains the only
+    # BYOK exception.
     OPENROUTER_DATA_COLLECTION: str = "deny"
     # The only model used for structured (JSON schema-required) extraction —
     # currently holdings parsing only. Uniformly routed here (not a fallback tier
@@ -175,8 +176,8 @@ class Settings(BaseSettings):
     # the previous model — worth a broader pass before treating this as
     # fully validated long-term.
     STRUCTURED_LLM_MODEL: str = "openai/gpt-5.6-luna"
-    # Second-tier model for the two LOW_COST_LLM_MODEL / BYOK call sites
-    # (Pass 1 search-query gen, translation) after `_call_llm`'s own retry
+    # Second-tier model for the LOW_COST_LLM_MODEL / BYOK translation call
+    # after `_call_llm`'s own retry
     # budget is exhausted on a retryable error (issue #477). Independent
     # marketplace call with data_collection=deny — does not loosen the BYOK
     # leg's allow_fallbacks=False pairing. Same model id as
@@ -198,10 +199,10 @@ class Settings(BaseSettings):
     SHARED_COMPUTE_ENABLED: bool = False
     # Model for the assembly pass. Carries holdings (portfolio weights), so it
     # runs with OPENROUTER_DATA_COLLECTION=deny ENFORCED and does NOT use the
-    # BYOK exception scoped to Pass 1 + translation (design doc §6.3). Left
+    # BYOK exception scoped to translation only (design doc §6.3). Left
     # empty deliberately: the value is an OUTPUT of the shadow comparison, not
     # an input to it (decision 2026-08-14 — the assembly task shape differs
-    # from Pass 1/translation, so a cheap model's quality here cannot be
+    # from translation, so a cheap model's quality here cannot be
     # assumed). An empty value with SHARED_COMPUTE_ENABLED=true falls back to
     # Pass 2 rather than guessing a model.
     ASSEMBLY_LLM_MODEL: str = ""
@@ -223,7 +224,6 @@ class Settings(BaseSettings):
 
     # Search
     TAVILY_API_KEY: SecretStr
-    TAVILY_DAILY_BUDGET: int = 10
     PARALLEL_API_KEY: SecretStr | None = None
     TAVILY_MONTHLY_CREDIT_LIMIT: int = 1000
     TAVILY_RUN_CREDIT_CAP: int = 20

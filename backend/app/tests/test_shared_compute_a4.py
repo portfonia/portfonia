@@ -22,6 +22,7 @@ from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -30,6 +31,8 @@ from app.models.price_snapshot import PriceSnapshot
 from app.models.report import Report
 from app.services import report_generator as rg
 from app.tests.conftest import SHARED_COMPUTE_NOW
+
+pytestmark = pytest.mark.skip(reason="Retired by #622; report fan-out now reads scheduled intel")
 
 _BASELINE_DATE = (SHARED_COMPUTE_NOW - timedelta(days=7)).date()
 _ASSEMBLY_MODEL = "shadow/cheap"

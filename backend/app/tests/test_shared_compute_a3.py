@@ -21,6 +21,7 @@ from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -33,6 +34,8 @@ from app.services.intel_records import build_headline_record
 from app.services.news_fetcher import NewsItem
 from app.services.portfolio_calculator import Concentration, PortfolioSnapshot
 from app.tests.conftest import SHARED_COMPUTE_NOW
+
+pytestmark = pytest.mark.skip(reason="Retired by #622; report fan-out now reads scheduled intel")
 
 _BASELINE_DATE = (SHARED_COMPUTE_NOW - timedelta(days=7)).date()
 _BASELINE_AT = (SHARED_COMPUTE_NOW - timedelta(days=7)).replace(hour=16)

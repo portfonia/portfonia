@@ -679,12 +679,28 @@ counts and errors. No key value or URL appears in the digest. Tests mock every
 paid endpoint and use real Postgres, including migration and concurrency gates.
 Migration `d62100000001` adds three tables; downgrade drops those derived
 articles and usage. Deploy with #620 and #622 only on separate owner approval.
-Report-side cache reads, removal of report-time search and footer changes are
-reserved for #622. Until #622, the report path still calls
-`get_l1_intel_batch` and `get_day_synthesis`, inheriting the new L1 daily
-cap (`INTEL_L1_MAX_PER_DAY`, default 40, replacing the previous constant 15)
-and L3 selection of the strongest 25 briefings by absolute day move. These
-changes deploy together with #620 and #622.
+Issue #622 moves report-side intelligence to read-only cache access. The report
+path selects the latest completed `post_close` slot at or before the effective
+report date, reads URL-free accepted articles and current-version L1/L2/L3
+rows, and never invokes report-time search or lazy shared-intel computation.
+These changes deploy with #620 and #621; the report-input scrub migration
+requires the backup and owner authorization described in the deployment runbook.
+
+### Scheduled report intelligence reads
+
+Issue #622 completes the Ring 2 report path. `generate_report` selects the
+latest completed `post_close` slot at or before the effective report date and
+reads its URL-free accepted article bodies, scoped to the user's holding
+identifiers and macro themes. It reads L1, L2 and L3 only for that trade date;
+missing rows remain absent and never trigger a report-time computation.
+
+The report path performs no Pass 1 query-generation call and no Tavily or
+Parallel request. `search_results` stores only title, body, date, index and
+article id. Background research renders bodies up to 1,500 characters without
+URLs or provider fields. Instrument news merges pool keyword recall with
+linked `news_instruments` rows, deduplicates by URL hash and normalized title,
+keeps six per holding, and marks all recalled hashes atomically with the
+terminal report status.
 
 ### Capture layer + incremental reporting (ADR-002)
 
@@ -977,7 +993,8 @@ Issue #621 computes L2 in weekday post-close slots over every theme in the
 day's pool news and forward-calendar events, reusing `_serialize_macro` from
 `report_serializers`. The two daily attempt caps now come from Settings
 (theme 10, forward 15). Failures are isolated from L1/L3 and the slot digest.
-Report-side calls remain until #622.
+Reports read current-version L2 rows for the selected trade date; slot workers
+remain the only callers of the lazy computation function.
 
 The second shared-analysis layer, same shape as A2's L1 but keyed on EVENTS
 instead of identifiers: `macro_event_intel.get_l2_intel_batch` computes one
@@ -1141,8 +1158,9 @@ reduction, and the shape becomes `O(|identifier union|) + O(N)`.
 Issue #621 invokes L3 after slot-time L1 and L2 in weekday post-close slots.
 When more than 25 servable L1 rows exist, input selection takes the largest
 absolute `facts.day_pct`, with identifier ties deterministic. Existing
-fingerprinting, caps and compliance checks remain. Report-side calls remain
-until #622.
+fingerprinting, caps and compliance checks remain. Reports read the stored L3
+synthesis for the selected trade date; slot workers remain the only callers of
+the lazy computation function.
 
 The gap A1–A4 left open: L1 (per identifier) and L2 (per event) structurally
 cannot express "these identifiers moved together today for one mechanism" —
@@ -1248,8 +1266,8 @@ unaffected either way; full design rationale and iteration history: Obsidian
   optional `date_windows: dict[str, tuple[date, date]]` param that maps to
   Tavily's real `start_date`/`end_date` publish-date filter — the query text
   alone was never enough, since Tavily itself was never told to restrict by
-  date (PR #168 round 2 review). Every other caller (Pass 1, anomaly-targeted
-  search, L1 leftover top-up) passes no `date_windows` and is unaffected.
+  date (PR #168 round 2 review). Slot-time workers are the remaining callers;
+  the report path does not invoke this search helper.
 - **`_weighted_identifiers` aggregates by identifier before ranking** — a
   position split across lots (this product preserves upload order, so the
   same ticker can legitimately appear as more than one `Holding` row; VOO is
@@ -1546,10 +1564,8 @@ is currently active.
   ancestry only, never `report_id` (a killed process before the first
   commit must not leave an orphaned `report_id` reference).
 - Named stage spans wrap their existing locations exactly as designed:
-  `preparation`, `pass1_query_gen`, `tavily_search` (each of the three call
-  sites — macro-themed, anomaly-targeted, L1 top-up — is its own span
-  occurrence; aggregation is a read-side `SUM`, never an in-process merge),
-  `l2_intel`, `l1_intel`, `l3_synthesis`, `assembly` (ok/skipped, never
+  `preparation`, `l2_intel`, `l1_intel`, `l3_synthesis`, `assembly` (ok/skipped,
+  never
   fabricates a Pass 2 call it didn't make), `pass2_analysis` (entered only
   when assembly did not produce a body; `skip_span(reason_code=
   "assembly_selected")` records the skip explicitly when it did),
@@ -1563,8 +1579,8 @@ is currently active.
   own `end_span` call, leaving its `start` row genuinely unmatched (the
   designed "unknown/incomplete" signal, not a fabricated `failed` duration
   papered over after the fact) while `stage_state` still shows every OTHER
-  stage's real outcome. `report_generator.py`'s own `_call_llm` call sites
-  for Pass 1 and Pass 2 are wrapped in an `llm_call` child span
+  stage's real outcome. `report_generator.py`'s own `_call_llm` Pass 2 call
+  site is wrapped in an `llm_call` child span
   (`oe.operation_span("llm_call", model=...)`).
 - `regenerate_report()` is deliberately **not** instrumented — it is an
   on-demand re-render/re-analyze tool with its own no-side-effects contract

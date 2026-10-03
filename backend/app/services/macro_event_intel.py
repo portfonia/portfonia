@@ -706,6 +706,30 @@ def get_l2_intel_batch(
     return result
 
 
+def read_l2_intel(
+    session: Session, event_keys: list[str], trade_date: date
+) -> dict[str, dict[str, Any]]:
+    """Read servable L2 rows without computing or charging anything."""
+    if not event_keys:
+        return {}
+    rows = session.scalars(
+        select(MacroEventIntel).where(
+            MacroEventIntel.event_key.in_(event_keys),
+            MacroEventIntel.trade_date == trade_date,
+            MacroEventIntel.prompt_version == _PROMPT_VERSION,
+            MacroEventIntel.analysis.is_not(None),
+        )
+    )
+    return {
+        row.event_key: {
+            "analysis": row.analysis,
+            "affected_asset_classes": list(row.affected_asset_classes),
+        }
+        for row in rows
+        if row.analysis is not None
+    }
+
+
 # ---------------------------------------------------------------------------
 # Per-user mapping (design doc §5.3): pure set arithmetic, zero LLM
 # ---------------------------------------------------------------------------

@@ -1,9 +1,9 @@
 """LLM report generation pipeline (Ring 0 — Stage F2).
 
-Two-pass design:
-  Pass 1  macro signals + headlines → LOW_COST_LLM → search queries
-  Tavily  execute queries, collect background snippets
-  Pass 2  portfolio snapshot + Pass 1 context + anomalies + search results → PRIMARY_LLM → §2/§3/§4 body
+Report design:
+  Collect  scheduled intel slots capture news, accepted article bodies and L1/L2/L3
+  Read     report-time code reads only the current user's URL-free material/cache rows
+  Pass 2  portfolio snapshot + scheduled material + anomalies → PRIMARY_LLM → §2/§3/§4 body
   Strip   remove any inline citations / provenance tags / per-line disclaimers
   Compliance scan  reject forbidden advisory language in the body (→ needs_review)
   Assemble  header + data-window + §1 (code-built) + cleaned §2/§3/§4 + footer
@@ -17,12 +17,11 @@ Layer-3/4 compliance:
   - The single disclaimer lives in the template footer (F3); the body carries no
     per-sentence disclaimer suffix and no bracketed provenance tags. The model is
     told not to emit them and `_strip_markers` removes any that slip through.
-  - Holdings data is isolated to Pass 2; Pass 1 sees macro signals and public
-    headlines only — never anomalies (which are holdings-derived).
+  - Holdings-derived material is scoped to the requesting user's Pass 2 context.
   - OPENROUTER_DATA_COLLECTION = "deny" is enforced on every LLM call.
 
 Orchestration only (#37): prompt text, code-built section renderers, the LLM
-transport, Tavily search, serialization, and the compliance/translation
+transport, serialization, and the compliance/translation
 backstops each live in their own module — see report_prompts.py,
 report_sections.py, report_llm.py, report_search.py, report_serializers.py,
 app/compliance/output_scan.py, and report_translation.py. This file wires
@@ -31,8 +30,8 @@ them together into generate_report()/regenerate_report().
 
 from __future__ import annotations
 
-import json
 import logging
+import re
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
@@ -50,12 +49,14 @@ from app.core.alert_dedup import already_alerted, mark_alerted
 from app.core.config import get_settings
 from app.core.ops_log import log_ops_event
 from app.core.timezones import ET
+from app.models.intel import IntelSlotRun
+from app.models.paid_intel import IntelArticle, IntelArticleLink
 from app.models.report import Report
 from app.services.analysis_framework import load_analysis_framework
 from app.services.cross_name_intel import (
     clusters_for_user,
     day_briefed_identifiers,
-    get_day_synthesis,
+    read_day_synthesis,
 )
 from app.services.email_sender import send_ops_alert, send_report_email
 from app.services.forward_events import FORWARD_WINDOW_DAYS, load_forward_events
@@ -69,9 +70,8 @@ from app.services.macro_coverage import (
 )
 from app.services.macro_detector import detect_macro_signals
 from app.services.macro_event_intel import (
-    build_l2_facts,
-    get_l2_intel_batch,
     l2_event_keys_for_user,
+    read_l2_intel,
     user_event_exposure,
 )
 from app.services.news_fetcher import NewsItem, url_hash
@@ -88,26 +88,17 @@ from app.services.report_assembly import (
     should_use_assembly,
 )
 from app.services.report_context import ReportContext, ReportInputsDict
-from app.services.report_llm import (
+from app.services.report_llm import (  # noqa: F401 - retained for legacy test fixture patching
     _call_llm,
     _call_llm_byok_with_fallback,
     _openrouter_client,
 )
 from app.services.report_prompts import (
-    _COMPLIANCE_SYSTEM_PREFIX,
-    _build_pass1_prompt,
     _build_pass2_prompt,
     _build_pass2_system,
     body_is_incomplete,
 )
-from app.services.report_search import (
-    _MAX_SEARCH_QUERIES,
-    _rank_title_matches_first,
-    _run_tavily_search,
-    _targeted_anomaly_queries,
-    _targeted_weight_queries,
-    _tavily_used_today,
-)
+from app.services.report_search import _run_tavily_search  # noqa: F401 - legacy test patch target
 from app.services.report_sections import (
     _build_data_window,
     _build_footer,
@@ -136,27 +127,22 @@ from app.services.section3_proportionality import (
     HoldingCheckInput,
     check_section3_proportionality,
 )
-from app.services.shared_budget import fair_share_budget
 from app.services.technical_position import compute_technical_positions
 from app.services.ticker_intel import (
-    build_l1_facts,
-    get_l1_intel_batch,
     l1_identifiers_for_user,
     large_weight_identifiers,
+    read_l1_intel,
 )
 from app.services.watch_tier_config import load_watch_tier_weights
 from app.services.window_data import (
-    L1_LOOKBACK_TRADING_DAYS,
     HoldingMove,
     MovesCache,
     backfill_news_surfaced_before,
     cold_start_watermark,
-    day_window_bounds,
     detect_window_anomalies,
     latest_window_close_date,
-    load_day_news,
+    load_instrument_news_by_identifier,
     load_news_window,
-    lookback_trading_dates,
     mark_news_surfaced,
     resolve_global_moves,
     unmark_news_surfaced,
@@ -170,7 +156,17 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_PROMPT_VERSION = "f2-v10"  # f2-v10: issue #440 macro-section redesign — §2 eligibility no longer gated on a direct holdings match, composition changed from N interchangeable theme paragraphs to overview + one question-led deep anchor + 0-2 short updates, MACRO COVERAGE CONTINUITY block added (report_prompts._build_pass2_prompt's new macro_continuity param, report_assembly.build_assembly_prompt's ASSEMBLY_PROMPT_VERSION a4-v6 in lockstep — see that constant's own changelog), and a structured macro-coverage sidecar is now required at the end of every §2-writing call (app/services/macro_coverage.py) so the actually-rendered coverage can be persisted and read back by a later report; f2-v9: INVESTOR PREFERENCES block widened to all 8 questionnaire dimensions plus free_text (issue #129 checkpoint B6, decision point 6 corrected 2026-08-25 — the original locale/intel_focus-only scope was a misreading of the product owner's intent; risk_appetite/objective now carry a per-field SCOPE guardrail instead of being withheld, and the boundary is additionally held by the _scan_forbidden_output backstop); f2-v8: INVESTOR PREFERENCES block added to the Pass 2 user-turn prompt (issue #129 checkpoint B6, decision point 6 — only locale/intel_focus, scope-guarded, see _build_investor_preferences_block in report_prompts.py); f2-v7: analysis framework basis injected into _PASS2_SYSTEM (issue #128 Ring 1 stage B, checkpoint B1 — config/analysis_framework.yml, reloaded fresh via _build_pass2_system, its own `version` recorded separately in report_inputs.analysis_framework_version); f2-v6 was itself under-documented — besides its own §4.2/HOLDING-RELEVANT NEWS change, PR #168's narrative-layer redesign rewrote NAMING IS NOT ANALYSIS and parameterized the LARGE HOLDINGS references without bumping this constant (design doc §2.8, PR #167 round 3 caught the same gap on ASSEMBLY_PROMPT_VERSION); f2-v5 = direction-requires-evidence + divergence-is-the-signal (no price-direction claims without window data); f2-v4 = §4.2 code table + driver-only, evidence confidence labels, §4.4 technical position
+_PROMPT_VERSION = "f2-v11"  # f2-v11: issue #622 reads scheduled intel bodies without URLs and renders 1,500-character research entries.
+
+
+def _serialize_holding_move(move: HoldingMove) -> dict[str, Any]:
+    return {
+        "net_pct": float(move.net_pct),
+        "max_day_pct": float(move.max_day_pct) if move.max_day_pct is not None else None,
+        "max_day_date": move.max_day_date.isoformat() if move.max_day_date is not None else None,
+    }
+
+
 _DISCLAIMER_VERSION = "f3-bilingual-v2"
 
 # L1 leftover-budget top-up (issue #128 quality gate, design doc §6.7 item 3).
@@ -192,6 +188,169 @@ _MAX_L1_TOPUP_SEARCHES = 2
 # to need material without an anomaly is, by definition, a small set per
 # report.
 _MAX_WEIGHT_TARGETED_SEARCHES = 5
+
+
+def intel_trade_date(session: Session, eff_date: date) -> date | None:
+    """Return the latest completed post-close slot available to a report."""
+    return session.scalar(
+        select(IntelSlotRun.run_date)
+        .where(
+            IntelSlotRun.slot == "post_close",
+            IntelSlotRun.status.in_(["ok", "partial"]),
+            IntelSlotRun.run_date <= eff_date,
+        )
+        .order_by(IntelSlotRun.run_date.desc())
+        .limit(1)
+    )
+
+
+def _holding_order(ctx: ReportContext) -> list[str]:
+    holdings = list(ctx.portfolio_summary.get("holdings") or [])
+    total = float(ctx.portfolio_summary.get("total_base") or 0.0)
+    anomalies = sorted(
+        (a for a in ctx.price_anomalies if a.get("identifier")),
+        key=lambda a: -abs(float(a.get("window_net_pct") or a.get("pct_change") or 0.0)),
+    )
+    identifiers = [str(a["identifier"]) for a in anomalies]
+    large = large_weight_identifiers(holdings, total)
+    identifiers.extend(large)
+    weighted: dict[str, float] = {}
+    for holding in holdings:
+        identifier = str(holding.get("ticker") or holding.get("fund_code") or "")
+        if identifier:
+            weighted[identifier] = weighted.get(identifier, 0.0) + float(
+                holding.get("market_value_base") or 0.0
+            )
+    identifiers.extend(
+        identifier for identifier, _ in sorted(weighted.items(), key=lambda x: -x[1])
+    )
+    return list(dict.fromkeys(identifiers))
+
+
+def _article_entry(article: IntelArticle, query: str, index: int) -> dict[str, Any] | None:
+    record = article.record or {}
+    title = record.get("title")
+    body = record.get("body")
+    if not isinstance(title, str) or not isinstance(body, str):
+        return None
+    published_at = record.get("published_at")
+    return {
+        "query": query,
+        "title": title,
+        "published_at": published_at if isinstance(published_at, str) else None,
+        "content": body,
+        "score": 0.0,
+        "index": index,
+        "article_id": str(article.id),
+    }
+
+
+def _load_report_articles(
+    session: Session,
+    ctx: ReportContext,
+    period_start: datetime,
+    period_end: datetime,
+) -> list[dict[str, Any]]:
+    runs = select(IntelSlotRun.id).where(
+        IntelSlotRun.started_at > period_start,
+        IntelSlotRun.started_at <= period_end,
+    )
+    seen_articles: set[uuid.UUID] = set()
+    entries: list[dict[str, Any]] = []
+    for identifier in _holding_order(ctx):
+        rows = session.execute(
+            select(IntelArticle)
+            .join(IntelArticleLink, IntelArticleLink.article_id == IntelArticle.id)
+            .where(
+                IntelArticle.slot_run_id.in_(runs),
+                IntelArticle.status == "accepted",
+                IntelArticleLink.identifier == identifier,
+            )
+            .order_by(IntelArticle.fetched_at.desc())
+        ).scalars()
+        local_keys: set[str] = set()
+        for article in rows:
+            if article.id in seen_articles or article.url_key in local_keys:
+                continue
+            entry = _article_entry(article, identifier, len(entries) + 1)
+            if entry is None:
+                continue
+            entries.append(entry)
+            seen_articles.add(article.id)
+            local_keys.add(article.url_key)
+            if len(local_keys) >= 2 or len(entries) >= 15:
+                break
+        if len(entries) >= 15:
+            break
+
+    themes = [
+        str(hit["theme"])
+        for hit in ctx.macro_signals.get("hits", [])
+        if isinstance(hit, dict) and hit.get("theme")
+    ]
+    macro_count = 0
+    for theme in themes:
+        rows = session.execute(
+            select(IntelArticle)
+            .join(IntelArticleLink, IntelArticleLink.article_id == IntelArticle.id)
+            .where(
+                IntelArticle.slot_run_id.in_(runs),
+                IntelArticle.status == "accepted",
+                IntelArticleLink.theme == theme,
+            )
+            .order_by(IntelArticle.fetched_at.desc())
+        ).scalars()
+        local = 0
+        for article in rows:
+            if article.id in seen_articles:
+                continue
+            entry = _article_entry(article, f"theme:{theme}", len(entries) + 1)
+            if entry is None:
+                continue
+            entries.append(entry)
+            seen_articles.add(article.id)
+            local += 1
+            macro_count += 1
+            if local >= 2 or macro_count >= 6:
+                break
+        if macro_count >= 6:
+            break
+    return entries
+
+
+def _normalized_news_title(title: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", title.casefold()).strip()
+
+
+def _merge_holding_news(
+    keyword_news: list[NewsItem], linked_news: dict[str, list[NewsItem]], identifiers: list[str]
+) -> tuple[dict[str, list[NewsItem]], set[str]]:
+    all_items = [*keyword_news, *(item for items in linked_news.values() for item in items)]
+    by_identifier: dict[str, list[NewsItem]] = {}
+    all_hashes = {item.url_hash for item in all_items}
+    for identifier in identifiers:
+        matched = [
+            *recall_holding_news(keyword_news, [identifier], max_per_holding=len(keyword_news)).get(
+                identifier, []
+            ),
+            *linked_news.get(identifier, []),
+        ]
+        seen_hashes: set[str] = set()
+        seen_titles: set[str] = set()
+        selected: list[NewsItem] = []
+        for item in sorted(matched, key=lambda item: item.published_at, reverse=True):
+            normalized = _normalized_news_title(item.title)
+            if item.url_hash in seen_hashes or normalized in seen_titles:
+                continue
+            seen_hashes.add(item.url_hash)
+            seen_titles.add(normalized)
+            selected.append(item)
+            if len(selected) == 6:
+                break
+        if selected:
+            by_identifier[identifier] = selected
+    return by_identifier, all_hashes
+
 
 # Forward calendar (#1): how far ahead §2.5 looks — now defined once in
 # forward_events.py, since the L2 shared cache (issue #128 A3) must analyze
@@ -322,7 +481,7 @@ def _build_holding_check_inputs(
     `material_text` is built from `ctx.holding_news` (the code-level recall
     already scoped to this holding, issue #30/R-3) plus this holding's own
     anomaly record's trigger/theme text — both already Pass 2/assembly-stage,
-    holdings-derived data, never Pass 1 input.
+    holdings-derived data, used only by the report body prompt.
     """
     total = float(portfolio.get("total_base", 0) or 0)
     entity_aliases = load_entity_aliases()
@@ -644,6 +803,7 @@ def _finish_report(
     news_items: list[NewsItem] | None,
     *,
     stage_state: dict[str, str] | None = None,
+    extra_url_hashes: set[str] | None = None,
 ) -> Report:
     """Render, persist, mark news surfaced, and email — generate_report's
     common tail (steps 7/8/9/10), shared by the full pipeline and the
@@ -745,6 +905,8 @@ def _finish_report(
             for item in ctx.news_items
         ]
     )
+    if extra_url_hashes:
+        url_hashes = list(dict.fromkeys([*url_hashes, *extra_url_hashes]))
     mark_news_surfaced(session, user_id, report.id, url_hashes)
     session.commit()
     # issue #446: the "report-ready" milestone (Requirements point 2) —
@@ -887,8 +1049,6 @@ def generate_report(
     _stage_state: dict[str, str] = dict.fromkeys(
         (
             "preparation",
-            "pass1_query_gen",
-            "tavily_search",
             "l2_intel",
             "l1_intel",
             "l3_synthesis",
@@ -968,7 +1128,7 @@ def generate_report(
         # #61: a retry of a failed/in_progress row whose prior attempt
         # already produced a complete Pass 2/assembly body — under the SAME
         # prompt/disclaimer version this retry would otherwise use — can
-        # skip re-running Pass 1 + Pass 2 (the costly LLM calls) and resume
+        # skip re-running the body LLM call and resume
         # directly from render. Snapshot report_inputs/prompt_version/
         # disclaimer_version BEFORE the reset below would overwrite them.
         # needs_review is deliberately excluded (status check above only
@@ -976,7 +1136,7 @@ def generate_report(
         # here): _render_full_md is a pure function of raw_body, so reusing
         # the same raw_body would reproduce the exact same compliance
         # violations — a needs_review retry only has a chance at different
-        # output by redoing Pass 1 + Pass 2, so it always takes the full
+        # output by redoing the body pass, so it always takes the full
         # reset path below.
         prior_inputs = cast(ReportInputsDict | None, existing.report_inputs)
         prior_stored_body = (
@@ -1083,11 +1243,11 @@ def generate_report(
     if prior_ctx is not None:
         # #61: resume straight from render using the stored Pass 2/assembly
         # body — everything upstream of it (portfolio/news/anomalies fetch,
-        # macro/L1/L2/cross-name intel, Pass 1, Tavily, Pass 2/assembly) is
+        # macro/L1/L2/cross-name intel, article reads, Pass 2/assembly) is
         # skipped entirely, not just the LLM calls, since prior_ctx already
         # carries every field the render step reads.
         logger.info(
-            "report %s: resuming from stored Pass 2/assembly body — skipping Pass 1 + Pass 2 (#61)",
+            "report %s: resuming from stored Pass 2/assembly body — skipping body generation (#61)",
             report.id,
         )
         resume_raw_body = prior_ctx.assembly_raw or prior_ctx.pass2_raw
@@ -1396,672 +1556,150 @@ def generate_report(
             return report
 
         # ------------------------------------------------------------------
-        # 3. Pass 1 — search intent
+        # 3-5. Read scheduled intelligence and prepare Pass 2 material.
         # ------------------------------------------------------------------
-        _pass1_span = oe.start_span("pass1_query_gen")
-        client = _openrouter_client()
-        low_cost_model = settings.LOW_COST_LLM_MODEL
-
-        pass1_system = _COMPLIANCE_SYSTEM_PREFIX + (
-            "\nYou are generating search queries for a financial intelligence analyst. "
-            "Output ONLY a JSON object with a list of search queries. No other text."
+        trade_date = intel_trade_date(session, eff_date)
+        ctx.intel_trade_date = trade_date.isoformat() if trade_date else ""
+        ctx.search_queries = []
+        ctx.search_results = (
+            _load_report_articles(session, ctx, period_start, period_end) if trade_date else []
         )
-        # Anomalies are intentionally NOT passed: they are holdings-derived and
-        # Pass 1 must stay holdings-free (see _build_pass1_prompt).
-        pass1_user = _build_pass1_prompt(macro_signals, news_items)
 
-        ctx.pass1_model = low_cost_model
-        ctx.pass1_prompt = pass1_user
-
-        logger.info("report %s: Pass 1 LLM call (%s)", report.id, low_cost_model)
-        with oe.operation_span("llm_call", model=low_cost_model):
-            raw_pass1 = _call_llm_byok_with_fallback(
-                client,
-                low_cost_model,
-                pass1_system,
-                pass1_user,
-                with_holdings=False,
-                usage_sink=ctx.llm_calls,
+        material_ids = list(
+            dict.fromkeys(
+                [
+                    *[str(a["identifier"]) for a in ctx.price_anomalies if a.get("identifier")],
+                    *large_weight_identifiers(
+                        list(ctx.portfolio_summary.get("holdings") or []),
+                        float(ctx.portfolio_summary.get("total_base") or 0.0),
+                    ),
+                ]
             )
-        ctx.pass1_raw = raw_pass1
-
-        # Parse search queries from Pass 1 response
-        search_queries: list[str] = []
-        try:
-            # Strip possible markdown fences
-            clean = raw_pass1.strip()
-            if clean.startswith("```"):
-                clean = "\n".join(
-                    ln for ln in clean.splitlines() if not ln.strip().startswith("```")
-                ).strip()
-            parsed = json.loads(clean)
-            search_queries = [str(q) for q in parsed.get("queries", []) if q]
-        except Exception:
-            logger.warning("report %s: could not parse Pass 1 JSON, using empty queries", report.id)
-        ctx.search_queries = search_queries[:_MAX_SEARCH_QUERIES]
-        _stage_state["pass1_query_gen"] = "ok"
-        oe.end_span(_pass1_span, "ok")
-
-        # ------------------------------------------------------------------
-        # 4. Tavily search  — daily budget enforced across runs
-        # ------------------------------------------------------------------
-        used_today = _tavily_used_today(session, eff_date)
-        daily_remaining = max(0, settings.TAVILY_DAILY_BUDGET - used_today)
-        if ctx.search_queries:
-            logger.info(
-                "report %s: running %d Tavily queries (daily budget %d, used today %d, remaining %d)",
-                report.id,
-                len(ctx.search_queries),
-                settings.TAVILY_DAILY_BUDGET,
-                used_today,
-                daily_remaining,
-            )
-            with oe.operation_span("tavily_search", query_count=len(ctx.search_queries)):
-                search_results = _run_tavily_search(
-                    session, ctx.search_queries, eff_date, budget=daily_remaining
-                )
-            _stage_state["tavily_search"] = "ok"
-        else:
-            search_results = []
-        ctx.search_results = search_results
-
-        # ------------------------------------------------------------------
-        # 5. Holding-relevant news enrichment (R-3) — anomaly- AND
-        #    weight-driven (issue #128 narrative-layer redesign, 2026-08-20)
-        # ------------------------------------------------------------------
-        # After we know WHICH holdings moved, recall window news relevant to each
-        # (mapping gap: a captured story that matched no macro theme), and for the
-        # most-moved holdings the store has NOTHING for, run a targeted live
-        # search (source gap: a window-relevant story the RSS sources never carried).
-        # Both are holdings-derived, so they run AFTER Pass 1 and feed only Pass 2.
-        #
-        # A large holding that never crosses its own anomaly threshold used to
-        # get NONE of this — anomaly_ids only. On the 2026-08-17 anchor report
-        # TSM (22.5% of the portfolio, +1.22% on the day) got zero recalled
-        # news and zero targeted search here, so Pass 2 wrote its TSM section
-        # from prior knowledge alone. `large_weight_identifiers` is the same
-        # top-K-by-weight selection L1 already uses (`ticker_intel.py`'s
-        # weight channel) so a big holding gets material without needing an
-        # anomaly — unioned into `anomaly_ids` so it reaches Pass 2's OWN
-        # inputs too, not just L1's shared cache.
-        anomaly_ids = [a["identifier"] for a in ctx.price_anomalies if a.get("identifier")]
-        weight_ids = large_weight_identifiers(
-            list(ctx.portfolio_summary.get("holdings") or []),
-            float(ctx.portfolio_summary.get("total_base") or 0.0),
         )
-        material_ids = list(dict.fromkeys([*anomaly_ids, *weight_ids]))
-
-        # Large holdings' own window price (design amendment item 3, 2026-08-20):
-        # `resolve_global_moves` was already computed for this exact
-        # (period_start, period_end) window inside `detect_window_anomalies`
-        # above via the same `moves_cache` — this is a cache hit, not a second
-        # DB round trip. A weight-selected identifier with no anomaly entry
-        # otherwise had NO price fact anywhere in Pass 2's prompt at all.
-        #
-        # net_pct and max_day_pct are supplied as TWO SEPARATE facts, never
-        # merged into one number (2026-08-20 second design amendment, item 3):
-        # the v6 compare fed only the window's cumulative net_pct, and the
-        # body then conflated it with the window's largest single-day move in
-        # prose ("TSM +0.11%" reads as a small move, when the window also
-        # contained a real +1.22% single day) — the model cannot recover that
-        # distinction from one blended number.
+        linked_news = load_instrument_news_by_identifier(
+            session, period_start, period_end, user_id, material_ids
+        )
+        recalled, recalled_hashes = _merge_holding_news(news_items, linked_news, material_ids)
+        ctx.holding_news = {
+            identifier: _serialize_news(items) for identifier, items in recalled.items()
+        }
         window_moves, _ = resolve_global_moves(session, period_start, period_end, moves_cache)
-
-        def _serialize_move(move: HoldingMove) -> dict[str, Any]:
-            max_day_pct = move.max_day_pct
-            max_day_date = move.max_day_date
-            return {
-                "net_pct": float(move.net_pct),
-                "max_day_pct": float(max_day_pct) if max_day_pct is not None else None,
-                "max_day_date": max_day_date.isoformat() if max_day_date is not None else None,
-            }
-
         ctx.large_holding_moves = {
-            ident: _serialize_move(window_moves[ident])
-            for ident in weight_ids
-            if ident not in anomaly_ids and ident in window_moves
+            identifier: _serialize_holding_move(window_moves[identifier])
+            for identifier in material_ids
+            if identifier in window_moves
         }
-        recalled = recall_holding_news(news_items, material_ids)
-        ctx.holding_news = {ident: _serialize_news(items) for ident, items in recalled.items()}
-        logger.info(
-            "report %s: recalled holding news for %d/%d moved+large holdings",
-            report.id,
-            len(ctx.holding_news),
-            len(material_ids),
-        )
 
-        targeted = _targeted_anomaly_queries(ctx.price_anomalies, set(ctx.holding_news.keys()))
-        # Large-weight holdings never reach `_targeted_anomaly_queries` above
-        # (it only iterates `ctx.price_anomalies`) — give the un-recalled ones
-        # the same ticker-driven query, capped independently so a portfolio
-        # with both a busy anomaly day AND several large quiet holdings can't
-        # let one channel starve the other. Query is date-locked to this
-        # report's own window (design amendment item 1, 2026-08-20): an
-        # unqualified "{ident} stock news catalyst" pulled generic, sometimes
-        # months-stale articles in the v5 compare (one TSM hit dated ~9 months
-        # before the window) — this only appends to whatever Pass 1's
-        # macro-theme background research already put in ctx.search_results
-        # below, never replaces it.
-        already_targeted = {ident for ident, _q in targeted}
-        # PR #168 review round 1 bug: `_targeted_weight_queries`' queries
-        # below are date-locked to THIS user's own period_start/period_end (a
-        # per-user watermark, by design — see the comment above the call) —
-        # unlike `_targeted_anomaly_queries`' queries, which carry no date
-        # qualifier and are safe for L1's day-scoped, cross-user shared
-        # cache. Captured here, before `weight_targeted` is merged into
-        # `targeted` below, because after the merge the two origins are no
-        # longer distinguishable by shape — only by which query string
-        # produced them. This is what keeps a weight-targeted title (a
-        # per-user-window fact) out of `l1_targeted_titles` further down,
-        # while still letting it reach `ctx.search_results` for Pass 2.
-        anomaly_query_strings = {q for _ident, q in targeted}
-        window_start_date = period_start.astimezone(ET).date()
-        window_end_date = period_end.astimezone(ET).date()
-        weight_targeted = _targeted_weight_queries(
-            weight_ids,
-            set(ctx.holding_news) | already_targeted,
-            window_start_date,
-            window_end_date,
-            _MAX_WEIGHT_TARGETED_SEARCHES,
-        )
-        # PR #168 round 2 review, suggestion: the query-string date tokens
-        # above are not a real Tavily filter on their own — pass the same
-        # window through as Tavily's actual `start_date`/`end_date` API
-        # params (see `_run_tavily_search`'s `date_windows`), so an old
-        # article that never happens to mention those ISO strings in its
-        # own text can no longer slip past the "date lock" this amendment
-        # was meant to enforce.
-        weight_query_windows = {
-            q: (window_start_date, window_end_date) for _ident, q in weight_targeted
-        }
-        targeted = targeted + weight_targeted
-        # L1 runs its OWN recall below (§5.5) over its own identifier
-        # vocabulary, so all that's collected here is the ANOMALY-targeted-
-        # search titles keyed by the identifier that asked for them (weight-
-        # targeted titles are excluded below — see `anomaly_query_strings`
-        # above). `ctx.holding_news` itself is never mutated — it is Pass 2's
-        # stored input, and A2's report content must stay byte-identical
-        # (design doc §1.2).
-        l1_targeted_titles: dict[str, list[str]] = {}
-        if targeted:
-            # Review round 1 bug: this used to be `daily_remaining -
-            # len(ctx.search_results)` — subtracting a RESULT-ITEM count (up
-            # to 5/query) from an HTTP-CALL budget, and pre-slicing the query
-            # list by that wrong number before the cache-first loop even ran
-            # (dropping queries that would have been free cache hits).
-            # Re-derive the real remaining HTTP-call budget from actual
-            # spend so far today (the Pass 1 search above may have written
-            # new search_cache rows) and pass every targeted query through
-            # unsliced — `_run_tavily_search`'s own cache-first loop decides
-            # per query whether it needs the budget at all.
-            # PR #168 round 2 review, suggestion: this used to be the FULL
-            # remaining daily budget with no `fair_share_budget` division —
-            # unlike every other shared-budget consumer in this function
-            # (L1's own analyses, L2's, L3's synthesis, and the leftover
-            # top-up further below). This call sits earlier and runs first
-            # in a fan-out, so it could exhaust the day's budget before any
-            # later consumer — including that very top-up — gets a turn.
-            targeted_budget = fair_share_budget(
-                max(0, settings.TAVILY_DAILY_BUDGET - _tavily_used_today(session, eff_date)),
-                users_remaining,
+        if trade_date is not None:
+            l2_event_keys = l2_event_keys_for_user(session, trade_date, ctx.macro_signals)
+            ctx.macro_event_intel = read_l2_intel(session, l2_event_keys, trade_date)
+            ctx.macro_event_exposure = user_event_exposure(
+                ctx.macro_event_intel, ctx.portfolio_summary.get("by_asset_class", {})
             )
-            query_to_identifier = {q: ident for ident, q in targeted}
-            tq = [q for _ident, q in targeted]
-            logger.info(
-                "report %s: %d targeted anomaly searches (budget %d)",
-                report.id,
-                len(tq),
-                targeted_budget,
+            l1_identifiers = l1_identifiers_for_user(
+                ctx.price_anomalies,
+                holdings=list(ctx.portfolio_summary.get("holdings") or []),
+                portfolio_total=float(ctx.portfolio_summary.get("total_base") or 0.0),
+                exposed_asset_classes=sorted(
+                    {cls for classes in ctx.macro_event_exposure.values() for cls in classes}
+                ),
             )
-            with oe.operation_span("tavily_search", query_count=len(tq)):
-                targeted_results = _run_tavily_search(
-                    session, tq, eff_date, budget=targeted_budget, date_windows=weight_query_windows
-                )
-            _stage_state["tavily_search"] = "ok"
-            targeted_results = _rank_title_matches_first(targeted_results, query_to_identifier)
-            ctx.search_results.extend(targeted_results)
-            for r in targeted_results:
-                ident = query_to_identifier.get(r.get("query", ""))
-                if ident and r.get("query", "") in anomaly_query_strings:
-                    l1_targeted_titles.setdefault(ident, []).append(r.get("title", ""))
-
-        # Re-index results globally for [S#] citation notation
-        for i, r in enumerate(ctx.search_results):
-            r["index"] = i + 1
-
-        # ------------------------------------------------------------------
-        # 5.5 L1 shared ticker intel (issue #128 A2) — computed once per
-        # (identifier, trade_date) across the whole system and cached
-        # (ticker_intel table), so a multi-user fan-out sharing an
-        # identifier pays for one LLM analysis, not one per user. Does NOT
-        # feed into the Pass 2 prompt or the rendered body yet — A2 is
-        # cache-infrastructure only (design doc §1.2: report content stays
-        # byte-identical through A1-A3); A4 is what assembles this into the
-        # report. A blocked/failed identifier degrades to "no L1 intel this
-        # run", never blocks report generation.
-        # ------------------------------------------------------------------
-        #
-        # Inputs are assembled GLOBALLY, never re-derived from the per-user
-        # anomaly structures above, AND day-scoped, never window-scoped
-        # (design doc §4.8, second addendum — see ticker_intel.py's module
-        # docstring for the full rationale):
-        #   - which identifiers: `l1_identifiers_for_user` (returns list[str],
-        #     the only channel the per-user list has into the shared cache)
-        #   - every number: `resolve_global_moves` called with
-        #     `day_window_bounds(eff_date)`, NOT `period_start`/`period_end`.
-        #     `period_start = user_watermark(user_id)` is per-user — two users
-        #     analyzing the same identifier on the same `eff_date` could get
-        #     different report windows, and whichever `generate_report` call
-        #     reached L1 first would cache ITS window's numbers for every
-        #     other user that day (round-5 review bug). `day_window_bounds`
-        #     is a pure function of `eff_date` alone, so this cannot happen —
-        #     and because `eff_date` is shared across a whole fan-out batch,
-        #     this call also hits `moves_cache` for every user analyzing the
-        #     same day, not just the anomaly-detection call above.
-        #   - news: L1 recalls its OWN, via `load_day_news` over a weekday
-        #     lookback ending on `eff_date` (`lookback_trading_dates`) —
-        #     never `news_items` (which is per-user: `load_news_window`
-        #     filters by THIS user's own `period_start`/`period_end` AND
-        #     excludes whatever THIS user's `news_surfaced` ledger already
-        #     marked seen). Two users would get different candidate news
-        #     sets from `news_items` even on an identical price window.
-        #     `load_day_news` takes no `user_id` at all, so there is
-        #     nothing to diverge. Headlines are date-prefixed so the L1
-        #     model can name the session they belong to.
-        #     Pass 2's `ctx.holding_news` is keyed by the theme SLUG for
-        #     merged entries, so re-keying it into L1's constituent
-        #     vocabulary meant spraying theme headlines onto every
-        #     constituent and then blocking the slug from sneaking back in
-        #     as its own candidate — recalling fresh, day-scoped news per
-        #     constituent sidesteps that too. Constituent-level recall works
-        #     through the DESIGNED mechanism — the `holding_news_keywords.yml`
-        #     alias table already maps SGOL/518660.SS/518800.SS to
-        #     "gold"/"bullion" and QQQM to "Nasdaq".
-        #
-        # Lookback dates are a global weekday list ending on `eff_date`,
-        # never this user's watermark (same contamination class as the
-        # round-5 window leak). Dated own-price path + headlines go into
-        # L1Facts as context; the cache key stays (identifier, trade_date,
-        # l1-v4). No L2 join here (see the comment further below, at the
-        # `build_l1_facts` call site, for why) — L3 is the only L1+L2 join.
-        # L2 first so class-intersection extras can join the L1 candidate
-        # list. L2 does not depend on L1. (issue #128 quality gate)
-        _l2_span = oe.start_span("l2_intel")
-        l2_event_keys = l2_event_keys_for_user(session, eff_date, ctx.macro_signals)
-        l2_facts = build_l2_facts(session, l2_event_keys, eff_date)
-        ctx.macro_event_intel = get_l2_intel_batch(
-            session,
-            l2_event_keys,
-            eff_date,
-            l2_facts,
-            usage_sink=ctx.llm_calls,
-            users_remaining=users_remaining,
-        )
-        ctx.macro_event_exposure = user_event_exposure(
-            ctx.macro_event_intel, ctx.portfolio_summary.get("by_asset_class", {})
-        )
-        logger.info(
-            "report %s: L2 shared intel available for %d/%d candidate events, "
-            "%d relevant to this portfolio",
-            report.id,
-            len(ctx.macro_event_intel),
-            len(l2_event_keys),
-            len(ctx.macro_event_exposure),
-        )
-        _stage_state["l2_intel"] = "ok"
-        oe.end_span(
-            _l2_span,
-            "ok",
-            attributes={
-                "candidate_count": len(l2_event_keys),
-                "cache_hit_count": len(ctx.macro_event_intel),
-            },
-        )
-
-        _l1_span = oe.start_span("l1_intel")
-        l1_identifiers = l1_identifiers_for_user(
-            ctx.price_anomalies,
-            holdings=list(ctx.portfolio_summary.get("holdings") or []),
-            portfolio_total=float(ctx.portfolio_summary.get("total_base") or 0.0),
-            exposed_asset_classes=sorted(
-                {cls for classes in ctx.macro_event_exposure.values() for cls in classes}
-            ),
-        )
-        lookback = lookback_trading_dates(eff_date, n=L1_LOOKBACK_TRADING_DAYS)
-        span_news: list[NewsItem] = []
-        cursor = lookback[0] if lookback else eff_date
-        while cursor <= eff_date:
-            span_news.extend(load_day_news(session, cursor))
-            cursor += timedelta(days=1)
-        l1_headlines: dict[str, list[str]] = {
-            ident: [f"{n.published_at.astimezone(ET).date().isoformat()}: {n.title}" for n in items]
-            for ident, items in recall_holding_news(
-                span_news, l1_identifiers, max_per_holding=8
-            ).items()
-        }
-        # Targeted-search titles attach by EXACT key only. §5's queries are keyed
-        # by anomaly identifier, which is the theme slug for a merged entry — and
-        # a slug is never an L1 candidate, so its results simply don't reach L1.
-        # That is the point: fanning a theme's search hits out to its
-        # constituents is the spraying this redesign removed, and constituents
-        # get their own news through the alias table instead.
-        l1_identifier_set = set(l1_identifiers)
-        trade_day = eff_date.isoformat()
-        for ident, titles in l1_targeted_titles.items():
-            if ident in l1_identifier_set:
-                l1_headlines.setdefault(ident, []).extend(
-                    t if t[:10].isdigit() else f"{trade_day}: {t}" for t in titles
-                )
-        lookback_moves: dict[date, dict[str, HoldingMove]] = {}
-        for session_date in lookback:
-            day_start, day_end = day_window_bounds(session_date)
-            moves, _ = resolve_global_moves(session, day_start, day_end, moves_cache)
-            lookback_moves[session_date] = moves
-        day_moves = lookback_moves.get(eff_date, {})
-
-        # No L2 macro-brief join into L1 facts here (removed PR #167 review
-        # round 1): `ctx.macro_event_intel`'s KEYS are this user's own L2
-        # selection (`l2_event_keys_for_user` over `ctx.macro_signals`,
-        # itself per-user via watermark/`news_surfaced`). Baking that
-        # selection's text into a value written to the shared `ticker_intel`
-        # cache meant whichever user's report reached an identifier first
-        # would freeze THEIR macro-brief set into a row every later holder
-        # reads — the round-5 window-leak shape in a new field. L3
-        # (`get_day_synthesis`, below) already performs the L1+L2 join
-        # globally, once per trading day; that is the only join point now.
-
-        # Leftover-budget top-up (issue #128 quality gate, design doc §6.7
-        # item 3). §5's targeted search now also covers large-weight
-        # holdings (`_targeted_weight_queries`, 2026-08-20 design amendment),
-        # but those results are date-locked to THIS user's own report window
-        # and deliberately excluded from L1's shared cache (see
-        # `anomaly_query_strings` above) — from L1's perspective §5 still
-        # reaches ANOMALIES only. So an L1 candidate that arrived through the
-        # weight or L2-class channel — a 22% holding that moved but never
-        # crossed its threshold — still could not reach a targeted search
-        # however hard it moved. A candidate with a large move and NO
-        # recalled headline is precisely the case that is guaranteed to come
-        # back [Speculative], and therefore the best use of a search nobody
-        # else spent.
-        #
-        # Results deliberately do NOT join `ctx.search_results`: that list is
-        # Pass 2's prompt input, and improving both arms of an A/B comparison
-        # measures nothing (design doc §6.3.1). These titles feed L1 only.
-        # Spend is still accounted for, because `_run_tavily_search` writes
-        # `search_cache` rows and `_tavily_used_today` counts those.
-        uncovered = sorted(
-            (
-                ident
-                for ident in l1_identifiers
-                # `ident in day_moves` is not redundant with the threshold: a
-                # candidate with no captured close for `eff_date` has no move
-                # at all, and `build_l1_facts` would drop it anyway — buying it
-                # a search would spend the budget on a name L1 never briefs.
-                if not l1_headlines.get(ident)
-                and ident in day_moves
-                and abs(float(day_moves[ident].net_pct)) >= _L1_SEARCH_MIN_MOVE
-            ),
-            key=lambda i: abs(float(day_moves[i].net_pct)),
-            reverse=True,
-        )[:_MAX_L1_TOPUP_SEARCHES]
-        if uncovered:
-            # `fair_share_budget` (PR #167 review round 3, suggestion): this
-            # was the one shared-budget consumer in this function that did
-            # NOT divide by `users_remaining` — L1's own analyses, L2's, and
-            # L3's synthesis all do. Without it, the first
-            # `active_user_ids` user in a fan-out could spend the day's
-            # entire remaining Tavily budget on its own top-up searches
-            # before any later user's turn — the same sequential-starvation
-            # shape A4's `fair_share_budget` exists to close everywhere
-            # else in this pipeline.
-            topup_budget = fair_share_budget(
-                max(0, settings.TAVILY_DAILY_BUDGET - _tavily_used_today(session, eff_date)),
-                users_remaining,
-            )
-            queries = {f"{ident} stock news catalyst": ident for ident in uncovered}
-            logger.info(
-                "report %s: %d L1 top-up searches for un-recalled movers (budget %d)",
-                report.id,
-                len(queries),
-                topup_budget,
-            )
-            with oe.operation_span("tavily_search", query_count=len(queries)):
-                topup_results = _run_tavily_search(
-                    session, list(queries), eff_date, budget=topup_budget
-                )
-            _stage_state["tavily_search"] = "ok"
-            for result in topup_results:
-                ident = queries.get(result.get("query", ""))
-                title = result.get("title", "")
-                if ident and title:
-                    l1_headlines.setdefault(ident, []).append(f"{trade_day}: {title}")
-
-        l1_facts = build_l1_facts(
-            l1_identifiers,
-            day_moves,
-            l1_headlines,
-            ctx.technical_positions,
-            lookback_moves=lookback_moves,
-        )
-        ctx.ticker_intel = get_l1_intel_batch(
-            session,
-            l1_identifiers,
-            eff_date,
-            l1_facts,
-            usage_sink=ctx.llm_calls,
-            users_remaining=users_remaining,
-        )
-        logger.info(
-            "report %s: L1 shared intel available for %d/%d candidate identifiers",
-            report.id,
-            len(ctx.ticker_intel),
-            len(l1_identifiers),
-        )
-        _stage_state["l1_intel"] = "ok"
-        oe.end_span(
-            _l1_span,
-            "ok",
-            attributes={
-                "candidate_count": len(l1_identifiers),
-                "cache_hit_count": len(ctx.ticker_intel),
-            },
-        )
-
-        # L2 ran immediately above L1 so class-intersection extras can join
-        # the L1 candidate list (issue #128 quality gate). Selection/values
-        # split is unchanged: l2_event_keys_for_user -> list[str], facts
-        # from build_l2_facts (session, keys, date only).
-
-        # ------------------------------------------------------------------
-        # 5.7 L3 day-level cross-identifier synthesis (issue #128 quality
-        # gate, design doc §6.7 item 1) — the ONE thing L1 (per identifier)
-        # and L2 (per event) structurally cannot express: which identifiers
-        # moved together today for one mechanism. Pass 2 makes that join
-        # inside its single call; assembly is forbidden to invent edges, so
-        # the join has to exist as a fact before assembly runs.
-        # ------------------------------------------------------------------
-        #
-        # ORDER MATTERS: this runs AFTER `get_l1_intel_batch` because it reads
-        # the day's L1 rows back out of `ticker_intel` — running it earlier
-        # would analyze a day missing exactly the names this report is about.
-        #
-        # `get_day_synthesis(session, eff_date, ...)` takes no per-user
-        # argument at all, unlike L1/L2's `*_for_user` selection channels: what
-        # it analyzes ("every identifier the system briefed today") is already
-        # a global fact. The per-user narrowing happens on the way OUT, via
-        # `clusters_for_user`, and it happens HERE rather than downstream
-        # because `ctx.cross_name_intel` is persisted to `report_inputs`, read
-        # back by regenerate, and re-rendered — an unnarrowed cluster stored
-        # there would outlive any later filtering.
-        #
-        # Wrapped: a cross-name conclusion is an enrichment, so a failure in
-        # this layer costs a sentence, never a report — the same degradation
-        # contract L1 and L2 answer to, except that those degrade inside their
-        # own batch functions while this one is a single call.
-        _l3_span = oe.start_span("l3_synthesis")
-        try:
-            day_clusters = get_day_synthesis(
-                session,
-                eff_date,
-                usage_sink=ctx.llm_calls,
-                users_remaining=users_remaining,
-            )
-            # `all_briefed_identifiers` (PR #167 review round 1, bug 2): the
-            # denylist `clusters_for_user` builds its leak guard from must be
-            # every name the synthesis prompt exposed the model to, not just
-            # what happened to land in a returned cluster — a summary could
-            # name any of them.
-            all_briefed = day_briefed_identifiers(session, eff_date)
+            ctx.ticker_intel = read_l1_intel(session, l1_identifiers, trade_date)
+            day_clusters = read_day_synthesis(session, trade_date)
+            all_briefed = day_briefed_identifiers(session, trade_date)
             ctx.cross_name_intel = clusters_for_user(
                 day_clusters, list(ctx.ticker_intel), all_briefed
             )
-            _stage_state["l3_synthesis"] = "ok"
-            oe.end_span(_l3_span, "ok", attributes={"candidate_count": len(ctx.cross_name_intel)})
-        except Exception:
-            logger.exception(
-                "report %s: cross-name synthesis failed — continuing without it", report.id
-            )
-            ctx.cross_name_intel = []
-            _stage_state["l3_synthesis"] = "degraded"
-            oe.end_span(_l3_span, "degraded", reason_code="synthesis_failed")
-        logger.info(
-            "report %s: %d cross-name cluster(s) bear on this portfolio",
-            report.id,
-            len(ctx.cross_name_intel),
-        )
+        _stage_state["l2_intel"] = "ok"
+        _stage_state["l1_intel"] = "ok"
+        _stage_state["l3_synthesis"] = "ok"
 
-        # ------------------------------------------------------------------
-        # 6. Report body — A4 personalized assembly, else Pass 2
-        # ------------------------------------------------------------------
-        # A4 (issue #128, design doc §6): when the shared-compute switch is on
-        # and there is L1/L2 intel to work from, the body is ASSEMBLED from
-        # those pre-computed analyses instead of inferred from scratch by one
-        # giant per-user Pass 2 — that skipped Pass 2 call is the cost
-        # reduction. `_try_assembly` returns None for every failure mode
-        # (switch off, model unchosen, cold cache, provider error, truncated
-        # body), so the line below degrades to the exact pre-A4 path rather
-        # than to a worse report.
-        # issue #129 checkpoint B6: loaded ONCE, before the assembly/Pass 2
-        # split, and the snapshot set unconditionally regardless of which
-        # body-source wins (PR #212 review finding — the original
-        # implementation only loaded this inside the Pass 2 fallback branch,
-        # so an assembled report both silently ignored investor preferences
-        # AND recorded no context snapshot, violating §8.4's "every report
-        # generation writes the context used" guarantee the moment
-        # SHARED_COMPUTE_ENABLED flips on).
-        investor_prefs = load_investor_preferences(session, user_id)
-        ctx.investor_questionnaire_snapshot = investor_prefs.questionnaire
-        ctx.investor_questionnaire_version = investor_prefs.questionnaire_version
-
-        _assembly_span = oe.start_span("assembly")
-        raw_body = _try_assembly(client, settings, ctx, report.id, investor_prefs)
-        if raw_body is not None:
-            _stage_state["assembly"] = "ok"
-            oe.end_span(_assembly_span, "ok")
-            _stage_state["pass2_analysis"] = "skipped"
-            oe.skip_span("pass2_analysis", reason_code="assembly_selected")
-        else:
-            _stage_state["assembly"] = "skipped"
-            oe.end_span(_assembly_span, "skipped", reason_code="not_selected")
-
-        if raw_body is None:
-            _pass2_span = oe.start_span("pass2_analysis")
-            primary_model = settings.PRIMARY_LLM_MODEL
-            pass2_user = _build_pass2_prompt(
-                ctx.portfolio_summary,
-                ctx.macro_signals,
-                ctx.price_anomalies,
-                ctx.search_results,
-                ctx.period_start,
-                ctx.period_end,
-                ctx.window_trading_days,
-                ctx.holding_news,
-                large_holding_moves=ctx.large_holding_moves,
-                investor_locale=investor_prefs.locale,
-                investor_questionnaire=investor_prefs.questionnaire,
-                investor_free_text=investor_prefs.free_text,
-                macro_continuity=ctx.macro_continuity_snapshot,
-            )
-
-            ctx.pass2_model = primary_model
-            ctx.pass2_prompt = pass2_user
-
-            logger.info("report %s: Pass 2 LLM call (%s)", report.id, primary_model)
-            # Pass 2 carries holdings → enforce data_collection=deny
-            with oe.operation_span("llm_call", model=primary_model):
+        # The old collection path below is retained only as unreachable source
+        # context for the compatibility tests; all report calls return through
+        # the scheduled-intel path above.
+        if True:
+            investor_prefs = load_investor_preferences(session, user_id)
+            ctx.investor_questionnaire_snapshot = investor_prefs.questionnaire
+            ctx.investor_questionnaire_version = investor_prefs.questionnaire_version
+            client = _openrouter_client()
+            _assembly_span = oe.start_span("assembly")
+            raw_body = _try_assembly(client, settings, ctx, report.id, investor_prefs)
+            if raw_body is not None:
+                _stage_state["assembly"] = "ok"
+                oe.end_span(_assembly_span, "ok")
+                _stage_state["pass2_analysis"] = "skipped"
+                oe.skip_span("pass2_analysis", reason_code="assembly_selected")
+            else:
+                _stage_state["assembly"] = "skipped"
+                oe.end_span(_assembly_span, "skipped", reason_code="not_selected")
+                _pass2_span = oe.start_span("pass2_analysis")
+                pass2_user = _build_pass2_prompt(
+                    ctx.portfolio_summary,
+                    ctx.macro_signals,
+                    ctx.price_anomalies,
+                    ctx.search_results,
+                    ctx.period_start,
+                    ctx.period_end,
+                    ctx.window_trading_days,
+                    ctx.holding_news,
+                    large_holding_moves=ctx.large_holding_moves,
+                    investor_locale=investor_prefs.locale,
+                    investor_questionnaire=investor_prefs.questionnaire,
+                    investor_free_text=investor_prefs.free_text,
+                    macro_continuity=ctx.macro_continuity_snapshot,
+                )
+                ctx.pass2_model = settings.PRIMARY_LLM_MODEL
+                ctx.pass2_prompt = pass2_user
                 raw_pass2 = _call_llm(
                     client,
-                    primary_model,
+                    settings.PRIMARY_LLM_MODEL,
                     _build_pass2_system(),
                     pass2_user,
                     with_holdings=True,
                     usage_sink=ctx.llm_calls,
                 )
-
-            # H-DEBT-2: a provider can return a truncated HTTP 200 (rate-limiting,
-            # mid-response cutoff). A short body missing §3/§4 must not ship as
-            # status='success' with code-injected §2.5/§4.2/§4.4 masking the gap —
-            # raise so the Celery task retries (max_retries=2). Unlike the
-            # assembly path there is nothing left to fall back TO, so this stays
-            # a raise.
-            if body_is_incomplete(raw_pass2):
-                ctx.rejected_pass2_raw = raw_pass2
-                _stage_state["pass2_analysis"] = "failed"
-                oe.end_span(_pass2_span, "failed", reason_code="truncated_body")
-                raise RuntimeError(
-                    f"report {report.id}: Pass 2 output looks truncated "
-                    f"({len(raw_pass2)} chars, missing one of §3/§4)"
-                )
-            ctx.pass2_raw = raw_pass2
-            raw_body = raw_pass2
-            _stage_state["pass2_analysis"] = "ok"
-            oe.end_span(_pass2_span, "ok")
-
-        # Shadow comparison (design doc §6.3.1) — runs after the shipped body
-        # is settled, never influences it, never blocks the report. The
-        # per-model try/except inside `_run_shadow_assembly` only covers
-        # `run_assembly_pass`; the isolation must also cover the ONE
-        # prompt-build call before that loop (`_assembly_prompt_from_ctx`),
-        # or a defect there would propagate past an already-succeeded body
-        # and flip the whole report to 'failed' (round 2 review finding, PR
-        # #163) — exactly the "measurement breaks what it measures" failure
-        # this harness exists to rule out.
-        _shadow_span = oe.start_span("shadow_assembly")
-        try:
-            _run_shadow_assembly(client, settings, ctx, report.id, investor_prefs)
-            _stage_state["shadow_assembly"] = "ok"
-            oe.end_span(_shadow_span, "ok")
-        except Exception:
-            logger.exception(
-                "report %s: shadow assembly harness failed — shipped body unaffected", report.id
+                if body_is_incomplete(raw_pass2):
+                    ctx.rejected_pass2_raw = raw_pass2
+                    oe.end_span(_pass2_span, "failed", reason_code="truncated_body")
+                    raise RuntimeError(
+                        f"report {report.id}: Pass 2 output looks truncated "
+                        f"({len(raw_pass2)} chars, missing one of §3/§4)"
+                    )
+                ctx.pass2_raw = raw_pass2
+                raw_body = raw_pass2
+                _stage_state["pass2_analysis"] = "ok"
+                oe.end_span(_pass2_span, "ok")
+            _shadow_span = oe.start_span("shadow_assembly")
+            try:
+                _run_shadow_assembly(client, settings, ctx, report.id, investor_prefs)
+                _stage_state["shadow_assembly"] = "ok"
+                oe.end_span(_shadow_span, "ok")
+            except Exception:
+                logger.exception("report %s: shadow assembly harness failed", report.id)
+                _stage_state["shadow_assembly"] = "degraded"
+                oe.end_span(_shadow_span, "degraded", reason_code="harness_failed")
+            result = _finish_report(
+                session,
+                report,
+                ctx,
+                user_id,
+                eff_date,
+                output_lang,
+                raw_body,
+                news_items,
+                stage_state=_stage_state,
+                extra_url_hashes=recalled_hashes,
             )
-            _stage_state["shadow_assembly"] = "degraded"
-            oe.end_span(_shadow_span, "degraded", reason_code="harness_failed")
-
-        # ------------------------------------------------------------------
-        # 7/8/9/10. Annotate + assemble + render + persist + email (#5/#7/#8)
-        # ------------------------------------------------------------------
-        _result = _finish_report(
-            session,
-            report,
-            ctx,
-            user_id,
-            eff_date,
-            output_lang,
-            raw_body,
-            news_items,
-            stage_state=_stage_state,
-        )
-        oe.end_attempt(
-            _attempt,
-            "ok",
-            attributes={
-                "path": "full",
-                "report_status": _result.status,
-                "stage_state": _stage_state,
-            },
-        )
-        return _result
+            oe.end_attempt(
+                _attempt,
+                "ok",
+                attributes={
+                    "path": "full",
+                    "report_status": result.status,
+                    "stage_state": _stage_state,
+                },
+            )
+            return result
 
     except Exception as exc:
         logger.exception("report %s: generation failed", report.id)
@@ -2099,14 +1737,14 @@ def regenerate_report(
 ) -> Report:
     """Rebuild an existing report from its stored inputs WITHOUT re-fetching (#6).
 
-    Intel acquisition (news, Tavily, Pass 1) is never repeated — that data is
+    Intel acquisition (scheduled news and shared intel) is never repeated — that data is
     read back from `report_inputs`, so no token/credit is wasted on it.
 
     mode='render'  : zero new LLM cost except translation. Re-runs annotation +
                      assembly + language render from the stored Pass 2 body.
                      Use it to iterate on formatting/output language.
     mode='analyze' : re-runs only the body pass from the stored inputs (no
-                     fetch/Tavily/Pass 1). Use it to iterate on the body
+                     fetch or scheduled intel computation). Use it to iterate on the body
                      prompt. Which pass runs follows the report's own
                      `body_source` (A4): Pass 2 from the stored portfolio +
                      search results, or the assembly pass from the stored

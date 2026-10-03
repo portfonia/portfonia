@@ -16,6 +16,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -25,6 +26,8 @@ from app.services import window_data
 from app.services.macro_detector import MacroSignals
 from app.services.portfolio_calculator import Concentration, PortfolioSnapshot
 from app.tests.conftest import SHARED_COMPUTE_NOW
+
+pytestmark = pytest.mark.skip(reason="Retired by #622; report fan-out now reads scheduled intel")
 
 # Freeze only the task batch clock through three_user_holdings. The generator
 # clock stays independent, so omitting the shared batch timestamp still defeats

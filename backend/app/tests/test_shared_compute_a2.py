@@ -23,6 +23,7 @@ from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -33,6 +34,8 @@ from app.models.ticker_intel import TickerIntel
 from app.services.macro_detector import MacroSignals
 from app.services.portfolio_calculator import Concentration, PortfolioSnapshot
 from app.tests.conftest import SHARED_COMPUTE_NOW
+
+pytestmark = pytest.mark.skip(reason="Retired by #622; report fan-out now reads scheduled intel")
 
 # Same fixture shape as test_shared_compute_a1.py: NVDA/AAPL shared by
 # U1+U2, SGOL/gold isolated to U3.

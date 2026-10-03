@@ -1,4 +1,4 @@
-"""Pass 1 / Pass 2 LLM prompt text: system prompts, task instructions, and the
+"""Pass 2 LLM prompt text: system prompts, task instructions, and the
 functions that assemble the user-turn prompt from portfolio/macro/search data.
 
 Split out of report_generator.py (#37).
@@ -19,8 +19,6 @@ from app.services.macro_coverage import (
     build_macro_sidecar_instruction,
     render_macro_continuity_block,
 )
-from app.services.macro_detector import MacroSignals
-from app.services.news_fetcher import NewsItem
 from app.services.portfolio_calculator import format_fx_rates_as_of
 from app.services.questionnaire_taxonomy import (
     ASSET_SCALE_PROMPT_TEXT,
@@ -439,46 +437,6 @@ def _section_list_clause(sections: list[str]) -> str:
     return f"{label} {names}"
 
 
-def _build_pass1_prompt(
-    signals: MacroSignals,
-    news: list[NewsItem],
-) -> str:
-    # DATA ISOLATION: Pass 1 must carry only public information (macro themes +
-    # news headlines). Price anomalies are holdings-derived (name/ticker reveal
-    # what the user owns) and are therefore withheld here — they are supplied
-    # only to Pass 2. This isolation is independent of data_collection=deny
-    # (which Pass 1 is now a scoped exception to — issue #78, _BYOK_PROVIDER_ORDER):
-    # even routed via BYOK with deny off, Pass 1 must never see holdings, because
-    # the exception covers WHERE the (already holdings-free) payload can go, not
-    # WHAT the payload is allowed to contain.
-    lines: list[str] = []
-
-    lines.append("=== TODAY'S MACRO SIGNAL THEMES ===")
-    if signals.has_any_hit:
-        for h in signals.hits:
-            kw_str = ", ".join(h.keywords_found[:5])
-            lines.append(f"Theme: {h.theme} (keywords: {kw_str})")
-            for a in h.articles[:2]:
-                lines.append(f"  - {f'[{a.source}] ' if a.source else ''}{a.title}")
-    else:
-        lines.append("(no macro themes triggered)")
-
-    lines.append("")
-    lines.append("=== TOP HEADLINES (past 24 h) ===")
-    for item in news[:15]:
-        lines.append(f"  {f'[{item.source}] ' if item.source else ''}{item.title}")
-
-    lines.append("")
-    lines.append(
-        "Generate 3-5 specific web search queries to retrieve background information "
-        "on the most important developments above. Focus on understanding what is "
-        "happening and what is driving the signals — not investment recommendations.\n"
-        "Output ONLY a JSON object in this exact format:\n"
-        '{"queries": ["<query 1>", "<query 2>", ...]}'
-    )
-    return "\n".join(lines)
-
-
 def _fmt_anomaly_arc(a: dict[str, Any]) -> str:
     """One detailed line per anomaly: window net, worst day, and the latest
     trading day's session arc, with explicit comparison points so the report can
@@ -850,14 +808,22 @@ def _build_pass2_prompt(
     if block:
         lines.append(block)
 
-    # Search results
+    # Scheduled intelligence article bodies
     if search_results:
         lines.append("")
         lines.append("=== BACKGROUND RESEARCH ===")
         for r in search_results:
-            lines.append(f"[S{r.get('index', '?')}] {r.get('title', '')} ({r.get('url', '')})")
+            published = r.get("published_at")
+            if published:
+                try:
+                    published = datetime.fromisoformat(str(published)).astimezone(ET).date()
+                except ValueError:
+                    published = "date unknown"
+            else:
+                published = "date unknown"
+            lines.append(f"[S{r.get('index', '?')}] {r.get('title', '')} ({published})")
             if r.get("content"):
-                lines.append(f"  {r['content'][:400]}")
+                lines.append(f"  {r['content'][:1500]}")
 
     # Investor preferences (issue #129 checkpoint B6, decision point 6) — a
     # limited, scope-guarded adjustment on top of everything above, placed
