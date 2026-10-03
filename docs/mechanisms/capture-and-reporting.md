@@ -554,6 +554,15 @@ and `data_collection: deny`. Filings bypass classification. Failed or missing
 labels remain null; promo and unrelated labels are dropped. RSS pool items
 receive only the path and low-value-title rules and are never classified.
 
+Paid-search leads use the same path, alias-relevance and low-value-title chain
+before the provider's newest-first limit. Surviving search titles go through
+the headline classifier; only `keep` and `mention` continue to extraction.
+`promo`, `unrelated`, missing labels and classifier failures are dropped, and a
+classifier failure drops every survivor from that search. The search provider
+metrics expose rule/classifier drop counts in `search_filtered` and the
+classifier charge in `search_classifier_cost_usd`; paid-provider `cost_usd`
+does not include the classifier charge.
+
 `intel_slot_task` runs every day at 07:30 and 16:15 ET, including weekends.
 The unique `(slot, run_date)` key prevents repeated non-failed runs. Triggers
 more than five minutes early or 60 minutes late record `stale_trigger` and
@@ -646,6 +655,15 @@ records instrument or theme ownership. Neither table stores source metadata
 or URLs. Accepted bodies expire after 30 days with cascading links; usage
 expires after 400 days. Usage retains a nullable slot reference, detached on
 the existing 90-day slot sweep.
+
+Provider-sourced instrument names are whitespace-normalized, stripped of
+corporate suffixes and trailing punctuation, and rejected when they are a
+code-like uppercase token different from the ticker stem. yfinance prefers
+`longName` over `shortName`. The existing `entity_aliases` table is the manual
+name and alias override source; its first entry supplies `name_en`, while all
+entries participate in matching. A profile remains cached for 30 days only
+when its stored manual-alias prefix and cleaned provider name are consistent
+with the current rules; otherwise the next slot resolves it again.
 
 `PaidUsage` reserves each estimated call charge under a process-wide lock
 before sending it, then substitutes the actual charge when recording a

@@ -167,13 +167,97 @@ def test_acceptance_06_profile_chinese_name(db_session: Session) -> None:
         assert resolve_profiles(db_session, [entry], now=NOW) == []
         profile = db_session.get(InstrumentProfile, entry.identifier)
         assert profile is not None and profile.name_zh == "Tencent Chinese"
-        assert profile.name_en == "Tencent Holdings"
+        assert profile.name_en == "Tencent"
         resolve_profiles(db_session, [entry], now=NOW + timedelta(days=29))
         assert announcements.call_count == 1
         ticker.return_value.info = {}
         announcements.return_value = []
         assert resolve_profiles(db_session, [entry], now=NOW + timedelta(days=31))
         assert profile.name_resolved_at == NOW and profile.name_zh == "Tencent Chinese"
+
+
+def test_issue_628_yfinance_prefers_long_name(db_session: Session) -> None:
+    from app.models.intel import InstrumentProfile
+    from app.services.instrument_profiles import resolve_profiles
+    from app.services.instrument_universe import UniverseEntry
+
+    with (
+        patch("app.services.instrument_profiles.load_entity_aliases", return_value={}),
+        patch("app.services.instrument_profiles.yf.Ticker") as ticker,
+        patch(
+            "app.core.config.get_settings",
+            return_value=get_settings().model_copy(update={"FINNHUB_API_KEY": None}),
+        ),
+    ):
+        ticker.return_value.info = {
+            "shortName": "ASML Holding N.V. - New York Re",
+            "longName": "ASML Holding N.V.",
+        }
+        entry = UniverseEntry("ASML", "ASML", "US")
+        assert resolve_profiles(db_session, [entry], now=NOW) == []
+    profile = db_session.get(InstrumentProfile, "ASML")
+    assert profile is not None and profile.name_en == "ASML"
+
+
+def test_issue_628_manual_alias_is_name_override(db_session: Session) -> None:
+    from app.models.intel import InstrumentProfile
+    from app.services.instrument_profiles import resolve_profiles
+    from app.services.instrument_universe import UniverseEntry
+
+    with patch("app.services.instrument_profiles.yf.Ticker") as ticker:
+        entry = UniverseEntry("MU", "MU", "US")
+        assert resolve_profiles(db_session, [entry], now=NOW) == []
+        ticker.assert_not_called()
+    profile = db_session.get(InstrumentProfile, "MU")
+    assert profile is not None
+    assert profile.name_en == "Micron"
+    assert profile.name_source == "config"
+    assert profile.aliases == ["Micron", "MU"]
+
+
+def test_issue_628_invalidates_only_inconsistent_fresh_profiles(db_session: Session) -> None:
+    from app.models.intel import InstrumentProfile
+    from app.services.instrument_profiles import resolve_profiles
+    from app.services.instrument_universe import UniverseEntry
+
+    for identifier, name in {
+        "MU": "Micron Technology,",
+        "LITE": "Lumentum Holdings",
+        "INTC": "Intel",
+        "AVGO": "Broadcom",
+    }.items():
+        db_session.add(
+            InstrumentProfile(
+                identifier=identifier,
+                market="US",
+                name_en=name,
+                name_source="config" if identifier == "INTC" else "yfinance",
+                aliases=[name, identifier],
+                name_resolved_at=NOW - timedelta(days=1),
+                updated_at=NOW - timedelta(days=1),
+            )
+        )
+    db_session.flush()
+    info = {
+        "MU": {"longName": "Micron Technology,", "shortName": "Micron"},
+        "LITE": {"longName": "Lumentum Holdings Inc.", "shortName": "Lumentum"},
+    }
+    entries = [UniverseEntry(identifier, identifier, "US") for identifier in info]
+    entries.extend([UniverseEntry("INTC", "INTC", "US"), UniverseEntry("AVGO", "AVGO", "US")])
+    with (
+        patch("app.services.instrument_profiles.load_entity_aliases", return_value={}),
+        patch("app.services.instrument_profiles.yf.Ticker") as ticker,
+        patch(
+            "app.core.config.get_settings",
+            return_value=get_settings().model_copy(update={"FINNHUB_API_KEY": None}),
+        ),
+    ):
+        ticker.side_effect = lambda symbol: type("Ticker", (), {"info": info.get(symbol, {})})()
+        assert resolve_profiles(db_session, entries, now=NOW) == []
+        assert ticker.call_count == 2
+        ticker.reset_mock()
+        assert resolve_profiles(db_session, entries, now=NOW) == []
+        ticker.assert_not_called()
 
 
 def test_acceptance_15_all_source_parameters_are_public() -> None:

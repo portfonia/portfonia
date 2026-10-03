@@ -12,14 +12,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.models.intel import InstrumentProfile
 from app.models.paid_intel import IntelArticle, IntelArticleLink, PaidApiUsage
 from app.services import intel_deepen as deepen
 from app.services import intel_digest
 from app.services.instrument_news_sources import CollectedItem
 from app.services.instrument_universe import UniverseEntry
 from app.services.intel_deepen_config import load_intel_deepen_config
-from app.services.intel_leads import url_key
+from app.services.intel_leads import Lead, url_key
 from app.services.intel_selection import WorkUnit, select_units
+from app.services.paid_search import PaidResult
 from app.tests.test_intel_deepen_rules import NOW
 from app.tests.test_intel_paid import slot
 
@@ -805,6 +807,104 @@ def test_budget_skip_does_not_consume_search_slot(db_session: Session) -> None:
             assert worker.searches == post.call_count == 1
         finally:
             worker.close()
+
+
+def test_issue_628_search_filters_rules_and_classifier(db_session: Session) -> None:
+    db_session.add(
+        InstrumentProfile(
+            identifier="AAOI", market="US", aliases=["Applied Optoelectronics", "AAOI"]
+        )
+    )
+    db_session.flush()
+    leads = [
+        Lead(
+            "https://fixture.example/promo",
+            "Applied Optoelectronics Is Up 205% This Year. Is It Too Late to Buy AAOI Stock Now?",
+            NOW,
+        ),
+        Lead(
+            "https://fixture.example/today",
+            "AAOI News Today | Why did Applied Optoelectronics stock go up today? $AAOI",
+            NOW,
+        ),
+        Lead(
+            "https://fixture.example/keep",
+            "AAOI Stock Rallies As Hyperscale AI Orders Boost Outlook",
+            NOW,
+        ),
+    ]
+    worker = deepen.DeepenRun(
+        db_session,
+        slot(db_session),
+        load_intel_deepen_config(),
+        False,
+        NOW,
+        NOW - timedelta(hours=24),
+        [],
+        {},
+    )
+    try:
+        with (
+            patch.object(worker, "_provider", return_value="tavily"),
+            patch.object(
+                worker,
+                "_call",
+                return_value=("tavily", PaidResult(200, Decimal(1), Decimal(".008"), leads=leads)),
+            ),
+            patch.object(
+                deepen, "classify_headlines", return_value=({0: "keep"}, 0.0002, None)
+            ) as classify,
+        ):
+            chosen, kept = worker._search("tavily", WorkUnit("quiet", "AAOI"))
+        assert chosen == "tavily"
+        assert [lead.url for lead in kept] == ["https://fixture.example/keep"]
+        classify.assert_called_once()
+        assert len(classify.call_args.args[0]) == 1
+        assert worker.metrics["tavily"]["search_filtered"] == {"low_value_rule": 2}
+        assert worker.metrics["tavily"]["search_classifier_cost_usd"] == 0.0002
+        assert worker.metrics["tavily"]["cost_usd"] == 0.0
+    finally:
+        worker.close()
+
+
+def test_issue_628_classifier_failure_drops_all_without_retry(db_session: Session) -> None:
+    db_session.add(InstrumentProfile(identifier="AMKR", market="US", aliases=["Amkor", "AMKR"]))
+    db_session.flush()
+    leads = [
+        Lead("https://fixture.example/a", "Amkor announces a new agreement", NOW),
+        Lead("https://fixture.example/b", "Amkor expands capacity", NOW),
+    ]
+    worker = deepen.DeepenRun(
+        db_session,
+        slot(db_session),
+        load_intel_deepen_config(),
+        False,
+        NOW,
+        NOW - timedelta(hours=24),
+        [],
+        {},
+    )
+    try:
+        with (
+            patch.object(worker, "_provider", return_value="tavily"),
+            patch.object(
+                worker,
+                "_call",
+                return_value=("tavily", PaidResult(200, Decimal(1), Decimal(".008"), leads=leads)),
+            ) as search,
+            patch.object(
+                deepen,
+                "classify_headlines",
+                return_value=({}, 0.0, "classifier: HTTPStatusError HTTP 502"),
+            ),
+        ):
+            _, kept = worker._search("tavily", WorkUnit("quiet", "AMKR"))
+        assert kept == []
+        assert search.call_count == 1
+        assert worker.metrics["tavily"]["search_filtered"] == {"classifier_failed": 2}
+        assert "classifier: HTTPStatusError HTTP 502" in worker.errors
+    finally:
+        worker.close()
 
 
 @pytest.mark.parametrize("weekend", [False, True])

@@ -20,6 +20,12 @@ from app.core.timezones import ET
 from app.models.intel import InstrumentProfile, IntelSlotRun
 from app.models.news import News
 from app.models.paid_intel import IntelArticle, IntelArticleLink
+from app.services.headline_cleaning import (
+    CleaningConfig,
+    block_reason,
+    classify_headlines,
+    load_cleaning_config,
+)
 from app.services.instrument_news_sources import CollectedItem
 from app.services.instrument_profiles import match_instruments
 from app.services.instrument_universe import UniverseEntry
@@ -64,6 +70,8 @@ class ProviderMetrics(TypedDict):
     rejected: dict[str, int]
     cost_usd: float
     budget: int
+    search_filtered: dict[str, int]
+    search_classifier_cost_usd: float
 
 
 class DeepenRun:
@@ -86,6 +94,11 @@ class DeepenRun:
         self.now = now
         self.previous = previous
         self.settings = get_settings()
+        self.cleaning: CleaningConfig | None
+        try:
+            self.cleaning = load_cleaning_config()
+        except ValueError:
+            self.cleaning = None
         self.usage = PaidUsage(session, run, self.settings, weekend, now)
         self.pool = ThreadPoolExecutor(max_workers=self.settings.INTEL_PAID_WORKERS)
         self.coordinator = ThreadPoolExecutor(max_workers=1)
@@ -107,6 +120,8 @@ class DeepenRun:
         self.futures: list[Future[None]] = []
         self.selected: list[WorkUnit] = []
         self.errors: list[str] = []
+        if self.cleaning is None:
+            self.errors.append("search_filter: ValueError")
         self.searches = 0
         self.search_cap = cfg.caps.weekend_searches if weekend else cfg.caps.searches_per_run
         self.metrics: dict[str, ProviderMetrics] = {
@@ -118,6 +133,8 @@ class DeepenRun:
                 "rejected": {},
                 "cost_usd": 0.0,
                 "budget": 0,
+                "search_filtered": {},
+                "search_classifier_cost_usd": 0.0,
             }
             for p in ("tavily", "parallel")
         }
@@ -239,6 +256,8 @@ class DeepenRun:
             chosen = self._provider(provider)
             if not chosen:
                 return provider, []
+            if self.cleaning is None:
+                return chosen, []
             with self.lock:
                 if self.searches >= self.search_cap:
                     return chosen, []
@@ -264,6 +283,52 @@ class DeepenRun:
                     )
                     and not accepted_recently(session, lead.url, self.cfg, self.now)
                 ]
+            aliases = self.aliases.get(unit.identifier, [unit.identifier])
+            survivors: list[tuple[Lead, CollectedItem]] = []
+            for lead in leads:
+                item = CollectedItem(lead.title, lead.published_at or self.now, lead.url)
+                reason = block_reason(item, aliases, [], self.cleaning)
+                if reason:
+                    with self.lock:
+                        filtered = self.metrics[chosen]["search_filtered"]
+                        filtered[reason] = filtered.get(reason, 0) + 1
+                    continue
+                survivors.append((lead, item))
+            if survivors:
+                items = [item for _, item in survivors]
+                labels, cost, failed = classify_headlines(items, unit.identifier, aliases)
+                with self.lock:
+                    self.metrics[chosen]["search_classifier_cost_usd"] = (
+                        float(self.metrics[chosen]["search_classifier_cost_usd"]) + cost
+                    )
+                if failed:
+                    with self.lock:
+                        filtered = self.metrics[chosen]["search_filtered"]
+                        filtered["classifier_failed"] = len(survivors)
+                    self.errors.append(failed)
+                    survivors = []
+                    leads = []
+                else:
+                    kept: list[Lead] = []
+                    for index, (lead, _item) in enumerate(survivors):
+                        label = labels.get(index)
+                        if label in ("keep", "mention"):
+                            kept.append(lead)
+                            continue
+                        reason = (
+                            "unlabeled_llm"
+                            if label is None
+                            else {
+                                "promo": "promo_llm",
+                                "unrelated": "unrelated_llm",
+                            }.get(label, "unlabeled_llm")
+                        )
+                        with self.lock:
+                            filtered = self.metrics[chosen]["search_filtered"]
+                            filtered[reason] = filtered.get(reason, 0) + 1
+                    leads = kept
+            else:
+                leads = []
             leads.sort(
                 key=lambda lead: (
                     lead.published_at is None,
