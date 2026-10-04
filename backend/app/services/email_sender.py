@@ -13,7 +13,7 @@ import logging
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from html import escape
-from typing import Literal
+from typing import Literal, cast
 from uuid import UUID
 
 import httpx
@@ -290,6 +290,12 @@ def _inline_body_styles(body_html: str) -> str:
     return str(soup)
 
 
+def render_report_body_html(markdown: str) -> str:
+    """Render the web fragment with the email path's Markdown rules."""
+    # markdown-it lacks typed stubs here; render returns an HTML string.
+    return cast(str, _md.render(markdown))
+
+
 def _render_html(markdown: str) -> str:
     body = _inline_body_styles(_md.render(markdown))
     return _HTML_TEMPLATE.replace("__REPORT_BODY__", body)
@@ -375,10 +381,11 @@ def send_report_email(report: Report, session: Session) -> bool:
                     f"report_id={report.id} user_id={report.user_id} — user row is "
                     "active but neither email_verified_at nor delivery_email_verified_at "
                     "is set (issue #276 gate), so the generated report was NOT emailed "
-                    "(email_sent_at left null; it can be sent from POST /reports/"
-                    "{id}/send once an address is verified). This branch only runs "
-                    "after a Report row exists: expected for admin/self-service "
-                    "generate of an unverified user, or a verified-at-fan-out / "
+                    "(email_sent_at left null; it can be sent from "
+                    f"POST /admin/users/{report.user_id}/reports/{report.id}/send "
+                    "once an address is verified). This branch only runs "
+                    "after a Report row exists: expected for Ops async generate "
+                    "of an unverified user, or a verified-at-fan-out / "
                     "unverified-at-send race — escalate only if the user's Profile "
                     "page shows a verified address."
                 ),

@@ -51,11 +51,12 @@ from app.models.holding import Holding
 from app.models.invite import Invite
 from app.models.report import Report
 from app.models.report_currency_change import ReportCurrencyChange
+from app.models.report_job import ReportJob
 from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
 from app.models.waitlist_entry import WaitlistEntry
 from app.schemas.holdings import VALID_CURRENCIES
-from app.schemas.reports import ReportOut
+from app.schemas.reports import GenerateReportRequest, ReportJobOut
 from app.services import fx_fetcher, price_fetcher
 from app.services.auth_provider import (
     AuthProviderError,
@@ -100,10 +101,9 @@ from app.services.paddle_client import (
 )
 from app.services.report_currency import apply_report_currency_change
 from app.services.report_generator import (
-    generate_report,
-    prompt_label_alert_body,
     regenerate_report,
 )
+from app.services.report_jobs import _job_out
 from app.services.snapshot_recovery import (
     CATCHUP_LOOKBACK_DAYS,
     recover_portfolio_snapshots,
@@ -125,6 +125,7 @@ from app.services.waitlist import views as waitlist_views
 from app.tasks.admin_tasks import send_admin_alert_task
 from app.tasks.email_verification_tasks import POLL_DELAY_SECONDS
 from app.tasks.invitation_letter_tasks import poll_invitation_letter_delivery
+from app.tasks.report_tasks import generate_report_job
 
 logger = logging.getLogger(__name__)
 
@@ -834,88 +835,67 @@ def list_users_endpoint(
     ]
 
 
-@router.post(
-    "/users/{user_id}/reports/generate",
-    response_model=ReportOut,
-    status_code=201,
-)
-def generate_report_for_user(user_id: UUID, session: Session = Depends(get_session)) -> Report:
-    """Manually trigger report generation for one user (issue #201).
-
-    Synchronous by design: /admin/* hits api.portfonia.com directly, never
-    the frontend Next.js proxy, so an ops curl or agent caller waits for
-    the full pipeline. Since issue #193 that is a transport choice, not a
-    workaround — self-service POST /reports/generate is asynchronous (202 +
-    a pollable report_jobs row) because the browser path *is* proxied; this
-    endpoint is not, and an ops caller can afford to wait. The handler is a
-    sync def, so Starlette runs it in the threadpool — it occupies a
-    threadpool worker and a pooled DB connection for the full duration.
-    Acceptable because this is a rare ops action. Do not invoke concurrently
-    for the same user; a second POST while the first is still running can
-    race the report dedup key.
-
-    session_node is always "manual", matching the self-service default, so
-    a same-day scheduled after_close run still gets its own row. Currency
-    and language are the system-wide defaults (generate_report's USD,
-    Settings.OUTPUT_LANG), not users.base_currency / users.locale — this
-    endpoint is deliberately the ONE exception left on system-wide
-    defaults (matching the locale precedent from issue #308): the
-    scheduled fan-out and the self-service endpoint both read the target
-    user's own base_currency/locale since issue #350 item 1 / #308. The
-    user must exist and be status=active. No holdings precondition (issue #221 §2.7):
-    an empty book renders §1/distribution/§4.1/§4.2/§4.4 as empty tables
-    rather than failing — self-service POST /reports/generate never had
-    this check either. active_user_ids() (the scheduled fan-out, issue #191)
-    still requires a holding row for the mwf cadence; weekly does not, so a
-    weekly user's manual-generate behavior here already matches what
-    scheduled fan-out will eventually do for them, not a relaxation unique
-    to this endpoint.
-
-    A successful run generates the report but does not always email it:
-    this handler is exempt from the Layer 1 generation gate (issue #276 —
-    it resolves the user directly, never `active_user_ids()`), so an
-    active but unverified user still gets a Report row, while the Layer 2
-    send-time gate then skips delivery — `email_sent_at` stays null and
-    the no-verified-recipient ops alert fires. needs_review does not
-    email. Quiet-day heartbeats email unless the short-manual-window
-    suppression applies. A repeat same-day call on an already-complete
-    report is an idempotent no-op (still 201 — generate_report returns the
-    existing row rather than re-sending; self-service's async accept
-    resolves to that same row) and does not re-send.
-    """
+@router.post("/users/{user_id}/reports/generate", response_model=ReportJobOut, status_code=202)
+def enqueue_report_for_user(
+    user_id: UUID,
+    req: GenerateReportRequest | None = None,
+    session: Session = Depends(get_session),
+) -> ReportJobOut:
+    """Accept an Ops report generation; personalization is resolved by the worker."""
     user = session.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="user not found")
     if user.status != "active":
         raise HTTPException(status_code=422, detail="user is not active")
+    req = req or GenerateReportRequest()
+    job = ReportJob(user_id=user_id, status="pending")
+    session.add(job)
+    session.commit()
+    session.refresh(job)
     try:
-        report = generate_report(
-            session,
-            user_id=user_id,
-            output_lang=get_settings().OUTPUT_LANG,
-            session_node="manual",
+        generate_report_job.delay(
+            str(job.id),
+            report_type=req.report_type,
+            report_date=req.report_date.isoformat() if req.report_date is not None else None,
+            base_currency=req.base_currency,
+            session_node=req.session_node,
         )
-        label_body = prompt_label_alert_body([report])
-        if label_body:
-            send_ops_alert(
-                subject="[Portfonia] Internal section names in report",
-                body=label_body,
-                severity="WARNING",
-                idempotency_key=f"report-labels-{report.id}",
-            )
-        return report
-    except LLMEmptyResponseError as exc:
+    except Exception as exc:
+        logger.exception("enqueue_report_for_user: failed to enqueue job %s", job.id)
+        job.status = "failed"
+        job.error = f"Failed to queue report job: {type(exc).__name__}: {exc}"
+        session.commit()
         raise HTTPException(
-            status_code=502, detail=f"LLM returned an empty response: {exc}"
+            status_code=503, detail="Could not queue the report generation. Please try again."
         ) from exc
-    except openai.APIError as exc:
-        raise HTTPException(status_code=502, detail=f"{type(exc).__name__}: {exc}") from exc
-    except IntegrityError as exc:
-        raise HTTPException(
-            status_code=409, detail="report generation already in progress"
-        ) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=f"Report generation failed: {exc}") from exc
+    return _job_out(session, job)
+
+
+@router.get("/report-jobs/{job_id}", response_model=ReportJobOut)
+def get_report_job_for_ops(job_id: UUID, session: Session = Depends(get_session)) -> ReportJobOut:
+    job = session.get(ReportJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Report job not found.")
+    return _job_out(session, job)
+
+
+@router.post("/users/{user_id}/reports/{report_id}/send")
+def send_report_for_user(
+    user_id: UUID, report_id: UUID, session: Session = Depends(get_session)
+) -> dict[str, str | None]:
+    report = session.scalar(select(Report).where(Report.id == report_id, Report.user_id == user_id))
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if report.status != "success":
+        raise HTTPException(status_code=422, detail="Report is not in success state")
+    if report.email_sent_at is not None:
+        return {"status": "already_sent", "email_sent_at": report.email_sent_at.isoformat()}
+    if not send_report_email(report, session):
+        raise HTTPException(status_code=502, detail="Email delivery failed — check server logs")
+    return {
+        "status": "sent",
+        "email_sent_at": report.email_sent_at.isoformat() if report.email_sent_at else None,
+    }
 
 
 def _release_report_resend_cooldown_if_claimed(email: str | None) -> None:
@@ -955,11 +935,7 @@ def rerun_report_for_user(
 
     Built for the "holdings were corrected after a report already shipped"
     case: rebuild the body from stored `report_inputs` — never re-fetching
-    news/Tavily/macro intel — and, if requested, actually redeliver it. This
-    is the admin-scoped counterpart to the self-service `POST
-    /reports/{id}/regenerate`; that route is scoped to the caller's own
-    principal and never clears `email_sent_at`, so it cannot rerun another
-    user's report or force a genuine resend.
+    news/Tavily/macro intel — and, if requested, actually redeliver it.
 
     mode='analyze' (default) re-runs the body pass against a FRESH read of
     the user's live holdings via `regenerate_report` — this is what actually
@@ -972,8 +948,7 @@ def rerun_report_for_user(
     Clearing first matters: `send_report_email`'s G3 dedup guard silently
     no-ops on any report where `email_sent_at` is already set, so without
     this step a rerun would produce a corrected body that never actually
-    goes out. resend=false leaves `email_sent_at` untouched and never sends
-    — identical in effect to the self-service regenerate.
+    goes out. resend=false leaves `email_sent_at` untouched and never sends.
 
     The `Report` row is never physically deleted: doing so would destroy
     the `report_inputs` JSONB cache that makes a no-refetch rerun possible

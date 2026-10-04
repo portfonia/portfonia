@@ -29,6 +29,7 @@ from app.models.user import User
 from app.services.llm_errors import LLMEmptyResponseError
 from app.tasks.report_tasks import generate_report_job
 from app.tests.conftest import TEST_USER_ID, U2_USER_ID, seed_user
+from app.tests.test_admin_router import _headers
 
 _OTHER_USER_ID = U2_USER_ID
 
@@ -93,10 +94,14 @@ def test_generate_accepts_fast_with_a_pending_job(
     never runs generate_report in the request."""
     _seed(db_session)
     with (
-        patch("app.routers.reports.generate_report_job.delay") as mock_delay,
+        patch("app.routers.admin.generate_report_job.delay") as mock_delay,
         patch("app.services.report_generator.generate_report") as mock_generate,
     ):
-        resp = app_client.post("/reports/generate", json={"report_type": "incremental"})
+        resp = app_client.post(
+            f"/admin/users/{TEST_USER_ID}/reports/generate",
+            json={"report_type": "incremental"},
+            headers=_headers(),
+        )
 
     assert resp.status_code == 202
     body = resp.json()
@@ -118,9 +123,10 @@ def test_generate_forwards_the_request_body_to_the_worker(
     """The accepted request must reach the worker intact — report_date is
     serialized because Celery's JSON serializer does not carry a date."""
     _seed(db_session)
-    with patch("app.routers.reports.generate_report_job.delay") as mock_delay:
+    with patch("app.routers.admin.generate_report_job.delay") as mock_delay:
         resp = app_client.post(
-            "/reports/generate",
+            f"/admin/users/{TEST_USER_ID}/reports/generate",
+            headers=_headers(),
             json={
                 "report_type": "incremental",
                 "report_date": "2026-09-09",
@@ -142,8 +148,12 @@ def test_generate_forwards_the_request_body_to_the_worker(
 def test_generate_still_validates_the_request_body(
     app_client: TestClient, db_session: Session
 ) -> None:
-    with patch("app.routers.reports.generate_report_job.delay") as mock_delay:
-        resp = app_client.post("/reports/generate", json={"report_type": "not-a-type"})
+    with patch("app.routers.admin.generate_report_job.delay") as mock_delay:
+        resp = app_client.post(
+            f"/admin/users/{TEST_USER_ID}/reports/generate",
+            json={"report_type": "not-a-type"},
+            headers=_headers(),
+        )
 
     assert resp.status_code == 422
     mock_delay.assert_not_called()
@@ -156,10 +166,14 @@ def test_generate_marks_the_job_failed_when_the_enqueue_fails(
     would poll forever (same rule as the holdings upload accept)."""
     _seed(db_session)
     with patch(
-        "app.routers.reports.generate_report_job.delay",
+        "app.routers.admin.generate_report_job.delay",
         side_effect=RuntimeError("broker down"),
     ):
-        resp = app_client.post("/reports/generate", json={"report_type": "incremental"})
+        resp = app_client.post(
+            f"/admin/users/{TEST_USER_ID}/reports/generate",
+            json={"report_type": "incremental"},
+            headers=_headers(),
+        )
 
     assert resp.status_code == 503
     jobs = db_session.query(ReportJob).filter(ReportJob.user_id == TEST_USER_ID).all()
@@ -177,26 +191,15 @@ def test_get_job_returns_the_callers_own_job(app_client: TestClient, db_session:
     job = _make_job(db_session, status="success")
     db_session.commit()
 
-    resp = app_client.get(f"/reports/jobs/{job.id}")
+    resp = app_client.get(f"/admin/report-jobs/{job.id}", headers=_headers())
 
     assert resp.status_code == 200
     assert resp.json()["id"] == str(job.id)
     assert resp.json()["status"] == "success"
 
 
-def test_get_job_404_for_another_users_job(app_client: TestClient, db_session: Session) -> None:
-    """No cross-user job read — and a 404, not a 403, so a guessed job id
-    cannot be distinguished from a non-existent one."""
-    theirs = _make_job(db_session, user_id=_OTHER_USER_ID)
-    db_session.commit()
-
-    resp = app_client.get(f"/reports/jobs/{theirs.id}")
-
-    assert resp.status_code == 404
-
-
 def test_get_job_404_for_unknown_id(app_client: TestClient, db_session: Session) -> None:
-    resp = app_client.get(f"/reports/jobs/{uuid.uuid4()}")
+    resp = app_client.get(f"/admin/report-jobs/{uuid.uuid4()}", headers=_headers())
 
     assert resp.status_code == 404
 
@@ -212,7 +215,7 @@ def test_get_job_surfaces_the_report_rows_own_status(
     job.report_id = report.id
     db_session.commit()
 
-    resp = app_client.get(f"/reports/jobs/{job.id}")
+    resp = app_client.get(f"/admin/report-jobs/{job.id}", headers=_headers())
 
     assert resp.status_code == 200
     assert resp.json()["status"] == "success"
@@ -375,3 +378,35 @@ def test_user_purge_collects_report_jobs(db_session: Session) -> None:
 
     remaining = db_session.query(ReportJob).filter(ReportJob.user_id == TEST_USER_ID).count()
     assert remaining == 0
+
+
+def test_worker_records_provider_error_detail(db_session: Session) -> None:
+    import httpx
+    import openai
+
+    job = _make_job(db_session)
+    error = openai.APIError(
+        "invalid api key", httpx.Request("POST", "https://fixture.example/llm"), body=None
+    )
+    with patch("app.services.report_generator.generate_report", side_effect=error):
+        generate_report_job.run(str(job.id))
+    job = _reload(db_session, job.id)
+    assert job.status == "failed"
+    assert job.error is not None
+    assert "APIError" in job.error
+    assert "invalid api key" in job.error
+
+
+def test_worker_records_integrity_error_detail(db_session: Session) -> None:
+    from sqlalchemy.exc import IntegrityError
+
+    job = _make_job(db_session)
+    with patch(
+        "app.services.report_generator.generate_report",
+        side_effect=IntegrityError("INSERT", {}, Exception("uq_reports")),
+    ):
+        generate_report_job.run(str(job.id))
+    job = _reload(db_session, job.id)
+    assert job.status == "failed"
+    assert job.error is not None
+    assert "IntegrityError" in job.error and "uq_reports" in job.error

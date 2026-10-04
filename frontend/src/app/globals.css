@@ -202,3 +202,28 @@
     animation: none;
   }
 }
+/* Report history typography; wide tables scroll within the report. */
+.report-body { min-width: 0; overflow-wrap: anywhere; line-height: 1.7; }
+.report-body h1 { font-size: 2rem; }
+.report-body h2 { font-size: 1.5rem; }
+.report-body h3 { font-size: 1.25rem; }
+.report-body h1, .report-body h2, .report-body h3 { font-weight: 600; margin: 1.5rem 0 0.75rem; }
+.report-body p, .report-body ul, .report-body ol, .report-body blockquote { margin: 0.75rem 0; }
+.report-body ul { list-style: disc; padding-left: 1.5rem; }
+.report-body ol { list-style: decimal; padding-left: 1.5rem; }
+.report-body a { color: var(--brand); text-decoration: underline; }
+.report-body blockquote { border-left: 2px solid var(--border); padding-left: 1rem; }
+.report-body pre { max-width: 100%; overflow-x: auto; }
+.report-table-scroll { max-width: 100%; overflow-x: auto; margin: 1rem 0; }
+.report-body table { width: 100%; border-collapse: collapse; }
+.report-body th, .report-body td { padding: 0.5rem; border: 1px solid var(--border); }
+
+@media print {
+  body:has(.report-page), body:has(.report-page) .report-page, .report-body, .report-body * { background: white !important; color: black !important; }
+  body:has(.report-page) { --background: white; --foreground: black; color-scheme: light; }
+  body:has(.report-page) header, body:has(.report-page) [role="menu"], body:has(.report-page) button, body:has(.report-page) [data-print="hide"] { display: none !important; }
+  .report-page { max-width: none; padding: 0; }
+  .report-table-scroll { overflow: visible; }
+  .report-body table { page-break-inside: auto; }
+  .report-body tr { page-break-inside: avoid; }
+}

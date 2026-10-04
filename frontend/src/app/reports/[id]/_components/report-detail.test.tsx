@@ -1,0 +1,24 @@
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { expect, it, vi } from "vitest";
+import { LocaleProvider } from "@/app/_components/locale-provider";
+import { ReportDetail } from "./report-detail";
+it("acceptance_18 renders HTML and downloads exact Markdown and prints", async () => {
+  const md = "# Stored briefing\n\nBody";
+  const html = '<h1>Stored briefing</h1><p>Body</p><table><tbody><tr><td>A</td></tr></tbody></table><a href="https://example.com">Source</a>';
+  const create = vi.fn<(blob: Blob) => string>(() => "blob:fixture"); const revoke = vi.fn();
+  vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: create, revokeObjectURL: revoke }));
+  const print = vi.spyOn(window, "print").mockImplementation(() => {});
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) { expect(this.download).toBe("portfonia-briefing-2026-10-03.md"); expect(this.href).toBe("blob:fixture"); });
+  const report = { id: "r1", report_date: "2026-10-03", report_type: "incremental", session_node: "manual", status: "success", report_md: md, report_body_html: html, prompt_version: null, disclaimer_version: null, generated_at: null, email_sent_at: null, created_at: "2026-10-03T00:00:00Z" };
+  const user = userEvent.setup(); render(<LocaleProvider><ReportDetail report={report} /></LocaleProvider>);
+  expect(screen.getByRole("heading", { name: "Stored briefing" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Source" }).outerHTML).toBe('<a href="https://example.com">Source</a>');
+  await user.click(screen.getByRole("button", { name: "Download Markdown" }));
+  const blob = create.mock.calls[0]?.[0] as unknown as Blob;
+  expect(blob).toBeInstanceOf(Blob); expect(blob.type).toBe("text/markdown;charset=utf-8");
+  const text = await new Promise<string>(resolve => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.readAsText(blob); }); expect(text).toBe(md);
+  expect(click).toHaveBeenCalledOnce(); expect(revoke).toHaveBeenCalledWith("blob:fixture");
+  await user.click(screen.getByRole("button", { name: "Print / Save as PDF" })); expect(print).toHaveBeenCalledOnce();
+  vi.restoreAllMocks(); vi.unstubAllGlobals();
+});

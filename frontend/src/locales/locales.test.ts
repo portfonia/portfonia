@@ -51,6 +51,7 @@ describe("locale catalogs stay structurally in sync (issue #209)", () => {
       "portfolio",
       "profile",
       "questionnaire",
+      "reports",
       "unsubscribe",
       "welcome",
     ].sort();
@@ -129,4 +130,13 @@ describe("subscription public billing copy (#597)", () => {
     expect(catalogs[locale].welcome).not.toHaveProperty("cadence");
     expect(catalogs[locale].legal.terms.sections[3].body).toHaveLength(7);
   });
+});
+
+it("acceptance_20 all report keys exist in every catalog", () => {
+  const keys = ["title", "category", "sort", "newest", "oldest", "dateFrom", "dateTo", "previous", "next", "page", "empty", "emptyFiltered", "underReview", "generating", "downloadMd", "print", "loadError", "types"];
+  for (const locale of LOCALE_VALUES) {
+    expect(catalogs[locale].menu).toHaveProperty("reports");
+    expect(catalogs[locale]).toHaveProperty("reports");
+    for (const key of keys) expect(catalogs[locale]).toHaveProperty(`reports.${key}`);
+  }
 });

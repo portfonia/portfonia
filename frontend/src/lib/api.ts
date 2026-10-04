@@ -857,3 +857,41 @@ export async function getPurchaseStatus(transactionId: string): Promise<Purchase
     return null;
   }
 }
+
+export interface ReportListItem {
+  kind: "report";
+  id: string;
+  report_date: string;
+  report_type: string;
+  session_node: string;
+  status: string;
+  display_state: "available" | "under_review" | "generating";
+  generated_at: string | null;
+  created_at: string;
+}
+export interface ReportListPage {
+  items: ReportListItem[];
+  page: number;
+  page_size: number;
+  total: number;
+  kinds: "report"[];
+}
+export interface ReportDetail {
+  id: string;
+  report_date: string;
+  report_type: string;
+  session_node: string;
+  status: string;
+  prompt_version: string | null;
+  disclaimer_version: string | null;
+  report_md: string;
+  report_body_html: string;
+  generated_at: string | null;
+  email_sent_at: string | null;
+  created_at: string;
+}
+export async function listReports(query: Record<string, string>): Promise<ReportListPage> {
+  const res = await fetch(`/api/reports?${new URLSearchParams(query).toString()}`, { cache: "no-store" });
+  if (!res.ok) await throwOnHttpError(res);
+  return res.json() as Promise<ReportListPage>;
+}

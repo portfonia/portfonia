@@ -16,6 +16,7 @@
 import { useState } from "react";
 import {
   Briefcase,
+  FileText,
   ChartLine,
   ChartPie,
   ChevronDown,
@@ -62,6 +63,7 @@ const AUTHED_ENTRIES = [
   // stays discoverable from any authed page — same "one row per shipped
   // route" convention as the rest of this registry.
   { id: "portfolioPerformance", href: "/portfolio/performance", Icon: ChartLine },
+  { id: "reports", href: "/reports", Icon: FileText },
   { id: "questionnaire", href: "/questionnaire", Icon: ClipboardList },
 ] as const satisfies { id: string; href: string; Icon: LucideIcon }[];
 

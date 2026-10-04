@@ -26,7 +26,14 @@ class ReportOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ReportDetailOut(ReportOut):
+    report_md: str
+    report_body_html: str
+
+
 class ReportListItem(BaseModel):
+    kind: Literal["report"]
+    display_state: Literal["available", "under_review", "generating"]
     id: uuid.UUID
     report_date: date
     report_type: str
@@ -36,6 +43,14 @@ class ReportListItem(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ReportListPage(BaseModel):
+    items: list[ReportListItem]
+    page: int
+    page_size: int
+    total: int
+    kinds: list[Literal["report"]]
 
 
 class ReportJobOut(BaseModel):
@@ -76,7 +91,7 @@ class GenerateReportRequest(BaseModel):
     report_type: str = "incremental"
     # Issue #350 item 1: None (not a hardcoded "USD" default) means "use the
     # requesting user's own persisted users.base_currency preference" — see
-    # routers/reports.py's trigger_report_generation, which resolves this via
+    # the Ops generation worker, which resolves this via
     # report_currency_for(). An explicit value here still overrides that
     # preference for this one call (untouched escape hatch).
     base_currency: str | None = None
