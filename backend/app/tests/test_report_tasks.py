@@ -37,6 +37,12 @@ import pytest
 from app.core.timezones import ET
 from app.tasks import celery_app
 
+
+@pytest.fixture(autouse=True)
+def _due_day(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.tasks.report_tasks.today_et", lambda: date(2026, 10, 7))
+
+
 # ---------------------------------------------------------------------------
 # Beat schedule
 # ---------------------------------------------------------------------------
@@ -44,20 +50,19 @@ from app.tasks import celery_app
 
 def test_beat_schedule_registered() -> None:
     schedule = celery_app.conf.beat_schedule
-    assert "report-incremental-mwf" in schedule
+    assert "report-incremental-weekday" in schedule
 
 
 def test_beat_schedule_task_name() -> None:
-    entry = celery_app.conf.beat_schedule["report-incremental-mwf"]
+    entry = celery_app.conf.beat_schedule["report-incremental-weekday"]
     assert entry["task"] == "app.tasks.report_tasks.generate_incremental_report"
 
 
 def test_beat_schedule_passes_report_type_and_session_node() -> None:
-    entry = celery_app.conf.beat_schedule["report-incremental-mwf"]
+    entry = celery_app.conf.beat_schedule["report-incremental-weekday"]
     assert entry["kwargs"] == {
         "report_type": "incremental",
-        "session_node": "after_close",
-        "cadence": "mwf",
+        "cadences": ["daily", "mwf"],
         "trigger_hour": 17,
         "trigger_minute": 0,
     }
@@ -66,11 +71,11 @@ def test_beat_schedule_passes_report_type_and_session_node() -> None:
 def test_beat_schedule_crontab_mwf_1700() -> None:
     from celery.schedules import crontab  # type: ignore[import-untyped]
 
-    entry = celery_app.conf.beat_schedule["report-incremental-mwf"]
+    entry = celery_app.conf.beat_schedule["report-incremental-weekday"]
     sched = entry["schedule"]
     assert isinstance(sched, crontab)
     # Mon/Wed/Fri = {1, 3, 5} in crontab internals.
-    assert {1, 3, 5} <= sched.day_of_week
+    assert sched.day_of_week == {1, 2, 3, 4, 5}
     assert 17 in sched.hour
     assert 0 in sched.minute
 
@@ -96,8 +101,7 @@ def test_beat_schedule_weekly_passes_report_type_session_node_and_cadence() -> N
     entry = celery_app.conf.beat_schedule["report-incremental-weekly"]
     assert entry["kwargs"] == {
         "report_type": "incremental",
-        "session_node": "weekend_snapshot",
-        "cadence": "weekly",
+        "cadences": ["weekly"],
         "trigger_hour": 19,
         "trigger_minute": 0,
     }
@@ -487,28 +491,40 @@ def test_task_needs_review_sends_ops_alert_per_user(
     assert mock_alert.call_args.kwargs["severity"] == "WARNING"
 
 
+@pytest.mark.parametrize(
+    "cadence,node,today",
+    [
+        ("weekly", "weekend_snapshot", date(2026, 10, 10)),
+        ("mwf", "after_close", date(2026, 10, 7)),
+        ("daily", "daily_close", date(2026, 10, 6)),
+    ],
+)
 @patch("app.services.user_scope.active_users")
 @patch("app.tasks.report_tasks.send_ops_alert")
 @patch("app.core.database.SessionLocal")
 @patch("app.services.report_generator.generate_report")
-def test_task_uses_report_type_and_session_node_from_beat_kwargs(
+def test_task_uses_report_type_and_session_node_from_cadence(
     mock_gen: MagicMock,
     mock_session_cls: MagicMock,
     mock_alert: MagicMock,
     mock_active_users: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+    cadence: str,
+    node: str,
+    today: date,
 ) -> None:
-    """A future cadence (e.g. Ring 1 weekly) passes its own report_type/session_node
-    via beat kwargs rather than the task hardcoding "incremental"/"after_close"."""
+    """Report type passes through, while each cadence owns its session node."""
     mock_active_users.return_value = [_active_user(_U1)]
     mock_session_cls.return_value = MagicMock()
     mock_gen.return_value = _make_report(_U1)
 
     from app.tasks.report_tasks import generate_incremental_report
 
-    generate_incremental_report.run(report_type="weekly", session_node="weekly_close")
+    monkeypatch.setattr("app.tasks.report_tasks.today_et", lambda: today)
+    generate_incremental_report.run(report_type="weekly", cadences=[cadence])
 
     assert mock_gen.call_args.kwargs["report_type"] == "weekly"
-    assert mock_gen.call_args.kwargs["session_node"] == "weekly_close"
+    assert mock_gen.call_args.kwargs["session_node"] == node
 
 
 @patch("app.services.user_scope.active_users")
@@ -704,7 +720,7 @@ def test_task_runs_when_close_to_trigger_time(
     mock_active_users.return_value = [_active_user(_U1)]
     mock_gen.return_value = _make_report(_U1)
     mock_session_cls.return_value = MagicMock()
-    mock_datetime.now.return_value = datetime(2026, 6, 30, 17, 4, tzinfo=ET)
+    mock_datetime.now.return_value = datetime(2026, 7, 1, 17, 4, tzinfo=ET)
 
     from app.tasks.report_tasks import generate_incremental_report
 

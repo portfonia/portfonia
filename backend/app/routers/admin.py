@@ -714,7 +714,7 @@ class UpdateCadenceBody(BaseModel):
     # changes (issue #191), not just ops calls. Keep in sync with
     # app.models.user.VALID_REPORT_CADENCES by hand; Pydantic Literal
     # members must be compile-time, not derived from that tuple.
-    report_cadence: Literal["mwf", "weekly"]
+    report_cadence: Literal["daily", "mwf", "weekly"]
 
 
 class UpdateCadenceOut(BaseModel):
@@ -738,7 +738,7 @@ def update_user_cadence(
 # discipline as UpdateCadenceBody (PR #248); a drift test over both copies
 # lives in test_admin_users.py.
 UserStatusFilter = Literal["active", "deleted", "suspended"]
-ReportCadenceFilter = Literal["mwf", "none", "weekly"]
+ReportCadenceFilter = Literal["daily", "mwf", "none", "weekly"]
 
 
 class UserSummaryOut(BaseModel):

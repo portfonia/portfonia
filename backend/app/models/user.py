@@ -14,9 +14,9 @@ from app.schemas.holdings import VALID_CURRENCIES
 
 VALID_USER_STATUSES = ("active", "deleted", "suspended")
 VALID_AUTH_PROVIDERS = ("supabase",)
-VALID_REPORT_CADENCES = ("mwf", "none", "weekly")
+VALID_REPORT_CADENCES = ("daily", "mwf", "none", "weekly")
 VALID_SUBSCRIPTION_STATUSES = ("active", "cancelled", "expired", "inactive")
-VALID_SUBSCRIPTION_TYPES = ("mwf", "weekly")
+VALID_SUBSCRIPTION_TYPES = ("daily", "mwf", "weekly")
 # Report language codes (issues #308 and #582), separate from UI locales.
 # zh always means Simplified Chinese; zh-Hant uses shared source text and
 # conversion. See the per-user report language mechanism documentation.

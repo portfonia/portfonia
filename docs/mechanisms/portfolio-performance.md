@@ -934,9 +934,9 @@ including empty books, ordered by ascending ET calendar date. Both dates are
 inclusive; the maximum range is 30 days (`end - start <= 29`), and future end
 dates and reversed ranges return 422.
 
-Access requires an active subscription and a type in
-`subscription.SNAPSHOT_EXPORT_SUBSCRIPTION_TYPES`. The whitelist ships as an
-empty tuple; stage D adds advanced types. Pending cancellation does not remove
+Access uses `subscription.is_advanced(user)`: active subscription status and
+a type in `ADVANCED_SUBSCRIPTION_TYPES = ("daily",)` (issue #650). Weekly and
+Mon/Wed/Fri have no access; a downgrade removes access immediately. Pending cancellation does not remove
 access while the subscription remains active. Gate failures return 403
 `subscription_required` and consume no quota. After authentication and the
 gate, the existing Redis fixed-window limiter counts every request, including

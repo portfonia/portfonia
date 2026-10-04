@@ -63,7 +63,7 @@ describe("WelcomeBody", () => {
     expect(
       screen.getByText("Holdings-related sections stay empty until you save holdings."),
     ).toBeInTheDocument();
-    expect(screen.getByText("Portfonia sends scheduled briefings to subscribers. There are two plans: Weekly (0.99 credits per month) and Mon/Wed/Fri (1.99 credits per month).")).toBeInTheDocument();
+    expect(screen.getByText("Portfonia sends scheduled briefings to subscribers. There are three plans: Weekly (0.99 credits per month), Mon/Wed/Fri (1.99 credits per month) and the Advanced Daily plan (2.49 credits per month, weekdays, with AI Agent data access).")).toBeInTheDocument();
     expect(screen.getByText("Until you subscribe, scheduled briefings are not sent and some features may be unavailable. You need a verified email address before you can subscribe.")).toBeInTheDocument();
     expect(screen.queryByText(/Your cadence is weekly/)).not.toBeInTheDocument();
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();

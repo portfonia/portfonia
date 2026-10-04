@@ -468,7 +468,7 @@ export async function putInvestmentContext(
 // see docs/mechanisms/identity-and-auth.md's "GET /me" entry). The Profile
 // page reads email/delivery_email, the verification timestamps (issue
 // #269), `missing` (gap card), and `pending_email_verifications`.
-export type SubscriptionType = "weekly" | "mwf";
+export type SubscriptionType = "weekly" | "mwf" | "daily";
 
 export interface Subscription {
   status: "active" | "inactive" | "expired" | "cancelled";

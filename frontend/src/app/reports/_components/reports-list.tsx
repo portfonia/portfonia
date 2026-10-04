@@ -58,7 +58,7 @@ export function ReportsList({ initialPage, initialLoadError = false }: { initial
     {error ? <p role="alert">{t("loadError")}</p> : data && <>
       {data.total === 0 ? <p>{t(dateFrom || dateTo ? "emptyFiltered" : "empty")}</p> : <ul className="divide-y divide-border rounded-lg border border-border">
         {data.items.map(item => {
-          const type = item.session_node === "after_close" ? "everyOtherDay" : item.session_node === "weekend_snapshot" ? "weekly" : item.session_node === "manual" ? "manual" : "report";
+          const type = item.session_node === "daily_close" ? "daily" : item.session_node === "after_close" ? "everyOtherDay" : item.session_node === "weekend_snapshot" ? "weekly" : item.session_node === "manual" ? "manual" : "report";
           const content = <><span>{item.report_date}</span><span>{t(`types.${type}`)}</span>{item.display_state !== "available" && <span className="rounded-full border border-border px-2 py-1 text-xs">{t(item.display_state === "under_review" ? "underReview" : "generating")}</span>}</>;
           return <li key={item.id} data-testid="report-row">{item.display_state === "available" ? <Link href={`/reports/${item.id}`} className="flex flex-wrap items-center gap-3 p-4 hover:bg-muted">{content}</Link> : <div className="flex flex-wrap items-center gap-3 p-4">{content}</div>}</li>;
         })}

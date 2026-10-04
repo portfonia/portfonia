@@ -410,12 +410,11 @@ def test_relogin_after_lifetime_401_succeeds_immediately(
     assert relogin.status_code == 200
 
 
-def test_session_status_endpoint_valid_session_is_204(
+def test_session_status_endpoint_valid_session_is_200(
     raw_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """issue #236: GET /auth/session-status is a thin current_principal
-    probe — 204 for a valid, non-idle, non-lifetime-expired session, no
-    response body to assert beyond status. Split into three separate cases
+    probe — 200 with Advanced access for a valid, non-idle session. Split into three separate cases
     (PR #432 review, blacktomb42) matching the issue's own Contract
     constraints wording, rather than one combined test."""
     sub = "supabase-sub-session-status-valid"
@@ -430,7 +429,8 @@ def test_session_status_endpoint_valid_session_is_204(
 
     monkeypatch.setattr("app.core.deps.verify_access_token", _ok)
     resp = raw_client.get("/auth/session-status", headers={"Authorization": "Bearer good.token"})
-    assert resp.status_code == 204
+    assert resp.status_code == 200
+    assert resp.json() == {"advanced": False}
 
 
 def test_session_status_endpoint_no_token_is_401(raw_client: TestClient) -> None:

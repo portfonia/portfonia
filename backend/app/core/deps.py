@@ -12,6 +12,7 @@ from app.core.database import get_session
 from app.core.idle_activity import is_idle, session_lifetime_expired, touch_activity
 from app.models.user import User
 from app.services.auth_provider import InvalidAccessToken, verify_access_token
+from app.services.subscription import is_advanced
 
 
 def get_current_user_id() -> UUID:
@@ -27,6 +28,7 @@ class Principal:
     email: str | None = None
     locale: str | None = None
     base_currency: str | None = None
+    advanced: bool = False
 
 
 def _request_access_token(request: Request) -> str | None:
@@ -78,6 +80,7 @@ def current_principal(request: Request, session: Session = Depends(get_session))
         email=user.email,
         locale=user.locale,
         base_currency=user.base_currency,
+        advanced=is_advanced(user),
     )
 
 

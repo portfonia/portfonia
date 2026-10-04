@@ -60,7 +60,7 @@ def _user(session: Session, status: str = "active", plan: str = "mwf") -> User:
 
 @pytest.fixture
 def allowed(monkeypatch: pytest.MonkeyPatch, db_session: Session) -> User:
-    monkeypatch.setattr(subscription, "SNAPSHOT_EXPORT_SUBSCRIPTION_TYPES", ("mwf",))
+    monkeypatch.setattr(subscription, "ADVANCED_SUBSCRIPTION_TYPES", ("mwf",))
     return _user(db_session)
 
 
@@ -113,7 +113,7 @@ def _row(
     return row
 
 
-def test_snapshot_export_1_empty_whitelist_denies_without_counting(
+def test_snapshot_export_1_basic_plan_denies_without_counting(
     app_client: TestClient, db_session: Session
 ) -> None:
     _user(db_session)
@@ -121,7 +121,7 @@ def test_snapshot_export_1_empty_whitelist_denies_without_counting(
     assert resp.status_code == 403
     assert resp.json() == {"detail": "subscription_required"}
     assert KEY not in cast(rate_limit.InMemoryBackend, rate_limit.get_backend()).stored_keys()
-    assert subscription.SNAPSHOT_EXPORT_SUBSCRIPTION_TYPES == ()
+    assert subscription.ADVANCED_SUBSCRIPTION_TYPES == ("daily",)
 
 
 def test_snapshot_export_2_accepts_30_days(
@@ -278,7 +278,7 @@ def test_snapshot_export_3_subscription_gate(
     status: str,
     plan: str,
 ) -> None:
-    monkeypatch.setattr(subscription, "SNAPSHOT_EXPORT_SUBSCRIPTION_TYPES", ("mwf",))
+    monkeypatch.setattr(subscription, "ADVANCED_SUBSCRIPTION_TYPES", ("mwf",))
     _user(db_session, status, plan)
     resp = app_client.get(URL, params=_params())
     assert resp.status_code == 403

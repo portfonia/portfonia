@@ -63,3 +63,8 @@ it("restores query on refresh and Back", async () => {
   expect(await screen.findByText("Page 1 of 2")).toBeInTheDocument();
 });
 it("shows a translated load error", () => { mount(page, true); expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load your reports. Try refreshing the page."); });
+
+it("daily_acceptance_12 history labels daily_close as Daily", () => {
+  mount({ ...page, items: [{ ...items[0], session_node: "daily_close" }], total: 1 });
+  expect(screen.getByText("Daily")).toBeInTheDocument();
+});

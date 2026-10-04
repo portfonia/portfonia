@@ -30,7 +30,7 @@ def test_update_cadence_literal_matches_valid_report_cadences() -> None:
     test instead of silently accepting/rejecting the wrong values at
     runtime."""
     literal_values = get_args(UpdateCadenceBody.model_fields["report_cadence"].annotation)
-    assert set(literal_values) == {"mwf", "weekly"}
+    assert set(literal_values) == {"daily", "mwf", "weekly"}
 
 
 def test_update_cadence_requires_ops_token(app_client: TestClient) -> None:
@@ -79,7 +79,7 @@ def test_update_cadence_rejects_unknown_value(app_client: TestClient, db_session
     resp = app_client.post(
         f"/admin/users/{_UID}/cadence",
         headers=_headers(),
-        json={"report_cadence": "daily"},
+        json={"report_cadence": "monthly"},
     )
 
     assert resp.status_code == 422
