@@ -208,3 +208,12 @@ def test_639_theme_rolling_measures_share_window_weights(missing: bool) -> None:
     merged = window_data._merge_theme_anomalies([(small, first), (large, second)], theme)
     assert merged.d3_pct == (None if missing else Decimal(".2200"))
     assert merged.d5_pct == (None if missing else Decimal(".2700"))
+
+
+def test_639_11_cumulative_keeps_priority_over_five_day(db_session: Session) -> None:
+    raw = move(db_session, [Decimal(x) for x in ("110.04", "104.9", "100", "100", "100", "90")])
+    assert raw.max_day_pct is not None and abs(raw.max_day_pct) < Decimal(".05")
+    assert raw.net_pct > Decimal(".10")
+    assert raw.d5_pct is not None and raw.d5_pct >= Decimal(".20")
+    result = select_user_anomalies({"AAA": raw}, [holding()], 2, {}, {})
+    assert result[0].trigger == "cumulative"

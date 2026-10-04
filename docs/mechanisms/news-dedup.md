@@ -31,8 +31,11 @@ rows before reconstructing pool titles and summaries but restores empty
 URL/source values. Deployment and migration require
 separate owner authorization and a current-day backup, with #621 and #622.
 Issue #622 removes report-time search. Instrument-linked news is read through
-the same per-user surfaced ledger and every recalled hash is marked together
-with the terminal report status. Historical `report_inputs` URL/source keys
+the same per-user surfaced ledger. All loaded linked hashes for the selected
+holdings are marked together with the terminal report status, including those
+past each holding's six-headline display cap. Linked hashes for holdings outside
+the six-holding selection are not marked (issue #639 D2). Window-pool news
+continues through its existing marking path. Historical `report_inputs` URL/source keys
 are scrubbed by the #622 migration in batches of 500; the downgrade is a
 no-op because the data is not recoverable.
 

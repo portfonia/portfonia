@@ -13,6 +13,8 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.news import News
+from app.models.news_surfaced import NewsSurfaced
 from app.models.report import Report
 from app.services import report_generator as rg
 from app.services import report_prompts as prompts
@@ -46,7 +48,11 @@ def pipeline(
 
 
 def generate(
-    session: Session, rows: list[tuple[str, str, int]], anomalies: list[PriceAnomaly]
+    session: Session,
+    rows: list[tuple[str, str, int]],
+    anomalies: list[PriceAnomaly],
+    *,
+    headlines_per_holding: int = 3,
 ) -> Report:
     seed_user(session, USER)
     base = _portfolio_snap()
@@ -61,7 +67,7 @@ def generate(
         for ticker, kind, weight in rows
     ]
     for ticker, _, _ in rows:
-        for i in range(3):
+        for i in range(headlines_per_holding):
             item = _news_item(f"{ticker} company development {i}")
             item = replace(item, published_at=NOW - timedelta(hours=i))
             nid, _ = store_headline(session, item, "instrument", "article", "keep")
@@ -100,7 +106,9 @@ def test_639_05_four_percent_stock_has_three_linked_headlines(db_session: Sessio
 
 def test_639_05a_eight_stocks_select_six_in_contract_order(db_session: Session) -> None:
     rows = [(f"T{i}", "stock", i + 1) for i in range(8)]
-    report = generate(db_session, rows, [anomaly("T0", ".08"), anomaly("T1", "-.12")])
+    report = generate(
+        db_session, rows, [anomaly("T0", ".08"), anomaly("T1", "-.12")], headlines_per_holding=8
+    )
     assert report.report_inputs is not None
     assert set(report.report_inputs["holding_news"]) == {"T1", "T0", "T7", "T6", "T5", "T4"}
     prompt = report.report_inputs["pass2_prompt"].split("=== HOLDING-RELEVANT NEWS", 1)[1]
@@ -108,6 +116,20 @@ def test_639_05a_eight_stocks_select_six_in_contract_order(db_session: Session) 
         line[:-1] for line in prompt.splitlines() if line.startswith("T") and line.endswith(":")
     ]
     assert identifiers[:6] == ["T1", "T0", "T7", "T6", "T5", "T4"]
+    surfaced_titles = set(
+        db_session.scalars(
+            select(News.record["title"].astext)
+            .join(NewsSurfaced, NewsSurfaced.news_id == News.id)
+            .where(NewsSurfaced.user_id == USER)
+        )
+    )
+    discarded_titles = {
+        f"{ticker} company development {i}" for ticker in ("T2", "T3") for i in range(8)
+    }
+    assert sorted(surfaced_titles & discarded_titles) == []
+    for ticker in identifiers[:6]:
+        assert len(report.report_inputs["holding_news"][ticker]) == 6
+        assert {f"{ticker} company development {i}" for i in range(8)} <= surfaced_titles
 
 
 def test_639_05b_etf_and_anomalous_fund_are_excluded(db_session: Session) -> None:

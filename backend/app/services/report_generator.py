@@ -1635,13 +1635,16 @@ def generate_report(
         linked_news = load_instrument_news_by_identifier(
             session, period_start, period_end, user_id, headline_ids
         )
-        recalled, recalled_hashes = _merge_holding_news(news_items, linked_news, headline_ids)
+        recalled, _ = _merge_holding_news(news_items, linked_news, headline_ids)
         recalled = {
             identifier: recalled[identifier]
             for identifier in headline_ids
             if identifier in recalled
         }
         recalled = dict(list(recalled.items())[:MAX_HOLDINGS_WITH_HEADLINES])
+        recalled_hashes = {
+            item.url_hash for identifier in recalled for item in linked_news.get(identifier, [])
+        }
         ctx.holding_news = {
             identifier: _serialize_news(items) for identifier, items in recalled.items()
         }
