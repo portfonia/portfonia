@@ -252,3 +252,39 @@ class SendOverviewResponse(BaseModel):
 
     sent: bool
     retry_after_seconds: int | None = None
+
+
+class SnapshotHoldingOut(BaseModel):
+    holding_id: uuid.UUID | None
+    ticker: str | None
+    fund_code: str | None
+    market: str | None
+    broker: str | None
+    account: str | None
+    portfolio: str | None
+    asset_class: str | None
+    pricing_mode: str | None
+    currency: str
+    shares: Decimal | None
+    current_value: Decimal | None
+    market_value: Decimal | None
+    market_value_base: Decimal | None
+    cost_basis_base: Decimal | None
+    fx_rate_used: Decimal | None
+    price_as_of: date | None
+    fx_as_of: date | None
+    data_quality: str
+
+    model_config = {"from_attributes": True}
+
+
+class SnapshotDayOut(BaseModel):
+    date: dt.date
+    base_currency: str | None
+    holdings: list[SnapshotHoldingOut]
+
+
+class SnapshotExportOut(BaseModel):
+    start: date
+    end: date
+    days: list[SnapshotDayOut]

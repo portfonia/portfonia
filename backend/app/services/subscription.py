@@ -27,6 +27,8 @@ from app.tasks import next_occurrence_for_cadence
 logger = logging.getLogger(__name__)
 
 PLAN_FEES: dict[str, Decimal] = {"weekly": Decimal("0.99"), "mwf": Decimal("1.99")}
+# Stage D adds advanced subscription types to this whitelist.
+SNAPSHOT_EXPORT_SUBSCRIPTION_TYPES: tuple[str, ...] = ()
 
 
 def next_expiry(from_date: date, anchor_day: int) -> date:

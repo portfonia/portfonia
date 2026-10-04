@@ -62,6 +62,10 @@ WAITLIST_EMAIL_HOUR_LIMIT = 3
 WAITLIST_EMAIL_HOUR_TTL = 3600
 WAITLIST_GLOBAL_ALERT_LIMIT = 200
 WAITLIST_GLOBAL_TTL = 86400
+# Snapshot export (issue #643): only requests passing the subscription gate count.
+SNAPSHOT_EXPORT_USER_HOUR_LIMIT = 20
+SNAPSHOT_EXPORT_USER_HOUR_TTL = 3600
+
 # Resend email-verification (issue #262, Profile Page.md §8.3): two buckets
 # in front of POST /email-verifications/{id}/resend — a per-user bucket
 # (same magnitude as forgot-password's email limit) and a per-address GLOBAL
@@ -465,6 +469,16 @@ def guard_known_invite_token(session: Session, token: str) -> None:
     n = _protecting_incr(key, SIGNUP_TOKEN_FAIL_TTL)
     if n > SIGNUP_TOKEN_FAIL_LIMIT:
         _trip(key, SIGNUP_TOKEN_FAIL_TTL, scope="signup-token", bucket=token_hash[:12])
+
+
+def rate_limit_snapshot_export(*, user_id: str) -> None:
+    """Per-user fixed window for gated snapshot exports (issue #643)."""
+    _enforce_ip(
+        "rl:snapshot_export:user",
+        user_id,
+        ((SNAPSHOT_EXPORT_USER_HOUR_LIMIT, SNAPSHOT_EXPORT_USER_HOUR_TTL),),
+        scope="snapshot-export-user",
+    )
 
 
 def rate_limit_enforce_resend_verification(*, user_id: str, email: str) -> None:
