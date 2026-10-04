@@ -13,7 +13,7 @@ import logging
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from html import escape
-from typing import Literal
+from typing import Literal, cast
 from uuid import UUID
 
 import httpx
@@ -288,6 +288,12 @@ def _inline_body_styles(body_html: str) -> str:
             _stripe_rows(table.find_all("tr", recursive=False))
 
     return str(soup)
+
+
+def render_report_body_html(markdown: str) -> str:
+    """Render the web fragment with the email path's Markdown rules."""
+    # markdown-it lacks typed stubs here; render returns an HTML string.
+    return cast(str, _md.render(markdown))
 
 
 def _render_html(markdown: str) -> str:

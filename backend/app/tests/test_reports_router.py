@@ -29,6 +29,7 @@ from app.models.report import Report
 from app.models.report_job import ReportJob
 from app.models.user import User
 from app.tests.conftest import TEST_USER_ID, seed_user
+from app.tests.test_admin_router import _headers
 
 
 def _make_report(
@@ -68,14 +69,18 @@ def _make_report(
 # ---------------------------------------------------------------------------
 
 
-def test_generate_accepts_a_job_owned_by_the_principal(
+def test_generate_accepts_a_job_owned_by_target_user(
     app_client: TestClient, db_session: Session
 ) -> None:
     user = db_session.get(User, TEST_USER_ID)
     if user is None:
         seed_user(db_session, TEST_USER_ID)
-    with patch("app.routers.reports.generate_report_job.delay") as mock_delay:
-        resp = app_client.post("/reports/generate", json={"report_type": "incremental"})
+    with patch("app.routers.admin.generate_report_job.delay") as mock_delay:
+        resp = app_client.post(
+            f"/admin/users/{TEST_USER_ID}/reports/generate",
+            json={"report_type": "incremental"},
+            headers=_headers(),
+        )
 
     assert resp.status_code == 202
     job = db_session.get(ReportJob, uuid.UUID(resp.json()["id"]))
@@ -89,10 +94,14 @@ def test_generate_accepts_a_job_owned_by_the_principal(
 # ---------------------------------------------------------------------------
 
 
-def test_regenerate_uses_principal_user_id(app_client: TestClient, db_session: Session) -> None:
+def test_rerun_uses_path_user_id(app_client: TestClient, db_session: Session) -> None:
     fake_report = _make_report(db_session, user_id=TEST_USER_ID)
-    with patch("app.routers.reports.regenerate_report", return_value=fake_report) as mock_regen:
-        resp = app_client.post(f"/reports/{fake_report.id}/regenerate")
+    with patch("app.routers.admin.regenerate_report", return_value=fake_report) as mock_regen:
+        resp = app_client.post(
+            f"/admin/users/{TEST_USER_ID}/reports/{fake_report.id}/rerun",
+            json={"mode": "render", "resend": False},
+            headers=_headers(),
+        )
 
     assert resp.status_code == 200
     assert mock_regen.call_args.kwargs["user_id"] == TEST_USER_ID
@@ -109,32 +118,15 @@ def test_regenerate_defaults_to_report_owners_report_language(
     user.locale = "en"
     db_session.flush()
 
-    with patch("app.routers.reports.regenerate_report", return_value=fake_report) as mock_regen:
-        resp = app_client.post(f"/reports/{fake_report.id}/regenerate")
-
-    assert resp.status_code == 200
-    assert mock_regen.call_args.kwargs["output_lang"] == "en"
-
-
-def test_regenerate_explicit_output_lang_query_param_overrides_owner_locale(
-    app_client: TestClient, db_session: Session
-) -> None:
-    """The explicit ?output_lang= override stays the ops/debug escape hatch
-    (issue #308 engineering contract §5) — unrelated to this issue, and
-    must keep taking priority over the report owner's own locale."""
-    fake_report = _make_report(db_session, user_id=TEST_USER_ID)
-    user = db_session.get(User, TEST_USER_ID)
-    assert user is not None
-    user.locale = "en"
-    db_session.flush()
-
-    with patch("app.routers.reports.regenerate_report", return_value=fake_report) as mock_regen:
+    with patch("app.routers.admin.regenerate_report", return_value=fake_report) as mock_regen:
         resp = app_client.post(
-            f"/reports/{fake_report.id}/regenerate", params={"output_lang": "zh"}
+            f"/admin/users/{TEST_USER_ID}/reports/{fake_report.id}/rerun",
+            json={"mode": "render", "resend": False},
+            headers=_headers(),
         )
 
     assert resp.status_code == 200
-    assert mock_regen.call_args.kwargs["output_lang"] == "zh"
+    assert mock_regen.call_args.kwargs["output_lang"] == "en"
 
 
 def test_regenerate_defaults_to_report_owners_report_currency(
@@ -149,29 +141,15 @@ def test_regenerate_defaults_to_report_owners_report_currency(
     user.base_currency = "CNY"
     db_session.flush()
 
-    with patch("app.routers.reports.regenerate_report", return_value=fake_report) as mock_regen:
-        resp = app_client.post(f"/reports/{fake_report.id}/regenerate")
-
-    assert resp.status_code == 200
-    assert mock_regen.call_args.kwargs["base_currency"] == "CNY"
-
-
-def test_regenerate_explicit_base_currency_query_param_overrides_owner_preference(
-    app_client: TestClient, db_session: Session
-) -> None:
-    fake_report = _make_report(db_session, user_id=TEST_USER_ID)
-    user = db_session.get(User, TEST_USER_ID)
-    assert user is not None
-    user.base_currency = "CNY"
-    db_session.flush()
-
-    with patch("app.routers.reports.regenerate_report", return_value=fake_report) as mock_regen:
+    with patch("app.routers.admin.regenerate_report", return_value=fake_report) as mock_regen:
         resp = app_client.post(
-            f"/reports/{fake_report.id}/regenerate", params={"base_currency": "HKD"}
+            f"/admin/users/{TEST_USER_ID}/reports/{fake_report.id}/rerun",
+            json={"mode": "render", "resend": False},
+            headers=_headers(),
         )
 
     assert resp.status_code == 200
-    assert mock_regen.call_args.kwargs["base_currency"] == "HKD"
+    assert mock_regen.call_args.kwargs["base_currency"] == "CNY"
 
 
 def test_regenerate_404_for_other_user(app_client: TestClient, db_session: Session) -> None:
@@ -182,7 +160,11 @@ def test_regenerate_404_for_other_user(app_client: TestClient, db_session: Sessi
     other = _make_report(db_session, user_id=uuid.uuid4())
     db_session.commit()
 
-    resp = app_client.post(f"/reports/{other.id}/regenerate")
+    resp = app_client.post(
+        f"/admin/users/{TEST_USER_ID}/reports/{other.id}/rerun",
+        json={"mode": "render", "resend": False},
+        headers=_headers(),
+    )
 
     assert resp.status_code == 404
 
@@ -198,7 +180,9 @@ def test_send_404_for_other_user(app_client: TestClient, db_session: Session) ->
     other = _make_report(db_session, user_id=uuid.uuid4())
     db_session.commit()
 
-    resp = app_client.post(f"/reports/{other.id}/send")
+    resp = app_client.post(
+        f"/admin/users/{TEST_USER_ID}/reports/{other.id}/send", headers=_headers()
+    )
 
     assert resp.status_code == 404
 
@@ -216,7 +200,7 @@ def test_list_reports_scoped_to_principal(app_client: TestClient, db_session: Se
     resp = app_client.get("/reports/")
 
     assert resp.status_code == 200
-    ids = {row["id"] for row in resp.json()}
+    ids = {row["id"] for row in resp.json()["items"]}
     assert str(mine.id) in ids
     assert str(other.id) not in ids
 
@@ -257,37 +241,8 @@ def test_dependency_overrides_intercepts_current_principal(db_session: Session) 
         app.dependency_overrides.clear()
 
     assert resp.status_code == 200
-    ids = {row["id"] for row in resp.json()}
+    ids = {row["id"] for row in resp.json()["items"]}
     assert str(theirs.id) in ids
-
-
-def test_dependency_overrides_intercepts_current_principal_on_a_write_path(
-    db_session: Session,
-) -> None:
-    """PR #181 review: the intercept test above only exercised the list
-    (read) route — extend it to regenerate (a write path) so this
-    property can't quietly rot into "list-only"."""
-    other_user = uuid.uuid4()
-    theirs = _make_report(db_session, user_id=other_user)
-    db_session.commit()
-
-    def _override_session() -> object:
-        yield db_session
-
-    def _override_principal() -> Principal:
-        return Principal(user_id=other_user)
-
-    app.dependency_overrides[get_session] = _override_session
-    app.dependency_overrides[current_principal] = _override_principal
-    try:
-        client = TestClient(app)
-        with patch("app.routers.reports.regenerate_report", return_value=theirs) as mock_regen:
-            resp = client.post(f"/reports/{theirs.id}/regenerate")
-    finally:
-        app.dependency_overrides.clear()
-
-    assert resp.status_code == 200
-    assert mock_regen.call_args.kwargs["user_id"] == other_user
 
 
 def test_regenerate_render_zh_hant_returns_traditional(
@@ -300,14 +255,20 @@ def test_regenerate_render_zh_hant_returns_traditional(
         "pass2_raw": "Market risk merits observation.",
         "portfolio_summary": {"holdings": [], "total_value": 0, "base_currency": "USD"},
     }
+    user = db_session.get(User, TEST_USER_ID)
+    assert user is not None
+    user.locale = "zh-Hant"
     db_session.flush()
     with patch("app.services.report_generator._translate_md", return_value="市场风险值得关注。"):
         response = app_client.post(
-            f"/reports/{report.id}/regenerate",
-            params={"mode": "render", "output_lang": "zh-Hant"},
+            f"/admin/users/{TEST_USER_ID}/reports/{report.id}/rerun",
+            json={"mode": "render", "resend": False},
+            headers=_headers(),
         )
     assert response.status_code == 200
-    md = response.json()["report_md"]
+    db_session.refresh(report)
+    md = report.report_md
+    assert md is not None
     assert "市場風險" in md
     assert to_traditional(md) == md
     db_session.refresh(report)

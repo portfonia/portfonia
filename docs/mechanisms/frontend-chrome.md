@@ -433,3 +433,13 @@ switcher.tsx` (issue #354) was later rebuilt on the same primitives —
 see `capture-and-reporting.md`'s per-pair FX entry.
 
 
+
+### Reports menu and history (issue #642)
+
+`AUTHED_ENTRIES` adds Reports (`FileText`, `/reports`) immediately after
+Performance. Guests do not see it. Both report routes inherit the shared
+header and existing auth gate. List filters and pagination live in the URL;
+only available rows link to detail. The detail downloads Markdown and opens
+browser print for PDF. Report print styles hide the shared header/menu and
+controls without changing their screen presentation. All new copy is in the
+`reports` namespace and `menu.reports` across en, zh-Hans and zh-Hant.

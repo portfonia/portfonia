@@ -15,7 +15,8 @@
     "portfolioPerformance": "Performance",
     "questionnaire": "Investment style",
     "sessionExpired": "Your session ended after {minutes} minutes of inactivity.",
-    "editHoldings": "Edit holdings"
+    "editHoldings": "Edit holdings",
+    "reports": "Reports"
   },
   "auth": {
     "loginHeading": "Log in",
@@ -1438,6 +1439,31 @@
           ]
         }
       ]
+    }
+  },
+  "reports": {
+    "title": "Reports",
+    "category": "Category",
+    "sort": "Sort",
+    "newest": "Newest first",
+    "oldest": "Oldest first",
+    "dateFrom": "From (ET)",
+    "dateTo": "To (ET)",
+    "previous": "Previous",
+    "next": "Next",
+    "page": "Page {page} of {pages}",
+    "empty": "No reports yet",
+    "emptyFiltered": "No reports in this range",
+    "underReview": "Under review",
+    "generating": "Generating",
+    "downloadMd": "Download Markdown",
+    "print": "Print / Save as PDF",
+    "loadError": "Couldn't load your reports. Try refreshing the page.",
+    "types": {
+      "everyOtherDay": "Every other day",
+      "weekly": "Weekly",
+      "manual": "Manual",
+      "report": "Report"
     }
   }
 }

@@ -11,51 +11,51 @@ through the proxied path hits it; the client's `.json()` then threw a
 `SyntaxError` on the proxy's body, compounding the lie. Not a B4/B5
 regression — a Ring 0 synchronous-long-request gap.
 
-**Current contract** — the holdings-upload shape (issue #77), not a second
-pipeline:
+**Current contract (issue #642)** — on-demand report writes are Ops-only:
 
-| | |
+| Endpoint | Behavior |
 | --- | --- |
-| `POST /reports/generate` | **202** + a `ReportJobOut` (`pending`, no `report_id` yet). Body unchanged (`GenerateReportRequest`: `report_date`, `report_type`, optional `base_currency`, `session_node`). Enqueues `app.tasks.report_tasks.generate_report_job` with that body as task arguments — none of it is sensitive content, and a redelivery replays identical values. An enqueue failure marks the job `failed` and returns **503** rather than leaving a pending row no worker will pick up. |
-| `GET /reports/jobs/{job_id}` | Owner-scoped poll (another user's id is 404, not 403). Returns the job's own `status` (`pending` / `success` / `failed`) plus `report_id`, the linked report's own `report_status`, and `error`. |
-| `report_jobs` table | One row per accepted trigger: `user_id`, `status`, `error`, nullable `report_id`, timestamps. Both FKs are `ON DELETE CASCADE` — a job row is a dependent operational record, so a user purge collects it without a new step in `purge_user`. |
-| Worker | Calls the existing `generate_report(...)` for the job's own `user_id` and writes the outcome onto the row. `LLMEmptyResponseError` → `"LLM returned an empty response: …"`, `RuntimeError` → `"Report generation failed: …"` — the same detail strings the synchronous response carried as a 502 — plus a catch-all `"Report generation error: <Type>: <msg>"` so no failure mode leaves the client polling a pending row. |
+| `POST /admin/users/{user_id}/reports/generate` | Optional `GenerateReportRequest`; no body or `{}` uses incremental/manual with no date or currency override. Missing user: 404; inactive user: 422. Creates a pending `report_jobs` row and returns 202 `ReportJobOut`. Enqueues `generate_report_job`; enqueue failure marks the row failed and returns 503. |
+| `GET /admin/report-jobs/{job_id}` | Ops-token poll, not user-scoped. Missing job: 404. Returns job status, linked report id/status and error. |
+| `POST /admin/users/{user_id}/reports/{report_id}/send` | Sends an existing unsent success report without regenerating. Wrong user/report pair: 404; non-success: 422; already sent: 200 `already_sent`; failed delivery: 502; sent: 200 `sent`. |
 
-**Semantics deliberately unchanged**: `generate_report` owns everything about
-the report itself — the same-day dedup key `(user_id, report_date,
-report_type, session_node)`, the reuse of an existing `success`/`skipped` row,
-the "success but never emailed" resend-only path, compliance
-`needs_review`, the email/Layer gates, and the scheduled fan-out's own
-`generate_incremental_report` (Beat, multi-user, untouched). A repeat trigger
-therefore still resolves to the day's existing row and does not re-send. Job
-`success` means *the pipeline ran to a terminal report row*, not "the user was
-mailed" — which is why the poll also carries `report_status`.
+The worker resolves the target user's own report language and base currency;
+an explicit request currency overrides the preference. The existing report
+pipeline owns deduplication, compliance, email gates and error outcomes. Job
+success means the pipeline finished, not that email was delivered. Worker
+redelivery for a terminal job remains a no-op. The `report_jobs` table and
+its CASCADE foreign keys are unchanged; there is no migration or new setting.
 
-**Identity resolution moved with the call**: the async accept no longer reads
-the principal's own `users.locale` / `users.base_currency`; the worker resolves
-both from the job's user (an explicit `base_currency` in the body still wins),
-so issues #308/#350 keep their per-user semantics on the worker side.
+The synchronous Ops generate handler and user generate/job-poll/regenerate/send
+routes are removed. Ops `/admin/users/{user_id}/reports/{report_id}/rerun`
+is unchanged. Scheduled fan-out and other user email/LLM features are unchanged.
+A killed worker can still leave a pending job; a poll deadline means unknown,
+not failed. No sweeper, task time limit or second pipeline is introduced.
 
-**Residual, deliberately not solved here**: there is no stale-pending sweeper
-and no Celery `time_limit` for this task. Those exist for the upload parse's
-45s SLA; report generation has no bounded runtime to sweep against, so a
-worker hard-killed mid-run leaves a `pending` row (the report row it was
-writing is likewise mid-flight) instead of being falsely failed. The caller
-rule that makes this honest without either mechanism is stated on
-`ReportJobOut`: a job still `pending` at the caller's own poll deadline is
-*unknown*, not failed — `GET /reports/` shows whether a report for the
-requested day landed. A sweeper or a task limit would instead mark a
-still-running generation failed, which is the same class of lie #193 exists to
-remove. `POST /admin/users/{user_id}/reports/generate` stays synchronous on
-purpose — `/admin/*` is not proxied, so an ops caller can wait (see
-`admin-surface.md`).
+### Report history (web, issue #642)
 
-**Frontend**: `frontend/src/lib/api.ts` had no `/api/reports/generate` caller
-before this change (grepped: none — the trigger is console/ops-side today),
-so nothing needed migrating; the first Reports-UI consumer must use this
-accept+poll shape rather than the removed JSON-201 response. The helpers
-themselves were not added ahead of a caller, since this repo forbids unused
-exports.
+Authenticated users read their own history at `/reports`. `GET /reports`
+returns `ReportListPage` (`items`, `page`, `page_size`, `total`, `kinds`),
+20 rows per page. The canonical list endpoint has no trailing slash, so SSR
+and `/api/reports` do not require a backend redirect. Sort is `desc` by
+default or `asc`, ordered by report date then creation timestamp. Optional
+`date_from`/`date_to` are inclusive ET report dates; reversed ranges and invalid
+page/sort/kind values return 422. Beyond-last pages return empty items and
+the real total. Only kind `report` is supported. URL query parameters preserve
+filters and pagination across refresh and Back.
+
+Success/skipped rows are available links; needs-review and in-progress rows
+are bodyless Under review/Generating placeholders. Failed rows are excluded.
+`GET /reports/{id}` returns a non-null `ReportDetailOut` only for the owner's
+success/skipped report with non-null Markdown; all other cases return the
+same 404. Neither `report_inputs` nor stored email `report_html` is exposed.
+`report_body_html` is computed with the email sender's shared `_md` instance
+(`html=False`, tables enabled), without its email template/styles/unsubscribe
+footer. Markdown-it's own table alignment styles remain. The detail renders
+that fragment, downloads the exact stored Markdown as
+`portfonia-briefing-<report_date>.md`, and uses browser print for PDF. Print
+hides site chrome and controls, using white background and black text; wide
+tables scroll within their container on screen. No dependency is added.
 
 **Production status (2026-09-10)**: deployed — prod `main` is `cb78eb9`
 (contains #416's `9fd7b0d`), migration `c4d5e6f7a8b9` is applied

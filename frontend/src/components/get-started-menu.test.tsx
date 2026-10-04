@@ -466,3 +466,13 @@ describe("GetStartedMenu", () => {
     });
   });
 });
+
+it("acceptance_19 Reports is available only to authenticated users", async () => {
+  withLocaleStorage("en");
+  __resetSessionSignalsForTests(); vi.clearAllMocks(); fetchMock.mockResolvedValue({ ok: true }); vi.stubGlobal("fetch", fetchMock);
+  getUser.mockResolvedValue({ data: { user: { email: "reader@example.com" } } });
+  const user = userEvent.setup(); const view = renderMenu(); await openMenu(user);
+  expect(screen.getByRole("menuitem", { name: "Reports" })).toHaveAttribute("href", "/reports");
+  view.unmount(); __resetSessionSignalsForTests(); getUser.mockResolvedValue({ data: { user: null } }); renderMenu(); await openMenu(user);
+  expect(screen.queryByRole("menuitem", { name: "Reports" })).not.toBeInTheDocument(); vi.unstubAllGlobals();
+});

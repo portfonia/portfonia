@@ -22,9 +22,9 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.models.holding import Holding
 from app.models.report import Report
+from app.models.report_job import ReportJob
 from app.models.user import User
 from app.tests.test_admin_router import _headers
 
@@ -84,7 +84,7 @@ def test_admin_generate_requires_ops_token(app_client: TestClient) -> None:
 
 
 def test_admin_generate_404_unknown_user(app_client: TestClient, db_session: Session) -> None:
-    with patch("app.routers.admin.generate_report") as mock_gen:
+    with patch("app.routers.admin.generate_report_job.delay") as mock_gen:
         resp = app_client.post(_path(_UID), headers=_headers())
 
     assert resp.status_code == 404
@@ -100,14 +100,14 @@ def test_admin_generate_no_holdings_no_longer_422(
     POST /reports/generate never had the check, so this closes that gap."""
     db_session.add(_user(_UID, "empty@example.com"))
     db_session.flush()
-    fake = _fake_report(db_session, _UID)
 
-    with patch("app.routers.admin.generate_report", return_value=fake) as mock_gen:
+    with patch("app.routers.admin.generate_report_job.delay") as mock_gen:
         resp = app_client.post(_path(_UID), headers=_headers())
 
-    assert resp.status_code == 201
+    assert resp.status_code == 202
     mock_gen.assert_called_once()
-    assert mock_gen.call_args.kwargs["user_id"] == _UID
+    job = db_session.get(ReportJob, uuid.UUID(resp.json()["id"]))
+    assert job is not None and job.user_id == _UID
 
 
 def test_admin_generate_422_inactive_user(app_client: TestClient, db_session: Session) -> None:
@@ -116,7 +116,7 @@ def test_admin_generate_422_inactive_user(app_client: TestClient, db_session: Se
     db_session.add_all([_user(_UID, "suspended@example.com", status="suspended"), _holding(_UID)])
     db_session.flush()
 
-    with patch("app.routers.admin.generate_report") as mock_gen:
+    with patch("app.routers.admin.generate_report_job.delay") as mock_gen:
         resp = app_client.post(_path(_UID), headers=_headers())
 
     assert resp.status_code == 422
@@ -130,86 +130,16 @@ def test_admin_generate_calls_generate_report_for_path_user(
     """Admin targets the path param, never the request-scoped principal
     (app_client overrides current_principal to TEST_USER_ID)."""
     _seed_reportable(db_session)
-    fake = _fake_report(db_session, _UID)
 
-    with patch("app.routers.admin.generate_report", return_value=fake) as mock_gen:
+    with patch("app.routers.admin.generate_report_job.delay") as mock_gen:
         resp = app_client.post(_path(_UID), headers=_headers())
 
-    assert resp.status_code == 201
+    assert resp.status_code == 202
     mock_gen.assert_called_once()
     kwargs = mock_gen.call_args.kwargs
-    assert kwargs["user_id"] == _UID
     assert kwargs["session_node"] == "manual"
-    assert kwargs["output_lang"] == get_settings().OUTPUT_LANG
+    assert kwargs["base_currency"] is None
     body = resp.json()
-    assert body["id"] == str(fake.id)
-    assert body["session_node"] == "manual"
-    assert body["status"] == "success"
-
-
-def test_admin_generate_translates_llm_empty_to_502(
-    app_client: TestClient, db_session: Session
-) -> None:
-    from app.services.llm_errors import LLMEmptyResponseError
-
-    _seed_reportable(db_session)
-    with patch(
-        "app.routers.admin.generate_report",
-        side_effect=LLMEmptyResponseError("empty choices"),
-    ):
-        resp = app_client.post(_path(_UID), headers=_headers())
-
-    assert resp.status_code == 502
-    assert "empty response" in resp.json()["detail"]
-
-
-def test_admin_generate_translates_runtime_error_to_502(
-    app_client: TestClient, db_session: Session
-) -> None:
-    _seed_reportable(db_session)
-    with patch(
-        "app.routers.admin.generate_report",
-        side_effect=RuntimeError("truncated body"),
-    ):
-        resp = app_client.post(_path(_UID), headers=_headers())
-
-    assert resp.status_code == 502
-    assert "truncated body" in resp.json()["detail"]
-
-
-def test_admin_generate_translates_openai_api_error_to_502(
-    app_client: TestClient, db_session: Session
-) -> None:
-    """Provider/auth faults from _call_llm are openai.APIError, not RuntimeError
-    — without this mapping they surface as a bare FastAPI 500 (PR #203 review)."""
-    import httpx
-    import openai
-
-    _seed_reportable(db_session)
-    err = openai.APIError(
-        "invalid api key",
-        httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions"),
-        body=None,
-    )
-    with patch("app.routers.admin.generate_report", side_effect=err):
-        resp = app_client.post(_path(_UID), headers=_headers())
-
-    assert resp.status_code == 502
-    assert "APIError" in resp.json()["detail"]
-    assert "invalid api key" in resp.json()["detail"]
-
-
-def test_admin_generate_integrity_error_is_409(app_client: TestClient, db_session: Session) -> None:
-    """Concurrent same-key inserts race generate_report's idempotency SELECT
-    and hit uq_reports_user_date_type_session (PR #203 review)."""
-    from sqlalchemy.exc import IntegrityError
-
-    _seed_reportable(db_session)
-    with patch(
-        "app.routers.admin.generate_report",
-        side_effect=IntegrityError("INSERT", {}, Exception("uq_reports")),
-    ):
-        resp = app_client.post(_path(_UID), headers=_headers())
-
-    assert resp.status_code == 409
-    assert "already in progress" in resp.json()["detail"]
+    job = db_session.get(ReportJob, uuid.UUID(body["id"]))
+    assert job is not None and job.user_id == _UID
+    assert body["status"] == "pending"

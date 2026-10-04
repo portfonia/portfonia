@@ -15,7 +15,8 @@
     "portfolioPerformance": "績效表現",
     "questionnaire": "投資風格",
     "sessionExpired": "由於 {minutes} 分鐘內無操作，登入已結束。",
-    "editHoldings": "編輯持倉"
+    "editHoldings": "編輯持倉",
+    "reports": "報告"
   },
   "auth": {
     "loginHeading": "登入",
@@ -1438,6 +1439,31 @@
           ]
         }
       ]
+    }
+  },
+  "reports": {
+    "title": "報告",
+    "category": "類別",
+    "sort": "排序",
+    "newest": "最新在前",
+    "oldest": "最早在前",
+    "dateFrom": "開始日期（美東）",
+    "dateTo": "結束日期（美東）",
+    "previous": "上一頁",
+    "next": "下一頁",
+    "page": "第 {page} 頁，共 {pages} 頁",
+    "empty": "尚無報告",
+    "emptyFiltered": "此日期範圍內沒有報告",
+    "underReview": "審核中",
+    "generating": "產生中",
+    "downloadMd": "下載 Markdown",
+    "print": "列印 / 另存為 PDF",
+    "loadError": "無法載入報告，請重新整理頁面。",
+    "types": {
+      "everyOtherDay": "隔日",
+      "weekly": "每週",
+      "manual": "手動",
+      "report": "報告"
     }
   }
 }

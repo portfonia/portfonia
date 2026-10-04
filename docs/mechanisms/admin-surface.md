@@ -23,23 +23,22 @@ capability existing.
   same predicate as `POST /auth/signup` via the shared `signup_email_taken`
   helper in `app/services/invites.py`; generic invites and the redeem-side
   undistinguishable `InviteRejected` are unchanged). Issue
-  #201 (PR #203) added `POST /admin/users/{id}/reports/generate`: ops-token,
-  synchronous `generate_report` for one user (`session_node="manual"`),
-  hitting `api.portfonia.com` directly, so the Next.js `rewrites()` proxy is
-  not in the path. It stays synchronous by choice — an ops curl/agent caller
-  waits for the full pipeline — and since issue #193 that is a deliberate
-  transport difference, not a workaround: self-service
-  `POST /reports/generate` is now asynchronous too (202 + a pollable
-  `report_jobs` row, see `capture-and-reporting.md`'s "On-demand report
-  generation is async (issue #193)"), so the sync/async split no longer
-  encodes which path is broken.
-  404 if the user is missing; 422 if not active (the original no-holdings
-  422 was removed by issue #221; `active_user_ids()` itself gained a
-  per-cadence holdings gate in issue #191, still required for `mwf`, not
-  `weekly` — see the "Cadence change" bullet below); `openai.APIError` →
-  502; concurrent unique-key race
-  → 409. Success emails the target user. Admin email-resend was scoped out
-  (`POST /admin/reports/{id}/send` leftover). A structural test
+  #201 (PR #203) added generation for a target user. Issue #642 replaces
+  the synchronous handler at `POST /admin/users/{user_id}/reports/generate`
+  with 202 `ReportJobOut`: optional `GenerateReportRequest`, defaults
+  incremental/manual, target user required (404 missing, 422 inactive),
+  pending job committed before Celery enqueue, failed job + 503 on enqueue
+  error. `generate_report_job` resolves the user's own language/currency;
+  an explicit request currency overrides it. No synchronous generation
+  handler remains. Poll at `GET /admin/report-jobs/{job_id}` (Ops-token,
+  not user-scoped; 404 unknown; linked report status included).
+  `POST /admin/users/{user_id}/reports/{report_id}/send` sends an existing
+  unsent success report: 404 wrong pair/missing report, 422 non-success,
+  200 `already_sent` without delivery for sent rows, 502 delivery failure,
+  200 `sent` on success. Both new endpoints inherit Ops auth and audit
+  logging. User generate/poll/regenerate/send routes are removed.
+  Empty-book users remain eligible, and the existing send-time verification
+  and compliance gates remain unchanged. A structural test
   (`test_all_admin_routes_require_ops_token` in `test_admin_router.py`)
   iterates `app.routes` and asserts every `/admin`-prefixed route's
   dependant chain includes `require_ops_token`, so a future endpoint that
@@ -104,10 +103,8 @@ capability existing.
   comment). Filed as a real gap per the "API endpoint first" rule above
   rather than left as a recurring SSH drill, and closed by this endpoint.
   - **`POST /admin/users/{user_id}/reports/{report_id}/rerun`**, same
-    ops-token auth as every other route here (not the self-service `POST
-    /reports/{id}/regenerate`, which is scoped to the caller's own
-    principal and never clears `email_sent_at` — it cannot rerun another
-    user's report or force a genuine resend). Body: `{"mode": "analyze" |
+    ops-token auth as every other route here. The former self-service
+    regenerate route was removed by #642; this rerun behavior is unchanged. Body: `{"mode": "analyze" |
     "render", "resend": bool}`, both optional, defaulting to `"analyze"`
     and `true`. `mode` is a `Literal` on the request model, so an invalid
     value is a `422` from FastAPI's own request validation before the
@@ -151,15 +148,9 @@ capability existing.
     during the body-pass rerun, `openai.APIError` message reused verbatim
     from the generate endpoint's own mapping.
   - **Output language**: `report_language_for(session, user_id,
-    Settings.OUTPUT_LANG)` — the target user's own `users.locale` (issue
-    #308), falling back to the system default only if the row can't be
-    resolved. Same convention as the self-service `POST
-    /reports/{id}/regenerate`. **Not** the same as `POST
-    /admin/users/{user_id}/reports/generate` (this file's §3.2 entry
-    above), which deliberately still reads the global `Settings.OUTPUT_LANG`
-    unchanged (issue #308 decision point 2) — corrected per blacktomb42's
-    PR #326 review: an earlier draft of this paragraph claimed the two
-    admin endpoints matched on this point.
+    Settings.OUTPUT_LANG)` resolves the target user's locale. Currency uses
+    the target user's current preference. Since #642, async Ops generation
+    uses the same personalization in its worker. Rerun is otherwise unchanged.
   - **Deliberately out of scope (per the design contract, issue #324's
     second comment)**: a bulk "rerun every report for this user today"
     variant, and a by-`report_date` convenience lookup in place of
@@ -167,42 +158,14 @@ capability existing.
     already resolves `user_id` by email, but there is no read endpoint to
     list a user's `reports` rows by date; add one only if caller
     ergonomics turn out to need it.
-- **Retrying a scheduled report that failed before any body was stored — no
-  Ops endpoint, deliberate (issue #603 follow-up, 2026-09-30).** A scheduled
-  `after_close` report can end `status="failed"` with no `pass2_raw`/
-  `assembly_raw` (observed on 2026-09-30, when the Pass 2 completeness guard
-  rejected the model output; `operational_events` only goes back to
-  2026-09-14, and a failed row that later succeeds on retry is overwritten,
-  so earlier occurrences cannot be ruled out). Neither existing route can
-  retry that row:
-  - `POST /admin/users/{user_id}/reports/generate` hardcodes
-    `session_node="manual"`, so it creates a **new** `manual` row with a
-    freshly computed window instead of reusing the failed row and its frozen
-    window, and it reads the global `Settings.OUTPUT_LANG` rather than the
-    user's own locale/base currency.
-  - `POST .../reports/{report_id}/rerun` goes through `regenerate_report`,
-    which needs a stored body; with none it returns `404` ("no stored report
-    body to regenerate from").
-  - **Recipe** (a one-off, the same SSH + `docker compose exec -T backend
-    python < script` shape as the 2026-09-02 case above, launched detached
-    per `docs/deployment.md` because the dev-machine link drops): call
-    `generate_report(session, user_id=<id>, report_date=<the failed row's
-    report_date>, report_type="incremental", session_node="after_close",
-    output_lang=report_language_for(session, user_id, Settings.OUTPUT_LANG),
-    base_currency=report_currency_for(session, user_id, "USD"))`. The
-    failed row is not resumable (no stored body, so the #61 resume path does
-    not trigger), so it takes the full-reset path, reuses the row's frozen
-    `period_start`/`period_end`, and sends the email itself on success.
-    Cost is one full report (about $0.06 at current Pass 2 pricing); the
-    daily Tavily budget may be nearly spent, so intel can be thinner than the
-    original attempt.
-  - **Done means `reports.email_sent_at` is non-null** on that row, not that
-    the call returned. Verify the row (`status`, `email_sent_at`,
-    `period_start`/`period_end` unchanged) after the run.
-  - **Escalation**: this is a recurrence-gated decision, not a TODO. If a
-    second such retry is needed, open an issue to extend the existing
-    `generate` endpoint with optional `report_date` and `session_node`
-    parameters (reusing the failed row) rather than adding a new route.
+- **Retrying a scheduled report that failed before any body was stored**:
+  the #603 follow-up originally required a one-off direct pipeline call,
+  because Ops generation hardcoded manual/system defaults. Issue #642's
+  async request now accepts `report_date` and `session_node`, so Ops can
+  enqueue the existing generator for that failed row's date and node, with
+  target-user personalization. The generator's frozen-window/dedup rules
+  are unchanged. Poll job and report status; a completed job does not by
+  itself prove email delivery. `/rerun` still requires a stored body.
 - **Auth**: `ADMIN_API_TOKEN` (`Settings`, `SecretStr`, required — no unset
   state, same discipline as `HOLDINGS_ENCRYPTION_KEY`) + optional
   `ADMIN_API_TOKEN_PREV` for a no-downtime rotation window (identical
