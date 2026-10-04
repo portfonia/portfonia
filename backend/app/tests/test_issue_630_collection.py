@@ -54,10 +54,12 @@ def stored(session: Session, title: str, index: int = 0) -> None:
 def test_630_11_stored_and_batch_duplicates(db_session: Session) -> None:
     profile(db_session)
     stored(db_session, STORED)
+    # #653: item 0 -> "e0" is ignored as a possible self-reference, so the stored
+    # duplicate is item 1 here.
     rows = [
-        {"id": 0, "label": "keep", "duplicate_of": "e0"},
-        {"id": 1, "label": "keep", "duplicate_of": None},
-        {"id": 2, "label": "keep", "duplicate_of": 1},
+        {"id": 0, "label": "keep", "duplicate_of": None},
+        {"id": 1, "label": "keep", "duplicate_of": "e0"},
+        {"id": 2, "label": "keep", "duplicate_of": 0},
     ]
     with (
         patch.object(cap, "sources_for", return_value=[("yahoo", lambda: items())]),
@@ -67,9 +69,9 @@ def test_630_11_stored_and_batch_duplicates(db_session: Session) -> None:
         result = cap.collect_instrument_news(db_session, ENTRY, NOW, hc.load_cleaning_config())
     new = [row for row in db_session.scalars(select(News)) if row.record["title"] != STORED]
     assert len(new) == 1
-    assert new[0].record["title"] == TITLES[1]
+    assert new[0].record["title"] == TITLES[0]
     assert result.cleaning["duplicate_llm"] == 2
-    assert set(result.samples["duplicate_llm"]) == {TITLES[0], TITLES[2]}
+    assert set(result.samples["duplicate_llm"]) == {TITLES[1], TITLES[2]}
     assert post.call_count == 1
 
 

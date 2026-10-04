@@ -111,16 +111,21 @@ def test_639_02_lookup_only_matching_cached_and_fail_open(db_session: Session) -
 
 
 def test_639_03_classifier_date_and_stale_label() -> None:
-    with patch.object(httpx, "post", return_value=response([{"id": 0, "label": "stale"}])) as post:
+    # #653: the model no longer returns "stale"; "stale" comes only from a recap whose
+    # earnings date is old.
+    with patch.object(
+        httpx, "post", return_value=response([{"id": 0, "label": "keep", "recap": True}])
+    ) as post:
         labels, _, _ = hc.classify_headlines(
             [CollectedItem("AAA old merger recap", NOW, "https://fixture.example/a")],
             "AAA",
             ["AAA"],
             batch_date=NOW.date(),
+            recap_is_stale=lambda item: True,
         )
     assert labels == {0: "stale"}
     prompt = post.call_args.kwargs["json"]["messages"][0]["content"]
-    assert "2026-10-03" in prompt and "more than 7 days" in prompt and "stale =" in prompt
+    assert "2026-10-03" in prompt and "recap =" in prompt and "stale =" not in prompt
 
 
 def test_639_03_collection_drops_stale_llm(db_session: Session) -> None:
@@ -184,7 +189,7 @@ def test_639_04_digest_merges_stale_counts_and_samples(db_session: Session) -> N
     _, body, _ = report(db_session, run)
     lines = [line for line in body.splitlines() if "Old news republished with a new date" in line]
     assert len(lines) == 1
-    assert "Old news republished with a new date: 7" in lines[0]
+    assert "Old news republished with a new date ..... 7" in lines[0]
     assert lines[0].count('"Old one"') == 1
     assert '"Old paid"' in lines[0] and '"Old four"' not in lines[0]
     assert lines[0].count('"') == 6

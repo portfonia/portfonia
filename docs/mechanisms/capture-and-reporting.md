@@ -549,7 +549,7 @@ fields. URLs and URL kinds remain in the in-memory `CollectedItem` only.
 
 `headline_cleaning.py` applies path, alias, low-value-title and near-duplicate
 rules in order. Each instrument job classifies its surviving articles in
-batches of at most 100 through one OpenRouter request per batch, with no retry
+batches of at most `INTEL_CLASSIFIER_BATCH` (30 since #653; was 100) through one OpenRouter request per batch, with no retry
 and `data_collection: deny`. Filings bypass classification. Failed or missing
 labels remain null; promo and unrelated labels are dropped. RSS pool items
 receive only the path and low-value-title rules and are never classified.
@@ -559,9 +559,24 @@ configured title patterns in `intel_deepen.yml` trigger one cached yfinance
 `Ticker.get_earnings_dates` lookup per matching instrument per slot, using its
 Yahoo symbol. The latest earnings date on or before publication (ET) older than
 14 calendar days produces `stale_rule`. Missing dates or lookup errors retain
-the title and count `stale_lookup_failed`. The existing classifier receives the
-batch's ET date and a fifth label, `stale`, for recaps of events more than seven
-days old; these produce `stale_llm`. Neither mechanism adds a classifier call.
+the title and count `stale_lookup_failed`. Neither mechanism adds a classifier call.
+
+Issue #653 corrects two production defects in this rule. First, `lxml` is now a
+pinned dependency: `get_earnings_dates` scrapes Yahoo's earnings-calendar HTML
+page and parses its table with `pandas.read_html`, so without `lxml` every lookup
+failed and was counted as `stale_lookup_failed`. Second, the classifier no longer
+judges age. Its inputs are headlines from the last 48 hours and it has no search,
+so its `stale` label could only guess from training data (it dropped a current
+acquisition and kept headlines dated "in August"). The classifier now returns a
+text-only `recap` flag (the item reports or reacts to the company's own periodic
+results). For a `keep`/`mention` item with `recap=true` whose title did not
+already match the patterns, the same earnings-date check runs
+(`stale_reason(..., recap=True)` skips the pattern gate). If the item is more
+than 14 days old it is labelled `stale` and dropped as `stale_llm`; if the lookup
+fails it is kept and counted in `stale_lookup_failed`. The model's own `stale`
+label is no longer accepted. The batch report prints "Earnings-date check failed
+for N earnings-recap headlines; they were kept." whenever lookups failed in free
+collection or paid search.
 RSS pool cleaning is unchanged. The #635 digest merges both drop reasons from
 free and paid collection into one line, "Old news republished with a new date",
 with at most three sample titles. Instrument lookback and report late-ingestion
@@ -576,6 +591,13 @@ first, preceded by surviving titles from earlier batches, also newest first.
 Valid references to those titles or a lower-numbered batch item produce
 `duplicate_llm`; duplicates are dropped before storage and counted with up to
 three digest samples. Invalid references fall back to normal label parsing.
+Since #653, a reference `e<k>` returned for batch item `k` is ignored as the
+model echoing the item's own number (observed in production replays). A genuine
+duplicate of the k-th stored title by item k is therefore kept, a deliberate
+trade against wrongly dropping items. When a ticker has no stored title in the
+window and no earlier batch, `EXISTING` and the `duplicate_of` instructions are
+omitted: an empty `EXISTING` block made the model return no labels at all,
+which stored every item of that ticker unclassified.
 Classifier failures still store null labels without retry. Filings retain the
 existing rule chain and bypass classification.
 
@@ -658,8 +680,9 @@ builder are their extension points.
 
 ### Intel deepening and paid usage
 
-Issue #639 applies the same pre-classifier earnings-recap rule and `stale`
-classifier label to paid-search results. Results without publication timestamps
+Issue #639 applies the same pre-classifier earnings-recap rule and stale
+check to paid-search results (since #653 the classifier's `recap` flag plus the
+earnings date, not a model `stale` label). Results without publication timestamps
 use the existing batch-time substitution (`lead.published_at or self.now`).
 `search_filtered` includes `stale_rule`, `stale_llm` and fail-open
 `stale_lookup_failed`; dropped-title samples feed the merged collection digest.
