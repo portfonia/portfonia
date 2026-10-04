@@ -71,6 +71,7 @@ class ReportInputsDict(TypedDict, total=False):
     rejected_pass2_raw: str
     llm_calls: list[dict[str, Any]]
     pass2_translated: str
+    prompt_label_hits: list[str]
     ticker_intel: dict[str, str]
     macro_event_intel: dict[str, dict[str, Any]]
     macro_event_exposure: dict[str, list[str]]
@@ -217,6 +218,8 @@ class ReportContext:
     investor_questionnaire_version: str | None = None
     # See ReportInputsDict above for the field-by-field rationale.
     macro_continuity_snapshot: list[dict[str, Any]] = field(default_factory=list)
+
+    prompt_label_hits: list[str] = field(default_factory=list)
 
     def to_jsonb(self) -> dict[str, Any]:
         """Return the write-side dict for the `report_inputs` JSONB column.

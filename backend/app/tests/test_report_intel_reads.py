@@ -578,7 +578,7 @@ def test_acceptance_10_legacy_render_uses_stored_report_body(db_session: Session
 
 def test_acceptance_11_background_research_is_long_and_versioned() -> None:
     test_background_research_has_no_url_and_uses_long_body()
-    assert rg._PROMPT_VERSION == "f2-v11"
+    assert rg._PROMPT_VERSION == "f2-v12"
 
 
 def test_acceptance_12_settings_ignore_removed_budget_key() -> None:

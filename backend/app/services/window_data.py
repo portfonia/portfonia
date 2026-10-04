@@ -30,8 +30,9 @@ from app.models.report import Report
 from app.models.ticker_theme import TickerTheme
 from app.services.asset_class_config import load_asset_class_config
 from app.services.instrument_symbols import InstrumentKey, intelligence_identifier
+from app.services.intel_deepen_config import load_intel_deepen_config
 from app.services.intel_records import headline_from_row
-from app.services.news_fetcher import NewsItem
+from app.services.news_fetcher import LATE_INGEST_WINDOW, NewsItem
 from app.services.price_anomaly_detector import ConstituentMove, PriceAnomaly
 from app.services.ticker_leverage import load_leverage_map
 from app.services.user_scope import global_identifier_universe, user_holdings
@@ -221,21 +222,15 @@ def load_day_news(session: Session, trade_date: date) -> list[NewsItem]:
 
 
 def load_news_window(
-    session: Session, _start: datetime, end: datetime, user_id: uuid.UUID
+    session: Session, start: datetime, end: datetime, user_id: uuid.UUID
 ) -> list[NewsItem]:
     """News published at/before the window cutoff that hasn't yet been surfaced
     in any of THIS USER's DONE-status reports, newest first, from the `news`
     store.
 
-    H-DEBT-3 / issue #30: this used to be a strict ``(start, end]`` range. A
-    news item published inside a window but not ingested until after that
-    window's period_end fell through BOTH the window it belongs to (not yet
-    ingested when that window was selected) and the next window (excluded by
-    the `> start` lower bound) — a permanent miss. `_start` is kept in the
-    signature (every call site already threads a window) but intentionally
-    unused as a lower bound now; dedup is instead delegated entirely to
-    `news_surfaced` via `mark_news_surfaced`, which the caller invokes once
-    this report reaches a DONE status.
+    Issue #30 late ingestion is supported within the shared 48-hour allowance:
+    published_at > start - LATE_INGEST_WINDOW and published_at <= end.
+    The per-user surfaced ledger excludes previously reported items.
 
     Scoped per `user_id` (PR #139 review): `news` is a global capture-layer
     store, but each user's report stream has its own watermark/window, so the
@@ -246,7 +241,12 @@ def load_news_window(
     rows = (
         session.execute(
             select(News)
-            .where(News.origin == "pool", News.published_at <= end, News.id.not_in(surfaced))
+            .where(
+                News.origin == "pool",
+                News.published_at > start - LATE_INGEST_WINDOW,
+                News.published_at <= end,
+                News.id.not_in(surfaced),
+            )
             .order_by(News.published_at.desc())
         )
         .scalars()
@@ -276,7 +276,7 @@ def load_instrument_news_window(
 
 
 def load_instrument_news_by_identifier(
-    session: Session, _start: datetime, end: datetime, user_id: uuid.UUID, identifiers: list[str]
+    session: Session, start: datetime, end: datetime, user_id: uuid.UUID, identifiers: list[str]
 ) -> dict[str, list[NewsItem]]:
     """Load linked headlines grouped by their owning identifier."""
     if not identifiers:
@@ -288,6 +288,7 @@ def load_instrument_news_by_identifier(
         .join(News, News.id == NewsInstrument.news_id)
         .where(
             NewsInstrument.identifier.in_(identifiers),
+            News.published_at > start - LATE_INGEST_WINDOW,
             News.published_at <= end,
             News.id.not_in(surfaced),
         )
@@ -466,6 +467,8 @@ class HoldingMove:
     day_low: Decimal | None
     day_close: Decimal | None
     after_hours: Decimal | None
+    d3_pct: Decimal | None = None
+    d5_pct: Decimal | None = None
 
 
 # Keyed by the exact (start, end) window a batch fan-out is generating over —
@@ -504,6 +507,23 @@ def _compute_identifier_move(
             max_day_pct = day_pct
             max_day_date = cur.trade_date
 
+    captured_closes = list(
+        session.scalars(
+            select(PriceSnapshot.close)
+            .where(
+                PriceSnapshot.ticker == identifier,
+                PriceSnapshot.session_node == "close",
+                PriceSnapshot.close.is_not(None),
+                PriceSnapshot.trade_date <= latest.trade_date,
+            )
+            .order_by(PriceSnapshot.trade_date.desc())
+            .limit(6)
+        )
+    )
+    closes = [close for close in captured_closes if close is not None]
+    d3_pct = (closes[0] / closes[3] - 1).quantize(_RATIO) if len(closes) >= 4 else None
+    d5_pct = (closes[0] / closes[5] - 1).quantize(_RATIO) if len(closes) >= 6 else None
+
     prev_close = path[-2].close if len(path) >= 2 else None
     return HoldingMove(
         identifier=identifier,
@@ -521,6 +541,8 @@ def _compute_identifier_move(
         day_low=latest.low,
         day_close=latest.close,
         after_hours=_after_hours_last(session, identifier, latest.trade_date),
+        d3_pct=d3_pct,
+        d5_pct=d5_pct,
     )
 
 
@@ -568,6 +590,18 @@ def _merge_theme_anomalies(
             sum(_val(pair) * pair[1].pct_change for pair in flagged) / total_value
         ).quantize(_RATIO)
 
+    def weighted_rolling(values: list[tuple[Decimal | None, Decimal]]) -> Decimal | None:
+        if any(value is None for value, _ in values):
+            return None
+        present = [(value, weight) for value, weight in values if value is not None]
+        if total_value == 0:
+            return (sum((value for value, _ in present), Decimal(0)) / len(present)).quantize(
+                _RATIO
+            )
+        return (
+            sum((value * weight for value, weight in present), Decimal(0)) / total_value
+        ).quantize(_RATIO)
+
     constituents = [
         ConstituentMove(
             name=h.name,
@@ -591,6 +625,8 @@ def _merge_theme_anomalies(
         baseline_date=dominant_a.baseline_date,
         latest_date=dominant_a.latest_date,
         window_net_pct=weighted_pct,
+        d3_pct=weighted_rolling([(a.d3_pct, _val((h, a))) for h, a in flagged]),
+        d5_pct=weighted_rolling([(a.d5_pct, _val((h, a))) for h, a in flagged]),
         max_day_pct=dominant_a.max_day_pct,
         max_day_date=dominant_a.max_day_date,
         prev_close=dominant_a.prev_close,
@@ -724,6 +760,7 @@ def select_user_anomalies(
     table once via ``load_leverage_map`` and passes the dict in.
     """
     config = load_asset_class_config()
+    rolling = load_intel_deepen_config().thresholds
     theme_buckets: dict[str, list[tuple[Holding, PriceAnomaly]]] = {}
     standalone: list[PriceAnomaly] = []
 
@@ -757,7 +794,14 @@ def select_user_anomalies(
         window_threshold = _window_threshold(per_day, cumulative_cap, trading_days)
         single_day_hit = move.max_day_pct is not None and abs(move.max_day_pct) >= per_day
         cumulative_hit = abs(move.net_pct) >= window_threshold
-        if not (single_day_hit or cumulative_hit):
+        multiplier = leverage if leverage is not None else Decimal(1)
+        d3_hit = (
+            move.d3_pct is not None and abs(move.d3_pct) >= Decimal(str(rolling.d3)) * multiplier
+        )
+        d5_hit = (
+            move.d5_pct is not None and abs(move.d5_pct) >= Decimal(str(rolling.d5)) * multiplier
+        )
+        if not (single_day_hit or cumulative_hit or d3_hit or d5_hit):
             continue
 
         anomaly = PriceAnomaly(
@@ -768,11 +812,19 @@ def select_user_anomalies(
             prev_price=move.prev_price,
             pct_change=move.net_pct,
             threshold=window_threshold,
-            trigger="single_day" if single_day_hit else "cumulative",
+            trigger="single_day"
+            if single_day_hit
+            else "cumulative"
+            if cumulative_hit
+            else "d5"
+            if d5_hit
+            else "d3",
             market=move.market,
             baseline_date=move.baseline_date,
             latest_date=move.latest_date,
             window_net_pct=move.net_pct,
+            d3_pct=move.d3_pct,
+            d5_pct=move.d5_pct,
             max_day_pct=move.max_day_pct,
             max_day_date=move.max_day_date,
             prev_close=move.prev_close,
@@ -802,7 +854,12 @@ def select_user_anomalies(
 
     anomalies = theme_anomalies + standalone
     anomalies.sort(
-        key=lambda a: max(abs(a.window_net_pct or a.pct_change), abs(a.max_day_pct or _RATIO)),
+        key=lambda a: max(
+            abs(a.window_net_pct or a.pct_change),
+            abs(a.max_day_pct or _RATIO),
+            abs(a.d3_pct or Decimal(0)),
+            abs(a.d5_pct or Decimal(0)),
+        ),
         reverse=True,
     )
     return anomalies

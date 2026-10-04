@@ -554,6 +554,19 @@ and `data_collection: deny`. Filings bypass classification. Failed or missing
 labels remain null; promo and unrelated labels are dropped. RSS pool items
 receive only the path and low-value-title rules and are never classified.
 
+Issue #639 adds an earnings-recap rule before the existing classifier. The
+configured title patterns in `intel_deepen.yml` trigger one cached yfinance
+`Ticker.get_earnings_dates` lookup per matching instrument per slot, using its
+Yahoo symbol. The latest earnings date on or before publication (ET) older than
+14 calendar days produces `stale_rule`. Missing dates or lookup errors retain
+the title and count `stale_lookup_failed`. The existing classifier receives the
+batch's ET date and a fifth label, `stale`, for recaps of events more than seven
+days old; these produce `stale_llm`. Neither mechanism adds a classifier call.
+RSS pool cleaning is unchanged. The #635 digest merges both drop reasons from
+free and paid collection into one line, "Old news republished with a new date",
+with at most three sample titles. Instrument lookback and report late-ingestion
+allowance share `LATE_INGEST_WINDOW` (48 hours).
+
 Issue #630 gathers all instrument sources before applying the rule chain and
 stably orders candidates by publication time, oldest first. The existing
 Jaccard prefilter still reads the complete 48-hour history. Collection
@@ -644,6 +657,14 @@ assembly remains in #622. The hook, in-memory leads, slot details and digest
 builder are their extension points.
 
 ### Intel deepening and paid usage
+
+Issue #639 applies the same pre-classifier earnings-recap rule and `stale`
+classifier label to paid-search results. Results without publication timestamps
+use the existing batch-time substitution (`lead.published_at or self.now`).
+`search_filtered` includes `stale_rule`, `stale_llm` and fail-open
+`stale_lookup_failed`; dropped-title samples feed the merged collection digest.
+The earnings-date cache is shared with free collection for the slot.
+
 
 Issue #621 extends the daily intelligence slots with rule-based paid deepening.
 `config/intel_deepen.yml` is validated and loaded afresh for each slot. The
@@ -807,6 +828,26 @@ linked `news_instruments` rows, deduplicates by URL hash and normalized title,
 keeps six per holding, and marks all recalled hashes atomically with the
 terminal report status.
 
+Issue #639 lists headlines only for held `asset_type=stock` identifiers with
+at least one keyword-recalled or instrument-linked headline. Anomalies lead,
+ordered by absolute window move; other stocks follow by portfolio weight.
+`MAX_HOLDINGS_WITH_HEADLINES` caps the list at six, with six titles each. ETFs
+and funds are excluded even at large weights. Both readers require publication
+strictly after `period_start - LATE_INGEST_WINDOW` and at/before `period_end`,
+with the existing per-user surfaced exclusion. Article-body selection, L1,
+price blocks and macro recall retain their existing selection rules.
+
+Pass 2 must describe data in plain words without naming input sections. When a
+holding has no window move in the prompt, it makes no direction claim and does
+not mention missing or unavailable data. Ordinary Pass 2 receives no new L1 or
+technical-position input. The raw and translated bodies are scanned for the
+fixed prompt labels; hits are stored in `report_inputs["prompt_label_hits"]`
+and logged at WARNING without editing, blocking or retrying the report. The
+scheduled fan-out sends at most one WARNING Ops alert after the user loop,
+listing report/user ids and labels with `report-labels-<task request id>`.
+On-demand and admin generation send at most one alert for their single report;
+no hits means no alert.
+
 ### Capture layer + incremental reporting (ADR-002)
 
 Full spec in Obsidian: `Hermes/Portfonia/Docs/Incremental Report & Capture Layer Design.md`.
@@ -887,7 +928,8 @@ layer** (per-user, incremental).
   news published strictly before that start as surfaced for this user before
   loading news; signup uses the same floor. Uncapped windows receive no
   backfill, preserving #30 late-ingest protection. `load_news_window` itself
-  still has no lower bound; see the news dedup mechanism.
+  uses the shared 48-hour late-ingestion lower bound (#639); see the news
+  dedup mechanism.
 - **Cadence (issue #191, per-user `users.report_cadence`, 2026-08-28)**:
   `_REPORT_CADENCES` (`app/tasks/__init__.py`) is a table of Beat rows, each
   naming a `cadence` that scopes its own `active_user_ids` fan-out — not a

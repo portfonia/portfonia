@@ -119,6 +119,7 @@ def headline_from_row(row: News) -> NewsItem:
 
 
 def sweep_intel(session: Session, now: datetime) -> dict[str, int]:
+    from app.models.news_surfaced import NewsSurfaced
     from app.models.paid_intel import IntelArticle, PaidApiUsage
 
     counts = {}
@@ -129,6 +130,14 @@ def sweep_intel(session: Session, now: datetime) -> dict[str, int]:
         (IntelCollectionRun, IntelCollectionRun.started_at, 90),
         (IntelSlotRun, IntelSlotRun.started_at, 90),
     ]:
+        if model is News:
+            expired_news = select(News.id).where(News.published_at < now - timedelta(days=days))
+            deleted = session.execute(
+                delete(NewsSurfaced)
+                .where(NewsSurfaced.news_id.in_(expired_news))
+                .returning(NewsSurfaced.id)
+            )
+            counts["news_surfaced_deleted"] = len(deleted.all())
         # Detach retained collection records before deleting their old slot parent.
         if model is IntelSlotRun:
             from sqlalchemy import update

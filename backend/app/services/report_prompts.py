@@ -20,6 +20,7 @@ from app.services.macro_coverage import (
     render_macro_continuity_block,
 )
 from app.services.portfolio_calculator import format_fx_rates_as_of
+from app.services.price_anomaly_detector import trigger_description
 from app.services.questionnaire_taxonomy import (
     ASSET_SCALE_PROMPT_TEXT,
     HORIZON_PROMPT_TEXT,
@@ -31,6 +32,24 @@ from app.services.questionnaire_taxonomy import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Canonical input-section names; scan both generated and translated prose.
+PROMPT_SECTION_LABELS = (
+    "PRICE ANOMALIES",
+    "LARGE HOLDINGS WINDOW PRICE",
+    "TECHNICAL POSITION",
+    "HOLDING-RELEVANT NEWS",
+    "REPORT WINDOW",
+    "PORTFOLIO SNAPSHOT",
+    "MACRO SIGNAL THEMES",
+    "BACKGROUND RESEARCH",
+    "INVESTOR PREFERENCES",
+    "MACRO COVERAGE CONTINUITY",
+)
+
+
+def prompt_label_hits(*texts: str) -> list[str]:
+    return [label for label in PROMPT_SECTION_LABELS if any(label in text for text in texts)]
 
 
 def _prompt_text(mapping: dict[str, str], value: str, *, field: str) -> str:
@@ -88,6 +107,7 @@ _RULE_BRIEFING_ROLE = (
     "\nYou are writing a structured holdings briefing for a "
     "private investor. Use Markdown. Be concise and factual. Write clean prose "
     "with no bracketed tags or citations.\n"
+    "Never name input sections or data blocks in the report; describe the data in plain words.\n"
 )
 _RULE_FORWARD_EVENTS = (
     "FORWARD EVENTS: if you reference a scheduled event (an upcoming data release, "
@@ -107,20 +127,18 @@ def _rule_direction_requires_evidence(*, large_holdings_price: bool) -> str:
     that, for one of its two consumers, is never actually rendered would be a
     dangling reference in that consumer's prompt."""
     sources = (
-        "PRICE ANOMALIES, LARGE HOLDINGS WINDOW PRICE, or TECHNICAL POSITION"
+        "PRICE ANOMALIES or LARGE HOLDINGS WINDOW PRICE"
         if large_holdings_price
         else "PRICE ANOMALIES or TECHNICAL POSITION"
     )
-    count = "three" if large_holdings_price else "two"
     return (
         "DIRECTION REQUIRES EVIDENCE: a sentence that asserts how a SPECIFIC HOLDING'S "
         "PRICE moved, or is positioned to move (e.g. 'gained safe-haven buying', "
         "'sold off', 'outperformed', 'will see buying support'), must be grounded in "
         f"the {sources} data "
         "supplied for THAT holding. If no window price data is supplied for a holding "
-        f"in ANY of those {count}, do not assert a price direction for it — describe "
-        "only that a transmission channel exists, say plainly 'this report period has "
-        "no price data to confirm the holding's direction', and cap the confidence "
+        "in any of those, make no price-direction claim and do not mention missing or unavailable data — describe "
+        "only a transmission channel grounded in the supplied material, and cap the confidence "
         "label at [Speculative]. Textbook macro narratives (e.g. 'war risk -> gold "
         "rallies') are mechanisms, not observations — do not restate them as "
         "something that already happened to a specific holding without window price "
@@ -448,6 +466,10 @@ def _fmt_anomaly_arc(a: dict[str, Any]) -> str:
             f"    window net {net * 100:+.2f}% "
             f"(baseline close {a.get('baseline_date')} -> latest close {a.get('latest_date')})"
         )
+    for key, label in (("d3_pct", "3-day"), ("d5_pct", "5-day")):
+        value = a.get(key)
+        rendered = f"{value * 100:+.2f}%" if value is not None else "—"
+        parts.append(f"    {label}: {rendered}")
     mday = a.get("max_day_pct")
     if mday is not None:
         parts.append(f"    worst single day {mday * 100:+.2f}% on {a.get('max_day_date')}")
@@ -473,7 +495,7 @@ def _fmt_anomaly_arc(a: dict[str, Any]) -> str:
         arc.append(f"after-hours {ah:g} ({(ah / cl - 1) * 100:+.1f}%)")
     if arc:
         parts.append(f"    latest day ({a.get('latest_date')}): " + "; ".join(arc))
-    parts.append(f"    trigger: {a.get('trigger', '')}")
+    parts.append(f"    trigger: {trigger_description(a.get('trigger', ''))}")
     return "\n".join(parts)
 
 

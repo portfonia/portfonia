@@ -15,6 +15,7 @@ from app.core.config import get_settings
 from app.core.timezones import ET
 from app.services.i18n_glossary import load_i18n_glossary, locale_for_output_lang
 from app.services.portfolio_calculator import format_fx_rates_as_of
+from app.services.price_anomaly_detector import trigger_description
 
 # ---------------------------------------------------------------------------
 # §1 Portfolio Snapshot
@@ -178,9 +179,9 @@ def _build_section42_table(anomalies: list[dict[str, Any]]) -> str:
         return f"{x:g}" if x is not None else "—"
 
     lines: list[str] = [
-        "| Holding | Net % | Worst day (date) | Prev close | Open (gap %) "
+        "| Holding | Net % | 3-day % | 5-day % | Worst day (date) | Prev close | Open (gap %) "
         "| Intraday range | Close | After-hrs | Trigger |",
-        "|---------|-------|------------------|------------|--------------"
+        "|---------|-------|---------|---------|------------------|------------|--------------"
         "|----------------|-------|-----------|---------|",
     ]
     theme_detail_lines: list[str] = []
@@ -210,9 +211,9 @@ def _build_section42_table(anomalies: list[dict[str, Any]]) -> str:
         ah_col = f"{ah:g} ({(ah / cl - 1) * 100:+.1f}%)" if ah is not None and cl else num(ah)
 
         lines.append(
-            f"| {name_col} | {pct(a.get('window_net_pct'))} | {worst_col} "
+            f"| {name_col} | {pct(a.get('window_net_pct'))} | {pct(a.get('d3_pct'))} | {pct(a.get('d5_pct'))} | {worst_col} "
             f"| {num(pc)} | {open_col} | {range_col} | {num(cl)} | {ah_col} "
-            f"| {a.get('trigger', '')} |"
+            f"| {trigger_description(a.get('trigger', ''))} |"
         )
 
         if theme:

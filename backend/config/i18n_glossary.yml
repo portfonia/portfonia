@@ -20,6 +20,14 @@
 supported_locales: [zh-Hans]
 
 report_glossary:
+  "single day":
+    zh-Hans: 单日
+  "window total":
+    zh-Hans: 窗口累计
+  "5-day total":
+    zh-Hans: 五日累计
+  "3-day total":
+    zh-Hans: 三日累计
   # Fixed EN -> locale nouns the translation pass (report_generator._translate_md)
   # renders exactly; loaded to build the LLM's glossary instruction.
   "Portfonia Holdings Briefing":

@@ -33,6 +33,7 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
@@ -97,6 +98,7 @@ from app.services.report_prompts import (
     _build_pass2_prompt,
     _build_pass2_system,
     body_is_incomplete,
+    prompt_label_hits,
 )
 from app.services.report_search import _run_tavily_search  # noqa: F401 - legacy test patch target
 from app.services.report_sections import (
@@ -156,7 +158,9 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_PROMPT_VERSION = "f2-v11"  # f2-v11: issue #622 reads scheduled intel bodies without URLs and renders 1,500-character research entries.
+_PROMPT_VERSION = (
+    "f2-v12"  # Issue #639: grounded direction, section-label suppression and rolling moves.
+)
 
 
 def _serialize_holding_move(move: HoldingMove) -> dict[str, Any]:
@@ -166,6 +170,8 @@ def _serialize_holding_move(move: HoldingMove) -> dict[str, Any]:
         "max_day_date": move.max_day_date.isoformat() if move.max_day_date is not None else None,
     }
 
+
+MAX_HOLDINGS_WITH_HEADLINES = 6
 
 _DISCLAIMER_VERSION = "f3-bilingual-v2"
 
@@ -211,6 +217,46 @@ def _holding_order(ctx: ReportContext) -> list[str]:
         identifier for identifier, _ in sorted(weighted.items(), key=lambda x: -x[1])
     )
     return list(dict.fromkeys(identifiers))
+
+
+def _holding_headline_order(ctx: ReportContext) -> list[str]:
+    stocks = [
+        h for h in ctx.portfolio_summary.get("holdings", []) if h.get("asset_type") == "stock"
+    ]
+    weights: dict[str, float] = {}
+    for holding in stocks:
+        identifier = _identifier(holding)
+        if identifier:
+            weights[identifier] = weights.get(identifier, 0.0) + float(
+                holding.get("market_value_base") or 0.0
+            )
+    moves: dict[str, float] = {}
+    for anomaly in ctx.price_anomalies:
+        members = anomaly.get("constituents") or [anomaly]
+        for member in members:
+            identifier = str(member.get("identifier") or "")
+            if identifier in weights:
+                moves[identifier] = abs(
+                    float(member.get("window_net_pct") or member.get("pct_change") or 0.0)
+                )
+    return sorted(
+        weights,
+        key=lambda identifier: (
+            (0, -moves[identifier]) if identifier in moves else (1, -weights[identifier])
+        ),
+    )
+
+
+def prompt_label_alert_body(reports: Sequence[Report]) -> str:
+    lines = []
+    for report in reports:
+        inputs = report.report_inputs
+        hits = inputs.get("prompt_label_hits") if isinstance(inputs, dict) else None
+        if isinstance(hits, list) and hits:
+            lines.append(
+                f"Report {report.id}, user {report.user_id}: " + ", ".join(str(hit) for hit in hits)
+            )
+    return "\n".join(lines)
 
 
 def _article_entry(article: IntelArticle, query: str, index: int) -> dict[str, Any] | None:
@@ -544,6 +590,7 @@ def _render_full_md(
     price_data_through: str = "",
     report_id: uuid.UUID | None = None,
     holding_news: dict[str, list[dict[str, Any]]] | None = None,
+    label_hits: list[str] | None = None,
 ) -> tuple[str, list[str], str]:
     """Annotate, assemble, language-render, and compliance-scan a report.
 
@@ -611,6 +658,13 @@ def _render_full_md(
     # LLM. Chunking is by heading, so the chunk set is unchanged.
     snapshot_out = _translate_md(header + window + section1, render_lang)
     body_out = _translate_md(cleaned, render_lang)
+    hits = prompt_label_hits(raw_body, body_out)
+    if label_hits is not None:
+        label_hits[:] = hits
+    if hits:
+        logger.warning(
+            "report %s: internal prompt section names in body: %s", report_id, ", ".join(hits)
+        )
     dynamic_out = (
         snapshot_out.rstrip() + "\n\n" + _build_section1_page_links(render_lang) + "\n\n" + body_out
     )
@@ -852,6 +906,7 @@ def _finish_report(
         ctx.price_data_through,
         report_id=report.id,
         holding_news=ctx.holding_news,
+        label_hits=ctx.prompt_label_hits,
     )
     ctx.pass2_translated = translated_body
     logger.info("report %s: assembled + rendered (lang=%s)", report.id, output_lang)
@@ -1576,10 +1631,17 @@ def generate_report(
                 ]
             )
         )
+        headline_ids = _holding_headline_order(ctx)
         linked_news = load_instrument_news_by_identifier(
-            session, period_start, period_end, user_id, material_ids
+            session, period_start, period_end, user_id, headline_ids
         )
-        recalled, recalled_hashes = _merge_holding_news(news_items, linked_news, material_ids)
+        recalled, recalled_hashes = _merge_holding_news(news_items, linked_news, headline_ids)
+        recalled = {
+            identifier: recalled[identifier]
+            for identifier in headline_ids
+            if identifier in recalled
+        }
+        recalled = dict(list(recalled.items())[:MAX_HOLDINGS_WITH_HEADLINES])
         ctx.holding_news = {
             identifier: _serialize_news(items) for identifier, items in recalled.items()
         }
@@ -1993,6 +2055,7 @@ def regenerate_report(
     # EITHER mode.
     visible_body, coverage_items = extract_macro_sidecar(raw_body)
     report_date_str = report.report_date.strftime("%Y-%m-%d")
+    label_hits: list[str] = []
     full_md, violations, translated_body = _render_full_md(
         report_date_str,
         portfolio,
@@ -2008,12 +2071,17 @@ def regenerate_report(
         str(inputs.get("price_data_through", "")),
         report_id=report.id,
         holding_news=inputs.get("holding_news", {}),
+        label_hits=label_hits,
     )
     report.status = "needs_review" if violations else "success"
     report.report_md = full_md
     # Persist translation snapshot alongside report_md for compliance traceability.
     if report.report_inputs is not None:
-        report.report_inputs = {**report.report_inputs, "pass2_translated": translated_body}
+        report.report_inputs = {
+            **report.report_inputs,
+            "pass2_translated": translated_body,
+            "prompt_label_hits": label_hits,
+        }
     report.generated_at = datetime.now(tz=UTC)
     if mode == "analyze":
         # Render-only regeneration re-runs no analysis (Design §5) and must

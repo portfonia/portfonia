@@ -107,7 +107,8 @@ def generate_incremental_report(
     # Imports are deferred so the module loads fast and avoids circular deps
     # when Celery first imports the task registry.
     from app.core.database import SessionLocal
-    from app.services.report_generator import generate_report
+    from app.models.report import Report
+    from app.services.report_generator import generate_report, prompt_label_alert_body
     from app.services.subscription import run_cadence_checks
     from app.services.user_scope import active_users
     from app.services.window_data import MovesCache
@@ -224,6 +225,7 @@ def generate_incremental_report(
         # the same moves_cache dict object alone does not make the cache hit.
         batch_now = datetime.now(tz=UTC)
         results: list[dict[str, str]] = []
+        label_reports: list[Report] = []
         for index, recipient in enumerate(recipients):
             user_id = recipient.user_id
             try:
@@ -267,6 +269,8 @@ def generate_incremental_report(
                         * 1000,
                     },
                 )
+                if prompt_label_alert_body([report]):
+                    label_reports.append(report)
                 logger.info(
                     "generate_incremental_report: complete for user %s — report_id=%s status=%s",
                     user_id,
@@ -311,6 +315,14 @@ def generate_incremental_report(
                 )
                 results.append({"user_id": str(user_id), "status": "failed"})
 
+        label_body = prompt_label_alert_body(label_reports)
+        if label_body:
+            send_ops_alert(
+                subject="[Portfonia] Internal section names in reports",
+                body=label_body,
+                severity="WARNING",
+                idempotency_key=f"report-labels-{self.request.id}",
+            )
         check_subscriptions()
 
         if all(r["status"] == "failed" for r in results):
@@ -397,7 +409,7 @@ def generate_report_job(
     from app.core.database import SessionLocal
     from app.models.report_job import ReportJob
     from app.services.llm_errors import LLMEmptyResponseError
-    from app.services.report_generator import generate_report
+    from app.services.report_generator import generate_report, prompt_label_alert_body
     from app.services.user_scope import report_currency_for, report_language_for
 
     session = SessionLocal()
@@ -465,6 +477,14 @@ def generate_report_job(
             job.status = "failed"
             job.error = f"Report generation error: {type(exc).__name__}: {exc}"
         else:
+            label_body = prompt_label_alert_body([report])
+            if label_body:
+                send_ops_alert(
+                    subject="[Portfonia] Internal section names in report",
+                    body=label_body,
+                    severity="WARNING",
+                    idempotency_key=f"report-labels-{self.request.id}",
+                )
             job.status = "success"
             job.report_id = report.id
         session.commit()

@@ -30,6 +30,8 @@ from app.services.intel_http import quiet_transport
 
 logger = logging.getLogger(__name__)
 
+LATE_INGEST_WINDOW = timedelta(hours=48)
+
 # ---------------------------------------------------------------------------
 # Source configuration
 # ---------------------------------------------------------------------------

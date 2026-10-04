@@ -59,6 +59,7 @@ DROPS = (
     ("Already collected in an earlier batch ....", ("duplicate_earlier",)),
     ("Same story as another headline, reworded .", ("duplicate", "duplicate_llm")),
     ("Stock picks, promotion, routine price recaps", ("low_value_rule", "promo_llm")),
+    ("Old news republished with a new date:", ("stale_rule", "stale_llm")),
     ("Not an article page ......................", ("non_article",)),
 )
 MARKETS = {"HK": "Hong Kong", "A-Share": "China A-share"}
@@ -196,6 +197,14 @@ def build_batch_report(
         f"  RSS feeds ({rss_feeds}) ...... {rss_items:,}, "
         + (f"{rss_errors} errors" if rss_errors else "no errors")
     )
+    deep = obj(slot.details.get("deepening"))
+    for metric in obj(deep.get("metrics")).values():
+        filtered = obj(obj(metric).get("search_filtered"))
+        for reason in ("stale_rule", "stale_llm"):
+            cleaning[reason] += int(number(filtered.get(reason)))
+    for reason, raw in obj(deep.get("search_samples")).items():
+        if isinstance(raw, list):
+            samples.setdefault(reason, []).extend(str(v) for v in raw)
     lines += ["", "Headlines dropped:"]
     for label, reasons in DROPS:
         count = sum(cleaning[r] for r in reasons)

@@ -4,15 +4,19 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
 import yaml
+import yfinance as yf
 
 from app.core.config import OR_ATTRIBUTION_HEADERS, get_settings
+from app.core.timezones import ET, today_et
 from app.services.instrument_news_sources import CollectedItem, mapping, rows
 from app.services.instrument_profiles import match_instruments
 from app.services.intel_http import quiet_transport
@@ -24,21 +28,61 @@ class CleaningConfig:
     patterns: list[re.Pattern[str]]
     threshold: float
     hours: int
+    earnings_patterns: list[re.Pattern[str]]
+    stale_earnings_days: int
 
 
 def load_cleaning_config(path: Path | None = None) -> CleaningConfig:
     data = yaml.safe_load(
         (path or Path(__file__).resolve().parents[2] / "config/intel_cleaning.yml").read_text()
     )
+    stale = yaml.safe_load(
+        (Path(__file__).resolve().parents[2] / "config/intel_deepen.yml").read_text()
+    ).get("headline_cleaning", {})
     try:
         return CleaningConfig(
             list(data.get("non_article_path_segments", [])),
             [re.compile(p, re.IGNORECASE) for p in data.get("low_value_title_patterns", [])],
             float(data.get("near_duplicate_jaccard", 0.8)),
             int(data.get("near_duplicate_hours", 48)),
+            [re.compile(p, re.IGNORECASE) for p in stale.get("earnings_recap_patterns", [])],
+            int(stale.get("stale_earnings_days", 14)),
         )
     except (re.error, TypeError, ValueError) as exc:
         raise ValueError("invalid cleaning configuration") from exc
+
+
+class EarningsCache:
+    """One earnings-date lookup per symbol across collection and paid workers in a slot."""
+
+    def __init__(self) -> None:
+        self._dates: dict[str, list[date]] = {}
+        self._lock = threading.Lock()
+
+    def stale_reason(self, item: CollectedItem, symbol: str, config: CleaningConfig) -> str | None:
+        if item.kind == "filing" or not any(p.search(item.title) for p in config.earnings_patterns):
+            return None
+        with self._lock:
+            if symbol not in self._dates:
+                try:
+                    frame = yf.Ticker(symbol).get_earnings_dates()
+                    dates = (
+                        []
+                        if frame is None
+                        else [
+                            stamp.astimezone(ET).date()
+                            for stamp in frame.index
+                            if isinstance(stamp, datetime)
+                        ]
+                    )
+                except Exception:
+                    dates = []
+                self._dates[symbol] = dates
+            published = item.published_at.astimezone(ET).date()
+            past = [day for day in self._dates[symbol] if day <= published]
+        if not past:
+            return "stale_lookup_failed"
+        return "stale_rule" if (published - max(past)).days > config.stale_earnings_days else None
 
 
 _STOPWORDS = frozenset(
@@ -107,7 +151,7 @@ def block_reason(
     return None
 
 
-SYSTEM_PROMPT = 'You classify financial news headlines for one company each. For every item return one label:\nkeep = the item reports a concrete development about THIS company (earnings, deals, products, guidance, legal/regulatory, management, analyst actions, notable price moves with a stated cause);\nmention = the company is only mentioned in passing or is one of many in a broad market piece;\npromo = stock-pick, buy/sell, comparison, prediction or listicle content; institutional holding-change notices (a fund bought, sold or changed its stake); routine price-move recaps with no stated company-specific cause;\nunrelated = not about this company.\nOutput ONLY JSON: {"labels": [{"id": int, "label": "keep|mention|promo|unrelated"}]}'
+SYSTEM_PROMPT = 'You classify financial news headlines for one company each. For every item return one label:\nkeep = the item reports a concrete development about THIS company (earnings, deals, products, guidance, legal/regulatory, management, analyst actions, notable price moves with a stated cause);\nmention = the company is only mentioned in passing or is one of many in a broad market piece;\npromo = stock-pick, buy/sell, comparison, prediction or listicle content; institutional holding-change notices (a fund bought, sold or changed its stake); routine price-move recaps with no stated company-specific cause;\nstale = the headline reports or recaps an event that happened more than 7 days before the batch date (old quarterly results, deals or anniversaries), rather than a new development;\nunrelated = not about this company.\nOutput ONLY JSON: {"labels": [{"id": int, "label": "keep|mention|promo|unrelated|stale"}]}'
 
 
 def classify_headlines(
@@ -115,17 +159,19 @@ def classify_headlines(
     ticker: str,
     aliases: list[str],
     recent_titles: Sequence[str] | None = None,
+    *,
+    batch_date: date | None = None,
 ) -> tuple[dict[int, str], float, str | None]:
     settings = get_settings()
     content = "\n".join(
         f"{i}\t{ticker} ({', '.join(aliases)})\t{x.title}\t{(x.summary or '')[:160]}"
         for i, x in enumerate(items)
     )
-    prompt = SYSTEM_PROMPT
+    prompt = SYSTEM_PROMPT + f"\nBatch date (ET): {batch_date or today_et()}"
     if recent_titles is not None:
         prompt = prompt.replace(
-            '"label": "keep|mention|promo|unrelated"}',
-            '"label": "keep|mention|promo|unrelated", "duplicate_of": "e<k>" | int | null}',
+            '"label": "keep|mention|promo|unrelated|stale"}',
+            '"label": "keep|mention|promo|unrelated|stale", "duplicate_of": "e<k>" | int | null}',
         )
         prompt += '\nSome items may repeat an event already covered. EXISTING lists earlier headlines for this company. For each item, set "duplicate_of" to the id of an EXISTING headline ("e0", "e1", ...) or of a lower-numbered item in this batch that reports the same event with no new material fact (no new figure, party, or stage). Otherwise set it to null. A follow-up with new facts is not a duplicate.'
         content = (
@@ -179,7 +225,7 @@ def classify_headlines(
                 )
             ):
                 labels[idx] = "duplicate"
-            elif label in ("keep", "mention", "promo", "unrelated"):
+            elif label in ("keep", "mention", "promo", "unrelated", "stale"):
                 labels[idx] = str(label)
         usage = mapping(data.get("usage") or {})
         cost = usage.get("cost", 0)

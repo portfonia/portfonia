@@ -99,7 +99,11 @@ from app.services.paddle_client import (
     get_transaction,
 )
 from app.services.report_currency import apply_report_currency_change
-from app.services.report_generator import generate_report, regenerate_report
+from app.services.report_generator import (
+    generate_report,
+    prompt_label_alert_body,
+    regenerate_report,
+)
 from app.services.snapshot_recovery import (
     CATCHUP_LOOKBACK_DAYS,
     recover_portfolio_snapshots,
@@ -885,12 +889,21 @@ def generate_report_for_user(user_id: UUID, session: Session = Depends(get_sessi
     if user.status != "active":
         raise HTTPException(status_code=422, detail="user is not active")
     try:
-        return generate_report(
+        report = generate_report(
             session,
             user_id=user_id,
             output_lang=get_settings().OUTPUT_LANG,
             session_node="manual",
         )
+        label_body = prompt_label_alert_body([report])
+        if label_body:
+            send_ops_alert(
+                subject="[Portfonia] Internal section names in report",
+                body=label_body,
+                severity="WARNING",
+                idempotency_key=f"report-labels-{report.id}",
+            )
+        return report
     except LLMEmptyResponseError as exc:
         raise HTTPException(
             status_code=502, detail=f"LLM returned an empty response: {exc}"

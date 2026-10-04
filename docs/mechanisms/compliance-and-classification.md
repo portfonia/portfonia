@@ -237,6 +237,22 @@ overrides are a Ring 1 decision, documented in `Portfonia Concept & Design.md`, 
 built yet.
 
 
+### Rolling report anomalies (issue #639)
+
+The existing asset-class single-day and window-cumulative rules remain
+unchanged. `window_data` also reads the latest six captured closes on or before
+the move's latest trading date, newest first: `d3_pct = close[0]/close[3] - 1`
+and `d5_pct = close[0]/close[5] - 1`, quantized like the window net. Fewer than
+four/six closes yields `None`; there is no additional zero-price mechanism.
+`intel_deepen.yml` supplies `thresholds.d3` (15%) and `thresholds.d5` (20%) for
+every asset class; near-threshold values do not apply. Leverage multiplies
+these thresholds too. Any rule can flag a holding, with trigger precedence
+`single_day > cumulative > d5 > d3`. Theme rows value-weight the rolling
+measures using window-net weights and return `None` if any flagged constituent
+lacks the measure. Ordering uses the largest absolute window net, single-day,
+three-day or five-day measure. Compliance Layer-3 and vocabulary rules are
+unchanged.
+
 ### Leveraged-product threshold multiplier — `ticker_leverage_overrides` (#87)
 
 Leveraged/inverse ETPs (e.g. `MUU`, Direxion 2x MU) were falling into

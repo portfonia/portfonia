@@ -20,8 +20,10 @@ with empty URL/source, while serialization preserves `url_hash`. The #61
 render-resume path marks that stored hash surfaced, falling back to hashing
 `url` for older saved inputs. Report prompts omit empty source labels.
 
-The daily sweep deletes news older than 30 days, including associated links
-and surfaced-ledger entries. This replaces the previous one-year news retention;
+The daily sweep deletes news older than 30 days. Issue #639 explicitly deletes
+`news_surfaced` rows for the expiring news before deleting that news, using the
+same cutoff and transaction; `news_surfaced_deleted` reports the count. Instrument
+links cascade on news deletion. No surfaced-ledger foreign key is added. This replaces the previous one-year news retention;
 price retention remains unchanged. Run evidence is retained for 90 days.
 Migration `d62000000001` applies the same 30-day cutoff and irreversibly discards
 expired news and retained URL/source columns. Downgrade deletes instrument
@@ -47,16 +49,17 @@ permanent miss, not a delay. Same-day multi-run (manual + scheduled
 `session_node`s sharing overlapping-but-distinct watermarks) made the race
 more likely, not less.
 
-- **Fix**: `load_news_window` now selects `published_at <= end` with **no
-  lower bound at all** — decoupling news selection from the watermark
-  entirely, per the original issue's proposed direction. Dedup is delegated
-  to a new ledger table, `news_surfaced` (`app/models/news_surfaced.py`,
-  migration `f1a2b3c4d5e6`): `(user_id, news_id)` unique + `report_id` +
-  `surfaced_at`. Once a news item has appeared in a report of a given
-  user's that reaches a DONE status (`success`/`needs_review`/`skipped` —
-  the same set `user_watermark()` already uses), it's excluded from every
-  future selection **for that user**, regardless of how old its
-  `published_at` is.
+- **Current selection (issue #639)**: both `load_news_window` and
+  `load_instrument_news_by_identifier` select
+  `start - LATE_INGEST_WINDOW < published_at <= end` and exclude this user's
+  surfaced ledger. The shared `LATE_INGEST_WINDOW = timedelta(hours=48)` also
+  controls instrument collection's lookback. This preserves late-ingestion
+  recovery for the preceding 48 hours while excluding older, unseen headlines.
+  At 49 hours before start an item is excluded; at 47 hours it is eligible;
+  the exact 48-hour boundary is excluded. The ledger remains unique by
+  `(user_id, news_id)` with `report_id` and `surfaced_at`. Once an item appears
+  in a DONE report (`success`/`needs_review`/`skipped`), it is excluded from
+  subsequent selection for that user.
 - **Seven-calendar-day window floor (issue #611)**: newly computed report
   windows start at the later of the latest completed report end and ET midnight
   seven ET calendar dates before the batch time. Without history they use the
@@ -65,11 +68,11 @@ more likely, not less.
   gap. It marks news published strictly before the cutoff as surfaced for that
   user before loading news; an item exactly at the cutoff remains eligible.
   Normal Weekly and Mon/Wed/Fri windows keep their previous end and receive no
-  backfill, so late-ingested, unsurfaced news before that end still loads (#30).
+  backfill; unsurfaced news within 48 hours before that end still loads (#639).
   The seven-day cap takes priority over recovering a failed week's content.
   Retries with a stored window reuse it without recomputing or backfilling;
-  regenerations continue using stored inputs. The no-lower-bound selector and
-  normal ledger marking semantics are unchanged; no migration or retroactive
+  regenerations continue using stored inputs. The bounded late-ingestion selector preserves
+  normal ledger marking semantics; no migration or retroactive
   report regeneration is involved.
 - **Uniqueness is `(user_id, news_id)`, not `news_id` alone** (PR #139
   review round 1, a real gap in the first draft): `news` is a global
