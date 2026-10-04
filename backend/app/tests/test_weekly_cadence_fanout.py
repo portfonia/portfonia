@@ -14,17 +14,30 @@ test seeds into.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.timezones import today_et
 from app.models.forward_event import ForwardEvent
 from app.models.report import Report
 from app.tests.test_report_generator import _macro_hit, _mock_llm, _news_item
 from app.tests.test_shared_compute_a1 import _empty_portfolio_snap
 from app.tests.test_user_scope import _U1, _U2, _user
+
+
+@pytest.fixture(autouse=True)
+def _due_day(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Freeze only the batch and ET clock, leaving the generator independent.
+    from app.core.timezones import ET
+
+    now = datetime(2026, 10, 3, 19, tzinfo=ET)
+    monkeypatch.setattr("app.tasks.report_tasks.today_et", lambda: now.date())
+    monkeypatch.setattr("app.core.timezones.today_et", lambda: now.date())
+    monkeypatch.setattr("app.tests.test_weekly_cadence_fanout.today_et", lambda: now.date())
 
 
 def test_weekly_zero_holdings_user_gets_empty_table_contract_via_beat_path(
@@ -65,7 +78,7 @@ def test_weekly_zero_holdings_user_gets_empty_table_contract_via_beat_path(
             event_type="macro",
             name="FOMC Meeting",
             ticker="",
-            scheduled_date=date.today() + timedelta(days=1),
+            scheduled_date=today_et() + timedelta(days=1),
             source="fomc",
         )
     )
@@ -86,9 +99,7 @@ def test_weekly_zero_holdings_user_gets_empty_table_contract_via_beat_path(
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
         patch("app.services.report_generator._run_tavily_search", return_value=[]),
     ):
-        result = generate_incremental_report.run(
-            report_type="incremental", session_node="weekend_snapshot", cadence="weekly"
-        )
+        result = generate_incremental_report.run(report_type="incremental", cadences=["weekly"])
 
     assert result["status"] == "completed"
     assert result["results"][0]["status"] == "success"
@@ -152,7 +163,7 @@ def test_weekly_fanout_two_users_each_get_their_own_locale_after_the_first_users
             event_type="macro",
             name="FOMC Meeting",
             ticker="",
-            scheduled_date=date.today() + timedelta(days=1),
+            scheduled_date=today_et() + timedelta(days=1),
             source="fomc",
         )
     )
@@ -178,9 +189,7 @@ def test_weekly_fanout_two_users_each_get_their_own_locale_after_the_first_users
         patch("app.services.report_translation._call_llm", translate_llm),
         patch("app.services.report_translation.time.sleep"),  # skip the real per-chunk pacing
     ):
-        result = generate_incremental_report.run(
-            report_type="incremental", session_node="weekend_snapshot", cadence="weekly"
-        )
+        result = generate_incremental_report.run(report_type="incremental", cadences=["weekly"])
 
     assert result["status"] == "completed"
     by_user = {r["user_id"]: r["status"] for r in result["results"]}

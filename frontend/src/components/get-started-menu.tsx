@@ -119,6 +119,7 @@ export function GetStartedMenu() {
     <div className="flex items-center gap-2">
       {errorNotice}
       <MenuDropdown
+        triggerClassName={session.status === "authed" && session.advanced ? "bg-advanced text-advanced-foreground hover:bg-advanced/90" : undefined}
         trigger={
           <>
             {t("trigger")}

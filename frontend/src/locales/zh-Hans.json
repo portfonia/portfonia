@@ -416,7 +416,8 @@
     "reportScheduleHeading": "报告周期",
     "reportScheduleOptions": {
       "weekly": "每周",
-      "everyOtherDay": "周一、三、五"
+      "everyOtherDay": "周一、三、五",
+      "daily": "每日（进阶）"
     },
     "deliveryEmailHeading": "报告接收邮箱",
     "deliveryEmailFallbackNote": "未设置独立接收邮箱，当前使用账户邮箱。",
@@ -459,11 +460,13 @@
     "subscriptionNone": "当前未订阅。部分功能及报告发送可能受限。",
     "subscriptionTitle": {
       "weekly": "每周简报",
-      "mwf": "周一、三、五简报"
+      "mwf": "周一、三、五简报",
+      "daily": "每日简报"
     },
     "subscriptionDescription": {
       "weekly": "每周六发送一份关于您投资组合的简报。",
-      "mwf": "每周一、周三和周五发送一份关于您投资组合的简报。"
+      "mwf": "每周一、周三和周五发送一份关于您投资组合的简报。",
+      "daily": "每个工作日（周一至周五）发送一份关于您投资组合的简报。进阶套餐：含 AI智能体数据接口。"
     },
     "subscriptionFee": "费用：每月 {fee} credits。",
     "subscriptionBalance": "当前余额：{balance} credits。",
@@ -1070,7 +1073,7 @@
         },
         {
           "q": "收费吗？",
-          "a": "每周简报每月 0.99 credits 起，周一 / 三 / 五简报每月 1.99 credits。Credits 以 US$10 和 US$20 点数包出售——详见定价页面。"
+          "a": "每周简报每月 0.99 credits 起，周一 / 三 / 五简报每月 1.99 credits，含 AI智能体数据接口的进阶每日简报每月 2.49 credits。Credits 以 US$10 和 US$20 点数包出售——详见定价页面。"
         }
       ]
     },
@@ -1123,7 +1126,7 @@
     "deliveryVerified": "报告将发送至 {deliveryEmail}。",
     "deliveryUnverified": "在 {deliveryEmail} 完成验证之前，报告不会发送。",
     "errorLoadFailed": "无法加载你的账户信息。",
-    "subscriptionPlans": "Portfonia 向订阅用户发送定期简报。有两种套餐：每周简报（每月 0.99 credits）和周一、三、五简报（每月 1.99 credits）。",
+    "subscriptionPlans": "Portfonia 向订阅用户发送定期简报。有三种套餐：每周简报（每月 0.99 credits）、周一、三、五简报（每月 1.99 credits）和进阶每日简报（每月 2.49 credits，工作日发送，含 AI智能体数据接口）。",
     "subscriptionRequirements": "订阅前不会发送定期简报，部分功能也可能无法使用。您需要先验证邮箱，才能订阅。",
     "choosePlan": "选择套餐"
   },
@@ -1347,7 +1350,8 @@
           "body": [
             "每周简报——每月 0.99 credits。每周一封个性化简报邮件，与您录入的持仓挂钩。",
             "周一 / 三 / 五简报——每月 1.99 credits。每周三封个性化简报邮件（周一、周三、周五）。",
-            "两档套餐的区别仅在于简报发送频率。"
+            "每日简报（进阶）——每月 2.49 credits。每个工作日（周一至周五）一封个性化简报邮件，市场假日照常发送。",
+            "每周与周一 / 三 / 五两档的区别仅在于发送频率。每日为进阶套餐：除工作日简报外，还允许您的 AI智能体读取逐日持仓快照和与持仓相关的情报。所有套餐都可以让 AI智能体读取历史报告。"
           ]
         },
         {
@@ -1463,7 +1467,8 @@
       "everyOtherDay": "周一、三、五",
       "weekly": "每周",
       "manual": "手动",
-      "report": "报告"
+      "report": "报告",
+      "daily": "每日"
     }
   }
 }

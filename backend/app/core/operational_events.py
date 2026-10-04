@@ -131,6 +131,7 @@ ALLOWED_ATTRIBUTE_KEYS = frozenset(
         # timing completeness
         "telemetry_overhead_ms",
         "cadence",
+        "cadences",
     }
 )
 

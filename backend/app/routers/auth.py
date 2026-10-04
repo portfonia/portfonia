@@ -257,17 +257,11 @@ def forgot_password(
     return ForgotPasswordResponse(account_found=exists)
 
 
-@router.get("/session-status", status_code=status.HTTP_204_NO_CONTENT)
-def session_status(_principal: Principal = Depends(current_principal)) -> None:
-    """Cheap current_principal-gated probe (issue #236). No body, no extra
-    query beyond what current_principal already does on every identity-
-    bearing route (JWT verify, idle check, lifetime check, user lookup).
+class SessionStatusOut(BaseModel):
+    advanced: bool
 
-    Exists so the frontend top-bar menu (`useSession` in use-session.ts)
-    can confirm the backend would still accept this session's token before
-    rendering the authenticated menu, without paying GET /me's account-
-    summary query cost — that check would otherwise run on every mount and
-    route change. current_principal itself raises 401 before this body
-    ever runs; a 204 here means nothing more than "still valid right now".
-    """
-    return None
+
+@router.get("/session-status", response_model=SessionStatusOut)
+def session_status(principal: Principal = Depends(current_principal)) -> SessionStatusOut:
+    """Probe the verified session and its Advanced access, without another query."""
+    return SessionStatusOut(advanced=principal.advanced)

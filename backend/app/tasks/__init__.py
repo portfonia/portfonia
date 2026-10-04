@@ -1,7 +1,7 @@
 """Celery application and Beat schedule (Stage H + ADR-002 capture layer)."""
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from celery import Celery  # type: ignore[import-untyped]
@@ -114,42 +114,37 @@ def _node_cron(tz: Any, hour: int, minute: int) -> crontab:
     return crontab(hour=hour, minute=minute, nowfun=_NowIn(tz))
 
 
-# Report cadences: (beat entry name, report_type, session_node, crontab
-# kwargs, cadence). `cadence` matches a users.report_cadence value and drives
-# app.services.user_scope.active_user_ids' fan-out query — adding a cadence
-# is a table row, not a new task function, since generate_incremental_report
-# takes report_type/session_node/cadence as arguments rather than hardcoding
-# them. Ring 1 may extend this with monthly/daily_brief; those aren't real
-# yet (no Beat row, no way to set them on a user) so they aren't
-# pre-enumerated here or in users.VALID_REPORT_CADENCES — see the Ring 1-B
-# Cadence design doc, decision point 3.
-#
-# `weekly` (issue #191) fires Saturday 19:00 ET rather than at a real market
-# close. Portfolio-value snapshot capture is 20:30 ET every day (issue #487),
-# so a Saturday weekly report still reads Friday's snapshot; later same-day
-# capture does not feed this Beat row. `session_node="weekend_snapshot"`
-# names that explicitly rather than reusing "after_close", which would imply
-# a close event that didn't happen. The macro/news layer (ticker_intel.py /
-# cross_name_intel.py) is a live, generation-time search keyed by trade_date,
-# not tied to these capture nodes — so a Saturday report's holdings data is
-# a stable weekday-old snapshot, but its macro content can still reflect
-# the weekend.
-_REPORT_CADENCES: tuple[tuple[str, str, str, dict[str, Any], str], ...] = (
-    (
-        "report-incremental-mwf",
-        "incremental",
-        "after_close",
-        {"hour": 17, "minute": 0, "day_of_week": "mon,wed,fri"},
-        "mwf",
-    ),
-    (
-        "report-incremental-weekly",
-        "incremental",
-        "weekend_snapshot",
-        {"hour": 19, "minute": 0, "day_of_week": "sat"},
-        "weekly",
-    ),
+# Cadences own report nodes and quote times; batches own Beat dispatch.
+# Daily and Mon/Wed/Fri share one weekday batch so a serial worker cannot
+# delay the second cadence past the stale-trigger tolerance.
+_REPORT_CADENCES: tuple[tuple[str, str, dict[str, Any]], ...] = (
+    ("daily", "daily_close", {"hour": 17, "minute": 0, "day_of_week": "mon-fri"}),
+    ("mwf", "after_close", {"hour": 17, "minute": 0, "day_of_week": "mon,wed,fri"}),
+    ("weekly", "weekend_snapshot", {"hour": 19, "minute": 0, "day_of_week": "sat"}),
 )
+_REPORT_BATCHES: tuple[tuple[str, dict[str, Any], tuple[str, ...]], ...] = (
+    (
+        "report-incremental-weekday",
+        {"hour": 17, "minute": 0, "day_of_week": "mon-fri"},
+        ("daily", "mwf"),
+    ),
+    ("report-incremental-weekly", {"hour": 19, "minute": 0, "day_of_week": "sat"}, ("weekly",)),
+)
+_batch_cadences = [cadence for _, _, cadences in _REPORT_BATCHES for cadence in cadences]
+assert sorted(_batch_cadences) == sorted(cadence for cadence, _, _ in _REPORT_CADENCES)
+for _cadence, _, _cron in _REPORT_CADENCES:
+    assert _batch_cadences.count(_cadence) == 1
+    for _, _batch_cron, _cadences in _REPORT_BATCHES:
+        if _cadence in _cadences:
+            assert (_cron["hour"], _cron["minute"]) == (_batch_cron["hour"], _batch_cron["minute"])
+
+
+def cadence_is_due(cadence: str, today: date) -> bool:
+    """Read Celery's Sunday-zero weekday set rather than duplicate cron rules."""
+    for row_cadence, _, cron_kwargs in _REPORT_CADENCES:
+        if row_cadence == cadence:
+            return (today.weekday() + 1) % 7 in crontab(**cron_kwargs).day_of_week
+    raise ValueError(f"unknown report cadence: {cadence!r}")
 
 
 def next_occurrence_for_cadence(cadence: str, now: datetime) -> datetime:
@@ -168,7 +163,7 @@ def next_occurrence_for_cadence(cadence: str, now: datetime) -> datetime:
 
     Add the absolute duration in UTC so timezone transitions preserve the ET fire time.
     """
-    for _, _, _, cron_kwargs, row_cadence in _REPORT_CADENCES:
+    for row_cadence, _, cron_kwargs in _REPORT_CADENCES:
         if row_cadence == cadence:
             now_et = now.astimezone(ET)
             cron = crontab(**cron_kwargs, nowfun=lambda pinned=now_et: pinned)
@@ -179,14 +174,13 @@ def next_occurrence_for_cadence(cadence: str, now: datetime) -> datetime:
 
 def _build_report_schedule() -> dict[str, dict[str, Any]]:
     sched: dict[str, dict[str, Any]] = {}
-    for name, report_type, session_node, cron_kwargs, cadence in _REPORT_CADENCES:
+    for name, cron_kwargs, cadences in _REPORT_BATCHES:
         sched[name] = {
             "task": "app.tasks.report_tasks.generate_incremental_report",
             "schedule": crontab(**cron_kwargs),
             "kwargs": {
-                "report_type": report_type,
-                "session_node": session_node,
-                "cadence": cadence,
+                "report_type": "incremental",
+                "cadences": list(cadences),
                 # Beat's PersistentScheduler fires a missed crontab tick as soon
                 # as it comes back up (e.g. after a machine reboot took the
                 # scheduler down for days) instead of skipping it — the task

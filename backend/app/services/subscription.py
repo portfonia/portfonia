@@ -22,13 +22,24 @@ from app.services.credit_ledger import (
 )
 from app.services.email_sender import send_ops_alert, send_subscription_notice
 from app.services.user_directory import recipient_email_with_purpose
+from app.services.user_scope import HOLDINGS_GATED_CADENCES
 from app.tasks import next_occurrence_for_cadence
 
 logger = logging.getLogger(__name__)
 
-PLAN_FEES: dict[str, Decimal] = {"weekly": Decimal("0.99"), "mwf": Decimal("1.99")}
-# Stage D adds advanced subscription types to this whitelist.
-SNAPSHOT_EXPORT_SUBSCRIPTION_TYPES: tuple[str, ...] = ()
+PLAN_FEES: dict[str, Decimal] = {
+    "weekly": Decimal("0.99"),
+    "mwf": Decimal("1.99"),
+    "daily": Decimal("2.49"),
+}
+ADVANCED_SUBSCRIPTION_TYPES: tuple[str, ...] = ("daily",)
+
+
+def is_advanced(user: User) -> bool:
+    return (
+        user.subscription_status == "active"
+        and user.subscription_type in ADVANCED_SUBSCRIPTION_TYPES
+    )
 
 
 def next_expiry(from_date: date, anchor_day: int) -> date:
@@ -197,7 +208,7 @@ def quote(session: Session, user_id: uuid.UUID, today: date, plan: str) -> Subsc
         if action in ("subscribe", "change")
         else user.subscription_expires_on,
         first_report_at=next_occurrence_for_cadence(plan, datetime.now(ET)),
-        needs_holdings=plan == "mwf" and not has_holdings,
+        needs_holdings=plan in HOLDINGS_GATED_CADENCES and not has_holdings,
         blocked=blocked,
     )
 

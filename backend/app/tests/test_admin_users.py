@@ -344,7 +344,7 @@ def test_invalid_status_and_cadence_values_422(app_client: TestClient, db_sessio
     )
     assert (
         app_client.get(
-            "/admin/users", headers=_headers(), params={"report_cadence": "daily"}
+            "/admin/users", headers=_headers(), params={"report_cadence": "monthly"}
         ).status_code
         == 422
     )

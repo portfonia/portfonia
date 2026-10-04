@@ -12,7 +12,7 @@ from app.core.config import get_settings
 from app.core.timezones import ET, today_et
 from app.services.email_sender import send_ops_alert
 from app.services.github_issues import create_bug_report
-from app.tasks import celery_app
+from app.tasks import _REPORT_CADENCES, cadence_is_due, celery_app
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,7 @@ class _Recipient(NamedTuple):
     user_id: uuid.UUID
     locale: str
     base_currency: str
+    session_node: str
 
 
 # How late (minutes) a scheduled run may fire after its intended crontab time
@@ -55,54 +56,15 @@ _SCHEDULE_STALENESS_TOLERANCE_MINUTES = 30
 def generate_incremental_report(
     self: Any,
     report_type: str = "incremental",
-    session_node: str = "after_close",
-    cadence: str = "mwf",
+    cadences: list[str] | None = None,
     trigger_hour: int | None = None,
     trigger_minute: int | None = None,
 ) -> dict[str, Any]:
-    """Generate an incremental report for every active user (changes since
-    each user's own last report of this report_type).
+    """Fan out once over today's due cadences, sharing a window and moves cache.
 
-    `report_type`/`session_node` come from the Celery Beat schedule entry
-    (`app.tasks._build_report_schedule`), not hardcoded here — a new cadence
-    (e.g. a Ring 1 weekly/monthly type) is a new beat table row, not a new
-    task function. A missed run needs no catch-up: the next run's window is
-    "since last report of this type", so it widens to cover the gap. On a
-    batch-level failure (e.g. the active-user query itself fails, before any
-    per-user isolation can apply) retries up to 3 times with a 5-minute
-    cooldown.
-
-    `session_node` (H-DEBT-1): identifies this cadence in the dedup key
-    `(user_id, report_date, report_type, session_node)`, so an earlier
-    same-day "manual" run does not short-circuit this run.
-
-    `trigger_hour`/`trigger_minute` (issue #71): the ET hour/minute this
-    cadence is scheduled for, passed by Beat's schedule builder. Celery Beat's
-    PersistentScheduler fires a missed crontab tick immediately once it comes
-    back up rather than skipping it (e.g. the dev machine rebooted and Beat
-    sat dead for days) — if the actual invocation clock time is far from the
-    intended one, this is that catch-up, not an on-time run, and must NOT
-    silently generate + email a report. `None` (manual trigger / tests) skips
-    the check entirely.
-
-    `cadence` (issue #191): which `users.report_cadence` batch this run
-    serves — passed through to `active_users`, which also decides per
-    cadence whether the holdings gate applies (loosened for `weekly` only,
-    see `app.services.user_scope`).
-
-    Multi-user fan-out (issue #128 A1): `active_users` (active `users`
-    rows on this cadence, gated by holdings per-cadence) replaces the pre-A1
-    single fixed-dev-user call. Each user's
-    `generate_report` call is wrapped in its own try/except: one user's
-    failure is logged, ops-alerted, and does NOT stop or retry the batch —
-    the remaining users still get their reports (design doc §3.3/UAT-3).
-    Only a failure OUTSIDE the per-user loop (e.g. `active_users` itself
-    can't reach the DB) is a batch-level failure that retries via
-    `self.retry`, matching the pre-A1 behavior for that class of error.
-    `moves_cache`, shared across every user in this batch, is what makes
-    `compute_global_moves()` run once per (period_start, period_end) window
-    instead of once per user who happens to share it — see
-    `window_data.detect_window_anomalies`.
+    Every invocation observes ET due days. Nodes come from cadence rows,
+    while Beat supplies the batch trigger time for the unchanged catch-up
+    guard. Each recipient remains isolated; an all-failed batch retries.
     """
     # Imports are deferred so the module loads fast and avoids circular deps
     # when Celery first imports the task registry.
@@ -119,6 +81,7 @@ def generate_incremental_report(
     # `before_task_publish` attached in app/tasks/__init__.py; a redelivery
     # of the same message keeps that header unchanged, while a fresh
     # `self.retry` publication (see the batch-failure branch) gets a new one.
+    cadences = ["mwf"] if cadences is None else cadences
     raw_dispatch_id = self.request.get("dispatch_id")
     dispatch_id = uuid.UUID(raw_dispatch_id) if raw_dispatch_id else None
     oe.start_run(
@@ -126,9 +89,8 @@ def generate_incremental_report(
         task_id=self.request.id,
         dispatch_id=dispatch_id,
         attributes={
-            "session_node": session_node,
             "report_type": report_type,
-            "cadence": cadence,
+            "cadences": cadences,
             "retry_count": self.request.retries,
         },
     )
@@ -157,10 +119,10 @@ def generate_incremental_report(
                 )
             logger.warning(
                 "generate_incremental_report: skipping stale trigger "
-                "(report_type=%s session_node=%s scheduled=%02d:%02d ET, "
+                "(report_type=%s cadences=%s scheduled=%02d:%02d ET, "
                 "fired %.0f min late, retries=%d — %s)",
                 report_type,
-                session_node,
+                cadences,
                 trigger_hour,
                 trigger_minute,
                 late_minutes,
@@ -170,7 +132,7 @@ def generate_incremental_report(
             send_ops_alert(
                 subject=f"[Portfonia] Scheduled report SKIPPED — Beat catch-up ({report_type})",
                 body=(
-                    f"A scheduled '{session_node}' {report_type} report fired "
+                    f"A scheduled {cadences} {report_type} report batch fired "
                     f"{late_minutes:.0f} minutes after its intended {trigger_hour:02d}:"
                     f"{trigger_minute:02d} ET time.\n\n{cause_note}\n\n"
                     f"The report was skipped — no report was generated or emailed."
@@ -180,16 +142,21 @@ def generate_incremental_report(
             oe.end_run("skipped", reason_code="stale_beat_catchup")
             return {"status": "skipped_stale_trigger"}
 
+    today = today_et()
+    due = [cadence for cadence in cadences if cadence_is_due(cadence, today)]
+    if not due:
+        oe.end_run("ok", reason_code="no_due_cadence")
+        return {"status": "no_due_cadence", "results": []}
     logger.info(
-        "generate_incremental_report: starting (report_type=%s session_node=%s)",
-        report_type,
-        session_node,
+        "generate_incremental_report: starting (report_type=%s cadences=%s)", report_type, due
     )
     session = SessionLocal()
 
-    def check_subscriptions(statuses: tuple[str, ...] = ("active", "expired")) -> None:
+    def check_subscriptions(
+        cadence: str, statuses: tuple[str, ...] = ("active", "expired")
+    ) -> None:
         try:
-            run_cadence_checks(session, cadence, today_et(), statuses=statuses)
+            run_cadence_checks(session, cadence, today, statuses=statuses)
         except Exception as exc:
             session.rollback()
             logger.exception("Subscription check phase failed")
@@ -199,21 +166,24 @@ def generate_incremental_report(
             )
 
     try:
-        # Issue #610: recover Expired subscriptions before reading recipients.
-        check_subscriptions(("expired",))
-        # Issue #308: full User rows, not just ids — each recipient's own
-        # locale (report language) rides along. Snapshotted into `_Recipient`
-        # NamedTuples immediately (see its docstring) — the loop below never
-        # touches a live `User` attribute, only this snapshot.
-        users = active_users(session, cadence)
-        if not users:
-            check_subscriptions()
+        # Recover every due cadence before selecting any recipient.
+        for cadence in due:
+            check_subscriptions(cadence, ("expired",))
+        # Snapshot all fields before generation commits can expire ORM rows.
+        recipients = [
+            _Recipient(
+                user_id=u.id, locale=u.locale, base_currency=u.base_currency, session_node=node
+            )
+            for cadence, node, _ in _REPORT_CADENCES
+            if cadence in due
+            for u in active_users(session, cadence)
+        ]
+        if not recipients:
+            for cadence in due:
+                check_subscriptions(cadence)
             logger.info("generate_incremental_report: no active users, nothing to generate")
             oe.end_run("ok", reason_code="no_active_users", attributes={"recipient_count": 0})
             return {"status": "no_active_users", "results": []}
-        recipients = [
-            _Recipient(user_id=u.id, locale=u.locale, base_currency=u.base_currency) for u in users
-        ]
 
         moves_cache: MovesCache = {}
         # Stamped ONCE for the whole batch (PR #151 review): moves_cache is keyed
@@ -243,7 +213,7 @@ def generate_incremental_report(
                     # preference, same reasoning as output_lang immediately
                     # above — not a shared batch default.
                     base_currency=recipient.base_currency,
-                    session_node=session_node,
+                    session_node=recipient.session_node,
                     user_id=user_id,
                     moves_cache=moves_cache,
                     now=batch_now,
@@ -307,7 +277,7 @@ def generate_incremental_report(
                     subject=f"[Portfonia] Report generation FAILED for one user ({report_type})",
                     body=(
                         f"generate_incremental_report failed for user {user_id} "
-                        f"(report_type={report_type}, session_node={session_node}).\n\n"
+                        f"(report_type={report_type}, session_node={recipient.session_node}).\n\n"
                         f"error: {type(exc).__name__}: {exc}\n\n"
                         f"Other users in this batch were unaffected — this failure did not stop "
                         f"the batch. Check worker.log for the full traceback."
@@ -324,7 +294,8 @@ def generate_incremental_report(
                 severity="WARNING",
                 idempotency_key=f"report-labels-{self.request.id}",
             )
-        check_subscriptions()
+        for cadence in due:
+            check_subscriptions(cadence)
 
         if all(r["status"] == "failed" for r in results):
             # PR #151 review: per-user isolation must not come at the cost of

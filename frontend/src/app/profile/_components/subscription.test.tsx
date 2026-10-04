@@ -21,13 +21,13 @@ describe("subscription selector and account", () => {
     const select = show({ status, expires_on: "2026-11-15" });
     expect(select).toBeEnabled(); expect(select).toHaveValue("");
     expect(within(select).getByRole("option", { name: "subscriptionNoneOption" })).toBeDisabled();
-    expect(within(select).getAllByRole("option")).toHaveLength(3);
+    expect(within(select).getAllByRole("option")).toHaveLength(4);
     expect(within(select).queryByRole("option", { name: "subscriptionCancel" })).not.toBeInTheDocument();
   });
   it.each([false, true])("active selector preserves server type, cancel pending %s", (cancel_pending) => {
     const select = show({ ...active, cancel_pending });
     expect(select).toHaveValue("weekly"); expect(select).toBeEnabled();
-    expect(within(select).getAllByRole("option")).toHaveLength(cancel_pending ? 3 : 4);
+    expect(within(select).getAllByRole("option")).toHaveLength(cancel_pending ? 4 : 5);
     expect(screen.getByText(`subscription${cancel_pending ? "Ends" : "Renews"}{"plan":"reportScheduleOptions.weekly","expires_on":"2026-11-15"}`)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: cancel_pending ? "subscriptionResume" : "subscriptionCancel" })).toBeEnabled();
   });

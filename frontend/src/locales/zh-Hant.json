@@ -416,7 +416,8 @@
     "reportScheduleHeading": "報告週期",
     "reportScheduleOptions": {
       "weekly": "每週",
-      "everyOtherDay": "週一、三、五"
+      "everyOtherDay": "週一、三、五",
+      "daily": "每日（進階）"
     },
     "deliveryEmailHeading": "報告接收信箱",
     "deliveryEmailFallbackNote": "尚未設定獨立接收信箱，目前使用帳戶電子郵件。",
@@ -459,11 +460,13 @@
     "subscriptionNone": "目前未訂閱。部分功能及報告寄送可能受限。",
     "subscriptionTitle": {
       "weekly": "每週簡報",
-      "mwf": "週一、三、五簡報"
+      "mwf": "週一、三、五簡報",
+      "daily": "每日簡報"
     },
     "subscriptionDescription": {
       "weekly": "每週六寄送一份關於您投資組合的簡報。",
-      "mwf": "每週一、週三和週五寄送一份關於您投資組合的簡報。"
+      "mwf": "每週一、週三和週五寄送一份關於您投資組合的簡報。",
+      "daily": "每個工作日（週一至週五）寄送一份關於您投資組合的簡報。進階方案：含 AI 智能體資料介面。"
     },
     "subscriptionFee": "費用：每月 {fee} credits。",
     "subscriptionBalance": "目前餘額：{balance} credits。",
@@ -1070,7 +1073,7 @@
         },
         {
           "q": "收費嗎？",
-          "a": "每週簡報每月 0.99 credits 起，週一 / 三 / 五簡報每月 1.99 credits。Credits 以 US$10 與 US$20 點數包出售——詳見定價頁面。"
+          "a": "每週簡報每月 0.99 credits 起，週一 / 三 / 五簡報每月 1.99 credits，含 AI 智能體資料介面的進階每日簡報每月 2.49 credits。Credits 以 US$10 與 US$20 點數包出售——詳見定價頁面。"
         }
       ]
     },
@@ -1123,7 +1126,7 @@
     "deliveryVerified": "報告將發送至 {deliveryEmail}。",
     "deliveryUnverified": "在 {deliveryEmail} 完成驗證之前，報告不會發送。",
     "errorLoadFailed": "無法載入你的帳戶資訊。",
-    "subscriptionPlans": "Portfonia 向訂閱使用者寄送定期簡報。有兩種方案：每週簡報（每月 0.99 credits）和週一、三、五簡報（每月 1.99 credits）。",
+    "subscriptionPlans": "Portfonia 向訂閱使用者寄送定期簡報。有三種方案：每週簡報（每月 0.99 credits）、週一、三、五簡報（每月 1.99 credits）和進階每日簡報（每月 2.49 credits，工作日寄送，含 AI 智能體資料介面）。",
     "subscriptionRequirements": "訂閱前不會寄送定期簡報，部分功能也可能無法使用。您需要先驗證信箱，才能訂閱。",
     "choosePlan": "選擇方案"
   },
@@ -1347,7 +1350,8 @@
           "body": [
             "每週簡報——每月 0.99 credits。每週一封個人化簡報郵件，與您輸入的持倉連結。",
             "週一 / 三 / 五簡報——每月 1.99 credits。每週三封個人化簡報郵件（週一、週三、週五）。",
-            "兩種方案的差別僅在於簡報寄送頻率。"
+            "每日簡報（進階）——每月 2.49 credits。每個工作日（週一至週五）一封個人化簡報郵件，市場假日照常寄送。",
+            "每週與週一 / 三 / 五兩種方案的差別僅在於寄送頻率。每日為進階方案：除工作日簡報外，還允許您的 AI 智能體讀取逐日持倉快照和與持倉相關的情報。所有方案都可以讓 AI 智能體讀取歷史報告。"
           ]
         },
         {
@@ -1463,7 +1467,8 @@
       "everyOtherDay": "週一、三、五",
       "weekly": "每週",
       "manual": "手動",
-      "report": "報告"
+      "report": "報告",
+      "daily": "每日"
     }
   }
 }

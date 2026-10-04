@@ -33,7 +33,7 @@ class SubscriptionOut(BaseModel):
 
 
 class SubscriptionBody(BaseModel):
-    type: Literal["weekly", "mwf"]
+    type: Literal["weekly", "mwf", "daily"]
 
 
 class SubscriptionQuoteOut(BaseModel):

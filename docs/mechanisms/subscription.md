@@ -1,4 +1,4 @@
-# Subscription core and lifecycle (issues #595, #596, #600 and #610)
+# Subscription core and lifecycle (issues #595, #596, #600, #610 and #650)
 
 This backend implements user subscription operations and the scheduled
 lifecycle. Profile provides quote-backed plan, cancel and resume controls in #597,
@@ -15,7 +15,7 @@ only balance and ledger writer. The migration `s59500000001` adds:
 | User column | Type / default | Meaning |
 |---|---|---|
 | `subscription_status` | Non-null text, `inactive` | `active`, `expired`, `cancelled`, `inactive` |
-| `subscription_type` | Nullable text | `weekly` or `mwf` |
+| `subscription_type` | Nullable text | `weekly`, `mwf` or `daily` |
 | `subscription_expires_on` | Nullable date | Last valid ET day of the paid period |
 | `subscription_period_start` | Nullable date | First paid day and charge-key date |
 | `subscription_anchor_day` | Nullable smallint, 1..31 | Calendar-month anchor |
@@ -30,7 +30,7 @@ Scheduled fan-out requires active subscription status.
 
 ## Billing and transactions
 
-`PLAN_FEES` is Weekly 0.99 credits/month and Mon/Wed/Fri 1.99 credits/month.
+`PLAN_FEES` is Weekly 0.99, Mon/Wed/Fri 1.99 and Daily 2.49 credits/month.
 Fees are read at charge time. `next_expiry` selects the following calendar
 month with the anchor day clamped to its last day: 2027-01-31/31 gives
 2027-02-28, then 2027-02-28/31 gives 2027-03-31. Expiry is inclusive;
@@ -97,8 +97,8 @@ All subscription endpoints use `current_principal`:
 | Endpoint | Result |
 |---|---|
 | `GET /me` | Adds `subscription`: status, nullable type/expiry, cancel flag, nullable next adjustment datetime |
-| `GET /me/subscription/quote?type=weekly\|mwf` | Read-only quote; no user lock or writes |
-| `POST /me/subscription` with `{"type":"weekly"}` or `{"type":"mwf"}` | Subscribe, change or same-plan resume; returns subscription summary |
+| `GET /me/subscription/quote?type=weekly\|mwf\|daily` | Read-only quote; no user lock or writes |
+| `POST /me/subscription` with `{"type":"weekly"}` or `{"type":"mwf"}` or `{"type":"daily"}` | Subscribe, change or same-plan resume; returns subscription summary |
 | `POST /me/subscription/cancel` | Cancel pending; returns summary |
 | `POST /me/subscription/resume` | Resume; returns summary |
 
@@ -113,7 +113,7 @@ Quotes share plan selection and return arithmetic with writes. They expose
 balance after, sufficient, period start, expiry, first report time,
 `needs_holdings`, and nullable `blocked` (`daily_limit` or `email_unverified`).
 Numbers remain present when blocked. `needs_holdings` warns for Mon/Wed/Fri
-with zero holdings, without refusing the subscription.
+and Daily with zero holdings, without refusing the subscription.
 
 Ops directory rows gain status, type, expiry and cancellation flag; its cadence
 filter accepts `none`. The existing Ops cadence route returns 409
@@ -124,9 +124,60 @@ when cadence is `none`.
 `next_occurrence_for_cadence` reads fire times only from `_REPORT_CADENCES`.
 Issue #600 corrects displayed times by adding Celery's absolute remaining
 duration in UTC, then converting back to ET. No offset, timezone-transition
-rule or date is hard-coded; Beat schedules and cadence definitions are unchanged.
+rule or date is hard-coded; The same helper reads Daily weekday and existing cadence definitions.
 For the quote at 2026-10-31 noon ET, the next Mon/Wed/Fri report is
 2026-11-02 at 17:00 ET.
+
+## Daily and Advanced access (issue #650)
+
+Daily costs 2.49 credits per calendar-month period and sends at 17:00 ET
+Monday through Friday, including NYSE holidays, with the same content as
+Mon/Wed/Fri. Both cadences require at least one holding for dispatch. Weekly
+still sends Saturday at 19:00 ET and permits an empty book. Daily uses
+`session_node="daily_close"`; Mon/Wed/Fri uses `after_close`, and Weekly uses
+`weekend_snapshot`. Report history labels Daily separately.
+
+`ADVANCED_SUBSCRIPTION_TYPES = ("daily",)` and `is_advanced(user)` are the
+single definition of Advanced access: active subscription status and membership
+in that tuple. A cancel-pending active Daily subscription remains Advanced
+until lifecycle expiry is processed. Switching to Weekly or Mon/Wed/Fri removes
+snapshot access immediately; expired, cancelled and inactive subscriptions have
+no Advanced access. `GET /auth/session-status` returns HTTP 200 with
+`{"advanced": bool}` from the already-loaded principal; invalid sessions still
+return 401. The authenticated Advanced user's Get started trigger is gold.
+
+Migration `d64100000001`, after `d62200000001`, only widens the cadence and
+subscription-type CHECKs. It performs no data or balance mutation. Downgrade
+restores the old CHECKs and fails if a row still contains `daily`; there is no
+automatic conversion. No dependency or Settings field is added.
+
+### Merged report dispatch
+
+`_REPORT_CADENCES` owns each cadence's node and cron definition, including quote
+times. `_REPORT_BATCHES` produces only `report-incremental-weekday` (Mon–Fri,
+17:00 ET, cadences Daily and Mon/Wed/Fri) and `report-incremental-weekly`
+(Saturday, 19:00 ET, Weekly). Import-time assertions check that each cadence
+belongs to exactly one batch and shares its hour/minute.
+
+The batch task accepts `report_type`, `cadences`, `trigger_hour` and
+`trigger_minute`; it no longer accepts a caller-supplied node or singular
+cadence. Omitted cadences default to Mon/Wed/Fri. Every invocation, including
+an argument-less call, applies ET due days derived from the cron definition.
+After the unchanged stale-trigger guard, an empty due list returns
+`no_due_cadence` and ends telemetry as ok without subscription checks or reports.
+
+All due cadences receive Expired recovery before recipient selection. Recipients
+are snapshotted in cadence-table order (Daily before Mon/Wed/Fri), then share one
+`batch_now`, one moves cache and a combined `users_remaining` countdown. After
+that loop, the full subscription check runs for each due cadence, including
+when there are no recipients. Per-user failure isolation, compliance and label
+alerts, and all-failed retry behavior remain unchanged. Telemetry records
+`cadences` as a list. Tuesday touches only Daily; Wednesday serves both in one
+batch. Per-user Ops generation is a separate task and remains unchanged.
+
+Deploy this change together with #651 and #652, outside weekday 16:50–17:40 ET
+and Saturday 18:50–19:40 ET. Review, merge, deployment and production data work
+require separate owner authorization.
 
 ## Validation and rollout
 
@@ -152,7 +203,7 @@ Cancel-pending active subscriptions still receive reports. On-demand and Ops
 report generation are unaffected.
 
 `generate_incremental_report` first calls `run_cadence_checks(session, cadence,
-today_et(), statuses=("expired",))` before reading recipients. A resumed user
+today_et(), statuses=("expired",))` for each due cadence before reading recipients. A resumed user
 receives that day's report in the same batch, subject to the existing dispatch
 gates. Active renewal, expiry and cancellation still happen only in the full
 check after the recipient loop, before the all-failed retry decision, and also

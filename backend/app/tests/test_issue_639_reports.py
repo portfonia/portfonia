@@ -177,6 +177,9 @@ def test_639_07_three_user_batch_merges_label_alerts(
                 ],
             )
         )
+        stack.enter_context(
+            patch("app.tasks.report_tasks.today_et", return_value=NOW.date() - timedelta(days=3))
+        )
         stack.enter_context(patch("app.services.subscription.run_cadence_checks"))
         send = stack.enter_context(patch.object(report_tasks, "send_ops_alert", return_value=True))
         with caplog.at_level(logging.WARNING):

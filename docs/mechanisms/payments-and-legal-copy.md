@@ -83,8 +83,10 @@ a cash-redeemable balance. Full rationale and sources: issue #574
 - The U.S. tax-resident restriction (Terms §4) is removed.
 - Service status is "limited public service", replacing "closed beta" /
   "invite-gated".
-- The two plans differ only in briefing cadence; everything else is
-  included in both.
+- Weekly and Mon/Wed/Fri differ only in briefing cadence. Issue #650 adds
+  Daily (Advanced), at 2.49 credits/month: weekday briefings, daily holding
+  snapshot access and holding-related intelligence for the user's AI agent.
+  Report history is available to AI agents on every plan.
 - Low balance: users are emailed a reminder in advance when their balance
   will not cover the next monthly fee.
 - Plan change or cancellation (2026-09-28): the already-charged fee for the
@@ -164,6 +166,13 @@ Navigation (implementation issue): Pricing and Refund Policy links are
 added wherever Terms and Privacy are linked today (home footer, Profile,
 `LegalDocument` cross-links).
 
+Issue #650 updates Pricing Plans, the home cost FAQ and Welcome to list
+three plans, with Daily marked Advanced. The Profile picker and descriptions
+use the same price and capabilities. English source is in issue #650 Design
+section 9; the owner-supplied Chinese values ship in the locale catalogs and
+are reviewed by the product owner in the PR. Billing, refunds and existing
+plan notice texts remain unchanged.
+
 ## Pricing (`legal.pricing`)
 
 - **title**: Pricing
@@ -175,7 +184,12 @@ added wherever Terms and Privacy are linked today (home footer, Profile,
      email per week, tied to the holdings you have entered.
    - Mon / Wed / Fri briefing — 1.99 credits per month. Three personalized
      briefing emails per week (Monday, Wednesday, Friday).
-   - The two plans differ only in how often briefings are sent.
+   - Daily briefing (Advanced) — 2.49 credits per month. One personalized
+     briefing email every weekday (Monday to Friday), including market holidays.
+   - Weekly and Mon / Wed / Fri differ only in how often briefings are sent.
+     Daily is the Advanced plan: besides weekday briefings, it lets your AI
+     agent read your daily holding snapshots and holding-related intelligence.
+     Report history is available to AI agents on every plan.
 2. **Included in every plan**
    - Holdings upload from CSV, Excel, or Markdown, with row-level editing.
    - Portfolio overview: allocation, performance against benchmarks, and
@@ -371,9 +385,9 @@ purchase's 120-day refund window.
 - `home.hero.eyebrow`: Limited public service
 - `home.preview.footnote`: Briefing frequency depends on your plan.
 - FAQ "What does it cost?": Plans start at 0.99 credits per month for a
-  weekly briefing, or 1.99 credits per month for Monday / Wednesday /
-  Friday briefings. Credits are sold in US$10 and US$20 packs — see
-  Pricing.
+  weekly briefing, 1.99 for Monday / Wednesday / Friday briefings, and
+  2.49 for the Advanced Daily plan with AI Agent data access. Credits are
+  sold in US$10 and US$20 packs — see Pricing.
 - `home.status`: Limited public service. Portfonia maps public market
   information onto the holdings you enter. AI-generated content, for
   information only — not investment advice.

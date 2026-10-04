@@ -21,6 +21,12 @@ from app.services.credit_ledger import adjust_by_admin, consume_credits
 from app.services.user_scope import active_user_ids, active_users
 from app.tests.conftest import seed_user
 
+
+@pytest.fixture(autouse=True)
+def _due_day(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.tasks.report_tasks.today_et", lambda: date(2026, 11, 21))
+
+
 TODAY = date(2026, 11, 21)
 OLD = date(2026, 11, 17)
 
@@ -394,11 +400,11 @@ def test_task_checks_empty_and_all_failed_retry(
     ):
         if recipient_state == "active":
             with pytest.raises(RuntimeError, match="retry"):
-                task.generate_incremental_report.run(cadence="weekly")
+                task.generate_incremental_report.run(cadences=["weekly"])
             retry.assert_called_once()
         else:
             with pytest.raises(RuntimeError, match="retry"):
-                task.generate_incremental_report.run(cadence="weekly")
+                task.generate_incremental_report.run(cadences=["weekly"])
             retry.assert_called_once()
             generate.assert_called_once()
             assert generate.call_args.kwargs["user_id"] == u.id
@@ -407,7 +413,7 @@ def test_task_checks_empty_and_all_failed_retry(
         assert len(charges(db_session, u)) == 1
         if recipient_state == "active":
             with pytest.raises(RuntimeError, match="retry"):
-                task.generate_incremental_report.run(cadence="weekly")
+                task.generate_incremental_report.run(cadences=["weekly"])
             assert len(charges(db_session, u)) == 1
         else:
             (row,) = charges(db_session, u)
@@ -420,7 +426,7 @@ def test_task_checks_empty_and_all_failed_retry(
             ) == (TODAY, date(2026, 12, 21), 21)
             retry.reset_mock()
             with pytest.raises(RuntimeError, match="retry"):
-                task.generate_incremental_report.run(cadence="weekly")
+                task.generate_incremental_report.run(cadences=["weekly"])
             retry.assert_called_once()
             db_session.refresh(u)
             assert len(charges(db_session, u)) == 1
@@ -443,7 +449,7 @@ def test_task_stale_trigger_skips_checks(
     monkeypatch.setattr(task, "datetime", Clock)
     with patch.object(s, "run_cadence_checks") as check:
         assert task.generate_incremental_report.run(
-            cadence="weekly", trigger_hour=19, trigger_minute=0
+            cadences=["weekly"], trigger_hour=19, trigger_minute=0
         ) == {"status": "skipped_stale_trigger"}
         check.assert_not_called()
         assert not charges(db_session, u)
@@ -461,7 +467,7 @@ def test_task_check_phase_failure_preserves_report_result(db_session: Session) -
         patch("app.services.report_generator.generate_report", return_value=report),
         patch.object(task, "send_ops_alert") as alert,
     ):
-        result = task.generate_incremental_report.run(cadence="weekly")
+        result = task.generate_incremental_report.run(cadences=["weekly"])
         assert result["status"] == "completed" and result["results"][0]["status"] == "success"
         assert alert.call_count == 2
         assert all("phase failed" in str(call) for call in alert.call_args_list)
@@ -617,7 +623,7 @@ def test_task_examples_1_2_3_6_report_precedes_check(
         patch("app.services.report_generator.generate_report", side_effect=generated) as generate,
         patch.object(s, "send_subscription_notice") as notice,
     ):
-        result = task.generate_incremental_report.run(cadence="weekly")
+        result = task.generate_incremental_report.run(cadences=["weekly"])
         assert result == {
             "status": "completed",
             "results": [{"user_id": str(u.id), "report_id": str(report.id), "status": "success"}],
@@ -636,7 +642,7 @@ def test_task_examples_1_2_3_6_report_precedes_check(
             notice.assert_not_called()
         if state in ("expired", "cancelled"):
             generate.reset_mock()
-            assert task.generate_incremental_report.run(cadence="weekly") == {
+            assert task.generate_incremental_report.run(cadences=["weekly"]) == {
                 "status": "no_active_users",
                 "results": [],
             }
@@ -679,7 +685,7 @@ def test_task_expired_resume_receives_same_batch(
         patch("app.services.report_generator.generate_report", side_effect=generated) as generate,
         patch.object(s, "send_subscription_notice") as notice,
     ):
-        result = task.generate_incremental_report.run(cadence="weekly")
+        result = task.generate_incremental_report.run(cadences=["weekly"])
         assert result == {
             "status": "completed",
             "results": [{"user_id": str(u.id), "report_id": str(report.id), "status": "success"}],
@@ -698,7 +704,7 @@ def test_task_expired_resume_receives_same_batch(
             u.locale,
             u.base_currency,
             "incremental",
-            "after_close",
+            "weekend_snapshot",
             1,
         )
         db_session.refresh(u)
@@ -733,7 +739,7 @@ def test_task_expired_not_resumed_is_not_dispatched(
         patch("app.services.report_generator.generate_report") as generate,
         patch.object(s, "send_subscription_notice") as notice,
     ):
-        assert task.generate_incremental_report.run(cadence="weekly") == {
+        assert task.generate_incremental_report.run(cadences=["weekly"]) == {
             "status": "no_active_users",
             "results": [],
         }
@@ -841,7 +847,7 @@ def test_task_pre_dispatch_failure_falls_back_to_post_loop_resume(
         patch.object(s, "send_subscription_notice") as notice,
         patch.object(task.generate_incremental_report, "retry") as retry,
     ):
-        result = task.generate_incremental_report.run(cadence="weekly")
+        result = task.generate_incremental_report.run(cadences=["weekly"])
         assert result == {
             "status": "completed",
             "results": [

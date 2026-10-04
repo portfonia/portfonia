@@ -480,8 +480,9 @@ file:
   rolling one.
 - **Fails open on Redis outage**, same stance and same reasoning as
   `is_idle`/`touch_activity` above.
-- **New `GET /auth/session-status`** (`app/routers/auth.py`): 204,
-  `current_principal`-gated only, no extra query. Exists because `GET
+- **`GET /auth/session-status`** (`app/routers/auth.py`): 200 with body
+  `{"advanced": bool}` since issue #650, `current_principal`-gated only,
+  no extra query. Exists because `GET
   /me` (the Profile page's account-summary endpoint) runs two `EXISTS`
   queries plus a verification-row query — too heavy for a check meant to
   run on every frontend `useSession` mount and route change.

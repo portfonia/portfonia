@@ -221,7 +221,7 @@ def verify_change_password_altcha(
 
 @router.get("/subscription/quote", response_model=SubscriptionQuoteOut)
 def subscription_quote(
-    type: Literal["weekly", "mwf"],
+    type: Literal["weekly", "mwf", "daily"],
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
 ) -> SubscriptionQuoteOut:

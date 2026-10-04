@@ -107,11 +107,7 @@ def _snapshot_export_access(
 ) -> None:
     # Dependencies run before query validation so all gated-in requests count.
     user = session.get(User, principal.user_id)
-    if (
-        user is None
-        or user.subscription_status != "active"
-        or user.subscription_type not in subscription.SNAPSHOT_EXPORT_SUBSCRIPTION_TYPES
-    ):
+    if user is None or not subscription.is_advanced(user):
         raise HTTPException(status_code=403, detail="subscription_required")
     rate_limit_snapshot_export(user_id=str(principal.user_id))
 
