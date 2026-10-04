@@ -116,7 +116,7 @@ tradeoffs, review provenance) for one system, filed under `docs/mechanisms/`.
 This table is the pointer index — read the linked file before touching that
 area of the code, not just the one-line summary here.
 
-- [Instrument news collection](docs/mechanisms/capture-and-reporting.md#instrument-news-collection) — issue #620: free per-instrument sources, daily ET slots, per-instrument classification, URL-free records, coverage digest and 30-day retention.
+- [Instrument news collection](docs/mechanisms/capture-and-reporting.md#instrument-news-collection) — issue #620: free per-instrument sources, daily ET slots, per-instrument classification, URL-free records, coverage digest and 30-day retention; #653 replaces the classifier's `stale` label with a `recap` flag checked against yfinance earnings dates (needs `lxml`).
 - [Intel deepening and paid usage](docs/mechanisms/capture-and-reporting.md#intel-deepening-and-paid-usage) — issue #621: global selection, current-slot links, cleaned article bodies, paid limits and A/B metrics, weekday post-close L1/L2/L3.
 - [Scheduled report intelligence reads](docs/mechanisms/capture-and-reporting.md#scheduled-report-intelligence-reads) — issue #622: report-time read-only L1/L2/L3 and URL-free article material; report-time search and Pass 1 are removed.
 - [Frontend chrome (header/nav) convention](docs/mechanisms/frontend-chrome.md) — issue #146/#148 (shared `SiteHeader`); #214 session re-verification; #209 global i18n catalog; #220 Profile menu entry; #269 Profile section reorder; #390 Holdings+Report management merge; #350 item 4 LocaleSwitcher rebuild.
