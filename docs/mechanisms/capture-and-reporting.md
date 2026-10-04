@@ -956,10 +956,12 @@ layer** (per-user, incremental).
 - **Ops cadence changes**: `POST /admin/users/{user_id}/cadence`
   (`app/routers/admin.py`) changes a user's `report_cadence`, same
   auth/audit pattern as every other `/admin/*` endpoint. Validated against
-  the same `{"mwf", "weekly"}` set as `users`' DB `CheckConstraint`
-  (`VALID_REPORT_CADENCES`, `app/models/user.py`) — the two are kept in
-  sync by hand, not derived from one source, since Pydantic's `Literal`
-  needs compile-time members.
+  `UpdateCadenceBody` set `{"daily", "mwf", "weekly"}`. The Ops filter
+  `ReportCadenceFilter` and `users`' DB `CheckConstraint`
+  (`VALID_REPORT_CADENCES`, `app/models/user.py`) also include `"none"`:
+  `{"daily", "mwf", "none", "weekly"}`. These sets are kept in sync by hand,
+  not derived from one source, since Pydantic's `Literal` needs compile-time
+  members.
 - **Per-user report language (issues #308/#582/#583)**: `users.locale` (`NOT NULL`,
   free `Text` before this issue — read only for an informational Pass 2
   prompt hint and email-verification copy, never driving report

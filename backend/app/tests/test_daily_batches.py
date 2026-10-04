@@ -4,6 +4,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 from unittest.mock import patch
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import select
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.timezones import ET
 from app.models.holding import Holding
+from app.models.operational_event import OperationalEvent
 from app.models.report import Report
 from app.models.user import User
 from app.services import subscription as s
@@ -218,3 +220,34 @@ def test_daily_holiday_quote_first_report(
         quote = s.quote(db_session, user.id, now.date(), "daily")
     assert quote.first_report_at == datetime(2026, 10, 12, 17, tzinfo=ET)
     assert quote.fee == "2.49"
+
+
+def test_daily_weekday_batch_persists_cadences(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    subscriber(db_session, "daily")
+    subscriber(db_session, "mwf")
+    freeze(monkeypatch, datetime(2026, 10, 7, 17, tzinfo=ET))
+    task_id = str(uuid4())
+    task.generate_incremental_report.push_request(id=task_id, retries=0)
+    try:
+        with patch(
+            "app.services.report_generator.generate_report",
+            return_value=Report(id=uuid4(), status="success"),
+        ) as generate:
+            result = task.generate_incremental_report.run(**weekday_kwargs())
+        assert result["status"] == "completed"
+        assert [call.kwargs["session_node"] for call in generate.call_args_list] == [
+            "daily_close",
+            "after_close",
+        ]
+    finally:
+        task.generate_incremental_report.pop_request()
+    event = db_session.scalars(
+        select(OperationalEvent).where(
+            OperationalEvent.task_id == task_id,
+            OperationalEvent.operation == "report.batch",
+            OperationalEvent.event_kind == "start",
+        )
+    ).one()
+    assert event.attributes["cadences"] == ["daily", "mwf"]
