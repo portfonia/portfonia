@@ -18,6 +18,7 @@ caps:
   leads_per_mover: 2
   leads_per_quiet: 3
   searches_per_run: 6
+  headlines_per_unit: 2
   ab_dual_top: 3
   accepted_url_skip_days: 7
   weekend_quiet: 5

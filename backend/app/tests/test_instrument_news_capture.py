@@ -336,7 +336,7 @@ def test_profile_collection_timestamp_survives_name_failure(db_session: Session)
 def test_acceptance_09_same_market_carry_over(
     db_session: Session, caplog: pytest.LogCaptureFixture
 ) -> None:
-    from app.services.intel_digest import build_slot_digest
+    from app.services.intel_digest import build_batch_report
 
     entries = [UniverseEntry(i, i, "US") for i in ["AAA", "BBB", "CCC"]]
     for e in entries:
@@ -380,7 +380,8 @@ def test_acceptance_09_same_market_carry_over(
     ]
     slot.finished_at = NOW + timedelta(minutes=1)
     db_session.flush()
-    assert "US: 1/3 (33.3%); unreached: BBB,CCC" in build_slot_digest(db_session, slot)[1]
+    assert "Instruments covered: 1 of 3" in build_batch_report(db_session, slot)[1]
+    assert "Not reached in the time limit: US: BBB,CCC" in build_batch_report(db_session, slot)[1]
     db_session.expire_all()
     submitted.clear()
     with (
@@ -466,7 +467,7 @@ def test_acceptance_20_separate_instrument_calls(db_session: Session) -> None:
 
 
 def test_acceptance_23_invalid_config_fails_run(db_session: Session) -> None:
-    from app.services.intel_digest import build_slot_digest
+    from app.services.intel_digest import build_batch_report
 
     slot = IntelSlotRun(slot="post_close", run_date=NOW.date(), started_at=NOW, status="running")
     db_session.add(slot)
@@ -480,7 +481,7 @@ def test_acceptance_23_invalid_config_fails_run(db_session: Session) -> None:
     slot.finished_at = NOW + timedelta(minutes=1)
     db_session.flush()
     assert result.status == "failed" and not db_session.scalars(select(News)).all()
-    assert build_slot_digest(db_session, slot)[2] == "WARNING"
+    assert build_batch_report(db_session, slot)[2] == "WARNING"
 
 
 def test_acceptance_19_missing_label_is_stored_null(db_session: Session) -> None:
@@ -593,7 +594,7 @@ def test_crossed_url_order_two_postgres_sessions(session_test_db: None) -> None:
 
 def test_filings_count_separately_from_missing_classifier_labels(db_session: Session) -> None:
     from app.models.intel import IntelCollectionRun
-    from app.services.intel_digest import build_slot_digest
+    from app.services.intel_digest import build_batch_report
 
     profile(db_session)
     filing = CollectedItem(
@@ -633,5 +634,5 @@ def test_filings_count_separately_from_missing_classifier_labels(db_session: Ses
         )
     )
     db_session.flush()
-    body = build_slot_digest(db_session, slot)[1]
-    assert "stored_null_label: 1" in body and "filings_stored: 1" in body
+    body = build_batch_report(db_session, slot)[1]
+    assert "1 kept without a label" in body and "1 company filings" in body

@@ -18,6 +18,7 @@ from app.services.intel_leads import Lead
 from app.services.intel_selection import WorkUnit
 from app.services.paid_search import PaidResult
 from app.tests.test_intel_deepen_rules import NOW
+from app.tests.test_intel_deepen_run import resolve_fixture
 from app.tests.test_intel_paid import slot
 
 
@@ -52,7 +53,7 @@ def test_630_10_search_titles_unchanged(db_session: Session) -> None:
                     deepen, "classify_headlines", return_value=({0: "keep"}, 0, None)
                 ) as classifier,
             ):
-                provider, kept = worker._search("tavily", WorkUnit("quiet", "LITE"))
+                provider, kept = resolve_fixture(worker, "tavily", WorkUnit("quiet", "LITE"))
             assert provider == "tavily" and len(kept) == 1
             assert kept[0].title == raw
             assert kept[0].url == lead.url and kept[0].published_at == lead.published_at

@@ -37,6 +37,7 @@ class CollectedItem:
     filing_form: str | None = None
     identifier: str = ""
     news_id: uuid.UUID | None = None
+    label: str | None = None
 
     def headline(self) -> NewsItem:
         return NewsItem(
