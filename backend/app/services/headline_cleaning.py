@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -59,8 +59,17 @@ class EarningsCache:
         self._dates: dict[str, list[date]] = {}
         self._lock = threading.Lock()
 
-    def stale_reason(self, item: CollectedItem, symbol: str, config: CleaningConfig) -> str | None:
-        if item.kind == "filing" or not any(p.search(item.title) for p in config.earnings_patterns):
+    def stale_reason(
+        self, item: CollectedItem, symbol: str, config: CleaningConfig, *, recap: bool = False
+    ) -> str | None:
+        """Check an earnings recap against the latest earlier earnings date.
+
+        ``recap=True`` means the classifier already judged the item a results recap, so the
+        title-pattern gate is skipped; the date comparison is identical.
+        """
+        if item.kind == "filing" or (
+            not recap and not any(p.search(item.title) for p in config.earnings_patterns)
+        ):
             return None
         with self._lock:
             if symbol not in self._dates:
@@ -151,7 +160,7 @@ def block_reason(
     return None
 
 
-SYSTEM_PROMPT = 'You classify financial news headlines for one company each. For every item return one label:\nkeep = the item reports a concrete development about THIS company (earnings, deals, products, guidance, legal/regulatory, management, analyst actions, notable price moves with a stated cause);\nmention = the company is only mentioned in passing or is one of many in a broad market piece;\npromo = stock-pick, buy/sell, comparison, prediction or listicle content; institutional holding-change notices (a fund bought, sold or changed its stake); routine price-move recaps with no stated company-specific cause;\nstale = the headline reports or recaps an event that happened more than 7 days before the batch date (old quarterly results, deals or anniversaries), rather than a new development;\nunrelated = not about this company.\nOutput ONLY JSON: {"labels": [{"id": int, "label": "keep|mention|promo|unrelated|stale"}]}'
+SYSTEM_PROMPT = 'You classify financial news headlines for one company each. For every item return one label:\nkeep = the item reports a concrete development about THIS company (earnings, deals, products, guidance, legal/regulatory, management, analyst actions, notable price moves with a stated cause);\nmention = the company is only mentioned in passing or is one of many in a broad market piece;\npromo = stock-pick, buy/sell, comparison, prediction or listicle content; institutional holding-change notices (a fund bought, sold or changed its stake); routine price-move recaps with no stated company-specific cause;\nunrelated = not about this company.\nAlso return recap for every item, judged ONLY from the words of the title and summary; never use your own knowledge of when anything happened.\nrecap = true if the item reports or reacts to THIS company\'s own periodic financial results (quarterly or annual revenue, EPS, profit, margins, or guidance issued with results); false otherwise, including operating data such as deliveries, production or sales volumes, and previews of results not yet released.\nOutput ONLY JSON: {"labels": [{"id": int, "label": "keep|mention|promo|unrelated", "recap": true|false}]}'
 
 
 def classify_headlines(
@@ -161,6 +170,7 @@ def classify_headlines(
     recent_titles: Sequence[str] | None = None,
     *,
     batch_date: date | None = None,
+    recap_is_stale: Callable[[CollectedItem], bool] | None = None,
 ) -> tuple[dict[int, str], float, str | None]:
     settings = get_settings()
     content = "\n".join(
@@ -170,8 +180,8 @@ def classify_headlines(
     prompt = SYSTEM_PROMPT + f"\nBatch date (ET): {batch_date or today_et()}"
     if recent_titles is not None:
         prompt = prompt.replace(
-            '"label": "keep|mention|promo|unrelated|stale"}',
-            '"label": "keep|mention|promo|unrelated|stale", "duplicate_of": "e<k>" | int | null}',
+            '"recap": true|false}',
+            '"recap": true|false, "duplicate_of": "e<k>" | int | null}',
         )
         prompt += '\nSome items may repeat an event already covered. EXISTING lists earlier headlines for this company. For each item, set "duplicate_of" to the id of an EXISTING headline ("e0", "e1", ...) or of a lower-numbered item in this batch that reports the same event with no new material fact (no new figure, party, or stage). Otherwise set it to null. A follow-up with new facts is not a duplicate.'
         content = (
@@ -216,6 +226,8 @@ def classify_headlines(
             if not isinstance(idx, int) or not 0 <= idx < len(items):
                 continue
             duplicate = row.get("duplicate_of")
+            if duplicate == f"e{idx}":
+                duplicate = None  # the model echoing the item's own number (#653)
             if recent_titles is not None and (
                 (type(duplicate) is int and 0 <= duplicate < idx)
                 or (
@@ -225,8 +237,15 @@ def classify_headlines(
                 )
             ):
                 labels[idx] = "duplicate"
-            elif label in ("keep", "mention", "promo", "unrelated", "stale"):
+            elif label in ("keep", "mention", "promo", "unrelated"):
                 labels[idx] = str(label)
+                if (
+                    label in ("keep", "mention")
+                    and row.get("recap") is True
+                    and recap_is_stale is not None
+                    and recap_is_stale(items[idx])
+                ):
+                    labels[idx] = "stale"
         usage = mapping(data.get("usage") or {})
         cost = usage.get("cost", 0)
         return labels, float(cost) if isinstance(cost, (int, float)) else 0.0, None

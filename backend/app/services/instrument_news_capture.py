@@ -183,6 +183,16 @@ def collect_instrument_news(
     if entry.market == "A-Share" and (not p or not p.name_zh):
         result.stats.setdefault("google_news", source_stat())["skipped_no_name"] += 1
     labels: dict[int, str] = {}
+
+    def recap_is_stale(item: CollectedItem) -> bool:
+        # A title matching the earnings patterns was already checked before the classifier.
+        if any(p.search(item.title) for p in config.earnings_patterns):
+            return False
+        reason = earnings_cache.stale_reason(item, entry.ticker, config, recap=True)
+        if reason == "stale_lookup_failed":
+            result.cleaning[reason] = result.cleaning.get(reason, 0) + 1
+        return reason == "stale_rule"
+
     articles = [(i, item) for i, (_, item) in enumerate(candidates) if item.kind != "filing"]
     size = min(100, max(1, get_settings().INTEL_CLASSIFIER_BATCH))
     kept_titles: list[str] = []
@@ -192,8 +202,10 @@ def collect_instrument_news(
             [item for _, item in chunk],
             entry.ticker,
             aliases,
-            recent_titles=(list(reversed(kept_titles)) + stored_recent)[:100],
+            # An empty EXISTING block makes the model return no labels at all (#653).
+            recent_titles=(list(reversed(kept_titles)) + stored_recent)[:100] or None,
             batch_date=now.astimezone(ET).date(),
+            recap_is_stale=recap_is_stale,
         )
         result.classifier["batches"] += 1
         result.classifier["items"] += len(chunk)

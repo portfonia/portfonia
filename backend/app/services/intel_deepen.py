@@ -404,8 +404,30 @@ class DeepenRun:
                 survivors.append((lead, item))
             if survivors:
                 items = [item for _, item in survivors]
+                symbol = self.symbols.get(unit.identifier, unit.identifier)
+
+                def recap_is_stale(
+                    item: CollectedItem,
+                    symbol: str = symbol,
+                    provider: str = chosen,
+                    cleaning: CleaningConfig = self.cleaning,
+                ) -> bool:
+                    # A title matching the earnings patterns was already checked above.
+                    if any(p.search(item.title) for p in cleaning.earnings_patterns):
+                        return False
+                    reason = self.earnings_cache.stale_reason(item, symbol, cleaning, recap=True)
+                    if reason == "stale_lookup_failed":
+                        with self.lock:
+                            filtered = self.metrics[provider]["search_filtered"]
+                            filtered[reason] = filtered.get(reason, 0) + 1
+                    return reason == "stale_rule"
+
                 labels, cost, failed = classify_headlines(
-                    items, unit.identifier, aliases, batch_date=self.now.astimezone(ET).date()
+                    items,
+                    unit.identifier,
+                    aliases,
+                    batch_date=self.now.astimezone(ET).date(),
+                    recap_is_stale=recap_is_stale,
                 )
                 with self.lock:
                     self.metrics[chosen]["search_classifier_cost_usd"] = (
