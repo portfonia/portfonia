@@ -253,6 +253,8 @@ def test_purge_happy_path_two_users(app_client: TestClient, db_session: Session)
     assert body["user_id"] == str(_A)
     assert body["email"] == "a@example.com"
     assert body["deleted"] == {
+        "api_audit_log": 0,
+        "api_tokens": 0,
         "news_surfaced": 1,
         "reports": 1,
         "holdings": 2,
@@ -401,6 +403,8 @@ def test_purge_orphan_auth_user_found(
     assert body["auth_deleted"] is True
     assert body["email"] == "orphan@example.com"
     assert body["deleted"] == {
+        "api_audit_log": 0,
+        "api_tokens": 0,
         "news_surfaced": 0,
         "reports": 0,
         "holdings": 0,
@@ -892,6 +896,8 @@ def test_purge_by_email_local_hit_full_purge(
     assert body["email"] == "a@example.com"
     assert body["auth_deleted"] is True
     assert body["deleted"] == {
+        "api_audit_log": 0,
+        "api_tokens": 0,
         "news_surfaced": 0,
         "reports": 1,
         "holdings": 1,
@@ -1002,6 +1008,8 @@ def test_purge_by_email_orphan_auth_user_found(
     assert body["email"] == "orphan@example.com"
     assert body["user_id"] == str(_UNKNOWN)
     assert body["deleted"] == {
+        "api_audit_log": 0,
+        "api_tokens": 0,
         "news_surfaced": 0,
         "reports": 0,
         "holdings": 0,

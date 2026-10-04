@@ -1,4 +1,6 @@
 from app.models.account import Account
+from app.models.api_audit_log import ApiAuditLog
+from app.models.api_token import ApiToken
 from app.models.base import Base
 from app.models.benchmark_price import BenchmarkPrice
 from app.models.credit_ledger import CreditLedgerEntry
@@ -30,6 +32,8 @@ from app.models.waitlist_entry import WaitlistEntry
 
 __all__ = [
     "Account",
+    "ApiAuditLog",
+    "ApiToken",
     "Base",
     "BenchmarkPrice",
     "CreditLedgerEntry",

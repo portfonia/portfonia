@@ -2,7 +2,7 @@
 
 // Single account/navigation entry point in the top bar (issue #207). Content
 // comes from a small registry gated on session status: a logged-out visitor
-// sees ONLY Log in; authenticated users see the app entries, their own email,
+// sees Log in and AI Agent; authenticated users see the app entries, their own email,
 // and Log out. Future entries (Settings) are one new row in AUTHED_ENTRIES
 // once their routes ship.
 //
@@ -15,6 +15,7 @@
 // every route.
 import { useState } from "react";
 import {
+  Bot,
   Briefcase,
   FileText,
   ChartLine,
@@ -65,6 +66,7 @@ const AUTHED_ENTRIES = [
   { id: "portfolioPerformance", href: "/portfolio/performance", Icon: ChartLine },
   { id: "reports", href: "/reports", Icon: FileText },
   { id: "questionnaire", href: "/questionnaire", Icon: ClipboardList },
+  { id: "agent", href: "/agent", Icon: Bot },
 ] as const satisfies { id: string; href: string; Icon: LucideIcon }[];
 
 export function GetStartedMenu() {
@@ -133,6 +135,8 @@ export function GetStartedMenu() {
             {t("login")}
           </MenuItemLink>
         )}
+
+        {session.status === "guest" && <MenuItemLink href="/agent"><Bot aria-hidden="true" className="size-4" />{t("agent")}</MenuItemLink>}
 
         {session.status === "authed" && (
           <>

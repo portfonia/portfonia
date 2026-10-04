@@ -1,12 +1,13 @@
 """Celery application and Beat schedule (Stage H + ADR-002 capture layer)."""
 
+import logging
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from celery import Celery  # type: ignore[import-untyped]
 from celery.schedules import crontab  # type: ignore[import-untyped]
-from celery.signals import before_task_publish  # type: ignore[import-untyped]
+from celery.signals import before_task_publish, task_postrun  # type: ignore[import-untyped]
 
 from app.core.config import get_settings
 from app.core.timezones import BERLIN, CST, ET, HKT, JST, KST, LONDON
@@ -57,6 +58,13 @@ def _emit_report_task_dispatch(
     headers: dict[str, Any] | None = None,
     **_kwargs: Any,
 ) -> None:
+    if headers is not None and sender in heavy_api_task_names() and headers.get("id"):
+        from app.core.rate_limit import get_backend
+
+        try:
+            get_backend().set_ttl(f"agent:quiet:active:{headers['id']}", 14400)
+        except Exception:
+            logging.getLogger(__name__).warning("Could not mark agent quiet window on publication")
     if sender not in _TELEMETRY_TASK_NAMES or headers is None:
         return
     from app.core.operational_events import emit_dispatch
@@ -352,3 +360,83 @@ celery_app.conf.update(
     task_acks_late=True,
     beat_schedule=_beat_schedule,
 )
+
+
+API_QUIET_BEAT_ENTRIES: dict[str, bool] = {
+    "capture-forward-events-daily": False,
+    "capture-fx-daily": False,
+    "capture-fund-navs-daily": False,
+    "sweep-stale-upload-jobs": False,
+    "cleanup-upload-jobs-daily": False,
+    "backup-database-daily": False,
+    "sweep-stale-shared-intel-cache-daily": False,
+    "capture-portfolio-value-snapshot-daily": False,
+    "capture-benchmark-index-prices-daily": False,
+    "check-capture-health-daily": False,
+    "capture-fx-evening-daily": False,
+    "cleanup-operational-events-daily": False,
+    "intel-slot-pre_open": True,
+    "intel-slot-post_close": True,
+    "report-incremental-weekday": True,
+    "report-incremental-weekly": True,
+    "capture-prices-US-pre_open": False,
+    "capture-news-US-pre_open": False,
+    "capture-prices-US-open": False,
+    "capture-news-US-open": False,
+    "capture-prices-US-close": False,
+    "capture-news-US-close": False,
+    "capture-prices-US-after_close": False,
+    "capture-news-US-after_close": False,
+    "capture-prices-HK-open": False,
+    "capture-news-HK-open": False,
+    "capture-prices-HK-close": False,
+    "capture-news-HK-close": False,
+    "capture-prices-A-Share-open": False,
+    "capture-news-A-Share-open": False,
+    "capture-prices-A-Share-close": False,
+    "capture-news-A-Share-close": False,
+    "capture-prices-UK-open": False,
+    "capture-news-UK-open": False,
+    "capture-prices-UK-close": False,
+    "capture-news-UK-close": False,
+    "capture-prices-Europe-open": False,
+    "capture-news-Europe-open": False,
+    "capture-prices-Europe-close": False,
+    "capture-news-Europe-close": False,
+    "capture-prices-Japan-open": False,
+    "capture-news-Japan-open": False,
+    "capture-prices-Japan-close": False,
+    "capture-news-Japan-close": False,
+    "capture-prices-Korea-open": False,
+    "capture-news-Korea-open": False,
+    "capture-prices-Korea-close": False,
+    "capture-news-Korea-close": False,
+}
+
+
+def heavy_api_task_names() -> set[str]:
+    return {
+        celery_app.conf.beat_schedule[name]["task"]
+        for name, quiet in API_QUIET_BEAT_ENTRIES.items()
+        if quiet
+    }
+
+
+@task_postrun.connect  # type: ignore[untyped-decorator]
+def _finish_api_quiet_window(
+    sender: Any = None, task_id: str | None = None, state: str | None = None, **_kwargs: Any
+) -> None:
+    if (
+        sender is None
+        or sender.name not in heavy_api_task_names()
+        or task_id is None
+        or state == "RETRY"
+    ):
+        return
+    from app.core.rate_limit import get_backend
+
+    try:
+        get_backend().delete(f"agent:quiet:active:{task_id}")
+        get_backend().set_ttl("agent:quiet:cooldown", 300)
+    except Exception:
+        logging.getLogger(__name__).warning("Could not finish agent quiet window")

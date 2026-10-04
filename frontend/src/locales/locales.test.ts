@@ -41,6 +41,7 @@ describe("locale catalogs stay structurally in sync (issue #209)", () => {
 
   it("every locale carries exactly the expected top-level namespaces", () => {
     const expected = [
+      "agent",
       "auth",
       "common",
       "emailVerification",
@@ -109,7 +110,7 @@ describe("legal copy for Paddle review", () => {
   it("keeps the required Terms and Privacy section structure", () => {
     expect(catalogs.en.legal.terms.sections).toHaveLength(13);
     expect(catalogs.en.legal.terms.sections[3].heading).toBe("4. Payments and Credits");
-    expect(catalogs.en.legal.privacy.sections).toHaveLength(12);
+    expect(catalogs.en.legal.privacy.sections).toHaveLength(13);
   });
 });
 
@@ -139,4 +140,18 @@ it("acceptance_20 all report keys exist in every catalog", () => {
     expect(catalogs[locale]).toHaveProperty("reports");
     for (const key of keys) expect(catalogs[locale]).toHaveProperty(`reports.${key}`);
   }
+});
+
+it("acceptance_16 agent copy and legal sections match #651", () => {
+  for (const locale of LOCALE_VALUES) {
+    expect(catalogs[locale]).toHaveProperty("agent");
+    expect(catalogs[locale].menu).toHaveProperty("agent");
+    expect(catalogs[locale].legal.privacy.sections).toHaveLength(13);
+    expect(catalogs[locale].legal.privacy.sections.map(section => section.heading.split(".")[0])).toEqual(Array.from({ length: 13 }, (_, i) => String(i + 1)));
+    expect(catalogs[locale].legal.terms.sections).toHaveLength(13);
+    expect(catalogs[locale].legal.terms.sections[5].body).toHaveLength(2);
+  }
+  expect(catalogs.en.legal.privacy.sections[6].heading).toBe("7. AI Agent access");
+  expect(catalogs["zh-Hans"].menu.agent).toBe("\u0041\u0049\u667a\u80fd\u4f53");
+  expect(catalogs["zh-Hant"].menu.agent).toBe("AI \u667a\u80fd\u9ad4");
 });

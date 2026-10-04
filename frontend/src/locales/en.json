@@ -16,7 +16,8 @@
     "questionnaire": "Investment style",
     "sessionExpired": "Your session ended after {minutes} minutes of inactivity.",
     "editHoldings": "Edit holdings",
-    "reports": "Reports"
+    "reports": "Reports",
+    "agent": "AI Agent"
   },
   "auth": {
     "loginHeading": "Log in",
@@ -1160,7 +1161,7 @@
     "resellerNotice": "Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle provides all customer service inquiries and handles returns.",
     "terms": {
       "title": "Terms of Service",
-      "lastUpdated": "Last updated: 2026-10-01",
+      "lastUpdated": "Last updated: 2026-10-04",
       "intro": "These Terms of Service govern your use of Portfonia. Please read them together with our Privacy Policy and Refund Policy.",
       "sections": [
         {
@@ -1205,7 +1206,8 @@
         {
           "heading": "6. Acceptable Use",
           "body": [
-            "You agree not to misuse the Service — including attempting to access another user's data, interfering with the Service's operation, or using the Service to build a competing product from its outputs."
+            "You agree not to misuse the Service — including attempting to access another user's data, interfering with the Service's operation, or using the Service to build a competing product from its outputs.",
+            "API tokens let software you choose read your data. Keep them secret; you are responsible for any agent you give a token to. Portfonia applies the rate limits described on the AI Agent page and may revoke tokens to protect your account or the service."
           ]
         },
         {
@@ -1255,7 +1257,7 @@
     },
     "privacy": {
       "title": "Privacy Policy",
-      "lastUpdated": "Last updated: 2026-10-01",
+      "lastUpdated": "Last updated: 2026-10-04",
       "intro": "Your privacy matters to us. This policy explains what we collect, why, and how it's protected.",
       "sections": [
         {
@@ -1303,37 +1305,43 @@
           ]
         },
         {
-          "heading": "7. Your Rights",
+          "heading": "7. AI Agent access",
+          "body": [
+            "If you create an API token, we store a one-way hash of it together with its name and its creation, expiry and last-use times. Each request made with a token is logged with the time, the token used, the endpoint and dates requested, the result, and the IP address and User-Agent of the caller. We keep these logs for 90 days to protect your account and to detect misuse. When your holding snapshots are read through the API, we email you a notice at most once a day, with a link that revokes all your tokens. Data returned through the API is delivered to the agent you chose; how that agent stores or uses it is under your control."
+          ]
+        },
+        {
+          "heading": "8. Your Rights",
           "body": [
             "You can review and update your holdings and profile information directly in the Service. You can request deletion of your account by contacting us; deletion removes your holdings, investment-style settings, and authentication account as described in Data Retention."
           ]
         },
         {
-          "heading": "8. Cookies and Sessions",
+          "heading": "9. Cookies and Sessions",
           "body": [
             "We use session cookies to keep you signed in and to enforce automatic sign-out after a period of inactivity. We do not use third-party advertising or tracking cookies."
           ]
         },
         {
-          "heading": "9. Children's Privacy",
+          "heading": "10. Children's Privacy",
           "body": [
             "The Service is not directed to, and not knowingly used by, anyone under 18. We do not knowingly collect information from minors."
           ]
         },
         {
-          "heading": "10. Applicable Law",
+          "heading": "11. Applicable Law",
           "body": [
             "We handle personal data in accordance with the data-protection laws that apply to us, including those of the country where you live where they apply."
           ]
         },
         {
-          "heading": "11. Changes to This Policy",
+          "heading": "12. Changes to This Policy",
           "body": [
             "We may update this Privacy Policy as the Service evolves. Material changes will be reflected on this page with an updated effective date."
           ]
         },
         {
-          "heading": "12. Contact",
+          "heading": "13. Contact",
           "body": [
             "Questions about this Privacy Policy, or requests regarding your data, can be sent to info@portfonia.com."
           ]
@@ -1469,6 +1477,51 @@
       "manual": "Manual",
       "report": "Report",
       "daily": "Daily"
+    }
+  },
+  "agent": {
+    "title": "AI Agent",
+    "intro": "Your own AI agent can read your complete daily holding snapshots through a personal API token. Snapshot access requires an Advanced subscription.",
+    "limitsTitle": "Access limits and notices",
+    "limits": "Limits are shared across all of your tokens: 20 requests per endpoint per hour. More than 10 requests within one minute locks token access for 15 minutes. A refused request returns a Retry-After value telling your agent when to try again.",
+    "quiet": "Requests pause around heavy scheduled tasks, starting five minutes before their scheduled time and lasting until at least five minutes after they finish.",
+    "notice": "When your holding snapshots are read through the API, we email you a notice at most once per Eastern Time day. If you did not request the access, its link immediately revokes all of your API tokens without sign-in or confirmation.",
+    "signIn": "Sign in",
+    "signInNote": "to manage your API tokens.",
+    "settingsTitle": "Token settings",
+    "tokenRule": "You can have up to 5 active tokens. Tokens unused for 60 days expire automatically.",
+    "name": "Token name",
+    "expiry": "Expiry date (optional)",
+    "expiryNote": "Leave blank for no expiry date. Dates must be after today, Eastern Time; access expires at 23:59:59 ET on the chosen date.",
+    "create": "Create token",
+    "tokenLimit": "You already have 5 active tokens. Revoke one before creating another.",
+    "error": "Unable to complete the request. Please try again.",
+    "copyError": "Copy failed. Select and copy the token yourself.",
+    "showOnce": "Copy this token now and keep it secret. It will not be shown again.",
+    "copy": "Copy token",
+    "copied": "Copied",
+    "hide": "Hide token",
+    "loading": "Loading tokens…",
+    "empty": "You have no tokens.",
+    "revoke": "Revoke",
+    "created": "Created",
+    "lastUsed": "Last used",
+    "expires": "Expires",
+    "never": "Never",
+    "noExpiry": "No expiry date",
+    "revokeTitle": "Revoke token?",
+    "revokeBody": "The token “{name}” will stop working immediately.",
+    "cancel": "Cancel",
+    "confirmRevoke": "Confirm revoke",
+    "statuses": {
+      "active": "Active",
+      "expired": "Expired",
+      "expired_unused": "Expired after 60 days without use"
+    },
+    "revokePage": {
+      "pending": "Revoking API token access…",
+      "success": "All API token access for your account has been revoked.",
+      "failure": "This link is invalid or has expired. Sign in and manage your tokens on the AI Agent page."
     }
   }
 }

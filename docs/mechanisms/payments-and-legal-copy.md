@@ -299,7 +299,8 @@ existing text for them verbatim.
      provides all customer service inquiries and handles returns. Your
      purchase is also subject to Paddle's Buyer Terms.
 5. **Your Holdings Data** *(unchanged; was §5)*
-6. **Acceptable Use** *(unchanged; was §6)*
+6. **Acceptable Use** — existing paragraph unchanged, followed by:
+   "API tokens let software you choose read your data. Keep them secret; you are responsible for any agent you give a token to. Portfonia applies the rate limits described on the AI Agent page and may revoke tokens to protect your account or the service." (#651)
 7. **Intellectual Property** — Portfonia and its original content,
    features, and functionality are owned by Portfonia. Reports generated
    for your account are yours to use personally; they are not licensed for
@@ -353,21 +354,22 @@ Removed: old §4 "Regional Restriction" (U.S. tax residents).
    and other personal data are removed. Credit and transaction records
    are kept, no longer linked to your email address, for accounting and
    tax purposes."
-7. **Your Rights** — "You can review and update your holdings and profile
+7. **AI Agent access** (#651) — "If you create an API token, we store a one-way hash of it together with its name and its creation, expiry and last-use times. Each request made with a token is logged with the time, the token used, the endpoint and dates requested, the result, and the IP address and User-Agent of the caller. We keep these logs for 90 days to protect your account and to detect misuse. When your holding snapshots are read through the API, we email you a notice at most once a day, with a link that revokes all your tokens. Data returned through the API is delivered to the agent you chose; how that agent stores or uses it is under your control."
+8. **Your Rights** — "You can review and update your holdings and profile
    information directly in the Service. You can request deletion
    of your account by contacting us; deletion removes your holdings,
    investment-style settings, and authentication account as described in
    Data Retention."
-8. **Cookies and Sessions** *(unchanged)*
-9. **Children's Privacy** *(unchanged)*
-10. **Applicable Law** — "We handle personal data in accordance with the
+9. **Cookies and Sessions** *(unchanged)*
+10. **Children's Privacy** *(unchanged)*
+11. **Applicable Law** — "We handle personal data in accordance with the
     data-protection laws that apply to us, including those of the country
     where you live where they apply." (Replaces the target-regions /
     "under legal review" text.)
-11. **Changes to This Policy** *(unchanged)*
-12. **Contact** *(unchanged)*
+12. **Changes to This Policy** *(unchanged)*
+13. **Contact** *(unchanged)*
 
-The retention text in §6/§7 reflects existing behavior:
+The retention text in §6/§8 reflects existing behavior:
 `app/services/user_purge.py` deletes holdings, accounts, reports, upload
 jobs, `user_investment_context`, and email verifications, then the `users`
 row that holds the email; `credit_ledger` rows stay keyed by `user_id` with
@@ -379,6 +381,12 @@ database backups keep a 30-day retention
 Left to the implementation issue: the pro-rata return algorithm when one
 fee spans several buckets, and how returned purchased credits map to a
 purchase's 120-day refund window.
+
+Issue #651 updates Privacy and Terms in all three locales, dated 2026-10-04.
+The Simplified and Traditional Chinese additions are implementation-authored
+translations of the authoritative issue Design for owner review. The existing
+Terms numbering is preserved; Privacy sections 7–12 become 8–13. See
+[Personal agent API access](agent-api.md) for logging and revocation behavior.
 
 ## Home copy
 

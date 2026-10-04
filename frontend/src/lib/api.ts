@@ -895,3 +895,39 @@ export async function listReports(query: Record<string, string>): Promise<Report
   if (!res.ok) await throwOnHttpError(res);
   return res.json() as Promise<ReportListPage>;
 }
+
+export interface ApiToken {
+  id: string;
+  name: string;
+  prefix: string;
+  created_at: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+  status: "active" | "expired" | "expired_unused";
+}
+
+export interface CreatedApiToken {
+  token: string;
+  id: string;
+  name: string;
+  prefix: string;
+  created_at: string;
+  expires_at: string | null;
+}
+
+export async function listApiTokens(): Promise<ApiToken[]> {
+  const response = await fetch("/api/me/api-tokens", { cache: "no-store" });
+  if (!response.ok) await throwOnHttpError(response);
+  return response.json() as Promise<ApiToken[]>;
+}
+
+export async function createApiToken(name: string, expires_on: string | null): Promise<CreatedApiToken> {
+  const response = await fetch("/api/me/api-tokens", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, expires_on }) });
+  if (!response.ok) await throwOnHttpError(response);
+  return response.json() as Promise<CreatedApiToken>;
+}
+
+export async function revokeApiToken(id: string): Promise<void> {
+  const response = await fetch(`/api/me/api-tokens/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!response.ok) await throwOnHttpError(response);
+}

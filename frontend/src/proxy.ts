@@ -28,6 +28,7 @@ import { supabasePublicEnv } from "@/lib/supabase/env";
 //    lib/server-api.ts.
 
 const PUBLIC_PATH_PREFIXES = [
+  "/agent",
   "/login",
   "/signup",
   "/forgot-password",
