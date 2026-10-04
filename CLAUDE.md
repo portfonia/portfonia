@@ -483,7 +483,17 @@ pytest -q                # 4. tests
 bun run lint:fix         # 1. eslint --fix
 bun run typecheck        # 2. tsc --noEmit
 bun run test             # 3. tests
+bun run build            # 4. production build (MANDATORY for any frontend code change)
 ```
+
+**`bun run build` is mandatory for every PR that touches `frontend/` code**
+(product owner, 2026-10-04, after a production deploy failed). PR #646
+(issue #642) passed lint, typecheck and tests, then failed `next build` at
+deploy time: `useSearchParams()` without a `<Suspense>` boundary breaks
+prerendering, which only the production build checks. Run it with the
+`NEXT_PUBLIC_SUPABASE_URL`/`NEXT_PUBLIC_SUPABASE_ANON_KEY` build variables
+set (placeholder values are enough), state the result in the PR body, and
+put this step in every implementation prompt given to another agent.
 
 There is no frontend formatter (`prettier` is not a dependency) — `bun run lint:fix`
 is the only auto-fixing step. A prior version of this table listed a
@@ -506,6 +516,7 @@ Final gates (enforced by the local quality gate above, not CI — see CI-First P
 - Lint passes with zero warnings.
 - Format check passes (non-mutating).
 - All tests pass.
+- Frontend production build (`bun run build`) passes when `frontend/` code changed.
 - No `any` / `Any`, no non-null assertions, no unused exports.
 
 **Gap this doesn't cover**: none of the above actually builds the Docker
