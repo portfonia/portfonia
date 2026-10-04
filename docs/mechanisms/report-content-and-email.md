@@ -6,7 +6,11 @@ All numbers are **code-built and stored in `report_inputs`** (deterministic,
 re-render-safe); the LLM writes only prose/attribution. Current shape:
 
 - **§4.2 price-anomaly table** — session-arc numbers rendered as a markdown
-  table; LLM writes one driver line per holding, restricted to a "see §4.2"
+  table with `3-day %` and `5-day %` after `Net %` (issue #639; "—"
+  for insufficient history). Trigger wording is `single day`, `window total`,
+  `5-day total` or `3-day total`, translated using `report_glossary`. The
+  Pass 2 anomaly block carries these rolling percentages and plain wording.
+  LLM writes one driver line per holding, restricted to a "see §4.2"
   cross-reference (exact EN/zh-Hans wording in `i18n_glossary.yml`'s
   `templates.cross_reference_example`) only for holdings actually in the table.
 - **Confidence labels** — every causal attribution ends with
@@ -27,9 +31,12 @@ re-render-safe); the LLM writes only prose/attribution. Current shape:
   this report's data").
 - **Holding-relevant news** (`holding_news.py` + `config/holding_news_keywords.yml`) —
   merges pool keyword recall with scheduled instrument-news links for the
-  user's anomaly and large-weight holdings, deduplicates by URL hash and
-  normalized title, and keeps six headlines per holding. The report path does
-  not search or call Pass 1.
+  user's stocks with available headlines, deduplicates by URL hash and
+  normalized title, and keeps six headlines per holding. Issue #639 takes at
+  most six stocks: anomalies first by absolute window move, then portfolio
+  weight. ETFs and funds are excluded. Both news readers allow 48 hours before
+  the window start, with a strict lower bound and unchanged upper bound/ledger.
+  The report path does not search or call Pass 1.
 - **Data window wording** — footer states the real price cutoff (session-close
   snapshots only, no intraday) and flags `[!] FX rate is stale` when FX trails
   the window by >4 calendar days (issue #299 — a weekend/holiday gap of up

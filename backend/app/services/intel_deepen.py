@@ -22,6 +22,7 @@ from app.models.news import News
 from app.models.paid_intel import IntelArticle, IntelArticleLink
 from app.services.headline_cleaning import (
     CleaningConfig,
+    EarningsCache,
     block_reason,
     classify_headlines,
     load_cleaning_config,
@@ -107,7 +108,12 @@ class DeepenRun:
         previous: datetime,
         universe: list[UniverseEntry],
         signals: dict[str, Signal],
+        *,
+        earnings_cache: EarningsCache | None = None,
     ) -> None:
+        self.earnings_cache = earnings_cache or EarningsCache()
+        self.symbols = {entry.identifier: entry.ticker for entry in universe}
+        self.search_samples: dict[str, list[str]] = {}
         self.run_id = run.id
         self.run_date = run.run_date
         self.slot = run.slot
@@ -382,10 +388,25 @@ class DeepenRun:
                         filtered = self.metrics[chosen]["search_filtered"]
                         filtered[reason] = filtered.get(reason, 0) + 1
                     continue
+                stale = self.earnings_cache.stale_reason(
+                    item, self.symbols.get(unit.identifier, unit.identifier), self.cleaning
+                )
+                if stale:
+                    with self.lock:
+                        filtered = self.metrics[chosen]["search_filtered"]
+                        filtered[stale] = filtered.get(stale, 0) + 1
+                        if stale == "stale_rule":
+                            samples = self.search_samples.setdefault(stale, [])
+                            if len(samples) < 3:
+                                samples.append(item.title)
+                    if stale == "stale_rule":
+                        continue
                 survivors.append((lead, item))
             if survivors:
                 items = [item for _, item in survivors]
-                labels, cost, failed = classify_headlines(items, unit.identifier, aliases)
+                labels, cost, failed = classify_headlines(
+                    items, unit.identifier, aliases, batch_date=self.now.astimezone(ET).date()
+                )
                 with self.lock:
                     self.metrics[chosen]["search_classifier_cost_usd"] = (
                         float(self.metrics[chosen]["search_classifier_cost_usd"]) + cost
@@ -412,11 +433,16 @@ class DeepenRun:
                             else {
                                 "promo": "promo_llm",
                                 "unrelated": "unrelated_llm",
+                                "stale": "stale_llm",
                             }.get(label, "unlabeled_llm")
                         )
                         with self.lock:
                             filtered = self.metrics[chosen]["search_filtered"]
                             filtered[reason] = filtered.get(reason, 0) + 1
+                            if reason == "stale_llm":
+                                samples = self.search_samples.setdefault(reason, [])
+                                if len(samples) < 3:
+                                    samples.append(_item.title)
                     leads = kept
             else:
                 leads = []
@@ -722,6 +748,7 @@ class DeepenRun:
             }
         return {
             "outcomes": self.outcomes,
+            "search_samples": self.search_samples,
             "selections": [
                 {
                     **asdict(u),

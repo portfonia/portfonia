@@ -21,7 +21,8 @@ class NewsSurfaced(Base):
     the window it belongs to (not yet ingested when selected) and the next one
     (excluded as "already before this window's start") — a permanent miss.
     `load_news_window` (app/services/window_data.py) now selects by
-    `published_at <= end` with no lower bound, relying on this table instead:
+    `start - LATE_INGEST_WINDOW < published_at <= end`, allowing 48 hours
+    of late ingestion while relying on this table for per-user deduplication:
     once a news item has appeared in a report that reached success/
     needs_review/skipped, it's marked here and never selected again.
 

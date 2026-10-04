@@ -3,7 +3,7 @@
 import logging
 import time
 from collections.abc import Callable, Sequence
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -14,7 +14,7 @@ from app.core.config import get_settings
 from app.models.intel import InstrumentProfile, IntelSlotRun
 from app.models.news import News
 from app.services import instrument_news_capture as cap
-from app.services.headline_cleaning import CleaningConfig, load_cleaning_config
+from app.services.headline_cleaning import CleaningConfig, EarningsCache, load_cleaning_config
 from app.services.instrument_news_sources import CollectedItem
 from app.services.instrument_universe import UniverseEntry
 from app.tests.test_intel_records import NOW
@@ -78,7 +78,7 @@ def test_acceptance_10_source_isolation(db_session: Session) -> None:
         patch.object(
             cap,
             "classify_headlines",
-            side_effect=lambda items, ticker, aliases, recent_titles=None: (
+            side_effect=lambda items, ticker, aliases, recent_titles=None, batch_date=None: (
                 {i: "keep" for i in range(len(items))},
                 0,
                 None,
@@ -133,6 +133,8 @@ def test_acceptance_20_per_instrument_chunks(db_session: Session) -> None:
         ticker: str,
         aliases: list[str],
         recent_titles: Sequence[str] | None = None,
+        *,
+        batch_date: date | None = None,
     ) -> tuple[dict[int, str], float, str | None]:
         return {i: "keep" for i in range(len(items))}, 0, None
 
@@ -207,7 +209,12 @@ def test_acceptance_09_market_order_and_budget(
     submitted = []
 
     def work(
-        session: Session, e: UniverseEntry, now: datetime, config: CleaningConfig
+        session: Session,
+        e: UniverseEntry,
+        now: datetime,
+        config: CleaningConfig,
+        *,
+        earnings_cache: EarningsCache | None = None,
     ) -> cap.InstrumentResult:
         submitted.append(e.identifier)
         return cap.InstrumentResult()
@@ -262,7 +269,12 @@ def test_acceptance_28_parallel_jobs_and_completion_order(session_test_db: None)
         slot_id = slot.id
 
         def work(
-            worker: Session, e: UniverseEntry, now: datetime, config: CleaningConfig
+            worker: Session,
+            e: UniverseEntry,
+            now: datetime,
+            config: CleaningConfig,
+            *,
+            earnings_cache: EarningsCache | None = None,
         ) -> cap.InstrumentResult:
             from app.services.intel_records import link_instrument, store_headline
             from app.services.news_fetcher import NewsItem, url_hash
@@ -347,7 +359,12 @@ def test_acceptance_09_same_market_carry_over(
     submitted: list[str] = []
 
     def work(
-        worker: Session, e: UniverseEntry, now: datetime, config: CleaningConfig
+        worker: Session,
+        e: UniverseEntry,
+        now: datetime,
+        config: CleaningConfig,
+        *,
+        earnings_cache: EarningsCache | None = None,
     ) -> cap.InstrumentResult:
         submitted.append(e.identifier)
         p = worker.get(InstrumentProfile, e.identifier)
@@ -435,6 +452,8 @@ def test_acceptance_20_separate_instrument_calls(db_session: Session) -> None:
         ticker: str,
         aliases: list[str],
         recent_titles: Sequence[str] | None = None,
+        *,
+        batch_date: date | None = None,
     ) -> tuple[dict[int, str], float, str | None]:
         assert len(items) == 5
         events.append(("classified", ticker))

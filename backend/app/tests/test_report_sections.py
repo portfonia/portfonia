@@ -181,7 +181,7 @@ def test_build_section42_table_renders_numbers_no_hallucination() -> None:
     assert "116 (+5.5%)" in md  # open with gap vs prev close
     assert "113-121" in md  # intraday range
     assert "122 (+1.7%)" in md  # after-hours move vs close
-    assert "single_day" in md
+    assert "single day" in md
 
 
 def test_build_section42_table_handles_missing_arc_fields() -> None:

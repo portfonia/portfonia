@@ -65,6 +65,8 @@ def _serialize_anomalies(anomalies: list[PriceAnomaly]) -> list[dict[str, Any]]:
             "baseline_date": a.baseline_date.isoformat() if a.baseline_date else None,
             "latest_date": a.latest_date.isoformat() if a.latest_date else None,
             "window_net_pct": _f(a.window_net_pct),
+            "d3_pct": _f(a.d3_pct),
+            "d5_pct": _f(a.d5_pct),
             "max_day_pct": _f(a.max_day_pct),
             "max_day_date": a.max_day_date.isoformat() if a.max_day_date else None,
             "prev_close": _f(a.prev_close),

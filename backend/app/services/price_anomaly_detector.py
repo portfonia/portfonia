@@ -56,7 +56,7 @@ class PriceAnomaly:
     pct_change: Decimal  # signed; +0.05 = +5 %, -0.04 = -4 %
     threshold: Decimal  # the breach threshold
     # --- window detail (incremental report only) ---
-    trigger: str = "single_day"  # "single_day" | "cumulative"
+    trigger: str = "single_day"  # "single_day" | "cumulative" | "d5" | "d3"
     market: str = ""
     baseline_date: date | None = None  # close used as the window baseline
     latest_date: date | None = None  # most recent close in the window
@@ -70,8 +70,20 @@ class PriceAnomaly:
     day_low: Decimal | None = None
     day_close: Decimal | None = None
     after_hours: Decimal | None = None  # post-close last, if captured
+    d3_pct: Decimal | None = None
+    d5_pct: Decimal | None = None
     # --- theme aggregation (populated when this entry represents multiple holdings) ---
     theme: str | None = None  # e.g. "gold", "nasdaq_100"
     theme_label_zh: str | None = None
     theme_label_en: str | None = None
     constituents: list[ConstituentMove] = field(default_factory=list)
+
+
+def trigger_description(trigger: str) -> str:
+    """Render the report trigger as ordinary words."""
+    return {
+        "single_day": "single day",
+        "cumulative": "window total",
+        "d5": "5-day total",
+        "d3": "3-day total",
+    }.get(trigger, trigger)

@@ -15,10 +15,12 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
+from app.core.timezones import ET
 from app.models.intel import InstrumentProfile, IntelCollectionRun, IntelSlotRun, NewsInstrument
 from app.models.news import News
 from app.services.headline_cleaning import (
     CleaningConfig,
+    EarningsCache,
     block_reason,
     classify_headlines,
     load_cleaning_config,
@@ -35,6 +37,7 @@ from app.services.instrument_news_sources import (
 from app.services.instrument_profiles import resolve_profiles
 from app.services.instrument_universe import UniverseEntry, intel_universe
 from app.services.intel_records import headline_from_row, link_instrument, store_headline
+from app.services.news_fetcher import LATE_INGEST_WINDOW
 
 logger = logging.getLogger(__name__)
 MARKET_RANK = {
@@ -109,9 +112,15 @@ def sources_for(
 
 
 def collect_instrument_news(
-    session: Session, entry: UniverseEntry, now: datetime, config: CleaningConfig
+    session: Session,
+    entry: UniverseEntry,
+    now: datetime,
+    config: CleaningConfig,
+    *,
+    earnings_cache: EarningsCache | None = None,
 ) -> InstrumentResult:
     result = InstrumentResult()
+    earnings_cache = earnings_cache or EarningsCache()
     p = session.get(InstrumentProfile, entry.identifier)
     aliases = p.aliases if p else [entry.ticker.split(".")[0]]
     stored = list(
@@ -133,7 +142,7 @@ def collect_instrument_news(
     ]
     fetched: list[tuple[str, CollectedItem]] = []
     candidates: list[tuple[str, CollectedItem]] = []
-    for name, fetch in sources_for(entry, p, now - timedelta(hours=48), now):
+    for name, fetch in sources_for(entry, p, now - LATE_INGEST_WINDOW, now):
         stat = result.stats.setdefault(name, source_stat())
         stat["calls"] += 1
         try:
@@ -144,7 +153,7 @@ def collect_instrument_news(
             continue
         stat["items"] += len(items)
         for item in items:
-            if item.kind != "filing" and not now - timedelta(hours=48) <= item.published_at <= now:
+            if item.kind != "filing" and not now - LATE_INGEST_WINDOW <= item.published_at <= now:
                 result.cleaning["out_of_window"] = result.cleaning.get("out_of_window", 0) + 1
                 continue
             fetched.append((name, item))
@@ -156,6 +165,14 @@ def collect_instrument_news(
             if len(sample) < 3:
                 sample.append(item.title)
             continue
+        stale = earnings_cache.stale_reason(item, entry.ticker, config)
+        if stale:
+            result.cleaning[stale] = result.cleaning.get(stale, 0) + 1
+            if stale == "stale_rule":
+                sample = result.samples.setdefault(stale, [])
+                if len(sample) < 3:
+                    sample.append(item.title)
+                continue
         previous.append(item.title)
         candidates.append((name, item))
     if not p or not p.name_en:
@@ -176,6 +193,7 @@ def collect_instrument_news(
             entry.ticker,
             aliases,
             recent_titles=(list(reversed(kept_titles)) + stored_recent)[:100],
+            batch_date=now.astimezone(ET).date(),
         )
         result.classifier["batches"] += 1
         result.classifier["items"] += len(chunk)
@@ -188,13 +206,13 @@ def collect_instrument_news(
         kept_titles.extend(
             item.title
             for i, (_, item) in enumerate(chunk)
-            if batch.get(i) not in ("promo", "unrelated", "duplicate")
+            if batch.get(i) not in ("promo", "unrelated", "duplicate", "stale")
         )
     for i, (name, item) in sorted(
         enumerate(candidates), key=lambda candidate: candidate[1][1].headline().url_hash
     ):
         label = labels.get(i)
-        if label in ("promo", "unrelated", "duplicate"):
+        if label in ("promo", "unrelated", "duplicate", "stale"):
             llm_reason = label + "_llm"
             result.cleaning[llm_reason] = result.cleaning.get(llm_reason, 0) + 1
             sample = result.samples.setdefault(llm_reason, [])
@@ -254,7 +272,9 @@ def collect_slot_news(
     collection_run: IntelCollectionRun | None = None,
     profile_errors: list[str] | None = None,
     priority: list[str] | None = None,
+    earnings_cache: EarningsCache | None = None,
 ) -> IntelCollectionRun:
+    earnings_cache = earnings_cache or EarningsCache()
     start = time.monotonic()
     run = (
         collection_run
@@ -309,7 +329,9 @@ def collect_slot_news(
 
     def job(entry: UniverseEntry) -> InstrumentResult:
         with SessionLocal() as worker:
-            result = collect_instrument_news(worker, entry, now, config)
+            result = collect_instrument_news(
+                worker, entry, now, config, earnings_cache=earnings_cache
+            )
             worker.commit()
             on_instrument_done(entry.identifier, result.leads)
             return result

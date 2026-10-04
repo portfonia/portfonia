@@ -455,7 +455,7 @@ def test_task_check_phase_failure_preserves_report_result(db_session: Session) -
     from app.tasks import report_tasks as task
 
     subscriber(db_session)
-    report = SimpleNamespace(id=uuid.uuid4(), status="success")
+    report = SimpleNamespace(id=uuid.uuid4(), status="success", report_inputs={})
     with (
         patch.object(s, "run_cadence_checks", side_effect=RuntimeError("phase failed")),
         patch("app.services.report_generator.generate_report", return_value=report),
@@ -604,7 +604,7 @@ def test_task_examples_1_2_3_6_report_precedes_check(
     db_session.commit()
     monkeypatch.setattr(task, "today_et", lambda: today)
     user_id = u.id
-    report = SimpleNamespace(id=uuid.uuid4(), status="success")
+    report = SimpleNamespace(id=uuid.uuid4(), status="success", report_inputs={})
 
     def generated(session: Session, **kwargs: Any) -> SimpleNamespace:
         checked = session.get(User, kwargs["user_id"])
@@ -654,7 +654,7 @@ def test_task_expired_resume_receives_same_batch(
     u = subscriber(db_session, balance, "expired")
     user_id = u.id
     monkeypatch.setattr(task, "today_et", lambda: today)
-    report = SimpleNamespace(id=uuid.uuid4(), status="success")
+    report = SimpleNamespace(id=uuid.uuid4(), status="success", report_inputs={})
 
     def generated(session: Session, **kwargs: Any) -> SimpleNamespace:
         checked = session.get(User, kwargs["user_id"])
@@ -812,7 +812,7 @@ def test_task_pre_dispatch_failure_falls_back_to_post_loop_resume(
     monkeypatch.setattr(task, "today_et", lambda: TODAY)
     active_id, expired_id = active.id, expired.id
     original = s.run_cadence_checks
-    report = SimpleNamespace(id=uuid.uuid4(), status="success")
+    report = SimpleNamespace(id=uuid.uuid4(), status="success", report_inputs={})
 
     def checks(
         session: Session,
