@@ -627,6 +627,8 @@ It prints articles and filings separately, with their combined inserted count.
 
 Part 2 reports selections in words, per-unit/provider outcomes, paid run/month
 spend, cost per kept article, and weekday post-close shared-analysis counts.
+The provider-less `nothing usable` line is omitted for a unit that kept
+articles through another provider.
 Macro display names come from each theme's `name_en`; matching keywords remain
 unchanged. Problems are rendered as URL-free plain reasons. Run records expire
 after 90 days; news and cascading links expire after 30 days.
@@ -676,7 +678,11 @@ from its ET date minus one day through the lesser of its date plus one day and
 the run date. Results before the start date, recently accepted URLs and URLs
 already selected for this unit are excluded; the existing rule/classifier
 chain then selects the first survivor in provider order. The shared search
-cap and provider fallback remain. A unit with neither a direct lead nor an
+cap and provider fallback remain. Each resolved lead keeps the provider
+that found it, and each provider has its own outcome; a lead found by a
+provider disabled later in the batch is extracted by the fallback. When no
+fallback is available, the stop is recorded on the provider that last
+searched. A unit with neither a direct lead nor an
 eligible headline records `no_news` and makes no paid call, including movers.
 Filings still trigger selection; their links are not extracted. Macro
 deepening is unchanged. Extract objectives retain public names, tickers,

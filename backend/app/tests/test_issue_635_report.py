@@ -297,3 +297,21 @@ def test_638_picked_groups_names_by_reason_in_first_seen_order(db_session: Sessi
         line
         == "Picked: 0700.HK, 2333.HK (new company filing); Monetary policy (11 matching headlines)"
     )
+
+
+def test_638_fallback_sibling_does_not_print_nothing_usable(db_session: Session) -> None:
+    run = slot(db_session)
+    base = {"kind": "quiet", "identifier": "AAA", "theme": None, "via": "search"}
+    run.details = {
+        "deepening": {
+            "outcomes": [
+                {**base, "provider": "tavily", "accepted": 0, "note": None},
+                {**base, "provider": "parallel", "accepted": 2, "note": None},
+                {**base, "identifier": "BBB", "provider": "tavily", "accepted": 0, "note": None},
+            ]
+        }
+    }
+    lines = [line.strip() for line in report(db_session, run)[1].splitlines()]
+    assert "AAA  Parallel  2 articles kept (headline search)" in lines
+    assert "AAA  nothing usable (no usable article found)" not in lines
+    assert "BBB  nothing usable (no usable article found)" in lines

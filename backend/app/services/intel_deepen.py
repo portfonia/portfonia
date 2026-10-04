@@ -332,13 +332,16 @@ class DeepenRun:
         query = headline.title
         start = headline.published_at.astimezone(ET).date() - timedelta(days=1)
         end = min(headline.published_at.astimezone(ET).date() + timedelta(days=1), self.run_date)
+        caller = provider
         for attempt in range(2):
-            report = self._outcome(unit, provider, "search")
             chosen = self._provider(provider)
             if not chosen:
-                report["note"] = "cap_reached"
-                return provider, []
+                # Record the stop on the provider that last searched; never open an
+                # outcome for a fallback that was not called.
+                self._outcome(unit, caller, "search")["note"] = "cap_reached"
+                return caller, []
             report = self._outcome(unit, chosen, "search")
+            caller = chosen
             if self.cleaning is None:
                 return chosen, []
             with self.lock:

@@ -294,3 +294,25 @@ def test_638_search_fallback_preserves_provider_attribution(
         "accepted",
         "accepted",
     ]
+
+
+def test_638_unavailable_fallback_creates_no_outcome(worker: deepen.DeepenRun) -> None:
+    with (
+        patch(
+            "app.services.paid_search.TavilyClient.search",
+            return_value=PaidResult(429, Decimal(0), Decimal(0), "quota_or_rate"),
+        ),
+        patch("app.services.paid_search.ParallelClient.search") as parallel_search,
+        patch("app.services.paid_usage.send_ops_alert", return_value=True),
+    ):
+        worker.run_wave(
+            [WorkUnit("quiet", "AAA", providers=("tavily",))],
+            {"AAA": [headline("AAA agreement")]},
+            {"AAA": ["AAA"]},
+        )
+    parallel_search.assert_not_called()
+    assert [(o["provider"], o["searches"], o["note"]) for o in worker.outcomes] == [
+        ("tavily", 1, "cap_reached")
+    ]
+    assert worker.metrics["tavily"]["headlines_unresolved"] == 1
+    assert worker.metrics["parallel"]["headlines_unresolved"] == 0

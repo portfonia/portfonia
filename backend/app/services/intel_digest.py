@@ -244,9 +244,15 @@ def build_batch_report(
             else "none"
         )
     )
-    for outcome in objects(deep.get("outcomes")):
+    outcomes = objects(deep.get("outcomes"))
+    kept_units = {unit_name(o) for o in outcomes if number(o.get("accepted"))}
+    for outcome in outcomes:
         name = unit_name(outcome)
         accepted = number(outcome.get("accepted"))
+        # The "nothing usable" line names no provider, so skip it for a unit that kept
+        # articles through another provider (search fallback or A/B sibling).
+        if not accepted and outcome.get("note") != "no_news" and name in kept_units:
+            continue
         provider = "Tavily" if outcome.get("provider") == "tavily" else "Parallel"
         if accepted:
             via = "headline search" if outcome.get("via") == "search" else "direct links"
