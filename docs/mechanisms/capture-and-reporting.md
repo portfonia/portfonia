@@ -549,7 +549,7 @@ fields. URLs and URL kinds remain in the in-memory `CollectedItem` only.
 
 `headline_cleaning.py` applies path, alias, low-value-title and near-duplicate
 rules in order. Each instrument job classifies its surviving articles in
-batches of at most `INTEL_CLASSIFIER_BATCH` (30 since #653; was 100) through one OpenRouter request per batch, with no retry
+batches of at most 100 through one OpenRouter request per batch, with no retry
 and `data_collection: deny`. Filings bypass classification. Failed or missing
 labels remain null; promo and unrelated labels are dropped. RSS pool items
 receive only the path and low-value-title rules and are never classified.

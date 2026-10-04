@@ -1,4 +1,4 @@
-"""Issue #653 recap-based stale detection, classifier batching and report lines.
+"""Issue #653 recap-based stale detection, classifier parsing and report lines.
 
 Every external call (yfinance, OpenRouter, paid search) is mocked.
 """
@@ -13,7 +13,6 @@ import pandas as pd
 import pytest
 from sqlalchemy.orm import Session
 
-from app.core.config import Settings, get_settings
 from app.core.timezones import ET
 from app.models.intel import IntelSlotRun
 from app.services import headline_cleaning as hc
@@ -239,26 +238,3 @@ def test_653_a9_report_lookup_failures_and_row_label(db_session: Session) -> Non
     collection(db_session, run2, {"cleaning": {"stale_rule": 1}})
     _, body, _ = report(db_session, run2)
     assert "Earnings-date check failed" not in body
-
-
-def test_653_a10_classifier_batch_of_30(db_session: Session) -> None:
-    assert Settings.model_fields["INTEL_CLASSIFIER_BATCH"].default == 30
-    items = [item(f"AAA signs deal with partner{i:03d}", i) for i in range(64)]
-    sizes: list[int] = []
-
-    def classify(
-        chunk: list[CollectedItem], *args: object, **kwargs: object
-    ) -> tuple[dict[int, str], float, None]:
-        sizes.append(len(chunk))
-        return {i: "keep" for i in range(len(chunk))}, 0.0, None
-
-    with (
-        patch.object(capture, "classify_headlines", side_effect=classify),
-        patch.object(
-            capture,
-            "get_settings",
-            return_value=get_settings().model_copy(update={"INTEL_CLASSIFIER_BATCH": 30}),
-        ),
-    ):
-        collect(db_session, "AAA", items)
-    assert sizes == [30, 30, 4]
