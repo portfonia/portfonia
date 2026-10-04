@@ -218,6 +218,30 @@ def test_653_a8_paid_search_recap(worker: deepen.DeepenRun, counter: str) -> Non
     assert leads == ([] if counter == "stale_llm" else [lead])
 
 
+def test_653_a8_paid_regex_recap_lookup_failure_counted_once(worker: deepen.DeepenRun) -> None:
+    lead = Lead("https://fixture.example/a", "AAA Q3 earnings improve", worker.now)
+    with (
+        patch.object(
+            worker,
+            "_call",
+            return_value=("tavily", PaidResult(200, Decimal(1), Decimal(0), leads=[lead])),
+        ),
+        patch.object(deepen, "classify_headlines", hc.classify_headlines),
+        patch.object(
+            httpx, "post", return_value=response([{"id": 0, "label": "keep", "recap": True}])
+        ),
+        patch("yfinance.Ticker.get_earnings_dates", side_effect=RuntimeError("fixture")),
+    ):
+        _, leads = worker._search_headline(
+            "tavily",
+            WorkUnit("quiet", "AAA"),
+            CollectedItem("AAA results", worker.now, "https://fixture.example/h"),
+            set(),
+        )
+    assert worker.metrics["tavily"]["search_filtered"].get("stale_lookup_failed") == 1
+    assert leads == [lead]
+
+
 def test_653_a9_report_lookup_failures_and_row_label(db_session: Session) -> None:
     run = slot(db_session)
     collection(db_session, run, {"cleaning": {"stale_lookup_failed": 3, "stale_rule": 1}})

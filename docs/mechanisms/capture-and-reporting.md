@@ -559,7 +559,7 @@ configured title patterns in `intel_deepen.yml` trigger one cached yfinance
 `Ticker.get_earnings_dates` lookup per matching instrument per slot, using its
 Yahoo symbol. The latest earnings date on or before publication (ET) older than
 14 calendar days produces `stale_rule`. Missing dates or lookup errors retain
-the title and count `stale_lookup_failed`. Neither mechanism adds a classifier call.
+the title and count `stale_lookup_failed`. The earnings-date rule does not add a classifier call.
 
 Issue #653 corrects two production defects in this rule. First, `lxml` is now a
 pinned dependency: `get_earnings_dates` scrapes Yahoo's earnings-calendar HTML
