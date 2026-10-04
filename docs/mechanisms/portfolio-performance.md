@@ -924,3 +924,39 @@ approximate-data badge are unchanged. Y-axis tick labels use
 `formatTickPct` at a fixed two decimal places, with a rounded negative
 zero rendered as `0.00%`. The paragraphs above are the #486 record, not
 the current chart.
+
+
+## Snapshot export API
+
+Issue #643 adds authenticated `GET /portfolio/snapshots?start=YYYY-MM-DD&end=YYYY-MM-DD`
+using `current_principal`. It returns only the caller's complete-batch days,
+including empty books, ordered by ascending ET calendar date. Both dates are
+inclusive; the maximum range is 30 days (`end - start <= 29`), and future end
+dates and reversed ranges return 422.
+
+Access requires an active subscription and a type in
+`subscription.SNAPSHOT_EXPORT_SUBSCRIPTION_TYPES`. The whitelist ships as an
+empty tuple; stage D adds advanced types. Pending cancellation does not remove
+access while the subscription remains active. Gate failures return 403
+`subscription_required` and consume no quota. After authentication and the
+gate, the existing Redis fixed-window limiter counts every request, including
+invalid parameters: 20 per user per 3600 seconds. The 21st returns 429 with
+`Retry-After`; an unavailable protecting counter returns 503.
+
+The JSON response has `start`, `end`, and `days`. Each day has `date`,
+`base_currency`, and `holdings`. Currency comes from that day's stored rows;
+an empty complete day has `base_currency: null` and `holdings: []`, without
+substituting the current preference. Within each day, decrypted rows sort by
+`(ticker or fund_code or "", str(holding_id))`.
+
+Each holding contains exactly: `holding_id`, `ticker`, `fund_code`, `market`,
+`broker`, `account`, `portfolio`, `asset_class`, `pricing_mode`, `currency`,
+`shares`, `current_value`, `market_value`, `market_value_base`,
+`cost_basis_base`, `fx_rate_used`, `price_as_of`, `fx_as_of`, and `data_quality`.
+ORM reads decrypt encrypted fields. Decimals serialize as strings without
+rounding; missing values stay null, including a legacy nullable `holding_id`.
+Row `id`, `is_backfilled`, `is_fx_fallback`, `capture_supported`, and
+`created_at` are excluded. This read path writes no table and logs no snapshot
+values or decrypted labels. It adds no Ops/admin route, script, or task for
+reading or exporting a user's snapshots, and does not change existing exports
+or Performance endpoints. There is no frontend, migration, or new dependency.
