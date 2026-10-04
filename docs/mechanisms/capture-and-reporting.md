@@ -57,7 +57,7 @@ that fragment, downloads the exact stored Markdown as
 hides site chrome and controls, using white background and black text; wide
 tables scroll within their container on screen. No dependency is added.
 
-**Production status (2026-09-10)**: deployed — prod `main` is `cb78eb9`
+**Historical production status for #193 (2026-09-10; the user job route it mentions was removed by #642)**: deployed — prod `main` is `cb78eb9`
 (contains #416's `9fd7b0d`), migration `c4d5e6f7a8b9` is applied
 (`report_jobs` present, with the `ck_report_jobs_status` CHECK and both
 CASCADE foreign keys), the worker has `generate_report_job` registered, and

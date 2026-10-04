@@ -1460,7 +1460,7 @@
     "print": "打印 / 另存为 PDF",
     "loadError": "无法加载报告，请刷新页面重试。",
     "types": {
-      "everyOtherDay": "隔日",
+      "everyOtherDay": "周一、三、五",
       "weekly": "每周",
       "manual": "手动",
       "report": "报告"

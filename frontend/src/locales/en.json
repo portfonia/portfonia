@@ -1460,7 +1460,7 @@
     "print": "Print / Save as PDF",
     "loadError": "Couldn't load your reports. Try refreshing the page.",
     "types": {
-      "everyOtherDay": "Every other day",
+      "everyOtherDay": "Mon/Wed/Fri",
       "weekly": "Weekly",
       "manual": "Manual",
       "report": "Report"

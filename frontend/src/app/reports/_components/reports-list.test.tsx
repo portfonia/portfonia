@@ -23,7 +23,7 @@ it("acceptance_14 renders rows, paging and bodyless badges", () => {
   expect(screen.getAllByTestId("report-row")).toHaveLength(20);
   expect(screen.getAllByRole("link")).toHaveLength(18);
   for (const label of ["Under review", "Generating"]) { const badge = screen.getByText(label); expect(badge.closest("a")).toBeNull(); }
-  expect(screen.getByText("Every other day")).toBeInTheDocument();
+  expect(screen.getByText("Mon/Wed/Fri")).toBeInTheDocument();
   expect(screen.getByText("Weekly")).toBeInTheDocument();
 });
 it("acceptance_15 updates URL and request for sort and dates", async () => {

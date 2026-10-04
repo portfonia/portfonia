@@ -935,11 +935,7 @@ def rerun_report_for_user(
 
     Built for the "holdings were corrected after a report already shipped"
     case: rebuild the body from stored `report_inputs` — never re-fetching
-    news/Tavily/macro intel — and, if requested, actually redeliver it. This
-    is the admin-scoped counterpart to the self-service `POST
-    /reports/{id}/regenerate`; that route is scoped to the caller's own
-    principal and never clears `email_sent_at`, so it cannot rerun another
-    user's report or force a genuine resend.
+    news/Tavily/macro intel — and, if requested, actually redeliver it.
 
     mode='analyze' (default) re-runs the body pass against a FRESH read of
     the user's live holdings via `regenerate_report` — this is what actually
@@ -952,8 +948,7 @@ def rerun_report_for_user(
     Clearing first matters: `send_report_email`'s G3 dedup guard silently
     no-ops on any report where `email_sent_at` is already set, so without
     this step a rerun would produce a corrected body that never actually
-    goes out. resend=false leaves `email_sent_at` untouched and never sends
-    — identical in effect to the self-service regenerate.
+    goes out. resend=false leaves `email_sent_at` untouched and never sends.
 
     The `Report` row is never physically deleted: doing so would destroy
     the `report_inputs` JSONB cache that makes a no-refetch rerun possible

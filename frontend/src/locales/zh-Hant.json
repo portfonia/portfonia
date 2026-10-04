@@ -1460,7 +1460,7 @@
     "print": "列印 / 另存為 PDF",
     "loadError": "無法載入報告，請重新整理頁面。",
     "types": {
-      "everyOtherDay": "隔日",
+      "everyOtherDay": "週一、三、五",
       "weekly": "每週",
       "manual": "手動",
       "report": "報告"

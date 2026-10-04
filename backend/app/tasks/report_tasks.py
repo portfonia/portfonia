@@ -284,7 +284,8 @@ def generate_incremental_report(
                             f"Report {report.id} ({report.report_date}, user {user_id}) was held "
                             f"for compliance review and was NOT emailed to the user.\n\n"
                             f"Check worker.log for the triggering terms.\n"
-                            f"To rerun: POST /reports/{report.id}/regenerate?mode=analyze"
+                            f"To rerun: POST /admin/users/{user_id}/reports/{report.id}/rerun\n"
+                            'Body: {"mode": "analyze"}'
                         ),
                         severity="WARNING",
                     )

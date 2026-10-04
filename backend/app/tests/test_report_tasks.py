@@ -479,6 +479,11 @@ def test_task_needs_review_sends_ops_alert_per_user(
     mock_alert.assert_called_once()
     subject = mock_alert.call_args.kwargs["subject"]
     assert "BLOCKED" in subject or "needs_review" in subject or "compliance" in subject.lower()
+    body = mock_alert.call_args.kwargs["body"]
+    assert f"POST /admin/users/{_U1}/reports/{report.id}/rerun" in body
+    assert '{"mode": "analyze"}' in body
+    assert "POST /reports/" not in body
+    assert "/reports/{" not in body
     assert mock_alert.call_args.kwargs["severity"] == "WARNING"
 
 
