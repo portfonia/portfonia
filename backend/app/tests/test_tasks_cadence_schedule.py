@@ -37,7 +37,7 @@ def test_converts_a_non_et_input_to_et_before_computing() -> None:
 
 def test_unknown_cadence_raises() -> None:
     with pytest.raises(ValueError, match="unknown report cadence"):
-        next_occurrence_for_cadence("daily", datetime(2026, 9, 3, tzinfo=ET))
+        next_occurrence_for_cadence("monthly", datetime(2026, 9, 3, tzinfo=ET))
 
 
 @pytest.mark.parametrize(

@@ -18,6 +18,12 @@ import { useReportLanguage } from "./use-report-language";
 import { useVerificationResend } from "./use-verification-resend";
 import { useVerificationSend } from "./use-verification-send";
 
+const planLabelKeys: Record<SubscriptionType, string> = {
+  weekly: "reportScheduleOptions.weekly",
+  mwf: "reportScheduleOptions.everyOtherDay",
+  daily: "subscriptionTitle.daily",
+};
+
 // Split out from page.tsx (issue #220), same reasoning as
 // questionnaire-page-body.tsx: whether the page renders at all depends on
 // translated content (the load-error message), so it isn't worth carving
@@ -219,7 +225,7 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
             {me.subscription.status === "active" ? (
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm">{t(me.subscription.cancel_pending ? "subscriptionEnds" : "subscriptionRenews", {
-                  plan: t(me.subscription.type === "weekly" ? "reportScheduleOptions.weekly" : "reportScheduleOptions.everyOtherDay"),
+                  plan: t(planLabelKeys[me.subscription.type ?? "mwf"]),
                   expires_on: me.subscription.expires_on ?? "",
                 })}</span>
                 <Button variant="outline" disabled={subscription.pending} onClick={() => {
@@ -326,6 +332,7 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
                 <option value="" disabled>{t("subscriptionNoneOption")}</option>
                 <option value="weekly">{t("reportScheduleOptions.weekly")}</option>
                 <option value="mwf">{t("reportScheduleOptions.everyOtherDay")}</option>
+                <option value="daily">{t("reportScheduleOptions.daily")}</option>
                 {!noVerifiedRecipient && me.subscription.status === "active" && !me.subscription.cancel_pending && (
                   <option value="cancel">{t("subscriptionCancel")}</option>
                 )}

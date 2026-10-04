@@ -416,7 +416,8 @@
     "reportScheduleHeading": "Report schedule",
     "reportScheduleOptions": {
       "weekly": "Weekly",
-      "everyOtherDay": "Mon/Wed/Fri"
+      "everyOtherDay": "Mon/Wed/Fri",
+      "daily": "Daily (Advanced)"
     },
     "deliveryEmailHeading": "Report delivery email",
     "deliveryEmailFallbackNote": "No separate delivery address set — using your account email.",
@@ -459,11 +460,13 @@
     "subscriptionNone": "No subscription. Features and report delivery may be limited.",
     "subscriptionTitle": {
       "weekly": "Weekly briefing",
-      "mwf": "Mon/Wed/Fri briefing"
+      "mwf": "Mon/Wed/Fri briefing",
+      "daily": "Daily briefing"
     },
     "subscriptionDescription": {
       "weekly": "A briefing on your portfolio every Saturday.",
-      "mwf": "A briefing on your portfolio every Monday, Wednesday and Friday."
+      "mwf": "A briefing on your portfolio every Monday, Wednesday and Friday.",
+      "daily": "A briefing on your portfolio every weekday, Monday to Friday. Advanced plan: includes AI Agent data access."
     },
     "subscriptionFee": "Fee: {fee} credits per month.",
     "subscriptionBalance": "Current balance: {balance} credits.",
@@ -1070,7 +1073,7 @@
         },
         {
           "q": "What does it cost?",
-          "a": "Plans start at 0.99 credits per month for a weekly briefing, or 1.99 credits per month for Monday / Wednesday / Friday briefings. Credits are sold in US$10 and US$20 packs — see Pricing."
+          "a": "Plans start at 0.99 credits per month for a weekly briefing, 1.99 for Monday / Wednesday / Friday briefings, and 2.49 for the Advanced Daily plan with AI Agent data access. Credits are sold in US$10 and US$20 packs — see Pricing."
         }
       ]
     },
@@ -1123,7 +1126,7 @@
     "deliveryVerified": "Reports will be sent to {deliveryEmail}.",
     "deliveryUnverified": "Reports will not be sent until {deliveryEmail} is verified.",
     "errorLoadFailed": "Could not load your account.",
-    "subscriptionPlans": "Portfonia sends scheduled briefings to subscribers. There are two plans: Weekly (0.99 credits per month) and Mon/Wed/Fri (1.99 credits per month).",
+    "subscriptionPlans": "Portfonia sends scheduled briefings to subscribers. There are three plans: Weekly (0.99 credits per month), Mon/Wed/Fri (1.99 credits per month) and the Advanced Daily plan (2.49 credits per month, weekdays, with AI Agent data access).",
     "subscriptionRequirements": "Until you subscribe, scheduled briefings are not sent and some features may be unavailable. You need a verified email address before you can subscribe.",
     "choosePlan": "Choose a plan"
   },
@@ -1347,7 +1350,8 @@
           "body": [
             "Weekly briefing — 0.99 credits per month. One personalized briefing email per week, tied to the holdings you have entered.",
             "Mon / Wed / Fri briefing — 1.99 credits per month. Three personalized briefing emails per week (Monday, Wednesday, Friday).",
-            "The two plans differ only in how often briefings are sent."
+            "Daily briefing (Advanced) — 2.49 credits per month. One personalized briefing email every weekday (Monday to Friday), including market holidays.",
+            "Weekly and Mon / Wed / Fri differ only in how often briefings are sent. Daily is the Advanced plan: besides weekday briefings, it lets your AI agent read your daily holding snapshots and holding-related intelligence. Report history is available to AI agents on every plan."
           ]
         },
         {
@@ -1463,7 +1467,8 @@
       "everyOtherDay": "Mon/Wed/Fri",
       "weekly": "Weekly",
       "manual": "Manual",
-      "report": "Report"
+      "report": "Report",
+      "daily": "Daily"
     }
   }
 }

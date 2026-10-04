@@ -66,7 +66,7 @@ describe("useSession", () => {
     vi.clearAllMocks();
     usePathname.mockReturnValue("/");
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    fetchMock.mockResolvedValue({ ok: true });
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ advanced: false }) });
     vi.stubGlobal("fetch", fetchMock);
   });
 

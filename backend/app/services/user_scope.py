@@ -27,7 +27,7 @@ from app.services.markets import is_capture_supported
 # decision point 2). Not in this set -> an empty book still enters the batch,
 # so a cadence's "needs holdings?" answer lives in one place instead of an
 # `if cadence == "mwf"` scattered wherever this gets checked.
-_HOLDINGS_GATED_CADENCES = frozenset({"mwf"})
+HOLDINGS_GATED_CADENCES = frozenset({"mwf", "daily"})
 
 
 def _active_user_conditions(cadence: str) -> list[Any]:
@@ -40,7 +40,7 @@ def _active_user_conditions(cadence: str) -> list[Any]:
         User.report_cadence == cadence,
         or_(User.email_verified_at.isnot(None), User.delivery_email_verified_at.isnot(None)),
     ]
-    if cadence in _HOLDINGS_GATED_CADENCES:
+    if cadence in HOLDINGS_GATED_CADENCES:
         conditions.append(exists().where(Holding.user_id == User.id))
     return conditions
 
@@ -48,7 +48,7 @@ def _active_user_conditions(cadence: str) -> list[Any]:
 def active_user_ids(session: Session, cadence: str) -> list[uuid.UUID]:
     """Active accounts on the given `report_cadence`, sorted for fan-out.
 
-    Identity comes from `users` (Stage B). `mwf` still requires at least one
+    Identity comes from `users` (Stage B). `mwf` and `daily` require at least one
     holding so a brand-new signup does not get an empty Pass 2 / email on the
     next scheduled batch; `weekly` does not (issue #221 §8 / #191) — an
     empty-book weekly user gets the empty-table content contract instead of
@@ -59,7 +59,7 @@ def active_user_ids(session: Session, cadence: str) -> list[uuid.UUID]:
     `delivery_email_verified_at` — has nowhere a generated report can be
     delivered, so they are excluded from EVERY cadence's fan-out rather
     than paying for generation that can never send. Not scoped to
-    `_HOLDINGS_GATED_CADENCES`: unlike the empty-holdings case this is not
+    `HOLDINGS_GATED_CADENCES`: unlike the empty-holdings case this is not
     a per-cadence content tradeoff, it is undeliverable regardless of
     cadence.
     """

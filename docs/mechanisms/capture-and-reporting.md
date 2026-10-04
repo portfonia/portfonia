@@ -930,31 +930,38 @@ layer** (per-user, incremental).
   backfill, preserving #30 late-ingest protection. `load_news_window` itself
   uses the shared 48-hour late-ingestion lower bound (#639); see the news
   dedup mechanism.
-- **Cadence (issue #191, per-user `users.report_cadence`, 2026-08-28)**:
-  `_REPORT_CADENCES` (`app/tasks/__init__.py`) is a table of Beat rows, each
-  naming a `cadence` that scopes its own `active_user_ids` fan-out — not a
-  single fixed schedule applied to everyone. Two rows today: `mwf` fires
-  Mon/Wed/Fri 17:00 ET (moved from 16:30 ET on 2026-06-19, widening the gap
-  after the 16:05 ET FX capture and 16:00 ET close capture), requires the
-  user to have at least one holding; `weekly` fires Saturday 19:00 ET
-  (`session_node="weekend_snapshot"`, not `"after_close"` — no market
-  actually closed at that trigger), does NOT require holdings (issue #221
-  §8 empty-book content contract). Portfolio/FX/benchmark/fund-NAV capture
-  tasks run every calendar day since issue #487, but the weekly report
-  fires at 19:00 ET Saturday, before the 20:30 ET portfolio snapshot, so
-  a weekly report's holdings snapshot is still Friday's — only the live,
-  generation-time macro/news search (`ticker_intel.py`/`cross_name_intel.py`)
-  can reflect anything that happened over the weekend. `celery_app.conf.timezone =
-  "America/New_York"` means neither row needs a `_node_cron`/nowfun
-  wrapper — that's only for the HK/CST market nodes below. Full design
-  record: Obsidian `Hermes/Portfonia/Docs/Ring 1-B Cadence.md`.
+- **Cadence (issues #191/#650, per-user `users.report_cadence`)**:
+  `_REPORT_CADENCES` (`app/tasks/__init__.py`) owns cadence, session node and
+  cron definitions; `_REPORT_BATCHES` owns Beat dispatch. One
+  `report-incremental-weekday` entry fires Mon–Fri at 17:00 ET and serves
+  Daily (`daily_close`) every weekday, including NYSE holidays, plus
+  Mon/Wed/Fri (`after_close`) only on Monday, Wednesday and Friday. Both
+  require at least one holding. `report-incremental-weekly` fires Saturday
+  19:00 ET (`weekend_snapshot`) and permits an empty book. The old
+  `report-incremental-mwf` entry is removed. One batch at the shared fire
+  time prevents separate cadence batches from queueing beyond the stale
+  trigger tolerance on a serial worker.
+  The task derives due days from cron, including for argument-less calls;
+  performs Expired recovery for every due cadence before querying recipients;
+  concatenates recipient snapshots in cadence-table order; and shares one
+  `batch_now`, moves cache and combined `users_remaining` countdown. Full
+  lifecycle checks run after the loop, including for empty recipients, for
+  each due cadence. Tuesday never generates or checks Mon/Wed/Fri. Stale
+  runs still skip before all checks; a batch with no due cadence ends as ok
+  with `no_due_cadence`. Telemetry records the `cadences` list. Weekly's
+  19:00 report precedes the 20:30 portfolio snapshot and still reads Friday's
+  holdings data. Scheduled intel reads remain read-only. The app timezone is
+  `America/New_York`; no market-specific cron wrapper is needed here.
+  Full lifecycle and Advanced-plan rules: [Subscription](subscription.md).
 - **Ops cadence changes**: `POST /admin/users/{user_id}/cadence`
   (`app/routers/admin.py`) changes a user's `report_cadence`, same
   auth/audit pattern as every other `/admin/*` endpoint. Validated against
-  the same `{"mwf", "weekly"}` set as `users`' DB `CheckConstraint`
-  (`VALID_REPORT_CADENCES`, `app/models/user.py`) — the two are kept in
-  sync by hand, not derived from one source, since Pydantic's `Literal`
-  needs compile-time members.
+  `UpdateCadenceBody` set `{"daily", "mwf", "weekly"}`. The Ops filter
+  `ReportCadenceFilter` and `users`' DB `CheckConstraint`
+  (`VALID_REPORT_CADENCES`, `app/models/user.py`) also include `"none"`:
+  `{"daily", "mwf", "none", "weekly"}`. These sets are kept in sync by hand,
+  not derived from one source, since Pydantic's `Literal` needs compile-time
+  members.
 - **Per-user report language (issues #308/#582/#583)**: `users.locale` (`NOT NULL`,
   free `Text` before this issue — read only for an informational Pass 2
   prompt hint and email-verification copy, never driving report
@@ -1037,7 +1044,7 @@ layer** (per-user, incremental).
   since issue #191)**: `generate_incremental_report` iterates
   `app.services.user_scope.active_user_ids(session, cadence)` — active
   `users` rows on that cadence, gated by holdings only for cadences in
-  `_HOLDINGS_GATED_CADENCES` (`user_scope.py`) — instead of the old fixed
+  `HOLDINGS_GATED_CADENCES` (`user_scope.py`, Daily and Mon/Wed/Fri) — instead of the old fixed
   `DEV_USER_ID` single call. Each user's `generate_report` call is isolated
   in its own try/except: one user's failure is ops-alerted and logged, does
   NOT stop or retry the rest of the batch — but if EVERY user in a batch

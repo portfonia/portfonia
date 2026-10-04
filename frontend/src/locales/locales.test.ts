@@ -126,7 +126,7 @@ describe("subscription public billing copy (#597)", () => {
   });
   it.each(LOCALE_VALUES)("%s removes schedule placeholders and preserves matching billing structure", locale => {
     expect(catalogs[locale].profile).not.toHaveProperty("reportSchedulePlaceholder");
-    expect(Object.keys(catalogs[locale].profile.reportScheduleOptions)).toEqual(["weekly", "everyOtherDay"]);
+    expect(Object.keys(catalogs[locale].profile.reportScheduleOptions)).toEqual(["weekly", "everyOtherDay", "daily"]);
     expect(catalogs[locale].welcome).not.toHaveProperty("cadence");
     expect(catalogs[locale].legal.terms.sections[3].body).toHaveLength(7);
   });

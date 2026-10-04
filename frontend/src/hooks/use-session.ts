@@ -8,7 +8,7 @@ import { createClient } from "@/lib/supabase/browser";
 export type SessionState =
   | { status: "checking"; pendingReason: "login" | null }
   | { status: "guest" }
-  | { status: "authed"; email: string };
+  | { status: "authed"; email: string; advanced: boolean };
 
 // auth.portfonia.com (the Caddy reverse-proxy to the real Supabase host,
 // routing around direct-connectivity issues) normally answers in well under
@@ -132,16 +132,18 @@ async function verifiedGetUser(
 // still renders the full authenticated menu — not just an odd first paint,
 // but unauthorized reconnaissance value (the entry list is a map of the
 // platform's authenticated feature surface). `/api/auth/session-status` is
-// a purpose-built, current_principal-gated 204 probe (see
+// a purpose-built, current_principal-gated session probe (see
 // backend/app/routers/auth.py) — cheap enough to call on every verify().
 // frontend/src/proxy.ts already injects the Bearer header for any
 // `/api/*` browser fetch, so no token-plumbing is needed here.
-async function probeBackendSession(): Promise<boolean> {
+async function probeBackendSession(): Promise<{ ok: boolean; advanced: boolean }> {
   try {
     const res = await fetch("/api/auth/session-status", { cache: "no-store" });
-    return res.ok;
+    if (!res.ok) return { ok: false, advanced: false };
+    const body: { advanced: boolean } = await res.json();
+    return { ok: true, advanced: body.advanced };
   } catch {
-    return false; // fail closed, matching this module's existing doctrine
+    return { ok: false, advanced: false }; // fail closed, matching this module's existing doctrine
   }
 }
 
@@ -229,8 +231,8 @@ export function useSession(): SessionState {
           const stillValid = await probeBackendSession();
           if (cancelled || myGeneration !== generation) return;
           setState(
-            stillValid
-              ? { status: "authed", email: data.user.email ?? "" }
+            stillValid.ok
+              ? { status: "authed", email: data.user.email ?? "", advanced: stillValid.advanced }
               : { status: "guest" },
           );
         })

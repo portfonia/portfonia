@@ -106,11 +106,19 @@ async function openMenu(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("GetStartedMenu", () => {
+  it.each([true, false])("daily_acceptance_12 trigger gold follows advanced=%s", async (advanced) => {
+    getUser.mockResolvedValue({ data: { user: { email: "daily@example.com" } } });
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ advanced }) });
+    renderMenu();
+    const trigger = await screen.findByRole("button", { name: /get started/i });
+    expect(trigger.classList.contains("bg-advanced")).toBe(advanced);
+  });
+
   beforeEach(() => {
     __resetSessionSignalsForTests();
     getUser.mockReturnValue(new Promise(() => {})); // checking by default
     vi.clearAllMocks();
-    fetchMock.mockResolvedValue({ ok: true });
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ advanced: false }) });
     vi.stubGlobal("fetch", fetchMock);
   });
 
@@ -469,7 +477,7 @@ describe("GetStartedMenu", () => {
 
 it("acceptance_19 Reports is available only to authenticated users", async () => {
   withLocaleStorage("en");
-  __resetSessionSignalsForTests(); vi.clearAllMocks(); fetchMock.mockResolvedValue({ ok: true }); vi.stubGlobal("fetch", fetchMock);
+  __resetSessionSignalsForTests(); vi.clearAllMocks(); fetchMock.mockResolvedValue({ ok: true, json: async () => ({ advanced: false }) }); vi.stubGlobal("fetch", fetchMock);
   getUser.mockResolvedValue({ data: { user: { email: "reader@example.com" } } });
   const user = userEvent.setup(); const view = renderMenu(); await openMenu(user);
   expect(screen.getByRole("menuitem", { name: "Reports" })).toHaveAttribute("href", "/reports");
