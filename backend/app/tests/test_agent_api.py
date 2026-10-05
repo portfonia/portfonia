@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from datetime import datetime, timedelta
 from typing import cast
 from unittest.mock import patch
@@ -762,3 +763,24 @@ def test_notice_sender_reports_delivery_result(success: bool) -> None:
         response = client.return_value.__enter__.return_value.post.return_value
         response.raise_for_status.side_effect = None if success else RuntimeError("provider failed")
         assert send_api_access_notice("agent@example.com", "https://example.com/revoke") is success
+
+
+def test_notice_sender_logs_failure_cause_without_address(caplog: pytest.LogCaptureFixture) -> None:
+    import httpx
+
+    from app.services.email_sender import send_api_access_notice
+
+    logging.getLogger("app.services.email_sender").disabled = False
+    request = httpx.Request("POST", "https://api.resend.com/emails")
+    error = httpx.HTTPStatusError(
+        "agent@example.com rejected", request=request, response=httpx.Response(422, request=request)
+    )
+    with (
+        patch("app.services.email_sender.httpx.Client") as client,
+        caplog.at_level(logging.WARNING, logger="app.services.email_sender"),
+    ):
+        client.return_value.__enter__.return_value.post.return_value.raise_for_status.side_effect = error
+        assert send_api_access_notice("agent@example.com", "https://example.com/revoke") is False
+    messages = [r.getMessage() for r in caplog.records if r.name == "app.services.email_sender"]
+    assert messages == ["API access notice delivery attempt failed: HTTPStatusError status=422"]
+    assert "agent@example.com" not in caplog.text

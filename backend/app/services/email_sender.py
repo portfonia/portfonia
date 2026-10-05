@@ -1135,5 +1135,12 @@ def send_api_access_notice(email: str, revoke_url: str, *, locale: str = "en") -
             )
             response.raise_for_status()
         return True
-    except Exception:
+    except Exception as exc:
+        # Type and HTTP status only: the exception text can carry the address.
+        status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+        logger.warning(
+            "API access notice delivery attempt failed: %s%s",
+            type(exc).__name__,
+            f" status={status}" if status is not None else "",
+        )
         return False
