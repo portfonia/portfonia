@@ -264,7 +264,12 @@ class DeepenRun:
             self.usage.disable(provider, result.status_class)
         if result.status_class != "success":
             with self.lock:
-                self.errors.append(f"{provider} {operation}: {result.status_class}")
+                error = f"{provider} {operation}: {result.status_class}"
+                if result.http_status is not None:
+                    error += f" HTTP {result.http_status}"
+                    if result.detail:
+                        error += f" {result.detail}"
+                self.errors.append(error)
         return provider, result
 
     def _provider(self, wanted: str) -> str | None:
@@ -412,8 +417,11 @@ class DeepenRun:
                     provider: str = chosen,
                     cleaning: CleaningConfig = self.cleaning,
                 ) -> bool:
-                    # A title matching the earnings patterns was already checked above.
-                    if any(p.search(item.title) for p in cleaning.earnings_patterns):
+                    # A title matching the earnings or preview patterns was already checked above.
+                    if any(
+                        p.search(item.title)
+                        for p in cleaning.earnings_patterns + cleaning.preview_patterns
+                    ):
                         return False
                     reason = self.earnings_cache.stale_reason(item, symbol, cleaning, recap=True)
                     if reason == "stale_lookup_failed":
@@ -517,7 +525,6 @@ class DeepenRun:
                     aliases.get(unit.identifier, [unit.identifier]),
                     self.cfg,
                     self.now,
-                    self.previous,
                 )
                 if len(unit.providers) == 2:
                     with self.lock:
@@ -529,7 +536,7 @@ class DeepenRun:
                         candidates,
                         aliases.get(unit.identifier, [unit.identifier]),
                         self.cfg,
-                        self.previous,
+                        self.now,
                     )
                     if not leads and unit.identifier
                     else []

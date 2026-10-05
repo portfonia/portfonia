@@ -584,7 +584,8 @@ allowance share `LATE_INGEST_WINDOW` (48 hours).
 
 Issue #630 gathers all instrument sources before applying the rule chain and
 stably orders candidates by publication time, oldest first. The existing
-Jaccard prefilter still reads the complete 48-hour history. Collection
+Jaccard prefilter reads the complete stored-title comparison window (extended
+to 96 hours by #657 below). Collection
 classification also detects event versions with no new figure, party or stage
 in that same request: `EXISTING` contains up to 100 stored titles, newest
 first, preceded by surviving titles from earlier batches, also newest first.
@@ -677,6 +678,53 @@ only during separately authorized deployment with a current-day backup, together
 Paid deepening and body extraction are added by #621 below; report intelligence
 assembly remains in #622. The hook, in-memory leads, slot details and digest
 builder are their extension points.
+
+### Intel cleanup (issue #657)
+
+`INTEL_GOOGLE_NEWS_ENABLED` defaults to `false`. Instrument collection queries
+Google News only when it is enabled; disabled queries do not count as missing
+company names. The batch report omits Google News when it made no instrument
+requests. Finnhub, Yahoo, SEC and Eastmoney keep their existing behavior. The
+RSS pool's Reuters feed through Google News remains enabled and unchanged.
+No production environment change is required for the new default; setting the
+field to `true` and restarting workers restores instrument Google News queries.
+
+Fresh filing/article counts and `new_filing`/`news_spike` lead and headline
+filters use `NewsInstrument.created_at >= now`, where `now` is this attempt's
+start. Earlier attempts' links no longer count as fresh. Other previous-slot
+uses, including macro fetch times and selection date windows, are unchanged.
+Historical counts can temporarily make news spikes less frequent.
+
+Every unsuccessful Tavily/Parallel HTTP result carries its status and the first
+200 response-body characters after whitespace collapse in the deepening error
+line. These lines persist in `intel_slot_runs.details.deepening.errors` and
+`deepening_errors`. Request headers and credentials are not added. Results
+without an HTTP status keep their existing error lines. The report preserves
+invalid-key and quota/rate wording for those classes; other HTTP failures render
+as `request failed (HTTP <status>)`.
+
+Earnings-preview patterns in `intel_deepen.yml` run before the recap rule, even
+if the classifier marks the title as a recap. The cached dates for the linked
+instrument's Yahoo symbol supply the earliest earnings date on or after the
+ET publication date. A date within 21 calendar days keeps the preview; a later
+date drops it as `stale_rule`. No future date or a lookup failure keeps it and
+counts `stale_lookup_failed` once per headline. Filings bypass the earnings
+check; non-preview titles retain the #653 recap behavior and 14-day limit.
+Both collection and paid search avoid repeating a pre-classifier preview check.
+No classifier prompt change or additional lookup per symbol is introduced.
+
+The Jaccard duplicate comparison reads stored titles back through
+`LATE_INGEST_WINDOW + near_duplicate_hours` (96 hours with current settings).
+Titles linked before this attempt seed `duplicate_earlier`; current-attempt
+links seed `duplicate`. The classifier's stored `EXISTING` context remains
+limited to `near_duplicate_hours` (48 hours), with the existing 100-title cap.
+
+Seven additional low-value patterns reject stock-price/quote pages, latest-news
+index titles, `.US)$` social snippets, class-action notices/deadline alerts,
+leading investor alerts and leading Form 4 headlines. Ordinary class-action
+news and company-specific price moves remain eligible. There is no migration,
+new dependency, stored-headline rewrite, report-generation change or paid-budget
+change in #657.
 
 ### Intel deepening and paid usage
 

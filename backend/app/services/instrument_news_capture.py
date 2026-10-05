@@ -76,9 +76,9 @@ def sources_for(
     zh = profile.name_zh if profile else None
     if entry.market == "US":
         source.append(("finnhub", lambda: fetch_finnhub(entry.ticker, since, until)))
-    if en and entry.market != "A-Share":
+    if get_settings().INTEL_GOOGLE_NEWS_ENABLED and en and entry.market != "A-Share":
         source.append(("google_news", lambda: fetch_google_news(en, "en-US", since, until)))
-    if zh and entry.market in ("HK", "A-Share"):
+    if get_settings().INTEL_GOOGLE_NEWS_ENABLED and zh and entry.market in ("HK", "A-Share"):
         source.append(
             (
                 "google_news",
@@ -129,7 +129,7 @@ def collect_instrument_news(
             .join(NewsInstrument, NewsInstrument.news_id == News.id)
             .where(
                 NewsInstrument.identifier == entry.identifier,
-                News.published_at >= now - timedelta(hours=config.hours),
+                News.published_at >= now - LATE_INGEST_WINDOW - timedelta(hours=config.hours),
                 News.published_at <= now,
             )
         )
@@ -138,7 +138,15 @@ def collect_instrument_news(
     previous = [headline_from_row(row).title for row, linked_at in stored if linked_at >= now]
     stored_recent = [
         headline_from_row(row).title
-        for row, _ in sorted(stored, key=lambda pair: pair[0].published_at, reverse=True)[:100]
+        for row, _ in sorted(
+            [
+                pair
+                for pair in stored
+                if pair[0].published_at >= now - timedelta(hours=config.hours)
+            ],
+            key=lambda pair: pair[0].published_at,
+            reverse=True,
+        )[:100]
     ]
     fetched: list[tuple[str, CollectedItem]] = []
     candidates: list[tuple[str, CollectedItem]] = []
@@ -176,17 +184,21 @@ def collect_instrument_news(
         previous.append(item.title)
         candidates.append((name, item))
     if not p or not p.name_en:
-        if entry.market != "A-Share":
+        if get_settings().INTEL_GOOGLE_NEWS_ENABLED and entry.market != "A-Share":
             result.stats.setdefault("google_news", source_stat())["skipped_no_name"] += 1
         if entry.market not in ("US", "A-Share"):
             result.stats.setdefault("yahoo", source_stat())["skipped_no_name"] += 1
-    if entry.market == "A-Share" and (not p or not p.name_zh):
+    if (
+        get_settings().INTEL_GOOGLE_NEWS_ENABLED
+        and entry.market == "A-Share"
+        and (not p or not p.name_zh)
+    ):
         result.stats.setdefault("google_news", source_stat())["skipped_no_name"] += 1
     labels: dict[int, str] = {}
 
     def recap_is_stale(item: CollectedItem) -> bool:
-        # A title matching the earnings patterns was already checked before the classifier.
-        if any(p.search(item.title) for p in config.earnings_patterns):
+        # A title matching the earnings or preview patterns was already checked before the classifier.
+        if any(p.search(item.title) for p in config.earnings_patterns + config.preview_patterns):
             return False
         reason = earnings_cache.stale_reason(item, entry.ticker, config, recap=True)
         if reason == "stale_lookup_failed":

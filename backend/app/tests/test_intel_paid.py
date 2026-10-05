@@ -37,9 +37,7 @@ def test_06_lead_order_and_domains(db_session: Session) -> None:
             ["reuters.com", "reuters.com", "cnbc.com", "ft.com", "finance.yahoo.com"]
         )
     ]
-    leads = select_leads(
-        db_session, unit, items, ["AAA"], load_intel_deepen_config(), NOW, NOW - timedelta(hours=24)
-    )
+    leads = select_leads(db_session, unit, items, ["AAA"], load_intel_deepen_config(), NOW)
     assert [x.url for x in leads] == [items[0].url, items[2].url]
 
 
@@ -65,7 +63,6 @@ def test_07_finnhub_headers_only(db_session: Session) -> None:
             ["AAA"],
             load_intel_deepen_config(),
             NOW,
-            NOW - timedelta(hours=24),
         )
     assert calls == ["GET"] and leads[0].url == "https://example.com/a"
 
@@ -90,7 +87,6 @@ def test_08_accepted_seven_day_skip(db_session: Session) -> None:
         ["AAA"],
         load_intel_deepen_config(),
         NOW,
-        NOW - timedelta(hours=24),
     )
     assert not select_leads(*args)
     row.fetched_at = NOW - timedelta(days=8)

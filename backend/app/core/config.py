@@ -253,6 +253,7 @@ class Settings(BaseSettings):
     INTEL_COLLECT_BUDGET_POST_CLOSE_S: int = 900
     INTEL_CLASSIFIER_MODEL: str = "openai/gpt-6-luna"
     INTEL_CLASSIFIER_BATCH: int = 100
+    INTEL_GOOGLE_NEWS_ENABLED: bool = False
     FINNHUB_API_KEY: SecretStr | None = None
     # Massive.com (formerly Polygon.io) free tier: US-only EOD aggregates
     # (T-1 onward), no same-day data. Used as a close-node OHLCV fallback.

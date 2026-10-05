@@ -100,7 +100,6 @@ def select_leads(
     aliases: list[str],
     cfg: DeepenConfig,
     now: datetime,
-    previous: datetime,
 ) -> list[Lead]:
     candidates = []
     for item in items:
@@ -116,7 +115,7 @@ def select_leads(
                 select(NewsInstrument.id).where(
                     NewsInstrument.news_id == item.news_id,
                     NewsInstrument.identifier == unit.identifier,
-                    NewsInstrument.created_at > previous,
+                    NewsInstrument.created_at >= now,
                 )
             )
             is None
@@ -162,7 +161,7 @@ def select_headlines(
     items: list[CollectedItem],
     aliases: list[str],
     cfg: DeepenConfig,
-    previous: datetime,
+    now: datetime,
 ) -> list[CollectedItem]:
     candidates = []
     for item in items:
@@ -178,7 +177,7 @@ def select_headlines(
                 select(NewsInstrument.id).where(
                     NewsInstrument.news_id == item.news_id,
                     NewsInstrument.identifier == unit.identifier,
-                    NewsInstrument.created_at > previous,
+                    NewsInstrument.created_at >= now,
                 )
             )
             is None

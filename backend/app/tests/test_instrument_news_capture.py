@@ -152,33 +152,38 @@ def test_acceptance_20_per_instrument_chunks(db_session: Session) -> None:
 
 
 def test_acceptance_25_hk_queries(db_session: Session) -> None:
-    p = profile(db_session, "0700.HK", "HK")
-    p.name_en = "Tencent"
-    p.name_zh = "Tencent Chinese"
-    sources = cap.sources_for(
-        UniverseEntry("0700.HK", "0700.HK", "HK"), p, NOW - timedelta(hours=48), NOW
-    )
-    with (
-        patch.object(cap, "fetch_google_news", return_value=[]) as google,
-        patch.object(cap, "fetch_yahoo", return_value=[]),
-        patch.object(cap, "fetch_eastmoney_ann", return_value=[]),
+    with patch.object(
+        cap,
+        "get_settings",
+        return_value=get_settings().model_copy(update={"INTEL_GOOGLE_NEWS_ENABLED": True}),
     ):
-        for _, fetch in sources:
-            fetch()
-    assert [c.args[1] for c in google.call_args_list] == ["en-US", "zh-HK"]
-    p.name_zh = None
-    assert (
-        len(
-            [
-                s
-                for s, _ in cap.sources_for(
-                    UniverseEntry("0700.HK", "0700.HK", "HK"), p, NOW - timedelta(hours=48), NOW
-                )
-                if s == "google_news"
-            ]
+        p = profile(db_session, "0700.HK", "HK")
+        p.name_en = "Tencent"
+        p.name_zh = "Tencent Chinese"
+        sources = cap.sources_for(
+            UniverseEntry("0700.HK", "0700.HK", "HK"), p, NOW - timedelta(hours=48), NOW
         )
-        == 1
-    )
+        with (
+            patch.object(cap, "fetch_google_news", return_value=[]) as google,
+            patch.object(cap, "fetch_yahoo", return_value=[]),
+            patch.object(cap, "fetch_eastmoney_ann", return_value=[]),
+        ):
+            for _, fetch in sources:
+                fetch()
+        assert [c.args[1] for c in google.call_args_list] == ["en-US", "zh-HK"]
+        p.name_zh = None
+        assert (
+            len(
+                [
+                    s
+                    for s, _ in cap.sources_for(
+                        UniverseEntry("0700.HK", "0700.HK", "HK"), p, NOW - timedelta(hours=48), NOW
+                    )
+                    if s == "google_news"
+                ]
+            )
+            == 1
+        )
 
 
 @pytest.mark.parametrize(
