@@ -318,4 +318,5 @@ def test_638_fallback_sibling_does_not_print_nothing_usable(db_session: Session)
     }
     lines = [line.strip() for line in report(db_session, run)[1].splitlines()]
     assert "AAA (new company filing): Parallel  2 articles kept (headline search)" in lines
+    assert not any(line.startswith("AAA") and "nothing usable" in line for line in lines)
     assert "BBB (new company filing): nothing usable (no usable article found)" in lines
