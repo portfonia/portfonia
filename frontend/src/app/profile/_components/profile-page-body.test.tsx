@@ -183,12 +183,15 @@ describe("ProfilePageBody", () => {
     );
   });
 
-  it("keeps unverified subscription selection and unfinished sections non-interactive", () => {
+  it("keeps unverified subscription selection disabled while allowing account deletion", () => {
     renderBody(BASE_ME);
 
     expect(screen.getByRole("combobox", { name: /report schedule/i })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Delete account" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete account" })).toBeEnabled();
+    // Other unfinished sections retain their existing placeholder.
     expect(screen.getAllByText(/not implemented yet/i).length).toBeGreaterThanOrEqual(1);
+    const danger = screen.getByRole("button", { name: "Delete account" }).closest('[data-slot="card"]');
+    expect(danger).not.toHaveTextContent(/not implemented yet/i);
   });
 
   it("renders the Holdings section with four existing-page links (issue #390)", () => {
@@ -269,7 +272,7 @@ describe("ProfilePageBody", () => {
     // The rest of the page still renders — an empty `missing` doesn't hide
     // anything else.
     expect(screen.getByRole("link", { name: /^portfolio overview$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Delete account" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete account" })).toBeEnabled();
   });
 });
 

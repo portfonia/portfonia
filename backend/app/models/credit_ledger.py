@@ -31,8 +31,9 @@ REASONS = (
     "subscription_return",
     "qa",
     "refund",
+    "relinquish",
 )
-ACTOR_TYPES = ("system", "admin")
+ACTOR_TYPES = ("system", "admin", "user")
 
 
 def _in_list_sql(column: str, values: tuple[str, ...]) -> str:

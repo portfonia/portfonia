@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models.invite import Invite
 from app.models.user import User
+from app.services.user_purge import _normalize_email as _normalize_email
 
 INVITE_REJECTED_MESSAGE = "invalid invite"
 _DEFAULT_TTL = timedelta(days=14)
@@ -52,13 +53,6 @@ class IssuedInvite:
 
 def hash_invite_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
-def _normalize_email(email: str | None) -> str | None:
-    if email is None:
-        return None
-    stripped = email.strip().lower()
-    return stripped or None
 
 
 def create_invite(

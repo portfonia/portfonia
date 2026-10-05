@@ -431,8 +431,7 @@
     "inviteBody": "產生綁定指定電子郵件的邀請連結。",
     "invitePlaceholder": "尚未實作。",
     "deleteAccountHeading": "刪除帳戶",
-    "deleteAccountBody": "終止服務並永久清除您的帳戶資料。",
-    "deleteAccountPlaceholder": "尚未實作。",
+    "deleteAccountBody": "關閉帳戶並清除您的帳戶資料。",
     "errorLoadFailed": "無法載入帳戶資訊。",
     "emailVerificationHeading": "郵箱驗證",
     "emailVerificationBody": "以下郵箱地址正在等待您的確認。如顯示發送失敗，請核對地址後重新發送。",
@@ -493,7 +492,23 @@
       "insufficient_credits": "您的餘額不足。請先在帳戶區域儲值 credits。",
       "no_change": "您的訂閱已採用此設定。",
       "no_subscription": "目前沒有可執行此操作的有效訂閱。"
-    }
+    },
+    "deleteAccountDisclosure": "您的持倉、個人化投資設定與報告將被清除。credits 與交易紀錄基於會計與稅務目的予以保留，並與您的電子郵件地址解除關聯，僅保留該電子郵件地址的單向指紋，用途僅限於防止重複發放註冊贈送的 credits。",
+    "deleteAccountSubscription": "目前的訂閱立即終止，本期未使用的部分不予退還。",
+    "deleteAccountTokens": "您的全部 API token 將被撤銷。",
+    "deleteAccountGift": "您的 {gift_balance} 贈送 credits 也將一併清除。",
+    "deleteAccountReregister": "日後如以同一電子郵件地址重新註冊，需要新的邀請，且不會再獲得註冊贈送的 credits。",
+    "deleteAccountEmailLabel": "輸入您的帳戶電子郵件地址以確認",
+    "deleteAccountContinue": "繼續",
+    "deleteAccountPurchased": "您將放棄購買所得的 {cash_balance} credits（以每個 US$1 購入）。",
+    "deleteAccountRefundable": "其中 {refundable_cash} credits 為近 120 天內購買，仍可退款。如需退款，請在刪除帳戶前聯絡 info@portfonia.com。",
+    "deleteAccountVoluntary": "這是我本人的自主選擇。該金額不予退還，且此操作無法復原。",
+    "deleteAccountSignatureLabel": "再次輸入您的帳戶電子郵件地址，作為簽名確認",
+    "deleteAccountRelinquish": "放棄 {cash_balance} 購買所得的 credits 並刪除帳戶",
+    "deleteAccountBalanceChanged": "您的餘額已有變動，請重新開始。",
+    "deleteAccountInvalidCaptcha": "驗證已失效，請重新開始。",
+    "deleteAccountFailed": "刪除失敗，帳戶未做任何變更，請重試。",
+    "deleteAccountIncomplete": "刪除未能完成，請聯絡 info@portfonia.com。"
   },
   "portfolio": {
     "riskPanel": {
@@ -1301,7 +1316,7 @@
           "heading": "6. 資料保留",
           "body": [
             "只要您的帳戶處於活躍狀態，我們就會保留您的帳戶和持倉資料。部分營運紀錄(例如上傳工作中繼資料)會在較短的保留期後自動清除。您可以隨時申請刪除您的帳戶(見下文「您的權利」)。",
-            "刪除帳戶後，您的持倉、個人化投資設定、報告及其他個人資料將被清除。credits 與交易紀錄會與您的電子郵件地址解除關聯，並基於會計與稅務目的予以保留。"
+            "刪除帳戶後，您的持倉、個人化投資設定、報告、API token、候補名單紀錄及其他個人資料將被清除。credits 與交易紀錄基於會計與稅務目的予以保留，並與您的電子郵件地址解除關聯，僅保留該電子郵件地址的單向指紋，用途僅限於防止重複發放註冊贈送的 credits。"
           ]
         },
         {
@@ -1313,7 +1328,7 @@
         {
           "heading": "8. 您的權利",
           "body": [
-            "您可以直接在本服務中檢視與更新您的持倉及個人資料。您可以聯絡我們申請刪除帳戶；刪除將依「資料保留」一節所述，清除您的持倉、個人化投資設定及身分驗證帳戶。"
+            "您可以直接在本服務中檢視與更新您的持倉及個人資料。您可以在個人資料頁面自行刪除帳戶，也可以聯絡我們代為刪除；刪除將依「資料保留」一節所述，清除您的持倉、個人化投資設定及身分驗證帳戶。"
           ]
         },
         {

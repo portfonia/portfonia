@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Me, SubscriptionType } from "@/lib/api";
 import { REPORT_LANGUAGES, type ReportLanguage } from "@/locales";
+import { DeleteAccountDialog } from "./delete-account-dialog";
 import { PendingVerificationsList } from "./pending-verifications-list";
 import { CreditPurchase } from "./credit-purchase";
 import { useReportCurrency } from "./use-report-currency";
@@ -413,18 +414,14 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
       {/* Issue #269 §5: GitHub-style danger zone — thin red border only, no
           fill. Distinct from the pink-fill urgency treatment above:
           "destructive, be careful" vs "complete this soon". Section itself
-          unchanged (button still disabled, still a placeholder per #220
-          requirement 8). */}
+          enables the self-service deletion flow (issue #644). */}
       <Card variant="danger">
         <CardHeader>
           <CardTitle>{t("deleteAccountHeading")}</CardTitle>
           <CardDescription>{t("deleteAccountBody")}</CardDescription>
         </CardHeader>
         <CardContent className="px-4">
-          <Button variant="destructive" disabled>
-            {t("deleteAccountHeading")}
-          </Button>
-          <p className="mt-2 text-sm text-muted-foreground">{t("deleteAccountPlaceholder")}</p>
+          <DeleteAccountDialog email={me.email} />
         </CardContent>
       </Card>
 
