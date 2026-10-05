@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from app.core.agent_audit import cleanup_api_audit
 from app.core.operational_events import cleanup_expired_events
 from app.services.email_sender import send_ops_alert
 from app.tasks import celery_app
@@ -38,7 +39,8 @@ def cleanup_operational_events(self: Any) -> dict[str, int]:
     try:
         deleted = cleanup_expired_events(session)
         logger.info("cleanup_operational_events: deleted %d expired row(s)", deleted)
-        return {"deleted": deleted}
+        api_audit_deleted = cleanup_api_audit(session)
+        return {"deleted": deleted, "api_audit_deleted": api_audit_deleted}
     except Exception as exc:
         logger.exception("cleanup_operational_events: failed, scheduling retry")
         if self.request.retries >= self.max_retries:

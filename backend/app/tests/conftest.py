@@ -228,6 +228,13 @@ def _no_external_notifications(monkeypatch: pytest.MonkeyPatch) -> None:
     that only shadows this default for the duration of the `with` block.
     """
     monkeypatch.setattr(
+        "app.tasks.notification_tasks.send_api_access_notice_task.delay", MagicMock()
+    )
+    monkeypatch.setattr(
+        "app.tasks.notification_tasks.send_api_access_notice",
+        MagicMock(return_value=True),
+    )
+    monkeypatch.setattr(
         "app.services.subscription.send_subscription_notice",
         MagicMock(return_value="test-provider-id"),
     )

@@ -9,9 +9,13 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.core.agent_audit import audit_agent_request
 from app.core.config import get_settings
 from app.routers import (
     admin,
+    agent,
+    api_token_revoke,
+    api_tokens,
     auth,
     email_verification,
     holdings,
@@ -48,6 +52,8 @@ app = FastAPI(
     docs_url="/docs" if settings.APP_ENV != "production" else None,
 )
 
+app.middleware("http")(audit_agent_request)
+
 # The Next.js UI calls this API from a separate origin (FRONTEND_URL). Without
 # CORS the browser blocks those requests. Scoped to the configured frontend
 # origin only — not a wildcard.
@@ -59,6 +65,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(api_token_revoke.router, prefix="/api-tokens", tags=["api-tokens"])
+app.include_router(agent.router, prefix="/agent/v1", tags=["agent"])
 app.include_router(holdings.router, prefix="/holdings", tags=["holdings"])
 app.include_router(portfolio.router, prefix="/portfolio", tags=["portfolio"])
 app.include_router(reports.router, prefix="/reports", tags=["reports"])
@@ -72,6 +80,7 @@ app.include_router(
     investment_context.router, prefix="/investment-context", tags=["investment-context"]
 )
 app.include_router(me.router, prefix="/me", tags=["me"])
+app.include_router(api_tokens.router, prefix="/me", tags=["api-tokens"])
 app.include_router(payments.router, prefix="/payments", tags=["payments"])
 app.include_router(paddle_webhooks.router, prefix="/webhooks", tags=["webhooks"])
 app.include_router(

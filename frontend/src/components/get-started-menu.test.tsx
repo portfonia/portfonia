@@ -156,7 +156,7 @@ describe("GetStartedMenu", () => {
   });
 
   describe("logged out (R4)", () => {
-    it("offers exactly one entry — Log in — with no holdings, signup or account rows", async () => {
+    it("offers Log in and AI Agent with no holdings, signup or account rows", async () => {
       getUser.mockResolvedValue({ data: { user: null } });
       const user = userEvent.setup();
       renderMenu();
@@ -164,6 +164,7 @@ describe("GetStartedMenu", () => {
 
       const menu = screen.getByRole("menu");
       expect(menu.textContent).toContain("Log in");
+      expect(menu.textContent).toContain("AI Agent");
       expect(menu.textContent).not.toContain("Holdings");
       expect(menu.textContent).not.toContain("Sign up");
       expect(menu.textContent).not.toContain("Log out");
@@ -483,4 +484,12 @@ it("acceptance_19 Reports is available only to authenticated users", async () =>
   expect(screen.getByRole("menuitem", { name: "Reports" })).toHaveAttribute("href", "/reports");
   view.unmount(); __resetSessionSignalsForTests(); getUser.mockResolvedValue({ data: { user: null } }); renderMenu(); await openMenu(user);
   expect(screen.queryByRole("menuitem", { name: "Reports" })).not.toBeInTheDocument(); vi.unstubAllGlobals();
+});
+
+it.each([false, true])("acceptance_16 AI Agent menu is available (authed=%s)", async (authed) => {
+  getUser.mockResolvedValue({ data: { user: authed ? { email: "agent@example.com" } : null } });
+  const user = userEvent.setup();
+  renderMenu();
+  await openMenu(user);
+  expect(screen.getByRole("menuitem", { name: "AI Agent" })).toHaveAttribute("href", "/agent");
 });

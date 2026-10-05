@@ -11,6 +11,8 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.models.account import Account
+from app.models.api_audit_log import ApiAuditLog
+from app.models.api_token import ApiToken
 from app.models.credit_ledger import CreditLedgerEntry
 from app.models.email_verification import EmailVerification
 from app.models.holding import Holding
@@ -24,6 +26,8 @@ from app.models.user_investment_context import UserInvestmentContext
 
 @dataclass(frozen=True)
 class PurgeResult:
+    api_audit_log: int
+    api_tokens: int
     news_surfaced: int
     reports: int
     holdings: int
@@ -43,6 +47,17 @@ def _rowcount(result: CursorResult[Any]) -> int:
 
 def purge_user(session: Session, user_id: UUID) -> PurgeResult:
     """Delete one user's own rows. Caller commits. HTTP refusals stay in the router."""
+    api_audit_log = _rowcount(
+        cast(
+            CursorResult[Any],
+            session.execute(delete(ApiAuditLog).where(ApiAuditLog.user_id == user_id)),
+        )
+    )
+    api_tokens = _rowcount(
+        cast(
+            CursorResult[Any], session.execute(delete(ApiToken).where(ApiToken.user_id == user_id))
+        )
+    )
     news_surfaced = _rowcount(
         cast(
             CursorResult[Any],
@@ -120,6 +135,8 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
         cast(CursorResult[Any], session.execute(delete(User).where(User.id == user_id)))
     )
     return PurgeResult(
+        api_audit_log=api_audit_log,
+        api_tokens=api_tokens,
         news_surfaced=news_surfaced,
         reports=reports,
         holdings=holdings,

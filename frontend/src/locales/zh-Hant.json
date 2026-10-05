@@ -16,7 +16,8 @@
     "questionnaire": "投資風格",
     "sessionExpired": "由於 {minutes} 分鐘內無操作，登入已結束。",
     "editHoldings": "編輯持倉",
-    "reports": "報告"
+    "reports": "報告",
+    "agent": "AI 智能體"
   },
   "auth": {
     "loginHeading": "登入",
@@ -1160,7 +1161,7 @@
     "resellerNotice": "我們的訂單流程由線上經銷商 Paddle.com 執行。Paddle.com 是我們所有訂單的記錄商戶（Merchant of Record），負責處理所有客戶服務詢問及退貨。",
     "terms": {
       "title": "服務條款",
-      "lastUpdated": "最後更新：2026-10-01",
+      "lastUpdated": "最後更新：2026-10-04",
       "intro": "本服務條款規範您對 Portfonia 的使用。請與我們的隱私政策及退款政策一併閱讀。",
       "sections": [
         {
@@ -1205,7 +1206,8 @@
         {
           "heading": "6. 可接受使用",
           "body": [
-            "您同意不濫用本服務——包括但不限於嘗試存取其他使用者的資料、干擾本服務的正常運作，或利用本服務的輸出內容建構競爭性產品。"
+            "您同意不濫用本服務——包括但不限於嘗試存取其他使用者的資料、干擾本服務的正常運作，或利用本服務的輸出內容建構競爭性產品。",
+            "API token 讓您選擇的軟體讀取您的資料。請對 token 保密；您應對取得您 token 的智能體負責。Portfonia 會實施 AI 智能體頁面所述的存取頻率限制，並可能撤銷 token，以保護您的帳戶或本服務。"
           ]
         },
         {
@@ -1255,7 +1257,7 @@
     },
     "privacy": {
       "title": "隱私政策",
-      "lastUpdated": "最後更新：2026-10-01",
+      "lastUpdated": "最後更新：2026-10-04",
       "intro": "我們重視您的隱私。本政策說明我們收集哪些資訊、為何收集，以及如何保護這些資訊。",
       "sections": [
         {
@@ -1303,37 +1305,43 @@
           ]
         },
         {
-          "heading": "7. 您的權利",
+          "heading": "7. AI 智能體存取",
+          "body": [
+            "如果您建立 API token，我們會儲存其單向雜湊值，以及名稱、建立時間、到期時間和上次使用時間。每次透過 token 發起的請求都會記錄時間、所用 token、請求的端點與日期、結果，以及呼叫者的 IP 位址和 User-Agent。我們將這些紀錄保留 90 天，以保護您的帳戶並識別濫用。透過 API 讀取您的持倉快照時，我們每天最多寄送一封提示郵件，其中的連結可撤銷您的全部 token。API 回傳的資料會交付給您選擇的智能體；該智能體如何儲存或使用資料，由您掌控。"
+          ]
+        },
+        {
+          "heading": "8. 您的權利",
           "body": [
             "您可以直接在本服務中檢視與更新您的持倉及個人資料。您可以聯絡我們申請刪除帳戶；刪除將依「資料保留」一節所述，清除您的持倉、個人化投資設定及身分驗證帳戶。"
           ]
         },
         {
-          "heading": "8. Cookie 與工作階段",
+          "heading": "9. Cookie 與工作階段",
           "body": [
             "我們使用工作階段 Cookie 來維持您的登入狀態，並在閒置一段時間後強制自動登出。我們不使用第三方廣告或追蹤 Cookie。"
           ]
         },
         {
-          "heading": "9. 兒童隱私",
+          "heading": "10. 兒童隱私",
           "body": [
             "本服務不針對也不會在知情情況下被 18 歲以下人士使用。我們不會在知情情況下收集未成年人的資訊。"
           ]
         },
         {
-          "heading": "10. 適用法律",
+          "heading": "11. 適用法律",
           "body": [
             "我們依照適用於我們的資料保護法律處理個人資料，包括在適用情況下您所在國家的相關法律。"
           ]
         },
         {
-          "heading": "11. 政策變更",
+          "heading": "12. 政策變更",
           "body": [
             "我們可能隨著服務的發展更新本隱私政策。重大變更將在本頁面註明更新生效日期。"
           ]
         },
         {
-          "heading": "12. 聯絡我們",
+          "heading": "13. 聯絡我們",
           "body": [
             "有關本隱私政策的問題，或與您資料相關的請求，請寄送電子郵件至 info@portfonia.com。"
           ]
@@ -1469,6 +1477,51 @@
       "manual": "手動",
       "report": "報告",
       "daily": "每日"
+    }
+  },
+  "agent": {
+    "title": "AI 智能體",
+    "intro": "您自己的 AI 智能體可以透過個人 API token 讀取完整的每日持倉快照。存取快照需要進階方案。",
+    "limitsTitle": "存取限制與提示",
+    "limits": "所有 token 共用存取額度：每個端點每小時最多 20 次請求。一分鐘內超過 10 次請求，會鎖定 token 存取 15 分鐘。被拒絕的請求會回傳 Retry-After，告知智能體何時可以重試。",
+    "quiet": "重型排程任務執行前後會暫停請求，從排定時間前五分鐘開始，持續至任務結束後至少五分鐘。",
+    "notice": "透過 API 讀取您的持倉快照時，我們每個美東日最多寄送一封提示郵件。如果您沒有要求此次存取，郵件中的連結可立即撤銷您的全部 API token，無需登入或確認。",
+    "signIn": "登入",
+    "signInNote": "後可管理您的 API token。",
+    "settingsTitle": "Token 設定",
+    "tokenRule": "最多可有 5 把有效 token。連續 60 天未使用的 token 會自動失效。",
+    "name": "Token 名稱",
+    "expiry": "到期日期（選填）",
+    "expiryNote": "留空表示不設到期日期。所選日期必須晚於美東時間今天，存取權限將在該日美東時間 23:59:59 到期。",
+    "create": "建立 token",
+    "tokenLimit": "您已有 5 把有效 token。請先撤銷一把，再建立新的 token。",
+    "error": "無法完成請求，請重試。",
+    "copyError": "複製失敗，請自行選取並複製 token。",
+    "showOnce": "請立即複製並妥善保管此 token。它只顯示這一次。",
+    "copy": "複製 token",
+    "copied": "已複製",
+    "hide": "隱藏 token",
+    "loading": "正在載入 token…",
+    "empty": "您還沒有 token。",
+    "revoke": "撤銷",
+    "created": "建立時間",
+    "lastUsed": "上次使用",
+    "expires": "到期時間",
+    "never": "從未使用",
+    "noExpiry": "不設到期日期",
+    "revokeTitle": "撤銷 token？",
+    "revokeBody": "Token「{name}」將立即失效。",
+    "cancel": "取消",
+    "confirmRevoke": "確認撤銷",
+    "statuses": {
+      "active": "有效",
+      "expired": "已到期",
+      "expired_unused": "連續 60 天未使用，已失效"
+    },
+    "revokePage": {
+      "pending": "正在撤銷 API token 存取權限…",
+      "success": "您帳戶的全部 API token 存取權限已撤銷。",
+      "failure": "此連結無效或已過期。請登入後在 AI 智能體頁面管理您的 token。"
     }
   }
 }

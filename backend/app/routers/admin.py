@@ -46,6 +46,7 @@ from app.core.rate_limit import (
     release_report_resend_cooldown,
 )
 from app.core.timezones import ET, today_et
+from app.models.api_audit_log import ApiAuditLog
 from app.models.email_verification import EmailVerification
 from app.models.holding import Holding
 from app.models.invite import Invite
@@ -55,9 +56,11 @@ from app.models.report_job import ReportJob
 from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
 from app.models.waitlist_entry import WaitlistEntry
+from app.schemas.agent import ApiAuditOut, ApiAuditPage, RevokedTokensOut
 from app.schemas.holdings import VALID_CURRENCIES
 from app.schemas.reports import GenerateReportRequest, ReportJobOut
 from app.services import fx_fetcher, price_fetcher
+from app.services.api_tokens import revoke_all as revoke_all_api_tokens
 from app.services.auth_provider import (
     AuthProviderError,
     AuthUserInfo,
@@ -1031,6 +1034,8 @@ def rerun_report_for_user(
 
 
 class PurgeDeletedCounts(BaseModel):
+    api_audit_log: int
+    api_tokens: int
     news_surfaced: int
     reports: int
     holdings: int
@@ -1045,6 +1050,8 @@ class PurgeDeletedCounts(BaseModel):
 
 
 _NO_LOCAL_ROWS = PurgeDeletedCounts(
+    api_audit_log=0,
+    api_tokens=0,
     news_surfaced=0,
     reports=0,
     holdings=0,
@@ -1163,6 +1170,8 @@ def _purge_local_user(session: Session, user: User, confirm: str | None) -> Purg
         email=email,
         auth_deleted=auth_deleted,
         deleted=PurgeDeletedCounts(
+            api_audit_log=result.api_audit_log,
+            api_tokens=result.api_tokens,
             news_surfaced=result.news_surfaced,
             reports=result.reports,
             holdings=result.holdings,
@@ -1922,3 +1931,37 @@ def delete_ticker_leverage_endpoint(ticker: str, session: Session = Depends(get_
     except LookupError:
         raise HTTPException(status_code=404, detail="ticker leverage override not found") from None
     session.commit()
+
+
+@router.get("/users/{user_id}/api-audit", response_model=ApiAuditPage)
+def read_api_audit(
+    user_id: UUID, start: date, end: date, session: Session = Depends(get_session)
+) -> ApiAuditPage:
+    if session.get(User, user_id) is None:
+        raise HTTPException(404, "user not found")
+    if start > end or (end - start).days > 30:
+        raise HTTPException(422, "range must be ordered and not exceed 31 days")
+    beginning = datetime.combine(start, datetime.min.time(), tzinfo=ET)
+    ending = datetime.combine(end + timedelta(days=1), datetime.min.time(), tzinfo=ET)
+    rows = session.scalars(
+        select(ApiAuditLog)
+        .where(
+            ApiAuditLog.user_id == user_id,
+            ApiAuditLog.occurred_at >= beginning,
+            ApiAuditLog.occurred_at < ending,
+        )
+        .order_by(ApiAuditLog.occurred_at.desc(), ApiAuditLog.id.desc())
+        .limit(1001)
+    ).all()
+    return ApiAuditPage(
+        rows=[ApiAuditOut.model_validate(row) for row in rows[:1000]], truncated=len(rows) > 1000
+    )
+
+
+@router.post("/users/{user_id}/api-tokens/revoke-all", response_model=RevokedTokensOut)
+def revoke_api_tokens(user_id: UUID, session: Session = Depends(get_session)) -> RevokedTokensOut:
+    if session.get(User, user_id) is None:
+        raise HTTPException(404, "user not found")
+    count = revoke_all_api_tokens(session, user_id, "ops")
+    session.commit()
+    return RevokedTokensOut(revoked_count=count)

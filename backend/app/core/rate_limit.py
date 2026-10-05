@@ -98,6 +98,8 @@ class CounterBackend(Protocol):
     def ttl(self, key: str) -> int: ...
     def set_nx(self, key: str, ttl_seconds: int) -> bool: ...
     def delete(self, key: str) -> None: ...
+    def set_ttl(self, key: str, ttl_seconds: int) -> None: ...
+    def any_key(self, prefix: str) -> bool: ...
 
 
 class InMemoryBackend:
@@ -147,6 +149,13 @@ class InMemoryBackend:
     def delete(self, key: str) -> None:
         self._data.pop(key, None)
 
+    def set_ttl(self, key: str, ttl_seconds: int) -> None:
+        self._data[key] = (1, self._now + ttl_seconds)
+
+    def any_key(self, prefix: str) -> bool:
+        self._purge()
+        return any(key.startswith(prefix) for key in self._data)
+
 
 class RedisBackend:
     def __init__(self, client: Redis) -> None:
@@ -184,6 +193,18 @@ class RedisBackend:
     def delete(self, key: str) -> None:
         try:
             self._client.delete(key)
+        except RedisError as exc:
+            raise RateLimitUnavailable from exc
+
+    def set_ttl(self, key: str, ttl_seconds: int) -> None:
+        try:
+            self._client.set(key, "1", ex=ttl_seconds)
+        except RedisError as exc:
+            raise RateLimitUnavailable from exc
+
+    def any_key(self, prefix: str) -> bool:
+        try:
+            return next(self._client.scan_iter(match=prefix + "*", count=100), None) is not None
         except RedisError as exc:
             raise RateLimitUnavailable from exc
 

@@ -8,7 +8,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_session
@@ -18,8 +17,6 @@ from app.core.rate_limit import (
     rate_limit_snapshot_export,
     release_portfolio_overview_cooldown,
 )
-from app.core.timezones import today_et
-from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
 from app.models.user import User
 from app.schemas.portfolio import (
     AllocationOut,
@@ -43,9 +40,7 @@ from app.schemas.portfolio import (
     RiskLabelOut,
     RiskVolSeriesOut,
     SendOverviewResponse,
-    SnapshotDayOut,
     SnapshotExportOut,
-    SnapshotHoldingOut,
 )
 from app.services import subscription
 from app.services.portfolio_calculator import compute_portfolio
@@ -55,8 +50,9 @@ from app.services.portfolio_export import (
     render_portfolio_export_md,
     render_portfolio_export_xlsx,
 )
-from app.services.portfolio_performance import _complete_batch_dates, compute_portfolio_performance
+from app.services.portfolio_performance import compute_portfolio_performance
 from app.services.portfolio_risk import compute_portfolio_risk
+from app.services.portfolio_snapshot_export import export_snapshot_range
 from app.services.user_scope import report_currency_for
 from app.tasks.notification_tasks import send_portfolio_overview_email_task
 
@@ -129,36 +125,7 @@ def export_snapshots(
     principal: Principal = Depends(current_principal),
     session: Session = Depends(get_session),
 ) -> SnapshotExportOut:
-    if start > end:
-        raise HTTPException(status_code=422, detail="start must not be after end")
-    if end > today_et():
-        raise HTTPException(status_code=422, detail="end must not be in the future")
-    if (end - start).days > 29:
-        raise HTTPException(status_code=422, detail="range must not exceed 30 days")
-
-    dates = _complete_batch_dates(session, principal.user_id, start, end)
-    by_date: dict[date, list[PortfolioValueSnapshot]] = {day: [] for day in dates}
-    if dates:
-        rows = session.scalars(
-            select(PortfolioValueSnapshot).where(
-                PortfolioValueSnapshot.user_id == principal.user_id,
-                PortfolioValueSnapshot.snapshot_date.in_(dates),
-            )
-        )
-        for row in rows:
-            by_date[row.snapshot_date].append(row)
-
-    days = []
-    for day, day_rows in by_date.items():
-        day_rows.sort(key=lambda row: (row.ticker or row.fund_code or "", str(row.holding_id)))
-        days.append(
-            SnapshotDayOut(
-                date=day,
-                base_currency=day_rows[0].base_currency if day_rows else None,
-                holdings=[SnapshotHoldingOut.model_validate(row) for row in day_rows],
-            )
-        )
-    return SnapshotExportOut(start=start, end=end, days=days)
+    return export_snapshot_range(session, principal.user_id, start, end)
 
 
 @router.get("/risk", response_model=PortfolioRiskResponse)
