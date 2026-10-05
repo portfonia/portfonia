@@ -69,10 +69,9 @@ holdings:
     - "HBM"
 
 # Entity/company-name aliases (issue #128 quality gate, PR #167 review round
-# 2). A STRICT SUBSET of `holdings` above, scoped to a different consumer:
-# `cross_name_intel.clusters_for_user`'s leak guard, which asks "does this
-# prose NAME an identifier the reader does not hold" — not "is this article
-# relevant to that holding". The two questions have different tolerance for
+# 2). A STRICT SUBSET of `holdings` above, scoped to consumers that ask
+# "does this text NAME an identifier" — not "is this article relevant to
+# that holding". The two questions have different tolerance for
 # false positives. `holdings` above deliberately mixes real entity/company
 # names ("Micron", "TSMC") with theme/technology recall tokens ("gold",
 # "lithography", "HBM", "Nasdaq", "S&P 500") to cast a wide RECALL net; a

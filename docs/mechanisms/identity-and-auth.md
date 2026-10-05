@@ -23,7 +23,9 @@ constraints and structural writing rules. B1 closes that gap.
 - **Injection order is compliance -> framework -> shared body rules**, each
   layer explicitly subordinate to the one before it — `_build_pass2_system()`
   / `_build_assembly_system()` (`report_prompts.py` / `report_assembly.py`)
-  compose this fresh on every call. These became **functions, not module
+  compose this fresh on every call (issue #640 removed
+  `report_assembly.py` and `_build_assembly_system()`; only the Pass 2
+  composition remains). These became **functions, not module
   constants** — the pre-B1 `_PASS2_SYSTEM`/`_ASSEMBLY_SYSTEM` were frozen at
   import time, which would never pick up a config edit in a long-lived
   Celery worker process. Both call the same `load_analysis_framework()` —
@@ -50,7 +52,7 @@ constraints and structural writing rules. B1 closes that gap.
   evidence-strength scoring mechanism exists yet; tracked in issue #173.
 - **§2 Macro Signals rewrite** (same PR, product owner's explicit ask):
   `_SECTION2_INSTRUCTIONS` (`report_prompts.py`) and the inline §2 block in
-  `report_assembly.py` changed from "cover every triggered macro theme
+  `report_assembly.py` (removed by issue #640) changed from "cover every triggered macro theme
   under a rigid bold 'Impact on this portfolio' sub-heading with forced
   short/medium/long-term sub-bullets" to "select 2-4 themes with genuine
   evidenced change this period, write each as one flowing paragraph, let
@@ -762,7 +764,8 @@ never the sole source of the analytical framing — §1.4).
   — a PR #212 review bug finding: the original implementation only wired
   this into the Pass 2 fallback branch, so an assembled report silently
   ignored investor preferences entirely. `_PROMPT_VERSION` bumped to
-  `f2-v9`, `ASSEMBLY_PROMPT_VERSION` to `a4-v4`.
+  `f2-v9`, `ASSEMBLY_PROMPT_VERSION` to `a4-v4`. Issue #640 removed the
+  assembly path; the block now reaches the model only through Pass 2.
 - **Audit snapshot, not injection content**: `generate_report` and
   `regenerate_report` load investor preferences **once, before** the
   assembly/Pass 2 split, and write the full closed-enum answer set into
@@ -773,7 +776,8 @@ never the sole source of the analytical framing — §1.4).
   folded into that snapshot dict** — but this is narrower than "free_text
   never reaches `report_inputs`": it inevitably still appears inside the
   stored `pass2_prompt`/`assembly_prompt` text once injected, the same way
-  holdings names and values already do. What the exclusion actually buys is
+  holdings names and values already do (only `pass2_prompt` since issue
+  #640 removed assembly). What the exclusion actually buys is
   that free_text does not ALSO exist as its own plainly-labeled,
   individually queryable key that a broad `report_inputs` scan/export could
   pull in bulk across every report — it stays embedded in one long

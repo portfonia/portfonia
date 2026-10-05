@@ -12,8 +12,8 @@
 # every report — bump it whenever `text` changes by even one word, so two
 # reports written under different philosophy text are distinguishable after
 # the fact. `text` is injected verbatim between the compliance prefix and the
-# shared body rules (report_prompts._build_pass2_system /
-# report_assembly._build_assembly_system) — English only, this is the
+# shared body rules (report_prompts._build_pass2_system) — English only,
+# this is the
 # reasoning layer (see CLAUDE.md "reason in EN, render in OUTPUT_LANG").
 #
 # Reloaded fresh on every call (app.services.analysis_framework.

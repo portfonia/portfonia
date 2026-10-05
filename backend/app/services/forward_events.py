@@ -33,12 +33,9 @@ logger = logging.getLogger(__name__)
 _FRED_BASE = "https://api.stlouisfed.org/fred/release/dates"
 
 # How far ahead a scheduled event counts as "current": the horizon §2.5
-# renders (report_generator) and the horizon the L2 shared macro-event cache
-# analyzes (macro_event_intel) MUST be the same number, or L2 spends
-# inferences on events no report shows — or worse, misses ones it does. It
-# lives here, next to the table both sides read, rather than being copied
-# into each. The capture task deliberately fetches a WIDER horizon than this
-# so the read is always fully populated.
+# renders (report_generator). It lives here, next to the table it reads. The
+# capture task deliberately fetches a WIDER horizon than this so the read is
+# always fully populated.
 FORWARD_WINDOW_DAYS = 10
 
 # FRED release_id -> friendly macro release name (US scheduled data releases).
@@ -179,13 +176,9 @@ def persist_forward_events(session: Session, events: list[ForwardEventData]) -> 
 def load_forward_events(session: Session, start: date, end: date) -> list[dict[str, str]]:
     """Forward events scheduled in [start, end], soonest first (for the report).
 
-    `id` is included (issue #128 A3) because the L2 shared macro-event cache
-    keys a scheduled event as `fwd:<id>` — the row's own primary key, stable
-    across captures since `persist_forward_events` upserts on
-    `uq_forward_events_key`. It is carried here rather than fetched by a
-    second, separately-written query so the events A3 analyzes and the events
-    §2.5 renders can never be two divergent sets. The report renderers read
-    by key and ignore it.
+    `id` is the row's own primary key, stable across captures since
+    `persist_forward_events` upserts on `uq_forward_events_key`. The report
+    renderers read by key and ignore it.
     """
     rows = (
         session.execute(

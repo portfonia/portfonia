@@ -37,8 +37,8 @@ class InvestorPreferences:
     (app/models/user_investment_context.py).
 
     This is a narrower guarantee than "free_text never reaches
-    report_inputs" — it inevitably does, inside the stored `pass2_prompt`/
-    `assembly_prompt` text once injected, the same way holdings names and
+    report_inputs" — it inevitably does, inside the stored `pass2_prompt`
+    text once injected, the same way holdings names and
     values already do. What the exclusion actually buys: free_text does not
     ALSO exist as its own plainly-labeled, individually queryable key
     (`investor_questionnaire_snapshot.free_text`) that a broad `report_

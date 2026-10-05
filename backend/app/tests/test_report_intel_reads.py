@@ -5,12 +5,8 @@ from unittest.mock import MagicMock, patch
 
 from sqlalchemy.orm import Session
 
-from app.models.cross_name_intel import CrossNameIntel
 from app.models.intel import IntelSlotRun
-from app.models.macro_event_intel import MacroEventIntel
 from app.models.paid_intel import IntelArticle, IntelArticleLink
-from app.models.ticker_intel import TickerIntel
-from app.services import cross_name_intel, macro_event_intel, ticker_intel
 from app.services import report_generator as rg
 from app.services.report_context import ReportContext
 from app.services.report_generator import _load_report_articles
@@ -47,81 +43,6 @@ def _article(
     db_session.add(
         IntelArticleLink(article_id=article.id, identifier=identifier, theme=theme, role="mover")
     )
-
-
-def test_read_l1_ignores_missing_and_null_or_old_versions(db_session: Session) -> None:
-    trade_date = date(2026, 9, 30)
-    db_session.add_all(
-        [
-            TickerIntel(
-                identifier="NVDA",
-                trade_date=trade_date,
-                prompt_version=ticker_intel._PROMPT_VERSION,
-                model="test",
-                analysis="fresh",
-                attempt_count=1,
-                facts={},
-            ),
-            TickerIntel(
-                identifier="TSM",
-                trade_date=trade_date,
-                prompt_version=ticker_intel._PROMPT_VERSION,
-                model="test",
-                analysis=None,
-                attempt_count=1,
-                facts={},
-            ),
-            TickerIntel(
-                identifier="OLD",
-                trade_date=trade_date,
-                prompt_version="old",
-                model="test",
-                analysis="stale",
-                attempt_count=1,
-                facts={},
-            ),
-        ]
-    )
-    db_session.flush()
-
-    assert ticker_intel.read_l1_intel(db_session, ["NVDA", "TSM", "OLD"], trade_date) == {
-        "NVDA": "fresh"
-    }
-
-
-def test_read_l2_and_l3_are_read_only_cache_reads(db_session: Session) -> None:
-    trade_date = date(2026, 9, 30)
-    db_session.add(
-        MacroEventIntel(
-            event_key="theme:rates",
-            trade_date=trade_date,
-            prompt_version=macro_event_intel._PROMPT_VERSION,
-            model="test",
-            analysis="rates analysis",
-            attempt_count=1,
-            affected_asset_classes=["STOCK"],
-            facts={},
-        )
-    )
-    db_session.add(
-        CrossNameIntel(
-            trade_date=trade_date,
-            prompt_version=cross_name_intel._PROMPT_VERSION,
-            input_fingerprint="fp",
-            model="test",
-            clusters=[{"identifiers": ["NVDA", "TSM"]}],
-            attempt_count=1,
-            facts={},
-        )
-    )
-    db_session.flush()
-
-    assert macro_event_intel.read_l2_intel(db_session, ["theme:rates"], trade_date) == {
-        "theme:rates": {"analysis": "rates analysis", "affected_asset_classes": ["STOCK"]}
-    }
-    assert cross_name_intel.read_day_synthesis(db_session, trade_date) == [
-        {"identifiers": ["NVDA", "TSM"]}
-    ]
 
 
 def test_report_articles_are_windowed_capped_and_user_scoped(db_session: Session) -> None:
@@ -268,12 +189,8 @@ def test_acceptance_01_generate_report_uses_only_scheduled_intel(db_session: Ses
             "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
         ),
         patch("app.services.report_generator.intel_trade_date", return_value=_TODAY),
-        patch("app.services.report_generator.read_l1_intel", return_value={"NVDA": "fact"}),
-        patch("app.services.report_generator.read_l2_intel", return_value={}),
-        patch("app.services.report_generator.read_day_synthesis", return_value=[]),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm) as llm,
-        patch("app.services.report_generator._run_tavily_search") as search,
     ):
         from app.tests.conftest import seed_user
         from app.tests.test_report_generator import _USER
@@ -281,7 +198,6 @@ def test_acceptance_01_generate_report_uses_only_scheduled_intel(db_session: Ses
         seed_user(db_session, _USER)
         report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
     assert report.status == "success"
-    assert search.call_count == 0
     assert llm.call_count == 1
 
 
@@ -289,8 +205,8 @@ def test_acceptance_02_uses_latest_completed_post_close_slot(db_session: Session
     from app.services.report_generator import intel_trade_date
 
     # 2026-10-01 Thu, 10-02 Fri, 10-03 Sat, 10-04 Sun, 10-05 Mon. Weekend
-    # post_close runs exist (slots run daily) but compute no L1/L2/L3, so a
-    # weekend report must fall back to the latest completed weekday run.
+    # post_close runs exist (slots run daily) but are not considered, so a
+    # weekend report falls back to the latest completed weekday run.
     def _run(day: int, status: str) -> IntelSlotRun:
         return IntelSlotRun(
             slot="post_close",
@@ -524,12 +440,6 @@ def test_acceptance_07_next_window_does_not_reuse_prior_surfaced_news(db_session
     assert db_session.query(NewsSurfaced).count() == 1
 
 
-def test_acceptance_08_missing_l1_row_makes_no_llm_call(db_session: Session) -> None:
-    with patch("app.services.ticker_intel._call_llm") as llm:
-        assert ticker_intel.read_l1_intel(db_session, ["MISSING"], date(2026, 9, 30)) == {}
-    llm.assert_not_called()
-
-
 def test_acceptance_09_footer_locales_are_source_free() -> None:
     portfolio = {
         "base_currency": "USD",
@@ -583,14 +493,6 @@ def test_acceptance_11_background_research_is_long_and_versioned() -> None:
 
 def test_acceptance_12_settings_ignore_removed_budget_key() -> None:
     test_settings_ignores_removed_report_budget_key()
-
-
-def test_acceptance_13_outbound_request_isolation_is_covered_by_scheduled_intel_tests() -> None:
-    from app.tests.test_intel_shared_slot import (
-        test_17_outbound_l1_prompt_contains_only_global_facts,
-    )
-
-    assert callable(test_17_outbound_l1_prompt_contains_only_global_facts)
 
 
 def test_acceptance_14_scrub_is_idempotent_and_preserves_unrelated_fields() -> None:

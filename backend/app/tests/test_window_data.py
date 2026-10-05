@@ -30,13 +30,9 @@ from app.services.window_data import (
     backfill_news_surfaced_before,
     cold_start_watermark,
     compute_global_moves,
-    day_window_bounds,
     detect_window_anomalies,
-    load_day_news,
     load_news_window,
-    lookback_trading_dates,
     mark_news_surfaced,
-    resolve_global_moves,
     select_user_anomalies,
     unmark_news_surfaced,
     user_watermark,
@@ -306,114 +302,6 @@ def test_load_news_window_surfaced_is_scoped_per_user(db_session: Session) -> No
 
 
 # --- L1's own day-scoped window/news (design doc §4.8, second addendum) -----
-
-
-def test_day_window_bounds_spans_exactly_one_et_calendar_day() -> None:
-    """`day_window_bounds` is a pure function of `trade_date` — no session,
-    no user, nothing else. This is what makes it safe as L1's window
-    source: it cannot vary by who calls it."""
-    start, end = day_window_bounds(date(2026, 6, 5))
-    assert start.astimezone(ET).date() == date(2026, 6, 5)
-    assert end.astimezone(ET).date() == date(2026, 6, 5)
-    assert start < end
-
-
-def test_lookback_trading_dates_is_a_pure_function_of_the_end_date() -> None:
-    """Issue #128: L1 may carry multi-day headlines, but the date list
-    cannot come from a user's watermark. Five weekdays ending on a Friday
-    are the prior Mon-Fri; a Monday lookback skips the weekend."""
-    assert lookback_trading_dates(date(2026, 8, 17), n=5) == [
-        date(2026, 8, 11),
-        date(2026, 8, 12),
-        date(2026, 8, 13),
-        date(2026, 8, 14),
-        date(2026, 8, 17),
-    ]
-    monday = lookback_trading_dates(date(2026, 8, 17), n=1)
-    assert monday == [date(2026, 8, 17)]
-
-
-def test_lookback_trading_dates_always_includes_a_weekend_end() -> None:
-    """Issue #178 regression: a manual report run's `eff_date` is whatever
-    real ET calendar date it happens to run on (report_generator.py's
-    `eff_date = report_date or now.astimezone(ET).date()`), which is not
-    guaranteed to be a weekday — the scheduled batch only fires Mon/Wed/Fri,
-    but a manual re-run (a documented, supported case — see CLAUDE.md's
-    "manual quiet window") can happen on a Saturday/Sunday.
-
-    Before the fix, `end` itself was silently dropped whenever it fell on a
-    weekend (the loop's very first `cursor` value never passed
-    `weekday() < 5`), so `lookback_moves.get(eff_date, {})` in
-    `report_generator.py` always missed — every L1 candidate's `day_pct`
-    came out `None` regardless of whether a real close existed for that
-    date, and `get_l1_intel_batch` (`ticker_intel.py`) silently skips any
-    candidate whose facts have `day_pct is None`. `end` must always be the
-    list's last element, exactly as it is for a weekday `end` (the existing
-    test above), since every caller of this function treats the last/`end`
-    element as "today".
-
-    The Saturday `n=5` case below is five *consecutive* calendar days
-    (Tue-Sat), so on its own it would not catch a prefix that dropped its
-    `weekday() < 5` filter and just walked back `n - 1` calendar days
-    unconditionally — a Sunday `end` is the smallest input where the prefix
-    must actually skip a weekend day (PR #179 review round 1 suggestion)."""
-    saturday = date(2026, 8, 22)
-    assert saturday.weekday() == 5
-
-    result = lookback_trading_dates(saturday, n=5)
-
-    assert result[-1] == saturday
-    assert result == [
-        date(2026, 8, 18),
-        date(2026, 8, 19),
-        date(2026, 8, 20),
-        date(2026, 8, 21),
-        date(2026, 8, 22),
-    ]
-
-    sunday = date(2026, 8, 23)
-    assert lookback_trading_dates(sunday, n=5) == [
-        date(2026, 8, 18),
-        date(2026, 8, 19),
-        date(2026, 8, 20),
-        date(2026, 8, 21),
-        date(2026, 8, 23),
-    ]
-
-
-def test_load_day_news_has_no_user_parameter_and_ignores_surfaced_ledger(
-    db_session: Session,
-) -> None:
-    """L1's news source must never route through `news_surfaced` (a per-user
-    Pass-2 dedup ledger) — doing so would make L1's candidate news set
-    depend on which user's report happens to mark it first, reintroducing
-    the exact per-user-contamination class this design closes. Unlike
-    `load_news_window`, `load_day_news` takes no `user_id` at all."""
-    report = Report(
-        user_id=_USER,
-        report_date=date(2026, 6, 5),
-        report_type="incremental",
-        session_node="after_close",
-        status="success",
-        period_start=datetime(2026, 6, 3, tzinfo=UTC),
-        period_end=datetime(2026, 6, 5, tzinfo=UTC),
-    )
-    db_session.add(report)
-    db_session.add_all(
-        [
-            _news("on_day", datetime(2026, 6, 5, 15, 0, tzinfo=UTC)),  # 11:00 ET Jun 5
-            _news("before_day", datetime(2026, 6, 4, 23, 0, tzinfo=UTC)),  # 19:00 ET Jun 4
-            _news("after_day", datetime(2026, 6, 6, 5, 0, tzinfo=UTC)),  # 01:00 ET Jun 6
-        ]
-    )
-    db_session.flush()
-
-    mark_news_surfaced(db_session, _USER, report.id, ["on_day"])
-    db_session.flush()
-
-    items = load_day_news(db_session, date(2026, 6, 5))
-
-    assert {i.url_hash for i in items} == {"on_day"}
 
 
 def test_unmark_news_surfaced_restores_candidate_set_for_retry(db_session: Session) -> None:
@@ -982,51 +870,6 @@ def test_compute_global_moves_normalizes_known_collision_ticker(db_session: Sess
     moves, _ = compute_global_moves(db_session, start, end)
 
     assert set(moves.keys()) == {"0700.HK"}
-
-
-def test_resolve_global_moves_with_day_bounds_yields_single_trading_day_move(
-    db_session: Session,
-) -> None:
-    """L1's window (design doc §4.8, second addendum) is `day_window_bounds`,
-    NOT any user's `[period_start, period_end]`. Two users whose OWN report
-    windows differ wildly (one spans a single day, the other spans the full
-    5-day run below) must still resolve to the IDENTICAL day-scoped move for
-    the trade_date they share, because `day_window_bounds` never reads
-    either of their `period_start`s at all — it's a pure function of the
-    trade_date."""
-    db_session.add(_hk_holding(_USER, "Apple", "AAPL", "EQUITY_US_TECH"))
-    db_session.add_all(
-        [
-            _close_at("AAPL", date(2026, 6, 2), 100.0, datetime(2026, 6, 2, 16, 0, tzinfo=UTC)),
-            _close("AAPL", date(2026, 6, 3), 103.0),
-            _close("AAPL", date(2026, 6, 4), 106.09),
-            _close("AAPL", date(2026, 6, 5), 109.27),
-            _close("AAPL", date(2026, 6, 6), 112.55),  # today's close: +3% vs Jun 5's 109.27
-        ]
-    )
-    db_session.flush()
-
-    # User A's own report window: the full 5-day run (what §4.2 renders for them).
-    user_a_moves, _ = resolve_global_moves(
-        db_session,
-        datetime(2026, 6, 2, 16, 0, tzinfo=UTC),
-        datetime(2026, 6, 6, 20, 30, tzinfo=UTC),
-    )
-    # User B's own report window: just today (a fresh user, or a short manual re-run).
-    user_b_moves, _ = resolve_global_moves(
-        db_session,
-        datetime(2026, 6, 5, 20, 30, tzinfo=UTC),
-        datetime(2026, 6, 6, 20, 30, tzinfo=UTC),
-    )
-    assert user_a_moves["AAPL"].net_pct != user_b_moves["AAPL"].net_pct  # their OWN windows differ
-
-    # L1's day-scoped window ignores both of the above entirely.
-    day_start, day_end = day_window_bounds(date(2026, 6, 6))
-    day_moves, _ = resolve_global_moves(db_session, day_start, day_end)
-
-    assert day_moves["AAPL"].net_pct == Decimal("0.0300")  # (112.55-109.27)/109.27, quantized
-    assert day_moves["AAPL"].prev_price == Decimal("109.27")
-    assert day_moves["AAPL"].current_price == Decimal("112.55")
 
 
 def test_select_user_anomalies_no_cross_user_leakage(db_session: Session) -> None:

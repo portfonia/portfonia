@@ -311,16 +311,10 @@ def build_batch_report(
             f"${number(metric.get('cost_usd')) / accepted:.4f}" if accepted else "not available"
         )
     lines.append(f"Tavily vs Parallel: cost per kept article {costs[0]} vs {costs[1]}.")
-    shared = obj(slot.details.get("shared_analysis"))
-    if slot.slot == "post_close" and slot.run_date.weekday() < 5:
-        lines.append(
-            f"Analysis written: {number(shared.get('l1_written')):g} instrument briefs ({number(shared.get('l1_cache_hits')):g} reused), {number(shared.get('l2_written')):g} macro-event notes, {number(shared.get('l3_clusters')):g} cross-instrument themes."
-        )
     deep_errors = errors_from(slot.details.get("deepening_errors")) or errors_from(
         deep.get("errors")
     )
-    analysis_errors = errors_from(shared.get("errors"))
-    if deep_errors or analysis_errors:
+    if deep_errors:
         severity = "WARNING"
-    lines += problem_lines(deep_errors + analysis_errors)
+    lines += problem_lines(deep_errors)
     return batch_subject(slot), "\n".join(lines), severity

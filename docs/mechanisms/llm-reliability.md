@@ -57,10 +57,15 @@ instead of on concrete SDK exception types.
   contract that `routers/reports.py` / `holdings_tasks.py` branch on
   `RuntimeError`.
 - **Extended to `ticker_intel`/`macro_event_intel` by issue #160** — see the
-  section below for what the product call turned out to be.
+  section below for what the product call turned out to be. Both modules
+  were removed by issue #640.
 
 
 ### Bounded retry for the shared intel caches (issue #160)
+
+**Status (issue #640): removed.** The L1/L2 caches, their tables and this
+retry mechanism no longer exist; no shipped report ever read them. The
+record below is kept as history.
 
 L1/L2 wrote a null-analysis marker on EVERY failure, and a marker is final
 for the rest of the `trade_date`. Correct for a failure an identical call
@@ -130,7 +135,8 @@ locking on the first failure.
   in `generate_report`, the failed row preserves the exact rejected output in
   `report_inputs.rejected_pass2_raw` (issue #603) through the existing failure
   handler. This diagnostic key is never consumed as a report body by any read
-  path; `pass2_raw` and `assembly_raw` remain empty on this failure path.
+  path; `pass2_raw` remains empty on this failure path (`assembly_raw` was
+  removed with the assembly path in issue #640).
   Neither #61 resume nor `regenerate_report` accepts it as stored body content.
   A full retry resets the inputs and builds a fresh context, leaving the new
   key empty on success. Existing rows need no migration or new key.
@@ -182,7 +188,7 @@ outer exception handler's `report.report_inputs = ctx.to_jsonb()`).
 
 - **Reuse gate**: before the reset, `generate_report` snapshots
   `existing.report_inputs`/`prompt_version`/`disclaimer_version`. If a
-  `pass2_raw`/`assembly_raw` body is present AND both versions match what
+  `pass2_raw` body is present AND both versions match what
   this retry would use AND status is not `needs_review`, the row is
   `ReportContext.from_jsonb()`-rehydrated into `prior_ctx` and the entire
   reset block (report_md/report_inputs/generated_at/email_sent_at/
@@ -191,13 +197,14 @@ outer exception handler's `report.report_inputs = ctx.to_jsonb()`).
   reusable body: `_render_full_md` is a pure function of `raw_body`, so
   reusing it would reproduce the exact same compliance violations forever —
   a `needs_review` retry only has a chance at different output by redoing
-  Pass 1 + Pass 2, so it always takes the full-reset path.
+  Pass 2, so it always takes the full-reset path.
 - **Resume path**: when `prior_ctx is not None`, `generate_report` skips
-  straight past portfolio/news/anomaly fetch, macro/L1/L2/cross-name intel,
-  Pass 1, Tavily, and Pass 2/assembly entirely — not just the LLM calls —
+  straight past portfolio/news/anomaly fetch, scheduled intel reads and
+  Pass 2 entirely (the L1/L2/cross-name, Pass 1, Tavily and assembly stages
+  this list once named were removed by issues #622 and #640) — not just the LLM calls —
   and calls `_finish_report()` (the extracted render/persist/mark-news/email
   tail, shared with the normal full-pipeline path) using `prior_ctx` and its
-  stored `assembly_raw or pass2_raw`. `mark_news_surfaced` still needs to
+  stored `pass2_raw`. `mark_news_surfaced` still needs to
   run for this attempt (the failed attempt never reached it), but there are
   no `NewsItem` objects to read `.url_hash` from since `load_news_window`
   was never called on this path — `_url_hash()` (a pure function of the URL,

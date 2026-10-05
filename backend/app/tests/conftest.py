@@ -142,7 +142,6 @@ def capture_user_day(session: Session, user_id: uuid.UUID, snapshot_date: date) 
 _EXTERNAL_NOTIFY_MODULES = (
     "app.routers.auth",
     "app.services.report_generator",
-    "app.services.ticker_intel",
     "app.services.price_capture",
     "app.tasks.report_tasks",
     "app.tasks.capture_tasks",
