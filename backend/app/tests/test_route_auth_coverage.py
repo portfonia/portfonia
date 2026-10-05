@@ -78,10 +78,12 @@ def test_public_allowlist_entries_are_actually_unauthenticated() -> None:
         if isinstance(route, APIRoute)
         for method in route.methods
     }
+    # Entries with no route are reported by test_public_allowlist_has_no_stale_entries.
     offenders = [
         f"{method} {path}"
         for method, path in sorted(PUBLIC_ROUTES)
-        if not _dependency_calls(by_pair[(method, path)].dependant).isdisjoint(AUTH_DEPENDENCIES)
+        if (route := by_pair.get((method, path))) is not None
+        and not _dependency_calls(route.dependant).isdisjoint(AUTH_DEPENDENCIES)
     ]
     assert not offenders, "allowlisted routes that now have auth: " + ", ".join(offenders)
 
