@@ -2,6 +2,7 @@
 
 import logging
 import math
+from typing import TypedDict
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
@@ -46,10 +47,24 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 settings = get_settings()
 
+
+class _ApiDocUrls(TypedDict):
+    openapi_url: str | None
+    docs_url: str | None
+    redoc_url: str | None
+
+
+def _api_doc_urls(app_env: str) -> _ApiDocUrls:
+    """Production publishes no schema or doc UI (issue #645)."""
+    if app_env == "production":
+        return {"openapi_url": None, "docs_url": None, "redoc_url": None}
+    return {"openapi_url": "/openapi.json", "docs_url": "/docs", "redoc_url": "/redoc"}
+
+
 app = FastAPI(
     title="Portfonia",
     version="0.0.1",
-    docs_url="/docs" if settings.APP_ENV != "production" else None,
+    **_api_doc_urls(settings.APP_ENV),
 )
 
 app.middleware("http")(audit_agent_request)

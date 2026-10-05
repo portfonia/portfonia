@@ -8,6 +8,16 @@ owner uses, not part of a normal user's journey — ships first as an
 optional layer on top of those endpoints, never a prerequisite for the
 capability existing.
 
+Production (`APP_ENV == "production"`) registers no OpenAPI schema and no
+documentation UI (`openapi_url`, `docs_url` and `redoc_url` are all `None`),
+because those endpoints were world-readable on the API host and through the
+frontend rewrite and no consumer uses them. Development and tests keep
+`/openapi.json`, `/docs` and `/redoc`. `test_route_auth_coverage.py` fails
+unless every `APIRoute` depends on `current_principal`, `require_ops_token`
+or `agent_principal`, or its `(method, path)` is listed in `PUBLIC_ROUTES`.
+Adding a public endpoint requires adding it to `PUBLIC_ROUTES` with a reason
+comment (issue #645).
+
 - **Status**: implemented (issue #129 Ring 1 stage B, checkpoint B2,
   2026-08-22). `app/routers/admin.py` (`APIRouter(dependencies=[Depends(
   require_ops_token)])`) mounts at `/admin` in `main.py`; `require_ops_token`
