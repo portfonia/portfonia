@@ -154,7 +154,7 @@ def compute_signals(
                 .join(NewsInstrument, NewsInstrument.news_id == News.id)
                 .where(
                     NewsInstrument.identifier == entry.identifier,
-                    NewsInstrument.created_at > prev_slot_started_at,
+                    NewsInstrument.created_at >= now,
                 )
             )
         )

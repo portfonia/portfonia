@@ -24,6 +24,7 @@ class PaidResult:
     sent_timeout: bool = False
     leads: list[Lead] = field(default_factory=list)
     bodies: dict[str, str] = field(default_factory=dict)
+    detail: str = ""
 
     def budget_amount(self, provider: str) -> Decimal:
         return self.units if provider == "tavily" else self.cost_usd
@@ -97,7 +98,13 @@ class PaidClient:
         status = response.status_code
         category = status_class(status)
         if category != "success":
-            return PaidResult(status, Decimal(0), Decimal(0), category)
+            return PaidResult(
+                status,
+                Decimal(0),
+                Decimal(0),
+                category,
+                detail=" ".join(response.text.split())[:200],
+            )
         result = PaidResult(status, units, cost)
         try:
             data = mapping(response.json())

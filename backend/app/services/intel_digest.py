@@ -72,21 +72,22 @@ def problem_lines(errors: list[str]) -> list[str]:
     for error in errors:
         prefix = error.split(":", 1)[0].split(" ", 1)[0]
         source = SOURCES.get(prefix, "News source")
+        status_text = error.split(" HTTP ", 1)[0]
         http = re.search(r"HTTP (\d{3})", error)
         if error.startswith("classifier:"):
             reason = "AI review failed" + (f" (HTTP {http[1]})" if http else "")
         elif "key not set" in error:
             reason = "API key is not configured"
+        elif "invalid_key" in status_text:
+            reason = "API key is invalid"
+        elif "quota_or_rate" in status_text:
+            reason = "provider quota or request limit reached"
         elif http:
             reason = f"request failed (HTTP {http[1]})"
         elif "timeout" in error.lower():
             reason = "timed out"
         elif "classifier_failed" in error:
             reason = "AI review failed"
-        elif "invalid_key" in error:
-            reason = "API key is invalid"
-        elif "quota_or_rate" in error:
-            reason = "provider quota or request limit reached"
         else:
             exception = re.search(r"\b[A-Za-z]+(?:Error|Exception)\b", error)
             reason = f"unexpected error ({exception[0] if exception else 'Error'})"
@@ -188,6 +189,8 @@ def build_batch_report(
     lines += ["", "Headlines fetched (published in the last 48 hours):"]
     for source, label in SOURCE_LINES.items():
         values = totals.get(source, Counter())
+        if source == "google_news" and values["calls"] == 0:
+            continue
         lines.append(f"  {label} {values['items']:,.0f} ({values['calls']:g} requests)")
         if values["skipped_no_name"]:
             lines.append(

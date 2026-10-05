@@ -30,6 +30,8 @@ class CleaningConfig:
     hours: int
     earnings_patterns: list[re.Pattern[str]]
     stale_earnings_days: int
+    preview_patterns: list[re.Pattern[str]]
+    preview_max_days: int
 
 
 def load_cleaning_config(path: Path | None = None) -> CleaningConfig:
@@ -47,6 +49,8 @@ def load_cleaning_config(path: Path | None = None) -> CleaningConfig:
             int(data.get("near_duplicate_hours", 48)),
             [re.compile(p, re.IGNORECASE) for p in stale.get("earnings_recap_patterns", [])],
             int(stale.get("stale_earnings_days", 14)),
+            [re.compile(p, re.IGNORECASE) for p in stale.get("earnings_preview_patterns", [])],
+            int(stale.get("preview_max_days_ahead", 21)),
         )
     except (re.error, TypeError, ValueError) as exc:
         raise ValueError("invalid cleaning configuration") from exc
@@ -56,23 +60,12 @@ class EarningsCache:
     """One earnings-date lookup per symbol across collection and paid workers in a slot."""
 
     def __init__(self) -> None:
-        self._dates: dict[str, list[date]] = {}
+        self._cached_dates: dict[str, list[date]] = {}
         self._lock = threading.Lock()
 
-    def stale_reason(
-        self, item: CollectedItem, symbol: str, config: CleaningConfig, *, recap: bool = False
-    ) -> str | None:
-        """Check an earnings recap against the latest earlier earnings date.
-
-        ``recap=True`` means the classifier already judged the item a results recap, so the
-        title-pattern gate is skipped; the date comparison is identical.
-        """
-        if item.kind == "filing" or (
-            not recap and not any(p.search(item.title) for p in config.earnings_patterns)
-        ):
-            return None
+    def _dates(self, symbol: str) -> list[date]:
         with self._lock:
-            if symbol not in self._dates:
+            if symbol not in self._cached_dates:
                 try:
                     frame = yf.Ticker(symbol).get_earnings_dates()
                     dates = (
@@ -86,9 +79,26 @@ class EarningsCache:
                     )
                 except Exception:
                     dates = []
-                self._dates[symbol] = dates
-            published = item.published_at.astimezone(ET).date()
-            past = [day for day in self._dates[symbol] if day <= published]
+                self._cached_dates[symbol] = dates
+            return self._cached_dates[symbol]
+
+    def stale_reason(
+        self, item: CollectedItem, symbol: str, config: CleaningConfig, *, recap: bool = False
+    ) -> str | None:
+        """Check previews against the next date, and recaps against the latest past date."""
+        if item.kind == "filing":
+            return None
+        published = item.published_at.astimezone(ET).date()
+        if any(p.search(item.title) for p in config.preview_patterns):
+            future = [day for day in self._dates(symbol) if day >= published]
+            if not future:
+                return "stale_lookup_failed"
+            return (
+                "stale_rule" if (min(future) - published).days > config.preview_max_days else None
+            )
+        if not recap and not any(p.search(item.title) for p in config.earnings_patterns):
+            return None
+        past = [day for day in self._dates(symbol) if day <= published]
         if not past:
             return "stale_lookup_failed"
         return "stale_rule" if (published - max(past)).days > config.stale_earnings_days else None
