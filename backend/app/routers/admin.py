@@ -32,7 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import exists, func, select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -89,7 +89,6 @@ from app.services.fund_nav_fetcher import update_fund_navs
 from app.services.invitation_unsubscribe import create_token as create_invitation_unsubscribe_token
 from app.services.invites import (
     EmailAlreadyRegistered,
-    _normalize_email,
     create_invite,
     list_invites,
     revoke_invite,
@@ -121,7 +120,7 @@ from app.services.ticker_leverage import (
     update_leverage_override,
 )
 from app.services.user_directory import recipient_email_with_purpose
-from app.services.user_purge import purge_user
+from app.services.user_purge import _normalize_email, purge_user, refuse_protected_user
 from app.services.user_scope import report_currency_for, report_language_for
 from app.services.waitlist import view as waitlist_view
 from app.services.waitlist import views as waitlist_views
@@ -1034,6 +1033,8 @@ def rerun_report_for_user(
 
 
 class PurgeDeletedCounts(BaseModel):
+    waitlist_entries: int
+    invite_emails_cleared: int
     api_audit_log: int
     api_tokens: int
     news_surfaced: int
@@ -1050,6 +1051,8 @@ class PurgeDeletedCounts(BaseModel):
 
 
 _NO_LOCAL_ROWS = PurgeDeletedCounts(
+    waitlist_entries=0,
+    invite_emails_cleared=0,
     api_audit_log=0,
     api_tokens=0,
     news_surfaced=0,
@@ -1140,13 +1143,7 @@ def _purge_local_user(session: Session, user: User, confirm: str | None) -> Purg
     sequence live in exactly one place — the by-id route's original
     behavior is preserved verbatim; the by-email route passes its (already
     boundary-validated) confirm through the same checks."""
-    if user.id == UUID(get_settings().DEV_USER_ID):
-        raise HTTPException(status_code=409, detail="refusing to delete the seed user")
-    created_invites = session.execute(select(exists().where(Invite.created_by == user.id))).scalar()
-    if created_invites:
-        raise HTTPException(
-            status_code=409, detail="user created invites; revoke or reassign first"
-        )
+    refuse_protected_user(session, user, seed_user_id=UUID(get_settings().DEV_USER_ID))
     if confirm is None:
         raise HTTPException(status_code=422, detail="confirm query param is required")
     if _normalize_email(confirm) != _normalize_email(user.email):
@@ -1170,6 +1167,8 @@ def _purge_local_user(session: Session, user: User, confirm: str | None) -> Purg
         email=email,
         auth_deleted=auth_deleted,
         deleted=PurgeDeletedCounts(
+            waitlist_entries=result.waitlist_entries,
+            invite_emails_cleared=result.invite_emails_cleared,
             api_audit_log=result.api_audit_log,
             api_tokens=result.api_tokens,
             news_surfaced=result.news_surfaced,

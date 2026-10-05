@@ -27,6 +27,7 @@ _REASON_RULES = {
     "subscription_return": ({"cash", "gift"}, "+"),
     "qa": ({"cash", "gift"}, "-"),
     "refund": ({"cash"}, "±"),
+    "relinquish": ({"cash"}, "-"),
 }
 
 
@@ -403,3 +404,39 @@ def return_subscription_credits(
                 )
             )
     return LedgerWrite(entries, replayed=False)
+
+
+def refundable_cash(session: Session, user_id: uuid.UUID, now: datetime) -> Decimal:
+    """Refundable purchase remainder, capped by the fungible current cash balance."""
+    user = session.get(User, user_id)
+    assert user is not None
+    keys = session.scalars(
+        select(CreditLedgerEntry.idempotency_key).where(
+            CreditLedgerEntry.user_id == user_id,
+            CreditLedgerEntry.bucket == "cash",
+            CreditLedgerEntry.reason == "recharge",
+            CreditLedgerEntry.idempotency_key.startswith("recharge:paddle:"),
+            CreditLedgerEntry.created_at >= now - timedelta(days=120),
+        )
+    )
+    remaining = sum(
+        (purchase_refundable(session, key.removeprefix("recharge:paddle:"))[1] for key in keys),
+        Decimal("0.00"),
+    )
+    return max(Decimal("0.00"), min(user.credit_cash_balance, remaining))
+
+
+def relinquish_cash(
+    session: Session, user: User, *, amount: Decimal, refundable_part: Decimal
+) -> CreditLedgerEntry:
+    """Record the user's voluntary relinquishment; caller holds the user lock."""
+    return _post(
+        session,
+        user,
+        bucket="cash",
+        amount=-amount,
+        reason="relinquish",
+        actor_type="user",
+        idempotency_key=f"relinquish:{user.id}",
+        note=f"Relinquished by user at account deletion; refundable within 120 days at that time: {refundable_part}",
+    )

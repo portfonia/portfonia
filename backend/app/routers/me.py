@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import logging
+from datetime import datetime
+from decimal import Decimal
 from typing import Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.database import get_session
 from app.core.deps import Principal, current_principal
-from app.core.timezones import today_et
+from app.core.timezones import ET, today_et
 from app.models.email_verification import EmailVerification
 from app.models.holding import Holding
 from app.models.user import User
@@ -22,12 +27,17 @@ from app.schemas.me import (
     SubscriptionOut,
     SubscriptionQuoteOut,
 )
-from app.services import subscription
+from app.services import credit_ledger, subscription
 from app.services.altcha_challenge import (
+    create_account_deletion_challenge,
     create_change_password_challenge,
+    verify_account_deletion_solution,
     verify_change_password_solution,
 )
+from app.services.auth_provider import AuthProviderError, delete_auth_user
+from app.services.email_sender import send_ops_alert
 from app.services.report_currency import apply_report_currency_change
+from app.services.user_purge import _normalize_email, purge_user, refuse_protected_user
 
 router = APIRouter()
 
@@ -273,3 +283,86 @@ def resume_subscription(
         raise HTTPException(status_code=409, detail=exc.code) from None
     session.commit()
     return subscription.summary(user, today)
+
+
+class AccountDeletionOut(BaseModel):
+    cash_balance: str
+    refundable_cash: str
+    gift_balance: str
+    subscription_active: bool
+
+
+class AccountDeletionBody(BaseModel):
+    confirm_email: str
+    relinquish_cash: Decimal = Decimal("0.00")
+    altcha: str | None = None
+
+
+@router.get("/account-deletion", response_model=AccountDeletionOut)
+def account_deletion_summary(
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+) -> AccountDeletionOut:
+    """Dialog disclosure; the POST rechecks the balance under the ledger lock."""
+    user = session.get(User, principal.user_id)
+    assert user is not None
+    return AccountDeletionOut(
+        cash_balance=f"{user.credit_cash_balance:.2f}",
+        refundable_cash=f"{credit_ledger.refundable_cash(session, user.id, datetime.now(ET)):.2f}",
+        gift_balance=f"{user.credit_gift_balance:.2f}",
+        subscription_active=user.subscription_status == "active",
+    )
+
+
+@router.get("/account-deletion/altcha-challenge")
+def account_deletion_challenge(
+    _principal: Principal = Depends(current_principal),
+) -> dict[str, object]:
+    return create_account_deletion_challenge()
+
+
+@router.post("/account-deletion", status_code=status.HTTP_204_NO_CONTENT)
+def delete_account(
+    body: AccountDeletionBody,
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+) -> Response:
+    """Relinquish and purge in one transaction, then delete Auth before commit."""
+    user = credit_ledger._lock_user(session, principal.user_id)
+    refuse_protected_user(session, user, seed_user_id=UUID(get_settings().DEV_USER_ID))
+    if _normalize_email(body.confirm_email) != _normalize_email(user.email):
+        raise HTTPException(status_code=409, detail="confirm does not match account email")
+    if body.relinquish_cash != user.credit_cash_balance:
+        raise HTTPException(status_code=409, detail="balance_changed")
+    user_id, auth_subject = user.id, user.auth_subject
+    if user.credit_cash_balance > 0:
+        if not verify_account_deletion_solution(body.altcha):
+            raise HTTPException(status_code=400, detail="invalid captcha")
+        credit_ledger.relinquish_cash(
+            session,
+            user,
+            amount=user.credit_cash_balance,
+            refundable_part=credit_ledger.refundable_cash(session, user.id, datetime.now(ET)),
+        )
+        session.flush()
+    purge_user(session, user_id)
+    session.flush()
+    if auth_subject is not None:
+        try:
+            delete_auth_user(auth_subject)
+        except AuthProviderError:
+            session.rollback()
+            raise HTTPException(
+                status_code=502, detail="failed to delete account; nothing was changed, retry"
+            ) from None
+    try:
+        session.commit()
+    except Exception:
+        session.rollback()
+        logging.getLogger(__name__).error("self-deletion commit failed; user_id=%s", user_id)
+        if auth_subject is not None:
+            send_ops_alert("self-deletion commit failed after Auth delete", str(user_id))
+        raise HTTPException(
+            status_code=500, detail="failed to delete account; contact support"
+        ) from None
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

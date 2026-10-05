@@ -2,7 +2,7 @@
 
 Credit balances use two `NUMERIC(12,2)` columns on `users`: `credit_cash_balance` has cash value; `credit_gift_balance` has no cash value. Both default to zero and have nonnegative CHECK constraints. Internally, one credit equals one USD; product copy says only “credits”.
 
-`credit_ledger` records every balance change. Its `BIGINT GENERATED ALWAYS AS IDENTITY` primary key orders rows for reconstruction. Each row has a plain `user_id` UUID with no foreign key, one `bucket` (`cash` or `gift`), signed `amount`, that bucket's `balance_after`, `reason`, `actor_type` (`system` or `admin`), reserved nullable `actor_id`, `idempotency_key`, optional `note` and `reference`, `created_at`, and nullable `user_deleted_at`. `actor_id` remains NULL in this issue. `(idempotency_key, bucket)` is unique, allowing one consumption to have gift and cash rows with the same key. The `(user_id, id)` index supports ordered reconstruction. The migration adds structure only; it does not grant credits to existing users.
+`credit_ledger` records every balance change. Its `BIGINT GENERATED ALWAYS AS IDENTITY` primary key orders rows for reconstruction. Each row has a plain `user_id` UUID with no foreign key, one `bucket` (`cash` or `gift`), signed `amount`, that bucket's `balance_after`, `reason`, `actor_type` (`system`, `admin`, or `user`), reserved nullable `actor_id`, `idempotency_key`, optional `note` and `reference`, `created_at`, and nullable `user_deleted_at`. `actor_id` remains NULL in this issue. `(idempotency_key, bucket)` is unique, allowing one consumption to have gift and cash rows with the same key. The `(user_id, id)` index supports ordered reconstruction. The migration adds structure only; it does not grant credits to existing users.
 
 ## Invariants and writer
 
@@ -38,7 +38,7 @@ Signup uses `signup_grant:<sha256(normalized email)>`, where normalization is th
 
 Hard purge marks this user's unmarked rows with `user_deleted_at`, reports the count as `deleted.credit_ledger_flagged`, and deletes the user row. The ledger's `user_id` remains intact for historical reconstruction. The Ops endpoint `POST /admin/users/by-email/credit-adjustments` accepts `bucket` (`gift` or `cash`, default `gift`) since issue #599. Omitting it preserves the existing gift adjustment behavior. It requires a signed nonzero two-decimal amount, a non-blank note, and an idempotency key. For cash adjustments, the note records where the value went, such as an explicit user waiver after the refund window. An overdraft returns 409 `insufficient balance`; a key conflict returns 409 `idempotency_key already used for a different adjustment`. The response shape is unchanged, with `entry.bucket` showing the selected bucket. Cash adjustments do not change a purchase's refundable remainder, which is computed from purchase and refund rows only. A later refund exceeding the available cash balance is still refused with 409 `insufficient cash balance`.
 
-Both Ops purge routes refuse a local user with `credit_cash_balance > 0` (issue #599), after the confirm checks and before Auth deletion, with 409 `user has a cash balance; refund or adjust it to zero first`. The refusal leaves Auth and local rows untouched. Zero cash with a positive gift balance remains purgeable; Auth-only orphans are unchanged. There is no automatic balance zeroing or user-facing waiver flow.
+Both Ops purge routes refuse a local user with `credit_cash_balance > 0` (issue #599), after the confirm checks and before Auth deletion, with 409 `user has a cash balance; refund or adjust it to zero first`. The refusal leaves Auth and local rows untouched. Zero cash with a positive gift balance remains purgeable; Auth-only orphans are unchanged. There is no automatic balance zeroing in Ops purge. Self-service deletion (#644) records an explicit voluntary relinquishment before shared purge.
 
 ## Existing-user backfill
 
@@ -56,3 +56,27 @@ The script scans every current `users` row, regardless of status. It reports `wo
 `GET /admin/credits/ledger.csv` exports all ledger rows by ascending `id`, with the columns `id,created_at,user_id,email,bucket,amount,balance_after,reason,actor_type,actor_id,idempotency_key,reference,note,user_deleted_at`. Email comes from a left join to `users`, so a purged user's email is empty while `user_deleted_at` remains present. `GET /admin/credits/balances.csv` exports one row per current user by email, with `user_id,email,status,cash_balance,gift_balance,total_balance,ledger_cash_sum,ledger_gift_sum,consistent`. The sums are ledger amounts per bucket, and `consistent` is true only when both stored balances match their respective sums. Both endpoints use the existing Ops token and audit path, require no parameters, return in-memory CSV with fixed two-decimal amounts, and attach a filename dated with `today_et()`. Timestamps use ET ISO 8601 with an offset; NULL timestamps are empty.
 
 `GET /me` includes `credit_balance`, the sum of cash and gift balances, serialized as a decimal string. The Profile Account card displays that string verbatim under the `Credits` label in all three UI locales, without currency formatting.
+
+
+## Voluntary relinquishment at account deletion (issue #644)
+
+`relinquish_cash(session, user, amount, refundable_part)` requires the caller
+to hold the refreshed user row lock. It posts one negative cash entry for
+the full current balance, reason `relinquish`, actor type `user`, key
+`relinquish:{user.id}`, and note `Relinquished by user at account deletion;
+refundable within 120 days at that time: {refundable_part}`. The deletion
+route rechecks the exact submitted balance and email and verifies a
+purpose-distinct Altcha proof first. Purge flags the new row with
+`user_deleted_at` in the same transaction; no endpoint records relinquishment
+without account deletion.
+
+`refundable_cash(session, user_id, now)` sums the unrefunded remainders of
+cash `recharge:paddle:*` rows with `created_at >= now - 120 days`, including
+refund reversal adjustments through `purchase_refundable`, and caps that
+sum at the current cash balance, floored at zero. This is a disclosure,
+not a deletion refusal; the user may give up the refundable portion too.
+
+Migration `d64400000001` widens `ck_credit_ledger_reason` and
+`ck_credit_ledger_actor_type` using `op.f(...)`. Downgrade restores the old
+lists and fails if rows with the new values exist. Retained history must
+not be removed to force downgrade. Deployment needs separate authorization.

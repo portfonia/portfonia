@@ -15,3 +15,10 @@ export async function logout(reason?: string): Promise<void> {
   await supabase.auth.signOut();
   redirect(reason ? `/login?reason=${encodeURIComponent(reason)}` : "/login");
 }
+
+
+export async function logoutAfterAccountDeletion(): Promise<void> {
+  const supabase = await createClient();
+  await supabase.auth.signOut({ scope: "local" });
+  redirect("/");
+}

@@ -295,10 +295,14 @@ def test_signup_derived_progress_and_purge(
     assert [item["id"] for item in activated_list] == [str(entry.id)]
     purge_user(db_session, user.id)
     db_session.flush()
-    after_purge = app_client.get(path, headers=_headers()).json()
-    assert after_purge["stage"] == "registered"
-    assert after_purge["user_id"] is None
-    assert after_purge["verified_at"] is None
+    after_purge = app_client.get(path, headers=_headers())
+    assert after_purge.status_code == 404
+    assert db_session.get(WaitlistEntry, entry.id) is None
+    db_session.refresh(invite)
+    assert invite.email is None
+    assert invite.waitlist_entry_id is None
+    assert invite.used_by_user_id is None
+    assert invite.used_at is not None
 
 
 def test_list_filters_and_expired_link(app_client: TestClient, db_session: Session) -> None:

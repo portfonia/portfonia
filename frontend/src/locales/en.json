@@ -431,8 +431,7 @@
     "inviteBody": "Generate an invite link bound to a specific email.",
     "invitePlaceholder": "Not implemented yet.",
     "deleteAccountHeading": "Delete account",
-    "deleteAccountBody": "Terminate service and permanently clear your account data.",
-    "deleteAccountPlaceholder": "Not implemented yet.",
+    "deleteAccountBody": "Close your account and clear your account data.",
     "errorLoadFailed": "Could not load your account.",
     "emailVerificationHeading": "Email verification",
     "emailVerificationBody": "These email addresses are waiting for your confirmation. If a message failed to deliver, check the address and resend.",
@@ -493,7 +492,23 @@
       "insufficient_credits": "Your balance is not enough. Top up credits in the Account section first.",
       "no_change": "Your subscription already has this setting.",
       "no_subscription": "There is no active subscription for this operation."
-    }
+    },
+    "deleteAccountDisclosure": "Your holdings, investment-style settings and reports will be cleared. Credit and transaction records are kept for accounting and tax purposes, no longer linked to your email address except for a one-way fingerprint of it, used only to prevent the sign-up credit from being granted twice.",
+    "deleteAccountSubscription": "An active subscription ends immediately; the unused part of the current period is not returned.",
+    "deleteAccountTokens": "All your API tokens will be revoked.",
+    "deleteAccountGift": "Your {gift_balance} gift credits will also be cleared.",
+    "deleteAccountReregister": "If you sign up again later with the same email, you will need a new invitation and will not receive the sign-up credit again.",
+    "deleteAccountEmailLabel": "Type your account email to confirm",
+    "deleteAccountContinue": "Continue",
+    "deleteAccountPurchased": "You are giving up {cash_balance} purchased credits (bought at US$1 per credit).",
+    "deleteAccountRefundable": "{refundable_cash} of this was purchased in the last 120 days and can still be refunded. To get it back, contact info@portfonia.com before deleting your account.",
+    "deleteAccountVoluntary": "This is my own choice. The amount will not be refunded and this cannot be undone.",
+    "deleteAccountSignatureLabel": "Type your account email again as your signature",
+    "deleteAccountRelinquish": "Give up {cash_balance} purchased credits and delete account",
+    "deleteAccountBalanceChanged": "Your balance changed. Please start again.",
+    "deleteAccountInvalidCaptcha": "Verification expired or is invalid. Please start again.",
+    "deleteAccountFailed": "Deletion failed. Nothing was changed; please retry.",
+    "deleteAccountIncomplete": "Deletion could not be completed. Please contact info@portfonia.com."
   },
   "portfolio": {
     "riskPanel": {
@@ -1301,7 +1316,7 @@
           "heading": "6. Data Retention",
           "body": [
             "We retain your account and holdings data for as long as your account is active. Some operational records (for example, upload-job metadata) are automatically purged after a short retention window. You may request deletion of your account at any time (see \"Your Rights\" below).",
-            "When your account is deleted, your holdings, investment-style settings, reports, and other personal data are removed. Credit and transaction records are kept, no longer linked to your email address, for accounting and tax purposes."
+            "When your account is deleted, your holdings, investment-style settings, reports, API tokens, waitlist entry and other personal data are removed. Credit and transaction records are kept for accounting and tax purposes, no longer linked to your email address except for a one-way fingerprint of it, used only to prevent the sign-up credit from being granted twice."
           ]
         },
         {
@@ -1313,7 +1328,7 @@
         {
           "heading": "8. Your Rights",
           "body": [
-            "You can review and update your holdings and profile information directly in the Service. You can request deletion of your account by contacting us; deletion removes your holdings, investment-style settings, and authentication account as described in Data Retention."
+            "You can review and update your holdings and profile information directly in the Service. You can delete your account yourself on your Profile page, or ask us to delete it by contacting us; deletion removes your holdings, investment-style settings, and authentication account as described in Data Retention."
           ]
         },
         {

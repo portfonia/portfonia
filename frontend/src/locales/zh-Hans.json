@@ -431,8 +431,7 @@
     "inviteBody": "生成绑定指定邮箱的邀请链接。",
     "invitePlaceholder": "暂未实现。",
     "deleteAccountHeading": "删除账户",
-    "deleteAccountBody": "终止服务并永久清除你的账户数据。",
-    "deleteAccountPlaceholder": "暂未实现。",
+    "deleteAccountBody": "关闭账户并清除你的账户数据。",
     "errorLoadFailed": "无法加载账户信息。",
     "emailVerificationHeading": "邮箱验证",
     "emailVerificationBody": "以下邮箱地址正在等待您的确认。如显示发送失败，请核对地址后重新发送。",
@@ -493,7 +492,23 @@
       "insufficient_credits": "您的余额不足。请先在账户区域充值 credits。",
       "no_change": "您的订阅已采用此设置。",
       "no_subscription": "当前没有可执行此操作的有效订阅。"
-    }
+    },
+    "deleteAccountDisclosure": "你的持仓、个性化投资设定和报告将被清除。credits 与交易记录出于会计与税务目的予以保留，并与你的邮箱地址解除关联，仅保留该邮箱的单向指纹，用途仅限于防止重复发放注册赠送的 credits。",
+    "deleteAccountSubscription": "当前订阅立即终止，本期未使用的部分不予返还。",
+    "deleteAccountTokens": "你的全部 API token 将被吊销。",
+    "deleteAccountGift": "你的 {gift_balance} 赠送 credits 也将一并清除。",
+    "deleteAccountReregister": "以后如用同一邮箱重新注册，需要新的邀请，且不会再获得注册赠送的 credits。",
+    "deleteAccountEmailLabel": "输入你的账户邮箱以确认",
+    "deleteAccountContinue": "继续",
+    "deleteAccountPurchased": "你将放弃购买所得的 {cash_balance} credits（按每个 US$1 购入）。",
+    "deleteAccountRefundable": "其中 {refundable_cash} credits 是近 120 天内购买的，仍可退款。如需退款，请在删除账户前联系 info@portfonia.com。",
+    "deleteAccountVoluntary": "这是我本人的自主选择。该金额不予退还，且此操作无法撤销。",
+    "deleteAccountSignatureLabel": "再次输入你的账户邮箱，作为签名确认",
+    "deleteAccountRelinquish": "放弃 {cash_balance} 购买所得的 credits 并删除账户",
+    "deleteAccountBalanceChanged": "你的余额发生了变化，请重新开始。",
+    "deleteAccountInvalidCaptcha": "验证已失效，请重新开始。",
+    "deleteAccountFailed": "删除失败，账户未做任何更改，请重试。",
+    "deleteAccountIncomplete": "删除未能完成，请联系 info@portfonia.com。"
   },
   "portfolio": {
     "riskPanel": {
@@ -1301,7 +1316,7 @@
           "heading": "6. 数据保留",
           "body": [
             "只要您的账户处于活跃状态，我们就会保留您的账户和持仓数据。部分运营记录(例如上传任务元数据)会在较短的保留期后自动清除。您可以随时申请删除您的账户(见下文「您的权利」)。",
-            "删除账户后，您的持仓、个性化投资设定、报告及其他个人数据将被清除。credits 与交易记录会与您的邮箱地址解除关联，并出于会计与税务目的予以保留。"
+            "删除账户后，您的持仓、个性化投资设定、报告、API token、候补名单记录及其他个人数据将被清除。credits 与交易记录出于会计与税务目的予以保留，并与您的邮箱地址解除关联，仅保留该邮箱的单向指纹，用途仅限于防止重复发放注册赠送的 credits。"
           ]
         },
         {
@@ -1313,7 +1328,7 @@
         {
           "heading": "8. 您的权利",
           "body": [
-            "您可以直接在本服务中查看和更新您的持仓与个人资料。您可以联系我们申请删除账户；删除将按\"数据保留\"一节所述，清除您的持仓、个性化投资设定及身份验证账户。"
+            "您可以直接在本服务中查看和更新您的持仓与个人资料。您可以在个人资料页面自行删除账户，也可以联系我们代为删除；删除将按\"数据保留\"一节所述，清除您的持仓、个性化投资设定及身份验证账户。"
           ]
         },
         {

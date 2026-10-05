@@ -158,3 +158,24 @@ def verify_change_password_solution(payload_b64: str) -> bool:
     except Exception:
         return False
     return ok
+
+
+def create_account_deletion_challenge() -> dict[str, object]:
+    """Three-minute stateless challenge, isolated from every other purpose."""
+    options = altcha_v1.ChallengeOptions(
+        hmac_key=f"{_hmac_key()}:account-deletion",
+        expires=datetime.now(tz=ET) + CHALLENGE_TTL,
+    )
+    return cast(dict[str, object], altcha_v1.create_challenge(options).to_dict())
+
+
+def verify_account_deletion_solution(payload_b64: str | None) -> bool:
+    if not payload_b64:
+        return False
+    try:
+        ok, _err = altcha_v1.verify_solution(
+            payload_b64, f"{_hmac_key()}:account-deletion", check_expires=True
+        )
+    except Exception:
+        return False
+    return ok

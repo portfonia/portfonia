@@ -266,6 +266,8 @@ def test_purge_happy_path_two_users(app_client: TestClient, db_session: Session)
         "users_invited_by_cleared": 1,
         "users": 1,
         "credit_ledger_flagged": 0,
+        "waitlist_entries": 0,
+        "invite_emails_cleared": 1,
     }
 
     db_session.expire_all()
@@ -416,6 +418,8 @@ def test_purge_orphan_auth_user_found(
         "users_invited_by_cleared": 0,
         "users": 0,
         "credit_ledger_flagged": 0,
+        "waitlist_entries": 0,
+        "invite_emails_cleared": 0,
     }
     delete_mock.assert_called_once_with(str(_UNKNOWN))
 
@@ -909,6 +913,8 @@ def test_purge_by_email_local_hit_full_purge(
         "users_invited_by_cleared": 0,
         "users": 1,
         "credit_ledger_flagged": 0,
+        "waitlist_entries": 0,
+        "invite_emails_cleared": 1,
     }
     _fake_delete_auth_user.assert_called_once_with(f"sub-{_A}")
 
@@ -1021,6 +1027,8 @@ def test_purge_by_email_orphan_auth_user_found(
         "users_invited_by_cleared": 0,
         "users": 0,
         "credit_ledger_flagged": 0,
+        "waitlist_entries": 0,
+        "invite_emails_cleared": 0,
     }
     delete_mock.assert_called_once_with(str(_UNKNOWN))
 

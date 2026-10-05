@@ -169,7 +169,7 @@ secret or the Supabase database password (business Postgres is self-hosted).
   input. The B4 migration leaves the production seed row's `auth_subject`
   NULL on purpose.
 - **Ops hard-purge** (issue #199, extended by issue #225, checkpoint B7, and issue #260): `DELETE /admin/users/{id}?confirm={email}` removes the `users` row and that user's own data, in `purge_user()`'s actual delete order (`news_surfaced`, `reports`, `holdings`, `accounts`, `upload_jobs`, `user_investment_context`, `email_verifications`), **and now also the hosted Auth account** — the previous "operator deletes it in the Supabase Dashboard" manual step is gone, closing the exact gap that produced a real production orphan (a `users` row cleaned up during 2026-08-25 UAT before this endpoint existed, leaving a live Supabase Auth account nobody found for two days). Auth deletion is sequenced strictly before any local delete and before `session.commit()`: a 404 (already gone) is treated as idempotent success; any other `AuthProviderError` aborts with `502` and touches nothing local, so a failed call is always safely retryable — never a half purge. Response gains `auth_deleted: bool`. When the local row is already gone but a matching Auth user remains (the orphan case above), the endpoint no longer 404s immediately — it looks the Auth user up by id and, if found, purges it directly (`confirm` compared against the Auth user's email, seed-user/`created_invites` guards skipped since they're local-row-scoped); only when neither side has anything does it 404. Soft-delete via `users.status = "deleted"` is unused here. **Email-first sibling (issue #274)**: `DELETE /admin/users/by-email?email={email}&confirm={email}` removes the SSH+psql "resolve the email to a user_id first" step — both params are required and normalized, mismatch → `422`; a local hit runs the exact same guards/purge via the shared `_purge_local_user`, a local miss orphans to `get_auth_user_by_email` (GoTrue list endpoint does not filter by email — the helper passes the address as the substring `filter` param, pages through hits, and returns only an exact normalized-email match), with an `auth_subject` occupancy check before any Auth delete so email drift can't Auth-delete a live account. Full detail: `docs/mechanisms/admin-surface.md`.
-  - **Cash-balance guard (issue #599)**: `_purge_local_user`, shared by the by-id and by-email routes, checks `credit_cash_balance > 0` after the confirm checks and before any Auth delete. It returns 409 `user has a cash balance; refund or adjust it to zero first` without changing Auth or local rows. Existing confirm errors keep their precedence. Cash 0.00 with gift credit remains purgeable and ledger rows are flagged; the Auth-only orphan path is unchanged. Ops refunds or an explicit cash adjustment must reduce cash to zero before purge; there is no automatic zeroing or user-facing waiver flow.
+  - **Cash-balance guard (issue #599)**: `_purge_local_user`, shared by the by-id and by-email routes, checks `credit_cash_balance > 0` after the confirm checks and before any Auth delete. It returns 409 `user has a cash balance; refund or adjust it to zero first` without changing Auth or local rows. Existing confirm errors keep their precedence. Cash 0.00 with gift credit remains purgeable and ledger rows are flagged; the Auth-only orphan path is unchanged. Ops refunds or an explicit cash adjustment must reduce cash to zero before purge; there is no automatic zeroing in Ops purge. Self-service deletion uses the explicit relinquishment flow described below.
 - **Ops user directory read** (issue #278): `GET /admin/users` is the read-only sibling of the two purge routes above — all query params optional, `require_ops_token` like every `/admin/*` route. `email` (optional) is exact-match after `_normalize_email` (strip + lowercase, same as signup; whitespace-only input normalizes to None and behaves like the param being absent); `status` / `report_cadence` filter on the `users` columns with the same hand-kept `Literal` validation as the cadence endpoint (out-of-set value → `422`); `limit` defaults 50, caps 200, `offset` pages the unfiltered/broad-filter case. Response is an array of `{id, email, status, created_at, report_cadence, auth_subject_bound, has_investment_context, holdings_count}` — a deliberately narrow summary shape, not the `PurgeUserOut` shape (read-only, no `deleted{}` block). **Why it exists (not a generic "list users for troubleshooting" surface)**: after issue #274/PR #275, the delete-by-email pre-delete confirmation policy (report `created_at`, whether questionnaire/investment-context data exists, holdings count; get human re-confirmation of the email) had no API to satisfy — it still required SSH+psql, the exact step #274 was built to remove. `auth_subject_bound` (=`auth_subject` non-NULL), `has_investment_context` (a `user_investment_context` row exists) and `holdings_count` (`COUNT(*)` on `holdings`) are exactly that policy's facts, exposed as one read-only query; the confirmation flow itself stays operator-side, out of this endpoint's scope.
 - **`recipient_email(session, user_id)`** reads `users` (`delivery_email`
   else `email`); missing or non-`active` → `None`. Send stays fail-closed.
@@ -1058,3 +1058,57 @@ do not share the frontend container's limit.
 Invitation letter links include the recipient's UI locale as `?lang=`.
 `/signup` applies valid values through `setLocale`, persisting the choice for
 later pages; this does not introduce URL-based locale routing.
+
+
+### Self-service account deletion (issue #644)
+
+Profile's danger zone uses `GET /me/account-deletion` to disclose two-decimal
+string balances (`cash_balance`, `refundable_cash`, `gift_balance`) and the
+boolean `subscription_active`. Refundable cash is the remaining amount of
+Paddle purchases made within the last 120 days, capped by the current cash
+balance and floored at zero. Exactly 120 days remains in the window.
+
+`GET /me/account-deletion/altcha-challenge` issues a purpose-distinct,
+stateless three-minute Altcha challenge. All three deletion endpoints use
+`current_principal`; personal API tokens cannot authenticate them.
+
+`POST /me/account-deletion` accepts `confirm_email: string`,
+`relinquish_cash: Decimal` (default zero), and `altcha: string | null`
+(default null). It takes the same refreshed user row lock as every ledger
+writer, applies the shared seed/created-invite refusals, compares normalized
+email, and requires the submitted amount to equal the locked cash balance.
+For positive cash, a valid deletion proof is required and the full amount
+is recorded as a cash `relinquish` debit with actor type `user`. Gift needs
+no separate ledger write; unused subscription time is not returned.
+
+Local purge and flush precede the mocked-in-tests Supabase Auth deletion;
+Auth deletion precedes commit. Success is 204. Email mismatch and protected
+users return 409; stale balances return 409 `balance_changed`; invalid or
+expired proofs return 400 `invalid captcha`. An Auth provider error rolls
+back all local changes and returns 502. A commit failure rolls back, logs
+only the user id, alerts Ops when Auth deletion preceded the commit, and
+returns 500; recovery is an Ops action. There is no server state between
+client dialogs, grace period, undo, confirmation email, or self-service
+refund endpoint.
+
+Shared purge now unlinks invite emails and waitlist references matching the
+normalized account address, invites redeemed by the user, and invites
+referencing the matching waitlist entries, then deletes those waitlist
+entries. It preserves invite usage/letter/revocation history and the signup
+grant fingerprint. Both Ops routes expose `waitlist_entries` and
+`invite_emails_cleared` counts; their refusal order and Auth-first ordering
+are preserved.
+
+The first dialog discloses personal-data deletion, accounting retention and
+the one-way signup fingerprint, API-token removal, subscription termination,
+positive gift balance, and the new-invitation/no-second-grant consequences
+of re-registration. Positive cash opens a separate dialog with refundable
+amount disclosure, support contact, a fresh email signature and Altcha.
+Closing discards inputs and proof; balance/proof errors close the flow and
+require restarting. Success clears the local Supabase session and redirects
+to `/`. Privacy Policy copy in all three catalogs discloses the fingerprint,
+API-token/waitlist removal, and self-service deletion on Profile.
+
+Deployment includes a ledger CHECK-constraint migration. Downgrade fails
+while retained rows use `relinquish` or actor type `user`. Implementation
+and tests do not authorize merge, deployment, or a production deletion.
