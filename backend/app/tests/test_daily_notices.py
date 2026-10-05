@@ -34,3 +34,28 @@ def test_daily_acceptance_13_notice_names(locale: str, plan_name: str, kind: str
     assert plan_name in payload["text"]
     assert "2.49" in payload["text"] and "0.50" in payload["text"]
     assert "2026-11-07" in payload["text"]
+
+
+@pytest.mark.parametrize("locale", ["zh", "zh-Hant"])
+def test_polish_660_acceptance_5_every_other_day_notice(locale: str) -> None:
+    with patch.object(httpx, "Client") as client:
+        post = client.return_value.__enter__.return_value.post
+        post.return_value.json.return_value = {"id": "mwf-notice"}
+        assert (
+            email.send_subscription_notice(
+                "mwf@example.com",
+                "expired",
+                locale=locale,
+                plan="mwf",
+                expires_on=date(2026, 11, 7),
+                fee=Decimal("1.99"),
+                balance=Decimal("0.50"),
+            )
+            == "mwf-notice"
+        )
+        assert "隔日" in post.call_args.kwargs["json"]["text"]
+
+
+@pytest.mark.parametrize("locale", ["zh", "zh-Hant"])
+def test_polish_660_acceptance_5_plan_label(locale: str) -> None:
+    assert email._SUBSCRIPTION_NOTICE_COPY[locale]["mwf"] == "隔日"

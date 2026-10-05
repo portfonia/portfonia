@@ -2,8 +2,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getUser, onAuthStateChange, logout, fetchMock } = vi.hoisted(() => ({
-  getUser: vi.fn(),
+const { getUser, onAuthStateChange, logout, fetchMock, setSubscription, getSubscriptionQuote, refresh } = vi.hoisted(() => ({
+  getUser: vi.fn(), setSubscription: vi.fn(), getSubscriptionQuote: vi.fn(), refresh: vi.fn(),
   onAuthStateChange: vi.fn(),
   logout: vi.fn(),
   // issue #236: useSession() now also probes /api/auth/session-status
@@ -17,7 +17,7 @@ const { getUser, onAuthStateChange, logout, fetchMock } = vi.hoisted(() => ({
 // usePathname() purely as a "something navigated, re-verify" effect
 // trigger — real Next.js usePathname() throws outside an App Router context,
 // so it still needs mocking here even though no test varies it by route.
-vi.mock("next/navigation", () => ({ usePathname: () => "/holdings" }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/holdings", useRouter: () => ({ refresh }) }));
 vi.mock("next/link", () => ({
   default: ({
     href,
@@ -55,6 +55,9 @@ import {
   __resetSessionSignalsForTests,
 } from "@/hooks/use-session";
 
+vi.mock("@/lib/api", async () => ({ ...await vi.importActual<typeof import("@/lib/api")>("@/lib/api"), setSubscription, getSubscriptionQuote }));
+import { useSubscription } from "@/app/profile/_components/use-subscription";
+import type { SubscriptionType } from "@/lib/api";
 import { GetStartedMenu } from "./get-started-menu";
 
 function LocaleToggle() {
@@ -492,4 +495,42 @@ it.each([false, true])("acceptance_16 AI Agent menu is available (authed=%s)", a
   renderMenu();
   await openMenu(user);
   expect(screen.getByRole("menuitem", { name: "AI Agent" })).toHaveAttribute("href", "/agent");
+});
+
+
+function SubscriptionChange({ plan }: { plan: SubscriptionType }) {
+  const state = useSubscription(undefined);
+  return <><button onClick={() => void state.choose(plan)}>choose-plan</button><button disabled={!state.dialog} onClick={() => void state.confirm()}>confirm-plan</button></>;
+}
+
+describe("subscription Advanced refresh (#660)", () => {
+  beforeEach(() => {
+    __resetSessionSignalsForTests();
+    vi.clearAllMocks();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+it.each([true, false])("polish_660_acceptance_1a confirmed change reprobes Advanced from %s", async advanced => {
+  withLocaleStorage("en");
+  getUser.mockResolvedValue({ data: { user: { email: "advanced@example.com" } } });
+  fetchMock.mockResolvedValue({ ok: true, json: async () => ({ advanced }) });
+  const plan = advanced ? "weekly" : "daily";
+  getSubscriptionQuote.mockResolvedValue({ action: "change", type: plan, sufficient: true });
+  setSubscription.mockImplementation(async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ advanced: !advanced }) });
+  });
+  render(<LocaleProvider><GetStartedMenu /><SubscriptionChange plan={plan} /></LocaleProvider>);
+  const trigger = await screen.findByRole("button", { name: /get started/i });
+  expect(trigger.classList.contains("bg-advanced")).toBe(advanced);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "choose-plan" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "confirm-plan" })).toBeEnabled());
+  await user.click(screen.getByRole("button", { name: "confirm-plan" }));
+  await waitFor(() => expect(trigger.classList.contains("bg-advanced")).toBe(!advanced));
+  expect(setSubscription).toHaveBeenCalledExactlyOnceWith(plan);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(fetchMock).toHaveBeenLastCalledWith("/api/auth/session-status", { cache: "no-store" });
+});
+
 });

@@ -68,3 +68,14 @@ it("daily_acceptance_12 history labels daily_close as Daily", () => {
   mount({ ...page, items: [{ ...items[0], session_node: "daily_close" }], total: 1 });
   expect(screen.getByText("Daily")).toBeInTheDocument();
 });
+
+
+it("polish_660_acceptance_6 aligns page typography", () => {
+  mount();
+  const heading = screen.getByRole("heading", { level: 1 });
+  expect(heading).toHaveClass("font-heading", "text-2xl", "font-medium");
+  expect(heading).not.toHaveClass("font-serif");
+  expect(heading).not.toHaveClass("font-semibold");
+  expect(screen.getByText("Page 1 of 2").closest(".text-sm")).not.toBeNull();
+  expect(screen.getByLabelText("Sort").parentElement).toHaveClass("text-muted-foreground");
+});

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const { refresh, getSubscriptionQuote, setSubscription, cancelSubscription } = vi.hoisted(() => ({ refresh: vi.fn(), getSubscriptionQuote: vi.fn(), setSubscription: vi.fn(), cancelSubscription: vi.fn() }));
+const { refresh, getSubscriptionQuote, setSubscription, cancelSubscription, revalidateSession } = vi.hoisted(() => ({ refresh: vi.fn(), getSubscriptionQuote: vi.fn(), setSubscription: vi.fn(), cancelSubscription: vi.fn(), revalidateSession: vi.fn() }));
+vi.mock("@/hooks/use-session", () => ({ revalidateSession }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 vi.mock("next-intl", () => ({ useTranslations: () => (key: string, values?: object) => key + (values ? JSON.stringify(values) : "") }));
 vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
@@ -89,13 +90,14 @@ describe("subscription dialogs and writes", () => {
     expect(setSubscription).toHaveBeenCalledExactlyOnceWith("mwf"); expect(cancelSubscription).not.toHaveBeenCalled();
     resolve(subscription);
     await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+    expect(revalidateSession).toHaveBeenCalledExactlyOnceWith();
     await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
   });
   it.each(["daily_limit", "email_unverified", "insufficient_credits", "no_change", "no_subscription"])("shows distinct 409 %s inside plan dialogs", async (code) => {
     setSubscription.mockRejectedValue(new ApiError(409, code));
     const dialog = await choose(); fireEvent.click(within(dialog).getByRole("button", { name: "subscriptionConfirm" }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(`subscriptionErrors.${code}`);
-    expect(refresh).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled(); expect(revalidateSession).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole("button", { name: "subscriptionDismiss" }));
     await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
   });
@@ -116,7 +118,11 @@ describe("subscription dialogs and writes", () => {
     const select = show({ ...active, cancel_pending: entry === "resume", next_adjustment_at: new Date(now + (7 * 60 + 12) * 60000).toISOString() });
     if (entry === "selector") fireEvent.change(select, { target: { value: "mwf" } });
     else fireEvent.click(screen.getByRole("button", { name: entry === "resume" ? "subscriptionResume" : "subscriptionCancel" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent('subscriptionDailyLock{"hours":7,"minutes":12}');
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent('subscriptionDailyLock{"hours":7,"minutes":12}');
+    expect(select.nextElementSibling).toBe(alert);
+    expect(alert.closest('[data-slot="card"]')).toBe(select.closest('[data-slot="card"]'));
+    expect(screen.getByRole("heading", { level: 1 }).compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(getSubscriptionQuote).not.toHaveBeenCalled(); expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument(); vi.restoreAllMocks();
   });
   it.each(["selector", "account"])("cancel from %s shows expiry and calls cancelSubscription", async (entry) => {
@@ -129,6 +135,7 @@ describe("subscription dialogs and writes", () => {
     expect(within(dialog).getByText("subscriptionDailyRule")).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "subscriptionConfirmCancellation" }));
     await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+    expect(revalidateSession).toHaveBeenCalledExactlyOnceWith();
     expect(cancelSubscription).toHaveBeenCalledExactlyOnceWith(); expect(setSubscription).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
   });
@@ -141,7 +148,8 @@ describe("subscription dialogs and writes", () => {
     expect(within(dialog).queryByText('subscriptionContinues{"expires_on":"2026-11-30"}') !== null).toBe(action === "resume");
     expect(within(dialog).queryByText('subscriptionFee{"fee":"1.99"}') !== null).toBe(action === "subscribe");
     fireEvent.click(within(dialog).getByRole("button", { name: "subscriptionConfirm" }));
-    await waitFor(() => expect(refresh).toHaveBeenCalledOnce()); expect(setSubscription).toHaveBeenCalledExactlyOnceWith("weekly"); expect(cancelSubscription).not.toHaveBeenCalled();
+    await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+    expect(revalidateSession).toHaveBeenCalledExactlyOnceWith(); expect(setSubscription).toHaveBeenCalledExactlyOnceWith("weekly"); expect(cancelSubscription).not.toHaveBeenCalled();
   });
 });
 
@@ -153,7 +161,7 @@ it.each(["daily_limit", "email_unverified", "insufficient_credits", "no_change",
   const confirm = within(dialog).getByRole("button", { name: "subscriptionConfirmCancellation" });
   fireEvent.click(confirm);
   expect(await within(dialog).findByRole("alert")).toHaveTextContent(`subscriptionErrors.${code}`);
-  expect(confirm).toBeEnabled(); expect(refresh).not.toHaveBeenCalled();
+  expect(confirm).toBeEnabled(); expect(refresh).not.toHaveBeenCalled(); expect(revalidateSession).not.toHaveBeenCalled();
   expect(cancelSubscription).toHaveBeenCalledExactlyOnceWith();
 });
 it("closing a plan dialog performs no write and hides conditional lines", async () => {
@@ -162,5 +170,5 @@ it("closing a plan dialog performs no write and hides conditional lines", async 
   expect(within(dialog).queryByText("subscriptionStartsToday")).not.toBeInTheDocument();
   fireEvent.click(within(dialog).getByRole("button", { name: "subscriptionDismiss" }));
   await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
-  expect(setSubscription).not.toHaveBeenCalled(); expect(cancelSubscription).not.toHaveBeenCalled(); expect(refresh).not.toHaveBeenCalled();
+  expect(setSubscription).not.toHaveBeenCalled(); expect(cancelSubscription).not.toHaveBeenCalled(); expect(refresh).not.toHaveBeenCalled(); expect(revalidateSession).not.toHaveBeenCalled();
 });
