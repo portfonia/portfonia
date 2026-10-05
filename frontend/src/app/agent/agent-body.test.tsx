@@ -82,3 +82,17 @@ it.each(Object.keys(catalogs) as Locale[])("acceptance_09 documents all endpoint
   expect(screen.getByRole("link", { name: "llms.txt" })).toHaveAttribute("href", "/llms.txt");
   expect(screen.getByRole("link", { name: "agent.md" })).toHaveAttribute("href", "/agent.md");
 });
+
+
+it("polish_660_acceptance_6 aligns page typography", () => {
+  render(wrapper(<AgentBody />));
+  const heading = screen.getByRole("heading", { level: 1 });
+  expect(heading).toHaveClass("font-heading", "text-2xl", "font-medium");
+  expect(heading).not.toHaveClass("font-serif");
+  expect(heading).not.toHaveClass("font-semibold");
+  expect(screen.getByText(en.agent.intro)).toHaveClass("text-sm", "text-muted-foreground");
+  for (const label of [en.agent.docs.gettingStartedTitle, en.agent.docs.endpointsTitle, en.agent.limitsTitle]) {
+    expect(screen.getByText(label).closest('[data-slot="card-title"]')).toHaveClass("font-heading", "text-base", "font-medium");
+    expect(screen.getByText(label).closest('[data-slot="card"]')).toHaveClass("text-sm");
+  }
+});

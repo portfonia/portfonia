@@ -1039,7 +1039,7 @@ _SUBSCRIPTION_NOTICE_COPY: dict[str, dict[str, str]] = {
     "zh": {
         "weekly": "每周",
         "daily": "每日",
-        "mwf": "周一/周三/周五",
+        "mwf": "隔日",
         "low_balance_subject": "Portfonia - 您的积分余额不足以支付下次续费",
         "low_balance_body": "您的{plan}订阅已付费至 {expires_on}。下次费用为 {fee} 积分，您的余额为 {balance} 积分。请在个人资料页面充值，以继续接收简报：{profile_url}",  # noqa: RUF001
         "expired_subject": "Portfonia - 您的订阅已到期",
@@ -1048,7 +1048,7 @@ _SUBSCRIPTION_NOTICE_COPY: dict[str, dict[str, str]] = {
     "zh-Hant": {
         "weekly": "每週",
         "daily": "每日",
-        "mwf": "週一/週三/週五",
+        "mwf": "隔日",
         "low_balance_subject": "Portfonia - 您的點數餘額不足以支付下次續費",
         "low_balance_body": "您的{plan}訂閱已付費至 {expires_on}。下次費用為 {fee} 點數，您的餘額為 {balance} 點數。請在個人資料頁面儲值，以繼續接收簡報：{profile_url}",  # noqa: RUF001
         "expired_subject": "Portfonia - 您的訂閱已到期",

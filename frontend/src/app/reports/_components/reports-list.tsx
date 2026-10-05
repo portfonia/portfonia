@@ -48,26 +48,28 @@ export function ReportsList({ initialPage, initialLoadError = false }: { initial
   const inputClass = "rounded-md border border-border bg-background p-2 text-sm";
   const buttonClass = "rounded-md border border-border px-3 py-2 text-sm disabled:opacity-40";
   return <>
-    <h1 className="mb-6 font-serif text-3xl">{t("title")}</h1>
-    <div className="mb-6 flex flex-wrap gap-4">
-      <label className="flex flex-col gap-1">{t("category")}<select className={inputClass} value={kind} onChange={e => change("kind", e.target.value)}>{(data?.kinds ?? ["report"]).map(value => <option key={value} value={value}>{t("title")}</option>)}</select></label>
-      <label className="flex flex-col gap-1">{t("sort")}<select className={inputClass} value={sort} onChange={e => change("sort", e.target.value)}><option value="desc">{t("newest")}</option><option value="asc">{t("oldest")}</option></select></label>
-      <label className="flex min-w-0 flex-col gap-1">{t("dateFrom")}<input type="date" className={inputClass} value={dateFrom} onChange={e => change("date_from", e.target.value)} /></label>
-      <label className="flex min-w-0 flex-col gap-1">{t("dateTo")}<input type="date" className={inputClass} value={dateTo} onChange={e => change("date_to", e.target.value)} /></label>
-    </div>
-    {error ? <p role="alert">{t("loadError")}</p> : data && <>
-      {data.total === 0 ? <p>{t(dateFrom || dateTo ? "emptyFiltered" : "empty")}</p> : <ul className="divide-y divide-border rounded-lg border border-border">
-        {data.items.map(item => {
-          const type = item.session_node === "daily_close" ? "daily" : item.session_node === "after_close" ? "everyOtherDay" : item.session_node === "weekend_snapshot" ? "weekly" : item.session_node === "manual" ? "manual" : "report";
-          const content = <><span>{item.report_date}</span><span>{t(`types.${type}`)}</span>{item.display_state !== "available" && <span className="rounded-full border border-border px-2 py-1 text-xs">{t(item.display_state === "under_review" ? "underReview" : "generating")}</span>}</>;
-          return <li key={item.id} data-testid="report-row">{item.display_state === "available" ? <Link href={`/reports/${item.id}`} className="flex flex-wrap items-center gap-3 p-4 hover:bg-muted">{content}</Link> : <div className="flex flex-wrap items-center gap-3 p-4">{content}</div>}</li>;
-        })}
-      </ul>}
-      <div className="mt-6 flex flex-wrap items-center gap-3">
-        <button className={buttonClass} disabled={data.page <= 1} onClick={() => change("page", String(data.page - 1))}>{t("previous")}</button>
-        <span>{t("page", { page: data.page, pages })}</span>
-        <button className={buttonClass} disabled={data.page >= pages} onClick={() => change("page", String(data.page + 1))}>{t("next")}</button>
+    <h1 className="mb-6 font-heading text-2xl font-medium">{t("title")}</h1>
+    <div className="text-sm">
+      <div className="mb-6 flex flex-wrap gap-4">
+        <label className="flex flex-col gap-1 text-muted-foreground">{t("category")}<select className={inputClass} value={kind} onChange={e => change("kind", e.target.value)}>{(data?.kinds ?? ["report"]).map(value => <option key={value} value={value}>{t("title")}</option>)}</select></label>
+        <label className="flex flex-col gap-1 text-muted-foreground">{t("sort")}<select className={inputClass} value={sort} onChange={e => change("sort", e.target.value)}><option value="desc">{t("newest")}</option><option value="asc">{t("oldest")}</option></select></label>
+        <label className="flex min-w-0 flex-col gap-1 text-muted-foreground">{t("dateFrom")}<input type="date" className={inputClass} value={dateFrom} onChange={e => change("date_from", e.target.value)} /></label>
+        <label className="flex min-w-0 flex-col gap-1 text-muted-foreground">{t("dateTo")}<input type="date" className={inputClass} value={dateTo} onChange={e => change("date_to", e.target.value)} /></label>
       </div>
-    </>}
+      {error ? <p role="alert">{t("loadError")}</p> : data && <>
+        {data.total === 0 ? <p>{t(dateFrom || dateTo ? "emptyFiltered" : "empty")}</p> : <ul className="divide-y divide-border rounded-lg border border-border">
+          {data.items.map(item => {
+            const type = item.session_node === "daily_close" ? "daily" : item.session_node === "after_close" ? "everyOtherDay" : item.session_node === "weekend_snapshot" ? "weekly" : item.session_node === "manual" ? "manual" : "report";
+            const content = <><span>{item.report_date}</span><span>{t(`types.${type}`)}</span>{item.display_state !== "available" && <span className="rounded-full border border-border px-2 py-1 text-xs">{t(item.display_state === "under_review" ? "underReview" : "generating")}</span>}</>;
+            return <li key={item.id} data-testid="report-row">{item.display_state === "available" ? <Link href={`/reports/${item.id}`} className="flex flex-wrap items-center gap-3 p-4 hover:bg-muted">{content}</Link> : <div className="flex flex-wrap items-center gap-3 p-4">{content}</div>}</li>;
+          })}
+        </ul>}
+        <div className="mt-6 flex flex-wrap items-center gap-3">
+          <button className={buttonClass} disabled={data.page <= 1} onClick={() => change("page", String(data.page - 1))}>{t("previous")}</button>
+          <span>{t("page", { page: data.page, pages })}</span>
+          <button className={buttonClass} disabled={data.page >= pages} onClick={() => change("page", String(data.page + 1))}>{t("next")}</button>
+        </div>
+      </>}
+    </div>
   </>;
 }
