@@ -173,7 +173,8 @@ def test_635_06_parallel_date_and_full_content_payloads() -> None:
         "max_results": 3,
     }
     assert "max_results" not in search
-    assert call.call_args_list[1].args[1]["full_content"] is True
+    # Issue #670: /v1/extract rejects a top-level full_content with 422.
+    assert call.call_args_list[1].args[1]["advanced_settings"] == {"full_content": True}
 
 
 def test_635_08_english_boundary_unchanged() -> None:

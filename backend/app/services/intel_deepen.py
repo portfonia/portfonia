@@ -139,9 +139,7 @@ class DeepenRun:
             p.identifier: p.name_en or p.name_zh or p.identifier
             for p in session.scalars(select(InstrumentProfile))
         }
-        self.movers = (
-            [] if weekend else [u for u in select_units(signals, {}, cfg) if u.kind == "mover"]
-        )
+        self.movers = [u for u in select_units(signals, {}, cfg) if u.kind == "mover"]
         self.mover_ids = {u.identifier for u in self.movers}
         self.movers_started = False
         self.pool_items: list[NewsItem] = []

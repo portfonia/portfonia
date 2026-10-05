@@ -63,12 +63,14 @@ class Signal:
             signal.strength = abs(triggered[key])
             signal.direction = "up" if triggered[key] >= 0 else "down"
             signal.reason = f"{key} {triggered[key]:+.1%}"
+            # A d1 window reaches back to the last close, so weekend and Monday runs
+            # still see links published on the last trading day (#670).
             signal.window_start = (
                 closes[5][0]
                 if "d5" in triggered
                 else closes[3][0]
                 if "d3" in triggered
-                else run_date - timedelta(days=2 if slot == "pre_open" else 1)
+                else min(run_date - timedelta(days=2 if slot == "pre_open" else 1), closes[0][0])
             )
         else:
             near = {
@@ -125,26 +127,22 @@ def compute_signals(
     history = slot_history(session, slot, now, cfg, weekend)
     result = {}
     for entry in universe:
-        closes = (
-            []
-            if weekend
-            else [
-                (r.trade_date, float(r.close))
-                for r in session.scalars(
-                    select(PriceSnapshot)
-                    .where(
-                        PriceSnapshot.ticker == entry.ticker,
-                        PriceSnapshot.market == entry.market,
-                        PriceSnapshot.session_node == "close",
-                        PriceSnapshot.close.is_not(None),
-                        PriceSnapshot.trade_date <= run_date,
-                    )
-                    .order_by(PriceSnapshot.trade_date.desc())
-                    .limit(6)
+        closes = [
+            (r.trade_date, float(r.close))
+            for r in session.scalars(
+                select(PriceSnapshot)
+                .where(
+                    PriceSnapshot.ticker == entry.ticker,
+                    PriceSnapshot.market == entry.market,
+                    PriceSnapshot.session_node == "close",
+                    PriceSnapshot.close.is_not(None),
+                    PriceSnapshot.trade_date <= run_date,
                 )
-                if r.close is not None
-            ]
-        )
+                .order_by(PriceSnapshot.trade_date.desc())
+                .limit(6)
+            )
+            if r.close is not None
+        ]
         signal = Signal.from_closes(
             entry.identifier, closes, cfg, run_date, slot, prev_slot_started_at
         )

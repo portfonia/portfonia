@@ -100,15 +100,11 @@ def intel_slot_task(slot: str) -> dict[str, str]:
                 signals = compute_signals(
                     session, universe, run_date, previous, cfg, slot=slot, now=now, weekend=weekend
                 )
-                priority = (
-                    [
-                        u.identifier
-                        for u in select_units(signals, {}, cfg)
-                        if u.kind == "mover" or u.reason.startswith("near_")
-                    ]
-                    if not weekend
-                    else []
-                )
+                priority = [
+                    u.identifier
+                    for u in select_units(signals, {}, cfg, weekend=weekend)
+                    if u.kind == "mover" or u.reason.startswith("near_")
+                ]
                 deepen = DeepenRun(
                     session,
                     run,

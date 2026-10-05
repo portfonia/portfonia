@@ -322,7 +322,7 @@ def test_23_full_slot_no_urls(
     entries = [UniverseEntry("AAA", "AAA", "US")]
     signal = Signal(
         "AAA",
-        mover=not weekend,
+        mover=True,
         strength=0.06,
         reason="d1 -6.0%",
         window_start=now.date() - timedelta(days=1),
@@ -352,7 +352,7 @@ def test_23_full_slot_no_urls(
         patch.object(task, "today_et", return_value=now.date()),
         patch.object(task, "intel_universe", return_value=entries),
         patch.object(task, "resolve_profiles", return_value=[]),
-        patch.object(task, "compute_signals", return_value={} if weekend else {"AAA": signal}),
+        patch.object(task, "compute_signals", return_value={"AAA": signal}),
         patch.object(task, "capture_news", return_value=PoolCaptureResult(0, [])),
         patch.object(task, "collect_slot_news", side_effect=collect),
         patch.object(deepen, "get_settings", return_value=settings()),
@@ -375,7 +375,8 @@ def test_23_full_slot_no_urls(
     ):
         assert task.intel_slot_task("post_close")["status"] == "ok"
     articles = db_session.scalars(select(IntelArticle)).all()
-    assert len(articles) == (0 if weekend else 2)
+    # Issue #670: weekend slots deepen price movers like weekdays.
+    assert len(articles) == 2
     assert all(r.status == "accepted" for r in articles)
     # Issue #640 acceptance 1: no shared-analysis step, evidence key or report line.
     assert "shared_analysis" not in db_session.scalars(select(IntelSlotRun)).one().details
