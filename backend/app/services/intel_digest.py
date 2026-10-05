@@ -214,10 +214,9 @@ def build_batch_report(
         titles = list(dict.fromkeys(without_urls(t) for r in reasons for t in samples.get(r, [])))[
             :3
         ]
-        lines.append(
-            f"  {label} {count:,.0f}"
-            + ("  e.g. " + "; ".join(f'"{t}"' for t in titles) if titles else "")
-        )
+        lines.append(f"  {label} {count:,.0f}")
+        if titles:
+            lines.append("      e.g. " + "; ".join(f'"{t}"' for t in titles))
     inserted = sum(t["inserted"] for t in totals.values())
     lines += [
         "",
@@ -240,7 +239,29 @@ def build_batch_report(
     def unit_name(unit: dict[str, object]) -> str:
         return str(unit.get("identifier") or labels.get(str(unit.get("theme")), "Macro theme"))
 
-    picked: dict[str, list[str]] = {}
+    outcomes = objects(deep.get("outcomes"))
+    kept_units = {unit_name(o) for o in outcomes if number(o.get("accepted"))}
+
+    def outcome_text(outcome: dict[str, object]) -> str | None:
+        accepted = number(outcome.get("accepted"))
+        # The "nothing usable" text names no provider, so skip it for a unit that kept
+        # articles through another provider (search fallback or A/B sibling).
+        if not accepted and outcome.get("note") != "no_news" and unit_name(outcome) in kept_units:
+            return None
+        provider = "Tavily" if outcome.get("provider") == "tavily" else "Parallel"
+        if accepted:
+            via = "headline search" if outcome.get("via") == "search" else "direct links"
+            return f"{provider}  {accepted:g} articles kept ({via})"
+        if outcome.get("note") == "no_news":
+            return "no news to follow up, no paid call"
+        reason = (
+            "batch limit reached"
+            if outcome.get("note") == "cap_reached"
+            else "no usable article found"
+        )
+        return f"nothing usable ({reason})"
+
+    picked: list[str] = []
     for unit in objects(deep.get("selections")):
         reason = str(unit.get("reason", ""))
         if unit.get("kind") == "macro":
@@ -254,37 +275,12 @@ def build_batch_report(
             words = f"unusual news volume ({reason.split(' ', 1)[1]} usual)"
         else:
             words = "close to the multi-day move threshold"
-        picked.setdefault(words, []).append(unit_name(unit))
-    lines.append(
-        "Picked: "
-        + (
-            "; ".join(f"{', '.join(names)} ({reason})" for reason, names in picked.items())
-            if picked
-            else "none"
-        )
-    )
-    outcomes = objects(deep.get("outcomes"))
-    kept_units = {unit_name(o) for o in outcomes if number(o.get("accepted"))}
-    for outcome in outcomes:
-        name = unit_name(outcome)
-        accepted = number(outcome.get("accepted"))
-        # The "nothing usable" line names no provider, so skip it for a unit that kept
-        # articles through another provider (search fallback or A/B sibling).
-        if not accepted and outcome.get("note") != "no_news" and name in kept_units:
-            continue
-        provider = "Tavily" if outcome.get("provider") == "tavily" else "Parallel"
-        if accepted:
-            via = "headline search" if outcome.get("via") == "search" else "direct links"
-            lines.append(f"  {name}  {provider}  {accepted:g} articles kept ({via})")
-        elif outcome.get("note") == "no_news":
-            lines.append(f"  {name}  no news to follow up, no paid call")
-        else:
-            reason = (
-                "batch limit reached"
-                if outcome.get("note") == "cap_reached"
-                else "no usable article found"
-            )
-            lines.append(f"  {name}  nothing usable ({reason})")
+        name = unit_name(unit)
+        texts = [
+            text for o in outcomes if unit_name(o) == name and (text := outcome_text(o)) is not None
+        ]
+        picked.append(f"  {name} ({words})" + (": " + "; ".join(texts) if texts else ""))
+    lines += ["Picked:", *picked] if picked else ["Picked: none"]
     metrics = {p: obj(v) for p, v in obj(deep.get("metrics")).items()}
     kept = sum(number(m.get("accepted")) for m in metrics.values())
     failed = sum(number(obj(m.get("rejected")).get("provider_error")) for m in metrics.values())
@@ -295,6 +291,7 @@ def build_batch_report(
     usage = obj(deep.get("usage"))
     tavily, parallel = obj(usage.get("tavily")), obj(usage.get("parallel"))
     lines += [
+        "",
         f"Articles kept: {kept:g}. Rejected: {rejected:g}. Failed: {failed:g}.",
         f"Spend this batch: Tavily {number(tavily.get('run')):g} credits, Parallel ${number(parallel.get('run')):.3f}.",
     ]
@@ -316,5 +313,5 @@ def build_batch_report(
     )
     if deep_errors:
         severity = "WARNING"
-    lines += problem_lines(deep_errors)
+    lines += ["", *problem_lines(deep_errors)]
     return batch_subject(slot), "\n".join(lines), severity

@@ -187,12 +187,17 @@ def test_639_04_digest_merges_stale_counts_and_samples(db_session: Session) -> N
         }
     }
     _, body, _ = report(db_session, run)
-    lines = [line for line in body.splitlines() if "Old news republished with a new date" in line]
-    assert len(lines) == 1
-    assert "Old news republished with a new date ..... 7" in lines[0]
-    assert lines[0].count('"Old one"') == 1
-    assert '"Old paid"' in lines[0] and '"Old four"' not in lines[0]
-    assert lines[0].count('"') == 6
+    all_lines = body.splitlines()
+    index = next(
+        i for i, line in enumerate(all_lines) if "Old news republished with a new date" in line
+    )
+    assert all_lines[index] == "  Old news republished with a new date ..... 7"
+    # Issue #670: samples sit on the indented line below the count.
+    examples = all_lines[index + 1]
+    assert examples.startswith("      e.g. ")
+    assert examples.count('"Old one"') == 1
+    assert '"Old paid"' in examples and '"Old four"' not in examples
+    assert examples.count('"') == 6
 
 
 def test_639_12a_paid_missing_date_uses_batch_time(worker: deepen.DeepenRun) -> None:

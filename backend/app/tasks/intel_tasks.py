@@ -102,7 +102,7 @@ def intel_slot_task(slot: str) -> dict[str, str]:
                 )
                 priority = [
                     u.identifier
-                    for u in select_units(signals, {}, cfg)
+                    for u in select_units(signals, {}, cfg, weekend=weekend)
                     if u.kind == "mover" or u.reason.startswith("near_")
                 ]
                 deepen = DeepenRun(

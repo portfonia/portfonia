@@ -661,13 +661,18 @@ title was linked before the attempt start. Stored titles linked during the
 attempt, including its RSS pool, seed the same-batch `previous` list and count
 as `duplicate`. Rule-passing candidates still enter that list before
 classification. The report merges corresponding rule/AI reasons and quotes
-up to three distinct stored samples; those original titles may be Chinese.
+up to three distinct stored samples on an indented `e.g.` line below the
+reason's count (issue #670); those original titles may be Chinese.
 It prints articles and filings separately, with their combined inserted count.
 
 Part 2 reports selections in words, per-unit/provider outcomes, paid run/month
 spend and cost per kept article (the weekday post-close shared-analysis
-counts were removed with that analysis by issue #640).
-The provider-less `nothing usable` line is omitted for a unit that kept
+counts were removed with that analysis by issue #640). Since issue #670 a
+`Picked:` header is followed by one line per picked unit, in selection order,
+as `<name> (<pick reason>): <outcome>`; A/B sibling outcomes share the line,
+joined by `; `, and a unit with no recorded outcome has no suffix. Blank lines
+precede the totals and Part 2 `Problems:`.
+The provider-less `nothing usable` outcome is omitted for a unit that kept
 articles through another provider.
 Macro display names come from each theme's `name_en`; matching keywords remain
 unchanged. Problems are rendered as URL-free plain reasons. Run records expire
@@ -758,7 +763,10 @@ the instrument was in that run's recorded universe. Issue #670: weekend slots
 read captured closes and select movers and near candidates with the weekday
 rules, so news arriving on Saturday/Sunday about the last sessions' moves is
 deepened from that run's own links (Monday's run sees those headlines as
-already collected). Weekend quiet caps, run credit caps, news-spike history and
+already collected). A d1-only window starts at the earlier of the slot
+formula date and the latest captured close, so Sunday `post_close` and Monday
+`pre_open` include links published on Friday. The weekend collection priority
+list uses the weekend quiet cap. Weekend quiet caps, run credit caps, news-spike history and
 macro rules are unchanged. Weekend macro selection requires at least ten fresh items
 and, with sufficient history, twice the weekend median.
 
@@ -812,9 +820,12 @@ parsing only. Non-success responses with ledger rows record 0 units and cost
 and add nothing to run or month usage. Read timeouts after sending retain the
 pre-send estimate. Parallel dates use `publish_date`. No new dependency is required.
 
-Issue #670 adds the `Keep me signed in` paywall marker (login-teaser pages)
-and the `Remove ads`, `Read Next` and `we store cookies` boilerplate markers
-(aggregator sidebar pages); `body_verdict` is unchanged.
+Issue #670 adds the `'Keep me signed in' box` paywall marker (login-form text
+on login-teaser pages) and the `Remove ads` boilerplate marker (aggregator
+sidebar pages); `body_verdict` is unchanged. Markers are case-insensitive
+substrings, so a marker must be page-chrome text that ordinary prose does not
+use: `Read Next` and `we store cookies` were rejected in review because they
+matched "read next week's ..." and normal cookie footers.
 
 Body cleaning removes Yahoo navigation, reduces Markdown links to link text
 and removes HTTP(S) URLs. Issue #630 then cleans residue before the unchanged

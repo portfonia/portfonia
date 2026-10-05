@@ -235,7 +235,7 @@ def example_report(session: Session) -> str:
 def test_635_report_fixture_example(db_session: Session) -> None:
     sample = example_report(db_session)
     assert "Kept: 2 headlines and 0 company filings (2 of them new to the database)." in sample
-    assert "AAA  Tavily  1 articles kept (headline search)" in sample
+    assert "  AAA (new company filing): Tavily  1 articles kept (headline search)" in sample
     print(sample)
 
 
@@ -278,7 +278,7 @@ def test_638_documentation_distinguishes_stored_and_rendered_error() -> None:
     assert "`Paid deepening: unexpected error (ValueError)`" in document
 
 
-def test_638_picked_groups_names_by_reason_in_first_seen_order(db_session: Session) -> None:
+def test_638_picked_lists_units_in_selection_order(db_session: Session) -> None:
     themes = yaml.safe_load(_get_keywords_path().read_text())["themes"]
     run = slot(db_session)
     run.details = {
@@ -290,13 +290,14 @@ def test_638_picked_groups_names_by_reason_in_first_seen_order(db_session: Sessi
             ]
         }
     }
-    line = next(
-        line for line in report(db_session, run)[1].splitlines() if line.startswith("Picked:")
-    )
-    assert (
-        line
-        == "Picked: 0700.HK, 2333.HK (new company filing); Monetary policy (11 matching headlines)"
-    )
+    lines = report(db_session, run)[1].splitlines()
+    start = lines.index("Picked:")
+    # Issue #670: one line per picked unit, in selection order.
+    assert lines[start + 1 : start + 4] == [
+        "  0700.HK (new company filing)",
+        "  Monetary policy (11 matching headlines)",
+        "  2333.HK (new company filing)",
+    ]
 
 
 def test_638_fallback_sibling_does_not_print_nothing_usable(db_session: Session) -> None:
@@ -304,14 +305,17 @@ def test_638_fallback_sibling_does_not_print_nothing_usable(db_session: Session)
     base = {"kind": "quiet", "identifier": "AAA", "theme": None, "via": "search"}
     run.details = {
         "deepening": {
+            "selections": [
+                {"kind": "quiet", "identifier": "AAA", "reason": "new_filing"},
+                {"kind": "quiet", "identifier": "BBB", "reason": "new_filing"},
+            ],
             "outcomes": [
                 {**base, "provider": "tavily", "accepted": 0, "note": None},
                 {**base, "provider": "parallel", "accepted": 2, "note": None},
                 {**base, "identifier": "BBB", "provider": "tavily", "accepted": 0, "note": None},
-            ]
+            ],
         }
     }
     lines = [line.strip() for line in report(db_session, run)[1].splitlines()]
-    assert "AAA  Parallel  2 articles kept (headline search)" in lines
-    assert "AAA  nothing usable (no usable article found)" not in lines
-    assert "BBB  nothing usable (no usable article found)" in lines
+    assert "AAA (new company filing): Parallel  2 articles kept (headline search)" in lines
+    assert "BBB (new company filing): nothing usable (no usable article found)" in lines

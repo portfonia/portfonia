@@ -63,12 +63,14 @@ class Signal:
             signal.strength = abs(triggered[key])
             signal.direction = "up" if triggered[key] >= 0 else "down"
             signal.reason = f"{key} {triggered[key]:+.1%}"
+            # A d1 window reaches back to the last close, so weekend and Monday runs
+            # still see links published on the last trading day (#670).
             signal.window_start = (
                 closes[5][0]
                 if "d5" in triggered
                 else closes[3][0]
                 if "d3" in triggered
-                else run_date - timedelta(days=2 if slot == "pre_open" else 1)
+                else min(run_date - timedelta(days=2 if slot == "pre_open" else 1), closes[0][0])
             )
         else:
             near = {
