@@ -30,6 +30,7 @@ celery_app = Celery(
         "app.tasks.email_verification_tasks",
         "app.tasks.report_delivery_tasks",
         "app.tasks.invitation_letter_tasks",
+        "app.tasks.waitlist_tasks",
         "app.tasks.notification_tasks",
         "app.tasks.operational_events_tasks",
     ],
@@ -337,6 +338,12 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "task": "app.tasks.operational_events_tasks.cleanup_operational_events",
         "schedule": crontab(hour=5, minute=0, nowfun=_NowIn(UTC)),
     },
+    # Eligible pending waitlist entries (issue #672). Every day, including
+    # weekends. 0 on WAITLIST_AUTO_INVITE_DAILY_LIMIT pauses the run.
+    "waitlist-auto-invite-daily": {
+        "task": "app.tasks.waitlist_tasks.auto_invite_waitlist",
+        "schedule": crontab(hour=10, minute=0),
+    },
 }
 for _slot, _hour, _minute in [("pre_open", 7, 30), ("post_close", 16, 15)]:
     _beat_schedule["intel-slot-" + _slot] = {
@@ -375,6 +382,7 @@ API_QUIET_BEAT_ENTRIES: dict[str, bool] = {
     "check-capture-health-daily": False,
     "capture-fx-evening-daily": False,
     "cleanup-operational-events-daily": False,
+    "waitlist-auto-invite-daily": False,
     "intel-slot-pre_open": True,
     "intel-slot-post_close": True,
     "report-incremental-weekday": True,

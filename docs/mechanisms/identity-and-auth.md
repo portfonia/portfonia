@@ -1065,6 +1065,35 @@ Invitation letter links include the recipient's UI locale as `?lang=`.
 later pages; this does not introduce URL-based locale routing.
 
 
+### Waitlist automatic invitations (issue #672)
+
+`waitlist-auto-invite-daily` runs at 10:00 ET every day, including weekends.
+`WAITLIST_AUTO_INVITE_DAILY_LIMIT` defaults to 10. A value of 0 returns
+`disabled` without querying, sending, or emailing.
+
+Eligible entries are `pending`, their email is not already a user, and no
+invite for that email has `letter_unsubscribed_at` set. The task sends to the
+oldest `created_at`, then `id`, using the same letter path as
+`POST /admin/invitation-letters`: the entry locale, a 14-day email-bound
+invite, and the one-shot delivery poll. The quota is global. It is the limit
+minus the number of `invites.letter_sent_at` values on the current ET date,
+manual letters included. One run makes at most that many send attempts. A
+Resend miss and any other send exception both count; neither is retried. The
+entry stays in the manual endpoint's unconfirmed state (`invited`,
+`link_sent_at` NULL). A conflict because the entry changed between selection
+and the lock is logged and does not count.
+
+Bounced, complained, failed, and suppressed letters are not sent again. The
+existing per-letter delivery alert is unchanged. The digest lists non-registered
+entries that are already users, unsubscribed, unconfirmed or otherwise unsent,
+expired without signup, or whose latest letter has one of those delivery
+events. A pending entry whose old link was revoked by a manual status reset is
+eligible for a new letter and is not listed as expired.
+
+The digest goes out when this run attempted at least one send or the attention
+list is non-empty. It is plain English, dated in ET, and contains no ids. The
+same ET day uses one idempotency key.
+
 ### Self-service account deletion (issue #644)
 
 Profile's danger zone uses `GET /me/account-deletion` to disclose two-decimal

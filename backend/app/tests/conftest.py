@@ -161,6 +161,8 @@ _EXTERNAL_NOTIFY_MODULES = (
     "app.services.capture_health",
     "app.routers.paddle_webhooks",
     "app.routers.admin",
+    # issue #672: the daily waitlist task emails one ops digest.
+    "app.tasks.waitlist_tasks",
     "app.services.subscription",
     "app.services.paid_usage",
 )

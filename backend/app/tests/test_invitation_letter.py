@@ -78,8 +78,10 @@ def test_send_completion_does_not_overwrite_concurrent_ops_change(
 
         with (
             Session(engine) as first,
-            patch("app.routers.admin.send_invitation_letter", side_effect=during_send),
-            patch("app.routers.admin.poll_invitation_letter_delivery.apply_async"),
+            patch(
+                "app.services.invitation_letters.send_invitation_letter", side_effect=during_send
+            ),
+            patch("app.services.invitation_letters.poll_invitation_letter_delivery.apply_async"),
         ):
             response = send_invitation_letter_endpoint(
                 InvitationLetterBody(email=email), session=first, _=None
@@ -149,8 +151,13 @@ def test_completion_lock_blocks_status_change_until_sent_commit(session_test_db:
 
             with (
                 patch.object(first, "refresh", side_effect=refresh_then_start_status_edit),
-                patch("app.routers.admin.send_invitation_letter", return_value="resend-locked"),
-                patch("app.routers.admin.poll_invitation_letter_delivery.apply_async"),
+                patch(
+                    "app.services.invitation_letters.send_invitation_letter",
+                    return_value="resend-locked",
+                ),
+                patch(
+                    "app.services.invitation_letters.poll_invitation_letter_delivery.apply_async"
+                ),
             ):
                 sent = send_invitation_letter_endpoint(
                     InvitationLetterBody(email="race-after-recheck@example.com"),
@@ -228,8 +235,8 @@ def test_invitation_letter_rejects_unsupported_language(
     app_client: TestClient, db_session: Session
 ) -> None:
     with (
-        patch("app.routers.admin.send_invitation_letter", return_value="resend-test"),
-        patch("app.routers.admin.poll_invitation_letter_delivery.apply_async"),
+        patch("app.services.invitation_letters.send_invitation_letter", return_value="resend-test"),
+        patch("app.services.invitation_letters.poll_invitation_letter_delivery.apply_async"),
     ):
         response = app_client.post(
             "/admin/invitation-letters",
@@ -245,7 +252,9 @@ def test_letter_send_persists_invite_and_blocks_unsubscribed(
     before_waitlist = db_session.scalars(select(WaitlistEntry)).all()
     with (
         patch("app.services.email_sender.httpx.Client") as client_class,
-        patch("app.routers.admin.poll_invitation_letter_delivery.apply_async") as poll,
+        patch(
+            "app.services.invitation_letters.poll_invitation_letter_delivery.apply_async"
+        ) as poll,
     ):
         _resend_success(client_class, "resend-1")
         response = app_client.post(
@@ -313,7 +322,9 @@ def test_waitlist_locale_and_send_failure(app_client: TestClient, db_session: Se
     headers = {"Authorization": f"Bearer {get_settings().ADMIN_API_TOKEN.get_secret_value()}"}
     with (
         patch("app.services.email_sender.httpx.Client") as client_class,
-        patch("app.routers.admin.poll_invitation_letter_delivery.apply_async") as poll,
+        patch(
+            "app.services.invitation_letters.poll_invitation_letter_delivery.apply_async"
+        ) as poll,
     ):
         response_mock = client_class.return_value.__enter__.return_value.post.return_value
         response_mock.raise_for_status.side_effect = httpx.HTTPStatusError(
@@ -340,7 +351,9 @@ def test_waitlist_locale_and_send_failure(app_client: TestClient, db_session: Se
     assert old is not None and old.letter_sent_at is None and old.revoked_at is None
     with (
         patch("app.services.email_sender.httpx.Client") as client_class,
-        patch("app.routers.admin.poll_invitation_letter_delivery.apply_async") as poll,
+        patch(
+            "app.services.invitation_letters.poll_invitation_letter_delivery.apply_async"
+        ) as poll,
     ):
         _resend_success(client_class, "resend-zh")
         response = app_client.post(
@@ -381,8 +394,10 @@ def test_non_waitlist_chinese_letter_uses_simplified_ui_locale(
     app_client: TestClient,
 ) -> None:
     with (
-        patch("app.routers.admin.send_invitation_letter", return_value="resend-zh") as send,
-        patch("app.routers.admin.poll_invitation_letter_delivery.apply_async"),
+        patch(
+            "app.services.invitation_letters.send_invitation_letter", return_value="resend-zh"
+        ) as send,
+        patch("app.services.invitation_letters.poll_invitation_letter_delivery.apply_async"),
     ):
         response = app_client.post(
             "/admin/invitation-letters",
@@ -413,7 +428,7 @@ def test_waitlist_refusal(
         expected = "entry already registered"
     headers = {"Authorization": f"Bearer {get_settings().ADMIN_API_TOKEN.get_secret_value()}"}
     before = db_session.scalars(select(Invite).where(Invite.email == entry.email)).all()
-    with patch("app.routers.admin.send_invitation_letter") as send:
+    with patch("app.services.invitation_letters.send_invitation_letter") as send:
         response = app_client.post(
             "/admin/invitation-letters", json={"email": entry.email}, headers=headers
         )
@@ -427,7 +442,7 @@ def test_existing_user_refused_without_new_invite(
 ) -> None:
     seed_user(db_session, uuid.uuid4(), "taken-letter@example.com")
     db_session.commit()
-    with patch("app.routers.admin.send_invitation_letter") as send:
+    with patch("app.services.invitation_letters.send_invitation_letter") as send:
         response = app_client.post(
             "/admin/invitation-letters",
             json={"email": "Taken-Letter@Example.com"},
