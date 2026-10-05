@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel } from "@/components/ui/alert-dialog";
 import { logoutAfterAccountDeletion } from "@/lib/auth-actions";
+import { isNextRedirectError } from "@/lib/next-redirect-error";
 
 interface DeletionSummary {
   cash_balance: string;
@@ -95,7 +96,8 @@ export function DeleteAccountDialog({ email }: { email: string }) {
       } else {
         setError(t(response.status === 500 ? "deleteAccountIncomplete" : "deleteAccountFailed"));
       }
-    } catch {
+    } catch (error) {
+      if (isNextRedirectError(error)) throw error;
       setError(t("deleteAccountFailed"));
     } finally {
       setPending(false);

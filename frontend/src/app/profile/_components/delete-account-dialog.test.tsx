@@ -136,3 +136,27 @@ it.each([[502, "Deletion failed. Nothing was changed; please retry."],
   await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(String(message)));
   expect(logoutAfterAccountDeletion).not.toHaveBeenCalled();
 });
+
+it("12 does not show deletion failure when logout redirects after 204", async () => {
+  const redirect = Object.assign(new Error("NEXT_REDIRECT"), {
+    digest: "NEXT_REDIRECT;replace;/;307;",
+  });
+  logoutAfterAccountDeletion.mockRejectedValue(redirect);
+  // Next.js handles this rejection in the browser; capture only this expected redirect.
+  const processEvents: NodeJS.EventEmitter = process;
+  const emit = processEvents.emit;
+  const redirectHandler = vi.spyOn(processEvents, "emit").mockImplementation(function (event, ...args) {
+    if (event === "unhandledRejection" && args[0] === redirect) return true;
+    return emit.call(process, event, ...args);
+  });
+  try {
+    renderProfile();
+    const dialog = await open();
+    await userEvent.type(within(dialog).getByRole("textbox"), "user@example.com");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete account" }));
+    await waitFor(() => expect(logoutAfterAccountDeletion).toHaveBeenCalledOnce());
+    expect(screen.queryByText("Deletion failed. Nothing was changed; please retry.")).not.toBeInTheDocument();
+  } finally {
+    redirectHandler.mockRestore();
+  }
+});
