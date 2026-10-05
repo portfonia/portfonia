@@ -75,7 +75,7 @@ body_cleaning:
 headline_cleaning:
   preview_max_days_ahead: 21
   earnings_preview_patterns:
-    - '\b(ahead of|before|awaits?|previews?|previewing)\b.*\b(earnings|results|EPS)\b'
+    - '\b(ahead of|before|awaits?|previews?|previewing)\s+(?:\S+\s+){0,4}?(earnings|results|EPS)\b'
     - '\b(earnings|results)\b.*\bpreview\b'
     - '\bQ[1-4]\b.*\bpreview\b'
   stale_earnings_days: 14

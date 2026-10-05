@@ -22,7 +22,7 @@ low_value_title_patterns:
   - '\$[A-Z]{1,5}\s+(stock|shares|position)\s+(acquired|sold|purchased|bought)\s+by\b'
   - '\b(stock|shares)\s+(price\s+)?(up|down)\s+[\d.]+%\s*-\s*here.?s\s+(what happened|why)\b'
   - '\b(out|under)performs\b.*\bcompetitors\b|\bstock\s+(pre-market|after-hours)\s+at\b'
-  - '\bstock price today\b'
+  - '\bstock price today\s*([|,:\-]|$)'
   - '\bstock price, quote\b'
   - '\blatest stock news and headlines\b'
   - '\.US\)\$'

@@ -2,6 +2,7 @@
 
 import hashlib
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import cast
 from unittest.mock import patch
 
@@ -25,6 +26,7 @@ from app.services.intel_digest import SOURCE_LINES, problem_lines
 from app.services.intel_leads import Lead, select_headlines, select_leads
 from app.services.intel_selection import WorkUnit
 from app.services.intel_signals import compute_signals
+from app.services.paid_search import PaidResult
 from app.tests.test_intel_paid import slot
 from app.tests.test_issue_630_classifier import response
 from app.tests.test_issue_635_deepening import worker as shared_worker  # noqa: F401
@@ -300,3 +302,85 @@ def test_657_a10_low_value_titles(title: str, expected: str | None) -> None:
         )
         == expected
     )
+
+
+@pytest.mark.parametrize("future", [False, True])
+def test_657_a8_paid_preview_checked_once(worker: deepen.DeepenRun, future: bool) -> None:
+    lead = Lead("https://fixture.example/preview", "AAA ahead of results", worker.now)
+    frame = pd.DataFrame(
+        index=pd.DatetimeIndex([worker.now + timedelta(days=10)] if future else [])
+    )
+    with (
+        patch.object(
+            worker,
+            "_call",
+            return_value=("tavily", PaidResult(200, Decimal(1), Decimal(0), leads=[lead])),
+        ),
+        patch.object(deepen, "classify_headlines", hc.classify_headlines),
+        patch.object(
+            httpx, "post", return_value=response([{"id": 0, "label": "keep", "recap": True}])
+        ),
+        patch("yfinance.Ticker.get_earnings_dates", return_value=frame) as lookup,
+        patch.object(
+            worker.earnings_cache, "stale_reason", wraps=worker.earnings_cache.stale_reason
+        ) as check,
+    ):
+        _, leads = worker._search_headline(
+            "tavily",
+            WorkUnit("quiet", "AAA"),
+            CollectedItem("AAA ahead of results", worker.now, "https://fixture.example/h"),
+            set(),
+        )
+    assert worker.metrics["tavily"]["search_filtered"].get("stale_lookup_failed", 0) == int(
+        not future
+    )
+    assert lookup.call_count == 1
+    assert check.call_count == 1
+    assert leads == [lead]
+
+
+@pytest.mark.parametrize("recap", [False, True])
+def test_657_a7_preview_on_earnings_date(recap: bool) -> None:
+    item = CollectedItem("AAA ahead of earnings", NOW, "https://fixture.example/same-day")
+    frame = pd.DataFrame(index=pd.DatetimeIndex([NOW.replace(hour=8)]))
+    with patch("yfinance.Ticker.get_earnings_dates", return_value=frame) as lookup:
+        assert (
+            hc.EarningsCache().stale_reason(item, "AAA", hc.load_cleaning_config(), recap=recap)
+            is None
+        )
+    lookup.assert_called_once()
+
+
+@pytest.mark.parametrize("token", ["invalid_key", "quota_or_rate"])
+def test_657_a6_error_excerpt_does_not_change_category(
+    worker: deepen.DeepenRun, token: str
+) -> None:
+    body = f"The upstream validation message contains {token} but is not authentication."
+    with patch("app.services.paid_search.post", return_value=httpx.Response(400, text=body)):
+        worker._call("tavily", "extract", "AAA", leads=[Lead("https://fixture.example/a", "AAA")])
+    assert worker.errors == [f"tavily extract: error HTTP 400 {body}"]
+    assert problem_lines(worker.errors) == [
+        "Problems:",
+        "  Tavily: request failed (HTTP 400) (1 times)",
+    ]
+
+
+def test_657_a7_product_event_is_not_earnings_preview() -> None:
+    item = CollectedItem(
+        "Apple shares rise ahead of the iPhone event as services results beat estimates",
+        NOW,
+        "https://fixture.example/product",
+    )
+    cache = hc.EarningsCache()
+    with patch("yfinance.Ticker.get_earnings_dates") as lookup:
+        assert cache.stale_reason(item, "AAPL", hc.load_cleaning_config()) is None
+    lookup.assert_not_called()
+
+
+def test_657_a10_record_move_is_not_quote_page() -> None:
+    item = CollectedItem(
+        "Nvidia stock price today hits a record after the chip export approval",
+        NOW,
+        "https://fixture.example/record",
+    )
+    assert hc.block_reason(item, ["Nvidia"], [], hc.load_cleaning_config()) is None

@@ -700,14 +700,18 @@ Every unsuccessful Tavily/Parallel HTTP result carries its status and the first
 line. These lines persist in `intel_slot_runs.details.deepening.errors` and
 `deepening_errors`. Request headers and credentials are not added. Results
 without an HTTP status keep their existing error lines. The report preserves
-invalid-key and quota/rate wording for those classes; other HTTP failures render
-as `request failed (HTTP <status>)`.
+invalid-key and quota/rate wording by matching only the status text before
+` HTTP `, so those tokens inside a response excerpt cannot change the category.
+Other HTTP failures render as `request failed (HTTP <status>)`.
 
 Earnings-preview patterns in `intel_deepen.yml` run before the recap rule, even
 if the classifier marks the title as a recap. The cached dates for the linked
 instrument's Yahoo symbol supply the earliest earnings date on or after the
-ET publication date. A date within 21 calendar days keeps the preview; a later
-date drops it as `stale_rule`. No future date or a lookup failure keeps it and
+ET publication date, including that same ET date even if earnings were earlier
+in the day. The first preview pattern allows at most four words between the cue
+and `earnings`, `results` or `EPS`, so a distant results mention after a product
+event cue does not turn the headline into a preview. A date within 21 calendar
+days keeps the preview; a later date drops it as `stale_rule`. No future date or a lookup failure keeps it and
 counts `stale_lookup_failed` once per headline. Filings bypass the earnings
 check; non-preview titles retain the #653 recap behavior and 14-day limit.
 Both collection and paid search avoid repeating a pre-classifier preview check.
@@ -721,9 +725,12 @@ limited to `near_duplicate_hours` (48 hours), with the existing 100-title cap.
 
 Seven additional low-value patterns reject stock-price/quote pages, latest-news
 index titles, `.US)$` social snippets, class-action notices/deadline alerts,
-leading investor alerts and leading Form 4 headlines. Ordinary class-action
-news and company-specific price moves remain eligible. There is no migration,
-new dependency, stored-headline rewrite, report-generation change or paid-budget
+leading investor alerts and leading Form 4 headlines. The `stock price today`
+pattern requires optional whitespace followed by the title end or a `|`, comma,
+colon or hyphen separator. Ordinary
+class-action news and company-specific price moves remain eligible, including
+"Nvidia stock price today hits a record after the chip export approval". There is
+no migration, new dependency, stored-headline rewrite, report-generation change or paid-budget
 change in #657.
 
 ### Intel deepening and paid usage

@@ -72,14 +72,15 @@ def problem_lines(errors: list[str]) -> list[str]:
     for error in errors:
         prefix = error.split(":", 1)[0].split(" ", 1)[0]
         source = SOURCES.get(prefix, "News source")
+        status_text = error.split(" HTTP ", 1)[0]
         http = re.search(r"HTTP (\d{3})", error)
         if error.startswith("classifier:"):
             reason = "AI review failed" + (f" (HTTP {http[1]})" if http else "")
         elif "key not set" in error:
             reason = "API key is not configured"
-        elif "invalid_key" in error:
+        elif "invalid_key" in status_text:
             reason = "API key is invalid"
-        elif "quota_or_rate" in error:
+        elif "quota_or_rate" in status_text:
             reason = "provider quota or request limit reached"
         elif http:
             reason = f"request failed (HTTP {http[1]})"
