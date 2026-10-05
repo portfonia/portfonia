@@ -31,8 +31,8 @@ extract:
   min_body_chars: 300
   max_boilerplate_ratio: 0.35
 excluded_domains: [news.google.com, ft.com, wsj.com, barrons.com, foreignpolicy.com, marketwatch.com]
-boilerplate_markers: ["Most active", "Day gainers", "Day losers", "Stock splits", "Oops, something went wrong", "Private companies", "Trending tickers", "This article is an Insider exclusive", "All rights reserved", "Companies Mentioned", "Copyright"]
-paywall_markers: ["Subscribe to continue", "subscribers only", "Upgrade options", "Sign in to read", "available only for our paid subscribers"]
+boilerplate_markers: ["Most active", "Day gainers", "Day losers", "Stock splits", "Oops, something went wrong", "Private companies", "Trending tickers", "This article is an Insider exclusive", "All rights reserved", "Companies Mentioned", "Copyright", "Remove ads", "Read Next", "we store cookies"]
+paywall_markers: ["Subscribe to continue", "subscribers only", "Upgrade options", "Sign in to read", "available only for our paid subscribers", "Keep me signed in"]
 yahoo_nav_markers: ["Most active", "Day gainers", "Day losers", "Stock splits", "Oops, something went wrong", "Private companies", "Trending tickers"]
 body_cleaning:
   paragraph_min_words: 12

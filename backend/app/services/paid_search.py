@@ -175,7 +175,7 @@ class PaidClient:
         payload: dict[str, object] = (
             {"urls": urls, "query": query, "chunks_per_source": self.chunks, "include_usage": True}
             if self.provider == "tavily"
-            else {"urls": urls, "objective": query, "full_content": True}
+            else {"urls": urls, "objective": query, "advanced_settings": {"full_content": True}}
         )
         return self._call("extract", payload, len(urls))
 

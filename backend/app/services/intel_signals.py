@@ -125,26 +125,22 @@ def compute_signals(
     history = slot_history(session, slot, now, cfg, weekend)
     result = {}
     for entry in universe:
-        closes = (
-            []
-            if weekend
-            else [
-                (r.trade_date, float(r.close))
-                for r in session.scalars(
-                    select(PriceSnapshot)
-                    .where(
-                        PriceSnapshot.ticker == entry.ticker,
-                        PriceSnapshot.market == entry.market,
-                        PriceSnapshot.session_node == "close",
-                        PriceSnapshot.close.is_not(None),
-                        PriceSnapshot.trade_date <= run_date,
-                    )
-                    .order_by(PriceSnapshot.trade_date.desc())
-                    .limit(6)
+        closes = [
+            (r.trade_date, float(r.close))
+            for r in session.scalars(
+                select(PriceSnapshot)
+                .where(
+                    PriceSnapshot.ticker == entry.ticker,
+                    PriceSnapshot.market == entry.market,
+                    PriceSnapshot.session_node == "close",
+                    PriceSnapshot.close.is_not(None),
+                    PriceSnapshot.trade_date <= run_date,
                 )
-                if r.close is not None
-            ]
-        )
+                .order_by(PriceSnapshot.trade_date.desc())
+                .limit(6)
+            )
+            if r.close is not None
+        ]
         signal = Signal.from_closes(
             entry.identifier, closes, cfg, run_date, slot, prev_slot_started_at
         )

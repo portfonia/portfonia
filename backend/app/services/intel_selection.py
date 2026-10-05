@@ -28,28 +28,14 @@ def select_units(
     theme_history: dict[str, list[int]] | None = None,
     window_start: date | None = None,
 ) -> list[WorkUnit]:
-    movers = (
-        []
-        if weekend
-        else sorted(
-            (s for s in signals.values() if s.mover), key=lambda s: (-s.strength, s.identifier)
-        )[: cfg.caps.movers]
-    )
-    quiet = [
-        s
-        for s in signals.values()
-        if (weekend or not s.mover) and (s.filings or s.news_spike or (not weekend and s.near))
-    ]
+    movers = sorted(
+        (s for s in signals.values() if s.mover), key=lambda s: (-s.strength, s.identifier)
+    )[: cfg.caps.movers]
+    quiet = [s for s in signals.values() if not s.mover and (s.filings or s.news_spike or s.near)]
 
     def rank(s: Signal) -> tuple[int, float, str]:
-        tier = 0 if not weekend and s.near else 1 if s.filings else 2
-        strength = (
-            s.strength
-            if not weekend and s.near
-            else float(s.filings)
-            if s.filings
-            else s.spike_ratio
-        )
+        tier = 0 if s.near else 1 if s.filings else 2
+        strength = s.strength if s.near else float(s.filings) if s.filings else s.spike_ratio
         return tier, -strength, s.identifier
 
     quiet.sort(key=rank)
@@ -63,7 +49,7 @@ def select_units(
     for s in quiet:
         reason = (
             s.reason
-            if not weekend and s.near
+            if s.near
             else "new_filing"
             if s.filings
             else f"news_spike {s.spike_ratio:.1f}x"
