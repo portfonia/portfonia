@@ -10,8 +10,10 @@ from app.core.agent_auth import AgentPrincipal, agent_principal
 from app.core.agent_limits import enforce_agent_limits
 from app.core.database import get_session
 from app.core.rate_limit import UNAVAILABLE_DETAIL, RateLimitUnavailable, get_backend
+from app.schemas.agent import AgentIntelOut, AgentReportsOut
 from app.schemas.portfolio import SnapshotExportOut
 from app.services import api_tokens
+from app.services.agent_pull import pull_intel, pull_reports
 from app.services.portfolio_snapshot_export import export_snapshot_range
 from app.services.subscription import is_advanced
 from app.tasks.notification_tasks import send_api_access_notice_task
@@ -21,7 +23,7 @@ def agent_limits(request: Request, principal: AgentPrincipal = Depends(agent_pri
     enforce_agent_limits(str(principal.user_id), request.scope["route"].path, api_tokens.now_et())
 
 
-def snapshot_access(
+def advanced_access(
     principal: AgentPrincipal = Depends(agent_principal), _limits: None = Depends(agent_limits)
 ) -> None:
     if not is_advanced(principal.user):
@@ -34,7 +36,7 @@ router = APIRouter(dependencies=[Depends(agent_limits)])
 @router.get(
     "/snapshots",
     response_model=SnapshotExportOut,
-    dependencies=[Depends(snapshot_access)],
+    dependencies=[Depends(advanced_access)],
     summary="Read your complete daily holding snapshots (Advanced)",
 )
 def snapshots(
@@ -55,4 +57,40 @@ def snapshots(
     if claimed:
         send_api_access_notice_task.delay(str(principal.user_id))
     request.state.agent_item_count = len(result.days)
+    return result
+
+
+@router.get(
+    "/reports",
+    response_model=AgentReportsOut,
+    summary="Read your five newest available reports in a date range",
+)
+def reports(
+    request: Request,
+    start: Annotated[date, Query()],
+    end: Annotated[date, Query()],
+    principal: AgentPrincipal = Depends(agent_principal),
+    session: Session = Depends(get_session),
+) -> AgentReportsOut:
+    result = pull_reports(session, principal.user_id, start, end)
+    request.state.agent_item_count = len(result.items)
+    return result
+
+
+@router.get(
+    "/intel",
+    response_model=AgentIntelOut,
+    dependencies=[Depends(advanced_access)],
+    summary="Read your holding and macro intelligence for one ET date (Advanced)",
+)
+def intel(
+    request: Request,
+    date: Annotated[date, Query()],
+    principal: AgentPrincipal = Depends(agent_principal),
+    session: Session = Depends(get_session),
+) -> AgentIntelOut:
+    result = pull_intel(session, principal.user_id, date)
+    request.state.agent_item_count = sum(
+        len(h.headlines) + len(h.articles) for h in result.holdings
+    ) + (sum(len(t.articles) for t in result.macro.themes) if result.macro else 0)
     return result

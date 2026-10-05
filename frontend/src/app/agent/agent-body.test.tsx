@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { NextIntlClientProvider } from "next-intl";
 import en from "@/locales/en.json";
+import { catalogs, type Locale } from "@/locales";
 
 const mocks = vi.hoisted(() => ({ session: { status: "guest" }, list: vi.fn(), create: vi.fn(), revoke: vi.fn(), fetch: vi.fn() }));
 vi.mock("@/hooks/use-session", () => ({ useSession: () => mocks.session }));
@@ -60,4 +61,24 @@ it.each([true, false])("acceptance_16 revoke page posts once under StrictMode (%
   view.rerender(wrapper(<StrictMode><RevokeResult token="signed-link" /></StrictMode>));
   expect(mocks.fetch).toHaveBeenCalledTimes(1);
   expect(screen.queryByRole("button")).not.toBeInTheDocument();
+});
+
+
+it.each(Object.keys(catalogs) as Locale[])("acceptance_09 documents all endpoints in %s with existing limits and security copy", async (locale) => {
+  mocks.session = { status: "authed" };
+  const messages = catalogs[locale];
+  render(<NextIntlClientProvider locale={locale} messages={messages}><AgentBody /></NextIntlClientProvider>);
+  await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(1));
+  const agent = messages.agent;
+  expect(screen.getByRole("heading", { name: agent.docs.gettingStartedTitle })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: agent.docs.endpointsTitle })).toBeInTheDocument();
+  for (const copy of [agent.limitsTitle, agent.limits, agent.quiet, agent.notice, agent.tokenRule]) {
+    expect(screen.getByText(copy)).toBeInTheDocument();
+    expect(Object.values(agent.docs)).not.toContain(copy);
+  }
+  for (const endpoint of ["/agent/v1/reports?start=YYYY-MM-DD&end=YYYY-MM-DD", "/agent/v1/snapshots?start=YYYY-MM-DD&end=YYYY-MM-DD", "/agent/v1/intel?date=YYYY-MM-DD"]) {
+    expect(screen.getByText(endpoint)).toBeInTheDocument();
+  }
+  expect(screen.getByRole("link", { name: "llms.txt" })).toHaveAttribute("href", "/llms.txt");
+  expect(screen.getByRole("link", { name: "agent.md" })).toHaveAttribute("href", "/agent.md");
 });

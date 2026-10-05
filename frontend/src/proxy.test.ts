@@ -213,3 +213,20 @@ describe("proxy", () => {
     }
   });
 });
+
+
+describe("issue #652 agent-readable documentation", () => {
+  it.each(["/llms.txt", "/agent.md"])("acceptance_08 serves %s without sign-in", async (path) => {
+    getUser.mockResolvedValue({ data: { user: null } });
+    getSession.mockResolvedValue({ data: { session: null } });
+    const res = await proxy(makeRequest(path));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("location")).toBeNull();
+  });
+  it("acceptance_08 llms.txt links the published English API reference", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const text = await readFile(`${process.cwd()}/public/llms.txt`, "utf8");
+    expect(text).toContain("https://portfonia.com/agent.md");
+    expect(text).toContain("https://portfonia.com/agent");
+  });
+});
