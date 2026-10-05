@@ -1031,6 +1031,11 @@ layer** (per-user, incremental).
   holdings data. Scheduled intel reads remain read-only. The app timezone is
   `America/New_York`; no market-specific cron wrapper is needed here.
   Full lifecycle and Advanced-plan rules: [Subscription](subscription.md).
+  The real-DB weekly fan-out regression freezes the task batch timestamp as
+  well as due-day and seeded event dates (#664). Freezing only `today_et()`
+  left the report date on the real clock, eventually excluding the fixture
+  event as past. The generator clock stays independent; assertions pin the
+  persisted report date/cutoff and the calendar contents.
 - **Ops cadence changes**: `POST /admin/users/{user_id}/cadence`
   (`app/routers/admin.py`) changes a user's `report_cadence`, same
   auth/audit pattern as every other `/admin/*` endpoint. Validated against
