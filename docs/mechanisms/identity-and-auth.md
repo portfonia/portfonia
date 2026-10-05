@@ -603,7 +603,8 @@ without B5 in the same release** — see the B4 section above.
   the same-origin `/api/*` path (`lib/api.ts` never called `api.portfonia.com`
   directly), there was nothing cross-origin left to tighten. The direct
   face (`api.portfonia.com`) remains reserved for `/admin/*` (bearer-token
-  tooling, not browser+CORS — B2) and `/health`, per decision point 11.
+  tooling, not browser+CORS — B2), `/agent/v1/*` (personal agent tokens —
+  #651/#652) and `/health`, per decision point 11.
 - **`NEXT_PUBLIC_SUPABASE_URL` (frontend build arg) is deliberately NOT the
   same value as the backend's `SUPABASE_URL` Setting** — the backend talks
   to the raw Supabase project host directly (JWKS verification happens on

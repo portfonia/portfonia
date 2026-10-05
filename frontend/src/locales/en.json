@@ -1481,10 +1481,10 @@
   },
   "agent": {
     "title": "AI Agent",
-    "intro": "Your own AI agent can read your complete daily holding snapshots through a personal API token. Snapshot access requires an Advanced subscription.",
+    "intro": "Your own AI agent can read your Portfonia reports, complete daily holding snapshots and intelligence through a personal API token. Access is read-only.",
     "limitsTitle": "Access limits and notices",
     "limits": "Limits are shared across all of your tokens: 20 requests per endpoint per hour. More than 10 requests within one minute locks token access for 15 minutes. A refused request returns a Retry-After value telling your agent when to try again.",
-    "quiet": "Requests pause around heavy scheduled tasks, starting five minutes before their scheduled time and lasting until at least five minutes after they finish.",
+    "quiet": "Requests pause from five minutes before a heavy scheduled job’s scheduled time until five minutes after it finishes, including intelligence collection and scheduled briefings.",
     "notice": "When your holding snapshots are read through the API, we email you a notice at most once per Eastern Time day. If you did not request the access, its link immediately revokes all of your API tokens without sign-in or confirmation.",
     "signIn": "Sign in",
     "signInNote": "to manage your API tokens.",
@@ -1522,6 +1522,14 @@
       "pending": "Revoking API token access…",
       "success": "All API token access for your account has been revoked.",
       "failure": "This link is invalid or has expired. Sign in and manage your tokens on the AI Agent page."
+    },
+    "docs": {
+      "gettingStartedTitle": "Getting started",
+      "gettingStarted": "Create a token below, then give your agent the token and https://portfonia.com/llms.txt. Sign in to manage your tokens.",
+      "endpointsTitle": "Endpoints",
+      "reports": "Reports: all plans. Specify start and end dates (inclusive, Eastern Time). Returns at most the 5 newest available reports in the range, with Markdown, total_in_range and truncated.",
+      "snapshots": "Holding snapshots: Advanced plan. Specify start and end dates (inclusive, Eastern Time), covering at most 30 days.",
+      "intel": "Intelligence: Advanced plan. Specify one Eastern Time date within the last 7 days, including today. Returns your holding headlines and accepted article bodies, plus macro articles for the themes of your latest available report on or before that date. No source links."
     }
   }
 }

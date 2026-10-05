@@ -1,0 +1,8 @@
+# Portfonia
+
+> Portfonia provides a read-only personal data API for a user's own AI agent: reports, complete daily holding snapshots and holding-related intelligence. Access uses personal API tokens and subscription entitlements. Portfonia provides information and context, not investment advice.
+
+## Docs
+
+- [API reference](https://portfonia.com/agent.md): Authentication, endpoints, response schemas, limits and data handling.
+- [Human guide and token settings](https://portfonia.com/agent): Getting started and personal token management.

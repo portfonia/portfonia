@@ -1,11 +1,13 @@
-# Personal agent API access (#651)
+# Personal agent API access (#651, #652)
 
-A user's own agent can read complete daily holding snapshots through
-`GET /agent/v1/snapshots?start=YYYY-MM-DD&end=YYYY-MM-DD`. The public `/agent`
-page introduces access rules and provides token settings after session
-verification. Get started links to it for guests and signed-in users.
-Report/intelligence endpoints, full agent instructions and `llms.txt` belong
-to #652 and are not implemented here.
+A user's own agent can read reports on every plan and complete daily holding
+snapshots and intelligence on an active Advanced plan (currently Daily).
+The public `/agent` page explains all three endpoints and provides token
+settings after session verification. Get started links to it for guests and
+signed-in users. `/llms.txt` points to the English `/agent.md` API reference
+and the human guide; both static files are public without a session. The
+API base URL is `https://api.portfonia.com`; authentication is
+`Authorization: Bearer pfa_...`.
 
 ## Tokens and authentication
 
@@ -45,7 +47,7 @@ query validation or endpoint entitlement:
 3. `agent:burst:{user_id}`: fixed 60-second window from its first increment;
    the eleventh request sets a 900-second lock and returns 429.
 4. `agent:hour:{endpoint}:{user_id}`: 20 per 3600-second fixed window.
-5. Endpoint entitlement, via `is_advanced(user)` for snapshots (403
+5. Endpoint entitlement, via `is_advanced(user)` for snapshots and intelligence (403
    `subscription_required`).
 
 Limits combine all tokens belonging to the same user. Every 429 has a
@@ -90,8 +92,8 @@ HTTP middleware applies only to the `/agent/v1` prefix. It records one row
 with the actual response status, including 401/403/404/405/422/429/503.
 Unhandled exceptions record 500 and propagate. Matched routes use the route
 template; otherwise the raw path is truncated to 200 characters. Only sent
-`start`/`end` parameters are recorded. Metadata also includes time, nullable
-user/token ids, 12-character bearer prefix, item count (days), peer IP and
+`start`/`end`/`date` parameters are recorded. Metadata also includes time, nullable
+user/token ids, 12-character bearer prefix, item count (snapshot days, reports, or intelligence items), peer IP and
 User-Agent (maximum 512 characters). NUL characters in endpoints, date
 parameters and User-Agent are replaced with U+FFFD before persistence. Audit
 write failures remain fail-closed. No holding values or full credentials
@@ -104,6 +106,85 @@ The existing `cleanup_operational_events` task also removes audit rows older
 than 90 days in 1000-row batches; it gains `api_audit_deleted` in its result
 and adds no Beat entry. Purge deletes audit rows before tokens and the user,
 reporting both counts in the existing Ops purge response.
+
+## Report and intelligence pull endpoints (#652)
+
+Both routes live on the existing agent router and reuse `agent_principal`,
+`agent_limits` and the audit middleware. No migration, dependency or Settings
+field is added. These requests read stored data only and enqueue no access
+notice. They do not change report generation, collection or web report pages.
+
+### Reports: all token users
+
+`GET /agent/v1/reports?start=YYYY-MM-DD&end=YYYY-MM-DD` requires both inclusive
+ET dates, `start <= end`, and `end <= today_et()`; invalid dates/ranges return
+422. There is no maximum range length. Read only the caller's `success` and
+`skipped` reports, ordered by `report_date desc, created_at desc`, limited to
+five. Response `AgentReportsOut` contains `start`, `end`, `total_in_range`,
+`truncated` (`total_in_range > 5`), and `items`. Each item contains `id`,
+`report_date`, `type`, `status`, nullable `period_start`, `period_end`,
+`generated_at`, and nullable stored `report_md`. No report inputs or email
+HTML are exposed. Markdown remains in the language chosen at generation.
+
+Map `session_node`: `daily_close` to `daily`, `after_close` to `mwf`,
+`weekend_snapshot` to `weekly`, `manual` to `manual`, otherwise `other`.
+Audit `item_count` is the returned report count. Twelve available reports
+produce five items, `total_in_range: 12`, `truncated: true`. Request older
+reports by setting `end` before the oldest returned report date.
+
+### Intelligence: Advanced
+
+`GET /agent/v1/intel?date=YYYY-MM-DD` uses `is_advanced` (403
+`subscription_required`). The required date must satisfy
+`today_et() - 6 days <= date <= today_et()`; otherwise return 422.
+
+Load only the caller's current holdings with a ticker, in `position` order;
+normalize via `intelligence_identifier(InstrumentKey("ticker", ticker))`
+and de-duplicate identifiers. Funds without a ticker are excluded. Headlines
+join `NewsInstrument` by identifier and match the ET publication date,
+newest first, without a `news_surfaced` filter. Project `title`,
+`published_at`, nullable `summary`; apply `intel_body.without_urls` to title
+and summary in this response only. Stored headlines remain unchanged.
+
+Accepted articles join `IntelArticleLink` and `IntelSlotRun.run_date == date`,
+newest `fetched_at` first. Project only string `record.title`, string
+`record.body`, and string-or-null `record.published_at`; skip invalid title
+or body types. Global article-id and URL-key sets cover the whole response,
+including macro. A shared holding article belongs only to the first
+identifier in holding position order. This matches Pass 2's global
+de-duplication, deliberately not its anomaly/weight attribution order.
+Identifiers with neither headlines nor articles are omitted.
+
+Select the caller's latest `success`/`skipped` report with
+`report_date <= date`, latest creation time breaking same-date ties. Read
+unique `report_inputs.macro_signals.hits[*].theme` values in stored order.
+Accepted articles for each theme use the same date's slot runs and global
+de-duplication. No qualifying report returns `macro: null`. A latest report
+without themes (including quiet-day skipped reports) returns that report's
+id/date and `themes: []`; never search older reports for themes. Themes with
+no returned article retain `articles: []`.
+
+Response `AgentIntelOut` is `{date, holdings: [{identifier, headlines,
+articles}], macro}`; macro is null or `{source_report_id,
+source_report_date, themes: [{theme, articles}]}`. Article fields are
+`title`, nullable `published_at`, and `body`. No URL, URL key, provider,
+publisher or source field is projected. Audit `item_count` counts all
+headlines plus holding and macro articles; audit params include `date`
+with the existing NUL replacement.
+
+Example: current holdings NVDA, 0700.HK and a tickerless fund, latest report
+2026-10-05 with theme `us_rates`, request 2026-10-06: include the two tickers'
+that-date material, omit the fund, and return `source_report_date:
+"2026-10-05"` with `us_rates` articles from 2026-10-06 slot runs.
+
+The AI Agent page reuses D2's intro, limits, quiet-window, notice and token
+rule keys, adds only Getting started and Endpoints copy under `agent.docs`,
+and links `/llms.txt` and `/agent.md`. English is authoritative; Simplified
+and Traditional Chinese additions are implementation-authored for owner
+review. Agent-readable docs describe 401 authentication failures, 403
+entitlement, 422 validation, 429 with positive `Retry-After`, and 503
+protection unavailability. All dates are ET and holdings data remains
+private, handled on the user's behalf.
 
 ## Access notices and signed revocation
 

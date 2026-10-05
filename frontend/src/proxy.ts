@@ -29,6 +29,7 @@ import { supabasePublicEnv } from "@/lib/supabase/env";
 
 const PUBLIC_PATH_PREFIXES = [
   "/agent",
+  "/llms.txt",
   "/login",
   "/signup",
   "/forgot-password",
