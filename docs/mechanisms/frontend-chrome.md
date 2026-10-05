@@ -443,3 +443,7 @@ only available rows link to detail. The detail downloads Markdown and opens
 browser print for PDF. Report print styles hide the shared header/menu and
 controls without changing their screen presentation. All new copy is in the
 `reports` namespace and `menu.reports` across en, zh-Hans and zh-Hant.
+Issue #660: the Chinese `menu.reports` and `reports.title` read "Report Center"
+in four characters, matching the other menu entries. `/reports` and `/agent`
+use the `/portfolio` typography: `font-heading text-2xl font-medium` page
+heading, `text-sm` body, muted secondary text, and `/agent` sections in `Card`.
